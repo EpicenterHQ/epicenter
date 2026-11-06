@@ -17,10 +17,14 @@
  * a status code beyond that in the profile checks. Outage checks below
  * additionally verify shell availability and protected-operation rejection
  * through both entrypoints.
+ *
+ * The same probe checks the routes a standalone desktop app's shell relays on
+ * its account (`epicenter-account`'s `INFERENCE_ROUTES`, kept equal to
+ * `relayed-routes.json`): each is hosted inference that both entries serve.
  */
 
 import { expect, mock, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { API_ROUTES } from '@epicenter/server/api-routes';
@@ -242,6 +246,46 @@ test('an unmounted path reads as absent on both runtimes', async () => {
 			}),
 		);
 		expect(response.status).toBe(404);
+	}
+});
+
+/**
+ * What a standalone desktop app's shell sends on its account (ADR-0822), as
+ * `(method, path)`. The Rust crate holds its `INFERENCE_ROUTES` equal to this
+ * file.
+ */
+const RELAYED_ROUTES: { method: string; path: string }[] = JSON.parse(
+	readFileSync(
+		join(
+			import.meta.dir,
+			'../../packages/tauri-epicenter-account/fixtures/relayed-routes.json',
+		),
+		'utf8',
+	),
+);
+
+test("a standalone desktop app's relayed routes are hosted inference both runtimes serve", async () => {
+	// The inference gateways' own routes, so never a folder, Git, member,
+	// share, attach, or account route.
+	const inference = Object.values(API_ROUTES.ai).flatMap((route) =>
+		typeof route === 'object' ? [route.pattern] : [],
+	);
+	expect(RELAYED_ROUTES.length).toBeGreaterThan(0);
+	for (const { method, path } of RELAYED_ROUTES) {
+		expect(inference).toContain(path);
+		for (const fetcher of [await workerFetcher(), await bunFetcher()]) {
+			const response = await fetcher(
+				new Request(`${ORIGIN}${path}`, {
+					method,
+					headers: { authorization: 'Bearer runtime-profile-probe' },
+				}),
+			);
+			expect({ method, path, status: response.status }).not.toEqual({
+				method,
+				path,
+				status: 404,
+			});
+		}
 	}
 });
 
