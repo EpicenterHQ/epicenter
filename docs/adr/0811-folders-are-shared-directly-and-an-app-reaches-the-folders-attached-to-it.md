@@ -5,7 +5,7 @@
 - **Supersedes:** [ADR-0770](0770-teams-own-repositories-and-sharing-is-membership.md) (teams own repositories, and sharing is membership): a folder has members, and no team or space owns it; [ADR-0791](0791-a-folders-first-sync-places-it-in-its-teams-folder.md) (a folder's first sync places it in its team's folder): nothing is moved into a space's directory.
 - **Amends:** [ADR-0802](0802-people-share-spaces-an-app-works-in-one-at-a-time-and-a-folder-carries-its-contract.md) at spaces and the space switcher: an app works in one folder at a time, chosen with a folder picker; [ADR-0809](0809-a-repository-is-a-spaces-app-and-bytes-nothing-needs-are-collected-or-purged.md) and [ADR-0810](0810-a-folder-needs-no-app-and-a-repository-is-a-spaces-named-folder.md) at a repository addressed by space and name: it is `/folders/<id>`, and `epicenter.json` holds no `name`; [ADR-0772](0772-a-folder-says-what-it-is-in-agents-md-and-this-computer-keeps-the-rest.md) at two folders claiming one app neither syncing: a first sync joins before it creates, and a copied folder asks before it pushes; [ADR-0732](0732-a-grant-reaches-what-the-person-chooses-at-consent.md) at a grant reaching a team's repository: it reaches the folders attached to the app; [ADR-0805](0805-a-folder-is-recognized-by-epicenter-json-which-is-its-contract.md) at `epicenter.json`'s fields: `$schema`, `$id` when an app owns it, and `collections`.
 - **Relates:** [ADR-0804](0804-a-computer-keeps-a-plain-folder-and-every-surface-syncs-with-one-typescript-function.md) (the manifest), [ADR-0806](0806-an-open-app-checks-for-changes-and-a-sync-never-silently-loses-an-edit.md) (an open app checks for changes), [ADR-0790](0790-the-epicenter-app-is-a-library-over-every-folder-and-the-cli-answers-its-queries.md) (the library).
-- **Unbuilt:** all of it: a folder's id minted at first sync, its title on the server, its members (people or groups), owners among them, and its survival while any member remains; `/folders/<id>`; the folder-to-app attachment and "Use this folder with" an app; join-before-create; the manifest's `folder` and root identity, and the question a copy asks; accepting a share; each app's folder picker and a name asked for each new folder; `epicenter init` proposing collections and converting YAML; the CLI listing folders by label and owner for `clone`; deleting spaces, `namespace` tables, and ADR-0791's move.
+- **Unbuilt:** all of it: a folder's id minted at first sync, `title` in `epicenter.json` read by the server, its members, owners among them, sharing managed by person, and its survival while any member remains; `/folders/<id>`; the folder-to-app attachment and "Use this folder with" an app; join-before-create; the manifest's `folder` and root identity, and the question a copy asks; accepting a share; each app's folder picker and a name asked for each new folder; `epicenter init` proposing collections and converting YAML; the CLI listing folders by label and owner for `clone`; deleting spaces, `namespace` tables, and ADR-0791's move.
 
 ## Context
 
@@ -24,20 +24,24 @@ shared folder pushing private notes to its members.
 ## Decision
 
 **A folder is the one thing that is synced and shared.** It has an id, given
-by the server at its first sync, and members: people, or groups of people.
-Any member may be an owner, and a folder lives while any member remains;
-deleting an account removes it from its folders and deletes only folders no
-one else holds. Its history is a Git repository at `/folders/<id>`.
+by the server at its first sync, and members, who are people. Any member may
+be an owner, and a folder lives while any member remains; deleting an account
+removes it from its folders and deletes only folders no one else holds. Its
+history is a Git repository at `/folders/<id>`.
 
-**A folder has a title on the server, and a directory on each computer.** The
-title starts as the directory's name at the first sync, can be renamed in the
-library, and is what invites and folder pickers show. A computer's directory
-starts with the title's name and is that person's own label after. Neither is
-an identity.
+**A folder's title is in its `epicenter.json`.** `"title"` starts as the
+directory's name when the folder is made, is renamed by editing it like any
+field, and syncs, works offline, and keeps its history like any change. The
+server reads it from the folder's current files for invites and folder
+pickers, and keeps no copy. The title is the person's even where an app owns
+the contract, since a write changes only the fields it names. A computer's
+directory starts with the title and is that person's own label after. Neither
+is an identity.
 
-**A person shares a folder with people or groups**, and a share appears in
-their apps once they accept it. A group is a saved list of people; it owns
-nothing.
+**A person shares a folder with people**, and a share appears in their apps
+once they accept it. Sharing is also managed by person: one action removes
+someone from every folder shared with them, and one shares with someone the
+folders another person has.
 
 **An app reaches the folders attached to it.** The server records the
 attachment when an app's first sync creates a folder, or when a person
@@ -57,7 +61,7 @@ When they differ, a sync asks whether this is the same folder or a copy before
 it sends anything; a copy becomes a new folder.
 
 **An app shows one folder at a time, with a folder picker** listing each
-folder's name and members ("Only you", "You and Jess"). An app that keeps more
+folder's title and members ("Only you", "You and Jess"). An app that keeps more
 than one folder asks for a name when it makes one.
 
 **`epicenter.json` is the contract:**
@@ -66,6 +70,7 @@ than one folder asks for a name when it makes one.
 {
   "$schema": "https://epicenter.so/schema/epicenter.json",
   "$id": "https://todos.epicenter.so/contract.json",
+  "title": "Todos",
   "collections": {
     "todos": {
       "path": "todos/{name}.md",
@@ -94,7 +99,7 @@ label and owner; `git clone` reaches a folder's history by its id.
 - Sharing an existing folder is one action, and keeps its history.
 - A shared folder outlives any one person.
 - No content in a folder can extend an app's reach.
-- A family that shares several folders shares them with one group.
+- Someone leaving or joining a family is one action across its folders, with no group to keep.
 - An app's folders grow when a person accepts a share of a folder attached to
   it.
 
@@ -106,3 +111,8 @@ label and owner; `git clone` reaches a folder's history by its id.
   write a folder can hand it to another app.
 - **Two copies of a folder syncing as two working copies:** no question asked,
   and a copied shared folder pushes private notes to its members.
+- **Groups, saved lists of people that folders are shared with:** one edit for
+  a family's changes, at the price of an entity, its own membership, and who
+  manages it; managing sharing by person does the same in one action.
+- **A title kept by the server:** a rename needs the network and leaves the
+  folder's history.
