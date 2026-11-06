@@ -5,6 +5,7 @@
 - **Amends:** [ADR-0809](0809-a-repository-is-a-spaces-app-and-bytes-nothing-needs-are-collected-or-purged.md) at `/spaces/<space-id>/apps/<app>` and the manifest's `{ space, app }`: a repository is `/spaces/<space-id>/folders/<name>`, and the manifest stores `{ space, name }`; [ADR-0805](0805-a-folder-is-recognized-by-epicenter-json-which-is-its-contract.md) at the app writing `epicenter.json`: an app owns it when it names the app's contract, and a person owns it otherwise.
 - **Relates:** [ADR-0790](0790-the-epicenter-app-is-a-library-over-every-folder-and-the-cli-answers-its-queries.md) (the library shows every folder as tables), [ADR-0799](0799-a-folders-contract-is-also-an-mcp-server.md) (tools from a folder's contract), [ADR-0797](0797-front-matter-is-a-strict-grammar-and-anything-else-is-body.md) (Normalize), [ADR-0722](0722-an-apps-names-derive-from-its-sites-host.md) (an app's names derive from its site).
 - **Amended by:** [ADR-0811](0811-folders-are-shared-directly-and-an-app-reaches-the-folders-attached-to-it.md) at `/spaces/<space-id>/folders/<name>` and `name` in `epicenter.json`: `/folders/<id>`, and no `name`.
+- **Amended by:** [ADR-0812](0812-an-apps-schema-is-a-view-that-must-fit-a-folders-contract.md) at an app owning `epicenter.json`: the folder's people own it.
 - **Unbuilt:** all of it: `name` in `epicenter.json`; routes at `/spaces/<space-id>/folders/<name>`; `epicenter init` and `epicenter infer`; the library and `epicenter mcp` serving folders no app owns; an app adopting a folder by naming its contract.
 
 ## Context

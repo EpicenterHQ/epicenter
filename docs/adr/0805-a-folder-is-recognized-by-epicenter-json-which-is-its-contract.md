@@ -6,6 +6,7 @@
 - **Relates:** [ADR-0797](0797-front-matter-is-a-strict-grammar-and-anything-else-is-body.md) (the front-matter grammar), [ADR-0799](0799-a-folders-contract-is-also-an-mcp-server.md) (tools derived from the contract).
 - **Amended by:** [ADR-0810](0810-a-folder-needs-no-app-and-a-repository-is-a-spaces-named-folder.md) at the app writing `epicenter.json`: an app owns it when it names the app's contract; a person owns it otherwise.
 - **Amended by:** [ADR-0811](0811-folders-are-shared-directly-and-an-app-reaches-the-folders-attached-to-it.md) at `epicenter.json`'s fields: `$schema`, `$id` when an app owns it, and `collections`.
+- **Amended by:** [ADR-0812](0812-an-apps-schema-is-a-view-that-must-fit-a-folders-contract.md) at `$id` as the contract's URL: an app's schema stays at its site.
 - **Unbuilt:** all of it: apps writing and updating `epicenter.json`; discovery, the CLI, the library, and `epicenter mcp` reading it; `AGENTS.md` written as prose with no front matter; the manifest written over the version a sync read.
 
 ## Context
