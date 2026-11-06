@@ -7,7 +7,7 @@
  * to this computer (a development API).
  */
 import type { RemoteAccount } from '@epicenter/folder/sync';
-import { type AuthContext, accessToken, type GrantKind } from '../auth.ts';
+import { type AuthContext, accessToken } from '../auth.ts';
 
 /** Whether a token may travel to `url`: `https`, or `http` that never leaves this computer. */
 export function carriesTokens(url: string): boolean {
@@ -20,11 +20,8 @@ export function carriesTokens(url: string): boolean {
 	);
 }
 
-/** `ctx`'s sign-in under `grant`, as a repository takes an account. */
-export function signedInAccount(
-	ctx: AuthContext,
-	grant: GrantKind,
-): RemoteAccount {
+/** `ctx`'s sign-in, as a repository takes an account. */
+export function signedInAccount(ctx: AuthContext): RemoteAccount {
 	const lifetime = new AbortController();
 	return {
 		baseURL: ctx.deployment.origin,
@@ -35,7 +32,6 @@ export function signedInAccount(
 				throw new Error(`${url} is neither https nor this computer`);
 			const { data, error } = await accessToken(
 				ctx,
-				grant,
 				ctx.deployment.audiences.git,
 			);
 			if (error !== null) throw new Error(error.message);

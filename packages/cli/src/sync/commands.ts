@@ -32,7 +32,7 @@ import {
 } from '@epicenter/folder/platform';
 import { folderRepository, storeManifest } from '@epicenter/folder/sync';
 import { Err, Ok } from 'wellcrafted/result';
-import { authContext, type GrantKind } from '../auth.ts';
+import { authContext } from '../auth.ts';
 import { homeRoot } from '../folder-commands.ts';
 import { count, EXIT, fail, writeErr, writeJson, writeOut } from '../output.ts';
 import { signedInAccount } from './account.ts';
@@ -111,9 +111,8 @@ export async function syncCommand(
 	dir: string | undefined,
 	options: Options,
 	json: boolean,
-	grant: GrantKind,
 ) {
-	const account = signedInAccount(authContext(), grant);
+	const account = signedInAccount(authContext());
 	if (options.all === true) {
 		if (dir !== undefined)
 			return fail('--all syncs every folder; name none.', json);
@@ -190,9 +189,8 @@ export async function cloneCommand(
 	source: string | undefined,
 	dir: string | undefined,
 	json: boolean,
-	grant: GrantKind,
 ) {
-	const account = signedInAccount(authContext(), grant);
+	const account = signedInAccount(authContext());
 	if (source === undefined) {
 		const listing = await listFolders(account);
 		if (listing.error !== null) return fail(listing.error.message, json);
@@ -232,7 +230,7 @@ export async function cloneCommand(
 }
 
 /** The folder at `dir` and its repository, or the message to fail with. */
-async function syncedFolder(dir: string | undefined, grant: GrantKind) {
+async function syncedFolder(dir: string | undefined) {
 	const local = await localFolder(dir ?? '.');
 	if (local.error !== null) return Err(local.error.message);
 	const { path, store } = local.data;
@@ -245,10 +243,7 @@ async function syncedFolder(dir: string | undefined, grant: GrantKind) {
 		return Err(
 			`${path} has never synced: run epicenter sync, or epicenter clone <folder> into it`,
 		);
-	const repository = folderRepository(
-		signedInAccount(authContext(), grant),
-		folder,
-	);
+	const repository = folderRepository(signedInAccount(authContext()), folder);
 	return Ok({ path, store, manifest, folder, repository });
 }
 
@@ -257,12 +252,11 @@ export async function logCommand(
 	dir: string | undefined,
 	options: Options,
 	json: boolean,
-	grant: GrantKind,
 ) {
 	const limit = options.limit === undefined ? 20 : Number(options.limit);
 	if (!Number.isSafeInteger(limit) || limit < 1)
 		return fail('--limit is a whole number above 0', json);
-	const { data: at, error } = await syncedFolder(dir, grant);
+	const { data: at, error } = await syncedFolder(dir);
 	if (error !== null) return fail(error, json);
 	const log = await at.repository.log(limit);
 	if (log.error !== null) return fail(log.error.message, json);
@@ -307,9 +301,8 @@ export async function diffCommand(
 	dir: string | undefined,
 	options: Options,
 	json: boolean,
-	grant: GrantKind,
 ) {
-	const { data: at, error } = await syncedFolder(dir, grant);
+	const { data: at, error } = await syncedFolder(dir);
 	if (error !== null) return fail(error, json);
 	if (typeof options.since !== 'string') {
 		const listed = await at.store.list(['']);
@@ -370,9 +363,8 @@ export async function restoreCommand(
 	dir: string | undefined,
 	options: Options,
 	json: boolean,
-	grant: GrantKind,
 ) {
-	const { data: at, error } = await syncedFolder(dir, grant);
+	const { data: at, error } = await syncedFolder(dir);
 	if (error !== null) return fail(error, json);
 	const only = typeof options.path === 'string' ? options.path : undefined;
 	const then = await at.repository.tree(

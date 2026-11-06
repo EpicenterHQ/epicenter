@@ -9,7 +9,7 @@ const deployment = resolveDeployment(origin);
 const generation = '11111111-1111-4111-8111-111111111111';
 
 const grant = (): StoredGrant => ({
-	client: 'so.epicenter',
+	client: 'so.epicenter.cli',
 	generation,
 	issuer: origin,
 	refreshToken: 'refresh',
@@ -26,7 +26,7 @@ const grant = (): StoredGrant => ({
 
 test('a replaced sign-in cannot lend its cached token to an old Account', async () => {
 	const secrets = createMemorySecrets();
-	await secrets.set(`desktop ${origin}`, JSON.stringify(grant()));
+	await secrets.set(`device ${origin}`, JSON.stringify(grant()));
 	let networkCalls = 0;
 	const result = await accessToken(
 		{
@@ -39,7 +39,6 @@ test('a replaced sign-in cannot lend its cached token to an old Account', async 
 			},
 			now: Date.now,
 		},
-		'desktop',
 		deployment.audiences.api,
 		'22222222-2222-4222-8222-222222222222',
 	);

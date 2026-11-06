@@ -147,15 +147,16 @@ page and uses its session cookie.
 
 ## Desktop
 
-The Epicenter desktop app's sign-in is the `epicenter` CLI's desktop grant
-(ADR-0556, ADR-0558). Settings signs in with `epicenter auth login --desktop`
-and signs out with `epicenter auth logout`; the CLI keeps the refresh token in
-the keychain and mints access tokens per resource. No WebView holds a token
-(ADR-0549's desktop row). Compile the shell with `EPICENTER_SERVER_ORIGIN` for
-a self-hosted build; the default is Cloud.
+Every desktop app signs in through its own shell. The Epicenter app signs in
+as `so.epicenter`, reaching every folder the person holds (`folders:all`,
+ADR-0820), on the API and Git audiences; its pages ask for the Git
+audience's token with `createTauriAuth({ audience: 'git' })`. Compile its
+shell with `EPICENTER_SERVER_ORIGIN` for a self-hosted build; the default is
+Cloud. The `epicenter` CLI is a separate program with its own sign-in
+(`so.epicenter.cli`). No WebView holds a token (ADR-0549's desktop row).
 
-A standalone desktop app (Whispering, Vocab) signs in through its own shell
-instead: `createTauriAuth()` from `@epicenter/account/tauri` is an `AuthClient`
+A standalone desktop app (Whispering, Vocab) signs in the same way:
+`createTauriAuth()` from `@epicenter/account/tauri` is an `AuthClient`
 over the [`epicenter-account`](../tauri-epicenter-account/README.md) crate's
 commands, which sign in as the app's native client
 (`so.epicenter.<app>.native`) in the system browser, keep the refresh token

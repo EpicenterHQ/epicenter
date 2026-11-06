@@ -4,10 +4,9 @@
  * contract, are in `contract-commands.test.ts`.
  *
  * They run `src/bin.ts` under Bun, or the compiled binary that
- * `EPICENTER_BIN` names, so the binary the desktop app ships passes the same
- * suite:
+ * `EPICENTER_BIN` names, so a compiled `epicenter` passes the same suite:
  *
- *   EPICENTER_BIN=apps/epicenter/src-tauri/binaries/epicenter-cli-<triple> bun test src/epicenter.test.ts
+ *   EPICENTER_BIN=<path to a compiled epicenter> bun test src/epicenter.test.ts
  */
 import { afterEach, expect, test } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -147,21 +146,20 @@ test('auth commands on a machine with no sign-in: status says so, and the rest r
 	expect(status.exitCode).toBe(0);
 	expect(JSON.parse(status.stdout)).toEqual({
 		origin: 'http://127.0.0.1:9',
-		grants: [
-			{ grant: 'device', client: 'so.epicenter.cli', signedIn: false },
-			{ grant: 'desktop', client: 'so.epicenter', signedIn: false },
-		],
+		client: 'so.epicenter.cli',
+		signedIn: false,
 	});
 	expect(run(['auth', 'status']).stdout).toContain(
-		'This computer (epicenter auth login): signed out',
+		'Signed out: run epicenter auth login',
 	);
 
 	const token = run(['auth', 'token', '--json']);
 	expect(token.exitCode).toBe(2);
 	expect(JSON.parse(token.stdout).error).toContain('Run: epicenter auth login');
+	// The Epicenter app's sign-in is its own, not one the CLI selects.
 	const desktop = run(['auth', 'token', '--desktop']);
 	expect(desktop.exitCode).toBe(2);
-	expect(desktop.stderr).toContain("Sign in from Epicenter's Settings");
+	expect(desktop.stderr).toContain('does not take --desktop');
 	expect(
 		run(['auth', 'token', '--resource', 'https://example.com']).stderr,
 	).toContain('is not a resource of this deployment');
@@ -169,7 +167,6 @@ test('auth commands on a machine with no sign-in: status says so, and the rest r
 	const logout = run(['auth', 'logout', '--json']);
 	expect(logout.exitCode).toBe(0);
 	expect(JSON.parse(logout.stdout)).toEqual({
-		grant: 'device',
 		signedOut: false,
 		revoked: false,
 	});

@@ -1,18 +1,20 @@
 /**
- * Where the Epicenter app keeps what the CLI reads and writes on this
- * machine, by the app's own rule (`DesktopPaths::resolve` in
- * `apps/epicenter/src-tauri/src/desktop_paths.rs`), so the CLI in a terminal
- * and the CLI the app runs read and write the same places.
+ * Where the CLI reads and writes on this machine: the Epicenter folder, the
+ * same one the Epicenter app shows (`DesktopPaths::resolve` in
+ * `apps/epicenter/src-tauri/src/desktop_paths.rs`), and a directory for its
+ * sign-in's lock, which it keeps beside the app's data. The app neither runs
+ * nor sets anything for the CLI (ADR-0793).
  *
  * ```txt
- * <folderDir>/<site-derived path>/           a data folder `epicenter clone` makes by default
- * <dataDir>/auth/<grant>.lock                the lock a grant refreshes under (auth.ts)
- * ~/.epicenter/bin/epicenter                 link to the app's bundled CLI
+ * <folderDir>/<name>/                        a folder `epicenter clone` makes
+ * <dataDir>/auth/device.lock                 the lock the sign-in refreshes under (auth.ts)
  * ```
  *
- * The shell sets `EPICENTER_ENVIRONMENT` when it runs the CLI. A terminal
- * invocation defaults to production. `EPICENTER_DATA_DIR` still names the
- * shell's application data directory; no variable replaces the library root.
+ * `EPICENTER_ENVIRONMENT=development` selects development's places; without
+ * it, a binary uses the environment `scripts/compile.ts` embedded, and a run
+ * from source production's. `EPICENTER_DATA_DIR`, when set,
+ * moves the lock's directory, as tests and a sandboxed terminal do; no
+ * variable replaces the Epicenter folder.
  */
 
 import { homedir } from 'node:os';
@@ -22,15 +24,14 @@ import {
 	epicenterDataRoot,
 } from '@epicenter/definition/site/app-data';
 
+/** The environment `scripts/compile.ts` embeds in a compiled binary. */
 declare const __EPICENTER_BUILD_ENVIRONMENT__: string;
 
 export type AppPaths = {
-	/** The library root: where `epicenter clone` puts a folder. */
+	/** The Epicenter folder: where `epicenter clone` puts a folder. */
 	readonly folderDir: string;
-	/** Machine state worth keeping, including sign-in locks. */
+	/** Machine state worth keeping: the sign-in's lock. */
 	readonly dataDir: string;
-	/** The terminal link to the app's bundled CLI. */
-	readonly engine: string;
 };
 
 type Environment = Readonly<Record<string, string | undefined>>;
@@ -72,12 +73,6 @@ export function resolveAppPaths(
 		folderDir: join(
 			home,
 			environment === 'development' ? 'Epicenter Dev' : 'Epicenter',
-		),
-		engine: join(
-			home,
-			environment === 'development' ? '.epicenter-dev' : '.epicenter',
-			'bin',
-			process.platform === 'win32' ? 'epicenter.cmd' : 'epicenter',
 		),
 	};
 }

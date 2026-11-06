@@ -182,7 +182,7 @@ async function machine(label: string) {
 		},
 	});
 	expect(login.error).toBeNull();
-	expectOk(await accessToken(ctx, 'device', ctx.deployment.audiences.git));
+	expectOk(await accessToken(ctx, ctx.deployment.audiences.git));
 	const entry = `device ${ctx.deployment.origin}`;
 	const stored = JSON.parse((await secrets.get(entry)) as string);
 	const env = {

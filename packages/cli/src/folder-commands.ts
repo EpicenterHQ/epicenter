@@ -6,7 +6,7 @@
  * the server by its id; a person by the email they sign in with.
  *
  * The credential is an access token for the deployment's Git audience, from
- * the grant the command runs under (`--desktop` selects the desktop app's).
+ * the CLI's sign-in (`epicenter auth login`).
  */
 import { basename } from 'node:path';
 import {
@@ -19,8 +19,8 @@ import {
 import { epicenterRoot, localFolder } from '@epicenter/folder/node';
 import {
 	acceptIntoHome,
-	describeMembers,
 	attachFolder,
+	describeMembers,
 	getFolder,
 	type HomeFolder,
 	initFolder,
@@ -33,7 +33,7 @@ import {
 import { storeManifest } from '@epicenter/folder/sync';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { resolveAppPaths } from './app-paths.ts';
-import { authContext, type GrantKind } from './auth.ts';
+import { authContext } from './auth.ts';
 import { EXIT, fail, writeErr, writeJson, writeOut } from './output.ts';
 import { signedInAccount } from './sync/account.ts';
 
@@ -64,12 +64,9 @@ export async function folderIdOf(
 }
 
 /** `epicenter status`: the folders in the Epicenter folder, each one's state, and the shares waiting. */
-export async function statusCommand(json: boolean, grant: GrantKind) {
+export async function statusCommand(json: boolean) {
 	const root = homeRoot();
-	let account: RemoteAccount | undefined = signedInAccount(
-		authContext(),
-		grant,
-	);
+	let account: RemoteAccount | undefined = signedInAccount(authContext());
 	let home = await listHome({ root, account });
 	let offline: string | null = null;
 	if (home.error !== null) {
@@ -194,11 +191,10 @@ export async function shareCommand(
 	person: string | undefined,
 	options: Options,
 	json: boolean,
-	grant: GrantKind,
 ) {
 	const folder = await folderIdOf(target);
 	if (folder.error !== null) return fail(folder.error, json);
-	const account = signedInAccount(authContext(), grant);
+	const account = signedInAccount(authContext());
 	if (person === undefined) {
 		const listed = await getFolder(account, folder.data);
 		if (listed.error !== null) return fail(listed.error.message, json);
@@ -237,7 +233,6 @@ export async function unshareCommand(
 	target: string,
 	person: string,
 	json: boolean,
-	grant: GrantKind,
 ) {
 	const folder = await folderIdOf(target);
 	if (folder.error !== null) return fail(folder.error, json);
@@ -246,7 +241,7 @@ export async function unshareCommand(
 			`Name a person by the email they sign in with, not '${person}'.`,
 			json,
 		);
-	const removed = await unshareFolder(signedInAccount(authContext(), grant), {
+	const removed = await unshareFolder(signedInAccount(authContext()), {
 		folder: folder.data,
 		email: person,
 	});
@@ -265,12 +260,8 @@ export async function unshareCommand(
  * `epicenter accept [<folder>]`: accept a share and bring the folder into
  * the Epicenter folder beside your own; without one, the shares waiting.
  */
-export async function acceptCommand(
-	target: string | undefined,
-	json: boolean,
-	grant: GrantKind,
-) {
-	const account = signedInAccount(authContext(), grant);
+export async function acceptCommand(target: string | undefined, json: boolean) {
+	const account = signedInAccount(authContext());
 	const listing = await listFolders(account);
 	if (listing.error !== null) return fail(listing.error.message, json);
 	const { pending } = listing.data;
@@ -319,11 +310,10 @@ export async function attachCommand(
 	app: string,
 	attached: boolean,
 	json: boolean,
-	grant: GrantKind,
 ) {
 	const folder = await folderIdOf(target);
 	if (folder.error !== null) return fail(folder.error, json);
-	const done = await attachFolder(signedInAccount(authContext(), grant), {
+	const done = await attachFolder(signedInAccount(authContext()), {
 		folder: folder.data,
 		app,
 		attached,

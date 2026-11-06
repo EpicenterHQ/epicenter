@@ -24,19 +24,18 @@ computer
 ([ADR-0804](../../docs/adr/0804-a-computer-keeps-a-plain-folder-and-every-surface-syncs-with-one-typescript-function.md)):
 
 ```sh
-~/.epicenter/bin/epicenter status                      # the Epicenter folder: each folder's state
-~/.epicenter/bin/epicenter sync ~/Epicenter/notes      # 0 synced, 1 run again or a copy asks, 2 could not sync
-~/.epicenter/bin/epicenter share ~/Epicenter/notes jess@example.com
-~/.epicenter/bin/epicenter accept                      # the shares waiting for you
+epicenter status                      # the Epicenter folder: each folder's state
+epicenter sync ~/Epicenter/notes      # 0 synced, 1 run again or a copy asks, 2 could not sync
+epicenter share ~/Epicenter/notes jess@example.com
+epicenter accept                      # the shares waiting for you
 ```
 
-The app links its bundled CLI at `~/.epicenter/bin/epicenter`; development links it at `~/.epicenter-dev/bin/epicenter`.
-
-The desktop app compiles `src/bin.ts` into the one binary it ships (`bun run
---cwd apps/epicenter build:sidecar`); see
-[the epicenter binary](../../apps/epicenter/README.md#the-epicenter-binary).
-Its [Folders window](../../apps/epicenter/README.md#the-folders-window) runs
-no CLI command: it waits to compose `@epicenter/folder/platform` itself.
+The CLI is its own program, with its own sign-in (ADR-0793). The Epicenter
+app neither runs nor carries it: its
+[Folders window](../../apps/epicenter/README.md#the-folders-window) composes
+`@epicenter/folder/platform` itself. `bun run --cwd packages/cli compile`
+builds the binary (`scripts/compile.ts`); an installer of its own is not
+built yet.
 
 ## Commands
 
@@ -61,7 +60,7 @@ no CLI command: it waits to compose `@epicenter/folder/platform` itself.
 | `epicenter auth token [--resource <url>]` | built | `src/auth.ts` |
 | `epicenter messages` | built, hidden | Local Beeper operations on stdin; token in the device keychain |
 
-`messages` and `--desktop` are left out of `--help`: the desktop app runs them.
+`messages` is left out of `--help`: another program runs it, not a person.
 
 ## Folders
 
@@ -139,34 +138,27 @@ over `http` only to this computer.
   sync records it as a new change.
 
 `git` is not needed on this computer for any of these.
-Every command also accepts the hidden `--desktop`, which Rust passes to select
-the desktop grant (ADR-0558); `auth token` and `auth logout` act on that
-grant only with it.
 
 Without `Bun.secrets` in the binary, every keychain command fails and says
 so. `EPICENTER_TEST_SECRETS` replaces the keychain with in-memory stores,
-the sign-ins' seeded from its `$auth` member and every other one empty, so
+the sign-in's seeded from its `$auth` member and every other one empty, so
 tests never touch the real one.
-
-The shell runs its bundled sidecar in place and links it at `AppPaths.engine`
-for terminal use.
 
 ## Signing in
 
 `auth` is ADR-0558's, against ADR-0549's authorization server at the
 deployment's API origin: `EPICENTER_API_URL`, or `https://api.epicenter.so`
 (`resolveOAuthAudiences` in `@epicenter/definition/site` names its API and
-Git audiences; Rust passes the shell's configured origin). The CLI holds two
-grants, each one keychain entry under `so.epicenter.auth` named
-`<grant> <origin>`, holding the refresh token and the access tokens cached
-for each audience:
+Git audiences). The CLI signs in as its own client, `so.epicenter.cli`,
+with its own refresh-token family; the Epicenter app signs in as
+`so.epicenter` through its shell, and neither touches the other's.
+`auth login` is device authorization (RFC 8628): it prints the link and
+code, or `{"device": {...}}` with `--json`, and polls until the person
+approves on the server's page. The grant is one keychain entry under
+`so.epicenter.auth` named `device <origin>`, holding the refresh token and
+the access tokens cached for each audience.
 
-| Grant | Client | Flow | Used by |
-| --- | --- | --- | --- |
-| `device` | `so.epicenter.cli` | `auth login`: device authorization (RFC 8628). It prints the link and code, or `{"device": {...}}` with `--json`, and polls until the person approves on the server's page. | Every command run without `--desktop`: a terminal or an agent. |
-| `desktop` | `so.epicenter` | `auth login --desktop`: authorization code with S256 PKCE, received once on `http://127.0.0.1:<random port>/callback`. It opens the browser, or prints `{"open": "<url>"}` with `--json` for Rust to open. | Only commands Rust runs with `--desktop`. |
-
-Both ask for `openid offline_access profile ai folders:read folders:write
+It asks for `openid offline_access profile ai folders:read folders:write
 folders:all` and both audiences: `folders:all` reaches every folder the
 person holds, where an app's grant reaches the folders attached to it. Each refresh names one audience, and the server narrows
 that access token to the audience's scopes while the grant keeps all of
@@ -179,7 +171,7 @@ request.
 
 `auth token [--resource <url>]` prints an access token for the API or the
 Git audience. A cached token is reused until five minutes before it
-expires; otherwise one refresh runs under `<data dir>/auth/<grant>.lock`, an
+expires; otherwise one refresh runs under `<data dir>/auth/device.lock`, an
 exclusive SQLite transaction the system releases if the process dies
 (`holdingFileLock` in `src/file-lock.ts`), and rereads the entry inside it, so concurrent callers
 share one refresh. A refresh whose answer was lost is sent again, which the
@@ -187,20 +179,18 @@ server's 60-second reuse interval answers with the same tokens; one answered
 `invalid_grant` is retried once with what the entry then holds, and a second
 `invalid_grant` means the sign-in has ended. `auth logout` revokes the
 grant's refresh token, which ends every token the grant issued, and deletes
-its entry even when the server cannot be reached. Without `--desktop` it
-signs out the device grant.
+its entry even when the server cannot be reached.
 
 Every built resource accepts only these tokens (ADR-0549): a token reaches
 only the deployment paths of the audience it names.
 
 ## Directories
 
-The CLI reads and writes where the desktop shell does
-(`src/app-paths.ts`). The shell sets `EPICENTER_DATA_DIR` for sign-in locks
-and `EPICENTER_ENVIRONMENT` for the Epicenter folder when it runs the CLI.
-A terminal command uses the environment embedded at build time;
-`EPICENTER_ENVIRONMENT` overrides it. The Epicenter folder is fixed at
-`~/Epicenter` or `~/Epicenter Dev`.
+The CLI works in the Epicenter folder the Epicenter app shows, `~/Epicenter`
+or `~/Epicenter Dev`, and keeps its sign-in's lock in `<data dir>/auth`
+(`src/app-paths.ts`). A command uses the environment its build embedded;
+`EPICENTER_ENVIRONMENT` overrides it, and `EPICENTER_DATA_DIR` moves the
+lock's directory. The app sets neither: it never runs the CLI.
 
 ## Output and exit codes
 
@@ -235,8 +225,8 @@ command holds a timer, since Bun 1.3.14 can otherwise end the process while
 | `src/sync/` | `sync`, `clone`, `log`, `diff`, and `restore`, over `@epicenter/folder/platform` and `@epicenter/folder/sync`, and the sign-in as the account a folder is reached through. |
 | `src/stop.ts` | The one stop-signal handler: wait for an unfinished refresh, then exit. |
 | `src/folder-commands.ts` | `status`, `init`, `share`, `unshare`, `accept`, `attach`, and `detach`, over `@epicenter/folder/platform`. |
-| `src/app-paths.ts` | Where the Epicenter folder, the sign-in locks, and the engine live, by the shell's rule. |
-| `src/auth.ts` | The two grants: device and desktop sign-in, the one refresh, status, and sign-out. |
+| `src/app-paths.ts` | Where the Epicenter folder and the sign-in's lock are. |
+| `src/auth.ts` | The device sign-in, the one refresh, status, and sign-out. |
 | `src/auth-commands.ts` | `auth login`, `logout`, `status`, and `token`, printing what `src/auth.ts` returns. |
 | `src/secrets.ts` | The keychain through `Bun.secrets`, by service, or the test stores. |
 | `src/output.ts` | Stdout, stderr, `{"error"}`, and the exit codes. |

@@ -256,7 +256,7 @@ export async function runAppStack({
 			if (login.error !== null)
 				throw new Error(`device sign-in: ${login.error.message}`);
 			// Cache the Git token too, so no CLI process refreshes.
-			const token = await accessToken(ctx, 'device', git);
+			const token = await accessToken(ctx, git);
 			if (token.error !== null)
 				throw new Error(`git token: ${token.error.message}`);
 			const entry = `device ${deployment.origin}`;

@@ -1,17 +1,14 @@
 /**
- * The CLI's two sign-ins to the deployment's authorization server, and the
- * one refresh both serve every access token through (ADR-0549, ADR-0558).
+ * The CLI's sign-in to the deployment's authorization server, and the one
+ * refresh every access token comes through (ADR-0549): the device grant
+ * (RFC 8628) as the CLI's own client, `so.epicenter.cli`, for a terminal or
+ * an agent. The CLI is its own program with its own sign-in (ADR-0793); the
+ * Epicenter app signs in as `so.epicenter` through its shell, and nothing
+ * here serves it.
  *
- * ```txt
- * grant    client            flow                                   used by
- * device   so.epicenter.cli  device authorization (RFC 8628)        a terminal, an agent
- * desktop  so.epicenter      authorization code, S256 PKCE, on a    only commands Rust runs
- *                            one-shot http://127.0.0.1:<port>/callback   with --desktop
- * ```
- *
- * Each grant is one keychain entry under `so.epicenter.auth`, named by the
- * grant and the deployment, holding its refresh token and the access tokens
- * cached for each audience. A grant asks for every audience the client may
+ * The grant is one keychain entry under `so.epicenter.auth`, named `device`
+ * and the deployment, holding its refresh token and the access tokens
+ * cached for each audience. The grant asks for every audience the client may
  * reach, and each refresh names one, so that access token is bound to the
  * audience; every first-party audience allows every scope, so the grant keeps
  * them all (ADR-0565).
@@ -45,16 +42,16 @@ import {
 } from './secrets.ts';
 import { finishBeforeExit } from './stop.ts';
 
-/** Which of the CLI's two sign-ins a command uses. */
-export type GrantKind = 'device' | 'desktop';
+/** The CLI's pre-registered public client. */
+export const AUTH_CLIENT = 'so.epicenter.cli';
 
-/** Each grant's pre-registered public client. */
-export const AUTH_CLIENTS = {
-	device: 'so.epicenter.cli',
-	desktop: 'so.epicenter',
-} as const satisfies Record<GrantKind, string>;
+/**
+ * The name the grant's keychain entry and lock file start with: `device`,
+ * the name it has always been filed under, so a sign-in survives an update.
+ */
+const ENTRY = 'device';
 
-/** Every scope both clients may hold; every first-party audience allows them all. */
+/** Every scope the client may hold; every first-party audience allows them all. */
 const SCOPE =
 	'openid offline_access profile ai folders:read folders:write folders:all';
 
@@ -62,9 +59,6 @@ const DEVICE_GRANT = 'urn:ietf:params:oauth:grant-type:device_code';
 
 /** A cached access token is replaced this long before it expires. */
 export const REUSE_MARGIN_MS = 5 * 60 * 1000;
-
-/** How long a loopback sign-in waits for the browser. */
-const LOOPBACK_TIMEOUT_MS = 10 * 60 * 1000;
 
 /** The deployment the CLI signs in to, and the audiences it requests tokens for. */
 export type Deployment = {
@@ -84,7 +78,7 @@ export type AuthContext = {
 	deployment: Deployment;
 	/** The `so.epicenter.auth` keychain service, or a test store. */
 	secrets: SecretStore;
-	/** Where the per-grant lock files live. */
+	/** Where the grant's lock file lives. */
 	lockDir: string;
 	fetch: (input: string, init: RequestInit) => Promise<Response>;
 	now: () => number;
@@ -123,22 +117,14 @@ export type StoredGrant = {
 };
 
 export const AuthError = defineErrors({
-	/** This machine holds no grant of this kind for the deployment. */
-	NotSignedIn: ({ grant, origin }: { grant: GrantKind; origin: string }) => ({
-		message:
-			grant === 'desktop'
-				? `The Epicenter app is not signed in to ${origin}. Sign in from Epicenter's Settings.`
-				: `This computer is not signed in to ${origin}. Run: epicenter auth login`,
-		grant,
+	/** This machine holds no grant for the deployment. */
+	NotSignedIn: ({ origin }: { origin: string }) => ({
+		message: `This computer is not signed in to ${origin}. Run: epicenter auth login`,
 		origin,
 	}),
 	/** The server refused the grant's refresh token: it was revoked or lapsed. */
-	SignInEnded: ({ grant, origin }: { grant: GrantKind; origin: string }) => ({
-		message:
-			grant === 'desktop'
-				? `The Epicenter app's sign-in to ${origin} has ended. Sign in again from Epicenter's Settings.`
-				: `This computer's sign-in to ${origin} has ended. Run: epicenter auth login`,
-		grant,
+	SignInEnded: ({ origin }: { origin: string }) => ({
+		message: `This computer's sign-in to ${origin} has ended. Run: epicenter auth login`,
 		origin,
 	}),
 	/** The audience is not one this deployment issues tokens for. */
@@ -186,9 +172,8 @@ export const AuthError = defineErrors({
 		message: `Signing in stopped: ${reason}`,
 		reason,
 	}),
-	GrantChanged: ({ grant }: { grant: GrantKind }) => ({
-		message: `The ${grant} sign-in changed. Open a new Account before sending.`,
-		grant,
+	GrantChanged: () => ({
+		message: 'The sign-in changed. Open a new Account before sending.',
 	}),
 });
 export type AuthError = InferErrors<typeof AuthError>;
@@ -199,8 +184,7 @@ const describe = (cause: unknown) =>
 // ---------------------------------------------------------------------------
 // The keychain entry
 
-const entryName = (ctx: AuthContext, grant: GrantKind) =>
-	`${grant} ${ctx.deployment.origin}`;
+const entryName = (ctx: AuthContext) => `${ENTRY} ${ctx.deployment.origin}`;
 
 function readStored(text: string | null): StoredGrant | null {
 	if (text === null) return null;
@@ -220,10 +204,9 @@ function readStored(text: string | null): StoredGrant | null {
 
 export async function readGrant(
 	ctx: AuthContext,
-	grant: GrantKind,
 ): Promise<Result<StoredGrant | null, AuthError>> {
 	try {
-		return Ok(readStored(await ctx.secrets.get(entryName(ctx, grant))));
+		return Ok(readStored(await ctx.secrets.get(entryName(ctx))));
 	} catch (cause) {
 		return AuthError.KeychainUnavailable({ reason: describe(cause) });
 	}
@@ -231,11 +214,10 @@ export async function readGrant(
 
 async function writeGrant(
 	ctx: AuthContext,
-	grant: GrantKind,
 	stored: StoredGrant,
 ): Promise<Result<undefined, AuthError>> {
 	try {
-		await ctx.secrets.set(entryName(ctx, grant), JSON.stringify(stored));
+		await ctx.secrets.set(entryName(ctx), JSON.stringify(stored));
 		return Ok(undefined);
 	} catch (cause) {
 		return AuthError.KeychainUnavailable({ reason: describe(cause) });
@@ -243,16 +225,15 @@ async function writeGrant(
 }
 
 /**
- * Run `work` holding `grant`'s lock, one process at a time on this machine
+ * Run `work` holding the grant's lock, one process at a time on this machine
  * (`holdingFileLock`), so two processes never spend one refresh token
  * (ADR-0549). A cached token answers without it.
  */
 async function holdingGrantLock<T>(
 	ctx: AuthContext,
-	grant: GrantKind,
 	work: () => Promise<T>,
 ): Promise<T> {
-	const path = join(ctx.lockDir, `${grant}.lock`);
+	const path = join(ctx.lockDir, `${ENTRY}.lock`);
 	return holdingFileLock(
 		path,
 		{
@@ -357,19 +338,17 @@ const usable = (ctx: AuthContext, cached: CachedToken | undefined) =>
 /** One refresh for `audience` with `stored`'s refresh token, written back on success. */
 function refreshOnce(
 	ctx: AuthContext,
-	grant: GrantKind,
 	stored: StoredGrant,
 	audience: string,
 ): Promise<Result<StoredGrant, AuthError | 'invalid_grant'>> {
 	// The server rotates the refresh token when it answers, so exiting before
 	// the keychain write keeps a spent token, and the next refresh would be
 	// a replay: a stop signal waits for it.
-	return finishBeforeExit(() => sendRefresh(ctx, grant, stored, audience));
+	return finishBeforeExit(() => sendRefresh(ctx, stored, audience));
 }
 
 async function sendRefresh(
 	ctx: AuthContext,
-	grant: GrantKind,
 	stored: StoredGrant,
 	audience: string,
 ): Promise<Result<StoredGrant, AuthError | 'invalid_grant'>> {
@@ -405,18 +384,17 @@ async function sendRefresh(
 			},
 		},
 	};
-	const { error } = await writeGrant(ctx, grant, next);
+	const { error } = await writeGrant(ctx, next);
 	if (error !== null) return Err(error);
 	return Ok(next);
 }
 
 /**
- * An access token for `audience` from `grant`: the cached one while it has
+ * An access token for `audience` from the grant: the cached one while it has
  * more than five minutes left, otherwise a refresh under the grant's lock.
  */
 export async function accessToken(
 	ctx: AuthContext,
-	grant: GrantKind,
 	audience: string = ctx.deployment.audiences.api,
 	expectedGeneration?: string,
 ): Promise<Result<CachedToken, AuthError>> {
@@ -425,48 +403,48 @@ export async function accessToken(
 			resource: audience,
 			known: knownAudiences(ctx),
 		});
-	const outside = await readGrant(ctx, grant);
+	const outside = await readGrant(ctx);
 	if (outside.error !== null) return Err(outside.error);
 	if (outside.data === null)
-		return AuthError.NotSignedIn({ grant, origin: ctx.deployment.origin });
+		return AuthError.NotSignedIn({ origin: ctx.deployment.origin });
 	if (
 		expectedGeneration !== undefined &&
 		outside.data.generation !== expectedGeneration
 	)
-		return AuthError.GrantChanged({ grant });
+		return AuthError.GrantChanged();
 	const cached = outside.data.access[audience];
 	if (cached && usable(ctx, cached)) return Ok(cached);
 
-	return holdingGrantLock(ctx, grant, async () => {
+	return holdingGrantLock(ctx, async () => {
 		// Another process may have refreshed while this one waited.
-		const inside = await readGrant(ctx, grant);
+		const inside = await readGrant(ctx);
 		if (inside.error !== null) return Err(inside.error);
 		if (inside.data === null)
-			return AuthError.NotSignedIn({ grant, origin: ctx.deployment.origin });
+			return AuthError.NotSignedIn({ origin: ctx.deployment.origin });
 		if (
 			expectedGeneration !== undefined &&
 			inside.data.generation !== expectedGeneration
 		)
-			return AuthError.GrantChanged({ grant });
+			return AuthError.GrantChanged();
 		const reread = inside.data.access[audience];
 		if (reread && usable(ctx, reread)) return Ok(reread);
-		let refreshed = await refreshOnce(ctx, grant, inside.data, audience);
+		let refreshed = await refreshOnce(ctx, inside.data, audience);
 		if (refreshed.error === 'invalid_grant') {
 			// A writer outside this lock may have rotated it; try what the entry
 			// holds now, once.
-			const again = await readGrant(ctx, grant);
+			const again = await readGrant(ctx);
 			if (again.error !== null) return Err(again.error);
 			if (again.data === null)
-				return AuthError.NotSignedIn({ grant, origin: ctx.deployment.origin });
+				return AuthError.NotSignedIn({ origin: ctx.deployment.origin });
 			if (
 				expectedGeneration !== undefined &&
 				again.data.generation !== expectedGeneration
 			)
-				return AuthError.GrantChanged({ grant });
-			refreshed = await refreshOnce(ctx, grant, again.data, audience);
+				return AuthError.GrantChanged();
+			refreshed = await refreshOnce(ctx, again.data, audience);
 		}
 		if (refreshed.error === 'invalid_grant')
-			return AuthError.SignInEnded({ grant, origin: ctx.deployment.origin });
+			return AuthError.SignInEnded({ origin: ctx.deployment.origin });
 		if (refreshed.error !== null) return Err(refreshed.error);
 		const token = refreshed.data.access[audience];
 		return token
@@ -484,7 +462,6 @@ export async function accessToken(
 /** Store a new grant, cache an API token, and learn who approved it. */
 async function keepGrant(
 	ctx: AuthContext,
-	grant: GrantKind,
 	issued: TokenAnswer,
 	/** The audience `issued.access_token` is bound to. */
 	issuedFor: string,
@@ -497,7 +474,7 @@ async function keepGrant(
 			description: 'the server issued no refresh token',
 		});
 	const stored: StoredGrant = {
-		client: AUTH_CLIENTS[grant],
+		client: AUTH_CLIENT,
 		generation: crypto.randomUUID(),
 		issuer: ctx.deployment.origin,
 		refreshToken: issued.refresh_token,
@@ -514,26 +491,23 @@ async function keepGrant(
 					}
 				: {},
 	};
-	const written = await holdingGrantLock(ctx, grant, () =>
-		writeGrant(ctx, grant, stored),
-	);
+	const written = await holdingGrantLock(ctx, () => writeGrant(ctx, stored));
 	if (written.error !== null) return Err(written.error);
 	const api = await accessToken(
 		ctx,
-		grant,
 		ctx.deployment.audiences.api,
 		stored.generation,
 	);
 	if (api.error !== null) return Err(api.error);
 	const account = await readAccount(ctx, api.data.token);
-	return holdingGrantLock(ctx, grant, async () => {
-		const current = await readGrant(ctx, grant);
+	return holdingGrantLock(ctx, async () => {
+		const current = await readGrant(ctx);
 		if (current.error !== null) return Err(current.error);
 		const active = current.data;
 		if (!active || active.generation !== stored.generation)
-			return AuthError.GrantChanged({ grant });
+			return AuthError.GrantChanged();
 		const next = { ...active, account };
-		const { error } = await writeGrant(ctx, grant, next);
+		const { error } = await writeGrant(ctx, next);
 		return error === null ? Ok(next) : Err(error);
 	});
 }
@@ -563,7 +537,7 @@ export async function loginWithDevice(
 ): Promise<Result<StoredGrant, AuthError>> {
 	const { audiences } = ctx.deployment;
 	const started = await post(ctx, '/device/code', {
-		client_id: AUTH_CLIENTS.device,
+		client_id: AUTH_CLIENT,
 		scope: SCOPE,
 		resource: [audiences.api, audiences.git],
 	});
@@ -597,7 +571,7 @@ export async function loginWithDevice(
 		await sleep(interval);
 		const polled = await post(ctx, '/oauth2/token', {
 			grant_type: DEVICE_GRANT,
-			client_id: AUTH_CLIENTS.device,
+			client_id: AUTH_CLIENT,
 			device_code: device.device_code,
 			resource: audiences.api,
 		});
@@ -606,7 +580,7 @@ export async function loginWithDevice(
 			return Err(polled.error);
 		}
 		const { status, body } = polled.data;
-		if (status === 200) return keepGrant(ctx, 'device', body, audiences.api);
+		if (status === 200) return keepGrant(ctx, body, audiences.api);
 		if (body.error === 'authorization_pending') continue;
 		if (body.error === 'slow_down') {
 			interval += 5000;
@@ -622,124 +596,13 @@ export async function loginWithDevice(
 	});
 }
 
-function base64url(bytes: Uint8Array) {
-	return Buffer.from(bytes).toString('base64url');
-}
-
-const CALLBACK_PAGE = (heading: string, text: string) =>
-	new Response(
-		`<!doctype html><meta charset="utf-8"><title>Epicenter</title><h1>${heading}</h1><p>${text}</p>`,
-		{ headers: { 'content-type': 'text/html; charset=utf-8' } },
-	);
-
-/**
- * `epicenter auth login --desktop`: the desktop app's sign-in as
- * `so.epicenter`, authorization code with S256 PKCE. A one-shot listener on
- * `http://127.0.0.1:<random port>/callback` receives the code; `onUrl` gets
- * the page to open in the browser.
- */
-export async function loginWithLoopback(
-	ctx: AuthContext,
-	{
-		onUrl,
-		timeoutMs = LOOPBACK_TIMEOUT_MS,
-	}: {
-		onUrl: (url: string) => void | Promise<void>;
-		timeoutMs?: number;
-	},
-): Promise<Result<StoredGrant, AuthError>> {
-	const { audiences, origin } = ctx.deployment;
-	const verifier = base64url(crypto.getRandomValues(new Uint8Array(32)));
-	const challenge = base64url(
-		new Uint8Array(
-			await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)),
-		),
-	);
-	const state = base64url(crypto.getRandomValues(new Uint8Array(16)));
-	const received = Promise.withResolvers<Result<string, AuthError>>();
-	const server = Bun.serve({
-		hostname: '127.0.0.1',
-		port: 0,
-		fetch(request) {
-			const url = new URL(request.url);
-			if (
-				url.pathname !== '/callback' ||
-				url.searchParams.get('state') !== state
-			)
-				return new Response('Not found', { status: 404 });
-			const code = url.searchParams.get('code');
-			if (code) {
-				received.resolve(Ok(code));
-				return CALLBACK_PAGE(
-					'Signed in to Epicenter',
-					'You can close this tab and return to Epicenter.',
-				);
-			}
-			const error = url.searchParams.get('error') ?? 'no code';
-			received.resolve(
-				AuthError.SignInStopped({
-					reason: url.searchParams.get('error_description') ?? error,
-				}),
-			);
-			return CALLBACK_PAGE(
-				'Not signed in',
-				'Return to Epicenter and try again.',
-			);
-		},
-	});
-	const redirectUri = `http://127.0.0.1:${server.port}/callback`;
-	const timer = setTimeout(
-		() =>
-			received.resolve(
-				AuthError.SignInStopped({
-					reason: 'the browser did not return within ten minutes',
-				}),
-			),
-		timeoutMs,
-	);
-	try {
-		const authorize = new URL(`${origin}/auth/oauth2/authorize`);
-		for (const [key, value] of Object.entries({
-			response_type: 'code',
-			client_id: AUTH_CLIENTS.desktop,
-			redirect_uri: redirectUri,
-			scope: SCOPE,
-			state,
-			code_challenge: challenge,
-			code_challenge_method: 'S256',
-		}))
-			authorize.searchParams.set(key, value);
-		authorize.searchParams.append('resource', audiences.api);
-		authorize.searchParams.append('resource', audiences.git);
-		await onUrl(authorize.href);
-		const code = await received.promise;
-		if (code.error !== null) return Err(code.error);
-		const exchanged = await post(ctx, '/oauth2/token', {
-			grant_type: 'authorization_code',
-			client_id: AUTH_CLIENTS.desktop,
-			code: code.data,
-			code_verifier: verifier,
-			redirect_uri: redirectUri,
-			resource: audiences.api,
-		});
-		if (exchanged.error !== null) return Err(exchanged.error);
-		if (exchanged.data.status !== 200)
-			return refused('Signing in', exchanged.data.status, exchanged.data.body);
-		return keepGrant(ctx, 'desktop', exchanged.data.body, audiences.api);
-	} finally {
-		clearTimeout(timer);
-		void server.stop();
-	}
-}
-
 // ---------------------------------------------------------------------------
 // Status and signing out
 
-/** One grant as `auth status` reports it. */
+/** The grant as `auth status` reports it. */
 export type GrantStatus =
-	| { grant: GrantKind; client: string; signedIn: false }
+	| { client: string; signedIn: false }
 	| {
-			grant: GrantKind;
 			client: string;
 			signedIn: true;
 			generation: string;
@@ -748,33 +611,28 @@ export type GrantStatus =
 			signedInAt: string;
 	  };
 
-/** Both grants for this deployment, from the keychain alone. */
+/** The grant for this deployment, from the keychain alone. */
 export async function authStatus(
 	ctx: AuthContext,
-): Promise<Result<GrantStatus[], AuthError>> {
-	const grants: GrantStatus[] = [];
-	for (const grant of ['device', 'desktop'] as const) {
-		const { data, error } = await readGrant(ctx, grant);
-		if (error !== null) return Err(error);
-		grants.push(
-			data === null
-				? { grant, client: AUTH_CLIENTS[grant], signedIn: false }
-				: {
-						grant,
-						client: data.client,
-						signedIn: true,
-						generation: data.generation,
-						account: data.account,
-						scope: data.scope,
-						signedInAt: data.signedInAt,
-					},
-		);
-	}
-	return Ok(grants);
+): Promise<Result<GrantStatus, AuthError>> {
+	const { data, error } = await readGrant(ctx);
+	if (error !== null) return Err(error);
+	return Ok(
+		data === null
+			? { client: AUTH_CLIENT, signedIn: false }
+			: {
+					client: data.client,
+					signedIn: true,
+					generation: data.generation,
+					account: data.account,
+					scope: data.scope,
+					signedInAt: data.signedInAt,
+				},
+	);
 }
 
 /**
- * Sign `grant` out: revoke its refresh token and every access token it has
+ * Sign out: revoke the grant's refresh token and every access token it has
  * cached at the server, then delete its keychain entry. Revoking the refresh
  * token ends only the access tokens of its latest rotation, and each audience's
  * token usually comes from a different one, so each is revoked by name. The
@@ -783,10 +641,9 @@ export async function authStatus(
  */
 export async function logout(
 	ctx: AuthContext,
-	grant: GrantKind,
 ): Promise<Result<{ signedOut: boolean; revoked: boolean }, AuthError>> {
-	return holdingGrantLock(ctx, grant, async () => {
-		const { data: stored, error } = await readGrant(ctx, grant);
+	return holdingGrantLock(ctx, async () => {
+		const { data: stored, error } = await readGrant(ctx);
 		if (error !== null) return Err(error);
 		if (stored === null) return Ok({ signedOut: false, revoked: false });
 		const revocations = [
@@ -806,7 +663,7 @@ export async function logout(
 			if (answer.error !== null || answer.data.status !== 200) revoked = false;
 		}
 		try {
-			await ctx.secrets.delete(entryName(ctx, grant));
+			await ctx.secrets.delete(entryName(ctx));
 		} catch (cause) {
 			return AuthError.KeychainUnavailable({ reason: describe(cause) });
 		}

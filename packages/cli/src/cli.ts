@@ -36,67 +36,62 @@ const HANDLERS: Record<string, Run> = {
 			dir ?? '.',
 			json,
 		),
-	status: async ({ json, grant }) =>
-		(await import('./folder-commands.ts')).statusCommand(json, grant),
+	status: async ({ json }) =>
+		(await import('./folder-commands.ts')).statusCommand(json),
 	init: async ({ positionals: [path], options, json }) =>
 		(await import('./folder-commands.ts')).initCommand(path, options, json),
-	sync: async ({ positionals: [dir], options, json, grant }) =>
-		(await import('./sync/commands.ts')).syncCommand(dir, options, json, grant),
-	clone: async ({ positionals: [source, dir], json, grant }) =>
-		(await import('./sync/commands.ts')).cloneCommand(source, dir, json, grant),
-	log: async ({ positionals: [dir], options, json, grant }) =>
-		(await import('./sync/commands.ts')).logCommand(dir, options, json, grant),
-	diff: async ({ positionals: [dir], options, json, grant }) =>
-		(await import('./sync/commands.ts')).diffCommand(dir, options, json, grant),
-	restore: async ({ positionals: [commit, dir], options, json, grant }) =>
+	sync: async ({ positionals: [dir], options, json }) =>
+		(await import('./sync/commands.ts')).syncCommand(dir, options, json),
+	clone: async ({ positionals: [source, dir], json }) =>
+		(await import('./sync/commands.ts')).cloneCommand(source, dir, json),
+	log: async ({ positionals: [dir], options, json }) =>
+		(await import('./sync/commands.ts')).logCommand(dir, options, json),
+	diff: async ({ positionals: [dir], options, json }) =>
+		(await import('./sync/commands.ts')).diffCommand(dir, options, json),
+	restore: async ({ positionals: [commit, dir], options, json }) =>
 		(await import('./sync/commands.ts')).restoreCommand(
 			commit as string,
 			dir,
 			options,
 			json,
-			grant,
 		),
-	share: async ({ positionals: [folder, person], options, json, grant }) =>
+	share: async ({ positionals: [folder, person], options, json }) =>
 		(await import('./folder-commands.ts')).shareCommand(
 			folder as string,
 			person,
 			options,
 			json,
-			grant,
 		),
-	unshare: async ({ positionals: [folder, person], json, grant }) =>
+	unshare: async ({ positionals: [folder, person], json }) =>
 		(await import('./folder-commands.ts')).unshareCommand(
 			folder as string,
 			person as string,
 			json,
-			grant,
 		),
-	accept: async ({ positionals: [folder], json, grant }) =>
-		(await import('./folder-commands.ts')).acceptCommand(folder, json, grant),
-	attach: async ({ positionals: [folder, app], json, grant }) =>
+	accept: async ({ positionals: [folder], json }) =>
+		(await import('./folder-commands.ts')).acceptCommand(folder, json),
+	attach: async ({ positionals: [folder, app], json }) =>
 		(await import('./folder-commands.ts')).attachCommand(
 			folder as string,
 			app as string,
 			true,
 			json,
-			grant,
 		),
-	detach: async ({ positionals: [folder, app], json, grant }) =>
+	detach: async ({ positionals: [folder, app], json }) =>
 		(await import('./folder-commands.ts')).attachCommand(
 			folder as string,
 			app as string,
 			false,
 			json,
-			grant,
 		),
-	'auth login': async ({ json, grant }) =>
-		(await import('./auth-commands.ts')).authLogin(json, grant),
-	'auth logout': async ({ json, grant }) =>
-		(await import('./auth-commands.ts')).authLogout(json, grant),
+	'auth login': async ({ json }) =>
+		(await import('./auth-commands.ts')).authLogin(json),
+	'auth logout': async ({ json }) =>
+		(await import('./auth-commands.ts')).authLogout(json),
 	'auth status': async ({ json }) =>
 		(await import('./auth-commands.ts')).authStatusCommand(json),
-	'auth token': async ({ options, json, grant }) =>
-		(await import('./auth-commands.ts')).authToken(options, json, grant),
+	'auth token': async ({ options, json }) =>
+		(await import('./auth-commands.ts')).authToken(options, json),
 };
 
 /** What `epicenter <command> --help` adds below the usage line. */

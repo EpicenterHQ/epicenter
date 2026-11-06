@@ -1,13 +1,14 @@
 /**
- * The CLI's sign-ins against the real authorization server (ADR-0549,
+ * The CLI's sign-in against the real authorization server (ADR-0549,
  * ADR-0558): `@epicenter/server`'s composition in process, on a disposable
- * Postgres cluster with every migration applied, registering the desktop
- * and CLI clients as the hosted deployment does. The CLI reaches it through
- * an injected `fetch`; a person's approval is simulated through the consent
- * page's requests, as the server's checks do, and the browser's return to
- * the loopback listener is a real request to it. The keychain is a store in
- * memory. Requires initdb and pg_ctl on PATH; never connects to a configured
- * database.
+ * Postgres cluster with every migration applied, registering the CLI's
+ * client and the Epicenter app's as the hosted deployment does. The CLI
+ * reaches it through an injected `fetch`; a person's approval is simulated
+ * through the consent page's requests, as the server's checks do. The app's
+ * sign-in, which its shell holds, is played by the server's test client, to
+ * show that each program's refresh-token family is its own. The keychain is
+ * a store in memory. Requires initdb and pg_ctl on PATH; never connects to a
+ * configured database.
  */
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -38,7 +39,6 @@ import {
 	authStatus,
 	type DeviceCode,
 	loginWithDevice,
-	loginWithLoopback,
 	logout,
 	readGrant,
 	resolveDeployment,
@@ -81,7 +81,8 @@ beforeAll(async () => {
 			new URL('../../../apps/api/drizzle/', import.meta.url),
 		),
 	});
-	// The hosted deployment's two native clients (apps/api/worker/oauth-registrations.ts).
+	// The hosted deployment's two native clients (apps/api/worker/oauth-registrations.ts):
+	// the Epicenter app's and the CLI's.
 	await registerFirstPartyClients(db, {
 		audiences,
 		clients: [
@@ -190,28 +191,18 @@ async function deviceLogin(ctx: AuthContext, person: Person) {
 	return { result, code: codes[0]! };
 }
 
-/** Sign `ctx` in through the loopback, the browser played by requests. */
-async function loopbackLogin(ctx: AuthContext, person: Person) {
-	let opened = '';
-	const result = await loginWithLoopback(ctx, {
-		onUrl: async (url) => {
-			opened = url;
-			const authorize = new URL(url);
-			const answer = await client.request(
-				`${authorize.pathname}${authorize.search}`,
-				{ cookie: person.cookie },
-			);
-			expect(answer.status).toBe(302);
-			const callback = answer.headers.get('location')!;
-			expect(callback).toStartWith('http://127.0.0.1:');
-			// The browser follows the redirect to the one-shot listener.
-			void fetch(callback).then(async (page) => {
-				expect(page.status).toBe(200);
-				expect(await page.text()).toContain('Signed in to Epicenter');
-			});
-		},
+/**
+ * The Epicenter app's sign-in as `person`: its own client, `so.epicenter`,
+ * whose refresh token its shell keeps, never the CLI.
+ */
+function appSignIn(person: Person) {
+	return client.codeGrant({
+		clientId: 'so.epicenter',
+		redirectUri: 'http://127.0.0.1:5555/callback',
+		cookie: person.cookie,
+		scope: 'openid offline_access folders:read folders:write folders:all',
+		resource: [audiences.api, audiences.git],
 	});
-	return { result, opened };
 }
 
 test('device login: the code, approval on the server, and a grant that reaches the API and Git', async () => {
@@ -224,6 +215,13 @@ test('device login: the code, approval on the server, and a grant that reaches t
 
 	const stored = result.data!;
 	expect(stored.client).toBe('so.epicenter.cli');
+	expect((await authStatus(ctx)).data).toEqual(
+		expect.objectContaining({
+			client: 'so.epicenter.cli',
+			signedIn: true,
+			account: { id: person.id, name: 'device-person' },
+		}),
+	);
 	expect(stored.issuer).toBe(origin);
 	expect(stored.account).toEqual({ id: person.id, name: 'device-person' });
 	expect(stored.scope.split(' ').sort()).toEqual([...everyScope].sort());
@@ -242,7 +240,7 @@ test('device login: the code, approval on the server, and a grant that reaches t
 	).toBe(401);
 
 	// The same grant mints a Git-audience token with write, which sync sends.
-	const git = await accessToken(ctx, 'device', audiences.git);
+	const git = await accessToken(ctx, audiences.git);
 	expect(git.error).toBeNull();
 	expect(git.data!.expiresAt).toBeGreaterThan(Date.now() + 7 * 3600 * 1000);
 	expect(
@@ -252,61 +250,6 @@ test('device login: the code, approval on the server, and a grant that reaches t
 			person,
 		}),
 	).toBe(200);
-	// The desktop grant is a separate entry this login never touched.
-	expect((await readGrant(ctx, 'desktop')).data).toBeNull();
-}, 60_000);
-
-test('loopback login: the desktop client on a one-shot listener, kept apart from the device grant', async () => {
-	const person = await client.person('desktop-person');
-	const ctx = machine();
-	await deviceLogin(ctx, person);
-	const { result, opened } = await loopbackLogin(ctx, person);
-	expect(result.error).toBeNull();
-	const url = new URL(opened);
-	expect(url.origin + url.pathname).toBe(`${origin}/auth/oauth2/authorize`);
-	expect(url.searchParams.get('client_id')).toBe('so.epicenter');
-	expect(url.searchParams.get('code_challenge_method')).toBe('S256');
-	expect(url.searchParams.get('redirect_uri')).toMatch(
-		/^http:\/\/127\.0\.0\.1:\d+\/callback$/,
-	);
-	expect(url.searchParams.getAll('resource')).toEqual([
-		audiences.api,
-		audiences.git,
-	]);
-	expect(result.data!.client).toBe('so.epicenter');
-	expect(result.data!.account?.id).toBe(person.id);
-
-	// The exchange's API token is cached, so asking for it sends nothing.
-	const before = refreshes();
-	const api = await accessToken(ctx, 'desktop');
-	expect(api.data?.token).toBe(result.data!.access[audiences.api]!.token);
-	expect(refreshes()).toBe(before);
-	const git = await accessToken(ctx, 'desktop', audiences.git);
-	expect(
-		await reaches(git.data!.token, {
-			audience: audiences.git,
-			scope: 'folders:write',
-			person,
-		}),
-	).toBe(200);
-
-	const status = await authStatus(ctx);
-	expect(status.data).toEqual([
-		expect.objectContaining({
-			grant: 'device',
-			client: 'so.epicenter.cli',
-			signedIn: true,
-		}),
-		expect.objectContaining({
-			grant: 'desktop',
-			client: 'so.epicenter',
-			signedIn: true,
-			account: { id: person.id, name: 'desktop-person' },
-		}),
-	]);
-	const device = (await readGrant(ctx, 'device')).data!;
-	const desktop = (await readGrant(ctx, 'desktop')).data!;
-	expect(device.refreshToken).not.toBe(desktop.refreshToken);
 }, 60_000);
 
 test('a token is refreshed once for every concurrent caller, under the lock', async () => {
@@ -314,7 +257,7 @@ test('a token is refreshed once for every concurrent caller, under the lock', as
 	const ctx = machine();
 	await deviceLogin(ctx, person);
 	// Age the cached API token into the five-minute margin.
-	const stored = (await readGrant(ctx, 'device')).data!;
+	const stored = (await readGrant(ctx)).data!;
 	const aged: StoredGrant = {
 		...stored,
 		access: {
@@ -328,7 +271,7 @@ test('a token is refreshed once for every concurrent caller, under the lock', as
 
 	const before = refreshes();
 	const tokens = await Promise.all(
-		Array.from({ length: 8 }, () => accessToken(ctx, 'device')),
+		Array.from({ length: 8 }, () => accessToken(ctx)),
 	);
 	expect(refreshes()).toBe(before + 1);
 	expect(new Set(tokens.map((token) => token.data?.token)).size).toBe(1);
@@ -348,7 +291,7 @@ test('a refresh token another writer replaced is retried once, and a replay afte
 	const ctx = machine(secrets);
 	await deviceLogin(ctx, person);
 	const name = `device ${origin}`;
-	const real = (await readGrant(ctx, 'device')).data!;
+	const real = (await readGrant(ctx)).data!;
 
 	// The first read inside the lock sees a token the server does not know;
 	// the retry rereads the entry and succeeds with the real one.
@@ -362,30 +305,25 @@ test('a refresh token another writer replaced is retried once, and a replay afte
 			return JSON.stringify({ ...real, refreshToken: 'ep_rt_unknown' });
 		},
 	};
-	const retried = await accessToken(
-		{ ...ctx, secrets: flaky },
-		'device',
-		audiences.git,
-	);
+	const retried = await accessToken({ ...ctx, secrets: flaky }, audiences.git);
 	expect(retried.error).toBeNull();
 
 	// Inside the 60-second reuse interval, the token just spent gets the
 	// same answer, so a process that lost the answer is not signed out.
 	const spent = real.refreshToken;
-	const current = (await readGrant(ctx, 'device')).data!;
+	const current = (await readGrant(ctx)).data!;
 	await secrets.set(
 		name,
 		JSON.stringify({ ...current, refreshToken: spent, access: {} }),
 	);
-	const replayed = await accessToken(ctx, 'device', audiences.git);
+	const replayed = await accessToken(ctx, audiences.git);
 	expect(replayed.data?.token).toBe(current.access[audiences.git]!.token);
 
 	// After the interval, the replay ends every CLI grant of this person, on
-	// every machine; the desktop grant is another client's and survives.
+	// every machine; the Epicenter app's is another client's and survives.
 	const elsewhere = machine();
 	await deviceLogin(elsewhere, person);
-	const desktop = machine();
-	await loopbackLogin(desktop, person);
+	const epicenter = await appSignIn(person);
 	await sql.query(
 		'update oauth_refresh_token set rotation_replay_expires_at = $1 where rotation_replay_expires_at is not null and user_id = $2',
 		[new Date(Date.now() - 1000), person.id],
@@ -394,10 +332,10 @@ test('a refresh token another writer replaced is retried once, and a replay afte
 		name,
 		JSON.stringify({ ...current, refreshToken: spent, access: {} }),
 	);
-	const ended = await accessToken(ctx, 'device', audiences.git);
+	const ended = await accessToken(ctx, audiences.git);
 	expect(ended.error?.name).toBe('SignInEnded');
 	expect(ended.error?.message).toContain('epicenter auth login');
-	const other = (await readGrant(elsewhere, 'device')).data!;
+	const other = (await readGrant(elsewhere)).data!;
 	expect(
 		await reaches(other.access[audiences.api]!.token, {
 			audience: audiences.api,
@@ -408,27 +346,28 @@ test('a refresh token another writer replaced is retried once, and a replay afte
 	expect(
 		(await client.refresh('so.epicenter.cli', other.refreshToken)).status,
 	).toBe(400);
-	const kept = await accessToken(desktop, 'desktop', audiences.git);
-	expect(kept.error).toBeNull();
+	expect(
+		(await client.refresh('so.epicenter', epicenter.refresh_token!)).status,
+	).toBe(200);
 }, 60_000);
 
-test('logout revokes the refresh token and every cached access token, and deletes only its entry', async () => {
+test("logout revokes the refresh token and every cached access token, and leaves the Epicenter app's sign-in", async () => {
 	const person = await client.person('logout');
 	const ctx = machine();
 	await deviceLogin(ctx, person);
-	await loopbackLogin(ctx, person);
-	const git = await accessToken(ctx, 'device', audiences.git);
+	const epicenter = await appSignIn(person);
+	const git = await accessToken(ctx, audiences.git);
 	// Each audience's token comes from a different rotation, so revoking the
 	// refresh token alone would leave the older one live.
-	const device = (await readGrant(ctx, 'device')).data!;
+	const device = (await readGrant(ctx)).data!;
 	expect(Object.keys(device.access).sort()).toEqual(
 		[audiences.api, audiences.git].sort(),
 	);
 
-	const out = await logout(ctx, 'device');
+	const out = await logout(ctx);
 	expect(out.data).toEqual({ signedOut: true, revoked: true });
-	expect((await readGrant(ctx, 'device')).data).toBeNull();
-	expect((await accessToken(ctx, 'device')).error?.name).toBe('NotSignedIn');
+	expect((await readGrant(ctx)).data).toBeNull();
+	expect((await accessToken(ctx)).error?.name).toBe('NotSignedIn');
 	// Its tokens stop at the next request, and its refresh token is dead.
 	expect(
 		await reaches(device.access[audiences.api]!.token, {
@@ -447,16 +386,11 @@ test('logout revokes the refresh token and every cached access token, and delete
 	expect(
 		(await client.refresh('so.epicenter.cli', device.refreshToken)).status,
 	).toBe(400);
-	// The desktop grant is untouched.
-	const desktop = await accessToken(ctx, 'desktop', audiences.git);
+	// The Epicenter app's sign-in is untouched.
 	expect(
-		await reaches(desktop.data!.token, {
-			audience: audiences.git,
-			scope: 'folders:read',
-			person,
-		}),
+		(await client.refresh('so.epicenter', epicenter.refresh_token!)).status,
 	).toBe(200);
-	expect((await logout(ctx, 'device')).data).toEqual({
+	expect((await logout(ctx)).data).toEqual({
 		signedOut: false,
 		revoked: false,
 	});
@@ -466,7 +400,7 @@ test('a refresh already sent finishes its keychain write before a stop signal en
 	const person = await client.person('stopped');
 	const ctx = machine();
 	await deviceLogin(ctx, person);
-	const stored = (await readGrant(ctx, 'device')).data!;
+	const stored = (await readGrant(ctx)).data!;
 	const dir = await mkdtemp(join(scratch, 'stop-'));
 	// The server rotates the token, then its answer takes a while to arrive:
 	// the moment a stop signal lands in.
@@ -505,7 +439,7 @@ const secrets = {
 	set: async (key, value) => Bun.write(file, JSON.stringify({ ...(await read()), [key]: value })),
 	delete: async () => false,
 };
-await accessToken({ deployment: { origin, audiences: { api, git } }, secrets, lockDir, fetch, now: Date.now }, 'device', api);
+await accessToken({ deployment: { origin, audiences: { api, git } }, secrets, lockDir, fetch, now: Date.now }, api);
 `,
 	);
 	const child = Bun.spawn(

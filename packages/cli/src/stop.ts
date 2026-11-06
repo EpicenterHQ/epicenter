@@ -1,19 +1,14 @@
 /**
  * The one place that decides when a command ends on a stop signal
- * (`SIGTERM`, `SIGINT`, `SIGHUP`), which the desktop shell sends when the
- * page that started the command reloads or its window closes. The handler
- * is installed by the first `finishBeforeExit`; until then a stop signal
- * ends the process as it would any program.
+ * (`SIGTERM`, `SIGINT`, `SIGHUP`), which a terminal, an agent, or the
+ * system sends. The handler is installed by the first `finishBeforeExit`;
+ * until then a stop signal ends the process as it would any program.
  *
  * On a stop signal the process first waits for the work it must not cut
  * off, each piece at most the grace it asked for: a token refresh's keychain
  * write (ADR-0565), `STOP_GRACE_MS`. Work such a piece begins after the
  * signal is waited for too. Then the process exits `128 + n`. A sync needs
  * no grace: one stopped anywhere converges when it runs again.
- *
- * The grace is coupled to the shell's `STOP_GRACE`
- * (`apps/epicenter/src-tauri/src/cli.rs`), which kills the process group
- * only after waiting longer than the longest of them.
  */
 
 const STOP_SIGNALS = { SIGTERM: 15, SIGINT: 2, SIGHUP: 1 } as const;
