@@ -15,8 +15,11 @@
 //!   nothing behind a link whose target is gone; every storage command on
 //!   such a root answers `Disconnected` with the link's folder and target.
 //! - Two roots are separate: a file in one is never read through the other.
-//! - The shell's own credentials, `credentials.json` at the top of the
-//!   AppData root, are never listed, read, or written by a page.
+//! - The shell's own files at the top of the AppData root, its credentials
+//!   and its record of its data folder, are never listed, read, or written
+//!   by a page.
+//! - An open root answers its identity, and the Data root the record that
+//!   proves it in the Epicenter folder the shell named.
 //! - Storage reaches the data paths of the root and nothing else: never
 //!   `.git`, never outside it, never through a link. A save stages beside
 //!   its target and makes no `.git`; a `.git` file or link opens and saves
@@ -312,8 +315,9 @@ fn storage_behind_a_dangling_link_is_disconnected_and_makes_nothing() {
 }
 
 /// `credentials.json` at the top of the AppData root is the shell's own
-/// (`epicenter-account`): a page never lists, reads, writes, or removes it.
-/// The same name anywhere else is an ordinary file.
+/// (`epicenter-account`), and so is `data-folder.json`, its record of its
+/// data folder: a page never lists, reads, writes, or removes either. The
+/// same name anywhere else is an ordinary file.
 #[test]
 fn a_page_never_reaches_the_shells_credentials() {
     let fixture = fixture("credentials");
@@ -322,6 +326,7 @@ fn a_page_never_reaches_the_shells_credentials() {
     open_root(&main, Root::Data).unwrap();
     let secret = br#"{"key:conn-1":"{\"endpoint\":\"https://api.example.com\",\"key\":\"sk-1\"}"}"#;
     std::fs::write(fixture.app_data.join("credentials.json"), secret).unwrap();
+    std::fs::write(fixture.app_data.join("data-folder.json"), b"{}").unwrap();
     std::fs::write(fixture.app_data.join("account.json"), b"{}").unwrap();
     std::fs::create_dir(fixture.app_data.join("notes")).unwrap();
     std::fs::write(fixture.app_data.join("notes/credentials.json"), b"mine").unwrap();
@@ -343,6 +348,15 @@ fn a_page_never_reaches_the_shells_credentials() {
     };
     assert_eq!(listed(""), ["account.json", "notes/credentials.json"]);
     assert!(listed("credentials.json").is_empty());
+    assert!(listed("data-folder.json").is_empty());
+    assert_eq!(
+        read_app_data(&main, "data-folder.json").unwrap_err(),
+        json!({
+            "name": "InvalidPath",
+            "path": "data-folder.json",
+            "reason": "it is the shell's own record of its data folder"
+        })
+    );
 
     let refused = json!({
         "name": "InvalidPath",
@@ -398,35 +412,63 @@ fn a_page_never_reaches_the_shells_credentials() {
     assert_eq!(read_file(&main, "credentials.json").unwrap(), b"data");
 }
 
-/// Asking Epicenter about a folder works for a root the page opened.
+/// An open root's identity is its folder's inode and birth time, its link
+/// followed; a root the page has not opened has none to give.
 #[test]
-fn epicenter_is_asked_only_about_an_open_root() {
-    let fixture = fixture("synced");
+fn an_open_roots_identity_is_its_folders() {
+    let fixture = fixture("identity");
     let main = fixture.window("main");
-    open_root(&main, Root::AppData).unwrap();
     assert_eq!(
-        invoke(&main, "synced_with_epicenter", json!({})).unwrap_err(),
-        json!({ "name": "Folder", "message": "The Data folder is not open." })
-    );
-    assert_eq!(
-        invoke(
-            &main,
-            "sync_with_epicenter",
-            json!({ "contract": "https://capture.epicenter.so/contract.json" })
-        )
-        .unwrap_err(),
-        json!({ "name": "Folder", "message": "The Data folder is not open." })
+        invoke(&main, "root_identity", json!({ "root": "Data" })).unwrap_err(),
+        json!({ "name": "NotOpen", "root": "Data" })
     );
     open(&main).unwrap();
+    let identity = invoke(&main, "root_identity", json!({ "root": "Data" })).unwrap();
     assert_eq!(
-        invoke(&main, "synced_with_epicenter", json!({})).unwrap(),
-        json!(false)
+        identity,
+        serde_json::to_value(crate::identity_at(&fixture.root).unwrap()).unwrap()
     );
-    open_root(&main, Root::AppData).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let inode = std::fs::metadata(&fixture.root).unwrap().ino();
+        assert_eq!(identity["inode"], inode.to_string());
+    }
+}
+
+/// A standalone app reads the record Epicenter keeps for its Data root, the
+/// one whose inode and birth time prove the folder's, and writes nothing.
+#[test]
+fn the_data_root_reads_the_record_that_proves_it() {
+    let fixture = fixture("record");
+    let main = fixture.window("main");
+    open(&main).unwrap();
+    let epicenter = fixture.root.with_file_name("Epicenter");
     assert_eq!(
-        invoke(&main, "synced_with_epicenter", json!({})).unwrap(),
-        json!(false)
+        invoke(&main, "data_record", json!({})).unwrap_err(),
+        json!({ "name": "NotNamed", "root": "Epicenter" })
     );
+    fixture.app.roots().name_library(epicenter.clone());
+    assert_eq!(invoke(&main, "data_record", json!({})).unwrap(), json!(null));
+    let identity = crate::identity_at(&fixture.root).unwrap().unwrap();
+    let records = epicenter.join(".epicenter/synced");
+    std::fs::create_dir_all(&records).unwrap();
+    let record = json!({
+        "folder": "f_1",
+        "name": "notes",
+        "inode": identity.inode,
+        "birthtime": identity.birthtime,
+        "commit": "abc",
+        "files": { "a.md": blob(b"a") },
+    });
+    std::fs::write(records.join("f_1.json"), record.to_string()).unwrap();
+    let found = invoke(&main, "data_record", json!({})).unwrap();
+    if identity.birthtime.is_some() {
+        assert_eq!(found, record);
+    } else {
+        assert_eq!(found, json!(null), "an inode alone proves nothing");
+    }
+    assert_eq!(std::fs::read_dir(&records).unwrap().count(), 1);
 }
 
 /// A note the folder made, never edited, then deleted by another program is
@@ -646,6 +688,19 @@ fn response(
             invoke_key: INVOKE_KEY.to_string(),
         },
     )
+}
+
+/// `read_folder_file` in the AppData root: the raw answer, or the refusal.
+fn read_app_data(window: &WebviewWindow<MockRuntime>, path: &str) -> Result<Vec<u8>, Value> {
+    match response(
+        window,
+        "read_folder_file",
+        InvokeBody::Json(json!({ "path": path, "root": "AppData" })),
+        Default::default(),
+    )? {
+        InvokeResponseBody::Raw(bytes) => Ok(bytes),
+        InvokeResponseBody::Json(json) => panic!("the bytes came back as JSON: {json}"),
+    }
 }
 
 /// `read_folder_file` in the data root, as

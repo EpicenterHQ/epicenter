@@ -8,6 +8,6 @@ pub const COMMANDS: &[&str] = &[
     "make_epicenter_folder",
     "read_folder_file",
     "put_folder_file",
-    "sync_with_epicenter",
-    "synced_with_epicenter",
+    "root_identity",
+    "data_record",
 ];

@@ -17,15 +17,14 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 /// A directory's identity: its inode and its birth time, each in decimal, so
-/// JSON keeps every digit. `{ inode: string; birthtime: string | null }` to
-/// TypeScript.
+/// JSON keeps every digit.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct FolderIdentity {
     /// `st_ino`, in decimal.
     pub inode: String,
-    /// Nanoseconds from the Unix epoch to the directory's birth, in decimal,
-    /// or `None` where the file system records none.
+    /// Nanoseconds from the Unix epoch to the directory's birth, in decimal;
+    /// absent where the file system records none.
     pub birthtime: Option<String>,
 }
 

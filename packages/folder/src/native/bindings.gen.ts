@@ -23,15 +23,17 @@ export const commands = {
 	/**
 	 *  Every regular file in `root` at or below each of `under` (a directory or
 	 *  a file path; empty is the whole root), `.git` aside, hidden ones
-	 *  included, none of them followed, each with its version and size
-	 *  (`storage::list`). The shell's own credentials are left out.
+	 *  included but never a save or recording in progress, none of them
+	 *  followed, each with its version and size (`storage::list`). The shell's
+	 *  own files are left out.
 	 */
 	listFolder: (root: Root, under: string[]) => typedError<ListedFile[], FolderError>(__TAURI_INVOKE("plugin:epicenter-folder|list_folder", { root, under })),
 	/**
-	 *  The Epicenter folder's listing (ADR-0813): every directory directly
-	 *  inside it, links followed, hidden names skipped, each with its name (its
-	 *  root is `Root::Folder(name)`) and its identity, and what is there but
-	 *  cannot be a folder, with why. The folder is made when it is missing.
+	 *  The Epicenter folder's listing (ADR-0813): where it is and where it
+	 *  really is, every directory directly inside it, links followed, hidden
+	 *  names skipped, each with its name (its root is `Root::Folder(name)`), its
+	 *  identity, and whether Git keeps it, and what is there but cannot be a
+	 *  folder, with why. The folder is made when it is missing.
 	 */
 	listEpicenter: () => typedError<EpicenterListing, RootError>(__TAURI_INVOKE("plugin:epicenter-folder|list_epicenter")),
 	/**
@@ -41,17 +43,35 @@ export const commands = {
 	 */
 	makeEpicenterFolder: (name: string) => typedError<EpicenterEntry, RootError>(__TAURI_INVOKE("plugin:epicenter-folder|make_epicenter_folder", { name })),
 	/**
-	 *  Ask the operating system to open Epicenter with a request to sync the
-	 *  Data folder, after the app opened it, under `contract`, the URL its
-	 *  contract is published at. Answers once the system took the request;
-	 *  whether Epicenter sets the folder up is the person's choice there.
+	 *  The identity of the folder an open `root` reached, its link followed
+	 *  (`identity::identity_of`): its inode and birth time. Null where the
+	 *  system has none. A page names a cache of the folder's hashes by it.
 	 */
-	syncWithEpicenter: (contract: string) => typedError<null, SyncRequestError>(__TAURI_INVOKE("plugin:epicenter-folder|sync_with_epicenter", { contract })),
+	rootIdentity: (root: Root) => typedError<{
+	/**  `st_ino`, in decimal. */
+	inode: string,
 	/**
-	 *  Whether Epicenter syncs the open Data folder
-	 *  (`synced`).
+	 *  Nanoseconds from the Unix epoch to the directory's birth, in decimal;
+	 *  absent where the file system records none.
 	 */
-	syncedWithEpicenter: () => typedError<boolean, SyncRequestError>(__TAURI_INVOKE("plugin:epicenter-folder|synced_with_epicenter")),
+	birthtime: string | null,
+} | null, FolderError>(__TAURI_INVOKE("plugin:epicenter-folder|root_identity", { root })),
+	/**
+	 *  The record Epicenter keeps for the open Data root, read from the
+	 *  Epicenter folder's `.epicenter/synced/` (`records::proving`): the one
+	 *  whose inode and birth time prove the folder's, when both have a real
+	 *  birth time. Null when there is none, as for a folder Epicenter does not
+	 *  sync. Nothing is written.
+	 */
+	dataRecord: () => typedError<{
+	folder: string,
+	name: string,
+	inode: string,
+	birthtime: string | null,
+	commit: string | null,
+	/**  Folder-relative path to Git blob id. */
+	files: { [key in string]: string },
+} | null, FolderError>(__TAURI_INVOKE("plugin:epicenter-folder|data_record")),
 };
 
 /* Types */
@@ -59,16 +79,27 @@ export const commands = {
 export type EpicenterEntry = {
 	/**  Its name there, the person's own label for it, and its root's name. */
 	name: string,
-	/**  Its identity now, its link followed; null where the system has none. */
-	identity: RootIdentity | null,
+	/**
+	 *  Its identity now, its link followed (`identity::identity_of`): the
+	 *  inode and birth time a record names it by. Null where the system has
+	 *  none.
+	 */
+	identity: FolderIdentity | null,
+	/**
+	 *  Whether Git keeps it (`kept_by_git`): Epicenter never syncs a Git
+	 *  working tree (ADR-0822).
+	 */
+	git: boolean,
 };
 
 /**
- *  The Epicenter folder's listing: where it is, as a person reads it, its
- *  folders by name, and what is there but could not be read.
+ *  The Epicenter folder's listing: where it is, as a person reads it, and
+ *  where it really is (every link resolved), its folders by name, and what
+ *  is there but could not be read.
  */
 export type EpicenterListing = {
 	path: string,
+	realPath: string,
 	folders: EpicenterEntry[],
 	unreadable: Unreadable[],
 };
@@ -85,6 +116,35 @@ export type FolderError = RootError | StorageError;
 export type FolderEvent = {
 	root: Root,
 	paths: string[] | null,
+};
+
+/**
+ *  A directory's identity: its inode and its birth time, each in decimal, so
+ *  JSON keeps every digit.
+ */
+export type FolderIdentity = {
+	/**  `st_ino`, in decimal. */
+	inode: string,
+	/**
+	 *  Nanoseconds from the Unix epoch to the directory's birth, in decimal;
+	 *  absent where the file system records none.
+	 */
+	birthtime: string | null,
+};
+
+/**
+ *  What Epicenter last agreed with the server for one folder: which server
+ *  folder it is, its name, the identity of the directory that agreed it,
+ *  the commit agreed, and each file's Git blob id then.
+ */
+export type FolderRecord = {
+	folder: string,
+	name: string,
+	inode: string,
+	birthtime: string | null,
+	commit: string | null,
+	/**  Folder-relative path to Git blob id. */
+	files: { [key in string]: string },
 };
 
 /**
@@ -123,7 +183,14 @@ export type Root =
  *  Epicenter app names (`Roots::name_epicenter`): one of the person's
  *  folders, followed through a link there to wherever it lives.
  */
-{ Folder: string };
+{ Folder: string } |
+/**
+ *  The Epicenter folder's own records and caches, `.epicenter` at its
+ *  root (`synced/<folder-id>.json`, `hashes/<key>.json`, ADR-0822),
+ *  which exists only where the shell named the Epicenter folder
+ *  (`Roots::name_epicenter`). Opening it makes it.
+ */
+"Epicenter";
 
 /**  Why a root did not open or cannot be used: what the page is told. */
 export type RootError =
@@ -149,16 +216,6 @@ export type RootError =
 { name: "ShuttingDown" };
 
 /**
- *  A directory's identity on this computer (its device and inode), which a
- *  folder's manifest records so a copy is told apart from a move (ADR-0811):
- *  `rootIdentity` in `@epicenter/folder/node` reads the same two numbers.
- */
-export type RootIdentity = {
-	device: string,
-	inode: string,
-};
-
-/**
  *  Why a storage call answered no. The page's store (`device/tauri-store.ts`)
  *  reads `NotFound` as no file there and any other as `Unavailable`; the
  *  names say why to a person reading it.
@@ -180,15 +237,6 @@ export type StorageError =
 { name: "NotADirectory"; path: string } |
 /**  The operation failed, and changed nothing. */
 { name: "Io"; path: string; operation: string; message: string };
-
-/**  Why the request to Epicenter was not made: what the page is told. */
-export type SyncRequestError =
-/**  The root is not open, or its folder is not there: why, in one line. */
-{ name: "Folder"; message: string } |
-/**  The contract URL is not `https:`, or `http:` on this machine. */
-{ name: "Contract"; url: string } |
-/**  The operating system did not open the link (Epicenter may not be installed). */
-{ name: "NotOpened"; message: string };
 
 /**  Something in the Epicenter folder that is not a folder it can open, and why. */
 export type Unreadable = {

@@ -1,6 +1,6 @@
 ## Default Permission
 
-Open and reveal the roots the shell named (Data and AppData), show their paths, read and change their files through the shell, and ask Epicenter to sync them.
+Open and reveal the roots the shell named, show their paths, read and change their files through the shell, read an open root's identity, and read the record Epicenter keeps for the Data root.
 
 #### This default permission set includes the following:
 
@@ -9,8 +9,8 @@ Open and reveal the roots the shell named (Data and AppData), show their paths, 
 - `allow-list-folder`
 - `allow-read-folder-file`
 - `allow-put-folder-file`
-- `allow-sync-with-epicenter`
-- `allow-synced-with-epicenter`
+- `allow-root-identity`
+- `allow-data-record`
 
 ## Permission Table
 
@@ -20,6 +20,32 @@ Open and reveal the roots the shell named (Data and AppData), show their paths, 
 <th>Description</th>
 </tr>
 
+
+<tr>
+<td>
+
+`epicenter-folder:allow-data-record`
+
+</td>
+<td>
+
+Enables the data_record command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`epicenter-folder:deny-data-record`
+
+</td>
+<td>
+
+Denies the data_record command without any pre-configured scope.
+
+</td>
+</tr>
 
 <tr>
 <td>
@@ -206,25 +232,12 @@ Denies the reveal_root command without any pre-configured scope.
 <tr>
 <td>
 
-`epicenter-folder:allow-sync-with-epicenter`
+`epicenter-folder:allow-root-identity`
 
 </td>
 <td>
 
-Enables the sync_with_epicenter command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-folder:deny-sync-with-epicenter`
-
-</td>
-<td>
-
-Denies the sync_with_epicenter command without any pre-configured scope.
+Enables the root_identity command without any pre-configured scope.
 
 </td>
 </tr>
@@ -232,25 +245,12 @@ Denies the sync_with_epicenter command without any pre-configured scope.
 <tr>
 <td>
 
-`epicenter-folder:allow-synced-with-epicenter`
+`epicenter-folder:deny-root-identity`
 
 </td>
 <td>
 
-Enables the synced_with_epicenter command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-folder:deny-synced-with-epicenter`
-
-</td>
-<td>
-
-Denies the synced_with_epicenter command without any pre-configured scope.
+Denies the root_identity command without any pre-configured scope.
 
 </td>
 </tr>
