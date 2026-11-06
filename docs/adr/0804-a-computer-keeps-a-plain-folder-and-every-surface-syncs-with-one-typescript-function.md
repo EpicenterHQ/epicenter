@@ -7,6 +7,7 @@
 - **Relates:** [ADR-0802](0802-people-share-spaces-an-app-works-in-one-at-a-time-and-a-folder-carries-its-contract.md) (the lean), [ADR-0803](0803-clients-sync-only-with-epicenter-servers-and-sync-is-a-function-of-two-stores.md) (Epicenter servers only; sync is a function of two stores), [ADR-0778](0778-a-page-connects-once-and-then-reads-synchronously.md) (the open folder), [ADR-0750](0750-sync-is-like-save-any-program-can-sync-a-folder-and-none-owns-it.md) (sync at a person's moments).
 - **Amended by:** [ADR-0805](0805-a-folder-is-recognized-by-epicenter-json-which-is-its-contract.md) at `.epicenter/sync.lock`: no lock; the manifest is written over the version the sync read.
 - **Amended by:** [ADR-0808](0808-a-files-version-is-its-git-blob-id-on-every-store.md) at the manifest holding each file's commit: `{ commit, files: path → blob id }`.
+- **Amended by:** [ADR-0809](0809-a-repository-is-addressed-by-id-and-unreferenced-bytes-are-collected-or-purged.md) at the manifest naming the repository: it names the repository's id.
 - **Unbuilt:** the open folder listing every visible file; `.epicenter/sync.lock` around a sync; the server refusing a path that differs only in case from one it holds; moments in the sync package and each app syncing through it; the CLI's `epicenter sync`, `log`, `diff`, `restore`, and `clone` over the server; streaming a large attachment; retiring `packages/epicenter-core`, its Node-API addon, the merge driver, the CLI's Git sync, and the shell's sync enrollment.
 
 ## Context
