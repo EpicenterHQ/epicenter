@@ -32,6 +32,7 @@ const ACCOUNT: AccountApp = AccountApp {
     client_id: "so.epicenter.vocab.native",
     name: "Vocab",
     scope: AccountApp::HOSTED_MODELS,
+    audiences: AccountApp::API,
 };
 
 fn main() {

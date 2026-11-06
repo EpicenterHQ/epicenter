@@ -1,10 +1,12 @@
-# Sign-in and credentials for standalone desktop apps
+# Sign-in and credentials for desktop apps
 
-`epicenter-account` is the Rust every standalone desktop app shares to sign
-in with Epicenter and to keep the app's secrets. A standalone app
+`epicenter-account` is the Rust every desktop app shares to sign in with
+Epicenter and to keep the app's secrets. A standalone app
 (`epicenter-standalone`) keeps its data as files in a folder Epicenter syncs,
 so it signs in only for hosted capabilities: inference and transcription on
-Epicenter's API. The page's side is `createTauriAuth` from
+Epicenter's API. The Epicenter app signs in as `so.epicenter` for every
+folder the person holds too (`AccountApp::EVERY_FOLDER`, `folders:all`), on
+the API and Git audiences (`AccountApp::API_AND_FOLDERS`). The page's side is `createTauriAuth` from
 `@epicenter/account/tauri`; the page's side of the provider keys and the
 requests sent with them is `@epicenter/ai/tauri`.
 
@@ -15,10 +17,11 @@ page in the system browser and listens once on
 `http://127.0.0.1:<port>/callback` for the code, with S256 PKCE and a
 `state` that a stale tab cannot match. An embedded page is never used
 (Google refuses it). The code becomes a refresh token, kept in the
-credentials file under `account:<origin>`, and an access token for the API
-audience, kept in this process's memory and renewed five minutes before it
-expires. A refresh token the server rotates replaces the stored one before it
-is used again. `account_sign_out` forgets the sign-in and asks the server to
+credentials file under `account:<origin>`, and an access token per audience
+the app signs in for (the code is exchanged for the first; the refresh token
+mints each other when a request first needs it), kept in this process's
+memory and renewed five minutes before it expires. A refresh token the server
+rotates replaces the stored one before it is used again. `account_sign_out` forgets the sign-in and asks the server to
 revoke it, waiting at most five seconds.
 
 Each app is its own native client, `so.epicenter.<app>.native` (decision 84),
@@ -29,6 +32,7 @@ const ACCOUNT: AccountApp = AccountApp {
     client_id: "so.epicenter.vocab.native",
     name: "Vocab",
     scope: AccountApp::HOSTED_MODELS,
+    audiences: AccountApp::API,
 };
 ```
 
@@ -59,7 +63,9 @@ watch of that root tells every window when it changes.
 
 The API trusts no `tauri://localhost` origin, and the token stays in Rust:
 the page sends each of the account's requests through `account_fetch`, which
-adds the bearer token, sends it only to the deployment's origin, renews a
+adds the bearer token of the audience the request names (`audience: "git"`,
+or the API's when it names none), sends it only to the deployment's origin
+or that audience's, renews a
 token the server rejects once, and streams the answer back on a channel (its
 head, the body's raw chunks, then its end or an error). `account_fetch_cancel`
 stops one. A request with no token to send ends with `reauth-required` or

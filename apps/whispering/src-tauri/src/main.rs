@@ -34,6 +34,7 @@ const ACCOUNT: AccountApp = AccountApp {
     client_id: "so.epicenter.whispering.native",
     name: "Whispering",
     scope: AccountApp::HOSTED_MODELS,
+    audiences: AccountApp::API,
 };
 
 fn main() {

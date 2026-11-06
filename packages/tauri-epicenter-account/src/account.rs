@@ -1,7 +1,7 @@
-//! Sign-in with Epicenter for a standalone desktop app's hosted capabilities
-//! (inference, transcription), and nothing else: the app's data are files in
-//! its folder, and Epicenter syncs that folder, so this account never reaches
-//! Git.
+//! Sign-in with Epicenter for a desktop app: a standalone app signs in for
+//! its hosted capabilities (inference, transcription) on the API audience
+//! alone, and the Epicenter app also for every folder the person holds, on
+//! the Git audience (`folders:all`, ADR-0820).
 //!
 //! - Sign-in is the native-app flow (RFC 8252): the system browser opens the
 //!   authorization page, and a one-shot `http://127.0.0.1:<port>/callback`
@@ -11,8 +11,9 @@
 //!   (`apps/api/worker/oauth-registrations.ts`).
 //! - The refresh token is kept in the app's credentials file
 //!   (`credentials.rs`), read from it when a token is needed, never by the
-//!   page. Access tokens live in this process's memory, for the API audience
-//!   only.
+//!   page. Access tokens live in this process's memory, one per audience the
+//!   app signs in for (`AccountApp::audiences`), each minted from the refresh
+//!   token when first needed (RFC 8707's `resource`).
 //! - Who is signed in is a setting only this side writes: `account.json` at
 //!   the top of the app's AppData directory, `{ origin, principalId,
 //!   refused }` (`Identity`). It is written at startup, once the grant is
@@ -22,7 +23,9 @@
 //!   changed.
 //! - The page's requests go through `account_fetch`: the API trusts no
 //!   `tauri://localhost` origin (`apps/api/worker/trusted-origins.ts`), and the
-//!   bearer token stays here. Only URLs on the deployment's origin are sent.
+//!   bearer token stays here. A request names its audience (the API unless it
+//!   says otherwise) and is sent only to the deployment's origin or that
+//!   audience's.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -43,18 +46,55 @@ use crate::relay::{self, send_event, RelayEvent, Requests};
 /// Who signs in: one constant per app, in its `main.rs`.
 #[derive(Clone, Copy, Debug)]
 pub struct AccountApp {
-    /// The app's native client, `so.epicenter.<app>.native` (decision 84).
+    /// The app's native client, `so.epicenter.<app>.native` (decision 84),
+    /// or the Epicenter app's own, `so.epicenter`.
     pub client_id: &'static str,
     /// The app's name, on the page the browser shows after a sign-in.
     pub name: &'static str,
     /// What the app asks for, such as `openid offline_access profile email ai`.
     pub scope: &'static str,
+    /// The audiences it signs in for, the API first. The deployment
+    /// registers the same for its client.
+    pub audiences: &'static [Audience],
 }
 
 impl AccountApp {
     /// What every app that signs in for hosted models asks for: who you are,
     /// a refresh token, and the API audience's `ai`.
     pub const HOSTED_MODELS: &'static str = "openid offline_access profile email ai";
+    /// The audience an app that signs in for hosted models reaches.
+    pub const API: &'static [Audience] = &[Audience::Api];
+    /// What the Epicenter app asks for: hosted models, and every folder the
+    /// person holds (`folders:all`, ADR-0820).
+    pub const EVERY_FOLDER: &'static str =
+        "openid offline_access profile email ai folders:read folders:write folders:all";
+    /// The audiences the Epicenter app reaches: the API, and the folders'.
+    pub const API_AND_FOLDERS: &'static [Audience] = &[Audience::Api, Audience::Git];
+}
+
+/// A token audience on the deployment (RFC 8707): the API (inference,
+/// transcription, who is signed in) or Git (every folder's history, and the
+/// folder routes on the API's origin). An access token names one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Audience {
+    Api,
+    Git,
+}
+
+/// The production API, whose Git audience has an origin of its own.
+const PRODUCTION_API: &str = "https://api.epicenter.so";
+
+impl Audience {
+    /// The audience's URL on the deployment at `origin`: the twin of
+    /// `resolveOAuthAudiences` in `@epicenter/definition/site`.
+    pub fn url(self, origin: &str) -> String {
+        match self {
+            Self::Api => origin.to_string(),
+            Self::Git if origin == PRODUCTION_API => "https://git.epicenter.so".to_string(),
+            Self::Git => format!("{origin}/git"),
+        }
+    }
 }
 /// An access token is renewed this long before it expires.
 const RENEW_BEFORE: Duration = Duration::from_secs(5 * 60);
@@ -68,7 +108,7 @@ pub fn deployment_origin() -> String {
         .then(|| std::env::var("EPICENTER_API_URL").ok())
         .flatten()
         .filter(|value| !value.is_empty());
-    origin_of(configured.as_deref().unwrap_or("https://api.epicenter.so"))
+    origin_of(configured.as_deref().unwrap_or(PRODUCTION_API))
 }
 
 /// `scheme://host[:port]` of `url`, without a trailing slash or path.
@@ -113,8 +153,8 @@ pub struct Identity {
 
 struct Grant {
     stored: StoredGrant,
-    /// The API audience's access token and when to renew it.
-    access: Option<(String, Instant)>,
+    /// Each audience's access token and when to renew it.
+    access: HashMap<Audience, (String, Instant)>,
     /// The server refused the refresh token: only a new sign-in helps.
     refused: bool,
 }
@@ -203,7 +243,7 @@ impl Account {
                 .and_then(|text| serde_json::from_str::<StoredGrant>(&text).ok());
             *grant = Some(stored.map(|stored| Grant {
                 stored,
-                access: None,
+                access: HashMap::new(),
                 refused: false,
             }));
         }
@@ -238,9 +278,12 @@ impl Account {
         Ok((status, serde_json::from_str(&text).unwrap_or_default()))
     }
 
-    /// An access token for the API, renewed when it is about to expire.
-    /// `Err(Refusal)` says why there is none.
-    async fn access_token(&self, force: bool) -> Result<String, Refusal> {
+    /// An access token for `audience`, minted from the refresh token when
+    /// there is none and renewed when it is about to expire. Tokens are
+    /// minted one at a time under the grant's lock, so a rotated refresh
+    /// token is stored before the next one is spent. `Err(Refusal)` says why
+    /// there is none.
+    async fn access_token(&self, audience: Audience, force: bool) -> Result<String, Refusal> {
         let mut guard = self.loaded().await.map_err(Refusal::Unavailable)?;
         let Some(grant) = guard.as_mut().and_then(Option::as_mut) else {
             return Err(Refusal::SignedOut);
@@ -248,12 +291,13 @@ impl Account {
         if grant.refused {
             return Err(Refusal::Reauth);
         }
-        if let Some((token, renew_at)) = &grant.access {
+        if let Some((token, renew_at)) = grant.access.get(&audience) {
             if !force && Instant::now() < *renew_at {
                 return Ok(token.clone());
             }
         }
         let refresh = grant.stored.refresh_token.clone();
+        let resource = audience.url(&self.origin);
         let (status, answer) = self
             .post_form(
                 "/oauth2/token",
@@ -261,14 +305,14 @@ impl Account {
                     ("grant_type", "refresh_token"),
                     ("client_id", self.app.client_id),
                     ("refresh_token", &refresh),
-                    ("resource", &self.origin),
+                    ("resource", &resource),
                 ],
             )
             .await
             .map_err(Refusal::Unavailable)?;
         if status == 400 && answer.error.as_deref() == Some("invalid_grant") {
             grant.refused = true;
-            grant.access = None;
+            grant.access.clear();
             // The request is refused either way; the page also hears it here.
             if let Err(message) = self.publish(Some(grant)).await {
                 log::warn!("The refused sign-in could not be recorded: {message}");
@@ -287,7 +331,10 @@ impl Account {
                 .map_err(Refusal::Unavailable)?;
             grant.stored = stored;
         }
-        grant.access = Some((tokens.access_token.clone(), renew_at(tokens.expires_in)));
+        grant.access.insert(
+            audience,
+            (tokens.access_token.clone(), renew_at(tokens.expires_in)),
+        );
         Ok(tokens.access_token)
     }
 }
@@ -395,7 +442,8 @@ fn decode_query(value: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-/// The authorization page for one sign-in.
+/// The authorization page for one sign-in. It names every audience the app
+/// signs in for, so its refresh token can mint a token for each.
 fn authorize_url(
     app: &AccountApp,
     origin: &str,
@@ -403,21 +451,28 @@ fn authorize_url(
     state: &str,
     challenge: &str,
 ) -> String {
-    let params = [
-        ("response_type", "code"),
-        ("client_id", app.client_id),
-        ("redirect_uri", redirect_uri),
-        ("scope", app.scope),
-        ("state", state),
-        ("code_challenge", challenge),
-        ("code_challenge_method", "S256"),
-        ("resource", origin),
+    let mut params = vec![
+        ("response_type", "code".to_string()),
+        ("client_id", app.client_id.to_string()),
+        ("redirect_uri", redirect_uri.to_string()),
+        ("scope", app.scope.to_string()),
+        ("state", state.to_string()),
+        ("code_challenge", challenge.to_string()),
+        ("code_challenge_method", "S256".to_string()),
     ];
+    for audience in app.audiences {
+        params.push(("resource", audience.url(origin)));
+    }
     let query: Vec<String> = params
         .iter()
         .map(|(key, value)| format!("{key}={}", encode_query(value)))
         .collect();
     format!("{origin}/auth/oauth2/authorize?{}", query.join("&"))
+}
+
+/// The audience a sign-in's code is exchanged for: the app's first.
+fn first_audience(app: &AccountApp) -> Audience {
+    app.audiences.first().copied().unwrap_or(Audience::Api)
 }
 
 /// What one request to the loopback listener said.
@@ -553,6 +608,8 @@ async fn sign_in(account: Arc<Account>) -> Result<SignedIn, String> {
     )
     .await
     .map_err(|_| "The browser did not come back within ten minutes.".to_string())??;
+    let first = first_audience(&account.app);
+    let resource = first.url(&account.origin);
     let (status, answer) = account
         .post_form(
             "/oauth2/token",
@@ -562,7 +619,7 @@ async fn sign_in(account: Arc<Account>) -> Result<SignedIn, String> {
                 ("code", &code),
                 ("code_verifier", &verifier),
                 ("redirect_uri", &redirect_uri),
-                ("resource", &account.origin),
+                ("resource", &resource),
             ],
         )
         .await?;
@@ -593,7 +650,7 @@ async fn sign_in(account: Arc<Account>) -> Result<SignedIn, String> {
     let mut grant = account.grant.lock().await;
     *grant = Some(Some(Grant {
         stored,
-        access: Some((tokens.access_token, renew_at(tokens.expires_in))),
+        access: HashMap::from([(first, (tokens.access_token, renew_at(tokens.expires_in)))]),
         refused: false,
     }));
     account
@@ -671,7 +728,8 @@ pub async fn account_sign_out(account: State<'_, Arc<Account>>) -> Result<(), St
     account.sign_out().await
 }
 
-/// One request the page sends on the account. `body` is base64.
+/// One request the page sends on the account. `body` is base64. `audience`
+/// names the token it is sent with: the API's when absent.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RelayRequest {
@@ -680,6 +738,8 @@ pub struct RelayRequest {
     pub method: String,
     pub headers: Vec<(String, String)>,
     pub body: Option<String>,
+    #[serde(default)]
+    pub audience: Option<Audience>,
 }
 
 /// Why an account request ended without an answer, after the `kind` of its
@@ -696,6 +756,12 @@ struct AccountFailure {
 fn on_origin(url: &str, origin: &str) -> bool {
     url.strip_prefix(origin)
         .is_some_and(|rest| rest.is_empty() || rest.starts_with(['/', '?']))
+}
+
+/// Whether a request for `audience` may go to `url`: the deployment's
+/// origin, or the audience's own (production's Git audience is another).
+fn reaches(url: &str, origin: &str, audience: Audience) -> bool {
+    on_origin(url, origin) || on_origin(url, &origin_of(&audience.url(origin)))
 }
 
 /// Request headers the relay passes on: never a credential or a header the
@@ -730,9 +796,10 @@ async fn relay(account: Arc<Account>, request: RelayRequest, channel: Channel<In
             )
         }
     };
+    let audience = request.audience.unwrap_or(Audience::Api);
     let mut forced = false;
     let response = loop {
-        let token = match account.access_token(forced).await {
+        let token = match account.access_token(audience, forced).await {
             Ok(token) => token,
             Err(Refusal::SignedOut | Refusal::Reauth) => {
                 return send_event(
@@ -787,7 +854,14 @@ pub async fn account_fetch(
     request: RelayRequest,
     on_event: Channel<InvokeResponseBody>,
 ) -> Result<(), String> {
-    if !on_origin(&request.url, &account.origin) {
+    let audience = request.audience.unwrap_or(Audience::Api);
+    if !account.app.audiences.contains(&audience) {
+        return Err(format!(
+            "{} does not sign in for the {audience:?} audience",
+            account.app.name
+        ));
+    }
+    if !reaches(&request.url, &account.origin, audience) {
         return Err(format!("{} is not on {}", request.url, account.origin));
     }
     let account = account.inner().clone();
@@ -824,7 +898,61 @@ mod tests {
         client_id: "so.epicenter.vocab.native",
         name: "Vocab",
         scope: AccountApp::HOSTED_MODELS,
+        audiences: AccountApp::API,
     };
+
+    const EPICENTER: AccountApp = AccountApp {
+        client_id: "so.epicenter",
+        name: "Epicenter",
+        scope: AccountApp::EVERY_FOLDER,
+        audiences: AccountApp::API_AND_FOLDERS,
+    };
+
+    #[test]
+    fn the_epicenter_app_asks_for_every_folder_on_both_audiences() {
+        let url = authorize_url(
+            &EPICENTER,
+            "https://api.epicenter.so",
+            "http://127.0.0.1:5555/callback",
+            "st",
+            "ch",
+        );
+        assert!(url.contains(
+            "&scope=openid%20offline_access%20profile%20email%20ai%20folders%3Aread%20folders%3Awrite%20folders%3Aall&"
+        ));
+        assert!(url.ends_with(
+            "&resource=https%3A%2F%2Fapi.epicenter.so&resource=https%3A%2F%2Fgit.epicenter.so"
+        ));
+        assert_eq!(
+            Audience::Git.url("http://localhost:8787"),
+            "http://localhost:8787/git"
+        );
+    }
+
+    #[test]
+    fn a_folder_request_goes_to_the_deployment_or_the_git_origin() {
+        let origin = "https://api.epicenter.so";
+        assert!(reaches("https://git.epicenter.so/folders", origin, Audience::Git));
+        assert!(reaches("https://api.epicenter.so/api/folders", origin, Audience::Git));
+        assert!(!reaches("https://git.epicenter.so/folders", origin, Audience::Api));
+        assert!(!reaches("https://git.epicenter.so.evil.com/", origin, Audience::Git));
+        let local = "http://localhost:8787";
+        assert!(reaches("http://localhost:8787/git/folders", local, Audience::Git));
+    }
+
+    #[test]
+    fn a_relayed_request_names_its_audience_or_is_the_apis() {
+        let request: RelayRequest = serde_json::from_value(serde_json::json!({
+            "id": 1, "url": "u", "method": "GET", "headers": [], "body": null, "audience": "git"
+        }))
+        .unwrap();
+        assert_eq!(request.audience, Some(Audience::Git));
+        let request: RelayRequest = serde_json::from_value(serde_json::json!({
+            "id": 1, "url": "u", "method": "GET", "headers": [], "body": null
+        }))
+        .unwrap();
+        assert_eq!(request.audience, None);
+    }
 
     #[test]
     fn the_authorization_page_asks_for_the_api_only_with_pkce() {
@@ -1042,7 +1170,10 @@ mod tests {
             serde_json::json!({ "origin": origin, "principalId": null, "refused": false })
         );
         assert_eq!(account.secrets.get(&account.entry()).unwrap(), None);
-        assert_eq!(account.access_token(false).await, Err(Refusal::SignedOut));
+        assert_eq!(
+            account.access_token(Audience::Api, false).await,
+            Err(Refusal::SignedOut)
+        );
     }
 
     /// The token endpoint refuses the refresh token: `account.json` says so,
@@ -1076,14 +1207,21 @@ mod tests {
         let account = account_in(dir.path(), &origin, Some(&grant()));
         account.publish_loaded().await.unwrap();
         assert_eq!(identity_in(dir.path())["refused"], false);
-        assert_eq!(account.access_token(false).await, Err(Refusal::Reauth));
+        assert_eq!(
+            account.access_token(Audience::Api, false).await,
+            Err(Refusal::Reauth)
+        );
         assert!(server.await.unwrap().starts_with("POST /auth/oauth2/token"));
         assert_eq!(
             identity_in(dir.path()),
             serde_json::json!({ "origin": origin, "principalId": "p", "refused": true })
         );
-        // Refused once is refused until a sign-in: no second request.
-        assert_eq!(account.access_token(false).await, Err(Refusal::Reauth));
+        // Refused once is refused until a sign-in, for every audience: no
+        // second request.
+        assert_eq!(
+            account.access_token(Audience::Git, false).await,
+            Err(Refusal::Reauth)
+        );
     }
 
     #[test]

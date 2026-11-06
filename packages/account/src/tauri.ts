@@ -44,6 +44,14 @@ export const tauriShell: TauriShell = {
 	channel: (onMessage) => new Channel<unknown>(onMessage),
 };
 
+/**
+ * The token audience the shell sends an account's requests with: the API's
+ * (hosted models, who is signed in), or Git's (the folder routes and every
+ * folder's history), which only an app that signs in for folders has
+ * (`AccountApp::API_AND_FOLDERS` in `epicenter-account`).
+ */
+export type TauriAudience = 'api' | 'git';
+
 /** `account.json`, the identity the shell writes: who is signed in, and whether the server ended it. */
 type Identity = {
 	origin: string;
@@ -74,14 +82,18 @@ function identityIn(text: string | null): Identity | null {
  * A Tauri window's `AuthClient` over the shell's account commands and the
  * identity it writes (`account.json` in this computer's settings). Its reads
  * answer once the settings connected; before, they throw `SettingsNotOpen`.
+ * Its account's requests carry the token for `audience`: the API's unless
+ * an app that signs in for folders asks for Git's.
  */
 export function createTauriAuth({
 	shell = tauriShell,
 	identity = settings.file('account.json'),
+	audience = 'api',
 }: {
 	shell?: TauriShell;
 	/** Where the shell writes who is signed in; tests stand in for it. */
 	identity?: SettingsFile;
+	audience?: TauriAudience;
 } = {}): AuthClient {
 	let state: AuthState = { status: 'signed-out' };
 	let read: string | null | undefined;
@@ -111,6 +123,7 @@ export function createTauriAuth({
 				() => {
 					// The shell rewrites `account.json` when the server refuses the sign-in.
 				},
+				audience,
 			)(input, init);
 		const opened: Account = {
 			authorityId: signedIn.origin,

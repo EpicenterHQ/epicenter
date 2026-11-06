@@ -25,6 +25,7 @@
 //!     client_id: "so.epicenter.vocab.native",
 //!     name: "Vocab",
 //!     scope: AccountApp::HOSTED_MODELS,
+//!     audiences: AccountApp::API,
 //! };
 //!
 //! epicenter_account::manage(builder, ACCOUNT)
@@ -47,7 +48,7 @@ use std::sync::Arc;
 use tauri::plugin::TauriPlugin;
 use tauri::{Manager, Runtime};
 
-pub use account::{deployment_origin, Account, AccountApp, Identity, IDENTITY_FILE};
+pub use account::{deployment_origin, Account, AccountApp, Audience, Identity, IDENTITY_FILE};
 pub use connection::Connections;
 pub use credentials::{Credentials, CREDENTIALS_FILE};
 
