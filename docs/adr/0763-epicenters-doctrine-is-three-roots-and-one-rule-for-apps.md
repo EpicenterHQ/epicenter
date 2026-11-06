@@ -7,6 +7,7 @@
 - **Amended by:** [ADR-0787](0787-records-that-assumed-a-running-engine-or-a-build-time-choice-follow-0750-and-0781.md) at root 1's "A folder's path derives from the app's site": a folder is found by its `AGENTS.md`.
 - **Amended by:** [ADR-0801](0801-records-from-0763-to-0800-agree-on-the-merge-rust-patching-marks-and-agents.md) at `settle` among the inventions, Whispering's seams, and agents under root 2: the key merge, no seams, and an agent's command is a person's tool.
 - **Amended by:** [ADR-0813](0813-epicenter-is-your-folders-and-apps-are-lenses.md) at its rule for apps: an app is a lens on folders.
+- **Amended by:** [ADR-0818](0818-an-app-is-a-view-a-window-and-its-capabilities-and-everything-is-repairable-by-hand.md) at its rule for apps: an app is a view, a window, and its capabilities; everything the platform does can be done by hand.
 
 ## Context
 

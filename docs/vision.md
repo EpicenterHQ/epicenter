@@ -19,6 +19,13 @@ document ([ADR-0815](adr/0815-the-platform-gives-a-window-its-folder-and-every-a
 | Share and iCloud | Share with people, and sync |
 | Finder | the Epicenter app |
 
+An app is a view (what it understands in a folder), a window over one folder,
+and its capabilities; the platform does everything about folders
+([ADR-0818](adr/0818-an-app-is-a-view-a-window-and-its-capabilities-and-everything-is-repairable-by-hand.md),
+[ADR-0817](adr/0817-the-cli-exposes-every-platform-operation-and-an-app-inherits-everything-about-folders.md)).
+And everything is repairable by hand: whatever the platform does, plain file
+operations can do too, and the files are the only truth.
+
 Where Epicenter is going, on one page. Each section links the records that
 decided it; read them for the reasons and the detail. This is direction, not
 current truth: most of it is unbuilt, and each record's `Unbuilt` line says
