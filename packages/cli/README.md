@@ -14,16 +14,20 @@ is deleted. ADR-0611 describes the planned reduction.
 bun run epicenter check path/to/contract.json path/to/folder   # from the repository root
 ```
 
-`sync`, `clone`, `log`, `diff`, and `restore` keep a folder in sync with
-its repository on the server, with no Git on this computer
+The command line is the platform without windows (ADR-0817): every
+operation on folders is a function in `@epicenter/folder/platform`, which
+the Epicenter app composes too, and a command here. A command takes a
+folder by its path, or a folder on the server by its id; a person by the
+email they sign in with. `sync`, `clone`, `log`, `diff`, and `restore` keep
+a folder in sync with its folder on the server, with no Git on this
+computer
 ([ADR-0804](../../docs/adr/0804-a-computer-keeps-a-plain-folder-and-every-surface-syncs-with-one-typescript-function.md)):
-each runs `sync({ local, remote, manifest })` from `@epicenter/folder/sync`,
-the function every surface runs, over the folder's directory and its
-repository, reached by the folder's id:
 
 ```sh
-~/.epicenter/bin/epicenter sync ~/Epicenter/notes          # 0 synced, 1 run again, 2 could not sync
-~/.epicenter/bin/epicenter clone <folder id> ~/Epicenter/notes
+~/.epicenter/bin/epicenter status                      # the Epicenter folder: each folder's state
+~/.epicenter/bin/epicenter sync ~/Epicenter/notes      # 0 synced, 1 run again or a copy asks, 2 could not sync
+~/.epicenter/bin/epicenter share ~/Epicenter/notes jess@example.com
+~/.epicenter/bin/epicenter accept                      # the shares waiting for you
 ```
 
 The app links its bundled CLI at `~/.epicenter/bin/epicenter`; development links it at `~/.epicenter-dev/bin/epicenter`.
@@ -31,9 +35,8 @@ The app links its bundled CLI at `~/.epicenter/bin/epicenter`; development links
 The desktop app compiles `src/bin.ts` into the one binary it ships (`bun run
 --cwd apps/epicenter build:sidecar`); see
 [the epicenter binary](../../apps/epicenter/README.md#the-epicenter-binary).
-Its [Folders window](../../apps/epicenter/README.md#the-folders-window) still
-runs the retired Git commands (`status`, `init`, `connect`, `forget`, and
-`sync --watch`); it moves onto these with the library.
+Its [Folders window](../../apps/epicenter/README.md#the-folders-window) runs
+no CLI command: it waits to compose `@epicenter/folder/platform` itself.
 
 ## Commands
 
@@ -41,14 +44,17 @@ runs the retired Git commands (`status`, `init`, `connect`, `forget`, and
 | --- | --- | --- |
 | `epicenter check [<dir> \| <contract> [<dir>]]` | built | Reads `contract` from `<dir>/AGENTS.md` unless a contract is supplied; runs `checkFiles` in `@epicenter/folder/node` |
 | `epicenter format <contract> [<dir>]` | built | `formatNotes` in `@epicenter/folder/node` |
-| `epicenter sync [<dir>]` | built | `src/sync/commands.ts` over `sync` in `@epicenter/folder/sync` |
-| `epicenter clone <folder> [<dir>]` | built | `src/sync/commands.ts` |
+| `epicenter status` | built | `listHome` in `@epicenter/folder/platform`, through `src/folder-commands.ts` |
+| `epicenter init [<path>] [--title <title>] [--dry-run]` | built | `initFolder`, through `src/folder-commands.ts` |
+| `epicenter sync [<dir>] [--new \| --same] [--all]` | built | `syncFolder` and `syncEvery`, through `src/sync/commands.ts` |
+| `epicenter clone [<folder> [<dir>]]` | built | `listFolders`, `cloneIntoHome`, and `cloneFolder`, through `src/sync/commands.ts` |
 | `epicenter log [<dir>] [--limit <n>]` | built | `src/sync/commands.ts` |
 | `epicenter diff [<dir>] [--since <commit>]` | built | `src/sync/commands.ts` |
 | `epicenter restore <commit> [<dir>] [--path <path>]` | built | `src/sync/commands.ts` |
-| `epicenter repos` | built | `src/repository-commands.ts` |
-| `epicenter share <owner>/<name> \| <dir> [<handle>] [--read \| --write]` | built | `src/repository-commands.ts` |
-| `epicenter unshare <owner>/<name> \| <dir> <handle>` | built | `src/repository-commands.ts` |
+| `epicenter share <folder> [<email>] [--read \| --write \| --owner]` | built | `shareFolder` and `getFolder`, through `src/folder-commands.ts` |
+| `epicenter unshare <folder> <email>` | built | `unshareFolder` |
+| `epicenter accept [<folder>]` | built | `listFolders` and `acceptIntoHome` |
+| `epicenter attach <folder> <app>`, `detach` | built | `attachFolder` |
 | `epicenter auth login` | built | `src/auth.ts` |
 | `epicenter auth logout` | built | `src/auth.ts` |
 | `epicenter auth status` | built | `src/auth.ts` |
@@ -57,45 +63,57 @@ runs the retired Git commands (`status`, `init`, `connect`, `forget`, and
 
 `messages` and `--desktop` are left out of `--help`: the desktop app runs them.
 
-## Hosted repositories
+## Folders
 
-A folder's repository is on its deployment's server, reached by the folder's
-id at `<git origin>/folders/<folder>` (ADR-0810). Plain Git clones the same
-repository at `<git origin>/<namespace>/<name>.git` (ADR-0546), where the git
-origin is `https://git.epicenter.so` for the hosted cloud and `<origin>/git`
-for any other deployment, and `<namespace>` is the owner's 12-character id
-(`epicenter repos` lists them, with each folder id).
+A folder (ADR-0811) is synced and shared: the server mints its id at its
+first sync, its members are people, any of whom may own it, and its title
+is the `title` of its `epicenter.json`. Every directory directly inside the
+Epicenter folder (`~/Epicenter`, or `~/Epicenter Dev` in development) is a
+folder; one elsewhere joins by a symbolic link there.
 
-- `epicenter repos` lists the repositories of every namespace the sign-in may
-  reach, the personal one first, each with its folder id. With `--json`:
-  `{"namespaces": [{"id", "title", "personal", "role", "repositories":
-  [{"id", "name", "url"}]}]}`. Your personal namespace's id is your handle.
-- `epicenter share <repository> <handle> --read|--write` lets the person
-  whose handle that is read, or also sync changes to, one of your
-  repositories; they clone it by its folder id. Only the owner rewrites
-  `main` or shares it on. Without `<handle>` it lists the grants;
-  `epicenter unshare <repository> <handle>` revokes one, refusing their next
-  sync without recalling their files. `<repository>` is `<owner>/<name>`,
-  `'~/<name>'`, or a folder that syncs with one of your repositories.
-- A sync the server refuses this account (a read-only grant writing, or a
-  revoked one) stops with exit 2, naming the refusal.
+- `status` lists every folder there with its title and state (never synced,
+  synced, or shared, with who holds it), a copy of another folder as such,
+  then the shares waiting for you and the folders you hold that are not on
+  this computer. Signed out or offline, it lists what this computer holds.
+- `init [<path>]` writes the folder's `epicenter.json`: its title (the
+  directory's name, or `--title`), and the collections its files suggest,
+  `{name}` the item's file name (ADR-0818). `--dry-run` prints the proposal.
+- `share <folder> <email>` shares the folder as a writer, `--read` a
+  reader, or `--owner` an owner; it shows for the person once they accept
+  it. Without `<email>`, it lists who holds the folder and who has not
+  accepted. `unshare <folder> <email>` takes someone out, refusing their
+  next sync without recalling their files; with your own email you leave
+  the folder or decline its share, and the last to leave deletes it.
+- `accept [<folder>]` accepts a share (by id or title) and brings the
+  folder into the Epicenter folder, named for its title; without one, it
+  lists the shares waiting.
+- `attach <folder> <app>` lets an app, by the client id it signs in as,
+  reach the folder; `detach` stops it. An app reaches only the folders
+  attached to it.
+- A sync the server refuses this account (a reader writing, or someone
+  unshared) stops with exit 2, naming the refusal.
 
-`src/sync/sync.postgres.test.ts` runs sync, clone, diff, log, restore, and
-sharing between two people, each on a machine of their own, against the real
-server.
+`src/sync/sync.postgres.test.ts` runs these between two people, each on a
+machine of their own, against the real server.
 
 ## Sync
 
 `sync`, `clone`, `log`, `diff`, and `restore` live in `src/sync/`. The
-manifest at `.epicenter/synced.json` names the folder's repository (its
-`folder` id), the commit both sides last agreed at, and each file's Git blob
-id there (ADR-0808). The CLI signs every request to the deployment with the
+manifest at `.epicenter/synced.json` names the folder (its `folder` id), the
+directory it synced in (`root`: device and inode), the commit both sides
+last agreed at, and each file's Git blob id there (ADR-0808, ADR-0811). The CLI signs every request to the deployment with the
 grant's Git-audience token (`src/sync/account.ts`), sent over `https`, or
 over `http` only to this computer.
 
 - `sync [<dir>]` syncs the folder (this directory by default). Its first
-  sync makes the folder's repository in the person's namespace and records
-  its id. A sync copies what changed on one side to the other, and merges a
+  sync joins the folder its manifest names when you hold it, and otherwise
+  makes one, recording its id. A copy of a folder (its manifest names
+  another directory: a Finder duplicate, a backup restored elsewhere) sends
+  nothing and exits 1; `--new` makes it a folder of its own, and `--same`
+  says it is that folder, moved. `--all` syncs every folder in the Epicenter
+  folder that moved on either side, from one request for where every folder
+  is (ADR-0819). A folder inside a `.git` or `.epicenter` directory is
+  refused. A sync copies what changed on one side to the other, and merges a
   note both sides changed: front matter by key, this computer's change
   winning a key both changed, and the body by line with one conflict block
   per clash. An edit beats a delete, and a file both sides replaced keeps
@@ -103,10 +121,11 @@ over `http` only to this computer.
   the repository refuses (one differing only in case from a path it holds)
   stays here and is named. `--json` prints one `{"sync": {...}}` line. Exit
   codes: 0 synced, 1 run again or a file refused, 2 could not sync.
-- `clone <folder> [<dir>]` records the repository `<folder>` names (a folder
-  id, `<namespace>/<name>`, or `'~/<name>'`) in `<dir>`, a new directory
-  named for it by default, and syncs; a directory that holds files keeps
-  them, merged on top.
+- `clone` lists the folders you hold, by id, title, and who holds them;
+  `clone <folder> [<dir>]` brings one (by id, or by a title one folder has)
+  into `<dir>`, or a new directory in the Epicenter folder named for its
+  title, and syncs; a directory that holds files keeps them, merged on top.
+  Plain Git clones the same history at `<git origin>/folders/<id>.git`.
 - `log [<dir>]` lists the repository's history, newest first, marking the
   commit the folder last agreed at.
 - `diff [<dir>]` lists the files the folder changed since its last sync,
@@ -144,8 +163,9 @@ for each audience:
 | `device` | `so.epicenter.cli` | `auth login`: device authorization (RFC 8628). It prints the link and code, or `{"device": {...}}` with `--json`, and polls until the person approves on the server's page. | Every command run without `--desktop`: a terminal or an agent. |
 | `desktop` | `so.epicenter` | `auth login --desktop`: authorization code with S256 PKCE, received once on `http://127.0.0.1:<random port>/callback`. It opens the browser, or prints `{"open": "<url>"}` with `--json` for Rust to open. | Only commands Rust runs with `--desktop`. |
 
-Both ask for `openid offline_access profile ai folders:read folders:write`
-and both audiences. Each refresh names one audience, and the server narrows
+Both ask for `openid offline_access profile ai folders:read folders:write
+folders:all` and both audiences: `folders:all` reaches every folder the
+person holds, where an app's grant reaches the folders attached to it. Each refresh names one audience, and the server narrows
 that access token to the audience's scopes while the grant keeps all of
 them. `auth login` then caches an API token and reads who approved the grant
 from the server's userinfo, which `auth status` reports without a network
@@ -174,10 +194,10 @@ only the deployment paths of the audience it names.
 
 The CLI reads and writes where the desktop shell does
 (`src/app-paths.ts`). The shell sets `EPICENTER_DATA_DIR` for sign-in locks
-and `EPICENTER_ENVIRONMENT` for the library root when it runs the CLI.
+and `EPICENTER_ENVIRONMENT` for the Epicenter folder when it runs the CLI.
 A terminal command uses the environment embedded at build time;
-`EPICENTER_ENVIRONMENT` overrides it. The library root is fixed at `~/Epicenter` or
-`~/Epicenter Dev`.
+`EPICENTER_ENVIRONMENT` overrides it. The Epicenter folder is fixed at
+`~/Epicenter` or `~/Epicenter Dev`.
 
 ## Output and exit codes
 
@@ -209,9 +229,9 @@ command holds a timer, since Bun 1.3.14 can otherwise end the process while
 | `src/commands.ts` | Every command, with its usage. |
 | `src/parse.ts` | The hand-written parser. |
 | `src/contract-commands.ts` | `check` and `format` against an app's contract, over `@epicenter/folder/node`. |
-| `src/sync/` | `sync`, `clone`, `log`, `diff`, and `restore`, over `@epicenter/folder/sync`, and the sign-in as the account a repository is reached through. |
+| `src/sync/` | `sync`, `clone`, `log`, `diff`, and `restore`, over `@epicenter/folder/platform` and `@epicenter/folder/sync`, and the sign-in as the account a folder is reached through. |
 | `src/stop.ts` | The one stop-signal handler: wait for an unfinished refresh, then exit. |
-| `src/repository-commands.ts` | `repos`, `share`, and `unshare`. |
+| `src/folder-commands.ts` | `status`, `init`, `share`, `unshare`, `accept`, `attach`, and `detach`, over `@epicenter/folder/platform`. |
 | `src/app-paths.ts` | Where the Epicenter folder, the sign-in locks, and the engine live, by the shell's rule. |
 | `src/auth.ts` | The two grants: device and desktop sign-in, the one refresh, status, and sign-out. |
 | `src/auth-commands.ts` | `auth login`, `logout`, `status`, and `token`, printing what `src/auth.ts` returns. |

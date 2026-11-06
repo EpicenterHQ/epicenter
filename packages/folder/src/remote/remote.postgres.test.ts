@@ -53,12 +53,13 @@ import { Err, Ok, type Result } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { startDisposablePostgres } from '../../../server/src/test-helpers/disposable-postgres.js';
 import { OAuthTestClient } from '../../../server/src/test-helpers/oauth-client.js';
+import { storeChecks } from '../device/store.conformance.js';
 import type { BlobId, Unavailable } from '../device/store.js';
 import { createFolder } from '../folder.js';
 import { blobIdOf } from '../hash.js';
 import { noteCodec } from '../note-codec.js';
-import { storeChecks } from '../device/store.conformance.js';
-import { folderRepository, mintFolder } from './repository.js';
+import { acceptShare, shareFolder } from './folders.js';
+import { folderRepository, joinFolder } from './repository.js';
 
 const recorder = defineContract({
 	collections: {
@@ -325,16 +326,18 @@ async function signInPerson(label: string) {
 			throw new Error('not used');
 		},
 	};
-	// The person's folder named `recorder`, as the web app's is named from its site.
-	const { folder } = expectOk(await mintFolder(account, { name: 'recorder' }));
+	// The app's first sync makes the person's folder, attached to the app.
+	const joined = expectOk(await joinFolder(account));
+	if (!('folder' in joined)) throw new Error('expected one folder');
+	const { folder } = joined;
 	sent.length = 0;
 	return {
 		account,
 		folder,
 		/** The person's folder, as a test reaches it. */
 		at: { account, folder } satisfies At,
-		/** The person's handle: their personal namespace's id. */
-		handle: person.personal,
+		/** The email the person signs in with, which others share with. */
+		email: person.email,
 		token,
 		sent,
 		/** The requests whose `METHOD url` matches `pattern`. */
@@ -391,7 +394,7 @@ describe('a repository: the store conformance checks', () => {
 });
 
 describe('a repository as a store', () => {
-	test("another person's folder is reached by its id, as far as their grant goes", async () => {
+	test("another person's folder is reached by its id once they accept its share, as far as their role goes", async () => {
 		const alice = await signIn('shared-owner');
 		const bob = await signIn('shared-guest');
 		const id = timeId();
@@ -411,18 +414,22 @@ describe('a repository as a store', () => {
 			cause: { name: 'Refused', status: 403 },
 		});
 
-		const granted = await fetch(
-			`${origin}/api/repos/~/recorder/grants/${bob.handle}`,
-			{
-				method: 'PUT',
-				headers: {
-					authorization: `Bearer ${alice.token}`,
-					'content-type': 'application/json',
-				},
-				body: JSON.stringify({ level: 'read' }),
-			},
-		);
-		expect(granted.status).toBe(200);
+		expect(
+			expectOk(
+				await shareFolder(alice.account, {
+					folder: alice.folder,
+					email: bob.email,
+					role: 'reader',
+				}),
+			),
+		).toMatchObject({ pending: true });
+		// A share grants nothing until it is accepted.
+		expect(expectErr(await theirs.recordings.list())).toMatchObject({
+			cause: { status: 403 },
+		});
+		expect(
+			expectOk(await acceptShare(bob.account, { folder: alice.folder })),
+		).toMatchObject({ id: alice.folder, role: 'reader' });
 		const read = expectOk(await theirs.recordings.read(path));
 		if (read === null) throw new Error('expected the note');
 		expect(read.item).toMatchObject({ id, title: 'For Bob' });
@@ -438,7 +445,7 @@ describe('a repository as a store', () => {
 			name: 'Unavailable',
 			cause: { name: 'Refused', status: 403 },
 		});
-		// Bob's own folder of that name is his.
+		// Bob's own folder is his.
 		expect(expectOk(await filesAt(bob.at).recordings.list())).toEqual([]);
 		expect(() =>
 			storeAt({ account: bob.account, folder: 'Alice/recorder' }),
@@ -511,6 +518,42 @@ describe('a repository as a store', () => {
 		expect(expectOk(await audio.read(path))?.bytes).toEqual(
 			new Uint8Array([4, 5, 6]),
 		);
+	}, 30_000);
+
+	test('a commit retried after it moved puts no attachment the server already has', async () => {
+		const person = await signIn('retry-upload');
+		const repository = storeAt(person.at);
+		const path = `recordings/${timeId()}.webm`;
+		const bytes = crypto.getRandomValues(new Uint8Array(4096));
+		// Another writer lands a file first, so this commit, expecting nothing, moves.
+		const other = `recordings/${timeId()}.md`;
+		const placed = expectOk(
+			await repository.commit([
+				{ path: other, bytes: note('title: First\n'), expect: null },
+			]),
+		);
+		if (placed === 'moved' || 'refused' in placed)
+			throw new Error('expected a commit');
+		const writes = [
+			{ path, bytes, expect: null },
+			{ path: other, bytes: note('title: Mine\n'), expect: null },
+		];
+		expect(expectOk(await repository.commit(writes))).toBe('moved');
+		const uploads = /^PUT .*\/blobs\/[0-9a-f]{64}$/;
+		expect(person.requests(uploads)).toHaveLength(1);
+		// The retry, over what the path now holds, puts the bytes no second time.
+		const retried = expectOk(
+			await repository.commit([
+				{ path, bytes, expect: null },
+				{
+					path: other,
+					bytes: note('title: Mine\n'),
+					expect: placed.blobs[other] ?? null,
+				},
+			]),
+		);
+		expect(retried).toMatchObject({ blobs: { [path]: expect.any(String) } });
+		expect(person.requests(uploads)).toHaveLength(1);
 	}, 30_000);
 
 	test("a write expecting nothing is 'stale' where a file already is", async () => {

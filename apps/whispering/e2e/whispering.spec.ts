@@ -31,6 +31,7 @@ import {
 	type Page,
 } from 'playwright/test';
 import {
+	appFolder,
 	emptyOpfs,
 	epicenter,
 	fakeMicrophone,
@@ -314,11 +315,8 @@ test('4. a desktop clone holds the recordings as written, and the folder fits th
 		stack,
 		person,
 		'clone',
-		`${person.namespace}/whispering`,
+		await appFolder(stack, person),
 		clone,
-		// Outside the library, a clone names its link (ADR-0736).
-		'--name',
-		'My recordings',
 	);
 	expect(cloned.code, `${cloned.stdout}\n${cloned.stderr}`).toBe(0);
 

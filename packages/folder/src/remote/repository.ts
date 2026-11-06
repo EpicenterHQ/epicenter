@@ -12,16 +12,19 @@
  * attachment's at `blobs/<sha256>`, named by its pointer and checked against
  * it. A commit puts each new attachment's bytes there first (idempotent, so
  * a lost reply is put again), then lands every path in one commit where it
- * still holds the blob its writer expects; one that moved is `Moved`.
+ * still holds the blob its writer expects; one that moved is `Moved`. Bytes
+ * the server stored or read for this repository are not put again, so a
+ * commit retried after `moved` or a refused path uploads nothing twice.
  *
  * A watch asks where `main` is before it answers, then, every `pollMs`, for
  * the paths changed since the commit it last saw. The server becoming
  * unreachable is heard as `'all'`. It stops with the stop it answered, or
  * with the account.
  *
- * `mintFolder` asks the server for a new folder, or for the caller's folder
- * of a name (a web app's, named from its site), answering its id: what a
- * manifest stores (`RepositoryAddress`).
+ * `joinFolder` is a folder's first sync on the server (ADR-0811): it joins
+ * the folder a manifest names when the person holds it, or from an app the
+ * one folder attached to it, and otherwise makes one, answering its id:
+ * what a manifest stores (`RepositoryAddress`).
  */
 import { ClientError, storedWithLfs } from '@epicenter/definition/contract';
 import { parsePointer } from '@epicenter/definition/merge';
@@ -149,22 +152,38 @@ const json = (body: unknown): RequestInit => ({
 	body: JSON.stringify(body),
 });
 
+/** What a first sync on the server answered. */
+export type Joined =
+	/** The folder joined (`made: false`) or made. */
+	| { folder: string; made: boolean }
+	/** An app's person holds several folders attached to it: which one is theirs to say. */
+	| { choose: string[] };
+
 /**
- * A new folder of `account`'s, or its folder named `name` (made at the first
- * ask), answering its id.
+ * A folder's first sync on the server: join `folder` (the id its manifest
+ * names) when `account`'s person holds it, or, from an app with none named,
+ * the one folder attached to the app; otherwise the server makes a folder,
+ * attached to the app that made it.
  */
-export async function mintFolder(
+export async function joinFolder(
 	account: RemoteAccount,
-	{ name }: { name?: string } = {},
-): Promise<Result<{ folder: string }, Unavailable>> {
+	{ folder }: { folder?: string } = {},
+): Promise<Result<Joined, Unavailable>> {
 	const { git } = resolveOAuthAudiences(account.baseURL);
 	const answered = await ask(
 		account,
 		folderUrl(git),
-		json(name === undefined ? {} : { name }),
+		json(folder === undefined ? {} : { folder }),
 	);
 	if (answered.error !== null) return answered;
 	const { status, body } = answered.data;
+	if (
+		status === 409 &&
+		isRecord(body) &&
+		body.error === 'choose' &&
+		Array.isArray(body.folders)
+	)
+		return Ok({ choose: body.folders as string[] });
 	if (
 		(status !== 200 && status !== 201) ||
 		!isRecord(body) ||
@@ -172,7 +191,7 @@ export async function mintFolder(
 		!isFolderId(body.folder)
 	)
 		return refused(status, body);
-	return Ok({ folder: body.folder });
+	return Ok({ folder: body.folder, made: body.made === true });
 }
 
 /**
@@ -248,6 +267,13 @@ export function folderRepository(
 		);
 	}
 
+	/**
+	 * The attachments this repository holds, by sha256: put or read here.
+	 * The server keeps uploaded bytes (pending until a commit keeps them, for
+	 * a day), so a retried commit puts none of them again.
+	 */
+	const stored = new Set<string>();
+
 	/** An attachment's bytes, by its sha256, checked against its pointer. */
 	async function attachment(
 		oid: string,
@@ -272,6 +298,7 @@ export function folderRepository(
 			return ClientError.Unavailable({
 				cause: RemoteError.Corrupt({ id: oid }).error,
 			});
+		stored.add(oid);
 		return Ok(bytes);
 	}
 
@@ -303,9 +330,10 @@ export function folderRepository(
 		return Ok(out);
 	}
 
-	/** Put an attachment's bytes at their sha256: idempotent. */
+	/** Put an attachment's bytes at their sha256: idempotent, and skipped for bytes it holds. */
 	async function upload(bytes: Uint8Array) {
 		const oid = await sha256Of(bytes);
+		if (stored.has(oid)) return Ok({ oid, size: bytes.byteLength });
 		const answered = await ask(account, `${base}/blobs/${oid}`, {
 			method: 'PUT',
 			headers: { 'content-type': 'application/octet-stream' },
@@ -314,6 +342,7 @@ export function folderRepository(
 		if (answered.error !== null) return answered;
 		const { status, body } = answered.data;
 		if (status !== 200 && status !== 201) return refused(status, body);
+		stored.add(oid);
 		return Ok({ oid, size: bytes.byteLength });
 	}
 

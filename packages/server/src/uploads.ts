@@ -1,6 +1,6 @@
 /**
  * The upload ledger (ADR-0809): an attachment's bytes uploaded to a
- * repository are pending until a commit keeps them. An upload of bytes the
+ * folder are pending until a commit keeps them. An upload of bytes the
  * repository did not already store records a `blob_upload` row; a commit
  * (through sync or a push) that references them deletes it; and
  * `sweepPendingUploads` deletes the bytes of every upload still pending
@@ -16,29 +16,29 @@ import type { Db } from './db/create-db.js';
 import type { LfsStore } from './lfs/lfs-store.js';
 
 export type UploadLedger = {
-	/** Record `oid`, newly stored for `repositoryId`, as pending. */
-	pending(repositoryId: string, oid: string): Promise<void>;
+	/** Record `oid`, newly stored for `folder`, as pending. */
+	pending(folder: string, oid: string): Promise<void>;
 	/** A commit references these: they are kept. */
-	keep(repositoryId: string, oids: readonly string[]): Promise<void>;
+	keep(folder: string, oids: readonly string[]): Promise<void>;
 	/** Take every upload pending since before `cutoff` out of the ledger, answering them. */
-	expire(cutoff: Date): Promise<{ repositoryId: string; oid: string }[]>;
+	expire(cutoff: Date): Promise<{ folder: string; oid: string }[]>;
 };
 
 /** The ledger in the `blob_upload` table. */
 export function databaseUploadLedger(db: Db): UploadLedger {
 	return {
-		async pending(repositoryId, oid) {
+		async pending(folder, oid) {
 			await db.execute(sql`
-				insert into blob_upload (repository_id, oid)
-				values (${repositoryId}, ${oid})
-				on conflict (repository_id, oid) do nothing
+				insert into blob_upload (folder_id, oid)
+				values (${folder}, ${oid})
+				on conflict (folder_id, oid) do nothing
 			`);
 		},
-		async keep(repositoryId, oids) {
+		async keep(folder, oids) {
 			if (oids.length === 0) return;
 			await db.execute(sql`
 				delete from blob_upload
-				where repository_id = ${repositoryId}
+				where folder_id = ${folder}
 					and oid in (${sql.join(
 						oids.map((oid) => sql`${oid}`),
 						sql`, `,
@@ -47,15 +47,15 @@ export function databaseUploadLedger(db: Db): UploadLedger {
 		},
 		async expire(cutoff) {
 			const { rows } = await db.execute<{
-				repository_id: string;
+				folder_id: string;
 				oid: string;
 			}>(sql`
 				delete from blob_upload
 				where uploaded_at < ${cutoff.toISOString()}
-				returning repository_id, oid
+				returning folder_id, oid
 			`);
 			return rows.map((row) => ({
-				repositoryId: row.repository_id,
+				folder: row.folder_id,
 				oid: row.oid,
 			}));
 		},
@@ -83,7 +83,6 @@ export async function sweepPendingUploads({
 	pendingForMs?: number;
 }): Promise<number> {
 	const expired = await ledger.expire(new Date(now.getTime() - pendingForMs));
-	for (const { repositoryId, oid } of expired)
-		await lfs.delete(repositoryId, oid);
+	for (const { folder, oid } of expired) await lfs.delete(folder, oid);
 	return expired.length;
 }

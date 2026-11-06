@@ -41,8 +41,6 @@ export type Person = {
 	email: string;
 	cookie: string;
 	sessionId: string;
-	/** The personal namespace the account trigger made. */
-	personal: string;
 };
 
 export class OAuthTestClient {
@@ -116,38 +114,13 @@ export class OAuthTestClient {
 			'insert into session (id, token, user_id, expires_at, created_at, updated_at) values ($1, $2, $3, $4, $5, $5)',
 			[sessionId, token, id, new Date(Date.now() + 86_400_000), now],
 		);
-		const { rows } = await this.db.query<{ id: string }>(
-			'select id from namespace where personal_account_id = $1',
-			[id],
-		);
-		const personal = rows[0]?.id;
-		if (!personal) throw new Error('the account has no personal namespace');
 		const signed = `${token}.${await makeSignature(token, this.secret)}`;
 		return {
 			id,
 			email,
 			sessionId,
-			personal,
 			cookie: `${this.cookieName}=${encodeURIComponent(signed)}`,
 		};
-	}
-
-	/** A group the person belongs to with `role`. */
-	async group(person: Person, title: string, role: 'owner' | 'member') {
-		const id = base64url(crypto.getRandomValues(new Uint8Array(9)))
-			.toLowerCase()
-			.replace(/[^a-z0-9]/g, '0')
-			.slice(0, 12)
-			.padEnd(12, '0');
-		await this.db.query('insert into namespace (id, title) values ($1, $2)', [
-			id,
-			title,
-		]);
-		await this.db.query(
-			'insert into namespace_member (namespace_id, account_id, role) values ($1, $2, $3)',
-			[id, person.id, role],
-		);
-		return id;
 	}
 
 	async authorize(o: {
@@ -241,15 +214,6 @@ export class OAuthTestClient {
 		});
 	}
 
-	/** Stage a target for one client's consent, a device code's included. */
-	async selectTarget(cookie: string, target: string, clientId: string) {
-		const response = await this.request('/auth/grant-target/select', {
-			cookie,
-			json: { target, client_id: clientId },
-		});
-		return { status: response.status, body: await this.json(response) };
-	}
-
 	async consent(cookie: string, oauthQuery: string) {
 		const response = await this.request('/auth/oauth2/consent', {
 			cookie,
@@ -263,14 +227,13 @@ export class OAuthTestClient {
 
 	/**
 	 * Approve a device code as the device page leads a person to: open it at
-	 * the authorization endpoint, which shows the consent page, choose a
-	 * target, and answer the consent. Only that answer approves the code.
+	 * the authorization endpoint, which shows the consent page, and answer
+	 * the consent. Only that answer approves the code.
 	 */
 	async approveDeviceCode(o: {
 		cookie: string;
 		userCode: string;
 		clientId: string;
-		target?: string;
 	}): Promise<{ status: number; body: unknown }> {
 		const opened = await this.request(
 			`/auth/oauth2/authorize?user_code=${encodeURIComponent(o.userCode)}`,
@@ -282,13 +245,6 @@ export class OAuthTestClient {
 		);
 		if (consentPage.pathname !== '/consent')
 			throw new Error(`device authorize ${opened.status} ${consentPage}`);
-		if (o.target) {
-			const selected = await this.selectTarget(o.cookie, o.target, o.clientId);
-			if (selected.status !== 200)
-				throw new Error(
-					`select ${selected.status} ${JSON.stringify(selected.body)}`,
-				);
-		}
 		const approved = await this.consent(o.cookie, consentPage.search.slice(1));
 		if (approved.status !== 200) return approved;
 		const answered = new URL(approved.body.url ?? '', this.origin);
@@ -299,13 +255,12 @@ export class OAuthTestClient {
 
 	/**
 	 * The device grant: request a code, open it at the authorization endpoint,
-	 * choose a target, approve it on the consent page, redeem it. `redeemFor`
+	 * approve it on the consent page, redeem it. `redeemFor`
 	 * names the audience the first access token is for.
 	 */
 	async deviceGrant(o: {
 		clientId: string;
 		cookie: string;
-		target?: string;
 		scope?: string;
 		resource: string[];
 		redeemFor?: string;
@@ -329,7 +284,6 @@ export class OAuthTestClient {
 			cookie: o.cookie,
 			userCode: device.user_code,
 			clientId: o.clientId,
-			target: o.target,
 		});
 		if (approval.status !== 200) return { approval };
 		const issued = await this.token({

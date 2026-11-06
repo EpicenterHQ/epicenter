@@ -25,6 +25,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type BrowserContext, expect, type Page } from 'playwright/test';
 import {
+	appFolder,
 	emptyOpfs,
 	epicenter,
 	opfsFiles,
@@ -219,11 +220,8 @@ test('2. a desktop clone holds what was written, and the folder fits the contrac
 		stack,
 		person,
 		'clone',
-		`${person.namespace}/honeycrisp`,
+		await appFolder(stack, person),
 		clone,
-		// Outside the library, a clone names its link (ADR-0736).
-		'--name',
-		'My notes',
 	);
 	expect(made.code, `${made.stdout}\n${made.stderr}`).toBe(0);
 

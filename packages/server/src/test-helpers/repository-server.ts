@@ -3,7 +3,7 @@
  * benchmark in another package: the authorization server on a disposable
  * Postgres, a `Bun.serve` listener, the disk Git and LFS stores, and a
  * signed-in person whose requests carry an access token from a real code
- * grant. Requires initdb and pg_ctl on PATH.
+ * grant, reaching every folder they hold (`folders:all`), as the CLI does. Requires initdb and pg_ctl on PATH.
  */
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -71,7 +71,13 @@ export async function startRepositoryServer() {
 				name: 'Sync test',
 				redirectUris: [client.redirectUri],
 				grantTypes: ['authorization_code'],
-				scopes: ['openid', 'profile', 'folders:read', 'folders:write'],
+				scopes: [
+					'openid',
+					'profile',
+					'folders:read',
+					'folders:write',
+					'folders:all',
+				],
 				resources: [audiences.api, audiences.git],
 				skipConsent: true,
 				applicationType: 'web',
@@ -112,7 +118,7 @@ export async function startRepositoryServer() {
 				...client,
 				cookie: person.cookie,
 				resource: [audiences.git],
-				scope: 'openid folders:read folders:write',
+				scope: 'openid folders:read folders:write folders:all',
 			});
 			const lifetime = new AbortController();
 			return {
@@ -123,8 +129,8 @@ export async function startRepositoryServer() {
 					headers.set('authorization', `Bearer ${token}`);
 					return fetch(input, { ...init, headers, signal: lifetime.signal });
 				},
-				/** The person's handle: their personal namespace's id. */
-				handle: person.personal,
+				/** The email the person signs in with, which others share with. */
+				email: person.email,
 			};
 		},
 		async stop() {

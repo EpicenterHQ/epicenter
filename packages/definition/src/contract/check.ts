@@ -33,8 +33,8 @@ export type FileIssue = {
  *   lacks a required one. A key the contract does not declare is fine.
  *
  * A path with a hidden segment (`.gitattributes`, `.obsidian/…`,
- * `.epicenter/…`) and the root AGENTS.md are not the contract's and are
- * skipped. A note given without `text` is checked by its path alone.
+ * `.epicenter/…`), the root AGENTS.md, and the contract's own
+ * `epicenter.json` are not the contract's and are skipped. A note given without `text` is checked by its path alone.
  *
  * @example
  * ```ts
@@ -53,7 +53,8 @@ export function checkContract(
 	if (compiled.error !== null) return compiled;
 	const issues: FileIssue[] = [];
 	for (const { path, text } of files) {
-		if (isHiddenPath(path) || path === 'AGENTS.md') continue;
+		if (isHiddenPath(path) || path === 'AGENTS.md' || path === 'epicenter.json')
+			continue;
 		if (!isFilePath(path)) {
 			issues.push({ path, message: 'The path is not a usable file path' });
 			continue;

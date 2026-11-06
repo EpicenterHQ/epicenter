@@ -1,8 +1,9 @@
 /**
  * `@epicenter/definition/contract`: an app's file layout as plain data, the
  * shapes of the notes and files it derives, the path functions every opener shares, the
- * check `epicenter check` runs, and a note as text (`noteText`,
- * `readNoteText`) for apps that edit one whole.
+ * check `epicenter check` runs, the collections `epicenter init` proposes
+ * from a folder's files, and a note as text (`noteText`, `readNoteText`) for
+ * apps that edit one whole.
  */
 export { checkContract, type FileIssue } from './check.js';
 export {
@@ -27,6 +28,13 @@ export {
 export { type ConformanceIssue, describeIssues } from './issues.js';
 export { noteText, readNoteText } from './note-text.js';
 export {
+	EPICENTER_JSON_SCHEMA,
+	type Proposal,
+	proposeContract,
+	type Unproposed,
+} from './propose.js';
+export {
+	CONTRACT_PATH,
 	EPICENTER_BLOCK_BEGIN,
 	EPICENTER_BLOCK_END,
 	isHiddenPath,

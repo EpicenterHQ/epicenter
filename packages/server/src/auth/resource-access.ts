@@ -1,37 +1,33 @@
 /**
  * The one check every resource runs on an access token (ADR-0549): one SQL
  * statement over the token's SHA-256 hash that decides revocation, expiry,
- * audience, scope, grant target, membership or a grant on the repository,
- * and, for a grant tied to a browser session, that session's life. Nothing
- * is cached, so a revocation, a removed member, or a revoked repository
- * grant takes effect on the very next request.
+ * audience, scope, and, for a grant tied to a browser session, that
+ * session's life, and for a folder, the account's membership and the
+ * token's reach (ADR-0811): an app's token reaches the folders attached to
+ * it, and a token with `folders:all` every folder its person holds. Nothing
+ * is cached, so a revocation, a removed member, or a detached app takes
+ * effect on the very next request.
  */
+import type { FolderRole } from '@epicenter/definition/site';
 import { sql } from 'drizzle-orm';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { Db } from '../db/create-db.js';
-import type { RepositoryRole } from '../namespace-roles.js';
 import {
 	hashPrefixedToken,
 	type OAuthScope,
 	TOKEN_PREFIX,
 } from './oauth-policy.js';
 
-/** Who the token acts for in the requested namespace. */
-export type ResourceAccess = {
+/** Who the token acts for on one folder. */
+export type FolderAccess = {
 	accountId: string;
-	/**
-	 * The account's role: from membership in the namespace, or, when it is
-	 * not a member, from its grant on the named repository.
-	 */
-	role: RepositoryRole;
+	/** The account's role in the folder, which it has accepted. */
+	role: FolderRole;
+	/** The OAuth client the token was issued to. */
 	clientId: string;
-	/** The namespace the role is in, as requested. */
-	namespaceId: string;
-	/**
-	 * The repository the requested name names; null when the request named
-	 * none, or no repository has that name.
-	 */
-	repository: { id: string; name: string } | null;
+	folder: string;
+	/** Null for a token with `folders:all`, else the app whose attached folders it reaches: its client id. */
+	app: string | null;
 };
 
 /** A refusal, ready to send: status, challenge header, and JSON body. */
@@ -86,46 +82,41 @@ export function readAccessToken(authorization: string | null | undefined) {
 	return separator < 0 ? null : decoded.slice(separator + 1) || null;
 }
 
-/** Who the token acts for on a resource that names no namespace. */
+/** Who the token acts for on a resource that names no folder. */
 export type AccountAccess = {
 	accountId: string;
 	email: string;
 	clientId: string;
 	/**
-	 * The grant's target: `*`, `ns:<id>` for one namespace (ADR-0549), or
-	 * null for a grant that reaches no namespace.
+	 * The folders the token reaches: null for every folder its person holds
+	 * (`folders:all`), else the client id of the app whose attached folders
+	 * it reaches.
 	 */
-	target: string | null;
+	app: string | null;
 };
 
-type AccessRow = {
+type FolderRow = {
 	account_id: string;
 	client_id: string;
 	has_audience: boolean;
 	has_scope: boolean;
-	in_target: boolean;
-	role: RepositoryRole | null;
-	repository_id: string | null;
-	repository_name: string | null;
+	every_folder: boolean;
+	role: FolderRole | null;
+	attached: boolean;
 };
 
 /**
- * Decide one request. Returns the account and its role in `namespaceId`, or
- * the refusal to send. When the request names a `repository`, the same
- * statement looks up `<namespaceId>/<repository>`, an address fixed for the
- * repository's life (ADR-0771). An account that is not a member of that
- * namespace takes its role from a grant on the
- * repository (`reader` or `writer`); a grant names an existing repository,
- * so it never creates one. A grant's target (`*`, or `ns:<id>`) applies to
- * the repository's namespace like a membership's: a token granted for one
- * namespace reaches no repository shared from another.
+ * Decide one request on the folder `folder`. Returns the account and its
+ * role there, or the refusal to send:
  *
  * - 401 `invalid_token` for a missing, unknown, expired, or revoked token, a
  *   token whose approving browser session ended, or a token whose audience is
  *   not exactly this resource;
  * - 403 `insufficient_scope` when the token lacks `scope`;
- * - 403 `forbidden` when the namespace is outside the grant's target, or the
- *   account is neither a member of it nor granted the repository.
+ * - 403 `forbidden` when the account does not hold the folder (a folder that
+ *   does not exist is refused the same way, so a refusal says nothing of
+ *   whether it does), or the folder is not attached to the token's app and
+ *   the token lacks `folders:all`.
  *
  * A token naming several audiences is refused at each. Every scope rides on
  * every token (`oauthResourceInputs`), so the audience alone keeps a Git
@@ -133,24 +124,21 @@ type AccessRow = {
  * audience when a token request omits `resource`. Refusing those makes one
  * audience per token a server invariant rather than each client's discipline.
  */
-export async function authorizeResourceRequest(
+export async function authorizeFolderRequest(
 	db: Db,
 	{
 		token,
 		audience,
 		scope,
-		namespaceId,
-		repository,
+		folder,
 	}: {
 		token: string | null;
 		/** This resource's identifier, the token's required audience. */
 		audience: string;
 		scope: OAuthScope;
-		namespaceId: string;
-		/** A repository name in `namespaceId` to resolve in the same statement. */
-		repository?: string;
+		folder: string;
 	},
-): Promise<Result<ResourceAccess, ResourceRefusal>> {
+): Promise<Result<FolderAccess, ResourceRefusal>> {
 	const metadata = `resource_metadata="${protectedResourceMetadataUrl(audience)}"`;
 	const invalid = (description: string) =>
 		Err<ResourceRefusal>({
@@ -163,29 +151,22 @@ export async function authorizeResourceRequest(
 		: null;
 	if (!hash) return invalid('An Epicenter access token is required.');
 	const now = utcNow();
-	const name = repository ?? null;
-	const { rows } = await db.execute<AccessRow>(sql`
+	const { rows } = await db.execute<FolderRow>(sql`
 		select t.user_id as account_id,
 		       t.client_id,
 		       t.resources = array[${audience}]::text[] as has_audience,
 		       ${scope} = any(t.scopes) as has_scope,
-		       coalesce(t.reference_id in ('*', 'ns:' || ${namespaceId}), false) as in_target,
-		       coalesce(
-		         m.role,
-		         case g.level when 'write' then 'writer' when 'read' then 'reader' end
-		       ) as role,
-		       r.id as repository_id,
-		       r.name as repository_name
+		       'folders:all' = any(t.scopes) as every_folder,
+		       m.role,
+		       exists (
+		         select 1 from folder_app a
+		         where a.folder_id = ${folder} and a.app = t.client_id
+		       ) as attached
 		from oauth_access_token t
-		left join repository r
-		       on r.namespace_id = ${namespaceId}
-		      and r.name = ${name}
-		left join namespace_member m
-		       on m.account_id = t.user_id
-		      and m.namespace_id = ${namespaceId}
-		left join repository_grant g
-		       on g.repository_id = r.id
-		      and g.account_id = t.user_id
+		left join folder_member m
+		       on m.folder_id = ${folder}
+		      and m.account_id = t.user_id
+		      and m.accepted_at is not null
 		left join session s on s.id = t.session_id
 		where t.token = ${hash}
 		  and t.revoked is null
@@ -205,70 +186,44 @@ export async function authorizeResourceRequest(
 				error_description: `This operation needs the ${scope} scope.`,
 			},
 		});
-	if (!row.in_target || !row.role)
+	if (!row.role || !(row.every_folder || row.attached))
 		return Err({
 			status: 403,
 			challenge: `Bearer ${metadata}`,
 			body: {
 				error: 'forbidden',
-				error_description: row.in_target
-					? 'This account is not a member of that namespace, and that repository is not shared with it.'
-					: "That namespace is outside this grant's folders.",
+				error_description: row.role
+					? 'That folder is not attached to this app.'
+					: 'This account does not hold that folder.',
 			},
 		});
 	return Ok({
 		accountId: row.account_id,
 		role: row.role,
 		clientId: row.client_id,
-		namespaceId,
-		repository:
-			row.repository_id !== null && row.repository_name !== null
-				? { id: row.repository_id, name: row.repository_name }
-				: null,
+		folder,
+		app: row.every_folder ? null : row.client_id,
 	});
-}
-
-/**
- * The personal namespace of the account `token` acts for, or null when the
- * token is unknown. A request may name the namespace `~` (decision 46);
- * it is resolved here, and the request is
- * then decided by {@link authorizeResourceRequest} like any other.
- */
-export async function resolvePersonalNamespace(
-	db: Db,
-	token: string | null,
-): Promise<string | null> {
-	const hash = token
-		? await hashPrefixedToken(token, TOKEN_PREFIX.access)
-		: null;
-	if (!hash) return null;
-	const { rows } = await db.execute<{ id: string }>(sql`
-		select n.id
-		from oauth_access_token t
-		join namespace n on n.personal_account_id = t.user_id
-		where t.token = ${hash}
-	`);
-	return rows[0]?.id ?? null;
 }
 
 type AccountRow = {
 	account_id: string;
 	client_id: string;
 	email: string;
-	target: string | null;
+	every_folder: boolean;
 	has_audience: boolean;
 	has_scope: boolean;
 };
 
 /**
  * Decide one request to a resource that acts on the person's account rather
- * than one namespace: inference, transcription, and the
- * repository listing, which applies the grant target itself. The same
- * statement as {@link authorizeResourceRequest} without the namespace check:
+ * than one folder: inference, transcription, and the folder listing, which
+ * applies the token's reach itself. The same statement as
+ * {@link authorizeFolderRequest} without the folder check:
  *
  * - 401 `invalid_token` for a missing, unknown, expired, or revoked token, a
  *   token whose approving browser session ended, or a token whose audience is
- *   not exactly this resource (see {@link authorizeResourceRequest});
+ *   not exactly this resource (see {@link authorizeFolderRequest});
  * - 403 `insufficient_scope` when the token lacks `scope`.
  */
 export async function authorizeAccountRequest(
@@ -300,7 +255,7 @@ export async function authorizeAccountRequest(
 		select t.user_id as account_id,
 		       t.client_id,
 		       u.email,
-		       t.reference_id as target,
+		       'folders:all' = any(t.scopes) as every_folder,
 		       t.resources = array[${audience}]::text[] as has_audience,
 		       ${scope} = any(t.scopes) as has_scope
 		from oauth_access_token t
@@ -328,6 +283,6 @@ export async function authorizeAccountRequest(
 		accountId: row.account_id,
 		email: row.email,
 		clientId: row.client_id,
-		target: row.target,
+		app: row.every_folder ? null : row.client_id,
 	});
 }

@@ -157,10 +157,11 @@ const resource = (audience: 'api' | 'git', scope: OAuthScope) =>
 	every(cloudContext, requireAccessToken({ audience, scope }));
 const accountSession = every(cloudContext, requireSessionCookie());
 
-// Hosted Git at git.epicenter.so/<namespace>/<name>.git over Cloudflare
-// Artifacts (ADR-0546), and `GET /api/repos`. Git decides each request from
-// the access token and the namespace membership (`authorizeResourceRequest`),
-// and the listing from a Git-audience token, so they take no guard here.
+// Folders at git.epicenter.so/folders/<id> over Cloudflare Artifacts
+// (ADR-0546, ADR-0811), and their listing and sharing at `/api/folders`.
+// Each request is decided from the access token, the folder's membership,
+// and its attached apps (`authorizeFolderRequest`), and the listing from a
+// Git-audience token, so they take no guard here.
 // Unmetered. The local dev launcher removes the Artifacts binding and required account secret, so the
 // store resolves to null and hosted Git answers 503. Hosted Git also answers
 // 503 until the R2 LFS store is complete: `wrangler.jsonc` binds

@@ -5,7 +5,6 @@
 			"environment": "production",
 			"host": "whispering.epicenter.so",
 			"folder": "whispering",
-			"repository": "whispering",
 			"appData": "so.epicenter.whispering"
 		},
 		{
@@ -13,7 +12,6 @@
 			"environment": "development",
 			"host": "whispering.epicenter.so",
 			"folder": "whispering",
-			"repository": "whispering",
 			"appData": "so.epicenter.whispering.dev"
 		},
 		{
@@ -21,7 +19,6 @@
 			"environment": "production",
 			"host": "zhongwen.bradenwong.com",
 			"folder": "bradenwong.com/zhongwen",
-			"repository": "zhongwen.bradenwong.com",
 			"appData": "com.bradenwong.zhongwen"
 		},
 		{
@@ -29,7 +26,6 @@
 			"environment": "development",
 			"host": "zhongwen.bradenwong.com",
 			"folder": "bradenwong.com/zhongwen",
-			"repository": "zhongwen.bradenwong.com",
 			"appData": "com.bradenwong.zhongwen.dev"
 		},
 		{
@@ -37,7 +33,6 @@
 			"environment": "production",
 			"host": "notes.app.epicenter.so",
 			"folder": "app.epicenter.so/notes",
-			"repository": "notes.app.epicenter.so",
 			"appData": "so.epicenter.app.notes"
 		},
 		{
@@ -45,7 +40,6 @@
 			"environment": "production",
 			"host": "dev.example.com",
 			"folder": "example.com/dev",
-			"repository": "dev.example.com",
 			"appData": "com.example.dev"
 		},
 		{
@@ -53,7 +47,6 @@
 			"environment": "development",
 			"host": "dev.example.com",
 			"folder": "example.com/dev",
-			"repository": "dev.example.com",
 			"appData": "com.example.dev.dev"
 		}
 	],

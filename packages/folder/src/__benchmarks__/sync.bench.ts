@@ -21,10 +21,10 @@ import { memoryStore } from '../device/memory-store.js';
 import { nodeStore } from '../device/node-store.js';
 import type { Store } from '../device/store.js';
 import { localStoreOf } from '../folder.js';
-import { scratch } from '../scratch.test-support.js';
 import { directory } from '../node.js';
 import { openFolder } from '../open-folder.js';
-import { folderRepository, mintFolder } from '../remote/repository.js';
+import { folderRepository, joinFolder } from '../remote/repository.js';
+import { scratch } from '../scratch.test-support.js';
 import { memoryRepository, type Repository } from '../sync/repository.js';
 import {
 	type ManifestStore,
@@ -98,15 +98,17 @@ const contract = defineContract({
 async function serverWorld(asFolder: boolean): Promise<World> {
 	const server = await startRepositoryServer();
 	const account = await server.signIn('bench');
-	const minted = await mintFolder(account);
-	if (minted.error !== null) throw new Error(minted.error.message);
+	const joined = await joinFolder(account);
+	if (joined.error !== null) throw new Error(joined.error.message);
+	if (!('folder' in joined.data)) throw new Error('expected one folder');
+	const { folder } = joined.data;
 	const roots: string[] = [];
 	const folders: Disposable[] = [];
 	return {
 		name: asFolder
 			? 'open folder over a directory with the server'
 			: 'directory with the server',
-		repository: folderRepository(account, minted.data.folder),
+		repository: folderRepository(account, folder),
 		async device() {
 			const root = await scratch('epicenter-sync-bench-');
 			roots.push(root);

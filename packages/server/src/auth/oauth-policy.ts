@@ -9,7 +9,9 @@ import type { OAuthResourceInput } from '@better-auth/oauth-provider';
 /**
  * Every scope the server grants. A scope exists only while some route refuses
  * a token without it, or userinfo withholds a claim without it (`email`);
- * none of them changes the account.
+ * none of them changes the account. `folders:all` reaches every folder the
+ * person holds, as the CLI and the Epicenter app do; a token without it
+ * reaches only the folders attached to its app (ADR-0811).
  */
 export const OAUTH_SCOPES = [
 	'openid',
@@ -19,6 +21,7 @@ export const OAUTH_SCOPES = [
 	'ai',
 	'folders:read',
 	'folders:write',
+	'folders:all',
 ] as const;
 export type OAuthScope = (typeof OAUTH_SCOPES)[number];
 
@@ -39,7 +42,7 @@ export const TOKEN_PREFIX = {
 export type OAuthAudiences = {
 	/** Inference and transcription. */
 	api: string;
-	/** Git smart HTTP and `GET /api/repos`. */
+	/** A folder's sync routes, Git smart HTTP, and `/api/folders`. */
 	git: string;
 };
 
@@ -50,7 +53,7 @@ export type OAuthAudiences = {
  */
 export const SCOPES_SUPPORTED = {
 	api: ['ai'],
-	git: ['folders:read', 'folders:write'],
+	git: ['folders:read', 'folders:write', 'folders:all'],
 } as const satisfies Record<keyof OAuthAudiences, readonly OAuthScope[]>;
 
 /**

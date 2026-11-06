@@ -1,123 +1,67 @@
 /**
- * `epicenter sync`, `clone`, `log`, `diff`, and `restore` (ADR-0804): a
- * plain folder on this computer synced with its repository on the server by
- * the one TypeScript function every surface runs,
- * `sync({ local, remote, manifest })` from `@epicenter/folder/sync`. The
- * local side is the directory's store, the remote the folder's repository
- * reached by its id, and the manifest `.epicenter/synced.json`, which names
- * that id. No Git runs on this computer: history is the server's, read here
- * by `log` and `diff` and brought back by `restore`, and a person who wants
- * Git clones the repository with Git.
+ * `epicenter sync`, `clone`, `log`, `diff`, and `restore` (ADR-0804,
+ * ADR-0811): a plain folder on this computer synced with its folder on the
+ * server by the functions every surface composes, `syncFolder` and its
+ * kin from `@epicenter/folder/platform`. The local side is the directory's
+ * store, the remote the folder's repository reached by its id, and the
+ * manifest `.epicenter/synced.json`, which names that id and the directory
+ * it synced in. No Git runs on this computer: history is the server's, read
+ * here by `log` and `diff` and brought back by `restore`, and a person who
+ * wants Git clones the folder's remote with Git.
  *
- * A folder's first sync mints its repository and records its id; `clone`
- * records the id of a repository that exists, so the next sync takes its
- * files (and merges any already in the folder). Exit codes: 0 synced, 1 a
- * sync to run again or a file the repository refused, 2 what the command
- * cannot use (no sign-in, no such folder, the server out of reach).
+ * A folder's first sync joins the folder its manifest names when the person
+ * holds it, and otherwise makes one; a copied folder (its manifest names
+ * another directory) sends nothing until `--new` or `--same` answers what
+ * it is. `clone` brings a folder the person holds into the Epicenter folder.
+ * Exit codes: 0 synced, 1 a sync to run again, a file the repository
+ * refused, or a copy's question, 2 what the command cannot use (no sign-in,
+ * no such folder, the server out of reach).
  */
-import { mkdir, stat } from 'node:fs/promises';
-import { resolve } from 'node:path';
 import { isHiddenPath } from '@epicenter/definition/contract';
+import { localFolder } from '@epicenter/folder/node';
 import {
-	isFolderId,
-	isRepositoryName,
-	parseRepositoryPath,
-	type RepositoryListing,
-} from '@epicenter/definition/site';
-import { nodeStore } from '@epicenter/folder/node';
-import {
-	folderRepository,
-	type Manifest,
-	type ManifestStore,
-	type ManifestVersion,
-	mintFolder,
+	type CopyAnswer,
+	cloneFolder,
+	cloneIntoHome,
+	type FolderSync,
+	listFolders,
 	type RemoteAccount,
-	type SyncReport,
-	storeManifest,
-	sync,
-} from '@epicenter/folder/sync';
-import { Err, Ok, type Result } from 'wellcrafted/result';
+	syncEvery,
+	syncFolder,
+} from '@epicenter/folder/platform';
+import { folderRepository, storeManifest } from '@epicenter/folder/sync';
+import { Err, Ok } from 'wellcrafted/result';
 import { authContext, type GrantKind } from '../auth.ts';
+import { describeMembers, homeRoot } from '../folder-commands.ts';
 import { count, EXIT, fail, writeErr, writeJson, writeOut } from '../output.ts';
 import { signedInAccount } from './account.ts';
 
 type Options = Record<string, string | true>;
 
-/** A directory's store, as `@epicenter/folder/node` opens one. */
-type Store = ReturnType<typeof nodeStore>;
-
-/**
- * The folder at `dir` (made when `make`): its path, its store, where its
- * manifest is kept (`saved`), and the manifest it holds; or the message to
- * fail with.
- */
-async function folderAt(
-	dir: string,
-	{ make = false } = {},
-): Promise<
-	Result<
-		{
-			path: string;
-			store: Store;
-			saved: ManifestStore;
-			manifest: Manifest;
-			version: ManifestVersion;
-		},
-		string
-	>
-> {
-	const path = resolve(dir);
-	if (make) await mkdir(path, { recursive: true });
-	const found = await stat(path).catch(() => undefined);
-	if (found === undefined) return Err(`${path} does not exist`);
-	if (!found.isDirectory()) return Err(`${path} is not a folder`);
-	const store = nodeStore(path);
-	const saved = storeManifest(store);
-	const read = await saved.read();
-	if (read.error !== null)
-		return Err(`Could not read .epicenter/synced.json: ${read.error.message}`);
-	return Ok({ path, store, saved, ...read.data });
-}
-
-/** Write `next` as the folder's first manifest, over `version`. */
-async function startManifest(
-	manifest: ManifestStore,
-	next: Manifest,
-	version: ManifestVersion,
-) {
-	const written = await manifest.write(next, version);
-	if (written.error !== null) return written.error.message;
-	if (written.data === 'moved')
-		return 'Another sync of this folder started meanwhile; run it again.';
-	return null;
-}
-
-/** One sync of the folder at `path` with its repository, printed. */
-async function runSync({
-	account,
-	path,
-	folder,
-	store,
-	saved,
-	json,
-}: {
-	account: RemoteAccount;
-	path: string;
-	folder: string;
-	store: Store;
-	saved: ManifestStore;
-	json: boolean;
-}) {
-	const ran = await sync({
-		local: store,
-		remote: folderRepository(account, folder),
-		manifest: saved,
-	});
-	if (ran.error !== null)
-		return fail(`Could not sync ${path}: ${ran.error.message}`, json);
-	const report: SyncReport = ran.data;
-	if (json) writeJson({ sync: { folder: path, id: folder, ...report } });
+/** One folder's sync, printed; its exit code. */
+function printSync(path: string, done: FolderSync, json: boolean) {
+	if (done.kind === 'copy') {
+		const message = `${path} is a copy of the folder ${done.copyOf}, made in another directory, so it sent nothing. Run epicenter sync --new to make it a folder of its own, or --same if it is that folder, moved.`;
+		if (json) writeJson({ sync: { folder: path, copyOf: done.copyOf } });
+		else writeErr(message);
+		return EXIT.finding;
+	}
+	if (done.kind === 'choose') {
+		if (json) writeJson({ sync: { folder: path, choose: done.folders } });
+		else
+			writeErr(
+				`${path}: you hold several folders this app uses (${done.folders.join(', ')}); clone one into it.`,
+			);
+		return EXIT.finding;
+	}
+	const { report } = done;
+	if (json)
+		writeJson({
+			sync: { folder: path, id: done.folder, made: done.made, ...report },
+		});
 	else {
+		if (done.made)
+			writeErr(`${path}: its folder on the server is ${done.folder}`);
 		const parts = [
 			report.pulled.length > 0
 				? `${count(report.pulled.length, 'file')} pulled`
@@ -146,120 +90,161 @@ async function runSync({
 		: EXIT.finding;
 }
 
+/** The answer `--new` or `--same` gives a copy, or why both were given. */
+function copyAnswer(options: Options): CopyAnswer | undefined | string {
+	if (options.new === true && options.same === true)
+		return 'Give --new or --same, not both.';
+	return options.new === true
+		? 'new'
+		: options.same === true
+			? 'same'
+			: undefined;
+}
+
 /**
- * `epicenter sync [<dir>]`: sync the folder (this directory by default)
- * with its repository, minting one at its first sync.
+ * `epicenter sync [<dir>] [--new | --same]`: sync the folder (this
+ * directory by default) with its folder on the server. `--all` syncs every
+ * folder in the Epicenter folder that moved on either side.
  */
 export async function syncCommand(
 	dir: string | undefined,
+	options: Options,
 	json: boolean,
 	grant: GrantKind,
 ) {
-	const { data: at, error } = await folderAt(dir ?? '.');
-	if (error !== null) return fail(error, json);
 	const account = signedInAccount(authContext(), grant);
-	let folder = at.manifest.folder;
-	if (folder === undefined) {
-		const minted = await mintFolder(account);
-		if (minted.error !== null)
-			return fail(
-				`Could not make this folder's repository: ${minted.error.message}`,
-				json,
-			);
-		folder = minted.data.folder;
-		const problem = await startManifest(
-			at.saved,
-			{ ...at.manifest, folder },
-			at.version,
+	if (options.all === true) {
+		if (dir !== undefined)
+			return fail('--all syncs every folder; name none.', json);
+		const every = await syncEvery({ account, root: homeRoot() });
+		if (every.error !== null) return fail(every.error.message, json);
+		let code: number = EXIT.ok;
+		for (const { path, result } of every.data) {
+			if (result === undefined) {
+				if (json) writeJson({ sync: { folder: path, unchanged: true } });
+				continue;
+			}
+			const ran =
+				result.error !== null
+					? fail(`Could not sync ${path}: ${result.error.message}`, json)
+					: printSync(path, result.data, json);
+			code = Math.max(code, ran);
+		}
+		if (!json && every.data.every(({ result }) => result === undefined))
+			writeOut('Every folder is in sync.');
+		return code;
+	}
+	const answer = copyAnswer(options);
+	if (typeof answer === 'string' && answer !== 'new' && answer !== 'same')
+		return fail(answer, json);
+	const local = await localFolder(dir ?? '.');
+	if (local.error !== null) return fail(local.error.message, json);
+	const done = await syncFolder({
+		account,
+		store: local.data.store,
+		identity: local.data.identity,
+		copy: answer as CopyAnswer | undefined,
+	});
+	if (done.error !== null)
+		return fail(
+			`Could not sync ${local.data.path}: ${done.error.message}`,
+			json,
 		);
-		if (problem !== null) return fail(problem, json);
-		if (!json) writeErr(`${at.path}: its repository is ${folder}`);
-	}
-	return runSync({ ...at, account, folder, json });
+	return printSync(local.data.path, done.data, json);
 }
 
 /**
- * The folder id `source` names: an id, or `<namespace>/<name>` (`~` for the
- * caller's own) among the repositories the sign-in may reach.
+ * The folder id `source` names among the folders the person holds: an id,
+ * or a title, which must name one.
  */
-async function folderOf(
-	account: RemoteAccount,
-	source: string,
-): Promise<{ folder: string; name: string } | { error: string }> {
-	if (isFolderId(source)) return { folder: source, name: source };
-	const own = /^~\/(.+)$/.exec(source)?.[1];
-	const named =
-		own !== undefined && isRepositoryName(own)
-			? { namespace: null, name: own }
-			: parseRepositoryPath(source);
-	if (named === undefined)
-		return {
-			error: `'${source}' is neither a folder id nor <namespace>/<name>`,
-		};
-	let listing: RepositoryListing;
-	try {
-		const response = await account.fetch(`${account.baseURL}/api/repos`);
-		if (!response.ok)
-			return { error: `${account.baseURL} answered ${response.status}` };
-		listing = (await response.json()) as RepositoryListing;
-	} catch (cause) {
-		return { error: cause instanceof Error ? cause.message : String(cause) };
-	}
-	const namespace = listing.namespaces.find((space) =>
-		named.namespace === null ? space.personal : space.id === named.namespace,
+async function folderOf(account: RemoteAccount, source: string) {
+	const listing = await listFolders(account);
+	if (listing.error !== null) return Err(listing.error.message);
+	const found = listing.data.folders.filter(
+		({ id, title }) => id === source || title === source,
 	);
-	const found = namespace?.repositories.find(({ name }) => name === named.name);
-	if (found === undefined) return { error: `No repository is named ${source}` };
-	return { folder: found.id, name: found.name };
+	if (found.length === 0)
+		return Err(
+			`You hold no folder '${source}': run epicenter clone to list yours`,
+		);
+	if (found.length > 1)
+		return Err(
+			`Several of your folders are titled '${source}': clone one by its id (${found.map(({ id }) => id).join(', ')})`,
+		);
+	return Ok(found[0] as (typeof found)[number]);
 }
 
 /**
- * `epicenter clone <folder> [<dir>]`: record the repository `<folder>`
- * names in `<dir>` (by default a new directory named for it here), and
- * sync, which brings its files; a folder that already holds files merges
- * them on top.
+ * `epicenter clone [<folder>] [<dir>]`: without a folder, the folders the
+ * person holds by title and who holds them; with one (its id or title),
+ * bring it into `<dir>`, or a new folder in the Epicenter folder named for
+ * its title, and sync, which takes its files. A folder that already holds
+ * files keeps them, merged on top.
  */
 export async function cloneCommand(
-	source: string,
+	source: string | undefined,
 	dir: string | undefined,
 	json: boolean,
 	grant: GrantKind,
 ) {
 	const account = signedInAccount(authContext(), grant);
-	const named = await folderOf(account, source);
-	if ('error' in named) return fail(named.error, json);
-	const { data: at, error } = await folderAt(dir ?? named.name, { make: true });
-	if (error !== null) return fail(error, json);
-	if (at.manifest.folder !== undefined && at.manifest.folder !== named.folder)
-		return fail(
-			`${at.path} already syncs with ${at.manifest.folder}; clone into another folder`,
-			json,
-		);
-	if (at.manifest.folder === undefined) {
-		const problem = await startManifest(
-			at.saved,
-			{ folder: named.folder, commit: null, files: {} },
-			at.version,
-		);
-		if (problem !== null) return fail(problem, json);
+	if (source === undefined) {
+		const listing = await listFolders(account);
+		if (listing.error !== null) return fail(listing.error.message, json);
+		const { folders } = listing.data;
+		if (json) writeJson({ folders });
+		else
+			writeOut(
+				folders.length === 0
+					? 'You hold no folders yet.'
+					: folders
+							.map(
+								({ id, title, members }) =>
+									`${id}  ${title ?? '(untitled)'}  ${describeMembers(members)}`,
+							)
+							.join('\n'),
+			);
+		return EXIT.ok;
 	}
-	return runSync({ ...at, account, folder: named.folder, json });
+	const named = await folderOf(account, source);
+	if (named.error !== null) return fail(named.error, json);
+	const folder = named.data.id;
+	if (dir === undefined) {
+		const cloned = await cloneIntoHome({
+			account,
+			root: homeRoot(),
+			folder,
+			name: named.data.title ?? folder,
+		});
+		if (cloned.error !== null) return fail(cloned.error.message, json);
+		return printSync(cloned.data.local.path, cloned.data.sync, json);
+	}
+	const local = await localFolder(dir, { make: true });
+	if (local.error !== null) return fail(local.error.message, json);
+	const cloned = await cloneFolder({ account, folder, local: local.data });
+	if (cloned.error !== null) return fail(cloned.error.message, json);
+	return printSync(local.data.path, cloned.data, json);
 }
 
 /** The folder at `dir` and its repository, or the message to fail with. */
 async function syncedFolder(dir: string | undefined, grant: GrantKind) {
-	const { data: at, error } = await folderAt(dir ?? '.');
-	if (error !== null) return Err(error);
-	const { folder } = at.manifest;
+	const local = await localFolder(dir ?? '.');
+	if (local.error !== null) return Err(local.error.message);
+	const { path, store } = local.data;
+	const read = await storeManifest(store).read();
+	if (read.error !== null)
+		return Err(`Could not read .epicenter/synced.json: ${read.error.message}`);
+	const { manifest } = read.data;
+	const { folder } = manifest;
 	if (folder === undefined)
 		return Err(
-			`${at.path} has never synced: run epicenter sync, or epicenter clone <folder> into it`,
+			`${path} has never synced: run epicenter sync, or epicenter clone <folder> into it`,
 		);
 	const repository = folderRepository(
 		signedInAccount(authContext(), grant),
 		folder,
 	);
-	return Ok({ ...at, folder, repository });
+	return Ok({ path, store, manifest, folder, repository });
 }
 
 /** `epicenter log [<dir>] [--limit <n>]`: the folder's history on the server, newest first. */

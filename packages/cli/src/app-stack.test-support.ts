@@ -65,10 +65,11 @@ export type Stack = {
 	guests: Record<string, Guest>;
 };
 
-export type Guest = Pick<Person, 'namespace' | 'cookie'>;
+export type Guest = Pick<Person, 'email' | 'cookie'>;
 
 export type Person = {
-	namespace: string;
+	/** The email the person signs in with, which others share with. */
+	email: string;
 	/** The browser's session cookie on the API's host. */
 	cookie: { name: string; value: string };
 	/** The desktop sandbox directory, and the environment every CLI and git process there runs with. */
@@ -249,7 +250,6 @@ export async function runAppStack({
 						cookie: person.cookie,
 						userCode: (codes[0] as { userCode: string }).userCode,
 						clientId: 'so.epicenter.cli',
-						target: '*',
 					});
 				},
 			});
@@ -275,14 +275,14 @@ export async function runAppStack({
 			);
 			await chmod(link, 0o755);
 			people[project] = {
-				namespace: person.personal,
+				email: person.email,
 				cookie: splitCookie(person.cookie),
 				home,
 				env,
 			};
 			const guest = await client.person(`${project}-guest`);
 			guests[project] = {
-				namespace: guest.personal,
+				email: guest.email,
 				cookie: splitCookie(guest.cookie),
 			};
 		}

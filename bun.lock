@@ -126,7 +126,6 @@
       "version": "0.0.2",
       "dependencies": {
         "@epicenter/cli": "workspace:*",
-        "@epicenter/definition": "workspace:*",
         "@epicenter/transcription": "workspace:*",
         "@epicenter/ui": "workspace:*",
         "@tauri-apps/api": "catalog:",

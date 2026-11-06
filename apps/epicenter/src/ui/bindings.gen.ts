@@ -6,41 +6,6 @@ import { invoke as __TAURI_INVOKE, Channel } from "@tauri-apps/api/core";
 export const commands = {
 	/**  Show Settings: the Folders window's Settings button (ADR-0537). */
 	openHome: () => __TAURI_INVOKE<void>("open_home"),
-	/**  Open macOS's Command Line Tools installer when Git is missing. */
-	installGit: () => typedError<null, string>(__TAURI_INVOKE("install_git")),
-	/**  The folders the CLI found, each with its last round. */
-	syncedFolders: () => typedError<SyncedFolderListing, CliError>(__TAURI_INVOKE("synced_folders")),
-	/**
-	 *  Choose a folder with the native picker and queue a setup preview: `None`
-	 *  when the person cancelled.
-	 */
-	addSyncedFolder: () => typedError<string | null, CliError>(__TAURI_INVOKE("add_synced_folder")),
-	/**
-	 *  Set up the folder an `epicenter://init` link asked for. A refusal keeps
-	 *  the request, so the person can read why and dismiss it.
-	 */
-	acceptFolderSetup: (path: string, name: string | null) => typedError<FolderSetUp, CliError>(__TAURI_INVOKE("accept_folder_setup", { path, name })),
-	/**  Let go of a request to sync `path` without reading it. */
-	dismissFolderSetup: (path: string) => __TAURI_INVOKE<void>("dismiss_folder_setup", { path }),
-	/**
-	 *  `epicenter clone <source>`: a repository as `<owner>/<name>` or a URL,
-	 *  into the library folder and set up for sync.
-	 */
-	cloneSyncedFolder: (source: string) => typedError<FolderSetUp, CliError>(__TAURI_INVOKE("clone_synced_folder", { source })),
-	/**  Attach an enrolled folder to an origin through the CLI. */
-	connectSyncedFolder: (path: string, source: string) => typedError<null, CliError>(__TAURI_INVOKE("connect_synced_folder", { path, source })),
-	/**  One round of `epicenter sync <path>` now, kept as the folder's last. */
-	syncFolderNow: (path: string) => typedError<SyncRound, CliError>(__TAURI_INVOKE("sync_folder_now", { path })),
-	/**  `epicenter forget <path>`: stop syncing it, leaving its files and history. */
-	forgetSyncedFolder: (path: string) => typedError<null, CliError>(__TAURI_INVOKE("forget_synced_folder", { path })),
-	/**  Who the repository a synced folder pushes to is shared with. */
-	folderSharing: (path: string) => typedError<RepositoryGrants, CliError>(__TAURI_INVOKE("folder_sharing", { path })),
-	/**  Let `person` read, or also write, the repository a synced folder pushes to. */
-	shareFolder: (path: string, person: string, level: GrantLevel) => typedError<RepositoryGrant, CliError>(__TAURI_INVOKE("share_folder", { path, person, level })),
-	/**  Revoke `person`'s access to the repository a synced folder pushes to. */
-	unshareFolder: (path: string, person: string) => typedError<RepositoryGrantRevoked, CliError>(__TAURI_INVOKE("unshare_folder", { path, person })),
-	/**  Start the service again after it stopped. */
-	restartSyncService: () => __TAURI_INVOKE<void>("restart_sync_service"),
 	/**
 	 *  Sign the app in: the CLI's loopback sign-in as `so.epicenter`. The shell
 	 *  opens the authorization page in the person's browser; each line the CLI
@@ -121,96 +86,6 @@ export type CliExit = {
 	reply: string | null,
 	/**  The end of what the CLI wrote for people, at most 64 KiB. */
 	stderr: string,
-};
-
-/**  Git state shown before a person accepts a setup request. */
-export type FolderFound = {
-	folder: string,
-	repository: string,
-	branch: string | null,
-	remote: string | null,
-	adopted: boolean,
-};
-
-/**  What `epicenter init` or `clone` did. */
-export type FolderSetUp = {
-	folder: string,
-	changed?: string[],
-	warnings?: string[],
-};
-
-export type FolderSetupPreview = {
-	path: string,
-	contract: string | null,
-	found: FolderFound | null,
-	problem: string | null,
-	needsName: boolean,
-};
-
-export type GrantLevel = "read" | "write";
-
-/**  One person a repository is shared with (`RepositoryGrant`). */
-export type RepositoryGrant = {
-	person: string,
-	level: GrantLevel,
-};
-
-export type RepositoryGrantRevoked = {
-	person: string,
-	revoked: boolean,
-};
-
-export type RepositoryGrants = {
-	grants: RepositoryGrant[],
-};
-
-/**  One folder's line of `epicenter sync --json` (`SyncResult` in the CLI). */
-export type SyncRound = {
-	folder: string,
-	status: SyncStatus,
-	/**  The commit the folder's repository is at when the round ended. */
-	head?: string | null,
-	/**  What the round did, one line each. */
-	notes?: string[],
-	/**  Why the round ended `retry` or `stopped`. */
-	message?: string | null,
-	/**  When this shell heard the round end, in milliseconds since the epoch. */
-	endedAt?: number | null,
-};
-
-/**  Whether `epicenter sync --watch` is running for this app. */
-export type SyncService = { state: "starting" } | { state: "running" } | { state: "stopped"; reason: string };
-
-/**
- *  How one round of `epicenter sync` ended for a folder: 0, 1 and 2 as exit
- *  codes.
- */
-export type SyncStatus = "synced" | "retry" | "stopped";
-
-/**  A synced folder, with its last round. */
-export type SyncedFolder = {
-	path: string,
-	name: string,
-	/**  The `origin` URL, or none for a folder that syncs only locally. */
-	remote: string | null,
-	/**  Files under the folder changed since its last commit. */
-	changes: number,
-	/**  Commits ahead and behind the last fetched `origin/main`. */
-	ahead: number | null,
-	behind: number | null,
-	/**
-	 *  Why the folder cannot be read: "not on disk", "not in a Git repository",
-	 *  or a repository `init` has not adopted.
-	 */
-	problem: string | null,
-	last: SyncRound | null,
-};
-
-/**  What the Folders window shows. */
-export type SyncedFolderListing = {
-	folders: SyncedFolder[],
-	service: SyncService,
-	setups: FolderSetupPreview[],
 };
 
 /* Tauri Specta runtime */

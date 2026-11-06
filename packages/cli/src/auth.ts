@@ -55,7 +55,8 @@ export const AUTH_CLIENTS = {
 } as const satisfies Record<GrantKind, string>;
 
 /** Every scope both clients may hold; every first-party audience allows them all. */
-const SCOPE = 'openid offline_access profile ai folders:read folders:write';
+const SCOPE =
+	'openid offline_access profile ai folders:read folders:write folders:all';
 
 const DEVICE_GRANT = 'urn:ietf:params:oauth:grant-type:device_code';
 

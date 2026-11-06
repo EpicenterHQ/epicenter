@@ -21,8 +21,7 @@
 //! A run that ends early, because its listener refused a line, its page
 //! ended, or its future was dropped, asks the child to stop and kills it
 //! only after [`STOP_GRACE`], so a refresh the child already sent reaches
-//! the keychain (ADR-0565) and a sync round it began, its merge included,
-//! finishes.
+//! the keychain (ADR-0565).
 
 use std::collections::HashMap;
 use std::ffi::OsString;
@@ -115,22 +114,6 @@ fn signal_group(child: &Child, signal: libc::c_int) {
     unsafe {
         libc::kill(-group, signal);
     }
-}
-
-/// Ask the child `slot` recorded, and every process it started, to stop,
-/// without waiting: for the app's exit, when no task is left to wait for it.
-pub(crate) fn stop_started(slot: &StartedChild) {
-    let pid = *slot.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    #[cfg(unix)]
-    if let Some(group) = pid.and_then(|pid| libc::pid_t::try_from(pid).ok()) {
-        // SAFETY: `kill` takes no pointers; the group is the child's own,
-        // and the slot is cleared once the child is waited for.
-        unsafe {
-            libc::kill(-group, libc::SIGTERM);
-        }
-    }
-    #[cfg(not(unix))]
-    let _ = pid;
 }
 
 /// The `epicenter` children each window's page started, by window label,
@@ -341,15 +324,8 @@ pub(crate) struct Invocation {
     program: Program,
     env: Vec<(OsString, OsString)>,
     desktop: bool,
-    lifeline: bool,
     owner: Option<(CliChildren, String)>,
-    started: Option<StartedChild>,
 }
-
-/// Where a run records its child's process ID once the child starts, so
-/// work no page owns can signal it without awaiting anything, as the shell
-/// must when the app exits. The run clears it when the child is waited for.
-pub(crate) type StartedChild = Arc<Mutex<Option<u32>>>;
 
 impl Invocation {
     /// `program` with the deployment at `origin` and this shell's `paths`,
@@ -372,30 +348,13 @@ impl Invocation {
                 ),
             ],
             desktop: false,
-            lifeline: false,
             owner: None,
-            started: None,
         }
-    }
-
-    /// Record the child's process ID in `slot` while it runs.
-    pub(crate) fn recording_child(mut self, slot: &StartedChild) -> Self {
-        self.started = Some(Arc::clone(slot));
-        self
     }
 
     /// Run as the desktop app's grant: `--desktop` follows the arguments.
     pub(crate) fn desktop(mut self) -> Self {
         self.desktop = true;
-        self
-    }
-
-    /// Hold a run's stdin open, unwritten, until the run ends, for a run
-    /// given no stdin body. The system closes it however this app ends, so
-    /// a command that stops when stdin closes (`sync --watch --desktop`)
-    /// cannot outlive the app, even one that crashes or is killed.
-    pub(crate) fn lifeline(mut self) -> Self {
-        self.lifeline = true;
         self
     }
 
@@ -428,15 +387,10 @@ impl Invocation {
             &args,
             &self.env,
             stdin,
-            self.lifeline,
             on_line,
             end.clone(),
-            self.started.as_ref(),
         )
         .await;
-        if let Some(slot) = &self.started {
-            *slot.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
-        }
         if let (Some((children, window)), Some(end)) = (&self.owner, &end) {
             children.finish(window, end);
         }
@@ -490,10 +444,8 @@ async fn run_child(
     args: &[OsString],
     env: &[(OsString, OsString)],
     stdin: Option<Vec<u8>>,
-    lifeline: bool,
     mut on_line: impl FnMut(String) -> Result<(), String>,
     end: Option<Arc<Notify>>,
-    started: Option<&StartedChild>,
 ) -> Result<CliExit, CliError> {
     let ended = async move {
         match end {
@@ -508,7 +460,7 @@ async fn run_child(
         .args(&program.prefix)
         .args(args)
         .envs(env.iter().map(|(name, value)| (name, value)))
-        .stdin(if stdin.is_some() || lifeline {
+        .stdin(if stdin.is_some() {
             Stdio::piped()
         } else {
             Stdio::null()
@@ -524,23 +476,14 @@ async fn run_child(
         ))
     })?));
     let child = running.child();
-    if let Some(slot) = started {
-        *slot.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = child.id();
-    }
-
-    // A lifeline's pipe is held, never written, until this run returns.
-    let (writer, _lifeline) = match (stdin, child.stdin.take()) {
-        (Some(body), Some(mut pipe)) => (
-            Some(tokio::spawn(async move {
-                // A child that exits without reading all of it closes the pipe;
-                // its exit code says why, so a broken pipe is not the failure.
-                let _ = pipe.write_all(&body).await;
-                let _ = pipe.shutdown().await;
-            })),
-            None,
-        ),
-        (None, pipe) => (None, pipe),
-        (Some(_), None) => (None, None),
+    let writer = match (stdin, child.stdin.take()) {
+        (Some(body), Some(mut pipe)) => Some(tokio::spawn(async move {
+            // A child that exits without reading all of it closes the pipe;
+            // its exit code says why, so a broken pipe is not the failure.
+            let _ = pipe.write_all(&body).await;
+            let _ = pipe.shutdown().await;
+        })),
+        _ => None,
     };
     let mut stderr_pipe = child
         .stderr
@@ -784,7 +727,6 @@ mod tests {
     fn paths_in(dir: &std::path::Path) -> DesktopPaths {
         DesktopPaths {
             data_dir: dir.join("data"),
-            folder_dir: dir.join("Epicenter"),
             engine: dir.join(".epicenter/bin/epicenter"),
             environment: epicenter_standalone::data_folder::Environment::Production,
         }
@@ -920,37 +862,6 @@ process.exitCode = 1;
                 message: "the page went away".into()
             }
         );
-    }
-
-    /// A lifeline run holds the child's stdin open, unwritten, for as long
-    /// as the run lasts; the system closes it however this app ends, which
-    /// is what ends `sync --watch --desktop`. A run without one gives the
-    /// child a stdin that is closed from the start.
-    #[tokio::test]
-    async fn a_lifeline_run_holds_stdin_open_while_it_runs() {
-        let program = Program {
-            program: PathBuf::from("bun"),
-            prefix: vec![
-                "-e".into(),
-                "let closed = false; \
-                 process.stdin.on('data', () => {}); \
-                 process.stdin.on('end', () => { closed = true; }); \
-                 await Bun.sleep(500); \
-                 console.log(closed ? 'closed' : 'open'); \
-                 process.exit(0);"
-                    .into(),
-            ],
-        };
-        let stdin_of = |invocation: Invocation| async move {
-            invocation
-                .run(&[], None, |_| Ok(()))
-                .await
-                .unwrap()
-                .reply
-                .unwrap()
-        };
-        assert_eq!(stdin_of(plain(program.clone()).lifeline()).await, "open");
-        assert_eq!(stdin_of(plain(program)).await, "closed");
     }
 
     /// A run that ends early asks the child to stop and gives it
@@ -1094,54 +1005,6 @@ process.exitCode = 1;
             "{ended:?}"
         );
         assert_eq!(children.running("folders"), 0);
-        let _ = fs::remove_dir_all(dir);
-    }
-
-    /// Work no page owns, such as the sync service, records its child while
-    /// it runs, so the app's exit can stop it, and every process it started,
-    /// without awaiting anything; the record is cleared once it ends.
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn a_recorded_child_stops_at_once_with_its_group() {
-        let dir = scratch("recorded");
-        let script = dir.join("child.sh");
-        // `started` prints after the background `sleep` forks, so the signal
-        // finds it in the group; signalled earlier, it would outlive the
-        // shell holding stdout open.
-        fs::write(&script, "#!/bin/sh\nsleep 30 &\necho started\nwait\n").unwrap();
-        let program = Program {
-            program: PathBuf::from("/bin/sh"),
-            prefix: vec![script.into_os_string()],
-        };
-        let slot = StartedChild::default();
-        let invocation = plain(program).recording_child(&slot);
-        let (sender, started) = tokio::sync::oneshot::channel::<()>();
-        let running = tokio::spawn(async move {
-            let mut sender = Some(sender);
-            invocation
-                .run(&[], None, move |_| {
-                    if let Some(sender) = sender.take() {
-                        let _ = sender.send(());
-                    }
-                    Ok(())
-                })
-                .await
-        });
-        tokio::time::timeout(Duration::from_secs(5), started)
-            .await
-            .expect("the child started")
-            .unwrap();
-        assert!(slot.lock().unwrap().is_some());
-        stop_started(&slot);
-        let ended = tokio::time::timeout(Duration::from_secs(2), running)
-            .await
-            .expect("the child stopped at once")
-            .unwrap();
-        let Err(CliError::Failed { message }) = ended else {
-            panic!("not stopped: {ended:?}");
-        };
-        assert!(message.contains("SIGTERM"), "{message}");
-        assert!(slot.lock().unwrap().is_none());
         let _ = fs::remove_dir_all(dir);
     }
 

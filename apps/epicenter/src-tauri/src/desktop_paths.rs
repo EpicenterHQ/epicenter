@@ -1,9 +1,8 @@
-//! Epicenter's machine-local application data and library root, resolved
-//! once at startup. The shell passes its data directory and environment to
-//! each `epicenter` command, which derives the same root. Window binding and
-//! explicitly chosen directories do not depend on them. Standalone apps use
-//! neither. A terminal's `epicenter` follows the same rule
-//! (`packages/cli/src/app-paths.ts`).
+//! Epicenter's machine-local application data, resolved once at startup. The
+//! shell passes its data directory and environment to each `epicenter`
+//! command, which derives the Epicenter folder (`~/Epicenter`, or
+//! `~/Epicenter Dev`) from the environment. A terminal's `epicenter` follows
+//! the same rule (`packages/cli/src/app-paths.ts`).
 
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
@@ -11,12 +10,10 @@ use std::path::{Path, PathBuf};
 use epicenter_standalone::data_folder::{self, Environment};
 use tauri::{AppHandle, Manager, Runtime};
 
-/// Epicenter's machine-local application data and the library root.
+/// Epicenter's machine-local application data.
 #[derive(Debug, Clone)]
 pub struct DesktopPaths {
     pub data_dir: PathBuf,
-    /// The library root: `~/Epicenter` or `~/Epicenter Dev`.
-    pub folder_dir: PathBuf,
     /// The terminal link to this app's bundled CLI.
     pub engine: PathBuf,
     pub environment: Environment,
@@ -37,15 +34,13 @@ impl DesktopPaths {
             Environment::from_config(app.config().plugins.0.get(data_folder::CONFIG_KEY))
                 .map_err(|error| error.to_string())?;
         let home = app.path().home_dir().map_err(|error| error.to_string())?;
-        let folder_dir = resolve_folder_root(environment, || Ok(home.clone()))?;
         let engine = engine_path(&home, environment);
-        for path in [&data_dir, &folder_dir, &engine] {
+        for path in [&data_dir, &engine] {
             path.to_str()
                 .ok_or("Desktop directories must be valid UTF-8.")?;
         }
         Ok(Self {
             data_dir,
-            folder_dir,
             engine,
             environment,
         })
@@ -102,15 +97,6 @@ fn resolve_directory(
     }
 }
 
-/// Resolve the authored root before opening any app windows. The configuration
-/// states the environment. This computes a path and makes nothing.
-fn resolve_folder_root(
-    environment: Environment,
-    home: impl FnOnce() -> Result<PathBuf, String>,
-) -> Result<PathBuf, String> {
-    Ok(data_folder::root(&home()?, environment))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -143,28 +129,16 @@ mod tests {
     }
 
     #[test]
-    fn shipped_epicenter_configs_select_their_library_root() {
+    fn shipped_epicenter_configs_select_their_environment() {
         let home = std::env::temp_dir().join("epicenter-home");
-        for (config, name, expected) in [
-            (
-                include_str!("../tauri.conf.json"),
-                "Epicenter",
-                Environment::Production,
-            ),
-            (
-                include_str!("../tauri.dev.conf.json"),
-                "Epicenter Dev",
-                Environment::Development,
-            ),
+        for (config, expected) in [
+            (include_str!("../tauri.conf.json"), Environment::Production),
+            (include_str!("../tauri.dev.conf.json"), Environment::Development),
         ] {
             let config: serde_json::Value = serde_json::from_str(config).unwrap();
             let environment =
                 Environment::from_config(config["plugins"].get(data_folder::CONFIG_KEY)).unwrap();
             assert_eq!(environment, expected);
-            assert_eq!(
-                resolve_folder_root(environment, || Ok(home.clone())).unwrap(),
-                home.join(name)
-            );
             assert_eq!(
                 engine_path(&home, environment),
                 home.join(if environment == Environment::Production {
@@ -183,13 +157,9 @@ mod tests {
     }
 
     #[test]
-    fn missing_home_and_unknown_environments_fail() {
+    fn unknown_environments_fail() {
         assert!(
             Environment::from_config(Some(&serde_json::json!({"environment": "staging"}))).is_err()
-        );
-        assert_eq!(
-            resolve_folder_root(Environment::Production, || Err("no home".to_string())),
-            Err("no home".to_string())
         );
     }
 }

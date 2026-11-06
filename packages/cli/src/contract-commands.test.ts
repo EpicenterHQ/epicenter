@@ -187,10 +187,10 @@ test('a contract that cannot be read or is not well formed, or a missing folder,
 	const notJson = run('check', contractPath, folder, '--json');
 	expect(notJson.exitCode).toBe(2);
 	expect(JSON.parse(notJson.stdout).error).toContain('not JSON');
-	await writeFile(contractPath, JSON.stringify({ collections: {} }));
+	await writeFile(contractPath, JSON.stringify({ collections: [] }));
 	const malformed = run('format', contractPath, folder);
 	expect(malformed.exitCode).toBe(2);
-	expect(malformed.stderr).toContain('declares no collections');
+	expect(malformed.stderr).toContain('its collections are not an object');
 	await writeFile(contractPath, JSON.stringify(contract));
 	const typo = join(parent, 'typo');
 	expect(run('check', contractPath, typo).exitCode).toBe(2);

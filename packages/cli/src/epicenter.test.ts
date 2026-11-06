@@ -78,8 +78,9 @@ test('--help lists every command but the hidden ones, and --json describes them'
 	const help = run('--help');
 	expect(help.exitCode).toBe(0);
 	for (const usage of [
-		'epicenter sync [<dir>]',
-		'epicenter clone <folder> [<dir>]',
+		'epicenter sync [<dir>] [--new] [--same] [--all]',
+		'epicenter clone [<folder> [<dir>]]',
+		'epicenter share <folder> [<email>] [--read] [--write] [--owner]',
 		'epicenter restore <commit> [<dir>] [--path <path>]',
 	])
 		expect(help.stdout).toContain(usage);
@@ -89,14 +90,18 @@ test('--help lists every command but the hidden ones, and --json describes them'
 	expect(described.map((c: { command: string }) => c.command)).toEqual([
 		'check',
 		'format',
+		'status',
+		'init',
 		'sync',
 		'clone',
 		'log',
 		'diff',
 		'restore',
-		'repos',
 		'share',
 		'unshare',
+		'accept',
+		'attach',
+		'detach',
 		'auth login',
 		'auth logout',
 		'auth status',

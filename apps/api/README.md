@@ -20,11 +20,11 @@ This folder is a single Cloudflare Worker deployment: `worker/` (Hono code) and 
 
 Part of the [Epicenter](https://github.com/EpicenterHQ/epicenter) monorepo. AGPL-3.0 licensed. If you host a modified version, you share your changes. See [Stack and priorities](#stack-and-priorities) for self-hosting and the trust model below.
 
-Runs on Cloudflare Workers. Folder data syncs over plain Git to a server the
-person chooses. This Worker is Epicenter's hosted choice: it mounts
-`mountGitHost` from `@epicenter/server` over Cloudflare Artifacts
-(`worker/git-repositories.ts`), at `git.epicenter.so/<namespace>/<name>.git`
-(ADR-0546). See [Hosted Git](#hosted-git).
+Runs on Cloudflare Workers. This Worker is Epicenter's hosted server for
+folders (ADR-0811): it mounts `mountGitHost` from `@epicenter/server` over
+Cloudflare Artifacts (`worker/git-repositories.ts`), where each folder's
+history is a Git repository at `git.epicenter.so/folders/<id>.git`. See
+[Hosted Git](#hosted-git).
 
 The Yjs store sync this Worker used to serve is removed (ADR-0534), and so is
 the GitHub connector that relayed a browser's Git to GitHub. Their Durable
@@ -71,12 +71,13 @@ sign-in, consent, device approval, and the dashboard's account management
 This Worker is the OAuth 2.1 authorization server of
 [ADR-0549](../../docs/adr/0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md),
 and every resource it serves accepts only its opaque access tokens: `/v1/*`
-takes the API audience and `ai`, Git requests the Git audience with
-`folders:read` or `folders:write` and a namespace role or a grant on the
-repository, and `GET /api/repos` and the owner's grant routes the Git audience
-with `folders:read` (listing) or `folders:write` (granting, revoking). Epicenter hosts no MCP server
+takes the API audience and `ai`, a folder's routes the Git audience with
+`folders:read` or `folders:write`, the caller's role in the folder, and
+either `folders:all` or the folder's attachment to the app, and
+`/api/folders` the Git audience with `folders:read` (listing) or
+`folders:write` (sharing, accepting, attaching). Epicenter hosts no MCP server
 ([ADR-0578](../../docs/adr/0578-epicenter-hosts-no-mcp-server.md)). The only
-bytes it keeps beside Git are hosted repositories' Git LFS objects, in R2
+bytes it keeps beside Git are folders' Git LFS objects, in R2
 ([ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)). An app reads who signed in from Better Auth's
 `/auth/oauth2/userinfo`, which needs `openid`, and answers the email only
 with `email`. Browser
@@ -125,17 +126,18 @@ Cloudflare Workers
 │   ├── /auth/*                Better Auth (social login, sessions, passkeys,
 │   │                          OAuth 2.1 authorize, token, revoke, device grant)
 │   ├── /sign-in               hosted browser sign-in
-│   ├── /consent               OAuth consent, with the folder picker
+│   ├── /consent               OAuth consent
 │   ├── /device                device code entry; approval is the consent page
 │   ├── /.well-known/*         authorization server and protected resource metadata
-│   ├── /api/repos             the caller's repositories, by namespace
-│   ├── /api/repos/:ns/:name/grants  the owner's grants: list, grant (PUT), revoke (DELETE)
-│   ├── git audience /:namespace/:name.git/*  Git smart HTTP forwarded to Artifacts; with R2 LFS
-│   │                          bound, pushes through the receiver, web writes, Git LFS
+│   ├── /api/folders           the caller's folders and shares; share, accept, attach
+│   ├── git audience /folders  a first sync (POST) and every folder's head (GET)
+│   ├── git audience /folders/:id/*  a folder's sync routes
+│   ├── git audience /folders/:id.git/*  Git smart HTTP forwarded to Artifacts; with R2 LFS
+│   │                          bound, pushes through the receiver, Git LFS
 │   ├── /v1/*                  OpenAI-compatible chat and STT gateways
 │   └── /api/billing/*         Autumn (hosted-only, worker/billing/)
 │
-└── Artifacts (ARTIFACTS binding): one namespace per environment, one Git repository per repository id
+└── Artifacts (ARTIFACTS binding): one namespace per environment, one Git repository per folder id
 ```
 
 API keys for AI providers come from Infisical's production `/api` secret sync to this Worker. Clients never receive provider keys. The client sends an OAuth access token, the hub validates it and swaps in the real key before forwarding to the provider.
@@ -185,10 +187,11 @@ bun run db:push:local
 Production uses Supabase Postgres in Frankfurt (`eu-central-1`). Better Auth
 continues to own Epicenter sign-in; Supabase supplies the database. The runtime
 Hyperdrive connection uses the `epicenter_api` role with read and write access
-to Epicenter's tables. Migration `0002` adds the OAuth and namespace tables,
-so that role needs `SELECT`, `INSERT`, `UPDATE`, and `DELETE` on them before a
-deploy that serves the authorization server: the account trigger from `0003`
-inserts the personal namespace as the role that inserts the account.
+to Epicenter's tables. Migration `0002` adds the OAuth tables and `0009` the
+folder tables, so that role needs `SELECT`, `INSERT`, `UPDATE`, and `DELETE`
+on them before a deploy that serves them: the `folder_member_left` trigger
+from `0009` deletes and updates folder rows as the role that removes a
+member.
 
 Query caching must stay disabled on that Hyperdrive configuration. This Worker
 is the OAuth authorization server, and every resource checks access tokens in
@@ -240,18 +243,20 @@ names what is deployment-specific:
   `<origin>/git` (ADR-0326). No client registers itself or identifies itself
   by a metadata document: every client is one of these first-party rows.
 - **First-party clients**, in `worker/oauth-registrations.ts`. Each browser build is its app id, a public PKCE
-  client with its exact `/auth/callback`, consent skipped, target `*`. It may
+  client with its exact `/auth/callback`, consent skipped, reaching the
+  folders attached to it (ADR-0811). It may
   ask for `offline_access` only to mint one access token per audience in one
   sign-in, keeps no refresh token, and its grant stays bound to the session
   (`offlineDetach` skips web clients). The
-  desktop app is `so.epicenter`, with a loopback redirect on any port and
-  `offline_access`. Each standalone desktop app that signs in is its own
+  desktop app is `so.epicenter`, with a loopback redirect on any port,
+  `offline_access`, and `folders:all`, which reaches every folder its person
+  holds. Each standalone desktop app that signs in is its own
   native client, `so.epicenter.<app>.native` (`NATIVE_APPS`: Whispering and
   Vocab), with a loopback redirect on any port, PKCE, `offline_access`, and
   the API audience only; its refresh token stays in that computer's
-  keychain. The CLI is `so.epicenter.cli`, with the device grant only
-  and `openid`, so `epicenter auth login` can read who approved it from
-  userinfo.
+  keychain. The CLI is `so.epicenter.cli`, with the device grant only,
+  `folders:all`, and `openid`, so `epicenter auth login` can read who
+  approved it from userinfo.
 
 Both entries write the registrations for the origin they serve with
 `registerFirstPartyClients`, so no migration seeds a client: the Bun entry at
@@ -262,12 +267,12 @@ concurrent writers against a fresh database.
 
 Better Auth runs unpatched, at an exact 1.8 beta in the root catalog. The
 device page sends a code to `/auth/oauth2/authorize?user_code=<code>`, and the
-consent page approves it with its folder choice. Migration
+consent page approves it. Migration
 `0005_better_auth_1_8` adds the 1.8 columns. `api` and `git` allow every
 first-party scope, so a refresh never narrows the grant (ADR-0565).
 
-`oauth-server.postgres.test.ts` runs the spike's checks (refresh family, grant
-target, silent re-authorization, and the end-to-end flows) against both
+`oauth-server.postgres.test.ts` runs the spike's checks (refresh family,
+consent, silent re-authorization, and the end-to-end flows) against both
 entries as separate processes on a disposable Postgres cluster: `bun
 server.ts`, and the Worker under `wrangler dev --local` with Hyperdrive's
 local connection string. `bun run test` runs each test file isolated
@@ -275,18 +280,19 @@ local connection string. `bun run test` runs each test file isolated
 
 ### Hosted Git
 
-`mountGitHost` serves `<git audience>/<namespace>/<name>.git` and
-`GET /api/repos` ([ADR-0546](../../docs/adr/0546-a-folder-syncs-to-git-epicenter-so-under-its-owners-namespace-and-the-first-push-creates-it.md),
-[ADR-0547](../../docs/adr/0547-every-repository-has-one-owner-namespace-and-a-person-is-a-namespace-of-one.md)).
-The route authorizes each request from the access token and the namespace
-membership, and creates a repository on its first push; `packages/server`'s
-README has the routes and refusals. Table `repository` (migration
-`0004_hosted_repositories`) holds names and ids. A repository is never renamed
-or moved (ADR-0771), so its `<namespace>/<name>` is fixed for its life.
+`mountGitHost` serves every folder ([ADR-0811](../../docs/adr/0811-folders-are-shared-directly-and-an-app-reaches-the-folders-attached-to-it.md)):
+its sync routes at `<git audience>/folders/<id>`, its history at
+`<git audience>/folders/<id>.git`, and `/api/folders` for listing, sharing,
+accepting, and attaching it to an app. A folder exists from its first sync,
+which joins one the person holds before it makes one. The route authorizes
+each request from the access token, the person's role in the folder, and
+the token's reach; `packages/server`'s README has the routes and refusals.
+Tables `folder`, `folder_member`, and `folder_app` (migration `0009_folders`)
+hold folders, their members, and the apps they are attached to.
 
 The Worker stores each repository in the Artifacts namespace of its
 environment (`epicenter-production`; `ARTIFACTS_NAMESPACE`), named by its
-immutable id, so no URL shows an id. It reaches
+folder's id. It reaches
 `https://<ARTIFACTS_ACCOUNT_ID>.artifacts.cloudflare.net/git/<ARTIFACTS_NAMESPACE>/<id>.git`
 with a token it mints and caches per repository and scope: 24 hours, renewed an
 hour early, `read` for a fetch and `write` for the receiver's own writes. The
