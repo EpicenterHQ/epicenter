@@ -34,7 +34,7 @@ import {
 	type RemoteAccount,
 } from '../remote/repository.js';
 import { type Deletions, type SyncReport, sync } from '../sync/sync.js';
-import type { KnownApp } from './apps.js';
+import { type KnownApp, madeBy } from './apps.js';
 import {
 	type EpicenterRoot,
 	freeName,
@@ -465,12 +465,9 @@ export async function syncEvery({
 	for (const unbound of identified.unbound) {
 		const { local } = unbound;
 		const entry: EverySync = { name: local.name, path: local.path, local };
-		const listing = await identified.server();
-		const question =
-			listing === null
-				? null
-				: await questionOf(unbound, identified, listing, apps);
-		if (question?.madeBy === null || question === null) {
+		// Only a folder an app made syncs without the person: the server is
+		// asked about no other, so an idle round costs one request.
+		if ((await madeBy(local.name, local.store, apps)) === null) {
 			out.push({ ...entry, waiting: 'local' });
 			continue;
 		}

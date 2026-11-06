@@ -26,7 +26,13 @@ import type { Store, Unavailable } from '../device/store.js';
 import type { FolderIdentity } from '../identity.js';
 import type { RemoteAccount } from '../remote/repository.js';
 import type { KnownApp } from './apps.js';
-import { fileSyncOf, identify, type Question, questionOf } from './identify.js';
+import {
+	fileSyncOf,
+	identify,
+	type Question,
+	questionOf,
+	titleOf,
+} from './identify.js';
 import type { Records } from './records.js';
 
 /** One directory directly inside the Epicenter folder. */
@@ -142,13 +148,13 @@ export async function listHome({
 	);
 	const here = new Set<string>();
 	const folders: HomeFolder[] = [];
-	for (const { local, record, title } of identified.bound) {
+	for (const { local, record } of identified.bound) {
 		here.add(record.folder);
 		const listing = remote.get(record.folder);
 		folders.push({
 			name: local.name,
 			path: local.path,
-			title,
+			title: await titleOf(local.store),
 			state:
 				(listing?.members.length ?? 0) + (listing?.invited.length ?? 0) > 1
 					? 'shared'

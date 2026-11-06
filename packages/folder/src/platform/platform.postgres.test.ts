@@ -279,14 +279,14 @@ test('one request finds which folders moved, and only those sync', async () => {
 	expect(
 		expectOk(await listFolders(alice.account)).folders.map(({ id }) => id),
 	).toContain(busyId);
-	// Nothing moved since: the next round sends that one request, and the
-	// listing a folder not synced here asks for.
+	// Nothing moved since: the next round sends that one request and nothing
+	// else, a folder not synced here that no app made included.
 	sent.length = 0;
 	const next = expectOk(
 		await syncEvery({ account: counted, root: alice.desk.root }),
 	);
 	expect(next.folders.every(({ result }) => result === undefined)).toBe(true);
-	expect(sent).toEqual(['GET /git/folders', 'GET /api/folders']);
+	expect(sent).toEqual(['GET /git/folders']);
 }, 120_000);
 
 test('kept in sync, a change here reaches the server and a change there arrives, each folder marked', async () => {

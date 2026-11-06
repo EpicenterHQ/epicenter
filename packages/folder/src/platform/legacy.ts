@@ -47,9 +47,14 @@ export async function importLegacy({
 	local: LocalFolder;
 	records: Records;
 }): Promise<Result<Imported, Unavailable>> {
-	const read = await local.store.read([LEGACY_MANIFEST]);
+	const read = await local.store.read([LEGACY_MANIFEST, LEGACY_HASHES]);
 	if (read.error !== null) return read;
-	const [file] = read.data;
+	const [file, cache] = read.data;
+	if (
+		(file === undefined || 'gone' in file) &&
+		(cache === undefined || 'gone' in cache)
+	)
+		return Ok('none');
 	let imported: Imported = 'none';
 	if (file !== undefined && !('gone' in file)) {
 		imported = 'unbound';

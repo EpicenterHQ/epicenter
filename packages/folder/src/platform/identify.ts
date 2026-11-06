@@ -51,8 +51,6 @@ export type BoundFolder = {
 	/** The record's version, which its next write goes over. */
 	version: BlobId;
 	proof: Proof;
-	/** The `title` of its `epicenter.json`, or null. */
-	title: string | null;
 };
 
 /** A directory no record proves. */
@@ -214,13 +212,7 @@ export async function identify({
 				version = written.data;
 			}
 		}
-		bound.push({
-			local,
-			record,
-			version,
-			proof: claim.proof,
-			title: await titleOf(local.store),
-		});
+		bound.push({ local, record, version, proof: claim.proof });
 	}
 	const unbound: UnboundFolder[] = [];
 	for (const local of folders)
