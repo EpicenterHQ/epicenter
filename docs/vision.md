@@ -5,6 +5,20 @@ A folder in `~/Epicenter` holds your things, syncs, keeps history, and is
 shared with people; an app, the library, the command line, or an agent shows
 and changes the part of it that it understands.
 
+It is the document architecture of desktop systems with a folder as the
+document ([ADR-0815](adr/0815-the-platform-gives-a-window-its-folder-and-every-app-the-same-home.md)):
+
+| Desktop documents | Epicenter |
+| --- | --- |
+| a document | a folder in `~/Epicenter` |
+| a document-based app | an app: a view and a window |
+| the start screen and Open | the home: folders that fit, and New |
+| one window per document | one window per folder |
+| autosave | writes that never fail |
+| Browse All Versions | History, from the folder's Git history on the server |
+| Share and iCloud | Share with people, and sync |
+| Finder | the library |
+
 Where Epicenter is going, on one page. Each section links the records that
 decided it; read them for the reasons and the detail. This is direction, not
 current truth: most of it is unbuilt, and each record's `Unbuilt` line says

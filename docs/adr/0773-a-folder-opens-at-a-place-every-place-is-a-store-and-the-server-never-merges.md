@@ -9,7 +9,7 @@
 - **Amended by:** [ADR-0786](0786-every-web-app-is-online-and-browser-storage-leaves-the-platform.md) at `home` being this browser's storage with no account: on the web it is the team's repository.
 - **Amended by:** [ADR-0787](0787-records-that-assumed-a-running-engine-or-a-build-time-choice-follow-0750-and-0781.md) at `home` being picked by the build: the package picks when it runs.
 - **Amended by:** [ADR-0807](0807-an-app-writes-only-to-a-local-store-and-only-sync-talks-to-a-server.md) at `home` on the web being the repository: a memory store seeded from it.
-- **Amended by:** [ADR-0815](0815-the-platform-gives-a-window-its-folder-and-every-app-the-same-home.md) at `openFolder(contract, home({ site, account }))`: `openWindowFolder(view)`, and `home` goes.
+- **Amended by:** [ADR-0815](0815-the-platform-gives-a-window-its-folder-and-every-app-the-same-home.md) at `openFolder(contract, home({ site, account }))`: `openFolder(view)`, and `home` goes.
 
 ## Context
 
