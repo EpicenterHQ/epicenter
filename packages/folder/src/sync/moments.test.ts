@@ -4,7 +4,10 @@
  * `syncAtMoments` over an open folder in memory and a memory repository,
  * with fake timers: which moments sync, that one sync runs at a time, and
  * when nothing runs. A second computer is a plain memory store syncing
- * through the same repository.
+ * through the same repository. Hashing a file is real work the fake clock
+ * does not move, so a step of the clock waits until every call into the
+ * folder's store and the repository answered: a check that ran long would
+ * otherwise set the next one late.
  *
  * Key behaviors:
  * - It syncs when it starts, and a few seconds after the last save of a burst.
@@ -17,9 +20,11 @@
  */
 import { afterEach, beforeEach, expect, jest, test } from 'bun:test';
 import { defineContract } from '@epicenter/definition/contract';
+import { Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import { memoryStore } from '../device/memory-store.js';
-import { memory, memoryFiles } from '../memory.js';
+import { createFolder } from '../folder.js';
+import { memory } from '../memory.js';
 import { openFolder } from '../open-folder.js';
 import { type SyncResult, syncAtMoments, type WindowShown } from './moments.js';
 import { memoryRepository, type Repository } from './repository.js';
@@ -31,16 +36,42 @@ const contract = defineContract({
 	},
 });
 
+/** Calls into the folder's store and the repository that have not answered yet. */
+let pending = 0;
+
 beforeEach(() => {
+	pending = 0;
 	jest.useFakeTimers();
 });
 afterEach(() => {
 	jest.useRealTimers();
 });
 
-/** Let what is under way settle: promises, and the real I/O fake timers leave alone. */
+/** `target`, its methods' answers counted in `pending` until they settle. */
+function counted<T extends object>(target: T): T {
+	return new Proxy(target, {
+		get(object, key, receiver) {
+			const value = Reflect.get(object, key, receiver);
+			if (typeof value !== 'function') return value;
+			return (...args: unknown[]) => {
+				const answer = value.apply(object, args);
+				if (!(answer instanceof Promise)) return answer;
+				pending++;
+				return answer.finally(() => {
+					pending--;
+				});
+			};
+		},
+	});
+}
+
+/**
+ * Let what is under way settle: every counted call answered, and the
+ * promises after it run. A turn drains every promise, so a continuation
+ * that makes another call has made it by the next.
+ */
 async function settle() {
-	for (let turn = 0; turn < 200; turn++)
+	for (let quiet = 0; quiet < 2; quiet = pending === 0 ? quiet + 1 : 0)
 		await new Promise((resolve) => setImmediate(resolve));
 }
 
@@ -61,9 +92,10 @@ function setup({
 	window?: WindowShown;
 } = {}) {
 	const repository = memoryRepository();
-	const remote = wrap(repository);
-	const place = memory();
-	const folder = openFolder(contract, place);
+	// A test's own wrapper may hold a call; only what it passes on is counted.
+	const remote = wrap(counted(repository));
+	const store = memoryStore();
+	const folder = createFolder(contract, async () => Ok(counted(store)));
 	const results: SyncResult[] = [];
 	const moments = syncAtMoments({
 		folder,
@@ -77,7 +109,7 @@ function setup({
 		folder,
 		moments,
 		results,
-		outside: memoryFiles(place),
+		outside: store.outside,
 		/** The other computer writes `text` at `path` and syncs. */
 		async otherWrites(path: string, text: string) {
 			await other.outside.write(path, text);
