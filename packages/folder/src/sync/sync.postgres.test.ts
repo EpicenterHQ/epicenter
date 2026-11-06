@@ -16,7 +16,7 @@ import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { startRepositoryServer } from '../../../server/src/test-helpers/repository-server.js';
 import { nodeStore } from '../device/node-store.js';
-import { scratch } from '../git.test-support.js';
+import { scratch } from '../scratch.test-support.js';
 import { folderRepository, mintFolder } from '../remote/repository.js';
 import { storeManifest } from './sync.js';
 import { syncScenarios, type World } from './sync.scenarios.js';

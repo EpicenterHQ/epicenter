@@ -21,7 +21,7 @@ import { memoryStore } from '../device/memory-store.js';
 import { nodeStore } from '../device/node-store.js';
 import type { Store } from '../device/store.js';
 import { localStoreOf } from '../folder.js';
-import { scratch } from '../git.test-support.js';
+import { scratch } from '../scratch.test-support.js';
 import { directory } from '../node.js';
 import { openFolder } from '../open-folder.js';
 import { folderRepository, mintFolder } from '../remote/repository.js';

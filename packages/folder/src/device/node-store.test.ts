@@ -21,7 +21,7 @@ import { expect, mock, test } from 'bun:test';
 import * as fs from 'node:fs/promises';
 import { join } from 'node:path';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { scratch } from '../git.test-support.js';
+import { scratch } from '../scratch.test-support.js';
 import { savesDirectory } from '../state.js';
 import { blobIdOf } from '../hash.js';
 import { HASHES_PATH } from './stamp-cache.js';

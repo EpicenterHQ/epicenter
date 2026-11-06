@@ -10,11 +10,10 @@
 	"scripts": {
 		"compile": "bun scripts/compile.ts",
 		"typecheck": "tsc --noEmit",
-		"test": "bun run --cwd ../epicenter-core build && bun test"
+		"test": "bun test"
 	},
 	"dependencies": {
 		"@beeper/desktop-api": "^6.0.0",
-		"@epicenter/core": "workspace:*",
 		"@epicenter/definition": "workspace:*",
 		"@epicenter/folder": "workspace:*",
 		"wellcrafted": "catalog:",

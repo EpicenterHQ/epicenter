@@ -8,7 +8,7 @@
 import { afterAll, describe, mock, test } from 'bun:test';
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { scratch } from '../git.test-support.js';
+import { scratch } from '../scratch.test-support.js';
 import { createNamedShell } from '../named-shell.test-support.js';
 import { watchDirectory } from '../native/watch.js';
 import { memoryStore } from './memory-store.js';

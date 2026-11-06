@@ -15,7 +15,7 @@ import { join } from 'node:path';
 import { defineContract } from '@epicenter/definition/contract';
 import { Ok } from 'wellcrafted/result';
 import { memoryStore } from '../device/memory-store.js';
-import { scratch } from '../git.test-support.js';
+import { scratch } from '../scratch.test-support.js';
 import { openFolder } from '../open-folder.js';
 import { serveDirectory } from '../serve.js';
 import { served } from '../served.js';

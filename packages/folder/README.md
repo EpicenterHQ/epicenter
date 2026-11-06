@@ -35,7 +35,6 @@ A Svelte app reads it through `reactive` from
 | `@epicenter/folder/serve` | `serveDirectory(path)`, the program's half: it answers its page's store verbs over a directory, in Bun or Node. |
 | `@epicenter/folder/sync` | `sync({ local, remote, manifest })`, ADR-0803's prototype: a store synced with a repository's history through a manifest at `.epicenter/synced.json`, `{ folder, commit, files }` with each file's Git blob id (ADR-0808), merging notes with `@epicenter/definition/front-matter`. `localStoreOf(folder)` is an open folder as the local store: it lists every visible file and reads from what the folder holds, so an unchanged sync of 10,000 notes reads no file. Two syncs of one folder may run at once: every write, the manifest's included, is over the version read. `syncAtMoments({ folder, remote })` syncs an open folder when it starts, after a burst of saves, when its window returns, every three seconds while shown when either side changed, and on request (ADR-0804). No app runs it yet. |
 | `@epicenter/folder/tauri` | `revealRoot(root)`, which shows a root the shell named in the file manager, and `syncWithEpicenter` and `syncedWithEpicenter` for Epicenter enrollment. What a capability keeps for this computer goes to AppData through `settings` from [`@epicenter/local`](../local/README.md), not through a folder. |
-| `@epicenter/folder/bun` | The CLI's system `git` runner (`runGit`). |
 
 Importing an entry does not open anything. A place is opaque: only this
 package makes one, and nothing outside it holds a store or the collections
@@ -295,12 +294,12 @@ recovered. `state.rs` in the folder core spells that layout, and `state.ts`
 here the `saves/` a page writes, both held to one fixture;
 `bun run check:state-paths` fails when other production code spells it. Like
 every hidden path (`isHiddenPath`), it is not a folder's data: no watcher
-reports it, listings show it for their readers to skip, and `epicenter sync`
-never commits it. Watching is best effort.
+reports it, a device's listing of its root leaves it out, and sync never
+carries it. Watching is best effort.
 
-History is not the folder's: it gains Git only when `epicenter init`
-registers it, and `epicenter sync` (in `@epicenter/cli`) is its only
-committer, over the system `git` this package's `runGit` runs.
+History is not the folder's: a folder is plain files and its manifest, and
+its history is the repository's on the server, which sync commits to
+(ADR-0804). No Git runs on a computer.
 
 ## Layout
 
@@ -314,7 +313,7 @@ committer, over the system `git` this package's `runGit` runs.
 | `src/remote/` | A folder's repository on the server: the `Repository` sync takes, and the store a web folder opens. |
 | `src/served/`, `served.ts`, `serve.ts` | A directory a program serves its page: the page's store, the program's handler, and the wire between them (four `POST`s of JSON; a watch is a stream of JSON lines, and a dropped one is heard as `'all'`). |
 | `src/native/`, `paths.ts`, `state.ts`, `path-turns.ts` | Watches, the shell's bindings, the path rule, where unfinished writes live, and per-path turns. |
-| `src/git/native-host.ts` | The system `git` runner the CLI's sync verbs use. |
+| `src/sync/` | `sync`, its repository contract and memory twin, the manifest, the scenarios every world runs, and `syncAtMoments`. |
 | `evidence/` | Recorded experiments and measurements, and the closure check. |
 
 ## Commands

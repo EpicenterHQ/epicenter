@@ -73,7 +73,7 @@ Containment compares canonical paths and directory identity, so a linked
 parent or another spelling of a protected directory is no route around it.
 `Directory` is the canonical directory value both use. What `.git` is, if
 anything, does not matter to storage, as it does not to the Bun host
-(`@epicenter/folder/bun`): a directory with no `.git`, with a `.git` file or
+(`nodeStore` in `@epicenter/folder/node`): a directory with no `.git`, with a `.git` file or
 link (a linked worktree or submodule), or with a repository opens and saves
 alike, and the shell never changes `.git`. Git state that would send history
 writes elsewhere is the `epicenter` CLI's to refuse, before each history
@@ -296,16 +296,14 @@ names and checks it.
 A file in `.epicenter/` is on its way somewhere; `saves/` is always safe to
 delete when no app runs; `recordings/` may hold audio until the app opens
 once. `.epicenter` is a hidden path (`paths::is_hidden_path`), so it is not
-the folder's data: no watcher reports a change in it, listings show it for
-their readers to skip, and `epicenter sync` never commits it, whatever
-`.gitignore` says.
+the folder's data: no watcher reports a change in it, a listing of the root
+leaves it out, and sync never carries it.
 
 ## Git
 
-The `epicenter` CLI owns Git operations over an explicit directory. This
-plugin offers file storage; the current page capabilities grant no native
-history command. Git's checks live in the CLI's runner,
-`packages/folder/src/git/native-host.ts`.
+No Git runs on a computer (ADR-0804): this plugin offers file storage, and a
+folder's history is its repository's on the server, which sync commits to
+from TypeScript. The page capabilities grant no native history command.
 
 ## Changes outside the page
 
