@@ -1,14 +1,14 @@
 # Epicenter desktop app
 
-Epicenter manages folders: it sets up, syncs, shares, and shows the status
-of the folders the `epicenter` CLI syncs. Apps are separate programs that read and write those folders
-through the file contract
-([ADR-0701](../../docs/adr/0701-apps-run-as-separate-programs.md),
-[ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md));
-Epicenter does not open, install, or serve them. History and sync belong to
-the `epicenter` CLI: the [Folders window](#the-folders-window) is a front end
-over it, listing the folders it syncs and running its commands. Epicenter
-opens no folder's files: an app or any editor does.
+Epicenter is where a person sees and manages every folder in the Epicenter
+folder, `~/Epicenter` (ADR-0816), and it keeps every folder in sync while it
+runs (ADR-0819). Its Folders window does that by composing the same package
+functions the `epicenter` CLI does, `@epicenter/folder/platform`
+(ADR-0817), and never runs the CLI. That window is not built yet: it shows
+the commands to use meanwhile (see [The Folders window](#the-folders-window)).
+Apps are separate programs that read and write folders
+([ADR-0701](../../docs/adr/0701-apps-run-as-separate-programs.md)); Epicenter
+does not open, install, or serve them.
 
 The app owns one Tauri runtime, one native command API, and the short list of
 what it compiles in. Its pages are Settings and the Folders window:
@@ -53,9 +53,6 @@ The one binary has these uses:
   fixed commands. A page has no generic exec: each command maps to one
   `epicenter` invocation, writes stdin on its own task, and reads each stdout
   line. Development installs the sidecar in `~/.epicenter-dev/bin/epicenter`.
-- The Folders window's actions each run one `epicenter` command, and the
-  shell runs `epicenter sync --watch --json --desktop` in the background for
-  as long as the app runs ([The Folders window](#the-folders-window)).
 - Settings' Account section runs the CLI's desktop sign-in through three
   fixed commands, granted to the `home` window by `home.json`
   (ADR-0558). `auth_login(onEvent)` runs `epicenter auth login --desktop
@@ -100,17 +97,16 @@ caches belong to this device. `EPICENTER_DATA_DIR` overrides the complete
 path and must be absolute.
 
 Development uses `so.epicenter.dev` for data and settings.
-Production's library, the authored folder root, is `~/Epicenter`; development's
-is `~/Epicenter Dev`. Native locations live in `DesktopPaths`
-(`src-tauri/src/desktop_paths.rs`). The shell stores no folder list in the
-library; the CLI may add links there. Each standalone app derives its folder
-beneath that root from the host
-of its site: `whispering.epicenter.so` uses `whispering`, and
-`zhongwen.bradenwong.com` uses `bradenwong.com/zhongwen`.
-The shell resolves its data directory and library root once, then sets
+Production's Epicenter folder is `~/Epicenter`; development's is
+`~/Epicenter Dev`. Native locations live in `DesktopPaths`
+(`src-tauri/src/desktop_paths.rs`). The shell stores no folder list there.
+Each standalone app derives its folder beneath it from the host of its site:
+`whispering.epicenter.so` uses `whispering`, and `zhongwen.bradenwong.com`
+uses `bradenwong.com/zhongwen`.
+The shell resolves its data directory and environment once, then sets
 `EPICENTER_DATA_DIR` and `EPICENTER_ENVIRONMENT` on every `epicenter` command
-it runs. The CLI derives the same library root. A terminal command defaults
-to the environment embedded when the sidecar was built.
+it runs, from which the CLI derives the Epicenter folder. A terminal command
+defaults to the environment embedded when the sidecar was built.
 `EPICENTER_ENVIRONMENT` overrides it
 (`packages/cli/src/app-paths.ts`).
 
@@ -124,16 +120,14 @@ Files split by what they cost to lose (ADR-0539):
   local-transcription.json                    the active local model and when to unload it
 ```
 
-The library and application data are derived, never saved: no configuration
-selects or remembers them. Release and development data remain separate.
+The Epicenter folder and application data are derived, never saved: no
+configuration selects or remembers them. Release and development data remain
+separate.
 
-Epicenter finds synced folders under `~/Epicenter`, or `~/Epicenter Dev` in
-development. A folder elsewhere is linked inside that library. The CLI scans
-the library root and one level of owner folders. Init asks for a library link
-name outside those depths, then links the folder before recording consent in
-its local Git config. Names that could belong to an app or owner are refused.
-The scan also reports dead links, unreadable candidates, repositories that
-cannot be read. Neither application-data directory holds a folder list.
+Every directory directly inside `~/Epicenter`, or `~/Epicenter Dev` in
+development, is a folder (ADR-0813); one elsewhere joins by a symbolic link
+there. Nothing registers a folder, and neither application-data directory
+holds a folder list.
 
 Overrides select an explicit location, so pointing both builds at the same
 location deliberately shares those files. Development signs in separately
@@ -176,15 +170,14 @@ other signed in.
 
 Epicenter opens the [Folders window](#the-folders-window) (ADR-0537): launching
 Epicenter, reopening it from the Dock, and `epicenter://` without a path all show
-it. It lists the folders the `epicenter` CLI syncs and runs the CLI's
-commands on them, and opens Settings from its Settings button with
-`open_home`.
+it. It opens Settings from its Settings button with `open_home`.
 
 Settings is the window labelled `home`. It signs the app in and out and alone
 administers the local transcription model (ADR-0180). The tray (Show Folders,
 Show Settings) and deep links are shortcuts into the same windows; no link
-opens an app. An `epicenter://init` link
-([Requests to sync a folder](#requests-to-sync-a-folder)) only asks:
+opens an app. An `epicenter://init?path=…` link, which a standalone app
+opens to ask that its folder sync, shows the Folders window, where a
+folder's first sync is the person's (ADR-0813); nothing is queued from it:
 
 ```bash
 open 'epicenter://'
@@ -195,97 +188,30 @@ open 'epicenter://init?path=%2FUsers%2Fme%2FNotes'
 
 ## The Folders window
 
-The Folders window (`folders`, served at `/folders/`) is a front end over the
-`epicenter` CLI ([ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)):
-it lists the folders the CLI syncs, and each of its actions is one CLI call a
-person or an agent could type. Its page source is `src/folders`, built by
-`build:folders` into `dist/folders`; its native side is
-`src-tauri/src/synced_folders.rs`. It is the window Epicenter opens to, and
-`epicenter://app/folders` opens it. The shell binds no folder to it, and its
-capability, `folders.json`, grants no folder plugin command.
+The Folders window (`folders`, served at `/folders/`) is where a person will
+see every folder in the Epicenter folder with its title, state, and members,
+sync, share, and accept folders, and where Epicenter keeps every folder in
+sync while it runs: its page composes `@epicenter/folder/platform`
+(`listHome`, `syncEvery`, `shareFolder`, `acceptIntoHome`), the functions the
+CLI composes, and runs no CLI command (ADR-0816, ADR-0817, ADR-0819). Its
+page source is `src/folders`, built by `build:folders` into `dist/folders`.
 
-### The folder list
-
-`synced_folders` runs `epicenter status --json`, which reads every folder in
-the environment's library root and owner folders, and joins each line with
-that folder's last round of `epicenter sync --json`. A row shows the folder's
-name, where it syncs to (the `origin`'s `<owner>/<name>`, or "This computer
-only" when it has none), and its last round: synced with a remote, saved
-locally without one, waiting, retrying, or stopped. A folder requested for setup shows why it cannot be read, if applicable.
-Unavailable candidates remain rows with their reasons. The shell keeps
-rounds and requests in memory for this run and saves nothing.
-
-The window lists again when the shell emits
-`epicenter://synced-folders-changed` (a round ended, the service changed, or a
-request arrived) and when it gains focus. A page names a folder by the path
-the last listing held; every command that takes a folder refuses any other
-path, so a page acts only on folders the CLI found.
-
-### Background sync
-
-At startup the shell runs `epicenter sync --watch --json --desktop` and keeps
-it running for as long as the app runs. Each `{"sync": ...}` line it prints
-becomes that folder's last round. Adding, cloning, or forgetting a folder
-restarts it, so `--watch` watches the new set. When it exits, the shell starts
-it again after 5 seconds; after three exits in a row within 20 seconds of
-starting, it stops, and the window shows **Syncing is paused** with the CLI's
-last line of stderr and **Start syncing again** (`restart_sync_service`). No
-window owns the service, so reloading or closing a page does not end it. At
-application exit the shell sends `SIGTERM` to its process group on macOS and
-Linux. An app that crashes or is killed sends nothing, so the shell also
-holds the run's stdin open without writing to it; the system closes it
-however the app ends, and `sync --watch --desktop` stops when it does.
-
-### Folder actions
-
-Actions use the same CLI verbs as a person at a terminal. The window lists
-again after each one:
-
-| Action | Command | CLI call |
-| --- | --- | --- |
-| **Add folder** | `add_synced_folder` | The native folder picker queues a setup preview; it changes no repository |
-| **Set up** | `accept_folder_setup(path, name)` | `epicenter init <dir> [--name <name>]` after the preview; it makes no commit |
-| **Connect to a repository…** | `connect_synced_folder(path, source)` | `epicenter connect <dir> <source>`; the watcher then syncs |
-| **Clone** | `clone_synced_folder(source)` | `epicenter clone <owner>/<name>` or `epicenter clone <url>`; the CLI derives the destination from the cloned `AGENTS.md` contract URL, or uses the repository name when it has no contract |
-| **Sync now** | `sync_folder_now(path)` | `epicenter sync <dir>`, kept as the folder's last round |
-| **Stop syncing…** | `forget_synced_folder(path)` | `epicenter forget <dir>`, after a confirmation; files and history stay |
-| **Sharing…** | `folder_sharing(path)` | `epicenter share <dir>`, listing who the repository is shared with |
-| | `share_folder(path, person, level)` | `epicenter share <dir> <handle> --read` or `--write` |
-| | `unshare_folder(path, person)` | `epicenter unshare <dir> <handle>` |
-
-The shell passes a clone source or handle as one argument and refuses an
-empty one, one with a control character, or one that starts with `-`.
-Before `epicenter init`, a folder that already exists must be a real
-directory holding none of Epicenter's own files, so neither the records nor
-the library root becomes a repository.
-`init` and `clone` report warnings, such as an LFS pull failure, beside the
-list. **Connect to a repository…** is offered for a folder without a remote;
-**Sharing…** is offered for one with a remote.
-
-### Requests to sync a folder
-
-Another app or a web page can ask Epicenter to sync a folder with
-`epicenter://init?path=<absolute path>[&contract=<URL or absolute path>]`.
-Both values are percent-encoded, in that order, with nothing else in the link;
-the path must be spelled plainly, with no `.`, `..`, or doubled or trailing
-separator, and the contract must be an `https:` or `http:` URL or an absolute
-path (`parse_init_link`). Any other link is ignored.
-
-Receiving the link only queues the request, once per path, and shows the
-Folders window. **Add folder** uses the same queue. The window shows the
-path, any contract, and existing Git branch and origin before setup.
-**Set up** (`accept_folder_setup`) asks for a library name outside the scan,
-prefilled from the folder name, then runs `epicenter init <dir> --name <name>`.
-A failure keeps
-the request so the person can read why and dismiss it. **Dismiss**
-(`dismiss_folder_setup`) drops it without reading the folder. The contract is
-shown but not passed, because `epicenter init` takes no contract yet.
+That page is not built yet. It needs two things the shell does not give a
+page today: the Epicenter folder as a root the folder plugin opens (each
+directory in it a store, with its device and inode), and a sign-in of the
+app's own (`so.epicenter`, with `folders:all`) whose requests Rust sends, as
+`epicenter-account` does for standalone apps. Until then the window says the
+folder model is coming and lists the `epicenter` commands to use, and its
+capability grants it only `open_home`. The CLI-driven window it replaced
+(the `epicenter sync --watch` service, and `status`, `init`, `connect`,
+`clone`, `forget`, and the namespace sharing over the old Git model) is
+deleted.
 
 ### Capabilities
 
 Each kind of window has one capability file, and every file is `"local": true`
-because its page is served on the scheme: `folders.json`, which alone grants
-the Folders window's CLI commands (`src-tauri/src/command_names.rs` lists every
+because its page is served on the scheme: `folders.json`, which grants the
+Folders window `open_home` alone (`src-tauri/src/command_names.rs` lists every
 app command); and `home.json`, which alone grants sign-in and model
 administration: the transcription plugin's `epicenter-transcription:` commands
 that its shared pane (`@epicenter/transcription`) calls. Neither grants
@@ -303,18 +229,17 @@ plugin awaiting a grant; nothing uses it, so it is parked with the feature. A
 default build neither registers nor starts any of it and its generated
 bindings name none of it, because the page API only grows after the first
 release; it joins that API when a native API decision grants it (ADR-0555).
-Autostart is not registered: sync runs while the app runs, and
-[ADR-0750](../../docs/adr/0750-sync-is-like-save-any-program-can-sync-a-folder-and-none-owns-it.md)
-replaces the background run with sync at moments a person causes. Of the official plugins ADR-0555 lists, a default build registers the
+Autostart is not registered yet; ADR-0819 has Epicenter start at login and
+keep every folder in sync while it runs, which the Folders window's page
+will do. Of the official plugins ADR-0555 lists, a default build registers the
 opener and grants no page its URLs.
 
 ## Quitting Epicenter
 
-Quit quits, with no question: no Epicenter window holds unsaved input. The
-Folders and Settings windows run `epicenter` commands, and apps are separate
-programs (ADR-0701). The app menu's Quit, Cmd-Q (routed through `app.exit` by
-`src-tauri/src/macos_menu.rs`), and tray Quit all exit through Tauri's exit
-lifecycle, which stops the sync service, then through the transcription
+Quit quits, with no question: no Epicenter window holds unsaved input, and
+apps are separate programs (ADR-0701). The app menu's Quit, Cmd-Q (routed
+through `app.exit` by `src-tauri/src/macos_menu.rs`), and tray Quit all exit
+through Tauri's exit lifecycle, then through the transcription
 plugin's `run`, which on macOS ends the process without C++ static
 finalizers, so quitting with Settings' model loaded cannot race ggml-metal's.
 A downloaded update asks on its own whether to install and restart (see

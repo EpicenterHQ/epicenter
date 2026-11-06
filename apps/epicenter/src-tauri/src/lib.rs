@@ -15,7 +15,6 @@ mod command_names;
 
 mod cli;
 mod desktop_paths;
-mod synced_folders;
 use crate::desktop_paths::DesktopPaths;
 #[cfg(target_os = "macos")]
 mod macos_menu;
@@ -87,19 +86,6 @@ macro_rules! shell_commands {
     ($($extra:tt)*) => {
         tauri_specta::collect_commands![
             open_home,
-            install_git,
-            synced_folders::synced_folders,
-            synced_folders::add_synced_folder,
-            synced_folders::accept_folder_setup,
-            synced_folders::dismiss_folder_setup,
-            synced_folders::clone_synced_folder,
-            synced_folders::connect_synced_folder,
-            synced_folders::sync_folder_now,
-            synced_folders::forget_synced_folder,
-            synced_folders::folder_sharing,
-            synced_folders::share_folder,
-            synced_folders::unshare_folder,
-            synced_folders::restart_sync_service,
             cli::auth_login::<tauri::Wry>,
             cli::auth_status,
             cli::auth_logout,
@@ -208,24 +194,6 @@ fn open_home(app: DesktopAppHandle) {
     request_window(&app, BuiltInApp::Home);
 }
 
-/// Open macOS's Command Line Tools installer when Git is missing.
-#[tauri::command]
-#[specta::specta]
-fn install_git() -> Result<(), String> {
-    #[cfg(target_os = "macos")]
-    {
-        std::process::Command::new("xcode-select")
-            .arg("--install")
-            .spawn()
-            .map_err(|error| format!("Could not start xcode-select --install: {error}"))?;
-        Ok(())
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        Err("Git installation is available here only on macOS.".to_string())
-    }
-}
-
 pub fn run() {
     let specta_builder = make_specta_builder();
     let specta_handler = tauri_specta::Builder::invoke_handler(&specta_builder);
@@ -262,7 +230,6 @@ pub fn run() {
         // commands. Its file transcription needs the folder plugin, which the
         // shell does not install, and no window is granted it.
         .plugin(tauri_plugin_epicenter_transcription::init())
-        .manage(synced_folders::SyncedFolders::default())
         .manage(cli::CliChildren::default())
         .manage(updates::Updates::default());
 
@@ -312,8 +279,6 @@ pub fn run() {
                 scheme::pages_dir(app.handle()).context("locate packaged pages")?,
             ));
             app.manage(desktop_paths);
-            // `epicenter sync --watch` runs for as long as the app does.
-            synced_folders::start_service(app.handle());
 
             #[cfg(all(desktop, feature = "dictation"))]
             app.manage(keyboard::TapController::new());
@@ -352,8 +317,6 @@ pub fn run() {
     // updater's `request_restart` end through it.
     tauri_plugin_epicenter_transcription::run(app, |app, event| match event {
         RunEvent::Reopen { .. } => request_window(app, BuiltInApp::Folders),
-        // No task is left to stop the service's child, so signal it now.
-        RunEvent::Exit => synced_folders::stop_service(app),
         _ => {}
     });
 }
@@ -393,32 +356,22 @@ fn open_deep_links(app: &DesktopAppHandle, urls: &[tauri::Url]) {
     }
 }
 
-/// What an `epicenter://` link asks for.
-#[derive(Clone, Debug, PartialEq, Eq)]
-enum DeepLink {
-    /// Show a built-in window (`parse_app_deep_link`).
-    Window(BuiltInApp),
-    /// Ask the person to sync a folder another app named
-    /// (`synced_folders::parse_init_link`).
-    SetUpFolder(synced_folders::FolderSetup),
-}
+/// What an `epicenter://` link asks for: a built-in window to show.
+type DeepLink = BuiltInApp;
 
+/// The window `url` names (`parse_app_deep_link`). A standalone app's request
+/// to sync its folder, `epicenter://init?…`, shows the Folders window, where a
+/// folder's first sync is the person's (ADR-0813); nothing is queued from it.
 fn parse_deep_link(url: &tauri::Url) -> Option<DeepLink> {
-    parse_app_deep_link(url)
-        .map(DeepLink::Window)
-        .or_else(|| synced_folders::parse_init_link(url).map(DeepLink::SetUpFolder))
+    parse_app_deep_link(url).or_else(|| {
+        (url.scheme() == "epicenter" && url.host_str() == Some("init"))
+            .then_some(BuiltInApp::Folders)
+    })
 }
 
-/// Show the window `link` names. A directory is only queued for the person
-/// to accept in the Folders window, which is shown; nothing reads it yet.
+/// Show the window `link` names.
 fn follow_deep_link(app: &DesktopAppHandle, link: DeepLink) {
-    match link {
-        DeepLink::Window(built_in) => request_window(app, built_in),
-        DeepLink::SetUpFolder(setup) => {
-            synced_folders::receive(app, setup);
-            request_window(app, BuiltInApp::Folders);
-        }
-    }
+    request_window(app, link);
 }
 
 /// Schedule a built-in window and show a native error if it cannot open.
@@ -894,41 +847,19 @@ mod tests {
         assert_ne!(production["identifier"], development["identifier"]);
     }
 
-    /// The Folders window manages the synced folders (`synced_folders.rs`),
-    /// each action one CLI call, and opens Settings. It is bound to no folder,
-    /// holds no folder command, and administers no model or connection. No
-    /// other window may do any of it.
+    /// The Folders window opens Settings, and nothing else yet: it waits to
+    /// compose `@epicenter/folder/platform` in its page (ADR-0817). It is bound
+    /// to no folder and administers no model or connection.
     #[test]
-    fn the_folders_window_manages_synced_folders_without_folder_commands() {
-        const FOLDERS_ONLY: [&str; 12] = [
-            "allow-synced-folders",
-            "allow-add-synced-folder",
-            "allow-accept-folder-setup",
-            "allow-dismiss-folder-setup",
-            "allow-clone-synced-folder",
-            "allow-connect-synced-folder",
-            "allow-sync-folder-now",
-            "allow-forget-synced-folder",
-            "allow-folder-sharing",
-            "allow-share-folder",
-            "allow-unshare-folder",
-            "allow-restart-sync-service",
-        ];
+    fn the_folders_window_holds_no_folder_command() {
         let capability: serde_json::Value = serde_json::from_str(FOLDERS).unwrap();
         assert_eq!(capability["windows"], serde_json::json!(["folders"]));
-        let mut expected = vec!["core:event:allow-listen", "core:event:allow-unlisten"];
-        expected.extend(FOLDERS_ONLY);
-        expected.push("allow-open-home");
-        expected.push("allow-install-git");
         assert_eq!(
             capability["permissions"],
-            serde_json::json!(expected),
+            serde_json::json!(["allow-open-home"]),
             "folders"
         );
-        for encoded in ALL_CAPABILITIES
-            .iter()
-            .filter(|encoded| **encoded != FOLDERS)
-        {
+        for encoded in ALL_CAPABILITIES {
             let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
             for permission in capability["permissions"].as_array().unwrap() {
                 // A scoped grant is an object; its identifier is what is named.
@@ -937,12 +868,8 @@ mod tests {
                     .or_else(|| permission["identifier"].as_str())
                     .unwrap();
                 assert!(
-                    !FOLDERS_ONLY.contains(&permission),
-                    "{permission} belongs to the Folders window alone"
-                );
-                assert!(
                     !permission.starts_with("dialog:") || permission == "dialog:allow-message",
-                    "only message dialogs are allowed; the folder picker belongs to Rust"
+                    "only message dialogs are allowed; no page opens a file picker"
                 );
             }
         }
@@ -1025,47 +952,30 @@ mod tests {
             "epicenter://app/home",
             "epicenter://app/whispering",
             "epicenter://init?path=%2FUsers%2Fme%2FNotes",
-            "epicenter://init?path=relative",
-            "epicenter://init?path=%2FUsers%2Fme%2FNotes",
             "epicenter://",
         ]
         .map(String::from);
         assert_eq!(
             links_from_arguments(&arguments),
-            vec![
-                DeepLink::Window(BuiltInApp::Home),
-                DeepLink::SetUpFolder(synced_folders::FolderSetup {
-                    path: "/Users/me/Notes".into(),
-                    contract: None,
-                }),
-                DeepLink::Window(BuiltInApp::Folders),
-            ]
+            vec![BuiltInApp::Home, BuiltInApp::Folders]
         );
     }
 
-    /// A setup link is its own form: it never names a window, and the built-in table takes no query.
+    /// A standalone app's request to sync its folder shows the Folders window;
+    /// the built-in table takes no query.
     #[test]
-    fn a_setup_link_and_a_window_link_are_read_apart() {
+    fn a_sync_request_shows_the_folders_window() {
         assert_eq!(
             parse_deep_link(
                 &"epicenter://init?path=%2FUsers%2Fme%2FNotes"
                     .parse()
                     .unwrap()
             ),
-            Some(DeepLink::SetUpFolder(synced_folders::FolderSetup {
-                path: "/Users/me/Notes".into(),
-                contract: None,
-            }))
-        );
-        assert_eq!(
-            parse_deep_link(&"epicenter://app/folders".parse().unwrap()),
-            Some(DeepLink::Window(BuiltInApp::Folders))
+            Some(BuiltInApp::Folders)
         );
         for denied in [
             "epicenter://app/folders?path=%2FUsers%2Fme%2FNotes",
-            "epicenter://app/todos?path=%2FUsers%2Fme%2FNotes",
             "epicenter://?path=%2FUsers%2Fme%2FNotes",
-            "epicenter://init/todos?path=%2FUsers%2Fme%2FNotes",
             "epicenter://open?path=%2FUsers%2Fme%2FNotes",
         ] {
             assert_eq!(parse_deep_link(&denied.parse().unwrap()), None, "{denied}");

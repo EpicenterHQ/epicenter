@@ -19,19 +19,6 @@ export class AppNameError extends Error {
 
 const labelPattern = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
 
-/**
- * Whether `name` is a person's own folder name in the library (ADR-0736):
- * it has a space, which no app label or owner host can have.
- */
-export function isPersonalFolderName(name: string): boolean {
-	return / /.test(name);
-}
-
-/** A link name for a person's folder: its own name, or "My <name>". */
-export function suggestLibraryLinkName(basename: string): string {
-	return isPersonalFolderName(basename) ? basename : `My ${basename}`;
-}
-
 function labelsFromHost(host: string): [string, string, string, ...string[]] {
 	const labels = host.split('.');
 	if (labels.some((label) => !labelPattern.test(label)))

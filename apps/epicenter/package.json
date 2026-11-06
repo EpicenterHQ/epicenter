@@ -21,12 +21,10 @@
 		"release:build": "bun scripts/release.ts build",
 		"release:rehearse": "bun scripts/rehearse-release.ts",
 		"test": "bun test",
-		"test:mounted": "bun test --conditions=browser --conditions=svelte src/folders/*.mounted.test.ts",
 		"typecheck": "tsc --noEmit && svelte-check --tsconfig ./tsconfig.json"
 	},
 	"dependencies": {
 		"@epicenter/cli": "workspace:*",
-		"@epicenter/definition": "workspace:*",
 		"@epicenter/transcription": "workspace:*",
 		"@epicenter/ui": "workspace:*",
 		"@tauri-apps/api": "catalog:"

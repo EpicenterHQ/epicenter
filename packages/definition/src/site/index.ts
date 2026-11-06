@@ -18,9 +18,7 @@ export {
 	appDataIdentifier,
 	hostFromIdentifier,
 	hostFromSiteUrl,
-	isPersonalFolderName,
 	relativeFolderPath,
-	suggestLibraryLinkName,
 } from './app-names.ts';
 export {
 	API_BUN_DEV_PORT,
