@@ -1,5 +1,10 @@
 # Vision
 
+**Epicenter is your folders, and apps are lenses** ([ADR-0813](adr/0813-epicenter-is-your-folders-and-apps-are-lenses.md)).
+A folder in `~/Epicenter` holds your things, syncs, keeps history, and is
+shared with people; an app, the library, the command line, or an agent shows
+and changes the part of it that it understands.
+
 Where Epicenter is going, on one page. Each section links the records that
 decided it; read them for the reasons and the detail. This is direction, not
 current truth: most of it is unbuilt, and each record's `Unbuilt` line says
