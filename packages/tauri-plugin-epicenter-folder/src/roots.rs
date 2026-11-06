@@ -400,10 +400,8 @@ impl Roots {
     pub fn library(&self) -> Result<PathBuf, RootError> {
         let state = self.state();
         state.running()?;
-        state
-            .epicenter
-            .as_ref()
-            .map(|named| named.path.clone())
+        let named = state.epicenter.as_ref().map(|named| named.path.clone());
+        named
             .or_else(|| state.library.clone())
             .ok_or(RootError::NotNamed {
                 root: Root::Epicenter,
