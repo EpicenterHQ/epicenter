@@ -7,6 +7,7 @@
 - **Amended by:** [ADR-0770](0770-teams-own-repositories-and-sharing-is-membership.md) at what consent offers: a team, whose repository for the app the grant names.
 - **Amended by:** [ADR-0787](0787-records-that-assumed-a-running-engine-or-a-build-time-choice-follow-0750-and-0781.md) at the app and the engine sharing one file: every refresh of it holds a lock.
 - **Amended by:** [ADR-0793](0793-programs-only-compose-typescript-holds-what-epicenter-means-and-rust-holds-the-os-git-and-secrets.md) at the app and the engine reading one file: each reads its own.
+- **Amended by:** [ADR-0811](0811-folders-are-shared-directly-and-an-app-reaches-the-folders-attached-to-it.md) at a grant reaching a team's repository: it reaches the folders attached to the app.
 - **Unbuilt:** the `https://epicenter.so` client with the loopback authorization code and device authorization; consent preselecting the repository named from the host; moving the first-party web clients in `BROWSER_APPS` (`so.epicenter.todos`, `so.epicenter.honeycrisp`, `so.epicenter.capture`, and the rows keyed by `APPS.*.id`, all `skipConsent: true` in `apps/api/worker/oauth-registrations.ts`) to origin clients that show consent; moving the CLI's refresh tokens from the keychain service `so.epicenter.auth` (`AUTH_KEYCHAIN_SERVICE` in `packages/cli/src/secrets.ts`, used by `packages/cli/src/auth.ts`) to the file in Epicenter's AppData.
 
 ## Context

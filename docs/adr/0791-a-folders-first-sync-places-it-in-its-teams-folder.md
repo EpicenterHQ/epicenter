@@ -1,7 +1,8 @@
 # 0791. A folder's first sync places it in its team's folder
 
-- **Status:** Accepted (2026-11-05)
+- **Status:** Superseded
 - **Date:** 2026-11-05
+- **Superseded by:** [ADR-0811](0811-folders-are-shared-directly-and-an-app-reaches-the-folders-attached-to-it.md): nothing is moved into a space's directory.
 - **Amends:** [ADR-0772](0772-a-folder-says-what-it-is-in-agents-md-and-this-computer-keeps-the-rest.md) at "A folder that has never synced sits at the top level" and "A folder whose repository names another team than the folder it sits in syncs with its repository, and Epicenter says where it sits": a first sync moves the folder into its team's folder, so only a folder the person moved sits outside it.
 - **Relates:** [ADR-0770](0770-teams-own-repositories-and-sharing-is-membership.md) (consent chooses a team), [ADR-0785](0785-a-desktop-app-signs-in-to-sync-its-own-folder.md) (a desktop app signs in to sync), [ADR-0735](0735-sync-gives-files-a-history-it-never-merges-two.md) (first contact puts local files on top of the account's).
 - **Amended by:** [ADR-0802](0802-people-share-spaces-an-app-works-in-one-at-a-time-and-a-folder-carries-its-contract.md) at a team's folder: a space's folder.

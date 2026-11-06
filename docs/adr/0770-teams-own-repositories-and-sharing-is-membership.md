@@ -1,7 +1,8 @@
 # 0770. Teams own repositories, and sharing is membership
 
-- **Status:** Accepted (2026-11-05)
+- **Status:** Superseded
 - **Date:** 2026-11-05
+- **Superseded by:** [ADR-0811](0811-folders-are-shared-directly-and-an-app-reaches-the-folders-attached-to-it.md): a folder has members, and no team or space owns it.
 - **Amends:** [ADR-0547](0547-every-repository-has-one-owner-namespace-and-a-person-is-a-namespace-of-one.md) at "no one is added to a personal namespace", "Sharing a folder is moving it into a group", and the rejected "team" on screen: a person's first team takes members like any other, and nothing moves; [ADR-0594](0594-a-hosted-repository-is-reached-only-by-the-person-who-owns-it.md) and [ADR-0612](0612-a-repository-is-shared-by-the-people-on-its-access-list.md) at a repository's own access list: access is the team's membership; [ADR-0708](0708-a-namespace-holds-documents-beside-repositories-under-one-resource-grant.md) at "One grant covers both kinds" and `share`/`unshare`: there are no per-resource grants; [ADR-0732](0732-a-grant-reaches-what-the-person-chooses-at-consent.md) at what consent offers: a team, and the app's repository in it.
 - **Relates:** [ADR-0593](0593-the-hosted-git-service-stores-data-repositories-and-offers-no-rename-or-move.md) (no move, which this keeps), [ADR-0722](0722-an-apps-names-derive-from-its-sites-host.md) (an app's repository name comes from its site), [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) (apps share data through files in Git).
 - **Amended by:** [ADR-0771](0771-plain-files-let-epicenter-refuse-renames-attachment-conflict-copies-and-a-second-store.md) at "clone, then push" and "owners also rename": a copy is one commit of files, and owners rename a team, never a repository.

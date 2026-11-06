@@ -1,0 +1,103 @@
+# 0811. Folders are shared directly, and an app reaches the folders attached to it
+
+- **Status:** Accepted (2026-11-06)
+- **Date:** 2026-11-06
+- **Supersedes:** [ADR-0770](0770-teams-own-repositories-and-sharing-is-membership.md) (teams own repositories, and sharing is membership): a folder has members, and no team or space owns it; [ADR-0791](0791-a-folders-first-sync-places-it-in-its-teams-folder.md) (a folder's first sync places it in its team's folder): nothing is moved into a space's directory.
+- **Amends:** [ADR-0802](0802-people-share-spaces-an-app-works-in-one-at-a-time-and-a-folder-carries-its-contract.md) at spaces and the space switcher: an app works in one folder at a time, chosen with a folder picker; [ADR-0809](0809-a-repository-is-a-spaces-app-and-bytes-nothing-needs-are-collected-or-purged.md) and [ADR-0810](0810-a-folder-needs-no-app-and-a-repository-is-a-spaces-named-folder.md) at a repository addressed by space and name: it is `/folders/<id>`, and `epicenter.json` holds no `name`; [ADR-0772](0772-a-folder-says-what-it-is-in-agents-md-and-this-computer-keeps-the-rest.md) at two folders claiming one app neither syncing: a first sync joins before it creates, and a copied folder asks before it pushes; [ADR-0732](0732-a-grant-reaches-what-the-person-chooses-at-consent.md) at a grant reaching a team's repository: it reaches the folders attached to the app; [ADR-0805](0805-a-folder-is-recognized-by-epicenter-json-which-is-its-contract.md) at `epicenter.json`'s fields: `$schema`, `$id` when an app owns it, and `collections`.
+- **Relates:** [ADR-0804](0804-a-computer-keeps-a-plain-folder-and-every-surface-syncs-with-one-typescript-function.md) (the manifest), [ADR-0806](0806-an-open-app-checks-for-changes-and-a-sync-never-silently-loses-an-edit.md) (an open app checks for changes), [ADR-0790](0790-the-epicenter-app-is-a-library-over-every-folder-and-the-cli-answers-its-queries.md) (the library).
+- **Unbuilt:** all of it: a folder's id minted at first sync, its members (people or groups), owners among them, and its survival while any member remains; `/folders/<id>`; the folder-to-app attachment and "Use this folder with" an app; join-before-create; the manifest's `folder` and root identity, and the question a copy asks; accepting a share; each app's folder picker and a name asked for each new folder; `epicenter init` proposing collections and converting YAML; the CLI listing folders by label and owner for `clone`; deleting spaces, `namespace` tables, and ADR-0791's move.
+
+## Context
+
+Spaces made one membership share many folders, but a folder never moved
+between spaces, so sharing one existing folder (a reading list, a diary) meant
+copying it into a shared space and leaving its history behind. ADR-0810 let
+any folder holding `epicenter.json` be a full Epicenter folder, so a person's
+own folders became the common case to share. The server already shares one
+repository with one person without moving it (`repository_grant`). An
+adversarial review of three reviewers agreed on sharing folders directly and
+found what it needs to be safe: a folder that would die with its owner's
+account, a grant that followed `$id` (content anyone holding the folder can
+write), two computers minting two ids for one folder, and a Finder copy of a
+shared folder pushing private notes to its members.
+
+## Decision
+
+**A folder is the one thing that is synced and shared.** It has an id, given
+by the server at its first sync, and members: people, or groups of people.
+Any member may be an owner, and a folder lives while any member remains;
+deleting an account removes it from its folders and deletes only folders no
+one else holds. Its history is a Git repository at `/folders/<id>`. A folder's
+name is its directory, a label its person chooses.
+
+**A person shares a folder with people or groups**, and a share appears in
+their apps once they accept it. A group is a saved list of people; it owns
+nothing.
+
+**An app reaches the folders attached to it.** The server records the
+attachment when an app's first sync creates a folder, or when a person
+chooses "Use this folder with" an app, which is how an app adopts a folder
+someone made. `$id` in `epicenter.json` describes a folder and authorizes
+nothing.
+
+**A first sync joins before it creates.** An app's first sync finds the
+folders attached to it that the person holds: with one it joins it, as a first
+contact; with several it asks which; with none it creates one. A folder no app
+made asks whether it is new or one the person already has.
+
+**A copied folder asks before it pushes.** The manifest is
+`{ folder, root, commit, files }`, `root` being the identity of the directory
+it was synced in (device and inode, which a move keeps and a copy does not).
+When they differ, a sync asks whether this is the same folder or a copy before
+it sends anything; a copy becomes a new folder.
+
+**An app shows one folder at a time, with a folder picker** listing each
+folder's name and members ("Only you", "You and Jess"). An app that keeps more
+than one folder asks for a name when it makes one.
+
+**`epicenter.json` is the contract:**
+
+```json
+{
+  "$schema": "https://epicenter.so/schema/epicenter.json",
+  "$id": "https://todos.epicenter.so/contract.json",
+  "collections": {
+    "todos": {
+      "path": "todos/{name}.md",
+      "fields": { "title": { "type": "string" }, "done": { "type": "boolean" } },
+      "required": ["title", "done"]
+    }
+  }
+}
+```
+
+`$schema` lets an editor check it. `$id` is present when an app keeps the
+contract current, and removing it makes the contract the person's. An
+`epicenter.json` with no collections is a complete folder: every visible file
+syncs and keeps history, and collections add checking, tables, tools, and
+merging by field.
+
+**`epicenter init` makes a folder in one step.** It proposes collections and
+fields from the front matter already in the folder, offers to convert other
+tools' YAML to `key: <JSON>`, and writes `epicenter.json` and `AGENTS.md`;
+`--dry-run` shows the proposal and `--yes` accepts it, for agents. Normalize
+stays as one note's repair. `epicenter clone` lists the person's folders by
+label and owner; `git clone` reaches a folder's history by its id.
+
+## Consequences
+
+- Sharing an existing folder is one action, and keeps its history.
+- A shared folder outlives any one person.
+- No content in a folder can extend an app's reach.
+- A family that shares several folders shares them with one group.
+- An app's folders grow when a person accepts a share of a folder attached to
+  it.
+
+## Considered alternatives
+
+- **Spaces owning folders:** one membership for many folders, and a folder that
+  can be shared only by copying it into a space.
+- **A grant that follows `$id`:** no attachment to record, and anyone who can
+  write a folder can hand it to another app.
+- **Two copies of a folder syncing as two working copies:** no question asked,
+  and a copied shared folder pushes private notes to its members.
