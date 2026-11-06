@@ -51,7 +51,7 @@ no CLI command: it waits to compose `@epicenter/folder/platform` itself.
 | `epicenter log [<dir>] [--limit <n>]` | built | `src/sync/commands.ts` |
 | `epicenter diff [<dir>] [--since <commit>]` | built | `src/sync/commands.ts` |
 | `epicenter restore <commit> [<dir>] [--path <path>]` | built | `src/sync/commands.ts` |
-| `epicenter share <folder> [<email>] [--read \| --write \| --owner]` | built | `shareFolder` and `getFolder`, through `src/folder-commands.ts` |
+| `epicenter share <folder> [<email>] [--role member\|reader]` | built | `shareFolder` and `getFolder`, through `src/folder-commands.ts` |
 | `epicenter unshare <folder> <email>` | built | `unshareFolder` |
 | `epicenter accept [<folder>]` | built | `listFolders` and `acceptIntoHome` |
 | `epicenter attach <folder> <app>`, `detach` | built | `attachFolder` |
@@ -66,7 +66,7 @@ no CLI command: it waits to compose `@epicenter/folder/platform` itself.
 ## Folders
 
 A folder (ADR-0811) is synced and shared: the server mints its id at its
-first sync, its members are people, any of whom may own it, and its title
+first sync, its members are people, equal and none its owner, and its title
 is the `title` of its `epicenter.json`. Every directory directly inside the
 Epicenter folder (`~/Epicenter`, or `~/Epicenter Dev` in development) is a
 folder; one elsewhere joins by a symbolic link there.
@@ -78,12 +78,15 @@ folder; one elsewhere joins by a symbolic link there.
 - `init [<path>]` writes the folder's `epicenter.json`: its title (the
   directory's name, or `--title`), and the collections its files suggest,
   `{name}` the item's file name (ADR-0818). `--dry-run` prints the proposal.
-- `share <folder> <email>` shares the folder as a writer, `--read` a
-  reader, or `--owner` an owner; it shows for the person once they accept
-  it. Without `<email>`, it lists who holds the folder and who has not
-  accepted. `unshare <folder> <email>` takes someone out, refusing their
-  next sync without recalling their files; with your own email you leave
-  the folder or decline its share, and the last to leave deletes it.
+- `share <folder> <email>` invites the email as a `member`, or with
+  `--role reader` a reader (ADR-0820); the folder is theirs once whoever
+  signs in with that email, verified, accepts it, whether they have an
+  account now or sign up later, and the answer never says which. Without
+  `<email>`, it lists who holds the folder and who is invited. Every member
+  shares; a reader does not. `unshare <folder> <email>` takes someone out
+  or cancels their invitation, refusing their next sync without recalling
+  their files; with your own email you leave the folder or decline its
+  invitation, and the last to leave deletes it.
 - `accept [<folder>]` accepts a share (by id or title) and brings the
   folder into the Epicenter folder, named for its title; without one, it
   lists the shares waiting.

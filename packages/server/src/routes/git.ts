@@ -10,7 +10,7 @@
  * <git>/folders/<folder>/{changes,tree,blobs,commits}   sync's routes, folder.ts
  * <git>/folders/<folder>.git/info/refs?service=…  GET   folders:read, read  (receive-pack: folders:write, push)
  * <git>/folders/<folder>.git/git-upload-pack      POST  folders:read, read
- * <git>/folders/<folder>.git/git-receive-pack     POST  folders:write, push (rewrite: owner); the receiver, receive.ts
+ * <git>/folders/<folder>.git/git-receive-pack     POST  folders:write, push (rewrite: member); the receiver, receive.ts
  * <git>/folders/<folder>.git/info/lfs/…           Git LFS, lfs.ts
  * <api>/api/folders…                              the person's folders, sharing, and apps, folders-api.ts
  * ```

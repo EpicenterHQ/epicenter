@@ -145,8 +145,8 @@ function receiverOver(
 		async authorize(_c, { folder }) {
 			return {
 				data: {
-					accountId: 'owner',
-					role: 'owner',
+					accountId: 'member',
+					role: 'member',
 					clientId: 'so.epicenter',
 					folder,
 					app: null,

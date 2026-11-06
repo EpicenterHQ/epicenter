@@ -131,6 +131,7 @@ beforeAll(async () => {
 					'ai',
 					'folders:read',
 					'folders:write',
+					'folders:all',
 				],
 				resources: [audiences.api, audiences.git],
 				skipConsent: false,
@@ -340,18 +341,15 @@ describe('the resource check', () => {
 		const folder = await folderOf(person.id);
 		return { person, token: tokens.access_token, folder };
 	}
-	/** A folder `accountId` holds as `role`, accepted unless `pending`. */
-	async function folderOf(
-		accountId: string,
-		{ role = 'owner', pending = false } = {},
-	) {
+	/** A folder `accountId` holds as `role`. */
+	async function folderOf(accountId: string, { role = 'member' } = {}) {
 		const id = Array.from(crypto.getRandomValues(new Uint8Array(16)))
 			.map((byte) => 'abcdefghijklmnopqrstuvwxyz0123456789'[byte % 36])
 			.join('');
 		await sqlClient.query('insert into folder (id) values ($1)', [id]);
 		await sqlClient.query(
-			'insert into folder_member (folder_id, account_id, role, accepted_at) values ($1, $2, $3, $4)',
-			[id, accountId, role, pending ? null : new Date()],
+			'insert into folder_member (folder_id, account_id, role) values ($1, $2, $3)',
+			[id, accountId, role],
 		);
 		return id;
 	}
@@ -405,7 +403,7 @@ describe('the resource check', () => {
 		);
 	}, 60_000);
 
-	test('answers 403 for a missing scope, a folder not held, a share not accepted, or one not attached to the app', async () => {
+	test('answers 403 for a missing scope, a folder not held, an invitation not accepted, or one not attached to the app', async () => {
 		const { person, token, folder } = await issue(
 			'offline_access folders:read folders:all',
 		);
@@ -423,7 +421,12 @@ describe('the resource check', () => {
 		// A folder that does not exist is refused the same way.
 		const none = await at(token, 'zzzzzzzzzzzzzzzz');
 		expect(none.error?.body).toEqual(theirs.error?.body);
-		const waiting = await folderOf(person.id, { pending: true });
+		// An invitation to the person's email grants nothing until accepted.
+		const waiting = await folderOf(stranger.id);
+		await sqlClient.query(
+			'insert into folder_invitation (folder_id, email, role) values ($1, lower($2), $3)',
+			[waiting, person.email, 'member'],
+		);
 		expect((await at(token, waiting)).error?.status).toBe(403);
 		// Without folders:all, a token reaches the folders attached to its app.
 		const app = await issue('offline_access folders:read');
@@ -443,7 +446,7 @@ describe('the resource check', () => {
 		);
 		expect((await at(token, folder)).data).toEqual({
 			accountId: person.id,
-			role: 'owner',
+			role: 'member',
 			clientId: desktop.clientId,
 			folder,
 			app: null,

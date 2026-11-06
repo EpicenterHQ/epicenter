@@ -80,7 +80,7 @@ test('--help lists every command but the hidden ones, and --json describes them'
 	for (const usage of [
 		'epicenter sync [<dir>] [--new] [--same] [--all]',
 		'epicenter clone [<folder> [<dir>]]',
-		'epicenter share <folder> [<email>] [--read] [--write] [--owner]',
+		'epicenter share <folder> [<email>] [--role member|reader]',
 		'epicenter restore <commit> [<dir>] [--path <path>]',
 	])
 		expect(help.stdout).toContain(usage);

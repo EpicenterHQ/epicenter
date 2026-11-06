@@ -143,19 +143,21 @@ values; its other files another. Files directly in the folder, and notes
 whose front matter does not read, are left out, each with why. A folder
 needs no epicenter.json to sync; it adds checking. Refuses a folder that has
 one. --dry-run prints the proposal and writes nothing.`,
-	share: `Shares the folder (a path that has synced, or a folder id) with the person
-who signs in as <email>, as a writer, or with --read a reader, or with
---owner an owner, who may share it on. It shows for them once they accept
-it (epicenter accept). For someone who holds it already, it changes their
-role. Without <email>, lists who holds the folder and who has not accepted
-yet. Only owners share. With --json, {"share": {"folder", "person", "role",
-"pending"}}, or the folder. Exits 2 when refused.`,
-	unshare: `Takes the person who signs in as <email> out of the folder; their next sync
-is refused, and the files they have stay with them. Only an owner takes
-someone else out; with your own email, you leave the folder, or decline a
-share waiting for you. When the last person leaves, the folder is deleted
-from the server. With --json, {"unshare": {"folder", "person", "removed",
-"folderGone"}}.`,
+	share: `Invites <email> to the folder (a path that has synced, or a folder id), as
+a member, or with --role reader as a reader, who syncs it without changing
+it. The folder is theirs once whoever signs in with that email, verified,
+accepts it (epicenter accept), whether they have an account now or sign up
+later; the answer is the same either way. For someone who holds it already,
+it changes their role. Without <email>, lists who holds the folder and who
+is invited. Every member shares; a reader does not. With --json, {"share":
+{"folder", "person", "role", "pending"}}, or the folder. Exits 2 when
+refused.`,
+	unshare: `Takes the person who signs in as <email> out of the folder, or cancels the
+invitation to <email>; their next sync is refused, and the files they have
+stay with them. Every member does this; with your own email, you leave the
+folder, or decline an invitation waiting for you. When the last person
+leaves, the folder is deleted from the server. With --json, {"unshare":
+{"folder", "person", "removed", "folderGone"}}.`,
 	accept: `Accepts the share of <folder> (its id, or its title) waiting for you, and
 brings it into the Epicenter folder beside your own, in a new folder named
 for its title. Without <folder>, lists the shares waiting for you.`,

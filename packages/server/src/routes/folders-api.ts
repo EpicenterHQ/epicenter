@@ -1,25 +1,30 @@
 /**
- * A person's folders on the API's origin (ADR-0811), for a token on the Git
- * audience, which a client already holds for the folders themselves:
+ * A person's folders on the API's origin (ADR-0811, ADR-0820), for a token
+ * on the Git audience, which a client already holds for the folders
+ * themselves:
  *
  * ```txt
- * GET    /api/folders                         folders:read   the folders the token reaches, and the shares waiting
+ * GET    /api/folders                         folders:read   the folders the token reaches, and the invitations waiting
  * GET    /api/folders/<id>                    folders:read   one folder
- * POST   /api/folders/<id>/accept             folders:write  accept the share waiting for the caller
- * PUT    /api/folders/<id>/members/<email>    folders:write  { role }: share with a person, or change their role (owner)
- * DELETE /api/folders/<id>/members/<email>    folders:write  unshare (owner), or leave or decline (the person)
- * PUT    /api/folders/<id>/apps/<app>         folders:write  attach the folder to an app (folders:all, writer)
+ * POST   /api/folders/<id>/accept             folders:write  accept the invitation waiting for the caller
+ * PUT    /api/folders/<id>/members/<email>    folders:write  { role }: invite an email, or change a role (member)
+ * DELETE /api/folders/<id>/members/<email>    folders:write  unshare or cancel (member), or leave or decline (the person)
+ * PUT    /api/folders/<id>/apps/<app>         folders:write  attach the folder to an app (folders:all, member)
  * DELETE /api/folders/<id>/apps/<app>         folders:write  detach it
  * ```
  *
  * A folder's title is read from its `epicenter.json` at `main`
- * (`folderTitle`); the server keeps none. A share waits for its person to
- * accept it, and until then grants nothing and shows only in `pending`. A
- * token from an app sees the folders attached to it, and the shares of
- * them; attaching a folder to an app is the platform's (`folders:all`), so
- * no app can reach a folder by attaching it to itself. When the last member
- * leaves, the folder is deleted (the `folder_member_left` trigger) and its
- * repository's storage with it.
+ * (`folderTitle`); the server keeps none. A share is an invitation to an
+ * email: sharing answers the same whether or not anyone signs in with it,
+ * and until the person whose verified email it names accepts it, it grants
+ * nothing and shows only in their `pending` and, by its email alone, in
+ * the folder's `invited`. Members are equal: any `member` shares, unshares,
+ * and changes roles; a `reader` manages nothing. A token from an app sees
+ * the folders attached to it, and the invitations of them; attaching a
+ * folder to an app is the platform's (`folders:all`), so no app can reach a
+ * folder by attaching it to itself. When the last member leaves, the folder
+ * is deleted (the `folder_member_left` trigger) and its repository's
+ * storage with it.
  */
 import {
 	FOLDER_ROLES,
@@ -281,7 +286,7 @@ export function mountFolderApi(
 					c,
 					403,
 					'forbidden',
-					"Only the folder's owners may share it.",
+					'A reader may not share the folder.',
 				);
 			const person = c.req.param('person') ?? '';
 			const body = (await c.req.json().catch(() => null)) as {
@@ -299,24 +304,14 @@ export function mountFolderApi(
 					'invalid_request',
 					`Name a person by their email, and send { "role": ${FOLDER_ROLES.map((r) => `"${r}"`).join(' | ')} }.`,
 				);
-			const shared = await shareFolder(c.var.db, {
+			// The same answer whether or not anyone signs in with `person`.
+			const { pending } = await shareFolder(c.var.db, {
 				folder: access.folder,
 				by: access.accountId,
 				email: person,
 				role: role as FolderRole,
 			});
-			if (shared.error !== null)
-				return refuse(
-					c,
-					shared.error.name === 'UnknownPerson' ? 404 : 409,
-					shared.error.name === 'UnknownPerson' ? 'not_found' : 'conflict',
-					shared.error.message,
-				);
-			return c.json(
-				{ person, role, pending: shared.data.pending },
-				200,
-				noStore,
-			);
+			return c.json({ person, role, pending }, 200, noStore);
 		}),
 	);
 
@@ -333,8 +328,9 @@ export function mountFolderApi(
 					'invalid_request',
 					'Name a folder by its id and a person by their email.',
 				);
-			// Anyone takes themselves out of a folder, or declines a share;
-			// taking someone else out is an owner's, of a folder the token reaches.
+			// Anyone takes themselves out of a folder, or declines an invitation;
+			// taking someone else out, or cancelling an invitation, is a member's,
+			// of a folder the token reaches.
 			const held = (await heldFolders(c.var.db, access)).find(
 				({ id }) => id === folder,
 			);
@@ -355,7 +351,7 @@ export function mountFolderApi(
 			const removed = await removeMember(c.var.db, {
 				folder,
 				accountId: access.accountId,
-				byOwner: held !== undefined && roleAllows(held.role, 'manage'),
+				manages: held !== undefined && roleAllows(held.role, 'manage'),
 				email: person,
 			});
 			if (removed.error !== null)

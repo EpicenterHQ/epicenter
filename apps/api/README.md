@@ -129,7 +129,7 @@ Cloudflare Workers
 │   ├── /consent               OAuth consent
 │   ├── /device                device code entry; approval is the consent page
 │   ├── /.well-known/*         authorization server and protected resource metadata
-│   ├── /api/folders           the caller's folders and shares; share, accept, attach
+│   ├── /api/folders           the caller's folders and invitations; invite, accept, attach
 │   ├── git audience /folders  a first sync (POST) and every folder's head (GET)
 │   ├── git audience /folders/:id/*  a folder's sync routes
 │   ├── git audience /folders/:id.git/*  Git smart HTTP forwarded to Artifacts; with R2 LFS
@@ -287,8 +287,12 @@ accepting, and attaching it to an app. A folder exists from its first sync,
 which joins one the person holds before it makes one. The route authorizes
 each request from the access token, the person's role in the folder, and
 the token's reach; `packages/server`'s README has the routes and refusals.
-Tables `folder`, `folder_member`, and `folder_app` (migration `0009_folders`)
-hold folders, their members, and the apps they are attached to.
+Tables `folder`, `folder_member`, `folder_invitation`, and `folder_app`
+(migrations `0009_folders` and `0010_invitations`) hold folders, their
+members, the emails invited to them, and the apps they are attached to. A
+share is an invitation to an email that answers the same whether or not
+anyone signs in with it, and waits for the account whose verified email it
+names, at sign-up or later (ADR-0820).
 
 The Worker stores each repository in the Artifacts namespace of its
 environment (`epicenter-production`; `ARTIFACTS_NAMESPACE`), named by its

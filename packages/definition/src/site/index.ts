@@ -33,6 +33,7 @@ export {
 	FOLDER_ROLES,
 	type FolderListing,
 	type FolderMember,
+	type FolderInvitee,
 	type FolderPerson,
 	type FolderRole,
 	folderRemoteUrl,

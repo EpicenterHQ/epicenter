@@ -166,7 +166,6 @@ export async function authorizeFolderRequest(
 		left join folder_member m
 		       on m.folder_id = ${folder}
 		      and m.account_id = t.user_id
-		      and m.accepted_at is not null
 		left join session s on s.id = t.session_id
 		where t.token = ${hash}
 		  and t.revoked is null

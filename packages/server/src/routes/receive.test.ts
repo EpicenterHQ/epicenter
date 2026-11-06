@@ -61,13 +61,13 @@ async function setup() {
 		next: string,
 		{
 			old,
-			owner = false,
+			mayRewrite = false,
 			revs: extra = [],
 			via = objects,
 			limits,
 		}: {
 			old?: string;
-			owner?: boolean;
+			mayRewrite?: boolean;
 			revs?: string[];
 			/** The objects the receiver reads, when a test counts its reads. */
 			via?: GitObjects;
@@ -104,7 +104,7 @@ async function setup() {
 			lfs,
 			repositoryId: id,
 			body,
-			mayRewrite: owner,
+			mayRewrite,
 			limits,
 		});
 		return new TextDecoder().decode(await response.arrayBuffer());
@@ -240,7 +240,7 @@ describe('receivePush', () => {
 		);
 	});
 
-	test("a member's rewrite is refused; the owner's lands and keeps the old main", async () => {
+	test("a rewrite by a role that may not is refused; one that may lands and keeps the old main", async () => {
 		const r = await setup();
 		const one = await r.commit({ 'a.md': 'one\n' });
 		await r.push(one);
@@ -249,11 +249,11 @@ describe('receivePush', () => {
 		await box.ok(r.work, ['commit', '--quiet', '--amend', '-m', 'amended']);
 		const amended = (await box.ok(r.work, ['rev-parse', 'HEAD'])).trim();
 		expect(await r.push(amended)).toContain(
-			'non-fast-forward: only the repository owner may rewrite main',
+			'non-fast-forward: your role may not rewrite main',
 		);
 		expect(await r.main()).toBe(two);
 		const before = new Date();
-		expect(await r.push(amended, { owner: true })).toContain(`ok ${MAIN}`);
+		expect(await r.push(amended, { mayRewrite: true })).toContain(`ok ${MAIN}`);
 		expect(await r.main()).toBe(amended);
 		const replaced = [...(await r.objects.refs())].filter(([ref]) =>
 			ref.startsWith('refs/epicenter/replaced/'),

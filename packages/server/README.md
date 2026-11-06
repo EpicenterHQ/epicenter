@@ -67,27 +67,30 @@ elsewhere (`resolveOAuthAudiences`).
 | `GET <git>/folders/<id>/changes?since=`, `POST …/tree`, `POST …/blobs`, `GET …/blobs/<id>` | `folders:read`, the `read` role (`src/routes/folder.ts`) |
 | `PUT <git>/folders/<id>/blobs/<sha256>`, `POST …/commits` | `folders:write`, the `push` role |
 | `GET info/refs?service=git-upload-pack`, `POST git-upload-pack` under `<git>/folders/<id>.git` | `folders:read`, the `read` role |
-| `GET info/refs?service=git-receive-pack`, `POST git-receive-pack` | `folders:write`, the `push` role; a push that replaces `main`, the `rewrite` role (owner) |
+| `GET info/refs?service=git-receive-pack`, `POST git-receive-pack` | `folders:write`, the `push` role; a push that replaces `main`, the `rewrite` role (`member`) |
 | `POST info/lfs/objects/batch` | download: `folders:read`, `read`; upload: `folders:write`, `push` |
 | `PUT`/`GET info/lfs/objects/<oid>`, `POST info/lfs/verify` | upload and verify: `push`; download: `read` |
-| `GET /api/folders` | `folders:read` on the Git audience: `{ folders, pending }`, the folders the token reaches with their title, the caller's role, members, invitations (to owners), and apps, and the shares waiting for the caller |
+| `GET /api/folders` | `folders:read` on the Git audience: `{ folders, pending }`, the folders the token reaches with their title, the caller's role, members, invitations by email (to members, not readers), and apps, and the invitations waiting for the caller |
 | `GET /api/folders/<id>` | `folders:read`, the `read` role: one folder |
-| `POST /api/folders/<id>/accept` | `folders:write`: accept the share waiting for the caller |
-| `PUT /api/folders/<id>/members/<email> { role }` | `folders:write`, the `manage` role: share with a person, or change their role |
-| `DELETE /api/folders/<id>/members/<email>` | `folders:write`: an owner takes someone out; anyone leaves, or declines a share |
+| `POST /api/folders/<id>/accept` | `folders:write`: accept the invitation waiting for the caller's verified email |
+| `PUT /api/folders/<id>/members/<email> { role }` | `folders:write`, the `manage` role: invite an email, or change the role of someone who holds the folder; the same `{ person, role, pending }` whether or not anyone signs in with that email |
+| `DELETE /api/folders/<id>/members/<email>` | `folders:write`: a member takes someone out or cancels an invitation; anyone leaves, or declines an invitation to their verified email |
 | `PUT`/`DELETE /api/folders/<id>/apps/<app>` | `folders:write`, `folders:all`, the `push` role: attach the folder to an app, or detach it |
 
-**Members.** A person is named by the email they sign in with. Sharing
-makes a `folder_member` row whose `accepted_at` is null: it grants nothing,
-shows only in that person's `pending`, and becomes membership when they
-accept it. Any member may be an owner: roles are `owner`, `writer`, and
-`reader` (`src/folder-roles.ts`), and an owner may change any member's,
-except that the last owner may not step down while others hold the folder.
-A folder lives while an accepted member remains: the `folder_member_left`
+**Members.** A share is an invitation to an email (ADR-0820), a
+`folder_invitation` row naming no account, so sharing answers the same
+whether or not anyone signs in with the email, and an invitation is listed
+by its email alone. It grants nothing and shows in the `pending` of the
+account whose verified email it names, whether that account existed when it
+was made or signed up later: nothing is copied at sign-up, since the match is
+made when the invitation is read. Accepting makes a `folder_member` row, so
+every member has accepted. Members are equal: a `member` changes files,
+shares, unshares anyone, and changes roles; a `reader` syncs without
+pushing and manages nothing (`src/folder-roles.ts`). No member owns a
+folder. A folder lives while a member remains: the `folder_member_left`
 trigger in `apps/api/drizzle` deletes it when its last member leaves (an
-account's deletion included), with its shares, attachments, and pending
-uploads, and makes the earliest member an owner when its last owner leaves
-others behind. The route that takes the last member out removes the
+account's deletion included), with its invitations, attachments, and
+pending uploads. The route that takes the last member out removes the
 folder's repository storage too.
 
 **Reach.** A token with `folders:all` (the CLI and the Epicenter app)
@@ -102,7 +105,7 @@ accepts `refs/heads/main` alone, decides fast-forward from the pushed commits,
 accepts merge commits, and requires every changed file other than a `.md` note
 or a hidden path (any segment starting with `.`) to be a Git LFS pointer whose
 object is stored, whatever `.gitattributes` says (`storedWithLfs` in
-`@epicenter/definition/contract`). Only the owner may
+`@epicenter/definition/contract`). Any `member` may
 replace `main`; the replaced commit is kept as `refs/epicenter/replaced/<time>`.
 What a push may cost is the store's `ReceiveLimits` (`RECEIVE_LIMITS` on disk:
 a 64 MiB body, 256 MiB of inflated objects held at once, and 100,000 of
@@ -144,7 +147,7 @@ token's reach. A folder that does not exist is refused like one the caller
 does not hold, so a refusal says nothing of whether it does. Nothing is
 cached. Nothing but a first sync makes a folder: a push to an id no one
 holds is refused, and unrelated history pushed to a folder is refused unless
-an owner forces it.
+a member forces it.
 
 Refusals answer `{ error, error_description }`: 401 `invalid_token` with
 `WWW-Authenticate` naming `resource_metadata` (and a Basic challenge for
@@ -252,12 +255,15 @@ answers directly.
 
 ## Folders as rows
 
-`src/db/schema/folder.ts` holds the `folder`, `folder_member`, `folder_app`,
-and `blob_upload` tables; `src/folders.ts` makes, joins, lists, shares,
-accepts, and attaches folders over them. Migration `0009` carried each
-repository of the namespace model into a folder of the same id, its
-namespace's members and grants into accepted members, and a repository
-named for an app into that app's attachment, and dropped namespaces.
+`src/db/schema/folder.ts` holds the `folder`, `folder_member`,
+`folder_invitation`, `folder_app`, and `blob_upload` tables; `src/folders.ts`
+makes, joins, lists, shares, accepts, and attaches folders over them.
+Migration `0009` carried each repository of the namespace model into a
+folder of the same id, its namespace's members and grants into accepted
+members, and a repository named for an app into that app's attachment, and
+dropped namespaces. Migration `0010` moved each share still waiting into an
+invitation to its person's email, made every `owner` and `writer` a
+`member`, and left the trigger only deleting a folder with its last member.
 
 ## Tests that need Postgres
 

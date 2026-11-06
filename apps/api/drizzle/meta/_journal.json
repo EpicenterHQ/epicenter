@@ -71,6 +71,13 @@
       "when": 1794000000000,
       "tag": "0009_folders",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1794100000000,
+      "tag": "0010_invitations",
+      "breakpoints": true
     }
   ]
 }
