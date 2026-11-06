@@ -80,7 +80,6 @@ test('a contract has no name, and $schema and description may sit beside collect
 		}),
 	);
 	expect(error.reason).toContain("'name'");
-	expect(error.reason).toContain('name comes from its site');
 });
 
 test('two collections of one kind that can name the same file are refused', () => {
@@ -96,12 +95,20 @@ test('two collections of one kind that can name the same file are refused', () =
 	expect(error.reason).toContain("'index'");
 });
 
+test('a contract with only a title, or nothing, is a complete folder', () => {
+	expect(compileContract({}).error).toBeNull();
+	expect(
+		compileContract({ title: 'Reading list', collections: {} }).data
+			?.collections,
+	).toEqual([]);
+});
+
 test('malformed contracts are refused with a reason', () => {
 	const malformed: unknown[] = [
 		null,
 		[],
-		{},
-		{ collections: {} },
+		{ collections: [] },
+		{ title: 1 },
 		{ collections: { a: { path: 'a.md' } }, kind: 'note' },
 		{ $schema: 1, collections: { a: { path: 'a.md' } } },
 		{ description: ['x'], collections: { a: { path: 'a.md' } } },

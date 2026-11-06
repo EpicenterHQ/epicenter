@@ -24,7 +24,7 @@ The package is seven subpaths.
 | `@epicenter/definition/note` | The note codec and its house style, `formatNote` |
 | `@epicenter/definition/merge` | `settle`, the note merge a folder runs over a note that changed under its write, plus conflict blocks, Git hashes, and Git LFS pointers |
 | `@epicenter/definition/ids` | `timeId()` and `nanoid()`, for naming files, and `timeOf()`, when a `timeId` was made |
-| `@epicenter/definition/site` | The names a site derives: the app registry (`APPS`, dev ports, `localUrl`, `resolveOAuthAudiences`), an app's folder, repository and data identifier from its production site (ADR-0722), and the repository name grammar |
+| `@epicenter/definition/site` | The names a site derives: the app registry (`APPS`, dev ports, `localUrl`, `resolveOAuthAudiences`), an app's folder and data identifier from its production site (ADR-0722), and a folder's id, addresses, and listing on the server (ADR-0811) |
 | `@epicenter/definition/site/app-data` | The application-data root on this machine (`epicenterDataRoot`), an app's directory below it, and `isAppId` |
 
 `fixtures/front-matter.json` holds every front-matter case with its exact
@@ -57,8 +57,12 @@ await device.recordings.create({ id: timeId(), title: 'Standup' });
 checkContract(recorder, [{ path: 'recordings/a.md', text: '---\ntitle: 1\n---\n' }]);
 ```
 
-A contract describes the app's collections. The app's site names its repository.
-`$schema` and `description` may sit beside `collections` in published JSON.
+A contract describes a folder's collections, and a folder's `epicenter.json`
+holds it. `$schema`, `title` (the folder's title, which the server reads for
+listings), and `description` may sit beside `collections`. A contract with no
+collections is a complete folder: every visible file syncs, and nothing is
+checked. `proposeContract` proposes collections from a folder's files, as
+`epicenter init` writes them.
 
 A collection whose path ends in `.md` holds notes: front matter `fields` as
 JSON Schema properties, with JSON Schema's own `required`, plus a body. Any

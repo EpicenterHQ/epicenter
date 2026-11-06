@@ -48,18 +48,26 @@ export type Collection = {
 };
 
 /**
- * An app's contract: its collections, by the name the client uses.
- * `$schema` and `description` are there for the published JSON, so an
- * editor can validate it and a person can read what it is for.
+ * A folder's contract, as its `epicenter.json` holds it (ADR-0811): its
+ * collections, by the name the client uses. `$schema` lets an editor check
+ * it, `title` is the folder's title, which the server reads for listings,
+ * and `description` says what it is for. A contract with no collections is
+ * a complete folder: every visible file syncs, and nothing is checked.
  */
 export type Contract = {
 	readonly $schema?: string;
+	readonly title?: string;
 	readonly description?: string;
 	readonly collections: { readonly [collection: string]: Collection };
 };
 
 /** The keys a contract may hold. */
-const CONTRACT_KEYS = new Set(['$schema', 'description', 'collections']);
+const CONTRACT_KEYS = new Set([
+	'$schema',
+	'title',
+	'description',
+	'collections',
+]);
 
 /**
  * Write a contract with its literal types kept: the identity function, so
@@ -117,17 +125,18 @@ export function compileContract(
 	);
 	if (unknown.length > 0)
 		return malformed(
-			`it declares ${unknown.map((key) => `'${key}'`).join(', ')}; a contract declares $schema, description and collections; the app's name comes from its site`,
+			`it declares ${unknown.map((key) => `'${key}'`).join(', ')}; a contract declares $schema, title, description and collections`,
 		);
-	const { $schema, description, collections } = contract;
+	const { $schema, title, description, collections = {} } = contract;
 	for (const [key, value] of [
 		['$schema', $schema],
+		['title', title],
 		['description', description],
 	] as const)
 		if (value !== undefined && typeof value !== 'string')
 			return malformed(`its ${key} is not a string`);
-	if (!isPlainObject(collections) || Object.keys(collections).length === 0)
-		return malformed('it declares no collections');
+	if (!isPlainObject(collections))
+		return malformed('its collections are not an object');
 	const compiled: CompiledCollection[] = [];
 	for (const [key, collection] of Object.entries(collections)) {
 		const one = compileCollection(key, collection);
