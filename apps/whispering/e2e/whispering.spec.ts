@@ -352,8 +352,9 @@ test('4. a desktop clone holds the recordings as written, and the folder fits th
 		stack,
 		person,
 		'check',
-		`${stack.app}/contract.json`,
 		clone,
+		'--contract',
+		`${stack.app}/contract.json`,
 	);
 	expect(checked.code, `${checked.stdout}\n${checked.stderr}`).toBe(0);
 });

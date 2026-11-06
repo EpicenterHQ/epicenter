@@ -15,8 +15,8 @@
  * Vocab's settings (the tutor model chosen and the endpoints connected) are
  * this device's, not the learner's data, so there is no settings note.
  * The app's site names its repository `~/vocab`. Published, unchanged, as
- * `static/contract.json` (`bun run contract`), so `epicenter check
- * <url>/contract.json <dir>` checks a clone.
+ * `static/contract.json` (`bun run contract`), so `epicenter check <dir>
+ * --contract <url>/contract.json` checks a clone.
  */
 import { messagesCollection } from '@epicenter/ai/agent';
 import { defineContract } from '@epicenter/definition/contract';

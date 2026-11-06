@@ -186,7 +186,7 @@ directory, the desktop shell and a served directory to the same behavior in
 
 | Place | Where |
 | --- | --- |
-| `home({ site })` in a Tauri window | the `Data` root the shell named: the directory in the Epicenter folder it remembers by identity, or the path the app's bundle identifier derives ([ADR-0752](../../docs/adr/0752-an-apps-folder-sits-under-the-platforms-visible-root-of-app-folders.md), ADR-0822); opening it brings its root `AGENTS.md` up to date with the contract `site` publishes ([ADR-0772](../../docs/adr/0772-a-folder-says-what-it-is-in-agents-md-and-this-computer-keeps-the-rest.md)), and its hash cache is kept in the app's own data |
+| `home({ site })` in a Tauri window | the `Data` root the shell named: the directory in the Epicenter folder it remembers by identity, or the path the app's bundle identifier derives ([ADR-0752](../../docs/adr/0752-an-apps-folder-sits-under-the-platforms-visible-root-of-app-folders.md), ADR-0822); it writes nothing it was not asked to, and its hash cache is kept in the app's own data |
 | `home({ site, account })` in a browser | the folder on the server attached to the app the account signs in as (`joinApp`, naming the app its site names; `makeFolder` when the person holds none; the first of several), reached by its id at `<git audience>/folders/<folder>` through `account.fetch`; it is the store (ADR-0823): saves made within a moment of each other land as one commit; it opens once the account is signed in, works online only, and stops when the account is retired |
 | `directory(path)` | a directory, made when missing (`Unreadable` when it cannot be) |
 | `served(url)` | the directory the program serving the page owns, through that program's `serveDirectory`; `StorageUnavailable` when nothing at `url` answers for one, and `Unavailable`, still opening, while the program is out of reach |
@@ -340,7 +340,7 @@ server, which sync commits to (ADR-0804, ADR-0824). No Git runs on a computer.
 | `src/core.ts`, `node.ts`, `memory.ts`, `tauri.ts`, `served.ts`, `serve.ts` | The other public entries. |
 | `src/open-folder.ts`, `place.ts`, `folder.ts`, `errors.ts`, `note-edit.ts`, `note-codec.ts` | `openFolder` over a place, what a place is, the folder's connection, replica and write queue, its errors, the note editor, and how a note's change becomes the text written. |
 | `src/device/` | The store contract and its conformance checks, the device stores (memory, Bun, Tauri), and `check`/`format`. |
-| `src/data-folder.ts`, `desktop-folder.ts`, `agents-note.ts` | The data folder a Tauri window opens, its hash cache in the app's data, and its `AGENTS.md` (still with a `contract:` key; ADR-0805 decided none). |
+| `src/data-folder.ts` | The data folder a Tauri window opens, and its hash cache in the app's data. |
 | `src/identity.ts` | A directory's identity: its inode and birth time, and when one proves another. |
 | `src/hash.ts` | A file's version, the SHA-256 of its bytes: `versionOf`, and the size above which a listing names a file by its stamp. |
 | `src/remote/` | A folder on the server: the `Repository` sync takes, the store a web folder opens, and the server's folders (`listFolders`, `shareFolder`, and the rest). |

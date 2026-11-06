@@ -13,8 +13,8 @@
  * Honeycrisp has no settings, so it has no settings note, and keeps no
  * other files. The app's site names its repository `~/honeycrisp`.
  * It is published, unchanged, as `static/contract.json`
- * (`bun run contract` writes it), so `epicenter check <url>/contract.json
- * <dir>` checks a clone.
+ * (`bun run contract` writes it), so `epicenter check <dir> --contract
+ * <url>/contract.json` checks a clone.
  */
 import { defineContract } from '@epicenter/definition/contract';
 

@@ -1,15 +1,12 @@
 /**
  * The app's data folder in a Tauri window: the `Data` root the shell named
  * at startup, the directory in the Epicenter folder its shell remembers by
- * identity, or its usual path (ADR-0752, ADR-0822). Opening it brings its
- * root `AGENTS.md` up to date with the site's contract (ADR-0772). Its hash
- * cache is kept in the app's own data, `hashes/<identity>.json` in the
- * `AppData` root, never in the folder. `home()` loads this module when the
- * folder opens, so a browser never loads it.
+ * identity, or its usual path (ADR-0752, ADR-0822). Its hash cache is kept
+ * in the app's own data, `hashes/<identity>.json` in the `AppData` root,
+ * never in the folder. `home()` loads this module when the folder opens, so
+ * a browser never loads it.
  */
-import type { Contract } from '@epicenter/definition/contract';
-import { Ok, type Result } from 'wellcrafted/result';
-import { refreshAgentsNote } from './desktop-folder.js';
+import type { Result } from 'wellcrafted/result';
 import type { StampFile } from './device/stamp-cache.js';
 import type { Store } from './device/store.js';
 import type { OpenFolderError } from './errors.js';
@@ -49,20 +46,10 @@ async function dataHashes(): Promise<StampFile | null> {
 
 /**
  * Open the data folder as a store, with the path the shell answered for it
- * (to show a person; no command takes it). With a `site`, its `AGENTS.md`
- * links the contract that site publishes.
+ * (to show a person; no command takes it).
  */
-export async function openDataFolder(
-	contract: Contract,
-	site: string | undefined,
-): Promise<Result<{ store: Store; path: string }, OpenFolderError>> {
-	const opened = await openRoot('Data', { hashes: lazily(dataHashes) });
-	if (opened.error !== null) return opened;
-	if (site !== undefined)
-		await refreshAgentsNote(
-			opened.data.store,
-			contract,
-			`${site}/contract.json`,
-		);
-	return Ok(opened.data);
+export function openDataFolder(): Promise<
+	Result<{ store: Store; path: string }, OpenFolderError>
+> {
+	return openRoot('Data', { hashes: lazily(dataHashes) });
 }

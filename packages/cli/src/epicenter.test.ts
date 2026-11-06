@@ -48,10 +48,10 @@ async function setup() {
 test('the CLI rejects missing or extra arguments', async () => {
 	const { folder, run } = await setup();
 	expect(run('check').exitCode).toBe(2);
-	expect(run('check', 'contract.json', folder, 'extra').exitCode).toBe(2);
+	expect(run('check', folder, 'extra').exitCode).toBe(2);
 	expect(run('validate', folder).exitCode).toBe(2);
 	expect(run('--help').stdout).toContain(
-		'epicenter check [<dir> | <contract> [<dir>]]',
+		'epicenter check [<dir>] [--contract <url or path>]',
 	);
 });
 

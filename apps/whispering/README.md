@@ -8,7 +8,7 @@ recording, transcript, instruction, and result as an ordinary file.
 
 Those files follow Whispering's contract, `src/lib/contract.ts`, published
 unchanged as `static/contract.json` (`bun run contract` rewrites it after a
-change), the file `epicenter check <url>/contract.json <dir>` checks a folder
+change), the file `epicenter check <dir> --contract <url>/contract.json` checks a folder
 against. Any program that writes the layout is a valid writer.
 
 | Path | What it is |

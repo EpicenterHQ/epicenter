@@ -203,8 +203,9 @@ test('2. a desktop clone holds the words and the chat as written, and the folder
 		stack,
 		person,
 		'check',
-		`${stack.app}/contract.json`,
 		clone,
+		'--contract',
+		`${stack.app}/contract.json`,
 	);
 	expect(checked.code, `${checked.stdout}\n${checked.stderr}`).toBe(0);
 });

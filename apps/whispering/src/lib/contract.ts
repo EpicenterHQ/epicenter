@@ -1,6 +1,6 @@
 /**
  * Whispering's contract: what its files are, as plain data any program can
- * check (`epicenter check <url>/contract.json <dir>`).
+ * check (`epicenter check <dir> --contract <url>/contract.json`).
  *
  * - A recording is a note at `recordings/{id}.md` (its title, when it was
  *   recorded, and how long it is; notes in the body) beside its audio at `recordings/{id}.{ext}`: `m4a` or `webm` from a

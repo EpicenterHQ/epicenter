@@ -5,7 +5,7 @@
  *
  * The app's site names its repository `~/todos`. It is
  * published, unchanged, as `static/contract.json` (`bun run contract`
- * writes it), so `epicenter check <url>/contract.json <dir>` checks a clone.
+ * writes it), so `epicenter check <dir> --contract <url>/contract.json` checks a clone.
  */
 import { defineContract } from '@epicenter/definition/contract';
 

@@ -36,7 +36,7 @@ API               ${stack.origin}
 Sign in           open ${signIn} (sets the demo person's session), then press Sign in
 Desktop sandbox   source '${script}'
                   epicenter clone           (lists your folders; then: epicenter clone <id> todos)
-                  epicenter check ${stack.app}/contract.json todos
+                  epicenter check todos --contract ${stack.app}/contract.json
                   epicenter sync todos
 Stop              Ctrl-C (everything above is deleted)
 `,

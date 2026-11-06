@@ -372,18 +372,12 @@ test('a drive mounted again keeps its folders: the device number is no part of a
 const WHISPERING: KnownApp = {
 	client: 'so.epicenter.whispering',
 	name: 'whispering',
-	contract: 'https://whispering.epicenter.so/contract.json',
 };
-
-/** The `AGENTS.md` a desktop app writes into the folder it makes. */
-const agents = (contractUrl: string) =>
-	`---\ncontract: ${JSON.stringify(contractUrl)}\n---\n`;
 
 test("an app's folder renamed is followed; its usual path made again is a folder of its own, and nothing is deleted", async () => {
 	const account = await server.signIn('whispering');
 	const desk = await computer(account, 'whispering');
 	await desk.write('whispering', {
-		'AGENTS.md': agents(WHISPERING.contract),
 		'recordings/one.md': note('One'),
 		'recordings/two.md': note('Two'),
 	});
@@ -406,7 +400,7 @@ test("an app's folder renamed is followed; its usual path made again is a folder
 
 	// The person renames it; the app, not finding it, makes its usual path again.
 	await rename(join(desk.path, 'whispering'), join(desk.path, 'Voice notes'));
-	await desk.write('whispering', { 'AGENTS.md': agents(WHISPERING.contract) });
+	await desk.write('whispering', { 'recordings/three.md': note('Three') });
 	const after = expectOk(
 		await syncEvery({ account, root: desk.root, apps: [WHISPERING] }),
 	);

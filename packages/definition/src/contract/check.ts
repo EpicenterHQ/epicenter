@@ -1,6 +1,6 @@
 /**
  * `checkContract`: whether a folder's files fit a contract, file by file.
- * This is what `epicenter check <contract> [dir]` runs; it reads no disk, so
+ * This is what `epicenter check [<dir>] [--contract <contract>]` runs; it reads no disk, so
  * the CLI lists the folder and passes each path, with the text of each note.
  */
 import { Ok, type Result } from 'wellcrafted/result';

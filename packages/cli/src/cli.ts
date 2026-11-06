@@ -28,12 +28,16 @@ type Run = (
  */
 const HANDLERS: Record<string, Run> = {
 	messages: async () => (await import('./messages.js')).messagesCommand(),
-	check: async ({ positionals: [contract, dir], json }) =>
-		(await import('./contract-commands.ts')).check(contract, dir, json),
-	format: async ({ positionals: [contract, dir], json }) =>
+	check: async ({ positionals: [dir], options, json }) =>
+		(await import('./contract-commands.ts')).check(
+			dir,
+			typeof options.contract === 'string' ? options.contract : undefined,
+			json,
+		),
+	format: async ({ positionals: [dir], options, json }) =>
 		(await import('./contract-commands.ts')).format(
-			contract as string,
-			dir ?? '.',
+			dir,
+			typeof options.contract === 'string' ? options.contract : undefined,
 			json,
 		),
 	status: async ({ json }) =>
@@ -116,21 +120,22 @@ const HANDLERS: Record<string, Run> = {
 
 /** What `epicenter <command> --help` adds below the usage line. */
 const DETAILS: Record<string, string> = {
-	check: `Checks every file in <dir>, by default this directory, against an app's
-contract from <dir>/AGENTS.md. The explicit <contract> argument, a URL or a
-file path, takes precedence. Prints one line per
-problem, compiler style: a path no collection of the contract names, a note
-whose front matter does not parse, or one whose fields do not fit. Hidden
-paths (.git, .DS_Store, ...) are not the contract's and are skipped. Exits 0
-when every file fits, 1 when one does not, and 2 when the contract or the
-folder cannot be used. Never writes a file.`,
+	check: `Checks every file in <dir>, by default this directory, against its contract:
+<dir>/epicenter.json, or an app's contract named by --contract, a URL or a
+file path. Prints one line per problem, compiler style: a path no collection
+of the contract names, a note whose front matter does not parse, or one whose
+fields do not fit. Hidden paths (.git, .DS_Store, ...), epicenter.json, and a
+root AGENTS.md are not the contract's and are skipped. Exits 0 when every
+file fits, 1 when one does not, and 2 when the contract or the folder cannot
+be used. Never writes a file.`,
 	format: `Rewrites every note in <dir>, by default this directory, that a collection
-of the contract at <contract> (a URL or a file path) names, in house style:
-the contract's fields first in its order, other keys after them sorted,
-block YAML, the body untouched. A note whose front matter does not parse is
-left as it is and named. Each note is replaced only while it still holds the
-bytes read. Exits 0 when every note is in house style, 1 when one was left as
-it is, and 2 when the contract or the folder cannot be used.`,
+of its contract names (<dir>/epicenter.json, or --contract, a URL or a file
+path), in house style: the contract's fields first in its order, other keys
+after them sorted, block YAML, the body untouched. A note whose front matter
+does not parse is left as it is and named. Each note is replaced only while
+it still holds the bytes read. Exits 0 when every note is in house style, 1
+when one was left as it is, and 2 when the contract or the folder cannot be
+used.`,
 	'auth login': `Signs this computer in with a device code: open the link it prints, check
 the code, and choose which folders it may reach. The sign-in is kept in this
 computer's keychain, and sync sends its token on each request to the

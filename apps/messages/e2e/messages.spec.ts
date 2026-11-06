@@ -225,7 +225,7 @@ test('5. Messages’ directory fits the published contract', async () => {
 	);
 	expect(await filesIn('attempts')).toEqual([`attempts/${maya}.md`]);
 	const checked = await run(
-		['bun', '--no-install', cli, 'check', `${app}/contract.json`, E2E_FOLDER],
+		['bun', '--no-install', cli, 'check', E2E_FOLDER, '--contract', `${app}/contract.json`],
 		{
 			cwd: E2E_FOLDER,
 			env: { ...process.env } as Record<string, string>,

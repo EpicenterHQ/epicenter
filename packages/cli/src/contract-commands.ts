@@ -1,11 +1,11 @@
 /**
- * `check` and `format`: a folder against an app's contract, taken as a URL
- * or a file path. Check can also read the source from the folder's AGENTS.md.
- * The checking and formatting live in `@epicenter/folder/node`.
+ * `check` and `format`: a folder against its contract, its own
+ * `epicenter.json` (ADR-0805), or an app's named by `--contract` as a URL or
+ * a file path. The checking and formatting live in `@epicenter/folder/node`.
  */
-import { readFile, stat } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
-import { agentsContract } from '@epicenter/definition/note';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { CONTRACT_PATH } from '@epicenter/definition/contract';
 import { checkFiles, formatNotes } from '@epicenter/folder/node';
 import { count, EXIT, fail, writeJson, writeOut } from './output.ts';
 
@@ -37,44 +37,17 @@ async function readContract(
 	}
 }
 
+/** The contract `source` names, or else the folder's own `epicenter.json`. */
+const contractFor = (folder: string, source: string | undefined) =>
+	readContract(source ?? join(folder, CONTRACT_PATH));
+
 export async function check(
-	source: string | undefined,
 	dir: string | undefined,
+	source: string | undefined,
 	json: boolean,
 ) {
-	let folder = dir ?? '.';
-	let contractSource = source;
-	if (dir === undefined && source !== undefined) {
-		const candidate = await stat(source).catch(() => undefined);
-		if (candidate?.isDirectory()) {
-			folder = source;
-			contractSource = undefined;
-		}
-	}
-	if (contractSource === undefined) {
-		let note: string;
-		try {
-			note = await readFile(join(folder, 'AGENTS.md'), 'utf8');
-		} catch (cause) {
-			return fail(
-				`No contract argument and ${join(folder, 'AGENTS.md')} could not be read: ${cause instanceof Error ? cause.message : String(cause)}`,
-				json,
-			);
-		}
-		const parsed = agentsContract(note);
-		if (parsed.kind === 'invalid')
-			return fail(`${join(folder, 'AGENTS.md')}: ${parsed.reason}`, json);
-		const value = parsed.kind === 'frontmatter' ? parsed.contract : undefined;
-		if (typeof value !== 'string' || value.trim() === '')
-			return fail(
-				`${join(folder, 'AGENTS.md')} has no contract: URL or path in its front matter`,
-				json,
-			);
-		contractSource = /^https?:\/\//.test(value)
-			? value
-			: resolve(folder, value);
-	}
-	const read = await readContract(contractSource);
+	const folder = dir ?? '.';
+	const read = await contractFor(folder, source);
 	if ('error' in read) return fail(read.error, json);
 	const { data, error } = await checkFiles(read.contract, { path: folder });
 	if (error !== null) return fail(error.message, json);
@@ -97,10 +70,15 @@ export async function check(
 	return exitCode;
 }
 
-export async function format(source: string, dir: string, json: boolean) {
-	const read = await readContract(source);
+export async function format(
+	dir: string | undefined,
+	source: string | undefined,
+	json: boolean,
+) {
+	const folder = dir ?? '.';
+	const read = await contractFor(folder, source);
 	if ('error' in read) return fail(read.error, json);
-	const { data, error } = await formatNotes(read.contract, { path: dir });
+	const { data, error } = await formatNotes(read.contract, { path: folder });
 	if (error !== null) return fail(error.message, json);
 	const { formatted, unchanged, refused } = data;
 	const exitCode = refused.length > 0 ? EXIT.finding : EXIT.ok;

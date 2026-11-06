@@ -5,10 +5,7 @@
  * the folder opens; in a browser it is the folder on the server attached to
  * the app (ADR-0811). The `test` condition's leaf is `home.memory.ts`.
  */
-import {
-	appDataIdentifier,
-	hostFromSiteUrl,
-} from '@epicenter/definition/site';
+import { appDataIdentifier, hostFromSiteUrl } from '@epicenter/definition/site';
 import { isTauri } from '@tauri-apps/api/core';
 import { Ok } from 'wellcrafted/result';
 import {
@@ -17,11 +14,7 @@ import {
 	type Place,
 	place,
 } from './place.js';
-import {
-	folderRepository,
-	joinApp,
-	makeFolder,
-} from './remote/repository.js';
+import { folderRepository, joinApp, makeFolder } from './remote/repository.js';
 
 export { FolderClosed, FolderNotOpen, OpenFolderError } from './errors.js';
 export type {
@@ -35,9 +28,8 @@ export { openFolder } from './open-folder.js';
 export type { Place } from './place.js';
 
 /**
- * The app's own place. In a Tauri window it is the app's data folder, whose
- * `AGENTS.md` links the contract `site` publishes; it opens with no
- * account, and can be revealed in the file manager and shows its path once
+ * The app's own place. In a Tauri window it is the app's data folder; it
+ * opens with no account, and can be revealed in the file manager and shows its path once
  * it opened. In a browser it is the folder attached to the app that
  * `account` signs in as (ADR-0811): the one the person holds, or a new one
  * its first open makes; it opens once the account is signed in and keeps
@@ -54,22 +46,25 @@ export type { Place } from './place.js';
  */
 export function home({ site, account }: HomeOptions): Place {
 	account?.need('repository');
-	if (isTauri()) return dataFolder(site);
+	if (isTauri()) return dataFolder();
 	if (!account)
 		throw new TypeError(
 			"A browser opens the app's repository, so home needs its account.",
 		);
-	return attached(account, appDataIdentifier(hostFromSiteUrl(site), 'production'));
+	return attached(
+		account,
+		appDataIdentifier(hostFromSiteUrl(site), 'production'),
+	);
 }
 
 /** The app's data folder, its code loaded when the folder opens. */
-function dataFolder(site: string): Place {
-	return place((contract) => {
+function dataFolder(): Place {
+	return place(() => {
 		let path: string | null = null;
 		return {
 			async open() {
 				const { openDataFolder } = await import('./data-folder.js');
-				const opened = await openDataFolder(contract, site);
+				const opened = await openDataFolder();
 				if (opened.error !== null) return opened;
 				path = opened.data.path;
 				return Ok(opened.data.store);

@@ -1,10 +1,8 @@
 # @epicenter/cli
 
-`check` and `format` take a contract, as a URL or a file path, and read or
-rewrite a folder against it; `check` without one reads the `contract:` key of
-the folder's `AGENTS.md`. Neither reads the folder's own `epicenter.json` yet:
-ADR-0805 made that file the contract, and the commands have not caught up.
-See [shared vocabulary](../../docs/CONTEXT.md).
+`check` and `format` read or rewrite a folder against its contract, its own
+`epicenter.json` (ADR-0805), or an app's named by `--contract` as a URL or a
+file path. See [shared vocabulary](../../docs/CONTEXT.md).
 
 The `epicenter` command. Each command is a thin wrapper over a function in a
 shared package; the CLI parses, prints, and picks the exit code, and holds no
@@ -13,7 +11,7 @@ implemented command surface retains ADR-0558's `auth` group; its `app` group
 is deleted. ADR-0611 describes the planned reduction.
 
 ```sh
-bun run epicenter check path/to/contract.json path/to/folder   # from the repository root
+bun run epicenter check path/to/folder   # from the repository root
 ```
 
 The command line is the platform without windows (ADR-0817): every
@@ -43,8 +41,8 @@ built yet.
 
 | Command | Status | Wraps |
 | --- | --- | --- |
-| `epicenter check [<dir> \| <contract> [<dir>]]` | built | Reads `contract` from `<dir>/AGENTS.md` unless a contract is supplied; runs `checkFiles` in `@epicenter/folder/node` |
-| `epicenter format <contract> [<dir>]` | built | `formatNotes` in `@epicenter/folder/node` |
+| `epicenter check [<dir>] [--contract <url or path>]` | built | `checkFiles` in `@epicenter/folder/node`, against `<dir>/epicenter.json` unless `--contract` names one |
+| `epicenter format [<dir>] [--contract <url or path>]` | built | `formatNotes` in `@epicenter/folder/node`, the same way |
 | `epicenter status` | built | `listHome` in `@epicenter/folder/platform`, through `src/folder-commands.ts` |
 | `epicenter init [<path>] [--title <title>] [--dry-run]` | built | `initFolder`, through `src/folder-commands.ts` |
 | `epicenter sync [<folder>] [--join <id> \| --create] [--push-deletions \| --restore-deletions] [--all]` | built | `syncFolder` and `syncEvery`, through `src/sync/commands.ts` |
