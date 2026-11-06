@@ -1,8 +1,10 @@
 # @epicenter/cli
 
-`check` and `format` take an app's contract, as a URL or a file path, and
-read or rewrite a folder against it; a folder holds no `epicenter.json` for
-them. See [shared vocabulary](../../docs/CONTEXT.md).
+`check` and `format` take a contract, as a URL or a file path, and read or
+rewrite a folder against it; `check` without one reads the `contract:` key of
+the folder's `AGENTS.md`. Neither reads the folder's own `epicenter.json` yet:
+ADR-0805 made that file the contract, and the commands have not caught up.
+See [shared vocabulary](../../docs/CONTEXT.md).
 
 The `epicenter` command. Each command is a thin wrapper over a function in a
 shared package; the CLI parses, prints, and picks the exit code, and holds no
@@ -62,6 +64,20 @@ no CLI command: it waits to compose `@epicenter/folder/platform` itself.
 | `epicenter messages` | built, hidden | Local Beeper operations on stdin; token in the device keychain |
 
 `messages` and `--desktop` are left out of `--help`: the desktop app runs them.
+
+The decided commands that are not built: `query`, `set`, `edit`, and `delete`
+over a folder's collections, `normalize`, and `mcp` and `mcp --all`, which
+serves each contract as typed MCP tools
+([ADR-0790](../../docs/adr/0790-the-epicenter-app-is-a-library-over-every-folder-and-the-cli-answers-its-queries.md),
+[ADR-0797](../../docs/adr/0797-front-matter-is-a-strict-grammar-and-anything-else-is-body.md),
+[ADR-0799](../../docs/adr/0799-a-folders-contract-is-also-an-mcp-server.md)),
+with `epicenter init --yes` for agents
+([ADR-0811](../../docs/adr/0811-folders-are-shared-directly-and-an-app-reaches-the-folders-attached-to-it.md)).
+`format` goes with the whole-note formatter (ADR-0796). The Epicenter app
+composes the same package functions and never runs a command
+([ADR-0817](../../docs/adr/0817-the-cli-exposes-every-platform-operation-and-an-app-inherits-everything-about-folders.md)),
+though the desktop shell still runs this binary for sign-in and Messages for
+Beeper, which ADR-0817's "no program calls the CLI" does not yet describe.
 
 ## Folders
 
@@ -210,8 +226,7 @@ stderr without it.
 
 Exit codes are ADR-0520's: 0 done, 1 a finding a person acts on (a file that
 does not conform, a sync that stopped), 2
-input the command cannot use (a folder that is not one, an unknown option,
-no `git`).
+input the command cannot use (a folder that is not one, an unknown option).
 
 Options are matched exactly. A token shaped like an option the command does
 not take is refused. After `--`, every token is a positional. The CLI never calls
