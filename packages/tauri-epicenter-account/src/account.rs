@@ -96,6 +96,8 @@ impl Audience {
         }
     }
 }
+/// How long quitting waits for a refresh in flight to store what it got.
+pub const EXIT_WAIT: Duration = Duration::from_secs(10);
 /// An access token is renewed this long before it expires.
 const RENEW_BEFORE: Duration = Duration::from_secs(5 * 60);
 /// How long the browser has to come back.
@@ -192,6 +194,25 @@ impl Account {
 
     fn entry(&self) -> String {
         format!("account:{}", self.origin)
+    }
+
+    /// Wait, at most `wait`, for a refresh or sign-out in flight to
+    /// finish, and start none after: the app is quitting. Each holds the
+    /// grant's lock from its request to the credentials file, so holding it
+    /// means a refresh token the server rotated is stored. Blocks the
+    /// calling thread, which must not be one of the async runtime's.
+    pub fn finish_refreshing(&self, wait: Duration) {
+        let held = tauri::async_runtime::block_on(async {
+            tokio::time::timeout(wait, self.grant.lock()).await
+        });
+        match held {
+            // Kept until the process ends, so no refresh starts after.
+            Ok(guard) => std::mem::forget(guard),
+            Err(_) => log::warn!(
+                "A sign-in refresh was still running after {}s; quitting without it.",
+                wait.as_secs()
+            ),
+        }
     }
 
     /// Write who is signed in to `path` from now on; the first call wins.
@@ -1173,6 +1194,60 @@ mod tests {
         assert_eq!(
             account.access_token(Audience::Api, false).await,
             Err(Refusal::SignedOut)
+        );
+    }
+
+    /// Quitting waits for a refresh the server is answering, so the refresh
+    /// token it rotated is in the credentials file before the process ends,
+    /// and no refresh starts after.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn quitting_waits_for_a_rotated_refresh_token_to_be_stored() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut head = Vec::new();
+            let mut buffer = [0u8; 4096];
+            while !head.windows(4).any(|window| window == b"\r\n\r\n") {
+                let read = stream.read(&mut buffer).await.unwrap();
+                head.extend_from_slice(&buffer[..read]);
+            }
+            // The server is slow to answer, and rotates the refresh token.
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            let body = r#"{"access_token":"a","refresh_token":"rotated","expires_in":3600}"#;
+            stream
+                .write_all(
+                    format!(
+                        "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                        body.len()
+                    )
+                    .as_bytes(),
+                )
+                .await
+                .unwrap();
+        });
+        let dir = tempfile::tempdir().unwrap();
+        let account = Arc::new(account_in(dir.path(), &origin, Some(&grant())));
+        let refreshing = account.clone();
+        let refresh =
+            tokio::spawn(async move { refreshing.access_token(Audience::Api, false).await });
+        // Let the refresh take the grant before quitting asks for it.
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let quitting = account.clone();
+        tokio::task::spawn_blocking(move || quitting.finish_refreshing(EXIT_WAIT))
+            .await
+            .unwrap();
+        let stored = account.secrets.get(&account.entry()).unwrap().unwrap();
+        assert!(stored.contains(r#""refreshToken":"rotated""#), "{stored}");
+        assert_eq!(refresh.await.unwrap(), Ok("a".to_string()));
+        // Nothing refreshes once the app is quitting.
+        assert!(
+            tokio::time::timeout(
+                Duration::from_millis(100),
+                account.access_token(Audience::Git, false)
+            )
+            .await
+            .is_err()
         );
     }
 

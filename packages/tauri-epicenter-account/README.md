@@ -21,7 +21,9 @@ credentials file under `account:<origin>`, and an access token per audience
 the app signs in for (the code is exchanged for the first; the refresh token
 mints each other when a request first needs it), kept in this process's
 memory and renewed five minutes before it expires. A refresh token the server
-rotates replaces the stored one before it is used again. `account_sign_out` forgets the sign-in and asks the server to
+rotates replaces the stored one before it is used again, and quitting waits
+up to ten seconds for a refresh in flight to store it (the plugin's `Exit`
+hook), so a quit never spends the stored token without keeping its successor. `account_sign_out` forgets the sign-in and asks the server to
 revoke it, waiting at most five seconds.
 
 Each app is its own native client, `so.epicenter.<app>.native` (decision 84),

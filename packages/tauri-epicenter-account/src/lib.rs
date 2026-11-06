@@ -46,7 +46,7 @@ mod relay;
 use std::sync::Arc;
 
 use tauri::plugin::TauriPlugin;
-use tauri::{Manager, Runtime};
+use tauri::{Manager, RunEvent, Runtime};
 
 pub use account::{deployment_origin, Account, AccountApp, Audience, Identity, IDENTITY_FILE};
 pub use connection::Connections;
@@ -85,7 +85,17 @@ pub fn manage<R: Runtime>(builder: tauri::Builder<R>, app: AccountApp) -> tauri:
 /// Place the credentials file and `account.json` at the top of the app's
 /// AppData directory, then write who the credentials say is signed in.
 fn place<R: Runtime>(credentials: Arc<Credentials>, account: Arc<Account>) -> TauriPlugin<R> {
+    let exiting = account.clone();
     tauri::plugin::Builder::new("epicenter-account")
+        // A refresh the server already rotated must reach the credentials
+        // file before the process ends, or the stored refresh token is spent
+        // and the next start asks for a sign-in. Plugin Exit hooks run before
+        // an app's own exit (`tauri_plugin_epicenter_transcription::run`).
+        .on_event(move |_app, event| {
+            if let RunEvent::Exit = event {
+                exiting.finish_refreshing(account::EXIT_WAIT);
+            }
+        })
         .setup(move |app, _api| {
             // A startup that cannot name AppData says so itself
             // (`epicenter-standalone`); until then a secret reads as an error.
