@@ -8,16 +8,17 @@ contract, `src/lib/contract.ts`, published unchanged as `static/contract.json`
 program that writes the layout is a valid writer.
 
 Todos has two variants, one store each and nothing moving between them
-(decisions 77 to 79): the online web app over the signed-in person's
-repository, and a desktop app over a folder of todos it keeps on the
+(decisions 77 to 79): the online web app over the folder attached to Todos
+on the server, and a desktop app over a folder of todos it keeps on the
 computer (below). A folder of todos on a computer, the desktop app's or a
-clone of the person's repository (`epicenter clone`), is synced by Epicenter
-(`epicenter sync`), never by Todos.
+clone of that folder (`epicenter clone`), is synced by `epicenter sync`,
+never by Todos.
 
 ## The web app
 
-Todos in a browser is its online variant only: the person's own repository,
-`<handle>/todos`, through Epicenter. Signed out it asks for a sign-in;
+Todos in a browser is its online variant only: the folder attached to Todos
+on the server (its history is the repository at `/folders/<id>`). Signed out
+it asks for a sign-in;
 signed in, every create, edit, completion and delete is a commit there, and
 nothing is kept in the browser. It needs the network; there is no browser
 copy to fall back on

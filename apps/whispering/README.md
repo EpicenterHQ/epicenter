@@ -37,8 +37,8 @@ itself moves no files between them (decision 77).
 
 Whispering on the web is online
 ([ADR-0786](../../docs/adr/0786-every-web-app-is-online-and-browser-storage-leaves-the-platform.md)):
-its files are the person's own repository, `<handle>/whispering`, through
-Epicenter (`openFolder(whispering, home({ site, account }))` in
+its files are the folder attached to Whispering on the server (a repository
+at `/folders/<id>`), through the account (`openFolder(whispering, home({ site, account }))` in
 `src/lib/app.ts`), at the same paths a folder holds. Signed out it asks for
 a sign-in (`src/lib/components/SignIn.svelte`); signed in, every recording,
 edit, transcript and result is a commit there, and nothing is kept in the

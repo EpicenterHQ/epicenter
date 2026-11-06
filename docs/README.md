@@ -5,10 +5,11 @@ This directory contains knowledge articles, guides, and reference materials for 
 ## Start Here
 
 - [Decisions (ADRs)](adr/README.md): the authoritative record of durable architecture decisions and why. Trust this over any spec.
+- [Vision](vision.md): where Epicenter is going, on one page: folders, apps as lenses, sync, sharing.
 - [Context](CONTEXT.md): shared vocabulary for the platform's concepts.
 - [Positioning](positioning.md): canonical public claims and vocabulary rules.
-- [Architecture](architecture.md): data folders, the folder engine and its hosts, apps, and sync.
-- [Trust model](trust-model.md): who can read a folder's files, decided by the Git server it syncs with.
+- [Architecture](architecture.md): what is built: folders, sync, the server, the platform and CLI, and apps.
+- [Trust model](trust-model.md): who can read a folder's files, decided by the Epicenter server it syncs with.
 - [Spec history](spec-history.md): a dated index of every spec ever written (history, not current truth).
 
 ## Directory Structure

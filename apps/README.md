@@ -1,16 +1,28 @@
 # Apps
 
-An app's data is a layout of files that its contract describes
-(`defineContract` from `@epicenter/definition/contract`), and Git is the
-record of that layout
-([ADR-0700](../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)).
-An app opens its folder through `@epicenter/folder`, which gives it each of
-the contract's collections, read with `items`, `get` and `list` and written
-with `set` and `delete`, which never fail: the folder keeps a write until it
-lands ([ADR-0775](../docs/adr/0775-a-write-never-fails-the-folder-keeps-it-until-it-lands.md)).
-Any program that writes the layout is a valid writer. Apps never
-commit: Epicenter (`epicenter sync`) commits a folder on a computer, and the
-server commits each web write.
+An app is a lens on a person's folders: a view of what it understands in a
+folder, a window over one folder, and its capabilities
+([ADR-0813](../docs/adr/0813-epicenter-is-your-folders-and-apps-are-lenses.md),
+[ADR-0818](../docs/adr/0818-an-app-is-a-view-a-window-and-its-capabilities-and-everything-is-repairable-by-hand.md)).
+Today an app describes that view as a contract (`defineContract` from
+`@epicenter/definition/contract`) and opens its folder through
+`@epicenter/folder`, which gives it each of the contract's collections, read
+with `items`, `get` and `list` and written with `set` and `delete`, which
+never fail: the folder keeps a write until it lands
+([ADR-0775](../docs/adr/0775-a-write-never-fails-the-folder-keeps-it-until-it-lands.md)).
+Any program that writes the layout is a valid writer. The decided shape is
+`openFolder(view)` over the folder a window was opened on, with the home,
+sync, history, and sharing supplied by the platform
+([ADR-0815](../docs/adr/0815-the-platform-gives-a-window-its-folder-and-every-app-the-same-home.md));
+`defineView` and `@epicenter/app` are not built, and no app syncs its own
+folder yet.
+
+Apps never commit and keep no Git on a computer. A folder's history is the
+server's Git repository, which `epicenter sync` commits to
+([ADR-0804](../docs/adr/0804-a-computer-keeps-a-plain-folder-and-every-surface-syncs-with-one-typescript-function.md)),
+at `/folders/<id>`. The code still says note and `{id}` where the records
+decided item and `{name}`; the rename is pending
+([ADR-0802](../docs/adr/0802-people-share-spaces-an-app-works-in-one-at-a-time-and-a-folder-carries-its-contract.md)).
 
 ## Variants
 
@@ -26,8 +38,8 @@ store where the page runs:
 
 | Surface | Store | The account |
 | --- | --- | --- |
-| Desktop (a Tauri window) | a folder on the computer | not needed for the folder, which Epicenter (`epicenter sync`) syncs today; the app signing in to sync it is unbuilt ([ADR-0785](../docs/adr/0785-a-desktop-app-signs-in-to-sync-its-own-folder.md)) |
-| Web | the person's repository, behind sign-in | required |
+| Desktop (a Tauri window) | a folder on the computer | not needed for the folder, which `epicenter sync` syncs today; the app signing in to sync it is unbuilt ([ADR-0785](../docs/adr/0785-a-desktop-app-signs-in-to-sync-its-own-folder.md)) |
+| Web | the folder attached to the app, on the server, behind sign-in | required |
 
 | App | Surfaces |
 | --- | --- |
@@ -75,9 +87,8 @@ to `<WhenOpen>` from `@epicenter/svelte` beside the folder
 `<WhenOpen>` shows a spinner after 150 ms while they connect, Recovery with
 Retry when one cannot, the pages once both have, and the leave guard while
 a write is out. Every read inside it is synchronous.
-Where the folder is the person's repository, a signed-out person is asked
-to sign in first; a folder on this computer (`folder.reveal`) needs no
-sign-in:
+Where the folder is on the server, a signed-out person is asked to sign in
+first; a folder on this computer (`folder.reveal`) needs no sign-in:
 
 ```svelte
 <!-- apps/todos/src/routes/(app)/+layout.svelte -->
@@ -92,8 +103,10 @@ One build serves every surface
 ([ADR-0781](../docs/adr/0781-apps-branch-on-what-a-capability-offers-and-one-build-serves-every-surface.md)):
 each capability package decides where the page runs, and a view branches
 on what a capability offers, such as the header's `FolderChrome` where
-`folder.reveal` is there and `RepositoryChrome` otherwise. Components
-import `folder` from `$lib/app.js`.
+`folder.reveal` is there and `RepositoryChrome` otherwise. (`FolderChrome`'s
+"Set up in Epicenter" is the enrollment that preceded ADR-0804; the platform's
+sync and sharing replace it as apps become views.) Components import `folder`
+from `$lib/app.js`.
 
 UI components read a collection off `folder`, sort with the app's own
 order, and read and write through it: `items()`, `invalid()` (notes that
@@ -119,8 +132,11 @@ A desktop app on `epicenter-standalone` opens the folder its shell derives
 from its site: `~/Epicenter/<label>` for Epicenter apps and
 `~/Epicenter/<owner>/<label>` for other apps. Development builds use
 `~/Epicenter Dev` as the root. The folder is made when missing for now.
-A failed open shows `<WhenOpen>`'s recovery screen with Retry. **Set up in Epicenter**
-enrolls the folder for local history; connecting a repository there enables transfer.
+A failed open shows `<WhenOpen>`'s recovery screen with Retry. The decided
+shape is a folder directly inside the Epicenter folder that the app's first
+run offers to make or to pick, and that the app remembers by its id
+([ADR-0813](../docs/adr/0813-epicenter-is-your-folders-and-apps-are-lenses.md)).
+A person syncs and shares a folder with `epicenter sync` and `epicenter share`.
 
 | App | Surfaces | Desktop folder | Contract |
 | --- | --- | --- | --- |
@@ -132,17 +148,19 @@ enrolls the folder for local history; connecting a repository there enables tran
 | [Whispering](whispering/README.md) | web; desktop | `~/Epicenter/whispering` | `whispering`: `recordings`, `audio`, `transcriptions`, `transformations`, `transformation_runs`, `text_runs`, `shortcuts` |
 | [Messages](messages/README.md) | local program (`bun run --cwd apps/messages start`) | none: `<AppData>/apps/so.epicenter.messages`, which its program owns | `messages`: `drafts`, `attempts` |
 
-A web app keeps none of its files in the browser. The Epicenter app keeps no data of its own; its
-library root, `~/Epicenter` (`~/Epicenter Dev` for a development build, whose
-`tauri.dev.conf.json` states `"environment": "development"`), holds the
-standalone apps' folders. A
+A web app keeps none of its files in the browser. The Epicenter app keeps no
+data of its own; the Epicenter folder, `~/Epicenter` (`~/Epicenter Dev` for a
+development build, whose `tauri.dev.conf.json` states
+`"environment": "development"`), holds the standalone apps' folders and every
+other folder a person has. The Rust comments still call it the library root
+([ADR-0816](../docs/adr/0816-the-epicenter-app-is-where-a-person-sees-and-manages-every-folder.md)). A
 standalone app reaches its folder and its AppData by name, never by path
 ([ADR-0725](../docs/adr/0725-an-app-reaches-named-roots-through-one-command-per-storage-operation.md)),
 and whatever is at its folder's path is its own
 ([ADR-0726](../docs/adr/0726-an-apps-path-is-its-claim.md)).
 
 Local Books keeps its QuickBooks replica in SQLite under
-`<AppData>/apps/so.epicenter.local-books`, outside the library. `api`,
+`<AppData>/apps/so.epicenter.local-books`, outside the Epicenter folder. `api`,
 `landing`, and `posthog-reverse-proxy` are infrastructure and open no folder.
 
 ## Product root names
@@ -161,7 +179,8 @@ application. For the naming rationale, see
 
 [Messages](messages/README.md) keeps its drafts and send attempts as notes of
 its own contract in a directory its program owns on this computer, outside
-the library. Conversation history stays in Beeper and is read into memory.
+the Epicenter folder. Conversation history stays in Beeper and is read into
+memory.
 Messages runs as a local program on the computer where Beeper Desktop runs
 (`bun run --cwd apps/messages start`): its server answers the page's
 requests of its drafts' directory, and its Beeper requests through the

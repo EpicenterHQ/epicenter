@@ -80,7 +80,10 @@ elsewhere (`resolveOAuthAudiences`).
 **Members.** A person is named by the email they sign in with. Sharing
 makes a `folder_member` row whose `accepted_at` is null: it grants nothing,
 shows only in that person's `pending`, and becomes membership when they
-accept it. Any member may be an owner: roles are `owner`, `writer`, and
+accept it. An email with no account is refused today (`UnknownPerson`, 404),
+which tells the caller whether it has one; ADR-0820 decided an invitation that
+waits for the email to sign up and answers the same either way, and that is
+unbuilt. Any member may be an owner: roles are `owner`, `writer`, and
 `reader` (`src/folder-roles.ts`), and an owner may change any member's,
 except that the last owner may not step down while others hold the folder.
 A folder lives while an accepted member remains: the `folder_member_left`
@@ -99,8 +102,10 @@ attaches another through Epicenter, which no app can do for itself.
 With a store that has `objects` (the disk store), every push goes to the
 receiver (`src/routes/receive.ts`), never the store's own receive-pack. It
 accepts `refs/heads/main` alone, decides fast-forward from the pushed commits,
-accepts merge commits, and requires every changed file other than a `.md` note
-or a hidden path (any segment starting with `.`) to be a Git LFS pointer whose
+accepts merge commits, and requires every changed file other than a `.md` note,
+the folder's `epicenter.json` (kept as plain text so the server can read its
+title, ADR-0820), or a hidden path (any segment starting with `.`) to be a Git
+LFS pointer whose
 object is stored, whatever `.gitattributes` says (`storedWithLfs` in
 `@epicenter/definition/contract`). Only the owner may
 replace `main`; the replaced commit is kept as `refs/epicenter/replaced/<time>`.
@@ -268,5 +273,6 @@ configured database. `src/test-helpers/oauth-checks.ts` holds the
 authorization server checks that `apps/api` also runs against its Bun and
 Worker entries.
 
-Data folders sync over Git (ADR-0521); the Yjs store sync this package
-used to mount is removed (ADR-0534).
+A folder syncs with this server and no other (ADR-0803): the client keeps no
+Git, and the server's repository is the folder's history. The Yjs store sync
+this package used to mount is removed (ADR-0534).
