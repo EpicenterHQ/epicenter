@@ -517,8 +517,11 @@ test('kept in sync, a change here reaches the server and a change there arrives,
 	try {
 		const markOf = (state: KeptState, name: string) =>
 			state.marks.get(join(alice.home, 'Epicenter', name))?.mark;
-		const settled = await until((state) => state.last !== null);
-		expect(markOf(settled, 'Notes')).toBe('synced');
+		// A watch may report a file written just before it started, which a
+		// round after the burst settles: wait for the mark, not the first round.
+		const settled = await until(
+			(state) => state.last !== null && markOf(state, 'Notes') === 'synced',
+		);
 		expect(markOf(settled, 'Local only')).toBe('waiting');
 
 		// A change here is heard, marked waiting, and synced after the burst.

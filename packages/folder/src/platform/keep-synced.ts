@@ -150,7 +150,13 @@ export function keepEverySynced({
 		for (const { local } of every) {
 			present.add(local.path);
 			const kept = watches.get(local.path);
-			if (kept?.local === local) continue;
+			// The same directory keeps its watch, whatever object listed it.
+			if (
+				kept !== undefined &&
+				kept.local.identity?.device === local.identity?.device &&
+				kept.local.identity?.inode === local.identity?.inode
+			)
+				continue;
 			kept?.stop();
 			watches.delete(local.path);
 			const watched = await local.store.watch(() => heard(local.path));
