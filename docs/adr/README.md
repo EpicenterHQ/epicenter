@@ -985,7 +985,7 @@ When you add an ADR, add its row here.
 | [0787](0787-records-that-assumed-a-running-engine-or-a-build-time-choice-follow-0750-and-0781.md) | Records that assumed a running engine or a build-time choice follow ADR-0750 and ADR-0781 | Accepted (amends 0732, 0744, 0746, 0749, 0751, 0753, 0763, 0765, 0766, 0772, 0773, 0774, 0783, and 0785; amended by 0793, 0794, and 0797) |
 | [0788](0788-everything-in-a-folder-syncs-and-a-recordings-audio-is-kept-in-one-of-three-places.md) | Everything in a folder syncs, and a recording's audio is kept in one of three places | Accepted (amends 0779 and 0786; amended by 0789, 0801, 0804, and 0807) |
 | [0789](0789-a-conflict-is-a-mark-on-its-note-resolved-in-the-repair-editor.md) | A conflict is a mark on its note, resolved in the repair editor | Accepted (amends 0788; amended by 0795) |
-| [0790](0790-the-epicenter-app-is-a-library-over-every-folder-and-the-cli-answers-its-queries.md) | The Epicenter app is a library over every folder, and the CLI answers its queries | Accepted (amends 0715; amended by 0793, 0801, and 0815) |
+| [0790](0790-the-epicenter-app-is-a-library-over-every-folder-and-the-cli-answers-its-queries.md) | The Epicenter app is a library over every folder, and the CLI answers its queries | Accepted (amends 0715; amended by 0793, 0801, 0815, and 0816) |
 | [0791](0791-a-folders-first-sync-places-it-in-its-teams-folder.md) | A folder's first sync places it in its team's folder | Superseded by 0811 |
 | [0792](0792-an-account-asks-for-what-the-capabilities-that-take-it-need.md) | An account asks for what the capabilities that take it need | Accepted (amends 0781; amended by 0815) |
 | [0793](0793-programs-only-compose-typescript-holds-what-epicenter-means-and-rust-holds-the-os-git-and-secrets.md) | Programs only compose: TypeScript holds what Epicenter means, and Rust holds the OS, Git, and secrets | Accepted (amends 0732, 0751, 0774, 0787, and 0790; amended by 0795, 0801, and 0804) |
@@ -995,7 +995,7 @@ When you add an ADR, add its row here.
 | [0797](0797-front-matter-is-a-strict-grammar-and-anything-else-is-body.md) | Front matter is a strict grammar, and anything else is body | Accepted (amends 0787, 0795, and 0796; amended by 0798) |
 | [0798](0798-a-store-patches-fields-and-writes-text-and-a-change-is-data.md) | A store patches fields and writes text, and a change is data | Accepted (amends 0774, 0779, and 0797; amended by 0800, 0807, and 0808) |
 | [0799](0799-a-folders-contract-is-also-an-mcp-server.md) | A folder's contract is also an MCP server | Accepted (amended by 0800 and 0801) |
-| [0800](0800-a-stores-wire-speaks-http-conditional-requests-and-apps-connect-agents-to-the-cli.md) | A store's wire speaks HTTP's conditional requests, and apps connect agents to the CLI | Accepted (amends 0798 and 0799; amended by 0807) |
+| [0800](0800-a-stores-wire-speaks-http-conditional-requests-and-apps-connect-agents-to-the-cli.md) | A store's wire speaks HTTP's conditional requests, and apps connect agents to the CLI | Accepted (amends 0798 and 0799; amended by 0807 and 0816) |
 | [0801](0801-records-from-0763-to-0800-agree-on-the-merge-rust-patching-marks-and-agents.md) | Records from 0763 to 0800 agree on the merge, Rust's part, the marks, and agents | Accepted (amends 0763, 0780, 0788, 0790, 0793, 0794, and 0799; amended by 0804) |
 | [0802](0802-people-share-spaces-an-app-works-in-one-at-a-time-and-a-folder-carries-its-contract.md) | People share spaces, an app works in one at a time, and a folder carries its contract | Accepted (amends 0770, 0772, 0791, and 0794; amended by 0805, 0811, and 0814) |
 | [0803](0803-clients-sync-only-with-epicenter-servers-and-sync-is-a-function-of-two-stores.md) | Clients sync only with Epicenter servers, and sync is a function of two stores | Accepted (amends 0733 and 0794) |
@@ -1010,4 +1010,5 @@ When you add an ADR, add its row here.
 | [0812](0812-an-apps-schema-is-a-view-that-must-fit-a-folders-contract.md) | An app's schema is a view that must fit a folder's contract | Accepted (amends 0805, 0810, and 0811) |
 | [0813](0813-epicenter-is-your-folders-and-apps-are-lenses.md) | Epicenter is your folders, and apps are lenses | Accepted (amends 0763, 0805, and 0811) |
 | [0814](0814-one-window-shows-one-folder.md) | One window shows one folder | Accepted (amends 0802 and 0811) |
-| [0815](0815-the-platform-gives-a-window-its-folder-and-every-app-the-same-home.md) | The platform gives a window its folder, and every app the same home | Accepted (amends 0773, 0790, 0792, and 0804) |
+| [0815](0815-the-platform-gives-a-window-its-folder-and-every-app-the-same-home.md) | The platform gives a window its folder, and every app the same home | Accepted (amends 0773, 0790, 0792, and 0804; amended by 0816) |
+| [0816](0816-the-epicenter-app-is-where-a-person-sees-and-manages-every-folder.md) | The Epicenter app is where a person sees and manages every folder | Accepted (amends 0790, 0800, and 0815) |

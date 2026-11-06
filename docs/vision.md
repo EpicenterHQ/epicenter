@@ -2,7 +2,7 @@
 
 **Epicenter is your folders, and apps are lenses** ([ADR-0813](adr/0813-epicenter-is-your-folders-and-apps-are-lenses.md)).
 A folder in `~/Epicenter` holds your things, syncs, keeps history, and is
-shared with people; an app, the library, the command line, or an agent shows
+shared with people; an app, the Epicenter app, the command line, or an agent shows
 and changes the part of it that it understands.
 
 It is the document architecture of desktop systems with a folder as the
@@ -17,7 +17,7 @@ document ([ADR-0815](adr/0815-the-platform-gives-a-window-its-folder-and-every-a
 | autosave | writes that never fail |
 | Browse All Versions | History, from the folder's Git history on the server |
 | Share and iCloud | Share with people, and sync |
-| Finder | the library |
+| Finder | the Epicenter app |
 
 Where Epicenter is going, on one page. Each section links the records that
 decided it; read them for the reasons and the detail. This is direction, not

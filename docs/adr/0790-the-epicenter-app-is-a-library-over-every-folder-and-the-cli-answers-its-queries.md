@@ -7,6 +7,7 @@
 - **Amended by:** [ADR-0793](0793-programs-only-compose-typescript-holds-what-epicenter-means-and-rust-holds-the-os-git-and-secrets.md) at the library asking `epicenter query` for names: it builds the same tables in its own page and neither runs nor carries the CLI.
 - **Amended by:** [ADR-0801](0801-records-from-0763-to-0800-agree-on-the-merge-rust-patching-marks-and-agents.md) at `epicenter set` writing through the folder engine: it is a patch.
 - **Amended by:** [ADR-0815](0815-the-platform-gives-a-window-its-folder-and-every-app-the-same-home.md) at the library as an app of its own: it is the platform's home with a lens over any folder.
+- **Amended by:** [ADR-0816](0816-the-epicenter-app-is-where-a-person-sees-and-manages-every-folder.md) at "the library": the app is called Epicenter.
 - **Unbuilt:** all of it: `epicenter query` with its scope, attached schemas, `invalid` tables, `--json` and `--watch`; `epicenter set`, `edit`, and `delete` with JSON; the library opening a folder with a contract read from its `AGENTS.md`; its query line, Show SQL, and header sorting; the field-to-component set in `packages/ui`; the health view (sync state, conflicts, notes that do not read, duplicate and mismatched folders); Sync all; installing the command and the browser extension's native host; deleting the Folders window's share, unshare, connect, and background sync, and the parked `dictation` feature.
 
 ## Context
