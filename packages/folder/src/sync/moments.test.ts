@@ -161,12 +161,12 @@ test('moments during a sync make one sync after it, which every now() answers', 
 	const { folder, moments, results } = setup({
 		remote: (repository) => ({
 			...repository,
-			async writeAll(writes) {
+			async commit(writes) {
 				if (holding)
 					await new Promise<void>((resolve) => {
 						release = resolve;
 					});
-				return repository.writeAll(writes);
+				return repository.commit(writes);
 			},
 		}),
 	});

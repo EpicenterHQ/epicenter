@@ -617,15 +617,18 @@ describe('per-repository grants', () => {
 		const refused = await git(copy, bob.token, 'push', 'origin', 'HEAD:main');
 		expect(refused.code).not.toBe(0);
 		expect(refused.stderr).toContain('403');
-		// A web write is a push too.
-		const web = await fetch(`${url}/epicenter/writes`, {
+		// A commit through the folder's id is a push too.
+		const family = (await repositoryRows(alice.person.personal)).find(
+			({ name }) => name === 'family',
+		);
+		const web = await fetch(`${audiences.git}/folders/${family?.id}/commits`, {
 			method: 'POST',
 			headers: {
 				authorization: `Bearer ${bob.token}`,
 				'content-type': 'application/json',
 			},
 			body: JSON.stringify({
-				files: [{ path: 'w.md', base: null, text: 'web\n' }],
+				files: [{ path: 'w.md', expect: null, text: 'web\n' }],
 			}),
 		});
 		expect(web.status).toBe(403);

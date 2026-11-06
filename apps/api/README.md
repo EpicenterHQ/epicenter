@@ -303,10 +303,11 @@ most 5,000 of `main`'s commits to place it (`WORKER_RECEIVE_LIMITS`), so one
 push peaks near 48 MiB of a 128 MB isolate and stays within a Paid
 invocation's 10,000 subrequests. The Bun entry keeps bare repositories under `GIT_STORE_ROOT`
 (`<root>/<id>.git`; clone and fetch through `git http-backend`, every push
-through the forward-only receiver, web writes through the translator at
-`<repo>.git/epicenter/writes`) and Git LFS objects under `LFS_STORE_ROOT`
-(`<root>/<id>/<aa>/<bb>/<oid>`); without `GIT_STORE_ROOT` hosted Git answers
-503, and without `LFS_STORE_ROOT` the LFS routes do:
+through the forward-only receiver, sync's commits at
+`<git>/folders/<folder>/commits`) and attachments' bytes (Git LFS objects)
+under `LFS_STORE_ROOT` (`<root>/<id>/<aa>/<bb>/<oid>`); without
+`GIT_STORE_ROOT` hosted Git answers 503, and without `LFS_STORE_ROOT` the
+LFS and attachment routes do:
 
 ```sh
 # with DATABASE_URL and the variables in .env.example set

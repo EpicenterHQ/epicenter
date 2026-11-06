@@ -1,15 +1,17 @@
 /**
  * Hosted Git (ADR-0546): a folder's remote is
- * `<git audience>/<namespace>/<name>.git`, and the first push or web write
- * creates it. `<namespace>` may be `~`, the caller's personal namespace, so
- * a web app reaches `~/<repository name>` from its token alone.
+ * `<git audience>/<namespace>/<name>.git`, and the first push creates it;
+ * sync reaches it by its folder's id, `<git audience>/folders/<folder>`, and
+ * `POST <git audience>/folders` makes one. `<namespace>` may be `~`, the
+ * caller's personal namespace.
  *
  * ```txt
  * <git>/<ns>/<name>.git/info/refs?service=…        GET   folders:read, read  (receive-pack: folders:write, push)
  * <git>/<ns>/<name>.git/git-upload-pack            POST  folders:read, read
  * <git>/<ns>/<name>.git/git-receive-pack           POST  folders:write, push (rewrite: owner); the receiver, receive.ts
  * <git>/<ns>/<name>.git/info/lfs/…                 Git LFS, lfs.ts
- * <git>/<ns>/<name>.git/epicenter/{changes,files,read,writes}   the write translator, files.ts
+ * <git>/folders/<folder>/{changes,tree,blobs,commits}   sync's routes, by the folder's id, folder.ts
+ * <git>/folders                                    POST  folders:write: a new folder, or the caller's of a name
  * <api>/api/repos                                  GET   folders:read on the Git audience: the caller's repositories by namespace
  * <api>/api/repos/<ns|~>/<name>/grants             GET   folders:read, manage: the repository's grants
  * <api>/api/repos/<ns|~>/<name>/grants/<person>    PUT { level } grants, DELETE revokes; folders:write, manage
@@ -18,7 +20,7 @@
  * A person outside the namespace reaches one repository through a grant
  * (`repository_grant`): `read` gives the `reader` role, `write` the
  * `writer` role (`namespace-roles.ts`). The decision is the same one
- * statement as membership's, so every route above, Git, LFS and web writes
+ * statement as membership's, so every route above, Git, LFS and a folder's
  * alike, applies one rule. A grant names an existing repository and never
  * creates one; only the owner rewrites `main` or manages grants. A person
  * is named by their handle, the id of their personal namespace.
@@ -38,7 +40,7 @@
  * A name nobody has used is not a repository until something is written to
  * it. Its advertisement answers a member whose role may push as an empty
  * repository would, its file listing is empty, and reading creates nothing.
- * Every writing request (a push, an LFS upload, a web write) creates it, at
+ * Every writing request (a push, an LFS upload) creates it, at
  * its start and after the same authorization: the storage
  * (`GitHost.create`), then the row. Two first writes at once insert one row
  * (the `(namespace_id, name)` unique key); the one that loses writes into
@@ -52,7 +54,7 @@
  * by its immutable id, never by `<namespace>/<name>`, and receives only
  * requests this module already authorized; the client's credential never
  * reaches it. The store serves clone and fetch; every push goes through the
- * receiver, and the files and LFS routes over its `objects`. LFS answers 503
+ * receiver, and a folder's and the LFS routes over its `objects`. LFS answers 503
  * until the deployment has an LFS store.
  *
  * Refusals answer JSON `{ error, error_description }`:
@@ -111,15 +113,6 @@ import {
 } from '../repositories.js';
 import type { CloudEnv } from '../types.js';
 import { databaseUploadLedger, type UploadLedger } from '../uploads.js';
-import {
-	applyWrite,
-	listRepositoryFiles,
-	MAX_WRITE_BYTES,
-	MAX_READ_PATHS,
-	readRepositoryChanges,
-	readRepositoryFiles,
-	readWriteRequest,
-} from './files.js';
 import {
 	type FolderEndpoint,
 	folderBlob,
@@ -335,11 +328,7 @@ export type GitEndpoint =
 	| { kind: 'lfs-batch' }
 	| { kind: 'lfs-object'; oid: string; upload: boolean }
 	| { kind: 'lfs-verify' }
-	| { kind: 'lfs-locks' }
-	| { kind: 'changes' }
-	| { kind: 'files' }
-	| { kind: 'read' }
-	| { kind: 'writes' };
+	| { kind: 'lfs-locks' };
 
 /** A request under the Git audience, read from its URL. */
 export type GitTarget =
@@ -387,12 +376,6 @@ function readEndpoint(
 		return method === 'PUT' || method === 'GET'
 			? { kind: 'lfs-object', oid: object, upload: method === 'PUT' }
 			: undefined;
-	if (rest === 'epicenter/changes' && method === 'GET')
-		return { kind: 'changes' };
-	if (rest === 'epicenter/files' && method === 'GET') return { kind: 'files' };
-	if (rest === 'epicenter/read' && method === 'POST') return { kind: 'read' };
-	if (rest === 'epicenter/writes' && method === 'POST')
-		return { kind: 'writes' };
 	return undefined;
 }
 
@@ -493,7 +476,6 @@ function operationOf(
 		case 'lfs-object':
 			return endpoint.upload ? 'push' : 'read';
 		case 'lfs-verify':
-		case 'writes':
 			return 'push';
 		default:
 			return 'read';
@@ -502,8 +484,8 @@ function operationOf(
 
 /**
  * A request body, read whole: gunzipped when sent so, and null as soon as
- * it passes `maxBytes` (`ReceiveLimits.pushBytes` for a push, `MAX_WRITE_BYTES` for
- * a web write), so an oversized body is never held in memory.
+ * it passes `maxBytes` (`ReceiveLimits.pushBytes` for a push, `MAX_COMMIT_BYTES`
+ * for a folder's commit), so an oversized body is never held in memory.
  */
 async function readBody(
 	request: Request,
@@ -854,23 +836,6 @@ export function mountGitHost(
 						? receiveAdvertisement(null)
 						: emptyAdvertisement();
 				}
-				if (endpoint.kind === 'changes')
-					return c.json({
-						commit: null,
-						paths: c.req.query('since') === '' ? [] : null,
-					});
-				if (endpoint.kind === 'read') {
-					const body = (await c.req.json().catch(() => null)) as {
-						paths?: unknown;
-					} | null;
-					const paths = Array.isArray(body?.paths) ? body.paths : [];
-					return c.json({
-						commit: null,
-						files: paths.map((path) => ({ path, gone: true })),
-					});
-				}
-				if (endpoint.kind === 'files')
-					return c.json({ commit: null, files: [] });
 				if (endpoint.kind === 'lfs-batch' && lfs && batch)
 					return answerBatch(lfs, null, batch, remote);
 				if (operation === 'read')
@@ -913,7 +878,6 @@ export function mountGitHost(
 				endpoint,
 				batch,
 				remote,
-				accountId: granted.accountId,
 				role: granted.role,
 			});
 
@@ -975,7 +939,6 @@ export function mountGitHost(
 			endpoint,
 			batch,
 			remote,
-			accountId,
 			role,
 		}: {
 			host: GitHost;
@@ -985,7 +948,6 @@ export function mountGitHost(
 			endpoint: GitEndpoint;
 			batch: LfsBatch | null;
 			remote: string;
-			accountId: string;
 			role: RepositoryRole;
 		},
 	): Promise<Response> {
@@ -1042,62 +1004,6 @@ export function mountGitHost(
 						body,
 						mayRewrite: roleAllows(role, 'rewrite'),
 						limits,
-					});
-				}
-				case 'changes':
-					return await readRepositoryChanges(objects, c.req.query('since'));
-				case 'files':
-					return await listRepositoryFiles(
-						objects,
-						c.req.queries('root') ?? [],
-					);
-				case 'read': {
-					const raw = await readBody(c.req.raw, MAX_READ_PATHS * 1100);
-					if (raw === null)
-						return refuse(
-							c,
-							413,
-							'too_large',
-							`A read may name at most ${MAX_READ_PATHS} paths.`,
-						);
-					let body: unknown = null;
-					try {
-						body = JSON.parse(new TextDecoder().decode(raw));
-					} catch {}
-					return await readRepositoryFiles(objects, body);
-				}
-				case 'writes': {
-					const raw = await readBody(c.req.raw, MAX_WRITE_BYTES);
-					if (raw === null)
-						return refuse(
-							c,
-							413,
-							'too_large',
-							`A web write may be at most ${MAX_WRITE_BYTES / (1024 * 1024)} MiB; send fewer files at once.`,
-						);
-					let body: unknown = null;
-					try {
-						body = JSON.parse(new TextDecoder().decode(raw));
-					} catch {}
-					const request = readWriteRequest(body);
-					if ('status' in request)
-						return c.json(
-							{
-								error: request.error,
-								error_description: request.message,
-								path: request.path,
-							},
-							request.status,
-						);
-					return await applyWrite({
-						objects,
-						lfs,
-						repositoryId,
-						request,
-						author: {
-							name: 'Epicenter (web)',
-							email: `${accountId}@accounts.epicenter.invalid`,
-						},
 					});
 				}
 				default:

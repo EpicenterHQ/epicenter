@@ -67,7 +67,27 @@ import {
 } from '../git/tree-edit.js';
 import { LFS_OID, type LfsObject, type LfsStore } from '../lfs/lfs-store.js';
 import type { UploadLedger } from '../uploads.js';
-import { pathProblem } from './files.js';
+
+/** Why `path` is not a repository path a write may name, or null. */
+export function pathProblem(path: unknown): string | null {
+	if (
+		typeof path !== 'string' ||
+		path === '' ||
+		path.length > 1024 ||
+		path.startsWith('/') ||
+		path.endsWith('/') ||
+		// biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what this refuses
+		/[\0-\x1f\\]/.test(path) ||
+		path
+			.split('/')
+			.some(
+				(s) =>
+					s === '' || s === '.' || s === '..' || s.toLowerCase() === '.git',
+			)
+	)
+		return 'not a repository path';
+	return null;
+}
 
 /** What a request under a folder asks for. */
 export type FolderEndpoint =
@@ -129,20 +149,21 @@ function toBase64(bytes: Uint8Array): string {
 
 /**
  * Where `main` is (`commit`, null before the first write), and the paths
- * whose blob differs between the commit `since` names and `main`: null when
- * `since` is not given or names no commit this repository holds, so the
- * reader compares every path. A poller asks this every few seconds.
+ * whose blob differs between the commit `since` names (empty: before the
+ * first) and `main`: null when `since` is not given or names no commit this
+ * repository holds, so the reader compares every path. A poller asks this
+ * every few seconds.
  */
 export async function folderChanges(
 	objects: GitObjects,
 	since: string | undefined,
 ): Promise<Response> {
 	const main = (await objects.refs()).get(MAIN) ?? null;
-	if (since === undefined || since === '')
-		return json({ commit: main, paths: null });
-	if (!OID.test(since)) return invalid('since is a commit id');
-	if (since === main) return json({ commit: main, paths: [] });
-	const before = (await readCommit(objects, since))?.tree;
+	if (since === undefined) return json({ commit: main, paths: null });
+	if (since !== '' && !OID.test(since))
+		return invalid('since is a commit id, or empty for before the first');
+	if (since === (main ?? '')) return json({ commit: main, paths: [] });
+	const before = since === '' ? null : (await readCommit(objects, since))?.tree;
 	if (before === undefined) return json({ commit: main, paths: null });
 	const after = main ? ((await readCommit(objects, main))?.tree ?? null) : null;
 	return json({ commit: main, paths: await diffTrees(objects, before, after) });

@@ -346,12 +346,17 @@ describe('changes, tree and blobs', () => {
 		const changes = async (since?: string) =>
 			(await (await folderChanges(repo.objects, since)).json()) as unknown;
 		expect(await changes()).toEqual({ commit: null, paths: null });
+		expect(await changes('')).toEqual({ commit: null, paths: [] });
 		const first = await repo.commit([
 			{ path: 'a.md', expect: null, text: 'a\n' },
 			{ path: 'dir/b.md', expect: null, text: 'b\n' },
 		]);
 		const at = first.body.commit as string;
 		expect(await changes(at)).toEqual({ commit: at, paths: [] });
+		expect(await changes('')).toEqual({
+			commit: at,
+			paths: ['.gitattributes', 'a.md', 'dir/b.md'],
+		});
 		const second = await repo.commit([
 			{ path: 'dir/b.md', expect: first.body.blobs['dir/b.md'], text: 'B\n' },
 			{ path: 'dir/c/d.md', expect: null, text: 'd\n' },

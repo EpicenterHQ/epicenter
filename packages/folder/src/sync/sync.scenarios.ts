@@ -56,9 +56,11 @@ async function syncOf(
 	const report = expectOk(
 		await sync({ local, remote, manifest: device.manifest }),
 	);
-	// A completed sync that kept nothing agrees at one commit: no file has a base of its own.
-	if (report.outcome === 'synced' && report.kept.length === 0)
-		expect(expectOk(await device.manifest.read()).manifest.at).toBeUndefined();
+	// A completed sync agrees at the head it read last: its manifest names that commit.
+	if (report.outcome === 'synced')
+		expect(expectOk(await device.manifest.read()).manifest.commit).toBe(
+			expectOk(await world.repository.changes(null)).commit,
+		);
 	return report;
 }
 
@@ -226,7 +228,8 @@ export const syncScenarios: Record<string, (world: World) => Promise<void>> = {
 		await syncOf(world, a);
 		await syncOf(world, b);
 		await syncOf(world, a);
-		const held = expectOk(await world.repository.snapshot()).files.map(
+		const { commit } = expectOk(await world.repository.changes(null));
+		const held = expectOk(await world.repository.tree(commit ?? '')).map(
 			({ path }) => path,
 		);
 		expect(held).toContain('todos/a.md');
@@ -275,9 +278,13 @@ export const syncScenarios: Record<string, (world: World) => Promise<void>> = {
 		let saves = 0;
 		const remote: Repository = {
 			...world.repository,
-			readAt(...args) {
+			tree(...args) {
 				reads++;
-				return world.repository.readAt(...args);
+				return world.repository.tree(...args);
+			},
+			blobs(...args) {
+				reads++;
+				return world.repository.blobs(...args);
 			},
 		};
 		const manifest: ManifestStore = {
@@ -406,14 +413,14 @@ export const syncScenarios: Record<string, (world: World) => Promise<void>> = {
 		let raced = false;
 		const racing: Repository = {
 			...world.repository,
-			async writeAll(...args) {
+			async commit(...args) {
 				if (!raced) {
 					raced = true;
 					await b.write('todos/a.md', todo.replace('Thursday', 'Monday'));
 					await b.write('todos/new.md', note('title: "New"\n'));
 					await syncOf(world, b);
 				}
-				return world.repository.writeAll(...args);
+				return world.repository.commit(...args);
 			},
 		};
 		const report = await syncOf(world, a, { remote: racing });
@@ -473,7 +480,7 @@ export const syncScenarios: Record<string, (world: World) => Promise<void>> = {
 		await a.write('todos/a.md', text.replace('two', 'from A'));
 		const offline: Repository = {
 			...world.repository,
-			writeAll: async () => ClientError.Unavailable({ cause: 'offline' }),
+			commit: async () => ClientError.Unavailable({ cause: 'offline' }),
 		};
 		expectErr(
 			await sync({ local: a.store, remote: offline, manifest: a.manifest }),
@@ -532,9 +539,10 @@ export const syncScenarios: Record<string, (world: World) => Promise<void>> = {
 	async 'a raced local write and a merge in one pass, stopped before the repository write: nothing lost, one conflict block'(
 		world,
 	) {
-		// The sequence that needs a file's own base in the manifest: the
-		// save after the merge must record the merged note as agreed at the
-		// head, and the kept note at the commit before, at once.
+		// The sequence that once needed a file's own base in the manifest:
+		// the save after the merge records the merged note as agreed at the
+		// repository's blob it merged with, and the kept note at its old
+		// blob, at once; with no commit named, the next sync compares both.
 		const text = note('title: "Y"\n', 'one\ntwo\nthree\n');
 		const { a, b } = await synced(world, 'todos/y.md', text);
 		await a.write('todos/x.md', todo);
@@ -555,7 +563,7 @@ export const syncScenarios: Record<string, (world: World) => Promise<void>> = {
 		};
 		const offline: Repository = {
 			...world.repository,
-			writeAll: async () => ClientError.Unavailable({ cause: 'offline' }),
+			commit: async () => ClientError.Unavailable({ cause: 'offline' }),
 		};
 		expectErr(await sync({ local, remote: offline, manifest: a.manifest }));
 		expect(await a.read('todos/x.md')).toBe(agent);

@@ -213,21 +213,12 @@ test('2. a take lands whole at Stop, and leaving mid-recording loses it', async 
 }) => {
 	await page.goto(app);
 	const listedBefore = await listedIds();
-	// A write is the repository's `epicenter/writes`, an LFS upload, or the
-	// batch request that asks to make one; a read is any other request.
-	const heard = (request: {
-		method(): string;
-		url(): string;
-		postData(): string | null;
-	}) => {
+	// A write is a folder's `commits`, or an attachment's bytes put at its
+	// sha256; a read is any other request.
+	const heard = (request: { method(): string; url(): string }) => {
 		if (!request.url().startsWith(stack.origin)) return;
 		const path = new URL(request.url()).pathname;
-		if (
-			path.endsWith('/epicenter/writes') ||
-			request.method() === 'PUT' ||
-			(path.endsWith('/info/lfs/objects/batch') &&
-				request.postData()?.includes('"upload"'))
-		)
+		if (path.endsWith('/commits') || request.method() === 'PUT')
 			writes.push(`${request.method()} ${path}`);
 	};
 	page.on('request', heard);

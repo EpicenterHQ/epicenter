@@ -23,7 +23,7 @@
  * ```ts
  * const moments = syncAtMoments({
  *   folder,
- *   remote: repositoryStore(account, '~/todos'),
+ *   remote: folderRepository(account, manifest.folder),
  *   window: {
  *     shown: () => document.visibilityState === 'visible',
  *     subscribe(changed) {
@@ -139,8 +139,8 @@ export function syncAtMoments({
 		const since = await remote.changes(agreed.commit);
 		// Out of reach: the next check asks again.
 		if (since.error !== null) return false;
+		// A sync that stopped midway saved no commit, so it differs from any head.
 		if (since.data.commit !== agreed.commit) return true;
-		if (Object.keys(agreed.at ?? {}).length > 0) return true;
 		// A burst of saves is synced after its last, not in its middle.
 		if (saveTimer !== undefined) return false;
 		const listed = await local.list(['']);

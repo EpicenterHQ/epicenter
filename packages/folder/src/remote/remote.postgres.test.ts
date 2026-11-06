@@ -1,8 +1,8 @@
 /**
- * Repository Store Tests
+ * Folder Repository Tests
  *
- * A contract's collections over a repository on the real server app
- * (`createDeviceClient` over `repositoryStore`), and the folder over it:
+ * A contract's collections over a folder's repository on the real server
+ * app (`folderRepository`, at `<git>/folders/<folder>`), and the folder over it:
  * the authorization server on a disposable Postgres, a `Bun.serve`
  * listener, the disk Git and LFS stores, and an access token from a real
  * code grant. The account is a stand-in for `@epicenter/account`'s: it
@@ -10,14 +10,14 @@
  * here is a write landing over a version its writer never read.
  *
  * Key behaviors:
- * - Another person's repository is reached under their handle, as far as their grant goes
+ * - Another person's folder is reached by its id, as far as their grant goes
  * - A write over a version the server no longer holds, or where nothing was
- *   expected and a file is, is `'stale'` and lands nothing, even for two at once
+ *   expected and a file is, is `Moved` and lands nothing, even for two at once
  * - The folder writes notes in house style; a note that does not read on
  *   main is listed with its text, and the editor's whole text repairs it
  * - A listing reads only its collection's folder, and only the notes that changed since the last
  * - Listeners hear this store's writes at once and other writers' within a poll of `main`
- * - A raced write is `'stale'`, never a merge on the server; the folder reads
+ * - A raced write is `Moved`, never a merge on the server; the folder reads
  *   again and carries its change over the other writer's
  * - A retired account makes every call `Unavailable`, never a throw
  *
@@ -34,7 +34,7 @@ import {
 	defineContract,
 } from '@epicenter/definition/contract';
 import { timeId } from '@epicenter/definition/ids';
-import { hostFromSiteUrl, repositoryName } from '@epicenter/definition/site';
+import { folderUrl } from '@epicenter/definition/site';
 import {
 	type CloudEnv,
 	createCloudContextMiddleware,
@@ -57,7 +57,7 @@ import type { BlobId, Unavailable } from '../device/store.js';
 import { createFolder } from '../folder.js';
 import { noteCodec } from '../note-codec.js';
 import { storeChecks } from '../device/store.conformance.js';
-import { repositoryStore } from './store.js';
+import { folderRepository, mintFolder } from './repository.js';
 
 const recorder = defineContract({
 	collections: {
@@ -164,19 +164,12 @@ afterAll(async () => {
 
 type Sent = { method: string; url: string; body: unknown };
 
-type Location =
-	| { site: string; repository?: `${string}/${string}` }
-	| { site?: string; repository: `${string}/${string}` };
+/** A folder as an account reaches it. */
+type At = { account: Account; folder: string };
 
-type At = { account: Account } & Location;
-
-/** The store of the repository `account` reaches at `repository`, else the site's own. */
-const storeAt = ({ account, site, repository }: At, pollMs?: number) =>
-	repositoryStore(
-		account,
-		repository ?? `~/${repositoryName(hostFromSiteUrl(site ?? ''))}`,
-		{ pollMs },
-	);
+/** The store of the folder `folder` as `account` reaches it. */
+const storeAt = ({ account, folder }: At, pollMs?: number) =>
+	folderRepository(account, folder, { pollMs });
 
 /** A file as a test reads it below the folder: its version, and what a reader shows of it. */
 type Seen = {
@@ -309,7 +302,7 @@ async function signInPerson(label: string) {
 			if (new URL(url).origin !== origin)
 				throw new TypeError('Account requests must target their own server.');
 			const method = init?.method ?? 'GET';
-			if (method === 'POST' && url.endsWith('/epicenter/writes')) {
+			if (method === 'POST' && url.endsWith('/commits')) {
 				const before = beforeWrite;
 				beforeWrite = undefined;
 				await before?.();
@@ -331,8 +324,14 @@ async function signInPerson(label: string) {
 			throw new Error('not used');
 		},
 	};
+	// The person's folder named `recorder`, as the web app's is named from its site.
+	const { folder } = expectOk(await mintFolder(account, { name: 'recorder' }));
+	sent.length = 0;
 	return {
 		account,
+		folder,
+		/** The person's folder, as a test reaches it. */
+		at: { account, folder } satisfies At,
 		/** The person's handle: their personal namespace's id. */
 		handle: person.personal,
 		token,
@@ -345,10 +344,10 @@ async function signInPerson(label: string) {
 		raceNextWrite(task: () => Promise<void>) {
 			beforeWrite = task;
 		},
-		/** Write `files` as another writer to the person's own repository. */
+		/** Commit `files` as another writer to the person's own folder. */
 		async writeRaw(files: unknown[]) {
 			const response = await fetch(
-				`${audiences.git}/~/recorder.git/epicenter/writes`,
+				`${folderUrl(audiences.git, folder)}/commits`,
 				{
 					method: 'POST',
 					headers: {
@@ -363,31 +362,20 @@ async function signInPerson(label: string) {
 	};
 }
 
-/** The file at `path` in the person's own repository, as the server answers a read of it. */
-async function readRaw(account: Account, path: string) {
-	const response = await account.fetch(
-		`${audiences.git}/~/recorder.git/epicenter/read`,
-		{
-			method: 'POST',
-			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({ paths: [path] }),
-		},
-	);
-	const { files } = (await response.json()) as {
-		files: { text: string; blob: BlobId }[];
-	};
-	return files[0]!;
+/** The file at `path` in the folder, as the server answers a read of it. */
+async function readRaw(at: At, path: string) {
+	const [file] = expectOk(await storeAt(at).read([path]));
+	if (file === undefined || 'gone' in file) throw new Error(`no ${path}`);
+	return { text: new TextDecoder().decode(file.bytes), blob: file.version };
 }
 
 describe('a repository: the store conformance checks', () => {
 	for (const [name, run] of Object.entries(storeChecks))
 		test(name, async () => {
 			const person = await signIn(`conformance-${name.replaceAll(' ', '-')}`);
-			const store = repositoryStore(person.account, '~/recorder', {
-				pollMs: 100,
-			});
+			const store = storeAt(person.at, 100);
 			// Another computer of the same person, writing over what it reads.
-			const other = repositoryStore(person.account, '~/recorder');
+			const other = storeAt(person.at);
 			await run({
 				store,
 				async outside(path, bytes) {
@@ -402,26 +390,21 @@ describe('a repository: the store conformance checks', () => {
 });
 
 describe('a repository as a store', () => {
-	const site = 'https://recorder.epicenter.so';
-
-	test("another person's repository is reached under their handle, as far as their grant goes", async () => {
+	test("another person's folder is reached by its id, as far as their grant goes", async () => {
 		const alice = await signIn('shared-owner');
 		const bob = await signIn('shared-guest');
 		const id = timeId();
 		const path = `recordings/${id}.md`;
 		landed(
 			expectOk(
-				await filesAt({ account: alice.account, site }).recordings.write(
+				await filesAt(alice.at).recordings.write(
 					path,
 					note('title: For Bob\n'),
 					null,
 				),
 			),
 		);
-		const theirs = filesAt({
-			account: bob.account,
-			repository: `${alice.handle}/recorder`,
-		});
+		const theirs = filesAt({ account: bob.account, folder: alice.folder });
 		expect(expectErr(await theirs.recordings.list())).toMatchObject({
 			name: 'Unavailable',
 			cause: { name: 'Refused', status: 403 },
@@ -454,18 +437,16 @@ describe('a repository as a store', () => {
 			name: 'Unavailable',
 			cause: { name: 'Refused', status: 403 },
 		});
-		// The default is still Bob's own repository.
-		expect(
-			expectOk(await filesAt({ account: bob.account, site }).recordings.list()),
-		).toEqual([]);
+		// Bob's own folder of that name is his.
+		expect(expectOk(await filesAt(bob.at).recordings.list())).toEqual([]);
 		expect(() =>
-			storeAt({ account: bob.account, repository: 'Alice/recorder' }),
-		).toThrow('names no repository');
+			storeAt({ account: bob.account, folder: 'Alice/recorder' }),
+		).toThrow('is not a folder id');
 	}, 30_000);
 
 	test("a write over a version the server no longer holds is 'stale', and nothing lands", async () => {
 		const person = await signIn('stale');
-		const { recordings } = filesAt({ account: person.account, site });
+		const { recordings } = filesAt(person.at);
 		const id = timeId();
 		const path = `recordings/${id}.md`;
 		const created = landed(
@@ -504,7 +485,7 @@ describe('a repository as a store', () => {
 
 	test("a file write over a stale version is 'stale', and its bytes stay off the server", async () => {
 		const person = await signIn('stale-file');
-		const { audio } = filesAt({ account: person.account, site });
+		const { audio } = filesAt(person.at);
 		const id = timeId();
 		const path = `recordings/${id}.webm`;
 		const created = landed(
@@ -533,7 +514,7 @@ describe('a repository as a store', () => {
 
 	test("a write expecting nothing is 'stale' where a file already is", async () => {
 		const person = await signIn('occupied');
-		const { recordings } = filesAt({ account: person.account, site });
+		const { recordings } = filesAt(person.at);
 		const path = `recordings/${timeId()}.md`;
 		landed(expectOk(await recordings.write(path, note('title: Mine\n'), null)));
 		expect(
@@ -546,7 +527,7 @@ describe('a repository as a store', () => {
 
 	test("the folder writes notes in house style, and a listing gives each note's blob as its version", async () => {
 		const person = await signIn('house-style');
-		const folder = folderAt({ account: person.account, site });
+		const folder = folderAt(person.at);
 		const id = timeId();
 		const path = `recordings/${id}.md`;
 		await folder.recordings.set({ id }, {
@@ -560,11 +541,9 @@ describe('a repository as a store', () => {
 			items: [shown!],
 			invalid: [],
 		});
-		const file = await readRaw(person.account, path);
+		const file = await readRaw(person.at, path);
 		expect(file.text).toBe('---\ntitle: Styled\nzeta: 1\n---\ntext\n');
-		const listed = expectOk(
-			await filesAt({ account: person.account, site }).recordings.list(),
-		);
+		const listed = expectOk(await filesAt(person.at).recordings.list());
 		expect(listed.map(({ path, version }) => ({ path, version }))).toEqual([
 			{ path, version: file.blob },
 		]);
@@ -576,22 +555,12 @@ describe('a repository as a store', () => {
 		const id = timeId();
 		const path = `recordings/${id}.md`;
 		const broken = '---\ntitle: [unclosed\n---\nKept.\n';
-		const raw = await person.account.fetch(
-			`${audiences.git}/~/recorder.git/epicenter/writes`,
-			{
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({
-					files: [{ path, base: null, text: broken }],
-				}),
-			},
-		);
-		expect(raw.status).toBe(200);
-		const folder = folderAt({ account: person.account, site });
+		await person.writeRaw([{ path, expect: null, text: broken }]);
+		const folder = folderAt(person.at);
 		const { invalid } = expectOk(await folder.recordings.list());
 		expect(invalid).toHaveLength(1);
 		expect(invalid[0]).toMatchObject({ id, path, text: broken });
-		const files = filesAt({ account: person.account, site });
+		const files = filesAt(person.at);
 		const [seen] = expectOk(await files.recordings.list());
 		if (seen === undefined) throw new Error('expected the broken note');
 		expect(seen).toMatchObject({ item: null, text: broken });
@@ -608,7 +577,7 @@ describe('a repository as a store', () => {
 		});
 		expect(folder.recordings.invalid()).toEqual([]);
 		// A whole text that reads is written in house style.
-		expect((await readRaw(person.account, path)).text).toBe(
+		expect((await readRaw(person.at, path)).text).toBe(
 			'---\ntitle: Fixed\nzeta: 1\n---\nKept.\n',
 		);
 		// The broken note's version is no longer there to write over.
@@ -622,9 +591,9 @@ describe('a repository as a store', () => {
 
 	test("a watch hears another writer's paths within a poll, and its polls stop with its stop", async () => {
 		const person = await signIn('notify');
-		const { store } = filesAt({ account: person.account, site });
-		const other = filesAt({ account: person.account, site });
-		const POLL = /^GET .*\/epicenter\/changes\?since=/;
+		const { store } = filesAt(person.at);
+		const other = filesAt(person.at);
+		const POLL = /^GET .*\/changes\?since=/;
 		const heard: (readonly string[] | 'all')[] = [];
 		const stop = expectOk(await store.watch((paths) => heard.push(paths)));
 		const path = `recordings/${timeId()}.md`;
@@ -648,7 +617,7 @@ describe('a repository as a store', () => {
 
 	test("two writes expecting nothing at one path at once: one lands, the other is 'stale'", async () => {
 		const person = await signIn('create-race');
-		const { recordings, audio } = filesAt({ account: person.account, site });
+		const { recordings, audio } = filesAt(person.at);
 		const id = timeId();
 		const outcome = (written: Seen | null | 'stale') =>
 			written === 'stale' ? 'stale' : 'landed';
@@ -678,7 +647,7 @@ describe('a repository as a store', () => {
 
 	test("a file listing names each file's version without downloading its bytes", async () => {
 		const person = await signIn('list-no-lfs');
-		const { audio } = filesAt({ account: person.account, site });
+		const { audio } = filesAt(person.at);
 		const created: Seen[] = [];
 		for (const id of [timeId(), timeId()])
 			created.push(
@@ -697,13 +666,14 @@ describe('a repository as a store', () => {
 		expect(listed.map(({ version }) => version).sort()).toEqual(
 			created.map(({ version }) => version).sort(),
 		);
-		expect(person.requests(/lfs/)).toEqual([]);
-		expect(person.sent).toHaveLength(1);
+		// Where main is, and its tree: no blob is read.
+		expect(person.requests(/blobs/)).toEqual([]);
+		expect(person.sent).toHaveLength(2);
 	}, 30_000);
 
 	test("a folder's connection lists its folder once and reads every note in one request; another writer's change is read alone", async () => {
 		const person = await signIn('connect');
-		const other = filesAt({ account: person.account, site });
+		const other = filesAt(person.at);
 		const ids = [timeId(), timeId()];
 		const created: Seen[] = [];
 		for (const id of ids)
@@ -718,14 +688,16 @@ describe('a repository as a store', () => {
 					),
 				),
 			);
-		const READ = /^POST .*\/epicenter\/read$/;
-		const LIST = /^GET .*\/epicenter\/files\?root=$/;
+		const READ = /^POST .*\/blobs$/;
+		const LIST = /^POST .*\/tree$/;
 		person.sent.length = 0;
-		const folder = folderAt({ account: person.account, site }, 100);
+		const folder = folderAt(person.at, 100);
 		for (let turn = 0; turn < 200 && folder.state().status !== 'open'; turn++)
 			await Bun.sleep(10);
 		expect(folder.recordings.items()).toHaveLength(2);
-		expect(person.requests(LIST)).toHaveLength(1);
+		// The tree once for the listing and once for the notes it reads, and
+		// every note's bytes in one request.
+		expect(person.requests(LIST)).toHaveLength(2);
 		const reads = person.requests(READ);
 		expect(reads).toHaveLength(1);
 
@@ -748,7 +720,8 @@ describe('a repository as a store', () => {
 		)
 			await Bun.sleep(50);
 		expect(folder.recordings.get({ id: ids[0]! })?.title).toBe('Changed');
-		expect(person.requests(LIST)).toHaveLength(0);
+		// The changed path alone: its blob at the head, and its bytes.
+		expect(person.requests(LIST)).toHaveLength(1);
 		const read = person.requests(READ);
 		expect(read).toHaveLength(1);
 		folder[Symbol.dispose]();
@@ -756,7 +729,7 @@ describe('a repository as a store', () => {
 
 	test("a note write raced by another is 'stale', never a merge on the server", async () => {
 		const person = await signIn('raced');
-		const { recordings } = filesAt({ account: person.account, site });
+		const { recordings } = filesAt(person.at);
 		const path = `recordings/${timeId()}.md`;
 		const created = landed(
 			expectOk(
@@ -765,7 +738,7 @@ describe('a repository as a store', () => {
 		);
 		const theirs = '---\ntitle: One\n---\na\nb\nC\n';
 		person.raceNextWrite(() =>
-			person.writeRaw([{ path, base: created.version, text: theirs }]),
+			person.writeRaw([{ path, expect: created.version, text: theirs }]),
 		);
 		expect(
 			expectOk(
@@ -783,19 +756,17 @@ describe('a repository as a store', () => {
 
 	test("a folder carries a raced write over the other writer's change: both land", async () => {
 		const person = await signIn('carried');
-		const folder = folderAt({ account: person.account, site });
+		const folder = folderAt(person.at);
 		const id = timeId();
 		const path = `recordings/${id}.md`;
 		await folder.recordings.set({ id }, { title: 'One', body: 'a\nb\nc\n' });
-		const created = expectOk(
-			await filesAt({ account: person.account, site }).recordings.read(path),
-		);
+		const created = expectOk(await filesAt(person.at).recordings.read(path));
 		if (created === null) throw new Error('expected the note');
 		person.raceNextWrite(() =>
 			person.writeRaw([
 				{
 					path,
-					base: created.version,
+					expect: created.version,
 					text: '---\ntitle: One\n---\na\nb\nC\n',
 				},
 			]),
@@ -804,18 +775,16 @@ describe('a repository as a store', () => {
 		const both = { id, title: 'Two', body: 'a\nb\nC\n' };
 		expect(folder.recordings.get({ id })).toEqual(both);
 		expect(
-			expectOk(
-				await filesAt({ account: person.account, site }).recordings.read(path),
-			)?.item,
+			expectOk(await filesAt(person.at).recordings.read(path))?.item,
 		).toEqual(both);
 		folder[Symbol.dispose]();
 	}, 30_000);
 
 	test('a retired account makes every call Unavailable, never a throw', async () => {
 		const person = await signIn('retired-reads');
-		const { recordings } = filesAt({ account: person.account, site });
+		const { recordings } = filesAt(person.at);
 		person.retire();
-		const folder = folderAt({ account: person.account, site });
+		const folder = folderAt(person.at);
 		person.retire();
 		expect(expectErr(await recordings.list()).name).toBe('Unavailable');
 		expect(
@@ -845,7 +814,6 @@ describe('a repository as a store', () => {
  * Cloudflare's edge instead (Brotli or Zstandard), which this does not run.
  */
 describe('a repository on a slow link', () => {
-	const site = 'https://recorder.epicenter.so';
 	test.skipIf(!process.env.EPICENTER_MEASURE)(
 		'first paint with about 5,000 recording notes at 3 Mbps and 100 ms',
 		async () => {
@@ -857,7 +825,7 @@ describe('a repository on a slow link', () => {
 						{ length: Math.min(1000, NOTES - start) },
 						(_, offset) => ({
 							path: `recordings/2026-10-31T09-30-00-${String(start + offset).padStart(6, '0')}.md`,
-							base: null,
+							expect: null,
 							text: `---\ntitle: Recording ${start + offset}\n---\n${'A sentence of what was said, as a transcript keeps it. '.repeat(4)}\n`,
 						}),
 					),
@@ -909,7 +877,7 @@ describe('a repository on a slow link', () => {
 				},
 			};
 			const started = performance.now();
-			const folder = folderAt({ account: slow, site });
+			const folder = folderAt({ account: slow, folder: person.folder });
 			await new Promise<void>((resolve) => {
 				const stop = folder.subscribe(() => {
 					if (folder.state().status !== 'open') return;

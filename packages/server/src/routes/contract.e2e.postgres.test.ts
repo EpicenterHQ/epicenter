@@ -1,7 +1,7 @@
 /**
  * The file contract's server half end to end on Bun (phase 4): the real
  * authorization server on a disposable Postgres, a `Bun.serve` listener, the
- * disk Git and LFS stores, web captures through the translator, and stock
+ * disk Git and LFS stores, web captures through a folder's `commits`, and stock
  * `git` plus `git-lfs` in a sandbox (`HOME`, `GIT_CONFIG_GLOBAL`,
  * `GIT_CEILING_DIRECTORIES`) as the desktop. Requires initdb, pg_ctl, git
  * and git-lfs on PATH; never connects to a configured database.
@@ -28,8 +28,10 @@ import {
 } from '../test-helpers/sandbox-git.js';
 import type { CloudEnv } from '../types.js';
 import { mountAuthRoutes } from './auth.js';
-import type { Receipt } from './files.js';
 import { mountGitHost } from './git.js';
+
+/** What a commit answers: its id and the blob at each path. */
+type Receipt = { commit: string; blobs: Record<string, string | null> };
 
 const secret = 'contract-e2e-secret-0123456789abcdefghij';
 const recorder = {
@@ -149,12 +151,45 @@ type LfsAnswer = {
 const sha256 = (bytes: Uint8Array) =>
 	createHash('sha256').update(bytes).digest('hex');
 
-/** A web client of one repository, as the folder's repository store is: every request with the account's token. */
+/**
+ * A web client of one repository, as a folder's repository is: every request
+ * with the account's token, the sync routes at its folder's id, and Git LFS
+ * at its Git remote.
+ */
 function webClient(token: string, namespace: string, name: string) {
 	const repo = `${audiences.git}/${namespace}/${name}.git`;
 	const auth = { authorization: `Bearer ${token}` };
+	let folder: string | undefined;
+	/** The repository's folder id: the caller's own folder of `name` for `~`, else the repository a writing request made. */
+	async function folderOf() {
+		if (folder !== undefined) return folder;
+		if (namespace === '~') {
+			const minted = await fetch(`${audiences.git}/folders`, {
+				method: 'POST',
+				headers: { ...auth, 'content-type': 'application/json' },
+				body: JSON.stringify({ name }),
+			});
+			folder = ((await minted.json()) as { folder: string }).folder;
+			return folder;
+		}
+		// An LFS upload batch is a writing request: it makes the repository.
+		await fetch(`${repo}/info/lfs/objects/batch`, {
+			method: 'POST',
+			headers: { ...auth, 'content-type': 'application/vnd.git-lfs+json' },
+			body: JSON.stringify({ operation: 'upload', objects: [] }),
+		});
+		const { rows } = await sql.query<{ id: string }>(
+			'select id from repository where namespace_id = $1 and name = $2',
+			[namespace, name],
+		);
+		folder = rows[0]?.id;
+		if (folder === undefined)
+			throw new Error(`no repository ${namespace}/${name}`);
+		return folder;
+	}
 	return {
 		repo,
+		folderOf,
 		async upload(bytes: Uint8Array) {
 			const object = { oid: sha256(bytes), size: bytes.length };
 			const batch = await fetch(`${repo}/info/lfs/objects/batch`, {
@@ -191,31 +226,54 @@ function webClient(token: string, namespace: string, name: string) {
 			}
 			return object;
 		},
-		async write(body: unknown) {
-			const response = await fetch(`${repo}/epicenter/writes`, {
-				method: 'POST',
-				headers: { ...auth, 'content-type': 'application/json' },
-				body: JSON.stringify(body),
-			});
+		/** One commit of `files`, each over the blob it expects. */
+		async write(body: { files: unknown[] }) {
+			const response = await fetch(
+				`${audiences.git}/folders/${await folderOf()}/commits`,
+				{
+					method: 'POST',
+					headers: { ...auth, 'content-type': 'application/json' },
+					body: JSON.stringify(body),
+				},
+			);
 			return {
 				status: response.status,
 				body: (await response.json()) as Receipt & { error?: string },
 			};
 		},
+		/** The blob at `path` on main, and its text. */
 		async read(path: string) {
-			const response = await fetch(`${repo}/epicenter/read`, {
-				method: 'POST',
-				headers: { ...auth, 'content-type': 'application/json' },
-				body: JSON.stringify({ paths: [path] }),
-			});
-			const { files } = (await response.json()) as {
-				files: {
-					blob: string;
-					text?: string;
-					lfs?: { oid: string; size: number };
-				}[];
+			const base = `${audiences.git}/folders/${await folderOf()}`;
+			const { commit } = (await (
+				await fetch(`${base}/changes`, { headers: auth })
+			).json()) as { commit: string };
+			const tree = (await (
+				await fetch(`${base}/tree`, {
+					method: 'POST',
+					headers: { ...auth, 'content-type': 'application/json' },
+					body: JSON.stringify({ commit, paths: [path] }),
+				})
+			).json()) as {
+				entries: { blob: string; oid?: string; size?: number }[];
 			};
-			return files[0]!;
+			const entry = tree.entries[0];
+			const blob = entry?.blob as string;
+			const lfs =
+				entry?.oid === undefined
+					? undefined
+					: { oid: entry.oid, size: entry.size as number };
+			const { blobs } = (await (
+				await fetch(`${base}/blobs`, {
+					method: 'POST',
+					headers: { ...auth, 'content-type': 'application/json' },
+					body: JSON.stringify({ ids: [blob] }),
+				})
+			).json()) as { blobs: string[] };
+			return {
+				blob,
+				text: Buffer.from(blobs[0] ?? '', 'base64').toString(),
+				lfs,
+			};
 		},
 	};
 }
@@ -243,10 +301,10 @@ const capture = (id: string, audio: { oid: string; size: number }) => ({
 	files: [
 		{
 			path: `recordings/${id}.md`,
-			base: null,
+			expect: null,
 			text: `---\ntitle: Recording ${id}\nrecordedAt: '2026-10-30T22:00:00Z'\n---\nTranscript ${id}.\n`,
 		},
-		{ path: `recordings/${id}.webm`, base: null, lfs: audio },
+		{ path: `recordings/${id}.webm`, expect: null, lfs: audio },
 	],
 });
 
@@ -255,7 +313,7 @@ describe('the file contract on the local server', () => {
 	let web: ReturnType<typeof webClient>;
 	let first: Receipt;
 
-	test('a web capture (note plus audio) is one commit, and a resend is refused, landing nothing', async () => {
+	test('a web capture (note plus audio) is one commit, and a resend has moved, landing nothing', async () => {
 		web = webClient(owner.token, group, 'whispering');
 		const before = await web.write(
 			capture('a', { oid: sha256(audio), size: audio.length }),
@@ -264,12 +322,15 @@ describe('the file contract on the local server', () => {
 		const object = await web.upload(audio);
 		const landed = await web.write(capture('a', object));
 		expect(landed.status).toBe(200);
-		expect(landed.body.paths).toEqual(['recordings/a.md', 'recordings/a.webm']);
+		expect(Object.keys(landed.body.blobs)).toEqual([
+			'recordings/a.md',
+			'recordings/a.webm',
+		]);
 		first = landed.body;
 		const resent = await web.write(capture('a', object));
 		expect(resent).toMatchObject({
 			status: 409,
-			body: { error: 'occupied', path: 'recordings/a.md' },
+			body: { error: 'moved', path: 'recordings/a.md' },
 		});
 		expect((await web.read('recordings/a.md')).blob).toBe(
 			first.blobs['recordings/a.md'] as string,
@@ -289,7 +350,7 @@ describe('the file contract on the local server', () => {
 			(
 				await box.ok(dir, ['log', '--format=%s', '--', '.gitattributes'])
 			).trim(),
-		).toBe('Web write: 2 files');
+		).toBe('Sync: 2 files');
 		expect(
 			(
 				await box.ok(dir, [
@@ -300,7 +361,7 @@ describe('the file contract on the local server', () => {
 					'recordings/a.webm',
 				])
 			).trim(),
-		).toBe('Web write: 2 files');
+		).toBe('Sync: 2 files');
 		expect(await box.ok(dir, ['fsck', '--strict'])).toBe('');
 		// Nothing is hidden from a client, so no protocol is forced: a fetch
 		// asks for v2 and gets it.
@@ -316,11 +377,11 @@ describe('the file contract on the local server', () => {
 		expect(packets).toMatch(/fetch< [0-9a-f]{40} refs\/heads\/main/);
 	}, 60_000);
 
-	test('racing web writes from one base: one lands, the rest are refused, and nothing merges', async () => {
+	test('racing commits over one blob: one lands, the rest have moved, and nothing merges', async () => {
 		const lines = Array.from({ length: 6 }, (_, i) => `line ${i}`);
 		const base = `---\ntitle: Shared\n---\n${lines.join('\n')}\n`;
 		const seeded = await web.write({
-			files: [{ path: 'notes/shared.md', base: null, text: base }],
+			files: [{ path: 'notes/shared.md', expect: null, text: base }],
 		});
 		const baseBlob = seeded.body.blobs['notes/shared.md'];
 		const before = Number(
@@ -342,7 +403,7 @@ describe('the file contract on the local server', () => {
 					files: [
 						{
 							path: 'notes/shared.md',
-							base: baseBlob,
+							expect: baseBlob,
 							text: `---\ntitle: Shared\nw${i}: yes\n---\n${mine.join('\n')}\n`,
 						},
 					],
@@ -353,7 +414,7 @@ describe('the file contract on the local server', () => {
 			200, 409, 409, 409, 409, 409,
 		]);
 		for (const refused of writes.filter((w) => w.status === 409))
-			expect(refused.body.error).toBe('stale');
+			expect(refused.body.error).toBe('moved');
 		const winner = writes.findIndex((w) => w.status === 200);
 		const final = (await web.read('notes/shared.md')).text as string;
 		for (let i = 0; i < lines.length; i++)
@@ -541,13 +602,13 @@ describe('the file contract on the local server', () => {
 		const again = await web.write(
 			capture('a', { oid: sha256(audio), size: audio.length }),
 		);
-		expect(again).toMatchObject({ status: 409, body: { error: 'occupied' } });
+		expect(again).toMatchObject({ status: 409, body: { error: 'moved' } });
 		expect((await web.read('recordings/a.md')).blob).toBe(
 			first.blobs['recordings/a.md'] as string,
 		);
 	}, 120_000);
 
-	test('a write body past the cap is refused before it is read whole, and nothing moves', async () => {
+	test('a commit body past the cap is refused before it is read whole, and nothing moves', async () => {
 		const main = (
 			await box.ok(box.root, [
 				'--git-dir',
@@ -560,7 +621,7 @@ describe('the file contract on the local server', () => {
 			files: [
 				{
 					path: 'notes/huge.md',
-					base: null,
+					expect: null,
 					text: 'x'.repeat(17 * 1024 * 1024),
 				},
 			],
@@ -582,7 +643,7 @@ describe('the file contract on the local server', () => {
 	test("`~` names the caller's personal namespace (decision 46)", async () => {
 		const mine = webClient(owner.token, '~', 'whispering');
 		const written = await mine.write({
-			files: [{ path: 'notes/mine.md', base: null, text: 'mine\n' }],
+			files: [{ path: 'notes/mine.md', expect: null, text: 'mine\n' }],
 		});
 		expect(written.status).toBe(200);
 		const dir = await desktop(
@@ -592,12 +653,14 @@ describe('the file contract on the local server', () => {
 		expect(await Bun.file(join(dir, 'notes/mine.md')).text()).toBe('mine\n');
 		// The member's `~` is their own namespace, where this repository is not.
 		const theirs = webClient(member.token, '~', 'whispering');
-		const listed = await fetch(`${theirs.repo}/epicenter/files`, {
-			headers: { authorization: `Bearer ${member.token}` },
-		});
+		expect(await theirs.folderOf()).not.toBe(await mine.folderOf());
+		const listed = await fetch(
+			`${audiences.git}/folders/${await theirs.folderOf()}/changes`,
+			{ headers: { authorization: `Bearer ${member.token}` } },
+		);
 		expect((await listed.json()) as unknown).toEqual({
 			commit: null,
-			files: [],
+			paths: null,
 		});
 	}, 60_000);
 });
