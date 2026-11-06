@@ -753,6 +753,8 @@ describe('an app reaches the folders attached to it', () => {
 		expect(
 			(await call(vocabToken, 'git', `folders/${folder}/changes`)).status,
 		).toBe(403);
+		// Nor can that app take its person out of the folder it no longer reaches.
+		expect((await unshare(vocabToken, folder, person.email)).status).toBe(403);
 	}, 60_000);
 
 	test('a share of a folder attached to an app shows in that app once accepted', async () => {

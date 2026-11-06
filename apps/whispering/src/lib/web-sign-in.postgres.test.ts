@@ -5,8 +5,8 @@
  * cluster and a `Bun.serve` listener, with this deployment's first-party
  * registrations. It asks for the API audience first and the Git audience,
  * with `ai` and the `folders:*` scopes; the Account sends a transcription
- * over the API, and the deployment's Git host takes its token for the
- * person's repository. No refresh token is left in the browser's storage.
+ * over the API, and its first sync makes the folder attached to Whispering
+ * (ADR-0811), which its token reaches. No refresh token is left in the browser's storage.
  *
  * The browser is played by in-memory storage and a location whose `assign`
  * the test answers as the authorization server would for a signed-in person.
@@ -206,9 +206,17 @@ test('one Whispering sign-in transcribes over the API and reaches the person’s
 		{ path: '/v1/audio/transcriptions', principal: person.id },
 	]);
 
-	// The Git host takes this sign-in's token for the person's repository.
-	const refs = await state.account.fetch(
-		`${origin}/git/~/whispering.git/info/refs?service=git-upload-pack`,
+	// The sign-in's first sync makes Whispering's folder, attached to it,
+	// and its token reaches that folder.
+	const joined = await state.account.fetch(`${origin}/git/folders`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: '{}',
+	});
+	expect(joined.status).toBe(201);
+	const { folder } = (await joined.json()) as { folder: string };
+	const changes = await state.account.fetch(
+		`${origin}/git/folders/${folder}/changes`,
 	);
-	expect([401, 403]).not.toContain(refs.status);
+	expect(changes.status).toBe(200);
 }, 60_000);

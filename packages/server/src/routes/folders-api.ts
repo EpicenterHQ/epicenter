@@ -338,6 +338,20 @@ export function mountFolderApi(
 			const held = (await heldFolders(c.var.db, access)).find(
 				({ id }) => id === folder,
 			);
+			// An app's token acts only on the folders, and shares, it reaches.
+			if (
+				access.app !== null &&
+				held === undefined &&
+				!(await pendingShares(c.var.db, access)).some(
+					(share) => share.folder === folder,
+				)
+			)
+				return refuse(
+					c,
+					403,
+					'forbidden',
+					'That folder is not attached to this app.',
+				);
 			const removed = await removeMember(c.var.db, {
 				folder,
 				accountId: access.accountId,

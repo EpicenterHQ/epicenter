@@ -1,6 +1,6 @@
 /**
  * The Git LFS API of a hosted repository, under its Git remote
- * (`<git>/<namespace>/<name>.git/info/lfs/...`), so stock `git lfs` finds it
+ * (`<git>/folders/<folder>.git/info/lfs/...`), so stock `git lfs` finds it
  * from the remote alone:
  *
  * ```txt
