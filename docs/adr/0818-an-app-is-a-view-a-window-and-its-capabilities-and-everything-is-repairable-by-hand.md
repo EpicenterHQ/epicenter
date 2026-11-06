@@ -22,10 +22,9 @@ a contract file, front matter of `key: <JSON>`, and a manifest that is a cache.
 ```ts
 // view.ts: what it understands in a folder, compiled to the contract
 export const view = defineView({
-  recordings: collection('recordings/{name}.md', {
-    title: text(), recordedAt: instant(), duration: seconds(),
-  }, { attachment: 'audio' }),
-  transformations: collection('transformations/{name}.md', { title: text() }),
+  recordings: { path: 'recordings/{name}.md', fields: { title: text(), recordedAt: instant(), duration: seconds() } },
+  audio: { path: 'recordings/{name}.{ext}' }, // a collection of files: a pattern with no fields
+  transformations: { path: 'transformations/{name}.md', fields: { title: text() } },
 });
 
 // app.ts: its folder and its capabilities
@@ -40,11 +39,15 @@ pieces (history, share, the marks) where it wants them.
 
 **Every contract follows five rules:**
 
-1. A collection is one directory, an item one `.md` file in it, and an item's
-   name its file name.
+1. A collection is a path pattern, `{name}` its stem: a pattern ending in `.md`
+   holds notes with fields, and any other holds files. An item's name is its
+   file name.
 2. Fields are short values (`key: <JSON>`); prose, and anything people read, is
    the body.
-3. An attachment sits beside its item and shares its name.
+3. Files that share a directory and a name are one item, so a recording's audio
+   beside its note belongs to it with nothing declaring so. Field helpers such
+   as `text()` are a shorthand for plain JSON Schema, which a hand-written
+   `epicenter.json` uses.
 4. What belongs to one computer (a microphone, a model, a key, a policy) is the
    app's settings, never the folder's.
 5. A view only adds; it never assumes it is alone in a folder.
