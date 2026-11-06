@@ -209,7 +209,7 @@ test('one Whispering sign-in transcribes over the API and reaches the person’s
 	const joined = await state.account.fetch(`${origin}/git/folders`, {
 		method: 'POST',
 		headers: { 'content-type': 'application/json' },
-		body: '{}',
+		body: JSON.stringify({ create: true }),
 	});
 	expect(joined.status).toBe(201);
 	const { folder } = (await joined.json()) as { folder: string };
