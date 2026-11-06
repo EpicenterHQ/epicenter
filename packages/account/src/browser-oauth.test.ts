@@ -504,7 +504,7 @@ test('the renewal timer navigates with prompt=none ten minutes before expiry', a
 	world.notify();
 	const account = auth.state().account;
 	if (!account) throw new Error('Expected a signed-in account');
-	await account.fetch('/api/repos');
+	await account.fetch('/api/folders');
 	await Bun.sleep(0);
 
 	expect(tab.assigned).toHaveLength(before + 1);
@@ -671,11 +671,11 @@ test("Account.fetch attaches the bearer only for its own server and its token's 
 	const { auth } = await signIn(world);
 	const account = auth.state().account!;
 
-	await account.fetch('/api/repos', {
+	await account.fetch('/api/folders', {
 		headers: { cookie: 'session=ambient', authorization: 'Bearer caller' },
 	});
 	const sent = world.requests.at(-1)!;
-	expect(sent.url).toBe(`${SERVER}/api/repos`);
+	expect(sent.url).toBe(`${SERVER}/api/folders`);
 	const headers = new Headers(sent.init?.headers);
 	expect(headers.get('authorization')).toBe('Bearer token-1');
 	expect(headers.has('cookie')).toBe(false);

@@ -104,6 +104,20 @@ export function epicenter(stack: Stack, person: Person, ...args: string[]) {
 	});
 }
 
+/**
+ * The id of the one folder the person holds: the app's, made and attached
+ * to it at its first sync (ADR-0811), as `epicenter clone` lists it.
+ */
+export async function appFolder(stack: Stack, person: Person) {
+	const listed = await epicenter(stack, person, 'clone', '--json');
+	expect(listed.code, `${listed.stdout}\n${listed.stderr}`).toBe(0);
+	const { folders } = JSON.parse(listed.stdout) as {
+		folders: { id: string }[];
+	};
+	expect(folders).toHaveLength(1);
+	return (folders[0] as { id: string }).id;
+}
+
 /** `epicenter sync` until it has synced; exit 1 means run again. */
 export async function sync(stack: Stack, person: Person, folder: string) {
 	for (let round = 1; ; round++) {

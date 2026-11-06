@@ -34,7 +34,7 @@ Vocab             ${stack.app}
 API               ${stack.origin}
 Sign in           open ${signIn} (sets the demo person's session), then press Sign in
 Desktop sandbox   source '${script}'
-                  epicenter clone ${person.namespace}/vocab
+                  epicenter clone           (lists your folders; then: epicenter clone <id> vocab)
                   epicenter check ${stack.app}/contract.json vocab
                   epicenter sync vocab
 Stop              Ctrl-C (everything above is deleted)

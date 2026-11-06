@@ -16,7 +16,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolveOAuthAudiences } from '@epicenter/definition/site';
 import {
-	authorizeResourceRequest,
+	authorizeAccountRequest,
 	type CloudEnv,
 	createCloudContextMiddleware,
 	createDb,
@@ -57,6 +57,7 @@ const everyScope: OAuthScope[] = [
 	'ai',
 	'folders:read',
 	'folders:write',
+	'folders:all',
 ];
 
 let stopPostgres: () => Promise<void>;
@@ -160,13 +161,13 @@ async function reaches(
 	token: string,
 	o: { audience: string; scope: OAuthScope; person: Person },
 ) {
-	const { error } = await authorizeResourceRequest(db, {
+	const { data, error } = await authorizeAccountRequest(db, {
 		token,
 		audience: o.audience,
 		scope: o.scope,
-		namespaceId: o.person.personal,
 	});
-	return error === null ? 200 : error.status;
+	if (error !== null) return error.status;
+	return data.accountId === o.person.id ? 200 : 403;
 }
 
 /** Sign `ctx` in with the device grant, approving as `person` on the server. */
@@ -182,7 +183,6 @@ async function deviceLogin(ctx: AuthContext, person: Person) {
 				cookie: person.cookie,
 				userCode: codes[0]!.userCode,
 				clientId: 'so.epicenter.cli',
-				target: '*',
 			});
 			expect(approval.status).toBe(200);
 		},

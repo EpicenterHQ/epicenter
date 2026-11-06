@@ -6,11 +6,14 @@
  * grant. No Git runs on a machine.
  *
  * Key behaviors:
- * - A folder's first sync makes its repository; `clone <folder>` brings its
- *   files, attachments byte for byte; both sides' edits merge by note
+ * - A folder's first sync makes it on the server; `clone <folder>` brings
+ *   its files, attachments byte for byte; both sides' edits merge by note
  * - `diff`, `log`, and `restore` read and bring back the server's history
- * - A grant lets another person clone and, with write, sync; a revoke
- *   refuses their next sync and leaves their files
+ * - `share` waits for `accept`, which lands the folder in the other
+ *   person's Epicenter folder; a reader cannot write; `unshare` refuses
+ *   their next sync and leaves their files
+ * - `init` proposes a contract, `status` lists each folder's state, and a
+ *   copied folder sends nothing until `--new`
  *
  * Requires initdb and pg_ctl on PATH; never connects to a configured
  * database.
@@ -18,6 +21,7 @@
 
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import {
+	cp,
 	mkdir,
 	mkdtemp,
 	readFile,
@@ -65,6 +69,7 @@ const scopes = [
 	'ai',
 	'folders:read',
 	'folders:write',
+	'folders:all',
 ];
 
 let scratch: string;
@@ -173,7 +178,6 @@ async function machine(label: string) {
 				cookie: person.cookie,
 				userCode: codes[0]?.userCode as string,
 				clientId: 'so.epicenter.cli',
-				target: '*',
 			});
 		},
 	});
@@ -189,8 +193,8 @@ async function machine(label: string) {
 		EPICENTER_TEST_SECRETS: JSON.stringify({ $auth: { [entry]: stored } }),
 	};
 	return {
-		/** The person's handle: their personal namespace's id. */
-		handle: person.personal,
+		/** The email the person signs in with, which others share with. */
+		email: person.email,
 		home,
 		async epicenter(...args: string[]): Promise<Run> {
 			const child = Bun.spawn(
@@ -304,54 +308,80 @@ test('a first sync makes the repository; clone brings it whole; both sides merge
 	expect(await readFile(join(laptop, 'notes/a.md'), 'utf8')).toBe(
 		note('A', 'one\ntwo\nthree\n'),
 	);
-	// The repository lists it by its folder id.
-	expect((await me.epicenter('repos')).stdout).toContain(`(folder ${folder})`);
+	// The person's folders list it by its id.
+	const listed = JSON.parse((await me.epicenter('clone', '--json')).stdout) as {
+		folders: { id: string }[];
+	};
+	expect(listed.folders.map(({ id }) => id)).toEqual([folder]);
 }, 120_000);
 
-test('a grant lets another person clone and, with write, sync; a revoke refuses their next sync', async () => {
+test('share waits for accept, which lands the folder in the other Epicenter folder; a reader cannot write; unshare refuses the next sync', async () => {
 	const alice = await machine('alice');
 	const bob = await machine('bob');
 
-	// Alice keeps a recording in a folder; her first sync makes the repository.
-	const mine = join(alice.home, 'recorder');
+	// Alice keeps a recording in a folder; her first sync makes it on the server.
+	const mine = join(alice.home, 'Epicenter', 'Recorder');
 	const id = timeId();
 	const audio = crypto.getRandomValues(new Uint8Array(300_000));
 	await mkdir(join(mine, 'recordings'), { recursive: true });
 	await writeFile(join(mine, 'recordings', `${id}.md`), note('Kitchen'));
 	await writeFile(join(mine, 'recordings', `${id}.m4a`), audio);
+	expect(
+		(await alice.epicenter('init', mine, '--title', 'Kitchen sounds')).code,
+	).toBe(0);
 	expect((await alice.epicenter('sync', mine)).code).toBe(0);
 	const folder = await folderIn(mine);
 	const aliceNote = join(mine, 'recordings', `${id}.md`);
 
-	// Before a grant, Bob reaches nothing of hers.
-	const copy = join(bob.home, 'recorder');
-	const stranger = await bob.epicenter('clone', folder, copy, '--json');
+	// Before a share, Bob reaches nothing of hers.
+	const stranger = await bob.epicenter('clone', folder, '--json');
 	expect(stranger.code).toBe(2);
-	expect(stranger.stdout).toContain('403');
+	expect(stranger.stdout).toContain('no folder');
 
-	// Read: Bob clones the same bytes, and may change nothing.
 	const shared = await alice.epicenter(
 		'share',
 		mine,
-		bob.handle,
+		bob.email,
 		'--read',
 		'--json',
 	);
 	expect(shared.stderr).toBe('');
 	expect(JSON.parse(shared.stdout)).toEqual({
-		person: bob.handle,
-		level: 'read',
+		share: { folder, person: bob.email, role: 'reader', pending: true },
 	});
+	// Waiting: it is not among Bob's folders, and nothing of it is his yet.
+	expect(JSON.parse((await bob.epicenter('clone', '--json')).stdout)).toEqual({
+		folders: [],
+	});
+	const waiting = JSON.parse((await bob.epicenter('accept', '--json')).stdout);
+	expect(waiting.pending).toMatchObject([
+		{ folder, title: 'Kitchen sounds', role: 'reader' },
+	]);
 	expect(
-		JSON.parse((await alice.epicenter('share', mine, '--json')).stdout),
-	).toEqual({
-		grants: [{ person: bob.handle, level: 'read' }],
-	});
-	const cloned = await bob.epicenter('clone', folder, copy);
-	expect(cloned.code, cloned.stdout + cloned.stderr).toBe(0);
+		JSON.parse((await bob.epicenter('status', '--json')).stdout).folders,
+	).toEqual([]);
+
+	// Accepted, it lands in Bob's Epicenter folder, named for its title.
+	const accepted = await bob.epicenter('accept', 'Kitchen sounds');
+	expect(accepted.code, accepted.stdout + accepted.stderr).toBe(0);
+	const copy = join(bob.home, 'Epicenter', 'Kitchen sounds');
 	expect(
 		new Uint8Array(await readFile(join(copy, 'recordings', `${id}.m4a`))),
 	).toEqual(audio);
+	const status = JSON.parse((await bob.epicenter('status', '--json')).stdout);
+	expect(status.folders).toMatchObject([
+		{
+			name: 'Kitchen sounds',
+			title: 'Kitchen sounds',
+			state: 'shared',
+			folder,
+		},
+	]);
+	expect((await alice.epicenter('status')).stdout).toContain(
+		'Recorder (Kitchen sounds): shared, You and bob',
+	);
+
+	// A reader's edit is refused, and Alice's note stays.
 	const notePath = join(copy, 'recordings', `${id}.md`);
 	await writeFile(notePath, note('Kitchen, by Bob'));
 	const refused = await bob.epicenter('sync', copy, '--json');
@@ -360,19 +390,18 @@ test('a grant lets another person clone and, with write, sync; a revoke refuses 
 	expect((await alice.epicenter('sync', mine)).code).toBe(0);
 	expect(await readFile(aliceNote, 'utf8')).toBe(note('Kitchen'));
 
-	// Write: Bob's edit lands on his next sync, and Alice syncs it down.
+	// A writer's edit lands on his next sync, and Alice syncs it down.
 	expect(
-		(await alice.epicenter('share', mine, bob.handle, '--write')).code,
+		(await alice.epicenter('share', folder, bob.email, '--write')).code,
 	).toBe(0);
 	expect((await bob.epicenter('sync', copy)).code).toBe(0);
 	expect((await alice.epicenter('sync', mine)).code).toBe(0);
 	expect(await readFile(aliceNote, 'utf8')).toBe(note('Kitchen, by Bob'));
 
-	// Revoke: Bob's next sync is refused, and what he has stays.
-	const revoked = await alice.epicenter('unshare', mine, bob.handle, '--json');
+	// Unshared: Bob's next sync is refused, and what he has stays.
+	const revoked = await alice.epicenter('unshare', mine, bob.email, '--json');
 	expect(JSON.parse(revoked.stdout)).toEqual({
-		person: bob.handle,
-		revoked: true,
+		unshare: { folder, person: bob.email, removed: true, folderGone: false },
 	});
 	await writeFile(notePath, note('Kitchen, again'));
 	const after = await bob.epicenter('sync', copy, '--json');
@@ -381,4 +410,54 @@ test('a grant lets another person clone and, with write, sync; a revoke refuses 
 	expect(
 		new Uint8Array(await readFile(join(copy, 'recordings', `${id}.m4a`))),
 	).toEqual(audio);
+}, 240_000);
+
+test('a copied folder sends nothing until --new; init proposes a contract; a folder inside .git or .epicenter is refused', async () => {
+	const me = await machine('copier');
+	const diary = join(me.home, 'Epicenter', 'Diary');
+	await mkdir(join(diary, 'days'), { recursive: true });
+	await writeFile(join(diary, 'days/one.md'), note('One'));
+	const dry = await me.epicenter('init', diary, '--dry-run', '--json');
+	expect(JSON.parse(dry.stdout).init).toMatchObject({
+		written: false,
+		contract: {
+			title: 'Diary',
+			collections: {
+				days: { path: 'days/{name}.md', fields: { title: { type: 'string' } } },
+			},
+		},
+	});
+	expect((await me.epicenter('sync', diary)).code).toBe(0);
+	const folder = await folderIn(diary);
+
+	const copy = join(me.home, 'Epicenter', 'Diary copy');
+	await cp(diary, copy, { recursive: true });
+	await writeFile(join(copy, 'days/private.md'), note('Private'));
+	const asked = await me.epicenter('sync', copy, '--json');
+	expect(asked.code).toBe(1);
+	expect(JSON.parse(asked.stdout)).toEqual({
+		sync: { folder: copy, copyOf: folder },
+	});
+	expect(
+		JSON.parse((await me.epicenter('status', '--json')).stdout).folders,
+	).toMatchObject([
+		{ name: 'Diary', state: 'synced', folder },
+		{ name: 'Diary copy', state: 'local', copyOf: folder },
+	]);
+	const made = await me.epicenter('sync', copy, '--new', '--json');
+	expect(made.code, made.stdout + made.stderr).toBe(0);
+	expect(JSON.parse(made.stdout).sync).toMatchObject({ made: true });
+	expect(await folderIn(copy)).not.toBe(folder);
+	// The original never took the copy's private note.
+	expect((await me.epicenter('sync', diary, '--json')).code).toBe(0);
+	await expect(readFile(join(diary, 'days/private.md'))).rejects.toThrow();
+
+	for (const inside of [join(diary, '.epicenter'), join(diary, '.git', 'x')]) {
+		await mkdir(inside, { recursive: true });
+		const refused = await me.epicenter('sync', inside, '--json');
+		expect(refused.code).toBe(2);
+		expect(JSON.parse(refused.stdout).error).toContain(
+			'holds records, not a folder',
+		);
+	}
 }, 240_000);

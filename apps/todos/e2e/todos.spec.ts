@@ -24,6 +24,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type BrowserContext, expect, type Page } from 'playwright/test';
 import {
+	appFolder,
 	emptyOpfs,
 	epicenter,
 	opfsFiles,
@@ -148,11 +149,8 @@ test('2. a desktop clone holds the todos as written, and the folder fits the con
 		stack,
 		person,
 		'clone',
-		`${person.namespace}/todos`,
+		await appFolder(stack, person),
 		clone,
-		// Outside the library, a clone names its link (ADR-0736).
-		'--name',
-		'My todos',
 	);
 	expect(cloned.code, `${cloned.stdout}\n${cloned.stderr}`).toBe(0);
 

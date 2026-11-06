@@ -216,9 +216,8 @@ export const databaseGitAccess: GitAccess = {
 		});
 		if (decided.error !== null) return decided;
 		const { accountId, app } = decided.data;
-		const held = (await heldFolders(c.var.db, { accountId, app })).filter(
-			({ role }) => roleAllows(role, 'push'),
-		);
+		// A reader joins too: a sync of a folder they hold reads it.
+		const held = await heldFolders(c.var.db, { accountId, app });
 		if (folder !== undefined && held.some(({ id }) => id === folder))
 			return Ok({ folder, made: false });
 		if (folder === undefined && app !== null) {

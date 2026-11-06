@@ -93,7 +93,7 @@ const PROFILE: Surface[] = [
 	{
 		surface: 'Repository listing',
 		method: 'GET',
-		url: `${ORIGIN}/api/repos`,
+		url: `${ORIGIN}/api/folders`,
 		worker: 'served',
 		bun: 'served',
 	},

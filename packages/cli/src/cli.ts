@@ -36,15 +36,14 @@ const HANDLERS: Record<string, Run> = {
 			dir ?? '.',
 			json,
 		),
-	sync: async ({ positionals: [dir], json, grant }) =>
-		(await import('./sync/commands.ts')).syncCommand(dir, json, grant),
+	status: async ({ json, grant }) =>
+		(await import('./folder-commands.ts')).statusCommand(json, grant),
+	init: async ({ positionals: [path], options, json }) =>
+		(await import('./folder-commands.ts')).initCommand(path, options, json),
+	sync: async ({ positionals: [dir], options, json, grant }) =>
+		(await import('./sync/commands.ts')).syncCommand(dir, options, json, grant),
 	clone: async ({ positionals: [source, dir], json, grant }) =>
-		(await import('./sync/commands.ts')).cloneCommand(
-			source as string,
-			dir,
-			json,
-			grant,
-		),
+		(await import('./sync/commands.ts')).cloneCommand(source, dir, json, grant),
 	log: async ({ positionals: [dir], options, json, grant }) =>
 		(await import('./sync/commands.ts')).logCommand(dir, options, json, grant),
 	diff: async ({ positionals: [dir], options, json, grant }) =>
@@ -57,20 +56,36 @@ const HANDLERS: Record<string, Run> = {
 			json,
 			grant,
 		),
-	repos: async ({ json, grant }) =>
-		(await import('./repository-commands.ts')).repos(json, grant),
-	share: async ({ positionals: [target, person], options, json, grant }) =>
-		(await import('./repository-commands.ts')).share(
-			target as string,
+	share: async ({ positionals: [folder, person], options, json, grant }) =>
+		(await import('./folder-commands.ts')).shareCommand(
+			folder as string,
 			person,
 			options,
 			json,
 			grant,
 		),
-	unshare: async ({ positionals: [target, person], json, grant }) =>
-		(await import('./repository-commands.ts')).unshare(
-			target as string,
+	unshare: async ({ positionals: [folder, person], json, grant }) =>
+		(await import('./folder-commands.ts')).unshareCommand(
+			folder as string,
 			person as string,
+			json,
+			grant,
+		),
+	accept: async ({ positionals: [folder], json, grant }) =>
+		(await import('./folder-commands.ts')).acceptCommand(folder, json, grant),
+	attach: async ({ positionals: [folder, app], json, grant }) =>
+		(await import('./folder-commands.ts')).attachCommand(
+			folder as string,
+			app as string,
+			true,
+			json,
+			grant,
+		),
+	detach: async ({ positionals: [folder, app], json, grant }) =>
+		(await import('./folder-commands.ts')).attachCommand(
+			folder as string,
+			app as string,
+			false,
 			json,
 			grant,
 		),
@@ -114,39 +129,61 @@ signed in or the sign-in has ended.`,
 epicenter auth login, and the Epicenter app's. Reads only the keychain.`,
 	'auth logout': `Revokes this computer's sign-in at the server and deletes it from the
 keychain. The Epicenter app's sign-in is separate; sign it out in its Settings.`,
-	repos: `Lists the repositories of every namespace this sign-in may reach: the
-personal namespace first, then each group by title, as <namespace>/<name>.
-Your personal namespace's id is your handle, which others share with. With
---json, {"namespaces": [{"id", "title", "personal", "role",
-"repositories": [{"id", "name", "url"}]}]}.`,
-	share: `Lets the person whose handle is <handle> (their personal namespace's id,
-from their epicenter repos) read one of your repositories with --read, or
-also push forward and write from the web with --write, replacing any access
-they had. Only you may rewrite main or share it on. They clone it as
-<owner>/<name>, your handle and its name. The repository is <owner>/<name>,
-~/<name> (quoted, so the shell leaves it), or a folder cloned from it. Without
-<handle>, lists who it is shared with. With --json, the grant
-{"person", "level"}, or {"grants": [...]}. Exits 2 when refused.`,
-	unshare: `Revokes the access of the person whose handle is <handle> to one of your
-repositories. Their next fetch or push is refused; the files they already
-have stay with them. With --json, {"person", "revoked"}. Exits 2 when
-refused.`,
-	sync: `Syncs <dir> (default: the current directory) with its repository on the
+	status: `Lists every folder in the Epicenter folder (~/Epicenter, or ~/Epicenter Dev
+in development): its title, and whether it never synced, synced, or is shared,
+with who holds it. A copy of another folder says so. Below them, the shares
+waiting for you and the folders you hold that this computer does not. Signed
+out or offline, it lists what this computer holds. With --json,
+{"root", "folders", "pending", "elsewhere", "unreadable", "offline"}.`,
+	init: `Writes <path>'s epicenter.json (this directory by default): its title (the
+directory's name, or --title), and the collections its files suggest, a
+pattern per directory, {name} the item's file name. A directory's notes
+become one collection with a field for each front matter key, typed by its
+values; its other files another. Files directly in the folder, and notes
+whose front matter does not read, are left out, each with why. A folder
+needs no epicenter.json to sync; it adds checking. Refuses a folder that has
+one. --dry-run prints the proposal and writes nothing.`,
+	share: `Shares the folder (a path that has synced, or a folder id) with the person
+who signs in as <email>, as a writer, or with --read a reader, or with
+--owner an owner, who may share it on. It shows for them once they accept
+it (epicenter accept). For someone who holds it already, it changes their
+role. Without <email>, lists who holds the folder and who has not accepted
+yet. Only owners share. With --json, {"share": {"folder", "person", "role",
+"pending"}}, or the folder. Exits 2 when refused.`,
+	unshare: `Takes the person who signs in as <email> out of the folder; their next sync
+is refused, and the files they have stay with them. Only an owner takes
+someone else out; with your own email, you leave the folder, or decline a
+share waiting for you. When the last person leaves, the folder is deleted
+from the server. With --json, {"unshare": {"folder", "person", "removed",
+"folderGone"}}.`,
+	accept: `Accepts the share of <folder> (its id, or its title) waiting for you, and
+brings it into the Epicenter folder beside your own, in a new folder named
+for its title. Without <folder>, lists the shares waiting for you.`,
+	attach: `Lets the app that signs in as <app> (such as so.epicenter.todos) reach the
+folder: an app reaches only the folders attached to it, and its first sync
+attaches the folder it makes. Only Epicenter and this command attach one.`,
+	detach: `Stops the app <app> reaching the folder. Its files stay where they are.`,
+	sync: `Syncs <dir> (default: the current directory) with its folder on the
 server, with no Git on this computer: what changed on either side since the
 last sync is copied to the other, and a note both sides changed merges by
 Epicenter's rules, front matter by key with this computer's change winning a
 key both changed, and the body by line with one conflict block per clash. An
 edit beats a delete, and a file both sides replaced keeps this computer's;
-the other stays in the repository's history. A folder's first sync makes its
-repository and records its id in .epicenter/synced.json. With --json, one
-{"sync": {...}} line. Exits 0 when synced, 1 when a sync should run again or
-the repository refused a file (a name differing only in case from one it
-holds), and 2 when it could not sync.`,
-	clone: `Records the repository <folder> names (its id, from epicenter repos, or
-<namespace>/<name>, ~ for your own) in <dir>, by default a new folder named for
-it here, and syncs it, bringing its files. A folder that already holds files
-keeps them, merged on top. Plain Git clones the same repository at
-<git origin>/<namespace>/<name>.git.`,
+the other stays in the folder's history. A folder's first sync joins the folder
+its .epicenter/synced.json names when you hold it, and otherwise makes one,
+recording its id there with the directory it synced in. A copy of a folder
+(its manifest names another directory) sends nothing: --new makes it a folder
+of its own, and --same says it is that folder, moved. --all syncs every folder
+in the Epicenter folder that moved, asking the server once where every folder
+is. With --json, one {"sync": {...}} line per folder. Exits 0 when synced, 1
+when a sync should run again, the repository refused a file (a name differing
+only in case from one it holds), or a copy asks, and 2 when it could not
+sync.`,
+	clone: `Without <folder>, lists the folders you hold: id, title, and who holds them.
+With one (its id, or its title when one folder has it), brings it into <dir>,
+or into a new folder in the Epicenter folder named for its title, and syncs
+it, taking its files. A folder that already holds files keeps them, merged on
+top. Plain Git clones the same history at <git origin>/folders/<id>.git.`,
 	log: `Lists the folder's history on the server, newest first: each commit's id,
 time, and subject, marking the one this folder last agreed at. --limit takes
 at most that many (20 by default).`,
@@ -169,15 +206,15 @@ function helpText(group?: string) {
 	const line = (c: CommandSpec) =>
 		`  ${usageLine(c).padEnd(width)}  ${c.summary}`;
 	const folder = visible.filter((c) => c.path.length === 1);
-	const folders = visible.filter((c) => c.path[0] === 'folders');
 	const auth = visible.filter((c) => c.path[0] === 'auth');
 	return [
 		`Usage: epicenter ${group ?? '<command>'} ... [--json]`,
 		...(folder.length
-			? ['', 'Folder commands take a folder by its path:', ...folder.map(line)]
-			: []),
-		...(folders.length
-			? ['', 'Folders on this computer:', ...folders.map(line)]
+			? [
+					'',
+					'Folder commands take a folder by its path, or a folder on the server by its id:',
+					...folder.map(line),
+				]
 			: []),
 		...(auth.length ? ['', 'Your Epicenter account:', ...auth.map(line)] : []),
 		'',

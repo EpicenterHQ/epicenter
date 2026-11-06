@@ -35,7 +35,7 @@ Honeycrisp        ${stack.app}
 API               ${stack.origin}
 Sign in           open ${signIn} (sets the demo person's session), then press Sign in
 Desktop sandbox   source '${script}'
-                  epicenter clone ${person.namespace}/honeycrisp
+                  epicenter clone           (lists your folders; then: epicenter clone <id> honeycrisp)
                   epicenter check ${stack.app}/contract.json honeycrisp
                   epicenter sync honeycrisp
 Stop              Ctrl-C (everything above is deleted)
