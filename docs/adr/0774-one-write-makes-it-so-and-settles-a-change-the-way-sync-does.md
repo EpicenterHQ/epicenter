@@ -11,6 +11,7 @@
 - **Amended by:** [ADR-0795](0795-git-merges-a-notes-body-and-epicenter-merges-its-front-matter-by-key.md) at settling a body with `settle` and formatting the whole note: a body begun from shown text merges by the standard three-way line merge, and a write rewrites only the keys it changes.
 - **Amended by:** [ADR-0796](0796-a-field-is-a-line-its-value-is-json-and-a-write-patches-only-the-fields-it-changes.md) at a write formatting the note: a write patches the lines of the fields it changes.
 - **Amended by:** [ADR-0798](0798-a-store-patches-fields-and-writes-text-and-a-change-is-data.md) at a write reading the file before writing named fields: the store applies them to the file as it is.
+- **Amended by:** [ADR-0808](0808-a-files-version-is-its-git-blob-id-on-every-store.md) at an attachment's version being its LFS object id: it is the blob id of its canonical pointer, and the object id addresses its bytes.
 - **Unbuilt:** one content name per file on every store: device stores still name a note by the sha256 of its bytes, since the desktop shell's checked writes compare sha256 (a non-note file's sha256 is already its Git LFS object id). The version stays internal to the folder, so this changes no app.
 
 ## Context

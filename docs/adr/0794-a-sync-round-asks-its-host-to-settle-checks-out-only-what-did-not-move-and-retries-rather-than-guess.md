@@ -9,6 +9,7 @@
 - **Amended by:** [ADR-0802](0802-people-share-spaces-an-app-works-in-one-at-a-time-and-a-folder-carries-its-contract.md) at the founder's decision on a local repository: the lean is a plain folder, which the prototype confirms or refutes.
 - **Amended by:** [ADR-0803](0803-clients-sync-only-with-epicenter-servers-and-sync-is-a-function-of-two-stores.md) at the store-to-store prototype: it is `sync(local, remote, manifest)` over the store contract.
 - **Amended by:** [ADR-0804](0804-a-computer-keeps-a-plain-folder-and-every-surface-syncs-with-one-typescript-function.md) at checkout, rounds, shell moments, and the open decision: there is no checkout or round, moments live in the sync package, and the decision is made.
+- **Amended by:** [ADR-0808](0808-a-files-version-is-its-git-blob-id-on-every-store.md) at a store naming an attachment by a stamp: a stamp only caches its hash.
 - **Unbuilt:** all of it: a failed or unanswered settle ending the round `retry` (it is `stopped` in `packages/epicenter-core/src/merge.rs:90`); the core passing the contract's keys to `settle` (`packages/epicenter-core/napi/index.ts`), with a test that a round and a page settle the same edits identically; one batched settle per round; checkout through the version-checked put, after merging `epicenter-folder-core` into the core; the partial-checkout test in `tests/round.rs`; the shell's moments and a round with no live page; the iOS background spike and the rquickjs spike; the store-to-store prototype.
 
 ## Context
