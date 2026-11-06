@@ -48,6 +48,23 @@ test('scope lines skip scopes that grant nothing on their own', () => {
 	]);
 });
 
+test('reaching every folder is shown first, as every folder the person has', () => {
+	expect(
+		describeScopes([
+			'openid',
+			'offline_access',
+			'folders:read',
+			'folders:write',
+			'folders:all',
+		]),
+	).toEqual([
+		'Reach every folder you have, not only the ones you use with this app',
+		'Read your folders',
+		'Change your folders',
+		'Stay signed in on that device',
+	]);
+});
+
 test('scope lines ignore inherited object keys and keep declared scopes', () => {
 	expect(
 		describeScopes(['constructor', 'toString', '__proto__', 'folders:read']),

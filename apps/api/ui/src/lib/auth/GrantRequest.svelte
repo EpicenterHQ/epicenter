@@ -2,7 +2,7 @@
 	What an app is asking for, on the consent page, which also approves device
 	codes (ADR-0549). Which folders a grant reaches is its scopes: an app
 	reaches the folders attached to it, and only `folders:all` reaches every
-	folder (ADR-0811).
+	folder the person has, which is shown first (ADR-0811, ADR-0820).
 -->
 <script lang="ts">
 	import { describeScopes } from './oauth-request';

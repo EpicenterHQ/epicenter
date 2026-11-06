@@ -45,14 +45,15 @@ export function deviceAuthorizeUrl(userCode: string) {
 	return `/auth/oauth2/authorize?${new URLSearchParams({ user_code: userCode })}`;
 }
 
-/** What each scope lets an app do, in the words a person reads. */
+/**
+ * What each scope lets an app do, in the words a person reads, in the order
+ * they are shown. `folders:all` comes first: it says which folders the
+ * reading and changing below it reach (ADR-0820).
+ */
 const SCOPE_COPY = new Map([
+	['folders:all', 'Reach every folder you have, not only the ones you use with this app'],
 	['folders:read', 'Read your folders'],
 	['folders:write', 'Change your folders'],
-	[
-		'folders:all',
-		'Reach every folder you have, not only the ones you use with it',
-	],
 	['ai', 'Use Epicenter AI on your plan'],
 	['profile', 'See your name, plan, and usage'],
 	['email', 'See your email address'],
@@ -61,10 +62,10 @@ const SCOPE_COPY = new Map([
 
 /** The scope lines to show, skipping the ones that grant nothing on their own. */
 export function describeScopes(scopes: readonly string[]): string[] {
-	return scopes.flatMap((scope) => {
-		const copy = SCOPE_COPY.get(scope);
-		return copy ? [copy] : [];
-	});
+	const asked = new Set(scopes);
+	return [...SCOPE_COPY].flatMap(([scope, copy]) =>
+		asked.has(scope) ? [copy] : [],
+	);
 }
 
 /** The app as the server describes it publicly. */
