@@ -7,7 +7,10 @@
  * - Two processes replacing one file each land whole, and the last one wins
  * - Of two creates of one path, in one process or two, exactly one lands
  * - Within one process, two replacements over one version take turns: one
- *   lands, the other is stale
+ *   lands, the other finds it moved
+ * - An attachment's version is its Git LFS pointer's blob id, cached by its
+ *   stamp in `.epicenter/hashes.json`; a file changed within the second it
+ *   was hashed is hashed again
  * - A name only some disks hold is never made, and an existing one is
  *   replaced over its version
  * - A save across a mount point fails saying so, and leaves nothing behind
@@ -18,9 +21,12 @@ import { expect, mock, test } from 'bun:test';
 import * as fs from 'node:fs/promises';
 import { join } from 'node:path';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { scratch } from '../git.test-support.js';
+import { scratch } from '../scratch.test-support.js';
 import { savesDirectory } from '../state.js';
-import type { Version } from './store.js';
+import { blobIdOf } from '../hash.js';
+import { HASHES_PATH } from './stamp-cache.js';
+import type { BlobId, Moved, Unavailable } from './store.js';
+import type { Result } from 'wellcrafted/result';
 
 /** Whether the next link or rename fails as one to another file system does. */
 let crossDevice = false;
@@ -61,9 +67,12 @@ async function versionIn(store: ReturnType<typeof nodeStore>, path: string) {
 	return read.version;
 }
 
-/** Whether a write landed or was stale, whatever version it landed. */
-const outcome = (written: Version | null | 'stale') =>
-	written === 'stale' ? written : 'landed';
+/** Whether a put landed or found the path moved, whatever version it landed. */
+function outcome(put: Result<BlobId | null, Moved | Unavailable>) {
+	if (put.error === null) return 'landed';
+	if (put.error.name === 'Moved') return 'moved';
+	throw new Error(put.error.message);
+}
 const { chmod, mkdir, readdir, readFile, rm, stat, writeFile } = real;
 
 test('two processes replacing one file each land whole, the last one winning', async () => {
@@ -87,8 +96,8 @@ test('two processes replacing one file each land whole, the last one winning', a
 						const bytes = new TextEncoder().encode(('p${id}-' + line + '\\n').repeat(64));
 						const before = await store.read(['log.txt']);
 						if (before.error !== null) throw new Error(JSON.stringify(before.error));
-						const put = await store.write('log.txt', bytes, before.data[0].version);
-						if (put.error !== null) throw new Error(JSON.stringify(put.error));
+						const put = await store.put('log.txt', bytes, before.data[0].version);
+						if (put.error !== null && put.error.name !== 'Moved') throw new Error(JSON.stringify(put.error));
 						const read = await store.read(['log.txt']);
 						if (read.error !== null) throw new Error(JSON.stringify(read.error));
 						const lines = new Set(new TextDecoder().decode(read.data[0].bytes).split('\\n').filter(Boolean));
@@ -118,18 +127,16 @@ test('two processes replacing one file each land whole, the last one winning', a
 	}
 }, 60_000);
 
-test('two creates of one path in one process: one lands, one is stale, one file is there', async () => {
+test('two creates of one path in one process: one lands, one finds it moved, one file is there', async () => {
 	const root = await scratch('node-store-create-race-');
 	try {
 		const store = nodeStore(root);
 		const outcomes = await Promise.all(
 			['a', 'b'].map(async (value) =>
-				outcome(
-					expectOk(await store.write('words/one.md', text(value), 'absent')),
-				),
+				outcome(await store.put('words/one.md', text(value), null)),
 			),
 		);
-		expect(outcomes.toSorted()).toEqual(['landed', 'stale']);
+		expect(outcomes.toSorted()).toEqual(['landed', 'moved']);
 		expect(await readdir(join(root, 'words'))).toEqual(['one.md']);
 		expect(['a', 'b']).toContain(
 			await readFile(join(root, 'words/one.md'), 'utf8'),
@@ -140,20 +147,18 @@ test('two creates of one path in one process: one lands, one is stale, one file 
 	}
 });
 
-test('two replacements over one version in one process: one lands, one is stale', async () => {
+test('two replacements over one version in one process: one lands, one finds it moved', async () => {
 	const root = await scratch('node-store-replace-race-');
 	try {
 		const store = nodeStore(root);
-		expectOk(await store.write('note.md', text('read'), 'absent'));
+		expectOk(await store.put('note.md', text('read'), null));
 		const version = await versionIn(store, 'note.md');
 		const outcomes = await Promise.all(
 			['a', 'b'].map(async (value) =>
-				outcome(
-					expectOk(await store.write('note.md', text(value), version)),
-				),
+				outcome(await store.put('note.md', text(value), version)),
 			),
 		);
-		expect(outcomes.toSorted()).toEqual(['landed', 'stale']);
+		expect(outcomes.toSorted()).toEqual(['landed', 'moved']);
 		expect(['a', 'b']).toContain(await readFile(join(root, 'note.md'), 'utf8'));
 		expect(await readdir(savesDirectory(root))).toEqual([]);
 	} finally {
@@ -176,9 +181,9 @@ test('two processes creating one path: exactly one lands each round', async () =
 					const store = nodeStore(root);
 					const landed = [];
 					for (let round = 0; round < Number(rounds); round++) {
-						const put = await store.write('round-' + round + '.md', new TextEncoder().encode('p${id}'), 'absent');
-						if (put.error !== null) throw new Error(JSON.stringify(put.error));
-						if (put.data !== 'stale') landed.push(round);
+						const put = await store.put('round-' + round + '.md', new TextEncoder().encode('p${id}'), null);
+						if (put.error !== null && put.error.name !== 'Moved') throw new Error(JSON.stringify(put.error));
+						if (put.error === null) landed.push(round);
 					}
 					console.log(JSON.stringify(landed));
 					`,
@@ -218,9 +223,9 @@ test('a save stages inside the folder, makes nothing beside it, and keeps a repl
 	try {
 		await mkdir(root);
 		const store = nodeStore(root);
-		expect(
-			expectOk(await store.write('todos/a.md', text('milk'), 'absent')),
-		).toEqual(await versionIn(store, 'todos/a.md'));
+		expect(expectOk(await store.put('todos/a.md', text('milk'), null))).toEqual(
+			await versionIn(store, 'todos/a.md'),
+		);
 		expect(await readdir(parent)).toEqual(['notes']);
 		expect((await readdir(root)).sort()).toEqual(['.epicenter', 'todos']);
 		expect(await readdir(savesDirectory(root))).toEqual([]);
@@ -231,7 +236,11 @@ test('a save stages inside the folder, makes nothing beside it, and keeps a repl
 		await chmod(join(root, 'todos/a.md'), 0o755);
 		expect(
 			expectOk(
-				await store.write('todos/a.md', text('oat milk'), await versionIn(store, 'todos/a.md')),
+				await store.put(
+					'todos/a.md',
+					text('oat milk'),
+					await versionIn(store, 'todos/a.md'),
+				),
 			),
 		).toEqual(await versionIn(store, 'todos/a.md'));
 		expect((await stat(join(root, 'todos/a.md'))).mode & 0o777).toBe(0o755);
@@ -245,16 +254,20 @@ test('a name only some disks hold is never made; an existing one is replaced ove
 	const root = await scratch('node-store-nonportable-');
 	try {
 		const store = nodeStore(root);
-		expectErr(await store.write('aux.md', text('mine'), 'absent'));
+		expectErr(await store.put('aux.md', text('mine'), null));
 		expect(await readdir(root)).toEqual([]);
 		await writeFile(join(root, 'aux.md'), 'theirs');
 		expect(
 			expectOk(
-				await store.write('aux.md', text('mine'), await versionIn(store, 'aux.md')),
+				await store.put(
+					'aux.md',
+					text('mine'),
+					await versionIn(store, 'aux.md'),
+				),
 			),
 		).toEqual(await versionIn(store, 'aux.md'));
 		expect(await readFile(join(root, 'aux.md'), 'utf8')).toBe('mine');
-		expectErr(await store.write('.git/config', text('x'), 'absent'));
+		expectErr(await store.put('.git/config', text('x'), null));
 	} finally {
 		await rm(root, { recursive: true, force: true });
 	}
@@ -265,11 +278,9 @@ test('a save across a mount point fails saying so, and leaves nothing behind', a
 	try {
 		const store = nodeStore(root);
 		crossDevice = true;
-		const error = expectErr(
-			await store.write('mounted/a.md', text('x'), 'absent'),
-		);
+		const error = expectErr(await store.put('mounted/a.md', text('x'), null));
 		crossDevice = false;
-		expect(String(error.cause)).toContain(
+		expect(error.name === 'Unavailable' && String(error.cause)).toContain(
 			"cannot save across a mount point: 'mounted/a.md'",
 		);
 		expect(await readdir(savesDirectory(root))).toEqual([]);
@@ -295,6 +306,45 @@ test('a directory removed during a listing is not listed; a root removed fails t
 		expectErr(await store.list(['']));
 	} finally {
 		removedBeforeReading = undefined;
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test('an attachment is named by its pointer, hashed once, and again when it changes within the second it was hashed', async () => {
+	const root = await scratch('node-store-stamps-');
+	try {
+		await writeFile(join(root, 'take.webm'), 'one');
+		const listedOnce = expectOk(await nodeStore(root).list(['']));
+		expect(listedOnce).toEqual([
+			{
+				path: 'take.webm',
+				version: await blobIdOf('take.webm', text('one')),
+				size: 3,
+			},
+		]);
+		const cached = JSON.parse(await readFile(join(root, HASHES_PATH), 'utf8'));
+		expect(Object.keys(cached)).toEqual(['take.webm']);
+		// Rewritten within the same second, to the same length: the stamp's
+		// time could match, so the racy entry is hashed again, never trusted.
+		await writeFile(join(root, 'take.webm'), 'two');
+		const [again] = expectOk(await nodeStore(root).list(['']));
+		expect(again?.version).toBe(await blobIdOf('take.webm', text('two')));
+		// A cache that holds a hash under an old enough stamp answers without reading.
+		const stats = await stat(join(root, 'take.webm'), { bigint: true });
+		await writeFile(
+			join(root, HASHES_PATH),
+			JSON.stringify({
+				'take.webm': {
+					stamp: `${stats.size}:${stats.mtimeNs}:${stats.ino}`,
+					oid: 'f'.repeat(64),
+					size: 3,
+					hashed: Number(stats.mtimeNs / 1_000_000n) + 5000,
+				},
+			}),
+		);
+		const [trusted] = expectOk(await nodeStore(root).list(['']));
+		expect(trusted?.version).not.toBe(await blobIdOf('take.webm', text('two')));
+	} finally {
 		await rm(root, { recursive: true, force: true });
 	}
 });

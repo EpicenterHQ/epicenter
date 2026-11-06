@@ -29,65 +29,48 @@ export const COMMANDS: readonly CommandSpec[] = [
 		summary: "rewrite every note an app's contract claims in house style",
 	},
 	{
-		path: ['init'],
-		args: '[<dir>]',
-		minArgs: 0,
-		maxArgs: 1,
-		options: [{ name: 'name', value: '<name>' }],
-		summary:
-			'set up or repair a data folder for sync; --name is required outside the library',
-	},
-	{
-		path: ['connect'],
-		args: '<dir> <namespace>/<name> | ~/<name> | <url>',
-		minArgs: 2,
-		maxArgs: 2,
-		summary: 'set origin for an initialized folder',
-	},
-	{
 		path: ['sync'],
 		args: '[<dir>]',
 		minArgs: 0,
 		maxArgs: 1,
-		options: [
-			{ name: 'watch' },
-			{ name: 'interval', value: '<seconds>', hidden: true },
-		],
 		summary:
-			'commit the folder, merge the remote by Epicenter rules, and push; every synced library folder without <dir>',
+			"sync a folder with its repository, making the repository at the folder's first sync",
 		long: true,
 	},
 	{
-		path: ['status'],
-		args: '[<dir>]',
-		minArgs: 0,
-		maxArgs: 1,
-		summary:
-			'changed files, ahead and behind, and the remote; every synced library folder without <dir>',
-	},
-	{
 		path: ['clone'],
-		args: '<namespace>/<name> | <url> | <path> [<dir>]',
+		args: '<folder> [<dir>]',
 		minArgs: 1,
 		maxArgs: 2,
-		options: [{ name: 'name', value: '<name>' }],
 		summary:
-			'clone into the app folder derived from AGENTS.md or sync an occupied folder; --name for a destination outside the library',
+			'bring a repository into a folder by its id or <namespace>/<name>, and sync it',
+		long: true,
 	},
 	{
-		path: ['forget'],
+		path: ['log'],
 		args: '[<dir>]',
 		minArgs: 0,
 		maxArgs: 1,
-		summary: 'stop syncing a folder, leaving its files and history',
+		options: [{ name: 'limit', value: '<n>' }],
+		summary: "the folder's history on the server, newest first",
 	},
 	{
-		path: ['merge-driver'],
-		args: '<base> <ours> <theirs> [<path>]',
-		minArgs: 3,
-		maxArgs: 4,
-		hidden: true,
-		summary: "Git's merge driver for notes",
+		path: ['diff'],
+		args: '[<dir>]',
+		minArgs: 0,
+		maxArgs: 1,
+		options: [{ name: 'since', value: '<commit>' }],
+		summary:
+			'the files changed since the last sync, or on the server since a commit',
+	},
+	{
+		path: ['restore'],
+		args: '<commit> [<dir>]',
+		minArgs: 1,
+		maxArgs: 2,
+		options: [{ name: 'path', value: '<path>' }],
+		summary:
+			"make a folder's files, or one with --path, what they were at a commit",
 	},
 	{
 		path: ['repos'],
@@ -141,12 +124,5 @@ export const COMMANDS: readonly CommandSpec[] = [
 		maxArgs: 0,
 		options: [{ name: 'resource', value: '<url>' }],
 		summary: 'print an access token, by default for the API',
-	},
-	{
-		path: ['auth', 'git-credential'],
-		args: 'get | store | erase',
-		minArgs: 1,
-		maxArgs: 1,
-		summary: "Git's credential helper for the deployment's Git origin",
 	},
 ];

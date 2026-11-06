@@ -1,25 +1,17 @@
 /**
  * The one place that decides when a command ends on a stop signal
  * (`SIGTERM`, `SIGINT`, `SIGHUP`), which the desktop shell sends when the
- * page that started the command reloads or its window closes, and when it
- * restarts its sync service. The handler is installed by the first
- * `finishBeforeExit` or `stopWhenStdinCloses`; until then a stop signal
+ * page that started the command reloads or its window closes. The handler
+ * is installed by the first `finishBeforeExit`; until then a stop signal
  * ends the process as it would any program.
  *
  * On a stop signal the process first waits for the work it must not cut
  * off, each piece at most the grace it asked for: a token refresh's keychain
- * write (ADR-0565), `STOP_GRACE_MS`, and a sync round, `ROUND_GRACE_MS`.
- * Work such a piece begins after the signal, such as the refresh a round
- * asks for, is waited for too; a command checks `isStopping` before it
- * begins another piece of its own. Then the process exits `128 + n`.
+ * write (ADR-0565), `STOP_GRACE_MS`. Work such a piece begins after the
+ * signal is waited for too. Then the process exits `128 + n`. A sync needs
+ * no grace: one stopped anywhere converges when it runs again.
  *
- * A command the desktop starts for the app's whole life cannot rely on a
- * signal: an app that crashes or is killed sends none. Such a command calls
- * `stopWhenStdinCloses`, and the shell holds the other end of stdin without
- * writing to it; the system closes that end however the app ends, and the
- * command stops as on `SIGHUP`.
- *
- * The graces are coupled to the shell's `STOP_GRACE`
+ * The grace is coupled to the shell's `STOP_GRACE`
  * (`apps/epicenter/src-tauri/src/cli.rs`), which kills the process group
  * only after waiting longer than the longest of them.
  */
@@ -31,15 +23,6 @@ const STOP_SIGNALS = { SIGTERM: 15, SIGINT: 2, SIGHUP: 1 } as const;
  * no other grace.
  */
 export const STOP_GRACE_MS = 2_000;
-
-/**
- * How long a stop signal waits for a sync round already running. The round
- * runs in this process, in the sync core, so an exit ends it wherever it
- * is; one cut off between writing a merge's files and moving `main` leaves
- * the working tree ahead of `main`, which the next round commits as a local
- * edit instead of the merge.
- */
-export const ROUND_GRACE_MS = 60_000;
 
 /** Each piece of unfinished work, with the grace it asked for. */
 const unfinished = new Map<Promise<void>, number>();
@@ -63,24 +46,8 @@ export async function finishBeforeExit<T>(
 	}
 }
 
-/**
- * Stop as on `SIGHUP` (exit 129) once stdin ends: the lifeline of a command
- * whose starter holds stdin open, unwritten, for as long as it lives.
- */
-export function stopWhenStdinCloses() {
-	exitOnStop();
-	process.stdin.on('data', () => {});
-	process.stdin.once('end', () => stop(STOP_SIGNALS.SIGHUP));
-	process.stdin.once('error', () => stop(STOP_SIGNALS.SIGHUP));
-}
-
 let installed = false;
 let stopping = false;
-
-/** Whether this process was told to stop, so begins no more work. */
-export function isStopping() {
-	return stopping;
-}
 
 /**
  * Resolves when no unfinished work remains, work begun after the stop

@@ -15,8 +15,8 @@
  *   target is gone is `Disconnected`, with words a person reads, and Retry
  *   opens it once it is back; a storage call on it is `Unavailable` with
  *   that `Disconnected` as its cause, and a write waits until it is back
- * - Versions are sha256, so a write over a version the file no longer holds
- *   is `'stale'` and lands nothing; the folder reads again and applies its
+ * - Versions are Git blob ids, so a put over a version the file no longer
+ *   holds is `Moved` and lands nothing; the folder reads again and applies its
  *   change over what another program wrote
  * - A storage refusal is `Unavailable`; a page outside Tauri opens nothing
  * - The shell's watcher reaches a collection's listeners, each root its own
@@ -108,7 +108,8 @@ async function hearing(store: Store) {
 /** The version at `path` in `store`, which must hold a file. */
 async function versionIn(store: Store, path: string) {
 	const [file] = expectOk(await store.read([path]));
-	if (file === undefined || 'gone' in file) throw new Error(`nothing at ${path}`);
+	if (file === undefined || 'gone' in file)
+		throw new Error(`nothing at ${path}`);
 	return file.version;
 }
 
@@ -282,44 +283,47 @@ test('each refusal reads as the error a person is shown', async () => {
 	});
 });
 
-test("a write over a version the note no longer holds is 'stale' and lands nothing; a current one lands", async () => {
+test('a put over a version the note no longer holds has moved and lands nothing; a current one lands', async () => {
 	const store = unwrap(await openDataStore(notes, 'https://notes.example.com'));
 	const path = 'notes/a.md';
 	const first = expectOk(
-		await store.write(path, bytes('---\ntitle: One\n---\n'), 'absent'),
+		await store.put(path, bytes('---\ntitle: One\n---\n'), null),
 	);
-	if (first === null || first === 'stale') throw new Error('expected a note');
+	if (first === null) throw new Error('expected a note');
 	const second = expectOk(
-		await store.write(path, bytes('---\ntitle: Two\n---\n'), first),
+		await store.put(path, bytes('---\ntitle: Two\n---\n'), first),
 	);
-	if (second === null || second === 'stale') throw new Error('expected a note');
+	if (second === null) throw new Error('expected a note');
 	expect(
-		expectOk(await store.write(path, bytes('---\ntitle: Three\n---\n'), first)),
-	).toBe('stale');
+		expectErr(await store.put(path, bytes('---\ntitle: Three\n---\n'), first)),
+	).toMatchObject({ name: 'Moved', now: second });
 	expect(await shell.text(path)).toBe('---\ntitle: Two\n---\n');
 	expect(await versionIn(store, path)).toBe(second);
-	expect(expectOk(await store.write(path, null, first))).toBe('stale');
-	expect(expectOk(await store.write(path, null, second))).toBeNull();
+	expect(expectErr(await store.put(path, null, first)).name).toBe('Moved');
+	expect(expectOk(await store.put(path, null, second))).toBeNull();
 	expect(await shell.text(path)).toBeUndefined();
 });
 
-test('a create lands only where nothing is, and a version is checked as one', async () => {
+test('a create lands only where nothing is, and an attachment is checked by its version', async () => {
 	const store = unwrap(await openDataStore(notes, 'https://notes.example.com'));
-	expect(expectOk(await store.write('a.bin', bytes('two'), 'absent'))).toEqual(
-		expect.any(String),
-	);
-	expect(expectOk(await store.write('a.bin', bytes('other'), 'absent'))).toBe(
-		'stale',
-	);
+	const two = expectOk(await store.put('a.bin', bytes('two'), null));
+	expect(two).toEqual(expect.any(String));
+	expect(
+		expectErr(await store.put('a.bin', bytes('other'), null)),
+	).toMatchObject({
+		name: 'Moved',
+		now: two,
+	});
 	expect(await shell.text('a.bin')).toBe('two');
 	const [read] = expectOk(await store.read(['a.bin']));
 	if (read === undefined || 'gone' in read) throw new Error('a.bin is there');
+	expect(read.version).toBe(two as NonNullable<typeof two>);
 	expect(
-		expectOk(await store.write('a.bin', bytes('three'), read.version)),
+		expectOk(await store.put('a.bin', bytes('three'), read.version)),
 	).toEqual(expect.any(String));
 	expect(
-		expectOk(await store.write('a.bin', bytes('four'), read.version)),
-	).toBe('stale');
+		expectErr(await store.put('a.bin', bytes('four'), read.version)).name,
+	).toBe('Moved');
 	expect(await shell.text('a.bin')).toBe('three');
 });
 
@@ -356,11 +360,11 @@ test('a storage refusal is Unavailable, and the next call tries again', async ()
 	const store = unwrap(await openDataStore(notes, 'https://notes.example.com'));
 	const note = bytes('---\ntitle: One\n---\n');
 	shell.control.refuseNext = 1;
-	expect(
-		expectErr(await store.write('notes/a.md', note, 'absent')).name,
-	).toBe('Unavailable');
+	expect(expectErr(await store.put('notes/a.md', note, null)).name).toBe(
+		'Unavailable',
+	);
 	expect(await shell.text('notes/a.md')).toBeUndefined();
-	expectOk(await store.write('notes/a.md', note, 'absent'));
+	expectOk(await store.put('notes/a.md', note, null));
 	expect(await shell.text('notes/a.md')).toBe('---\ntitle: One\n---\n');
 });
 

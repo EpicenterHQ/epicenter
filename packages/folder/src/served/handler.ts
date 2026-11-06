@@ -10,7 +10,7 @@
 import { ClientError } from '@epicenter/definition/contract';
 import { extractErrorMessage } from 'wellcrafted/error';
 import type { Result } from 'wellcrafted/result';
-import type { Store, Unavailable, Version } from '../device/store.js';
+import type { BlobId, Store, Unavailable } from '../device/store.js';
 import {
 	fromBase64,
 	isRecord,
@@ -163,24 +163,29 @@ export function storeHandler(
 									},
 						),
 					}));
-				case 'write': {
-					const { path, bytes, over } = body;
+				case 'put': {
+					const { path, bytes, expect } = body;
 					if (typeof path !== 'string')
 						return unreadable('path must be a path');
 					if (bytes !== null && typeof bytes !== 'string')
 						return unreadable('bytes must be base64 or null');
-					if (typeof over !== 'string')
-						return unreadable("over must be a version or 'absent'");
+					if (expect !== null && typeof expect !== 'string')
+						return unreadable('expect must be a version or null');
 					let decoded: Uint8Array | null;
 					try {
 						decoded = bytes === null ? null : fromBase64(bytes);
 					} catch {
 						return unreadable('bytes must be base64 or null');
 					}
-					return answer(
-						await store.data.write(path, decoded, over as Version | 'absent'),
-						(landed) => ({ landed }),
+					const put = await store.data.put(
+						path,
+						decoded,
+						expect as BlobId | null,
 					);
+					if (put.error === null) return Response.json({ landed: put.data });
+					if (put.error.name === 'Moved')
+						return Response.json({ moved: put.error.now });
+					return unavailable(put.error);
 				}
 				case 'watch':
 					return watch(store.data, request.signal);

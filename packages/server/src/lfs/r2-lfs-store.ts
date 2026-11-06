@@ -39,6 +39,7 @@ export type R2LfsBucket = {
 		body: ReadableStream<Uint8Array>,
 		options: { sha256: string },
 	): Promise<{ size: number } | null>;
+	delete(key: string): Promise<void>;
 };
 
 /** R2's S3 endpoint for presigning: the account, the bucket's name, and an S3 key pair. */
@@ -114,6 +115,9 @@ export function createR2LfsStore({
 			if (size !== undefined && stored.size !== size)
 				return { ok: false, reason: 'size-mismatch' };
 			return { ok: true, size: stored.size };
+		},
+		async delete(repositoryId, oid) {
+			await bucket.delete(keyOf(repositoryId, oid));
 		},
 		async get(repositoryId, oid) {
 			const found = await bucket.get(keyOf(repositoryId, oid));

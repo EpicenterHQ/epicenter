@@ -158,7 +158,8 @@ in between, it reads and applies the change again. The fields a write names
 take it, and a body changed since the folder showed the note merges by
 lines with `settle`, as sync merges it (ADR-0774). A write never fails: the
 folder keeps it, in order, until it lands, and `folder.unavailable()` says
-why it waits (ADR-0775). A folder runs no Git merge; `epicenter sync` does.
+why it waits (ADR-0775). No computer runs a Git merge: sync merges in
+TypeScript (ADR-0804).
 
 A Svelte view binds its controls to the open note's editor (`notes.edit`),
 which shows each typed field until its save lands, then follows the folder
@@ -166,13 +167,12 @@ again. Writes waiting for the store live in the page's memory and do not
 survive a crash; the leave guard asks before the page closes. See [the folder package](../packages/folder/README.md)
 and [the Svelte adapter](../packages/svelte/README.md).
 
-During `epicenter sync`, stock `git merge` runs `epicenter merge-driver` on
-each note both sides changed. `base` is the common ancestor, `current` the
-side that reached the server first, and `incoming` the later arrival (`%A`
-under a merge, `%B` under a rebase). These are roles in Epicenter's merge, not
-Git's `ours` and `theirs` names. The server merges nothing: it refuses a web
-write over a version the repository no longer holds, and the page settles
-its change over the new version and writes again
+During a sync (`sync` in `@epicenter/folder/sync`, which `epicenter sync`
+runs), a note both sides changed merges against the version both last
+agreed on, read from the server by its Git blob id; this computer's side is
+the later write. The server merges nothing: it refuses a commit over a
+version the repository no longer holds, and the sync reads what is there and
+runs again
 ([ADR-0773](adr/0773-a-folder-opens-at-a-place-every-place-is-a-store-and-the-server-never-merges.md)).
 Sync stops, with exit code
 2, on anything a person or agent must settle, such as an unfinished merge or a
@@ -227,7 +227,7 @@ additional current APIs.
 | Source | Names and current behavior |
 | --- | --- |
 | `@epicenter/folder` places | `openFolder(contract, place)` from `@epicenter/folder`, over a contract from `@epicenter/definition/contract`, at `home({ site, account })` (chosen when the page runs: the desktop's Data root in a Tauri window, the account's repository in a browser), `directory(path)` from `/node`, or `memory()` from `/memory` in a test. |
-| CLI | Implemented commands include `auth`, `check`, `format`, `init`, `connect`, `sync`, `clone`, `forget`, `status`, `repos`, `share`, `unshare`, `merge-driver`, and `messages`. **Direction:** `query`, `set`, `edit`, `delete`, `normalize`, and `mcp` arrive; `format`, `share`, and `unshare` go ([ADR-0790](adr/0790-the-epicenter-app-is-a-library-over-every-folder-and-the-cli-answers-its-queries.md), [ADR-0797](adr/0797-front-matter-is-a-strict-grammar-and-anything-else-is-body.md), [ADR-0799](adr/0799-a-folders-contract-is-also-an-mcp-server.md), [ADR-0770](adr/0770-teams-own-repositories-and-sharing-is-membership.md)). |
+| CLI | Implemented commands include `auth`, `check`, `format`, `sync`, `clone`, `log`, `diff`, `restore`, `repos`, `share`, `unshare`, and `messages`. **Direction:** `query`, `set`, `edit`, `delete`, `normalize`, and `mcp` arrive; `format`, `share`, and `unshare` go ([ADR-0790](adr/0790-the-epicenter-app-is-a-library-over-every-folder-and-the-cli-answers-its-queries.md), [ADR-0797](adr/0797-front-matter-is-a-strict-grammar-and-anything-else-is-body.md), [ADR-0799](adr/0799-a-folders-contract-is-also-an-mcp-server.md), [ADR-0770](adr/0770-teams-own-repositories-and-sharing-is-membership.md)). |
 | Stored records | Existing fields such as `recordingId` retain their names and values. A noun cleanup is not a data-format migration. |
 
 For the full dated inventory and the review's accepted and rejected collapses,

@@ -11,8 +11,8 @@
  * 3. One person per browser project, with a signed-in session cookie for
  *    the browser, and a desktop sandbox for the `epicenter` CLI: its own
  *    HOME, GIT_CONFIG_GLOBAL and GIT_CEILING_DIRECTORIES, a device-grant
- *    sign-in seeded through EPICENTER_TEST_SECRETS, the Git credential
- *    helper `auth login` writes, and the engine at its machine path.
+ *    sign-in seeded through EPICENTER_TEST_SECRETS, and the engine at its
+ *    machine path.
  *    Each also has a guest, a second person with a browser session.
  * 4. The app built against that API and served on its registered origin.
  *
@@ -50,7 +50,6 @@ import {
 	resolveDeployment,
 } from './auth.ts';
 import { createMemorySecrets } from './secrets.ts';
-import { configureTestGitHelper } from './test-git-helper.ts';
 
 /** What the tests read from the state file. */
 export type Stack = {
@@ -268,11 +267,6 @@ export async function runAppStack({
 				EPICENTER_DATA_DIR: join(home, 'data'),
 				EPICENTER_TEST_SECRETS: JSON.stringify({ $auth: { [entry]: stored } }),
 			};
-			configureTestGitHelper(
-				deployment.audiences.git,
-				[process.execPath, '--no-install', cli],
-				env,
-			);
 			const link = join(home, '.epicenter', 'bin', 'epicenter');
 			await mkdir(join(link, '..'), { recursive: true });
 			await writeFile(

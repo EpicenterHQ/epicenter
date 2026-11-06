@@ -34,6 +34,8 @@ export {
 } from './apps.ts';
 export {
 	type GrantLevel,
+	folderUrl,
+	isFolderId,
 	isNamespaceId,
 	isRepositoryName,
 	type ListedNamespace,

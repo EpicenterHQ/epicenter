@@ -1,15 +1,17 @@
 /**
  * Hosted Git (ADR-0546): a folder's remote is
- * `<git audience>/<namespace>/<name>.git`, and the first push or web write
- * creates it. `<namespace>` may be `~`, the caller's personal namespace, so
- * a web app reaches `~/<repository name>` from its token alone.
+ * `<git audience>/<namespace>/<name>.git`, and the first push creates it;
+ * sync reaches it by its folder's id, `<git audience>/folders/<folder>`, and
+ * `POST <git audience>/folders` makes one. `<namespace>` may be `~`, the
+ * caller's personal namespace.
  *
  * ```txt
  * <git>/<ns>/<name>.git/info/refs?service=…        GET   folders:read, read  (receive-pack: folders:write, push)
  * <git>/<ns>/<name>.git/git-upload-pack            POST  folders:read, read
  * <git>/<ns>/<name>.git/git-receive-pack           POST  folders:write, push (rewrite: owner); the receiver, receive.ts
  * <git>/<ns>/<name>.git/info/lfs/…                 Git LFS, lfs.ts
- * <git>/<ns>/<name>.git/epicenter/{changes,files,read,writes}   the write translator, files.ts
+ * <git>/folders/<folder>/{changes,tree,blobs,commits}   sync's routes, by the folder's id, folder.ts
+ * <git>/folders                                    POST  folders:write: a new folder, or the caller's of a name
  * <api>/api/repos                                  GET   folders:read on the Git audience: the caller's repositories by namespace
  * <api>/api/repos/<ns|~>/<name>/grants             GET   folders:read, manage: the repository's grants
  * <api>/api/repos/<ns|~>/<name>/grants/<person>    PUT { level } grants, DELETE revokes; folders:write, manage
@@ -18,7 +20,7 @@
  * A person outside the namespace reaches one repository through a grant
  * (`repository_grant`): `read` gives the `reader` role, `write` the
  * `writer` role (`namespace-roles.ts`). The decision is the same one
- * statement as membership's, so every route above, Git, LFS and web writes
+ * statement as membership's, so every route above, Git, LFS and a folder's
  * alike, applies one rule. A grant names an existing repository and never
  * creates one; only the owner rewrites `main` or manages grants. A person
  * is named by their handle, the id of their personal namespace.
@@ -38,7 +40,7 @@
  * A name nobody has used is not a repository until something is written to
  * it. Its advertisement answers a member whose role may push as an empty
  * repository would, its file listing is empty, and reading creates nothing.
- * Every writing request (a push, an LFS upload, a web write) creates it, at
+ * Every writing request (a push, an LFS upload) creates it, at
  * its start and after the same authorization: the storage
  * (`GitHost.create`), then the row. Two first writes at once insert one row
  * (the `(namespace_id, name)` unique key); the one that loses writes into
@@ -52,7 +54,7 @@
  * by its immutable id, never by `<namespace>/<name>`, and receives only
  * requests this module already authorized; the client's credential never
  * reaches it. The store serves clone and fetch; every push goes through the
- * receiver, and the files and LFS routes over its `objects`. LFS answers 503
+ * receiver, and a folder's and the LFS routes over its `objects`. LFS answers 503
  * until the deployment has an LFS store.
  *
  * Refusals answer JSON `{ error, error_description }`:
@@ -77,6 +79,7 @@
 
 import {
 	type GrantLevel,
+	isFolderId,
 	isNamespaceId,
 	isRepositoryName,
 	type RepositoryGrantRevoked,
@@ -104,19 +107,28 @@ import {
 	grantRepository,
 	listRepositories,
 	listRepositoryGrants,
+	locateRepository,
 	newRepositoryId,
 	revokeRepositoryGrant,
 } from '../repositories.js';
 import type { CloudEnv } from '../types.js';
+import { databaseUploadLedger, type UploadLedger } from '../uploads.js';
 import {
-	applyWrite,
-	listRepositoryFiles,
-	MAX_WRITE_BYTES,
-	MAX_READ_PATHS,
-	readRepositoryChanges,
-	readRepositoryFiles,
-	readWriteRequest,
-} from './files.js';
+	type FolderEndpoint,
+	folderBlob,
+	folderBlobs,
+	folderChanges,
+	folderCommit,
+	folderLog,
+	folderOperation,
+	folderTree,
+	getAttachment,
+	MAX_COMMIT_BYTES,
+	MAX_NAMED,
+	putAttachment,
+	readCommitRequest,
+	readFolderEndpoint,
+} from './folder.js';
 import {
 	answerBatch,
 	getObject,
@@ -219,6 +231,15 @@ export type GitAccess = {
 		c: Context<CloudEnv>,
 		target: { namespaceId: string; name: string; host: GitHost },
 	): Promise<{ id: string }>;
+	/**
+	 * Where the folder `folder` (its repository's id) is: its namespace and
+	 * name, which `authorize` decides by, or null when no repository has
+	 * that id.
+	 */
+	locate(
+		c: Context<CloudEnv>,
+		folder: string,
+	): Promise<{ namespaceId: string; name: string } | null>;
 };
 
 /**
@@ -264,6 +285,7 @@ export const databaseGitAccess: GitAccess = {
 			});
 		return repository;
 	},
+	locate: (c, folder) => locateRepository(c.var.db, folder),
 };
 
 const FORWARDED_HEADERS = [
@@ -307,11 +329,7 @@ export type GitEndpoint =
 	| { kind: 'lfs-batch' }
 	| { kind: 'lfs-object'; oid: string; upload: boolean }
 	| { kind: 'lfs-verify' }
-	| { kind: 'lfs-locks' }
-	| { kind: 'changes' }
-	| { kind: 'files' }
-	| { kind: 'read' }
-	| { kind: 'writes' };
+	| { kind: 'lfs-locks' };
 
 /** A request under the Git audience, read from its URL. */
 export type GitTarget =
@@ -322,6 +340,10 @@ export type GitTarget =
 			name: string;
 			endpoint: GitEndpoint;
 	  }
+	/** Sync's routes of the folder whose id is `folder` (`folder.ts`). */
+	| { kind: 'folder'; folder: string; endpoint: FolderEndpoint }
+	/** `POST <git>/folders`: a new folder, or the caller's folder of a name. */
+	| { kind: 'folders' }
 	| { kind: 'unknown' };
 
 function readEndpoint(
@@ -355,12 +377,6 @@ function readEndpoint(
 		return method === 'PUT' || method === 'GET'
 			? { kind: 'lfs-object', oid: object, upload: method === 'PUT' }
 			: undefined;
-	if (rest === 'epicenter/changes' && method === 'GET')
-		return { kind: 'changes' };
-	if (rest === 'epicenter/files' && method === 'GET') return { kind: 'files' };
-	if (rest === 'epicenter/read' && method === 'POST') return { kind: 'read' };
-	if (rest === 'epicenter/writes' && method === 'POST')
-		return { kind: 'writes' };
 	return undefined;
 }
 
@@ -383,9 +399,21 @@ export function readGitTarget(
 		!url.pathname.startsWith(`${prefix}/`)
 	)
 		return undefined;
-	const match = /^\/([^/]+)\/([^/]+)\.git\/(.+)$/.exec(
-		url.pathname.slice(prefix.length),
-	);
+	const below = url.pathname.slice(prefix.length);
+	// The one mount of a folder's address (`folderUrl` builds it).
+	if (below === '/folders')
+		return method === 'POST' && url.search === ''
+			? { kind: 'folders' }
+			: { kind: 'unknown' };
+	const folder = /^\/folders\/([^/]+)\/(.+)$/.exec(below);
+	if (folder !== null) {
+		const [, id = '', rest = ''] = folder;
+		const endpoint = readFolderEndpoint(method, rest);
+		return isFolderId(id) && endpoint !== undefined
+			? { kind: 'folder', folder: id, endpoint }
+			: { kind: 'unknown' };
+	}
+	const match = /^\/([^/]+)\/([^/]+)\.git\/(.+)$/.exec(below);
 	const [, namespaceId, name, rest] = match ?? [];
 	if (
 		namespaceId === undefined ||
@@ -449,7 +477,6 @@ function operationOf(
 		case 'lfs-object':
 			return endpoint.upload ? 'push' : 'read';
 		case 'lfs-verify':
-		case 'writes':
 			return 'push';
 		default:
 			return 'read';
@@ -458,8 +485,8 @@ function operationOf(
 
 /**
  * A request body, read whole: gunzipped when sent so, and null as soon as
- * it passes `maxBytes` (`ReceiveLimits.pushBytes` for a push, `MAX_WRITE_BYTES` for
- * a web write), so an oversized body is never held in memory.
+ * it passes `maxBytes` (`ReceiveLimits.pushBytes` for a push, `MAX_COMMIT_BYTES`
+ * for a folder's commit), so an oversized body is never held in memory.
  */
 async function readBody(
 	request: Request,
@@ -503,6 +530,7 @@ export function mountGitHost(
 		access = databaseGitAccess,
 		resolveHost,
 		resolveLfs = () => null,
+		uploads = (c) => (c.var.db ? databaseUploadLedger(c.var.db) : null),
 	}: {
 		/** Installs what `access` reads (the database, for `databaseGitAccess`). */
 		setup: MiddlewareHandler<CloudEnv>;
@@ -512,12 +540,243 @@ export function mountGitHost(
 		resolveHost: (env: CloudEnv['Bindings']) => GitHost | null;
 		/** Where LFS objects live; `null` answers the LFS routes with 503. */
 		resolveLfs?: (env: CloudEnv['Bindings']) => LfsStore | null;
+		/** The upload ledger (`uploads.ts`); the database's by default, none without one. */
+		uploads?: (c: Context<CloudEnv>) => UploadLedger | null;
 	},
 ): void {
+	/**
+	 * Decide `operation` on the repository `name` in `namespaceId`: what the
+	 * caller may do, or the refusal to send.
+	 */
+	async function decide(
+		c: Context<CloudEnv>,
+		target: { namespaceId: string; name: string; operation: 'read' | 'push' },
+	): Promise<{ granted: RepositoryAccess } | { refused: Response }> {
+		const audience = c.var.audiences.git;
+		let decided: Awaited<ReturnType<GitAccess['authorize']>>;
+		try {
+			decided = await access.authorize(c, target);
+		} catch (cause) {
+			log.error(GitHostError.AuthorizeFailed({ cause }).error);
+			return {
+				refused: refuse(
+					c,
+					503,
+					'git_unavailable',
+					'The request could not be checked. Try again.',
+				),
+			};
+		}
+		if (decided.error !== null) {
+			const { status, challenge, body } = decided.error;
+			// A browser must see a readable 401, not a login prompt; terminal
+			// Git asks its credential helper only after a Basic challenge.
+			const basic =
+				status === 401 && c.req.header('origin') === undefined
+					? ['Basic realm="Epicenter"']
+					: [];
+			return {
+				refused: refuse(c, status, body.error, body.error_description, [
+					challenge,
+					...basic,
+				]),
+			};
+		}
+		if (!roleAllows(decided.data.role, target.operation))
+			return {
+				refused: refuse(
+					c,
+					403,
+					'forbidden',
+					`This account's role may not ${target.operation === 'push' ? 'write to' : 'read'} that namespace.`,
+					[
+						`Bearer resource_metadata="${protectedResourceMetadataUrl(audience)}"`,
+					],
+				),
+			};
+		return { granted: decided.data };
+	}
+
+	/** `POST <git>/folders { name? }`: the caller's folder of `name`, made when it is new; a new folder without one. */
+	async function mintFolder(c: Context<CloudEnv>, host: GitHost) {
+		const body = (await c.req.json().catch(() => ({}))) as {
+			name?: unknown;
+		} | null;
+		const name = body?.name ?? newRepositoryId();
+		if (typeof name !== 'string' || !isRepositoryName(name))
+			return refuse(c, 400, 'invalid_request', 'name is a repository name.');
+		const decided = await decide(c, {
+			namespaceId: PERSONAL_NAMESPACE,
+			name,
+			operation: 'push',
+		});
+		if ('refused' in decided) return decided.refused;
+		const { granted } = decided;
+		if (granted.repository !== null)
+			return c.json({ folder: granted.repository.id, name }, 200, {
+				'cache-control': 'no-store',
+			});
+		try {
+			const made = await access.create(c, {
+				namespaceId: granted.namespaceId,
+				name,
+				host,
+			});
+			return c.json({ folder: made.id, name }, 201, {
+				'cache-control': 'no-store',
+			});
+		} catch (cause) {
+			log.error(
+				GitHostError.CreateFailed({
+					path: `${granted.namespaceId}/${name}`,
+					cause,
+				}).error,
+			);
+			return refuse(c, 502, 'store_failed', 'The folder could not be made.');
+		}
+	}
+
+	/** Sync's routes of the folder `folder` (`folder.ts`), decided as its repository's every request is. */
+	async function serveFolder(
+		c: Context<CloudEnv>,
+		{
+			host,
+			folder,
+			endpoint,
+		}: { host: GitHost; folder: string; endpoint: FolderEndpoint },
+	): Promise<Response> {
+		const missing = () =>
+			refuse(c, 404, 'not_found', `No folder is ${folder}.`);
+		let located: Awaited<ReturnType<GitAccess['locate']>>;
+		try {
+			located = await access.locate(c, folder);
+		} catch (cause) {
+			log.error(GitHostError.AuthorizeFailed({ cause }).error);
+			return refuse(
+				c,
+				503,
+				'git_unavailable',
+				'The request could not be checked. Try again.',
+			);
+		}
+		if (located === null) return missing();
+		const decided = await decide(c, {
+			...located,
+			operation: folderOperation(endpoint),
+		});
+		if ('refused' in decided) return decided.refused;
+		const { granted } = decided;
+		if (granted.repository?.id !== folder) return missing();
+		const lfs = resolveLfs(c.env);
+		const ledger = uploads(c);
+		if (endpoint.kind === 'attachment') {
+			if (lfs === null)
+				return refuse(
+					c,
+					503,
+					'git_unavailable',
+					'This server does not keep attachments yet.',
+				);
+			return endpoint.upload
+				? putAttachment({
+						lfs,
+						ledger,
+						repositoryId: folder,
+						oid: endpoint.oid,
+						request: c.req.raw,
+					})
+				: getAttachment(lfs, folder, endpoint.oid);
+		}
+		/** The JSON body of the request, or a refusal when it is over `maxBytes`. */
+		const bodyOf = async (maxBytes: number) => {
+			const raw = await readBody(c.req.raw, maxBytes);
+			if (raw === null) return null;
+			try {
+				return JSON.parse(new TextDecoder().decode(raw)) as unknown;
+			} catch {
+				return undefined;
+			}
+		};
+		const tooLarge = () =>
+			refuse(
+				c,
+				413,
+				'too_large',
+				'The request is too large; send less at once.',
+			);
+		const objects = host.objects(folder);
+		try {
+			switch (endpoint.kind) {
+				case 'changes':
+					return await folderChanges(objects, c.req.query('since'));
+				case 'log':
+					return await folderLog(objects, c.req.query('limit'));
+				case 'tree': {
+					const body = await bodyOf(MAX_NAMED * 1100);
+					return body === null ? tooLarge() : await folderTree(objects, body);
+				}
+				case 'blobs': {
+					const body = await bodyOf(MAX_NAMED * 50);
+					return body === null ? tooLarge() : await folderBlobs(objects, body);
+				}
+				case 'blob':
+					return await folderBlob(objects, endpoint.id);
+				case 'commits': {
+					const body = await bodyOf(MAX_COMMIT_BYTES);
+					if (body === null) return tooLarge();
+					const files = readCommitRequest(body);
+					if (!Array.isArray(files))
+						return c.json(
+							{
+								error: 'invalid_request',
+								error_description: files.message,
+								path: files.path,
+							},
+							400,
+						);
+					return await folderCommit({
+						objects,
+						lfs,
+						ledger,
+						repositoryId: folder,
+						files,
+						author: {
+							name: 'Epicenter',
+							email: `${granted.accountId}@accounts.epicenter.invalid`,
+						},
+					});
+				}
+			}
+		} catch (cause) {
+			log.error(GitHostError.ServeFailed({ cause }).error);
+			return refuse(
+				c,
+				502,
+				'store_failed',
+				'The repository could not be reached.',
+			);
+		} finally {
+			objects.close();
+		}
+	}
+
 	const serve = createMiddleware<CloudEnv>(async (c) => {
 		const audience = c.var.audiences.git;
 		const url = new URL(c.req.url);
 		const target = readGitTarget(c.req.method, url, audience);
+		if (target?.kind === 'folder' || target?.kind === 'folders') {
+			const host = resolveHost(c.env);
+			if (!host)
+				return refuse(
+					c,
+					503,
+					'git_unavailable',
+					'This server does not host Git repositories.',
+				);
+			return target.kind === 'folders'
+				? mintFolder(c, host)
+				: serveFolder(c, { host, ...target });
+		}
 		if (target?.kind !== 'repository')
 			return refuse(
 				c,
@@ -553,46 +812,13 @@ export function mountGitHost(
 			batch = read;
 		}
 		const operation = operationOf(endpoint, batch);
-		let decided: Awaited<ReturnType<GitAccess['authorize']>>;
-		try {
-			decided = await access.authorize(c, {
-				namespaceId: target.namespaceId,
-				name: target.name,
-				operation,
-			});
-		} catch (cause) {
-			log.error(GitHostError.AuthorizeFailed({ cause }).error);
-			return refuse(
-				c,
-				503,
-				'git_unavailable',
-				'The request could not be checked. Try again.',
-			);
-		}
-		if (decided.error !== null) {
-			const { status, challenge, body } = decided.error;
-			// A browser must see a readable 401, not a login prompt; terminal
-			// Git asks its credential helper only after a Basic challenge.
-			const basic =
-				status === 401 && c.req.header('origin') === undefined
-					? ['Basic realm="Epicenter"']
-					: [];
-			return refuse(c, status, body.error, body.error_description, [
-				challenge,
-				...basic,
-			]);
-		}
-		const granted = decided.data;
-		if (!roleAllows(granted.role, operation))
-			return refuse(
-				c,
-				403,
-				'forbidden',
-				`This account's role may not ${operation === 'push' ? 'write to' : 'read'} that namespace.`,
-				[
-					`Bearer resource_metadata="${protectedResourceMetadataUrl(audience)}"`,
-				],
-			);
+		const decided = await decide(c, {
+			namespaceId: target.namespaceId,
+			name: target.name,
+			operation,
+		});
+		if ('refused' in decided) return decided.refused;
+		const { granted } = decided;
 		/** The remote as the client named it, ending `.git`. */
 		const remote = `${url.origin}${url.pathname.slice(0, url.pathname.indexOf('.git/') + 4)}`;
 
@@ -613,23 +839,6 @@ export function mountGitHost(
 						? receiveAdvertisement(null)
 						: emptyAdvertisement();
 				}
-				if (endpoint.kind === 'changes')
-					return c.json({
-						commit: null,
-						paths: c.req.query('since') === '' ? [] : null,
-					});
-				if (endpoint.kind === 'read') {
-					const body = (await c.req.json().catch(() => null)) as {
-						paths?: unknown;
-					} | null;
-					const paths = Array.isArray(body?.paths) ? body.paths : [];
-					return c.json({
-						commit: null,
-						files: paths.map((path) => ({ path, gone: true })),
-					});
-				}
-				if (endpoint.kind === 'files')
-					return c.json({ commit: null, files: [] });
 				if (endpoint.kind === 'lfs-batch' && lfs && batch)
 					return answerBatch(lfs, null, batch, remote);
 				if (operation === 'read')
@@ -667,11 +876,11 @@ export function mountGitHost(
 			return serveObjects(c, {
 				host,
 				lfs,
+				ledger: uploads(c),
 				repositoryId: repository.id,
 				endpoint,
 				batch,
 				remote,
-				accountId: granted.accountId,
 				role: granted.role,
 			});
 
@@ -728,30 +937,46 @@ export function mountGitHost(
 		{
 			host,
 			lfs,
+			ledger,
 			repositoryId,
 			endpoint,
 			batch,
 			remote,
-			accountId,
 			role,
 		}: {
 			host: GitHost;
 			lfs: LfsStore | null;
+			ledger: UploadLedger | null;
 			repositoryId: string;
 			endpoint: GitEndpoint;
 			batch: LfsBatch | null;
 			remote: string;
-			accountId: string;
 			role: RepositoryRole;
 		},
 	): Promise<Response> {
 		if (lfs) {
 			if (endpoint.kind === 'lfs-batch' && batch)
 				return answerBatch(lfs, repositoryId, batch, remote);
-			if (endpoint.kind === 'lfs-object')
-				return endpoint.upload
-					? putObject(lfs, repositoryId, endpoint.oid, c.req.raw)
-					: getObject(lfs, repositoryId, endpoint.oid);
+			if (endpoint.kind === 'lfs-object') {
+				if (!endpoint.upload) return getObject(lfs, repositoryId, endpoint.oid);
+				const length = c.req.header('content-length');
+				const held =
+					length !== undefined &&
+					/^\d+$/.test(length) &&
+					(await lfs.verified(repositoryId, {
+						oid: endpoint.oid,
+						size: Number(length),
+					}));
+				const stored = await putObject(
+					lfs,
+					repositoryId,
+					endpoint.oid,
+					c.req.raw,
+				);
+				if (stored.ok && !held)
+					await ledger?.pending(repositoryId, endpoint.oid);
+				return stored;
+			}
 			if (endpoint.kind === 'lfs-verify')
 				return verifyObject(
 					lfs,
@@ -777,66 +1002,11 @@ export function mountGitHost(
 					return await receivePush({
 						objects,
 						lfs,
+						ledger,
 						repositoryId,
 						body,
 						mayRewrite: roleAllows(role, 'rewrite'),
 						limits,
-					});
-				}
-				case 'changes':
-					return await readRepositoryChanges(objects, c.req.query('since'));
-				case 'files':
-					return await listRepositoryFiles(
-						objects,
-						c.req.queries('root') ?? [],
-					);
-				case 'read': {
-					const raw = await readBody(c.req.raw, MAX_READ_PATHS * 1100);
-					if (raw === null)
-						return refuse(
-							c,
-							413,
-							'too_large',
-							`A read may name at most ${MAX_READ_PATHS} paths.`,
-						);
-					let body: unknown = null;
-					try {
-						body = JSON.parse(new TextDecoder().decode(raw));
-					} catch {}
-					return await readRepositoryFiles(objects, body);
-				}
-				case 'writes': {
-					const raw = await readBody(c.req.raw, MAX_WRITE_BYTES);
-					if (raw === null)
-						return refuse(
-							c,
-							413,
-							'too_large',
-							`A web write may be at most ${MAX_WRITE_BYTES / (1024 * 1024)} MiB; send fewer files at once.`,
-						);
-					let body: unknown = null;
-					try {
-						body = JSON.parse(new TextDecoder().decode(raw));
-					} catch {}
-					const request = readWriteRequest(body);
-					if ('status' in request)
-						return c.json(
-							{
-								error: request.error,
-								error_description: request.message,
-								path: request.path,
-							},
-							request.status,
-						);
-					return await applyWrite({
-						objects,
-						lfs,
-						repositoryId,
-						request,
-						author: {
-							name: 'Epicenter (web)',
-							email: `${accountId}@accounts.epicenter.invalid`,
-						},
 					});
 				}
 				default:

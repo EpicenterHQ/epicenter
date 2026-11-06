@@ -33,9 +33,8 @@ A Svelte app reads it through `reactive` from
 | `@epicenter/folder/memory` | `memory()`, a new place in memory, and `memoryFiles(placeOrFolder)`, the world outside it, for a test. |
 | `@epicenter/folder/served` | `served(url)`, the directory the program serving this page keeps on this computer, reached through that program (Messages; ADR-0784). |
 | `@epicenter/folder/serve` | `serveDirectory(path)`, the program's half: it answers its page's store verbs over a directory, in Bun or Node. |
-| `@epicenter/folder/sync` | `sync({ local, remote, manifest })`, ADR-0803's prototype: a store synced with a repository's history through a manifest at `.epicenter/synced.json`, merging notes with `@epicenter/definition/front-matter`. `localStoreOf(folder)` is an open folder as the local store: it lists every visible file and reads from what the folder holds, so an unchanged sync of 10,000 notes reads no file. Two syncs of one folder may run at once: every write, the manifest's included, is over the version read. `syncAtMoments({ folder, remote })` syncs an open folder when it starts, after a burst of saves, when its window returns, every three seconds while shown when either side changed, and on request (ADR-0804). No app runs it yet. |
+| `@epicenter/folder/sync` | `sync({ local, remote, manifest })`, ADR-0803's prototype: a store synced with a repository's history through a manifest at `.epicenter/synced.json`, `{ folder, commit, files }` with each file's Git blob id (ADR-0808), merging notes with `@epicenter/definition/front-matter`. `localStoreOf(folder)` is an open folder as the local store: it lists every visible file and reads from what the folder holds, so an unchanged sync of 10,000 notes reads no file. Two syncs of one folder may run at once: every write, the manifest's included, is over the version read. `syncAtMoments({ folder, remote })` syncs an open folder when it starts, after a burst of saves, when its window returns, every three seconds while shown when either side changed, and on request (ADR-0804). No app runs it yet. |
 | `@epicenter/folder/tauri` | `revealRoot(root)`, which shows a root the shell named in the file manager, and `syncWithEpicenter` and `syncedWithEpicenter` for Epicenter enrollment. What a capability keeps for this computer goes to AppData through `settings` from [`@epicenter/local`](../local/README.md), not through a folder. |
-| `@epicenter/folder/bun` | The CLI's system `git` runner (`runGit`). |
 
 Importing an entry does not open anything. A place is opaque: only this
 package makes one, and nothing outside it holds a store or the collections
@@ -142,14 +141,21 @@ in `src/device/store.ts`. A store knows nothing of contracts or notes.
 | --- | --- |
 | `list(under)` | every file at or below each of `under` (directories or file paths; `''` is everything), with its version and its size where the store knows it |
 | `read(paths)` | each path's bytes and version, or `gone`, in one call |
-| `write(path, bytes \| null, over)` | the version that landed (null for a removal), only while the path holds `over` (a version, or `'absent'`); `'stale'` when it holds something else |
+| `put(path, bytes \| null, expect)` | the version that landed (null for a removal), only while the path holds `expect` (a version, or null for nothing); `Moved { now }` when it holds something else, carrying what |
 | `watch(changed)` | the stop, once it is listening; from then `changed` hears the paths that changed, or `'all'` |
 
-A version names a file's bytes, only the store that gave it reads it, and
-no app holds one. A device store names a note by the sha256 of its bytes and
-an attachment by its stamp (size, modification time and file identity), so
-a listing never reads a recording to name it; the repository names a file
-by its Git blob id (for an attachment, the blob of its Git LFS pointer).
+A version is a file's Git blob id on every store
+([ADR-0808](../../docs/adr/0808-a-files-version-is-its-git-blob-id-on-every-store.md)),
+and no app holds one: a note's (or a hidden file's) is the blob id of its
+bytes, and an attachment's the blob id of its canonical Git LFS pointer,
+computed from its sha256 and size (`blobIdOf` in `src/hash.ts`). A device
+caches an attachment's hash by its stamp (size, modification time and file
+identity) in `.epicenter/hashes.json` (`src/device/stamp-cache.ts`), under
+Git's racy-clean rule: an entry holds only for a file last modified in an
+earlier second than its hash, so a listing reads a recording once, and an
+attachment is hashed again before a put replaces it. `putLanded` counts a
+`Moved` whose `now` is the version the put meant to land as landed: a lost
+reply. A device's listing leaves out `.git` and `.epicenter` at its root.
 Every store answers a hint only once a read of the path answers the change.
 `storeChecks` in `src/device/store.conformance.ts` holds memory, a Bun
 directory, the desktop shell and a served directory to the same behavior in
@@ -161,7 +167,7 @@ directory, the desktop shell and a served directory to the same behavior in
 | Place | Where |
 | --- | --- |
 | `home({ site })` in a Tauri window | the `Data` root the shell named from the app's bundle identifier ([ADR-0752](../../docs/adr/0752-an-apps-folder-sits-under-the-platforms-visible-root-of-app-folders.md)); opening it brings its root `AGENTS.md` up to date with the contract `site` publishes ([ADR-0772](../../docs/adr/0772-a-folder-says-what-it-is-in-agents-md-and-this-computer-keeps-the-rest.md)) |
-| `home({ site, account })` in a browser | the account's repository for `site`, `<git audience>/~/<name derived from site>.git`, through `account.fetch`; it opens once the account is signed in, works online only, and stops when the account is retired |
+| `home({ site, account })` in a browser | the account's folder named from `site` (`mintFolder(account, { name })`, made at its first open), reached by its id at `<git audience>/folders/<folder>` through `account.fetch`; it opens once the account is signed in, works online only, and stops when the account is retired |
 | `directory(path)` | a directory, made when missing (`Unreadable` when it cannot be) |
 | `served(url)` | the directory the program serving the page owns, through that program's `serveDirectory`; `StorageUnavailable` when nothing at `url` answers for one, and `Unavailable`, still opening, while the program is out of reach |
 | `memory()`, and `home()` under `test` | memory, for the life of the process |
@@ -189,18 +195,20 @@ makes the data folder when nothing is at its path, checks each save, and
 watches each root a page opened. See the folder plugin's README, and
 `src/device/`.
 
-The repository never merges a web write: each file of a write names the
-blob its writer read (or null for nothing), and the server refuses the write
-when the path no longer holds it, in the step that moves `main`
-([`@epicenter/server`](../server/README.md)). The folder then reads what is
-there and applies the change again, settling a body with `settle`. A note
-travels as text; any other file's bytes travel as a Git LFS object,
-uploaded before the write names it. The repository lists with
-`GET <repo>.git/epicenter/files`, reads many paths with
-`POST <repo>.git/epicenter/read`, and hears changes by asking
-`GET <repo>.git/epicenter/changes?since=<commit>` every three seconds while
-watched, until the notify Durable Object replaces the poll. See
-`src/remote/`.
+The repository never merges: `folderRepository(account, folder)` in
+`src/remote/repository.ts` commits each put where the path still holds the
+blob its writer expects (null for nothing), and the server refuses the
+commit when it does not, in the step that moves `main`
+([`@epicenter/server`](../server/README.md)), which is `Moved` here. The
+folder then reads what is there and applies the change again, settling a
+body with `settle`. It speaks the server's routes in Git's vocabulary:
+`changes` since a commit, the `tree` at a commit (a listing), `blobs` by id
+(a note's bytes, many in one request), an attachment's bytes at
+`blobs/<sha256>`, put before the commit names it, and `commits`. A watch
+asks for `changes` every three seconds. The same object is the `Repository`
+sync takes. A manifest names its repository only by `{ folder }`
+(`RepositoryAddress`), and `folderUrl` in `@epicenter/definition/site` is
+the one place that becomes an address.
 
 The folder hears every write it makes before the write resolves, and
 outside writes as they come: other tabs through the
@@ -286,12 +294,12 @@ recovered. `state.rs` in the folder core spells that layout, and `state.ts`
 here the `saves/` a page writes, both held to one fixture;
 `bun run check:state-paths` fails when other production code spells it. Like
 every hidden path (`isHiddenPath`), it is not a folder's data: no watcher
-reports it, listings show it for their readers to skip, and `epicenter sync`
-never commits it. Watching is best effort.
+reports it, a device's listing of its root leaves it out, and sync never
+carries it. Watching is best effort.
 
-History is not the folder's: it gains Git only when `epicenter init`
-registers it, and `epicenter sync` (in `@epicenter/cli`) is its only
-committer, over the system `git` this package's `runGit` runs.
+History is not the folder's: a folder is plain files and its manifest, and
+its history is the repository's on the server, which sync commits to
+(ADR-0804). No Git runs on a computer.
 
 ## Layout
 
@@ -302,10 +310,10 @@ committer, over the system `git` this package's `runGit` runs.
 | `src/open-folder.ts`, `place.ts`, `folder.ts`, `errors.ts`, `note-edit.ts`, `note-codec.ts` | `openFolder` over a place, what a place is, the folder's connection, replica and write queue, its errors, the note editor, and how a note's change becomes the text written. |
 | `src/device/` | The store contract and its conformance checks, the device stores (memory, Bun, Tauri), and `check`/`format`. |
 | `src/data-folder.ts`, `desktop-folder.ts` | The data folder a Tauri window opens, and its `AGENTS.md`. |
-| `src/remote/` | The repository as a store, and its wire to the server. |
+| `src/remote/` | A folder's repository on the server: the `Repository` sync takes, and the store a web folder opens. |
 | `src/served/`, `served.ts`, `serve.ts` | A directory a program serves its page: the page's store, the program's handler, and the wire between them (four `POST`s of JSON; a watch is a stream of JSON lines, and a dropped one is heard as `'all'`). |
 | `src/native/`, `paths.ts`, `state.ts`, `path-turns.ts` | Watches, the shell's bindings, the path rule, where unfinished writes live, and per-path turns. |
-| `src/git/native-host.ts` | The system `git` runner the CLI's sync verbs use. |
+| `src/sync/` | `sync`, its repository contract and memory twin, the manifest, the scenarios every world runs, and `syncAtMoments`. |
 | `evidence/` | Recorded experiments and measurements, and the closure check. |
 
 ## Commands

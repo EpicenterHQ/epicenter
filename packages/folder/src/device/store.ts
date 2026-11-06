@@ -7,41 +7,68 @@
  * a desktop folder holds. A store knows nothing of contracts, notes, or what
  * a page holds: the folder composes its connection from these verbs.
  *
- * A version names a file's bytes, and only the store that gave it can read
- * it. A write carries the version its writer read and lands only while the
- * file still holds it; the store checks that where the write lands, right
- * before the change.
+ * A file's version is its Git blob id on every store (ADR-0808): the blob id
+ * of a note's bytes (or of any hidden file's), and for an attachment, the
+ * blob id of its canonical Git LFS pointer, computed from its sha256 and
+ * size (`blobIdOf`). One version names one file's bytes on a computer, in
+ * the browser, and in the repository, so nothing translates between them.
+ *
+ * A write is `put(path, bytes | null, expect)`: it lands only while the
+ * path still holds `expect` (null: nothing), checked where the write lands,
+ * right before the change, and fails with `Moved { now }` otherwise.
  *
  * `storeChecks` (`store.conformance.ts`) holds every store to the same
  * behavior.
  */
-import { type ClientError, isNotePath } from '@epicenter/definition/contract';
+import type { ClientError } from '@epicenter/definition/contract';
 import type { Brand } from 'wellcrafted/brand';
-import type { InferError } from 'wellcrafted/error';
-import type { Result } from 'wellcrafted/result';
+import {
+	defineErrors,
+	type InferError,
+	type InferErrors,
+} from 'wellcrafted/error';
+import { Ok, type Result } from 'wellcrafted/result';
+import { blobIdOf } from '../hash.js';
 
 export type Unavailable = InferError<typeof ClientError.Unavailable>;
 
 /**
- * The version of a file a store answered: the repository's Git blob id (of
- * a note, or of an attachment's Git LFS pointer); on a device, the sha256 of
- * a note's bytes, and an attachment's stamp (its size, modification time
- * and identity), so a listing never reads a recording's bytes to name them
- * (`versionedByContent`). Opaque and internal: the folder compares it and
- * writes over it, and no app ever holds one (ADR-0774).
+ * A file's version: the Git blob id of what the repository stores at its
+ * path (a note's bytes, or an attachment's canonical Git LFS pointer), 40
+ * lowercase hex digits. Opaque to apps: the folder compares it and writes
+ * over it, and no app ever holds one (ADR-0774).
  */
-export type Version = string & Brand<'Version'>;
+export type BlobId = string & Brand<'BlobId'>;
+
+/** Why a `put` did not land. */
+export const StoreError = defineErrors({
+	/**
+	 * The path no longer holds what the writer expected: `now` is what it
+	 * holds (null: nothing), and nothing changed.
+	 */
+	Moved: ({ path, now }: { path: string; now: BlobId | null }) => ({
+		message: `${path} moved: it holds ${now ?? 'nothing'}`,
+		path,
+		now,
+	}),
+});
+export type Moved = InferError<typeof StoreError.Moved>;
+export type StoreError = InferErrors<typeof StoreError>;
 
 /** One file a listing found: its version, and its size in bytes where the store knows it without reading. */
 export type Listed = {
 	readonly path: string;
-	readonly version: Version;
+	readonly version: BlobId;
 	readonly size: number | null;
 };
 
 /** One path a read answered: its bytes and their version, or that nothing is there. */
 export type FileRead =
-	| { readonly path: string; readonly bytes: Uint8Array; readonly version: Version }
+	| {
+			readonly path: string;
+			readonly bytes: Uint8Array;
+			readonly version: BlobId;
+	  }
 	| { readonly path: string; readonly gone: true };
 
 /** Hear the paths that changed, or `'all'` when the store cannot tell which. */
@@ -60,17 +87,17 @@ export type Store = {
 	 */
 	read(paths: readonly string[]): Promise<Result<FileRead[], Unavailable>>;
 	/**
-	 * Write `bytes` at `path`, or remove the file for null, only while the
-	 * path holds `over` (`'absent'`: nothing), and answer the version that
-	 * landed (null for a removal). `'stale'` when the path holds something
-	 * else, and nothing changed. A new file appears whole, never empty first;
-	 * missing parent directories are made.
+	 * Put `bytes` at `path`, or remove the file for null, only while the
+	 * path holds `expect` (null: nothing), and answer the version that
+	 * landed (null for a removal). `Moved` when the path holds something
+	 * else, carrying what, and nothing changed. A new file appears whole,
+	 * never empty first; missing parent directories are made.
 	 */
-	write(
+	put(
 		path: string,
 		bytes: Uint8Array | null,
-		over: Version | 'absent',
-	): Promise<Result<Version | null | 'stale', Unavailable>>;
+		expect: BlobId | null,
+	): Promise<Result<BlobId | null, Moved | Unavailable>>;
 	/**
 	 * Start hearing changes: answers once it is listening, with the stop.
 	 * From then `changed` hears the paths that changed (another tab, the
@@ -84,12 +111,21 @@ export type Store = {
 };
 
 /**
- * Whether a device store names the file at `path` by the sha256 of its
- * bytes (a note: small, and read whole anyway), rather than by its stamp
- * (an attachment, which the later write wins, ADR-0771: the stamp tells
- * that it changed without reading what may be a long recording).
+ * `put`, where a `Moved` whose `now` is the version this write meant to
+ * land counts as landed (ADR-0808): a reply that was lost, or another
+ * writer that wrote the same bytes.
  */
-export const versionedByContent = (path: string) => isNotePath(path);
+export async function putLanded(
+	store: Store,
+	path: string,
+	bytes: Uint8Array | null,
+	expect: BlobId | null,
+): Promise<Result<BlobId | null, Moved | Unavailable>> {
+	const put = await store.put(path, bytes, expect);
+	if (put.error?.name !== 'Moved') return put;
+	const meant = bytes === null ? null : await blobIdOf(path, bytes);
+	return put.error.now === meant ? Ok(meant) : put;
+}
 
 /** Whether `path` is at or below one of `under` (`''` is everything). */
 export function within(path: string, under: readonly string[]): boolean {

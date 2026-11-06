@@ -23,7 +23,7 @@
 
 | Date | Spec | State | Path |
 |------|------|-------|------|
-| 2026-11-04 | one-sync-core-on-every-native-platform | in tree | specs/20261104T160000-one-sync-core-on-every-native-platform.md |
+| 2026-11-04 | one-sync-core-on-every-native-platform | removed | specs/20261104T160000-one-sync-core-on-every-native-platform.md |
 | 2026-11-04 | the-machine | removed | specs/20261104T070000-the-machine.md |
 | 2026-11-03 | folder-identity | removed | specs/20261103T190000-folder-identity.md |
 | 2026-10-28 | honeycrisp-on-the-repository-engine | removed | specs/20261028T200000-honeycrisp-on-the-repository-engine.md |
@@ -31,7 +31,7 @@
 | 2026-10-28 | repository-engine-slice-1 | removed | specs/20261028T120000-repository-engine-slice-1.md |
 | 2026-10-22 | browser-folder-sync-clean-break | removed | specs/20261022T233737-browser-folder-sync-clean-break.md |
 | 2026-10-21 | result-option-namespaces | in tree | specs/20261021T111102-result-option-namespaces.md |
-| 2026-10-19 | git-lfs-media-sync | in tree | specs/20261019T183449-git-lfs-media-sync.md |
+| 2026-10-19 | git-lfs-media-sync | removed | specs/20261019T183449-git-lfs-media-sync.md |
 | 2026-10-19 | browser-repository-engine | removed | specs/20261019T190000-browser-repository-engine.md |
 | 2026-10-17 | nested-tables | removed | specs/nested-tables.md |
 | 2026-10-15 | the-folders-window-replaces-matter | removed | specs/20261015T120000-the-folders-window-replaces-matter.md |

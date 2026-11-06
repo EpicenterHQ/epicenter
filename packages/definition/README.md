@@ -22,7 +22,7 @@ The package is seven subpaths.
 | `@epicenter/definition/contract` | `defineContract`, path templates (`fill`, `match`), `compileContract`, `checkContract`, the shapes of a contract's notes and files (`NoteOf`, `FileEntryOf`, `InvalidNoteOf`, `NotePatch`), and a note as text (`noteText`, `readNoteText`) |
 | `@epicenter/definition/front-matter` | The front-matter primitive of ADR-0796 and ADR-0797, with no YAML: `parseFrontMatter`, `patchFrontMatter`, `merge3` (fields by key, the body by lines, ADR-0795), and `mergeLines`, a port of Git's three-way line merge. The engine and the apps do not use it yet |
 | `@epicenter/definition/note` | The note codec and its house style, `formatNote` |
-| `@epicenter/definition/merge` | `settle`, the note merge the server and the merge driver run, plus conflict blocks and Git hashes |
+| `@epicenter/definition/merge` | `settle`, the note merge a folder runs over a note that changed under its write, plus conflict blocks, Git hashes, and Git LFS pointers |
 | `@epicenter/definition/ids` | `timeId()` and `nanoid()`, for naming files, and `timeOf()`, when a `timeId` was made |
 | `@epicenter/definition/site` | The names a site derives: the app registry (`APPS`, dev ports, `localUrl`, `resolveOAuthAudiences`), an app's folder, repository and data identifier from its production site (ADR-0722), and the repository name grammar |
 | `@epicenter/definition/site/app-data` | The application-data root on this machine (`epicenterDataRoot`), an app's directory below it, and `isAppId` |
@@ -70,10 +70,10 @@ before it writes it, and settles a change made since with `settle`
 
 ### Merging a note
 
-`settle(base, current, incoming, { parties })` is the one note merge. Sync
-runs it on the desktop, `epicenter merge-driver` runs it for `git merge`,
-and a folder runs it when a note changed between showing it and writing it;
-the server never merges (ADR-0773). `incoming` is the later
+`settle(base, current, incoming, { parties })` is the note merge a folder
+runs when a note changed between showing it and writing it; sync merges with
+`merge3` from `@epicenter/definition/front-matter`, and the server never
+merges (ADR-0773). `incoming` is the later
 arrival:
 
 ```ts

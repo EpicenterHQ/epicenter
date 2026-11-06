@@ -8,23 +8,22 @@
  * gets its own repository. Requires initdb and pg_ctl on PATH.
  *
  * Key behaviors: those of `sync.scenarios.ts`, over the wire the web and
- * the CLI use, with attachments through Git LFS and a note's base read at
- * a commit.
+ * the CLI use: a folder minted on the server and reached by its id,
+ * attachments at their sha256, and a note's base read by its blob id.
  */
 import { afterAll, beforeAll, describe, test } from 'bun:test';
 import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { startRepositoryServer } from '../../../server/src/test-helpers/repository-server.js';
 import { nodeStore } from '../device/node-store.js';
-import { scratch } from '../git.test-support.js';
-import { repositoryStore } from '../remote/store.js';
+import { scratch } from '../scratch.test-support.js';
+import { folderRepository, mintFolder } from '../remote/repository.js';
 import { storeManifest } from './sync.js';
 import { syncScenarios, type World } from './sync.scenarios.js';
 
 let server: Awaited<ReturnType<typeof startRepositoryServer>>;
 let account: Awaited<ReturnType<typeof server.signIn>>;
 const roots: string[] = [];
-let repositories = 0;
 
 beforeAll(async () => {
 	server = await startRepositoryServer();
@@ -50,10 +49,12 @@ async function visible(root: string, prefix = ''): Promise<string[]> {
 	return out.sort();
 }
 
-/** A directory per computer, syncing with a repository of its own. */
-function directoryWorld(): World {
+/** A directory per computer, syncing with a folder of its own on the server. */
+async function directoryWorld(): Promise<World> {
+	const minted = await mintFolder(account);
+	if (minted.error !== null) throw new Error(minted.error.message);
 	return {
-		repository: repositoryStore(account, `~/sync-${++repositories}`),
+		repository: folderRepository(account, minted.data.folder),
 		async device() {
 			const root = await scratch('epicenter-sync-');
 			roots.push(root);
@@ -78,5 +79,5 @@ function directoryWorld(): World {
 
 describe('sync: a directory with the server repository', () => {
 	for (const [name, run] of Object.entries(syncScenarios))
-		test(name, () => run(directoryWorld()), 30_000);
+		test(name, async () => run(await directoryWorld()), 30_000);
 });

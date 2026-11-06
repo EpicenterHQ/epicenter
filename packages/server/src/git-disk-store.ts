@@ -5,7 +5,7 @@
  * Clone and fetch go through `git http-backend`, Git's own smart-HTTP CGI
  * program, which never serves receive-pack here: every push goes to the
  * receiver (`routes/receive.ts`), and every web write to the translator
- * (`routes/files.ts`), both through this store's `GitObjects`
+ * (`routes/folder.ts`), both through this store's `GitObjects`
  * (`createDiskObjects`).
  *
  * Every `git` here runs under the rules ADR-0559 gives the CLI's runner,

@@ -302,8 +302,8 @@ pub async fn read_folder_file<R: Runtime>(
 /// is rather than as a JSON array of numbers. Percent-encoded headers carry
 /// the rest: `path`, `root` (`Data` or `AppData`), `remove` (`true` to
 /// remove the file, when the body is ignored), and `expected`, the version
-/// the page read there (`absent` for a create, `sha256:` and the SHA-256 of a note,
-/// or `stamp:` and the stamp of any other file: `storage::Expectation`). A JSON array of bytes is accepted
+/// the page read there (`absent` for a create, `blob:` and the Git blob id of a note or
+/// hidden file, or `stamp:` and the stamp of an attachment: `storage::Expectation`). A JSON array of bytes is accepted
 /// as well: Tauri sends one when its custom-protocol IPC failed and it fell
 /// back to `postMessage`. Any other body is refused.
 ///

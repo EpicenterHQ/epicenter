@@ -1,7 +1,8 @@
 /**
  * `@epicenter/folder/node`: a directory on this computer as a place, for
- * scripts and tests, in Bun or Node (`device/node-store.ts`), and the checks
- * `epicenter check` and `epicenter format` run.
+ * scripts and tests, in Bun or Node (`device/node-store.ts`), its store
+ * (`nodeStore`, which `epicenter sync` syncs), and the checks `epicenter
+ * check` and `epicenter format` run.
  *
  * The directory holds the contract's files at the contract's paths, the
  * same layout a desktop folder and the browser's private storage hold.
@@ -21,6 +22,9 @@ import { checkStore, formatStore } from './device/folder-tools.js';
 import { nodeStore } from './device/node-store.js';
 import { OpenFolderError } from './errors.js';
 import { type Place, place } from './place.js';
+
+/** The store of a directory on this computer: what `epicenter sync` syncs. */
+export { nodeStore } from './device/node-store.js';
 
 /**
  * The directory at `path`, made with its missing parents when a folder

@@ -5,10 +5,12 @@
  * on a real server (`remote.postgres.test.ts`). Each check throws when the
  * store does not hold, so it needs no test framework.
  *
- * - The four verbs: a create where nothing is, a write over the version
- *   read, `'stale'` over any other, a removal, a listing below the paths
- *   asked for, and a read that says what is gone; a listing and a read name
- *   one file's bytes by one version.
+ * - The four verbs: a create where nothing is, a put over the version
+ *   read, `Moved` (carrying what is there) over any other, a removal, a
+ *   listing below the paths asked for, and a read that says what is gone;
+ *   a listing, a read and a put name one file's bytes by one version, its
+ *   Git blob id (ADR-0808): a note's of its bytes, an attachment's of its
+ *   Git LFS pointer.
  * - Arming before listing: once `watch` answered, a write from outside is
  *   heard, and the listing after it shows it.
  * - A hint never precedes readable bytes: a read made the moment a path is
@@ -18,7 +20,8 @@
  *   write.
  */
 import type { Result } from 'wellcrafted/result';
-import type { FileRead, Store, Version } from './store.js';
+import { blobIdOf } from '../hash.js';
+import type { BlobId, FileRead, Store } from './store.js';
 
 /** A store under test, and the world outside it. */
 export type StoreSubject = {
@@ -46,7 +49,9 @@ function check(holds: boolean, what: string): asserts holds {
 /** The data of a store answer, or a thrown failure. */
 function ok<T>(answer: Result<T, unknown>): T {
 	if (answer.error !== null)
-		throw new Error(`The store answered a failure: ${JSON.stringify(answer.error)}`);
+		throw new Error(
+			`The store answered a failure: ${JSON.stringify(answer.error)}`,
+		);
 	return answer.data as T;
 }
 
@@ -56,7 +61,8 @@ async function readOne(store: Store, path: string) {
 	return file;
 }
 
-const textOf = (file: FileRead) => ('gone' in file ? null : decoder.decode(file.bytes));
+const textOf = (file: FileRead) =>
+	'gone' in file ? null : decoder.decode(file.bytes);
 
 /** Wait until `done()` or `ms` passed; answers whether it is done. */
 async function until(done: () => boolean, ms: number) {
@@ -71,46 +77,96 @@ const fresh = (name: string) =>
 	`conformance/${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}/${name}`;
 
 /** Every check, by name, in the order they run. */
-export const storeChecks: Record<string, (subject: StoreSubject) => Promise<void>> = {
+export const storeChecks: Record<
+	string,
+	(subject: StoreSubject) => Promise<void>
+> = {
 	async 'the four verbs'({ store }) {
 		const note = fresh('a.md');
 		const audio = note.replace(/a\.md$/, 'a.webm');
-		const made = ok(await store.write(note, bytes('one'), 'absent'));
-		check(typeof made === 'string', 'a create lands with a version');
+		const made = ok(await store.put(note, bytes('one'), null));
 		check(
-			ok(await store.write(note, bytes('two'), 'absent')) === 'stale',
-			'a create where a file is is stale',
+			made === (await blobIdOf(note, bytes('one'))),
+			'a create lands as the blob id of its bytes',
+		);
+		const occupied = await store.put(note, bytes('two'), null);
+		check(
+			occupied.error?.name === 'Moved' && occupied.error.now === made,
+			'a create where a file is has moved, to what is there',
 		);
 		const read = await readOne(store, note);
-		check(textOf(read) === 'one' && !('gone' in read) && read.version === made, 'a read names what landed');
-		const replaced = ok(await store.write(note, bytes('two'), made as Version));
-		check(typeof replaced === 'string' && replaced !== made, 'a write over the version read lands');
 		check(
-			ok(await store.write(note, bytes('three'), made as Version)) === 'stale',
-			'a write over a version no longer there is stale',
+			textOf(read) === 'one' && !('gone' in read) && read.version === made,
+			'a read names what landed',
 		);
-		const sound = ok(await store.write(audio, new Uint8Array([1, 2, 3]), 'absent'));
-		check(typeof sound === 'string', 'an attachment lands');
+		const replaced = ok(await store.put(note, bytes('two'), made as BlobId));
+		check(
+			replaced === (await blobIdOf(note, bytes('two'))),
+			'a put over the version read lands',
+		);
+		const stale = await store.put(note, bytes('three'), made as BlobId);
+		check(
+			stale.error?.name === 'Moved' && stale.error.now === replaced,
+			'a put over a version no longer there has moved, to what is there',
+		);
+		const sound = ok(await store.put(audio, new Uint8Array([1, 2, 3]), null));
+		check(
+			sound === (await blobIdOf(audio, new Uint8Array([1, 2, 3]))),
+			'an attachment lands as the blob id of its Git LFS pointer',
+		);
 		const directory = note.slice(0, note.lastIndexOf('/'));
 		const listed = ok(await store.list([directory]));
 		const byPath = new Map(listed.map((file) => [file.path, file]));
-		check(listed.length === 2, 'a listing names only the files below the paths asked for');
-		check(byPath.get(note)?.version === replaced, 'a listing and a write name a note alike');
-		check(byPath.get(audio)?.version === sound, 'a listing and a write name an attachment alike');
+		check(
+			listed.length === 2,
+			'a listing names only the files below the paths asked for',
+		);
+		check(
+			byPath.get(note)?.version === replaced,
+			'a listing and a put name a note alike',
+		);
+		check(
+			byPath.get(audio)?.version === sound,
+			'a listing and a put name an attachment alike',
+		);
 		const [again, attached] = ok(await store.read([note, audio]));
 		check(
-			again !== undefined && !('gone' in again) && again.version === byPath.get(note)?.version,
+			again !== undefined &&
+				!('gone' in again) &&
+				again.version === byPath.get(note)?.version,
 			'a listing and a read name a note alike',
 		);
 		check(
-			attached !== undefined && !('gone' in attached) && attached.version === sound,
+			attached !== undefined &&
+				!('gone' in attached) &&
+				attached.version === sound,
 			'a listing and a read name an attachment alike',
 		);
-		check(ok(await store.list([note])).length === 1, 'a file path lists that file');
-		check(ok(await store.write(audio, null, sound as Version)) === null, 'a removal lands');
-		check('gone' in (await readOne(store, audio)), 'a read of a removed file is gone');
-		check(ok(await store.write(note, null, replaced as Version)) === null, 'a note is removed');
-		check(ok(await store.list([directory])).length === 0, 'nothing is listed after');
+		check(
+			ok(await store.list([note])).length === 1,
+			'a file path lists that file',
+		);
+		check(
+			ok(await store.put(audio, null, sound as BlobId)) === null,
+			'a removal lands',
+		);
+		check(
+			'gone' in (await readOne(store, audio)),
+			'a read of a removed file is gone',
+		);
+		const gone = await store.put(audio, null, sound as BlobId);
+		check(
+			gone.error?.name === 'Moved' && gone.error.now === null,
+			'a removal of what is no longer there has moved, to nothing',
+		);
+		check(
+			ok(await store.put(note, null, replaced as BlobId)) === null,
+			'a note is removed',
+		);
+		check(
+			ok(await store.list([directory])).length === 0,
+			'nothing is listed after',
+		);
 	},
 
 	async 'arming before listing'({ store, outside }) {
@@ -128,7 +184,10 @@ export const storeChecks: Record<string, (subject: StoreSubject) => Promise<void
 			);
 			const listed = ok(await store.list([path]));
 			check(listed.length === 1, 'the listing after it shows the write');
-			check(textOf(await readOne(store, path)) === 'from outside', 'and reads it new');
+			check(
+				textOf(await readOne(store, path)) === 'from outside',
+				'and reads it new',
+			);
 		} finally {
 			stop();
 			await outside(path, null);
@@ -186,10 +245,16 @@ export const storeChecks: Record<string, (subject: StoreSubject) => Promise<void
 				'a read racing a write answers one side whole',
 			);
 			if (text === 'before '.repeat(4096) && !('gone' in raced))
-				check(raced.version === before.version, 'the old bytes keep their version');
+				check(
+					raced.version === before.version,
+					'the old bytes keep their version',
+				);
 			check(await until(() => heard, HEARD_WITHIN_MS), 'the write is heard');
 			const after = await readOne(store, path);
-			check(textOf(after) === 'after '.repeat(4096), 'the read after the hint answers the write');
+			check(
+				textOf(after) === 'after '.repeat(4096),
+				'the read after the hint answers the write',
+			);
 			check(
 				!('gone' in after) && after.version !== before.version,
 				'the new bytes have a new version',

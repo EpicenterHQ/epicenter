@@ -9,15 +9,18 @@
  * - A refusal says why, in the shell's words
  */
 
-import { afterEach, expect, mock, test } from 'bun:test';
+import { afterAll, afterEach, expect, mock, test } from 'bun:test';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 
+// Bun keeps a module mock for the rest of the run, so the stand-in stops
+// claiming Tauri once this file is done.
+let inTauri = true;
 let answer: () => unknown = () => null;
 const asked: { command: string; body: unknown }[] = [];
 
 mock.module('@tauri-apps/api/core', () => ({
 	Channel: class {},
-	isTauri: () => true,
+	isTauri: () => inTauri,
 	transformCallback: () => 0,
 	invoke: async (command: string, body?: unknown) => {
 		asked.push({ command, body });
@@ -26,6 +29,10 @@ mock.module('@tauri-apps/api/core', () => ({
 }));
 
 const { syncWithEpicenter, syncedWithEpicenter } = await import('./tauri.js');
+
+afterAll(() => {
+	inTauri = false;
+});
 
 afterEach(() => {
 	answer = () => null;

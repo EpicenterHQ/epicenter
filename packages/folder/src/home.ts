@@ -15,7 +15,7 @@ import {
 	type Place,
 	place,
 } from './place.js';
-import { repositoryStore } from './remote/store.js';
+import { folderRepository, mintFolder } from './remote/repository.js';
 
 export { FolderClosed, FolderNotOpen, OpenFolderError } from './errors.js';
 export type {
@@ -72,22 +72,31 @@ function dataFolder(site: string): Place {
 	});
 }
 
-/** `account`'s repository for `site`, which opens once it has an account. */
+/**
+ * `account`'s repository for `site`, which opens once it has an account:
+ * the account's folder named from the site, made at its first open.
+ */
 function repository(account: FolderAccount, site: string): Place {
-	const name = `~/${repositoryName(hostFromSiteUrl(site))}`;
+	const name = repositoryName(hostFromSiteUrl(site));
 	return place(() => ({
-		open: () =>
-			new Promise((resolve) => {
+		async open() {
+			const signedIn = await new Promise<
+				NonNullable<ReturnType<FolderAccount['state']>['account']>
+			>((resolve) => {
 				const answer = (): boolean => {
-					const signedIn = account.state().account;
-					if (signedIn === undefined) return false;
-					resolve(Ok(repositoryStore(signedIn, name)));
+					const now = account.state().account;
+					if (now === undefined) return false;
+					resolve(now);
 					return true;
 				};
 				if (answer()) return;
 				const stop = account.subscribe(() => {
 					if (answer()) stop();
 				});
-			}),
+			});
+			const minted = await mintFolder(signedIn, { name });
+			if (minted.error !== null) return minted;
+			return Ok(folderRepository(signedIn, minted.data.folder));
+		},
 	}));
 }

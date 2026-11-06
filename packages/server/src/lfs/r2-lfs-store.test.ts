@@ -49,6 +49,9 @@ function memoryBucket() {
 			});
 			return { size: bytes.length };
 		},
+		async delete(key) {
+			objects.delete(key);
+		},
 	};
 	return { bucket, objects };
 }

@@ -282,7 +282,9 @@ describe('receivePush', () => {
 			'.gitattributes': '# LFS removed\n',
 			'rec/raw.webm': 'raw\n',
 		});
-		expect(await r.push(unattributed)).toContain('is not a Git LFS pointer');
+		expect(await r.push(unattributed)).toContain(
+			'is not a canonical Git LFS pointer',
+		);
 		expect(await r.main()).toBe(one);
 	});
 
@@ -328,7 +330,7 @@ describe('receivePush', () => {
 		).trim();
 		const refused = await r.push(n, { revs: [`^${z}`] });
 		expect(refused).toContain('rec/a.m4a in');
-		expect(refused).toContain('is not a Git LFS pointer');
+		expect(refused).toContain('is not a canonical Git LFS pointer');
 		expect(await r.main()).toBe(two);
 		// A commit main already reaches is not checked again: history is not walked past main.
 		const three = await r.commit({ 'c.md': 'z\n' });
@@ -381,6 +383,22 @@ describe('receivePush', () => {
 		);
 		await lfs.put(r.id, pointer.oid, new Blob([audio]).stream());
 		expect(await r.push(one)).toContain(`ok ${MAIN}`);
+	});
+
+	test('a pointer in any layout but the canonical one is refused, its object uploaded or not', async () => {
+		const r = await setup();
+		const audio = new TextEncoder().encode('opus bytes');
+		const pointer = pointerFor(audio);
+		await lfs.put(r.id, pointer.oid, new Blob([audio]).stream());
+		const padded = await r.commit({
+			'rec/a.webm': pointer.text.replace(
+				`size ${audio.length}`,
+				`size 0${audio.length}`,
+			),
+		});
+		expect(await r.push(padded)).toContain(
+			'is not a canonical Git LFS pointer',
+		);
 	});
 
 	test('a raw file already on main, renamed by a push, is refused at its new path', async () => {

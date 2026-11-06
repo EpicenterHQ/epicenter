@@ -66,9 +66,7 @@ test('a command line the grammar refuses exits 2 and says why', async () => {
 	expect(run('sync', folder, '--onto', 'x').stderr).toContain(
 		'epicenter sync does not take --onto',
 	);
-	expect(run('sync', folder, '--interval').stderr).toContain(
-		'--interval needs',
-	);
+	expect(run('log', folder, '--limit').stderr).toContain('--limit needs');
 	expect(run('auth').exitCode).toBe(2);
 	expect(run('auth', 'approve', 'x').stderr).toContain(
 		"Unknown command 'epicenter auth approve'",
@@ -80,23 +78,22 @@ test('--help lists every command but the hidden ones, and --json describes them'
 	const help = run('--help');
 	expect(help.exitCode).toBe(0);
 	for (const usage of [
-		'epicenter sync [<dir>] [--watch]',
-		'epicenter auth git-credential get | store | erase',
+		'epicenter sync [<dir>]',
+		'epicenter clone <folder> [<dir>]',
+		'epicenter restore <commit> [<dir>] [--path <path>]',
 	])
 		expect(help.stdout).toContain(usage);
 	expect(help.stdout).not.toContain('--desktop');
-	expect(run('init', '--help').stdout).toContain('epicenter.synced = true');
-	expect(run('forget', '--help').stdout).toContain('own Git config');
+	expect(run('sync', '--help').stdout).toContain('.epicenter/synced.json');
 	const described = JSON.parse(run('--help', '--json').stdout).commands;
 	expect(described.map((c: { command: string }) => c.command)).toEqual([
 		'check',
 		'format',
-		'init',
-		'connect',
 		'sync',
-		'status',
 		'clone',
-		'forget',
+		'log',
+		'diff',
+		'restore',
 		'repos',
 		'share',
 		'unshare',
@@ -104,7 +101,6 @@ test('--help lists every command but the hidden ones, and --json describes them'
 		'auth logout',
 		'auth status',
 		'auth token',
-		'auth git-credential',
 	]);
 	expect(
 		described.find((c: { command: string }) => c.command === 'sync').output,
@@ -122,10 +118,10 @@ test('--help lists every command but the hidden ones, and --json describes them'
 
 test('auth commands on a machine with no sign-in: status says so, and the rest refuse or stay silent', async () => {
 	const { folder } = await setup();
-	const run = (args: string[], stdin?: string) => {
+	const run = (args: string[]) => {
 		const result = Bun.spawnSync([...command, ...args], {
 			cwd: folder,
-			stdin: stdin === undefined ? 'ignore' : new TextEncoder().encode(stdin),
+			stdin: 'ignore',
 			stdout: 'pipe',
 			stderr: 'pipe',
 			// Never the real keychain, machine state, or a real server.
@@ -173,21 +169,8 @@ test('auth commands on a machine with no sign-in: status says so, and the rest r
 		revoked: false,
 	});
 
-	// Git's protocol: another host gets no answer; this deployment's Git, when
-	// signed out, an explanation on stderr; store and erase do nothing.
-	const other = run(
-		['auth', 'git-credential', 'get'],
-		'protocol=https\nhost=github.com\n\n',
-	);
-	expect(other).toEqual({ exitCode: 0, stdout: '', stderr: '' });
-	const ours = run(
-		['auth', 'git-credential', 'get'],
-		'protocol=http\nhost=127.0.0.1:9\npath=git/abc/notes.git\n\n',
-	);
-	expect(ours.stdout).toBe('');
-	expect(ours.stderr).toContain('epicenter auth login');
-	for (const action of ['store', 'erase'])
-		expect(
-			run(['auth', 'git-credential', action], 'protocol=http\n\n').exitCode,
-		).toBe(0);
+	// A sync with no sign-in says how to sign in, and changes nothing.
+	const synced = run(['sync', folder, '--json']);
+	expect(synced.exitCode).toBe(2);
+	expect(JSON.parse(synced.stdout).error).toContain('epicenter auth login');
 });

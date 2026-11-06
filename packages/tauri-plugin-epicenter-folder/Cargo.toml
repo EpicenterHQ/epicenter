@@ -28,7 +28,6 @@ tauri-plugin-opener = "2.5"
 tauri-specta = { git = "https://github.com/specta-rs/tauri-specta", rev = "0922b06408f9dc9ed443589639b067adcef62ba4", features = ["derive", "typescript"] }
 
 [dev-dependencies]
-sha2 = "0.10"
 tempfile = "3.8"
 # The mock runtime drives the real invoke handler in tests. Test builds only.
 tauri = { version = "2.12", features = ["test"] }

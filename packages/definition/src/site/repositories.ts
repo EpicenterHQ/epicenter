@@ -71,6 +71,28 @@ export function parseRepositoryPath(value: string): RepositoryPath | undefined {
 		: undefined;
 }
 
+/** A folder's id: sixteen characters of lowercase a-z and 0-9. */
+const FOLDER_ID = /^[a-z0-9]{16}$/;
+
+/**
+ * Whether `value` is a folder's id: its repository's id on the server,
+ * minted at the folder's first sync (ADR-0810), which its manifest stores.
+ */
+export function isFolderId(value: string): boolean {
+	return FOLDER_ID.test(value);
+}
+
+/**
+ * The address of the folder `folder` under a deployment's Git audience,
+ * `<git audience>/folders/<folder>`, where sync reaches its repository: the
+ * one place a folder id becomes an address. `folderUrl(audience)` alone is
+ * where a new folder is minted.
+ */
+export function folderUrl(gitAudience: string, folder?: string): string {
+	const folders = `${gitAudience.replace(/\/+$/, '')}/folders`;
+	return folder === undefined ? folders : `${folders}/${folder}`;
+}
+
 /** The remote of `<namespace>/<name>` under a deployment's Git audience. */
 export function repositoryUrl(
 	gitAudience: string,

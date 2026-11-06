@@ -31,7 +31,7 @@ choice and any deployment policy.
 
 | Mount | Source | Notes |
 | --- | --- | --- |
-| `mountGitHost` | `src/routes/git.ts` | Hosted Git at `<git audience>/<namespace>/<name>.git`: clone and fetch, the forward-only receiver, Git LFS, the web write translator, write-to-create, `GET /api/repos`, and the owner's per-repository grants; the deployment supplies the stores (`GitHost`, `LfsStore`). |
+| `mountGitHost` | `src/routes/git.ts` | Hosted Git at `<git audience>/<namespace>/<name>.git`: clone and fetch, the forward-only receiver, Git LFS, a folder's sync routes by its id, write-to-create, `GET /api/repos`, and the owner's per-repository grants; the deployment supplies the stores (`GitHost`, `LfsStore`). |
 | `mountInferenceApp` | `src/routes/inference.ts` | Provider-backed inference. |
 | `mountTranscriptionApp` | `src/routes/transcription.ts` | Provider-backed speech to text. |
 | `mountAuthRoutes` | `src/routes/auth.ts` | Public auth shells (sign-in, consent, device approval), discovery metadata, and Better Auth's endpoints, including the authorization server. |
@@ -63,15 +63,17 @@ elsewhere (`resolveOAuthAudiences`).
 | `GET info/refs?service=git-receive-pack`, `POST git-receive-pack` | `folders:write`, the `push` role; a push that replaces `main`, the `rewrite` role (owner) |
 | `POST info/lfs/objects/batch` | download: `folders:read`, `read`; upload: `folders:write`, `push` |
 | `PUT`/`GET info/lfs/objects/<oid>`, `POST info/lfs/verify` | upload and verify: `push`; download: `read` |
-| `GET epicenter/files?root=`, `POST epicenter/read`, `GET epicenter/changes?since=` | `folders:read`, the `read` role |
-| `POST epicenter/writes` | `folders:write`, the `push` role |
+| `POST <git>/folders { name? }` | `folders:write`: the caller's folder of `name` in their personal namespace, made when new; a new folder without one. Answers `{ folder }`, the repository's id |
+| `GET <git>/folders/<folder>/changes?since=`, `POST …/tree`, `POST …/blobs`, `GET …/blobs/<id>` | `folders:read`, the `read` role (`src/routes/folder.ts`) |
+| `PUT <git>/folders/<folder>/blobs/<sha256>`, `POST …/commits` | `folders:write`, the `push` role |
 | `GET /api/repos` | `folders:read` on the Git audience |
 | `GET /api/repos/<namespace>/<name>/grants` | `folders:read` on the Git audience, the `manage` role (owner) |
 | `PUT`/`DELETE /api/repos/<namespace>/<name>/grants/<person>` | `folders:write` on the Git audience, the `manage` role (owner) |
 
-`<namespace>` may be `~`, the caller's personal namespace, so a web app reaches
-`<account>/<app>` from its token alone; a web folder at
-`home({ site, account })` from `@epicenter/folder` uses it.
+`<namespace>` may be `~`, the caller's personal namespace; `POST <git>/folders`
+with a `name` makes or answers the caller's folder of that name there, as a
+web folder at `home({ site, account })` from `@epicenter/folder` asks for
+its app's.
 
 **Grants.** The owner shares one repository with a person outside its
 namespace: `PUT .../grants/<person>` with `{ "level": "read" | "write" }`
@@ -81,8 +83,8 @@ named by their handle, the id of their personal namespace, and reaches the
 repository at `<owner handle>/<name>`. A grant is a row in `repository_grant`
 naming the repository by id. The same
 statement that resolves membership resolves it, as the `reader` or `writer`
-role, so clone, fetch, push, LFS and web writes all apply one rule: `read`
-reads, `write` also pushes forward and writes from the web, and only the owner
+role, so clone, fetch, push, LFS and a folder's routes all apply one rule:
+`read` reads, `write` also pushes forward and commits, and only the owner
 replaces `main` or manages grants. A grant never creates a repository, and a
 token whose grant targets one namespace (`ns:<id>`) reaches no repository
 shared from another. A member of the namespace cannot also be granted it.
@@ -100,40 +102,36 @@ a 64 MiB body, 256 MiB of inflated objects held at once, and 100,000 of
 `main`'s commits read, once per push, to place the push's stored commits); the
 receiver keeps commits, trees and pointer-sized blobs, and lets larger blobs
 go once hashed.
-The web reads through the translator (`src/routes/files.ts`) too: a
-listing under each `root`, the files at many `paths` in one `read`, and
-`changes?since=<commit>`, the commit `main` is at and the paths changed
-since. Web writes go to it as one commit per
-request, each file landing only over the blob its writer read, and the
-standard `.gitattributes` (`REPOSITORY_ATTRIBUTES`) in a repository's first
-commit. It never merges (ADR-0773), and keeps nothing about a request once
-it answers. Both use the `GitObjects` port
+A folder's routes (below) read and commit over the same `GitObjects` port
 (`src/git/objects.ts`): refs, object reads by kind, and an atomic
 compare-and-swap `apply` over several refs (the receiver moves `main` and its
-`replaced` backup together).
+`replaced` backup together). They never merge (ADR-0773), and keep nothing
+about a request once it answers.
 
-A web write names each file with what its writer read there as `base`: the
-Git blob id, or null for nothing. A file other than a note names an LFS
-object already uploaded through the batch API:
+### A folder's repository
 
-```txt
-POST <git audience>/~/recorder.git/epicenter/writes
-{ "files": [
-    { "path": "recordings/2026-10-31T01-00-05-123Z-k3x9a2f8.md", "base": null, "text": "---\ntitle: Standup\n---\n" },
-    { "path": "recordings/2026-10-31T01-00-05-123Z-k3x9a2f8.m4a", "base": null, "lfs": { "oid": "<sha256>", "size": 48213 } } ] }
--> 200 { "commit", "paths", "blobs": { "<path>": "<blob id>" } }
-```
+Sync reaches a repository by its folder's id, the repository's own id, at
+`<git audience>/folders/<folder>` (`folderUrl` in
+`@epicenter/definition/site`, matched by one mount in `readGitTarget`), in
+Git's vocabulary (ADR-0808, ADR-0810; `src/routes/folder.ts`): `changes`
+since a commit, the `tree` at a commit, `blobs` by id, and one `commits`
+request that lands every file only where its path still holds the blob its
+writer expects, or answers `409 moved` with what the path holds. An
+attachment's bytes are at `blobs/<sha256>`: `GET` streams them with
+`Cache-Control: private, immutable`, and `PUT` stores them, idempotent and
+checked against the hash, for every Epicenter client; Git LFS's own
+protocol stays for plain Git. The id resolves to the repository's
+namespace and name (`GitAccess.locate`), and the request is then decided
+exactly as one by name.
 
-The check and the move of `main` are one compare-and-swap step: when any
-path no longer holds its `base`, nothing lands and the write is `409`,
-`occupied` for a create where a file is, `stale` for a path that changed.
-The writer reads what is there and writes again over it; the folder does
-this for every write, settling a note's body with `settle` (ADR-0774).
-Writing the bytes a path already holds lands as nothing, and a write that
-changes nothing makes no commit. A
-body over 16 MiB is 413 `too_large`. A writer that lost the reply and sends
-the same write again is judged like any other, and finds its own bytes when
-it reads.
+An upload the repository did not already hold is pending in the
+`blob_upload` ledger (`src/uploads.ts`) until a commit or a push that
+references it keeps it; `sweepPendingUploads` deletes what is still pending
+after a day, bytes and row. The deployment schedules the sweep. Presigned R2
+uploads bypass the server and are not recorded.
+
+The receiver refuses a pointer in any layout but Git LFS's canonical one
+(`readPointer`), since an attachment's version is that layout's blob id.
 
 One statement decides each Git request (`authorizeResourceRequest`): the access
 token, given as a Bearer token or as the Basic password, its audience, scope,
@@ -145,9 +143,9 @@ its life. Nothing is cached.
 A name nobody holds is not a repository until something is written to it.
 Reading it creates nothing: a member whose role may push gets the empty
 advertisement of a repository with no refs, for either service, so a sync that
-fetches before it pushes finds nothing to take, and an empty file listing;
-anyone else gets 404. Every writing request (a push, an LFS upload, a web
-write) creates, at its start and after the same authorization:
+fetches before it pushes finds nothing to take;
+anyone else gets 404. Every writing request (a push, an LFS upload, or a
+folder's mint) creates, at its start and after the same authorization:
 the storage (`GitHost.create`) under a new id, then the row
 (`createRepository`), so no row names a repository without storage. Two first
 pushes at once insert one row, through the `(namespace_id, name)` unique key;
@@ -172,7 +170,7 @@ type GitHost = {
   serve(id: string, request: GitRequest): Promise<Response>;
   create(id: string): Promise<void>;
   delete(id: string): Promise<void>;
-  /** The receiver's and translator's port (`GitObjects`, `src/git/objects.ts`). */
+  /** The receiver's and a folder's routes' port (`GitObjects`, `src/git/objects.ts`). */
   objects(id: string): GitObjects;
   /** What one push may cost this store; `RECEIVE_LIMITS` when absent. */
   receiveLimits?: ReceiveLimits;

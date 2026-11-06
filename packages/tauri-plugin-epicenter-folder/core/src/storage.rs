@@ -244,11 +244,13 @@ pub enum Landing {
     Stale,
 }
 
-/// Whether the page names the file at `path` by the SHA-256 of its bytes (a
-/// note, `.md` in any case) rather than by its stamp (any other file):
-/// `versionedByContent` in `packages/folder/src/device/store.ts`.
+/// Whether a listing names the file at `path` by the Git blob id of its
+/// bytes (a note, `.md` in any case, or a hidden file) rather than by its
+/// stamp (an attachment, whose version the page derives from its hash,
+/// cached by that stamp): `storedWithLfs` in `@epicenter/definition`.
 pub fn versioned_by_content(path: &str) -> bool {
-    path.len() >= 3 && path[path.len() - 3..].eq_ignore_ascii_case(".md")
+    (path.len() >= 3 && path[path.len() - 3..].eq_ignore_ascii_case(".md"))
+        || crate::paths::is_hidden_path(path)
 }
 
 /// The bytes and stamp of one opened file.
@@ -282,8 +284,9 @@ fn stamp_of(metadata: &fs::Metadata) -> io::Result<String> {
 pub enum Expectation {
     /// Nothing at all is there: a create.
     Absent,
-    /// A regular file whose bytes have this lowercase hexadecimal SHA-256.
-    Sha256(String),
+    /// A regular file whose bytes have this Git blob id (ADR-0808): a note's
+    /// version, or a hidden file's.
+    Blob(String),
     /// A regular file whose stamp (`stamp_of`) is this: an attachment's
     /// version, which names it without reading its bytes.
     Stamp(String),
@@ -294,8 +297,8 @@ pub enum Expectation {
 }
 
 impl Expectation {
-    /// The page's `expected` header: `absent`, `sha256:` and a lowercase
-    /// hexadecimal SHA-256, or `stamp:` and a stamp. Each case has its own
+    /// The page's `expected` header: `absent`, `blob:` and a lowercase
+    /// hexadecimal Git blob id, or `stamp:` and a stamp. Each case has its own
     /// spelling, so a hash is never read as a keyword, nor a keyword as a
     /// hash.
     pub fn parse(value: &str) -> Result<Self, String> {
@@ -307,17 +310,17 @@ impl Expectation {
         match value {
             "absent" => Ok(Self::Absent),
             "any" => Ok(Self::Any),
-            _ => match value.strip_prefix("sha256:") {
+            _ => match value.strip_prefix("blob:") {
                 Some(hash)
-                    if hash.len() == 64
+                    if hash.len() == 40
                         && hash
                             .bytes()
                             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)) =>
                 {
-                    Ok(Self::Sha256(hash.to_string()))
+                    Ok(Self::Blob(hash.to_string()))
                 }
                 _ => Err(format!(
-                    "expected is {value:?}, not absent, any, sha256: and a SHA-256, or stamp: and a stamp"
+                    "expected is {value:?}, not absent, any, blob: and a Git blob id, or stamp: and a stamp"
                 )),
             },
         }
@@ -325,7 +328,8 @@ impl Expectation {
 }
 
 /// One regular file in a listing: its version as the page names it (a
-/// note's SHA-256, any other file's stamp: `versioned_by_content`), and its
+/// note's or hidden file's Git blob id, an attachment's stamp:
+/// `versioned_by_content`), and its
 /// size in bytes.
 #[derive(Debug, Clone, PartialEq, Serialize, Type)]
 pub struct ListedFile {
@@ -510,11 +514,11 @@ fn spelled_by_listing(root: &Path, names: &[&str]) -> io::Result<bool> {
 }
 
 /// Every regular file at or below each of `under` (a directory or a file
-/// path; empty is the whole root), `.git` at the root aside, without
-/// following a link, each with its version (`versioned_by_content`: a note
-/// is read and hashed, any other file named by its stamp) and size. Hidden
-/// files are listed, unfinished writes in `.epicenter` included; whoever
-/// reads the listing skips them (`isHiddenPath`). A name that is not text
+/// path; empty is the whole root), `.git` and `.epicenter` at the root
+/// aside, without following a link, each with its version
+/// (`versioned_by_content`: a note or a hidden file is read and hashed as a
+/// Git blob, an attachment named by its stamp) and size. Other hidden files
+/// are listed; whoever reads the listing skips them (`isHiddenPath`). A name that is not text
 /// is left out, and so is a path asked for that is not readable or passes
 /// through a link. A file or directory removed during the walk is not
 /// listed: opening it, or reading its entries (macOS's `readdir` answers
@@ -531,7 +535,7 @@ pub fn list(root: &Path, under: &[String]) -> Result<Vec<ListedFile>, StorageErr
             return Ok(None);
         }
         let version = if versioned_by_content(&path) {
-            match file_sha256(at) {
+            match crate::blob::file_blob_id(at) {
                 Ok(hash) => hash,
                 Err(cause) if cause.kind() == ErrorKind::NotFound => return Ok(None),
                 Err(cause) => return Err(cause),
@@ -553,7 +557,11 @@ pub fn list(root: &Path, under: &[String]) -> Result<Vec<ListedFile>, StorageErr
             let Ok(name) = entry.file_name().into_string() else {
                 continue;
             };
-            if prefix.is_empty() && name == PRIVATE_DIRECTORY {
+            // Git's state, and this computer's own (`.epicenter`: unfinished
+            // writes, a sync's manifest, the stamp cache), are never a
+            // folder's files.
+            if prefix.is_empty() && (name == PRIVATE_DIRECTORY || name == crate::state::DIRECTORY)
+            {
                 continue;
             }
             let path = format!("{prefix}{name}");
@@ -665,14 +673,6 @@ fn hex(digest: &[u8]) -> String {
     digest.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-/// The lowercase hexadecimal SHA-256 of the file at `target`, streamed so a
-/// large file is never held in memory.
-fn file_sha256(target: &Path) -> io::Result<String> {
-    let mut hasher = Sha256::new();
-    io::copy(&mut fs::File::open(target)?, &mut hasher)?;
-    Ok(hex(&hasher.finalize()))
-}
-
 /// Whether `target` holds what a put expects.
 fn holds(target: &Path, expected: &Expectation) -> io::Result<bool> {
     let found = match fs::symlink_metadata(target) {
@@ -684,8 +684,8 @@ fn holds(target: &Path, expected: &Expectation) -> io::Result<bool> {
         (Expectation::Any, None) => Ok(true),
         (Expectation::Any, Some(metadata)) => Ok(metadata.is_file()),
         (Expectation::Absent, found) => Ok(found.is_none()),
-        (Expectation::Sha256(hash), Some(metadata)) if metadata.is_file() => {
-            Ok(file_sha256(target)? == *hash)
+        (Expectation::Blob(hash), Some(metadata)) if metadata.is_file() => {
+            Ok(crate::blob::file_blob_id(target)? == *hash)
         }
         (Expectation::Stamp(stamp), Some(metadata)) if metadata.is_file() => {
             Ok(stamp_of(&metadata)? == *stamp)

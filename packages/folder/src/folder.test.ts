@@ -173,7 +173,10 @@ describe('a failed open', () => {
 
 	test('rejects the writes waiting with FolderClosed, which are not made after a retry opens', async () => {
 		const { folder, fail, open } = controlled();
-		const waiting = folder.todos.set({ id: 'a' }, { title: 'Milk', done: false });
+		const waiting = folder.todos.set(
+			{ id: 'a' },
+			{ title: 'Milk', done: false },
+		);
 		expect(folder.saving()).toBe(true);
 		fail();
 		expect(await waiting.catch((error: unknown) => error)).toBeInstanceOf(
@@ -197,7 +200,10 @@ describe('a failed open', () => {
 
 	test('disposing rejects the writes waiting with FolderClosed', async () => {
 		const { folder } = controlled();
-		const waiting = folder.todos.set({ id: 'a' }, { title: 'Milk', done: false });
+		const waiting = folder.todos.set(
+			{ id: 'a' },
+			{ title: 'Milk', done: false },
+		);
 		folder[Symbol.dispose]();
 		expect(await waiting.catch((error: unknown) => error)).toMatchObject({
 			name: 'FolderClosed',
@@ -456,12 +462,14 @@ test('on the web, a folder over an account opens once the account is signed in',
 	signedIn = {
 		baseURL: 'https://api.epicenter.so',
 		signal: new AbortController().signal,
-		// An empty repository: main is nowhere, and nothing is listed.
+		// The account's folder named from the site, minted, and empty: main
+		// is nowhere, and nothing is listed.
 		fetch: (async (url: string) =>
 			Response.json(
-				String(url).includes('/epicenter/changes')
-					? { commit: null, paths: null }
-					: { commit: null, files: [] },
+				String(url).endsWith('/folders')
+					? { folder: 'abcdefgh01234567' }
+					: { commit: null, paths: null },
+				{ status: String(url).endsWith('/folders') ? 201 : 200 },
 			)) as never,
 	};
 	for (const listener of [...listeners]) listener();

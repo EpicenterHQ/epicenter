@@ -154,6 +154,9 @@ function receiverOver(
 		async create() {
 			return { id: 'repo1' };
 		},
+		async locate() {
+			return null;
+		},
 	};
 	const app = new Hono<CloudEnv>();
 	app.use('*', async (c, next) => {
@@ -369,7 +372,7 @@ describe('Artifacts GitObjects', () => {
 		// nothing; only S, read from Artifacts by kind, holds the raw audio.
 		const refused = await push(commitObject(t0.oid, [M, S]));
 		expect(refused).toContain('a.m4a in eeeeeeee');
-		expect(refused).toContain('is not a Git LFS pointer');
+		expect(refused).toContain('is not a canonical Git LFS pointer');
 		expect(reads).toContain(`commit ${S}`);
 		expect(reads).toContain(`tree ${t1.oid}`);
 		expect(reads).toContain(`blob ${audio.oid}`);

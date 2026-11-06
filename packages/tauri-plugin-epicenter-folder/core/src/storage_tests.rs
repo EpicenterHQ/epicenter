@@ -34,8 +34,8 @@ use std::path::{Path, PathBuf};
 use super::*;
 use crate::testing::TempDir;
 
-fn sha256(bytes: &[u8]) -> String {
-    hex(&Sha256::digest(bytes))
+fn blob(bytes: &[u8]) -> String {
+    crate::blob::blob_id(bytes)
 }
 
 fn folder(label: &str, files: &[(&str, &[u8])]) -> (TempDir, PathBuf) {
@@ -56,16 +56,17 @@ fn b(bytes: &[u8]) -> Option<&[u8]> {
 
 #[test]
 fn an_expectation_is_parsed_by_its_own_spelling() {
-    let hash = sha256(b"x");
+    let hash = blob(b"x");
     assert_eq!(Expectation::parse("absent"), Ok(Expectation::Absent));
     assert_eq!(
-        Expectation::parse(&format!("sha256:{hash}")),
-        Ok(Expectation::Sha256(hash.clone()))
+        Expectation::parse(&format!("blob:{hash}")),
+        Ok(Expectation::Blob(hash.clone()))
     );
     for refused in [
         hash.clone(),
-        "sha256:absent".to_string(),
-        format!("sha256:{}", hash.to_uppercase()),
+        "blob:absent".to_string(),
+        format!("blob:{}", hash.to_uppercase()),
+        format!("sha256:{hash}"),
         "anything".to_string(),
         "present".to_string(),
         String::new(),
@@ -80,7 +81,7 @@ fn list_and_read_report_the_same_stamp_and_a_write_changes_it() {
     let initial = list(&root, &[String::new()]).unwrap()[0].version.clone();
     assert_eq!(read(&root, "note.txt").unwrap().stamp, initial);
 
-    let landed = put(&root, "note.txt", b(b"new"), Some(&sha256(b"old"))).unwrap();
+    let landed = put(&root, "note.txt", b(b"new"), Some(&blob(b"old"))).unwrap();
     assert_eq!(landed, PutOutcome::Landed);
     let published = list(&root, &[String::new()]).unwrap()[0].version.clone();
     assert_ne!(published, initial);
@@ -102,7 +103,7 @@ fn an_attachment_is_named_by_the_stamp_that_landed_and_written_over_it() {
             .unwrap()
     };
     assert_eq!(version("audio.webm"), stamp);
-    assert_eq!(version("todos/a.md"), sha256(b"note"));
+    assert_eq!(version("todos/a.md"), blob(b"note"));
     assert_eq!(read(&root, "audio.webm").unwrap().stamp, stamp);
     let over = Expectation::parse(&format!("stamp:{stamp}")).unwrap();
     assert!(matches!(
@@ -129,11 +130,11 @@ fn a_write_expecting_any_replaces_whatever_is_there() {
     assert_eq!(super::put(&root, "fresh.md", None, &any).unwrap(), PutOutcome::Landed);
 }
 
-/// What most cases here expect: the file whose SHA-256 is `if_match`, or
+/// What most cases here expect: the file whose Git blob id is `if_match`, or
 /// nothing for `None`.
 fn witness(if_match: Option<&str>) -> Expectation {
     if_match.map_or(Expectation::Absent, |hash| {
-        Expectation::Sha256(hash.to_string())
+        Expectation::Blob(hash.to_string())
     })
 }
 
@@ -178,7 +179,7 @@ fn invalid(path: &str) -> impl Fn(&StorageError) -> bool + '_ {
 /// Hidden files are listed, unfinished writes included: whoever reads a
 /// listing skips them. Only Git's own directory is left out.
 #[test]
-fn a_listing_leaves_out_git_at_the_root_and_links_and_lists_hidden_files() {
+fn a_listing_leaves_out_git_and_epicenter_at_the_root_and_links_and_lists_hidden_files() {
     let (_temp, root) = folder(
         "storage-list",
         &[
@@ -195,7 +196,6 @@ fn a_listing_leaves_out_git_at_the_root_and_links_and_lists_hidden_files() {
     let mut listing = list(&root, &[String::new()]).unwrap();
     listing.sort_by(|a, b| a.path.cmp(&b.path));
     let files = vec![
-        ".epicenter/saves/staged",
         "kv.json",
         "todos/.DS_Store",
         "todos/a.md",
@@ -252,14 +252,14 @@ fn existing_nonportable_names_can_be_repaired_with_a_witness() {
     assert_eq!(read(&root, "notes/a: b.md").unwrap().bytes, b"colon");
     assert!(put(&root, "notes/a: b.md", b(b"changed"), None)
         .is_err_and(|error| invalid("notes/a: b.md")(&error)));
-    let witness = sha256(b"colon");
+    let witness = blob(b"colon");
     assert_eq!(
         put(&root, "notes/a: b.md", b(b"repaired"), Some(&witness)).unwrap(),
         PutOutcome::Landed
     );
     assert_eq!(read(&root, "notes/a: b.md").unwrap().bytes, b"repaired");
     assert_eq!(
-        put(&root, "notes/a: b.md", None, Some(&sha256(b"repaired"))).unwrap(),
+        put(&root, "notes/a: b.md", None, Some(&blob(b"repaired"))).unwrap(),
         PutOutcome::Landed
     );
     assert_eq!(
@@ -274,7 +274,7 @@ fn existing_nonportable_names_can_be_repaired_with_a_witness() {
 fn an_existing_head_is_readable_but_never_changed() {
     let (_temp, root) = folder("storage-head-private", &[("HEAD", b"notes\n")]);
     assert_eq!(read(&root, "HEAD").unwrap().bytes, b"notes\n");
-    let witness = sha256(b"notes\n");
+    let witness = blob(b"notes\n");
     assert!(
         put(&root, "HEAD", b(b"ref: refs/heads/main\n"), Some(&witness))
             .is_err_and(|error| invalid("HEAD")(&error))
@@ -301,7 +301,7 @@ fn a_link_is_never_followed_and_a_path_through_one_is_refused() {
             "{path}"
         );
         assert!(
-            put(&root, path, None, Some(&sha256(b"theirs")))
+            put(&root, path, None, Some(&blob(b"theirs")))
                 .is_err_and(|error| invalid(path)(&error)),
             "{path}"
         );
@@ -324,7 +324,7 @@ fn a_name_stored_under_another_spelling_is_another_entry() {
             Err(StorageError::NotFound { path: path.into() })
         );
         assert!(put(&root, path, b(b"mine"), None).is_err_and(|error| invalid(path)(&error)));
-        assert!(put(&root, path, None, Some(&sha256(b"theirs")))
+        assert!(put(&root, path, None, Some(&blob(b"theirs")))
             .is_err_and(|error| invalid(path)(&error)));
     }
     assert_eq!(read(&root, "Todos/A.md").unwrap().bytes, b"theirs");
@@ -377,38 +377,38 @@ fn a_put_lands_only_on_what_the_page_expected() {
         Ok(PutOutcome::Stale)
     );
     assert_eq!(
-        put(&root, "todos/a.md", b(b"mine"), Some(&sha256(b"other"))),
+        put(&root, "todos/a.md", b(b"mine"), Some(&blob(b"other"))),
         Ok(PutOutcome::Stale)
     );
     assert_eq!(fs::read(&a).unwrap(), b"first");
     // The hash of what is there lands.
     assert_eq!(
-        put(&root, "todos/a.md", b(b"second"), Some(&sha256(b"first"))),
+        put(&root, "todos/a.md", b(b"second"), Some(&blob(b"first"))),
         Ok(PutOutcome::Landed)
     );
     assert_eq!(fs::read(&a).unwrap(), b"second");
     // A guarded replacement of a missing file is stale.
     assert_eq!(
-        put(&root, "todos/b.md", b(b"b"), Some(&sha256(b"second"))),
+        put(&root, "todos/b.md", b(b"b"), Some(&blob(b"second"))),
         Ok(PutOutcome::Stale)
     );
     assert!(!root.join("todos/b.md").exists());
     // Removal: only the expected bytes, and only a file.
     assert_eq!(put(&root, "todos/a.md", None, None), Ok(PutOutcome::Stale));
     assert_eq!(
-        put(&root, "todos/a.md", None, Some(&sha256(b"other"))),
+        put(&root, "todos/a.md", None, Some(&blob(b"other"))),
         Ok(PutOutcome::Stale)
     );
     assert!(a.exists());
     assert_eq!(
-        put(&root, "todos/a.md", None, Some(&sha256(b"second"))),
+        put(&root, "todos/a.md", None, Some(&blob(b"second"))),
         Ok(PutOutcome::Landed)
     );
     assert!(!a.exists());
     // Nothing there is what a removal expecting nothing wants.
     assert_eq!(put(&root, "todos/a.md", None, None), Ok(PutOutcome::Landed));
     assert_eq!(
-        put(&root, "todos/a.md", None, Some(&sha256(b"second"))),
+        put(&root, "todos/a.md", None, Some(&blob(b"second"))),
         Ok(PutOutcome::Stale)
     );
     assert!(staged(&root).is_empty());
@@ -467,11 +467,11 @@ fn a_folder_with_no_git_saves_and_stages_inside_the_root() {
         Ok(PutOutcome::Landed)
     );
     assert_eq!(
-        put(&root, "todos/a.md", b(b"eggs"), Some(&sha256(b"milk"))),
+        put(&root, "todos/a.md", b(b"eggs"), Some(&blob(b"milk"))),
         Ok(PutOutcome::Landed)
     );
     assert_eq!(
-        put(&root, "readme.txt", None, Some(&sha256(b"plain\n"))),
+        put(&root, "readme.txt", None, Some(&blob(b"plain\n"))),
         Ok(PutOutcome::Landed)
     );
     assert_eq!(fs::read(root.join("todos/a.md")).unwrap(), b"eggs");
@@ -525,7 +525,7 @@ fn a_hard_link_is_replaced_not_written_through() {
     fs::write(&outside, b"theirs").unwrap();
     fs::hard_link(&outside, root.join("todos/a.md")).unwrap();
     assert_eq!(
-        put(&root, "todos/a.md", b(b"mine"), Some(&sha256(b"theirs"))),
+        put(&root, "todos/a.md", b(b"mine"), Some(&blob(b"theirs"))),
         Ok(PutOutcome::Landed)
     );
     assert_eq!(fs::read(&outside).unwrap(), b"theirs");
@@ -554,7 +554,7 @@ fn replacing_a_file_keeps_its_permission_bits() {
     }
     // A stale put changes nothing, mode included.
     assert_eq!(
-        put(&root, "private.md", b(b"x"), Some(&sha256(b"other"))),
+        put(&root, "private.md", b(b"x"), Some(&blob(b"other"))),
         Ok(PutOutcome::Stale)
     );
     assert_eq!(mode(&root.join("private.md")), 0o600);
@@ -565,7 +565,7 @@ fn replacing_a_file_keeps_its_permission_bits() {
         ("plain.md", &b"p"[..], &b"q"[..], 0o644),
     ] {
         assert_eq!(
-            put(&root, path, b(new), Some(&sha256(old))),
+            put(&root, path, b(new), Some(&blob(old))),
             Ok(PutOutcome::Landed)
         );
         assert_eq!(fs::read(root.join(path)).unwrap(), new);
@@ -593,7 +593,7 @@ fn an_open_saves_directory_is_made_private_before_staging() {
     fs::set_permissions(saves(&root), fs::Permissions::from_mode(0o755)).unwrap();
 
     assert_eq!(
-        put(&root, "shared.md", b(b"new"), Some(&sha256(b"old"))),
+        put(&root, "shared.md", b(b"new"), Some(&blob(b"old"))),
         Ok(PutOutcome::Landed)
     );
     assert_eq!(fs::read(root.join("shared.md")).unwrap(), b"new");
@@ -615,14 +615,14 @@ fn a_new_saves_directory_is_private() {
 
 #[test]
 fn the_hash_is_the_one_the_page_computes() {
-    assert_eq!(
-        sha256(b""),
-        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-    );
-    // A file is hashed as it streams, to the same digest as its bytes.
+    assert_eq!(blob(b""), "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391");
+    // A file is named as its bytes are.
     let bytes: Vec<u8> = (0..200_000u32).map(|n| (n % 251) as u8).collect();
     let (_temp, root) = folder("storage-hash", &[("big.bin", &bytes)]);
-    assert_eq!(file_sha256(&root.join("big.bin")).unwrap(), sha256(&bytes));
+    assert_eq!(
+        crate::blob::file_blob_id(&root.join("big.bin")).unwrap(),
+        blob(&bytes)
+    );
 }
 
 #[test]
@@ -883,7 +883,7 @@ fn of_writers_replacing_one_version_at_once_exactly_one_lands() {
     for round in 0..40 {
         let read = format!("read {round}");
         fs::write(root.join("note.md"), &read).unwrap();
-        let expected = Expectation::Sha256(sha256(read.as_bytes()));
+        let expected = Expectation::Blob(blob(read.as_bytes()));
         let outcomes = racing_puts(&root, "note.md", 8, &expected);
         assert!(landed_once(&outcomes), "round {round}: {outcomes:?}");
     }
@@ -897,7 +897,7 @@ fn a_path_holds_no_turn_once_its_puts_finish() {
     let (_temp, root) = folder("storage-turns", &[]);
     racing_puts(&root, "a.md", 4, &Expectation::Absent);
     let landed = fs::read(root.join("a.md")).unwrap();
-    put(&root, "a.md", None, Some(&sha256(&landed))).unwrap();
+    put(&root, "a.md", None, Some(&blob(&landed))).unwrap();
     let busy = BUSY.lock().unwrap();
     assert!(!busy.iter().any(|path| path.starts_with(&root)), "{busy:?}");
 }
@@ -918,7 +918,7 @@ fn a_linked_saves_directory_is_not_swept_or_staged_in() {
     std::os::unix::fs::symlink(&elsewhere, saves(&root)).unwrap();
     sweep_scratch(&root, now_ms());
     assert!(elsewhere.join(&old).exists());
-    for (path, if_match) in [("a.md", Some(sha256(b"accepted"))), ("b.md", None)] {
+    for (path, if_match) in [("a.md", Some(blob(b"accepted"))), ("b.md", None)] {
         let refused = put(&root, path, b(b"mine"), if_match.as_deref()).unwrap_err();
         let StorageError::Io { message, .. } = &refused else {
             panic!("{refused:?}");
@@ -934,7 +934,7 @@ fn a_linked_saves_directory_is_not_swept_or_staged_in() {
     );
     // A removal stages nothing, so it still lands.
     assert_eq!(
-        put(&root, "a.md", None, Some(&sha256(b"accepted"))),
+        put(&root, "a.md", None, Some(&blob(b"accepted"))),
         Ok(PutOutcome::Landed)
     );
 }
@@ -946,7 +946,7 @@ fn a_saves_path_that_is_not_a_directory_refuses_a_put() {
     let (_temp, root) = folder("storage-saves-file", &[("a.md", b"accepted")]);
     fs::create_dir(root.join(".epicenter")).unwrap();
     fs::write(saves(&root), b"someone's file").unwrap();
-    let refused = put(&root, "a.md", b(b"mine"), Some(&sha256(b"accepted"))).unwrap_err();
+    let refused = put(&root, "a.md", b(b"mine"), Some(&blob(b"accepted"))).unwrap_err();
     let StorageError::Io {
         path,
         operation,
@@ -989,7 +989,7 @@ fn a_linked_state_directory_is_not_swept_or_staged_in() {
 fn a_put_that_does_not_land_leaves_no_new_directory() {
     let (_temp, root) = folder("storage-no-new-directory", &[("old.md", b"old")]);
     assert_eq!(
-        put(&root, "new/deep/a.md", b(b"x"), Some(&sha256(b"old"))),
+        put(&root, "new/deep/a.md", b(b"x"), Some(&blob(b"old"))),
         Ok(PutOutcome::Stale)
     );
     assert!(!root.join("new").exists());
@@ -1042,7 +1042,7 @@ fn storage_follows_the_outcome_vectors() {
         let expected = match &call["expected"] {
             Value::String(kind) => Expectation::parse(kind).unwrap(),
             Value::Object(file) => {
-                Expectation::Sha256(sha256(file["sha256Of"].as_str().unwrap().as_bytes()))
+                Expectation::Blob(blob(file["blobOf"].as_str().unwrap().as_bytes()))
             }
             _ => Expectation::Absent,
         };

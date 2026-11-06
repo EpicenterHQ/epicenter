@@ -1,8 +1,7 @@
 /**
- * `@epicenter/definition/merge`: the note merge as pure functions, which
- * the desktop merge driver runs (`epicenter merge-driver %O %A %B %P`), and
- * the Git hashing a web write names its blobs with. The server never merges
- * (ADR-0773).
+ * `@epicenter/definition/merge`: the note merge as pure functions, which a
+ * folder runs when a note changed between showing it and writing it, and
+ * Git's hashing and Git LFS pointers. The server never merges (ADR-0773).
  *
  * `settle(base, current, incoming, { parties })` is the entry point:
  * `current` is what `main` holds and `incoming` the write arriving after it,

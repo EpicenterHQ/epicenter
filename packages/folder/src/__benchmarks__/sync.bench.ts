@@ -21,10 +21,10 @@ import { memoryStore } from '../device/memory-store.js';
 import { nodeStore } from '../device/node-store.js';
 import type { Store } from '../device/store.js';
 import { localStoreOf } from '../folder.js';
-import { scratch } from '../git.test-support.js';
+import { scratch } from '../scratch.test-support.js';
 import { directory } from '../node.js';
 import { openFolder } from '../open-folder.js';
-import { repositoryStore } from '../remote/store.js';
+import { folderRepository, mintFolder } from '../remote/repository.js';
 import { memoryRepository, type Repository } from '../sync/repository.js';
 import {
 	type ManifestStore,
@@ -98,13 +98,15 @@ const contract = defineContract({
 async function serverWorld(asFolder: boolean): Promise<World> {
 	const server = await startRepositoryServer();
 	const account = await server.signIn('bench');
+	const minted = await mintFolder(account);
+	if (minted.error !== null) throw new Error(minted.error.message);
 	const roots: string[] = [];
 	const folders: Disposable[] = [];
 	return {
 		name: asFolder
 			? 'open folder over a directory with the server'
 			: 'directory with the server',
-		repository: repositoryStore(account, '~/bench'),
+		repository: folderRepository(account, minted.data.folder),
 		async device() {
 			const root = await scratch('epicenter-sync-bench-');
 			roots.push(root);

@@ -61,6 +61,20 @@ export async function createRepository(
 	});
 }
 
+/** The namespace and name of the repository whose id is `id`, or null when none has it. */
+export async function locateRepository(
+	db: Db,
+	id: string,
+): Promise<{ namespaceId: string; name: string } | null> {
+	const { rows } = await db.execute<{ namespace_id: string; name: string }>(sql`
+		select namespace_id, name from repository where id = ${id}
+	`);
+	const row = rows[0];
+	return row === undefined
+		? null
+		: { namespaceId: row.namespace_id, name: row.name };
+}
+
 /**
  * The namespaces `accountId` belongs to within `target` (`*`, or `ns:<id>`
  * for a grant to one namespace; null reaches none), each with its repositories: the personal

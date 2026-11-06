@@ -7,6 +7,12 @@
  *
  * A `repository_grant` lets one person outside the namespace `read` or
  * `write` one repository. Deleting the repository or the person deletes it.
+ *
+ * A `blob_upload` is an attachment's bytes uploaded to a repository and not
+ * yet kept by a commit (ADR-0809): a commit that references it deletes the
+ * row, and `sweepPendingUploads` deletes the bytes of one still pending
+ * after a day, with the row. Bytes uploaded before the ledger, or kept, have
+ * no row and are never swept.
  */
 import { relations, sql } from 'drizzle-orm';
 import {
@@ -91,4 +97,21 @@ export const repositoryGrantRelations = relations(
 			references: [user.id],
 		}),
 	}),
+);
+
+export const blobUpload = pgTable(
+	'blob_upload',
+	{
+		repositoryId: text('repository_id')
+			.notNull()
+			.references(() => repository.id, { onDelete: 'cascade' }),
+		/** The attachment's sha256, its Git LFS object id. */
+		oid: text('oid').notNull(),
+		uploadedAt: timestamp('uploaded_at').defaultNow().notNull(),
+	},
+	(table) => [
+		primaryKey({ columns: [table.repositoryId, table.oid] }),
+		index('blob_upload_uploaded_at_idx').on(table.uploadedAt),
+		check('blob_upload_oid_format', sql`${table.oid} ~ '^[0-9a-f]{64}$'`),
+	],
 );

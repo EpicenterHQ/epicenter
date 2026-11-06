@@ -40,7 +40,7 @@ const outfile = join(
 await mkdir(dirname(outfile), { recursive: true });
 
 console.error(`Compiling the epicenter binary -> ${outfile}`);
-// The CLI's compile script builds the sync core's addon first, then embeds it.
+// The CLI's compile script builds one executable, with nothing beside it.
 const cli = join(appDir, '..', '..', 'packages', 'cli');
 await $`bun run --cwd ${cli} compile --outfile ${outfile} --environment ${environment}`;
 console.error('The epicenter binary compiled.');

@@ -90,6 +90,9 @@ export function createDiskLfsStore({
 			await rename(temporary, target);
 			return { ok: true, size: length };
 		},
+		async delete(repositoryId, oid) {
+			await rm(where(repositoryId, oid), { force: true });
+		},
 		async get(repositoryId, oid) {
 			if (!LFS_OID.test(oid)) return null;
 			const path = where(repositoryId, oid);

@@ -36,31 +36,27 @@ const HANDLERS: Record<string, Run> = {
 			dir ?? '.',
 			json,
 		),
-	init: async ({ positionals: [dir], options, json }) =>
-		(await import('./sync/commands.ts')).initCommand(dir, options, json),
-	connect: async ({ positionals: [dir, source], json, grant }) =>
-		(await import('./sync/commands.ts')).connectCommand(
-			dir as string,
+	sync: async ({ positionals: [dir], json, grant }) =>
+		(await import('./sync/commands.ts')).syncCommand(dir, json, grant),
+	clone: async ({ positionals: [source, dir], json, grant }) =>
+		(await import('./sync/commands.ts')).cloneCommand(
 			source as string,
+			dir,
 			json,
 			grant,
 		),
-	sync: async ({ positionals: [dir], options, json, grant }) =>
-		(await import('./sync/commands.ts')).syncCommand(dir, options, json, grant),
-	status: async ({ positionals: [dir], json }) =>
-		(await import('./sync/commands.ts')).statusCommand(dir, json),
-	clone: async ({ positionals: [source, dir], options, json, grant }) =>
-		(await import('./sync/commands.ts')).cloneCommand(
-			source as string,
+	log: async ({ positionals: [dir], options, json, grant }) =>
+		(await import('./sync/commands.ts')).logCommand(dir, options, json, grant),
+	diff: async ({ positionals: [dir], options, json, grant }) =>
+		(await import('./sync/commands.ts')).diffCommand(dir, options, json, grant),
+	restore: async ({ positionals: [commit, dir], options, json, grant }) =>
+		(await import('./sync/commands.ts')).restoreCommand(
+			commit as string,
 			dir,
 			options,
 			json,
 			grant,
 		),
-	forget: async ({ positionals: [dir], json }) =>
-		(await import('./sync/commands.ts')).forgetCommand(dir, json),
-	'merge-driver': async ({ positionals }) =>
-		(await import('./sync/commands.ts')).mergeDriverCommand(positionals),
 	repos: async ({ json, grant }) =>
 		(await import('./repository-commands.ts')).repos(json, grant),
 	share: async ({ positionals: [target, person], options, json, grant }) =>
@@ -86,11 +82,6 @@ const HANDLERS: Record<string, Run> = {
 		(await import('./auth-commands.ts')).authStatusCommand(json),
 	'auth token': async ({ options, json, grant }) =>
 		(await import('./auth-commands.ts')).authToken(options, json, grant),
-	'auth git-credential': async ({ positionals: [action], grant }) =>
-		(await import('./auth-commands.ts')).authGitCredential(
-			action as string,
-			grant,
-		),
 };
 
 /** What `epicenter <command> --help` adds below the usage line. */
@@ -112,8 +103,8 @@ bytes read. Exits 0 when every note is in house style, 1 when one was left as
 it is, and 2 when the contract or the folder cannot be used.`,
 	'auth login': `Signs this computer in with a device code: open the link it prints, check
 the code, and choose which folders it may reach. The sign-in is kept in this
-computer's keychain. Epicenter passes credentials to each Git call without
-saving a helper. --json prints NDJSON: the
+computer's keychain, and sync sends its token on each request to the
+deployment. --json prints NDJSON: the
 code and link as {"device": {...}}, then {"signedIn": {...}} or {"error"}.`,
 	'auth token': `Prints an access token for --resource, by default the deployment's API,
 refreshing the sign-in when the cached token has under five minutes left. One
@@ -123,40 +114,6 @@ signed in or the sign-in has ended.`,
 epicenter auth login, and the Epicenter app's. Reads only the keychain.`,
 	'auth logout': `Revokes this computer's sign-in at the server and deletes it from the
 keychain. The Epicenter app's sign-in is separate; sign it out in its Settings.`,
-	'auth git-credential': `Git runs this as its credential helper (gitcredentials(7)). get answers
-the deployment's Git origin with a username, an access token as the password,
-and password_expiry_utc; any other host gets no answer. store and erase do
-nothing. Takes no --json.`,
-	status: `Prints the folder's branch and commit, the files under it that changed since
-the last sync, whether it is set up for sync, and its remote with how far ahead
-and behind it was at the last fetch. Reads only: it fetches nothing and
-writes nothing. Without <dir>, scans the environment's library root and one
-owner level, reporting unavailable candidates with their reasons. With --json,
-prints one {"status": {...}} per candidate. Exits 0.`,
-	clone: `Clones <namespace>/<name> from this deployment's Git origin, any other URL
-with your own Git credentials, or a repository by its path. By default the
-destination comes from the cloned AGENTS.md contract under ~/Epicenter.
-An occupied folder is enrolled with this remote and synced immediately.
-Files already in that folder are added on top of the remote's history.`,
-	init: `Sets up or repairs <dir> (default: the current directory) for sync, and says
-what it changed: git init when it is not in a repository; Epicenter's block in
-the folder's .gitattributes (notes merge by Epicenter's rules,
-every other file except dotfiles is Git LFS); LFS filters in this clone; the LFS bytes for files checked out as
-pointers; and local sync consent in
-the folder's own Git config (epicenter.synced = true). If the folder is outside
-the environment's library, init links it there by folder name so discovery finds it.
-A folder inside another repository is
-refused, because sync pulls and pushes that whole repository. Init makes no
-commit. Exits 0, or 2 when refused.`,
-	connect: `Adds origin to a folder already set up by epicenter init. The repository
-can be <namespace>/<name>, the signed-in person's '~/name' (quote it so the
-shell does not expand ~), or a URL such as file:// for a local repository.
-An existing origin with the same URL needs no change; a different origin is
-refused. This command does not run sync, but the desktop's
-background sync service may fetch and push once origin is configured.`,
-	forget: `Clears sync consent in <dir>'s own Git config (default: the current
-directory), so sync refuses it until init runs again. Its
-files, repository, and history stay.`,
 	repos: `Lists the repositories of every namespace this sign-in may reach: the
 personal namespace first, then each group by title, as <namespace>/<name>.
 Your personal namespace's id is your handle, which others share with. With
@@ -174,19 +131,32 @@ they had. Only you may rewrite main or share it on. They clone it as
 repositories. Their next fetch or push is refused; the files they already
 have stay with them. With --json, {"person", "revoked"}. Exits 2 when
 refused.`,
-	sync: `Commits what changed in <dir> (only that folder's paths, through Git's LFS
-filters), fetches origin, checks that the remote main still contains the one
-this clone last saw, merges it, and pushes, retrying when the remote moved.
-Notes merge by Epicenter's rules: front matter by key, the later arrival
-winning, and the body by line with one conflict block per clash. An edit
-beats a delete, and a file both sides replaced keeps this one, the later
-write; the remote's stays in history. Without <dir>, syncs
-every synced folder found in the library. Syncs of one repository take turns. --watch
-syncs again after each change and every 30 seconds until stopped. With
---json, one {"sync": {...}} line per folder per round. Exits 0 when every
-folder synced, 1 when a round should run again (a lock, the network), and 2
-when a folder stopped for a person (a rewritten remote, a merge Epicenter does
-not settle, a folder init did not set up).`,
+	sync: `Syncs <dir> (default: the current directory) with its repository on the
+server, with no Git on this computer: what changed on either side since the
+last sync is copied to the other, and a note both sides changed merges by
+Epicenter's rules, front matter by key with this computer's change winning a
+key both changed, and the body by line with one conflict block per clash. An
+edit beats a delete, and a file both sides replaced keeps this computer's;
+the other stays in the repository's history. A folder's first sync makes its
+repository and records its id in .epicenter/synced.json. With --json, one
+{"sync": {...}} line. Exits 0 when synced, 1 when a sync should run again or
+the repository refused a file (a name differing only in case from one it
+holds), and 2 when it could not sync.`,
+	clone: `Records the repository <folder> names (its id, from epicenter repos, or
+<namespace>/<name>, ~ for your own) in <dir>, by default a new folder named for
+it here, and syncs it, bringing its files. A folder that already holds files
+keeps them, merged on top. Plain Git clones the same repository at
+<git origin>/<namespace>/<name>.git.`,
+	log: `Lists the folder's history on the server, newest first: each commit's id,
+time, and subject, marking the one this folder last agreed at. --limit takes
+at most that many (20 by default).`,
+	diff: `Without --since, lists the files this folder added, changed, or deleted
+since its last sync, read from the folder alone. With --since <commit>, lists
+the files the repository changed between that commit and its head.`,
+	restore: `Writes the folder's files as they were at <commit> (from epicenter log),
+removing files made since, or only the file at --path. Nothing reaches the
+server until the next epicenter sync, which records it as a new change, so
+the history keeps everything in between.`,
 };
 
 const name = (command: CommandSpec) => command.path.join(' ');

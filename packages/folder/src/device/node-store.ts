@@ -3,10 +3,13 @@
  * store that writes as ADR-0702 decides, without the desktop shell's
  * edge-case checks (the folder core's `storage.rs` stays the strict host).
  *
- * - A version is a note's sha256 and an attachment's stamp (its size,
- *   modification time in nanoseconds, and inode: `versionedByContent`). A
- *   write lands only while its path holds the version its writer read,
- *   checked right before the change. Its bytes are staged in the
+ * - A version is the file's Git blob id (ADR-0808): a note's (and any
+ *   hidden file's) hashed from its bytes, an attachment's from its sha256,
+ *   kept by its stamp (its size, modification time in nanoseconds, and
+ *   inode) in `.epicenter/hashes.json` (`stamp-cache.ts`), so a listing
+ *   reads no recording it hashed before. A write lands only while its path
+ *   holds the version its writer expects, checked right before the change,
+ *   an attachment hashed again first. Its bytes are staged in the
  *   directory's `.epicenter/saves` (`savesDirectory`), so another program
  *   sees the old file or the new one, never part of either. A replacement
  *   is renamed over the path, keeping the replaced file's permission bits.
@@ -15,7 +18,7 @@
  *   exactly one lands.
  * - Within this process, writes to one path take turns from the check to the
  *   change (`createPathTurns`): of two writers over one version, one lands
- *   and the other is `stale`. Across processes nothing holds a path between
+ *   and the other finds it `Moved`. Across processes nothing holds a path between
  *   a replacement's check and its rename; Git history is the backstop.
  * - A path on another file system than `.epicenter` (a mount point inside
  *   the directory) is one no rename reaches: that save fails saying so, and
@@ -48,18 +51,19 @@ import {
 	writeFile,
 } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { ClientError } from '@epicenter/definition/contract';
+import { ClientError, storedWithLfs } from '@epicenter/definition/contract';
 import { Ok } from 'wellcrafted/result';
-import { hashBytes } from '../hash.js';
+import { blobIdOf, gitBlobId, sha256Of } from '../hash.js';
 import { watchDirectory } from '../native/watch.js';
 import { createPathTurns } from '../path-turns.js';
 import { pathProblem, readablePath, writableExistingPath } from '../paths.js';
 import { STATE_DIRECTORY, savesDirectory, scratchName } from '../state.js';
+import { createStampCache, HASHES_PATH } from './stamp-cache.js';
 import {
+	type BlobId,
 	type Listed,
 	type Store,
-	type Version,
-	versionedByContent,
+	StoreError,
 	within,
 } from './store.js';
 
@@ -69,37 +73,21 @@ const turns = createPathTurns();
 const codeOf = (cause: unknown) => (cause as { code?: unknown } | null)?.code;
 
 /** A file's stamp: its size, modification time, and identity, which every save changes. */
-const stampOf = (stats: BigIntStats) =>
-	`${stats.size}:${stats.mtimeNs}:${stats.ino}` as Version;
+const stampOf = (stats: BigIntStats) => ({
+	stamp: `${stats.size}:${stats.mtimeNs}:${stats.ino}`,
+	modifiedMs: Number(stats.mtimeNs / 1_000_000n),
+});
 
-/** The version of the file at `path` with `stats`, whose bytes are read only for a note. */
-async function versionOf(
-	path: string,
-	stats: BigIntStats,
-	bytes: () => Promise<Uint8Array>,
-): Promise<Version> {
-	return versionedByContent(path)
-		? ((await hashBytes(await bytes())) as Version)
-		: stampOf(stats);
-}
-
-/** The version of the file at `target` (the folder's `path`), or undefined when nothing is there. */
+/** The version the file at `target` (the folder's `path`) holds now, read and hashed whole; undefined when nothing is there. */
 async function versionAt(target: string, path: string) {
 	try {
-		const stats = await lstat(target, { bigint: true });
-		return await versionOf(
-			path,
-			stats,
-			async () => new Uint8Array(await readFile(target)),
-		);
+		return await blobIdOf(path, new Uint8Array(await readFile(target)));
 	} catch (cause) {
-		if (codeOf(cause) === 'ENOENT') return undefined;
+		const code = codeOf(cause);
+		if (code === 'ENOENT' || code === 'EISDIR') return undefined;
 		throw cause;
 	}
 }
-
-const holds = (version: Version | undefined, over: Version | 'absent') =>
-	over === 'absent' ? version === undefined : version === over;
 
 /**
  * Put `staged` at `target` only while nothing is there: a hard link, which
@@ -134,48 +122,63 @@ async function place(staged: string, target: string) {
 function refusal(
 	path: string,
 	bytes: Uint8Array | null,
-	over: Version | 'absent',
+	expect: BlobId | null,
 ) {
 	const problem = pathProblem(path);
 	if (problem === undefined) return undefined;
 	// An existing nonportable name may be replaced or removed, never made.
-	if (writableExistingPath(path) && (bytes === null || over !== 'absent'))
+	if (writableExistingPath(path) && (bytes === null || expect !== null))
 		return undefined;
 	return `The path '${path}' is not usable: ${problem}`;
 }
+
+/** What a write at one path found: the version it landed, or what the path held instead. */
+type Landing = { landed: BlobId | null } | { moved: BlobId | null };
 
 /** The store of the existing directory at `root`. */
 export function nodeStore(root: string): Store {
 	const saves = savesDirectory(root);
 	const unavailable = (cause: unknown) => ClientError.Unavailable({ cause });
+	const hashes = createStampCache({
+		file: {
+			async load() {
+				try {
+					return new Uint8Array(await readFile(join(root, HASHES_PATH)));
+				} catch {
+					return null;
+				}
+			},
+			async save(bytes) {
+				const staged = `${saves}/${scratchName()}`;
+				await mkdir(saves, { recursive: true, mode: 0o700 });
+				await writeFile(staged, bytes, { mode: 0o600 });
+				await rename(staged, join(root, HASHES_PATH));
+			},
+		},
+	});
 
-	/** Land `bytes` at `target` (the folder's `path`) over `over`, staged in `saves`. */
+	/** Land `bytes` at `target` (the folder's `path`) over `expect`, staged in `saves`. */
 	async function save(
 		target: string,
 		path: string,
 		bytes: Uint8Array,
-		over: Version | 'absent',
-	) {
+		expect: BlobId | null,
+	): Promise<Landing> {
 		const staged = `${saves}/${scratchName()}`;
+		const landed = await blobIdOf(path, bytes);
 		try {
 			await mkdir(saves, { recursive: true, mode: 0o700 });
 			await writeFile(staged, bytes, { flag: 'wx', mode: 0o600 });
 			await mkdir(dirname(target), { recursive: true });
-			return await turns.run(target, async () => {
-				if (!holds(await versionAt(target, path), over))
-					return 'stale' as const;
-				if (over !== 'absent')
+			return await turns.run(target, async (): Promise<Landing> => {
+				const now = (await versionAt(target, path)) ?? null;
+				if (now !== expect) return { moved: now };
+				if (expect !== null) {
 					await chmod(staged, (await stat(target)).mode & 0o777);
-				// A rename or a link keeps the staged file's stamp: it is what lands.
-				const landed = await versionOf(
-					path,
-					await lstat(staged, { bigint: true }),
-					async () => bytes,
-				);
-				if (over !== 'absent') await rename(staged, target);
-				else if ((await place(staged, target)) === 'stale')
-					return 'stale' as const;
-				return landed;
+					await rename(staged, target);
+				} else if ((await place(staged, target)) === 'stale')
+					return { moved: (await versionAt(target, path)) ?? null };
+				return { landed };
 			});
 		} finally {
 			await rm(staged, { force: true });
@@ -187,11 +190,13 @@ export function nodeStore(root: string): Store {
 		try {
 			const stats = await lstat(at, { bigint: true });
 			if (!stats.isFile()) return undefined;
-			const version = await versionOf(
-				path,
-				stats,
-				async () => new Uint8Array(await readFile(at)),
-			);
+			const read = async () => new Uint8Array(await readFile(at));
+			const version = storedWithLfs(path)
+				? await hashes.version(path, stampOf(stats), async () => {
+						const bytes = await read();
+						return { oid: await sha256Of(bytes), size: bytes.byteLength };
+					})
+				: await gitBlobId(await read());
 			return { path, version, size: Number(stats.size) } satisfies Listed;
 		} catch (cause) {
 			if (codeOf(cause) === 'ENOENT') return undefined;
@@ -205,7 +210,8 @@ export function nodeStore(root: string): Store {
 			const path = prefix + entry.name;
 			const at = join(directory, entry.name);
 			if (entry.isDirectory()) {
-				if (path !== '.git')
+				// Git's state, and this computer's own, are never a folder's files.
+				if (path !== '.git' && path !== STATE_DIRECTORY)
 					await visit(at, `${path}/`, files).catch((cause) => {
 						if (codeOf(cause) !== 'ENOENT') throw cause;
 					});
@@ -234,11 +240,7 @@ export function nodeStore(root: string): Store {
 			const stats = await file.stat({ bigint: true });
 			if (!stats.isFile()) return { path, gone: true as const };
 			const bytes = new Uint8Array(await file.readFile());
-			return {
-				path,
-				bytes,
-				version: await versionOf(path, stats, async () => bytes),
-			};
+			return { path, bytes, version: await blobIdOf(path, bytes) };
 		} finally {
 			await file.close();
 		}
@@ -274,6 +276,9 @@ export function nodeStore(root: string): Store {
 						if (listed !== undefined) files.push(listed);
 					}
 				}
+				if (prefixes.includes(''))
+					await hashes.keepOnly(new Set(files.map(({ path }) => path)));
+				await hashes.flush();
 			} catch (cause) {
 				return unavailable(cause);
 			}
@@ -286,26 +291,30 @@ export function nodeStore(root: string): Store {
 				return unavailable(cause);
 			}
 		},
-		async write(path, bytes, over) {
-			const refused = refusal(path, bytes, over);
+		async put(path, bytes, expect) {
+			const refused = refusal(path, bytes, expect);
 			if (refused !== undefined) return unavailable(refused);
 			const target = join(root, path);
+			let landing: Landing;
 			try {
-				if (bytes !== null) return Ok(await save(target, path, bytes, over));
-				return Ok(
-					await turns.run(target, async () => {
-						const version = await versionAt(target, path);
-						if (!holds(version, over)) return 'stale' as const;
-						if (version !== undefined) await rm(target);
-						return null;
-					}),
-				);
+				landing =
+					bytes !== null
+						? await save(target, path, bytes, expect)
+						: await turns.run(target, async (): Promise<Landing> => {
+								const now = (await versionAt(target, path)) ?? null;
+								if (now !== expect) return { moved: now };
+								if (now !== null) await rm(target);
+								return { landed: null };
+							});
 			} catch (cause) {
 				if (codeOf(cause) !== 'EXDEV') return unavailable(cause);
 				return unavailable(
 					`cannot save across a mount point: '${path}' is on another file system than the folder's ${STATE_DIRECTORY}, so nothing was written there`,
 				);
 			}
+			if ('moved' in landing)
+				return StoreError.Moved({ path, now: landing.moved });
+			return Ok(landing.landed);
 		},
 		async watch(changed) {
 			try {

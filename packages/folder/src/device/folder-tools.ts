@@ -95,14 +95,14 @@ export async function formatStore(contract: unknown, store: Store) {
 			unchanged++;
 			continue;
 		}
-		const written = await store.write(
+		const written = await store.put(
 			path,
 			encoder.encode(styled.data),
 			file.version,
 		);
-		if (written.error !== null) return written;
-		if (written.data === 'stale')
+		if (written.error?.name === 'Moved')
 			refused.push({ path, reason: 'It changed while it was being formatted' });
+		else if (written.error !== null) return written;
 		else formatted.push(path);
 	}
 	return Ok({ formatted, unchanged, refused });
