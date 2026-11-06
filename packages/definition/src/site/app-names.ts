@@ -94,14 +94,6 @@ export function relativeFolderPath(host: string): string {
 	return `${labels.slice(1).join('.')}/${labels[0]}`;
 }
 
-/** The repository name, without an account or namespace. */
-export function repositoryName(host: string): string {
-	const labels = labelsFromHost(host);
-	if (labels.length === 3 && labels[1] === 'epicenter' && labels[2] === 'so')
-		return labels[0];
-	return host;
-}
-
 /** The reversed host, with `.dev` only for a development build. */
 export function appDataIdentifier(
 	host: string,

@@ -251,7 +251,7 @@ export function createAuth({
 		rateLimit: { storage: 'memory' },
 		plugins: [
 			...authPlugins(baseURL),
-			...(oauth ? oauthServerPlugins({ ...oauth, db }) : []),
+			...(oauth ? oauthServerPlugins(oauth) : []),
 		],
 		hooks: {
 			before: requireAccountSession(

@@ -1,28 +1,33 @@
 /**
- * Hosted repositories as rows (ADR-0546, ADR-0547): creating one on its first
- * push, listing a caller's, and its grants to people outside the namespace.
- * A repository is never renamed or moved (ADR-0771): its `<namespace>/<name>`
- * is fixed for its life, and a different name is a copy.
+ * Folders as rows (ADR-0811): making one at its first sync, joining one the
+ * person holds before making another, listing a person's folders and the
+ * shares waiting for them, sharing with a person by their email, accepting,
+ * leaving, and attaching a folder to an app.
  *
- * Storage is not touched here. It names a repository by its immutable id.
+ * Storage is not touched here; it names a folder's repository by the
+ * folder's id. A folder's title is in its files, which the routes read.
+ *
+ * `app` is the OAuth client id a request's token was issued to, and null
+ * for a token with `folders:all` (the CLI, the Epicenter app), which
+ * reaches every folder its person holds. A token from an app reaches only
+ * the folders attached to that app.
  */
-import {
-	type GrantLevel,
-	isNamespaceId,
-	type ListedNamespace,
-	type RepositoryGrant,
-	repositoryUrl,
+import type {
+	FolderPerson,
+	FolderRole,
+	PendingShare,
 } from '@epicenter/definition/site';
 import { sql } from 'drizzle-orm';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 import type { Db } from './db/create-db.js';
-import type { NamespaceRole } from './namespace-roles.js';
+
+type Runner = Pick<Db, 'execute'>;
 
 const ID_ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789';
 
-/** A new repository id: sixteen characters of lowercase a-z and 0-9. */
-export function newRepositoryId(): string {
+/** A new folder id: sixteen characters of lowercase a-z and 0-9. */
+export function newFolderId(): string {
 	// 252 is the largest multiple of 36 below 256, so every character is uniform.
 	let id = '';
 	while (id.length < 16)
@@ -32,211 +37,284 @@ export function newRepositoryId(): string {
 }
 
 /**
- * The repository `<namespaceId>/<name>` names, inserted as `id` when there is
- * none; `id`'s storage must already exist. Two first pushes at once both get
- * the one row the first inserted, so the second's `id` is left unnamed.
+ * Record the folder `id`, whose storage already exists, held by `accountId`
+ * as its owner, and attached to `app` when an app made it.
  */
-export async function createRepository(
+export async function createFolder(
 	db: Db,
-	{ id, namespaceId, name }: { id: string; namespaceId: string; name: string },
-): Promise<{ id: string; name: string }> {
-	return db.transaction(async (tx) => {
-		const inserted = await tx.execute<{ id: string }>(sql`
-			insert into repository (id, namespace_id, name)
-			values (${id}, ${namespaceId}, ${name})
-			on conflict (namespace_id, name) do nothing
-			returning id
+	{ id, accountId, app }: { id: string; accountId: string; app: string | null },
+): Promise<void> {
+	await db.transaction(async (tx) => {
+		await tx.execute(sql`insert into folder (id) values (${id})`);
+		await tx.execute(sql`
+			insert into folder_member (folder_id, account_id, role, accepted_at)
+			values (${id}, ${accountId}, 'owner', now())
 		`);
-		if (inserted.rows[0] !== undefined) return { id, name };
-		const existing = await tx.execute<{ id: string }>(sql`
-			select id from repository
-			where namespace_id = ${namespaceId} and name = ${name}
-		`);
-		const found = existing.rows[0]?.id;
-		if (found === undefined)
-			throw new Error(
-				`repository ${namespaceId}/${name} was neither inserted nor found`,
-			);
-		return { id: found, name };
+		if (app !== null)
+			await tx.execute(sql`
+				insert into folder_app (folder_id, app) values (${id}, ${app})
+			`);
 	});
 }
 
-/** The namespace and name of the repository whose id is `id`, or null when none has it. */
-export async function locateRepository(
-	db: Db,
-	id: string,
-): Promise<{ namespaceId: string; name: string } | null> {
-	const { rows } = await db.execute<{ namespace_id: string; name: string }>(sql`
-		select namespace_id, name from repository where id = ${id}
-	`);
-	const row = rows[0];
-	return row === undefined
-		? null
-		: { namespaceId: row.namespace_id, name: row.name };
+/** Whether the folder `folder` exists. */
+export async function folderExists(db: Runner, folder: string) {
+	const { rows } = await db.execute(
+		sql`select 1 from folder where id = ${folder}`,
+	);
+	return rows.length > 0;
 }
 
 /**
- * The namespaces `accountId` belongs to within `target` (`*`, or `ns:<id>`
- * for a grant to one namespace; null reaches none), each with its repositories: the personal
- * namespace first, then groups by title.
+ * The folders `accountId` holds that `app` reaches (null: every one), with
+ * the person's role, oldest first.
  */
-export async function listRepositories(
-	db: Db,
-	{
-		accountId,
-		target,
-		gitAudience,
-	}: { accountId: string; target: string | null; gitAudience: string },
-): Promise<ListedNamespace[]> {
-	if (target === null || (target !== '*' && !target.startsWith('ns:')))
-		return [];
-	const only = target === '*' ? null : target.slice('ns:'.length);
-	const { rows } = await db.execute<{
-		namespace_id: string;
-		title: string;
-		personal: boolean;
-		role: NamespaceRole;
-		repository_id: string | null;
-		repository_name: string | null;
-	}>(sql`
-		select n.id as namespace_id,
-		       n.title,
-		       n.personal_account_id is not null as personal,
-		       m.role,
-		       r.id as repository_id,
-		       r.name as repository_name
-		from namespace_member m
-		join namespace n on n.id = m.namespace_id
-		left join repository r on r.namespace_id = n.id
+export async function heldFolders(
+	db: Runner,
+	{ accountId, app }: { accountId: string; app: string | null },
+): Promise<{ id: string; role: FolderRole }[]> {
+	const { rows } = await db.execute<{ id: string; role: FolderRole }>(sql`
+		select m.folder_id as id, m.role
+		from folder_member m
 		where m.account_id = ${accountId}
-		  and (${only}::text is null or n.id = ${only})
-		order by (n.personal_account_id is null), n.title, n.id, r.name
+		  and m.accepted_at is not null
+		  and (${app}::text is null or exists (
+		    select 1 from folder_app a where a.folder_id = m.folder_id and a.app = ${app}
+		  ))
+		order by m.accepted_at, m.folder_id
 	`);
-	const namespaces = new Map<string, ListedNamespace>();
-	for (const row of rows) {
-		let listed = namespaces.get(row.namespace_id);
-		if (listed === undefined) {
-			listed = {
-				id: row.namespace_id,
-				title: row.title,
-				personal: row.personal,
-				role: row.role,
-				repositories: [],
-			};
-			namespaces.set(row.namespace_id, listed);
+	return rows;
+}
+
+/** Each folder's members who accepted it, and the people invited to it, by folder. */
+export async function membersOf(
+	db: Runner,
+	{ folders, accountId }: { folders: readonly string[]; accountId: string },
+): Promise<
+	Map<
+		string,
+		{
+			members: (FolderPerson & { role: FolderRole; you: boolean })[];
+			invited: (FolderPerson & { role: FolderRole })[];
+			apps: string[];
 		}
-		if (row.repository_id !== null && row.repository_name !== null)
-			listed.repositories.push({
-				id: row.repository_id,
-				name: row.repository_name,
-				url: repositoryUrl(gitAudience, {
-					namespace: row.namespace_id,
-					name: row.repository_name,
-				}),
-			});
-	}
-	return [...namespaces.values()];
-}
-
-async function roleIn(
-	tx: Pick<Db, 'execute'>,
-	accountId: string,
-	namespaceId: string,
-): Promise<NamespaceRole | undefined> {
-	const { rows } = await tx.execute<{ role: NamespaceRole }>(sql`
-		select role from namespace_member
-		where account_id = ${accountId} and namespace_id = ${namespaceId}
+	>
+> {
+	const out = new Map<
+		string,
+		{
+			members: (FolderPerson & { role: FolderRole; you: boolean })[];
+			invited: (FolderPerson & { role: FolderRole })[];
+			apps: string[];
+		}
+	>();
+	if (folders.length === 0) return out;
+	for (const id of folders) out.set(id, { members: [], invited: [], apps: [] });
+	const ids = sql.join(
+		folders.map((id) => sql`${id}`),
+		sql`, `,
+	);
+	const members = await db.execute<{
+		folder_id: string;
+		email: string;
+		name: string;
+		role: FolderRole;
+		accepted: boolean;
+		you: boolean;
+	}>(sql`
+		select m.folder_id, u.email, u.name, m.role,
+		       m.accepted_at is not null as accepted,
+		       m.account_id = ${accountId} as you
+		from folder_member m
+		join "user" u on u.id = m.account_id
+		where m.folder_id in (${ids})
+		order by m.accepted_at nulls last, m.created_at, u.email
 	`);
-	return rows[0]?.role;
+	for (const row of members.rows) {
+		const entry = out.get(row.folder_id);
+		if (entry === undefined) continue;
+		const person = { email: row.email, name: row.name, role: row.role };
+		if (row.accepted) entry.members.push({ ...person, you: row.you });
+		else entry.invited.push(person);
+	}
+	const apps = await db.execute<{ folder_id: string; app: string }>(sql`
+		select folder_id, app from folder_app
+		where folder_id in (${ids})
+		order by created_at, app
+	`);
+	for (const row of apps.rows) out.get(row.folder_id)?.apps.push(row.app);
+	return out;
 }
 
-/** Why a grant could not be made or revoked. */
-export const GrantError = defineErrors({
+/**
+ * The shares waiting for `accountId` that `app` reaches (null: every one):
+ * a share of a folder attached to the app shows in it.
+ */
+export async function pendingShares(
+	db: Runner,
+	{ accountId, app }: { accountId: string; app: string | null },
+): Promise<Omit<PendingShare, 'title'>[]> {
+	const { rows } = await db.execute<{
+		folder: string;
+		role: FolderRole;
+		from_email: string | null;
+		from_name: string | null;
+	}>(sql`
+		select m.folder_id as folder, m.role,
+		       u.email as from_email, u.name as from_name
+		from folder_member m
+		left join "user" u on u.id = m.shared_by
+		where m.account_id = ${accountId}
+		  and m.accepted_at is null
+		  and (${app}::text is null or exists (
+		    select 1 from folder_app a where a.folder_id = m.folder_id and a.app = ${app}
+		  ))
+		order by m.created_at, m.folder_id
+	`);
+	return rows.map((row) => ({
+		folder: row.folder,
+		role: row.role,
+		from:
+			row.from_email === null
+				? null
+				: { email: row.from_email, name: row.from_name ?? '' },
+	}));
+}
+
+/** Why sharing could not be done or undone. */
+export const ShareError = defineErrors({
 	UnknownPerson: ({ person }: { person: string }) => ({
-		message: `No person has the handle ${person}.`,
+		message: `No one signs in to Epicenter as ${person}.`,
 		person,
 	}),
-	Member: ({ person }: { person: string }) => ({
-		message: `${person} is a member of the repository's namespace already; a grant is for someone outside it.`,
+	NotMember: ({ person }: { person: string }) => ({
+		message: `${person} does not hold that folder and no share of it waits for them.`,
 		person,
+	}),
+	LastOwner: () => ({
+		message:
+			'A folder keeps at least one owner while others hold it: make someone else an owner first.',
+	}),
+	NotYours: () => ({
+		message:
+			"Only the folder's owners may share it, or change or remove another member.",
 	}),
 });
-export type GrantError = InferErrors<typeof GrantError>;
+export type ShareError = InferErrors<typeof ShareError>;
 
-/** The account whose handle (personal namespace id) is `person`. */
-async function personOf(
-	tx: Pick<Db, 'execute'>,
-	person: string,
-): Promise<string | undefined> {
-	if (!isNamespaceId(person)) return undefined;
-	const { rows } = await tx.execute<{ account_id: string }>(sql`
-		select personal_account_id as account_id from namespace
-		where id = ${person} and personal_account_id is not null
+/** The account that signs in as `email`, compared without case. */
+async function accountOf(db: Runner, email: string) {
+	const { rows } = await db.execute<{ id: string }>(sql`
+		select id from "user" where lower(email) = lower(${email})
 	`);
-	return rows[0]?.account_id;
+	return rows[0]?.id;
 }
 
 /**
- * Let `person` (a handle) `level` the repository `repositoryId` in
- * `namespaceId`, replacing any grant they had. The caller has decided the
- * account may `manage` it. A member of the namespace already has a role
- * there, so granting them is refused rather than silently ignored.
+ * Share `folder` with the person who signs in as `email`, as `role`, from
+ * `by`, who owns it. A person who holds it already has their role changed;
+ * anyone else gets a share that waits for them to accept it. Answers whether
+ * the share waits.
  */
-export async function grantRepository(
+export async function shareFolder(
 	db: Db,
 	{
-		repositoryId,
-		namespaceId,
-		person,
-		level,
-	}: {
-		repositoryId: string;
-		namespaceId: string;
-		person: string;
-		level: GrantLevel;
-	},
-): Promise<Result<RepositoryGrant, GrantError>> {
+		folder,
+		by,
+		email,
+		role,
+	}: { folder: string; by: string; email: string; role: FolderRole },
+): Promise<Result<{ pending: boolean }, ShareError>> {
 	return db.transaction(async (tx) => {
-		const accountId = await personOf(tx, person);
-		if (accountId === undefined) return GrantError.UnknownPerson({ person });
-		if ((await roleIn(tx, accountId, namespaceId)) !== undefined)
-			return GrantError.Member({ person });
-		await tx.execute(sql`
-			insert into repository_grant (repository_id, account_id, level)
-			values (${repositoryId}, ${accountId}, ${level})
-			on conflict (repository_id, account_id)
-			do update set level = excluded.level
+		const accountId = await accountOf(tx, email);
+		if (accountId === undefined)
+			return ShareError.UnknownPerson({ person: email });
+		const { rows } = await tx.execute<{
+			accepted: boolean;
+			role: FolderRole;
+		}>(sql`
+			select accepted_at is not null as accepted, role from folder_member
+			where folder_id = ${folder} and account_id = ${accountId}
+			for update
 		`);
-		return Ok({ person, level });
+		const held = rows[0];
+		if (held === undefined) {
+			await tx.execute(sql`
+				insert into folder_member (folder_id, account_id, role, shared_by)
+				values (${folder}, ${accountId}, ${role}, ${by})
+			`);
+			return Ok({ pending: true });
+		}
+		if (held.accepted && held.role === 'owner' && role !== 'owner') {
+			const owners = await tx.execute(sql`
+				select 1 from folder_member
+				where folder_id = ${folder} and role = 'owner'
+				  and accepted_at is not null and account_id <> ${accountId}
+			`);
+			if (owners.rows.length === 0) return ShareError.LastOwner();
+		}
+		await tx.execute(sql`
+			update folder_member set role = ${role}
+			where folder_id = ${folder} and account_id = ${accountId}
+		`);
+		return Ok({ pending: !held.accepted });
 	});
 }
 
-/** Revoke `person`'s grant on `repositoryId`; `false` when they had none. */
-export async function revokeRepositoryGrant(
+/**
+ * Take the person who signs in as `email` out of `folder`: a member, or a
+ * share that waits for them. `byOwner` says whether the caller owns the
+ * folder; anyone else may only take themselves out (`accountId`). Answers
+ * whether the folder is gone with them: the last member took it along.
+ */
+export async function removeMember(
 	db: Db,
-	{ repositoryId, person }: { repositoryId: string; person: string },
-): Promise<Result<boolean, GrantError>> {
-	const accountId = await personOf(db, person);
-	if (accountId === undefined) return GrantError.UnknownPerson({ person });
-	const { rows } = await db.execute<{ account_id: string }>(sql`
-		delete from repository_grant
-		where repository_id = ${repositoryId} and account_id = ${accountId}
-		returning account_id
+	{
+		folder,
+		accountId,
+		byOwner,
+		email,
+	}: { folder: string; accountId: string; byOwner: boolean; email: string },
+): Promise<Result<{ folderGone: boolean }, ShareError>> {
+	const target = await accountOf(db, email);
+	if (target === undefined) return ShareError.UnknownPerson({ person: email });
+	if (target !== accountId && !byOwner) return ShareError.NotYours();
+	const { rows } = await db.execute(sql`
+		delete from folder_member
+		where folder_id = ${folder} and account_id = ${target}
+		returning 1
 	`);
-	return Ok(rows.length > 0);
+	if (rows.length === 0) return ShareError.NotMember({ person: email });
+	return Ok({ folderGone: !(await folderExists(db, folder)) });
 }
 
-/** Every grant on `repositoryId`, by handle, in the order granted. */
-export async function listRepositoryGrants(
-	db: Db,
-	repositoryId: string,
-): Promise<RepositoryGrant[]> {
-	const { rows } = await db.execute<RepositoryGrant>(sql`
-		select n.id as person, g.level
-		from repository_grant g
-		join namespace n on n.personal_account_id = g.account_id
-		where g.repository_id = ${repositoryId}
-		order by g.created_at, n.id
+/** Accept the share of `folder` waiting for `accountId`: false when none waits. */
+export async function acceptShare(
+	db: Runner,
+	{ folder, accountId }: { folder: string; accountId: string },
+): Promise<boolean> {
+	const { rows } = await db.execute(sql`
+		update folder_member set accepted_at = now()
+		where folder_id = ${folder} and account_id = ${accountId}
+		  and accepted_at is null
+		returning 1
 	`);
-	return rows.map(({ person, level }) => ({ person, level }));
+	return rows.length > 0;
+}
+
+/** Attach `folder` to `app`, or detach it; answers whether anything changed. */
+export async function setAttached(
+	db: Runner,
+	{ folder, app, attached }: { folder: string; app: string; attached: boolean },
+): Promise<boolean> {
+	const { rows } = attached
+		? await db.execute(sql`
+				insert into folder_app (folder_id, app) values (${folder}, ${app})
+				on conflict do nothing returning 1
+			`)
+		: await db.execute(sql`
+				delete from folder_app where folder_id = ${folder} and app = ${app}
+				returning 1
+			`);
+	return rows.length > 0;
 }

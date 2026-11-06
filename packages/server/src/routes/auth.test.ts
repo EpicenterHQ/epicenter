@@ -94,7 +94,7 @@ test("each audience's metadata lists its own scopes, on its own host", async () 
 	expect((await git.json()) as object).toEqual({
 		resource: 'https://git.example.test',
 		authorization_servers: [`${origin}/auth`],
-		scopes_supported: ['folders:read', 'folders:write'],
+		scopes_supported: ['folders:read', 'folders:write', 'folders:all'],
 		bearer_methods_supported: ['header'],
 	});
 });

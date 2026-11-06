@@ -180,17 +180,6 @@ pub fn relative_path(host: &str) -> Result<PathBuf, FolderNameError> {
     }
 }
 
-/// The repository name for a site's host.
-pub fn repository_name(host: &str) -> Result<String, FolderNameError> {
-    relative_path(host)?;
-    if let Some(label) = host.strip_suffix(".epicenter.so") {
-        if !label.contains('.') {
-            return Ok(label.to_owned());
-        }
-    }
-    Ok(host.to_owned())
-}
-
 /// The app's platform identifier, with `.dev` only for a development build.
 pub fn app_data_identifier(
     host: &str,
@@ -239,7 +228,6 @@ mod tests {
         environment: String,
         host: Option<String>,
         folder: Option<String>,
-        repository: Option<String>,
         app_data: Option<String>,
         error: Option<String>,
     }
@@ -269,7 +257,6 @@ mod tests {
                 relative_path(&host).unwrap(),
                 PathBuf::from(case.folder.unwrap())
             );
-            assert_eq!(repository_name(&host).unwrap(), case.repository.unwrap());
             assert_eq!(
                 app_data_identifier(&host, environment).unwrap(),
                 case.app_data.unwrap()

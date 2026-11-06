@@ -9,7 +9,7 @@
  *
  * The resource check runs in this process against the same database, the way
  * every resource will run it, and a real access token reaches each entry's own
- * resource over HTTP: the repository listing. Each entry writes its own first-party registrations: the Bun entry at boot, the
+ * resource over HTTP: the folder listing. Each entry writes its own first-party registrations: the Bun entry at boot, the
  * Worker before its first authorization-server request, and concurrent writes
  * agree. Requires initdb and pg_ctl on PATH; never connects to a configured
  * database and never deploys.
@@ -20,12 +20,12 @@ import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import {
+	type FolderListing,
 	PRODUCTION_API_URL,
-	type RepositoryListing,
 	resolveOAuthAudiences,
 } from '@epicenter/definition/site';
 import {
-	authorizeResourceRequest,
+	authorizeAccountRequest,
 	createDb,
 	firstPartyClientRow,
 	type OAuthAudiences,
@@ -41,8 +41,8 @@ import {
 	startDisposablePostgres,
 } from '../../packages/server/src/test-helpers/disposable-postgres.js';
 import {
+	checkConsent,
 	checkFlows,
-	checkGrantTarget,
 	checkRefreshFamily,
 	checkSilentReauthorization,
 	type OAuthHarness,
@@ -149,18 +149,17 @@ async function harnessFor(
 			const authorization = o.basic
 				? `Basic ${btoa(`x-access-token:${token}`)}`
 				: `Bearer ${token}`;
-			const { data, error } = await authorizeResourceRequest(db, {
+			const { data, error } = await authorizeAccountRequest(db, {
 				token: readAccessToken(authorization),
 				audience: o.audience,
 				scope: o.scope as OAuthScope,
-				namespaceId: o.namespace,
 			});
 			return error
 				? { status: error.status, challenge: error.challenge, body: error.body }
 				: {
 						status: 200,
 						challenge: null,
-						body: { accountId: data.accountId, role: data.role },
+						body: { accountId: data.accountId },
 					};
 		},
 	};
@@ -182,7 +181,7 @@ function checks(
 			60_000,
 		);
 		test('end-to-end flows', () => checkFlows(harness()), 60_000);
-		test('grant target', () => checkGrantTarget(harness()), 60_000);
+		test('consent', () => checkConsent(harness()), 60_000);
 		test(
 			'silent re-authorization',
 			() => checkSilentReauthorization(harness()),
@@ -197,7 +196,7 @@ function checks(
 }
 
 /**
- * One person's Git-audience token lists their repositories; an API-audience
+ * One person's Git-audience token lists their folders; an API-audience
  * token is refused, since the listing is the Git audience's.
  */
 async function checkResourcesOverHttp(h: OAuthHarness) {
@@ -216,14 +215,15 @@ async function checkResourcesOverHttp(h: OAuthHarness) {
 	});
 	const bearer = (token: string) => ({ authorization: `Bearer ${token}` });
 
-	const listing = await fetch(`${client.origin}/api/repos`, {
+	const listing = await fetch(`${client.origin}/api/folders`, {
 		headers: bearer(git.access_token),
 	});
 	expect(listing.status).toBe(200);
-	expect(
-		((await listing.json()) as RepositoryListing).namespaces.map((n) => n.id),
-	).toEqual([person.personal]);
-	const wrongAudience = await fetch(`${client.origin}/api/repos`, {
+	expect((await listing.json()) as FolderListing).toEqual({
+		folders: [],
+		pending: [],
+	});
+	const wrongAudience = await fetch(`${client.origin}/api/folders`, {
 		headers: bearer(api.access_token),
 	});
 	expect(wrongAudience.status).toBe(401);

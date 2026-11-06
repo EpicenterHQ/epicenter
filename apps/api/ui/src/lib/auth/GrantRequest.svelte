@@ -1,27 +1,13 @@
 <!--
-	What an app is asking for, and which folders it may reach, on the consent
-	page, which also approves device codes (ADR-0549). The folder choice is the
-	grant's target: "All folders", "Personal", or one group.
+	What an app is asking for, on the consent page, which also approves device
+	codes (ADR-0549). Which folders a grant reaches is its scopes: an app
+	reaches the folders attached to it, and only `folders:all` reaches every
+	folder (ADR-0811).
 -->
 <script lang="ts">
-	import { Label } from '@epicenter/ui/label';
-	import * as RadioGroup from '@epicenter/ui/radio-group';
-	import {
-		describeScopes,
-		type GrantTargetOption,
-	} from './oauth-request';
+	import { describeScopes } from './oauth-request';
 
-	let {
-		scopes,
-		options,
-		target = $bindable(''),
-		disabled = false,
-	}: {
-		scopes: readonly string[];
-		options: readonly GrantTargetOption[];
-		target?: string;
-		disabled?: boolean;
-	} = $props();
+	let { scopes }: { scopes: readonly string[] } = $props();
 
 	const lines = $derived(describeScopes(scopes));
 </script>
@@ -31,14 +17,3 @@
 		{#each lines as line (line)}<li>{line}</li>{/each}
 	</ul>
 {/if}
-<fieldset class="flex flex-col gap-2" {disabled}>
-	<legend class="mb-2 text-sm font-medium">Which folders can it reach?</legend>
-	<RadioGroup.Root bind:value={target}>
-		{#each options as option (option.target)}
-			<div class="flex items-center gap-3">
-				<RadioGroup.Item value={option.target} id={`target-${option.target}`} />
-				<Label for={`target-${option.target}`}>{option.label}</Label>
-			</div>
-		{/each}
-	</RadioGroup.Root>
-</fieldset>

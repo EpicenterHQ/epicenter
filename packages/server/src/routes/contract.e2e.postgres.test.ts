@@ -49,7 +49,8 @@ let pool: Pool;
 let client: OAuthTestClient;
 let owner: { person: Person; token: string };
 let member: { person: Person; token: string };
-let group: string;
+/** The folder the owner shares with the member, attached to the recorder. */
+let shared: string;
 
 beforeAll(async () => {
 	box = await createGitSandbox(
@@ -129,11 +130,31 @@ beforeAll(async () => {
 	};
 	owner = await signedIn('owner');
 	member = await signedIn('member');
-	group = await client.group(owner.person, 'Studio', 'owner');
-	await sql.query(
-		'insert into namespace_member (namespace_id, account_id, role) values ($1, $2, $3)',
-		[group, member.person.id, 'member'],
+	const json = (token: string, method: string, body?: unknown) => ({
+		method,
+		headers: {
+			authorization: `Bearer ${token}`,
+			'content-type': 'application/json',
+		},
+		body: body === undefined ? undefined : JSON.stringify(body),
+	});
+	// The recorder's first sync makes its folder; the owner shares it, and the
+	// member accepts.
+	const made = await fetch(
+		`${audiences.git}/folders`,
+		json(owner.token, 'POST', {}),
 	);
+	shared = ((await made.json()) as { folder: string }).folder;
+	const invited = await fetch(
+		`${origin}/api/folders/${shared}/members/${encodeURIComponent(member.person.email)}`,
+		json(owner.token, 'PUT', { role: 'writer' }),
+	);
+	if (invited.status !== 200) throw new Error(await invited.text());
+	const accepted = await fetch(
+		`${origin}/api/folders/${shared}/accept`,
+		json(member.token, 'POST'),
+	);
+	if (accepted.status !== 200) throw new Error(await accepted.text());
 }, 120_000);
 
 afterAll(async () => {
@@ -152,41 +173,13 @@ const sha256 = (bytes: Uint8Array) =>
 	createHash('sha256').update(bytes).digest('hex');
 
 /**
- * A web client of one repository, as a folder's repository is: every request
- * with the account's token, the sync routes at its folder's id, and Git LFS
- * at its Git remote.
+ * A web client of one folder: every request with the account's token, the
+ * sync routes at its id, and Git LFS at its Git remote.
  */
-function webClient(token: string, namespace: string, name: string) {
-	const repo = `${audiences.git}/${namespace}/${name}.git`;
+function webClient(token: string, folder: string) {
+	const repo = `${audiences.git}/folders/${folder}.git`;
 	const auth = { authorization: `Bearer ${token}` };
-	let folder: string | undefined;
-	/** The repository's folder id: the caller's own folder of `name` for `~`, else the repository a writing request made. */
-	async function folderOf() {
-		if (folder !== undefined) return folder;
-		if (namespace === '~') {
-			const minted = await fetch(`${audiences.git}/folders`, {
-				method: 'POST',
-				headers: { ...auth, 'content-type': 'application/json' },
-				body: JSON.stringify({ name }),
-			});
-			folder = ((await minted.json()) as { folder: string }).folder;
-			return folder;
-		}
-		// An LFS upload batch is a writing request: it makes the repository.
-		await fetch(`${repo}/info/lfs/objects/batch`, {
-			method: 'POST',
-			headers: { ...auth, 'content-type': 'application/vnd.git-lfs+json' },
-			body: JSON.stringify({ operation: 'upload', objects: [] }),
-		});
-		const { rows } = await sql.query<{ id: string }>(
-			'select id from repository where namespace_id = $1 and name = $2',
-			[namespace, name],
-		);
-		folder = rows[0]?.id;
-		if (folder === undefined)
-			throw new Error(`no repository ${namespace}/${name}`);
-		return folder;
-	}
+	const folderOf = async () => folder;
 	return {
 		repo,
 		folderOf,
@@ -314,7 +307,7 @@ describe('the file contract on the local server', () => {
 	let first: Receipt;
 
 	test('a web capture (note plus audio) is one commit, and a resend has moved, landing nothing', async () => {
-		web = webClient(owner.token, group, 'whispering');
+		web = webClient(owner.token, shared);
 		const before = await web.write(
 			capture('a', { oid: sha256(audio), size: audio.length }),
 		);
@@ -639,37 +632,9 @@ describe('the file contract on the local server', () => {
 			).trim(),
 		).toBe(main);
 	}, 60_000);
-
-	test("`~` names the caller's personal namespace (decision 46)", async () => {
-		const mine = webClient(owner.token, '~', 'whispering');
-		const written = await mine.write({
-			files: [{ path: 'notes/mine.md', expect: null, text: 'mine\n' }],
-		});
-		expect(written.status).toBe(200);
-		const dir = await desktop(
-			owner.token,
-			`${audiences.git}/${owner.person.personal}/whispering.git`,
-		);
-		expect(await Bun.file(join(dir, 'notes/mine.md')).text()).toBe('mine\n');
-		// The member's `~` is their own namespace, where this repository is not.
-		const theirs = webClient(member.token, '~', 'whispering');
-		expect(await theirs.folderOf()).not.toBe(await mine.folderOf());
-		const listed = await fetch(
-			`${audiences.git}/folders/${await theirs.folderOf()}/changes`,
-			{ headers: { authorization: `Bearer ${member.token}` } },
-		);
-		expect((await listed.json()) as unknown).toEqual({
-			commit: null,
-			paths: null,
-		});
-	}, 60_000);
 });
 
-/** The group repository's bare directory on the server. */
+/** The shared folder's bare repository on the server. */
 async function gitDirOf() {
-	const { rows } = await sql.query<{ id: string }>(
-		"select id from repository where namespace_id = $1 and name = 'whispering'",
-		[group],
-	);
-	return join(box.root, 'git-store', `${rows[0]?.id}.git`);
+	return join(box.root, 'git-store', `${shared}.git`);
 }

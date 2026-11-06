@@ -9,7 +9,6 @@ import {
 	hostFromIdentifier,
 	hostFromSiteUrl,
 	relativeFolderPath,
-	repositoryName,
 } from './app-names.js';
 
 const rules = JSON.parse(
@@ -20,7 +19,6 @@ const rules = JSON.parse(
 		environment: AppEnvironment;
 		host: string;
 		folder: string;
-		repository: string;
 		appData: string;
 	}[];
 	refused: {
@@ -36,7 +34,6 @@ test.each(rules.cases)('names $identifier', (entry) => {
 	);
 	expect(hostFromSiteUrl(`https://${entry.host}`)).toBe(entry.host);
 	expect(relativeFolderPath(entry.host)).toBe(entry.folder);
-	expect(repositoryName(entry.host)).toBe(entry.repository);
 	expect(appDataIdentifier(entry.host, entry.environment)).toBe(entry.appData);
 });
 

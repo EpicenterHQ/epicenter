@@ -1,61 +1,13 @@
 import { expect, test } from 'bun:test';
 import {
+	folderRemoteUrl,
+	foldersApiUrl,
 	folderUrl,
 	isFolderId,
-	isRepositoryName,
-	parseRepositoryPath,
-	parseRepositoryUrl,
-	repositoryUrl,
-	toRepositoryName,
-} from './repositories.js';
+	isPersonEmail,
+} from './folders.ts';
 
-test('a directory name becomes a repository name by ADR-0546 rule', () => {
-	expect(toRepositoryName('so.epicenter.todos')).toBe('so.epicenter.todos');
-	expect(toRepositoryName('Demo Books')).toBe('demo-books');
-	expect(toRepositoryName('  _Notes')).toBe('notes');
-	expect(toRepositoryName('Café')).toBe('caf-');
-	expect(toRepositoryName('backup.git')).toBe('backup');
-	expect(toRepositoryName('...')).toBeUndefined();
-	expect(toRepositoryName('')).toBeUndefined();
-});
-
-test('a stored name is lowercase, starts with a letter or digit, and does not end in .git', () => {
-	expect(isRepositoryName('demo-books')).toBe(true);
-	expect(isRepositoryName('Demo')).toBe(false);
-	expect(isRepositoryName('-demo')).toBe(false);
-	expect(isRepositoryName('demo.git')).toBe(false);
-	expect(isRepositoryName('a'.repeat(101))).toBe(false);
-});
-
-test('a remote names its namespace and repository under the Git audience', () => {
-	const path = { namespace: 'abcdefghij12', name: 'demo-books' };
-	for (const audience of [
-		'https://git.epicenter.so',
-		'http://127.0.0.1:8787/git',
-	]) {
-		const url = repositoryUrl(audience, path);
-		expect(parseRepositoryUrl(audience, url)).toEqual(path);
-	}
-	expect(repositoryUrl('http://127.0.0.1:8787/git', path)).toBe(
-		'http://127.0.0.1:8787/git/abcdefghij12/demo-books.git',
-	);
-	expect(
-		parseRepositoryUrl(
-			'https://git.epicenter.so',
-			'https://example.com/abcdefghij12/demo-books.git',
-		),
-	).toBeUndefined();
-	expect(
-		parseRepositoryUrl(
-			'http://127.0.0.1:8787/git',
-			'http://127.0.0.1:8787/abcdefghij12/demo-books.git',
-		),
-	).toBeUndefined();
-	expect(parseRepositoryPath('abcdefghij12/Demo')).toBeUndefined();
-	expect(parseRepositoryPath('abcdefghij12/demo/x')).toBeUndefined();
-});
-
-test('a folder is addressed by its id under the audience, and minted at the folders address', () => {
+test('a folder is addressed by its id under the audience, and joined or made at the folders address', () => {
 	expect(isFolderId('abcdefgh01234567')).toBe(true);
 	expect(isFolderId('ABCDEFGH01234567')).toBe(false);
 	expect(isFolderId('abc')).toBe(false);
@@ -63,4 +15,30 @@ test('a folder is addressed by its id under the audience, and minted at the fold
 		'https://g.example/folders/abcdefgh01234567',
 	);
 	expect(folderUrl('https://g.example')).toBe('https://g.example/folders');
+	expect(folderRemoteUrl('http://127.0.0.1:8787/git', 'abcdefgh01234567')).toBe(
+		'http://127.0.0.1:8787/git/folders/abcdefgh01234567.git',
+	);
+});
+
+test('the folder routes on the API encode each segment', () => {
+	expect(foldersApiUrl('https://api.example/')).toBe(
+		'https://api.example/api/folders',
+	);
+	expect(
+		foldersApiUrl(
+			'https://api.example',
+			'abcdefgh01234567',
+			'members',
+			'jess+a@example.com',
+		),
+	).toBe(
+		'https://api.example/api/folders/abcdefgh01234567/members/jess%2Ba%40example.com',
+	);
+});
+
+test('a person is named by an email address', () => {
+	expect(isPersonEmail('jess@example.com')).toBe(true);
+	expect(isPersonEmail('jess')).toBe(false);
+	expect(isPersonEmail('a/b@example.com')).toBe(false);
+	expect(isPersonEmail('a b@example.com')).toBe(false);
 });

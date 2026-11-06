@@ -49,6 +49,10 @@ export function deviceAuthorizeUrl(userCode: string) {
 const SCOPE_COPY = new Map([
 	['folders:read', 'Read your folders'],
 	['folders:write', 'Change your folders'],
+	[
+		'folders:all',
+		'Reach every folder you have, not only the ones you use with it',
+	],
 	['ai', 'Use Epicenter AI on your plan'],
 	['profile', 'See your name, plan, and usage'],
 	['email', 'See your email address'],
@@ -62,9 +66,6 @@ export function describeScopes(scopes: readonly string[]): string[] {
 		return copy ? [copy] : [];
 	});
 }
-
-/** One choice on the folder picker, as `/auth/grant-target/options` lists it. */
-export type GrantTargetOption = { target: string; label: string };
 
 /** The app as the server describes it publicly. */
 export type PublicClient = {
@@ -84,14 +85,6 @@ export async function readJson<T>(response: Response, fallback: string) {
 	return body;
 }
 
-/** The folder choices for the signed-in person. */
-export async function fetchGrantTargets(): Promise<GrantTargetOption[]> {
-	return readJson<GrantTargetOption[]>(
-		await fetch('/auth/grant-target/options', { credentials: 'include' }),
-		'Could not load your folders.',
-	);
-}
-
 /** The app's public name, for the consent page. */
 export async function fetchPublicClient(clientId: string) {
 	return readJson<PublicClient>(
@@ -100,18 +93,5 @@ export async function fetchPublicClient(clientId: string) {
 			{ credentials: 'include' },
 		),
 		'Could not load the app.',
-	);
-}
-
-/** Stage the folder choice for the consent that follows, a device code's included. */
-export async function selectGrantTarget(target: string, clientId: string) {
-	await readJson(
-		await fetch('/auth/grant-target/select', {
-			method: 'POST',
-			credentials: 'include',
-			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({ target, client_id: clientId }),
-		}),
-		'Could not save your folder choice.',
 	);
 }

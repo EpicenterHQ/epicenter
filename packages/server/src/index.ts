@@ -32,7 +32,8 @@ export {
 	registerFirstPartyClients,
 } from './auth/oauth-registrations.js';
 export {
-	authorizeResourceRequest,
+	authorizeAccountRequest,
+	authorizeFolderRequest,
 	type ResourceRefusal,
 	readAccessToken,
 } from './auth/resource-access.js';
@@ -75,8 +76,8 @@ export {
 	databaseGitAccess,
 	type GitAccess,
 	type GitHost,
+	type JoinRefusal,
 	mountGitHost,
-	type RepositoryAccess,
 } from './routes/git.js';
 export { mountInferenceApp } from './routes/inference.js';
 export { RECEIVE_LIMITS, type ReceiveLimits } from './routes/receive.js';

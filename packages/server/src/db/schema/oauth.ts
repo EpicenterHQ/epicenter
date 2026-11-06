@@ -4,9 +4,9 @@
  * grant. Regenerate with `bun run auth:generate:remote` and move the OAuth
  * models here.
  *
- * Tokens are stored as SHA-256 hashes, never as the token. `reference_id` on a
- * token, a consent, or an approved device code is its grant target (`*` or
- * `ns:<id>`).
+ * Tokens are stored as SHA-256 hashes, never as the token. Which folders a
+ * token reaches is its scopes (`folders:all`) and the apps folders are
+ * attached to (ADR-0811); `reference_id` is unused.
  */
 import {
 	boolean,

@@ -129,6 +129,8 @@ export function buildFirstPartyClients(origin: string): FirstPartyClient[] {
 		...NATIVE_APPS.map((app) => nativeClient(app, audiences.api)),
 		// The desktop app signs in through a loopback redirect on any port
 		// (RFC 8252), and holds the only refresh token a first-party app keeps.
+		// It is the platform: it reaches every folder its person holds
+		// (`folders:all`), where an app reaches the folders attached to it.
 		{
 			clientId: 'so.epicenter',
 			name: 'Epicenter',
@@ -141,6 +143,7 @@ export function buildFirstPartyClients(origin: string): FirstPartyClient[] {
 				'ai',
 				'folders:read',
 				'folders:write',
+				'folders:all',
 			],
 			resources: firstPartyResources,
 			skipConsent: true,
@@ -158,6 +161,7 @@ export function buildFirstPartyClients(origin: string): FirstPartyClient[] {
 			],
 			// `openid` lets `epicenter auth status` read who approved the grant
 			// from userinfo; the client still gets no ID token, being public.
+			// Like the Epicenter app, it reaches every folder (`folders:all`).
 			scopes: [
 				'openid',
 				'offline_access',
@@ -165,6 +169,7 @@ export function buildFirstPartyClients(origin: string): FirstPartyClient[] {
 				'ai',
 				'folders:read',
 				'folders:write',
+				'folders:all',
 			],
 			resources: firstPartyResources,
 			skipConsent: false,

@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
+import { newFolderId } from './folders.js';
 import {
 	commitObject,
 	type GitObjects,
@@ -11,7 +12,6 @@ import {
 } from './git/objects.js';
 import { writePack } from './git/pack.js';
 import { createDiskGitHost, repositoryPath } from './git-disk-store.js';
-import { newRepositoryId } from './repositories.js';
 import {
 	createGitSandbox,
 	type GitSandbox,
@@ -28,7 +28,7 @@ afterAll(async () => {
 });
 
 async function fresh(): Promise<{ id: string; objects: GitObjects }> {
-	const id = newRepositoryId();
+	const id = newFolderId();
 	await host.create(id);
 	const objects = host.objects(id);
 	return { id, objects };

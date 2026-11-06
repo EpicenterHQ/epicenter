@@ -39,6 +39,8 @@ const REMOTE = 'https://acct.artifacts.cloudflare.net/git/ns/repo1.git';
 const A = 'a'.repeat(40);
 const B = 'b'.repeat(40);
 const C = 'c'.repeat(40);
+/** The folder the push names; the stub access holds it. */
+const FOLDER = 'notes00000000000';
 
 type Packed = ReturnType<typeof makeObject>;
 
@@ -140,22 +142,20 @@ function receiverOver(
 	}) as unknown as typeof fetch;
 
 	const access: GitAccess = {
-		async authorize(_c, { namespaceId }) {
+		async authorize(_c, { folder }) {
 			return {
 				data: {
 					accountId: 'owner',
 					role: 'owner',
-					namespaceId,
-					repository: { id: 'repo1' },
+					clientId: 'so.epicenter',
+					folder,
+					app: null,
 				},
 				error: null,
 			};
 		},
-		async create() {
-			return { id: 'repo1' };
-		},
-		async locate() {
-			return null;
+		async join() {
+			return { data: { folder: FOLDER, made: false }, error: null };
 		},
 	};
 	const app = new Hono<CloudEnv>();
@@ -181,7 +181,7 @@ function receiverOver(
 			writePack([next, ...more]),
 		] as BlobPart[]);
 		const response = await app.request(
-			'http://localhost:8787/git/~/notes.git/git-receive-pack',
+			`http://localhost:8787/git/folders/${FOLDER}.git/git-receive-pack`,
 			{
 				method: 'POST',
 				headers: {

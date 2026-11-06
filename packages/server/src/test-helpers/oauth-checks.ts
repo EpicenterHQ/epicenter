@@ -21,10 +21,10 @@ export type ResourceAnswer = {
 export type OAuthHarness = {
 	client: OAuthTestClient;
 	audiences: OAuthAudiences;
-	/** The resource check for one request. */
+	/** The resource check for one request on the person's account. */
 	resource(
 		token: string,
-		o: { audience: string; scope: string; namespace: string; basic?: boolean },
+		o: { audience: string; scope: string; basic?: boolean },
 	): Promise<ResourceAnswer>;
 	desktop: { clientId: string; redirectUri: string };
 	browser: { clientId: string; redirectUri: string };
@@ -38,12 +38,11 @@ const sql = (h: OAuthHarness) => h.client.db;
 async function tokenRow(h: OAuthHarness, accessToken: string) {
 	const hash = await hashPrefixedToken(accessToken, TOKEN_PREFIX.access);
 	const { rows } = await sql(h).query<{
-		reference_id: string | null;
 		session_id: string | null;
 		authorization_code_id: string | null;
 		expires_at: Date;
 	}>(
-		'select reference_id, session_id, authorization_code_id, expires_at from oauth_access_token where token = $1',
+		'select session_id, authorization_code_id, expires_at from oauth_access_token where token = $1',
 		[hash],
 	);
 	return rows[0];
@@ -53,12 +52,11 @@ async function refreshRow(h: OAuthHarness, refreshToken: string) {
 	const hash = await hashPrefixedToken(refreshToken, TOKEN_PREFIX.refresh);
 	const { rows } = await sql(h).query<{
 		id: string;
-		reference_id: string | null;
 		session_id: string | null;
 		authorization_code_id: string | null;
 		expires_at: Date;
 	}>(
-		'select id, reference_id, session_id, authorization_code_id, expires_at from oauth_refresh_token where token = $1',
+		'select id, session_id, authorization_code_id, expires_at from oauth_refresh_token where token = $1',
 		[hash],
 	);
 	return rows[0];
@@ -73,10 +71,9 @@ async function closeReplayWindow(h: OAuthHarness, refreshToken: string) {
 	);
 }
 
-const read = (h: OAuthHarness, ns: string) => ({
+const read = (h: OAuthHarness) => ({
 	audience: h.audiences.git,
 	scope: 'folders:read',
-	namespace: ns,
 });
 
 /**
@@ -96,7 +93,6 @@ export async function checkRefreshFamily(h: OAuthHarness) {
 		const grant = await client.deviceGrant({
 			clientId: h.cli.clientId,
 			cookie: person.cookie,
-			target: '*',
 			resource,
 		});
 		if (!grant.tokens) throw new Error(JSON.stringify(grant.approval));
@@ -157,15 +153,9 @@ export async function checkRefreshFamily(h: OAuthHarness) {
 	expect(replayA.status).toBe(400);
 	expect(replayA.body.error).toBe('invalid_grant');
 	for (const token of [rotatedA.body.access_token, B.access_token])
-		expect((await h.resource(token, read(h, person.personal))).status).toBe(
-			401,
-		);
-	expect(
-		(await h.resource(D1.access_token, read(h, person.personal))).status,
-	).toBe(200);
-	expect(
-		(await h.resource(O.access_token, read(h, other.personal))).status,
-	).toBe(200);
+		expect((await h.resource(token, read(h))).status).toBe(401);
+	expect((await h.resource(D1.access_token, read(h))).status).toBe(200);
+	expect((await h.resource(O.access_token, read(h))).status).toBe(200);
 	expect(await alive()).toEqual({
 		A: false,
 		B: false,
@@ -181,9 +171,7 @@ export async function checkRefreshFamily(h: OAuthHarness) {
 	current.D1.refresh = rotatedD1.body.refresh_token!;
 	await closeReplayWindow(h, oldD1);
 	expect((await client.refresh(h.cli.clientId, oldD1)).status).toBe(400);
-	expect(
-		(await h.resource(D2.access_token, read(h, person.personal))).status,
-	).toBe(401);
+	expect((await h.resource(D2.access_token, read(h))).status).toBe(401);
 	expect(await alive()).toEqual({
 		A: false,
 		B: false,
@@ -196,7 +184,7 @@ export async function checkRefreshFamily(h: OAuthHarness) {
 /**
  * The end-to-end flows of checks 2 and 4: discovery, opaque prefixed tokens
  * with the ADR's lifetimes, code replay, Bearer and Basic at the resource,
- * audience, scope, and membership, rotation, revocation on the next request,
+ * audience and scope, rotation, revocation on the next request,
  * the device grant, client grant ceilings, offline grants outliving their
  * browser session, and browser grants dying with it.
  */
@@ -214,7 +202,6 @@ export async function checkFlows(h: OAuthHarness) {
 	expect(metadata.grant_types_supported).not.toContain('client_credentials');
 
 	const person = await client.person('flows');
-	const stranger = await client.person('stranger');
 	const resource = [h.audiences.git];
 	const issued = await client.codeGrant({
 		...h.desktop,
@@ -251,34 +238,30 @@ export async function checkFlows(h: OAuthHarness) {
 		const first = await client.token(form);
 		expect(first.status).toBe(200);
 		expect((await client.token(form)).status).toBe(400);
-		expect(
-			(await h.resource(first.body.access_token, read(h, person.personal)))
-				.status,
-		).toBe(401);
+		expect((await h.resource(first.body.access_token, read(h))).status).toBe(
+			401,
+		);
 	}
 
-	// The resource: Bearer and Basic, audience, scope, membership.
-	const owner = await h.resource(issued.access_token, read(h, person.personal));
+	// The resource: Bearer and Basic, audience, scope.
+	const owner = await h.resource(issued.access_token, read(h));
 	expect(owner.status).toBe(200);
-	expect(owner.body).toMatchObject({ accountId: person.id, role: 'owner' });
+	expect(owner.body).toMatchObject({ accountId: person.id });
 	expect(
 		(
 			await h.resource(issued.access_token, {
-				...read(h, person.personal),
+				...read(h),
 				scope: 'folders:write',
 				basic: true,
 			})
 		).status,
 	).toBe(200);
 	const wrongAudience = await h.resource(issued.access_token, {
-		...read(h, person.personal),
+		...read(h),
 		audience: h.audiences.api,
 	});
 	expect(wrongAudience.status).toBe(401);
 	expect(wrongAudience.challenge).toContain('resource_metadata=');
-	expect(
-		(await h.resource(issued.access_token, read(h, stranger.personal))).status,
-	).toBe(403);
 	const readOnly = await client.codeGrant({
 		...h.desktop,
 		cookie: person.cookie,
@@ -286,7 +269,7 @@ export async function checkFlows(h: OAuthHarness) {
 		scope: 'folders:read',
 	});
 	const noWrite = await h.resource(readOnly.access_token, {
-		...read(h, person.personal),
+		...read(h),
 		scope: 'folders:write',
 	});
 	expect(noWrite.status).toBe(403);
@@ -298,10 +281,9 @@ export async function checkFlows(h: OAuthHarness) {
 		issued.refresh_token!,
 	);
 	expect(rotated.status).toBe(200);
-	expect(
-		(await h.resource(rotated.body.access_token, read(h, person.personal)))
-			.status,
-	).toBe(200);
+	expect((await h.resource(rotated.body.access_token, read(h))).status).toBe(
+		200,
+	);
 	expect(
 		await client.revoke(
 			h.desktop.clientId,
@@ -309,10 +291,9 @@ export async function checkFlows(h: OAuthHarness) {
 			'access_token',
 		),
 	).toBe(200);
-	expect(
-		(await h.resource(rotated.body.access_token, read(h, person.personal)))
-			.status,
-	).toBe(401);
+	expect((await h.resource(rotated.body.access_token, read(h))).status).toBe(
+		401,
+	);
 	const again = await client.refresh(
 		h.desktop.clientId,
 		rotated.body.refresh_token!,
@@ -324,10 +305,7 @@ export async function checkFlows(h: OAuthHarness) {
 			'refresh_token',
 		),
 	).toBe(200);
-	expect(
-		(await h.resource(again.body.access_token, read(h, person.personal)))
-			.status,
-	).toBe(401);
+	expect((await h.resource(again.body.access_token, read(h))).status).toBe(401);
 	expect(
 		(await client.refresh(h.desktop.clientId, again.body.refresh_token!))
 			.status,
@@ -341,7 +319,6 @@ export async function checkFlows(h: OAuthHarness) {
 	const device = await client.deviceGrant({
 		clientId: h.cli.clientId,
 		cookie: person.cookie,
-		target: '*',
 		resource,
 	});
 	expect(device.tokens?.access_token.startsWith(TOKEN_PREFIX.access)).toBe(
@@ -360,7 +337,7 @@ export async function checkFlows(h: OAuthHarness) {
 	expect(
 		(
 			await h.resource(device.tokens!.access_token, {
-				...read(h, person.personal),
+				...read(h),
 				scope: 'folders:write',
 			})
 		).status,
@@ -405,18 +382,16 @@ export async function checkFlows(h: OAuthHarness) {
 		person.sessionId,
 		new Date(Date.now() - 60_000),
 	]);
-	expect(
-		(await h.resource(browserGrant.access_token, read(h, person.personal)))
-			.status,
-	).toBe(401);
+	expect((await h.resource(browserGrant.access_token, read(h))).status).toBe(
+		401,
+	);
 	const afterExpiry = await client.refresh(
 		h.desktop.clientId,
 		offline.refresh_token!,
 	);
 	expect(afterExpiry.status).toBe(200);
 	expect(
-		(await h.resource(afterExpiry.body.access_token, read(h, person.personal)))
-			.status,
+		(await h.resource(afterExpiry.body.access_token, read(h))).status,
 	).toBe(200);
 
 	// Signing out deletes the access tokens issued under that session; an
@@ -439,55 +414,32 @@ export async function checkFlows(h: OAuthHarness) {
 			json: {},
 		});
 		expect(signedOut.status).toBe(200);
-		expect(
-			(await h.resource(browserToken.access_token, read(h, leaving.personal)))
-				.status,
-		).toBe(401);
+		expect((await h.resource(browserToken.access_token, read(h))).status).toBe(
+			401,
+		);
 		expect(await tokenRow(h, browserToken.access_token)).toBeUndefined();
-		expect(
-			(await h.resource(desktopGrant.access_token, read(h, leaving.personal)))
-				.status,
-		).toBe(200);
+		expect((await h.resource(desktopGrant.access_token, read(h))).status).toBe(
+			200,
+		);
 		expect(
 			(await client.refresh(h.desktop.clientId, desktopGrant.refresh_token!))
 				.status,
 		).toBe(200);
 	}
-
-	// Removing a member stops that member's tokens at the next request.
-	const group = await client.group(person, 'Studio', 'member');
-	expect(
-		(await h.resource(afterExpiry.body.access_token, read(h, group))).status,
-	).toBe(200);
-	await sql(h).query(
-		'delete from namespace_member where namespace_id = $1 and account_id = $2',
-		[group, person.id],
-	);
-	expect(
-		(await h.resource(afterExpiry.body.access_token, read(h, group))).status,
-	).toBe(403);
 }
 
 /**
- * Check 3: the grant target, chosen on the consent page for an app or a
- * device code, rides every token and the resource enforces it.
+ * Check 3: the consent page. An app that does not skip consent lands there,
+ * and the person's answer is the grant, with no choice of folders: which
+ * folders a token reaches is its scopes and the apps folders are attached
+ * to (ADR-0811). The same page approves a device code, and silent
+ * re-authorization then needs no page.
  */
-export async function checkGrantTarget(h: OAuthHarness) {
+export async function checkConsent(h: OAuthHarness) {
 	const { client } = h;
-	const person = await client.person('target');
-	const group = await client.group(person, 'Family', 'member');
+	const person = await client.person('consent');
 	const resource = [h.audiences.git];
 
-	const options = await client.request('/auth/grant-target/options', {
-		cookie: person.cookie,
-	});
-	expect(await client.json<unknown>(options)).toEqual([
-		{ target: '*', label: 'All folders' },
-		{ target: `ns:${person.personal}`, label: 'Personal' },
-		{ target: `ns:${group}`, label: 'Family' },
-	]);
-
-	// A consent page: no choice is a refusal; the choice lands on every token.
 	const { verifier, challenge } = await pkce();
 	const authorized = await client.authorize({
 		...h.untrusted,
@@ -497,39 +449,10 @@ export async function checkGrantTarget(h: OAuthHarness) {
 	});
 	const consentPage = new URL(authorized.location, client.origin);
 	expect(consentPage.pathname).toBe('/consent');
-	const oauthQuery = consentPage.search.slice(1);
-	expect((await client.consent(person.cookie, oauthQuery)).status).toBe(400);
-	const stranger = await client.person('outsider');
-	expect(
-		(
-			await client.selectTarget(
-				person.cookie,
-				`ns:${stranger.personal}`,
-				h.untrusted.clientId,
-			)
-		).status,
-	).toBe(403);
-	// A choice staged for another app does not reach this one's consent.
-	expect(
-		(
-			await client.selectTarget(
-				person.cookie,
-				`ns:${group}`,
-				h.desktop.clientId,
-			)
-		).status,
-	).toBe(200);
-	expect((await client.consent(person.cookie, oauthQuery)).status).toBe(400);
-	expect(
-		(
-			await client.selectTarget(
-				person.cookie,
-				`ns:${group}`,
-				h.untrusted.clientId,
-			)
-		).status,
-	).toBe(200);
-	const consented = await client.consent(person.cookie, oauthQuery);
+	const consented = await client.consent(
+		person.cookie,
+		consentPage.search.slice(1),
+	);
 	expect(consented.status).toBe(200);
 	const code = new URL(
 		consented.body.url ?? consented.body.redirect_uri ?? '',
@@ -540,39 +463,9 @@ export async function checkGrantTarget(h: OAuthHarness) {
 		verifier,
 		resource,
 	});
-	expect((await tokenRow(h, tokens.access_token))?.reference_id).toBe(
-		`ns:${group}`,
-	);
-	expect((await refreshRow(h, tokens.refresh_token!))?.reference_id).toBe(
-		`ns:${group}`,
-	);
-	expect((await h.resource(tokens.access_token, read(h, group))).status).toBe(
-		200,
-	);
-	const outside = await h.resource(
-		tokens.access_token,
-		read(h, person.personal),
-	);
-	expect(outside.status).toBe(403);
-	expect(outside.body.error).toBe('forbidden');
-	const rotated = await client.refresh(
-		h.untrusted.clientId,
-		tokens.refresh_token!,
-	);
-	expect((await tokenRow(h, rotated.body.access_token))?.reference_id).toBe(
-		`ns:${group}`,
-	);
-	// The consent consumed its choice; the one staged for another app stays
-	// until it expires.
-	const staged = await sql(h).query<{ identifier: string }>(
-		'select identifier from verification where identifier like $1',
-		[`grant-target:consent:${person.sessionId}:%`],
-	);
-	expect(staged.rows.map((row) => row.identifier)).toEqual([
-		`grant-target:consent:${person.sessionId}:${h.desktop.clientId}`,
-	]);
+	expect((await h.resource(tokens.access_token, read(h))).status).toBe(200);
 
-	// Silent re-authorization reuses the consented target.
+	// Silent re-authorization after the consent needs no page.
 	const silent = await pkce();
 	const reauthorized = await client.authorize({
 		...h.untrusted,
@@ -581,83 +474,17 @@ export async function checkGrantTarget(h: OAuthHarness) {
 		resource,
 		prompt: 'none',
 	});
-	const silentCode = new URL(reauthorized.location).searchParams.get('code');
-	expect(silentCode).toBeString();
-	const silentTokens = await client.exchange({
-		...h.untrusted,
-		code: silentCode!,
-		verifier: silent.verifier,
-		resource,
-	});
-	expect((await tokenRow(h, silentTokens.access_token))?.reference_id).toBe(
-		`ns:${group}`,
-	);
+	expect(new URL(reauthorized.location).searchParams.get('code')).toBeString();
 
-	// A first-party app gets `*` without a prompt.
-	const desktop = await client.codeGrant({
-		...h.desktop,
-		cookie: person.cookie,
-		resource,
-	});
-	expect((await tokenRow(h, desktop.access_token))?.reference_id).toBe('*');
-	expect((await h.resource(desktop.access_token, read(h, group))).status).toBe(
-		200,
-	);
-	expect(
-		(await h.resource(desktop.access_token, read(h, person.personal))).status,
-	).toBe(200);
-
-	// A device code is approved only on the consent page, and with no choice
-	// the consent refuses it. The consent's target rides the device grant's
-	// tokens and their refreshes, through the library's own device consent.
-	const unchosen = await client.deviceGrant({
-		clientId: h.cli.clientId,
-		cookie: person.cookie,
-		resource,
-	});
-	expect(unchosen.approval?.status).toBe(400);
+	// A device code is approved on the consent page.
 	const device = await client.deviceGrant({
 		clientId: h.cli.clientId,
 		cookie: person.cookie,
-		target: `ns:${person.personal}`,
 		resource,
 	});
-	const deviceTokens = device.tokens!;
-	expect((await tokenRow(h, deviceTokens.access_token))?.reference_id).toBe(
-		`ns:${person.personal}`,
+	expect((await h.resource(device.tokens!.access_token, read(h))).status).toBe(
+		200,
 	);
-	expect((await refreshRow(h, deviceTokens.refresh_token!))?.reference_id).toBe(
-		`ns:${person.personal}`,
-	);
-	expect(
-		(await h.resource(deviceTokens.access_token, read(h, person.personal)))
-			.status,
-	).toBe(200);
-	expect(
-		(await h.resource(deviceTokens.access_token, read(h, group))).status,
-	).toBe(403);
-	const deviceRotated = await client.refresh(
-		h.cli.clientId,
-		deviceTokens.refresh_token!,
-	);
-	expect(
-		(await tokenRow(h, deviceRotated.body.access_token))?.reference_id,
-	).toBe(`ns:${person.personal}`);
-	const deviceConsent = await sql(h).query<{ reference_id: string }>(
-		'select reference_id from oauth_consent where client_id = $1 and user_id = $2',
-		[h.cli.clientId, person.id],
-	);
-	expect(deviceConsent.rows.map((row) => row.reference_id)).toEqual([
-		`ns:${person.personal}`,
-	]);
-	// The consent consumed the device's staged choice too.
-	expect(
-		(
-			await sql(h).query('select 1 from verification where identifier = $1', [
-				`grant-target:consent:${person.sessionId}:${h.cli.clientId}`,
-			])
-		).rowCount,
-	).toBe(0);
 }
 
 /**
@@ -690,9 +517,7 @@ export async function checkSilentReauthorization(h: OAuthHarness) {
 		resource: [h.audiences.git],
 	});
 	expect(issued.refresh_token).toBeUndefined();
-	expect(
-		(await h.resource(issued.access_token, read(h, person.personal))).status,
-	).toBe(200);
+	expect((await h.resource(issued.access_token, read(h))).status).toBe(200);
 
 	const anonymous = await client.authorize({
 		...h.browser,

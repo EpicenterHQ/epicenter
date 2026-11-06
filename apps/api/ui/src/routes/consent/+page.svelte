@@ -2,9 +2,8 @@
 	The authorization server's consent page (ADR-0549). An app that does not
 	skip consent lands here with the authorization request the server signed,
 	and so does every device code (`user_code`), which only this answer
-	approves. The person picks the folders the grant reaches; the page stages
-	that choice, then answers the consent, and the server redirects to the app
-	or back to the device page.
+	approves. The page answers the consent, and the server redirects to the
+	app or back to the device page.
 -->
 <script lang="ts">
 	import * as Alert from '@epicenter/ui/alert';
@@ -15,18 +14,15 @@
 	import EpicenterMark from '$lib/auth/EpicenterMark.svelte';
 	import GrantRequest from '$lib/auth/GrantRequest.svelte';
 	import {
-		fetchGrantTargets,
 		fetchPublicClient,
 		readJson,
 		readOAuthRequest,
-		selectGrantTarget,
 	} from '$lib/auth/oauth-request';
 
 	const queries = new QueryClient();
 	$effect(() => () => queries.clear());
 	const request = readOAuthRequest(window.location.search);
 	const clientId = request?.clientId ?? null;
-	let target = $state('');
 
 	const details = createQuery(
 		() => ({
@@ -34,11 +30,7 @@
 			enabled: clientId !== null,
 			queryFn: async () => {
 				if (!clientId) throw new Error('Start from the app that sent you here.');
-				const [client, options] = await Promise.all([
-					fetchPublicClient(clientId),
-					fetchGrantTargets(),
-				]);
-				return { client, options };
+				return { client: await fetchPublicClient(clientId) };
 			},
 			retry: false,
 		}),
@@ -50,10 +42,6 @@
 			mutationFn: async (accept: boolean) => {
 				if (!request || !clientId)
 					throw new Error('Start from the app that sent you here.');
-				if (accept) {
-					if (!target) throw new Error('Choose which folders it can reach.');
-					await selectGrantTarget(target, clientId);
-				}
 				const result = await readJson<{ url?: string }>(
 					await fetch('/auth/oauth2/consent', {
 						method: 'POST',
@@ -114,14 +102,9 @@
 					<p class="text-center font-mono text-lg tracking-widest">{userCode}</p>
 					<p class="text-sm">{appName} on another device wants to:</p>
 				{/if}
-				<GrantRequest
-					scopes={request.scopes}
-					options={details.data.options}
-					bind:target
-					disabled={answer.isPending}
-				/>
+				<GrantRequest scopes={request.scopes} />
 				<Button
-					disabled={answer.isPending || !target}
+					disabled={answer.isPending}
 					onclick={() => answer.mutate(true)}
 				>
 					{#if answer.isPending}<Spinner class="size-4" />{/if}

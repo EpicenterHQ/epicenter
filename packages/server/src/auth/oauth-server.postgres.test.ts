@@ -1,7 +1,7 @@
 /**
  * The OAuth 2.1 authorization server (ADR-0549) through the library's own
  * composition, in process, on a disposable Postgres cluster with every
- * migration applied: the spike's refresh lineage, grant target, and silent
+ * migration applied: the spike's refresh lineage, consent, and silent
  * re-authorization checks, the end-to-end flows, the refusal of a client
  * that names a metadata document, the resource check's 401 and 403 answers through a
  * test-only protected route, and the real protected mounts behind
@@ -27,8 +27,8 @@ import { mountInferenceApp } from '../routes/inference.js';
 import { createServerApp } from '../server-app.js';
 import { startDisposablePostgres } from '../test-helpers/disposable-postgres.js';
 import {
+	checkConsent,
 	checkFlows,
-	checkGrantTarget,
 	checkRefreshFamily,
 	checkSilentReauthorization,
 	type OAuthHarness,
@@ -42,7 +42,8 @@ import {
 } from './oauth-policy.js';
 import { registerFirstPartyClients } from './oauth-registrations.js';
 import {
-	authorizeResourceRequest,
+	authorizeAccountRequest,
+	authorizeFolderRequest,
 	readAccessToken,
 } from './resource-access.js';
 
@@ -109,6 +110,7 @@ beforeAll(async () => {
 					'ai',
 					'folders:read',
 					'folders:write',
+					'folders:all',
 				],
 				resources: [audiences.api, audiences.git],
 				skipConsent: true,
@@ -192,12 +194,11 @@ beforeAll(async () => {
 		resolveHost: () => recordingHost,
 	});
 	// Test-only protected route: the resource check, as every resource runs it.
-	app.get('/test/resource/:namespace', async (c) => {
-		const { data, error } = await authorizeResourceRequest(db, {
+	app.get('/test/resource', async (c) => {
+		const { data, error } = await authorizeAccountRequest(db, {
 			token: readAccessToken(c.req.header('authorization')),
 			audience: c.req.query('audience') ?? '',
 			scope: (c.req.query('scope') ?? '') as OAuthScope,
-			namespaceId: c.req.param('namespace'),
 		});
 		if (error)
 			return c.json(error.body, error.status, {
@@ -228,7 +229,7 @@ beforeAll(async () => {
 				? `Basic ${btoa(`x-access-token:${token}`)}`
 				: `Bearer ${token}`;
 			const response = await app.fetch(
-				new Request(`${origin}/test/resource/${o.namespace}?${query}`, {
+				new Request(`${origin}/test/resource?${query}`, {
 					headers: { authorization },
 				}),
 			);
@@ -253,7 +254,7 @@ describe('checks against the library composition on Bun and Postgres', () => {
 		60_000,
 	);
 	test('end-to-end flows', () => checkFlows(harness), 60_000);
-	test('grant target', () => checkGrantTarget(harness), 60_000);
+	test('consent', () => checkConsent(harness), 60_000);
 	test(
 		'silent re-authorization',
 		() => checkSilentReauthorization(harness),
@@ -288,7 +289,6 @@ test('one grant serves the API and Git, in any order of refreshes', async () => 
 	const grant = await client.deviceGrant({
 		clientId: cli.clientId,
 		cookie: person.cookie,
-		target: '*',
 		scope: 'openid offline_access profile ai folders:read folders:write',
 		resource: [audiences.api, audiences.git],
 		redeemFor: audiences.api,
@@ -296,13 +296,7 @@ test('one grant serves the API and Git, in any order of refreshes', async () => 
 	expect(grant.tokens!.scope?.split(' ').sort().join(' ')).toBe(everyScope);
 	let refresh = grant.tokens!.refresh_token!;
 	const at = async (token: string, audience: string, scope: OAuthScope) =>
-		(
-			await harness.resource(token, {
-				audience,
-				scope,
-				namespace: person.personal,
-			})
-		).status;
+		(await harness.resource(token, { audience, scope })).status;
 	for (const [audience, scope] of [
 		[audiences.git, 'folders:write'],
 		[audiences.api, 'ai'],
@@ -334,6 +328,7 @@ test('one grant serves the API and Git, in any order of refreshes', async () => 
 }, 60_000);
 
 describe('the resource check', () => {
+	/** A person, a token from the desktop app, and a folder they hold. */
 	async function issue(scope = 'offline_access folders:read') {
 		const person = await harness.client.person('resource');
 		const tokens = await harness.client.codeGrant({
@@ -342,29 +337,45 @@ describe('the resource check', () => {
 			resource: [audiences.git],
 			scope,
 		});
-		return { person, token: tokens.access_token };
+		const folder = await folderOf(person.id);
+		return { person, token: tokens.access_token, folder };
+	}
+	/** A folder `accountId` holds as `role`, accepted unless `pending`. */
+	async function folderOf(
+		accountId: string,
+		{ role = 'owner', pending = false } = {},
+	) {
+		const id = Array.from(crypto.getRandomValues(new Uint8Array(16)))
+			.map((byte) => 'abcdefghijklmnopqrstuvwxyz0123456789'[byte % 36])
+			.join('');
+		await sqlClient.query('insert into folder (id) values ($1)', [id]);
+		await sqlClient.query(
+			'insert into folder_member (folder_id, account_id, role, accepted_at) values ($1, $2, $3, $4)',
+			[id, accountId, role, pending ? null : new Date()],
+		);
+		return id;
 	}
 	const at = (
 		token: string | null,
-		namespace: string,
+		folder: string,
 		scope: OAuthScope = 'folders:read',
 	) =>
-		authorizeResourceRequest(db, {
+		authorizeFolderRequest(db, {
 			token,
 			audience: audiences.git,
 			scope,
-			namespaceId: namespace,
+			folder,
 		});
 
 	test('answers 401 with resource_metadata for a missing, foreign, unknown, expired, or revoked token', async () => {
-		const { person, token } = await issue();
+		const { token, folder } = await issue();
 		const metadata = `resource_metadata="${origin}/.well-known/oauth-protected-resource/git"`;
 		for (const presented of [
 			null,
 			'not-an-epicenter-token',
 			`${TOKEN_PREFIX.access}unknown`,
 		]) {
-			const { error } = await at(presented, person.personal);
+			const { error } = await at(presented, folder);
 			expect(error?.status).toBe(401);
 			expect(error?.challenge).toBe(
 				`Bearer error="invalid_token", ${metadata}`,
@@ -375,20 +386,18 @@ describe('the resource check', () => {
 			'update oauth_access_token set expires_at = $2 where token = $1',
 			[hash, new Date(Date.now() - 1000)],
 		);
-		expect((await at(token, person.personal)).error?.status).toBe(401);
+		expect((await at(token, folder)).error?.status).toBe(401);
 		const fresh = await issue();
 		await sqlClient.query(
 			'update oauth_access_token set revoked = $2 where token = $1',
 			[await hashPrefixedToken(fresh.token, TOKEN_PREFIX.access), new Date()],
 		);
-		expect((await at(fresh.token, fresh.person.personal)).error?.status).toBe(
-			401,
-		);
-		const foreign = await authorizeResourceRequest(db, {
+		expect((await at(fresh.token, fresh.folder)).error?.status).toBe(401);
+		const foreign = await authorizeFolderRequest(db, {
 			token: (await issue()).token,
 			audience: audiences.api,
 			scope: 'folders:read',
-			namespaceId: person.personal,
+			folder,
 		});
 		expect(foreign.error?.status).toBe(401);
 		expect(foreign.error?.challenge).toContain(
@@ -396,42 +405,48 @@ describe('the resource check', () => {
 		);
 	}, 60_000);
 
-	test('answers 403 for a missing scope, a namespace outside the target, or no membership', async () => {
-		const { person, token } = await issue('offline_access folders:read');
-		const scope = await at(token, person.personal, 'folders:write');
+	test('answers 403 for a missing scope, a folder not held, a share not accepted, or one not attached to the app', async () => {
+		const { person, token, folder } = await issue(
+			'offline_access folders:read folders:all',
+		);
+		const scope = await at(token, folder, 'folders:write');
 		expect(scope.error?.status).toBe(403);
 		expect(scope.error?.body.error).toBe('insufficient_scope');
 		expect(scope.error?.challenge).toContain(
 			'error="insufficient_scope", scope="folders:write"',
 		);
 		const stranger = await harness.client.person('stranger');
-		const membership = await at(token, stranger.personal);
-		expect(membership.error?.status).toBe(403);
-		expect(membership.error?.body.error).toBe('forbidden');
-		expect(membership.error?.challenge).toContain('resource_metadata=');
+		const theirs = await at(token, await folderOf(stranger.id));
+		expect(theirs.error?.status).toBe(403);
+		expect(theirs.error?.body.error).toBe('forbidden');
+		expect(theirs.error?.challenge).toContain('resource_metadata=');
+		// A folder that does not exist is refused the same way.
+		const none = await at(token, 'zzzzzzzzzzzzzzzz');
+		expect(none.error?.body).toEqual(theirs.error?.body);
+		const waiting = await folderOf(person.id, { pending: true });
+		expect((await at(token, waiting)).error?.status).toBe(403);
+		// Without folders:all, a token reaches the folders attached to its app.
+		const app = await issue('offline_access folders:read');
+		const unattached = await at(app.token, app.folder);
+		expect(unattached.error?.status).toBe(403);
+		expect(unattached.error?.body.error_description).toContain('attached');
 		await sqlClient.query(
-			'update oauth_access_token set reference_id = $2 where token = $1',
-			[
-				await hashPrefixedToken(token, TOKEN_PREFIX.access),
-				`ns:${stranger.personal}`,
-			],
+			'insert into folder_app (folder_id, app) values ($1, $2)',
+			[app.folder, desktop.clientId],
 		);
-		const outside = await at(token, person.personal);
-		expect(outside.error?.status).toBe(403);
-		expect(outside.error?.body.error_description).toContain('outside');
-		const ok = await at(token, stranger.personal);
-		expect(ok.error?.status).toBe(403);
+		expect((await at(app.token, app.folder)).error).toBeNull();
 	}, 60_000);
 
-	test('returns the account and its role', async () => {
-		const { person, token } = await issue();
-		const { data } = await at(token, person.personal);
-		expect(data).toEqual({
+	test('returns the account, its role, and what the token reaches', async () => {
+		const { person, token, folder } = await issue(
+			'offline_access folders:read folders:all',
+		);
+		expect((await at(token, folder)).data).toEqual({
 			accountId: person.id,
 			role: 'owner',
 			clientId: desktop.clientId,
-			namespaceId: person.personal,
-			repository: null,
+			folder,
+			app: null,
 		});
 	}, 60_000);
 });
@@ -470,9 +485,9 @@ describe('the protected routes', () => {
 	const inference = (token: string | null) =>
 		call('/v1/chat/completions', token, { method: 'POST', body: {} });
 	/** The first request of a push: the receive-pack advertisement. */
-	const push = (token: string | null, namespace = 'aaaaaaaaaaaa') =>
+	const push = (token: string | null, folder = 'aaaaaaaaaaaaaaaa') =>
 		call(
-			`/git/${namespace}/todos.git/info/refs?service=git-receive-pack`,
+			`/git/folders/${folder}.git/info/refs?service=git-receive-pack`,
 			token,
 		);
 
@@ -502,7 +517,7 @@ describe('the protected routes', () => {
 		// (ADR-0549).
 		expect((await inference(git.token)).status).toBe(401);
 		const api = await browserToken(audiences.api, 'openid profile');
-		expect((await push(api.token, api.person.personal)).status).toBe(401);
+		expect((await push(api.token)).status).toBe(401);
 		const refused = await inference(api.token);
 		expect(refused.status).toBe(403);
 		expect(refused.headers.get('www-authenticate')).toBe(
@@ -510,9 +525,7 @@ describe('the protected routes', () => {
 		);
 		expect(await refused.json()).toMatchObject({ error: 'insufficient_scope' });
 		const readOnly = await browserToken(audiences.git, 'openid folders:read');
-		expect((await push(readOnly.token, readOnly.person.personal)).status).toBe(
-			403,
-		);
+		expect((await push(readOnly.token)).status).toBe(403);
 	}, 60_000);
 
 	test('admit a token for the audience with the scope, as its account', async () => {
@@ -528,26 +541,26 @@ describe('the protected routes', () => {
 			'openid folders:read folders:write',
 		);
 		const before = createdRepositories.length;
-		// The advertisement of a name nobody holds is empty and creates nothing.
-		const advertised = await push(git.token, git.person.personal);
-		expect(advertised.status).toBe(200);
-		expect(createdRepositories.length).toBe(before);
-		// The push itself creates the repository.
+		// A first sync from the app makes its folder, attached to the app.
+		const joined = await call('/git/folders', git.token, {
+			method: 'POST',
+			body: {},
+		});
+		expect(joined.status).toBe(201);
+		const { folder } = (await joined.json()) as { folder: string };
+		expect(createdRepositories.length).toBe(before + 1);
+		expect((await push(git.token, folder)).status).toBe(200);
 		const pushed = await app.fetch(
-			new Request(
-				`${origin}/git/${git.person.personal}/todos.git/git-receive-pack`,
-				{
-					method: 'POST',
-					headers: {
-						authorization: `Bearer ${git.token}`,
-						'content-type': 'application/x-git-receive-pack-request',
-					},
-					body: '0000',
+			new Request(`${origin}/git/folders/${folder}.git/git-receive-pack`, {
+				method: 'POST',
+				headers: {
+					authorization: `Bearer ${git.token}`,
+					'content-type': 'application/x-git-receive-pack-request',
 				},
-			),
+				body: '0000',
+			}),
 		);
 		expect(pushed.status).toBe(200);
-		expect(createdRepositories.length).toBe(before + 1);
 	}, 60_000);
 
 	test('stop admitting a token once it is revoked or its browser session ends', async () => {
@@ -595,12 +608,8 @@ describe('one browser sign-in for the API and Git (decision 65)', () => {
 	const everyScope = 'openid profile ai folders:read folders:write';
 	/** What `createBrowserOAuth` asks for with two resources. */
 	const signInScope = `${everyScope} offline_access`;
-	const at = async (
-		token: string,
-		audience: string,
-		scope: OAuthScope,
-		namespace: string,
-	) => (await harness.resource(token, { audience, scope, namespace })).status;
+	const at = async (token: string, audience: string, scope: OAuthScope) =>
+		(await harness.resource(token, { audience, scope })).status;
 
 	/** One redirect for both audiences; its code, unredeemed. */
 	async function authorizeBoth(label: string) {
@@ -648,15 +657,12 @@ describe('one browser sign-in for the API and Git (decision 65)', () => {
 
 	test('a code for both audiences and one refresh give one token per audience', async () => {
 		const { person, api, git } = await signInBoth('both-audiences');
-		const ns = person.personal;
-		expect(await at(api.access_token, audiences.api, 'ai', ns)).toBe(200);
-		expect(await at(api.access_token, audiences.git, 'folders:read', ns)).toBe(
-			401,
-		);
-		expect(await at(git.access_token, audiences.git, 'folders:write', ns)).toBe(
+		expect(await at(api.access_token, audiences.api, 'ai')).toBe(200);
+		expect(await at(api.access_token, audiences.git, 'folders:read')).toBe(401);
+		expect(await at(git.access_token, audiences.git, 'folders:write')).toBe(
 			200,
 		);
-		expect(await at(git.access_token, audiences.api, 'ai', ns)).toBe(401);
+		expect(await at(git.access_token, audiences.api, 'ai')).toBe(401);
 		// The refresh never narrows the grant: both answers carry all of it.
 		const sorted = (scope?: string) => scope?.split(' ').sort().join(' ');
 		expect(sorted(api.scope)).toBe(sorted(signInScope));
@@ -670,14 +676,7 @@ describe('one browser sign-in for the API and Git (decision 65)', () => {
 		const replay = await redeem(authorized, audiences.git);
 		expect(replay.status).toBe(400);
 		expect(replay.body).toMatchObject({ error: 'invalid_grant' });
-		expect(
-			await at(
-				first.body.access_token,
-				audiences.api,
-				'ai',
-				authorized.person.personal,
-			),
-		).toBe(401);
+		expect(await at(first.body.access_token, audiences.api, 'ai')).toBe(401);
 	}, 60_000);
 
 	test('a token for both audiences is refused at each', async () => {
@@ -685,10 +684,9 @@ describe('one browser sign-in for the API and Git (decision 65)', () => {
 		// Without `resource`, the library issues one token for every bound audience.
 		const both = await redeem(authorized);
 		expect(both.status).toBe(200);
-		const ns = authorized.person.personal;
-		expect(await at(both.body.access_token, audiences.api, 'ai', ns)).toBe(401);
+		expect(await at(both.body.access_token, audiences.api, 'ai')).toBe(401);
 		expect(
-			await at(both.body.access_token, audiences.git, 'folders:read', ns),
+			await at(both.body.access_token, audiences.git, 'folders:read'),
 		).toBe(401);
 	}, 60_000);
 
@@ -735,11 +733,8 @@ describe('one browser sign-in for the API and Git (decision 65)', () => {
 			json: {},
 		});
 		expect(signedOut.status).toBe(200);
-		const ns = person.personal;
-		expect(await at(api.access_token, audiences.api, 'ai', ns)).toBe(401);
-		expect(await at(git.access_token, audiences.git, 'folders:read', ns)).toBe(
-			401,
-		);
+		expect(await at(api.access_token, audiences.api, 'ai')).toBe(401);
+		expect(await at(git.access_token, audiences.git, 'folders:read')).toBe(401);
 		const refreshed = await harness.client.token({
 			grant_type: 'refresh_token',
 			client_id: browser.clientId,

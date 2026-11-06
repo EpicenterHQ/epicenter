@@ -1,8 +1,8 @@
 /**
  * `@epicenter/definition/site`: the names an app's site derives. The app
- * registry (origins, dev ports, OAuth audiences), the folder, repository and
- * data identifier an app takes from its production site (ADR-0722), and the
- * repository name grammar. Every module here is pure and runs in a page, a
+ * registry (origins, dev ports, OAuth audiences), the folder and data
+ * identifier an app takes from its production site (ADR-0722), and a
+ * folder's id and addresses on the server (ADR-0811). Every module here is pure and runs in a page, a
  * Worker and Bun alike; the OS data root, which reads `node:os`, is
  * `@epicenter/definition/site/app-data`.
  *
@@ -20,7 +20,6 @@ export {
 	hostFromSiteUrl,
 	isPersonalFolderName,
 	relativeFolderPath,
-	repositoryName,
 	suggestLibraryLinkName,
 } from './app-names.ts';
 export {
@@ -33,22 +32,17 @@ export {
 	resolveOAuthAudiences,
 } from './apps.ts';
 export {
-	type GrantLevel,
+	FOLDER_ROLES,
+	type FolderListing,
+	type FolderMember,
+	type FolderPerson,
+	type FolderRole,
+	folderRemoteUrl,
+	foldersApiUrl,
 	folderUrl,
 	isFolderId,
-	isNamespaceId,
-	isRepositoryName,
-	type ListedNamespace,
-	type ListedRepository,
-	MAX_REPOSITORY_NAME_LENGTH,
-	parseRepositoryPath,
-	parseRepositoryUrl,
-	type RepositoryGrant,
-	type RepositoryGrantRevoked,
-	type RepositoryGrants,
-	type RepositoryListing,
-	type RepositoryPath,
-	repositoryGrantsUrl,
-	repositoryUrl,
-	toRepositoryName,
-} from './repositories.ts';
+	isPersonEmail,
+	type JoinedFolder,
+	type ListedFolder,
+	type PendingShare,
+} from './folders.ts';

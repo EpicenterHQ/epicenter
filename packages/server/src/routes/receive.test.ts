@@ -6,12 +6,12 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { rm, symlink } from 'node:fs/promises';
 import { join } from 'node:path';
+import { newFolderId } from '../folders.js';
 import { type GitObjects, MAIN, ZERO_OID } from '../git/objects.js';
 import { FLUSH, pktLine } from '../git/pkt.js';
 import { createDiskGitHost, repositoryPath } from '../git-disk-store.js';
 import { createDiskLfsStore } from '../lfs/disk-lfs-store.js';
 import type { LfsStore } from '../lfs/lfs-store.js';
-import { newRepositoryId } from '../repositories.js';
 import {
 	createGitSandbox,
 	type GitSandbox,
@@ -37,7 +37,7 @@ afterAll(async () => {
 });
 
 async function setup() {
-	const id = newRepositoryId();
+	const id = newFolderId();
 	await host.create(id);
 	const objects = host.objects(id);
 	const work = await box.dir('work');

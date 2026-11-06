@@ -1,185 +1,139 @@
 /**
- * The names of hosted repositories (ADR-0546, ADR-0547), shared by the server
- * that resolves them, the `epicenter` CLI that builds remotes from them, and
- * the apps that propose them on Connect.
+ * A folder on the server (ADR-0811), as the server that keeps it, the
+ * `epicenter` CLI, and the apps that sync and share it name it.
  *
- * A hosted folder's remote is `<git audience>/<namespace>/<name>.git`:
+ * A folder is its id: sixteen characters of lowercase a-z and 0-9, minted
+ * by the server at its first sync and kept in its manifest. Its title is in
+ * its `epicenter.json`, which the server reads from its files; the server
+ * keeps no name. Its members are people, each named by the email they sign
+ * in with, any of whom may own it.
  *
- * - `<namespace>` is the owner's id: twelve characters of lowercase a-z and
- *   0-9, Epicenter's own, safe in a URL path segment;
- * - `<name>` is unique within its namespace and lowercase, so two names never
- *   collide on a case-insensitive disk. It holds `a-z`, `0-9`, `.`, `_`, and
- *   `-`, and starts with a letter or digit.
+ * Its addresses under a deployment:
  *
- * Storage never sees either: it names each repository by its immutable id.
- *
- * A person's handle is their personal namespace's id: the owner of
- * `<handle>/<name>`, and whom a grant names. `~` in place of a namespace
- * means the caller's own.
+ * ```txt
+ * <git>/folders                       POST: join the folder named, or make one (join before create)
+ * <git>/folders/<id>/…                sync's routes, in Git's vocabulary
+ * <git>/folders/<id>.git              its history as a Git remote, for plain Git
+ * <api>/api/folders                   the person's folders, and the shares waiting for them
+ * <api>/api/folders/<id>              one folder
+ * <api>/api/folders/<id>/accept       POST: accept a share
+ * <api>/api/folders/<id>/members/<email>   PUT { role } shares or changes a role; DELETE unshares or leaves
+ * <api>/api/folders/<id>/apps/<app>   PUT attaches the folder to an app; DELETE detaches it
+ * ```
  */
-
-/** A namespace id: twelve characters of lowercase a-z and 0-9. */
-const NAMESPACE_ID = /^[a-z0-9]{12}$/;
-
-/** The longest repository name the server accepts. */
-export const MAX_REPOSITORY_NAME_LENGTH = 100;
-
-const REPOSITORY_NAME = new RegExp(
-	`^[a-z0-9][a-z0-9._-]{0,${MAX_REPOSITORY_NAME_LENGTH - 1}}$`,
-);
-
-export function isNamespaceId(value: string): boolean {
-	return NAMESPACE_ID.test(value);
-}
-
-/**
- * Whether `value` is a repository name as stored. A name ending in `.git`
- * is refused, since the remote appends `.git` and Git strips one when it
- * names a clone's directory.
- */
-export function isRepositoryName(value: string): boolean {
-	return REPOSITORY_NAME.test(value) && !value.endsWith('.git');
-}
-
-/**
- * The repository name Connect proposes for a folder's directory name, or
- * `undefined` when nothing usable is left: letters are lowercased, every
- * character outside `a-z`, `0-9`, `.`, `_`, `-` becomes `-`, and leading
- * characters that are not a letter or digit are dropped. `so.epicenter.todos`
- * stays itself; `Demo Books` becomes `demo-books`.
- */
-export function toRepositoryName(directory: string): string | undefined {
-	let name = directory
-		.toLowerCase()
-		.replace(/[^a-z0-9._-]/g, '-')
-		.replace(/^[^a-z0-9]+/, '')
-		.slice(0, MAX_REPOSITORY_NAME_LENGTH);
-	while (name.endsWith('.git')) name = name.slice(0, -'.git'.length);
-	return isRepositoryName(name) ? name : undefined;
-}
-
-/** A repository named by its owner and its name. */
-export type RepositoryPath = { namespace: string; name: string };
-
-/** `<namespace>/<name>`, as `epicenter sync --to` and `epicenter clone` take it, or `undefined`. */
-export function parseRepositoryPath(value: string): RepositoryPath | undefined {
-	const [namespace, name, extra] = value.split('/');
-	if (namespace === undefined || name === undefined || extra !== undefined)
-		return undefined;
-	return isNamespaceId(namespace) && isRepositoryName(name)
-		? { namespace, name }
-		: undefined;
-}
 
 /** A folder's id: sixteen characters of lowercase a-z and 0-9. */
 const FOLDER_ID = /^[a-z0-9]{16}$/;
 
 /**
- * Whether `value` is a folder's id: its repository's id on the server,
- * minted at the folder's first sync (ADR-0810), which its manifest stores.
+ * Whether `value` is a folder's id: minted by the server at the folder's
+ * first sync (ADR-0811), which its manifest stores.
  */
 export function isFolderId(value: string): boolean {
 	return FOLDER_ID.test(value);
 }
 
 /**
+ * Whether `value` can name a person: an email address, which a URL path
+ * segment carries once encoded. The server decides whether anyone has it.
+ */
+export function isPersonEmail(value: string): boolean {
+	return /^[^\s@/]+@[^\s@/]+$/.test(value) && value.length <= 320;
+}
+
+const trimmed = (origin: string) => origin.replace(/\/+$/, '');
+
+/**
  * The address of the folder `folder` under a deployment's Git audience,
  * `<git audience>/folders/<folder>`, where sync reaches its repository: the
  * one place a folder id becomes an address. `folderUrl(audience)` alone is
- * where a new folder is minted.
+ * where a folder is joined or made.
  */
 export function folderUrl(gitAudience: string, folder?: string): string {
-	const folders = `${gitAudience.replace(/\/+$/, '')}/folders`;
+	const folders = `${trimmed(gitAudience)}/folders`;
 	return folder === undefined ? folders : `${folders}/${folder}`;
 }
 
-/** The remote of `<namespace>/<name>` under a deployment's Git audience. */
-export function repositoryUrl(
-	gitAudience: string,
-	{ namespace, name }: RepositoryPath,
-): string {
-	return `${gitAudience.replace(/\/+$/, '')}/${namespace}/${name}.git`;
+/** The folder's history as a Git remote, `<git audience>/folders/<folder>.git`, for `git clone`. */
+export function folderRemoteUrl(gitAudience: string, folder: string): string {
+	return `${folderUrl(gitAudience, folder)}.git`;
 }
 
 /**
- * The repository a remote URL names under `gitAudience`, or `undefined` when
- * the URL is not one of that deployment's hosted repositories.
+ * The folder routes on a deployment's API origin: `<api>/api/folders`, the
+ * folder `folder` below it, and `rest` (such as `members`, an email) below
+ * that, each segment encoded.
  */
-export function parseRepositoryUrl(
-	gitAudience: string,
-	url: string,
-): RepositoryPath | undefined {
-	let target: URL;
-	let audience: URL;
-	try {
-		target = new URL(url);
-		audience = new URL(gitAudience);
-	} catch {
-		return undefined;
-	}
-	if (
-		target.origin !== audience.origin ||
-		target.username !== '' ||
-		target.password !== '' ||
-		target.search !== '' ||
-		target.hash !== ''
-	)
-		return undefined;
-	const prefix = audience.pathname.replace(/\/+$/, '');
-	if (!target.pathname.startsWith(`${prefix}/`)) return undefined;
-	const rest = target.pathname.slice(prefix.length + 1);
-	if (!rest.endsWith('.git')) return undefined;
-	return parseRepositoryPath(rest.slice(0, -'.git'.length));
-}
-
-/** One repository in `GET /api/repos`. */
-export type ListedRepository = {
-	/** The immutable id storage names it by. */
-	id: string;
-	name: string;
-	/** Its remote, `<git audience>/<namespace>/<name>.git`. */
-	url: string;
-};
-
-/** One namespace the caller belongs to in `GET /api/repos`, with its repositories. */
-export type ListedNamespace = {
-	id: string;
-	title: string;
-	/** Whether this is the caller's personal namespace, shown as "Personal". */
-	personal: boolean;
-	role: 'owner' | 'member';
-	repositories: ListedRepository[];
-};
-
-/** The body of `GET /api/repos`: the personal namespace first, then each group by title. */
-export type RepositoryListing = { namespaces: ListedNamespace[] };
-
-/**
- * What a grant lets one person outside a repository's namespace do to it:
- * `read` (clone, fetch, LFS download, reading files), or `write` (also push
- * forward, LFS upload, and web writes). Only the owner rewrites `main`.
- */
-export type GrantLevel = 'read' | 'write';
-
-/** One person's grant on a repository, by their handle. */
-export type RepositoryGrant = { person: string; level: GrantLevel };
-
-/** The body of `GET /api/repos/<namespace>/<name>/grants`, in the order granted. */
-export type RepositoryGrants = { grants: RepositoryGrant[] };
-
-/** The body of `DELETE /api/repos/<namespace>/<name>/grants/<person>`. */
-export type RepositoryGrantRevoked = { person: string; revoked: boolean };
-
-/**
- * The owner's sharing routes on a deployment's API origin:
- * `<api>/api/repos/<namespace|~>/<name>/grants`, and `/<person>` under it to
- * grant (`PUT { level }`) or revoke (`DELETE`).
- */
-export function repositoryGrantsUrl(
+export function foldersApiUrl(
 	apiOrigin: string,
-	{ namespace, name }: RepositoryPath,
-	person?: string,
+	folder?: string,
+	...rest: string[]
 ): string {
-	const base = `${apiOrigin.replace(/\/+$/, '')}/api/repos/${namespace}/${name}/grants`;
-	return person === undefined ? base : `${base}/${person}`;
+	return [
+		`${trimmed(apiOrigin)}/api/folders`,
+		...(folder === undefined ? [] : [folder, ...rest]).map(encodeURIComponent),
+	].join('/');
 }
+
+/**
+ * What a member may do to a folder: `reader` reads it; `writer` also syncs
+ * changes to it; `owner` also rewrites its history with Git and manages who
+ * holds it. Any member may be an owner.
+ */
+export type FolderRole = 'owner' | 'writer' | 'reader';
+
+export const FOLDER_ROLES: readonly FolderRole[] = [
+	'owner',
+	'writer',
+	'reader',
+];
+
+/** A person, as a folder's members and shares name them. */
+export type FolderPerson = { email: string; name: string };
+
+/** One member of a folder: a person who accepted it, and their role. */
+export type FolderMember = FolderPerson & {
+	role: FolderRole;
+	/** Whether this member is the person asking. */
+	you: boolean;
+};
+
+/** One folder the person holds, in `GET /api/folders` and `GET /api/folders/<id>`. */
+export type ListedFolder = {
+	id: string;
+	/** The `title` of its `epicenter.json` at `main`; null when it has none. */
+	title: string | null;
+	/** The person's own role. */
+	role: FolderRole;
+	/** Who holds it, in the order they joined. */
+	members: FolderMember[];
+	/** The people it is shared with who have not accepted yet: shown to its owners only. */
+	invited: (FolderPerson & { role: FolderRole })[];
+	/** The apps it is attached to, by the client id each signs in as. */
+	apps: string[];
+	/** Its history as a Git remote (`folderRemoteUrl`). */
+	remote: string;
+};
+
+/** A share waiting for the person to accept it: invisible among their folders until they do. */
+export type PendingShare = {
+	folder: string;
+	title: string | null;
+	/** The role accepting gives. */
+	role: FolderRole;
+	/** Who shared it, while they hold an account. */
+	from: FolderPerson | null;
+};
+
+/** The body of `GET /api/folders`: the folders the person holds, and the shares waiting for them. */
+export type FolderListing = {
+	folders: ListedFolder[];
+	pending: PendingShare[];
+};
+
+/**
+ * The body of `POST <git>/folders`: the folder a first sync joined (the one
+ * it named, which the person holds, or the one folder attached to the app),
+ * or the one it made.
+ */
+export type JoinedFolder = { folder: string; made: boolean };

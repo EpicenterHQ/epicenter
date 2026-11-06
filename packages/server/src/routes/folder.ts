@@ -12,8 +12,10 @@
  * GET  blobs/<sha256>             folders:read   an attachment's bytes, streamed, private and immutable
  * PUT  blobs/<sha256>             folders:write  an attachment's bytes: idempotent, checked against the hash
  * POST commits { files }          folders:write  one commit on main, each path over the blob its writer expects
- * POST <git>/folders { name? }    folders:write  a new folder, or the caller's folder of that name: { folder }
  * ```
+ *
+ * `git.ts` decides each request and joins or makes a folder at its first
+ * sync (`POST <git>/folders`).
  *
  * A file's version is its Git blob id (ADR-0808): a note's blob, or an
  * attachment's canonical Git LFS pointer, whose object is the attachment's
@@ -171,6 +173,34 @@ export async function folderChanges(
 	if (before === undefined) return json({ commit: main, paths: null });
 	const after = main ? ((await readCommit(objects, main))?.tree ?? null) : null;
 	return json({ commit: main, paths: await diffTrees(objects, before, after) });
+}
+
+/** The largest `epicenter.json` read for a folder's title. */
+const MAX_CONTRACT_BYTES = 256 * 1024;
+
+/**
+ * The folder's title (ADR-0811): the `title` of the `epicenter.json` at
+ * `main`, or null when there is no commit, no `epicenter.json`, or no
+ * string title in it. The server keeps no copy; a listing reads it here.
+ */
+export async function folderTitle(objects: GitObjects): Promise<string | null> {
+	const main = (await objects.refs()).get(MAIN);
+	if (main === undefined) return null;
+	const tree = (await readCommit(objects, main))?.tree ?? null;
+	const entry = await treeLookup(objects, tree)('epicenter.json');
+	if (entry === null) return null;
+	const found = await objects.read(entry.oid, 'blob', {
+		maxBytes: MAX_CONTRACT_BYTES,
+	});
+	if (!found?.bytes) return null;
+	try {
+		const { title } = JSON.parse(new TextDecoder().decode(found.bytes)) as {
+			title?: unknown;
+		};
+		return typeof title === 'string' && title.trim() !== '' ? title : null;
+	} catch {
+		return null;
+	}
 }
 
 /** The most commits one history request answers. */

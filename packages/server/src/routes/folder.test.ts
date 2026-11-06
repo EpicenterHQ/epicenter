@@ -20,11 +20,11 @@ import { createHash } from 'node:crypto';
 import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { REPOSITORY_ATTRIBUTES } from '@epicenter/definition/contract';
+import { newFolderId } from '../folders.js';
 import { type GitObjects, MAIN, ZERO_OID } from '../git/objects.js';
 import { createDiskGitHost, repositoryPath } from '../git-disk-store.js';
 import { createDiskLfsStore } from '../lfs/disk-lfs-store.js';
 import type { LfsStore } from '../lfs/lfs-store.js';
-import { newRepositoryId } from '../repositories.js';
 import {
 	createGitSandbox,
 	type GitSandbox,
@@ -75,12 +75,12 @@ function memoryLedger() {
 			for (const oid of oids) pending.delete(`${repositoryId}:${oid}`);
 		},
 		async expire(cutoff) {
-			const out: { repositoryId: string; oid: string }[] = [];
+			const out: { folder: string; oid: string }[] = [];
 			for (const [key, at] of pending)
 				if (at < cutoff) {
 					pending.delete(key);
-					const [repositoryId = '', oid = ''] = key.split(':');
-					out.push({ repositoryId, oid });
+					const [folder = '', oid = ''] = key.split(':');
+					out.push({ folder, oid });
 				}
 			return out;
 		},
@@ -89,7 +89,7 @@ function memoryLedger() {
 }
 
 async function repository(ledger: UploadLedger | null = null) {
-	const id = newRepositoryId();
+	const id = newFolderId();
 	await host.create(id);
 	const objects: GitObjects = host.objects(id);
 	const gitDir = repositoryPath(join(box.root, 'store'), id);
