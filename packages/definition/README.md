@@ -5,7 +5,9 @@ the layout, the note codec, and the merge
 ([ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)),
 plus the names an app's site derives.
 `@epicenter/folder`'s openers, the `epicenter` CLI, the server, and the apps
-all import these.
+all import these. The same contract shape is a folder's `epicenter.json`
+(ADR-0805), which its people own; an app's contract is a view that must fit
+it (ADR-0812). The fit check in this package is unbuilt.
 
 It is inert. Importing it acquires nothing, and it knows no storage. Its
 dependencies are `typebox`, `wellcrafted`, `yaml` (the note codec) and
@@ -20,7 +22,7 @@ The package is seven subpaths.
 | Subpath | What it holds |
 | --- | --- |
 | `@epicenter/definition/contract` | `defineContract`, path templates (`fill`, `match`), `compileContract`, `checkContract`, the shapes of a contract's notes and files (`NoteOf`, `FileEntryOf`, `InvalidNoteOf`, `NotePatch`), and a note as text (`noteText`, `readNoteText`) |
-| `@epicenter/definition/front-matter` | The front-matter primitive of ADR-0796 and ADR-0797, with no YAML: `parseFrontMatter`, `patchFrontMatter`, `merge3` (fields by key, the body by lines, ADR-0795), and `mergeLines`, a port of Git's three-way line merge. The engine and the apps do not use it yet |
+| `@epicenter/definition/front-matter` | The front-matter primitive of ADR-0796 and ADR-0797, with no YAML: `parseFrontMatter`, `patchFrontMatter`, `merge3` (fields by key, the body by lines, ADR-0795), and `mergeLines`, a port of Git's three-way line merge. `sync` in `@epicenter/folder/sync` merges with `merge3`; a folder's own write and its note codec do not use the primitive yet |
 | `@epicenter/definition/note` | The note codec and its house style, `formatNote` |
 | `@epicenter/definition/merge` | `settle`, the note merge a folder runs over a note that changed under its write, plus conflict blocks, Git hashes, and Git LFS pointers |
 | `@epicenter/definition/ids` | `timeId()` and `nanoid()`, for naming files, and `timeOf()`, when a `timeId` was made |
@@ -28,8 +30,8 @@ The package is seven subpaths.
 | `@epicenter/definition/site/app-data` | The application-data root on this machine (`epicenterDataRoot`), an app's directory below it, and `isAppId` |
 
 `fixtures/front-matter.json` holds every front-matter case with its exact
-output bytes, for the TypeScript primitive and a Rust twin; its test also
-checks each body merge against Git's own `merge-file`.
+output bytes, for the one TypeScript primitive (ADR-0804 retired the Rust
+twin); its test also checks each body merge against Git's own `merge-file`.
 
 `fixtures/app-names.json` holds the site naming cases. `site/app-names.test.ts`
 and the standalone desktop shell (`packages/tauri-epicenter-standalone`) both
@@ -50,8 +52,9 @@ const recorder = defineContract({
   },
 });
 
-// An opener's client: create takes the placeholders and the value together.
-await device.recordings.create({ id: timeId(), title: 'Standup' });
+// An open folder's client (`@epicenter/folder`): `set` takes the placeholders,
+// then the fields. The records decided `{name}` for `{id}`; the code has not.
+await folder.recordings.set({ id: timeId() }, { title: 'Standup' });
 
 // What `epicenter check` reports: one issue per file that does not fit.
 checkContract(recorder, [{ path: 'recordings/a.md', text: '---\ntitle: 1\n---\n' }]);
@@ -113,15 +116,18 @@ delete. A binary file never merges: `settlePointer` lands the later write,
 and the version it replaced stays in history (ADR-0771). Whatever `settle`
 writes is in house style.
 
-### How a folder is stored in Git
+### How a folder is stored on the server
 
-`storedWithLfs(path)` (`/contract`) is true for every path that is neither a
-`.md` note (in any case) nor hidden (a segment starting with `.`): those files
-are Git LFS pointers. `REPOSITORY_ATTRIBUTES` is the `.gitattributes` block
-that says so, with `merge=epicenter` on notes; `epicenter init` commits it and
-the server writes it in a repository's first commit. A hidden path is not a
-folder's data (`isHiddenPath`); the CLI's own `.gitignore` block keeps
-`.DS_Store` and a folder's unfinished writes out of Git.
+A computer keeps no Git (ADR-0804); the server's repository for the folder
+stores it. `storedWithLfs(path)` (`/contract`) is true for every path that is
+neither a `.md` note (in any case), nor the folder's `epicenter.json` (kept as
+plain text, ADR-0820), nor hidden (a segment starting with `.`): those files
+are Git LFS pointers, whose canonical layout makes a file's version its blob
+id (ADR-0808). `REPOSITORY_ATTRIBUTES` is the `.gitattributes` block that says
+so, which the server writes in a repository's first commit; its
+`merge=epicenter` on notes names the merge driver ADR-0804 retired, and the
+line remains until the block changes. A hidden path is not a folder's data
+(`isHiddenPath`) and does not sync.
 
 ## A note field is plain JSON
 
