@@ -2,8 +2,9 @@
  * Sync Tests (memory with memory)
  *
  * The sync scenarios (`sync.scenarios.ts`) over two memory stores, each
- * with a manifest in memory, syncing through a memory repository: the
- * algorithm with no disk, network, or server. Then again with each
+ * keeping its manifest at `.epicenter/synced.json` in it, syncing through
+ * a memory repository: the algorithm with no disk, network, or server.
+ * Then again with each
  * computer's local side the connected folder over its memory store
  * (`localStoreOf`), which answers from what the folder holds: every
  * visible file, the contract's and any other.
@@ -21,7 +22,7 @@ import { localStoreOf } from '../folder.js';
 import { memory, memoryFiles } from '../memory.js';
 import { openFolder } from '../open-folder.js';
 import { memoryRepository } from './repository.js';
-import { memoryManifest } from './sync.js';
+import { storeManifest } from './sync.js';
 import { syncScenarios, type World } from './sync.scenarios.js';
 
 function memoryWorld(): World {
@@ -31,7 +32,7 @@ function memoryWorld(): World {
 			const store = memoryStore();
 			return {
 				store,
-				manifest: memoryManifest(),
+				manifest: storeManifest(store),
 				write: store.outside.write,
 				read: async (path) => store.outside.read(path),
 				paths: async () =>
@@ -59,9 +60,10 @@ function folderWorld(): World {
 			const place = memory();
 			const folder = openFolder(contract, place);
 			const outside = memoryFiles(place);
+			const store = localStoreOf(folder);
 			return {
-				store: localStoreOf(folder),
-				manifest: memoryManifest(),
+				store,
+				manifest: storeManifest(store),
 				// The folder hears it, and its listing reads what it heard first.
 				write: outside.write,
 				read: async (path) => outside.read(path),

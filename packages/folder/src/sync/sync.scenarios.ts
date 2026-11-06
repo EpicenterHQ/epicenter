@@ -23,7 +23,7 @@ import { ClientError } from '@epicenter/definition/contract';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import type { Store } from '../device/store.js';
 import type { Repository } from './repository.js';
-import { type ManifestStore, sync } from './sync.js';
+import { MANIFEST_PATH, type ManifestStore, sync } from './sync.js';
 
 /** One computer: its store and manifest, and its files as another program writes and reads them. */
 export type Device = {
@@ -53,7 +53,13 @@ async function syncOf(
 		remote = world.repository,
 	}: { local?: Store; remote?: Repository } = {},
 ) {
-	return expectOk(await sync({ local, remote, manifest: device.manifest }));
+	const report = expectOk(
+		await sync({ local, remote, manifest: device.manifest }),
+	);
+	// A completed sync that kept nothing agrees at one commit: no file has a base of its own.
+	if (report.outcome === 'synced' && report.kept.length === 0)
+		expect(expectOk(await device.manifest.read()).manifest.at).toBeUndefined();
+	return report;
 }
 
 /** Every visible file's text, by path. */
@@ -411,9 +417,10 @@ export const syncScenarios: Record<string, (world: World) => Promise<void>> = {
 			},
 		};
 		const report = await syncOf(world, a, { remote: racing });
+		// One pass went stale, one merged and pushed, and one agreed at the head.
 		expect(report).toMatchObject({
 			outcome: 'synced',
-			passes: 2,
+			passes: 3,
 			merged: ['todos/a.md'],
 		});
 		await syncOf(world, b);
@@ -520,5 +527,80 @@ export const syncScenarios: Record<string, (world: World) => Promise<void>> = {
 		world,
 	) {
 		await twoSyncsAtOnce(world, 'second');
+	},
+
+	async 'a raced local write and a merge in one pass, stopped before the repository write: nothing lost, one conflict block'(
+		world,
+	) {
+		// The sequence that needs a file's own base in the manifest: the
+		// save after the merge must record the merged note as agreed at the
+		// head, and the kept note at the commit before, at once.
+		const text = note('title: "Y"\n', 'one\ntwo\nthree\n');
+		const { a, b } = await synced(world, 'todos/y.md', text);
+		await a.write('todos/x.md', todo);
+		await syncOf(world, a);
+		await syncOf(world, b);
+		await b.write('todos/x.md', todo.replace('Thursday', 'Monday'));
+		await b.write('todos/y.md', text.replace('two', 'from B'));
+		await syncOf(world, b);
+		await a.write('todos/y.md', text.replace('two', 'from A'));
+		// An agent changes x.md right before A's sync pulls it, and A goes offline.
+		const agent = todo.replace('done: false', 'done: true');
+		const local: Store = {
+			...a.store,
+			async write(path, bytes, over) {
+				if (path === 'todos/x.md') await a.write(path, agent);
+				return a.store.write(path, bytes, over);
+			},
+		};
+		const offline: Repository = {
+			...world.repository,
+			writeAll: async () => ClientError.Unavailable({ cause: 'offline' }),
+		};
+		expectErr(await sync({ local, remote: offline, manifest: a.manifest }));
+		expect(await a.read('todos/x.md')).toBe(agent);
+		expect(markers(await a.read('todos/y.md'))).toBe(1);
+
+		await syncOf(world, a);
+		await syncOf(world, b);
+		await syncOf(world, a);
+		expect(await contents(b)).toEqual(await contents(a));
+		expect(await a.read('todos/x.md')).toBe(
+			note('title: "Call dentist"\ndone: true\n', 'Ask about Monday.\n'),
+		);
+		const y = await a.read('todos/y.md');
+		expect(markers(y)).toBe(1);
+		expect(y).toContain('from A');
+		expect(y).toContain('from B');
+	},
+
+	async 'a folder whose manifest is deleted syncs again with no file lost'(
+		world,
+	) {
+		const text = note('title: "A"\n', 'one\ntwo\nthree\n');
+		const { a, b } = await synced(world, 'todos/a.md', text);
+		await b.write('todos/b.md', note('title: "B"\n'));
+		await b.write('audio/r.webm', 'from B');
+		await b.write('todos/a.md', text.replace('three', 'three from B'));
+		await syncOf(world, b);
+		await a.write('todos/a.md', text.replace('one', 'one from A'));
+		await a.write('todos/mine.md', note('title: "Mine"\n'));
+		await a.write(MANIFEST_PATH, null);
+
+		await syncOf(world, a);
+		await syncOf(world, b);
+		await syncOf(world, a);
+		expect(await contents(b)).toEqual(await contents(a));
+		expect(await a.paths()).toEqual([
+			'audio/r.webm',
+			'todos/a.md',
+			'todos/b.md',
+			'todos/mine.md',
+		]);
+		// With no base, the two sides' texts meet as two creates: both are kept.
+		const merged = await a.read('todos/a.md');
+		expect(merged).toContain('one from A');
+		expect(merged).toContain('three from B');
+		expect(await a.read('audio/r.webm')).toBe('from B');
 	},
 };

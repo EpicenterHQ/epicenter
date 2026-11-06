@@ -7,13 +7,14 @@
  * on this side.
  *
  * The manifest is the last state both sides agreed on: the repository's
- * `commit`, and each file's local `version`. A file this computer wrote to
- * the repository after that commit, or settled at a later one, records the
- * commit and version it agreed at in `at`, its base until the next sync
- * moves `commit` past it. One sync:
+ * `commit`, and each file's local `version` there. Within a sync a file
+ * agreed at another commit (one this computer pushed, or one it kept)
+ * carries its own base in `at`. One sync runs passes:
  *
  * 1. Asks the repository what changed since `commit` (everything on first
  *    contact), lists the local store, and compares each with the manifest.
+ *    A file agreed at another commit that the repository did not change
+ *    since is settled without reading it.
  * 2. Copies a file changed on one side to the other. A note changed on
  *    both merges by `merge3` against its base, read from the repository
  *    at the commit it agreed at; this computer's side is the later write.
@@ -24,12 +25,17 @@
  *    next sync to merge. Then it writes the repository in batches, each
  *    one commit over the versions read. A stale batch lands nothing: the
  *    sync lists again and runs another pass.
- * 4. Moves the manifest to the commit it read at.
+ * 4. Moves the manifest to the commit it read at. A pass that pushed is
+ *    followed by one more, which takes what others landed meanwhile and
+ *    agrees at the head, so a finished sync's manifest is one `commit` and
+ *    `files`, with `at` only for a file it kept.
  *
  * The manifest is saved after the local writes (and after each merge
  * written there) and at the end, so a sync stopped anywhere reruns from
  * what landed: a merged note written locally merges next time against the
- * repository's version it already holds, never twice into markers.
+ * repository's version it already holds, never twice into markers. Such a
+ * save may need `at`: a merged note is agreed at the head, while a note
+ * kept in the same pass is still agreed at the commit before.
  *
  * Two syncs of one folder may run at once (an app and the CLI), with no
  * lock: every write either makes is over the version it read, so the
@@ -210,21 +216,28 @@ export async function sync({
 		kept: [],
 		refused: [],
 	};
+	/** The local listing a pass reuses: the last pass's, with this sync's own writes. */
+	let listing: Map<string, Version> | null = null;
 	while (report.passes < passes) {
 		report.passes++;
+		const pushedBefore = report.pushed.length;
 		const ran = await syncPass({
 			local,
 			remote,
 			manifest: saved,
 			state,
 			report,
+			listing,
 		});
 		if (ran.error !== null) return ran;
 		state = ran.data.state;
-		if (ran.data.done) {
-			report.outcome = 'synced';
-			break;
-		}
+		report.outcome = ran.data.done ? 'synced' : 'retry';
+		if (ran.data.done && report.pushed.length === pushedBefore) break;
+		// A pass that pushed is followed by one that agrees at the head it
+		// pushed to, taking what others landed meanwhile, so one commit names
+		// the agreed state. Only the repository moved: it reuses this listing.
+		// A pass whose write went stale lists again.
+		listing = ran.data.done ? ran.data.listing : null;
 	}
 	// A file a stale pass handled is handled again by the next: name it once.
 	const once = (paths: string[]) => [...new Set(paths)];
@@ -331,13 +344,21 @@ async function syncPass({
 	manifest,
 	state,
 	report,
+	listing,
 }: {
 	local: Store;
 	remote: Repository;
 	manifest: ReturnType<typeof savedManifest>;
 	state: Manifest;
 	report: SyncReport;
-}): Promise<Result<{ state: Manifest; done: boolean }, Unavailable>> {
+	/** The local store's visible files and versions, when the last pass's still hold; null to list them. */
+	listing: Map<string, Version> | null;
+}): Promise<
+	Result<
+		{ state: Manifest; done: boolean; listing: Map<string, Version> },
+		Unavailable
+	>
+> {
 	// 1. Where each side is.
 	const since = await remote.changes(state.commit);
 	if (since.error !== null) return since;
@@ -357,13 +378,23 @@ async function syncPass({
 	const at: Record<string, Base> = lost ? {} : { ...state.at };
 	const baseCommit = changedRemote === null ? null : state.commit;
 
-	const listed = await local.list(['']);
-	if (listed.error !== null) return listed;
-	const localNow = new Map(
-		listed.data
-			.filter(({ path }) => !isHiddenPath(path))
-			.map(({ path, version }) => [path, version]),
-	);
+	let found = listing;
+	if (found === null) {
+		const listed = await local.list(['']);
+		if (listed.error !== null) return listed;
+		found = new Map(
+			listed.data
+				.filter(({ path }) => !isHiddenPath(path))
+				.map(({ path, version }) => [path, version]),
+		);
+	}
+	const localNow = found;
+	/** What this pass found locally, then each version its own writes landed: the listing the next pass may reuse. */
+	const after = new Map(localNow);
+	const wrote = (path: string, version: Version | null) => {
+		if (version === null) after.delete(path);
+		else after.set(path, version);
+	};
 
 	const candidates = new Set<string>([
 		...(changedRemote ?? everyRemote),
@@ -373,12 +404,51 @@ async function syncPass({
 		if (files[path] !== version) candidates.add(path);
 	for (const path of Object.keys(files))
 		if (!localNow.has(path)) candidates.add(path);
-	const paths = [...candidates].filter((path) => !isHiddenPath(path)).sort();
+	// A file kept by an earlier pass waits for the next sync: what another
+	// program wrote there may be a concurrent sync's merge, not yet recorded.
+	const keptBefore = new Set(report.kept);
+	const paths = [...candidates]
+		.filter((path) => !isHiddenPath(path) && !keptBefore.has(path))
+		.sort();
+	const localChanged = (path: string) =>
+		(localNow.get(path) ?? null) !== (files[path] ?? null);
 
 	// 2. Each candidate as the repository holds it now, and as it was agreed.
+	// A file agreed at another commit that neither side changed since is
+	// settled without reading it: the repository names what changed there.
+	const changedSince = new Map<string, Set<string> | null>();
+	for (const { commit } of Object.values(at))
+		if (commit !== null && commit !== head && !changedSince.has(commit)) {
+			const got = await remote.changes(commit);
+			if (got.error !== null) return got;
+			changedSince.set(
+				commit,
+				got.data.paths === null ? null : new Set(got.data.paths),
+			);
+		}
+	const quiet = (path: string) => {
+		const agreed = at[path];
+		if (agreed?.commit == null || localChanged(path)) return false;
+		if (agreed.commit === head) return true;
+		const since = changedSince.get(agreed.commit);
+		return since != null && !since.has(path);
+	};
 	const remoteNow = new Map<string, RemoteFile>();
+	for (const path of paths) {
+		const agreed = at[path];
+		if (agreed === undefined || !quiet(path)) continue;
+		remoteNow.set(
+			path,
+			agreed.version === null
+				? { path, gone: true }
+				: { path, version: agreed.version, bytes: null },
+		);
+	}
 	if (head !== null)
-		for (const chunk of chunks(paths, READ_CHUNK)) {
+		for (const chunk of chunks(
+			paths.filter((path) => !remoteNow.has(path)),
+			READ_CHUNK,
+		)) {
 			const got = await remote.readAt(chunk, head, { attachments: false });
 			if (got.error !== null) return got;
 			for (const file of got.data) remoteNow.set(file.path, file);
@@ -392,8 +462,6 @@ async function syncPass({
 		if (changedRemote === null) return now !== null;
 		return changedRemote.has(path);
 	};
-	const localChanged = (path: string) =>
-		(localNow.get(path) ?? null) !== (files[path] ?? null);
 
 	const needLocal = paths.filter(
 		(path) => localChanged(path) && localNow.has(path),
@@ -533,6 +601,7 @@ async function syncPass({
 			kept.push(step.path);
 			continue;
 		}
+		wrote(step.path, written.data);
 		// Merged here, not yet in the repository: changed locally, against the version merged with.
 		delete files[step.path];
 		at[step.path] = { commit: head, version: step.remote };
@@ -548,7 +617,8 @@ async function syncPass({
 		});
 		const saved = await save({ commit: state.commit, files, at });
 		if (saved.error !== null) return saved;
-		if (saved.data !== null) return Ok({ state: saved.data, done: false });
+		if (saved.data !== null)
+			return Ok({ state: saved.data, done: false, listing: after });
 	}
 
 	const pulls = steps.filter(
@@ -581,6 +651,7 @@ async function syncPass({
 			continue;
 		}
 		settled(step.path, written.data, versionOf(file));
+		wrote(step.path, written.data);
 		landed.add(step.path);
 		report.pulled.push(step.path);
 	}
@@ -612,7 +683,8 @@ async function syncPass({
 	if (pulls.length > 0 || kept.length > 0) {
 		const saved = await save({ commit: state.commit, files, at });
 		if (saved.error !== null) return saved;
-		if (saved.data !== null) return Ok({ state: saved.data, done: false });
+		if (saved.data !== null)
+			return Ok({ state: saved.data, done: false, listing: after });
 	}
 
 	// Then the repository, in batches of one commit each.
@@ -641,7 +713,7 @@ async function syncPass({
 			const kept = { commit: state.commit, files, at };
 			const saved = await save(kept);
 			if (saved.error !== null) return saved;
-			return Ok({ state: saved.data ?? kept, done: false });
+			return Ok({ state: saved.data ?? kept, done: false, listing: after });
 		}
 		const { steps: written, receipt } = wrote.data;
 		for (const step of written) {
@@ -665,13 +737,13 @@ async function syncPass({
 			? { commit: head, files }
 			: { commit: head, files, at: elsewhere };
 	if (JSON.stringify(next) === JSON.stringify(state))
-		return Ok({ state: next, done: true });
+		return Ok({ state: next, done: true, listing: after });
 	const saved = await save(next);
 	if (saved.error !== null) return saved;
 	return Ok(
 		saved.data === null
-			? { state: next, done: true }
-			: { state: saved.data, done: false },
+			? { state: next, done: true, listing: after }
+			: { state: saved.data, done: false, listing: after },
 	);
 }
 
