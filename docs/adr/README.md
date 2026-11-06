@@ -1019,5 +1019,6 @@ When you add an ADR, add its row here.
 | [0821](0821-a-computer-remembers-what-it-synced-and-a-shell-limits-each-window-to-its-folder.md) | A computer remembers what it synced, and a shell limits each window to its folder | Accepted (amends 0804, 0811, 0818, 0819, and 0820; amended by 0822) |
 | [0822](0822-only-epicenter-syncs-on-a-computer-and-a-folder-holds-only-its-content.md) | Only Epicenter syncs on a computer, and a folder holds only its content | Accepted (amends 0785, 0804, 0819, and 0821; amended by 0825) |
 | [0823](0823-on-the-web-the-folder-on-the-server-is-the-apps-store.md) | On the web, the folder on the server is the app's store | Accepted (amends 0807) |
-| [0824](0824-a-folders-history-is-a-log-of-versions-and-git-is-how-it-leaves.md) | A folder's history is a log of versions, and Git is how it leaves | Accepted (amends 0734, 0762, 0803, 0808, 0809, and 0811) |
+| [0824](0824-a-folders-history-is-a-log-of-versions-and-git-is-how-it-leaves.md) | A folder's history is a log of versions, and Git is how it leaves | Accepted (amends 0734, 0762, 0803, 0808, 0809, and 0811; amended by 0826) |
 | [0825](0825-the-epicenter-folder-contains-its-folders.md) | The Epicenter folder contains its folders | Accepted (amends 0736, 0815, and 0822) |
+| [0826](0826-history-enters-and-leaves-epicenter-as-git.md) | History enters and leaves Epicenter as Git | Accepted (amends 0824) |
