@@ -2,7 +2,7 @@
  * Sync Tests (a directory with the server's repository)
  *
  * The sync scenarios (`sync.scenarios.ts`) over two directories in Bun,
- * each keeping its manifest at `.epicenter/synced.json`, syncing with a
+ * each keeping its manifest in a directory beside it, syncing with a
  * repository on the real server: Postgres, the Git and LFS disk stores,
  * and a signed-in person's token (`startRepositoryServer`). Each scenario
  * gets its own repository. Requires initdb and pg_ctl on PATH.
@@ -16,10 +16,10 @@ import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { startRepositoryServer } from '../../../server/src/test-helpers/repository-server.js';
 import { nodeStore } from '../device/node-store.js';
-import { folderRepository, joinFolder } from '../remote/repository.js';
+import { folderRepository, makeFolder } from '../remote/repository.js';
 import { scratch } from '../scratch.test-support.js';
-import { storeManifest } from './sync.js';
-import { syncScenarios, type World } from './sync.scenarios.js';
+
+import { manifestIn, syncScenarios, type World } from './sync.scenarios.js';
 
 let server: Awaited<ReturnType<typeof startRepositoryServer>>;
 let account: Awaited<ReturnType<typeof server.signIn>>;
@@ -51,18 +51,17 @@ async function visible(root: string, prefix = ''): Promise<string[]> {
 
 /** A directory per computer, syncing with a folder of its own on the server. */
 async function directoryWorld(): Promise<World> {
-	const joined = await joinFolder(account);
-	if (joined.error !== null) throw new Error(joined.error.message);
-	if (!('folder' in joined.data)) throw new Error('expected one folder');
+	const made = await makeFolder(account);
+	if (made.error !== null) throw new Error(made.error.message);
 	return {
-		repository: folderRepository(account, joined.data.folder),
+		repository: folderRepository(account, made.data),
 		async device() {
 			const root = await scratch('epicenter-sync-');
-			roots.push(root);
+			roots.push(root, `${root}-records`);
 			const store = nodeStore(root);
 			return {
 				store,
-				manifest: storeManifest(store),
+				...manifestIn(nodeStore(`${root}-records`)),
 				async write(path, content) {
 					const target = join(root, path);
 					if (content === null) return rm(target, { force: true });

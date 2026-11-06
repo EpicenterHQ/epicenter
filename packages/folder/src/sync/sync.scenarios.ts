@@ -23,12 +23,30 @@ import { ClientError } from '@epicenter/definition/contract';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import type { Store } from '../device/store.js';
 import type { Repository } from './repository.js';
-import { MANIFEST_PATH, type ManifestStore, sync } from './sync.js';
+import { type ManifestStore, storeManifest, sync } from './sync.js';
+
+/**
+ * A manifest kept at `path` in `store`, as the Epicenter folder keeps a
+ * folder's record outside the folder (ADR-0822), and how to lose it.
+ */
+export function manifestIn(store: Store, path = 'synced/folder.json') {
+	return {
+		manifest: storeManifest(store, path),
+		async forget() {
+			const read = await store.read([path]);
+			const [file] = read.data ?? [];
+			if (file !== undefined && !('gone' in file))
+				await store.put(path, null, file.version);
+		},
+	};
+}
 
 /** One computer: its store and manifest, and its files as another program writes and reads them. */
 export type Device = {
 	store: Store;
 	manifest: ManifestStore;
+	/** Lose the manifest, as when the record is deleted. */
+	forget(): Promise<void>;
 	write(path: string, content: string | Uint8Array | null): Promise<void>;
 	read(path: string): Promise<string | null>;
 	/** Every visible file's path, sorted. */
@@ -593,7 +611,7 @@ export const syncScenarios: Record<string, (world: World) => Promise<void>> = {
 		await syncOf(world, b);
 		await a.write('todos/a.md', text.replace('one', 'one from A'));
 		await a.write('todos/mine.md', note('title: "Mine"\n'));
-		await a.write(MANIFEST_PATH, null);
+		await a.forget();
 
 		await syncOf(world, a);
 		await syncOf(world, b);

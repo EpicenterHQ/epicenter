@@ -23,7 +23,7 @@ import type { Store } from '../device/store.js';
 import { localStoreOf } from '../folder.js';
 import { directory } from '../node.js';
 import { openFolder } from '../open-folder.js';
-import { folderRepository, joinFolder } from '../remote/repository.js';
+import { folderRepository, makeFolder } from '../remote/repository.js';
 import { scratch } from '../scratch.test-support.js';
 import { memoryRepository, type Repository } from '../sync/repository.js';
 import {
@@ -98,10 +98,9 @@ const contract = defineContract({
 async function serverWorld(asFolder: boolean): Promise<World> {
 	const server = await startRepositoryServer();
 	const account = await server.signIn('bench');
-	const joined = await joinFolder(account);
-	if (joined.error !== null) throw new Error(joined.error.message);
-	if (!('folder' in joined.data)) throw new Error('expected one folder');
-	const { folder } = joined.data;
+	const made = await makeFolder(account);
+	if (made.error !== null) throw new Error(made.error.message);
+	const folder = made.data;
 	const roots: string[] = [];
 	const folders: Disposable[] = [];
 	return {
@@ -118,13 +117,15 @@ async function serverWorld(asFolder: boolean): Promise<World> {
 				await mkdir(dirname(target), { recursive: true });
 				await writeFile(target, text);
 			};
-			if (!asFolder) return { store, manifest: storeManifest(store), write };
+			// The manifest is kept outside the folder, as a record is.
+			const manifest = storeManifest(nodeStore(`${root}-records`), 'synced.json');
+			roots.push(`${root}-records`);
+			if (!asFolder) return { store, manifest, write };
 			const folder = openFolder(contract, directory(root));
 			folders.push(folder);
 			return {
 				store: localStoreOf(folder),
-				// The manifest is kept beside the files, by the plain store.
-				manifest: storeManifest(store),
+				manifest,
 				write,
 				// List again what the watcher may not have delivered yet.
 				settle: async () => {

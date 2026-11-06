@@ -6,9 +6,10 @@
  * by id, and a commit. No Git runs on this side.
  *
  * A file's version is its Git blob id on every store (ADR-0808), so the
- * manifest is `{ folder, root, commit, files }`: the repository it syncs with,
- * the directory it synced in,
- * the commit both sides last agreed at, and each file's agreed blob id. A
+ * manifest is `{ commit, files }`: the commit both sides last agreed at,
+ * and each file's agreed blob id. On a computer it is the folder's record
+ * at the Epicenter folder's root (ADR-0822), which adds the folder's id and
+ * the directory's name and identity, carried through every save. A
  * side changed a file when its version differs from the agreed one, and a
  * note both sides changed merges against the agreed blob, read by its id:
  * no file records the commit it agreed at. One sync runs passes:
@@ -32,6 +33,13 @@
  *    path this sync committed and takes what others landed meanwhile; a
  *    pass that committed nothing agrees at the head it read, and the
  *    manifest moves there.
+ *
+ * A sync that would delete many files on the server stops before it writes
+ * anything and asks (`outcome: 'deletions'`, ADR-0821): an older backup
+ * restored in place, a folder emptied, or an app making an empty folder at
+ * the old path all look like that. `deletions: 'push'` sends them, and
+ * `'restore'` brings them back from the server instead (`tooManyDeletions`
+ * says how many is many).
  *
  * The manifest is saved after the local writes (and after each merge
  * written there) and at the end, so a sync stopped anywhere reruns from
@@ -73,17 +81,10 @@ import type { CommitReceipt, Repository } from './repository.js';
 export type RepositoryAddress = { folder: string };
 
 /**
- * The identity of the directory a folder synced in (ADR-0811): its device
- * and inode, which a move within a disk keeps and a copy does not. A
- * manifest records it beside the folder's id, so a copy of the directory
- * (a Finder duplicate, a backup restored elsewhere) is told apart from the
- * folder it was copied from before it syncs as that folder.
+ * What a sync agreed (ADR-0804, ADR-0808). A record on a computer carries
+ * more fields (`FolderRecord`), which every save keeps as they are.
  */
-export type RootIdentity = { device: string; inode: string };
-
-export type Manifest = Partial<RepositoryAddress> & {
-	/** The directory the folder synced in; absent where the store has no such identity (memory, the web). */
-	root?: RootIdentity;
+export type Manifest = {
 	/** The repository commit both sides last agreed at; null before the first sync, or after one that stopped. */
 	commit: string | null;
 	/** Each synced file's agreed version: its Git blob id, the same on both sides. */
@@ -116,9 +117,6 @@ export type ManifestStore = {
 /** The manifest of a store never synced. */
 export const emptyManifest = (): Manifest => ({ commit: null, files: {} });
 
-/** Where a folder keeps its manifest, beside its files (ADR-0803). */
-export const MANIFEST_PATH = '.epicenter/synced.json';
-
 /** A manifest held in memory, for a test or the web's memory store. */
 export function memoryManifest(initial: Manifest = emptyManifest()) {
 	let current = structuredClone(initial);
@@ -139,11 +137,15 @@ export function memoryManifest(initial: Manifest = emptyManifest()) {
 	} satisfies ManifestStore & { current(): Manifest };
 }
 
-/** The manifest kept at `MANIFEST_PATH` in `store`, read and written as any file there. */
-export function storeManifest(store: Store): ManifestStore {
+/**
+ * The manifest kept at `path` in `store`, read and written as any file
+ * there: a folder's record in the Epicenter folder's `.epicenter`
+ * (`synced/<folder-id>.json`). One that is gone reads as never synced.
+ */
+export function storeManifest(store: Store, path: string): ManifestStore {
 	return {
 		async read() {
-			const read = await store.read([MANIFEST_PATH]);
+			const read = await store.read([path]);
 			if (read.error !== null) return read;
 			const [file] = read.data;
 			if (file === undefined || 'gone' in file)
@@ -157,21 +159,25 @@ export function storeManifest(store: Store): ManifestStore {
 		},
 		async write(manifest, expect) {
 			const bytes = encoder.encode(JSON.stringify(manifest));
-			const written = await putLanded(store, MANIFEST_PATH, bytes, expect);
+			const written = await putLanded(store, path, bytes, expect);
 			if (written.error?.name === 'Moved') return Ok('moved' as const);
 			if (written.error !== null) return Err(written.error);
 			if (written.data === null)
 				return ClientError.Unavailable({
-					cause: `the write of ${MANIFEST_PATH} landed nothing`,
+					cause: `the write of ${path} landed nothing`,
 				});
 			return Ok(written.data);
 		},
 	};
 }
 
-/** What one sync did. `retry` when the repository kept moving under it for every pass. */
+/**
+ * What one sync did. `retry` when the repository kept moving under it for
+ * every pass; `deletions` when it stopped before writing anything, because
+ * it would delete many files on the server (`deletions` names them).
+ */
 export type SyncReport = {
-	outcome: 'synced' | 'retry';
+	outcome: 'synced' | 'retry' | 'deletions';
 	passes: number;
 	/** Files copied from the repository to the local store. */
 	pulled: string[];
@@ -189,7 +195,29 @@ export type SyncReport = {
 	 * until a person renames one.
 	 */
 	refused: { path: string; reason: string }[];
+	/** The files deleted here that it would delete on the server, when it stopped to ask (`outcome: 'deletions'`). */
+	deletions: string[];
 };
+
+/**
+ * What a sync does with files deleted here that the server still holds as
+ * agreed: `ask` stops before writing anything when they are many
+ * (`tooManyDeletions`), `push` deletes them on the server, and `restore`
+ * brings them back here from the server.
+ */
+export type Deletions = 'ask' | 'push' | 'restore';
+
+/**
+ * Whether deleting `count` files of a folder that agreed on `agreed` files
+ * is many enough to ask first: 20 or more, or 5 or more that are half the
+ * folder or more. Epicenter syncs seconds after a change, so a person
+ * deleting by hand rarely deletes 20 files between two syncs, and a folder
+ * emptied or rolled back by a backup usually does; the share catches a
+ * small folder emptied, which never reaches 20.
+ */
+export function tooManyDeletions(count: number, agreed: number): boolean {
+	return count >= 20 || (count >= 5 && count * 2 >= agreed);
+}
 
 const READ_CHUNK = 2000;
 const WRITE_CHUNK = 500;
@@ -213,11 +241,14 @@ export async function sync({
 	remote,
 	manifest,
 	passes = 4,
+	deletions = 'ask',
 }: {
 	local: Store;
 	remote: Repository;
 	manifest: ManifestStore;
 	passes?: number;
+	/** What to do with files deleted here (`Deletions`); `ask` by default. */
+	deletions?: Deletions;
 }): Promise<Result<SyncReport, Unavailable>> {
 	const read = await manifest.read();
 	if (read.error !== null) return read;
@@ -232,6 +263,7 @@ export async function sync({
 		conflicts: [],
 		kept: [],
 		refused: [],
+		deletions: [],
 	};
 	/** Every path this sync committed: each later pass reads it again at the head. */
 	const committed = new Set<string>();
@@ -248,8 +280,13 @@ export async function sync({
 			report,
 			listing,
 			committed,
+			deletions,
 		});
 		if (ran.error !== null) return ran;
+		if (ran.data === 'deletions') {
+			report.outcome = 'deletions';
+			break;
+		}
 		state = ran.data.state;
 		report.outcome = ran.data.done ? 'synced' : 'retry';
 		if (ran.data.done && report.pushed.length === pushedBefore) break;
@@ -262,6 +299,7 @@ export async function sync({
 	const once = (paths: string[]) => [...new Set(paths)];
 	return Ok({
 		...report,
+		deletions: once(report.deletions),
 		pulled: once(report.pulled),
 		pushed: once(report.pushed),
 		merged: once(report.merged),
@@ -316,7 +354,8 @@ function savedManifest(
 				saving = overlay(read.data.manifest, landings);
 			}
 			return ClientError.Unavailable({
-				cause: `${MANIFEST_PATH} kept changing: other syncs of this folder are running`,
+				cause:
+					'the manifest kept changing: other syncs of this folder are running',
 			});
 		},
 	};
@@ -350,6 +389,7 @@ async function syncPass({
 	report,
 	listing,
 	committed,
+	deletions,
 }: {
 	local: Store;
 	remote: Repository;
@@ -360,9 +400,11 @@ async function syncPass({
 	listing: Map<string, BlobId> | null;
 	/** Every path this sync committed, which this pass reads again. */
 	committed: Set<string>;
+	deletions: Deletions;
 }): Promise<
 	Result<
-		{ state: Manifest; done: boolean; listing: Map<string, BlobId> },
+		| { state: Manifest; done: boolean; listing: Map<string, BlobId> }
+		| 'deletions',
 		Unavailable
 	>
 > {
@@ -440,13 +482,28 @@ async function syncPass({
 		}
 		const theirsChanged = there !== agreed(path);
 		const oursChanged = ours !== agreed(path);
+		// A file deleted here that the server holds as agreed comes back
+		// when the person chose to keep what the server has.
+		const restored =
+			ours === null && !theirsChanged && deletions === 'restore';
 		// One side changed; when both did, an edit beats a delete, a note
 		// merges, and any other file takes this computer's.
-		if (!oursChanged || (theirsChanged && ours === null))
+		if (!oursChanged || (theirsChanged && ours === null) || restored)
 			pulls.push({ path, local: ours, remote: there });
 		else if (!theirsChanged || there === null || !isNotePath(path))
 			toPush.push({ path, expect: there });
 		else toMerge.push({ path, remote: there });
+	}
+	// Many deletions stop the sync before it writes anything, until a
+	// person says what they are.
+	if (deletions === 'ask') {
+		const deleting = toPush
+			.filter(({ path, expect }) => expect !== null && !mine.has(path))
+			.map(({ path }) => path);
+		if (tooManyDeletions(deleting.length, Object.keys(files).length)) {
+			report.deletions = deleting;
+			return Ok('deletions');
+		}
 	}
 
 	// The local bytes of each push and merge.

@@ -1,25 +1,21 @@
 /**
  * `@epicenter/folder/sync`: sync a store with a repository through the
- * store contract and a manifest (ADR-0803, ADR-0804), the moments an open
- * app syncs at (`syncAtMoments`), and a folder's repository on the server
- * (`folderRepository`, and `joinFolder`, a first sync's join or make). The
- * platform's operations over it are `@epicenter/folder/platform`.
+ * store contract and a manifest (ADR-0803, ADR-0804), and a folder's
+ * repository on the server (`folderRepository`; `makeFolder`, which never
+ * joins; and `joinApp`, which names its app). Only Epicenter's programs
+ * sync on a computer (ADR-0822); the platform's operations over this are
+ * `@epicenter/folder/platform`.
  */
 export { localStoreOf } from '../folder.js';
 export {
 	type FolderCommit,
 	folderRepository,
 	type Joined,
-	joinFolder,
+	joinApp,
+	makeFolder,
 	type RemoteAccount,
 	RemoteError,
 } from '../remote/repository.js';
-export {
-	type SyncMoments,
-	type SyncResult,
-	syncAtMoments,
-	type WindowShown,
-} from './moments.js';
 export {
 	type CommitReceipt,
 	type CommitRefusal,
@@ -29,15 +25,15 @@ export {
 	type TreeEntry,
 } from './repository.js';
 export {
+	type Deletions,
 	emptyManifest,
-	MANIFEST_PATH,
 	type Manifest,
 	type ManifestStore,
 	type ManifestVersion,
 	memoryManifest,
 	type RepositoryAddress,
-	type RootIdentity,
 	type SyncReport,
 	storeManifest,
 	sync,
+	tooManyDeletions,
 } from './sync.js';
