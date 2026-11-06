@@ -50,29 +50,30 @@ import {
 	isNotePath,
 } from '@epicenter/definition/contract';
 import { merge3 } from '@epicenter/definition/front-matter';
-import { Ok, type Result } from 'wellcrafted/result';
+import { Err, Ok, type Result } from 'wellcrafted/result';
 import {
+	type BlobId,
+	putLanded,
 	type Store,
 	type Unavailable,
-	type Version,
 	within,
 } from '../device/store.js';
 import type { BatchReceipt, RemoteFile, Repository } from './repository.js';
 
 /** Where a file's agreed state is: a commit (null: before the first) and the version the repository held there (null: nothing). */
-export type Base = { commit: string | null; version: Version | null };
+export type Base = { commit: string | null; version: BlobId | null };
 
 export type Manifest = {
 	/** The repository commit both sides last agreed at; null before the first sync. */
 	commit: string | null;
 	/** Each synced file's local version at that agreement. */
-	files: Record<string, Version>;
+	files: Record<string, BlobId>;
 	/** Files whose agreed state is at another commit than `commit`. */
 	at?: Record<string, Base>;
 };
 
-/** The version of a saved manifest, which the next save is written over; `'absent'` before the first. */
-export type ManifestVersion = Version | 'absent';
+/** The version of a saved manifest, which the next save is written over; null before the first. */
+export type ManifestVersion = BlobId | null;
 
 /**
  * Where a manifest is kept between syncs. Each save is written over the
@@ -84,14 +85,14 @@ export type ManifestStore = {
 		Result<{ manifest: Manifest; version: ManifestVersion }, Unavailable>
 	>;
 	/**
-	 * Save `manifest` while the saved one is still at `over`, answering the
-	 * new version, or `'stale'` when another sync saved first, and nothing
-	 * changed.
+	 * Save `manifest` while the saved one is still at `expect`, answering
+	 * the new version, or `'moved'` when another sync saved first, and
+	 * nothing changed.
 	 */
 	write(
 		manifest: Manifest,
-		over: ManifestVersion,
-	): Promise<Result<Version | 'stale', Unavailable>>;
+		expect: ManifestVersion,
+	): Promise<Result<BlobId | 'moved', Unavailable>>;
 };
 
 /** The manifest of a store never synced. */
@@ -103,16 +104,16 @@ export const MANIFEST_PATH = '.epicenter/synced.json';
 /** A manifest held in memory, for a test or the web's memory store. */
 export function memoryManifest(initial: Manifest = emptyManifest()) {
 	let current = structuredClone(initial);
-	let version: ManifestVersion = 'absent';
+	let version: ManifestVersion = null;
 	let saves = 0;
 	return {
 		async read() {
 			return Ok({ manifest: structuredClone(current), version });
 		},
-		async write(manifest: Manifest, over: ManifestVersion) {
-			if (over !== version) return Ok('stale' as const);
+		async write(manifest: Manifest, expect: ManifestVersion) {
+			if (expect !== version) return Ok('moved' as const);
 			current = structuredClone(manifest);
-			version = `saved-${++saves}` as Version;
+			version = `saved-${++saves}` as BlobId;
 			return Ok(version);
 		},
 		/** The manifest as last written. */
@@ -128,7 +129,7 @@ export function storeManifest(store: Store): ManifestStore {
 			if (read.error !== null) return read;
 			const [file] = read.data;
 			if (file === undefined || 'gone' in file)
-				return Ok({ manifest: emptyManifest(), version: 'absent' as const });
+				return Ok({ manifest: emptyManifest(), version: null });
 			try {
 				const manifest = JSON.parse(decoder.decode(file.bytes)) as Manifest;
 				return Ok({ manifest, version: file.version });
@@ -136,10 +137,11 @@ export function storeManifest(store: Store): ManifestStore {
 				return ClientError.Unavailable({ cause });
 			}
 		},
-		async write(manifest, over) {
+		async write(manifest, expect) {
 			const bytes = encoder.encode(JSON.stringify(manifest));
-			const written = await store.write(MANIFEST_PATH, bytes, over);
-			if (written.error !== null) return written;
+			const written = await putLanded(store, MANIFEST_PATH, bytes, expect);
+			if (written.error?.name === 'Moved') return Ok('moved' as const);
+			if (written.error !== null) return Err(written.error);
 			if (written.data === null)
 				return ClientError.Unavailable({
 					cause: `the write of ${MANIFEST_PATH} landed nothing`,
@@ -217,7 +219,7 @@ export async function sync({
 		refused: [],
 	};
 	/** The local listing a pass reuses: the last pass's, with this sync's own writes. */
-	let listing: Map<string, Version> | null = null;
+	let listing: Map<string, BlobId> | null = null;
 	while (report.passes < passes) {
 		report.passes++;
 		const pushedBefore = report.pushed.length;
@@ -256,7 +258,7 @@ export async function sync({
 
 /** What a sync landed in one pass: the files and bases it holds, and the paths whose write landed. */
 type Landings = {
-	files: Record<string, Version>;
+	files: Record<string, BlobId>;
 	at: Record<string, Base>;
 	landed: ReadonlySet<string>;
 };
@@ -281,7 +283,7 @@ function savedManifest(store: ManifestStore, first: ManifestVersion) {
 			for (let tries = 0; tries < 8; tries++) {
 				const written = await store.write(saving, version);
 				if (written.error !== null) return written;
-				if (written.data !== 'stale') {
+				if (written.data !== 'moved') {
 					version = written.data;
 					return Ok(saving === next ? null : saving);
 				}
@@ -318,24 +320,24 @@ type Step =
 	| {
 			kind: 'settle';
 			path: string;
-			local: Version | null;
-			remote: Version | null;
+			local: BlobId | null;
+			remote: BlobId | null;
 	  }
-	| { kind: 'pull'; path: string; local: Version | null; remote: RemoteFile }
+	| { kind: 'pull'; path: string; local: BlobId | null; remote: RemoteFile }
 	| {
 			kind: 'push';
 			path: string;
 			bytes: Uint8Array | null;
-			local: Version | null;
-			over: Version | 'absent';
+			local: BlobId | null;
+			expect: BlobId | null;
 	  }
 	| {
 			kind: 'merge';
 			path: string;
 			bytes: Uint8Array;
 			conflict: boolean;
-			local: Version;
-			remote: Version;
+			local: BlobId;
+			remote: BlobId;
 	  };
 
 async function syncPass({
@@ -352,10 +354,10 @@ async function syncPass({
 	state: Manifest;
 	report: SyncReport;
 	/** The local store's visible files and versions, when the last pass's still hold; null to list them. */
-	listing: Map<string, Version> | null;
+	listing: Map<string, BlobId> | null;
 }): Promise<
 	Result<
-		{ state: Manifest; done: boolean; listing: Map<string, Version> },
+		{ state: Manifest; done: boolean; listing: Map<string, BlobId> },
 		Unavailable
 	>
 > {
@@ -374,7 +376,7 @@ async function syncPass({
 	}
 	// A commit the repository no longer holds: meet it again as first contact.
 	const lost = changedRemote === null && state.commit !== null;
-	const files: Record<string, Version> = lost ? {} : { ...state.files };
+	const files: Record<string, BlobId> = lost ? {} : { ...state.files };
 	const at: Record<string, Base> = lost ? {} : { ...state.at };
 	const baseCommit = changedRemote === null ? null : state.commit;
 
@@ -391,7 +393,7 @@ async function syncPass({
 	const localNow = found;
 	/** What this pass found locally, then each version its own writes landed: the listing the next pass may reuse. */
 	const after = new Map(localNow);
-	const wrote = (path: string, version: Version | null) => {
+	const wrote = (path: string, version: BlobId | null) => {
 		if (version === null) after.delete(path);
 		else after.set(path, version);
 	};
@@ -466,7 +468,7 @@ async function syncPass({
 	const needLocal = paths.filter(
 		(path) => localChanged(path) && localNow.has(path),
 	);
-	const localBytes = new Map<string, { bytes: Uint8Array; version: Version }>();
+	const localBytes = new Map<string, { bytes: Uint8Array; version: BlobId }>();
 	for (const chunk of chunks(needLocal, READ_CHUNK)) {
 		const got = await local.read(chunk);
 		if (got.error !== null) return got;
@@ -477,19 +479,19 @@ async function syncPass({
 	const steps: Step[] = [];
 	const toMerge: {
 		path: string;
-		local: { bytes: Uint8Array; version: Version };
+		local: { bytes: Uint8Array; version: BlobId };
 		remote: Exclude<RemoteFile, { gone: true }>;
 	}[] = [];
 	for (const path of paths) {
 		const there = remoteNow.get(path);
-		const remoteVersion = versionOf(there);
+		const remoteBlobId = versionOf(there);
 		const mine = localBytes.get(path);
-		const localVersion = mine?.version ?? localNow.get(path) ?? null;
+		const localBlobId = mine?.version ?? localNow.get(path) ?? null;
 		const settle = (): Step => ({
 			kind: 'settle',
 			path,
-			local: localVersion,
-			remote: remoteVersion,
+			local: localBlobId,
+			remote: remoteBlobId,
 		});
 		const theirsChanged = remoteChanged(path);
 		const mineChanged = localChanged(path);
@@ -508,7 +510,7 @@ async function syncPass({
 			path,
 			bytes: mine?.bytes ?? null,
 			local: mine?.version ?? null,
-			over: remoteVersion ?? 'absent',
+			expect: remoteBlobId,
 		});
 		if (!mineChanged) {
 			steps.push(pull());
@@ -519,7 +521,7 @@ async function syncPass({
 			continue;
 		}
 		// Both changed. An edit beats a delete; equal bytes agree.
-		if (mine === undefined && remoteVersion === null) steps.push(settle());
+		if (mine === undefined && remoteBlobId === null) steps.push(settle());
 		else if (mine === undefined) steps.push(pull());
 		else if (there === undefined || 'gone' in there) steps.push(push());
 		else if (there.bytes !== null && sameBytes(there.bytes, mine.bytes))
@@ -574,12 +576,12 @@ async function syncPass({
 	// 3. The local side first, so a write another program makes meanwhile is kept.
 	const settled = (
 		path: string,
-		localVersion: Version | null,
-		remoteVersion: Version | null,
+		localBlobId: BlobId | null,
+		remoteBlobId: BlobId | null,
 	) => {
-		if (localVersion === null) delete files[path];
-		else files[path] = localVersion;
-		at[path] = { commit: head, version: remoteVersion };
+		if (localBlobId === null) delete files[path];
+		else files[path] = localBlobId;
+		at[path] = { commit: head, version: remoteBlobId };
 	};
 	for (const step of steps)
 		if (step.kind === 'settle') settled(step.path, step.local, step.remote);
@@ -595,9 +597,10 @@ async function syncPass({
 	);
 	for (const step of steps) {
 		if (step.kind !== 'merge') continue;
-		const written = await local.write(step.path, step.bytes, step.local);
-		if (written.error !== null) return written;
-		if (written.data === 'stale' || written.data === null) {
+		const written = await putLanded(local, step.path, step.bytes, step.local);
+		if (written.error !== null && written.error.name !== 'Moved')
+			return Err(written.error);
+		if (written.error !== null || written.data === null) {
 			kept.push(step.path);
 			continue;
 		}
@@ -613,7 +616,7 @@ async function syncPass({
 			path: step.path,
 			bytes: step.bytes,
 			local: written.data,
-			over: step.remote,
+			expect: step.remote,
 		});
 		const saved = await save({ commit: state.commit, files, at });
 		if (saved.error !== null) return saved;
@@ -644,12 +647,12 @@ async function syncPass({
 			return ClientError.Unavailable({
 				cause: `${step.path} could not be read at ${head}`,
 			});
-		const written = await local.write(step.path, bytes, step.local ?? 'absent');
-		if (written.error !== null) return written;
-		if (written.data === 'stale') {
+		const written = await putLanded(local, step.path, bytes, step.local);
+		if (written.error?.name === 'Moved') {
 			kept.push(step.path);
 			continue;
 		}
+		if (written.error !== null) return Err(written.error);
 		settled(step.path, written.data, versionOf(file));
 		wrote(step.path, written.data);
 		landed.add(step.path);
@@ -661,7 +664,7 @@ async function syncPass({
 		const unknown = kept.filter(
 			(path) => state.at?.[path] === undefined && !lost,
 		);
-		const agreed = new Map<string, Version | null>();
+		const agreed = new Map<string, BlobId | null>();
 		if (baseCommit !== null && unknown.length > 0) {
 			const got = await remote.readAt(unknown, baseCommit, {
 				attachments: false,
@@ -767,7 +770,7 @@ async function writeBatch(
 	let writing = steps;
 	while (writing.length > 0) {
 		const landed = await remote.writeAll(
-			writing.map(({ path, bytes, over }) => ({ path, bytes, over })),
+			writing.map(({ path, bytes, expect }) => ({ path, bytes, expect })),
 		);
 		if (landed.error !== null) return landed;
 		if (landed.data === 'stale') return Ok('stale');

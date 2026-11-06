@@ -8,9 +8,9 @@
  * `read` asks for every path in one request, all from one commit of `main`.
  *
  * A write lands only while the path holds what its writer expects: it
- * carries that as its `base` (null for `'absent'`), which the server checks
+ * carries that as its `base` (null for nothing), which the server checks
  * in the step that moves `main`, and a refusal (`occupied` or `stale`) is
- * `'stale'` here. The server never merges (ADR-0773).
+ * `Moved` here, carrying what the path holds. The server never merges (ADR-0773).
  *
  * A watch asks the server where `main` is before it answers, so a change
  * made after it answers is heard; then, every `POLL_MS`, it asks for the
@@ -23,7 +23,13 @@
 import { ClientError, storedWithLfs } from '@epicenter/definition/contract';
 import { isNamespaceId, isRepositoryName } from '@epicenter/definition/site';
 import { Ok, type Result } from 'wellcrafted/result';
-import type { FileRead, Store, Unavailable, Version } from '../device/store.js';
+import {
+	type BlobId,
+	type FileRead,
+	type Store,
+	StoreError,
+	type Unavailable,
+} from '../device/store.js';
 import type {
 	BatchRefusal,
 	BatchWrite,
@@ -159,38 +165,47 @@ export function repositoryStore(
 				),
 			);
 		},
-		async write(path, bytes, over) {
+		async put(path, bytes, expect) {
+			/** What the path holds now, as `Moved`. */
+			const moved = async () => {
+				const there = await wire.read([path]);
+				if (there.error !== null) return there;
+				const [file] = there.data.files;
+				return StoreError.Moved({
+					path,
+					now: file === undefined || 'gone' in file ? null : file.blob,
+				});
+			};
 			if (bytes === null) {
 				// Removing nothing where nothing is lands, as on a device.
-				if (over === 'absent') {
-					const there = await wire.read([path]);
-					if (there.error !== null) return there;
-					const [file] = there.data.files;
-					return Ok(file && 'gone' in file ? null : 'stale');
+				if (expect === null) {
+					const now = await moved();
+					return now.error?.name === 'Moved' && now.error.now === null
+						? Ok(null)
+						: now;
 				}
-				const sent = await send([{ path, delete: true, base: over }]);
+				const sent = await send([{ path, delete: true, base: expect }]);
 				if (sent.error !== null) return sent;
-				if (sent.data === 'stale') return Ok(sent.data);
+				if (sent.data === 'stale') return moved();
 				if ('refused' in sent.data)
 					return ClientError.Unavailable({ cause: sent.data.reason });
 				return Ok(null);
 			}
-			const base: Version | null = over === 'absent' ? null : over;
 			let file: FileWrite;
 			if (storedWithLfs(path)) {
 				const uploaded = await wire.upload([bytes]);
 				if (uploaded.error !== null) return uploaded;
 				const [lfs] = uploaded.data;
 				if (lfs === undefined) throw new Error('one object for one file');
-				file = { path, lfs, base };
-			} else file = { path, text: decoder.decode(bytes), base };
+				file = { path, lfs, base: expect };
+			} else file = { path, text: decoder.decode(bytes), base: expect };
 			const sent = await send([file]);
 			if (sent.error !== null) return sent;
-			if (sent.data === 'stale') return sent;
+			if (sent.data === 'stale') return moved();
 			// A store write has no refusal: the folder keeps it, saying why.
 			if ('refused' in sent.data)
 				return ClientError.Unavailable({ cause: sent.data.reason });
-			const landed = sent.data.blobs[path] as Version | null | undefined;
+			const landed = sent.data.blobs[path] as BlobId | null | undefined;
 			if (landed === null || landed === undefined)
 				return refused({
 					status: 200,
@@ -228,8 +243,7 @@ export function repositoryStore(
 				attachments.map(({ path }, index) => [path, uploaded.data[index]]),
 			);
 			const files: FileWrite[] = [];
-			for (const { path, bytes, over } of writes) {
-				const base = over === 'absent' ? null : over;
+			for (const { path, bytes, expect: base } of writes) {
 				const lfs = objects.get(path);
 				if (bytes === null) {
 					// Removing nothing where nothing is lands as nothing.
@@ -248,7 +262,7 @@ export function repositoryStore(
 			if (sent.data === 'stale' || 'refused' in sent.data) return Ok(sent.data);
 			return Ok({
 				commit: sent.data.commit,
-				versions: sent.data.blobs as Record<string, Version | null>,
+				versions: sent.data.blobs as Record<string, BlobId | null>,
 			});
 		},
 		async watch(changed) {

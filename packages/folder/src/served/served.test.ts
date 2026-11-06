@@ -161,8 +161,7 @@ test('a request the program cannot read is refused unread', async () => {
 	expect((await post('list', 'not json')).status).toBe(400);
 	expect((await post('list', '{"under":"notes"}')).status).toBe(400);
 	expect(
-		(await post('write', '{"path":"a.md","bytes":"%%","over":"absent"}'))
-			.status,
+		(await post('put', '{"path":"a.md","bytes":"%%","expect":null}')).status,
 	).toBe(400);
 	expect((await post('rename', '{}')).status).toBe(404);
 	expect((await fetch(`${url}/folder/list`)).status).toBe(405);

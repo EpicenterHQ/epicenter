@@ -198,9 +198,13 @@ request's raw body, so content crosses IPC as it is rather than as a JSON
 array of numbers. Its arguments are headers, each percent-encoded: `path`,
 `root` (`Data` or `AppData`), `remove` (`true` to remove the file, when the
 body is ignored), and
-`expected`, the version the page read there: `absent` for a create, or
-`sha256:` and the lowercase SHA-256 of the file (`storage::Expectation`).
-There is no unconditional put. Each case has its own spelling, so a hash is
+`expected`, the version the page read there: `absent` for a create,
+`blob:` and the Git blob id of a note or hidden file (`core/src/blob.rs`),
+`stamp:` and an attachment's stamp, or `any` for the page's own cache files
+(`storage::Expectation`). A listing names a note or hidden file by its blob
+id and an attachment by its stamp; the page turns that stamp into the blob
+id of the attachment's Git LFS pointer through its stamp cache (ADR-0808).
+There is no other unconditional put. Each case has its own spelling, so a hash is
 never read as a keyword; anything else is refused as `Io`. Removing nothing
 that expects nothing has landed. A new file must pass the shared path rule;
 an existing name only some disks hold may be replaced or removed over the

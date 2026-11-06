@@ -53,9 +53,9 @@ async function inMemory() {
 	const counts = { writes: 0, watching: 0 };
 	const counted: Store = {
 		...store,
-		write(path, bytes, over) {
+		put(path, bytes, expect) {
 			counts.writes++;
-			return store.write(path, bytes, over);
+			return store.put(path, bytes, expect);
 		},
 		async watch(listener) {
 			counts.watching++;
@@ -73,7 +73,9 @@ async function inMemory() {
 }
 
 /** Listen to the collection, as a reader would, until the note `a` is shown. */
-async function listening(folder: Awaited<ReturnType<typeof inMemory>>['folder']) {
+async function listening(
+	folder: Awaited<ReturnType<typeof inMemory>>['folder'],
+) {
 	const stop = folder.todos.subscribe(() => {});
 	await until(() => folder.todos.get({ id: 'a' }) !== undefined);
 	return stop;

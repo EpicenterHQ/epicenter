@@ -278,7 +278,7 @@ fn storage_behind_a_dangling_link_is_disconnected_and_makes_nothing() {
             disconnected
         );
         assert_eq!(
-            put(main, "a.md", None, Some(&sha256(b"a"))).unwrap_err(),
+            put(main, "a.md", None, Some(&blob(b"a"))).unwrap_err(),
             disconnected
         );
     };
@@ -703,7 +703,7 @@ fn put_headers(path: &str, remove: bool, if_match: Option<&str>) -> HeaderMap {
     headers.insert("path", encoded(path));
     headers.insert("root", encoded("Data"));
     headers.insert("remove", encoded(&remove.to_string()));
-    let expected = if_match.map_or("absent".to_string(), |hash| format!("sha256:{hash}"));
+    let expected = if_match.map_or("absent".to_string(), |hash| format!("blob:{hash}"));
     headers.insert("expected", encoded(&expected));
     headers
 }
@@ -735,7 +735,7 @@ fn write(
         window,
         relative,
         Some(content.as_bytes()),
-        there.as_deref().map(sha256).as_deref(),
+        there.as_deref().map(blob).as_deref(),
     )?;
     assert_eq!(landed, "landed");
     Ok(landed)
@@ -786,7 +786,7 @@ fn changes_land_under_the_root_and_never_in_git_state() {
         "first\n"
     );
     assert_eq!(
-        put(&main, "notes/a.md", None, Some(&sha256(b"first\n"))).unwrap(),
+        put(&main, "notes/a.md", None, Some(&blob(b"first\n"))).unwrap(),
         "landed"
     );
     assert!(!fixture.root.join("notes/a.md").exists());
@@ -804,13 +804,9 @@ fn changes_land_under_the_root_and_never_in_git_state() {
     assert!(!fixture.root.join(".git").exists());
 }
 
-/// The lowercase hexadecimal SHA-256 the page computes.
-fn sha256(bytes: &[u8]) -> String {
-    use sha2::{Digest, Sha256};
-    Sha256::digest(bytes)
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
+/// The Git blob id the page computes.
+fn blob(bytes: &[u8]) -> String {
+    epicenter_folder_core::blob::blob_id(bytes)
 }
 
 #[test]
@@ -822,7 +818,7 @@ fn a_save_lands_only_on_what_the_page_expected() {
         "landed"
     );
     assert_eq!(put(&main, "a.md", Some(b"again\n"), None).unwrap(), "stale");
-    let stale = sha256(b"stale\n");
+    let stale = blob(b"stale\n");
     assert_eq!(
         put(&main, "b.md", Some(b"b\n"), Some(&stale)).unwrap(),
         "stale"
@@ -838,7 +834,7 @@ fn a_save_lands_only_on_what_the_page_expected() {
     );
     assert!(!fixture.root.join("b.md").exists());
     assert_eq!(
-        put(&main, "a.md", Some(b"second\n"), Some(&sha256(b"first\n"))).unwrap(),
+        put(&main, "a.md", Some(b"second\n"), Some(&blob(b"first\n"))).unwrap(),
         "landed"
     );
     assert_eq!(
@@ -866,8 +862,8 @@ fn a_save_names_the_version_it_read_and_a_hash_is_tagged() {
     let (fixture, main) = opened("expected-version");
     assert_eq!(put(&main, "a.md", Some(b"new\n"), None).unwrap(), "landed");
     for refused in [
-        sha256(b"new\n"),
-        "sha256:absent".to_string(),
+        blob(b"new\n"),
+        "blob:absent".to_string(),
         "anything".to_string(),
         "present".to_string(),
     ] {
@@ -881,7 +877,7 @@ fn a_save_names_the_version_it_read_and_a_hash_is_tagged() {
         )
         .unwrap_err();
         assert_eq!(answer["name"], "Io", "{refused}: {answer}");
-        assert!(text(&answer["message"]).contains("sha256:"), "{answer}");
+        assert!(text(&answer["message"]).contains("blob:"), "{answer}");
     }
     assert_eq!(
         std::fs::read_to_string(fixture.root.join("a.md")).unwrap(),
@@ -967,12 +963,12 @@ fn storage_reaches_the_data_paths_of_the_root_and_nothing_else() {
         listed,
         json!([
             { "path": "todos/a.bin", "size": 5.0 },
-            { "path": "todos/a.md", "version": sha256(b"first\n"), "size": 6.0 }
+            { "path": "todos/a.md", "version": blob(b"first\n"), "size": 6.0 }
         ])
     );
     assert_eq!(
         invoke(&main, "list_folder", json!({ "root": "Data", "under": ["empty", "todos/a.md"] })).unwrap(),
-        json!([{ "path": "todos/a.md", "version": sha256(b"first\n"), "size": 6.0 }])
+        json!([{ "path": "todos/a.md", "version": blob(b"first\n"), "size": 6.0 }])
     );
     std::fs::remove_file(fixture.root.join("todos/a.bin")).unwrap();
     // Every byte value arrives as it is, raw.

@@ -14,19 +14,19 @@
  */
 import { ClientError, isNotePath } from '@epicenter/definition/contract';
 import { Ok, type Result } from 'wellcrafted/result';
-import type { Listed, Unavailable, Version } from '../device/store.js';
-import { hashBytes } from '../hash.js';
+import type { BlobId, Listed, Unavailable } from '../device/store.js';
+import { blobIdOf } from '../hash.js';
 
 /** One file at a commit: its version and bytes (null for an attachment read without them), or gone. */
 export type RemoteFile =
-	| { path: string; version: Version; bytes: Uint8Array | null }
+	| { path: string; version: BlobId; bytes: Uint8Array | null }
 	| { path: string; gone: true };
 
-/** One file of a batch write: its bytes, or null to delete it, over the version its writer read. */
+/** One file of a batch write: its bytes, or null to delete it, over the version its writer expects there (null: nothing). */
 export type BatchWrite = {
 	path: string;
 	bytes: Uint8Array | null;
-	over: Version | 'absent';
+	expect: BlobId | null;
 };
 
 /**
@@ -39,7 +39,7 @@ export type BatchRefusal = { refused: string; reason: string };
 /** A batch that landed: its commit, and the version now at each path (null where a delete landed). */
 export type BatchReceipt = {
 	commit: string;
-	versions: Record<string, Version | null>;
+	versions: Record<string, BlobId | null>;
 };
 
 export type Repository = {
@@ -82,7 +82,7 @@ export type Repository = {
  * `sync` costs without a disk or a network.
  */
 export function memoryRepository() {
-	type Tree = Map<string, { bytes: Uint8Array; version: Version }>;
+	type Tree = Map<string, { bytes: Uint8Array; version: BlobId }>;
 	const commits = new Map<string, Tree>();
 	let head: string | null = null;
 	let count = 0;
@@ -130,20 +130,15 @@ export function memoryRepository() {
 			writes.map(async (write) => ({
 				...write,
 				version:
-					write.bytes === null
-						? null
-						: ((await hashBytes(write.bytes)) as Version),
+					write.bytes === null ? null : await blobIdOf(write.path, write.bytes),
 			})),
 		);
 		// No await from here: the check and the commit are one step.
 		const current = tree(head);
-		for (const { path, over } of prepared) {
-			const there = current.get(path)?.version;
-			if (over === 'absent' ? there !== undefined : there !== over)
-				return Ok('stale');
-		}
+		for (const { path, expect } of prepared)
+			if ((current.get(path)?.version ?? null) !== expect) return Ok('stale');
 		const next: Tree = new Map(current);
-		const versions: Record<string, Version | null> = {};
+		const versions: Record<string, BlobId | null> = {};
 		for (const { path, bytes, version } of prepared) {
 			versions[path] = version;
 			if (bytes === null || version === null) next.delete(path);

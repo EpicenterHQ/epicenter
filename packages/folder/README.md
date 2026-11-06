@@ -142,14 +142,21 @@ in `src/device/store.ts`. A store knows nothing of contracts or notes.
 | --- | --- |
 | `list(under)` | every file at or below each of `under` (directories or file paths; `''` is everything), with its version and its size where the store knows it |
 | `read(paths)` | each path's bytes and version, or `gone`, in one call |
-| `write(path, bytes \| null, over)` | the version that landed (null for a removal), only while the path holds `over` (a version, or `'absent'`); `'stale'` when it holds something else |
+| `put(path, bytes \| null, expect)` | the version that landed (null for a removal), only while the path holds `expect` (a version, or null for nothing); `Moved { now }` when it holds something else, carrying what |
 | `watch(changed)` | the stop, once it is listening; from then `changed` hears the paths that changed, or `'all'` |
 
-A version names a file's bytes, only the store that gave it reads it, and
-no app holds one. A device store names a note by the sha256 of its bytes and
-an attachment by its stamp (size, modification time and file identity), so
-a listing never reads a recording to name it; the repository names a file
-by its Git blob id (for an attachment, the blob of its Git LFS pointer).
+A version is a file's Git blob id on every store
+([ADR-0808](../../docs/adr/0808-a-files-version-is-its-git-blob-id-on-every-store.md)),
+and no app holds one: a note's (or a hidden file's) is the blob id of its
+bytes, and an attachment's the blob id of its canonical Git LFS pointer,
+computed from its sha256 and size (`blobIdOf` in `src/hash.ts`). A device
+caches an attachment's hash by its stamp (size, modification time and file
+identity) in `.epicenter/hashes.json` (`src/device/stamp-cache.ts`), under
+Git's racy-clean rule: an entry holds only for a file last modified in an
+earlier second than its hash, so a listing reads a recording once, and an
+attachment is hashed again before a put replaces it. `putLanded` counts a
+`Moved` whose `now` is the version the put meant to land as landed: a lost
+reply. A device's listing leaves out `.git` and `.epicenter` at its root.
 Every store answers a hint only once a read of the path answers the change.
 `storeChecks` in `src/device/store.conformance.ts` holds memory, a Bun
 directory, the desktop shell and a served directory to the same behavior in

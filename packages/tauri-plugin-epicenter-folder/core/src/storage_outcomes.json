@@ -1,5 +1,5 @@
 {
-	"about": "Storage calls and what each answers, run by storage_tests.rs over the desktop shell's storage, the strict host. `tree` is made under an empty root, beside a directory `../outside` holding `secret.md`. `links` maps a path to a symbolic link's target. `expected` is what a put expects at its path: `\"absent\"` for a create, or `{ \"sha256Of\": text }` for the version read: a file whose bytes are that text. `expect` is the value (`text` for a read) or the error's name and path. `after` lists files and their text, and paths that must be absent. A case that `requires` `caseInsensitive` runs only on a disk that ignores case, one that requires `links` only where links can be made, and one that requires `nonportableNames` only where a name Windows refuses can be made.",
+	"about": "Storage calls and what each answers, run by storage_tests.rs over the desktop shell's storage, the strict host. `tree` is made under an empty root, beside a directory `../outside` holding `secret.md`. `links` maps a path to a symbolic link's target. `expected` is what a put expects at its path: `\"absent\"` for a create, or `{ \"blobOf\": text }` for the version read: a file whose bytes are that text, named by its Git blob id. `expect` is the value (`text` for a read) or the error's name and path. `after` lists files and their text, and paths that must be absent. A case that `requires` `caseInsensitive` runs only on a disk that ignores case, one that requires `links` only where links can be made, and one that requires `nonportableNames` only where a name Windows refuses can be made.",
 	"cases": [
 		{
 			"name": "a read answers a regular file's bytes",
@@ -85,7 +85,7 @@
 				"method": "put",
 				"path": "Todos/a.md",
 				"bytes": null,
-				"expected": { "sha256Of": "theirs" }
+				"expected": { "blobOf": "theirs" }
 			},
 			"expect": {
 				"error": {
@@ -149,7 +149,7 @@
 				"method": "put",
 				"path": "a.md",
 				"bytes": null,
-				"expected": { "sha256Of": "secret" }
+				"expected": { "blobOf": "secret" }
 			},
 			"expect": {
 				"error": {
@@ -220,7 +220,7 @@
 				"method": "put",
 				"path": "a.md",
 				"bytes": "new",
-				"expected": { "sha256Of": "old" }
+				"expected": { "blobOf": "old" }
 			},
 			"expect": { "value": "landed" },
 			"after": { "files": { "a.md": "new" } }
@@ -232,7 +232,7 @@
 				"method": "put",
 				"path": "a.md",
 				"bytes": "new",
-				"expected": { "sha256Of": "other" }
+				"expected": { "blobOf": "other" }
 			},
 			"expect": { "value": "stale" },
 			"after": { "files": { "a.md": "old" } }
@@ -256,7 +256,7 @@
 				"method": "put",
 				"path": "new/deep/a.md",
 				"bytes": "new",
-				"expected": { "sha256Of": "old" }
+				"expected": { "blobOf": "old" }
 			},
 			"expect": { "value": "stale" },
 			"after": { "absent": ["new"] }
@@ -279,7 +279,7 @@
 				"method": "put",
 				"path": "a.md",
 				"bytes": null,
-				"expected": { "sha256Of": "old" }
+				"expected": { "blobOf": "old" }
 			},
 			"expect": { "value": "stale" }
 		},
@@ -290,7 +290,7 @@
 				"method": "put",
 				"path": "a.md",
 				"bytes": null,
-				"expected": { "sha256Of": "old" }
+				"expected": { "blobOf": "old" }
 			},
 			"expect": { "value": "landed" },
 			"after": { "absent": ["a.md"] }
@@ -302,7 +302,7 @@
 				"method": "put",
 				"path": "a.md",
 				"bytes": null,
-				"expected": { "sha256Of": "other" }
+				"expected": { "blobOf": "other" }
 			},
 			"expect": { "value": "stale" },
 			"after": { "files": { "a.md": "old" } }
@@ -327,7 +327,7 @@
 				"method": "put",
 				"path": "todos/b?.md",
 				"bytes": "new",
-				"expected": { "sha256Of": "old" }
+				"expected": { "blobOf": "old" }
 			},
 			"expect": { "value": "stale" },
 			"after": { "absent": ["todos/b?.md"] }
@@ -353,7 +353,7 @@
 				"method": "put",
 				"path": "todos/a?.md",
 				"bytes": "new",
-				"expected": { "sha256Of": "old" }
+				"expected": { "blobOf": "old" }
 			},
 			"expect": { "value": "landed" },
 			"after": { "files": { "todos/a?.md": "new" } }
@@ -366,7 +366,7 @@
 				"method": "put",
 				"path": "todos/a?.md",
 				"bytes": null,
-				"expected": { "sha256Of": "old" }
+				"expected": { "blobOf": "old" }
 			},
 			"expect": { "value": "landed" },
 			"after": { "absent": ["todos/a?.md"] }
@@ -378,7 +378,7 @@
 				"method": "put",
 				"path": "todos/HEAD",
 				"bytes": "new",
-				"expected": { "sha256Of": "ref" }
+				"expected": { "blobOf": "ref" }
 			},
 			"expect": { "error": { "name": "InvalidPath", "path": "todos/HEAD" } },
 			"after": { "files": { "todos/HEAD": "ref" } }

@@ -49,11 +49,11 @@ import {
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { compress } from 'hono/compress';
 import { type Client, Pool } from 'pg';
-import { Ok, type Result } from 'wellcrafted/result';
+import { Err, Ok, type Result } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { startDisposablePostgres } from '../../../server/src/test-helpers/disposable-postgres.js';
 import { OAuthTestClient } from '../../../server/src/test-helpers/oauth-client.js';
-import type { Unavailable, Version } from '../device/store.js';
+import type { BlobId, Unavailable } from '../device/store.js';
 import { createFolder } from '../folder.js';
 import { noteCodec } from '../note-codec.js';
 import { storeChecks } from '../device/store.conformance.js';
@@ -181,7 +181,7 @@ const storeAt = ({ account, site, repository }: At, pollMs?: number) =>
 /** A file as a test reads it below the folder: its version, and what a reader shows of it. */
 type Seen = {
 	path: string;
-	version: Version;
+	version: BlobId;
 	text: string | null;
 	item: Record<string, unknown> | null;
 };
@@ -201,7 +201,7 @@ function filesAt(at: At) {
 		);
 		if (declared === undefined) throw new Error(`no collection ${name}`);
 		const codec = noteCodec(declared);
-		const seen = (path: string, bytes: Uint8Array, version: Version): Seen => {
+		const seen = (path: string, bytes: Uint8Array, version: BlobId): Seen => {
 			const params = compiled.claim(path)?.params ?? {};
 			if (declared.kind !== 'note')
 				return { path, version, text: null, item: params };
@@ -221,11 +221,11 @@ function filesAt(at: At) {
 			async write(
 				path: string,
 				bytes: Uint8Array | null,
-				over: Version | null,
+				over: BlobId | null,
 			): Promise<Result<Seen | null | 'stale', Unavailable>> {
-				const written = await store.write(path, bytes, over ?? 'absent');
-				if (written.error !== null) return written;
-				if (written.data === 'stale') return Ok('stale' as const);
+				const written = await store.put(path, bytes, over);
+				if (written.error?.name === 'Moved') return Ok('stale' as const);
+				if (written.error !== null) return Err(written.error);
 				if (bytes === null || written.data === null) return Ok(null);
 				return Ok(seen(path, bytes, written.data));
 			},
@@ -236,7 +236,10 @@ function filesAt(at: At) {
 				if (read.error !== null) return read;
 				const [file] = read.data;
 				if (file === undefined || 'gone' in file) return Ok(null);
-				return Ok({ ...seen(path, file.bytes, file.version), bytes: file.bytes });
+				return Ok({
+					...seen(path, file.bytes, file.version),
+					bytes: file.bytes,
+				});
 			},
 			async list(): Promise<Result<Seen[], Unavailable>> {
 				const listed = await store.list(['recordings']);
@@ -371,7 +374,7 @@ async function readRaw(account: Account, path: string) {
 		},
 	);
 	const { files } = (await response.json()) as {
-		files: { text: string; blob: Version }[];
+		files: { text: string; blob: BlobId }[];
 	};
 	return files[0]!;
 }
@@ -389,12 +392,10 @@ describe('a repository: the store conformance checks', () => {
 				store,
 				async outside(path, bytes) {
 					const [there] = expectOk(await other.read([path]));
-					const over =
-						there === undefined || 'gone' in there ? 'absent' : there.version;
-					if (bytes === null && over === 'absent') return;
-					expect(expectOk(await other.write(path, bytes, over))).not.toBe(
-						'stale',
-					);
+					const held =
+						there === undefined || 'gone' in there ? null : there.version;
+					if (bytes === null && held === null) return;
+					expectOk(await other.put(path, bytes, held));
 				},
 			});
 		}, 30_000);
@@ -628,7 +629,9 @@ describe('a repository as a store', () => {
 		const stop = expectOk(await store.watch((paths) => heard.push(paths)));
 		const path = `recordings/${timeId()}.md`;
 		landed(
-			expectOk(await other.recordings.write(path, note('title: Theirs\n'), null)),
+			expectOk(
+				await other.recordings.write(path, note('title: Theirs\n'), null),
+			),
 		);
 		for (let turn = 0; turn < 100 && heard.length === 0; turn++)
 			await Bun.sleep(50);
@@ -850,15 +853,20 @@ describe('a repository on a slow link', () => {
 			const person = await signIn('first-paint');
 			for (let start = 0; start < NOTES; start += 1000)
 				await person.writeRaw(
-					Array.from({ length: Math.min(1000, NOTES - start) }, (_, offset) => ({
-						path: `recordings/2026-10-31T09-30-00-${String(start + offset).padStart(6, '0')}.md`,
-						base: null,
-						text: `---\ntitle: Recording ${start + offset}\n---\n${'A sentence of what was said, as a transcript keeps it. '.repeat(4)}\n`,
-					})),
+					Array.from(
+						{ length: Math.min(1000, NOTES - start) },
+						(_, offset) => ({
+							path: `recordings/2026-10-31T09-30-00-${String(start + offset).padStart(6, '0')}.md`,
+							base: null,
+							text: `---\ntitle: Recording ${start + offset}\n---\n${'A sentence of what was said, as a transcript keeps it. '.repeat(4)}\n`,
+						}),
+					),
 				);
 			const link = { roundTripMs: 100, bitsPerSecond: 3_000_000 };
-			const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-			const carried = (bytes: number) => (bytes * 8 * 1000) / link.bitsPerSecond;
+			const wait = (ms: number) =>
+				new Promise((resolve) => setTimeout(resolve, ms));
+			const carried = (bytes: number) =>
+				(bytes * 8 * 1000) / link.bitsPerSecond;
 			const sent = { requests: 0, up: 0, down: 0, decoded: 0 };
 			const slow: Account = {
 				...person.account,

@@ -15,12 +15,13 @@
 import { ClientError } from '@epicenter/definition/contract';
 import { Ok, type Result } from 'wellcrafted/result';
 import type { OpenFolderError } from '../errors.js';
-import { hashBytes } from '../hash.js';
+import { blobIdOf } from '../hash.js';
 import {
+	type BlobId,
 	type Changed,
 	type Store,
+	StoreError,
 	type Unavailable,
-	type Version,
 	within,
 } from './store.js';
 
@@ -125,7 +126,7 @@ export function memoryStore(): Store & {
 	/** Open the store for a folder: once nothing holds the open, the store or the error set. */
 	opened(): Promise<Result<Store, OpenFolderError | Unavailable>>;
 } {
-	const files = new Map<string, { bytes: Uint8Array; version: Version }>();
+	const files = new Map<string, { bytes: Uint8Array; version: BlobId }>();
 	const listeners = new Set<Changed>();
 	const writes = gate();
 	const opens = gate();
@@ -133,18 +134,18 @@ export function memoryStore(): Store & {
 	const readRefusals = refusals();
 	let openRefusal: OpenFolderError | Unavailable | null = null;
 
-	/** The version `bytes` would be, null for a removal. */
-	const versionOf = async (bytes: Uint8Array | null) =>
-		bytes === null ? null : ((await hashBytes(bytes)) as Version);
+	/** The version `bytes` at `path` would be, null for a removal. */
+	const versionOf = async (path: string, bytes: Uint8Array | null) =>
+		bytes === null ? null : blobIdOf(path, bytes);
 
 	/**
 	 * Put `bytes` at `path` as `version`, or remove it for null. Synchronous,
 	 * so a write's check and its change are one step.
 	 */
-	function put(
+	function place(
 		path: string,
 		bytes: Uint8Array | null,
-		version: Version | null,
+		version: BlobId | null,
 	) {
 		if (bytes === null || version === null) files.delete(path);
 		else files.set(path, { bytes: bytes.slice(), version });
@@ -187,17 +188,15 @@ export function memoryStore(): Store & {
 				}),
 			);
 		},
-		async write(path, bytes, over) {
+		async put(path, bytes, expect) {
 			await writes.wait();
 			const refused = writeRefusals.of(path);
 			if (refused !== null) return ClientError.Unavailable({ cause: refused });
-			const landed = await versionOf(bytes);
+			const landed = await versionOf(path, bytes);
 			// No await from here: of two writes over one version, one lands.
-			const file = files.get(path);
-			const holds =
-				over === 'absent' ? file === undefined : file?.version === over;
-			if (!holds) return Ok('stale');
-			put(path, bytes, landed);
+			const now = files.get(path)?.version ?? null;
+			if (now !== expect) return StoreError.Moved({ path, now });
+			place(path, bytes, landed);
 			tell(path);
 			return Ok(landed);
 		},
@@ -224,7 +223,7 @@ export function memoryStore(): Store & {
 					typeof content === 'string'
 						? new TextEncoder().encode(content)
 						: content;
-				put(path, bytes, await versionOf(bytes));
+				place(path, bytes, await versionOf(path, bytes));
 				tell(path);
 			},
 			read(path) {

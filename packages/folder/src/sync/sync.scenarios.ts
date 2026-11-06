@@ -445,9 +445,9 @@ export const syncScenarios: Record<string, (world: World) => Promise<void>> = {
 		const agent = todo.replace('done: false', 'done: true');
 		const local: Store = {
 			...a.store,
-			async write(path, bytes, over) {
+			async put(path, bytes, expect) {
 				if (path === 'todos/a.md') await a.write(path, agent);
-				return a.store.write(path, bytes, over);
+				return a.store.put(path, bytes, expect);
 			},
 		};
 		const report = await syncOf(world, a, { local });
@@ -548,9 +548,9 @@ export const syncScenarios: Record<string, (world: World) => Promise<void>> = {
 		const agent = todo.replace('done: false', 'done: true');
 		const local: Store = {
 			...a.store,
-			async write(path, bytes, over) {
+			async put(path, bytes, expect) {
 				if (path === 'todos/x.md') await a.write(path, agent);
-				return a.store.write(path, bytes, over);
+				return a.store.put(path, bytes, expect);
 			},
 		};
 		const offline: Repository = {

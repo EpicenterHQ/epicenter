@@ -109,13 +109,13 @@ test('the drafts’ directory answers the page, and only the page', async () => 
 	const { origin, folder } = await start();
 	const json = { 'content-type': 'application/json' };
 	const write = (headers: Record<string, string>) =>
-		fetch(`${origin}/folder/write`, {
+		fetch(`${origin}/folder/put`, {
 			method: 'POST',
 			headers,
 			body: JSON.stringify({
 				path: 'drafts/a.md',
 				bytes: btoa('---\nchatId: c\n---\nHi'),
-				over: 'absent',
+				expect: null,
 			}),
 		});
 	expect((await write(json)).status).toBe(403);

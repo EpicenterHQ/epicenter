@@ -64,7 +64,8 @@ export type Landing = { landed: string } | "stale";
 
 /**
  *  One regular file in a listing: its version as the page names it (a
- *  note's SHA-256, any other file's stamp: `versioned_by_content`), and its
+ *  note's or hidden file's Git blob id, an attachment's stamp:
+ *  `versioned_by_content`), and its
  *  size in bytes.
  */
 export type ListedFile = {

@@ -69,11 +69,13 @@ import {
 import { createLogger } from 'wellcrafted/logger';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import {
+	type BlobId,
 	type FileRead,
 	type Listed,
+	putLanded,
 	type Store,
+	type StoreError,
 	type Unavailable,
-	type Version,
 	within,
 } from './device/store.js';
 import {
@@ -315,7 +317,7 @@ const backoff = (failures: number) =>
 	Math.min(RETRY_FIRST_MS * 2 ** failures, RETRY_MOST_MS);
 
 /** What the folder holds of one file: its version and size, and a note's text (null when it is not UTF-8). */
-type Held = { version: Version; size: number | null; text?: string | null };
+type Held = { version: BlobId; size: number | null; text?: string | null };
 
 /** An entry as an app reads it: a note's placeholders, fields and body, or a file's placeholders. */
 export type Entry = Record<string, unknown>;
@@ -324,7 +326,7 @@ export type Entry = Record<string, unknown>;
 export type Seen = {
 	path: string;
 	params: Params;
-	version: Version;
+	version: BlobId;
 	/** A note's text, null when it is not UTF-8; null for any other file. */
 	text: string | null;
 	/** What `items()` shows: a note that reads, or a file's placeholders; null for a note that does not read. */
@@ -334,7 +336,7 @@ export type Seen = {
 };
 
 /** What a write found at its path: the version, and a note's text. */
-type Current = { version: Version; text: string | null };
+type Current = { version: BlobId; text: string | null };
 
 /** What a write makes of what is there (null: nothing): bytes, null to remove it, or `'keep'`. */
 type Next = (current: Current | null) => Uint8Array | null | 'keep';
@@ -491,7 +493,7 @@ export function createFolder<TContract extends Contract>(
 	}
 
 	/** What a read or a write at `path` of `bytes` leaves the folder holding. */
-	function heldOf(path: string, bytes: Uint8Array, version: Version): Held {
+	function heldOf(path: string, bytes: Uint8Array, version: BlobId): Held {
 		if (!isNote(path)) return { version, size: bytes.byteLength };
 		const text = decodeNote(bytes);
 		return {
@@ -910,21 +912,22 @@ export function createFolder<TContract extends Contract>(
 			}
 			return Ok(answers);
 		},
-		async write(path, bytes, over) {
-			let outcome: Version | null | 'stale' = 'stale';
+		async put(path, bytes, expect) {
+			let outcome: Result<BlobId | null, StoreError> = Ok(null);
 			try {
 				await enqueue(
 					path,
 					async (to) => {
-						const written = await to.write(path, bytes, over);
-						if (written.error !== null) return written;
-						outcome = written.data;
-						if (visible(path) && written.data !== 'stale')
+						const put = await to.put(path, bytes, expect);
+						if (put.error !== null && put.error.name !== 'Moved')
+							return Err(put.error);
+						outcome = put as Result<BlobId | null, StoreError>;
+						if (visible(path) && put.error === null)
 							host.landed(
 								path,
-								bytes === null || written.data === null
+								bytes === null || put.data === null
 									? null
-									: host.heldOf(path, bytes, written.data),
+									: host.heldOf(path, bytes, put.data),
 							);
 						return Ok(undefined);
 					},
@@ -933,7 +936,7 @@ export function createFolder<TContract extends Contract>(
 			} catch (cause) {
 				return ClientError.Unavailable({ cause });
 			}
-			return Ok(outcome);
+			return outcome;
 		},
 		async watch(changed) {
 			const ready = await host.connected();
@@ -1020,7 +1023,7 @@ type Host = {
 	/** Hold what a write or a read found at `path` (null: nothing). */
 	landed(path: string, file: Held | null): void;
 	/** What the folder holds of `bytes` read or written at `path`. */
-	heldOf(path: string, bytes: Uint8Array, version: Version): Held;
+	heldOf(path: string, bytes: Uint8Array, version: BlobId): Held;
 	/** Read `path` now, in its lane. */
 	readNow(path: string): ReturnType<Store['read']>;
 };
@@ -1208,13 +1211,15 @@ function folderCollection(declared: CompiledCollection, host: Host) {
 					landed(shown(path) ?? null);
 					return Ok(undefined);
 				}
-				const written = await store.write(
+				const written = await putLanded(
+					store,
 					path,
 					bytes,
-					current?.version ?? 'absent',
+					current?.version ?? null,
 				);
-				if (written.error !== null) return written;
-				if (written.data !== 'stale') {
+				if (written.error !== null && written.error.name !== 'Moved')
+					return Err(written.error);
+				if (written.error === null) {
 					host.landed(
 						path,
 						bytes === null || written.data === null

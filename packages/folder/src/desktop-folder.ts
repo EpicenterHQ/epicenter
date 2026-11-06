@@ -37,25 +37,23 @@ export async function refreshAgentsNote(
 		let wanted: string;
 		try {
 			if (there !== null)
-				current = new TextDecoder('utf-8', { fatal: true }).decode(
-					there.bytes,
-				);
+				current = new TextDecoder('utf-8', { fatal: true }).decode(there.bytes);
 			wanted = withAgentsNote(current, contract, contractUrl);
 		} catch (error) {
 			log.debug('Could not prepare AGENTS.md', { error });
 			return false;
 		}
 		if (wanted === current) return true;
-		const written = await store.write(
+		const written = await store.put(
 			'AGENTS.md',
 			new TextEncoder().encode(wanted),
-			there === null ? 'absent' : there.version,
+			there === null ? null : there.version,
 		);
-		if (written.error !== null) {
+		if (written.error === null) return true;
+		if (written.error.name !== 'Moved') {
 			log.debug('Could not write AGENTS.md', { error: written.error });
 			return false;
 		}
-		if (written.data !== 'stale') return true;
 	}
 	log.debug('Could not update AGENTS.md after three attempts');
 	return false;

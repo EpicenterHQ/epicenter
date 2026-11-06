@@ -7,9 +7,10 @@
 //! `paths` is the path rule the folder engine shares, and `state` is where
 //! unfinished writes live (`.epicenter/`). Nothing here depends on Tauri.
 //! `admission` says which directories may be a folder.
-//! The folder's Git runs in the `epicenter` CLI, never here (ADR-0559).
+//! No Git runs here (ADR-0804); `blob` names a file by its Git blob id.
 
 pub mod admission;
+pub mod blob;
 pub mod directory;
 pub mod page_files;
 pub mod paths;

@@ -25,7 +25,7 @@ import {
 	type InferErrors,
 } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
-import type { Version } from '../device/store.js';
+import type { BlobId } from '../device/store.js';
 
 type Unavailable = InferError<typeof ClientError.Unavailable>;
 
@@ -72,9 +72,9 @@ export type RemoteError = InferErrors<typeof RemoteError>;
  * otherwise.
  */
 export type FileWrite =
-	| { path: string; text: string; base: Version | null }
-	| { path: string; lfs: LfsObject; base: Version | null }
-	| { path: string; delete: true; base: Version };
+	| { path: string; text: string; base: BlobId | null }
+	| { path: string; lfs: LfsObject; base: BlobId | null }
+	| { path: string; delete: true; base: BlobId };
 
 export type LfsObject = { oid: string; size: number };
 
@@ -99,7 +99,7 @@ export type WriteAnswer =
 /** One file on `main`: a note's text, or another file's LFS object. */
 export type RemoteFile = {
 	path: string;
-	blob: Version;
+	blob: BlobId;
 	text?: string;
 	lfs?: LfsObject | null;
 };
@@ -241,7 +241,7 @@ export function createWire(account: RemoteAccount, repository: string) {
 			Result<
 				{
 					commit: string | null;
-					files: { path: string; blob: Version; lfs?: LfsObject }[];
+					files: { path: string; blob: BlobId; lfs?: LfsObject }[];
 				},
 				Unavailable
 			>
@@ -261,7 +261,7 @@ export function createWire(account: RemoteAccount, repository: string) {
 				commit: typeof answer.commit === 'string' ? answer.commit : null,
 				files: answer.files as {
 					path: string;
-					blob: Version;
+					blob: BlobId;
 					lfs?: LfsObject;
 				}[],
 			});
