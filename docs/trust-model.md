@@ -4,15 +4,20 @@ Epicenter does not encrypt your data before syncing it. Whoever operates the
 server your data syncs with holds your files in the clear. That one decision is
 the trust model, and everything below is a consequence of it.
 
-This page describes what the code does today. A data folder is a directory of
-Markdown and JSON files with Git history beside them, and every device you use
-keeps the whole folder (ADR-0532). It syncs over plain Git, with a token, to the
-remote in its own `remote.origin.url` (ADR-0521). The files that carry it:
+This page describes what the code does today. A folder is a directory of
+Markdown and other files, and every device you use keeps the whole folder as
+plain files, with no Git on the computer
+([ADR-0804](adr/0804-a-computer-keeps-a-plain-folder-and-every-surface-syncs-with-one-typescript-function.md)).
+It syncs only with an Epicenter server, hosted or self-hosted, with an access
+token ([ADR-0803](adr/0803-clients-sync-only-with-epicenter-servers-and-sync-is-a-function-of-two-stores.md)).
+The server keeps each folder as a Git repository at `/folders/<id>`, so its
+history is on the server. The files that carry it:
 
-- `packages/folder/src/git/`: history, and the transport that pushes and fetches
-- `packages/server/src/routes/git.ts`: the hosted Git module, Git smart HTTP
-  with a token for one repository
-- `apps/api/worker/git-repositories.ts`: where Epicenter's hosted Git keeps
+- `packages/folder/src/sync/` and `packages/folder/src/remote/`: the sync
+  function, and the requests it makes of a folder's repository
+- `packages/server/src/routes/folder.ts` and `routes/git.ts`: a folder's sync
+  routes and its history as a Git remote, with a token for one folder
+- `apps/api/worker/git-repositories.ts`: where Epicenter's hosted server keeps
   repositories, in Cloudflare Artifacts
 
 The Yjs store sync that came before this, an authority that held each document's
@@ -34,37 +39,55 @@ Nothing is encrypted before it leaves your device, so the server your folder
 syncs with holds your files as files: readable Markdown and JSON, with their
 whole Git history. Whoever operates that server can read them with `git clone`.
 
-Who that is depends on the remote you choose:
+Who that is depends on the server you choose:
 
-| Remote | Who can read your files |
+| Server | Who can read your files |
 | --- | --- |
-| A Git server you run | you, and anyone who reaches your box |
-| Epicenter's hosted Git | Epicenter's operators, and Cloudflare, which stores it |
-| GitHub, GitLab, any other host | that host's operators |
+| A self-hosted Epicenter server (`apps/api/server.ts`, Bun with Postgres) | you, and anyone who reaches your box |
+| Epicenter's hosted server | Epicenter's operators, and Cloudflare, which stores it |
 
-Epicenter's hosted Git passes every byte through Epicenter's Worker to
+A folder does not sync with GitHub, GitLab, or another Git host: a client syncs
+only with an Epicenter server. The history on the server can be cloned to
+anywhere with `epicenter clone` or plain `git clone`
+([ADR-0803](adr/0803-clients-sync-only-with-epicenter-servers-and-sync-is-a-function-of-two-stores.md)).
+
+A folder's readers are its members, and each member is an owner, a writer, or a
+reader. A share is an invitation to an email that waits until that person accepts
+it, and the server answers it the same whether or not the email has an account
+([ADR-0820](adr/0820-a-share-is-an-invitation-to-an-email-and-reaching-every-folder-is-a-permission.md)).
+Removing a member refuses their next sync; it does not recall the files they
+already hold. A token reaches the folders attached to its app, or every folder
+its person holds when it carries `folders:all`, which the CLI and the Epicenter
+app ask for.
+
+Epicenter's hosted server passes every byte through Epicenter's Worker to
 Cloudflare Artifacts, which stores each folder as a repository. The Worker
-checks your access token and your namespace membership on every request, then
-reaches Artifacts with its own 24-hour token for that one repository; your
-token never reaches Artifacts. Epicenter runs no relay to GitHub or any other host: a
-desktop app talks to such a remote directly with your own Git credentials, and
-Epicenter sees nothing.
+checks your access token, your membership in the folder, and the token's reach
+on every request, then reaches Artifacts with its own 24-hour token for that one
+repository; your token never reaches Artifacts.
 
 Content is only half of what a server learns. The server also sees the metadata
 around the bytes: who pushed, to which repository, when, how much, and from which
 IP. Run the server yourself and that metadata is yours too.
 
-## Audio stays on the machine that recorded it
+## Recordings and other attachments sync with the folder
 
-Rows and documents ride Git, but large binaries do not belong in history.
-Whispering keeps audio in `audio/`, which its folder definition declares
-local: no commit Epicenter makes carries a file there, whatever `.gitignore`
-says, and the folder's `.gitignore` names `audio/` too. So a recording's
-audio never leaves the machine that recorded it; only the transcript row
-syncs. Epicenter hosts no blob store, so no server holds your
-audio unless you send it to a transcription service yourself
-([ADR-0577](adr/0577-audio-stays-on-the-machine-that-recorded-it.md)).
-Git LFS is the later path for carrying large files with a folder (ADR-0544).
+Every visible file in a folder syncs, a hidden path does not
+([ADR-0804](adr/0804-a-computer-keeps-a-plain-folder-and-every-surface-syncs-with-one-typescript-function.md)).
+A recording's audio is a file beside its note, so it goes to the server with
+the folder and is as readable there as a note. The server stores an
+attachment's bytes apart from its repository: in R2 on the hosted cloud and on
+disk on a self-hosted Bun server, at `blobs/<sha256>` within the folder, and
+Git LFS pointers stand in for them in the repository
+([ADR-0808](adr/0808-a-files-version-is-its-git-blob-id-on-every-store.md)). The
+bytes are never shared between folders, so one folder cannot learn whether a
+file exists in another.
+
+A setting that keeps audio on the computer that recorded it, or does not keep it
+at all, is decided and not built
+([ADR-0788](adr/0788-everything-in-a-folder-syncs-and-a-recordings-audio-is-kept-in-one-of-three-places.md)).
+Until then, audio in a synced folder leaves the computer, to the server and to
+every member's computer.
 
 ## The AI gateways see the prompt and the audio
 
@@ -90,12 +113,12 @@ Because the instance has no OAuth and no sessions, it composes no Better Auth an
 
 ## Where this is heading
 
-Privacy is a choice of remote, not an encryption layer. A folder's remote can be
-any Git server, so "who can read my data" is answered by "whose server is in
-`remote.origin.url`". Epicenter ships the apps; you choose who holds the synced
-copy, and every device keeps the full folder either way (ADR-0521). The private
-answer is to run the Git server yourself; the convenient one is to let
-Epicenter run it.
+Privacy is a choice of server, not an encryption layer. A folder syncs with one
+Epicenter server, so "who can read my data" is answered by "whose server this
+computer syncs with" and who its members are. Epicenter ships the apps and the
+server; you choose who holds the synced copy, and every device keeps the full
+folder either way. The private answer is to run the server yourself; the
+convenient one is to let Epicenter run it.
 
 ## Migration
 

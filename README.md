@@ -4,7 +4,7 @@
   </a>
   <h1 align="center">Epicenter</h1>
   <p align="center"><strong>Local-first apps over files you own.</strong></p>
-  <p align="center">Apps keep local data and can synchronize it over plain Git with a server you choose. On disk, ordinary Markdown and JSON files can also be opened by an editor, Git tool, or agent.</p>
+  <p align="center">Apps keep their data as ordinary Markdown and JSON files in a folder on your computer, and sync it with an Epicenter server, hosted or self-hosted. An editor, Git tool, or agent can open the same files.</p>
   <p align="center"><a href="apps/todos">Todos</a>, <a href="apps/whispering">Whispering</a>, and <a href="apps/honeycrisp">Honeycrisp</a> are built on it today.</p>
   <p align="center">Run the apps freely under AGPL-3.0-or-later. <a href="#license">What that means</a>.</p>
 </p>
@@ -37,25 +37,25 @@
 
 ## The Folder
 
-`@epicenter/folder` opens an app's files as the typed client its file
-contract derives. Notes are Markdown files at the contract's paths; the
-contract's schemas interpret them. Opening needs no account, remote, Git
-repository, or declaration file. A browser keeps its files in the origin's
-private file system; a desktop app or a Bun script opens a directory.
+Epicenter is your folders, and apps are lenses. Every directory directly inside
+`~/Epicenter` is a folder; an optional `epicenter.json` gives it a title and a
+contract. `@epicenter/folder` opens an app's folder as the typed client its file
+contract derives: items are Markdown files at the contract's paths, and the
+contract's schemas interpret them. Opening needs no account, remote, or
+declaration file. A desktop app or a Bun script opens a directory; in a browser
+the folder is the signed-in account's folder on the server.
 
 ```ts
-import { openDevice } from '@epicenter/folder/node';
+import { openFolder } from '@epicenter/folder';
+import { directory } from '@epicenter/folder/node';
 
-const device = await openDevice(todosContract, { path: '/Users/me/Todos' });
-if (device.error !== null) throw device.error;
-
-const saved = await device.data.todos.create({ id: 'milk', title: 'Milk', done: false });
-if (saved.error !== null) throw saved.error;
+const folder = openFolder(todos, directory('/Users/me/Epicenter/todos'));
+await folder.todos.set({ id: 'milk' }, { title: 'Milk', done: false });
 ```
 
-Each write is conditional on the version its writer read, so another
-writer's change since is a `Conflict` rather than overwritten. Git exchange
-is separate from opening the folder: `epicenter sync` commits and merges.
+A write never fails: the folder keeps it, in order, until it lands. Sync is
+separate from opening. `epicenter sync` syncs a folder with its repository on the
+server, with no Git on your computer.
 
 [Read the folder API](packages/folder/README.md)
 
@@ -68,8 +68,9 @@ removed, with the Local Mail, Skills, and sync-lab apps built on them; Git
 history keeps them for a return.
 
 Matter, a typed grid over Markdown folders with its own schema and SQLite
-mirror, was removed too; the Epicenter desktop app's Folders window edits data
-folders instead. [Local Books](apps/local-books) is a headless mirror that
+mirror, was removed too. The `epicenter` command syncs, shares, and shows the
+history of folders today; the Epicenter app's window over every folder is not
+built yet. [Local Books](apps/local-books) is a headless mirror that
 pulls a QuickBooks account into local SQLite and keeps its own format.
 
 ## Trust Boundaries
@@ -78,13 +79,12 @@ Pick the trust model you want.
 
 | Path | What leaves your device |
 | --- | --- |
-| No remote | Nothing. The folder is complete on the device that holds it. |
-| A Git remote you choose | The folder's files and history, to that server, when you sync. |
-| Hosted Epicenter | Account and session data and any hosted feature you enable; your folder too, if Epicenter's server is its remote. |
-| Self-hosted API | You control the server, secrets, deployment, and infrastructure boundary. |
+| No sync | Nothing. The folder is complete on the device that holds it. |
+| Hosted Epicenter | Account and session data and any hosted feature you enable; your folder too, when you sync it. |
+| Self-hosted API | You control the server, secrets, deployment, and infrastructure boundary. Your folder goes only there. |
 | A provider an app calls | Whatever that app sends it: transcript text to an LLM, audio to a transcription provider. Epicenter servers are not in that path. |
 
-Sync sends your files to the server in `remote.origin.url`, which can read them in plaintext. Choosing that server is choosing who can read your data. See the [trust model](docs/trust-model.md) for the details.
+A folder syncs only with an Epicenter server, which can read its files in plaintext. Choosing that server is choosing who can read your data. See the [trust model](docs/trust-model.md) for the details.
 
 ## Repo Map
 
@@ -92,13 +92,13 @@ Sync sends your files to the server in `remote.origin.url`, which can read them 
 
 | App | Status | Notes |
 | --- | --- | --- |
-| [Honeycrisp](apps/honeycrisp) | Runs, development milestone | Markdown notes on the file contract, edited as Markdown with live preview: kept in the browser, uploaded to the signed-in person's repository. |
+| [Honeycrisp](apps/honeycrisp) | Runs, development milestone | Markdown notes on the file contract, edited as Markdown with live preview: in a browser, the signed-in person's folder on the server; on the desktop, a folder on the computer. |
 | [Local Books](apps/local-books) | Runs, separately | Headless CLI mirror that pulls QuickBooks into local SQLite. |
 | [API](apps/api) | Hosted infrastructure | Personal cloud Worker. Owns sign-in, hosted Git, the AI gateways, hosted-only billing, and the dashboard. Self-host it on Bun with Postgres (`apps/api/server.ts`). |
 | [Whispering](apps/whispering) | Runs, development milestone | Voice recorder in a browser tab. Recordings, transcripts, and settings are files in a folder. |
-| [Todos](apps/todos) | Runs, development milestone | Todos as Markdown notes on the file contract: kept in the browser without sign-in, uploaded to your repository once signed in. |
-| [Vocab](apps/vocab) | Runs, development | Words and chats as notes of its contract, in the browser and, signed in, the learner's repository, with AI over `@epicenter/ai`. |
-| [Epicenter](apps/epicenter) | Runs, development | The folder manager: sets up, syncs, and shares the folders it finds in `~/Epicenter`, and opens none of their files. Apps run as separate programs. |
+| [Todos](apps/todos) | Runs, development milestone | Todos as Markdown notes on the file contract: in a browser, your folder on the server once signed in; on the desktop, a folder on the computer with no account. |
+| [Vocab](apps/vocab) | Runs, development | Words and chats as notes of its contract, in the browser the learner's folder on the server, on the desktop a folder on the computer, with AI over `@epicenter/ai`. |
+| [Epicenter](apps/epicenter) | Runs, development | The desktop shell and Settings. Its window over every folder in `~/Epicenter` is not built yet; the `epicenter` command does that work meanwhile. Apps run as separate programs. |
 | Other app folders | Research and prototypes | Useful history and experiments, not the current product lineup. |
 
 ### Packages
@@ -107,7 +107,9 @@ These packages carry the main architecture.
 
 | Package | Role | License |
 | --- | --- | --- |
-| [`@epicenter/folder`](packages/folder) | The data folder: tables, files, history, and Git sync, in a browser, a desktop page, or Bun. | AGPL-3.0-or-later |
+| [`@epicenter/folder`](packages/folder) | A folder: its collections and files, opened in a browser, a desktop page, or Bun, and synced with its repository on the server. | AGPL-3.0-or-later |
+| [`@epicenter/cli`](packages/cli) | The `epicenter` command: sync, share, accept, clone, history, and sign-in. | AGPL-3.0-or-later |
+| [`@epicenter/definition`](packages/definition) | A folder's contract, the front-matter and merge rules, and the names a site derives. | AGPL-3.0-or-later |
 | [`@epicenter/ai`](packages/ai) | Every source of models as an endpoint, one OpenAI-compatible client, the agent loop, and the model picker. | AGPL-3.0-or-later |
 | [`@epicenter/ui`](packages/ui) | Shared Svelte component library used by multiple apps. | AGPL-3.0-or-later |
 | [`@epicenter/server`](packages/server) | Shared Hono server library composed by the API on Cloudflare Workers and on Bun. | AGPL-3.0-or-later |
@@ -119,8 +121,9 @@ The server side is split into one shared library and two deployable folders:
 ```txt
 packages/server
   shared Hono library
-  route composition for auth, sessions, hosted Git,
-  and provider-backed inference and transcription
+  route composition for auth, sessions, folders (each a Git
+  repository on the server), and provider-backed inference
+  and transcription
 
 apps/api
   hosted personal Cloudflare Worker
