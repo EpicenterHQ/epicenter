@@ -61,6 +61,11 @@
 		{#if folders.sync()?.last?.error}
 			<p role="status" class="text-muted-foreground">Not syncing right now: {folders.sync()?.last?.error}</p>
 		{/if}
+		{#if home?.fileSync}
+			<p role="status" class={'refused' in home.fileSync ? 'text-destructive' : 'text-muted-foreground'}>
+				{'refused' in home.fileSync ? home.fileSync.refused : home.fileSync.warning}
+			</p>
+		{/if}
 
 
 		{#if home === null}
