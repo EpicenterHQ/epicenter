@@ -35,8 +35,13 @@ const ACCOUNT: AccountApp = AccountApp {
     name: "Vocab",
     scope: AccountApp::HOSTED_MODELS,
     audiences: AccountApp::API,
+    relays: Relays::Inference,
 };
 ```
+
+`relays` is what the app's windows may send on the account (below): a
+standalone app's is `Relays::Inference`, and the Epicenter app's is
+`Relays::AnyRoute`.
 
 The deployment registers the same id in
 `apps/api/worker/oauth-registrations.ts` (`NATIVE_APPS`), with every redirect
@@ -72,6 +77,25 @@ token the server rejects once, and streams the answer back on a channel (its
 head, the body's raw chunks, then its end or an error). `account_fetch_cancel`
 stops one. A request with no token to send ends with `reauth-required` or
 `auth-unavailable`, which the page's client turns into its auth state.
+
+A standalone app signs in only for hosted features (ADR-0822), so its
+windows send only hosted inference on the account: `INFERENCE_ROUTES` in
+`src/account.rs`, matched on the method and the exact path on the
+deployment's origin.
+
+| Method | Path | |
+| --- | --- | --- |
+| `POST` | `/v1/chat/completions` | hosted chat models |
+| `POST` | `/v1/audio/transcriptions` | hosted transcription |
+
+`account_fetch` refuses any other request, before it reads a token or
+sends anything, with `<App> sends only Epicenter's hosted inference on its
+account, not <method> <url>`. The Epicenter app, the one desktop program
+that syncs, relays any request to its audiences' origins: who is signed in,
+the folders, and their history. `fixtures/relayed-routes.json` lists the
+same routes; the crate's tests hold the table equal to it, and `apps/api`'s
+`runtime-profile.test.ts` checks that both API entries serve each one and
+that each is an inference gateway.
 
 ## A connected endpoint's requests
 

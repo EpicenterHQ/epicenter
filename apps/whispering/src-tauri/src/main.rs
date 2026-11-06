@@ -17,7 +17,7 @@
 
 mod shortcut;
 
-use epicenter_account::AccountApp;
+use epicenter_account::{AccountApp, Relays};
 use epicenter_standalone::StandaloneApp;
 
 include!("command_names.rs");
@@ -29,12 +29,14 @@ const WHISPERING: StandaloneApp = StandaloneApp {
     size: (1100.0, 760.0),
 };
 
-/// Signs in only for Epicenter's hosted transcription and AI.
+/// Signs in only for Epicenter's hosted transcription and AI, and its page
+/// sends nothing else on the account (ADR-0822).
 const ACCOUNT: AccountApp = AccountApp {
     client_id: "so.epicenter.whispering.native",
     name: "Whispering",
     scope: AccountApp::HOSTED_MODELS,
     audiences: AccountApp::API,
+    relays: Relays::Inference,
 };
 
 fn main() {
@@ -74,12 +76,15 @@ mod tests {
 
     /// Whispering is its own native client, `so.epicenter.<app>.native`
     /// (decision 84), the id `apps/api/worker/oauth-registrations.ts`
-    /// registers, and asks only for hosted models.
+    /// registers. It signs in only for hosted models, on the API audience,
+    /// and its page sends only hosted inference on the account (ADR-0822).
     #[test]
-    fn whispering_signs_in_as_its_own_native_client() {
+    fn whispering_signs_in_as_its_own_native_client_for_hosted_models_only() {
         assert_eq!(ACCOUNT.client_id, "so.epicenter.whispering.native");
         assert_eq!(ACCOUNT.name, "Whispering");
-        assert_eq!(ACCOUNT.scope, AccountApp::HOSTED_MODELS);
+        assert_eq!(ACCOUNT.scope, "openid offline_access profile email ai");
+        assert_eq!(ACCOUNT.audiences, [epicenter_account::Audience::Api]);
+        assert_eq!(ACCOUNT.relays, Relays::Inference);
     }
 
     /// The build script declares every account and connection command and

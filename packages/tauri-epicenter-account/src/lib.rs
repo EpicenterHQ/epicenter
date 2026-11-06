@@ -7,7 +7,8 @@
 //! - `account`: the native sign-in (RFC 8252 loopback with PKCE in the system
 //!   browser), the refresh token in the credentials file, `account.json`,
 //!   which says who is signed in, and `account_fetch`, which sends the page's
-//!   requests to Epicenter's API with a token the page never holds.
+//!   requests to Epicenter's API with a token the page never holds: for a
+//!   standalone app, only hosted inference (`Relays::Inference`).
 //! - `credentials`: the app's one place for secrets, `credentials.json` at
 //!   the top of its AppData directory (mode `0600`, ADR-0740), holding the
 //!   refresh token and the provider keys a page saves. The shell reads it
@@ -26,6 +27,7 @@
 //!     name: "Vocab",
 //!     scope: AccountApp::HOSTED_MODELS,
 //!     audiences: AccountApp::API,
+//!     relays: Relays::Inference,
 //! };
 //!
 //! epicenter_account::manage(builder, ACCOUNT)
@@ -48,7 +50,9 @@ use std::sync::Arc;
 use tauri::plugin::TauriPlugin;
 use tauri::{Manager, RunEvent, Runtime};
 
-pub use account::{deployment_origin, Account, AccountApp, Audience, Identity, IDENTITY_FILE};
+pub use account::{
+    deployment_origin, Account, AccountApp, Audience, Identity, Relays, IDENTITY_FILE,
+};
 pub use connection::Connections;
 pub use credentials::{Credentials, CREDENTIALS_FILE};
 
