@@ -1,68 +1,130 @@
 /**
  * `epicenter sync`, `clone`, `log`, `diff`, and `restore` (ADR-0804,
- * ADR-0811): a plain folder on this computer synced with its folder on the
- * server by the functions every surface composes, `syncFolder` and its
- * kin from `@epicenter/folder/platform`. The local side is the directory's
- * store, the remote the folder's repository reached by its id, and the
- * manifest `.epicenter/synced.json`, which names that id and the directory
- * it synced in. No Git runs on this computer: history is the server's, read
- * here by `log` and `diff` and brought back by `restore`, and a person who
- * wants Git clones the folder's remote with Git.
+ * ADR-0822): a folder in the Epicenter folder synced with its folder on the
+ * server by the functions every Epicenter program composes, `syncFolder`
+ * and its kin from `@epicenter/folder/platform`. The local side is the
+ * directory's store, the remote the folder's repository, and the manifest
+ * the folder's record at the Epicenter folder's root,
+ * `.epicenter/synced/<folder-id>.json`. No Git runs on this computer:
+ * history is the server's, read here by `log` and `diff` and brought back
+ * by `restore`.
  *
- * A folder's first sync joins the folder its manifest names when the person
- * holds it, and otherwise makes one; a copied folder (its manifest names
- * another directory) sends nothing until `--new` or `--same` answers what
- * it is. `clone` brings a folder the person holds into the Epicenter folder.
+ * Which directory is which folder is proven across the whole Epicenter
+ * folder (`identify`). A folder not proven its record's asks which folder it
+ * is before it syncs: `--join <id>` answers with a folder the person holds,
+ * `--create` with a new one; with nothing it could be it becomes a new
+ * folder, and with one match the person holds alone it joins that one. A
+ * sync that would delete many files on the server stops until
+ * `--push-deletions` or `--restore-deletions` says what they are.
+ *
  * Exit codes: 0 synced, 1 a sync to run again, a file the repository
- * refused, or a copy's question, 2 what the command cannot use (no sign-in,
- * no such folder, the server out of reach).
+ * refused, a question, or deletions waiting for an answer, 2 what the
+ * command cannot use (no sign-in, no such folder, the server out of reach).
  */
+import { basename, dirname, join, resolve } from 'node:path';
 import { isHiddenPath } from '@epicenter/definition/contract';
-import { localFolder } from '@epicenter/folder/node';
 import {
-	type CopyAnswer,
-	cloneFolder,
+	type Answer,
 	cloneIntoHome,
+	type Deletions,
 	describeMembers,
 	type FolderSync,
+	firstPartyApps,
+	identify,
 	listFolders,
+	type Question,
 	type RemoteAccount,
 	syncEvery,
 	syncFolder,
 } from '@epicenter/folder/platform';
-import { folderRepository, storeManifest } from '@epicenter/folder/sync';
+import { folderRepository } from '@epicenter/folder/sync';
 import { Err, Ok } from 'wellcrafted/result';
 import { authContext } from '../auth.ts';
-import { homeRoot } from '../folder-commands.ts';
+import { folderNameIn, homeRoot } from '../folder-commands.ts';
 import { count, EXIT, fail, writeErr, writeJson, writeOut } from '../output.ts';
-import { signedInAccount } from './account.ts';
+import { signedInAccount, signedInNow } from './account.ts';
 
 type Options = Record<string, string | true>;
 
-/** One folder's sync, printed; its exit code. */
-function printSync(path: string, done: FolderSync, json: boolean) {
-	if (done.kind === 'copy') {
-		const message = `${path} is a copy of the folder ${done.copyOf}, made in another directory, so it sent nothing. Run epicenter sync --new to make it a folder of its own, or --same if it is that folder, moved.`;
-		if (json) writeJson({ sync: { folder: path, copyOf: done.copyOf } });
-		else writeErr(message);
+/** The question a folder asks, as a person reads it, or as `--json` writes it. */
+function printQuestion(question: Question, json: boolean) {
+	if (json) {
+		writeJson({
+			question: {
+				folder: question.name,
+				path: question.path,
+				candidates: question.candidates.map(
+					({ folder, matchedBy, alone }) => ({
+						id: folder.id,
+						title: folder.title,
+						members: folder.members,
+						matchedBy,
+						alone,
+					}),
+				),
+				preselected: question.preselected,
+				madeBy: question.madeBy?.client ?? null,
+			},
+		});
 		return EXIT.finding;
 	}
-	if (done.kind === 'choose') {
-		if (json) writeJson({ sync: { folder: path, choose: done.folders } });
+	const lines = [
+		`${question.name} is not synced on this computer yet. It could be:`,
+		...question.candidates.map(({ folder, matchedBy }) => {
+			const selected =
+				folder.id === question.preselected
+					? '  (selected: it holds exactly the files it had when it last synced here)'
+					: '';
+			return `  ${folder.id}  ${folder.title ?? '(untitled)'}  ${describeMembers(folder.members)}  (same ${matchedBy})${selected}`;
+		}),
+		'',
+		`Sync it with one:   epicenter sync ${JSON.stringify(question.name)} --join ${question.preselected ?? '<id>'}`,
+		`Or as a new folder: epicenter sync ${JSON.stringify(question.name)} --create`,
+	];
+	writeErr(lines.join('\n'));
+	return EXIT.finding;
+}
+
+/** The first few of `paths`, and how many more. */
+function some(paths: readonly string[]) {
+	const shown = paths.slice(0, 3).join(', ');
+	return paths.length > 3 ? `${shown} and ${paths.length - 3} more` : shown;
+}
+
+/** One folder's sync, printed; its exit code. */
+function printSync(path: string, done: FolderSync, json: boolean) {
+	const name = basename(path);
+	if (done.kind === 'git') {
+		if (json) writeJson({ sync: { folder: path, git: true } });
 		else
 			writeErr(
-				`${path}: you hold several folders this app uses (${done.folders.join(', ')}); clone one into it.`,
+				`${path} is kept by Git, so Epicenter does not sync it: Git syncs it.`,
 			);
 		return EXIT.finding;
 	}
+	if (done.kind === 'question') return printQuestion(done.question, json);
 	const { report } = done;
 	if (json)
 		writeJson({
-			sync: { folder: path, id: done.folder, made: done.made, ...report },
+			sync: {
+				folder: path,
+				id: done.folder,
+				made: done.made,
+				joined: done.joined,
+				...report,
+			},
 		});
-	else {
+	else if (report.outcome === 'deletions') {
+		writeErr(
+			`${path}: this sync would delete ${count(report.deletions.length, 'file')} on the server (${some(report.deletions)}), so it sent nothing.\nRun epicenter sync ${JSON.stringify(name)} --push-deletions to delete them there, or --restore-deletions to bring them back here.`,
+		);
+	} else {
 		if (done.made)
 			writeErr(`${path}: its folder on the server is ${done.folder}`);
+		if (done.joined)
+			writeErr(
+				`${path}: synced with ${done.folder} for the first time; nothing was deleted on either side`,
+			);
 		const parts = [
 			report.pulled.length > 0
 				? `${count(report.pulled.length, 'file')} pulled`
@@ -91,37 +153,57 @@ function printSync(path: string, done: FolderSync, json: boolean) {
 		: EXIT.finding;
 }
 
-/** The answer `--new` or `--same` gives a copy, or why both were given. */
-function copyAnswer(options: Options): CopyAnswer | undefined | string {
-	if (options.new === true && options.same === true)
-		return 'Give --new or --same, not both.';
-	return options.new === true
-		? 'new'
-		: options.same === true
-			? 'same'
-			: undefined;
+/** What `--push-deletions` or `--restore-deletions` says, or why both were given. */
+function deletionsOf(options: Options): Deletions | undefined | { refused: string } {
+	if (options['push-deletions'] === true && options['restore-deletions'] === true)
+		return { refused: 'Give --push-deletions or --restore-deletions, not both.' };
+	if (options['push-deletions'] === true) return 'push';
+	if (options['restore-deletions'] === true) return 'restore';
+	return undefined;
+}
+
+/** What `--join <id>` or `--create` answers, or why both were given. */
+function answerOf(options: Options): Answer | undefined | { refused: string } {
+	if (typeof options.join === 'string' && options.create === true)
+		return { refused: 'Give --join <id> or --create, not both.' };
+	if (typeof options.join === 'string') return { join: options.join };
+	if (options.create === true) return { create: true };
+	return undefined;
 }
 
 /**
- * `epicenter sync [<dir>] [--new | --same]`: sync the folder (this
- * directory by default) with its folder on the server. `--all` syncs every
- * folder in the Epicenter folder that moved on either side.
+ * `epicenter sync [<folder>] [--join <id> | --create] [--push-deletions |
+ * --restore-deletions]`: sync the folder (this directory by default) with
+ * its folder on the server. `--all` syncs every folder in the Epicenter
+ * folder that moved on either side.
  */
 export async function syncCommand(
 	dir: string | undefined,
 	options: Options,
 	json: boolean,
 ) {
-	const account = signedInAccount(authContext());
+	const deletions = deletionsOf(options);
+	if (typeof deletions === 'object') return fail(deletions.refused, json);
+	const answer = answerOf(options);
+	if (answer !== undefined && 'refused' in answer)
+		return fail(answer.refused, json);
+	const signedIn = await signedInNow(authContext());
+	if (signedIn.error !== null) return fail(signedIn.error, json);
+	const account = signedIn.data;
+	const root = homeRoot();
 	if (options.all === true) {
-		if (dir !== undefined)
-			return fail('--all syncs every folder; name none.', json);
-		const every = await syncEvery({ account, root: homeRoot() });
+		if (dir !== undefined || answer !== undefined || deletions !== undefined)
+			return fail(
+				'--all syncs every folder; name none, and answer each one by name.',
+				json,
+			);
+		const every = await syncEvery({ account, root, apps: firstPartyApps() });
 		if (every.error !== null) return fail(every.error.message, json);
+		if (every.data.warning !== null) writeErr(every.data.warning);
 		let code: number = EXIT.ok;
-		for (const { path, result, waiting } of every.data) {
-			if (waiting) {
-				if (json) writeJson({ sync: { folder: path, neverSynced: true } });
+		for (const { path, result, waiting } of every.data.folders) {
+			if (waiting === 'local' || waiting === 'git') {
+				if (json) writeJson({ sync: { folder: path, waiting } });
 				continue;
 			}
 			if (result === undefined) {
@@ -134,27 +216,24 @@ export async function syncCommand(
 					: printSync(path, result.data, json);
 			code = Math.max(code, ran);
 		}
-		if (!json && every.data.every(({ result }) => result === undefined))
+		if (!json && every.data.folders.every(({ result }) => result === undefined))
 			writeOut('Every folder is in sync.');
 		return code;
 	}
-	const answer = copyAnswer(options);
-	if (typeof answer === 'string' && answer !== 'new' && answer !== 'same')
-		return fail(answer, json);
-	const local = await localFolder(dir ?? '.');
-	if (local.error !== null) return fail(local.error.message, json);
+	const name = await folderNameIn(root, dir ?? '.');
+	if (name.error !== null) return fail(name.error, json);
 	const done = await syncFolder({
 		account,
-		store: local.data.store,
-		identity: local.data.identity,
-		copy: answer as CopyAnswer | undefined,
+		root,
+		name: name.data,
+		answer,
+		deletions,
+		apps: firstPartyApps(),
 	});
+	const path = join(root.path, name.data);
 	if (done.error !== null)
-		return fail(
-			`Could not sync ${local.data.path}: ${done.error.message}`,
-			json,
-		);
-	return printSync(local.data.path, done.data, json);
+		return fail(`Could not sync ${path}: ${done.error.message}`, json);
+	return printSync(path, done.data, json);
 }
 
 /**
@@ -179,11 +258,10 @@ async function folderOf(account: RemoteAccount, source: string) {
 }
 
 /**
- * `epicenter clone [<folder>] [<dir>]`: without a folder, the folders the
+ * `epicenter clone [<folder>] [<name>]`: without a folder, the folders the
  * person holds by title and who holds them; with one (its id or title),
- * bring it into `<dir>`, or a new folder in the Epicenter folder named for
- * its title, and sync, which takes its files. A folder that already holds
- * files keeps them, merged on top.
+ * bring it into a new folder in the Epicenter folder, named `<name>` or
+ * for its title, and sync it from first contact, taking its files.
  */
 export async function cloneCommand(
 	source: string | undefined,
@@ -212,39 +290,43 @@ export async function cloneCommand(
 	const named = await folderOf(account, source);
 	if (named.error !== null) return fail(named.error, json);
 	const folder = named.data.id;
-	if (dir === undefined) {
-		const cloned = await cloneIntoHome({
-			account,
-			root: homeRoot(),
-			folder,
-			name: named.data.title ?? folder,
-		});
-		if (cloned.error !== null) return fail(cloned.error.message, json);
-		return printSync(cloned.data.local.path, cloned.data.sync, json);
+	const root = homeRoot();
+	let name = named.data.title ?? folder;
+	if (dir !== undefined) {
+		if (dir.includes('/') && dirname(resolve(dir)) !== root.path)
+			return fail(
+				`${resolve(dir)} is not in ${root.path}: a folder is cloned into the Epicenter folder, by name.`,
+				json,
+			);
+		name = basename(dir);
 	}
-	const local = await localFolder(dir, { make: true });
-	if (local.error !== null) return fail(local.error.message, json);
-	const cloned = await cloneFolder({ account, folder, local: local.data });
+	const cloned = await cloneIntoHome({ account, root, folder, name });
 	if (cloned.error !== null) return fail(cloned.error.message, json);
-	return printSync(local.data.path, cloned.data, json);
+	return printSync(cloned.data.local.path, cloned.data.sync, json);
 }
 
-/** The folder at `dir` and its repository, or the message to fail with. */
+/** The folder `dir` names, synced here, and its repository, or the message to fail with. */
 async function syncedFolder(dir: string | undefined) {
-	const local = await localFolder(dir ?? '.');
-	if (local.error !== null) return Err(local.error.message);
-	const { path, store } = local.data;
-	const read = await storeManifest(store).read();
-	if (read.error !== null)
-		return Err(`Could not read .epicenter/synced.json: ${read.error.message}`);
-	const { manifest } = read.data;
-	const { folder } = manifest;
-	if (folder === undefined)
+	const root = homeRoot();
+	const name = await folderNameIn(root, dir ?? '.');
+	if (name.error !== null) return Err(name.error);
+	const account = signedInAccount(authContext());
+	const found = await identify({ root, account });
+	if (found.error !== null) return Err(found.error.message);
+	const bound = found.data.bound.find(({ local }) => local.name === name.data);
+	const path = join(root.path, name.data);
+	if (bound === undefined)
 		return Err(
-			`${path} has never synced: run epicenter sync, or epicenter clone <folder> into it`,
+			`${path} is not synced on this computer: run epicenter sync on it first`,
 		);
-	const repository = folderRepository(signedInAccount(authContext()), folder);
-	return Ok({ path, store, manifest, folder, repository });
+	const { local, record } = bound;
+	return Ok({
+		path,
+		store: local.store,
+		manifest: record,
+		folder: record.folder,
+		repository: folderRepository(account, record.folder),
+	});
 }
 
 /** `epicenter log [<dir>] [--limit <n>]`: the folder's history on the server, newest first. */

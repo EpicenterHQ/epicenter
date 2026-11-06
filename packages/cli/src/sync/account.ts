@@ -20,6 +20,16 @@ export function carriesTokens(url: string): boolean {
 	);
 }
 
+/**
+ * `ctx`'s sign-in as an account, once it is known to answer a token: a
+ * signed-out computer is told how to sign in before anything else is read.
+ */
+export async function signedInNow(ctx: AuthContext) {
+	const { error } = await accessToken(ctx, ctx.deployment.audiences.git);
+	if (error !== null) return { data: null, error: error.message } as const;
+	return { data: signedInAccount(ctx), error: null } as const;
+}
+
 /** `ctx`'s sign-in, as a repository takes an account. */
 export function signedInAccount(ctx: AuthContext): RemoteAccount {
 	const lifetime = new AbortController();

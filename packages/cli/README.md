@@ -27,7 +27,7 @@ computer
 
 ```sh
 epicenter status                      # the Epicenter folder: each folder's state
-epicenter sync ~/Epicenter/notes      # 0 synced, 1 run again or a copy asks, 2 could not sync
+epicenter sync ~/Epicenter/notes      # 0 synced, 1 run again or it asks, 2 could not sync
 epicenter share ~/Epicenter/notes jess@example.com
 epicenter accept                      # the shares waiting for you
 ```
@@ -47,8 +47,8 @@ built yet.
 | `epicenter format <contract> [<dir>]` | built | `formatNotes` in `@epicenter/folder/node` |
 | `epicenter status` | built | `listHome` in `@epicenter/folder/platform`, through `src/folder-commands.ts` |
 | `epicenter init [<path>] [--title <title>] [--dry-run]` | built | `initFolder`, through `src/folder-commands.ts` |
-| `epicenter sync [<dir>] [--new \| --same] [--all]` | built | `syncFolder` and `syncEvery`, through `src/sync/commands.ts` |
-| `epicenter clone [<folder> [<dir>]]` | built | `listFolders`, `cloneIntoHome`, and `cloneFolder`, through `src/sync/commands.ts` |
+| `epicenter sync [<folder>] [--join <id> \| --create] [--push-deletions \| --restore-deletions] [--all]` | built | `syncFolder` and `syncEvery`, through `src/sync/commands.ts` |
+| `epicenter clone [<folder> [<name>]]` | built | `listFolders` and `cloneIntoHome`, through `src/sync/commands.ts` |
 | `epicenter log [<dir>] [--limit <n>]` | built | `src/sync/commands.ts` |
 | `epicenter diff [<dir>] [--since <commit>]` | built | `src/sync/commands.ts` |
 | `epicenter restore <commit> [<dir>] [--path <path>]` | built | `src/sync/commands.ts` |
@@ -86,10 +86,12 @@ is the `title` of its `epicenter.json`. Every directory directly inside the
 Epicenter folder (`~/Epicenter`, or `~/Epicenter Dev` in development) is a
 folder; one elsewhere joins by a symbolic link there.
 
-- `status` lists every folder there with its title and state (never synced,
-  synced, or shared, with who holds it), a copy of another folder as such,
-  then the shares waiting for you and the folders you hold that are not on
-  this computer. Signed out or offline, it lists what this computer holds.
+- `status` lists every folder there with its title and state (on this
+  computer only, with the folders it could be; synced; shared, with who
+  holds it; or kept by Git, which Epicenter never syncs), then the shares
+  waiting for you and the folders you hold that are not on this computer,
+  and a refusal when the Epicenter folder is inside a file-sync service.
+  Signed out or offline, it lists what this computer holds.
 - `init [<path>]` writes the folder's `epicenter.json`: its title (the
   directory's name, or `--title`), and the collections its files suggest,
   `{name}` the item's file name (ADR-0818). `--dry-run` prints the proposal.
@@ -116,33 +118,48 @@ machine of their own, against the real server.
 
 ## Sync
 
-`sync`, `clone`, `log`, `diff`, and `restore` live in `src/sync/`. The
-manifest at `.epicenter/synced.json` names the folder (its `folder` id), the
-directory it synced in (`root`: device and inode), the commit both sides
-last agreed at, and each file's Git blob id there (ADR-0808, ADR-0811). The CLI signs every request to the deployment with the
-grant's Git-audience token (`src/sync/account.ts`), sent over `https`, or
-over `http` only to this computer.
+`sync`, `clone`, `log`, `diff`, and `restore` live in `src/sync/`. What
+this computer synced is recorded at the Epicenter folder's root, one record
+per folder at `.epicenter/synced/<folder-id>.json`: the folder's id, the
+name and identity (inode and birth time) of the directory that agreed it,
+the commit both sides last agreed at, and each file's Git blob id there
+(ADR-0808, ADR-0822). A folder holds only its files. The CLI signs every
+request to the deployment with the grant's Git-audience token
+(`src/sync/account.ts`), sent over `https`, or over `http` only to this
+computer.
 
-- `sync [<dir>]` syncs the folder (this directory by default). Its first
-  sync joins the folder its manifest names when you hold it, and otherwise
-  makes one, recording its id. A copy of a folder (its manifest names
-  another directory: a Finder duplicate, a backup restored elsewhere) sends
-  nothing and exits 1; `--new` makes it a folder of its own, and `--same`
-  says it is that folder, moved. `--all` syncs every folder in the Epicenter
-  folder that moved on either side, from one request for where every folder
-  is (ADR-0819). A folder inside a `.git` or `.epicenter` directory is
-  refused. A sync copies what changed on one side to the other, and merges a
+- `sync [<folder>]` syncs a folder in the Epicenter folder, by its path or
+  name (this directory by default); a directory anywhere else is refused.
+  Which directory is which folder is proven across the whole Epicenter
+  folder (`identify` in `@epicenter/folder/platform`): the same inode and
+  birth time as a record, or, for a record no directory has, the same name
+  and exactly the same files in a folder only you hold. A folder not proven
+  asks which folder it is before it sends anything, exiting 1: the folders
+  you hold that are not synced here, matched by name or title, with who
+  holds each, one selected when it held exactly the files it had here.
+  `--join <id>` answers with one, `--create` with a new folder (which never
+  joins one). With nothing it could be it becomes a new folder, and with one
+  match you hold alone it joins that one. A join starts from first contact,
+  which never deletes. A sync that would delete 20 or more files on the
+  server, or 5 or more that are half the folder, sends nothing and exits 1
+  until `--push-deletions` deletes them there or `--restore-deletions`
+  brings them back. `--all` syncs every folder in the Epicenter folder that
+  moved on either side, from one request for where every folder is
+  (ADR-0819), and a folder an app made as if you had named it. A folder Git
+  keeps is never synced, and an Epicenter folder inside a file-sync service
+  is refused. A sync copies what changed on one side to the other, and merges a
   note both sides changed: front matter by key, this computer's change
   winning a key both changed, and the body by line with one conflict block
   per clash. An edit beats a delete, and a file both sides replaced keeps
   this computer's, the other staying in the repository's history. A path
   the repository refuses (one differing only in case from a path it holds)
-  stays here and is named. `--json` prints one `{"sync": {...}}` line. Exit
-  codes: 0 synced, 1 run again or a file refused, 2 could not sync.
+  stays here and is named. `--json` prints one `{"sync": {...}}` or
+  `{"question": {...}}` line. Exit codes: 0 synced, 1 run again, a file
+  refused, a question, or deletions waiting, 2 could not sync.
 - `clone` lists the folders you hold, by id, title, and who holds them;
-  `clone <folder> [<dir>]` brings one (by id, or by a title one folder has)
-  into `<dir>`, or a new directory in the Epicenter folder named for its
-  title, and syncs; a directory that holds files keeps them, merged on top.
+  `clone <folder> [<name>]` brings one (by id, or by a title one folder
+  has) into a new directory in the Epicenter folder, named `<name>` or for
+  its title, and syncs it.
   Plain Git clones the same history at `<git origin>/folders/<id>.git`.
 - `log [<dir>]` lists the repository's history, newest first, marking the
   commit the folder last agreed at.

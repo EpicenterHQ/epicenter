@@ -13,7 +13,9 @@
  *   person's Epicenter folder; a reader cannot write; `unshare` refuses
  *   their next sync and leaves their files
  * - `init` proposes a contract, `status` lists each folder's state, and a
- *   copied folder sends nothing until `--new`
+ *   copy asks which folder it is, answered by `--join` or `--create`; a first
+ *   sync on another computer joins the folder held by name; many deletions
+ *   wait for `--push-deletions` or `--restore-deletions`
  *
  * Requires initdb and pg_ctl on PATH; never connects to a configured
  * database.
@@ -24,6 +26,7 @@ import {
 	cp,
 	mkdir,
 	mkdtemp,
+	readdir,
 	readFile,
 	realpath,
 	rm,
@@ -151,14 +154,15 @@ afterAll(async () => {
 type Run = { code: number; stdout: string; stderr: string };
 
 /**
- * A person with a machine of their own: signed in with the device grant as
- * `epicenter auth login` does, its Git-audience token cached so no process
- * refreshes, and an `epicenter` that runs as them.
+ * A computer of a person (a new one, or `of`'s): signed in with the device
+ * grant as `epicenter auth login` does, its Git-audience token cached so no
+ * process refreshes, and an `epicenter` that runs as them. Its Epicenter
+ * folder is `<home>/Epicenter`.
  */
-async function machine(label: string) {
-	const person: Person = await oauth.person(label);
+async function machine(label: string, of?: { person: Person }) {
+	const person: Person = of?.person ?? (await oauth.person(label));
 	const home = join(scratch, label);
-	await mkdir(home, { recursive: true });
+	await mkdir(join(home, 'Epicenter'), { recursive: true });
 	const secrets = createMemorySecrets();
 	const ctx: AuthContext = {
 		deployment: resolveDeployment(origin),
@@ -192,15 +196,31 @@ async function machine(label: string) {
 		EPICENTER_DATA_DIR: join(home, 'data'),
 		EPICENTER_TEST_SECRETS: JSON.stringify({ $auth: { [entry]: stored } }),
 	};
+	const epicenterFolder = join(home, 'Epicenter');
 	return {
+		person,
 		/** The email the person signs in with, which others share with. */
 		email: person.email,
 		home,
+		/** The folder `name` in its Epicenter folder. */
+		at: (name: string) => join(epicenterFolder, name),
+		/** The folder id this computer's record of the folder `name` names. */
+		async folderOf(name: string) {
+			const records = join(epicenterFolder, '.epicenter', 'synced');
+			for (const file of await readdir(records)) {
+				const record = JSON.parse(
+					await readFile(join(records, file), 'utf8'),
+				) as { folder: string; name: string };
+				if (record.name === name) return record.folder;
+			}
+			return null;
+		},
 		async epicenter(...args: string[]): Promise<Run> {
 			const child = Bun.spawn(
 				[process.execPath, '--no-install', bin, ...args],
 				{
 					env,
+					cwd: home,
 					stdout: 'pipe',
 					stderr: 'pipe',
 				},
@@ -215,20 +235,12 @@ async function machine(label: string) {
 	};
 }
 
-/** The folder id `.epicenter/synced.json` in `dir` records. */
-async function folderIn(dir: string) {
-	const manifest = JSON.parse(
-		await readFile(join(dir, '.epicenter', 'synced.json'), 'utf8'),
-	) as { folder: string };
-	return manifest.folder;
-}
-
 const note = (title: string, body = '') => `---\ntitle: ${title}\n---\n${body}`;
 
-test('a first sync makes the repository; clone brings it whole; both sides merge; diff, log, and restore read the history', async () => {
+test('a first sync makes the repository; clone brings it whole to another computer; both sides merge; diff, log, and restore read the history', async () => {
 	const me = await machine('sync-me');
-	const desk = join(me.home, 'notes');
-	const laptop = join(me.home, 'laptop');
+	const other = await machine('sync-me-laptop', me);
+	const desk = me.at('notes');
 	const audio = crypto.getRandomValues(new Uint8Array(200_000));
 	await mkdir(join(desk, 'notes'), { recursive: true });
 	await writeFile(join(desk, 'notes/a.md'), note('A', 'one\ntwo\nthree\n'));
@@ -238,26 +250,30 @@ test('a first sync makes the repository; clone brings it whole; both sides merge
 	expect(first.code, first.stdout + first.stderr).toBe(0);
 	expect(JSON.parse(first.stdout).sync).toMatchObject({
 		outcome: 'synced',
-		pushed: ['notes/a.md', 'notes/a.webm'],
+		made: true,
+		pushed: ['epicenter.json', 'notes/a.md', 'notes/a.webm'],
 	});
-	const folder = await folderIn(desk);
+	const folder = (await me.folderOf('notes')) as string;
+	// The folder holds only its files; the record is at the Epicenter folder's root.
+	expect((await readdir(desk)).sort()).toEqual(['epicenter.json', 'notes']);
 	expect((await me.epicenter('diff', desk)).stdout).toContain(
 		'Nothing changed since the last sync.',
 	);
 
-	const cloned = await me.epicenter('clone', folder, laptop, '--json');
+	const cloned = await other.epicenter('clone', folder, 'Laptop', '--json');
 	expect(cloned.code, cloned.stdout + cloned.stderr).toBe(0);
+	const laptop = other.at('Laptop');
 	expect(new Uint8Array(await readFile(join(laptop, 'notes/a.webm')))).toEqual(
 		audio,
 	);
-	expect(await folderIn(laptop)).toBe(folder);
+	expect(await other.folderOf('Laptop')).toBe(folder);
 
 	// Each side edits a different line; the later sync merges them.
 	await writeFile(join(desk, 'notes/a.md'), note('A', 'ONE\ntwo\nthree\n'));
 	await writeFile(join(laptop, 'notes/a.md'), note('A', 'one\ntwo\nTHREE\n'));
 	await writeFile(join(laptop, 'notes/b.md'), note('B'));
 	expect(
-		JSON.parse((await me.epicenter('diff', laptop, '--json')).stdout),
+		JSON.parse((await other.epicenter('diff', laptop, '--json')).stdout),
 	).toEqual({
 		diff: [
 			{ path: 'notes/a.md', change: 'changed' },
@@ -265,11 +281,11 @@ test('a first sync makes the repository; clone brings it whole; both sides merge
 		],
 	});
 	expect((await me.epicenter('sync', desk)).code).toBe(0);
-	const merged = await me.epicenter('sync', laptop, '--json');
+	const merged = await other.epicenter('sync', 'Laptop', '--json');
 	expect(JSON.parse(merged.stdout).sync).toMatchObject({
 		merged: ['notes/a.md'],
 	});
-	expect((await me.epicenter('sync', desk)).code).toBe(0);
+	expect((await me.epicenter('sync', 'notes')).code).toBe(0);
 	const both = note('A', 'ONE\ntwo\nTHREE\n');
 	expect(await readFile(join(desk, 'notes/a.md'), 'utf8')).toBe(both);
 	expect(await readFile(join(desk, 'notes/b.md'), 'utf8')).toBe(note('B'));
@@ -304,7 +320,7 @@ test('a first sync makes the repository; clone brings it whole; both sides merge
 		note('A', 'one\ntwo\nthree\n'),
 	);
 	expect((await me.epicenter('sync', desk)).code).toBe(0);
-	expect((await me.epicenter('sync', laptop)).code).toBe(0);
+	expect((await other.epicenter('sync', laptop)).code).toBe(0);
 	expect(await readFile(join(laptop, 'notes/a.md'), 'utf8')).toBe(
 		note('A', 'one\ntwo\nthree\n'),
 	);
@@ -320,7 +336,7 @@ test('share waits for accept, which lands the folder in the other Epicenter fold
 	const bob = await machine('bob');
 
 	// Alice keeps a recording in a folder; her first sync makes it on the server.
-	const mine = join(alice.home, 'Epicenter', 'Recorder');
+	const mine = alice.at('Recorder');
 	const id = timeId();
 	const audio = crypto.getRandomValues(new Uint8Array(300_000));
 	await mkdir(join(mine, 'recordings'), { recursive: true });
@@ -330,7 +346,7 @@ test('share waits for accept, which lands the folder in the other Epicenter fold
 		(await alice.epicenter('init', mine, '--title', 'Kitchen sounds')).code,
 	).toBe(0);
 	expect((await alice.epicenter('sync', mine)).code).toBe(0);
-	const folder = await folderIn(mine);
+	const folder = (await alice.folderOf('Recorder')) as string;
 	const aliceNote = join(mine, 'recordings', `${id}.md`);
 
 	// Before a share, Bob reaches nothing of hers.
@@ -365,7 +381,7 @@ test('share waits for accept, which lands the folder in the other Epicenter fold
 	// Accepted, it lands in Bob's Epicenter folder, named for its title.
 	const accepted = await bob.epicenter('accept', 'Kitchen sounds');
 	expect(accepted.code, accepted.stdout + accepted.stderr).toBe(0);
-	const copy = join(bob.home, 'Epicenter', 'Kitchen sounds');
+	const copy = bob.at('Kitchen sounds');
 	expect(
 		new Uint8Array(await readFile(join(copy, 'recordings', `${id}.m4a`))),
 	).toEqual(audio);
@@ -414,9 +430,10 @@ test('share waits for accept, which lands the folder in the other Epicenter fold
 	).toEqual(audio);
 }, 240_000);
 
-test('a copied folder sends nothing until --new; init proposes a contract; a folder inside .git or .epicenter is refused', async () => {
-	const me = await machine('copier');
-	const diary = join(me.home, 'Epicenter', 'Diary');
+test('a first sync on another computer joins the folder the person holds; a copy asks which folder it is and is answered by --join or --create', async () => {
+	const me = await machine('asker');
+	const other = await machine('asker-laptop', me);
+	const diary = me.at('Diary');
 	await mkdir(join(diary, 'days'), { recursive: true });
 	await writeFile(join(diary, 'days/one.md'), note('One'));
 	const dry = await me.epicenter('init', diary, '--dry-run', '--json');
@@ -430,36 +447,124 @@ test('a copied folder sends nothing until --new; init proposes a contract; a fol
 		},
 	});
 	expect((await me.epicenter('sync', diary)).code).toBe(0);
-	const folder = await folderIn(diary);
+	const folder = (await me.folderOf('Diary')) as string;
 
-	const copy = join(me.home, 'Epicenter', 'Diary copy');
-	await cp(diary, copy, { recursive: true });
-	await writeFile(join(copy, 'days/private.md'), note('Private'));
-	const asked = await me.epicenter('sync', copy, '--json');
-	expect(asked.code).toBe(1);
-	expect(JSON.parse(asked.stdout)).toEqual({
-		sync: { folder: copy, copyOf: folder },
+	// The laptop's own Diary, never synced, joins the one folder she holds by
+	// that name: from first contact, so both sides' notes stay.
+	await mkdir(join(other.at('Diary'), 'days'), { recursive: true });
+	await writeFile(join(other.at('Diary'), 'days/two.md'), note('Two'));
+	const joined = await other.epicenter('sync', 'Diary', '--json');
+	expect(joined.code, joined.stdout + joined.stderr).toBe(0);
+	expect(JSON.parse(joined.stdout).sync).toMatchObject({
+		id: folder,
+		joined: true,
+		made: false,
 	});
+	expect(await readdir(join(other.at('Diary'), 'days'))).toEqual([
+		'one.md',
+		'two.md',
+	]);
+
+	// Two more of her folders are titled Diary, made with --create, which
+	// never joins one she has.
+	for (const name of ['Second', 'Third']) {
+		await mkdir(me.at(name), { recursive: true });
+		await writeFile(
+			join(me.at(name), 'epicenter.json'),
+			JSON.stringify({ title: 'Diary', collections: {} }),
+		);
+		expect((await me.epicenter('sync', name, '--create')).code).toBe(0);
+	}
+	const second = (await me.folderOf('Second')) as string;
+	const third = (await me.folderOf('Third')) as string;
+	expect(new Set([folder, second, third]).size).toBe(3);
+	// On the laptop, a folder titled Diary could be either of the two not
+	// synced there: it asks, and sends nothing.
+	const notebook = other.at('Notebook');
+	await mkdir(notebook, { recursive: true });
+	await writeFile(
+		join(notebook, 'epicenter.json'),
+		JSON.stringify({ title: 'Diary', collections: {} }),
+	);
+	await writeFile(join(notebook, 'private.md'), note('Private'));
+	const asked = await other.epicenter('sync', 'Notebook', '--json');
+	expect(asked.code).toBe(1);
+	const question = JSON.parse(asked.stdout).question;
+	expect(question).toMatchObject({ folder: 'Notebook', preselected: null });
 	expect(
-		JSON.parse((await me.epicenter('status', '--json')).stdout).folders,
+		question.candidates.map(({ id }: { id: string }) => id).sort(),
+	).toEqual([second, third].sort());
+	const human = await other.epicenter('sync', 'Notebook');
+	expect(human.stderr).toContain('is not synced on this computer yet');
+	expect(human.stderr).toContain('--join');
+	expect(
+		JSON.parse((await other.epicenter('status', '--json')).stdout).folders,
 	).toMatchObject([
 		{ name: 'Diary', state: 'synced', folder },
-		{ name: 'Diary copy', state: 'local', copyOf: folder },
+		{ name: 'Notebook', state: 'local', folder: null },
 	]);
-	const made = await me.epicenter('sync', copy, '--new', '--json');
+	expect(
+		(await other.epicenter('sync', 'Notebook', '--join', second, '--create'))
+			.code,
+	).toBe(2);
+	const answered = await other.epicenter(
+		'sync',
+		'Notebook',
+		'--join',
+		third,
+		'--json',
+	);
+	expect(answered.code, answered.stdout + answered.stderr).toBe(0);
+	expect(JSON.parse(answered.stdout).sync).toMatchObject({
+		id: third,
+		joined: true,
+	});
+
+	// A copy of Diary here could be no folder not already synced here: its
+	// sync makes a new one, and the original never takes its private note.
+	const copy = me.at('Diary copy');
+	await cp(diary, copy, { recursive: true });
+	await writeFile(join(copy, 'days/private.md'), note('Private'));
+	const made = await me.epicenter('sync', copy, '--json');
 	expect(made.code, made.stdout + made.stderr).toBe(0);
 	expect(JSON.parse(made.stdout).sync).toMatchObject({ made: true });
-	expect(await folderIn(copy)).not.toBe(folder);
-	// The original never took the copy's private note.
+	expect(await me.folderOf('Diary copy')).not.toBe(folder);
 	expect((await me.epicenter('sync', diary, '--json')).code).toBe(0);
 	await expect(readFile(join(diary, 'days/private.md'))).rejects.toThrow();
 
-	for (const inside of [join(diary, '.epicenter'), join(diary, '.git', 'x')]) {
-		await mkdir(inside, { recursive: true });
-		const refused = await me.epicenter('sync', inside, '--json');
+	// Outside the Epicenter folder, or inside a record, nothing syncs.
+	const outside = join(me.home, 'elsewhere');
+	await mkdir(outside, { recursive: true });
+	for (const target of [outside, join(diary, 'days')]) {
+		const refused = await me.epicenter('sync', target, '--json');
 		expect(refused.code).toBe(2);
 		expect(JSON.parse(refused.stdout).error).toContain(
-			'holds records, not a folder',
+			'is not a folder in',
 		);
 	}
+}, 240_000);
+
+test('a sync that would delete many files stops until --push-deletions or --restore-deletions', async () => {
+	const me = await machine('deleter');
+	const log = me.at('Log');
+	await mkdir(join(log, 'days'), { recursive: true });
+	for (let day = 1; day <= 25; day++)
+		await writeFile(join(log, `days/${day}.md`), note(`Day ${day}`));
+	expect((await me.epicenter('sync', 'Log')).code).toBe(0);
+	for (let day = 1; day <= 21; day++) await rm(join(log, `days/${day}.md`));
+	const stopped = await me.epicenter('sync', 'Log');
+	expect(stopped.code).toBe(1);
+	expect(stopped.stderr).toContain('would delete 21 files on the server');
+	expect(stopped.stderr).toContain('--push-deletions');
+	const json = JSON.parse((await me.epicenter('sync', 'Log', '--json')).stdout);
+	expect(json.sync).toMatchObject({ outcome: 'deletions' });
+	expect(json.sync.deletions).toHaveLength(21);
+	expect(
+		(await me.epicenter('sync', 'Log', '--restore-deletions')).code,
+	).toBe(0);
+	expect(await readdir(join(log, 'days'))).toHaveLength(25);
+	for (let day = 1; day <= 21; day++) await rm(join(log, `days/${day}.md`));
+	const pushed = await me.epicenter('sync', 'Log', '--push-deletions', '--json');
+	expect(JSON.parse(pushed.stdout).sync).toMatchObject({ outcome: 'synced' });
+	expect(JSON.parse(pushed.stdout).sync.pushed).toHaveLength(21);
 }, 240_000);

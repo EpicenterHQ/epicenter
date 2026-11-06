@@ -47,17 +47,23 @@ export const COMMANDS: readonly CommandSpec[] = [
 	},
 	{
 		path: ['sync'],
-		args: '[<dir>]',
+		args: '[<folder>]',
 		minArgs: 0,
 		maxArgs: 1,
-		options: [{ name: 'new' }, { name: 'same' }, { name: 'all' }],
+		options: [
+			{ name: 'join', value: '<id>' },
+			{ name: 'create' },
+			{ name: 'push-deletions' },
+			{ name: 'restore-deletions' },
+			{ name: 'all' },
+		],
 		summary:
-			'sync a folder with its folder on the server, joining or making it at its first sync',
+			'sync a folder in the Epicenter folder with its folder on the server, asking which one first when it is not synced here',
 		long: true,
 	},
 	{
 		path: ['clone'],
-		args: '[<folder> [<dir>]]',
+		args: '[<folder> [<name>]]',
 		minArgs: 0,
 		maxArgs: 2,
 		summary:

@@ -8,7 +8,8 @@
  * The credential is an access token for the deployment's Git audience, from
  * the CLI's sign-in (`epicenter auth login`).
  */
-import { basename } from 'node:path';
+import { realpath } from 'node:fs/promises';
+import { basename, dirname, join, resolve } from 'node:path';
 import {
 	FOLDER_ROLES,
 	type FolderRole,
@@ -21,8 +22,11 @@ import {
 	acceptIntoHome,
 	attachFolder,
 	describeMembers,
+	type EpicenterRoot,
+	firstPartyApps,
 	getFolder,
 	type HomeFolder,
+	identify,
 	initFolder,
 	listFolders,
 	listHome,
@@ -30,7 +34,6 @@ import {
 	shareFolder,
 	unshareFolder,
 } from '@epicenter/folder/platform';
-import { storeManifest } from '@epicenter/folder/sync';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { resolveAppPaths } from './app-paths.ts';
 import { authContext } from './auth.ts';
@@ -43,37 +46,39 @@ type Options = Record<string, string | true>;
 export const homeRoot = () => epicenterRoot(resolveAppPaths().folderDir);
 
 /**
- * The folder id `target` names: an id, or the path of a folder on this
- * computer that has synced. Fails with what to do when it has not.
+ * The folder id `target` names: an id, or a folder in the Epicenter folder
+ * (its path or name) that syncs on this computer. Fails with what to do
+ * when it does not.
  */
 export async function folderIdOf(
 	target: string,
 ): Promise<Result<string, string>> {
 	if (isFolderId(target)) return Ok(target);
-	const local = await localFolder(target);
-	if (local.error !== null) return Err(local.error.message);
-	const read = await storeManifest(local.data.store).read();
-	if (read.error !== null)
-		return Err(`Could not read .epicenter/synced.json: ${read.error.message}`);
-	const { folder } = read.data.manifest;
-	if (folder === undefined)
+	const root = homeRoot();
+	const name = await folderNameIn(root, target);
+	if (name.error !== null) return name;
+	const found = await identify({ root });
+	if (found.error !== null) return Err(found.error.message);
+	const bound = found.data.bound.find(({ local }) => local.name === name.data);
+	if (bound === undefined)
 		return Err(
-			`${local.data.path} has never synced: run epicenter sync on it first`,
+			`${name.data} is not synced on this computer: run epicenter sync on it first`,
 		);
-	return Ok(folder);
+	return Ok(bound.record.folder);
 }
 
 /** `epicenter status`: the folders in the Epicenter folder, each one's state, and the shares waiting. */
 export async function statusCommand(json: boolean) {
 	const root = homeRoot();
+	const apps = firstPartyApps();
 	let account: RemoteAccount | undefined = signedInAccount(authContext());
-	let home = await listHome({ root, account });
+	let home = await listHome({ root, account, apps });
 	let offline: string | null = null;
 	if (home.error !== null) {
 		// Signed out, or the server out of reach: what this computer holds.
 		offline = home.error.message;
 		account = undefined;
-		home = await listHome({ root });
+		home = await listHome({ root, apps });
 	}
 	if (home.error !== null) return fail(home.error.message, json);
 	if (json) {
@@ -100,6 +105,9 @@ export async function statusCommand(json: boolean) {
 	}
 	for (const { name, reason } of home.data.unreadable)
 		lines.push(`${name}: ${reason}`);
+	const check = home.data.fileSync;
+	if (check !== null)
+		lines.push('', 'refused' in check ? check.refused : check.warning);
 	writeOut(lines.join('\n'));
 	if (offline !== null)
 		writeErr(`Members and shares are not shown: ${offline}`);
@@ -112,14 +120,25 @@ function folderLine(folder: HomeFolder): string {
 			? folder.name
 			: `${folder.name} (${folder.title})`;
 	const state =
-		folder.copyOf !== null
-			? `a copy of ${folder.copyOf}: epicenter sync --new or --same`
+		folder.state === 'git'
+			? 'kept by Git, so Epicenter does not sync it'
 			: folder.state === 'local'
-				? 'never synced'
+				? localState(folder)
 				: folder.members === null
 					? folder.state
 					: `${folder.state}, ${describeMembers(folder.members)}`;
 	return `${label}: ${state}${folder.unlisted ? ` (${folder.unlisted})` : ''}`;
+}
+
+/** A folder not synced here, and what it could be. */
+function localState({ question, name }: HomeFolder): string {
+	const sync = `epicenter sync ${JSON.stringify(name)}`;
+	if (question === null || question.candidates.length === 0)
+		return `on this computer only (${sync} makes it a folder on the server)`;
+	if (question.silent !== null)
+		return `on this computer only; it is your folder ${question.silent} (${sync} syncs it)`;
+	const ids = question.candidates.map(({ folder }) => folder.id).join(', ');
+	return `on this computer only; it could be ${ids} (${sync} asks which)`;
 }
 
 /**
@@ -330,4 +349,30 @@ export async function attachCommand(
 				: `${app} no longer reaches the folder ${folder.data}.`,
 		);
 	return EXIT.ok;
+}
+/**
+ * The name, in the Epicenter folder `root`, of the folder `target` names:
+ * its path, or its name there. A directory anywhere else is refused: a
+ * folder syncs only inside the Epicenter folder, and one elsewhere joins by
+ * a link there (ADR-0821).
+ */
+export async function folderNameIn(
+	root: EpicenterRoot,
+	target: string,
+): Promise<Result<string, string>> {
+	const real = (path: string) => realpath(path).catch(() => resolve(path));
+	const absolute = resolve(target);
+	const parent = dirname(absolute);
+	if (
+		parent === root.path ||
+		(await real(parent)) === (await real(root.path))
+	)
+		return Ok(basename(absolute));
+	// A bare name names the folder in the Epicenter folder, wherever this runs.
+	const bare = !target.includes('/') && target !== '.' && target !== '..';
+	if (bare && (await realpath(join(root.path, target)).catch(() => null)))
+		return Ok(target);
+	return Err(
+		`${absolute} is not a folder in ${root.path}: Epicenter syncs the folders in it. Move the folder there, or link it there.`,
+	);
 }
