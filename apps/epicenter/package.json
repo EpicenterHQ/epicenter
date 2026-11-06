@@ -7,12 +7,9 @@
 	"scripts": {
 		"build": "bun run scripts/with-build-lock.ts bun run build:apps",
 		"build:apps": "bun run clean:dist && bun run build:home && bun run build:folders",
-		"build:desktop": "bun run build && bun run build:sidecar",
-		"build:desktop:dev": "bun run build && bun run build:sidecar:dev",
+		"build:desktop": "bun run build",
 		"build:folders": "vite build --config vite.folders.config.ts",
 		"build:home": "vite build",
-		"build:sidecar": "bun run scripts/build-sidecar.ts",
-		"build:sidecar:dev": "bun run scripts/build-sidecar.ts development",
 		"clean:dist": "bun run scripts/clean-dist.ts",
 		"desktop:build": "tauri build",
 		"dev": "bun run dev:desktop",
@@ -24,9 +21,14 @@
 		"typecheck": "tsc --noEmit && svelte-check --tsconfig ./tsconfig.json"
 	},
 	"dependencies": {
-		"@epicenter/cli": "workspace:*",
+		"@epicenter/account": "workspace:*",
+		"@epicenter/definition": "workspace:*",
+		"@epicenter/folder": "workspace:*",
+		"@epicenter/local": "workspace:*",
+		"@epicenter/svelte": "workspace:*",
 		"@epicenter/transcription": "workspace:*",
 		"@epicenter/ui": "workspace:*",
+		"@lucide/svelte": "catalog:",
 		"@tauri-apps/api": "catalog:"
 	},
 	"devDependencies": {

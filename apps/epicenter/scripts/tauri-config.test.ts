@@ -1,10 +1,8 @@
 /**
- * The Tauri config declares the `epicenter` CLI as an external binary, and
- * `src-tauri/binaries/` is gitignored. `build.rs` panics on a missing external
- * binary before the app compiles, so every command that starts or packages the
- * app must compile it first, and must build the pages the shell serves.
- * `dev:desktop` once ran only the page build, which failed on a fresh clone
- * with a missing `binaries/epicenter-cli-<triple>` resource.
+ * Every command that starts or packages the app builds the pages the shell
+ * serves first. The app carries no external binary: it neither runs nor
+ * bundles the `epicenter` CLI (ADR-0793, ADR-0817), so nothing else must be
+ * compiled before the shell.
  */
 
 import { expect, test } from 'bun:test';
@@ -12,6 +10,9 @@ import { join } from 'node:path';
 
 const config = await Bun.file(
 	join(import.meta.dir, '..', 'src-tauri', 'tauri.conf.json'),
+).json();
+const development = await Bun.file(
+	join(import.meta.dir, '..', 'src-tauri', 'tauri.dev.conf.json'),
 ).json();
 const scripts = (
 	await Bun.file(join(import.meta.dir, '..', 'package.json')).json()
@@ -36,13 +37,14 @@ function expand(name: string): Set<string> {
 	return seen;
 }
 
-test('starting and packaging the app both compile the CLI and build the pages first', () => {
-	expect(config.bundle.externalBin).toEqual(['binaries/epicenter-cli']);
-	const dev = config.build.beforeDevCommand.script as string;
-	const build = config.build.beforeBuildCommand as string;
-	for (const command of [dev, build]) {
+test('starting and packaging the app build the pages first, and bundle no binary', () => {
+	expect(config.bundle.externalBin).toBeUndefined();
+	for (const command of [
+		config.build.beforeDevCommand.script as string,
+		config.build.beforeBuildCommand as string,
+		development.build.beforeDevCommand.script as string,
+	]) {
 		const reached = scriptsRun(command).flatMap((name) => [...expand(name)]);
-		expect(reached).toContain('build:sidecar');
 		expect(reached).toContain('build:home');
 		expect(reached).toContain('build:folders');
 	}

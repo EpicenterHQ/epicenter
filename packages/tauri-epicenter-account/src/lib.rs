@@ -74,8 +74,18 @@ pub const CONNECTION_COMMANDS: &[&str] = &[
 /// app's AppData directory, and its connections' requests. Both files are
 /// placed once the app runs.
 pub fn manage<R: Runtime>(builder: tauri::Builder<R>, app: AccountApp) -> tauri::Builder<R> {
+    manage_at(builder, app, deployment_origin())
+}
+
+/// `manage` against the deployment at `origin`, for a shell that names its
+/// own (the Epicenter app, which a self-hosted build compiles for its server).
+pub fn manage_at<R: Runtime>(
+    builder: tauri::Builder<R>,
+    app: AccountApp,
+    origin: String,
+) -> tauri::Builder<R> {
     let credentials = Arc::new(Credentials::default());
-    let account = Arc::new(Account::new(app, deployment_origin(), credentials.clone()));
+    let account = Arc::new(Account::new(app, origin, credentials.clone()));
     builder
         .manage(Arc::new(Connections::new(credentials.clone())))
         .manage(account.clone())

@@ -13,9 +13,9 @@ use tauri_plugin_opener::OpenerExt;
 #[cfg(test)]
 mod command_names;
 
-mod cli;
 mod desktop_paths;
 use crate::desktop_paths::DesktopPaths;
+mod login;
 #[cfg(target_os = "macos")]
 mod macos_menu;
 mod scheme;
@@ -41,6 +41,17 @@ pub mod overlay;
 pub mod clipboard;
 
 const HOSTED_AUTH_ORIGIN: &str = "https://api.epicenter.so";
+
+/// Who the Epicenter app signs in as: its own client, reaching every folder
+/// the person holds (`folders:all`, ADR-0820), on the API and Git audiences.
+/// Its shell keeps the refresh token in its credentials file and sends every
+/// request a page makes on the account (`epicenter-account`).
+const ACCOUNT: epicenter_account::AccountApp = epicenter_account::AccountApp {
+    client_id: "so.epicenter",
+    name: "Epicenter",
+    scope: epicenter_account::AccountApp::EVERY_FOLDER,
+    audiences: epicenter_account::AccountApp::API_AND_FOLDERS,
+};
 
 /// Epicenter's own windows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -86,9 +97,8 @@ macro_rules! shell_commands {
     ($($extra:tt)*) => {
         tauri_specta::collect_commands![
             open_home,
-            cli::auth_login::<tauri::Wry>,
-            cli::auth_status,
-            cli::auth_logout,
+            login::start_at_login,
+            login::set_start_at_login,
             $($extra)*
         ]
     };
@@ -194,9 +204,37 @@ fn open_home(app: DesktopAppHandle) {
     request_window(&app, BuiltInApp::Home);
 }
 
+/// The account commands a window may call (`epicenter-account`), outside the
+/// typed contract: the page's side is `createTauriAuth` from
+/// `@epicenter/account/tauri`.
+fn account_handler() -> impl Fn(tauri::ipc::Invoke<Wry>) -> bool + Send + Sync + 'static {
+    tauri::generate_handler![
+        epicenter_account::account::account_sign_in,
+        epicenter_account::account::account_sign_out,
+        epicenter_account::account::account_fetch,
+        epicenter_account::account::account_fetch_cancel,
+    ]
+}
+
 pub fn run() {
     let specta_builder = make_specta_builder();
-    let specta_handler = tauri_specta::Builder::invoke_handler(&specta_builder);
+    let typed = tauri_specta::Builder::invoke_handler(&specta_builder);
+    let account = account_handler();
+    let invoke_handler = move |invoke: tauri::ipc::Invoke<Wry>| {
+        if epicenter_account::COMMANDS.contains(&invoke.message.command()) {
+            account(invoke)
+        } else {
+            typed(invoke)
+        }
+    };
+    // The deployment this build names (`EPICENTER_SERVER_ORIGIN`, or a local
+    // API in development); a build that names none cannot sign in.
+    let origin = configured_auth_server()
+        .map(|server| server.base_url)
+        .unwrap_or_else(|error| {
+            log::error!("{error:#}");
+            HOSTED_AUTH_ORIGIN.to_string()
+        });
     let log_plugin = tauri_plugin_log::Builder::new()
         .level(log::LevelFilter::Info)
         .level_for(
@@ -227,11 +265,22 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         // Settings administers this app's local model through the plugin's
-        // commands. Its file transcription needs the folder plugin, which the
-        // shell does not install, and no window is granted it.
+        // commands; no window is granted its file transcription.
         .plugin(tauri_plugin_epicenter_transcription::init())
-        .manage(cli::CliChildren::default())
+        // The Epicenter folder, each folder in it a root, and the app's own
+        // data (`account.json`, settings): named at setup.
+        .plugin(tauri_plugin_epicenter_folder::init())
+        // Starting at login, a setting on by default (`login.rs`). Rust alone
+        // reaches it; no window is granted the plugin's commands.
+        .plugin(
+            tauri_plugin_autostart::Builder::new()
+                .arg(login::AT_LOGIN)
+                .build(),
+        )
         .manage(updates::Updates::default());
+    // The app's own sign-in, as `so.epicenter`; its credentials file and
+    // `account.json` are placed in the app's data once it runs.
+    let builder = epicenter_account::manage_at(builder, ACCOUNT, origin);
 
     // Only native dictation uses these plugins; no capability grants them.
     #[cfg(feature = "dictation")]
@@ -242,38 +291,15 @@ pub fn run() {
     let builder = builder.plugin(tauri_nspanel::init());
 
     let app = scheme::register(builder)
-        // A page that reloads or navigates, and a closed window, end the
-        // `epicenter` children that page started (ADR-0559).
-        .on_page_load(|webview, payload| {
-            if payload.event() == tauri::webview::PageLoadEvent::Started {
-                webview
-                    .state::<cli::CliChildren>()
-                    .page_ended(webview.label());
-            }
-        })
-        .on_window_event(|window, event| {
-            if let tauri::WindowEvent::Destroyed = event {
-                window
-                    .state::<cli::CliChildren>()
-                    .page_ended(window.label());
-            }
-        })
-        .invoke_handler(specta_handler)
+        .invoke_handler(invoke_handler)
         .setup(move |app| {
             specta_builder.mount_events(app);
             #[cfg(target_os = "macos")]
             macos_menu::install(app.handle()).context("install native app menu")?;
 
             let desktop_paths = DesktopPaths::resolve(app.handle()).map_err(anyhow::Error::msg)?;
-            let install_paths = desktop_paths.clone();
-            tauri::async_runtime::spawn_blocking(move || {
-                if let Err(error) = cli::link_bundled_engine(&install_paths) {
-                    log::error!(
-                        "install the engine at {}: {error}",
-                        install_paths.engine.display()
-                    );
-                }
-            });
+            name_roots(app.handle(), &desktop_paths);
+            login::start_by_default(app.handle(), &desktop_paths.app_data);
             // Every window's page comes from the scheme, which reads it.
             app.manage(scheme::Pages(
                 scheme::pages_dir(app.handle()).context("locate packaged pages")?,
@@ -303,9 +329,15 @@ pub fn run() {
                     }
                 }
             }
-            // Epicenter opens to the person's folders (ADR-0537).
+            // Epicenter opens to the person's folders (ADR-0537). Started at
+            // login, the Folders window's page runs unseen, keeping every
+            // folder in sync (ADR-0819), until the person shows it.
             if !opened_window {
-                request_window(app.handle(), BuiltInApp::Folders);
+                if login::launched_at_login() {
+                    hidden_window(app.handle(), BuiltInApp::Folders);
+                } else {
+                    request_window(app.handle(), BuiltInApp::Folders);
+                }
             }
             log::info!("Epicenter {} ready", app.package_info().version);
             Ok(())
@@ -438,15 +470,22 @@ struct AuthConfiguration {
     account_management: bool,
 }
 
-/// The deployment's API origin, which the `epicenter` CLI signs in to when
-/// the shell runs it (`cli.rs` passes it as `EPICENTER_API_URL`), so the app
-/// and the CLI it runs name one deployment (ADR-0326).
-pub(crate) fn deployment_origin() -> std::result::Result<String, String> {
-    configured_auth_server()
-        .map(|config| config.base_url)
-        .map_err(|error| format!("{error:#}"))
+/// Name the folder plugin's roots: the app's own data (`AppData`, where the
+/// sign-in writes `account.json` and pages keep this computer's settings) and
+/// the Epicenter folder, whose every directory is a folder root
+/// (`Root::Folder`). No folder may be the home folder, hold it, or overlap
+/// the app's data.
+fn name_roots(app: &DesktopAppHandle, paths: &DesktopPaths) {
+    use tauri_plugin_epicenter_folder::{Root, RootsExt};
+    let roots = app.roots();
+    roots.name(Root::AppData, paths.app_data.clone(), |_| None);
+    let refusing = paths.clone();
+    roots.name_epicenter(paths.epicenter.clone(), move |location| {
+        refusing.folder_refusal(location)
+    });
 }
 
+/// The deployment this build signs in to (ADR-0326).
 fn configured_auth_server() -> Result<AuthConfiguration> {
     #[cfg(debug_assertions)]
     let development_origin = std::env::var("EPICENTER_API_URL").ok();
@@ -512,9 +551,28 @@ fn open_account_website<R: Runtime>(app: &AppHandle<R>, url: &tauri::Url) -> New
 /// `src-tauri/capabilities/` selects on. One built-in app has one window,
 /// and neither is bound to a folder.
 fn ensure_window(app: &DesktopAppHandle, built_in: BuiltInApp) -> Result<()> {
+    focus(window_for(app, built_in)?);
+    Ok(())
+}
+
+/// Make the window for `built_in` without showing it, so its page runs: the
+/// Folders window started at login, which keeps every folder in sync.
+fn hidden_window(app: &DesktopAppHandle, built_in: BuiltInApp) {
+    let window_app = app.clone();
+    let schedule = app.run_on_main_thread(move || {
+        if let Err(error) = window_for(&window_app, built_in) {
+            log::error!("open the {} window unseen: {error:#}", built_in.id());
+        }
+    });
+    if let Err(error) = schedule {
+        log::error!("schedule the {} window: {error}", built_in.id());
+    }
+}
+
+/// The one window for `built_in`, made hidden when there is none.
+fn window_for(app: &DesktopAppHandle, built_in: BuiltInApp) -> Result<WebviewWindow> {
     if let Some(window) = app.get_webview_window(built_in.id()) {
-        focus(window);
-        return Ok(());
+        return Ok(window);
     }
 
     let builder = WebviewWindowBuilder::new(
@@ -534,8 +592,7 @@ fn ensure_window(app: &DesktopAppHandle, built_in: BuiltInApp) -> Result<()> {
             let _ = close_window.hide();
         }
     });
-    focus(window);
-    Ok(())
+    Ok(window)
 }
 
 /// Configure a window on the `epicenter-app` origin (ADR-0561).
@@ -612,8 +669,8 @@ mod tests {
             production["app"]["security"]["capabilities"],
             serde_json::json!(identifiers)
         );
-        // No page reads or changes files: no fs plugin is installed, and Git is
-        // a separate CLI concern.
+        // No page reaches files but through the folder plugin, whose commands
+        // check every path: no fs plugin is installed.
         assert!(
             production["plugins"].get("fs").is_none(),
             "no fs plugin is installed"
@@ -623,22 +680,40 @@ mod tests {
         assert!(development.get("app").is_none());
     }
 
-    /// Who Epicenter is signed in as, and signing in and out, reach Settings
-    /// alone (ADR-0558): Settings owns the desktop grant.
+    /// Both windows send requests on the app's sign-in and may start one;
+    /// signing out is Settings' alone. No window reaches the CLI.
     #[test]
-    fn signing_in_and_out_is_granted_to_settings_alone() {
+    fn the_sign_in_is_the_shells_and_signing_out_is_settings_alone() {
         for encoded in ALL_CAPABILITIES {
             let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
             let permissions = capability["permissions"].as_array().unwrap();
             let identifier = capability["identifier"].as_str().unwrap();
+            let grants = |permission: &str| permissions.contains(&serde_json::json!(permission));
+            for permission in [
+                "allow-account-sign-in",
+                "allow-account-fetch",
+                "allow-account-fetch-cancel",
+            ] {
+                assert!(grants(permission), "{identifier} {permission}");
+            }
+            assert_eq!(
+                grants("allow-account-sign-out"),
+                *encoded == HOME,
+                "{identifier}"
+            );
             for permission in ["allow-auth-status", "allow-auth-login", "allow-auth-logout"] {
-                assert_eq!(
-                    permissions.contains(&serde_json::json!(permission)),
-                    *encoded == HOME,
-                    "{identifier} {permission}"
-                );
+                assert!(!grants(permission), "{identifier} {permission}");
             }
         }
+    }
+
+    /// The shell registers the sign-in's commands by the crate's own list.
+    #[test]
+    fn the_account_commands_are_the_crates() {
+        assert_eq!(
+            crate::command_names::ACCOUNT_COMMANDS,
+            epicenter_account::COMMANDS
+        );
     }
 
     #[test]
@@ -726,8 +801,11 @@ mod tests {
     /// no-op rather than an error.
     #[test]
     fn capability_grants_name_only_commands_this_build_has() {
-        let declared: std::collections::BTreeSet<&str> =
-            crate::command_names::COMMANDS.iter().copied().collect();
+        let declared: std::collections::BTreeSet<&str> = crate::command_names::COMMANDS
+            .iter()
+            .chain(crate::command_names::ACCOUNT_COMMANDS)
+            .copied()
+            .collect();
         for encoded in ALL_CAPABILITIES {
             let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
             for permission in capability["permissions"].as_array().unwrap() {
@@ -847,18 +925,33 @@ mod tests {
         assert_ne!(production["identifier"], development["identifier"]);
     }
 
-    /// The Folders window opens Settings, and nothing else yet: it waits to
-    /// compose `@epicenter/folder/platform` in its page (ADR-0817). It is bound
-    /// to no folder and administers no model or connection.
+    /// The Folders window reaches the Epicenter folder and each folder in it
+    /// through the folder plugin, and the server through the shell's
+    /// sign-in, composing `@epicenter/folder/platform` in its page (ADR-0817);
+    /// it administers no model or login item. Only it lists and makes folders.
     #[test]
-    fn the_folders_window_holds_no_folder_command() {
+    fn the_folders_window_reaches_every_folder_and_nothing_else() {
         let capability: serde_json::Value = serde_json::from_str(FOLDERS).unwrap();
         assert_eq!(capability["windows"], serde_json::json!(["folders"]));
         assert_eq!(
             capability["permissions"],
-            serde_json::json!(["allow-open-home"]),
+            serde_json::json!([
+                "allow-open-home",
+                "allow-account-sign-in",
+                "allow-account-fetch",
+                "allow-account-fetch-cancel",
+                "epicenter-folder:default",
+                "epicenter-folder:epicenter",
+                "core:event:allow-listen",
+                "core:event:allow-unlisten"
+            ]),
             "folders"
         );
+        let home: serde_json::Value = serde_json::from_str(HOME).unwrap();
+        assert!(!home["permissions"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("epicenter-folder:epicenter")));
         for encoded in ALL_CAPABILITIES {
             let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
             for permission in capability["permissions"].as_array().unwrap() {

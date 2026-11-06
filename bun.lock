@@ -125,9 +125,14 @@
       "name": "@epicenter/epicenter",
       "version": "0.0.2",
       "dependencies": {
-        "@epicenter/cli": "workspace:*",
+        "@epicenter/account": "workspace:*",
+        "@epicenter/definition": "workspace:*",
+        "@epicenter/folder": "workspace:*",
+        "@epicenter/local": "workspace:*",
+        "@epicenter/svelte": "workspace:*",
         "@epicenter/transcription": "workspace:*",
         "@epicenter/ui": "workspace:*",
+        "@lucide/svelte": "catalog:",
         "@tauri-apps/api": "catalog:",
       },
       "devDependencies": {
