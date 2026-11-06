@@ -8,6 +8,7 @@
 - **Amended by:** [ADR-0805](0805-a-folder-is-recognized-by-epicenter-json-which-is-its-contract.md) at `.epicenter/sync.lock`: no lock; the manifest is written over the version the sync read.
 - **Amended by:** [ADR-0808](0808-a-files-version-is-its-git-blob-id-on-every-store.md) at the manifest holding each file's commit: `{ commit, files: path → blob id }`.
 - **Amended by:** [ADR-0809](0809-a-repository-is-a-spaces-app-and-bytes-nothing-needs-are-collected-or-purged.md) at the manifest naming the repository: it names the space's id and the app.
+- **Amended by:** [ADR-0815](0815-the-platform-gives-a-window-its-folder-and-every-app-the-same-home.md) at moments wired per app: the window's runtime runs them.
 - **Unbuilt:** the open folder listing every visible file; `.epicenter/sync.lock` around a sync; the server refusing a path that differs only in case from one it holds; moments in the sync package and each app syncing through it; the CLI's `epicenter sync`, `log`, `diff`, `restore`, and `clone` over the server; streaming a large attachment; retiring `packages/epicenter-core`, its Node-API addon, the merge driver, the CLI's Git sync, and the shell's sync enrollment.
 
 ## Context

@@ -1,0 +1,48 @@
+# 0815. The platform gives a window its folder, and every app the same home
+
+- **Status:** Accepted (2026-11-06)
+- **Date:** 2026-11-06
+- **Amends:** [ADR-0773](0773-a-folder-opens-at-a-place-every-place-is-a-store-and-the-server-never-merges.md) at `openFolder(contract, home({ site, account }))`: an app opens its window's folder with `openWindowFolder(view)`, and `home` goes; [ADR-0792](0792-an-account-asks-for-what-the-capabilities-that-take-it-need.md) at `home` declaring the repository as an account's need: an app's account serves only hosted features, and syncing a folder is the platform's; [ADR-0790](0790-the-epicenter-app-is-a-library-over-every-folder-and-the-cli-answers-its-queries.md) at the library as an app of its own: it is the platform's home with a lens that shows any folder; [ADR-0804](0804-a-computer-keeps-a-plain-folder-and-every-surface-syncs-with-one-typescript-function.md) at the sync package's moments being wired per app: the window's runtime runs them.
+- **Relates:** [ADR-0813](0813-epicenter-is-your-folders-and-apps-are-lenses.md) (folders and lenses), [ADR-0814](0814-one-window-shows-one-folder.md) (one window, one folder), [ADR-0772](0772-a-folder-says-what-it-is-in-agents-md-and-this-computer-keeps-the-rest.md) (discovery follows links).
+- **Unbuilt:** all of it: `openWindowFolder`; the window's runtime opening, connecting, and syncing its folder; the home screen every app shows; the library as the home with a lens over any folder; discovery listing `~/Epicenter` and following links; removing `home` and an app's account from its folder.
+
+## Context
+
+An app chose its place with `home({ site, account })`, passed an account so a
+folder could sync, and was to wire the sync moments itself. Under ADR-0814 a
+window shows one folder that the platform chooses, so an app no longer chooses
+a place, and every app needs the same first screen: the folders it can open,
+and a way to make one. The library (ADR-0790) was to show every folder and a
+generic table for any of them.
+
+## Decision
+
+**An app opens its window's folder through its view.**
+
+```ts
+export const folder = openWindowFolder(todosView); // the folder this window shows, already connected
+export const ai = openAi({ account });              // an account only for hosted features
+```
+
+The window's runtime (the shell on the desktop, the page on the web) opens the
+folder, connects it, and syncs it at its moments; an app's code chooses no
+place, passes no account for its data, and wires no sync.
+
+**Every app's home is the platform's.** It lists the folders an app can open
+(those whose contract fits its view), their state (never synced, synced,
+shared), and offers to make a folder, to open one in a window, and to share
+it. An app writes only its window.
+
+**The library is the home with a lens that shows any folder.** Its home lists
+every folder; its window shows a folder's collections as tables, or its files
+when it has no contract.
+
+**Discovery lists `~/Epicenter` and follows links.** A folder that lives
+elsewhere joins by a symbolic link there; nothing is registered.
+
+## Consequences
+
+- An app is a view and a window.
+- Every app starts on the same home screen.
+- The library is not designed apart from the platform.
+- No program keeps a list of folders.
