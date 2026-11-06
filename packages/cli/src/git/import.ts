@@ -11,7 +11,8 @@
  *   becomes one change per commit, in order, each keeping the commit's
  *   author (`Name <email>`), time, and message. A side branch arrives only
  *   through the merge on the main line. A commit that changes nothing a
- *   folder keeps makes no change.
+ *   folder keeps makes no change, and one too large for a request lands as
+ *   several.
  * - A file keeps its bytes as they are (front matter is not rewritten;
  *   `epicenter format` is its own step); an LFS pointer becomes the bytes
  *   it names. Left out, each with a warning: submodules, symbolic links,
@@ -19,9 +20,20 @@
  *   and never synced), paths not every disk can hold, and a path differing
  *   only in case from one the folder holds.
  * - A tag on a first-parent commit becomes a mark on its change.
- * - The folder is made on the server with `import`, filled, and closed;
- *   then its files are written to a new, real directory in the Epicenter
- *   folder, without `.git`, and recorded as synced at the log's head.
+ * - The folder is made on the server with `import`, filled, written to a
+ *   new, real directory in the Epicenter folder without `.git`, recorded as
+ *   synced at the log's head, and only then closed.
+ *
+ * An import that stops midway (a Git LFS object missing, the network gone)
+ * lands the changes it finished first, and its note at the Epicenter
+ * folder's root, `.epicenter/imports/<folder-id>.json`, remembers the
+ * folder, the source, and the branch until the import closes. `resume`
+ * continues it: the changes a source makes are a function of its history,
+ * so the run makes them again in order, without a byte of the ones the
+ * server's log holds already (an LFS file's version is its pointer's
+ * oid), checks the last of those against the log, and lands the rest.
+ * `abandonImport` deletes a folder that still imports, on the server and
+ * here (ADR-0827).
  *
  * With `replaceOriginal`, a local source hands over to Epicenter: it moves
  * aside, its `.git` kept within it as the backup, and a link at its path
@@ -45,12 +57,16 @@ import { pathProblem } from '@epicenter/folder/node';
 import {
 	type EpicenterRoot,
 	freeName,
+	type LocalFolder,
 	makeFolder,
+	type Records,
 	type RemoteAccount,
+	recordPath,
 } from '@epicenter/folder/platform';
 import {
 	folderRepository,
 	type ImportedChange,
+	type LoggedChange,
 	type NamedWrite,
 } from '@epicenter/folder/sync';
 import { git, gitText, lfsObjectPath, readLfsPointer } from './run.ts';
@@ -64,14 +80,30 @@ export type ImportReport = {
 	branch: string;
 	/** Commits read along the first-parent line. */
 	commits: number;
-	/** Changes made: one per commit that changed a file the folder keeps. */
+	/** Changes the folder's log holds: one per commit that changed a file the folder keeps. */
 	changes: number;
+	/** Of those, the changes an earlier run landed, which a resumed run did not send again. */
+	resumed: number;
 	/** Tags that became marks. */
 	marks: string[];
 	/** What was left out, and why. */
 	warnings: string[];
 	/** Where the original went, with `replaceOriginal`. */
 	original: { movedTo: string; link: string } | null;
+};
+
+/**
+ * An import in progress, as this computer remembers it until the import
+ * closes: the folder on the server, the source and branch it reads, the
+ * name its directory takes, and that directory once it is made.
+ */
+export type ImportNote = {
+	folder: string;
+	/** The source as the import read it: a URL, or a repository's absolute path. */
+	source: string;
+	branch: string;
+	name: string;
+	directory: string | null;
 };
 
 const decoder = new TextDecoder();
@@ -85,9 +117,76 @@ const PART_FILES = 5000;
 /** Bytes up to this travel inside a request; larger ones are uploaded first. */
 const INLINE_MAX = 16 * 1024;
 
+/** Where the notes of imports in progress are, in the Epicenter folder's `.epicenter`. */
+const IMPORTS = 'imports';
+const notePath = (folder: string) => `${IMPORTS}/${folder}.json`;
+
 /** Whether `source` names a remote repository rather than a path on this computer. */
 const isUrl = (source: string) =>
 	/^[a-z][a-z0-9+.-]*:\/\//i.test(source) || /^[^/]+@[^/:]+:/.test(source);
+
+/** `source` as a note keeps it: a URL as given, a path made absolute. */
+const sourceKey = (source: string) =>
+	isUrl(source) ? source : resolve(source);
+
+const isNote = (value: unknown): value is ImportNote => {
+	if (typeof value !== 'object' || value === null) return false;
+	const note = value as Record<string, unknown>;
+	return (
+		typeof note.folder === 'string' &&
+		typeof note.source === 'string' &&
+		typeof note.branch === 'string' &&
+		typeof note.name === 'string' &&
+		(note.directory === null || typeof note.directory === 'string')
+	);
+};
+
+/** Every import in progress on this computer, from the notes in `records`' store. */
+export async function importsInProgress(
+	records: Records,
+): Promise<ImportNote[]> {
+	const listed = await records.store.list([IMPORTS]);
+	if (listed.error !== null) throw new Error(listed.error.message);
+	const read = await records.store.read(listed.data.map(({ path }) => path));
+	if (read.error !== null) throw new Error(read.error.message);
+	const notes: ImportNote[] = [];
+	for (const file of read.data) {
+		if ('gone' in file) continue;
+		try {
+			const note: unknown = JSON.parse(decoder.decode(file.bytes));
+			if (isNote(note) && file.path === notePath(note.folder)) notes.push(note);
+		} catch {
+			// A note that does not read is no note.
+		}
+	}
+	return notes.sort((a, b) => (a.folder < b.folder ? -1 : 1));
+}
+
+/** Write `note`, over whatever is there: only this import writes it. */
+async function writeNote(records: Records, note: ImportNote) {
+	const path = notePath(note.folder);
+	const read = await records.store.read([path]);
+	if (read.error !== null) throw new Error(read.error.message);
+	const [file] = read.data;
+	const written = await records.store.put(
+		path,
+		encoder.encode(JSON.stringify(note)),
+		file === undefined || 'gone' in file ? null : file.version,
+	);
+	if (written.error !== null) throw new Error(written.error.message);
+}
+
+/** Forget the import of `folder` on this computer. */
+async function removeNote(records: Records, folder: string) {
+	const path = notePath(folder);
+	const read = await records.store.read([path]);
+	if (read.error !== null) throw new Error(read.error.message);
+	const [file] = read.data;
+	if (file === undefined || 'gone' in file) return;
+	const removed = await records.store.put(path, null, file.version);
+	if (removed.error !== null && removed.error.name !== 'Moved')
+		throw new Error(removed.error.message);
+}
 
 /** Each blob's bytes by id, read from `mirror` in one `git cat-file --batch`. */
 async function readBlobs(
@@ -133,26 +232,99 @@ function readRaw(output: Uint8Array): RawEntry[] {
 	return entries;
 }
 
+const sha256 = async (bytes: Uint8Array) =>
+	Buffer.from(
+		await crypto.subtle.digest('SHA-256', bytes as Uint8Array<ArrayBuffer>),
+	).toString('hex');
+
+/**
+ * A file a change writes, before its bytes are read: its version and size
+ * are known from the blob, or from an LFS pointer's oid and size, and its
+ * bytes are read only when the change is sent.
+ */
+type Write =
+	| {
+			path: string;
+			expect: string | null;
+			version: string;
+			size: number;
+			bytes: () => Promise<Uint8Array>;
+	  }
+	| NamedWrite;
+
+/** A change the source makes, before its bytes are read. */
+type Planned = {
+	commit: string;
+	author: string;
+	at: Date;
+	message: string;
+	files: Write[];
+};
+
+/** Whether `change`, as the server's log holds it, is the change `planned` makes. */
+function isPlanned(change: LoggedChange, planned: Planned) {
+	if (
+		change.author !== planned.author ||
+		Date.parse(change.at) !== planned.at.getTime() ||
+		(change.message ?? '') !== planned.message
+	)
+		return false;
+	const wrote = new Map(
+		change.files.map(({ path, version }) => [path, version as string | null]),
+	);
+	return (
+		wrote.size === planned.files.length &&
+		planned.files.every((file) => wrote.get(file.path) === file.version)
+	);
+}
+
 /**
  * Import the repository `source` (a path or a URL) into a new folder held
  * by `account`'s person, and write it into `root`, named `name` (or for the
- * repository). See the header.
+ * repository); or, with `resume`, continue the import in progress of
+ * `source` (the only one when none is named). See the header.
  */
 export async function importGit({
-	source,
+	source: given,
 	branch: named,
 	account,
 	root,
 	name,
 	replaceOriginal = false,
+	resume = false,
 }: {
-	source: string;
+	source?: string;
 	branch?: string;
 	account: RemoteAccount;
 	root: EpicenterRoot;
 	name?: string;
 	replaceOriginal?: boolean;
+	resume?: boolean;
 }): Promise<ImportReport> {
+	const opened = await root.records();
+	if (opened.error !== null) throw new Error(opened.error.message);
+	const records = opened.data;
+	let note: ImportNote | null = null;
+	if (resume) {
+		const waiting = (await importsInProgress(records)).filter(
+			(one) =>
+				(given === undefined || one.source === sourceKey(given)) &&
+				(named === undefined || one.branch === named),
+		);
+		if (waiting.length === 0)
+			throw new Error(
+				given === undefined
+					? 'No import waits to resume on this computer.'
+					: `No import of ${given} waits to resume on this computer.`,
+			);
+		if (waiting.length > 1)
+			throw new Error(
+				`Several imports wait to resume; name one with --git: ${waiting.map(({ source, branch }) => `${source} (${branch})`).join(', ')}`,
+			);
+		note = waiting[0] as ImportNote;
+	} else if (given === undefined)
+		throw new Error('Name the repository to read: --git <path or URL>.');
+	const source = note?.source ?? (given as string);
 	const local = isUrl(source) ? null : resolve(source);
 	if (replaceOriginal) {
 		if (local === null)
@@ -173,6 +345,7 @@ export async function importGit({
 	try {
 		await gitText(['clone', '--mirror', '--quiet', local ?? source, mirror]);
 		const branch =
+			note?.branch ??
 			named ??
 			(
 				await gitText(['symbolic-ref', '--short', 'HEAD'], { cwd: mirror })
@@ -226,14 +399,39 @@ export async function importGit({
 			const object = await lfsObject(pointer.oid);
 			if (object === null)
 				throw new Error(
-					`${path}'s Git LFS object ${pointer.oid} could not be fetched; fetch it into ${source} (git lfs fetch --all), then import again`,
+					`${path}'s Git LFS object ${pointer.oid} could not be fetched; fetch it into ${source} (git lfs fetch --all), then run epicenter import --git ${source} --resume`,
 				);
 			return object;
 		};
 
-		const made = await makeFolder(account, { importing: true });
-		if (made.error !== null) throw new Error(made.error.message);
-		const folder = made.data;
+		let folder: string;
+		/** The changes the folder's log held when this run started, and the last of them. */
+		let landed = 0;
+		let newest: LoggedChange | null = null;
+		if (note === null) {
+			const made = await makeFolder(account, { importing: true });
+			if (made.error !== null) throw new Error(made.error.message);
+			folder = made.data;
+			note = {
+				folder,
+				source: sourceKey(source),
+				branch,
+				name:
+					name ??
+					basename(local ?? source.replace(/\/+$/, '')).replace(/\.git$/, ''),
+				directory: null,
+			};
+			await writeNote(records, note);
+		} else {
+			folder = note.folder;
+			const head = await folderRepository(account, folder).log({ limit: 1 });
+			if (head.error !== null)
+				throw new Error(
+					`The import's folder ${folder} could not be read (${head.error.message}); give it up with epicenter import --abandon ${folder}`,
+				);
+			newest = head.data[0] ?? null;
+			landed = newest?.seq ?? 0;
+		}
 		const repository = folderRepository(account, folder);
 
 		/** What the folder holds now, by path: its version and the blob it came from. */
@@ -248,8 +446,9 @@ export async function importGit({
 		};
 		/** Commit id to the seq of the last change made at or before it. */
 		const seqOfCommit = new Map<string, number>();
+		/** Changes the source makes, counted in order: their seqs in the folder's log. */
 		let seq = 0;
-		let pending: { commit: string; change: ImportedChange }[] = [];
+		let pending: ImportedChange[] = [];
 		let pendingBytes = 0;
 
 		const flush = async (): Promise<void> => {
@@ -257,14 +456,9 @@ export async function importGit({
 			const batch = pending;
 			pending = [];
 			pendingBytes = 0;
-			const sent = await repository.importChanges(
-				batch.map(({ change }) => change),
-			);
+			const sent = await repository.importChanges(batch);
 			if (sent.error !== null) throw new Error(sent.error.message);
-			if ('cursor' in sent.data) {
-				for (const { commit } of batch) seqOfCommit.set(commit, ++seq);
-				return;
-			}
+			if ('cursor' in sent.data) return;
 			throw new Error(
 				'refused' in sent.data
 					? `the server refused ${sent.data.refused}: ${sent.data.reason}`
@@ -274,152 +468,184 @@ export async function importGit({
 			);
 		};
 
+		/**
+		 * Take the next change the source makes: one the log holds already
+		 * is checked (the last of them) and never sent; any other has its
+		 * bytes read and waits to be sent.
+		 */
+		const take = async (planned: Planned) => {
+			seq++;
+			if (seq <= landed) {
+				if (seq === landed && newest !== null && !isPlanned(newest, planned))
+					throw new Error(
+						`The folder ${folder} holds a change ${seq} this repository does not make; it is not this import's folder. Give it up with epicenter import --abandon ${folder}.`,
+					);
+				return;
+			}
+			const files: ImportedChange['files'] = [];
+			let size = 0;
+			for (const file of planned.files) {
+				if (!('bytes' in file)) {
+					files.push(file);
+					continue;
+				}
+				const bytes = await file.bytes();
+				files.push({ path: file.path, expect: file.expect as never, bytes });
+				if (bytes.byteLength <= INLINE_MAX) size += bytes.byteLength;
+			}
+			if (pending.length > 0 && pendingBytes + size > BATCH_BYTES)
+				await flush();
+			pending.push({
+				author: planned.author,
+				at: planned.at,
+				message: planned.message,
+				files,
+			});
+			pendingBytes += size;
+			if (pending.length >= BATCH_CHANGES || pendingBytes >= BATCH_BYTES)
+				await flush();
+		};
+
 		const folded = new Map<string, string>();
 		const fold = (path: string) => path.normalize('NFC').toLowerCase();
-		for (const [index, commit] of commits.entries()) {
-			const parent = index === 0 ? null : (commits[index - 1] as string);
-			const raw = readRaw(
-				(
-					await git(
-						[
-							'diff-tree',
-							'-r',
-							'-z',
-							'--raw',
-							'--no-renames',
-							'--no-commit-id',
-							...(parent === null ? ['--root', commit] : [parent, commit]),
-						],
-						{ cwd: mirror },
-					)
-				).stdout,
-			);
-			const meta = await gitText(
-				['log', '-1', '--format=%an%x00%ae%x00%at%x00%B', commit],
-				{
-					cwd: mirror,
-				},
-			);
-			const [author = '', email = '', at = '0', ...rest] = meta.split('\0');
-			const message = rest.join('\0').replace(/\n+$/, '');
-			const writes: RawEntry[] = [];
-			for (const entry of raw) {
-				const { path, mode } = entry;
-				if (refused.has(path)) continue;
-				if (mode === '160000') {
-					warn(path, 'a submodule, left out');
-					continue;
-				}
-				if (mode === '120000') {
-					warn(path, 'a symbolic link, left out');
-					continue;
-				}
-				if (isHiddenPath(path)) {
-					warn(path, 'hidden, so outside the folder, left out');
-					continue;
-				}
-				const problem = pathProblem(path);
-				if (problem !== undefined) {
-					refused.add(path);
-					warn(path, `${problem}, left out`);
-					continue;
-				}
-				writes.push(entry);
-			}
-			const blobs = await readBlobs(
-				mirror,
-				writes.filter(({ status }) => status !== 'D').map(({ id }) => id),
-			);
-			const files: ImportedChange['files'] = [];
-			for (const entry of writes) {
-				const before = held.get(entry.path);
-				if (entry.status === 'D' || /^0+$/.test(entry.id)) {
-					if (before === undefined) continue;
-					files.push({
-						path: entry.path,
-						expect: before.version as never,
-						version: null,
-					} satisfies NamedWrite);
-					held.delete(entry.path);
-					folded.delete(fold(entry.path));
-					continue;
-				}
-				const clash = folded.get(fold(entry.path));
-				if (
-					before === undefined &&
-					clash !== undefined &&
-					clash !== entry.path
-				) {
-					refused.add(entry.path);
-					warn(entry.path, `differs only in case from ${clash}, left out`);
-					continue;
-				}
-				const bytes = await bytesOf(
-					blobs.get(entry.id) as Uint8Array,
-					entry.path,
+		let sending = false;
+		try {
+			for (const [index, commit] of commits.entries()) {
+				const parent = index === 0 ? null : (commits[index - 1] as string);
+				const raw = readRaw(
+					(
+						await git(
+							[
+								'diff-tree',
+								'-r',
+								'-z',
+								'--raw',
+								'--no-renames',
+								'--no-commit-id',
+								...(parent === null ? ['--root', commit] : [parent, commit]),
+							],
+							{ cwd: mirror },
+						)
+					).stdout,
 				);
-				const version = Buffer.from(
-					await crypto.subtle.digest(
-						'SHA-256',
-						bytes as Uint8Array<ArrayBuffer>,
-					),
-				).toString('hex');
-				if (before?.version === version) {
-					held.set(entry.path, { version, blob: entry.id });
-					continue;
+				const meta = await gitText(
+					['log', '-1', '--format=%an%x00%ae%x00%at%x00%B', commit],
+					{ cwd: mirror },
+				);
+				const [author = '', email = '', at = '0', ...rest] = meta.split('\0');
+				const message = rest.join('\0').replace(/\n+$/, '');
+				const writes: RawEntry[] = [];
+				for (const entry of raw) {
+					const { path, mode } = entry;
+					if (refused.has(path)) continue;
+					if (mode === '160000') {
+						warn(path, 'a submodule, left out');
+						continue;
+					}
+					if (mode === '120000') {
+						warn(path, 'a symbolic link, left out');
+						continue;
+					}
+					if (isHiddenPath(path)) {
+						warn(path, 'hidden, so outside the folder, left out');
+						continue;
+					}
+					const problem = pathProblem(path);
+					if (problem !== undefined) {
+						refused.add(path);
+						warn(path, `${problem}, left out`);
+						continue;
+					}
+					writes.push(entry);
 				}
-				files.push({
-					path: entry.path,
-					expect: (before?.version ?? null) as never,
-					bytes,
-				});
-				held.set(entry.path, { version, blob: entry.id });
-				folded.set(fold(entry.path), entry.path);
-			}
-			if (files.length === 0) {
-				// Nothing a folder keeps changed: the commit maps to the change before it.
-				await flush();
-				seqOfCommit.set(commit, seq);
-				continue;
-			}
-			// A commit too large for one request lands as several changes, each
-			// with its author, time, and message; the commit maps to the last.
-			let part: ImportedChange['files'] = [];
-			let partBytes = 0;
-			const push = async () => {
-				if (pending.length > 0 && pendingBytes + partBytes > BATCH_BYTES)
-					await flush();
-				pending.push({
-					commit,
-					change: {
+				const blobs = await readBlobs(
+					mirror,
+					writes.filter(({ status }) => status !== 'D').map(({ id }) => id),
+				);
+				const files: Write[] = [];
+				for (const entry of writes) {
+					const before = held.get(entry.path);
+					if (entry.status === 'D' || /^0+$/.test(entry.id)) {
+						if (before === undefined) continue;
+						files.push({
+							path: entry.path,
+							expect: before.version as never,
+							version: null,
+						} satisfies NamedWrite);
+						held.delete(entry.path);
+						folded.delete(fold(entry.path));
+						continue;
+					}
+					const clash = folded.get(fold(entry.path));
+					if (
+						before === undefined &&
+						clash !== undefined &&
+						clash !== entry.path
+					) {
+						refused.add(entry.path);
+						warn(entry.path, `differs only in case from ${clash}, left out`);
+						continue;
+					}
+					const blob = blobs.get(entry.id) as Uint8Array;
+					// An LFS file's version is its pointer's oid: no bytes read to know it.
+					const pointer = readLfsPointer(blob);
+					const version = pointer?.oid ?? (await sha256(blob));
+					if (before?.version === version) {
+						held.set(entry.path, { version, blob: entry.id });
+						continue;
+					}
+					const path = entry.path;
+					files.push({
+						path,
+						expect: before?.version ?? null,
+						version,
+						size: pointer?.size ?? blob.byteLength,
+						bytes: () => bytesOf(blob, path),
+					});
+					held.set(path, { version, blob: entry.id });
+					folded.set(fold(path), path);
+				}
+				if (files.length > 0) {
+					// A commit too large for one request lands as several changes,
+					// each with its author, time, and message; the commit maps to the last.
+					let part: Write[] = [];
+					let partBytes = 0;
+					const planned = () => ({
+						commit,
 						author: `${author} <${email}>`,
 						at: new Date(Number(at) * 1000),
 						message,
 						files: part,
-					},
-				});
-				pendingBytes += partBytes;
-				part = [];
-				partBytes = 0;
-				if (pending.length >= BATCH_CHANGES || pendingBytes >= BATCH_BYTES)
-					await flush();
-			};
-			for (const file of files) {
-				const size =
-					'bytes' in file && file.bytes.byteLength <= INLINE_MAX
-						? file.bytes.byteLength
-						: 0;
-				if (
-					part.length > 0 &&
-					(part.length >= PART_FILES || partBytes + size > BATCH_BYTES)
-				)
-					await push();
-				part.push(file);
-				partBytes += size;
+					});
+					for (const file of files) {
+						const size =
+							'bytes' in file && file.size <= INLINE_MAX ? file.size : 0;
+						if (
+							part.length > 0 &&
+							(part.length >= PART_FILES || partBytes + size > BATCH_BYTES)
+						) {
+							await take(planned());
+							part = [];
+							partBytes = 0;
+						}
+						part.push(file);
+						partBytes += size;
+					}
+					await take(planned());
+				}
+				seqOfCommit.set(commit, seq);
 			}
-			await push();
+			sending = true;
+			await flush();
+		} catch (cause) {
+			// What finished lands, so a resumed import starts after it.
+			if (!sending) await flush();
+			throw cause;
 		}
-		await flush();
+		if (seq < landed)
+			throw new Error(
+				`The folder ${folder} holds ${landed} changes and this repository makes ${seq}; it is not this import's folder. Give it up with epicenter import --abandon ${folder}.`,
+			);
 
 		// Each tag on the first-parent line becomes a mark on its change.
 		const marks: string[] = [];
@@ -451,41 +677,40 @@ export async function importGit({
 			}
 			const marked = await repository.mark(tag, { seq: at });
 			if (marked.error !== null) throw new Error(marked.error.message);
+			// A resumed import finds the marks an earlier run made.
+			if ('taken' in marked.data && marked.data.taken.seq !== at)
+				throw new Error(
+					`${tag} marks change ${marked.data.taken.seq} in the folder, not ${at}`,
+				);
 			marks.push(tag);
 		}
-		const done = await repository.importDone();
-		if (done.error !== null) throw new Error(done.error.message);
 
-		// The files, written into a new, real directory in the Epicenter folder.
-		const present = await root.list();
-		if (present.error !== null) throw new Error(present.error.message);
-		const wanted =
-			name ??
-			basename(local ?? source.replace(/\/+$/, '')).replace(/\.git$/, '');
-		const made_ = await root.make(
-			freeName(wanted || folder, [
-				...present.data.folders.map(({ name }) => name),
-				...present.data.unreadable.map(({ name }) => name),
-			]),
+		// The files, written into a real directory in the Epicenter folder.
+		const directory = await directoryFor(root, records, note);
+		const there = await directory.store.list(['']);
+		if (there.error !== null) throw new Error(there.error.message);
+		const listed = new Map(
+			there.data.map(({ path, version }) => [path, version]),
 		);
-		if (made_.error !== null) throw new Error(made_.error.message);
-		const directory = made_.data;
 		const last = await readBlobs(
 			mirror,
 			[...held.values()].map(({ blob }) => blob),
 		);
 		const files: Record<string, string> = {};
 		for (const [path, { version, blob }] of held) {
-			const bytes = await bytesOf(last.get(blob) as Uint8Array, path);
-			const put = await directory.store.put(path, bytes, null);
-			if (put.error !== null) throw new Error(`${path}: ${put.error.message}`);
 			files[path] = version;
+			const now = listed.get(path) ?? null;
+			if (now === version) continue;
+			const bytes = await bytesOf(last.get(blob) as Uint8Array, path);
+			const put = await directory.store.put(path, bytes, now as never);
+			if (put.error !== null) throw new Error(`${path}: ${put.error.message}`);
 		}
 		const head = await repository.changes(null);
 		if (head.error !== null) throw new Error(head.error.message);
-		const records = await root.records();
-		if (records.error !== null) throw new Error(records.error.message);
-		const recorded = await records.data.write(
+		const recorded = await records.list();
+		if (recorded.error !== null) throw new Error(recorded.error.message);
+		const before = recorded.data.find(({ record }) => record.folder === folder);
+		const written = await records.write(
 			{
 				folder,
 				name: directory.name,
@@ -494,9 +719,12 @@ export async function importGit({
 				cursor: head.data.cursor,
 				files: files as Record<string, never>,
 			},
-			null,
+			before?.version ?? null,
 		);
-		if (recorded.error !== null) throw new Error(recorded.error.message);
+		if (written.error !== null) throw new Error(written.error.message);
+		const done = await repository.importDone();
+		if (done.error !== null) throw new Error(done.error.message);
+		await removeNote(records, folder);
 
 		let original: ImportReport['original'] = null;
 		if (replaceOriginal && local !== null) {
@@ -518,6 +746,7 @@ export async function importGit({
 			branch,
 			commits: commits.length,
 			changes: seq,
+			resumed: Math.min(landed, seq),
 			marks,
 			warnings,
 			original,
@@ -525,4 +754,109 @@ export async function importGit({
 	} finally {
 		await rm(scratch, { recursive: true, force: true });
 	}
+}
+
+/**
+ * The directory the import of `note` writes: the one an earlier run of it
+ * made, or a new one, named for the import, a free name when taken, which
+ * the note then remembers.
+ */
+async function directoryFor(
+	root: EpicenterRoot,
+	records: Records,
+	note: ImportNote,
+): Promise<LocalFolder> {
+	const present = await root.list();
+	if (present.error !== null) throw new Error(present.error.message);
+	if (note.directory !== null) {
+		const made = present.data.folders.find(
+			({ name }) => name === note.directory,
+		);
+		if (made !== undefined) return made;
+	}
+	const made = await root.make(
+		freeName(note.name || note.folder, [
+			...present.data.folders.map(({ name }) => name),
+			...present.data.outside.map(({ name }) => name),
+			...present.data.unreadable.map(({ name }) => name),
+		]),
+	);
+	if (made.error !== null) throw new Error(made.error.message);
+	note.directory = made.data.name;
+	await writeNote(records, note);
+	return made.data;
+}
+
+/** What abandoning an import did. */
+export type AbandonReport = {
+	folder: string;
+	/** Whether the folder was deleted on the server now, or was gone already. */
+	server: 'abandoned' | 'gone';
+	/** The directory the import had written here, now removed; null when it made none. */
+	removed: string | null;
+};
+
+/**
+ * Give up the import of `target` (its folder's id, or the source or name
+ * its note remembers): delete its folder on the server, which the server
+ * does only while the folder still imports, then the directory it was
+ * writing here, its record, and its note. A folder whose import finished
+ * is in use and refused.
+ */
+export async function abandonImport({
+	account,
+	root,
+	target,
+}: {
+	account: RemoteAccount;
+	root: EpicenterRoot;
+	target: string;
+}): Promise<AbandonReport> {
+	const opened = await root.records();
+	if (opened.error !== null) throw new Error(opened.error.message);
+	const records = opened.data;
+	const notes = await importsInProgress(records);
+	const matching = notes.filter(
+		(note) =>
+			note.folder === target ||
+			note.name === target ||
+			note.directory === target ||
+			note.source === sourceKey(target),
+	);
+	if (matching.length > 1)
+		throw new Error(
+			`Several imports match ${target}; name one by its folder: ${matching.map(({ folder }) => folder).join(', ')}`,
+		);
+	const note = matching[0];
+	const folder = note?.folder ?? target;
+	const answered = await folderRepository(account, folder).importAbandon();
+	if (answered.error !== null) throw new Error(answered.error.message);
+	if (answered.data === 'in use')
+		throw new Error(
+			`${folder} finished importing, so it is a folder in use: abandon deletes only an import that stopped midway.`,
+		);
+	if (answered.data === 'gone' && note === undefined)
+		throw new Error(
+			`No import of ${target} waits here, and you hold no such folder.`,
+		);
+	let removed: string | null = null;
+	if (note?.directory != null) {
+		const path = join(root.path, note.directory);
+		await rm(path, { recursive: true, force: true });
+		removed = path;
+	}
+	const recorded = await records.list();
+	if (recorded.error !== null) throw new Error(recorded.error.message);
+	const held = recorded.data.find(({ record }) => record.folder === folder);
+	if (held !== undefined) {
+		const gone = await records.store.put(
+			recordPath(folder),
+			null,
+			held.version,
+		);
+		if (gone.error !== null && gone.error.name !== 'Moved')
+			throw new Error(gone.error.message);
+	}
+	await removeNote(records, folder);
+	return { folder, server: answered.data, removed };
 }

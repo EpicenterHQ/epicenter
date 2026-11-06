@@ -553,7 +553,7 @@ export function mountFolders(
 					const body = await bodyOf(MAX_COMMIT_BYTES);
 					return body === null
 						? tooLarge()
-						: await folderImport(db, { ...writer, body });
+						: await folderImport(db, { ...writer, body, store });
 				}
 			}
 		} catch (cause) {

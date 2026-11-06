@@ -156,9 +156,11 @@ export const COMMANDS: readonly CommandSpec[] = [
 			{ name: 'branch', value: '<name>' },
 			{ name: 'name', value: '<name>' },
 			{ name: 'replace-original' },
+			{ name: 'resume' },
+			{ name: 'abandon', value: '<folder>' },
 		],
 		summary:
-			"make a folder from a Git repository's history, in the Epicenter folder and synced",
+			"make a folder from a Git repository's history, in the Epicenter folder and synced; or resume or abandon one that stopped",
 	},
 	{
 		path: ['share'],

@@ -19,6 +19,9 @@
  *   export of it gives back the same files in the same order
  * - Handing over moves the original aside with its `.git`, and leaves a
  *   link pointing into the Epicenter folder
+ * - An import stopped midway by a missing Git LFS object lands the changes
+ *   it finished; resumed once the object is there, it sends none of them
+ *   again; abandoned, its folder is deleted on the server and forgotten
  */
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
@@ -29,6 +32,7 @@ import {
 	mkdtemp,
 	readFile,
 	readlink,
+	rename,
 	rm,
 	symlink,
 	writeFile,
@@ -36,13 +40,13 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { epicenterRoot } from '@epicenter/folder/node';
-import { identify } from '@epicenter/folder/platform';
+import { identify, listFolders } from '@epicenter/folder/platform';
 import { folderRepository, makeFolder } from '@epicenter/folder/sync';
 import { expectOk } from 'wellcrafted/testing';
 import { purgeBlobs } from '../../../server/src/log/blobs.js';
 import { startRepositoryServer } from '../../../server/src/test-helpers/repository-server.js';
 import { exportGit, messageOf } from './export.ts';
-import { importGit } from './import.ts';
+import { abandonImport, importGit, importsInProgress } from './import.ts';
 import { git, gitText, lfsObjectPath, readLfsPointer } from './run.ts';
 
 let server: Awaited<ReturnType<typeof startRepositoryServer>>;
@@ -461,4 +465,132 @@ test('handing over moves the original aside with its .git and leaves a link into
 	await expect(
 		importGit({ source: dirty, account, root, replaceOriginal: true }),
 	).rejects.toThrow('uncommitted changes');
+}, 120_000);
+
+/** A repository whose second commit adds a Git LFS file, and that object's place in the repository's store. */
+async function lfsRepository(name: string) {
+	const dir = join(scratch, name);
+	await mkdir(dir, { recursive: true });
+	const run = (...args: string[]) => gitText(args, { cwd: dir });
+	const commitAt = (message: string, seconds: number) =>
+		gitText(['commit', '--quiet', '-m', message], {
+			cwd: dir,
+			env: {
+				GIT_AUTHOR_DATE: `${seconds} +0000`,
+				GIT_COMMITTER_DATE: `${seconds} +0000`,
+			},
+		});
+	await run('init', '--quiet', '--initial-branch=main');
+	await run('lfs', 'install', '--local');
+	await run('lfs', 'track', '*.bin');
+	await writeFile(join(dir, 'a.md'), 'first\n');
+	await run('add', '.gitattributes', 'a.md');
+	await commitAt('One', 1_600_000_000);
+	const audio = crypto.getRandomValues(new Uint8Array(20_000));
+	await writeFile(join(dir, 'b.md'), 'second\n');
+	await writeFile(join(dir, 'take.bin'), audio);
+	await run('add', 'b.md', 'take.bin');
+	await commitAt('Two', 1_600_000_100);
+	await run('tag', 'v2');
+	await writeFile(join(dir, 'c.md'), 'third\n');
+	await run('add', 'c.md');
+	await commitAt('Three', 1_600_000_200);
+	return {
+		dir,
+		audio,
+		object: lfsObjectPath(join(dir, '.git'), sha256(audio)),
+	};
+}
+
+test('an import stopped by a missing Git LFS object lands what it finished, and resumes once the object is there without a change twice', async () => {
+	const account = await server.signIn('resumer');
+	const { dir: source, audio, object } = await lfsRepository('resume-repo');
+	const home = join(scratch, 'home-resume', 'Epicenter');
+	await mkdir(home, { recursive: true });
+	const root = epicenterRoot(home);
+	const records = expectOk(await root.records());
+	// The object is gone from the repository's store, and no remote has it.
+	const kept = join(scratch, 'kept-object');
+	await rename(object, kept);
+	await expect(
+		importGit({ source, account, root, name: 'Takes' }),
+	).rejects.toThrow('could not be fetched');
+	const [waiting] = await importsInProgress(records);
+	if (waiting === undefined) throw new Error('expected an import in progress');
+	expect(waiting).toMatchObject({ source, branch: 'main', directory: null });
+	const repository = folderRepository(account, waiting.folder);
+	// The change it finished landed; no directory was made.
+	expect(
+		expectOk(await repository.log({ after: 0 })).map(({ message }) => message),
+	).toEqual(['One']);
+	expect(existsSync(join(home, 'Takes'))).toBe(false);
+	// Resumed before the object is back, it stops at the same place and sends nothing twice.
+	await expect(
+		importGit({ source, account, root, resume: true }),
+	).rejects.toThrow('could not be fetched');
+	expect(expectOk(await repository.log({ after: 0 }))).toHaveLength(1);
+
+	await rename(kept, object);
+	const resumed = await importGit({ account, root, resume: true });
+	expect(resumed).toMatchObject({
+		folder: waiting.folder,
+		path: join(home, 'Takes'),
+		commits: 3,
+		changes: 3,
+		resumed: 1,
+		marks: ['v2'],
+	});
+	const log = expectOk(await repository.log({ after: 0 }));
+	expect(log.map(({ seq, message }) => [seq, message])).toEqual([
+		[1, 'One'],
+		[2, 'Two'],
+		[3, 'Three'],
+	]);
+	expect(log[1]?.files.map(({ path }) => path).sort()).toEqual([
+		'b.md',
+		'take.bin',
+	]);
+	expect(new Uint8Array(await readFile(join(home, 'Takes/take.bin')))).toEqual(
+		audio,
+	);
+	expect(await readFile(join(home, 'Takes/c.md'), 'utf8')).toBe('third\n');
+	const found = expectOk(await identify({ root, account }));
+	expect(
+		found.bound.map(({ local, record }) => [local.name, record.folder]),
+	).toEqual([['Takes', waiting.folder]]);
+	expect(await importsInProgress(records)).toEqual([]);
+	// Closed, it is a folder in use: never abandoned, and nothing waits to resume.
+	await expect(
+		abandonImport({ account, root, target: waiting.folder }),
+	).rejects.toThrow('folder in use');
+	await expect(importGit({ account, root, resume: true })).rejects.toThrow(
+		'No import waits',
+	);
+}, 120_000);
+
+test('an import abandoned midway is deleted on the server and forgotten here', async () => {
+	const account = await server.signIn('abandoner');
+	const { dir: source, object } = await lfsRepository('abandon-repo');
+	const home = join(scratch, 'home-abandon', 'Epicenter');
+	await mkdir(home, { recursive: true });
+	const root = epicenterRoot(home);
+	const records = expectOk(await root.records());
+	await rm(object);
+	await expect(importGit({ source, account, root })).rejects.toThrow(
+		'could not be fetched',
+	);
+	const [waiting] = await importsInProgress(records);
+	if (waiting === undefined) throw new Error('expected an import in progress');
+	expect(await abandonImport({ account, root, target: source })).toEqual({
+		folder: waiting.folder,
+		server: 'abandoned',
+		removed: null,
+	});
+	expect(
+		expectOk(await listFolders(account)).folders.map(({ id }) => id),
+	).not.toContain(waiting.folder);
+	expect(await importsInProgress(records)).toEqual([]);
+	await expect(
+		abandonImport({ account, root, target: waiting.folder }),
+	).rejects.toThrow('No import of');
 }, 120_000);

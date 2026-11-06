@@ -55,7 +55,7 @@ built yet.
 | `epicenter diff [<dir>] [--since <moment>]` | built | `src/sync/history.ts` |
 | `epicenter restore <moment> [<dir>] [--path <path>]` | built | `src/sync/history.ts` |
 | `epicenter export [<dir>] --git <repository>` | built | `src/git/export.ts` |
-| `epicenter import --git <path or URL> [--branch <name>] [--name <name>] [--replace-original]` | built | `src/git/import.ts` |
+| `epicenter import --git <path or URL> [--branch <name>] [--name <name>] [--replace-original] [--resume]`, `epicenter import --abandon <folder>` | built | `src/git/import.ts` |
 | `epicenter share <folder> [<email>] [--role member\|reader]` | built | `shareFolder` and `getFolder`, through `src/folder-commands.ts` |
 | `epicenter unshare <folder> <email>` | built | `unshareFolder` |
 | `epicenter accept [<folder>]` | built | `listFolders` and `acceptIntoHome` |
@@ -195,7 +195,13 @@ change's number, a mark's name, or a time.
 - `import --git <path or URL>` makes a folder of a Git repository's
   first-parent history, never writing the source (`src/git/import.ts`); with
   `--replace-original`, a clean local repository moves aside, its `.git`
-  within it, and a link at its path points to the new folder.
+  within it, and a link at its path points to the new folder. An import that
+  stops midway lands the changes it finished and is remembered at
+  `~/Epicenter/.epicenter/imports/<folder-id>.json` until it is done;
+  `--resume` continues it from the change after the server's last, and
+  `--abandon <folder>` deletes its folder on the server, which the server
+  does only while the folder still imports, and the directory it was
+  writing here.
 
 `git` is needed on this computer only for `export` and `import`, and Git
 LFS only to import a repository that uses it.

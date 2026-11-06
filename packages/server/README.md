@@ -145,7 +145,9 @@ both; nothing thins history yet.
 deterministic projection, and enters through `epicenter import --git`
 (`packages/cli/src/git`, ADR-0826). No Git client writes to a folder,
 since Git's writes carry neither a per-path expected version nor the merge
-by key.
+by key. A folder made to import takes `POST …/import { changes }` until
+`{ done: true }`; `{ abandon: true }` deletes it, its log, and its bytes,
+only while it still imports (409 `not_importing` otherwise).
 
 Who may reach a folder is the deployment's `FolderGuard`, passed to
 `mountFolders` as `guard`: `authorize` decides one request (account, role,

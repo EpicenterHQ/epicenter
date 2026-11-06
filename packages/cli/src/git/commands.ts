@@ -13,7 +13,7 @@ import { count, EXIT, fail, writeErr, writeJson, writeOut } from '../output.ts';
 import { signedInNow } from '../sync/account.ts';
 import { syncedFolder } from '../sync/history.ts';
 import { exportGit } from './export.ts';
-import { importGit } from './import.ts';
+import { abandonImport, importGit } from './import.ts';
 
 type Options = Record<string, string | true>;
 
@@ -69,17 +69,47 @@ export async function exportCommand(
 /**
  * `epicenter import --git <repository> [--branch <name>] [--name <name>]
  * [--replace-original]`: make a folder from a Git repository's history, in
- * a new directory of the Epicenter folder, synced.
+ * a new directory of the Epicenter folder, synced. `--resume` continues an
+ * import that stopped midway (of `--git`, or the only one waiting), and
+ * `--abandon <folder>` deletes one that still imports.
  */
 export async function importCommand(options: Options, json: boolean) {
-	if (typeof options.git !== 'string')
+	const source = typeof options.git === 'string' ? options.git : undefined;
+	const abandon =
+		typeof options.abandon === 'string' ? options.abandon : undefined;
+	const resume = options.resume === true;
+	if (abandon !== undefined && (source !== undefined || resume))
+		return fail(
+			'--abandon <folder> gives up an import; give it alone, without --git or --resume.',
+			json,
+		);
+	if (abandon === undefined && source === undefined && !resume)
 		return fail('Name the repository to read: --git <path or URL>.', json);
 	const signedIn = await signedInNow(authContext());
 	if (signedIn.error !== null) return fail(signedIn.error, json);
+	if (abandon !== undefined) {
+		let gone: Awaited<ReturnType<typeof abandonImport>>;
+		try {
+			gone = await abandonImport({
+				account: signedIn.data,
+				root: homeRoot(),
+				target: abandon,
+			});
+		} catch (cause) {
+			return fail(message(cause), json);
+		}
+		if (json) writeJson({ abandon: gone });
+		else
+			writeOut(
+				`The import of ${gone.folder} is abandoned: ${gone.server === 'abandoned' ? 'its folder is deleted on the server' : 'its folder was gone from the server already'}${gone.removed === null ? '' : `, and ${gone.removed} is removed`}.`,
+			);
+		return EXIT.ok;
+	}
 	let report: Awaited<ReturnType<typeof importGit>>;
 	try {
 		report = await importGit({
-			source: options.git,
+			source,
+			resume,
 			branch: typeof options.branch === 'string' ? options.branch : undefined,
 			name: typeof options.name === 'string' ? options.name : undefined,
 			replaceOriginal: options['replace-original'] === true,
@@ -92,7 +122,7 @@ export async function importCommand(options: Options, json: boolean) {
 	if (json) writeJson({ import: report });
 	else {
 		writeOut(
-			`${report.path}: ${count(report.changes, 'change')} from ${count(report.commits, 'commit')} of ${report.branch}, ${count(report.marks.length, 'mark')}; synced as folder ${report.folder}`,
+			`${report.path}: ${count(report.changes, 'change')} from ${count(report.commits, 'commit')} of ${report.branch}${report.resumed > 0 ? ` (${report.resumed} landed before this run)` : ''}, ${count(report.marks.length, 'mark')}; synced as folder ${report.folder}`,
 		);
 		for (const warning of report.warnings) writeErr(warning);
 		if (report.original !== null)

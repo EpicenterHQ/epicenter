@@ -183,7 +183,15 @@ links, and hidden files are left out, each named. The folder is written to a new
 directory in the Epicenter folder (--name, or the repository's), without .git,
 and synced. --replace-original moves a repository on this computer aside, its
 .git kept within it, and leaves a link at its path to the new folder; it refuses
-a repository with uncommitted changes.`,
+a repository with uncommitted changes.
+
+An import that stops midway (a Git LFS object missing, the network gone) lands
+the changes it finished, and this computer remembers it until it is done.
+--resume continues it, the one of --git or the only one waiting, from the
+change after the last the server holds, sending none twice. --abandon <folder>
+(its id, or the repository or name it was given) gives one up: its folder is
+deleted on the server, which only happens while it still imports, and the
+directory it was writing here is removed.`,
 	share: `Invites <email> to the folder (a path that has synced, or a folder id), as
 a member, or with --role reader as a reader, who syncs it without changing
 it. The folder is theirs once whoever signs in with that email, verified,

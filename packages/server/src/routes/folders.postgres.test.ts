@@ -564,6 +564,45 @@ describe("a folder's log over HTTP", () => {
 			(await call(token, 'git', `folders/${folder}/import`, { body: imported }))
 				.status,
 		).toBe(409);
+		// A finished import is a folder in use: it is never abandoned.
+		expect(
+			(
+				await call(token, 'git', `folders/${folder}/import`, {
+					body: { abandon: true },
+				})
+			).status,
+		).toBe(409);
+	}, 60_000);
+
+	test('a half-filled import is abandoned: the folder and its log are gone', async () => {
+		const { token } = await signedIn('abandoner');
+		const made_ = await join_(token, { create: true, import: true });
+		const folder = made_.body.folder as string;
+		const landed = await call(token, 'git', `folders/${folder}/import`, {
+			body: {
+				changes: [
+					{
+						author: 'Ada <ada@example.test>',
+						at: '2019-05-06T07:08:09Z',
+						message: 'Half',
+						files: [{ path: 'a.md', expect: null, text: 'one' }],
+					},
+				],
+			},
+		});
+		expect(landed.status).toBe(200);
+		const abandoned = await call(token, 'git', `folders/${folder}/import`, {
+			body: { abandon: true },
+		});
+		expect(abandoned.status).toBe(200);
+		expect((await abandoned.json()) as unknown).toEqual({ abandoned: true });
+		expect((await listing(token)).folders.map(({ id }) => id)).not.toContain(
+			folder,
+		);
+		// Its log answers as any folder the person does not hold.
+		expect((await call(token, 'git', `folders/${folder}/log`)).status).toBe(
+			403,
+		);
 	}, 60_000);
 });
 
