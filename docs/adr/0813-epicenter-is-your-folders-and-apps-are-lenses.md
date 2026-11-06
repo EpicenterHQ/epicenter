@@ -29,6 +29,15 @@ person makes one by making a directory there. `epicenter.json` is optional: it
 adds a title and a contract when a person wants them, and `epicenter init`
 adds a contract to a folder, proposing collections from the files in it.
 
+**A lens remembers a folder by its identity, never its name.** An app's first
+run lists the folders whose contract fits its view, and offers to use one or to
+make one; making one suggests a name and takes a free one ("Recordings 2") when
+it is taken. The app keeps the folder it was given in its own settings, by the
+folder's id once it has synced and by its directory's identity before, so a
+renamed or moved directory is still found, and no app reserves a name. A
+folder with no contract gets one when an app is attached, as the additions the
+person accepts (ADR-0812).
+
 **Nothing syncs until a person chooses.** The library shows a folder that has
 never synced as such, and its first sync is a person's action, which asks
 whether it is a new folder or one they already have.
