@@ -5,6 +5,7 @@
 - **Amends:** [ADR-0750](0750-sync-is-like-save-any-program-can-sync-a-folder-and-none-owns-it.md) at "No program runs a file watcher, an interval timer, or a background service to sync" and "An idle app in the background does not show another device's change until the person returns to its window": an open app checks the server every few seconds; nothing runs once it closes.
 - **Relates:** [ADR-0804](0804-a-computer-keeps-a-plain-folder-and-every-surface-syncs-with-one-typescript-function.md) (one sync function, moments in its package), [ADR-0786](0786-every-web-app-is-online-and-browser-storage-leaves-the-platform.md) (the web already checks every few seconds), [ADR-0795](0795-git-merges-a-notes-body-and-epicenter-merges-its-front-matter-by-key.md) (an edit beats a delete).
 - **Amended by:** [ADR-0807](0807-an-app-writes-only-to-a-local-store-and-only-sync-talks-to-a-server.md) at the moments on the web: sync as a burst of saves ends and when the page is hidden.
+- **Amended by:** [ADR-0819](0819-every-program-keeps-the-folders-it-has-open-in-sync-and-the-epicenter-app-has-them-all-open.md) at "nothing runs once it closes": a folder keeps syncing while any program has it open, and the Epicenter app has every folder open.
 - **Unbuilt:** the periodic check in the sync package and in every open app.
 
 ## Context

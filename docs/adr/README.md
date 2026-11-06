@@ -945,7 +945,7 @@ When you add an ADR, add its row here.
 | [0747](0747-git-runs-only-as-git-on-the-desktop.md) | Git runs only as Git, on the desktop | Accepted (amended by 0751) |
 | [0748](0748-epicenter-ships-a-portable-git-inside-the-app.md) | Epicenter ships a portable Git inside the app | Superseded by 0751 |
 | [0749](0749-epicenter-draws-its-boundaries-where-people-already-expect-them.md) | Epicenter draws its boundaries where people already expect them | Accepted (amended by 0750 and 0787) |
-| [0750](0750-sync-is-like-save-any-program-can-sync-a-folder-and-none-owns-it.md) | Sync is like save: any program can sync a folder, and none owns it | Accepted (amends 0328, 0713, 0745, and 0749; amended by 0806) |
+| [0750](0750-sync-is-like-save-any-program-can-sync-a-folder-and-none-owns-it.md) | Sync is like save: any program can sync a folder, and none owns it | Accepted (amends 0328, 0713, 0745, and 0749; amended by 0806 and 0819) |
 | [0751](0751-every-native-app-carries-one-sync-core.md) | Every native app carries one sync core | Superseded by 0804 |
 | [0752](0752-an-apps-folder-sits-under-the-platforms-visible-root-of-app-folders.md) | An app's folder sits under the platform's visible root of app folders | Accepted |
 | [0753](0753-an-app-declares-what-it-is-and-what-it-needs-the-platform-supplies-where-how-and-when.md) | An app declares what it is and what it needs; the platform supplies where, how and when | Accepted (amends 0719; amended by 0759, 0760, 0766, and 0787) |
@@ -1001,7 +1001,7 @@ When you add an ADR, add its row here.
 | [0803](0803-clients-sync-only-with-epicenter-servers-and-sync-is-a-function-of-two-stores.md) | Clients sync only with Epicenter servers, and sync is a function of two stores | Accepted (amends 0733 and 0794) |
 | [0804](0804-a-computer-keeps-a-plain-folder-and-every-surface-syncs-with-one-typescript-function.md) | A computer keeps a plain folder, and every surface syncs with one TypeScript function | Accepted (supersedes 0751; amends 0733, 0772, 0785, 0788, 0791, 0793, 0794, 0795, and 0801; amended by 0805, 0808, 0809, and 0815) |
 | [0805](0805-a-folder-is-recognized-by-epicenter-json-which-is-its-contract.md) | A folder is recognized by `epicenter.json`, which is its contract | Accepted (amends 0711, 0772, 0802, and 0804; amended by 0810, 0811, 0812, and 0813) |
-| [0806](0806-an-open-app-checks-for-changes-and-a-sync-never-silently-loses-an-edit.md) | An open app checks for changes, and a sync never silently loses an edit | Accepted (amends 0750; amended by 0807) |
+| [0806](0806-an-open-app-checks-for-changes-and-a-sync-never-silently-loses-an-edit.md) | An open app checks for changes, and a sync never silently loses an edit | Accepted (amends 0750; amended by 0807 and 0819) |
 | [0807](0807-an-app-writes-only-to-a-local-store-and-only-sync-talks-to-a-server.md) | An app writes only to a local store, and only sync talks to a server | Accepted (amends 0773, 0786, 0788, 0798, 0800, and 0806; amended by 0808) |
 | [0808](0808-a-files-version-is-its-git-blob-id-on-every-store.md) | A file's version is its Git blob id on every store | Accepted (amends 0774, 0794, 0798, 0804, and 0807; amended by 0809) |
 | [0809](0809-a-repository-is-a-spaces-app-and-bytes-nothing-needs-are-collected-or-purged.md) | A repository is a space's app, and bytes nothing needs are collected or purged | Accepted (amends 0804 and 0808; amended by 0810 and 0811) |
@@ -1011,6 +1011,7 @@ When you add an ADR, add its row here.
 | [0813](0813-epicenter-is-your-folders-and-apps-are-lenses.md) | Epicenter is your folders, and apps are lenses | Accepted (amends 0763, 0805, and 0811) |
 | [0814](0814-one-window-shows-one-folder.md) | One window shows one folder | Accepted (amends 0802 and 0811) |
 | [0815](0815-the-platform-gives-a-window-its-folder-and-every-app-the-same-home.md) | The platform gives a window its folder, and every app the same home | Accepted (amends 0773, 0790, 0792, and 0804; amended by 0816) |
-| [0816](0816-the-epicenter-app-is-where-a-person-sees-and-manages-every-folder.md) | The Epicenter app is where a person sees and manages every folder | Accepted (amends 0790, 0800, and 0815) |
+| [0816](0816-the-epicenter-app-is-where-a-person-sees-and-manages-every-folder.md) | The Epicenter app is where a person sees and manages every folder | Accepted (amends 0790, 0800, and 0815; amended by 0819) |
 | [0817](0817-the-cli-exposes-every-platform-operation-and-an-app-inherits-everything-about-folders.md) | The CLI exposes every platform operation, and an app inherits everything about folders | Accepted |
 | [0818](0818-an-app-is-a-view-a-window-and-its-capabilities-and-everything-is-repairable-by-hand.md) | An app is a view, a window, and its capabilities, and everything is repairable by hand | Accepted (amends 0763) |
+| [0819](0819-every-program-keeps-the-folders-it-has-open-in-sync-and-the-epicenter-app-has-them-all-open.md) | Every program keeps the folders it has open in sync, and the Epicenter app has them all open | Accepted (amends 0750, 0806, and 0816) |
