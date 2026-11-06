@@ -63,9 +63,13 @@ function createHome() {
 		reading = false;
 	}
 
+	let followed = false;
+
 	/** Run the sync as `next`, the signed-in account, or stop it for none. */
 	function follow(next: Account | null) {
-		if (next === account) return;
+		// The first answer is read whoever it names, a signed-out one included.
+		if (followed && next === account) return;
+		followed = true;
 		stopKept();
 		kept?.[Symbol.dispose]();
 		kept = null;
