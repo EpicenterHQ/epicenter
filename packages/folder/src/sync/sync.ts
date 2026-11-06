@@ -6,7 +6,8 @@
  * by id, and a commit. No Git runs on this side.
  *
  * A file's version is its Git blob id on every store (ADR-0808), so the
- * manifest is `{ folder, commit, files }`: the repository it syncs with,
+ * manifest is `{ folder, root, commit, files }`: the repository it syncs with,
+ * the directory it synced in,
  * the commit both sides last agreed at, and each file's agreed blob id. A
  * side changed a file when its version differs from the agreed one, and a
  * note both sides changed merges against the agreed blob, read by its id:
@@ -71,7 +72,18 @@ import type { CommitReceipt, Repository } from './repository.js';
  */
 export type RepositoryAddress = { folder: string };
 
+/**
+ * The identity of the directory a folder synced in (ADR-0811): its device
+ * and inode, which a move within a disk keeps and a copy does not. A
+ * manifest records it beside the folder's id, so a copy of the directory
+ * (a Finder duplicate, a backup restored elsewhere) is told apart from the
+ * folder it was copied from before it syncs as that folder.
+ */
+export type RootIdentity = { device: string; inode: string };
+
 export type Manifest = Partial<RepositoryAddress> & {
+	/** The directory the folder synced in; absent where the store has no such identity (memory, the web). */
+	root?: RootIdentity;
 	/** The repository commit both sides last agreed at; null before the first sync, or after one that stopped. */
 	commit: string | null;
 	/** Each synced file's agreed version: its Git blob id, the same on both sides. */

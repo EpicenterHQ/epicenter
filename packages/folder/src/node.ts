@@ -23,6 +23,16 @@ import { nodeStore } from './device/node-store.js';
 import { OpenFolderError } from './errors.js';
 import { type Place, place } from './place.js';
 
+/**
+ * The Epicenter folder on this computer (`epicenterRoot`), a folder at a
+ * path (`localFolder`, which refuses one inside `.git` or `.epicenter`),
+ * and a directory's identity, which a manifest records (`rootIdentity`).
+ */
+export {
+	epicenterRoot,
+	localFolder,
+	rootIdentity,
+} from './device/node-root.js';
 /** The store of a directory on this computer: what `epicenter sync` syncs. */
 export { nodeStore } from './device/node-store.js';
 

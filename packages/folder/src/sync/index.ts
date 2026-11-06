@@ -2,13 +2,15 @@
  * `@epicenter/folder/sync`: sync a store with a repository through the
  * store contract and a manifest (ADR-0803, ADR-0804), the moments an open
  * app syncs at (`syncAtMoments`), and a folder's repository on the server
- * (`folderRepository`, `mintFolder`). The CLI runs it; no app does yet.
+ * (`folderRepository`, and `joinFolder`, a first sync's join or make). The
+ * platform's operations over it are `@epicenter/folder/platform`.
  */
 export { localStoreOf } from '../folder.js';
 export {
 	type FolderCommit,
 	folderRepository,
-	mintFolder,
+	type Joined,
+	joinFolder,
 	type RemoteAccount,
 	RemoteError,
 } from '../remote/repository.js';
@@ -34,6 +36,7 @@ export {
 	type ManifestVersion,
 	memoryManifest,
 	type RepositoryAddress,
+	type RootIdentity,
 	type SyncReport,
 	storeManifest,
 	sync,

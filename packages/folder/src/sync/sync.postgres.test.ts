@@ -16,8 +16,8 @@ import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { startRepositoryServer } from '../../../server/src/test-helpers/repository-server.js';
 import { nodeStore } from '../device/node-store.js';
+import { folderRepository, joinFolder } from '../remote/repository.js';
 import { scratch } from '../scratch.test-support.js';
-import { folderRepository, mintFolder } from '../remote/repository.js';
 import { storeManifest } from './sync.js';
 import { syncScenarios, type World } from './sync.scenarios.js';
 
@@ -51,10 +51,11 @@ async function visible(root: string, prefix = ''): Promise<string[]> {
 
 /** A directory per computer, syncing with a folder of its own on the server. */
 async function directoryWorld(): Promise<World> {
-	const minted = await mintFolder(account);
-	if (minted.error !== null) throw new Error(minted.error.message);
+	const joined = await joinFolder(account);
+	if (joined.error !== null) throw new Error(joined.error.message);
+	if (!('folder' in joined.data)) throw new Error('expected one folder');
 	return {
-		repository: folderRepository(account, minted.data.folder),
+		repository: folderRepository(account, joined.data.folder),
 		async device() {
 			const root = await scratch('epicenter-sync-');
 			roots.push(root);
