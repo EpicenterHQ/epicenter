@@ -27,6 +27,7 @@ export {
 } from '../remote/repository.js';
 export type { RootIdentity } from '../sync/sync.js';
 export {
+	describeMembers,
 	type EpicenterRoot,
 	freeName,
 	type Home,
@@ -36,6 +37,12 @@ export {
 	listHome,
 } from './epicenter-folder.js';
 export { InitError, initFolder } from './init.js';
+export {
+	type FolderMark,
+	type KeptFolders,
+	type KeptState,
+	keepEverySynced,
+} from './keep-synced.js';
 export {
 	acceptIntoHome,
 	type CopyAnswer,

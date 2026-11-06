@@ -207,6 +207,23 @@ export async function listHome({
 }
 
 /**
+ * Who holds a folder, as a person reads it (ADR-0811): "Only you", "You and
+ * Jess", "Ana and Jess". Every surface that shows a folder's members says
+ * it this way.
+ */
+export function describeMembers(members: readonly FolderMember[]): string {
+	const others = members
+		.filter(({ you }) => !you)
+		.map(({ name, email }) => name || email);
+	const you = members.some((member) => member.you);
+	if (others.length === 0) return you ? 'Only you' : 'No one';
+	const named = you ? ['You', ...others] : others;
+	return named.length === 1
+		? (named[0] as string)
+		: `${named.slice(0, -1).join(', ')} and ${named.at(-1)}`;
+}
+
+/**
  * A name for a new directory in the Epicenter folder: `wanted` with the
  * characters no disk keeps replaced, or `wanted 2`, `wanted 3`, … when one
  * of `taken` has it (ADR-0813).

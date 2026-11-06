@@ -27,6 +27,7 @@ import type { Repository } from '../sync/repository.js';
 import { storeManifest, sync } from '../sync/sync.js';
 import { listHome } from './epicenter-folder.js';
 import { initFolder } from './init.js';
+import { type KeptState, keepEverySynced } from './keep-synced.js';
 import { acceptIntoHome, syncEvery, syncFolder } from './sync-folder.js';
 
 let server: Awaited<ReturnType<typeof startRepositoryServer>>;
@@ -435,26 +436,117 @@ test('one request finds which folders moved, and only those sync', async () => {
 	);
 	await writeFile(join(edited.path, 'c.md'), note('C', 'edited\n'));
 
+	// Every request the round sends, by method and path.
+	const sent: string[] = [];
+	const counted = {
+		...alice.account,
+		fetch(input: Request | string | URL, init?: RequestInit) {
+			const url = new URL(input instanceof Request ? input.url : input);
+			sent.push(`${init?.method ?? 'GET'} ${url.pathname}`);
+			return alice.account.fetch(input, init);
+		},
+	};
+	const stillId = JSON.parse(
+		await readFile(join(still.path, '.epicenter/synced.json'), 'utf8'),
+	).folder as string;
 	const every = expectOk(
-		await syncEvery({ account: alice.account, root: alice.root }),
+		await syncEvery({ account: counted, root: alice.root }),
 	);
 	expect(
-		every.map(({ name, result }) => [
+		every.map(({ name, result, waiting }) => [
 			name,
-			result === undefined ? 'still' : expectOk(result).kind,
+			waiting
+				? 'waiting'
+				: result === undefined
+					? 'still'
+					: expectOk(result).kind,
 		]),
 	).toEqual([
 		['Busy', 'synced'],
 		['Edited', 'synced'],
+		['Never synced', 'waiting'],
 		['Still', 'still'],
 	]);
+	// One answer named where every folder is: Still was never asked about.
+	expect(sent.filter((request) => request.endsWith('/folders'))).toEqual([
+		'GET /git/folders',
+	]);
+	expect(sent.some((request) => request.includes(stillId))).toBe(false);
 	expect(await readFile(join(busy.path, 'b2.md'), 'utf8')).toBe(note('B2'));
 	expect(
 		expectOk(await listFolders(alice.account)).folders.map(({ id }) => id),
 	).toHaveLength(3);
-	// Nothing moved since: the next round syncs nothing.
+	// Nothing moved since: the next round sends that one request and nothing else.
+	sent.length = 0;
 	const next = expectOk(
-		await syncEvery({ account: alice.account, root: alice.root }),
+		await syncEvery({ account: counted, root: alice.root }),
 	);
 	expect(next.every(({ result }) => result === undefined)).toBe(true);
+	expect(sent).toEqual(['GET /git/folders']);
+}, 120_000);
+
+test('kept in sync, a change here reaches the server and a change there arrives, each folder marked', async () => {
+	const alice = await person('kept');
+	const notes = await folderWith(alice.home, 'Notes', { 'a.md': note('A') });
+	await folderWith(alice.home, 'Local only', { 'b.md': note('B') });
+	const first = synced(
+		await syncFolder({
+			account: alice.account,
+			store: notes.store,
+			identity: notes.identity,
+		}),
+	);
+	const kept = keepEverySynced({
+		account: alice.account,
+		root: alice.root,
+		afterChangeMs: 50,
+		checkEveryMs: 200,
+	});
+	/** Wait until `ready` holds of the loop's state. */
+	const until = (ready: (state: KeptState) => boolean) =>
+		new Promise<KeptState>((resolve) => {
+			const check = () => {
+				const state = kept.state();
+				if (!ready(state)) return;
+				stop();
+				resolve(state);
+			};
+			const stop = kept.subscribe(check);
+			check();
+		});
+	try {
+		const markOf = (state: KeptState, name: string) =>
+			state.marks.get(join(alice.home, 'Epicenter', name))?.mark;
+		const settled = await until((state) => state.last !== null);
+		expect(markOf(settled, 'Notes')).toBe('synced');
+		expect(markOf(settled, 'Local only')).toBe('waiting');
+
+		// A change here is heard, marked waiting, and synced after the burst.
+		await writeFile(join(notes.path, 'a.md'), note('A', 'edited here\n'));
+		await until((state) => markOf(state, 'Notes') === 'waiting');
+		await until((state) => markOf(state, 'Notes') === 'synced');
+		const remote = folderRepository(alice.account, first.folder);
+		const [file] = expectOk(await remote.read(['a.md']));
+		expect(
+			file !== undefined &&
+				!('gone' in file) &&
+				new TextDecoder().decode(file.bytes),
+		).toBe(note('A', 'edited here\n'));
+
+		// A change on the server arrives at the next check.
+		expectOk(
+			await remote.put('c.md', new TextEncoder().encode(note('C')), null),
+		);
+		const deadline = Date.now() + 10_000;
+		while (Date.now() < deadline) {
+			const there = await readFile(join(notes.path, 'c.md'), 'utf8').catch(
+				() => null,
+			);
+			if (there !== null) break;
+			await new Promise((resolve) => setTimeout(resolve, 100));
+		}
+		expect(await readFile(join(notes.path, 'c.md'), 'utf8')).toBe(note('C'));
+	} finally {
+		kept[Symbol.dispose]();
+	}
 }, 120_000);

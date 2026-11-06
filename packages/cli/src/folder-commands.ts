@@ -11,7 +11,6 @@
 import { basename } from 'node:path';
 import {
 	FOLDER_ROLES,
-	type FolderMember,
 	type FolderRole,
 	isFolderId,
 	isPersonEmail,
@@ -20,6 +19,7 @@ import {
 import { epicenterRoot, localFolder } from '@epicenter/folder/node';
 import {
 	acceptIntoHome,
+	describeMembers,
 	attachFolder,
 	getFolder,
 	type HomeFolder,
@@ -41,19 +41,6 @@ type Options = Record<string, string | true>;
 
 /** The Epicenter folder on this computer. */
 export const homeRoot = () => epicenterRoot(resolveAppPaths().folderDir);
-
-/** "Only you", "You and Jess", "Ana and Jess": who holds a folder, as a person reads it. */
-export function describeMembers(members: readonly FolderMember[]): string {
-	const others = members
-		.filter(({ you }) => !you)
-		.map(({ name, email }) => name || email);
-	const you = members.some((member) => member.you);
-	if (others.length === 0) return you ? 'Only you' : 'No one';
-	const named = you ? ['You', ...others] : others;
-	return named.length === 1
-		? (named[0] as string)
-		: `${named.slice(0, -1).join(', ')} and ${named.at(-1)}`;
-}
 
 /**
  * The folder id `target` names: an id, or the path of a folder on this

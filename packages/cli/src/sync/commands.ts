@@ -23,6 +23,7 @@ import {
 	type CopyAnswer,
 	cloneFolder,
 	cloneIntoHome,
+	describeMembers,
 	type FolderSync,
 	listFolders,
 	type RemoteAccount,
@@ -32,7 +33,7 @@ import {
 import { folderRepository, storeManifest } from '@epicenter/folder/sync';
 import { Err, Ok } from 'wellcrafted/result';
 import { authContext, type GrantKind } from '../auth.ts';
-import { describeMembers, homeRoot } from '../folder-commands.ts';
+import { homeRoot } from '../folder-commands.ts';
 import { count, EXIT, fail, writeErr, writeJson, writeOut } from '../output.ts';
 import { signedInAccount } from './account.ts';
 
@@ -119,7 +120,11 @@ export async function syncCommand(
 		const every = await syncEvery({ account, root: homeRoot() });
 		if (every.error !== null) return fail(every.error.message, json);
 		let code: number = EXIT.ok;
-		for (const { path, result } of every.data) {
+		for (const { path, result, waiting } of every.data) {
+			if (waiting) {
+				if (json) writeJson({ sync: { folder: path, neverSynced: true } });
+				continue;
+			}
 			if (result === undefined) {
 				if (json) writeJson({ sync: { folder: path, unchanged: true } });
 				continue;
