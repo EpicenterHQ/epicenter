@@ -1006,7 +1006,7 @@ When you add an ADR, add its row here.
 | [0808](0808-a-files-version-is-its-git-blob-id-on-every-store.md) | A file's version is its Git blob id on every store | Accepted (amends 0774, 0794, 0798, 0804, and 0807; amended by 0809) |
 | [0809](0809-a-repository-is-a-spaces-app-and-bytes-nothing-needs-are-collected-or-purged.md) | A repository is a space's app, and bytes nothing needs are collected or purged | Accepted (amends 0804 and 0808; amended by 0810 and 0811) |
 | [0810](0810-a-folder-needs-no-app-and-a-repository-is-a-spaces-named-folder.md) | A folder needs no app, and a repository is a space's named folder | Accepted (amends 0805 and 0809; amended by 0811 and 0812) |
-| [0811](0811-folders-are-shared-directly-and-an-app-reaches-the-folders-attached-to-it.md) | Folders are shared directly, and an app reaches the folders attached to it | Accepted (supersedes 0770 and 0791; amends 0732, 0772, 0802, 0805, 0809, and 0810; amended by 0812, 0813, and 0814) |
+| [0811](0811-folders-are-shared-directly-and-an-app-reaches-the-folders-attached-to-it.md) | Folders are shared directly, and an app reaches the folders attached to it | Accepted (supersedes 0770 and 0791; amends 0732, 0772, 0802, 0805, 0809, and 0810; amended by 0812, 0813, 0814, and 0820) |
 | [0812](0812-an-apps-schema-is-a-view-that-must-fit-a-folders-contract.md) | An app's schema is a view that must fit a folder's contract | Accepted (amends 0805, 0810, and 0811) |
 | [0813](0813-epicenter-is-your-folders-and-apps-are-lenses.md) | Epicenter is your folders, and apps are lenses | Accepted (amends 0763, 0805, and 0811) |
 | [0814](0814-one-window-shows-one-folder.md) | One window shows one folder | Accepted (amends 0802 and 0811) |
@@ -1015,3 +1015,4 @@ When you add an ADR, add its row here.
 | [0817](0817-the-cli-exposes-every-platform-operation-and-an-app-inherits-everything-about-folders.md) | The CLI exposes every platform operation, and an app inherits everything about folders | Accepted |
 | [0818](0818-an-app-is-a-view-a-window-and-its-capabilities-and-everything-is-repairable-by-hand.md) | An app is a view, a window, and its capabilities, and everything is repairable by hand | Accepted (amends 0763) |
 | [0819](0819-every-program-keeps-the-folders-it-has-open-in-sync-and-the-epicenter-app-has-them-all-open.md) | Every program keeps the folders it has open in sync, and the Epicenter app has them all open | Accepted (amends 0750, 0806, and 0816) |
+| [0820](0820-a-share-is-an-invitation-to-an-email-and-reaching-every-folder-is-a-permission.md) | A share is an invitation to an email, and reaching every folder is a permission | Accepted (amends 0811) |
