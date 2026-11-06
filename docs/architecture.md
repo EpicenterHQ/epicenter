@@ -34,13 +34,14 @@ are what sync merges with.
 ## Sync
 
 One function, `sync({ local, remote, manifest })` in `@epicenter/folder/sync`,
-compares the local store, the server's repository, and the manifest, and copies
-what changed. A file's version is its Git blob id on every store
-([ADR-0808](adr/0808-a-files-version-is-its-git-blob-id-on-every-store.md)).
+compares the local store, the folder's log on the server, and the manifest, and
+copies what changed. A file's version is the SHA-256 of its bytes on every
+store
+([ADR-0824](adr/0824-a-folders-history-is-a-log-of-versions-and-git-is-how-it-leaves.md)).
 A store has four verbs, `list`, `read`, `put` (over the version its writer
 read, failing with `Moved`), and `watch`, and one conformance suite holds memory,
-a Bun directory, the desktop shell, a served directory, and the server's
-repository to them. A note both sides changed merges by front matter key and by
+a Bun directory, the desktop shell, a served directory, and the folder on the
+server to them. A note both sides changed merges by front matter key and by
 line for the body; a conflict leaves Git's markers. The server never merges: it
 refuses a commit over a version it no longer holds, and the sync reads what is
 there and runs again. `syncAtMoments` runs it when an app opens, after a burst of
@@ -54,10 +55,11 @@ is unbuilt.
 
 ## The server
 
-`@epicenter/server` holds each folder as a Git repository at
-`<git audience>/folders/<id>` (`<id>` minted at the folder's first sync), with its
-history also reachable as a Git remote at `/folders/<id>.git`. Attachments are
-stored by their sha256 at `blobs/<sha256>`. A folder has members, who are people,
+`@epicenter/server` holds each folder's history as a log of versions in
+Postgres at `<git audience>/folders/<id>` (`<id>` minted when the folder is
+made), with bytes over 16 KiB in a blob store by their SHA-256. History leaves
+as Git with `epicenter export --git` and enters with `epicenter import --git`
+([ADR-0826](adr/0826-history-enters-and-leaves-epicenter-as-git.md)). A folder has members, who are people,
 each an owner, a writer, or a reader. A share is an invitation to an email that
 waits until that person accepts it
 ([ADR-0820](adr/0820-a-share-is-an-invitation-to-an-email-and-reaching-every-folder-is-a-permission.md)).

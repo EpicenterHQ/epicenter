@@ -12,17 +12,17 @@ composition to read first.
 (`resolveOrigin`), the origins it trusts (`resolveTrustedOrigins`), and its
 token audiences (`resolveAudiences`, from the resolved origin). The deployment
 names its audiences once there (ADR-0326), and every request carries them as
-`c.var.audiences`: the guards, the Git mount, the protected resource
+`c.var.audiences`: the guards, the folders mount, the protected resource
 metadata, and the authorization server all read that one value. `apps/api`
-passes `resolveOAuthAudiences`, which puts the hosted cloud's Git audience on
-its own host and any other deployment's under its origin.
+passes `resolveOAuthAudiences`, which puts the hosted cloud's folders
+audience (still named `git`, `https://git.epicenter.so`) on its own host and
+any other deployment's under its origin.
 
 Epicenter hosts no MCP server
 ([ADR-0578](../../docs/adr/0578-epicenter-hosts-no-mcp-server.md)):
-agents on a machine use files, Git, and the `epicenter` CLI. The only bytes
-it keeps beside Git are a folder's Git LFS objects: in R2 on the
-Worker, on disk on Bun
-([ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)).
+agents on a machine use files and the `epicenter` CLI. A folder's history is
+a log in Postgres, and its bytes over 16 KiB are in a blob store: R2 on the
+Worker, a directory on Bun (ADR-0824).
 
 ## The surfaces
 
@@ -31,7 +31,7 @@ choice and any deployment policy.
 
 | Mount | Source | Notes |
 | --- | --- | --- |
-| `mountGitHost` | `src/routes/git.ts`, `src/routes/folders-api.ts` | Folders (ADR-0811): a folder's sync routes by its id, its history as a Git remote at `<git audience>/folders/<id>.git` (clone and fetch, the forward-only receiver, Git LFS), the first sync that joins before it creates, where `main` is across a person's folders, and `/api/folders` for listing, sharing, accepting, and attaching to apps; the deployment supplies the stores (`GitHost`, `LfsStore`). |
+| `mountFolders` | `src/routes/folders.ts`, `src/routes/folder.ts`, `src/routes/folders-api.ts` | Folders (ADR-0811, ADR-0824): each folder's log by its id (changes, files, history, marks, bytes, commits, imports), making or joining a folder, every folder's head, and `/api/folders` for listing, sharing, accepting, and attaching to apps; the deployment supplies the blob store (`BlobStore`). |
 | `mountInferenceApp` | `src/routes/inference.ts` | Provider-backed inference. |
 | `mountTranscriptionApp` | `src/routes/transcription.ts` | Provider-backed speech to text. |
 | `mountAuthRoutes` | `src/routes/auth.ts` | Public auth shells (sign-in, consent, device approval), discovery metadata, and Better Auth's endpoints, including the authorization server. |
@@ -53,24 +53,21 @@ live in `apps/api/worker/billing/`, because they are hosted-only.
 ### Folders
 
 A folder (ADR-0811) is the one thing that is synced and shared: an id the
-server mints at its first sync, members who are people, and a history that
-is a Git repository storage names by that id. Its title is the `title` of
+server mints when it makes the folder, members who are people, and a
+history that is a log of versions (ADR-0824). Its title is the `title` of
 its `epicenter.json`, which the server reads from the folder's files for
-listings (`folderTitle`); the server keeps no name. The Git audience is
+listings (`folderTitles`); the server keeps no name. The folders audience is
 `https://git.epicenter.so` for the hosted cloud and `<origin>/git`
-elsewhere (`resolveOAuthAudiences`).
+elsewhere (`resolveOAuthAudiences`); it keeps the name `git` because every
+token names it, though no Git client reaches it.
 
 | Request | Needs |
 | --- | --- |
-| `POST <git>/folders { folder? }` | `folders:write`: a first sync. It joins the folder named when the caller holds it; from an app with none named, the one folder attached to the app the caller holds (`409 choose` with `folders` when several); otherwise it makes a folder, attached to the app that made it. Answers `{ folder, made }` |
-| `GET <git>/folders` | `folders:read`: `{ heads }`, where `main` is in every folder the token reaches, one request a program polls instead of one per folder (ADR-0819) |
-| `GET <git>/folders/<id>/changes?since=`, `POST …/tree`, `POST …/blobs`, `GET …/blobs/<id>` | `folders:read`, the `read` role (`src/routes/folder.ts`) |
-| `PUT <git>/folders/<id>/blobs/<sha256>`, `POST …/commits` | `folders:write`, the `push` role |
-| `GET info/refs?service=git-upload-pack`, `POST git-upload-pack` under `<git>/folders/<id>.git` | `folders:read`, the `read` role |
-| `GET info/refs?service=git-receive-pack`, `POST git-receive-pack` | `folders:write`, the `push` role; a push that replaces `main`, the `rewrite` role (`member`) |
-| `POST info/lfs/objects/batch` | download: `folders:read`, `read`; upload: `folders:write`, `push` |
-| `PUT`/`GET info/lfs/objects/<oid>`, `POST info/lfs/verify` | upload and verify: `push`; download: `read` |
-| `GET /api/folders` | `folders:read` on the Git audience: `{ folders, pending }`, the folders the token reaches with their title, the caller's role, members, invitations by email (to members, not readers), and apps, and the invitations waiting for the caller |
+| `POST <git>/folders { create, app?, import? }` or `{ join }` | `folders:write`: `create` makes a folder and never joins (`import` lets it take an import's changes until the import is done, ADR-0826); `join` joins the one folder attached to the app named (`409 choose` with `folders` when several, `404 none` when none). Answers `{ folder, made }` |
+| `GET <git>/folders` | `folders:read`: `{ heads }`, the cursor of every folder the token reaches, one statement a program polls instead of one request per folder (ADR-0819) |
+| `GET <git>/folders/<id>/changes?since=`, `POST …/files`, `GET …/log`, `GET …/marks`, `POST …/blobs`, `POST …/blobs/missing`, `GET …/blobs/<sha256>` | `folders:read`, the `read` role (`src/routes/folder.ts`) |
+| `PUT …/blobs/<sha256>`, `POST …/commits`, `PUT …/marks/<name>`, `POST …/import` | `folders:write`, the `push` role |
+| `GET /api/folders` | `folders:read` on the folders audience: `{ folders, pending }`, the folders the token reaches with their title, the caller's role, members, invitations by email (to members, not readers), and apps, and the invitations waiting for the caller |
 | `GET /api/folders/<id>` | `folders:read`, the `read` role: one folder |
 | `POST /api/folders/<id>/accept` | `folders:write`: accept the invitation waiting for the caller's verified email |
 | `PUT /api/folders/<id>/members/<email> { role }` | `folders:write`, the `manage` role: invite an email, or change the role of someone who holds the folder; the same `{ person, role, pending }` whether or not anyone signs in with that email |
@@ -89,9 +86,9 @@ shares, unshares anyone, and changes roles; a `reader` syncs without
 pushing and manages nothing (`src/folder-roles.ts`). No member owns a
 folder. A folder lives while a member remains: the `folder_member_left`
 trigger in `apps/api/drizzle` deletes it when its last member leaves (an
-account's deletion included), with its invitations, attachments, and
-pending uploads. The route that takes the last member out removes the
-folder's repository storage too.
+account's deletion included), with its invitations, attachments, and log.
+The route that takes the last member out removes its bytes from the blob
+store too.
 
 **Reach.** A token with `folders:all` (the CLI and the Epicenter app)
 reaches every folder its person holds. Any other token reaches the folders
@@ -99,109 +96,72 @@ attached to its app, `folder_app` rows naming the app by its OAuth client
 id: an app's first sync attaches the folder it makes, and the person
 attaches another through Epicenter, which no app can do for itself.
 
-With a store that has `objects` (the disk store), every push goes to the
-receiver (`src/routes/receive.ts`), never the store's own receive-pack. It
-accepts `refs/heads/main` alone, decides fast-forward from the pushed commits,
-accepts merge commits, and requires every changed file other than a `.md` note,
-the folder's `epicenter.json` (kept as plain text so the server can read its
-title, ADR-0820), or a hidden path (any segment starting with `.`) to be a Git
-LFS pointer whose
-object is stored, whatever `.gitattributes` says (`storedWithLfs` in
-`@epicenter/definition/contract`). Any `member` may
-replace `main`; the replaced commit is kept as `refs/epicenter/replaced/<time>`.
-What a push may cost is the store's `ReceiveLimits` (`RECEIVE_LIMITS` on disk:
-a 64 MiB body, 256 MiB of inflated objects held at once, and 100,000 of
-`main`'s commits read, once per push, to place the push's stored commits); the
-receiver keeps commits, trees and pointer-sized blobs, and lets larger blobs
-go once hashed.
-A folder's routes (below) read and commit over the same `GitObjects` port
-(`src/git/objects.ts`): refs, object reads by kind, and an atomic
-compare-and-swap `apply` over several refs (the receiver moves `main` and its
-`replaced` backup together). They never merge (ADR-0773), and keep nothing
-about a request once it answers.
+### A folder's log
 
-### A folder's repository
+A folder's history is an append-only log in Postgres (`src/log/`,
+migration `0011`):
 
-Sync reaches a folder's repository by its id at `<git audience>/folders/<id>`
-(`folderUrl` in `@epicenter/definition/site`), in Git's vocabulary
-(ADR-0808; `src/routes/folder.ts`): `changes` since a commit, the `tree` at
-a commit, `blobs` by id, and one `commits` request that lands every file
-only where its path still holds the blob its writer expects, or answers
-`409 moved` with what the path holds. An attachment's bytes are at
-`blobs/<sha256>`: `GET` streams them with `Cache-Control: private,
-immutable`, and `PUT` stores them, idempotent and checked against the hash,
-for every Epicenter client; Git LFS's own protocol stays for plain Git.
+| Table | Holds |
+| --- | --- |
+| `folder` | `seq`, its last change's number, which each commit locks the row to take, so changes are numbered densely in commit order; `epoch`, so a cursor `<epoch>.<seq>` from a log that was reset names nothing; and `importing` |
+| `change` | `seq`, `at`, `account_id`, `author_text` (`Name <email>` as it was then), `via` (the OAuth client), `message` (an imported commit's), and `digest`, the SHA-256 of the previous digest and the change's canonical text |
+| `change_file` | each path a change wrote, its version (null for a deletion), and size; keyed `(folder, path, seq)`, indexed `(folder, seq)` |
+| `file` | each path's version now, and its `folded` name (NFC, lower case), unique in the folder |
+| `blob` | each SHA-256 the folder holds: its size, its bytes inline when they are at most 16 KiB, and whether it is `pending`, `kept`, or `purged` |
+| `mark` | a name a person gave one change (ADR-0826) |
 
-An upload the repository did not already hold is pending in the
-`blob_upload` ledger (`src/uploads.ts`) until a commit or a push that
-references it keeps it; `sweepPendingUploads` deletes what is still pending
-after a day, bytes and row. The deployment schedules the sweep. Presigned R2
-uploads bypass the server and are not recorded. Purging what only history
-holds is a person's, and is not built.
+A file's version is the SHA-256 of its bytes, for every path. A commit is
+one call of `epicenter_commit`, so one round trip through Hyperdrive. It
+lands each path only where it still holds the version its writer expects;
+otherwise nothing lands and it answers `409 moved` with every path that
+moved and what it holds. A write either brings bytes of at most 16 KiB
+(`text` or `base64`) or names a version the folder holds (`version`), so a
+restore moves no bytes; a version it holds no bytes for is `409 missing`.
+A name differing only in case from one the folder holds, a file where a
+folder is, or a file below a file, is `409 refused` (the rules
+`caseClash` held for Git trees). Writing what a path holds makes no change.
 
-The receiver refuses a pointer in any layout but Git LFS's canonical one
-(`readPointer`), since an attachment's version is that layout's blob id.
+`changes?since=<cursor>` answers each path changed since the cursor with
+its version now, in one statement, or `null` ("compare every path") for a
+cursor of another epoch, past the head, or more than 50,000 changes or
+2,000 paths behind (`CHANGES_GAP`, `CHANGES_LIMIT`); `files` then lists
+every file. `files` answers the folder now or at a seq, a mark, or a time,
+with inline bytes when asked; `log` answers changes oldest first after a
+seq or newest first from a moment, and a file's history with `path`.
 
-One statement decides each request on a folder (`authorizeFolderRequest`):
-the access token, given as a Bearer token or as the Basic password, its
-audience and scope; the caller's accepted membership and role; and the
-token's reach. A folder that does not exist is refused like one the caller
-does not hold, so a refusal says nothing of whether it does. Nothing is
-cached. Nothing but a first sync makes a folder: a push to an id no one
-holds is refused, and unrelated history pushed to a folder is refused unless
-a member forces it.
+**Bytes.** Bytes over 16 KiB live in the deployment's `BlobStore` at
+`folders/<id>/blobs/<sha256>` (`createR2BlobStore` over the Worker's bucket
+binding, `createDiskBlobStore` on Bun), chosen by size, never by path. An
+upload asks `blobs/missing` which versions the folder lacks, then `PUT`s
+only those, checked against the hash; a row is `pending` until a change
+names it. `sweepPendingBlobs` deletes, row and bytes, what stayed pending
+past a day (`PENDING_FOR_MS`). `purgeBlobs` deletes kept bytes and keeps
+every row naming them; by default it refuses a version a file holds now or
+held within 90 days (`KEEP_MERGE_BASES_MS`), so a computer offline that
+long still has the version it merges against. The deployment schedules
+both; nothing thins history yet.
+
+**Git.** History leaves as Git through `epicenter export --git`, a
+deterministic projection, and enters through `epicenter import --git`
+(`packages/cli/src/git`, ADR-0826). No Git client writes to a folder,
+since Git's writes carry neither a per-path expected version nor the merge
+by key.
+
+Who may reach a folder is the deployment's `FolderGuard`, passed to
+`mountFolders` as `guard`: `authorize` decides one request (account, role,
+folder, and the token's reach), and `join` makes or joins a folder. The
+default, `databaseFolderGuard`, is `authorizeFolderRequest`; a test
+without a database injects its own, and every rule after the decision is
+the same code.
 
 Refusals answer `{ error, error_description }`: 401 `invalid_token` with
-`WWW-Authenticate` naming `resource_metadata` (and a Basic challenge for
-terminal Git), 403 `insufficient_scope` or `forbidden`, 404 `not_found`,
-409 `choose` for an app's first sync among several folders, 413 `too_large` for a push over the store's `pushBytes`, 502 `store_failed`, 503
-`git_unavailable` when the deployment has no store (or, for the LFS routes, no
-LFS store). Hosted Git takes no billing policy.
-
-`GitHost` is the replaceable part. It names a repository by its folder's
-id, and receives only requests the route already authorized, never the
-client's credential:
-
-```ts
-type GitHost = {
-  /** Clone and fetch (`git-upload-pack`); every push goes to the receiver. */
-  serve(id: string, request: GitRequest): Promise<Response>;
-  create(id: string): Promise<void>;
-  delete(id: string): Promise<void>;
-  /** The receiver's and a folder's routes' port (`GitObjects`, `src/git/objects.ts`). */
-  objects(id: string): GitObjects;
-  /** What one push may cost this store; `RECEIVE_LIMITS` when absent. */
-  receiveLimits?: ReceiveLimits;
-};
-```
-
-`GitRequest` is internal to `src/routes/git.ts`; an implementation receives it
-through `GitHost['serve']` rather than importing it from the package.
-
-Who may reach a folder is the deployment's `GitAccess`, passed to
-`mountGitHost` as `access`: `authorize` decides one request (account, role,
-folder, and the token's reach), and `join` runs a first sync, joining or
-making a folder. The default, `databaseGitAccess`, is the Postgres statement
-above; a test without a database injects its own, and every rule after the
-decision is the same code. The rows and listing live in Postgres, so the
-store has no `list`. `apps/api` binds
-Cloudflare Artifacts (`worker/git-repositories.ts`, whose `objects` are
-`worker/artifacts-objects.ts`: refs from Artifacts' receive-pack
-advertisement, objects through the binding by kind, and every ref move as one
-`atomic` receive-pack), with LFS objects in R2 (`createR2LfsStore`,
-`src/lfs/r2-lfs-store.ts`): clients upload and download through presigned
-URLs that sign `content-length`, `if-none-match: *` and
-`x-amz-checksum-sha256`, and an object is verified by one `head()` whose
-sha256 checksum and size must match the pointer. The Bun entry binds
-`createDiskGitHost` from `@epicenter/server/bun` (`src/git-disk-store.ts`):
-bare repositories at `<root>/<folder id>.git`, cloned and fetched through
-`git http-backend` (receive-pack off, every ref shown, in either protocol), written through
-`index-pack` and one `update-ref --stdin` transaction, with no hook run, from
-the repository or anywhere else, and a clean environment. Its LFS objects come
-from `createDiskLfsStore` (`src/lfs/disk-lfs-store.ts`), at
-`<root>/<folder id>/<aa>/<bb>/<oid>`, admitted only when their sha256
-matches.
-
+`WWW-Authenticate` naming `resource_metadata`, 403 `insufficient_scope` or
+`forbidden`, 404 `not_found`, 409 `choose` for a join among several
+folders, 413 `too_large` for a body over the route's cap (16 MiB for a
+commit or an import), 502 `store_failed`, 503 `unavailable` when the
+database could not decide. A folder that does not exist is refused like
+one the caller does not hold, so a refusal says nothing of whether it
+does. Folders take no billing policy.
 ## The authorization server
 
 [ADR-0549](../../docs/adr/0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md)
@@ -238,15 +198,15 @@ signing out revokes each access token it holds as well.
 A resource that acts on a folder calls `authorizeFolderRequest` with its
 own audience, the scope the operation needs, and the folder in its path,
 then decides the operation from the role with the internal `roleAllows`
-(`src/folder-roles.ts`); `mountGitHost` does (LFS is ADR-0544's). The other mounted resources act on the account and sit
+(`src/folder-roles.ts`); `mountFolders` does. The other mounted resources act on the account and sit
 behind `requireAccessToken`, which runs `authorizeAccountRequest`. The
 deployment names each mount's audience and scope:
 
 | Mount | Audience | Scope |
 | --- | --- | --- |
 | `mountInferenceApp`, `mountTranscriptionApp` (`/v1/*`) | API | `ai` |
-| `mountGitHost` (a folder's routes and remote) | Git | `folders:read` to read, `folders:write` to write |
-| `mountGitHost` (`/api/folders`) | Git | `folders:read` to list, `folders:write` to change; `folders:all` to attach |
+| `mountFolders` (a folder's routes) | Git | `folders:read` to read, `folders:write` to write |
+| `mountFolders` (`/api/folders`) | Git | `folders:read` to list, `folders:write` to change; `folders:all` to attach |
 
 A missing, unknown, revoked, or other-audience token answers 401 and a missing
 scope 403, both with `WWW-Authenticate` naming the audience's
@@ -258,14 +218,19 @@ answers directly.
 ## Folders as rows
 
 `src/db/schema/folder.ts` holds the `folder`, `folder_member`,
-`folder_invitation`, `folder_app`, and `blob_upload` tables; `src/folders.ts`
-makes, joins, lists, shares, accepts, and attaches folders over them.
+`folder_invitation`, and `folder_app` tables, and the log's (above);
+`src/folders.ts` makes, joins, lists, shares, accepts, and attaches folders
+over them.
 Migration `0009` carried each repository of the namespace model into a
 folder of the same id, its namespace's members and grants into accepted
 members, and a repository named for an app into that app's attachment, and
 dropped namespaces. Migration `0010` moved each share still waiting into an
 invitation to its person's email, made every `owner` and `writer` a
 `member`, and left the trigger only deleting a folder with its last member.
+Migration `0011` added the log, and `0012` dropped the upload ledger its
+`blob` table replaces. Folders held as Git repositories were not carried
+over: hosted Git never ran, and a self-hosted server's repositories are
+dropped (`apps/api/README.md`).
 
 ## Tests that need Postgres
 
@@ -277,5 +242,5 @@ authorization server checks that `apps/api` also runs against its Bun and
 Worker entries.
 
 A folder syncs with this server and no other (ADR-0803): the client keeps no
-Git, and the server's repository is the folder's history. The Yjs store sync
+Git, and the server's log is the folder's history. The Yjs store sync
 this package used to mount is removed (ADR-0534).

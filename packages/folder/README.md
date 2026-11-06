@@ -26,7 +26,7 @@ A Svelte app reads it through `reactive` from
 The package has two halves. The folder opens and writes a folder through a
 store, and the sync half (`@epicenter/folder/sync` and
 `@epicenter/folder/platform`) keeps a computer's plain folder in step with the
-folder's repository on the server, with no Git on the computer
+folder's log on the server, with no Git on the computer
 ([ADR-0804](../../docs/adr/0804-a-computer-keeps-a-plain-folder-and-every-surface-syncs-with-one-typescript-function.md)),
 and holds every platform operation on folders that the CLI and the Epicenter
 app compose
@@ -49,7 +49,7 @@ is not built; today an app opens a place.
 | `@epicenter/folder/memory` | `memory()`, a new place in memory, and `memoryFiles(placeOrFolder)`, the world outside it, for a test. |
 | `@epicenter/folder/served` | `served(url)`, the directory the program serving this page keeps on this computer, reached through that program (Messages; ADR-0784). |
 | `@epicenter/folder/serve` | `serveDirectory(path)`, the program's half: it answers its page's store verbs over a directory, in Bun or Node. |
-| `@epicenter/folder/sync` | `sync({ local, remote, manifest })` (ADR-0803, ADR-0804): a store synced with a folder's repository history through a manifest, `{ commit, files }`, the commit both sides last agreed at and each file's Git blob id (ADR-0808), kept wherever `storeManifest(store, path)` says (on a computer, the folder's record), merging notes with `@epicenter/definition/front-matter`. A sync that would delete 20 or more files on the server, or 5 or more that are half the folder, stops before it writes anything (`outcome: 'deletions'`) until `deletions: 'push'` or `'restore'` answers it. `localStoreOf(folder)` is an open folder as the local store: it lists every visible file and reads from what the folder holds, so an unchanged sync of 10,000 notes reads no file. Two syncs of one folder may run at once: every write, the manifest's included, is over the version read. `makeFolder(account, { app? })` makes a folder on the server and never joins one; `joinApp(account, app)` joins the one folder attached to an app (ADR-0822). |
+| `@epicenter/folder/sync` | `sync({ local, remote, manifest })` (ADR-0803, ADR-0804): a store synced with a folder's log on the server through a manifest, `{ cursor, files }`, the point of the log both sides last agreed at and each file's version (ADR-0824), kept wherever `storeManifest(store, path)` says (on a computer, the folder's record), merging notes with `@epicenter/definition/front-matter`. A sync that would delete 20 or more files on the server, or 5 or more that are half the folder, stops before it writes anything (`outcome: 'deletions'`) until `deletions: 'push'` or `'restore'` answers it. `localStoreOf(folder)` is an open folder as the local store: it lists every visible file and reads from what the folder holds, so an unchanged sync of 10,000 notes reads no file. Two syncs of one folder may run at once: every write, the manifest's included, is over the version read. `makeFolder(account, { app?, importing? })` makes a folder on the server and never joins one; `joinApp(account, app)` joins the one folder attached to an app (ADR-0822). |
 | `@epicenter/folder/platform` | Every platform operation on folders as a function (ADR-0817), which Epicenter's programs (the CLI and the Epicenter app) compose: `identify` (which directory in the Epicenter folder is which folder, from the records at its root; ADR-0822), `questionOf` (the folders an unbound directory could be), `listHome` (each folder with its title, state, members, and question, the shares waiting, and the folders held elsewhere), `initFolder` (an `epicenter.json` proposed from the files), `syncFolder` (a proven folder syncs; an unbound one syncs by the person's answer, as a new folder when nothing matches, or with its one match held alone), `cloneIntoHome`, `acceptIntoHome`, `syncEvery` and `keepEverySynced` (every folder that moved, from one request for where every folder is, and a folder an app made; ADR-0819), the records (`recordsIn`), the import of an older build's in-folder manifest (`importLegacy`), and the person's folders on the server: `listFolders`, `getFolder`, `folderHeads`, `shareFolder`, `unshareFolder`, `acceptShare`, and `attachFolder`. |
 | `@epicenter/folder/tauri` | `revealRoot(root)`, which shows a root the shell named in the file manager; `syncedRecord()`, the record Epicenter keeps of the app's data folder (read by the shell, never written), for a desktop app to say whether Epicenter syncs it; and `epicenterRoot()`, the Epicenter folder as the Epicenter app's shell names it. A desktop app never syncs (ADR-0822). What a capability keeps for this computer goes to AppData through `settings` from [`@epicenter/local`](../local/README.md), not through a folder. |
 
@@ -161,25 +161,25 @@ in `src/device/store.ts`. A store knows nothing of contracts or notes.
 | `put(path, bytes \| null, expect)` | the version that landed (null for a removal), only while the path holds `expect` (a version, or null for nothing); `Moved { now }` when it holds something else, carrying what |
 | `watch(changed)` | the stop, once it is listening; from then `changed` hears the paths that changed, or `'all'` |
 
-A version is a file's Git blob id on every store
-([ADR-0808](../../docs/adr/0808-a-files-version-is-its-git-blob-id-on-every-store.md)),
-and no app holds one: a note's (or a hidden file's) is the blob id of its
-bytes, and an attachment's the blob id of its canonical Git LFS pointer,
-computed from its sha256 and size (`blobIdOf` in `src/hash.ts`). A device
-caches an attachment's hash by its stamp (size, modification time and file
-identity) in a file outside the folder, named by the directory's identity
-(`src/device/stamp-cache.ts`; the Epicenter folder's
-`.epicenter/hashes/<identity>.json`, or an app's own data), under
-Git's racy-clean rule: an entry holds only for a file last modified in an
-earlier second than its hash, so a listing reads a recording once, and an
-attachment is hashed again before a put replaces it. `putLanded` counts a
+A version is the SHA-256 of a file's bytes on every store, for every path
+([ADR-0824](../../docs/adr/0824-a-folders-history-is-a-log-of-versions-and-git-is-how-it-leaves.md)),
+and no app holds one (`versionOf` in `src/hash.ts`). A listing hashes a file
+up to 64 KiB whole, and names a larger one by its stamp (size, modification
+time and file identity), by size, never by path: a device caches a large
+file's version under its stamp in a file outside the folder, named by the
+directory's identity (`src/device/stamp-cache.ts`; the Epicenter folder's
+`.epicenter/hashes/<identity>.json`, or an app's own data), under Git's
+racy-clean rule: an entry holds only for a file last modified in an earlier
+second than its hash, so a listing reads a recording once. The desktop
+shell tags each listed version `sha256:` or `stamp:`, and hashes a file
+again before a put replaces it. `putLanded` counts a
 `Moved` whose `now` is the version the put meant to land as landed: a lost
 reply. A device's listing leaves out `.git` and an older build's
 `.epicenter` at its root, and never describes a reserved name.
 Every store answers a hint only once a read of the path answers the change.
 `storeChecks` in `src/device/store.conformance.ts` holds memory, a Bun
 directory, the desktop shell and a served directory to the same behavior in
-`store.conformance.test.ts`, and the repository in
+`store.conformance.test.ts`, and the folder on the server in
 `src/remote/remote.postgres.test.ts`.
 
 ## Places
@@ -215,16 +215,18 @@ makes the data folder when nothing is at its path, checks each save, and
 watches each root a page opened. See the folder plugin's README, and
 `src/device/`.
 
-The repository never merges: `folderRepository(account, folder)` in
+The server never merges: `folderRepository(account, folder)` in
 `src/remote/repository.ts` commits each put where the path still holds the
-blob its writer expects (null for nothing), and the server refuses the
-commit when it does not, in the step that moves `main`
+version its writer expects (null for nothing), and the server refuses the
+change when it does not, naming every path that moved
 ([`@epicenter/server`](../server/README.md)), which is `Moved` here. The
 folder then reads what is there and applies the change again, settling a
-body with `settle`. It speaks the server's routes in Git's vocabulary:
-`changes` since a commit, the `tree` at a commit (a listing), `blobs` by id
-(a note's bytes, many in one request), an attachment's bytes at
-`blobs/<sha256>`, put before the commit names it, and `commits`. A watch
+body with `settle`. It speaks the folder's routes: `changes` since a cursor,
+each path with its version; `files` now or at any change, a read bringing
+small files' bytes; `blobs` by version; bytes over 16 KiB at
+`blobs/<sha256>`, uploaded first when `blobs/missing` says the server lacks
+them; and `commits`. It also reads history (`log`, `filesAt`, `marks`,
+`mark`, `commitVersions` for a restore, and an import's changes). A watch
 asks for `changes` every three seconds. The same object is the `Repository`
 sync takes. A manifest names its repository only by `{ folder }`
 (`RepositoryAddress`), and `folderUrl` in `@epicenter/definition/site` is
@@ -321,14 +323,14 @@ Watching is best effort.
 
 The Epicenter folder keeps the rest in its own `.epicenter/`, which only
 Epicenter's programs write (`src/platform/records.ts`): `synced/<folder-id>.json`,
-one record per synced folder, `{ folder, name, inode, birthtime, commit,
+one record per synced folder, `{ folder, name, inode, birthtime, cursor,
 files }`, and `hashes/<identity>.json`. Which directory is which folder is
 proven across the whole Epicenter folder (`src/platform/identify.ts`): the
 inode and a real birth time; else, for a record no directory proves, its
 name and exactly its files in a folder the server says the person holds
 alone; else unbound, starting from first contact when the person or an app
-syncs it. History is not the folder's: its history is the repository's on
-the server, which sync commits to (ADR-0804). No Git runs on a computer.
+syncs it. History is not the folder's: its history is the log on the
+server, which sync commits to (ADR-0804, ADR-0824). No Git runs on a computer.
 
 ## Layout
 
@@ -340,8 +342,8 @@ the server, which sync commits to (ADR-0804). No Git runs on a computer.
 | `src/device/` | The store contract and its conformance checks, the device stores (memory, Bun, Tauri), and `check`/`format`. |
 | `src/data-folder.ts`, `desktop-folder.ts`, `agents-note.ts` | The data folder a Tauri window opens, its hash cache in the app's data, and its `AGENTS.md` (still with a `contract:` key; ADR-0805 decided none). |
 | `src/identity.ts` | A directory's identity: its inode and birth time, and when one proves another. |
-| `src/hash.ts` | A file's Git blob id: `blobIdOf`, and an attachment's canonical LFS pointer. |
-| `src/remote/` | A folder's repository on the server: the `Repository` sync takes, the store a web folder opens, and the server's folders (`listFolders`, `shareFolder`, and the rest). |
+| `src/hash.ts` | A file's version, the SHA-256 of its bytes: `versionOf`, and the size above which a listing names a file by its stamp. |
+| `src/remote/` | A folder on the server: the `Repository` sync takes, the store a web folder opens, and the server's folders (`listFolders`, `shareFolder`, and the rest). |
 | `src/platform/` | The Epicenter folder and the platform operations over it: the records at its root, which directory is which folder (`identify`), the question, the apps a folder can be made by, the import of old manifests, `listHome`, `initFolder`, `syncFolder`, `cloneIntoHome`, `syncEvery`, and `keepEverySynced`. |
 | `src/served/`, `served.ts`, `serve.ts` | A directory a program serves its page: the page's store, the program's handler, and the wire between them (four `POST`s of JSON; a watch is a stream of JSON lines, and a dropped one is heard as `'all'`). |
 | `src/native/`, `paths.ts`, `state.ts`, `path-turns.ts` | Watches, the shell's bindings, the path rule, where unfinished writes live, and per-path turns. |

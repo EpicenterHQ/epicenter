@@ -13,8 +13,8 @@
  * DELETE /api/folders/<id>/apps/<app>         folders:write  detach it
  * ```
  *
- * A folder's title is read from its `epicenter.json` at `main`
- * (`folderTitle`); the server keeps none. A share is an invitation to an
+ * A folder's title is read from its `epicenter.json`
+ * (`folderTitles`); the server keeps none. A share is an invitation to an
  * email: sharing answers the same whether or not anyone signs in with it,
  * and until the person whose verified email it names accepts it, it grants
  * nothing and shows only in their `pending` and, by its email alone, in
@@ -23,14 +23,13 @@
  * the folders attached to it, and the invitations of them; attaching a
  * folder to an app is the platform's (`folders:all`), so no app can reach a
  * folder by attaching it to itself. When the last member leaves, the folder
- * is deleted (the `folder_member_left` trigger) and its repository's
- * storage with it.
+ * is deleted (the `folder_member_left` trigger) and its bytes in the blob
+ * store with it.
  */
 import {
 	FOLDER_ROLES,
 	type FolderListing,
 	type FolderRole,
-	folderRemoteUrl,
 	isFolderId,
 	isPersonEmail,
 	type ListedFolder,
@@ -56,9 +55,9 @@ import {
 	setAttached,
 	shareFolder,
 } from '../folders.js';
+import type { BlobStore } from '../log/blob-store.js';
+import { folderTitles } from '../log/read.js';
 import type { CloudEnv } from '../types.js';
-import { folderTitle } from './folder.js';
-import type { GitHost } from './git.js';
 
 const FolderApiError = defineErrors({
 	Failed: ({ cause }: { cause: unknown }) => ({
@@ -66,7 +65,7 @@ const FolderApiError = defineErrors({
 		cause,
 	}),
 	StorageLeft: ({ folder, cause }: { folder: string; cause: unknown }) => ({
-		message: `Could not remove the storage of folder ${folder}, which its last member left: ${extractErrorMessage(cause)}`,
+		message: `Could not remove the bytes of folder ${folder}, which its last member left: ${extractErrorMessage(cause)}`,
 		cause,
 	}),
 });
@@ -93,31 +92,20 @@ export function mountFolderApi(
 	app: Hono<CloudEnv>,
 	{
 		setup,
-		resolveHost,
+		resolveBlobs,
 	}: {
 		setup: MiddlewareHandler<CloudEnv>;
-		resolveHost: (env: CloudEnv['Bindings']) => GitHost | null;
+		resolveBlobs: (env: CloudEnv['Bindings']) => BlobStore | null;
 	},
 ) {
 	/** The titles of `folders` read from their files, by id; null for one without. */
 	async function titles(c: Context<CloudEnv>, folders: readonly string[]) {
-		const host = resolveHost(c.env);
-		const out = new Map<string, string | null>();
-		await Promise.all(
-			folders.map(async (id) => {
-				if (host === null) return out.set(id, null);
-				const objects = host.objects(id);
-				try {
-					out.set(id, await folderTitle(objects));
-				} catch (cause) {
-					log.warn(FolderApiError.Failed({ cause }).error);
-					out.set(id, null);
-				} finally {
-					objects.close();
-				}
-			}),
-		);
-		return out;
+		try {
+			return await folderTitles(c.var.db, resolveBlobs(c.env), folders);
+		} catch (cause) {
+			log.warn(FolderApiError.Failed({ cause }).error);
+			return new Map<string, string | null>();
+		}
 	}
 
 	/** The folders `ids` as listed for `access`, in the order given. */
@@ -140,7 +128,6 @@ export function mountFolderApi(
 				members: of?.members ?? [],
 				invited: roleAllows(role, 'manage') ? (of?.invited ?? []) : [],
 				apps: of?.apps ?? [],
-				remote: folderRemoteUrl(c.var.audiences.git, id),
 			};
 		});
 	}
@@ -362,10 +349,11 @@ export function mountFolderApi(
 					removed.error.message,
 				);
 			if (removed.data.folderGone) {
-				const host = resolveHost(c.env);
-				await host?.delete(folder).catch((cause) => {
-					log.error(FolderApiError.StorageLeft({ folder, cause }).error);
-				});
+				await resolveBlobs(c.env)
+					?.deleteFolder(folder)
+					.catch((cause) => {
+						log.error(FolderApiError.StorageLeft({ folder, cause }).error);
+					});
 			}
 			return c.json(
 				{ person, removed: true, folderGone: removed.data.folderGone },

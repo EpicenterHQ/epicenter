@@ -80,7 +80,7 @@ test('--help lists every command but the hidden ones, and --json describes them'
 		'epicenter sync [<folder>] [--join <id>] [--create] [--push-deletions] [--restore-deletions] [--all]',
 		'epicenter clone [<folder> [<name>]]',
 		'epicenter share <folder> [<email>] [--role member|reader]',
-		'epicenter restore <commit> [<dir>] [--path <path>]',
+		'epicenter restore <moment> [<dir>] [--path <path>]',
 	])
 		expect(help.stdout).toContain(usage);
 	expect(help.stdout).not.toContain('--desktop');
@@ -94,8 +94,14 @@ test('--help lists every command but the hidden ones, and --json describes them'
 		'sync',
 		'clone',
 		'log',
+		'history',
+		'show',
+		'at',
+		'mark',
 		'diff',
 		'restore',
+		'export',
+		'import',
 		'share',
 		'unshare',
 		'accept',

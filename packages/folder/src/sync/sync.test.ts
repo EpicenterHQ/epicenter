@@ -17,7 +17,7 @@ import { expect, test } from 'bun:test';
 import { defineContract, isHiddenPath } from '@epicenter/definition/contract';
 import { expectOk } from 'wellcrafted/testing';
 import { memoryStore } from '../device/memory-store.js';
-import type { BlobId } from '../device/store.js';
+import type { Version } from '../device/store.js';
 import { localStoreOf } from '../folder.js';
 import { memory, memoryFiles } from '../memory.js';
 import { openFolder } from '../open-folder.js';
@@ -91,8 +91,10 @@ test('the open folder as a store lists every visible file, holds only the contra
 	).toEqual(['AGENTS.md', 'mine/plan.txt']);
 
 	const bytes = new TextEncoder().encode('---\ntitle: "A"\n---\n');
-	const landed = expectOk(await store.put('todos/a.md', bytes, null)) as BlobId;
-	const stray = expectOk(await store.put('stray/b.md', bytes, null)) as BlobId;
+	const landed = expectOk(
+		await store.put('todos/a.md', bytes, null),
+	) as Version;
+	const stray = expectOk(await store.put('stray/b.md', bytes, null)) as Version;
 	expect(expectOk(await store.put('.epicenter/x', bytes, null))).toBeString();
 	expect(expectOk(await store.list(['todos', 'stray']))).toEqual([
 		{ path: 'todos/a.md', version: landed, size: bytes.byteLength },

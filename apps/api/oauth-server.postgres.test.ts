@@ -145,10 +145,7 @@ async function harnessFor(
 			redirectUri: 'http://127.0.0.1:53222/callback',
 		},
 		async resource(token, o) {
-			// Git presents the token as a Basic password with any username.
-			const authorization = o.basic
-				? `Basic ${btoa(`x-access-token:${token}`)}`
-				: `Bearer ${token}`;
+			const authorization = `Bearer ${token}`;
 			const { data, error } = await authorizeAccountRequest(db, {
 				token: readAccessToken(authorization),
 				audience: o.audience,

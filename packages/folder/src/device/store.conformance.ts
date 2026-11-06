@@ -19,10 +19,11 @@
  *   side with their own version, and the read after the hint answers the
  *   write.
  */
-import type { Result } from 'wellcrafted/result';
+
 import { CONTRACT_PATH } from '@epicenter/definition/contract';
-import { blobIdOf, gitBlobId } from '../hash.js';
-import type { BlobId, FileRead, Store } from './store.js';
+import type { Result } from 'wellcrafted/result';
+import { versionOf } from '../hash.js';
+import type { FileRead, Store, Version } from './store.js';
 
 /** A store under test, and the world outside it. */
 export type StoreSubject = {
@@ -92,7 +93,7 @@ export const storeChecks: Record<
 		const contract = bytes(`{"title":"${fresh('contract')}"}\n`);
 		const landed = ok(await store.put(CONTRACT_PATH, contract, held));
 		check(
-			landed === (await gitBlobId(contract)),
+			landed === (await versionOf(contract)),
 			'the contract lands as the blob id of its bytes',
 		);
 		const listed = ok(await store.list([CONTRACT_PATH]));
@@ -100,7 +101,7 @@ export const storeChecks: Record<
 			listed.length === 1 && listed[0]?.version === landed,
 			'a listing names the contract by the blob id of its bytes',
 		);
-		ok(await store.put(CONTRACT_PATH, null, landed as BlobId));
+		ok(await store.put(CONTRACT_PATH, null, landed as Version));
 	},
 
 	async 'the four verbs'({ store }) {
@@ -108,7 +109,7 @@ export const storeChecks: Record<
 		const audio = note.replace(/a\.md$/, 'a.webm');
 		const made = ok(await store.put(note, bytes('one'), null));
 		check(
-			made === (await blobIdOf(note, bytes('one'))),
+			made === (await versionOf(bytes('one'))),
 			'a create lands as the blob id of its bytes',
 		);
 		const occupied = await store.put(note, bytes('two'), null);
@@ -121,19 +122,19 @@ export const storeChecks: Record<
 			textOf(read) === 'one' && !('gone' in read) && read.version === made,
 			'a read names what landed',
 		);
-		const replaced = ok(await store.put(note, bytes('two'), made as BlobId));
+		const replaced = ok(await store.put(note, bytes('two'), made as Version));
 		check(
-			replaced === (await blobIdOf(note, bytes('two'))),
+			replaced === (await versionOf(bytes('two'))),
 			'a put over the version read lands',
 		);
-		const stale = await store.put(note, bytes('three'), made as BlobId);
+		const stale = await store.put(note, bytes('three'), made as Version);
 		check(
 			stale.error?.name === 'Moved' && stale.error.now === replaced,
 			'a put over a version no longer there has moved, to what is there',
 		);
 		const sound = ok(await store.put(audio, new Uint8Array([1, 2, 3]), null));
 		check(
-			sound === (await blobIdOf(audio, new Uint8Array([1, 2, 3]))),
+			sound === (await versionOf(new Uint8Array([1, 2, 3]))),
 			'an attachment lands as the blob id of its Git LFS pointer',
 		);
 		const directory = note.slice(0, note.lastIndexOf('/'));
@@ -169,20 +170,20 @@ export const storeChecks: Record<
 			'a file path lists that file',
 		);
 		check(
-			ok(await store.put(audio, null, sound as BlobId)) === null,
+			ok(await store.put(audio, null, sound as Version)) === null,
 			'a removal lands',
 		);
 		check(
 			'gone' in (await readOne(store, audio)),
 			'a read of a removed file is gone',
 		);
-		const gone = await store.put(audio, null, sound as BlobId);
+		const gone = await store.put(audio, null, sound as Version);
 		check(
 			gone.error?.name === 'Moved' && gone.error.now === null,
 			'a removal of what is no longer there has moved, to nothing',
 		);
 		check(
-			ok(await store.put(note, null, replaced as BlobId)) === null,
+			ok(await store.put(note, null, replaced as Version)) === null,
 			'a note is removed',
 		);
 		check(

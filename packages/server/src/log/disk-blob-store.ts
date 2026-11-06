@@ -1,31 +1,27 @@
 /**
- * Git LFS objects on disk, for the Bun host: `<root>/<repository id>/<aa>/<bb>/<oid>`.
- * An upload streams into `<root>/<repository id>/incoming/`, hashing as it
- * goes, and is renamed into place only when its sha256 and length match;
- * anything else is removed, so a partial or wrong upload is never visible.
+ * A folder's large bytes on disk, for the Bun host:
+ * `<root>/folders/<folder id>/blobs/<sha256>`. An upload streams into
+ * `<root>/incoming/`, hashing as it goes, and is renamed into place only
+ * when its SHA-256 and length match; anything else is removed, so a partial
+ * or wrong upload is never visible.
  */
 import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream, createWriteStream } from 'node:fs';
 import { mkdir, rename, rm, stat } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { Readable } from 'node:stream';
-import { LFS_OID, type LfsPutResult, type LfsStore } from './lfs-store.js';
+import { type BlobPut, type BlobStore, blobKey } from './blob-store.js';
 
-const REPOSITORY_ID = /^[a-z0-9]{16}$/;
-
-export function createDiskLfsStore({
+export function createDiskBlobStore({
 	root,
 	maxBytes = 2 * 1024 ** 3,
 }: {
 	root: string;
-	/** The largest object accepted; 2 GiB by default. */
+	/** The largest version accepted; 2 GiB by default. */
 	maxBytes?: number;
-}): LfsStore {
-	const where = (repositoryId: string, oid: string) => {
-		if (!REPOSITORY_ID.test(repositoryId) || !LFS_OID.test(oid))
-			throw new Error('not an LFS object address');
-		return join(root, repositoryId, oid.slice(0, 2), oid.slice(2, 4), oid);
-	};
+}): BlobStore {
+	const where = (folder: string, sha256?: string) =>
+		join(root, ...blobKey(folder, sha256).split('/'));
 	const sizeOf = async (path: string) => {
 		try {
 			const found = await stat(path);
@@ -35,13 +31,12 @@ export function createDiskLfsStore({
 		}
 	};
 	return {
-		async verified(repositoryId, { oid, size }) {
-			if (!LFS_OID.test(oid)) return false;
-			return (await sizeOf(where(repositoryId, oid))) === size;
+		async has(folder, sha256, size) {
+			return (await sizeOf(where(folder, sha256))) === size;
 		},
-		async put(repositoryId, oid, body, size): Promise<LfsPutResult> {
-			const target = where(repositoryId, oid);
-			const incoming = join(root, repositoryId, 'incoming');
+		async put(folder, sha256, body, size): Promise<BlobPut> {
+			const target = where(folder, sha256);
+			const incoming = join(root, 'incoming');
 			await mkdir(incoming, { recursive: true });
 			const temporary = join(incoming, randomUUID());
 			const hash = createHash('sha256');
@@ -73,7 +68,7 @@ export function createDiskLfsStore({
 				);
 			}
 			const refuse = async (
-				reason: Exclude<LfsPutResult, { ok: true }>['reason'],
+				reason: Exclude<BlobPut, { ok: true }>['reason'],
 			) => {
 				await rm(temporary, { force: true });
 				return { ok: false, reason } as const;
@@ -85,17 +80,13 @@ export function createDiskLfsStore({
 						: 'too-large',
 				);
 			if (size !== undefined && length !== size) return refuse('size-mismatch');
-			if (hash.digest('hex') !== oid) return refuse('hash-mismatch');
-			await mkdir(join(target, '..'), { recursive: true });
+			if (hash.digest('hex') !== sha256) return refuse('hash-mismatch');
+			await mkdir(dirname(target), { recursive: true });
 			await rename(temporary, target);
 			return { ok: true, size: length };
 		},
-		async delete(repositoryId, oid) {
-			await rm(where(repositoryId, oid), { force: true });
-		},
-		async get(repositoryId, oid) {
-			if (!LFS_OID.test(oid)) return null;
-			const path = where(repositoryId, oid);
+		async get(folder, sha256) {
+			const path = where(folder, sha256);
 			const size = await sizeOf(path);
 			if (size === null) return null;
 			return {
@@ -104,6 +95,12 @@ export function createDiskLfsStore({
 					createReadStream(path),
 				) as unknown as ReadableStream<Uint8Array>,
 			};
+		},
+		async delete(folder, sha256) {
+			await rm(where(folder, sha256), { force: true });
+		},
+		async deleteFolder(folder) {
+			await rm(dirname(where(folder)), { recursive: true, force: true });
 		},
 	};
 }

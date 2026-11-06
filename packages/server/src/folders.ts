@@ -13,8 +13,7 @@
  * the account's verified email whenever it is read. Accepting makes them a
  * member (`folder_member`), and every member has accepted.
  *
- * Storage is not touched here; it names a folder's repository by the
- * folder's id. A folder's title is in its files, which the routes read.
+ * A folder's log and bytes are `log/`'s; its title is in its files.
  *
  * `app` is the OAuth client id a request's token was issued to, and null
  * for a token with `folders:all` (the CLI, the Epicenter app), which
@@ -47,15 +46,28 @@ export function newFolderId(): string {
 }
 
 /**
- * Record the folder `id`, whose storage already exists, held by `accountId`
- * as a member, and attached to `app` when an app made it.
+ * Record the folder `id`, held by `accountId` as a member, and attached to
+ * `app` when an app made it; `importing` while an import fills its log
+ * (ADR-0826).
  */
 export async function createFolder(
 	db: Db,
-	{ id, accountId, app }: { id: string; accountId: string; app: string | null },
+	{
+		id,
+		accountId,
+		app,
+		importing = false,
+	}: {
+		id: string;
+		accountId: string;
+		app: string | null;
+		importing?: boolean;
+	},
 ): Promise<void> {
 	await db.transaction(async (tx) => {
-		await tx.execute(sql`insert into folder (id) values (${id})`);
+		await tx.execute(
+			sql`insert into folder (id, importing) values (${id}, ${importing})`,
+		);
 		await tx.execute(sql`
 			insert into folder_member (folder_id, account_id, role)
 			values (${id}, ${accountId}, 'member')
@@ -269,7 +281,10 @@ export async function removeMember(
 		email,
 	}: { folder: string; accountId: string; manages: boolean; email: string },
 ): Promise<Result<{ folderGone: boolean }, ShareError>> {
-	const { rows: callers } = await db.execute<{ self: boolean; verified: boolean }>(
+	const { rows: callers } = await db.execute<{
+		self: boolean;
+		verified: boolean;
+	}>(
 		sql`
 			select lower(email) = lower(${email}) as self, email_verified as verified
 			from "user" where id = ${accountId}

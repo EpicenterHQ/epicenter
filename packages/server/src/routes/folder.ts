@@ -1,140 +1,137 @@
 /**
- * A folder's repository as sync reaches it (ADR-0808, ADR-0810), in Git's
- * own vocabulary, at `<git>/folders/<folder>/…` (`folderUrl` in
- * `@epicenter/definition/site`, the one address a folder id becomes):
+ * One folder's routes (ADR-0824), at `<folders audience>/folders/<folder>/…`
+ * (`folderUrl` in `@epicenter/definition/site`), over its log
+ * (`../log/`):
  *
  * ```txt
- * GET  changes?since=<commit>     folders:read   where main is, and the paths whose blob changed since <commit>
- * GET  commits?limit=<n>          folders:read   main's history, newest first, along first parents
- * POST tree    { commit, paths? } folders:read   the blob at each path of <commit>'s tree (every path when none)
- * POST blobs   { ids }            folders:read   many blobs' bytes by id, in one request
- * GET  blobs/<blob id>            folders:read   one blob's bytes
- * GET  blobs/<sha256>             folders:read   an attachment's bytes, streamed, private and immutable
- * PUT  blobs/<sha256>             folders:write  an attachment's bytes: idempotent, checked against the hash
- * POST commits { files }          folders:write  one commit on main, each path over the blob its writer expects
+ * GET  changes?since=<cursor>          read   the head, and each path changed since with its version
+ * POST files { paths?, at?, bytes? }   read   the files now, or as of a change, a time, or a mark
+ * GET  log?after|before|at&path&limit  read   changes, oldest first after a seq, else newest first
+ * GET  marks                           read   every mark
+ * PUT  marks/<name> { seq?, move? }    write  mark the last change (or `seq`)
+ * POST blobs { versions }              read   what the folder holds of each version's bytes
+ * POST blobs/missing { versions }      read   the versions it holds no bytes for
+ * GET  blobs/<sha256>                  read   one version's bytes, private and immutable
+ * PUT  blobs/<sha256>                  write  one version's bytes: idempotent, checked against the hash
+ * POST commits { files }               write  one change, each path over the version its writer expects
+ * POST import { changes } | { done }   write  an import's changes, with their own authors and times
  * ```
  *
- * `git.ts` decides each request and joins or makes a folder at its first
- * sync (`POST <git>/folders`).
- *
- * A file's version is its Git blob id (ADR-0808): a note's blob, or an
- * attachment's canonical Git LFS pointer, whose object is the attachment's
- * sha256. An attachment's bytes live apart from Git at `blobs/<sha256>`,
- * one address for every Epicenter client; Git LFS's own protocol stays
- * under the repository's Git remote for plain Git clients.
+ * A file's version is the SHA-256 of its bytes, for every path. A cursor
+ * is `<epoch>.<seq>`. `at` names a change by its seq, a mark, or a time
+ * (ISO 8601). `folders.ts` decides each request first.
  *
  * A commit is `{ files }`, each one of `{ path, expect, text }` or
- * `{ path, expect, base64 }` (a note, or a hidden path),
- * `{ path, expect, lfs: { oid, size } }` (an attachment, its bytes already
- * uploaded), or `{ path, expect, delete: true }`. `expect` is the blob id
- * the writer expects at the path, null for nothing. The server never
- * merges: the commit lands only where every path still holds its
+ * `{ path, expect, base64 }` (bytes up to `INLINE_MAX`, which come with
+ * it), `{ path, expect, version }` (a version the folder holds, uploaded
+ * first or restored), or `{ path, expect, delete: true }`. `expect` is the
+ * version the writer read at the path, null for nothing. The server never
+ * merges: the change lands only where every path still holds its
  * `expect`, and otherwise nothing lands and it answers
- * `409 { error: 'moved', path, now }` with what the path holds. A path that
- * would differ only in case from one the repository then holds is
- * `409 case_collision`. Each request reads `main`, checks every path, builds
- * one commit, and moves `main` only if it has not moved (the branch updated
- * only where it still points where the writer read), retrying from the
- * check when it has. The reply is `{ commit, blobs }`: the blob id now at
- * each path, null where a delete landed. Writing the bytes a path already
- * holds lands as nothing; a commit that changes nothing makes none.
- *
- * An upload of bytes the repository did not hold is pending in the ledger
- * (`uploads.ts`) until a commit keeps it.
+ * `409 { error: 'moved', moved: [{ path, now }] }`, every path that moved.
+ * A version it holds no bytes for is `409 missing`; a name differing only
+ * in case from one it holds, a file where a folder is, or a file below a
+ * file, `409 refused`. The reply is `{ cursor, versions }`: the head, and
+ * the version now at each path, null where a delete landed. Writing what a
+ * path holds makes no change.
  */
+import { isMarkName } from '@epicenter/definition/site';
+import { sql } from 'drizzle-orm';
+import type { Db } from '../db/create-db.js';
+import type { BlobStore } from '../log/blob-store.js';
+import { putBlob } from '../log/blobs.js';
 import {
-	REPOSITORY_ATTRIBUTES,
-	storedWithLfs,
-} from '@epicenter/definition/contract';
-import { writePointer } from '@epicenter/definition/merge';
-import { MAX_POINTER_BYTES, readPointer } from '../git/lfs-rule.js';
+	type CommitAnswer,
+	type CommitWrite,
+	commitChange,
+	type Imported,
+} from '../log/commit.js';
+import { listMarks, seqOfMark, setMark } from '../log/marks.js';
 import {
-	commitObject,
-	type GitObjects,
-	MAIN,
-	makeObject,
-	OID,
-	type PackObject,
-	parseCommit,
-	readCommit,
-	treeObject,
-	ZERO_OID,
-} from '../git/objects.js';
-import { writePack } from '../git/pack.js';
+	blobsOf,
+	changesSince,
+	filesAt,
+	missingVersions,
+	readLog,
+	seqAtTime,
+} from '../log/read.js';
 import {
-	CaseCollision,
-	type Change,
-	diffTrees,
-	editTree,
-	listFiles,
-	treeLookup,
-} from '../git/tree-edit.js';
-import { LFS_OID, type LfsObject, type LfsStore } from '../lfs/lfs-store.js';
-import type { UploadLedger } from '../uploads.js';
+	INLINE_MAX,
+	pathProblem,
+	VERSION,
+	writeCursor,
+} from '../log/versions.js';
 
-/** Why `path` is not a repository path a write may name, or null. */
-export function pathProblem(path: unknown): string | null {
-	if (
-		typeof path !== 'string' ||
-		path === '' ||
-		path.length > 1024 ||
-		path.startsWith('/') ||
-		path.endsWith('/') ||
-		// biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what this refuses
-		/[\0-\x1f\\]/.test(path) ||
-		path
-			.split('/')
-			.some(
-				(s) =>
-					s === '' || s === '.' || s === '..' || s.toLowerCase() === '.git',
-			)
-	)
-		return 'not a repository path';
-	return null;
-}
+type Runner = Pick<Db, 'execute'>;
 
 /** What a request under a folder asks for. */
 export type FolderEndpoint =
 	| { kind: 'changes' }
+	| { kind: 'files' }
 	| { kind: 'log' }
-	| { kind: 'tree' }
+	| { kind: 'marks' }
+	| { kind: 'mark'; name: string }
 	| { kind: 'blobs' }
-	| { kind: 'blob'; id: string }
-	| { kind: 'attachment'; oid: string; upload: boolean }
-	| { kind: 'commits' };
+	| { kind: 'missing' }
+	| { kind: 'blob'; version: string; upload: boolean }
+	| { kind: 'commits' }
+	| { kind: 'import' };
 
 /** The endpoint `rest` (the path below `folders/<folder>/`) names for `method`, or undefined. */
 export function readFolderEndpoint(
 	method: string,
 	rest: string,
 ): FolderEndpoint | undefined {
-	if (rest === 'changes' && method === 'GET') return { kind: 'changes' };
-	if (rest === 'commits' && method === 'GET') return { kind: 'log' };
-	if (rest === 'tree' && method === 'POST') return { kind: 'tree' };
-	if (rest === 'blobs' && method === 'POST') return { kind: 'blobs' };
-	if (rest === 'commits' && method === 'POST') return { kind: 'commits' };
-	const id = /^blobs\/([0-9a-f]{40}|[0-9a-f]{64})$/.exec(rest)?.[1];
-	if (id === undefined) return undefined;
-	if (id.length === 40)
-		return method === 'GET' ? { kind: 'blob', id } : undefined;
-	if (method === 'GET' || method === 'PUT')
-		return { kind: 'attachment', oid: id, upload: method === 'PUT' };
+	const routes: Record<string, [string, FolderEndpoint]> = {
+		changes: ['GET', { kind: 'changes' }],
+		files: ['POST', { kind: 'files' }],
+		log: ['GET', { kind: 'log' }],
+		marks: ['GET', { kind: 'marks' }],
+		blobs: ['POST', { kind: 'blobs' }],
+		'blobs/missing': ['POST', { kind: 'missing' }],
+		commits: ['POST', { kind: 'commits' }],
+		import: ['POST', { kind: 'import' }],
+	};
+	const route = routes[rest];
+	if (route !== undefined) return route[0] === method ? route[1] : undefined;
+	const version = /^blobs\/([0-9a-f]{64})$/.exec(rest)?.[1];
+	if (version !== undefined)
+		return method === 'GET' || method === 'PUT'
+			? { kind: 'blob', version, upload: method === 'PUT' }
+			: undefined;
+	if (rest.startsWith('marks/') && method === 'PUT') {
+		let name: string;
+		try {
+			name = decodeURIComponent(rest.slice('marks/'.length));
+		} catch {
+			return undefined;
+		}
+		return { kind: 'mark', name };
+	}
 	return undefined;
 }
 
-/** What `endpoint` does to the repository: read it, or write it. */
+/** What `endpoint` does to the folder: read it, or write it. */
 export const folderOperation = (endpoint: FolderEndpoint): 'read' | 'push' =>
 	endpoint.kind === 'commits' ||
-	(endpoint.kind === 'attachment' && endpoint.upload)
+	endpoint.kind === 'import' ||
+	endpoint.kind === 'mark' ||
+	(endpoint.kind === 'blob' && endpoint.upload)
 		? 'push'
 		: 'read';
 
-/** The most paths or ids one request may name. */
+/** The most paths or versions one request may name. */
 export const MAX_NAMED = 10_000;
-/** The largest commit body read; a larger one is refused (413) before it is read whole. */
+/** The largest commit or import body read; a larger one is refused (413) before it is read whole. */
 export const MAX_COMMIT_BYTES = 16 * 1024 * 1024;
-const MAX_FILES = 1000;
-const MAX_ATTEMPTS = 12;
+/** The most files one change writes. */
+export const MAX_FILES = 1000;
+/** The most files one imported change writes: a commit's first tree can be large. */
+export const MAX_IMPORTED_FILES = 5000;
+/** The most changes one import request brings. */
+const MAX_IMPORTED = 200;
+/** The most changes one log request answers. */
+const MAX_LOG = 1000;
 
 const json = (body: unknown, status = 200) =>
 	new Response(JSON.stringify(body), {
@@ -148,286 +145,292 @@ const json = (body: unknown, status = 200) =>
 const invalid = (message: string, path?: string) =>
 	json({ error: 'invalid_request', path, message }, 400);
 
-/** The bytes as base64, which JSON can carry. */
-function toBase64(bytes: Uint8Array): string {
-	return Buffer.from(bytes).toString('base64');
+const unknownFolder = () =>
+	json({ error: 'not_found', message: 'no such folder' }, 404);
+
+/**
+ * The seq `at` names in `folder`: a whole number is a seq, a mark's name
+ * its change, and anything else a time (ISO 8601). Null when it names
+ * none.
+ */
+export async function resolveAt(
+	db: Runner,
+	folder: string,
+	at: string,
+): Promise<number | null> {
+	if (/^\d{1,15}$/.test(at)) return Number(at);
+	if (isMarkName(at)) {
+		const marked = await seqOfMark(db, folder, at);
+		if (marked !== null) return marked;
+	}
+	const time = Date.parse(at);
+	if (Number.isNaN(time)) return null;
+	return seqAtTime(db, folder, new Date(time));
 }
 
 /**
- * Where `main` is (`commit`, null before the first write), and the paths
- * whose blob differs between the commit `since` names (empty: before the
- * first) and `main`: null when `since` is not given or names no commit this
- * repository holds, so the reader compares every path. A poller asks this
- * every few seconds.
+ * `GET changes?since=<cursor>`: the head, and each path whose version
+ * changed since `since` with its version now, or `changes: null` ("compare
+ * every path") without a cursor this log knows or past the gap it answers.
+ * A poller asks this every few seconds.
  */
 export async function folderChanges(
-	objects: GitObjects,
+	db: Runner,
+	folder: string,
 	since: string | undefined,
 ): Promise<Response> {
-	const main = (await objects.refs()).get(MAIN) ?? null;
-	if (since === undefined) return json({ commit: main, paths: null });
-	if (since !== '' && !OID.test(since))
-		return invalid('since is a commit id, or empty for before the first');
-	if (since === (main ?? '')) return json({ commit: main, paths: [] });
-	const before = since === '' ? null : (await readCommit(objects, since))?.tree;
-	if (before === undefined) return json({ commit: main, paths: null });
-	const after = main ? ((await readCommit(objects, main))?.tree ?? null) : null;
-	return json({ commit: main, paths: await diffTrees(objects, before, after) });
-}
-
-/** The largest `epicenter.json` read for a folder's title. */
-const MAX_CONTRACT_BYTES = 256 * 1024;
-
-/**
- * The folder's title (ADR-0811): the `title` of the `epicenter.json` at
- * `main`, or null when there is no commit, no `epicenter.json`, or no
- * string title in it. The server keeps no copy; a listing reads it here.
- */
-export async function folderTitle(objects: GitObjects): Promise<string | null> {
-	const main = (await objects.refs()).get(MAIN);
-	if (main === undefined) return null;
-	const tree = (await readCommit(objects, main))?.tree ?? null;
-	const entry = await treeLookup(objects, tree)('epicenter.json');
-	if (entry === null) return null;
-	const found = await objects.read(entry.oid, 'blob', {
-		maxBytes: MAX_CONTRACT_BYTES,
+	const answered = await changesSince(db, folder, since);
+	if (answered === undefined) return unknownFolder();
+	return json({
+		cursor: writeCursor(answered.cursor),
+		changes: answered.changes,
 	});
-	if (!found?.bytes) return null;
-	try {
-		const { title } = JSON.parse(new TextDecoder().decode(found.bytes)) as {
-			title?: unknown;
-		};
-		return typeof title === 'string' && title.trim() !== '' ? title : null;
-	} catch {
-		return null;
-	}
 }
 
-/** The most commits one history request answers. */
-const MAX_LOG = 1000;
-
-/**
- * `main`'s history, newest first, along first parents: each commit's id,
- * parents, author, time (seconds since the epoch), and message. At most
- * `limit` (default 50, at most `MAX_LOG`).
- */
-export async function folderLog(
-	objects: GitObjects,
-	limit: string | undefined,
-): Promise<Response> {
-	const most =
-		limit === undefined ? 50 : /^\d+$/.test(limit) ? Number(limit) : Number.NaN;
-	if (!Number.isSafeInteger(most) || most < 1 || most > MAX_LOG)
-		return invalid(`limit is 1 to ${MAX_LOG}`);
-	const commits: {
-		id: string;
-		parents: string[];
-		author: string;
-		time: number;
-		message: string;
-	}[] = [];
-	let next = (await objects.refs()).get(MAIN) ?? null;
-	while (next !== null && commits.length < most) {
-		const found = await objects.read(next, 'commit');
-		if (!found?.bytes) break;
-		const commit = parseCommit(found.bytes);
-		const text = new TextDecoder().decode(found.bytes);
-		const author = /^author (.*) <[^>]*> (\d+) [+-]\d{4}$/m.exec(text);
-		commits.push({
-			id: next,
-			parents: commit.parents,
-			author: author?.[1] ?? '',
-			time: Number(author?.[2] ?? 0),
-			message: commit.message,
-		});
-		next = commit.parents[0] ?? null;
-	}
-	return json({ commits });
-}
-
-/** The LFS object the pointer blob `oid` names, or null when it names none. */
-async function pointerOf(objects: GitObjects, oid: string) {
-	const found = await objects.read(oid, 'blob', {
-		maxBytes: MAX_POINTER_BYTES,
-	});
-	return found?.bytes ? readPointer(found.bytes) : null;
-}
-
-/**
- * The tree of `commit` at `paths` (every file when absent): each file's
- * blob id, and for an attachment its object (`oid`) and `size`. A path the
- * tree does not hold is left out. An unknown commit is `404 unknown_commit`.
- */
-export async function folderTree(
-	objects: GitObjects,
+/** `POST files { paths?, at?, bytes? }`: the files now, or as of `at`, with inline bytes when asked. */
+export async function folderFiles(
+	db: Runner,
+	folder: string,
 	body: unknown,
 ): Promise<Response> {
-	const { commit, paths } = (body ?? {}) as {
-		commit?: unknown;
+	const { paths, at, bytes } = (body ?? {}) as {
 		paths?: unknown;
+		at?: unknown;
+		bytes?: unknown;
 	};
-	if (typeof commit !== 'string' || !OID.test(commit))
-		return invalid('commit is a commit id');
 	if (
 		paths !== undefined &&
 		(!Array.isArray(paths) ||
 			paths.length > MAX_NAMED ||
 			paths.some((path) => pathProblem(path) !== null))
 	)
-		return invalid(`paths is a list of at most ${MAX_NAMED} repository paths`);
-	const tree = (await readCommit(objects, commit))?.tree;
-	if (tree === undefined)
-		return json(
-			{
-				error: 'unknown_commit',
-				message: `${commit} is not a commit of this repository`,
-			},
-			404,
-		);
-	let found: { path: string; oid: string }[];
-	if (paths === undefined) found = await listFiles(objects, tree, '');
-	else {
-		const lookupIn = treeLookup(objects, tree);
-		found = (
-			await Promise.all(
-				(paths as string[]).map(async (path) => {
-					const entry = await lookupIn(path);
-					return entry === null ? null : { path, oid: entry.oid };
-				}),
-			)
-		).filter((entry) => entry !== null);
+		return invalid(`paths is a list of at most ${MAX_NAMED} folder paths`);
+	if (at !== undefined && typeof at !== 'string')
+		return invalid('at is a seq, a mark, or a time');
+	if (bytes !== undefined && typeof bytes !== 'boolean')
+		return invalid('bytes is true or false');
+	let seq: number | undefined;
+	if (at !== undefined) {
+		const found = await resolveAt(db, folder, at);
+		if (found === null)
+			return json(
+				{ error: 'unknown_at', message: `${at} names no change` },
+				404,
+			);
+		seq = found;
 	}
-	const entries = await Promise.all(
-		found.map(async ({ path, oid }) => {
-			if (!storedWithLfs(path)) return { path, blob: oid };
-			const pointer = await pointerOf(objects, oid);
-			return pointer === null
-				? { path, blob: oid }
-				: { path, blob: oid, oid: pointer.oid, size: pointer.size };
-		}),
-	);
-	return json({ commit, entries });
-}
-
-/** Many blobs' bytes, by id, in the request's order: base64, or null for a blob the repository does not hold. */
-export async function folderBlobs(
-	objects: GitObjects,
-	body: unknown,
-): Promise<Response> {
-	const { ids } = (body ?? {}) as { ids?: unknown };
-	if (
-		!Array.isArray(ids) ||
-		ids.length > MAX_NAMED ||
-		ids.some((id) => typeof id !== 'string' || !OID.test(id))
-	)
-		return invalid(`ids is a list of at most ${MAX_NAMED} blob ids`);
-	const blobs = await Promise.all(
-		(ids as string[]).map(async (id) => {
-			const found = await objects.read(id, 'blob');
-			return found?.bytes ? toBase64(found.bytes) : null;
-		}),
-	);
-	return json({ blobs });
-}
-
-/** One blob's bytes, by id: immutable, so a browser keeps it. */
-export async function folderBlob(
-	objects: GitObjects,
-	id: string,
-): Promise<Response> {
-	const found = await objects.read(id, 'blob');
-	if (!found?.bytes)
-		return json({ error: 'not_found', message: `no blob ${id}` }, 404);
-	return new Response(found.bytes as Uint8Array<ArrayBuffer>, {
-		headers: {
-			'content-type': 'application/octet-stream',
-			'cache-control': 'private, max-age=31536000, immutable',
-		},
+	const listed = await filesAt(db, folder, {
+		seq,
+		paths: paths as string[] | undefined,
+		bytes: bytes === true,
 	});
-}
-
-/** An attachment's bytes, by its sha256, streamed from storage: immutable, so a browser keeps it. */
-export async function getAttachment(
-	lfs: LfsStore,
-	repositoryId: string,
-	oid: string,
-): Promise<Response> {
-	const found = await lfs.get(repositoryId, oid);
-	if (found === null)
-		return json({ error: 'not_found', message: `no attachment ${oid}` }, 404);
-	return new Response(found.body, {
-		headers: {
-			'content-type': 'application/octet-stream',
-			'content-length': String(found.size),
-			'cache-control': 'private, max-age=31536000, immutable',
-		},
+	if (listed === undefined) return unknownFolder();
+	return json({
+		cursor: writeCursor(listed.cursor),
+		seq: listed.seq,
+		files: listed.files,
 	});
 }
 
 /**
- * Store an attachment's bytes as `oid`, refusing bytes that are not `oid`:
- * idempotent, so a lost reply is sent again. Bytes the repository did not
- * already hold are pending in `ledger` until a commit keeps them.
+ * `GET log`: changes, at most `limit` (50 by default): after `after`
+ * oldest first, else at or before `before` (or `at`) newest first. With
+ * `path`, only the changes that wrote it: the file's history.
  */
-export async function putAttachment({
-	lfs,
-	ledger,
-	repositoryId,
-	oid,
-	request,
-}: {
-	lfs: LfsStore;
-	ledger: UploadLedger | null;
-	repositoryId: string;
-	oid: string;
-	request: Request;
-}): Promise<Response> {
-	if (!LFS_OID.test(oid)) return invalid('not a sha256');
-	if (request.body === null) return invalid('no body');
-	const length = request.headers.get('content-length');
-	const size =
-		length !== null && /^\d+$/.test(length) ? Number(length) : undefined;
-	const held =
-		size !== undefined && (await lfs.verified(repositoryId, { oid, size }));
-	if (held) {
-		await request.body.cancel();
-		return json({ oid, size });
+export async function folderLog(
+	db: Runner,
+	folder: string,
+	query: Record<string, string | undefined>,
+): Promise<Response> {
+	const whole = (value: string | undefined) =>
+		value === undefined
+			? undefined
+			: /^\d{1,15}$/.test(value)
+				? Number(value)
+				: Number.NaN;
+	const limit = whole(query.limit) ?? 50;
+	const after = whole(query.after);
+	let before = whole(query.before);
+	if (!Number.isSafeInteger(limit) || limit < 1 || limit > MAX_LOG)
+		return invalid(`limit is 1 to ${MAX_LOG}`);
+	if (Number.isNaN(after) || Number.isNaN(before))
+		return invalid('after and before are seqs');
+	if (query.path !== undefined && pathProblem(query.path) !== null)
+		return invalid('path is a folder path');
+	if (query.at !== undefined) {
+		const found = await resolveAt(db, folder, query.at);
+		if (found === null)
+			return json(
+				{ error: 'unknown_at', message: `${query.at} names no change` },
+				404,
+			);
+		before = found;
 	}
-	const stored = await lfs.put(repositoryId, oid, request.body, size);
-	if (!stored.ok)
-		return json(
-			{
-				error: stored.reason,
-				message:
-					stored.reason === 'hash-mismatch'
-						? `the bytes' sha256 is not ${oid}`
-						: stored.reason === 'size-mismatch'
-							? 'the bytes are not the declared length'
-							: 'the attachment is too large',
-			},
-			stored.reason === 'too-large' ? 413 : 422,
-		);
-	await ledger?.pending(repositoryId, oid);
-	return json({ oid, size: stored.size }, 201);
+	const changes = await readLog(db, folder, {
+		after,
+		before,
+		path: query.path,
+		limit,
+	});
+	return json({ changes });
 }
 
-/** One file of a commit, as read from its request. */
-export type CommitFile =
-	| { path: string; expect: string | null; bytes: Uint8Array }
-	| { path: string; expect: string | null; lfs: LfsObject }
-	| { path: string; expect: string | null; delete: true };
+/** `GET marks`: every mark of the folder, by name. */
+export async function folderMarks(db: Runner, folder: string) {
+	return json({ marks: await listMarks(db, folder) });
+}
 
-/** The commit request in `body`: its files, or why it is refused. */
-export function readCommitRequest(
+/** `PUT marks/<name> { seq?, move? }`: mark the folder's last change, or `seq`, as `name`. */
+export async function putMark(
+	db: Runner,
+	{
+		folder,
+		name,
+		account,
+		body,
+	}: { folder: string; name: string; account: string; body: unknown },
+): Promise<Response> {
+	if (!isMarkName(name))
+		return invalid(
+			'a mark is letters, digits, ., _ and -, in segments joined by /',
+		);
+	const { seq, move } = (body ?? {}) as { seq?: unknown; move?: unknown };
+	if (seq !== undefined && !Number.isSafeInteger(seq))
+		return invalid('seq is a whole number');
+	if (move !== undefined && typeof move !== 'boolean')
+		return invalid('move is true or false');
+	const answer = await setMark(db, {
+		folder,
+		name,
+		account,
+		seq: seq as number | undefined,
+		move: move === true,
+	});
+	if ('marked' in answer) return json({ mark: answer.marked });
+	if ('taken' in answer)
+		return json(
+			{
+				error: 'taken',
+				mark: answer.taken,
+				message: `${name} marks change ${answer.taken.seq}; move it to change it`,
+			},
+			409,
+		);
+	if ('empty' in answer)
+		return json(
+			{ error: 'empty', message: 'the folder has no change to mark' },
+			409,
+		);
+	return json(
+		{ error: 'unknown_at', message: `no change ${answer.unknown}` },
+		404,
+	);
+}
+
+const versionsOf = (body: unknown): string[] | null => {
+	const { versions } = (body ?? {}) as { versions?: unknown };
+	return Array.isArray(versions) &&
+		versions.length <= MAX_NAMED &&
+		versions.every(
+			(version) => typeof version === 'string' && VERSION.test(version),
+		)
+		? (versions as string[])
+		: null;
+};
+
+/**
+ * `POST blobs { versions }`: what the folder holds of each version's
+ * bytes, in order: `{ base64 }` kept inline, `{ size }` in the blob store
+ * (`GET blobs/<sha256>`), or null for none (never held, or purged).
+ */
+export async function folderBlobs(
+	db: Runner,
+	folder: string,
 	body: unknown,
-): CommitFile[] | { message: string; path?: string } {
-	if (typeof body !== 'object' || body === null)
-		return { message: 'expected a JSON object' };
-	const { files } = body as { files?: unknown };
-	if (!Array.isArray(files) || files.length === 0 || files.length > MAX_FILES)
-		return { message: `files: 1 to ${MAX_FILES}` };
+): Promise<Response> {
+	const versions = versionsOf(body);
+	if (versions === null)
+		return invalid(`versions is a list of at most ${MAX_NAMED} SHA-256s`);
+	return json({ blobs: await blobsOf(db, folder, versions) });
+}
+
+/** `POST blobs/missing { versions }`: the versions the folder holds no bytes for, which an upload sends. */
+export async function folderMissing(
+	db: Runner,
+	folder: string,
+	body: unknown,
+): Promise<Response> {
+	const versions = versionsOf(body);
+	if (versions === null)
+		return invalid(`versions is a list of at most ${MAX_NAMED} SHA-256s`);
+	return json({ missing: await missingVersions(db, folder, versions) });
+}
+
+/** `GET blobs/<sha256>`: one version's bytes, inline or streamed from the blob store; immutable. */
+export async function getBlob(
+	db: Runner,
+	store: BlobStore | null,
+	folder: string,
+	version: string,
+): Promise<Response> {
+	const [held] = await blobsOf(db, folder, [version]);
+	const headers = {
+		'content-type': 'application/octet-stream',
+		'cache-control': 'private, max-age=31536000, immutable',
+	};
+	if (held != null && 'base64' in held)
+		return new Response(Buffer.from(held.base64, 'base64'), { headers });
+	const found =
+		held == null || store === null ? null : await store.get(folder, version);
+	if (found === null)
+		return json(
+			{ error: 'not_found', message: `no bytes for ${version}` },
+			404,
+		);
+	return new Response(found.body, {
+		headers: { ...headers, 'content-length': String(found.size) },
+	});
+}
+
+/** `PUT blobs/<sha256>`: store one version's bytes (`putBlob`). */
+export async function putBlobRoute({
+	db,
+	store,
+	folder,
+	version,
+	request,
+}: {
+	db: Runner;
+	store: BlobStore | null;
+	folder: string;
+	version: string;
+	request: Request;
+}): Promise<Response> {
+	if (request.body === null) return invalid('no body');
+	const length = request.headers.get('content-length');
+	const answer = await putBlob({
+		db,
+		store,
+		folder,
+		sha256: version,
+		body: request.body,
+		length:
+			length !== null && /^\d+$/.test(length) ? Number(length) : undefined,
+	});
+	if ('size' in answer)
+		return json({ version, size: answer.size }, answer.status);
+	return json({ error: answer.error, message: answer.message }, answer.status);
+}
+
+/** The writes of a commit request's `files`, or why they are refused. */
+export function readCommitFiles(
+	files: unknown,
+	most = MAX_FILES,
+): CommitWrite[] | { message: string; path?: string } {
+	if (!Array.isArray(files) || files.length === 0 || files.length > most)
+		return { message: `files: 1 to ${most}` };
 	const seen = new Set<string>();
-	const out: CommitFile[] = [];
+	const out: CommitWrite[] = [];
 	for (const file of files as Record<string, unknown>[]) {
 		const path = file?.path;
 		const problem = pathProblem(path);
@@ -436,18 +439,21 @@ export function readCommitRequest(
 		if (seen.has(p)) return { message: 'a path appears twice', path: p };
 		seen.add(p);
 		const expect = file.expect;
-		if (expect !== null && (typeof expect !== 'string' || !OID.test(expect)))
+		if (
+			expect !== null &&
+			(typeof expect !== 'string' || !VERSION.test(expect))
+		)
 			return {
 				message:
-					'expect is the blob id the writer expects there, or null for nothing',
+					'expect is the version the writer read there, or null for nothing',
 				path: p,
 			};
-		const kinds = ['text', 'base64', 'lfs', 'delete'].filter(
+		const kinds = ['text', 'base64', 'version', 'delete'].filter(
 			(kind) => file[kind] !== undefined,
 		);
 		if (kinds.length !== 1)
 			return {
-				message: 'give exactly one of text, base64, lfs and delete',
+				message: 'give exactly one of text, base64, version and delete',
 				path: p,
 			};
 		if (file.delete !== undefined) {
@@ -455,197 +461,157 @@ export function readCommitRequest(
 			out.push({ path: p, expect, delete: true });
 			continue;
 		}
-		if (file.lfs !== undefined) {
-			const lfs = file.lfs as LfsObject;
-			if (
-				typeof lfs !== 'object' ||
-				lfs === null ||
-				typeof lfs.oid !== 'string' ||
-				!LFS_OID.test(lfs.oid) ||
-				!Number.isSafeInteger(lfs.size) ||
-				lfs.size < 0
-			)
-				return { message: 'lfs is { oid: 64 hex digits, size }', path: p };
-			if (!storedWithLfs(p))
-				return {
-					message: 'a .md note or a hidden path is bytes, not an attachment',
-					path: p,
-				};
-			out.push({ path: p, expect, lfs: { oid: lfs.oid, size: lfs.size } });
+		if (file.version !== undefined) {
+			if (typeof file.version !== 'string' || !VERSION.test(file.version))
+				return { message: 'version is a SHA-256', path: p };
+			out.push({ path: p, expect, version: file.version });
 			continue;
 		}
-		if (storedWithLfs(p))
-			return {
-				message:
-					'files other than .md notes are attachments: upload the bytes, then send lfs',
-				path: p,
-			};
+		let bytes: Uint8Array;
 		if (file.text !== undefined) {
 			if (typeof file.text !== 'string')
 				return { message: 'text is a string', path: p };
-			out.push({ path: p, expect, bytes: new TextEncoder().encode(file.text) });
-			continue;
+			bytes = new TextEncoder().encode(file.text);
+		} else {
+			if (typeof file.base64 !== 'string')
+				return { message: 'base64 is a string', path: p };
+			bytes = new Uint8Array(Buffer.from(file.base64, 'base64'));
 		}
-		if (typeof file.base64 !== 'string')
-			return { message: 'base64 is a string', path: p };
-		out.push({
-			path: p,
-			expect,
-			bytes: new Uint8Array(Buffer.from(file.base64, 'base64')),
-		});
+		if (bytes.byteLength > INLINE_MAX)
+			return {
+				message: `bytes over ${INLINE_MAX} are put at blobs/<sha256> first, then named by version`,
+				path: p,
+			};
+		out.push({ path: p, expect, bytes });
 	}
 	return out;
 }
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-/**
- * Land `files` in one commit on `main` (see the header), as `author`.
- * `hold` (tests only) waits after reading `main` on the first attempt, so
- * two commits can be made to race.
- */
-export async function folderCommit({
-	objects,
-	lfs,
-	ledger,
-	repositoryId,
-	files,
-	author,
-	now = () => new Date(),
-	hold,
-}: {
-	objects: GitObjects;
-	lfs: LfsStore | null;
-	ledger: UploadLedger | null;
-	repositoryId: string;
-	files: CommitFile[];
-	author: { name: string; email: string };
-	now?: () => Date;
-	hold?: () => Promise<void>;
-}): Promise<Response> {
-	const attachments = files.flatMap((file) => ('lfs' in file ? [file] : []));
-	// Kept before it is checked, so a sweep that runs meanwhile finds no row.
-	await ledger?.keep(
-		repositoryId,
-		attachments.map(({ lfs: { oid } }) => oid),
-	);
-	for (const file of attachments) {
-		const stored = lfs !== null && (await lfs.verified(repositoryId, file.lfs));
-		if (!stored)
-			return json(
+/** A commit's answer, as sent. */
+function sendCommit(answer: CommitAnswer): Response {
+	if ('landed' in answer)
+		return json({
+			cursor: writeCursor(answer.cursor),
+			versions: answer.versions,
+		});
+	if ('moved' in answer)
+		return json(
+			{
+				error: 'moved',
+				moved: answer.moved,
+				message: answer.moved
+					.map(({ path, now }) => `${path} holds ${now ?? 'nothing'}`)
+					.join('; '),
+			},
+			409,
+		);
+	if ('missing' in answer)
+		return json(
+			{
+				error: 'missing',
+				missing: answer.missing,
+				message: 'put these versions at blobs/<sha256>, then commit',
+			},
+			409,
+		);
+	if ('refused' in answer) {
+		const { path, held, reason } = answer.refused;
+		return json(
+			{
+				error: 'refused',
+				path,
+				held,
+				reason,
+				message:
+					reason === 'case'
+						? `${path} differs only in case from ${held}, which the folder holds: a disk that ignores case cannot keep them apart`
+						: reason === 'folder'
+							? `${path} is a folder here (it holds ${held})`
+							: `${path} is a file here, so nothing can be below it`,
+			},
+			409,
+		);
+	}
+	return answer.error === 'no_folder'
+		? unknownFolder()
+		: json(
 				{
-					error: 'not_uploaded',
-					path: file.path,
-					message: `put ${file.lfs.oid} at blobs/${file.lfs.oid}, then commit`,
+					error: 'not_importing',
+					message: 'this folder takes no imported changes',
 				},
 				409,
 			);
-	}
-	for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-		const main = (await objects.refs()).get(MAIN) ?? ZERO_OID;
-		if (attempt === 1) await hold?.();
-		const root =
-			main === ZERO_OID
-				? null
-				: ((await readCommit(objects, main))?.tree ?? null);
-		const lookupIn = treeLookup(objects, root);
-		const changes = new Map<string, Change>();
-		const blobs: PackObject[] = [];
-		const landed: Record<string, string | null> = {};
-		for (const file of files) {
-			const now = (await lookupIn(file.path))?.oid ?? null;
-			if (now !== file.expect)
-				return json(
-					{
-						error: 'moved',
-						path: file.path,
-						now,
-						message: `${file.path} holds ${now ?? 'nothing'}, not ${file.expect ?? 'nothing'}`,
-					},
-					409,
-				);
-			if ('delete' in file) {
-				if (now !== null) changes.set(file.path, null);
-				landed[file.path] = null;
-				continue;
-			}
-			const blob = makeObject(
-				'blob',
-				'lfs' in file ? writePointer(file.lfs) : file.bytes,
-			);
-			landed[file.path] = blob.oid;
-			// The bytes already there land as nothing.
-			if (blob.oid === now) continue;
-			blobs.push(blob);
-			changes.set(file.path, { oid: blob.oid, mode: '100644' });
-		}
-		// A repository's first commit holds the standard attributes, so a
-		// clone of it runs Git LFS, unless the commit brings its own.
-		if (
-			main === ZERO_OID &&
-			changes.size > 0 &&
-			!changes.has('.gitattributes')
-		) {
-			const attributes = makeObject('blob', REPOSITORY_ATTRIBUTES);
-			blobs.push(attributes);
-			changes.set('.gitattributes', { oid: attributes.oid, mode: '100644' });
-		}
-		let next = main;
-		const written: PackObject[] = [...blobs];
-		if (changes.size > 0) {
-			let tree: string | null;
-			try {
-				tree = await editTree(objects, root, changes, written);
-			} catch (cause) {
-				if (cause instanceof CaseCollision)
-					return json(
-						{
-							error: 'case_collision',
-							path: cause.path,
-							held: cause.held,
-							message: cause.message,
-						},
-						409,
-					);
-				return json(
-					{
-						error: 'invalid_request',
-						message:
-							cause instanceof Error
-								? cause.message
-								: 'the paths do not fit the tree',
-					},
-					409,
-				);
-			}
-			if (tree === null) {
-				const empty = treeObject([]);
-				written.push(empty);
-				tree = empty.oid;
-			}
-			if (tree !== root) {
-				const subject = `Sync: ${files.length} file${files.length === 1 ? '' : 's'}`;
-				const commit = commitObject({
-					tree,
-					parents: main === ZERO_OID ? [] : [main],
-					author: { ...author, at: now() },
-					message: `${subject}\n`,
-				});
-				written.push(commit);
-				next = commit.oid;
-			}
-		}
-		const receipt = { commit: next === ZERO_OID ? null : next, blobs: landed };
-		// Nothing changed (the bytes already there): no commit.
-		if (next === main) return json(receipt);
-		const applied = await objects.apply(
-			[{ ref: MAIN, old: main, next }],
-			writePack(written),
+}
+
+/** `POST commits { files }`: one change, as `account` through `via` (see the header). */
+export async function folderCommit(
+	db: Runner,
+	{
+		folder,
+		account,
+		via,
+		body,
+	}: { folder: string; account: string; via: string; body: unknown },
+): Promise<Response> {
+	const files = readCommitFiles((body as { files?: unknown } | null)?.files);
+	if (!Array.isArray(files)) return invalid(files.message, files.path);
+	return sendCommit(await commitChange(db, { folder, account, via, files }));
+}
+
+/**
+ * `POST import { changes: [{ author, at, message, files }] }`: an import's
+ * changes (ADR-0826), each keeping its own author (`Name <email>`), time,
+ * and message, landed in order while the folder imports; the answer of
+ * the first that did not land ends it. `{ done: true }` ends the import:
+ * the folder takes ordinary changes only from then.
+ */
+export async function folderImport(
+	db: Runner,
+	{
+		folder,
+		account,
+		via,
+		body,
+	}: { folder: string; account: string; via: string; body: unknown },
+): Promise<Response> {
+	const request = (body ?? {}) as { changes?: unknown; done?: unknown };
+	if (request.done === true) {
+		await db.execute(
+			sql`update folder set importing = false where id = ${folder}`,
 		);
-		if (applied.ok) return json(receipt);
-		if (!applied.stale)
-			throw new Error(`the store refused a commit: ${applied.reason}`);
-		await sleep(10 + Math.random() * 40 * attempt);
+		return json({ done: true });
 	}
-	return json({ error: 'busy', message: 'main kept moving; try again' }, 503);
+	const changes = request.changes;
+	if (
+		!Array.isArray(changes) ||
+		changes.length === 0 ||
+		changes.length > MAX_IMPORTED
+	)
+		return invalid(`changes: 1 to ${MAX_IMPORTED}, or { done: true }`);
+	const read: { imported: Imported; files: CommitWrite[] }[] = [];
+	for (const change of changes as Record<string, unknown>[]) {
+		const { author, at, message } = change ?? {};
+		const time = typeof at === 'string' ? Date.parse(at) : Number.NaN;
+		if (
+			typeof author !== 'string' ||
+			author.length > 1000 ||
+			Number.isNaN(time) ||
+			(message !== null && typeof message !== 'string')
+		)
+			return invalid(
+				'each change is { author, at: an ISO time, message, files }',
+			);
+		const files = readCommitFiles(change.files, MAX_IMPORTED_FILES);
+		if (!Array.isArray(files)) return invalid(files.message, files.path);
+		read.push({
+			imported: { author, at: new Date(time), message },
+			files,
+		});
+	}
+	let last: CommitAnswer | null = null;
+	for (const { imported, files } of read) {
+		last = await commitChange(db, { folder, account, via, files, imported });
+		if (!('landed' in last)) return sendCommit(last);
+	}
+	return sendCommit(last as CommitAnswer);
 }

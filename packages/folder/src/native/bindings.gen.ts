@@ -68,8 +68,8 @@ export const commands = {
 	name: string,
 	inode: string,
 	birthtime: string | null,
-	commit: string | null,
-	/**  Folder-relative path to Git blob id. */
+	cursor: string | null,
+	/**  Folder-relative path to version: the SHA-256 of its bytes. */
 	files: { [key in string]: string },
 } | null, FolderError>(__TAURI_INVOKE("plugin:epicenter-folder|data_record")),
 };
@@ -135,30 +135,29 @@ export type FolderIdentity = {
 /**
  *  What Epicenter last agreed with the server for one folder: which server
  *  folder it is, its name, the identity of the directory that agreed it,
- *  the commit agreed, and each file's Git blob id then.
+ *  the point of its log agreed, and each file's version then.
  */
 export type FolderRecord = {
 	folder: string,
 	name: string,
 	inode: string,
 	birthtime: string | null,
-	commit: string | null,
-	/**  Folder-relative path to Git blob id. */
+	cursor: string | null,
+	/**  Folder-relative path to version: the SHA-256 of its bytes. */
 	files: { [key in string]: string },
 };
 
 /**
  *  What a put answers the page: the stamp of the file that
- *  landed (empty for a removal), which names an attachment's version, or
- *  `stale` when the path held something else and nothing changed.
+ *  landed (empty for a removal), or `stale` when the path held something
+ *  else and nothing changed.
  */
 export type Landing = { landed: string } | "stale";
 
 /**
- *  One regular file in a listing: its version as the page names it (a
- *  note's or hidden file's Git blob id, an attachment's stamp:
- *  `versioned_by_content`), and its
- *  size in bytes.
+ *  One regular file in a listing: `sha256:` and its version, for a file up
+ *  to `HASHED_WHOLE_BYTES`, or `stamp:` and its stamp, for a larger one,
+ *  which the page names through its stamp cache; and its size in bytes.
  */
 export type ListedFile = {
 	path: string,

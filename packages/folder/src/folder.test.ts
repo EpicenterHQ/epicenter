@@ -462,13 +462,13 @@ test('on the web, a folder over an account opens once the account is signed in',
 	signedIn = {
 		baseURL: 'https://api.epicenter.so',
 		signal: new AbortController().signal,
-		// The account's folder named from the site, minted, and empty: main
-		// is nowhere, and nothing is listed.
+		// The account's folder named from the site, minted, and empty: its
+		// log is at its start, and nothing is listed.
 		fetch: (async (url: string) =>
 			Response.json(
 				String(url).endsWith('/folders')
 					? { folder: 'abcdefgh01234567' }
-					: { commit: null, paths: null },
+					: { cursor: 'e.0', seq: 0, changes: null, files: [] },
 				{ status: String(url).endsWith('/folders') ? 201 : 200 },
 			)) as never,
 	};

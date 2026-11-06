@@ -282,7 +282,7 @@ fn storage_behind_a_dangling_link_is_disconnected_and_makes_nothing() {
             disconnected
         );
         assert_eq!(
-            put(main, "a.md", None, Some(&blob(b"a"))).unwrap_err(),
+            put(main, "a.md", None, Some(&version(b"a"))).unwrap_err(),
             disconnected
         );
     };
@@ -458,8 +458,8 @@ fn the_data_root_reads_the_record_that_proves_it() {
         "name": "notes",
         "inode": identity.inode,
         "birthtime": identity.birthtime,
-        "commit": "abc",
-        "files": { "a.md": blob(b"a") },
+        "cursor": "abc.1",
+        "files": { "a.md": version(b"a") },
     });
     std::fs::write(records.join("f_1.json"), record.to_string()).unwrap();
     let found = invoke(&main, "data_record", json!({})).unwrap();
@@ -759,7 +759,7 @@ fn put_headers(path: &str, remove: bool, if_match: Option<&str>) -> HeaderMap {
     headers.insert("path", encoded(path));
     headers.insert("root", encoded("Data"));
     headers.insert("remove", encoded(&remove.to_string()));
-    let expected = if_match.map_or("absent".to_string(), |hash| format!("blob:{hash}"));
+    let expected = if_match.map_or("absent".to_string(), |hash| format!("sha256:{hash}"));
     headers.insert("expected", encoded(&expected));
     headers
 }
@@ -791,7 +791,7 @@ fn write(
         window,
         relative,
         Some(content.as_bytes()),
-        there.as_deref().map(blob).as_deref(),
+        there.as_deref().map(version).as_deref(),
     )?;
     assert_eq!(landed, "landed");
     Ok(landed)
@@ -846,7 +846,7 @@ fn changes_land_under_the_root_and_never_in_git_state() {
         "first\n"
     );
     assert_eq!(
-        put(&main, "notes/a.md", None, Some(&blob(b"first\n"))).unwrap(),
+        put(&main, "notes/a.md", None, Some(&version(b"first\n"))).unwrap(),
         "landed"
     );
     assert!(!fixture.root.join("notes/a.md").exists());
@@ -864,9 +864,9 @@ fn changes_land_under_the_root_and_never_in_git_state() {
     assert!(!fixture.root.join(".git").exists());
 }
 
-/// The Git blob id the page computes.
-fn blob(bytes: &[u8]) -> String {
-    epicenter_folder_core::blob::blob_id(bytes)
+/// The version the page computes.
+fn version(bytes: &[u8]) -> String {
+    epicenter_folder_core::version::version_of(bytes)
 }
 
 #[test]
@@ -878,7 +878,7 @@ fn a_save_lands_only_on_what_the_page_expected() {
         "landed"
     );
     assert_eq!(put(&main, "a.md", Some(b"again\n"), None).unwrap(), "stale");
-    let stale = blob(b"stale\n");
+    let stale = version(b"stale\n");
     assert_eq!(
         put(&main, "b.md", Some(b"b\n"), Some(&stale)).unwrap(),
         "stale"
@@ -894,7 +894,7 @@ fn a_save_lands_only_on_what_the_page_expected() {
     );
     assert!(!fixture.root.join("b.md").exists());
     assert_eq!(
-        put(&main, "a.md", Some(b"second\n"), Some(&blob(b"first\n"))).unwrap(),
+        put(&main, "a.md", Some(b"second\n"), Some(&version(b"first\n"))).unwrap(),
         "landed"
     );
     assert_eq!(
@@ -922,8 +922,8 @@ fn a_save_names_the_version_it_read_and_a_hash_is_tagged() {
     let (fixture, main) = opened("expected-version");
     assert_eq!(put(&main, "a.md", Some(b"new\n"), None).unwrap(), "landed");
     for refused in [
-        blob(b"new\n"),
-        "blob:absent".to_string(),
+        version(b"new\n"),
+        "sha256:absent".to_string(),
         "anything".to_string(),
         "present".to_string(),
     ] {
@@ -937,7 +937,7 @@ fn a_save_names_the_version_it_read_and_a_hash_is_tagged() {
         )
         .unwrap_err();
         assert_eq!(answer["name"], "Io", "{refused}: {answer}");
-        assert!(text(&answer["message"]).contains("blob:"), "{answer}");
+        assert!(text(&answer["message"]).contains("sha256:"), "{answer}");
     }
     assert_eq!(
         std::fs::read_to_string(fixture.root.join("a.md")).unwrap(),
@@ -1010,25 +1010,29 @@ fn storage_reaches_the_data_paths_of_the_root_and_nothing_else() {
     write(&fixture, &main, "todos/a.md", "first\n").unwrap();
     std::fs::create_dir(fixture.root.join("empty")).unwrap();
 
-    // A note is named by its SHA-256, any other file by its stamp.
-    std::fs::write(fixture.root.join("todos/a.bin"), b"bytes").unwrap();
+    // A small file is named by its SHA-256, a large one by its stamp.
+    std::fs::write(
+        fixture.root.join("todos/a.bin"),
+        vec![1u8; epicenter_folder_core::version::HASHED_WHOLE_BYTES as usize + 1],
+    )
+    .unwrap();
     let mut listed = invoke(&main, "list_folder", json!({ "root": "Data", "under": ["todos"] })).unwrap();
     listed
         .as_array_mut()
         .unwrap()
         .sort_by_key(|file| file["path"].as_str().unwrap().to_string());
-    assert!(listed[0]["version"].as_str().unwrap().starts_with("v1:"));
+    assert!(listed[0]["version"].as_str().unwrap().starts_with("stamp:v1:"));
     listed[0].as_object_mut().unwrap().remove("version");
     assert_eq!(
         listed,
         json!([
-            { "path": "todos/a.bin", "size": 5.0 },
-            { "path": "todos/a.md", "version": blob(b"first\n"), "size": 6.0 }
+            { "path": "todos/a.bin", "size": 65537.0 },
+            { "path": "todos/a.md", "version": format!("sha256:{}", version(b"first\n")), "size": 6.0 }
         ])
     );
     assert_eq!(
         invoke(&main, "list_folder", json!({ "root": "Data", "under": ["empty", "todos/a.md"] })).unwrap(),
-        json!([{ "path": "todos/a.md", "version": blob(b"first\n"), "size": 6.0 }])
+        json!([{ "path": "todos/a.md", "version": format!("sha256:{}", version(b"first\n")), "size": 6.0 }])
     );
     std::fs::remove_file(fixture.root.join("todos/a.bin")).unwrap();
     // Every byte value arrives as it is, raw.

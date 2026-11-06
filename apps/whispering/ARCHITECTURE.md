@@ -150,7 +150,7 @@ surfaces need not promise the same things
 ([ADR-0780](../../docs/adr/0780-a-surface-uses-what-its-platform-gives-and-parity-is-not-a-goal.md)).
 In a browser the recorder asks for AAC in MP4 first and Opus in WebM
 second, keeps each piece in memory, and at Stop writes the take once with
-`folder.audio.set`, which the repository keeps as a Git LFS object
+`folder.audio.set`, which the server keeps by its SHA-256 in its blob store
 (ADR-0779); nothing is sent before Stop, and a crash or a closed tab loses
 the take. In a Tauri window it loads the shell's microphone, which encodes Opus into a WebM from the first sample in
 the folder's `.epicenter/recordings`, a second at a time, and at Stop

@@ -1,5 +1,5 @@
 {
-	"description": "Folder-relative paths the folder engine (packages/folder/src/paths.ts pathProblem) and the desktop shell (core/src/paths.rs path_problem) both refuse or both allow, and paths both call hidden (isHiddenPath in @epicenter/definition, is_hidden_path in paths.rs) or not, and paths a listing names by the Git blob id of their bytes (byContent: a note, a hidden file, and the folder's contract at its root; not storedWithLfs) or by their stamp (byStamp: an attachment; versioned_by_content in core/src/storage.rs). Both test suites read this file.",
+	"description": "Folder-relative paths the folder engine (packages/folder/src/paths.ts pathProblem) and the desktop shell (core/src/paths.rs path_problem) both refuse or both allow, and paths both call hidden (isHiddenPath in @epicenter/definition, is_hidden_path in paths.rs) or not. A listing names a file by its size, never its path (HASHED_WHOLE_BYTES). Both test suites read this file.",
 	"refused": [
 		"",
 		"/a",
@@ -106,20 +106,5 @@
 		"notes/a.",
 		"epicenter/saves/a",
 		"recordings/a.wav"
-	],
-	"byContent": [
-		"epicenter.json",
-		"notes/a.md",
-		"notes/B.MD",
-		".gitignore",
-		"notes/.hidden.png",
-		"AGENTS.md"
-	],
-	"byStamp": [
-		"recordings/a.webm",
-		"photos/a.jpg",
-		"sub/epicenter.json",
-		"epicenter.json.bak",
-		"Epicenter.json"
 	]
 }

@@ -1,30 +1,16 @@
 # Epicenter API (Hosted Personal Cloud)
 
-> [!CAUTION]
-> **Hosted Git answers 503 until the R2 key pair reaches the deployed
-> version.** `resolveArtifactsGitHost` returns no host until Artifacts and all
-> four R2 LFS bindings are there (`LFS_BUCKET`, `LFS_BUCKET_NAME`,
-> `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`; `worker/lfs-store.ts`).
-> `wrangler.jsonc` binds the `epicenter-lfs` bucket and its name; the key pair
-> are optional secrets put on the deployed version (see
-> [Deploying R2 LFS](#deploying-r2-lfs)). Then every push and web write goes
-> through the receiver, which refuses any file other than a `.md` note or a
-> hidden path unless it is a stored Git LFS pointer. The bucket's CORS rule
-> for the registered app origins (PUT and GET; headers
-> `x-amz-checksum-sha256`, `if-none-match`, `content-type`) is what lets
-> browser uploads and downloads work. See [Hosted Git](#hosted-git).
-
-Epicenter Cloud Worker. Handles authentication, hosted Git, AI inference, and billing for the hosted personal cloud product. Cloud composes `@epicenter/server` by resolving Better Auth users as principals.
+Epicenter Cloud Worker. Handles authentication, folders, AI inference, and billing for the hosted personal cloud product. Cloud composes `@epicenter/server` by resolving Better Auth users as principals.
 
 This folder is a single Cloudflare Worker deployment: `worker/` (Hono code) and `ui/` (SvelteKit dashboard SPA) ship together. The same app also runs on Bun with Postgres (`server.ts`), which is how you self-host it.
 
 Part of the [Epicenter](https://github.com/EpicenterHQ/epicenter) monorepo. AGPL-3.0 licensed. If you host a modified version, you share your changes. See [Stack and priorities](#stack-and-priorities) for self-hosting and the trust model below.
 
 Runs on Cloudflare Workers. This Worker is Epicenter's hosted server for
-folders (ADR-0811): it mounts `mountGitHost` from `@epicenter/server` over
-Cloudflare Artifacts (`worker/git-repositories.ts`), where each folder's
-history is a Git repository at `git.epicenter.so/folders/<id>.git`. See
-[Hosted Git](#hosted-git).
+folders (ADR-0811): it mounts `mountFolders` from `@epicenter/server`,
+where each folder's history is a log in Postgres at
+`git.epicenter.so/folders/<id>`, with its larger bytes in R2 (ADR-0824). See
+[Folders](#folders).
 
 The Yjs store sync this Worker used to serve is removed (ADR-0534), and so is
 the GitHub connector that relayed a browser's Git to GitHub. Their Durable
@@ -37,13 +23,13 @@ those classes stored, then deploys this configuration as a new Worker.
 
 Local-first doesn't mean no server. It means your data lives on your machine and you aren't dependent on a cloud service to function. But some operations genuinely need a single authority: user identity, API key storage, AI proxying. Trying to make every device a peer for these operations led to three failed attempts at distributed key management before we split into hub (central authority) and local (device-side execution).
 
-The hub handles auth, hosted Git, and AI. Local servers handle filesystem access, offline editing, and low-latency operations. Neither tries to do the other's job. See [Why Epicenter Split Into Hub and Local Servers](/docs/articles/why-epicenter-split-into-hub-and-local-servers.md) for the full story.
+The hub handles auth, folders, and AI. Local servers handle filesystem access, offline editing, and low-latency operations. Neither tries to do the other's job. See [Why Epicenter Split Into Hub and Local Servers](/docs/articles/why-epicenter-split-into-hub-and-local-servers.md) for the full story.
 
 ## Stack and priorities
 
 Hono handles HTTP routing. We originally wanted Elysia: it's faster, the API is more ergonomic, and it runs natively on Bun. But Elysia depends on Bun-specific APIs that don't exist in the Cloudflare Workers runtime, and Workers compatibility was non-negotiable. Hono runs on Cloudflare Workers, Node.js, Deno, Bun, and AWS Lambda, so when the server moved to a second runtime (ADR-0066), the route layer came along for free.
 
-Cloudflare Workers are the hosted deployment target. Routes, auth, AI, Git, and validation are plain runtime-portable Hono; the Worker holds no Durable Objects, and hosted Git repositories live in Cloudflare Artifacts.
+Cloudflare Workers are the hosted deployment target. Routes, auth, AI, folders, and validation are plain runtime-portable Hono; the Worker holds no Durable Objects, and folders' larger bytes live in R2.
 
 Self-hosting is this app's Bun entry, `apps/api/server.ts`, running against
 Postgres, with no Cloudflare account. It builds the same `createServerApp` and the same Better Auth
@@ -55,8 +41,8 @@ build` (or point `API_UI_DIR` at a build). The merge gate boots this entry
 against Postgres on every pull request (`oauth-server.postgres.test.ts`). ADR-0549 records how auth will work
 there. The surfaces that need Worker-only bindings are absent on Bun: the dashboard shell comes from `ASSETS`, account
 deletion is a hosted resource sweep, and billing needs the Autumn secret and the
-after-response drain. Hosted Git is mounted there over bare repositories on
-disk when `GIT_STORE_ROOT` names a directory, and answers 503 when it does not. `runtime-profile.test.ts` is where that
+after-response drain. Folders are mounted there too, their larger bytes on
+disk under `BLOB_STORE_ROOT`. `runtime-profile.test.ts` is where that
 divergence is declared and checked against both entries.
 
 Billing is hosted-only and stays in `apps/api/worker/billing/`; do not extract
@@ -76,9 +62,8 @@ takes the API audience and `ai`, a folder's routes the Git audience with
 either `folders:all` or the folder's attachment to the app, and
 `/api/folders` the Git audience with `folders:read` (listing) or
 `folders:write` (sharing, accepting, attaching). Epicenter hosts no MCP server
-([ADR-0578](../../docs/adr/0578-epicenter-hosts-no-mcp-server.md)). The only
-bytes it keeps beside Git are folders' Git LFS objects, in R2
-([ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)). An app reads who signed in from Better Auth's
+([ADR-0578](../../docs/adr/0578-epicenter-hosts-no-mcp-server.md)). A
+folder's bytes over 16 KiB are in R2, by their SHA-256 (ADR-0824). An app reads who signed in from Better Auth's
 `/auth/oauth2/userinfo`, which needs `openid`, and answers the email only
 with `email`. Browser
 apps get a token by authorization code with PKCE as their own client; the
@@ -130,14 +115,13 @@ Cloudflare Workers
 │   ├── /device                device code entry; approval is the consent page
 │   ├── /.well-known/*         authorization server and protected resource metadata
 │   ├── /api/folders           the caller's folders and invitations; invite, accept, attach
-│   ├── git audience /folders  a first sync (POST) and every folder's head (GET)
-│   ├── git audience /folders/:id/*  a folder's sync routes
-│   ├── git audience /folders/:id.git/*  Git smart HTTP forwarded to Artifacts; with R2 LFS
-│   │                          bound, pushes through the receiver, Git LFS
+│   ├── git audience /folders  make or join a folder (POST) and every folder's head (GET)
+│   ├── git audience /folders/:id/*  a folder's log: changes, files, history, marks, bytes, commits
 │   ├── /v1/*                  OpenAI-compatible chat and STT gateways
 │   └── /api/billing/*         Autumn (hosted-only, worker/billing/)
 │
-└── Artifacts (ARTIFACTS binding): one namespace per environment, one Git repository per folder id
+├── Hyperdrive (HYPERDRIVE): Postgres, which holds accounts and every folder's log
+└── R2 (BLOBS): folders' bytes over 16 KiB, at folders/<id>/blobs/<sha256>
 ```
 
 API keys for AI providers come from Infisical's production `/api` secret sync to this Worker. Clients never receive provider keys. The client sends an OAuth access token, the hub validates it and swaps in the real key before forwarding to the provider.
@@ -158,8 +142,7 @@ AI requests, and billing integration. Wrangler serves local assets and connects
 directly to local Postgres. Infisical's `dev /api` supplies provider credentials;
 OAuth, AI, and billing still call their external services. For billing tests,
 use the Autumn sandbox described in [Local account integration](./ACCOUNT-INTEGRATION.md).
-Hosted Git is unavailable in this local process because Artifacts has no local
-simulator. Local dev does not require an Artifacts account secret.
+Folders work locally too: Wrangler simulates the R2 blob bucket.
 
 The launcher rebuilds the hosted UI at startup. After editing that UI while
 Wrangler is running, restart the root dev command or run
@@ -221,7 +204,7 @@ There are three layers, each with a different URL source:
 
 ```bash
 bun dev              # Local dev server (uses local Postgres)
-bun deploy           # Deploy to Cloudflare Workers (hosted Git stays off until the R2 key pair is on the deployed version; see the caution at the top)
+bun deploy           # Deploy to Cloudflare Workers
 bun run typecheck    # Type check
 bun run test         # Run tests, each file isolated
 ```
@@ -278,92 +261,58 @@ server.ts`, and the Worker under `wrangler dev --local` with Hyperdrive's
 local connection string. `bun run test` runs each test file isolated
 (`--isolate`), because `runtime-profile.test.ts` replaces `pg` with a probe.
 
-### Hosted Git
+### Folders
 
-`mountGitHost` serves every folder ([ADR-0811](../../docs/adr/0811-folders-are-shared-directly-and-an-app-reaches-the-folders-attached-to-it.md)):
-its sync routes at `<git audience>/folders/<id>`, its history at
-`<git audience>/folders/<id>.git`, and `/api/folders` for listing, sharing,
-accepting, and attaching it to an app. A folder exists from its first sync,
-which joins one the person holds before it makes one. The route authorizes
-each request from the access token, the person's role in the folder, and
-the token's reach; `packages/server`'s README has the routes and refusals.
-Tables `folder`, `folder_member`, `folder_invitation`, and `folder_app`
-(migrations `0009_folders` and `0010_invitations`) hold folders, their
-members, the emails invited to them, and the apps they are attached to. A
-share is an invitation to an email that answers the same whether or not
-anyone signs in with it, and waits for the account whose verified email it
-names, at sign-up or later (ADR-0820).
+`mountFolders` serves every folder ([ADR-0811](../../docs/adr/0811-folders-are-shared-directly-and-an-app-reaches-the-folders-attached-to-it.md),
+[ADR-0824](../../docs/adr/0824-a-folders-history-is-a-log-of-versions-and-git-is-how-it-leaves.md)):
+its log at `<git audience>/folders/<id>`, and `/api/folders` for listing,
+sharing, accepting, and attaching it to an app. A folder exists from the
+request that makes it. The route authorizes each request from the access
+token, the person's role in the folder, and the token's reach;
+`packages/server`'s README has the routes, the log's tables, and the
+refusals. Tables `folder`, `folder_member`, `folder_invitation`, and
+`folder_app` (migrations `0009_folders` and `0010_invitations`) hold
+folders, their members, the emails invited to them, and the apps they are
+attached to; `change`, `change_file`, `file`, `blob`, and `mark`
+(`0011_history_log`) hold each folder's history. A share is an invitation
+to an email that answers the same whether or not anyone signs in with it,
+and waits for the account whose verified email it names, at sign-up or
+later (ADR-0820).
 
-The Worker stores each repository in the Artifacts namespace of its
-environment (`epicenter-production`; `ARTIFACTS_NAMESPACE`), named by its
-folder's id. It reaches
-`https://<ARTIFACTS_ACCOUNT_ID>.artifacts.cloudflare.net/git/<ARTIFACTS_NAMESPACE>/<id>.git`
-with a token it mints and caches per repository and scope: 24 hours, renewed an
-hour early, `read` for a fetch and `write` for the receiver's own writes. The
-client's token never reaches Artifacts. Git LFS objects live in R2 when the
-Worker binds a bucket (`LFS_BUCKET`, `LFS_BUCKET_NAME`, and the
-`R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY` pair that presigns transfers;
-`worker/lfs-store.ts`); until the key pair reaches the deployed version,
-hosted Git answers 503 (see Deploying R2 LFS). Clone and fetch are
-forwarded untouched, in whichever protocol the client asks for; every
-push goes through the receiver and every web write through the translator,
-over `worker/artifacts-objects.ts`. The Worker's receiver takes a push body of
-at most 24 MiB, holds at most 24 MiB of its inflated objects, and reads at
-most 5,000 of `main`'s commits to place it (`WORKER_RECEIVE_LIMITS`), so one
-push peaks near 48 MiB of a 128 MB isolate and stays within a Paid
-invocation's 10,000 subrequests. The Bun entry keeps bare repositories under `GIT_STORE_ROOT`
-(`<root>/<id>.git`; clone and fetch through `git http-backend`, every push
-through the forward-only receiver, sync's commits at
-`<git>/folders/<folder>/commits`) and attachments' bytes (Git LFS objects)
-under `LFS_STORE_ROOT` (`<root>/<id>/<aa>/<bb>/<oid>`); without
-`GIT_STORE_ROOT` hosted Git answers 503, and without `LFS_STORE_ROOT` the
-LFS and attachment routes do:
+Each folder's log is in Postgres, through Hyperdrive on the Worker: a
+commit is one statement, and so is every read. Bytes over 16 KiB live in R2
+(`BLOBS`, the bucket `epicenter-lfs`, at `folders/<id>/blobs/<sha256>`),
+read and written over the binding alone, with no key pair and no presigned
+URL; Wrangler simulates the bucket in `bun dev:api`. The Bun entry keeps
+them on disk under `BLOB_STORE_ROOT`; without it, a self-hosted server
+keeps bytes up to 16 KiB in Postgres and answers 503 to an upload of more:
 
 ```sh
 # with DATABASE_URL and the variables in .env.example set
-GIT_STORE_ROOT=/tmp/epicenter/git LFS_STORE_ROOT=/tmp/epicenter/lfs bun run dev:bun
+BLOB_STORE_ROOT=/tmp/epicenter/blobs bun run dev:bun
 ```
 
-Hosted Git is unmetered. The hosted cloud also needs `git.epicenter.so` routed
-to this Worker; that is a deploy step, not in this repository's config.
+The deployment schedules `sweepPendingBlobs` (uploads no change named
+within a day) and, when an operator purges history, `purgeBlobs`, which
+keeps every row and by default the versions of the last 90 days. Folders
+are unmetered. The hosted cloud also needs `git.epicenter.so` routed to
+this Worker; that is a deploy step, not in this repository's config.
 
-Deploying needs the production-only `ARTIFACTS_ACCOUNT_ID` secret and an account
-on the Workers Paid plan, and, once, deleting the existing `api` Worker first:
-this configuration has no Durable Object migrations to apply over it. Keep the secret in Infisical's `prod /api`; the
-Cloudflare Workers secret sync copies it to the `api` Worker. Artifacts has no
-local simulator, so `bun dev:api` removes the `ARTIFACTS` binding, namespace
-variable, and required account secret from its local config. Hosted Git answers
-503 locally. The [Artifacts integration checks in ADR-0521](../../docs/adr/0521-a-folder-syncs-over-plain-git-with-a-token-to-a-server-the-person-chooses.md)
-used a separate Worker and namespace, and have not been repeated for the
-per-id store; run them before the first deploy of ADR-0546. The local launcher
-does not enable that integration path.
+**Git storage is gone, as a clean break.** Folders were Git repositories
+in Cloudflare Artifacts (hosted) or bare repositories under
+`GIT_STORE_ROOT` (self-hosted), with attachments in Git LFS. Nothing
+carries them over: hosted Git answered 503 until an R2 key pair that was
+never set, so no hosted folder held history, and a self-hosted server's
+repositories are dropped with the Artifacts binding, the R2 presigner, and
+the `git` binary the Bun entry needed. To keep a self-hosted folder's
+history, clone it before upgrading, then bring it in by hand:
 
-### Deploying R2 LFS
+```sh
+git clone <old origin>/git/folders/<id>.git notes && (cd notes && git lfs pull)
+epicenter import --git notes --replace-original
+```
 
-The bucket `epicenter-lfs` (with its CORS policy) exists, and
-`wrangler.jsonc` binds it as `LFS_BUCKET` with `LFS_BUCKET_NAME`. The
-receiver's LFS path also needs the presigning key pair, `R2_ACCESS_KEY_ID`
-and `R2_SECRET_ACCESS_KEY` (`LFS_SECRETS` in `worker/lfs-store.ts`), kept in
-Infisical project Epicenter, environment `prod`, path `/api`. They are
-optional Worker secrets: a version deployed without them runs with LFS, and
-so hosted Git, answering 503. Saved but undeployed `api` versions from
-before may still carry revoked R2 credentials, which is why Infisical's
-automatic sync can fail (error 10215: the latest version is undeployed).
-The order:
-
-1. Merge to `main`; CI deploys the new version, with the binding.
-2. Put the two secrets on that deployed version: let Infisical's Cloudflare
-   sync run, or, without printing any value,
-   `infisical run --projectId <Epicenter> --env prod --path /api -- sh -c 'printf %s "$R2_ACCESS_KEY_ID" | wrangler secret put R2_ACCESS_KEY_ID && printf %s "$R2_SECRET_ACCESS_KEY" | wrangler secret put R2_SECRET_ACCESS_KEY'`
-   from `apps/api`. A secret put makes a new deployed version from the current one.
-3. Never roll back to, or redeploy, a saved version that carries the
-   revoked credentials.
-4. Only when deployment is authorized: push a file through Git LFS to a
-   production repository and fetch it back, and confirm both transfers
-   used presigned R2 URLs.
-
-The R2 API token is `epicenter-lfs-presign-v2`; renaming it to
-`epicenter-lfs-presign` in the Cloudflare dashboard is an owner action.
+Its history then leaves as Git with `epicenter export --git <dir>`.
 
 ### Database commands
 
@@ -376,7 +325,7 @@ bun run db:studio:local  # Open Drizzle Studio (local)
 bun run db:studio:remote # Open Drizzle Studio (remote, via Infisical)
 ```
 
-See `wrangler.jsonc` for the Artifacts binding, why the Worker has no Durable Objects, and Hyperdrive (Postgres connection pool) configuration.
+See `wrangler.jsonc` for the R2 blob bucket, why the Worker has no Durable Objects, and Hyperdrive (Postgres connection pool) configuration.
 
 `auth:generate:remote` writes every Better Auth model into
 `packages/server/src/db/schema/auth.ts`; move the OAuth provider's models into

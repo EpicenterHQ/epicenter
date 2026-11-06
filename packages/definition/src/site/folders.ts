@@ -12,9 +12,8 @@
  * Its addresses under a deployment:
  *
  * ```txt
- * <git>/folders                       POST: join the folder named, or make one (join before create)
- * <git>/folders/<id>/…                sync's routes, in Git's vocabulary
- * <git>/folders/<id>.git              its history as a Git remote, for plain Git
+ * <git>/folders                       POST: make a folder, or join an app's; GET: every folder's head
+ * <git>/folders/<id>/…                its log: what changed, its files, history, marks, bytes, commits
  * <api>/api/folders                   the person's folders, and the shares waiting for them
  * <api>/api/folders/<id>              one folder
  * <api>/api/folders/<id>/accept       POST: accept a share
@@ -55,9 +54,20 @@ export function folderUrl(gitAudience: string, folder?: string): string {
 	return folder === undefined ? folders : `${folders}/${folder}`;
 }
 
-/** The folder's history as a Git remote, `<git audience>/folders/<folder>.git`, for `git clone`. */
-export function folderRemoteUrl(gitAudience: string, folder: string): string {
-	return `${folderUrl(gitAudience, folder)}.git`;
+/**
+ * Whether `name` can be a mark (ADR-0826): segments of letters, digits,
+ * `.`, `_` and `-`, joined by `/`, each starting with a letter or digit and
+ * none ending in `.` or `.lock`, at most 100 characters: every mark is a
+ * Git tag's name too.
+ */
+export function isMarkName(name: unknown): name is string {
+	return (
+		typeof name === 'string' &&
+		name.length <= 100 &&
+		/^[A-Za-z0-9][A-Za-z0-9._-]*(\/[A-Za-z0-9][A-Za-z0-9._-]*)*$/.test(name) &&
+		!name.includes('..') &&
+		!name.split('/').some((segment) => /(\.|\.lock)$/.test(segment))
+	);
 }
 
 /**
@@ -106,7 +116,7 @@ export type FolderMember = FolderPerson & {
 /** One folder the person holds, in `GET /api/folders` and `GET /api/folders/<id>`. */
 export type ListedFolder = {
 	id: string;
-	/** The `title` of its `epicenter.json` at `main`; null when it has none. */
+	/** The `title` of its `epicenter.json` now; null when it has none. */
 	title: string | null;
 	/** The person's own role. */
 	role: FolderRole;
@@ -116,8 +126,6 @@ export type ListedFolder = {
 	invited: FolderInvitee[];
 	/** The apps it is attached to, by the client id each signs in as. */
 	apps: string[];
-	/** Its history as a Git remote (`folderRemoteUrl`). */
-	remote: string;
 };
 
 /** A share waiting for the person to accept it: invisible among their folders until they do. */
@@ -140,9 +148,13 @@ export type FolderListing = {
  * What `POST <git>/folders` asks (ADR-0822): make a new folder, which never
  * joins one (attached to the app whose token asks, or, from a token that
  * reaches every folder, to the app it names); or join the one folder
- * attached to the app it names, as a web app's first open does.
+ * attached to the app it names, as a web app's first open does. A folder
+ * made with `import` takes imported changes, with their own authors and
+ * times, until the import says it is done (ADR-0826).
  */
-export type FolderRequest = { create: true; app?: string } | { join: string };
+export type FolderRequest =
+	| { create: true; app?: string; import?: true }
+	| { join: string };
 
 /**
  * The answer to `POST <git>/folders`: the folder joined (`made: false`), or

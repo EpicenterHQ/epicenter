@@ -92,9 +92,9 @@ person asks or a write touches the item, never on a read.
 
 A computer keeps a folder's files and a manifest, and no Git ([ADR-0804]).
 One TypeScript function, `sync(local, remote, manifest)`, compares the local
-store, the folder's repository on the server at `/folders/<id>`, and
-`.epicenter/synced.json`, a cache. A file's version is its Git blob id on
-every store ([ADR-0803], [ADR-0808]).
+store, the folder's log on the server at `/folders/<id>`, and
+`.epicenter/synced.json`, a cache. A file's version is the SHA-256 of its
+bytes on every store ([ADR-0803], [ADR-0824]).
 
 | What | How it merges |
 | --- | --- |
@@ -258,7 +258,6 @@ It refuses:
 [ADR-0805]: adr/0805-a-folder-is-recognized-by-epicenter-json-which-is-its-contract.md
 [ADR-0806]: adr/0806-an-open-app-checks-for-changes-and-a-sync-never-silently-loses-an-edit.md
 [ADR-0807]: adr/0807-an-app-writes-only-to-a-local-store-and-only-sync-talks-to-a-server.md
-[ADR-0808]: adr/0808-a-files-version-is-its-git-blob-id-on-every-store.md
 [ADR-0811]: adr/0811-folders-are-shared-directly-and-an-app-reaches-the-folders-attached-to-it.md
 [ADR-0812]: adr/0812-an-apps-schema-is-a-view-that-must-fit-a-folders-contract.md
 [ADR-0813]: adr/0813-epicenter-is-your-folders-and-apps-are-lenses.md
@@ -269,3 +268,4 @@ It refuses:
 [ADR-0818]: adr/0818-an-app-is-a-view-a-window-and-its-capabilities-and-everything-is-repairable-by-hand.md
 [ADR-0819]: adr/0819-every-program-keeps-the-folders-it-has-open-in-sync-and-the-epicenter-app-has-them-all-open.md
 [ADR-0820]: adr/0820-a-share-is-an-invitation-to-an-email-and-reaching-every-folder-is-a-permission.md
+[ADR-0824]: adr/0824-a-folders-history-is-a-log-of-versions-and-git-is-how-it-leaves.md

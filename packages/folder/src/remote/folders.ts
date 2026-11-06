@@ -1,8 +1,8 @@
 /**
  * A person's folders on the server (ADR-0811), over the account's fetch: the
  * folders they hold and the shares waiting for them, sharing by email,
- * accepting, leaving, attaching a folder to an app, and where `main` is in
- * every folder at once (ADR-0819). Every surface composes these: the CLI,
+ * accepting, leaving, attaching a folder to an app, and the head of every
+ * folder at once (ADR-0819). Every surface composes these: the CLI,
  * the Epicenter app, and an app's home (ADR-0817).
  *
  * A request the server refuses is `Unavailable` with a `RemoteError.Refused`
@@ -69,13 +69,13 @@ export function getFolder(account: RemoteAccount, folder: string) {
 }
 
 /**
- * Where `main` is in every folder the account reaches, by id (null before a
- * folder's first commit): one request instead of one per folder.
+ * The head of every folder the account reaches, by id, as a cursor: one
+ * request instead of one per folder.
  */
 export async function folderHeads(
 	account: RemoteAccount,
-): Promise<Result<Record<string, string | null>, Unavailable>> {
-	const answered = await request<{ heads: Record<string, string | null> }>(
+): Promise<Result<Record<string, string>, Unavailable>> {
+	const answered = await request<{ heads: Record<string, string> }>(
 		account,
 		folderUrl(resolveOAuthAudiences(account.baseURL).git),
 	);

@@ -15,13 +15,13 @@
 import { ClientError } from '@epicenter/definition/contract';
 import { Ok, type Result } from 'wellcrafted/result';
 import {
-	type BlobId,
 	type Changed,
 	type FileRead,
 	type Listed,
 	type Store,
 	StoreError,
 	type Unavailable,
+	type Version,
 } from '../device/store.js';
 import {
 	fromBase64,
@@ -218,7 +218,7 @@ export function servedStore(
 				read.push({
 					path: file.path,
 					bytes: fromBase64(file.bytes),
-					version: file.version as BlobId,
+					version: file.version as Version,
 				});
 			}
 			return Ok(read);
@@ -232,9 +232,9 @@ export function servedStore(
 			if (answered.error !== null) return answered;
 			const { landed, moved } = answered.data;
 			if (moved === null || typeof moved === 'string')
-				return StoreError.Moved({ path, now: moved as BlobId | null });
+				return StoreError.Moved({ path, now: moved as Version | null });
 			if (landed !== null && typeof landed !== 'string') return misread('put');
-			return Ok(landed as BlobId | null);
+			return Ok(landed as Version | null);
 		},
 		async watch(changed: Changed) {
 			if (closed) return stopped();

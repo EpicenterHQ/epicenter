@@ -74,10 +74,11 @@ async function syncOf(
 	const report = expectOk(
 		await sync({ local, remote, manifest: device.manifest }),
 	);
-	// A completed sync agrees at the head it read last: its manifest names that commit.
-	if (report.outcome === 'synced')
-		expect(expectOk(await device.manifest.read()).manifest.commit).toBe(
-			expectOk(await world.repository.changes(null)).commit,
+	// A completed sync agrees at the head it read last: its manifest names
+	// that cursor, unless a file it kept waits for the next sync.
+	if (report.outcome === 'synced' && report.kept.length === 0)
+		expect(expectOk(await device.manifest.read()).manifest.cursor).toBe(
+			expectOk(await world.repository.changes(null)).cursor,
 		);
 	return report;
 }
@@ -246,8 +247,7 @@ export const syncScenarios: Record<string, (world: World) => Promise<void>> = {
 		await syncOf(world, a);
 		await syncOf(world, b);
 		await syncOf(world, a);
-		const { commit } = expectOk(await world.repository.changes(null));
-		const held = expectOk(await world.repository.tree(commit ?? '')).map(
+		const held = expectOk(await world.repository.files()).files.map(
 			({ path }) => path,
 		);
 		expect(held).toContain('todos/a.md');
@@ -296,9 +296,9 @@ export const syncScenarios: Record<string, (world: World) => Promise<void>> = {
 		let saves = 0;
 		const remote: Repository = {
 			...world.repository,
-			tree(...args) {
+			files() {
 				reads++;
-				return world.repository.tree(...args);
+				return world.repository.files();
 			},
 			blobs(...args) {
 				reads++;

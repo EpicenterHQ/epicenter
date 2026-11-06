@@ -9,19 +9,18 @@
  * rename. Changes come from the shell's watcher of that directory, which
  * listens from the moment the root opened (`watch`).
  *
- * A version is the file's Git blob id (ADR-0808). The shell names a note,
- * and any hidden file, by the blob id of its bytes, and an attachment by its
- * stamp, which this store turns into the blob id of its Git LFS pointer
- * through the stamp cache (`stamp-cache.ts`), hashing an attachment it has
- * not cached once. The cache is kept where the caller says (`hashes`),
+ * A version is the SHA-256 of the file's bytes (ADR-0824). The shell's
+ * listing says which it gives for each file: `sha256:` and the version of a
+ * small file it hashed, or `stamp:` and the stamp of a large one, which
+ * this store turns into its version through the stamp cache
+ * (`stamp-cache.ts`), hashing a file it has not cached once. The cache is kept where the caller says (`hashes`),
  * outside the folder (ADR-0822): an app's in its own data, the Epicenter
  * app's in the Epicenter folder's `.epicenter`. The raw commands carry bytes the generated bindings
  * cannot type: a read answers the stamp and the bytes as one `ArrayBuffer`,
  * split at the first NUL, and a write sends its bytes as the request body,
- * with the path and its expectation in headers (`absent`, `blob:` and a
- * note's blob id, or `stamp:` and an attachment's stamp, read and hashed
- * again right before it is replaced), and answers `stale` or the stamp that
- * landed.
+ * with the path and its expectation in headers (`absent`, or `sha256:` and
+ * the version the shell hashes again right before it replaces the file),
+ * and answers `stale` or the stamp that landed.
  *
  * Whatever the shell refuses, or a call that never reached it, is
  * `Unavailable`. Tauri 2 sends a call again when its custom-protocol request
@@ -29,19 +28,19 @@
  * then reads again and finds its own bytes.
  */
 
-import { ClientError, storedWithLfs } from '@epicenter/definition/contract';
+import { ClientError } from '@epicenter/definition/contract';
 import { invoke } from '@tauri-apps/api/core';
 import { Ok, type Result } from 'wellcrafted/result';
-import { blobIdOf, sha256Of } from '../hash.js';
+import { versionOf } from '../hash.js';
 import { commands, type Landing, type Root } from '../native/bindings.gen.js';
 import { createStampCache, type StampFile } from './stamp-cache.js';
 import {
-	type BlobId,
 	type Changed,
 	type FileRead,
 	type Store,
 	StoreError,
 	type Unavailable,
+	type Version,
 } from './store.js';
 
 /**
@@ -95,7 +94,7 @@ export function tauriStore({
 		if (separator < 0) throw new Error('The file response has no stamp');
 		const stamp = new TextDecoder().decode(response.subarray(0, separator));
 		const bytes = response.subarray(separator + 1);
-		return { path, bytes, version: await blobIdOf(path, bytes), stamp };
+		return { path, bytes, version: await versionOf(bytes), stamp };
 	}
 
 	/** Put `bytes` (null: remove) at `path` as the shell expects `expected`: the shell's answer. */
@@ -143,22 +142,27 @@ export function tauriStore({
 			try {
 				const files = [];
 				for (const { path, version, size } of listed.data) {
-					if (!storedWithLfs(path)) {
-						files.push({ path, version: version as BlobId, size });
+					const hashed = version.startsWith('sha256:')
+						? (version.slice('sha256:'.length) as Version)
+						: undefined;
+					if (hashed !== undefined) {
+						files.push({ path, version: hashed, size });
 						continue;
 					}
-					// An attachment comes with its stamp: its version is cached by it.
-					const stamped = { stamp: version, modifiedMs: modifiedMsOf(version) };
-					const hashed = await cache.version(path, stamped, async () => {
+					if (!version.startsWith('stamp:'))
+						throw new Error(
+							`${path} is listed by an unknown version, ${version}`,
+						);
+					// A large file comes with its stamp: its version is cached by it.
+					const stamp = version.slice('stamp:'.length);
+					const stamped = { stamp, modifiedMs: modifiedMsOf(stamp) };
+					const cached = await cache.version(path, stamped, async () => {
 						const file = await readOne(path);
 						if ('gone' in file)
 							throw new Error(`${path} went away while it was listed`);
-						return {
-							oid: await sha256Of(file.bytes),
-							size: file.bytes.byteLength,
-						};
+						return file.version;
 					});
-					files.push({ path, version: hashed, size });
+					files.push({ path, version: cached, size });
 				}
 				if (under.includes(''))
 					await cache.keepOnly(new Set(files.map(({ path }) => path)));
@@ -180,23 +184,13 @@ export function tauriStore({
 			path,
 			bytes,
 			expect,
-		): Promise<Result<BlobId | null, StoreError | Unavailable>> {
+		): Promise<Result<Version | null, StoreError | Unavailable>> {
 			try {
-				let expected = expect === null ? 'absent' : `blob:${expect}`;
-				if (expect !== null && storedWithLfs(path)) {
-					// An attachment is hashed again before a write replaces it, and
-					// the shell checks its stamp did not change since.
-					const there = await readOne(path);
-					if ('gone' in there || there.version !== expect)
-						return StoreError.Moved({
-							path,
-							now: 'gone' in there ? null : there.version,
-						});
-					expected = `stamp:${there.stamp}`;
-				}
+				// The shell hashes the file there again right before it replaces it.
+				const expected = expect === null ? 'absent' : `sha256:${expect}`;
 				const landing = await send(path, bytes, expected);
 				if (landing === 'stale') return moved(path);
-				return Ok(bytes === null ? null : await blobIdOf(path, bytes));
+				return Ok(bytes === null ? null : await versionOf(bytes));
 			} catch (cause) {
 				return unavailable(cause);
 			}

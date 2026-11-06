@@ -3,14 +3,14 @@
  * store that writes as ADR-0702 decides, without the desktop shell's
  * edge-case checks (the folder core's `storage.rs` stays the strict host).
  *
- * - A version is the file's Git blob id (ADR-0808): a note's (and any
- *   hidden file's) hashed from its bytes, an attachment's from its sha256,
+ * - A version is the SHA-256 of the file's bytes (ADR-0824): a file up to
+ *   `HASHED_WHOLE_BYTES` is hashed whole, and a larger one's version is
  *   kept by its stamp (its size, modification time in nanoseconds, and
  *   inode) in the hash cache the caller names (`hashes`; the Epicenter
  *   folder keeps one per directory, named by its identity), so a listing
  *   reads no recording it hashed before. A write lands only while its path
  *   holds the version its writer expects, checked right before the change,
- *   an attachment hashed again first. Its bytes are staged beside the
+ *   the file there hashed again first. Its bytes are staged beside the
  *   target in `.ep-<random>.save` (`saveName`), made exclusively with mode
  *   0600, so another program sees the old file or the new one, never part
  *   of either (ADR-0822). A replacement is renamed over the path, keeping
@@ -50,19 +50,19 @@ import {
 	writeFile,
 } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { ClientError, storedWithLfs } from '@epicenter/definition/contract';
+import { ClientError } from '@epicenter/definition/contract';
 import { Ok } from 'wellcrafted/result';
-import { blobIdOf, gitBlobId, sha256Of } from '../hash.js';
+import { HASHED_WHOLE_BYTES, versionOf } from '../hash.js';
 import { watchDirectory } from '../native/watch.js';
 import { createPathTurns } from '../path-turns.js';
 import { pathProblem, readablePath, writableExistingPath } from '../paths.js';
 import { isReservedName, LEGACY_DIRECTORY, saveName } from '../state.js';
 import { createStampCache, type StampFile } from './stamp-cache.js';
 import {
-	type BlobId,
 	type Listed,
 	type Store,
 	StoreError,
+	type Version,
 	within,
 } from './store.js';
 
@@ -77,10 +77,10 @@ const stampOf = (stats: BigIntStats) => ({
 	modifiedMs: Number(stats.mtimeNs / 1_000_000n),
 });
 
-/** The version the file at `target` (the folder's `path`) holds now, read and hashed whole; undefined when nothing is there. */
-async function versionAt(target: string, path: string) {
+/** The version the file at `target` holds now, read and hashed whole; undefined when nothing is there. */
+async function versionAt(target: string) {
 	try {
-		return await blobIdOf(path, new Uint8Array(await readFile(target)));
+		return await versionOf(new Uint8Array(await readFile(target)));
 	} catch (cause) {
 		const code = codeOf(cause);
 		if (code === 'ENOENT' || code === 'EISDIR') return undefined;
@@ -121,7 +121,7 @@ async function place(staged: string, target: string) {
 function refusal(
 	path: string,
 	bytes: Uint8Array | null,
-	expect: BlobId | null,
+	expect: Version | null,
 ) {
 	const problem = pathProblem(path);
 	if (problem === undefined) return undefined;
@@ -132,7 +132,7 @@ function refusal(
 }
 
 /** What a write at one path found: the version it landed, or what the path held instead. */
-type Landing = { landed: BlobId | null } | { moved: BlobId | null };
+type Landing = { landed: Version | null } | { moved: Version | null };
 
 /**
  * The hash cache kept in the file at `path`, written through a staged save
@@ -162,7 +162,7 @@ export function stampFileAt(path: string): StampFile {
 
 /**
  * The store of the existing directory at `root`. `hashes` is where it keeps
- * its attachments' hashes between runs; without one it keeps them for the
+ * its large files' versions between runs; without one it keeps them for the
  * store's life only.
  */
 export function nodeStore(
@@ -174,26 +174,25 @@ export function nodeStore(
 		file: file ?? { load: async () => null, save: async () => {} },
 	});
 
-	/** Land `bytes` at `target` (the folder's `path`) over `expect`, staged beside it. */
+	/** Land `bytes` at `target` over `expect`, staged beside it. */
 	async function save(
 		target: string,
-		path: string,
 		bytes: Uint8Array,
-		expect: BlobId | null,
+		expect: Version | null,
 	): Promise<Landing> {
 		const staged = join(dirname(target), saveName());
-		const landed = await blobIdOf(path, bytes);
+		const landed = await versionOf(bytes);
 		try {
 			await mkdir(dirname(target), { recursive: true });
 			await writeFile(staged, bytes, { flag: 'wx', mode: 0o600 });
 			return await turns.run(target, async (): Promise<Landing> => {
-				const now = (await versionAt(target, path)) ?? null;
+				const now = (await versionAt(target)) ?? null;
 				if (now !== expect) return { moved: now };
 				if (expect !== null) {
 					await chmod(staged, (await stat(target)).mode & 0o777);
 					await rename(staged, target);
 				} else if ((await place(staged, target)) === 'stale')
-					return { moved: (await versionAt(target, path)) ?? null };
+					return { moved: (await versionAt(target)) ?? null };
 				return { landed };
 			});
 		} finally {
@@ -207,12 +206,12 @@ export function nodeStore(
 			const stats = await lstat(at, { bigint: true });
 			if (!stats.isFile()) return undefined;
 			const read = async () => new Uint8Array(await readFile(at));
-			const version = storedWithLfs(path)
-				? await hashes.version(path, stampOf(stats), async () => {
-						const bytes = await read();
-						return { oid: await sha256Of(bytes), size: bytes.byteLength };
-					})
-				: await gitBlobId(await read());
+			const version =
+				stats.size > BigInt(HASHED_WHOLE_BYTES)
+					? await hashes.version(path, stampOf(stats), async () =>
+							versionOf(await read()),
+						)
+					: await versionOf(await read());
 			return { path, version, size: Number(stats.size) } satisfies Listed;
 		} catch (cause) {
 			if (codeOf(cause) === 'ENOENT') return undefined;
@@ -256,7 +255,7 @@ export function nodeStore(
 			const stats = await file.stat({ bigint: true });
 			if (!stats.isFile()) return { path, gone: true as const };
 			const bytes = new Uint8Array(await file.readFile());
-			return { path, bytes, version: await blobIdOf(path, bytes) };
+			return { path, bytes, version: await versionOf(bytes) };
 		} finally {
 			await file.close();
 		}
@@ -315,9 +314,9 @@ export function nodeStore(
 			try {
 				landing =
 					bytes !== null
-						? await save(target, path, bytes, expect)
+						? await save(target, bytes, expect)
 						: await turns.run(target, async (): Promise<Landing> => {
-								const now = (await versionAt(target, path)) ?? null;
+								const now = (await versionAt(target)) ?? null;
 								if (now !== expect) return { moved: now };
 								if (now !== null) await rm(target);
 								return { landed: null };

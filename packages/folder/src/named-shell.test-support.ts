@@ -19,14 +19,12 @@
 import * as nodeFs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import {
-	type ClientError,
-	storedWithLfs,
-} from '@epicenter/definition/contract';
+import type { ClientError } from '@epicenter/definition/contract';
 import type { InferError } from 'wellcrafted/error';
 import type { Result } from 'wellcrafted/result';
 import { nodeStore } from './device/node-store.js';
-import type { BlobId, Store } from './device/store.js';
+import type { Store, Version } from './device/store.js';
+import { HASHED_WHOLE_BYTES } from './hash.js';
 import type {
 	FolderError,
 	Root,
@@ -133,17 +131,19 @@ export function createNamedShell(roots: { Data: string; AppData?: string }) {
 				'',
 				store.list(args.under as string[]),
 			);
-			// The shell names an attachment by its stamp, and anything else by its blob id.
+			// The shell names a large file by its stamp, and a small one by its SHA-256.
 			return Promise.all(
-				listed.map(async (file) =>
-					storedWithLfs(file.path)
-						? {
-								...file,
-								version:
-									(await stampAt(join(directory, file.path))) ?? file.version,
-							}
-						: file,
-				),
+				listed.map(async (file) => {
+					const stamp =
+						(file.size ?? 0) > HASHED_WHOLE_BYTES
+							? await stampAt(join(directory, file.path))
+							: undefined;
+					return {
+						...file,
+						version:
+							stamp === undefined ? `sha256:${file.version}` : `stamp:${stamp}`,
+					};
+				}),
 			);
 		},
 		async read_folder_file(args) {
@@ -182,18 +182,18 @@ export function createNamedShell(roots: { Data: string; AppData?: string }) {
 			const { store, path: directory } = rootFor(args);
 			const [there] = await answered('read', path, store.read([path]));
 			const now = there === undefined || 'gone' in there ? null : there.version;
-			// `absent`, `blob:<id>`, `stamp:<stamp>` (checked against the file's stamp), or `any`.
-			let expect: BlobId | null;
+			// `absent`, `sha256:<version>`, `stamp:<stamp>` (checked against the file's stamp), or `any`.
+			let expect: Version | null;
 			if (expected === 'absent') expect = null;
 			else if (expected === 'any') expect = now;
-			else if (expected.startsWith('blob:'))
-				expect = expected.slice(5) as BlobId;
+			else if (expected.startsWith('sha256:'))
+				expect = expected.slice(7) as Version;
 			else if (expected.startsWith('stamp:'))
 				expect =
 					(await stampAt(join(directory, path))) === expected.slice(6) &&
 					now !== null
 						? now
-						: ('0'.repeat(40) as BlobId);
+						: ('0'.repeat(64) as Version);
 			else
 				throw {
 					name: 'Io',

@@ -97,29 +97,14 @@ pub enum PutOutcome {
 }
 
 /// What a put answers the page: the stamp of the file that
-/// landed (empty for a removal), which names an attachment's version, or
-/// `stale` when the path held something else and nothing changed.
+/// landed (empty for a removal), or `stale` when the path held something
+/// else and nothing changed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
 #[serde(rename_all = "lowercase")]
 pub enum Landing {
     Landed(String),
     Stale,
 }
-
-/// Whether a listing names the file at `path` by the Git blob id of its
-/// bytes (a note, `.md` in any case, a hidden file, or the folder's contract,
-/// `epicenter.json` at its root, which is stored as it is) rather than by its
-/// stamp (an attachment, whose version the page derives from its hash,
-/// cached by that stamp): the opposite of `storedWithLfs` in
-/// `@epicenter/definition`, held to it by `fixtures/path-rules.json`.
-pub fn versioned_by_content(path: &str) -> bool {
-    (path.len() >= 3 && path[path.len() - 3..].eq_ignore_ascii_case(".md"))
-        || crate::paths::is_hidden_path(path)
-        || path == CONTRACT_PATH
-}
-
-/// The folder's contract, at its root: stored as it is, never as a pointer.
-pub const CONTRACT_PATH: &str = "epicenter.json";
 
 /// The bytes and stamp of one opened file.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -152,11 +137,10 @@ fn stamp_of(metadata: &fs::Metadata) -> io::Result<String> {
 pub enum Expectation {
     /// Nothing at all is there: a create.
     Absent,
-    /// A regular file whose bytes have this Git blob id (ADR-0808): a note's
-    /// version, or a hidden file's.
-    Blob(String),
-    /// A regular file whose stamp (`stamp_of`) is this: an attachment's
-    /// version, which names it without reading its bytes.
+    /// A regular file whose bytes have this SHA-256 (ADR-0824): its version.
+    Sha256(String),
+    /// A regular file whose stamp (`stamp_of`) is this, which names it
+    /// without reading its bytes.
     Stamp(String),
     /// Whatever regular file is there, or nothing: a replacement by the
     /// path's only writer, such as the shell writing this computer's
@@ -165,8 +149,8 @@ pub enum Expectation {
 }
 
 impl Expectation {
-    /// The page's `expected` header: `absent`, `blob:` and a lowercase
-    /// hexadecimal Git blob id, or `stamp:` and a stamp. Each case has its own
+    /// The page's `expected` header: `absent`, `any`, `sha256:` and a
+    /// lowercase hexadecimal version, or `stamp:` and a stamp. Each case has its own
     /// spelling, so a hash is never read as a keyword, nor a keyword as a
     /// hash.
     pub fn parse(value: &str) -> Result<Self, String> {
@@ -178,27 +162,26 @@ impl Expectation {
         match value {
             "absent" => Ok(Self::Absent),
             "any" => Ok(Self::Any),
-            _ => match value.strip_prefix("blob:") {
+            _ => match value.strip_prefix("sha256:") {
                 Some(hash)
-                    if hash.len() == 40
+                    if hash.len() == 64
                         && hash
                             .bytes()
                             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)) =>
                 {
-                    Ok(Self::Blob(hash.to_string()))
+                    Ok(Self::Sha256(hash.to_string()))
                 }
                 _ => Err(format!(
-                    "expected is {value:?}, not absent, any, blob: and a Git blob id, or stamp: and a stamp"
+                    "expected is {value:?}, not absent, any, sha256: and a version, or stamp: and a stamp"
                 )),
             },
         }
     }
 }
 
-/// One regular file in a listing: its version as the page names it (a
-/// note's or hidden file's Git blob id, an attachment's stamp:
-/// `versioned_by_content`), and its
-/// size in bytes.
+/// One regular file in a listing: `sha256:` and its version, for a file up
+/// to `HASHED_WHOLE_BYTES`, or `stamp:` and its stamp, for a larger one,
+/// which the page names through its stamp cache; and its size in bytes.
 #[derive(Debug, Clone, PartialEq, Serialize, Type)]
 pub struct ListedFile {
     pub path: String,
@@ -385,9 +368,8 @@ fn spelled_by_listing(root: &Path, names: &[&str]) -> io::Result<bool> {
 /// path; empty is the whole root), `.git` and an older build's `.epicenter`
 /// at the root aside, and never a reserved name (`state::is_reserved`, a
 /// save or a recording in progress) at any depth, without following a link,
-/// each with its version (`versioned_by_content`: a note or a hidden file is
-/// read and hashed as a Git blob, an attachment named by its stamp) and
-/// size. Other hidden files are listed; whoever reads the listing skips them
+/// each with its version (a file up to `HASHED_WHOLE_BYTES` read and hashed
+/// whole, a larger one named by its stamp: `ListedFile`) and size. Other hidden files are listed; whoever reads the listing skips them
 /// (`isHiddenPath`). A name that is not text
 /// is left out, and so is a path asked for that is not readable or passes
 /// through a link. A file or directory removed during the walk is not
@@ -404,14 +386,14 @@ pub fn list(root: &Path, under: &[String]) -> Result<Vec<ListedFile>, StorageErr
         if !metadata.is_file() {
             return Ok(None);
         }
-        let version = if versioned_by_content(&path) {
-            match crate::blob::file_blob_id(at) {
-                Ok(hash) => hash,
+        let version = if metadata.len() <= crate::version::HASHED_WHOLE_BYTES {
+            match crate::version::file_version(at) {
+                Ok(hash) => format!("sha256:{hash}"),
                 Err(cause) if cause.kind() == ErrorKind::NotFound => return Ok(None),
                 Err(cause) => return Err(cause),
             }
         } else {
-            stamp_of(&metadata)?
+            format!("stamp:{}", stamp_of(&metadata)?)
         };
         Ok(Some(ListedFile {
             path,
@@ -551,8 +533,8 @@ fn holds(target: &Path, expected: &Expectation) -> io::Result<bool> {
         (Expectation::Any, None) => Ok(true),
         (Expectation::Any, Some(metadata)) => Ok(metadata.is_file()),
         (Expectation::Absent, found) => Ok(found.is_none()),
-        (Expectation::Blob(hash), Some(metadata)) if metadata.is_file() => {
-            Ok(crate::blob::file_blob_id(target)? == *hash)
+        (Expectation::Sha256(hash), Some(metadata)) if metadata.is_file() => {
+            Ok(crate::version::file_version(target)? == *hash)
         }
         (Expectation::Stamp(stamp), Some(metadata)) if metadata.is_file() => {
             Ok(stamp_of(&metadata)? == *stamp)

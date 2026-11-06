@@ -7,8 +7,8 @@
  *
  *   - the `db` leg   a module-scope `pg.Pool` over `DATABASE_URL`, drained
  *                    fire-and-forget in the live process (no `waitUntil`)
- *   - hosted Git     bare repositories on disk under `GIT_STORE_ROOT`, and
- *                    Git LFS objects under `LFS_STORE_ROOT`
+ *   - folders        each one's log in the same Postgres, and its bytes over
+ *                    16 KiB on disk under `BLOB_STORE_ROOT`
  *
  * This is additive: `wrangler dev`/`deploy` still serve the Worker unchanged.
  * `bun --watch server.ts` boots instantly with real stack traces. This entry is
@@ -20,8 +20,8 @@
  * auth layer, the inference and Git mounts, `Bun.serve`) is this app's
  * composition to own. The library ships the parts.
  *
- * Runtime skew is fenced by design: Worker-only behavior (Hyperdrive,
- * Artifacts, edge placement) will not surface here, so `wrangler dev` /
+ * Runtime skew is fenced by design: Worker-only behavior (Hyperdrive, R2,
+ * edge placement) will not surface here, so `wrangler dev` /
  * staging stays the fidelity gate before any deploy touching runtime behavior.
  *
  * The authorization server's pages (sign-in, consent, device) are the built
@@ -47,11 +47,10 @@ import {
 	type CloudEnv,
 	createCloudContextMiddleware,
 	createDb,
-	createDiskGitHost,
-	createDiskLfsStore,
+	createDiskBlobStore,
 	createServerApp,
 	mountAuthRoutes,
-	mountGitHost,
+	mountFolders,
 	mountInferenceApp,
 	mountTranscriptionApp,
 	type OAuthScope,
@@ -86,11 +85,9 @@ const ApiBunBindings = ServerBindings.merge(CloudAuthBindings).merge({
 	DATABASE_URL: 'string',
 	'PORT?': 'string',
 	'API_PUBLIC_ORIGIN?': 'string',
-	// Where hosted Git keeps its bare repositories. Unset, Git answers 503.
-	'GIT_STORE_ROOT?': 'string',
-	// Where Git LFS objects live, by repository. Unset, the LFS routes and
-	// web writes of files other than notes answer 503.
-	'LFS_STORE_ROOT?': 'string',
+	// Where folders' bytes over 16 KiB live. Unset, an upload of them answers
+	// 503; smaller bytes live in Postgres either way.
+	'BLOB_STORE_ROOT?': 'string',
 	// The built authorization pages (`apps/api/ui`'s `build`), by default
 	// beside this file at `ui/build`.
 	'API_UI_DIR?': 'string',
@@ -224,29 +221,22 @@ export async function startBunApiServer(): Promise<void> {
 	// its operation needs (ADR-0549).
 	const resource = (audience: 'api' | 'git', scope: OAuthScope) =>
 		every(cloudContext, requireAccessToken({ audience, scope }));
-	// Hosted Git (ADR-0546) keeps bare repositories on disk under
-	// GIT_STORE_ROOT: clone and fetch through `git http-backend`, pushes
-	// through the receiver, web writes through the translator. Git LFS
-	// objects live under LFS_STORE_ROOT. Unset, the routes stay in the
-	// shared profile and answer 503 `git_unavailable`.
-	const gitHost = env.GIT_STORE_ROOT
-		? createDiskGitHost({ root: env.GIT_STORE_ROOT })
-		: null;
-	const lfsStore = env.LFS_STORE_ROOT
-		? createDiskLfsStore({ root: env.LFS_STORE_ROOT })
+	// Folders (ADR-0824): each one's log in this Postgres, and its bytes over
+	// 16 KiB on disk under BLOB_STORE_ROOT.
+	const blobs = env.BLOB_STORE_ROOT
+		? createDiskBlobStore({ root: env.BLOB_STORE_ROOT })
 		: null;
 	// Cloudflare's edge compresses the Worker's JSON replies; this host has
-	// no edge, so it compresses the repository's own: the listing and reads
+	// no edge, so it compresses the folders' own: the listing and reads
 	// a web page takes at connect are megabytes of notes uncompressed.
-	// Hono's content-type filter leaves Git packs and LFS objects as sent.
+	// Hono's content-type filter leaves a folder's bytes as sent.
 	app.use(
 		`${new URL(audiences.git).pathname.replace(/\/$/, '')}/*`,
 		compress(),
 	);
-	mountGitHost(app, {
+	mountFolders(app, {
 		setup: cloudContext,
-		resolveHost: () => gitHost,
-		resolveLfs: () => lfsStore,
+		resolveBlobs: () => blobs,
 	});
 	mountInferenceApp(app, { auth: resource('api', 'ai') });
 	// The STT sibling of the inference gateway, on the same house key. Unmetered

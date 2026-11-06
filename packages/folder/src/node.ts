@@ -40,6 +40,8 @@ export {
 } from './device/node-root.js';
 /** The store of a directory on this computer: what `epicenter sync` syncs. */
 export { nodeStore } from './device/node-store.js';
+/** Why a path cannot be a file on every disk, or undefined: what an import skips. */
+export { pathProblem } from './paths.js';
 
 /**
  * The directory at `path`, made with its missing parents when a folder
