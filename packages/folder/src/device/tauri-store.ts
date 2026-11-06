@@ -42,6 +42,17 @@ import {
 	type Unavailable,
 } from './store.js';
 
+/**
+ * A root as a raw request's `root` header spells it: `Data`, `AppData`, or
+ * `Folder/<name>` for a folder in the Epicenter folder (`Root::header` in
+ * the plugin).
+ */
+export const rootHeader = (root: Root) =>
+	typeof root === 'string' ? root : `Folder/${root.Folder}`;
+
+/** Whether `a` and `b` name one root. */
+export const sameRoot = (a: Root, b: Root) => rootHeader(a) === rootHeader(b);
+
 /** The modification time in a shell stamp (`v1:<size>:<nanoseconds>[:<device>:<inode>]`), in milliseconds. */
 const modifiedMsOf = (stamp: string) =>
 	Number(BigInt(stamp.split(':')[2] ?? '0') / 1_000_000n);
@@ -94,7 +105,7 @@ export function tauriStore({
 			{
 				headers: {
 					path: encodeURIComponent(path),
-					root: encodeURIComponent(root),
+					root: encodeURIComponent(rootHeader(root)),
 					remove: String(bytes === null),
 					expected: encodeURIComponent(expected),
 				},

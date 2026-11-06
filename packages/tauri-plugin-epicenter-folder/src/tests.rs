@@ -746,7 +746,7 @@ fn write(
 fn git(window: &WebviewWindow<MockRuntime>, args: &[&str]) -> Result<String, String> {
     let directory = window
         .roots()
-        .opened(Root::Data)
+        .opened(&Root::Data)
         .map_err(|refusal| format!("{refusal:?}"))?;
     let output = std::process::Command::new("git")
         .args(["-c", "user.name=Test", "-c", "user.email=test@example.com"])

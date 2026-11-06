@@ -118,7 +118,7 @@ fn fixture_with_access(access: fn() -> crate::recorder::Result<()>) -> Fixture {
         .build(context())
         .expect("mock app");
     app.roots().name(Root::Data, root.clone(), |_| None);
-    app.roots().open(Root::Data).unwrap();
+    app.roots().open(&Root::Data).unwrap();
     // Named but never opened.
     app.roots()
         .name(Root::AppData, root.with_file_name("app-data"), |_| None);
@@ -471,7 +471,7 @@ fn permission_granted_after_exit_finalization_resolves_no_device() {
 fn start_and_recover_use_data_even_when_app_data_is_open() {
     let fixture = fixture();
     let main = window(&fixture.app, "main");
-    fixture.app.roots().open(Root::AppData).unwrap();
+    fixture.app.roots().open(&Root::AppData).unwrap();
     assert_eq!(
         invoke(&main, "recover", json!({ "under": "recordings" })).unwrap(),
         json!({ "recovered": [], "unplaced": [] })

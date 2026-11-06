@@ -26,6 +26,7 @@ use serde::Serialize;
 use specta::Type;
 use tauri::{Emitter, Manager, Runtime, Webview};
 
+use crate::roots::{EpicenterEntry, EpicenterListing};
 use crate::{Directory, FolderEvent, Root, RootError, Roots};
 
 /// Run blocking work off the window thread.
@@ -68,12 +69,12 @@ impl From<StorageError> for FolderError {
 const CREDENTIALS: &str = "credentials.json";
 
 /// Whether `path` in `root` is the shell's own credentials.
-fn is_credentials(root: Root, path: &str) -> bool {
-    root == Root::AppData && path == CREDENTIALS
+fn is_credentials(root: &Root, path: &str) -> bool {
+    *root == Root::AppData && path == CREDENTIALS
 }
 
 /// Refuse the shell's own credentials to a page.
-fn refuse_credentials(root: Root, path: &str) -> Result<(), StorageError> {
+fn refuse_credentials(root: &Root, path: &str) -> Result<(), StorageError> {
     if !is_credentials(root, path) {
         return Ok(());
     }
@@ -102,19 +103,20 @@ fn failed(path: &str, operation: &str, message: String) -> StorageError {
 #[specta::specta]
 pub async fn open_root<R: Runtime>(webview: Webview<R>, root: Root) -> Result<String, RootError> {
     let app = webview.app_handle().clone();
-    let folder = webview.state::<Roots>().path(root)?.display().to_string();
+    let folder = webview.state::<Roots>().path(&root)?.display().to_string();
     let lost_folder = folder.clone();
     blocking(
         move || {
             let roots = app.state::<Roots>();
-            let directory = roots.open(root)?;
+            let directory = roots.open(&root)?;
             storage::sweep_stale_scratch(directory.root());
             let events = app.clone();
-            roots.watch(root, &directory, move |change| {
+            let event_root = root.clone();
+            roots.watch(&root, &directory, move |change| {
                 if let Err(error) = events.emit(
                     "folder-changed",
                     FolderEvent {
-                        root,
+                        root: event_root.clone(),
                         paths: change.paths,
                     },
                 ) {
@@ -138,7 +140,7 @@ pub async fn open_root<R: Runtime>(webview: Webview<R>, root: Root) -> Result<St
 #[tauri::command]
 #[specta::specta]
 pub async fn reveal_root<R: Runtime>(webview: Webview<R>, root: Root) -> Result<(), RootError> {
-    let path = webview.state::<Roots>().path(root)?;
+    let path = webview.state::<Roots>().path(&root)?;
     let folder = path.display().to_string();
     let lost_folder = folder.clone();
     blocking(
@@ -239,7 +241,7 @@ fn reveal_location(path: &Path) -> &Path {
 
 /// The folder `root` reached when the app opened it, for one command
 /// (`Roots::opened`).
-fn opened<R: Runtime>(webview: &Webview<R>, root: Root) -> Result<Directory, FolderError> {
+fn opened<R: Runtime>(webview: &Webview<R>, root: &Root) -> Result<Directory, FolderError> {
     Ok(webview.state::<Roots>().opened(root)?)
 }
 
@@ -254,11 +256,11 @@ pub async fn list_folder<R: Runtime>(
     root: Root,
     under: Vec<String>,
 ) -> Result<Vec<ListedFile>, FolderError> {
-    let directory = opened(&webview, root)?;
+    let directory = opened(&webview, &root)?;
     blocking(
         move || {
             let mut listing = storage::list(directory.root(), &under)?;
-            listing.retain(|file| !is_credentials(root, &file.path));
+            listing.retain(|file| !is_credentials(&root, &file.path));
             Ok(listing)
         },
         |message| Err(failed("", "list", message).into()),
@@ -278,8 +280,8 @@ pub async fn read_folder_file<R: Runtime>(
     path: String,
     root: Root,
 ) -> Result<tauri::ipc::Response, FolderError> {
-    refuse_credentials(root, &path)?;
-    let directory = opened(&webview, root)?;
+    refuse_credentials(&root, &path)?;
+    let directory = opened(&webview, &root)?;
     let at = path.clone();
     blocking(
         move || storage::read(directory.root(), &path).map_err(FolderError::from),
@@ -300,7 +302,8 @@ pub async fn read_folder_file<R: Runtime>(
 ///
 /// The bytes are the request's raw body, so file content crosses IPC as it
 /// is rather than as a JSON array of numbers. Percent-encoded headers carry
-/// the rest: `path`, `root` (`Data` or `AppData`), `remove` (`true` to
+/// the rest: `path`, `root` (`Data`, `AppData`, or `Folder/<name>`:
+/// `Root::header`), `remove` (`true` to
 /// remove the file, when the body is ignored), and `expected`, the version
 /// the page read there (`absent` for a create, `blob:` and the Git blob id of a note or
 /// hidden file, or `stamp:` and the stamp of an attachment: `storage::Expectation`). A JSON array of bytes is accepted
@@ -356,9 +359,9 @@ pub async fn put_folder_file<R: Runtime>(
             })?)
         }
     };
-    refuse_credentials(root, &path)?;
+    refuse_credentials(&root, &path)?;
     let operation = if remove { "remove" } else { "write" };
-    let directory = opened(&webview, root)?;
+    let directory = opened(&webview, &root)?;
     let at = path.clone();
     blocking(
         move || {
@@ -377,5 +380,49 @@ pub(crate) fn named<R: Runtime>(
     root: Root,
 ) -> Result<(Directory, PathBuf), RootError> {
     let roots = webview.state::<Roots>();
-    Ok((roots.opened(root)?, roots.path(root)?))
+    Ok((roots.opened(&root)?, roots.path(&root)?))
+}
+
+/// The Epicenter folder's listing (ADR-0813): every directory directly
+/// inside it, links followed, hidden names skipped, each with its name (its
+/// root is `Root::Folder(name)`) and its identity, and what is there but
+/// cannot be a folder, with why. The folder is made when it is missing.
+#[tauri::command]
+#[specta::specta]
+pub async fn list_epicenter<R: Runtime>(
+    webview: Webview<R>,
+) -> Result<EpicenterListing, RootError> {
+    let app = webview.app_handle().clone();
+    blocking(
+        move || app.state::<Roots>().list_epicenter(),
+        |message| {
+            Err(RootError::Unavailable {
+                folder: String::new(),
+                message,
+            })
+        },
+    )
+    .await
+}
+
+/// Make the directory `name` in the Epicenter folder, for a folder cloned or
+/// accepted into it: refused when anything has that name, or the name is not
+/// one every disk keeps. It opens as `Root::Folder(name)`.
+#[tauri::command]
+#[specta::specta]
+pub async fn make_epicenter_folder<R: Runtime>(
+    webview: Webview<R>,
+    name: String,
+) -> Result<EpicenterEntry, RootError> {
+    let app = webview.app_handle().clone();
+    blocking(
+        move || app.state::<Roots>().make_epicenter_folder(&name),
+        |message| {
+            Err(RootError::Unavailable {
+                folder: String::new(),
+                message,
+            })
+        },
+    )
+    .await
 }

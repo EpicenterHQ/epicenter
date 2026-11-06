@@ -31,7 +31,7 @@ use crate::{refresh_capturing, Recorders};
 fn opened_root<R: Runtime>(webview: &Webview<R>) -> Result<PathBuf> {
     webview
         .roots()
-        .opened(Root::Data)
+        .opened(&Root::Data)
         .map(|directory| directory.root().to_path_buf())
         .map_err(|refusal| RecorderError::refused(refusal.to_string()))
 }

@@ -2,7 +2,11 @@
 //!
 //! At startup the shell names each root it has, `Root::Data` and
 //! `Root::AppData`, with its path and the rule that refuses a location it
-//! must never be (`Roots::name`). A page names a root, never a path. Opening
+//! must never be (`Roots::name`). The Epicenter app names the Epicenter
+//! folder instead of a Data root (`Roots::name_epicenter`, ADR-0813), and
+//! each directory directly in it is a root of its own, `Root::Folder(name)`,
+//! which a link there joins from wherever it lives. A page names a root,
+//! never a path. Opening
 //! a root opens whatever is at its path, following a link there, and makes
 //! the folder when nothing is there (ADR-0726); a link whose target is gone
 //! is `Disconnected`, and nothing is made. Every storage command names an
@@ -19,7 +23,8 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use epicenter_folder_core::admission::resolved;
+use epicenter_folder_core::admission::{is_reserved_directory, resolved};
+use epicenter_folder_core::paths::{path_problem, readable_path_problem};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use tauri::{Manager, Runtime};
@@ -28,7 +33,7 @@ use crate::watch::{FolderChanged, FolderWatch};
 use crate::Directory;
 
 /// A root an app reaches by name.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
 pub enum Root {
     /// The person's files: `<library root>/<name>`, which the app's site
     /// names (ADR-0722), such as `~/Epicenter/whispering`.
@@ -36,14 +41,33 @@ pub enum Root {
     /// The operating system's application data directory for this app:
     /// machine-local settings, never synced.
     AppData,
+    /// The directory `name` directly inside the Epicenter folder, which the
+    /// Epicenter app names (`Roots::name_epicenter`): one of the person's
+    /// folders, followed through a link there to wherever it lives.
+    Folder(String),
 }
 
 impl fmt::Display for Root {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(match self {
-            Self::Data => "Data",
-            Self::AppData => "AppData",
-        })
+        match self {
+            Self::Data => formatter.write_str("Data"),
+            Self::AppData => formatter.write_str("AppData"),
+            Self::Folder(name) => formatter.write_str(name),
+        }
+    }
+}
+
+/// The prefix of a folder root in a raw request's `root` header.
+const FOLDER_HEADER: &str = "Folder/";
+
+impl Root {
+    /// The root as a raw request's `root` header spells it: `Data`,
+    /// `AppData`, or `Folder/<name>` (`FromStr` reads it back).
+    pub fn header(&self) -> String {
+        match self {
+            Self::Folder(name) => format!("{FOLDER_HEADER}{name}"),
+            other => other.to_string(),
+        }
     }
 }
 
@@ -54,8 +78,76 @@ impl FromStr for Root {
         match name {
             "Data" => Ok(Self::Data),
             "AppData" => Ok(Self::AppData),
-            other => Err(format!("{other:?} is not a root: Data or AppData")),
+            other => match other.strip_prefix(FOLDER_HEADER) {
+                Some(folder) if !folder.is_empty() => Ok(Self::Folder(folder.to_string())),
+                _ => Err(format!(
+                    "{other:?} is not a root: Data, AppData, or Folder/<name>"
+                )),
+            },
         }
+    }
+}
+
+/// Why `name` cannot be a folder's name in the Epicenter folder: one plain
+/// segment, not hidden, that the shared path rule reads. `None` when it can.
+pub fn folder_name_problem(name: &str) -> Option<&'static str> {
+    if name.contains('/') {
+        return Some("a folder's name is one segment, without a slash");
+    }
+    if name.starts_with('.') {
+        return Some("a hidden name is not a folder");
+    }
+    readable_path_problem(name)
+}
+
+/// A directory's identity on this computer (its device and inode), which a
+/// folder's manifest records so a copy is told apart from a move (ADR-0811):
+/// `rootIdentity` in `@epicenter/folder/node` reads the same two numbers.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+pub struct RootIdentity {
+    pub device: String,
+    pub inode: String,
+}
+
+/// One directory directly inside the Epicenter folder.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+pub struct EpicenterEntry {
+    /// Its name there, the person's own label for it, and its root's name.
+    pub name: String,
+    /// Its identity now, its link followed; null where the system has none.
+    pub identity: Option<RootIdentity>,
+}
+
+/// Something in the Epicenter folder that is not a folder it can open, and why.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+pub struct Unreadable {
+    pub name: String,
+    pub reason: String,
+}
+
+/// The Epicenter folder's listing: where it is, as a person reads it, its
+/// folders by name, and what is there but could not be read.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+pub struct EpicenterListing {
+    pub path: String,
+    pub folders: Vec<EpicenterEntry>,
+    pub unreadable: Vec<Unreadable>,
+}
+
+/// The identity of the directory `metadata` describes.
+fn identity_of(metadata: &fs::Metadata) -> Option<RootIdentity> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        Some(RootIdentity {
+            device: metadata.dev().to_string(),
+            inode: metadata.ino().to_string(),
+        })
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = metadata;
+        None
     }
 }
 
@@ -84,7 +176,10 @@ pub enum RootError {
 impl fmt::Display for RootError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Invalid { root } => write!(formatter, "{root:?} is not a root: Data or AppData"),
+            Self::Invalid { root } => write!(
+                formatter,
+                "{root:?} is not a root: Data, AppData, or Folder/<name>"
+            ),
             Self::NotNamed { root } => write!(formatter, "This app has no {root} folder."),
             Self::NotOpen { root } => write!(formatter, "The {root} folder is not open."),
             Self::Disconnected { folder, target } => {
@@ -112,13 +207,59 @@ pub struct Roots {
 #[derive(Default)]
 struct State {
     named: HashMap<Root, Named>,
+    /// The Epicenter folder, whose directories are `Root::Folder` roots.
+    epicenter: Option<Named>,
     opened: HashMap<Root, Opened>,
     stopped: bool,
 }
 
+#[derive(Clone)]
 struct Named {
     path: PathBuf,
     refusal: Refusal,
+}
+
+impl State {
+    /// Where `root` is and what refuses its location: a named root, or a
+    /// directory of the Epicenter folder, which may be neither the Epicenter
+    /// folder nor a folder holding it, nor inside a `.git` or `.epicenter`.
+    fn named(&self, root: &Root) -> Result<Named, RootError> {
+        let Root::Folder(name) = root else {
+            return self.named.get(root).cloned().ok_or(RootError::NotNamed {
+                root: root.clone(),
+            });
+        };
+        let epicenter = self.epicenter.as_ref().ok_or(RootError::NotNamed {
+            root: root.clone(),
+        })?;
+        let path = epicenter.path.join(name);
+        if let Some(problem) = folder_name_problem(name) {
+            return Err(RootError::Refused {
+                folder: path.display().to_string(),
+                reason: format!("{name:?} is not a folder's name: {problem}."),
+            });
+        }
+        let outer = epicenter.refusal.clone();
+        let holder = epicenter.path.clone();
+        Ok(Named {
+            path,
+            refusal: Arc::new(move |location: &Path| {
+                if resolved(&holder).starts_with(location) {
+                    return Some(format!(
+                        "{} holds every Epicenter folder, so it cannot be one.",
+                        location.display()
+                    ));
+                }
+                if is_reserved_directory(location) {
+                    return Some(format!(
+                        "{} is inside a .git or .epicenter folder, so it cannot be a folder.",
+                        location.display()
+                    ));
+                }
+                outer(location)
+            }),
+        })
+    }
 }
 
 /// A root that opened: the folder its path reached and its native watch.
@@ -160,7 +301,7 @@ impl Roots {
         let replaced = {
             let mut state = self.state();
             state.named.insert(
-                root,
+                root.clone(),
                 Named {
                     path,
                     refusal: Arc::new(refusal),
@@ -171,36 +312,176 @@ impl Roots {
         drop(replaced);
     }
 
-    /// The path the shell named `root` at, as a person reads it: what the
-    /// page shows, and what a link to Epicenter names.
-    pub fn path(&self, root: Root) -> Result<PathBuf, RootError> {
+    /// Name the Epicenter folder at `path` (ADR-0813): each directory
+    /// directly inside it is the root `Root::Folder(<its name>)`, refused
+    /// at any location `refusal` names a reason for, as a named root's is.
+    pub fn name_epicenter(
+        &self,
+        path: PathBuf,
+        refusal: impl Fn(&Path) -> Option<String> + Send + Sync + 'static,
+    ) {
+        let replaced: Vec<Opened> = {
+            let mut state = self.state();
+            state.epicenter = Some(Named {
+                path,
+                refusal: Arc::new(refusal),
+            });
+            let folders: Vec<Root> = state
+                .opened
+                .keys()
+                .filter(|root| matches!(root, Root::Folder(_)))
+                .cloned()
+                .collect();
+            folders
+                .iter()
+                .filter_map(|root| state.opened.remove(root))
+                .collect()
+        };
+        drop(replaced);
+    }
+
+    /// The Epicenter folder's path as a person reads it.
+    fn epicenter_path(&self) -> Result<PathBuf, RootError> {
         let state = self.state();
         state.running()?;
         state
-            .named
-            .get(&root)
+            .epicenter
+            .as_ref()
             .map(|named| named.path.clone())
-            .ok_or(RootError::NotNamed { root })
+            .ok_or(RootError::NotNamed {
+                root: Root::Folder(String::new()),
+            })
+    }
+
+    /// Every directory directly inside the Epicenter folder, made when it is
+    /// missing: links followed, hidden names skipped, by name, each with its
+    /// identity; and what is there but cannot be a folder, with why. Blocks
+    /// on the disk.
+    pub fn list_epicenter(&self) -> Result<EpicenterListing, RootError> {
+        let base = self.epicenter_path()?;
+        let shown = base.display().to_string();
+        let unavailable = |message: String| RootError::Unavailable {
+            folder: shown.clone(),
+            message,
+        };
+        if let Some(target) = dangling_target(&base) {
+            return Err(RootError::Disconnected {
+                folder: shown,
+                target: target.display().to_string(),
+            });
+        }
+        fs::create_dir_all(&base)
+            .map_err(|cause| unavailable(format!("the folder could not be made: {cause}")))?;
+        let mut names: Vec<String> = fs::read_dir(&base)
+            .map_err(|cause| unavailable(cause.to_string()))?
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .filter(|name| !name.starts_with('.'))
+            .collect();
+        names.sort();
+        let mut folders = Vec::new();
+        let mut unreadable = Vec::new();
+        for name in names {
+            let at = base.join(&name);
+            let metadata = match fs::metadata(&at) {
+                Ok(metadata) => metadata,
+                Err(cause) => {
+                    let reason = if cause.kind() == ErrorKind::NotFound {
+                        "it links to a folder that is gone".to_string()
+                    } else {
+                        cause.to_string()
+                    };
+                    unreadable.push(Unreadable { name, reason });
+                    continue;
+                }
+            };
+            if !metadata.is_dir() {
+                continue;
+            }
+            let named = {
+                let state = self.state();
+                state.named(&Root::Folder(name.clone()))
+            };
+            let refused = match named {
+                Ok(named) => (named.refusal)(&resolved(&at)),
+                Err(error) => Some(error.to_string()),
+            };
+            if let Some(reason) = refused {
+                unreadable.push(Unreadable { name, reason });
+                continue;
+            }
+            folders.push(EpicenterEntry {
+                name,
+                identity: identity_of(&metadata),
+            });
+        }
+        Ok(EpicenterListing {
+            path: shown,
+            folders,
+            unreadable,
+        })
+    }
+
+    /// Make the directory `name` in the Epicenter folder, refused when
+    /// anything has that name or the name is not one every disk keeps.
+    /// Blocks on the disk.
+    pub fn make_epicenter_folder(&self, name: &str) -> Result<EpicenterEntry, RootError> {
+        let base = self.epicenter_path()?;
+        let at = base.join(name);
+        let shown = at.display().to_string();
+        if let Some(problem) = folder_name_problem(name).or_else(|| path_problem(name)) {
+            return Err(RootError::Refused {
+                folder: shown,
+                reason: format!("{name:?} is not a folder's name: {problem}."),
+            });
+        }
+        let unavailable = |message: String| RootError::Unavailable {
+            folder: shown.clone(),
+            message,
+        };
+        fs::create_dir_all(&base).map_err(|cause| unavailable(cause.to_string()))?;
+        fs::create_dir(&at).map_err(|cause| {
+            unavailable(if cause.kind() == ErrorKind::AlreadyExists {
+                "something there has that name already".to_string()
+            } else {
+                cause.to_string()
+            })
+        })?;
+        let metadata = fs::metadata(&at).map_err(|cause| unavailable(cause.to_string()))?;
+        Ok(EpicenterEntry {
+            name: name.to_string(),
+            identity: identity_of(&metadata),
+        })
+    }
+
+    /// The path the shell named `root` at, as a person reads it: what the
+    /// page shows, and what a link to Epicenter names.
+    pub fn path(&self, root: &Root) -> Result<PathBuf, RootError> {
+        let state = self.state();
+        state.running()?;
+        state.named(root).map(|named| named.path)
     }
 
     /// Open `root`: whatever is at its path, made when nothing is there.
     /// Each call looks again, so a folder that came back opens and a link
     /// pointed elsewhere is followed. Blocks on the disk.
-    pub fn open(&self, root: Root) -> Result<Directory, RootError> {
-        let (path, refusal) = {
+    pub fn open(&self, root: &Root) -> Result<Directory, RootError> {
+        let Named { path, refusal } = {
             let state = self.state();
             state.running()?;
-            let named = state.named.get(&root).ok_or(RootError::NotNamed { root })?;
-            (named.path.clone(), named.refusal.clone())
+            state.named(root)?
         };
-        let directory = reach(&path, &*refusal)?;
+        // A folder of the Epicenter folder is made by `make_epicenter_folder`
+        // alone: opening one that went away does not bring it back.
+        let make = !matches!(root, Root::Folder(_));
+        let directory = reach(&path, &*refusal, make)?;
         let replaced = {
             let mut state = self.state();
             state.running()?;
-            match state.opened.get(&root) {
+            match state.opened.get(root) {
                 Some(opened) if opened.directory == directory => None,
                 _ => state.opened.insert(
-                    root,
+                    root.clone(),
                     Opened {
                         directory: directory.clone(),
                         watch: None,
@@ -218,20 +499,16 @@ impl Roots {
     /// root whose path, or a folder above it, is now a link whose target is
     /// gone is `Disconnected`, whether or not it opened before, and nothing
     /// is made.
-    pub fn opened(&self, root: Root) -> Result<Directory, RootError> {
+    pub fn opened(&self, root: &Root) -> Result<Directory, RootError> {
         let (path, opened) = {
             let state = self.state();
             state.running()?;
-            let path = state
-                .named
-                .get(&root)
-                .map(|named| named.path.clone())
-                .ok_or(RootError::NotNamed { root })?;
+            let path = state.named(root)?.path;
             (
                 path,
                 state
                     .opened
-                    .get(&root)
+                    .get(root)
                     .map(|opened| opened.directory.clone()),
             )
         };
@@ -242,13 +519,13 @@ impl Roots {
                 target: target.display().to_string(),
             });
         }
-        opened.ok_or(RootError::NotOpen { root })
+        opened.ok_or(RootError::NotOpen { root: root.clone() })
     }
 
     /// Start `root`'s one watch and report its changes to the app.
     pub(crate) fn watch(
         &self,
-        root: Root,
+        root: &Root,
         directory: &Directory,
         report: impl Fn(FolderChanged) + Send + 'static,
     ) -> Result<(), RootError> {
@@ -257,9 +534,9 @@ impl Roots {
             state.running()?;
             let opened = state
                 .opened
-                .get(&root)
+                .get(root)
                 .filter(|opened| opened.directory == *directory)
-                .ok_or(RootError::NotOpen { root })?;
+                .ok_or(RootError::NotOpen { root: root.clone() })?;
             opened.watch.is_some()
         };
         let mut candidate = None;
@@ -278,9 +555,9 @@ impl Roots {
         state.running()?;
         let opened = state
             .opened
-            .get_mut(&root)
+            .get_mut(root)
             .filter(|opened| opened.directory == *directory)
-            .ok_or(RootError::NotOpen { root })?;
+            .ok_or(RootError::NotOpen { root: root.clone() })?;
         if opened.watch.is_none() {
             if let Some(watch) = candidate.take() {
                 watch.activate();
@@ -305,12 +582,16 @@ impl Roots {
     }
 }
 
-/// Open whatever is at `path`, making the folder when nothing is there. A
-/// link at `path`, or above it, is followed; one whose target is gone is
-/// `Disconnected`, and nothing is made. A location `refusal` names a reason
-/// for is refused, both before anything is made and once the folder is
-/// there.
-fn reach(path: &Path, refusal: &dyn Fn(&Path) -> Option<String>) -> Result<Directory, RootError> {
+/// Open whatever is at `path`, making the folder when nothing is there and
+/// `make` says so. A link at `path`, or above it, is followed; one whose
+/// target is gone is `Disconnected`, and nothing is made. A location
+/// `refusal` names a reason for is refused, both before anything is made and
+/// once the folder is there.
+fn reach(
+    path: &Path,
+    refusal: &dyn Fn(&Path) -> Option<String>,
+    make: bool,
+) -> Result<Directory, RootError> {
     let folder = path.display().to_string();
     if let Some(target) = dangling_target(path) {
         return Err(RootError::Disconnected {
@@ -334,6 +615,9 @@ fn reach(path: &Path, refusal: &dyn Fn(&Path) -> Option<String>) -> Result<Direc
     match fs::metadata(path) {
         Ok(metadata) if metadata.is_dir() => {}
         Ok(_) => return Err(unavailable("this is a file, not a folder".into())),
+        Err(cause) if cause.kind() == ErrorKind::NotFound && !make => {
+            return Err(unavailable("this folder is not there".into()))
+        }
         Err(cause) if cause.kind() == ErrorKind::NotFound => {
             fs::create_dir_all(path)
                 .map_err(|cause| unavailable(format!("the folder could not be made: {cause}")))?;
@@ -400,16 +684,16 @@ mod tests {
         let data = base.join("Epicenter/notes");
         roots.name(Root::Data, data.clone(), never);
         assert_eq!(
-            roots.opened(Root::Data),
+            roots.opened(&Root::Data),
             Err(RootError::NotOpen { root: Root::Data })
         );
-        assert_eq!(roots.open(Root::Data).unwrap().root(), data);
+        assert_eq!(roots.open(&Root::Data).unwrap().root(), data);
         assert!(data.is_dir());
         fs::write(data.join("a.md"), "kept").unwrap();
-        roots.open(Root::Data).unwrap();
+        roots.open(&Root::Data).unwrap();
         assert_eq!(fs::read_to_string(data.join("a.md")).unwrap(), "kept");
         assert_eq!(
-            roots.open(Root::AppData),
+            roots.open(&Root::AppData),
             Err(RootError::NotNamed {
                 root: Root::AppData
             })
@@ -417,7 +701,7 @@ mod tests {
         fs::remove_dir_all(&data).unwrap();
         fs::write(&data, "a file").unwrap();
         assert!(matches!(
-            roots.open(Root::Data),
+            roots.open(&Root::Data),
             Err(RootError::Unavailable { .. })
         ));
     }
@@ -435,7 +719,7 @@ mod tests {
         symlink(&drive, &data).unwrap();
         roots.name(Root::Data, data.clone(), never);
         assert_eq!(
-            roots.open(Root::Data),
+            roots.open(&Root::Data),
             Err(RootError::Disconnected {
                 folder: data.display().to_string(),
                 target: drive.display().to_string(),
@@ -444,7 +728,7 @@ mod tests {
         assert!(!base.join("Volumes").exists());
         // A command asking for the root hears the same, and makes nothing.
         assert_eq!(
-            roots.opened(Root::Data),
+            roots.opened(&Root::Data),
             Err(RootError::Disconnected {
                 folder: data.display().to_string(),
                 target: drive.display().to_string(),
@@ -454,15 +738,15 @@ mod tests {
         // The drive comes back: the same open follows the link.
         fs::create_dir_all(&drive).unwrap();
         fs::write(drive.join("a.md"), "there").unwrap();
-        assert_eq!(roots.open(Root::Data).unwrap().root(), drive);
-        assert_eq!(roots.path(Root::Data).unwrap(), data);
+        assert_eq!(roots.open(&Root::Data).unwrap().root(), drive);
+        assert_eq!(roots.path(&Root::Data).unwrap(), data);
 
         // A dangling link above the root is the same.
         let library = base.join("Library Link");
         symlink(base.join("Volumes/Gone"), &library).unwrap();
         roots.name(Root::Data, library.join("notes"), never);
         assert_eq!(
-            roots.open(Root::Data),
+            roots.open(&Root::Data),
             Err(RootError::Disconnected {
                 folder: library.join("notes").display().to_string(),
                 target: base.join("Volumes/Gone/notes").display().to_string(),
@@ -491,7 +775,7 @@ mod tests {
         symlink(&home, &data).unwrap();
         roots.name(Root::Data, data.clone(), refusal.clone());
         assert!(matches!(
-            roots.open(Root::Data),
+            roots.open(&Root::Data),
             Err(RootError::Refused { folder, .. }) if folder == data.display().to_string()
         ));
         // Through a linked parent, the location is still the one refused.
@@ -499,9 +783,128 @@ mod tests {
         symlink(&base, &alias).unwrap();
         roots.name(Root::Data, alias.join("home"), refusal);
         assert!(matches!(
-            roots.open(Root::Data),
+            roots.open(&Root::Data),
             Err(RootError::Refused { .. })
         ));
         assert_eq!(fs::read_dir(&home).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn a_root_reads_back_from_its_header() {
+        for root in [
+            Root::Data,
+            Root::AppData,
+            Root::Folder("Notes and things".into()),
+        ] {
+            assert_eq!(root.header().parse::<Root>().unwrap(), root);
+        }
+        assert!("Folder/".parse::<Root>().is_err());
+        assert!("Elsewhere".parse::<Root>().is_err());
+        assert_eq!(
+            serde_json::to_value(Root::Folder("notes".into())).unwrap(),
+            serde_json::json!({ "Folder": "notes" })
+        );
+    }
+
+    /// The Epicenter folder lists its directories by name, a link followed
+    /// and a dangling one named; each opens as a root of its own, which a
+    /// link above or at it does not lead out of the rules.
+    #[cfg(unix)]
+    #[test]
+    fn the_epicenter_folder_lists_its_folders_and_each_opens_as_a_root() {
+        use std::os::unix::fs::{symlink, MetadataExt};
+
+        let (_temp, base) = base();
+        let roots = Roots::default();
+        assert!(matches!(
+            roots.list_epicenter(),
+            Err(RootError::NotNamed { .. })
+        ));
+        let epicenter = base.join("Epicenter");
+        roots.name_epicenter(epicenter.clone(), never);
+        // Made when missing, and empty.
+        let listing = roots.list_epicenter().unwrap();
+        assert_eq!(listing.path, epicenter.display().to_string());
+        assert!(listing.folders.is_empty() && listing.unreadable.is_empty());
+
+        fs::create_dir(epicenter.join("Notes")).unwrap();
+        fs::create_dir(epicenter.join(".hidden")).unwrap();
+        fs::write(epicenter.join("loose.md"), "a file").unwrap();
+        let elsewhere = base.join("Drive/Recipes");
+        fs::create_dir_all(&elsewhere).unwrap();
+        symlink(&elsewhere, epicenter.join("Recipes")).unwrap();
+        symlink(base.join("Gone"), epicenter.join("Gone")).unwrap();
+        // A link to the Epicenter folder's own parent would hold every folder.
+        symlink(&base, epicenter.join("Everything")).unwrap();
+
+        let listing = roots.list_epicenter().unwrap();
+        let names: Vec<&str> = listing.folders.iter().map(|f| f.name.as_str()).collect();
+        assert_eq!(names, ["Notes", "Recipes"]);
+        let recipes = &listing.folders[1];
+        let found = fs::metadata(&elsewhere).unwrap();
+        assert_eq!(
+            recipes.identity,
+            Some(RootIdentity {
+                device: found.dev().to_string(),
+                inode: found.ino().to_string(),
+            })
+        );
+        let unreadable: Vec<(&str, bool)> = listing
+            .unreadable
+            .iter()
+            .map(|u| (u.name.as_str(), u.reason.contains("holds every Epicenter folder")))
+            .collect();
+        assert_eq!(unreadable, [("Everything", true), ("Gone", false)]);
+
+        // Each folder is its root, opened through its link.
+        let root = Root::Folder("Recipes".into());
+        assert_eq!(roots.open(&root).unwrap().root(), elsewhere);
+        assert_eq!(roots.path(&root).unwrap(), epicenter.join("Recipes"));
+        assert_eq!(roots.opened(&root).unwrap().root(), elsewhere);
+        // One that is not there is not made by opening it.
+        let missing = Root::Folder("Missing".into());
+        assert!(matches!(
+            roots.open(&missing),
+            Err(RootError::Unavailable { .. })
+        ));
+        assert!(!epicenter.join("Missing").exists());
+        // A name that leaves the folder is refused before the disk is asked.
+        for name in ["../Drive", "a/b", ".epicenter", ""] {
+            assert!(
+                matches!(
+                    roots.open(&Root::Folder(name.into())),
+                    Err(RootError::Refused { .. })
+                ),
+                "{name:?}"
+            );
+        }
+        assert!(matches!(
+            roots.open(&Root::Folder("Everything".into())),
+            Err(RootError::Refused { .. })
+        ));
+    }
+
+    #[test]
+    fn a_new_folder_takes_a_free_portable_name() {
+        let (_temp, base) = base();
+        let roots = Roots::default();
+        let epicenter = base.join("Epicenter");
+        roots.name_epicenter(epicenter.clone(), never);
+        let made = roots.make_epicenter_folder("Shared notes").unwrap();
+        assert_eq!(made.name, "Shared notes");
+        assert!(epicenter.join("Shared notes").is_dir());
+        assert!(matches!(
+            roots.make_epicenter_folder("Shared notes"),
+            Err(RootError::Unavailable { message, .. }) if message.contains("has that name")
+        ));
+        for refused in ["a/b", ".hidden", "HEAD", "trailing."] {
+            assert!(
+                matches!(
+                    roots.make_epicenter_folder(refused),
+                    Err(RootError::Refused { .. })
+                ),
+                "{refused:?}"
+            );
+        }
     }
 }

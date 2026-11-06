@@ -4,6 +4,8 @@ pub const COMMANDS: &[&str] = &[
     "open_root",
     "reveal_root",
     "list_folder",
+    "list_epicenter",
+    "make_epicenter_folder",
     "read_folder_file",
     "put_folder_file",
     "sync_with_epicenter",

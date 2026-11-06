@@ -295,6 +295,18 @@
       "type": "string",
       "oneOf": [
         {
+          "description": "Enables the list_epicenter command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-list-epicenter",
+          "markdownDescription": "Enables the list_epicenter command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the list_epicenter command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-list-epicenter",
+          "markdownDescription": "Denies the list_epicenter command without any pre-configured scope."
+        },
+        {
           "description": "Enables the list_folder command without any pre-configured scope.",
           "type": "string",
           "const": "allow-list-folder",
@@ -305,6 +317,18 @@
           "type": "string",
           "const": "deny-list-folder",
           "markdownDescription": "Denies the list_folder command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the make_epicenter_folder command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-make-epicenter-folder",
+          "markdownDescription": "Enables the make_epicenter_folder command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the make_epicenter_folder command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-make-epicenter-folder",
+          "markdownDescription": "Denies the make_epicenter_folder command without any pre-configured scope."
         },
         {
           "description": "Enables the open_root command without any pre-configured scope.",
@@ -383,6 +407,12 @@
           "type": "string",
           "const": "default",
           "markdownDescription": "Open and reveal the roots the shell named (Data and AppData), show their paths, read and change their files through the shell, and ask Epicenter to sync them.\n#### This default permission set includes:\n\n- `allow-open-root`\n- `allow-reveal-root`\n- `allow-list-folder`\n- `allow-read-folder-file`\n- `allow-put-folder-file`\n- `allow-sync-with-epicenter`\n- `allow-synced-with-epicenter`"
+        },
+        {
+          "description": "List the Epicenter folder the shell named, and make a folder in it.\n#### This permission set includes:\n\n- `allow-list-epicenter`\n- `allow-make-epicenter-folder`",
+          "type": "string",
+          "const": "epicenter",
+          "markdownDescription": "List the Epicenter folder the shell named, and make a folder in it.\n#### This permission set includes:\n\n- `allow-list-epicenter`\n- `allow-make-epicenter-folder`"
         }
       ]
     }
