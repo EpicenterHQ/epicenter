@@ -414,7 +414,7 @@ describe('the file contract on the local server', () => {
 		]);
 		expect(refused.code).not.toBe(0);
 		expect(refused.stderr).toContain('recordings/raw.webm in');
-		expect(refused.stderr).toContain('is not a Git LFS pointer');
+		expect(refused.stderr).toContain('is not a canonical Git LFS pointer');
 
 		await box.ok(dir, ['reset', '--quiet', '--hard', 'origin/main']);
 		await box.write(dir, {

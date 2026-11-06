@@ -65,6 +65,9 @@ elsewhere (`resolveOAuthAudiences`).
 | `PUT`/`GET info/lfs/objects/<oid>`, `POST info/lfs/verify` | upload and verify: `push`; download: `read` |
 | `GET epicenter/files?root=`, `POST epicenter/read`, `GET epicenter/changes?since=` | `folders:read`, the `read` role |
 | `POST epicenter/writes` | `folders:write`, the `push` role |
+| `POST <git>/folders { name? }` | `folders:write`: the caller's folder of `name` in their personal namespace, made when new; a new folder without one. Answers `{ folder }`, the repository's id |
+| `GET <git>/folders/<folder>/changes?since=`, `POST …/tree`, `POST …/blobs`, `GET …/blobs/<id>` | `folders:read`, the `read` role (`src/routes/folder.ts`) |
+| `PUT <git>/folders/<folder>/blobs/<sha256>`, `POST …/commits` | `folders:write`, the `push` role |
 | `GET /api/repos` | `folders:read` on the Git audience |
 | `GET /api/repos/<namespace>/<name>/grants` | `folders:read` on the Git audience, the `manage` role (owner) |
 | `PUT`/`DELETE /api/repos/<namespace>/<name>/grants/<person>` | `folders:write` on the Git audience, the `manage` role (owner) |
@@ -134,6 +137,31 @@ changes nothing makes no commit. A
 body over 16 MiB is 413 `too_large`. A writer that lost the reply and sends
 the same write again is judged like any other, and finds its own bytes when
 it reads.
+
+### A folder's repository
+
+Sync reaches a repository by its folder's id, the repository's own id, at
+`<git audience>/folders/<folder>` (`folderUrl` in
+`@epicenter/definition/site`, matched by one mount in `readGitTarget`), in
+Git's vocabulary (ADR-0808, ADR-0810; `src/routes/folder.ts`): `changes`
+since a commit, the `tree` at a commit, `blobs` by id, and one `commits`
+request that lands every file only where its path still holds the blob its
+writer expects, or answers `409 moved` with what the path holds. An
+attachment's bytes are at `blobs/<sha256>`: `GET` streams them with
+`Cache-Control: private, immutable`, and `PUT` stores them, idempotent and
+checked against the hash, for every Epicenter client; Git LFS's own
+protocol stays for plain Git. The id resolves to the repository's
+namespace and name (`GitAccess.locate`), and the request is then decided
+exactly as one by name.
+
+An upload the repository did not already hold is pending in the
+`blob_upload` ledger (`src/uploads.ts`) until a commit or a push that
+references it keeps it; `sweepPendingUploads` deletes what is still pending
+after a day, bytes and row. The deployment schedules the sweep. Presigned R2
+uploads bypass the server and are not recorded.
+
+The receiver refuses a pointer in any layout but Git LFS's canonical one
+(`readPointer`), since an attachment's version is that layout's blob id.
 
 One statement decides each Git request (`authorizeResourceRequest`): the access
 token, given as a Bearer token or as the Basic password, its audience, scope,

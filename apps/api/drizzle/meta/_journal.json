@@ -57,6 +57,13 @@
       "when": 1793835638931,
       "tag": "0007_drop_repository_alias",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1793929618858,
+      "tag": "0008_upload_ledger",
+      "breakpoints": true
     }
   ]
 }

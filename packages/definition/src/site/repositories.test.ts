@@ -1,5 +1,7 @@
 import { expect, test } from 'bun:test';
 import {
+	folderUrl,
+	isFolderId,
 	isRepositoryName,
 	parseRepositoryPath,
 	parseRepositoryUrl,
@@ -51,4 +53,14 @@ test('a remote names its namespace and repository under the Git audience', () =>
 	).toBeUndefined();
 	expect(parseRepositoryPath('abcdefghij12/Demo')).toBeUndefined();
 	expect(parseRepositoryPath('abcdefghij12/demo/x')).toBeUndefined();
+});
+
+test('a folder is addressed by its id under the audience, and minted at the folders address', () => {
+	expect(isFolderId('abcdefgh01234567')).toBe(true);
+	expect(isFolderId('ABCDEFGH01234567')).toBe(false);
+	expect(isFolderId('abc')).toBe(false);
+	expect(folderUrl('https://g.example/', 'abcdefgh01234567')).toBe(
+		'https://g.example/folders/abcdefgh01234567',
+	);
+	expect(folderUrl('https://g.example')).toBe('https://g.example/folders');
 });

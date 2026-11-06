@@ -39,6 +39,12 @@ export type LfsStore = {
 		body: ReadableStream<Uint8Array>,
 		size?: number,
 	): Promise<LfsPutResult>;
+	/**
+	 * Remove `oid`'s bytes for `repositoryId`: an upload no commit kept
+	 * (`sweepPendingUploads`). Removing one that is not there is not an
+	 * error.
+	 */
+	delete(repositoryId: string, oid: string): Promise<void>;
 	/** The stored bytes of `oid`, or null. */
 	get(
 		repositoryId: string,

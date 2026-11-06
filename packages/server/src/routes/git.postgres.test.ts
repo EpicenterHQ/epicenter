@@ -801,3 +801,67 @@ describe('per-repository grants', () => {
 		expect(await advertise('shared', bob.token)).toBe(403);
 	}, 120_000);
 });
+
+describe('a folder by its id', () => {
+	test('is minted for its owner, reached by its id, and refused to anyone else', async () => {
+		const alice = await signedIn('folder-alice');
+		const bob = await signedIn('folder-bob');
+		const call = (token: string, path: string, init: RequestInit = {}) =>
+			fetch(`${audiences.git}/${path}`, {
+				...init,
+				headers: {
+					authorization: `Bearer ${token}`,
+					'content-type': 'application/json',
+				},
+			});
+		const minted = await call(alice.token, 'folders', {
+			method: 'POST',
+			body: '{}',
+		});
+		expect(minted.status).toBe(201);
+		const { folder } = (await minted.json()) as { folder: string };
+		const [row] = await repositoryRows(alice.person.personal);
+		expect(row?.id).toBe(folder);
+		// A name asks for the caller's folder of that name, made only once.
+		const named = async () =>
+			(await (
+				await call(alice.token, 'folders', {
+					method: 'POST',
+					body: JSON.stringify({ name: 'notes' }),
+				})
+			).json()) as { folder: string };
+		expect((await named()).folder).toBe((await named()).folder);
+
+		expect(
+			(await (
+				await call(alice.token, `folders/${folder}/changes`)
+			).json()) as unknown,
+		).toEqual({ commit: null, paths: null });
+		const committed = await call(alice.token, `folders/${folder}/commits`, {
+			method: 'POST',
+			body: JSON.stringify({
+				files: [{ path: 'a.md', expect: null, text: 'a\n' }],
+			}),
+		});
+		expect(committed.status).toBe(200);
+		expect((await call(bob.token, `folders/${folder}/changes`)).status).toBe(
+			403,
+		);
+		expect(
+			(await call(alice.token, `folders/${'z'.repeat(16)}/changes`)).status,
+		).toBe(404);
+		// The same repository answers plain Git at its name.
+		const clone = join(scratch, `folder-clone-${folder}`);
+		expect(
+			(
+				await git(
+					scratch,
+					alice.token,
+					'clone',
+					remote(alice.person.personal, row?.name ?? ''),
+					clone,
+				)
+			).code,
+		).toBe(0);
+	}, 60_000);
+});

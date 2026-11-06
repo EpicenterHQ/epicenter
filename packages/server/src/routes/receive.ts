@@ -47,6 +47,7 @@ import { type PackedObject, readPack } from '../git/pack.js';
 import { FLUSH, pktLine, readCommandLines } from '../git/pkt.js';
 import { caseClash } from '../git/tree-edit.js';
 import { LFS_OID, type LfsStore } from '../lfs/lfs-store.js';
+import type { UploadLedger } from '../uploads.js';
 
 const CAPABILITIES =
 	'report-status side-band-64k ofs-delta no-thin agent=epicenter';
@@ -257,7 +258,7 @@ export async function checkPushedTrees(
 			checkedBlobs.set(entry.oid, pointer);
 		}
 		if (pointer === null) {
-			problem = `${path} in ${commit.slice(0, 8)} is not a Git LFS pointer; files other than .md notes must be stored with Git LFS`;
+			problem = `${path} in ${commit.slice(0, 8)} is not a canonical Git LFS pointer; files other than .md notes must be stored with Git LFS`;
 			return;
 		}
 		pointers.set(pointer.oid, { size: pointer.size, path });
@@ -362,6 +363,7 @@ export function replacedRef(now: Date): string {
 export async function receivePush({
 	objects,
 	lfs,
+	ledger = null,
 	repositoryId,
 	body,
 	mayRewrite,
@@ -370,6 +372,8 @@ export async function receivePush({
 }: {
 	objects: GitObjects;
 	lfs: LfsStore | null;
+	/** The upload ledger: the pushed pointers' objects are kept. */
+	ledger?: UploadLedger | null;
 	repositoryId: string;
 	body: Uint8Array;
 	mayRewrite: boolean;
@@ -433,6 +437,11 @@ export async function receivePush({
 	);
 	if ('problem' in checked) return reply(MAIN, `refused (${checked.problem})`);
 	if (checked.pointers.size > 0) {
+		// Kept before they are checked, so a sweep that runs meanwhile finds no row.
+		await ledger?.keep(
+			repositoryId,
+			[...checked.pointers.keys()].map((key) => key.split(':')[0] ?? ''),
+		);
 		const unverified = await Promise.all(
 			[...checked.pointers].map(async ([key, path]) => {
 				const [oid = '', size = ''] = key.split(':');
