@@ -23,6 +23,22 @@ A Svelte app reads it through `reactive` from
 [`@epicenter/svelte/reactive`](../svelte/README.md); React reads it with
 `useSyncExternalStore`.
 
+The package has two halves. The folder opens and writes a folder through a
+store, and the sync half (`@epicenter/folder/sync` and
+`@epicenter/folder/platform`) keeps a computer's plain folder in step with the
+folder's repository on the server, with no Git on the computer
+([ADR-0804](../../docs/adr/0804-a-computer-keeps-a-plain-folder-and-every-surface-syncs-with-one-typescript-function.md)),
+and holds every platform operation on folders that the CLI and the Epicenter
+app compose
+([ADR-0817](../../docs/adr/0817-the-cli-exposes-every-platform-operation-and-an-app-inherits-everything-about-folders.md)).
+The code says note and `{id}` where the records decided item and `{name}`
+([ADR-0802](../../docs/adr/0802-people-share-spaces-an-app-works-in-one-at-a-time-and-a-folder-carries-its-contract.md),
+[ADR-0818](../../docs/adr/0818-an-app-is-a-view-a-window-and-its-capabilities-and-everything-is-repairable-by-hand.md));
+the rename is pending, and this README uses the code's words where it names
+code. `openFolder(view)` over the window's folder
+([ADR-0815](../../docs/adr/0815-the-platform-gives-a-window-its-folder-and-every-app-the-same-home.md))
+is not built; today an app opens a place.
+
 ## Entries
 
 | Import | Purpose |
@@ -33,9 +49,9 @@ A Svelte app reads it through `reactive` from
 | `@epicenter/folder/memory` | `memory()`, a new place in memory, and `memoryFiles(placeOrFolder)`, the world outside it, for a test. |
 | `@epicenter/folder/served` | `served(url)`, the directory the program serving this page keeps on this computer, reached through that program (Messages; ADR-0784). |
 | `@epicenter/folder/serve` | `serveDirectory(path)`, the program's half: it answers its page's store verbs over a directory, in Bun or Node. |
-| `@epicenter/folder/sync` | `sync({ local, remote, manifest })`, ADR-0803's prototype: a store synced with a repository's history through a manifest at `.epicenter/synced.json`, `{ folder, root, commit, files }`: the folder's id, the directory it synced in (device and inode, so a copy is told apart), and each file's Git blob id (ADR-0808, ADR-0811), merging notes with `@epicenter/definition/front-matter`. `localStoreOf(folder)` is an open folder as the local store: it lists every visible file and reads from what the folder holds, so an unchanged sync of 10,000 notes reads no file. Two syncs of one folder may run at once: every write, the manifest's included, is over the version read. `syncAtMoments({ folder, remote })` syncs an open folder when it starts, after a burst of saves, when its window returns, every three seconds while shown when either side changed, and on request (ADR-0804). No app runs it yet. `joinFolder(account, { folder? })` is a first sync on the server: it joins the folder named when the person holds it, or makes one (ADR-0811). |
+| `@epicenter/folder/sync` | `sync({ local, remote, manifest })` (ADR-0803, ADR-0804): a store synced with a folder's repository history through a manifest at `.epicenter/synced.json`, `{ folder, root, commit, files }`: the folder's id, the directory it synced in (device and inode, so a copy is told apart), and each file's Git blob id (ADR-0808, ADR-0811), merging notes with `@epicenter/definition/front-matter`. `localStoreOf(folder)` is an open folder as the local store: it lists every visible file and reads from what the folder holds, so an unchanged sync of 10,000 notes reads no file. Two syncs of one folder may run at once: every write, the manifest's included, is over the version read. `syncAtMoments({ folder, remote })` syncs an open folder when it starts, after a burst of saves, when its window returns, every three seconds while shown when either side changed, and on request (ADR-0804). No app runs it yet. `joinFolder(account, { folder? })` is a first sync on the server: it joins the folder named when the person holds it, or makes one (ADR-0811). |
 | `@epicenter/folder/platform` | Every platform operation on folders as a function (ADR-0817), which the CLI and the Epicenter app compose: `listHome` (each folder in the Epicenter folder with its title, state, and members, the shares waiting, and the folders held elsewhere), `initFolder` (an `epicenter.json` proposed from the files), `syncFolder` (a copied folder asks before it pushes, and a first sync joins before it creates), `cloneFolder`, `cloneIntoHome`, `acceptIntoHome`, `syncEvery` (every folder that moved, from one request for where every folder is; ADR-0819), and the person's folders on the server: `listFolders`, `getFolder`, `folderHeads`, `shareFolder`, `unshareFolder`, `acceptShare`, and `attachFolder`. |
-| `@epicenter/folder/tauri` | `revealRoot(root)`, which shows a root the shell named in the file manager, and `syncWithEpicenter` and `syncedWithEpicenter` for Epicenter enrollment. What a capability keeps for this computer goes to AppData through `settings` from [`@epicenter/local`](../local/README.md), not through a folder. |
+| `@epicenter/folder/tauri` | `revealRoot(root)`, which shows a root the shell named in the file manager, and `syncWithEpicenter` and `syncedWithEpicenter`, the enrollment request that predates ADR-0804 (the shell opens Epicenter at `epicenter://init`, which now shows its Folders window; the apps' "Set up in Epicenter" still calls it). What a capability keeps for this computer goes to AppData through `settings` from [`@epicenter/local`](../local/README.md), not through a folder. |
 
 Importing an entry does not open anything. A place is opaque: only this
 package makes one, and nothing outside it holds a store or the collections
@@ -273,7 +289,8 @@ decides. A save stages its bytes in the folder's `.epicenter/saves` and
 renames them over the path right after checking the version its writer read.
 Within one process, writes to one path take turns, and a create lands only
 where nothing is; across processes, a replacement's check-to-rename gap is
-accepted, and Git history is the backstop. A new file is placed by a hard
+accepted, and the repository's history on the server is the backstop once the
+folder syncs. A new file is placed by a hard
 link, which never replaces a file that appeared after the check, so of
 writers creating one path in any process exactly one lands. A save below a
 mount point inside the folder fails saying it cannot cross one. Nothing is
@@ -307,11 +324,13 @@ its history is the repository's on the server, which sync commits to
 | Path | Responsibility |
 | --- | --- |
 | `src/home.ts`, `home.memory.ts` | The root entry and its `test` leaf: `openFolder` and `home`. |
-| `src/core.ts`, `node.ts`, `memory.ts`, `tauri.ts`, `bun.ts` | The other public entries. |
+| `src/core.ts`, `node.ts`, `memory.ts`, `tauri.ts`, `served.ts`, `serve.ts` | The other public entries. |
 | `src/open-folder.ts`, `place.ts`, `folder.ts`, `errors.ts`, `note-edit.ts`, `note-codec.ts` | `openFolder` over a place, what a place is, the folder's connection, replica and write queue, its errors, the note editor, and how a note's change becomes the text written. |
 | `src/device/` | The store contract and its conformance checks, the device stores (memory, Bun, Tauri), and `check`/`format`. |
-| `src/data-folder.ts`, `desktop-folder.ts` | The data folder a Tauri window opens, and its `AGENTS.md`. |
-| `src/remote/` | A folder's repository on the server: the `Repository` sync takes, and the store a web folder opens. |
+| `src/data-folder.ts`, `desktop-folder.ts`, `agents-note.ts`, `epicenter-sync.ts` | The data folder a Tauri window opens, its `AGENTS.md` (still with a `contract:` key; ADR-0805 decided none), and the pre-ADR-0804 enrollment request. |
+| `src/hash.ts` | A file's Git blob id: `blobIdOf`, and an attachment's canonical LFS pointer. |
+| `src/remote/` | A folder's repository on the server: the `Repository` sync takes, the store a web folder opens, and the server's folders (`listFolders`, `shareFolder`, and the rest). |
+| `src/platform/` | The Epicenter folder and the platform operations over it: `listHome`, `initFolder`, `syncFolder`, `cloneFolder`, `syncEvery`. |
 | `src/served/`, `served.ts`, `serve.ts` | A directory a program serves its page: the page's store, the program's handler, and the wire between them (four `POST`s of JSON; a watch is a stream of JSON lines, and a dropped one is heard as `'all'`). |
 | `src/native/`, `paths.ts`, `state.ts`, `path-turns.ts` | Watches, the shell's bindings, the path rule, where unfinished writes live, and per-path turns. |
 | `src/sync/` | `sync`, its repository contract and memory twin, the manifest, the scenarios every world runs, and `syncAtMoments`. |
