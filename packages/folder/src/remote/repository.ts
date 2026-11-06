@@ -86,6 +86,17 @@ export const RemoteError = defineErrors({
 });
 export type RemoteError = InferErrors<typeof RemoteError>;
 
+/** One commit of a folder's history. */
+export type FolderCommit = {
+	id: string;
+	parents: string[];
+	/** Who made it, as its author line names them. */
+	author: string;
+	/** When, in seconds since the epoch. */
+	time: number;
+	message: string;
+};
+
 /** How often a watch asks the server what changed. */
 const POLL_MS = 3000;
 
@@ -172,7 +183,10 @@ export function folderRepository(
 	account: RemoteAccount,
 	folder: string,
 	{ pollMs = POLL_MS }: { pollMs?: number } = {},
-): Store & Repository {
+): Store &
+	Repository & {
+		log(limit?: number): Promise<Result<FolderCommit[], Unavailable>>;
+	} {
 	if (!isFolderId(folder)) throw new Error(`'${folder}' is not a folder id`);
 	const base = folderUrl(resolveOAuthAudiences(account.baseURL).git, folder);
 
@@ -384,6 +398,15 @@ export function folderRepository(
 
 	return {
 		...repository,
+		/** `main`'s history, newest first, along first parents: at most `limit` commits. */
+		async log(limit = 50): Promise<Result<FolderCommit[], Unavailable>> {
+			const answered = await ask(account, `${base}/commits?limit=${limit}`);
+			if (answered.error !== null) return answered;
+			const { status, body } = answered.data;
+			if (status !== 200 || !isRecord(body) || !Array.isArray(body.commits))
+				return refused(status, body);
+			return Ok(body.commits as FolderCommit[]);
+		},
 		async list(under): Promise<Result<Listed[], Unavailable>> {
 			const at = await head();
 			if (at.error !== null) return at;

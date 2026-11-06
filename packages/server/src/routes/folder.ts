@@ -5,6 +5,7 @@
  *
  * ```txt
  * GET  changes?since=<commit>     folders:read   where main is, and the paths whose blob changed since <commit>
+ * GET  commits?limit=<n>          folders:read   main's history, newest first, along first parents
  * POST tree    { commit, paths? } folders:read   the blob at each path of <commit>'s tree (every path when none)
  * POST blobs   { ids }            folders:read   many blobs' bytes by id, in one request
  * GET  blobs/<blob id>            folders:read   one blob's bytes
@@ -52,6 +53,7 @@ import {
 	makeObject,
 	OID,
 	type PackObject,
+	parseCommit,
 	readCommit,
 	treeObject,
 	ZERO_OID,
@@ -92,6 +94,7 @@ export function pathProblem(path: unknown): string | null {
 /** What a request under a folder asks for. */
 export type FolderEndpoint =
 	| { kind: 'changes' }
+	| { kind: 'log' }
 	| { kind: 'tree' }
 	| { kind: 'blobs' }
 	| { kind: 'blob'; id: string }
@@ -104,6 +107,7 @@ export function readFolderEndpoint(
 	rest: string,
 ): FolderEndpoint | undefined {
 	if (rest === 'changes' && method === 'GET') return { kind: 'changes' };
+	if (rest === 'commits' && method === 'GET') return { kind: 'log' };
 	if (rest === 'tree' && method === 'POST') return { kind: 'tree' };
 	if (rest === 'blobs' && method === 'POST') return { kind: 'blobs' };
 	if (rest === 'commits' && method === 'POST') return { kind: 'commits' };
@@ -167,6 +171,48 @@ export async function folderChanges(
 	if (before === undefined) return json({ commit: main, paths: null });
 	const after = main ? ((await readCommit(objects, main))?.tree ?? null) : null;
 	return json({ commit: main, paths: await diffTrees(objects, before, after) });
+}
+
+/** The most commits one history request answers. */
+const MAX_LOG = 1000;
+
+/**
+ * `main`'s history, newest first, along first parents: each commit's id,
+ * parents, author, time (seconds since the epoch), and message. At most
+ * `limit` (default 50, at most `MAX_LOG`).
+ */
+export async function folderLog(
+	objects: GitObjects,
+	limit: string | undefined,
+): Promise<Response> {
+	const most =
+		limit === undefined ? 50 : /^\d+$/.test(limit) ? Number(limit) : Number.NaN;
+	if (!Number.isSafeInteger(most) || most < 1 || most > MAX_LOG)
+		return invalid(`limit is 1 to ${MAX_LOG}`);
+	const commits: {
+		id: string;
+		parents: string[];
+		author: string;
+		time: number;
+		message: string;
+	}[] = [];
+	let next = (await objects.refs()).get(MAIN) ?? null;
+	while (next !== null && commits.length < most) {
+		const found = await objects.read(next, 'commit');
+		if (!found?.bytes) break;
+		const commit = parseCommit(found.bytes);
+		const text = new TextDecoder().decode(found.bytes);
+		const author = /^author (.*) <[^>]*> (\d+) [+-]\d{4}$/m.exec(text);
+		commits.push({
+			id: next,
+			parents: commit.parents,
+			author: author?.[1] ?? '',
+			time: Number(author?.[2] ?? 0),
+			message: commit.message,
+		});
+		next = commit.parents[0] ?? null;
+	}
+	return json({ commits });
 }
 
 /** The LFS object the pointer blob `oid` names, or null when it names none. */

@@ -34,6 +34,7 @@ import {
 	folderBlobs,
 	folderChanges,
 	folderCommit,
+	folderLog,
 	folderTree,
 	getAttachment,
 	putAttachment,
@@ -341,6 +342,38 @@ describe('POST commits', () => {
 });
 
 describe('changes, tree and blobs', () => {
+	test("commits answers main's history newest first, as many as asked", async () => {
+		const repo = await repository();
+		const log = async (limit?: string) => {
+			const response = await folderLog(repo.objects, limit);
+			return {
+				status: response.status,
+				body: (await response.json()) as {
+					commits: { id: string; parents: string[]; message: string }[];
+				},
+			};
+		};
+		expect((await log()).body).toEqual({ commits: [] });
+		const first = await repo.commit([
+			{ path: 'a.md', expect: null, text: 'a\n' },
+		]);
+		const second = await repo.commit([
+			{ path: 'a.md', expect: first.body.blobs['a.md'], text: 'b\n' },
+		]);
+		const { commits } = (await log()).body;
+		expect(commits.map(({ id }): string | null => id)).toEqual([
+			second.body.commit,
+			first.body.commit,
+		]);
+		expect(commits[0]).toMatchObject({
+			parents: [first.body.commit],
+			author: 'Sync',
+			message: 'Sync: 1 file\n',
+		});
+		expect((await log('1')).body.commits).toHaveLength(1);
+		expect((await log('0')).status).toBe(400);
+	});
+
 	test('changes names the paths whose blob differs since a commit, and null for one the repository never held', async () => {
 		const repo = await repository();
 		const changes = async (since?: string) =>

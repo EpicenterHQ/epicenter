@@ -6,6 +6,7 @@
  */
 export { localStoreOf } from '../folder.js';
 export {
+	type FolderCommit,
 	folderRepository,
 	mintFolder,
 	type RemoteAccount,

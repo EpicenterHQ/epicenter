@@ -997,14 +997,12 @@ process.exitCode = 1;
     }
 
     /// The shell kills a child it asked to stop only after the longest grace
-    /// the CLI gives its own unfinished work (`stop.ts`). Restarting the sync
-    /// service stops its child: one killed sooner than its round's grace
-    /// would be cut off in a merge, leaving Git's index lock or a merge in
-    /// progress for every later round to stop on.
+    /// the CLI gives its own unfinished work (`stop.ts`): a token refresh's
+    /// keychain write.
     #[test]
     fn the_stop_grace_outlasts_every_grace_the_cli_gives_its_work() {
         let stop = include_str!("../../../../packages/cli/src/stop.ts");
-        for name in ["STOP_GRACE_MS", "ROUND_GRACE_MS"] {
+        for name in ["STOP_GRACE_MS"] {
             let prefix = format!("export const {name} = ");
             let millis: u64 = stop
                 .lines()

@@ -37,7 +37,6 @@ import {
 	accessToken,
 	authStatus,
 	type DeviceCode,
-	gitCredential,
 	loginWithDevice,
 	loginWithLoopback,
 	logout,
@@ -242,36 +241,17 @@ test('device login: the code, approval on the server, and a grant that reaches t
 		}),
 	).toBe(401);
 
-	// The same grant mints a Git token with write, for git-credential.
-	const answer = await gitCredential(
-		ctx,
-		'device',
-		`protocol=http\nhost=127.0.0.1:47913\npath=git/${person.personal}/notes.git\n\n`,
-	);
-	const lines = Object.fromEntries(
-		answer
-			.data!.trim()
-			.split('\n')
-			.map((line) => line.split('=', 2)),
-	);
-	expect(lines.username).toBe('epicenter');
-	expect(Number(lines.password_expiry_utc)).toBeGreaterThan(
-		Date.now() / 1000 + 7 * 3600,
-	);
+	// The same grant mints a Git-audience token with write, which sync sends.
+	const git = await accessToken(ctx, 'device', audiences.git);
+	expect(git.error).toBeNull();
+	expect(git.data!.expiresAt).toBeGreaterThan(Date.now() + 7 * 3600 * 1000);
 	expect(
-		await reaches(lines.password!, {
+		await reaches(git.data!.token, {
 			audience: audiences.git,
 			scope: 'folders:write',
 			person,
 		}),
 	).toBe(200);
-	// Git asking about another host gets no answer, and no request is made.
-	const before = sent.length;
-	expect(
-		(await gitCredential(ctx, 'device', 'protocol=https\nhost=github.com\n\n'))
-			.data,
-	).toBeUndefined();
-	expect(sent.length).toBe(before);
 	// The desktop grant is a separate entry this login never touched.
 	expect((await readGrant(ctx, 'desktop')).data).toBeNull();
 }, 60_000);

@@ -1,5 +1,5 @@
 /**
- * `epicenter auth login | logout | status | token | git-credential`
+ * `epicenter auth login | logout | status | token`
  * (ADR-0558): what `auth.ts` does, as text for a person or JSON for a
  * program. Without `--desktop` every command uses the device grant from
  * `epicenter auth login`; with it, the desktop app's grant, which only Rust
@@ -7,19 +7,16 @@
  *
  * `auth login --json` prints NDJSON: `{"device": {...}}` with the code and
  * link, or `{"open": "<url>"}` with `--desktop`, then one result line,
- * `{"signedIn": {...}}` or `{"error"}`. `auth git-credential` speaks Git's
- * credential protocol and takes no `--json`.
+ * `{"signedIn": {...}}` or `{"error"}`.
  */
 
 import {
 	type AuthContext,
-	type AuthError,
 	accessToken,
 	authContext,
 	authStatus,
 	type GrantKind,
 	type GrantStatus,
-	gitCredential,
 	loginWithDevice,
 	loginWithLoopback,
 	logout,
@@ -184,32 +181,5 @@ export async function authLogout(
 				`${ctx.deployment.origin} could not be told, so its tokens stay valid until they expire. Revoke this device from your account page.`,
 			);
 	}
-	return EXIT.ok;
-}
-
-/**
- * `epicenter auth git-credential get | store | erase`: Git's credential
- * helper protocol on stdin and stdout. `store` and `erase` do nothing, since
- * the token is minted, not stored. A failure is told on stderr, which Git
- * shows, and Git moves on to its next helper.
- */
-export async function authGitCredential(
-	action: string,
-	grant: GrantKind,
-): Promise<number> {
-	const request = await Bun.stdin.text();
-	if (action === 'store' || action === 'erase') return EXIT.ok;
-	if (action !== 'get') {
-		writeErr(
-			`epicenter auth git-credential takes get, store, or erase, not '${action}'`,
-		);
-		return EXIT.unusable;
-	}
-	const { data, error } = await gitCredential(authContext(), grant, request);
-	if (error !== null) {
-		writeErr(`epicenter: ${(error as AuthError).message}`);
-		return EXIT.unusable;
-	}
-	if (data !== undefined) process.stdout.write(data);
 	return EXIT.ok;
 }

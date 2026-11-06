@@ -119,6 +119,7 @@ import {
 	folderBlobs,
 	folderChanges,
 	folderCommit,
+	folderLog,
 	folderOperation,
 	folderTree,
 	getAttachment,
@@ -708,6 +709,8 @@ export function mountGitHost(
 			switch (endpoint.kind) {
 				case 'changes':
 					return await folderChanges(objects, c.req.query('since'));
+				case 'log':
+					return await folderLog(objects, c.req.query('limit'));
 				case 'tree': {
 					const body = await bodyOf(MAX_NAMED * 1100);
 					return body === null ? tooLarge() : await folderTree(objects, body);

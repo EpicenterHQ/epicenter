@@ -1,26 +1,18 @@
 /**
- * `epicenter repos`, `share`, `unshare`, and the hosted side of
- * `epicenter clone` and `sync` (ADR-0546): a folder's remote is
- * `<git origin>/<namespace>/<name>.git`, and the first push creates the
- * repository. Its owner shares it with another person by their handle (the
- * id of their personal namespace, which `epicenter repos` prints), who then
- * clones `<owner handle>/<name>`.
+ * `epicenter repos`, `share`, and `unshare` (ADR-0546): a repository is
+ * `<namespace>/<name>` to a person and Git, and its id, the folder id, to
+ * sync. Its owner shares it with another person by their handle (the id of
+ * their personal namespace, which `epicenter repos` prints), who then clones
+ * it by its id or `<owner handle>/<name>`.
  *
  * The credential is an access token for the deployment's Git audience, from
  * the grant the command runs under (`--desktop` selects the desktop app's).
- * Every round the sync core runs for this binary, a clone's or a sync's,
- * sends it as one Bearer header on each Git and LFS request to the remote's
- * origin (`hostedCredentials`), so a refresh always runs in this process
- * (ADR-0565). A person's own `git` gets it from the credential helper, which
- * only `epicenter auth login` writes, globally.
  */
 
-import { locate } from '@epicenter/core';
 import {
 	type GrantLevel,
 	isRepositoryName,
 	parseRepositoryPath,
-	parseRepositoryUrl,
 	type RepositoryGrant,
 	type RepositoryGrantRevoked,
 	type RepositoryGrants,
@@ -28,6 +20,8 @@ import {
 	type RepositoryPath,
 	repositoryGrantsUrl,
 } from '@epicenter/definition/site';
+import { nodeStore } from '@epicenter/folder/node';
+import { storeManifest } from '@epicenter/folder/sync';
 import {
 	type AuthContext,
 	accessToken,
@@ -35,48 +29,6 @@ import {
 	type GrantKind,
 } from './auth.ts';
 import { EXIT, fail, writeJson, writeOut } from './output.ts';
-import type { CredentialFor } from './sync/sync.ts';
-
-/**
- * The credential for a remote of this deployment's hosted Git, asked for by
- * URL as each transfer starts: the grant's access token for the Git
- * audience, sent only over `https`, or over `http` to this computer (a
- * development API on `localhost`). Any other remote gets none: the sync
- * core asks no credential helper, so it reaches only a remote that needs no
- * sign-in, such as a local repository. Nothing is created here: the server
- * answers a name nobody holds as an empty repository, so the sync's fetch
- * finds nothing, and its push creates the repository.
- */
-export function hostedCredentials(
-	ctx: AuthContext,
-	grant: GrantKind,
-): CredentialFor {
-	return async (url) => {
-		if (
-			!carriesTokens(url) ||
-			parseRepositoryUrl(ctx.deployment.audiences.git, url) === undefined
-		)
-			return undefined;
-		const { data, error } = await accessToken(
-			ctx,
-			grant,
-			ctx.deployment.audiences.git,
-		);
-		if (error !== null) throw new Error(error.message);
-		return { token: data.token };
-	};
-}
-
-/** Whether a token may travel to `url`: `https`, or `http` that never leaves this computer. */
-function carriesTokens(url: string): boolean {
-	if (url.startsWith('https://')) return true;
-	if (!URL.canParse(url)) return false;
-	const { protocol, hostname } = new URL(url);
-	return (
-		protocol === 'http:' &&
-		['localhost', '127.0.0.1', '[::1]'].includes(hostname)
-	);
-}
 
 async function refusal(response: Response, url: string): Promise<string> {
 	const body = (await response.json().catch(() => undefined)) as
@@ -124,21 +76,6 @@ async function request<T>(
 	return { data: (await response.json()) as T, error: null };
 }
 
-/** Resolve `~/name` to the signed-in person's stable namespace id. */
-export async function personalNamespace(grant: GrantKind): Promise<string> {
-	const ctx = authContext();
-	const { data, error } = await request<RepositoryListing>(
-		ctx,
-		grant,
-		`${ctx.deployment.origin}/api/repos`,
-	);
-	if (error !== null) throw new Error(error);
-	const own = data.namespaces.find((namespace) => namespace.personal);
-	if (own === undefined)
-		throw new Error('This account has no personal repository namespace.');
-	return own.id;
-}
-
 /** `epicenter repos`: the caller's repositories by namespace. */
 export async function repos(json: boolean, grant: GrantKind) {
 	const ctx = authContext();
@@ -160,7 +97,9 @@ export async function repos(json: boolean, grant: GrantKind) {
 		);
 		if (namespace.repositories.length === 0) lines.push('  no repositories');
 		for (const repository of namespace.repositories)
-			lines.push(`  ${namespace.id}/${repository.name}`);
+			lines.push(
+				`  ${namespace.id}/${repository.name}  (folder ${repository.id})`,
+			);
 	}
 	writeOut(lines.length === 0 ? 'No namespaces.' : lines.join('\n'));
 	return EXIT.ok;
@@ -168,10 +107,12 @@ export async function repos(json: boolean, grant: GrantKind) {
 
 /**
  * The hosted repository `target` names: `<owner>/<name>`, `~/<name>` (the
- * caller's own), or a folder whose `origin` is one of this deployment's.
+ * caller's own), or a folder that syncs with one of the caller's (its
+ * manifest names the folder id, which the caller's listing names).
  */
 async function repositoryOf(
 	ctx: AuthContext,
+	grant: GrantKind,
 	target: string,
 ): Promise<RepositoryPath | undefined> {
 	const own = /^~\/(.+)$/.exec(target)?.[1];
@@ -179,15 +120,19 @@ async function repositoryOf(
 		return isRepositoryName(own) ? { namespace: '~', name: own } : undefined;
 	const named = parseRepositoryPath(target);
 	if (named !== undefined) return named;
-	let url: string | undefined;
-	try {
-		url = locate(target)?.origin;
-	} catch {
-		// A path the core cannot open names no repository.
-	}
-	return url === undefined
-		? undefined
-		: parseRepositoryUrl(ctx.deployment.audiences.git, url);
+	const read = await storeManifest(nodeStore(target)).read();
+	const folder = read.error === null ? read.data.manifest.folder : undefined;
+	if (folder === undefined) return undefined;
+	const { data } = await request<RepositoryListing>(
+		ctx,
+		grant,
+		`${ctx.deployment.origin}/api/repos`,
+	);
+	for (const namespace of data?.namespaces ?? [])
+		for (const repository of namespace.repositories)
+			if (repository.id === folder)
+				return { namespace: namespace.id, name: repository.name };
+	return undefined;
 }
 
 /**
@@ -204,10 +149,10 @@ export async function share(
 	grant: GrantKind,
 ) {
 	const ctx = authContext();
-	const repository = await repositoryOf(ctx, target);
+	const repository = await repositoryOf(ctx, grant, target);
 	if (repository === undefined)
 		return fail(
-			`'${target}' is neither <owner>/<name>, ~/<name>, nor a folder cloned from this deployment`,
+			`'${target}' is neither <owner>/<name>, ~/<name>, nor a folder that syncs with one of your repositories`,
 			json,
 		);
 	const shown = `${repository.namespace}/${repository.name}`;
@@ -257,10 +202,10 @@ export async function unshare(
 	grant: GrantKind,
 ) {
 	const ctx = authContext();
-	const repository = await repositoryOf(ctx, target);
+	const repository = await repositoryOf(ctx, grant, target);
 	if (repository === undefined)
 		return fail(
-			`'${target}' is neither <owner>/<name>, ~/<name>, nor a folder cloned from this deployment`,
+			`'${target}' is neither <owner>/<name>, ~/<name>, nor a folder that syncs with one of your repositories`,
 			json,
 		);
 	const { data, error } = await request<RepositoryGrantRevoked>(
