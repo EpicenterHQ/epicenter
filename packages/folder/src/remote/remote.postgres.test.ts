@@ -55,6 +55,7 @@ import { startDisposablePostgres } from '../../../server/src/test-helpers/dispos
 import { OAuthTestClient } from '../../../server/src/test-helpers/oauth-client.js';
 import type { BlobId, Unavailable } from '../device/store.js';
 import { createFolder } from '../folder.js';
+import { blobIdOf } from '../hash.js';
 import { noteCodec } from '../note-codec.js';
 import { storeChecks } from '../device/store.conformance.js';
 import { folderRepository, mintFolder } from './repository.js';
@@ -778,6 +779,25 @@ describe('a repository as a store', () => {
 			expectOk(await filesAt(person.at).recordings.read(path))?.item,
 		).toEqual(both);
 		folder[Symbol.dispose]();
+	}, 30_000);
+
+	test('a note lands byte for byte, a byte-order mark kept, so both sides name it alike', async () => {
+		const person = await signIn('bom');
+		const store = storeAt(person.at);
+		const path = `recordings/${timeId()}.md`;
+		const bytes = Uint8Array.from([
+			0xef,
+			0xbb,
+			0xbf,
+			...note('title: Marked\n'),
+		]);
+		expect(expectOk(await store.put(path, bytes, null))).toBe(
+			await blobIdOf(path, bytes),
+		);
+		const [read] = expectOk(await store.read([path]));
+		expect(read !== undefined && !('gone' in read) && read.bytes).toEqual(
+			bytes,
+		);
 	}, 30_000);
 
 	test('a retired account makes every call Unavailable, never a throw', async () => {

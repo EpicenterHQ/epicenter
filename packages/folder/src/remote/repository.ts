@@ -101,7 +101,8 @@ export type FolderCommit = {
 const POLL_MS = 3000;
 
 const decoder = new TextDecoder();
-const strict = new TextDecoder('utf-8', { fatal: true });
+// A note's bytes travel as text only when they decode exactly, a byte-order mark kept.
+const strict = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === 'object' && value !== null && !Array.isArray(value);

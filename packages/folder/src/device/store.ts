@@ -20,7 +20,7 @@
  * `storeChecks` (`store.conformance.ts`) holds every store to the same
  * behavior.
  */
-import { type ClientError, isNotePath } from '@epicenter/definition/contract';
+import type { ClientError } from '@epicenter/definition/contract';
 import type { Brand } from 'wellcrafted/brand';
 import {
 	defineErrors,
@@ -126,14 +126,6 @@ export async function putLanded(
 	const meant = bytes === null ? null : await blobIdOf(path, bytes);
 	return put.error.now === meant ? Ok(meant) : put;
 }
-
-/**
- * Whether a device names the file at `path` by hashing its bytes whenever
- * it lists it (a note: small, and read whole anyway), rather than through
- * the stamp cache (`stamp-cache.ts`: an attachment, whose hash is kept by
- * its stamp so a listing never reads a long recording).
- */
-export const versionedByContent = (path: string) => isNotePath(path);
 
 /** Whether `path` is at or below one of `under` (`''` is everything). */
 export function within(path: string, under: readonly string[]): boolean {
