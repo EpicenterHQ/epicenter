@@ -539,6 +539,59 @@ test('a first sync on another computer joins the folder the person holds; a copy
 	}
 }, 240_000);
 
+test("history, show, at, and mark read a folder's log by change, mark, or time", async () => {
+	const me = await machine('history-me');
+	const desk = me.at('Journal');
+	await mkdir(join(desk, 'days'), { recursive: true });
+	await writeFile(join(desk, 'days/a.md'), note('A', 'first\n'));
+	expect((await me.epicenter('sync', desk)).code).toBe(0);
+	const marked = await me.epicenter('mark', 'v1', desk, '--json');
+	expect(marked.code, marked.stderr).toBe(0);
+	expect(JSON.parse(marked.stdout).mark).toMatchObject({ name: 'v1' });
+	await writeFile(join(desk, 'days/a.md'), note('A', 'second\n'));
+	await writeFile(join(desk, 'days/b.md'), note('B'));
+	expect((await me.epicenter('sync', desk)).code).toBe(0);
+	// A taken name stays, unless it is moved.
+	expect((await me.epicenter('mark', 'v1', desk)).code).toBe(2);
+
+	const history = JSON.parse(
+		(await me.epicenter('history', join(desk, 'days/a.md'), '--json')).stdout,
+	) as {
+		history: { path: string; versions: { seq: number; marks: string[] }[] };
+	};
+	expect(history.history.path).toBe('days/a.md');
+	expect(history.history.versions).toHaveLength(2);
+	expect(history.history.versions[1]?.marks).toEqual(['v1']);
+
+	const then = await me.epicenter(
+		'show',
+		join(desk, 'days/a.md'),
+		'--at',
+		'v1',
+	);
+	expect(then.code, then.stderr).toBe(0);
+	expect(then.stdout).toBe(note('A', 'first\n'));
+	expect((await me.epicenter('show', join(desk, 'days/a.md'))).stdout).toBe(
+		note('A', 'second\n'),
+	);
+
+	const at = JSON.parse((await me.epicenter('at', 'v1', desk, '--json')).stdout)
+		.at as { files: { path: string }[] };
+	expect(at.files.map(({ path }) => path)).toEqual([
+		'days/a.md',
+		'epicenter.json',
+	]);
+	const early = JSON.parse(
+		(await me.epicenter('at', '2000-01-01', desk, '--json')).stdout,
+	).at as { seq: number; files: unknown[] };
+	expect(early).toMatchObject({ seq: 0, files: [] });
+
+	const log = JSON.parse(
+		(await me.epicenter('log', desk, '--path', 'days/b.md', '--json')).stdout,
+	).log as { files: { path: string }[] }[];
+	expect(log).toHaveLength(1);
+}, 120_000);
+
 test('a sync that would delete many files stops until --push-deletions or --restore-deletions', async () => {
 	const me = await machine('deleter');
 	const log = me.at('Log');

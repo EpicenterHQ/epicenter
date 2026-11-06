@@ -219,7 +219,9 @@ export async function showCommand(
 			`${at.data.file} held nothing${moment === undefined ? '' : ` at ${moment}`}`,
 			json,
 		);
-	const [bytes] = (await at.data.folder.blobs([file.version])).data ?? [];
+	const read = await at.data.folder.blobs([file.version]);
+	if (read.error !== null) return fail(read.error.message, json);
+	const [bytes] = read.data;
 	if (bytes == null)
 		return fail(
 			`${at.data.file}'s bytes at ${moment ?? 'its last change'} are no longer kept`,

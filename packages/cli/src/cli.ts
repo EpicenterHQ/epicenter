@@ -46,6 +46,22 @@ const HANDLERS: Record<string, Run> = {
 		(await import('./sync/commands.ts')).cloneCommand(source, dir, json),
 	log: async ({ positionals: [dir], options, json }) =>
 		(await import('./sync/history.ts')).logCommand(dir, options, json),
+	history: async ({ positionals: [path], options, json }) =>
+		(await import('./sync/history.ts')).historyCommand(
+			path as string,
+			options,
+			json,
+		),
+	show: async ({ positionals: [path], options, json }) =>
+		(await import('./sync/history.ts')).showCommand(
+			path as string,
+			options,
+			json,
+		),
+	at: async ({ positionals: [moment, dir], json }) =>
+		(await import('./sync/history.ts')).atCommand(moment as string, dir, json),
+	mark: async ({ positionals: [name, dir], options, json }) =>
+		(await import('./sync/history.ts')).markCommand(name, dir, options, json),
 	diff: async ({ positionals: [dir], options, json }) =>
 		(await import('./sync/history.ts')).diffCommand(dir, options, json),
 	restore: async ({ positionals: [moment, dir], options, json }) =>
@@ -202,6 +218,19 @@ number, time, author, what it wrote, and its marks, noting the one this folder
 last agreed at. --path lists only the changes to one file, --at starts from a
 moment, and --limit takes at most that many (20 by default). A moment is a
 change's number, a mark's name, or a time.`,
+	history: `Lists each version of the file at <path> (a file in a folder synced
+here) on the server, newest first: the change that wrote it, when, who, its
+version and size, or that it was deleted, with the change's marks. --at starts
+from a moment; --limit takes at most that many (50 by default).`,
+	show: `Writes the file at <path> as the server holds it to stdout, or as it was
+at --at <moment> (a change's number, a mark, or a time). With --json,
+{"show": {"path", "seq", "version", "size", "text"}}.`,
+	at: `Lists the folder's files as they were at <moment> (a change's number, a
+mark's name, or a time), each with its version and size.`,
+	mark: `Names the folder's last change on the server <name>, so log, history,
+show, at, diff, and restore reach it by name, and epicenter export --git writes
+it as a tag. A name that marks another change stays unless --move. Without a
+name, lists the folder's marks.`,
 	diff: `Without --since, lists the files this folder added, changed, or deleted
 since its last sync, read from the folder alone. With --since <moment> (a
 change's number, a mark, or a time), lists the files the server changed

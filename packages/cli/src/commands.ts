@@ -83,6 +83,41 @@ export const COMMANDS: readonly CommandSpec[] = [
 		summary: "the folder's changes on the server, newest first",
 	},
 	{
+		path: ['history'],
+		args: '<path>',
+		minArgs: 1,
+		maxArgs: 1,
+		options: [
+			{ name: 'at', value: '<moment>' },
+			{ name: 'limit', value: '<n>' },
+		],
+		summary: "a file's versions on the server, who wrote each, and when",
+	},
+	{
+		path: ['show'],
+		args: '<path>',
+		minArgs: 1,
+		maxArgs: 1,
+		options: [{ name: 'at', value: '<moment>' }],
+		summary: 'a file as the server holds it, or as it was at a moment',
+	},
+	{
+		path: ['at'],
+		args: '<moment> [<dir>]',
+		minArgs: 1,
+		maxArgs: 2,
+		summary: "the folder's files as they were at a moment",
+	},
+	{
+		path: ['mark'],
+		args: '[<name> [<dir>]]',
+		minArgs: 0,
+		maxArgs: 2,
+		options: [{ name: 'move' }],
+		summary:
+			"name the folder's last change, so history and the export reach it; or list its marks",
+	},
+	{
 		path: ['diff'],
 		args: '[<dir>]',
 		minArgs: 0,
