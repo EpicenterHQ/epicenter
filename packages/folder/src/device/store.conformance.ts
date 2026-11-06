@@ -20,7 +20,8 @@
  *   write.
  */
 import type { Result } from 'wellcrafted/result';
-import { blobIdOf } from '../hash.js';
+import { CONTRACT_PATH } from '@epicenter/definition/contract';
+import { blobIdOf, gitBlobId } from '../hash.js';
 import type { BlobId, FileRead, Store } from './store.js';
 
 /** A store under test, and the world outside it. */
@@ -81,6 +82,27 @@ export const storeChecks: Record<
 	string,
 	(subject: StoreSubject) => Promise<void>
 > = {
+	async 'the contract is named by its bytes, as a note is'({ store }) {
+		// `epicenter.json` is stored as it is, never as a Git LFS pointer, so a
+		// listing must name it by the blob id of its bytes; named any other way
+		// it looks changed here on every sync, and two computers overwrite each
+		// other's title and contract.
+		const [there] = ok(await store.read([CONTRACT_PATH]));
+		const held = there === undefined || 'gone' in there ? null : there.version;
+		const contract = bytes(`{"title":"${fresh('contract')}"}\n`);
+		const landed = ok(await store.put(CONTRACT_PATH, contract, held));
+		check(
+			landed === (await gitBlobId(contract)),
+			'the contract lands as the blob id of its bytes',
+		);
+		const listed = ok(await store.list([CONTRACT_PATH]));
+		check(
+			listed.length === 1 && listed[0]?.version === landed,
+			'a listing names the contract by the blob id of its bytes',
+		);
+		ok(await store.put(CONTRACT_PATH, null, landed as BlobId));
+	},
+
 	async 'the four verbs'({ store }) {
 		const note = fresh('a.md');
 		const audio = note.replace(/a\.md$/, 'a.webm');

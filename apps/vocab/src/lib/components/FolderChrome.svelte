@@ -1,11 +1,10 @@
 <!--
-	When the folder is on this computer (`folder.reveal`): the header's account of its
-	store, Vocab's folder on this computer, whether Epicenter manages it, and
-	Set up in Epicenter beside the account, which only adds hosted tutor
-	models and dictation. Vocab never syncs anything itself.
+	When the folder is on this computer (`folder.reveal`): the header's account
+	of its store, Vocab's folder on this computer, whether Epicenter syncs it,
+	and where to get Epicenter until it does. A desktop app never syncs
+	(ADR-0822). Its account only adds hosted tutor models and dictation.
 -->
 <script lang="ts">
-	import { APPS } from '@epicenter/definition/site';
 	import { folderSync } from '@epicenter/svelte/folder-sync';
 	import FolderSyncActions from '@epicenter/svelte/folder-sync-actions';
 	import FolderOnboarding from '@epicenter/svelte/folder-onboarding';
@@ -19,12 +18,12 @@
 	import AccountMenu from './AccountMenu.svelte';
 
 	// `<WhenOpen>` renders the pages, and so this, only over the open folder.
-	const sync = folderSync({ path: folder.displayPath() ?? '', site: APPS.VOCAB.url });
+	const sync = folderSync({ path: folder.displayPath() ?? '' });
 
 	const status = $derived.by((): StatusLine => {
 		const unavailable = folder.unavailable();
 		if (unavailable !== null) return { label: 'Not readable here', detail: unavailable.message, tone: 'error' };
-		if (sync.managed) return { label: 'Kept by Epicenter', tone: 'good' };
+		if (sync.synced) return { label: 'Synced by Epicenter', tone: 'good' };
 		return { label: 'On this computer', tone: 'neutral' };
 	});
 
@@ -40,10 +39,10 @@
 			<span class="font-medium" data-testid="status-where">This computer</span>
 			<FolderOnboarding noun="entries" path={sync.path} pathTestId="status-folder" />
 			<span class="mt-0.5 block text-xs text-muted-foreground">
-				{#if sync.managed}
-					Epicenter keeps its local history. Connect a repository there to use it on other devices.
+				{#if sync.synced}
+					Epicenter keeps it in sync across your devices.
 				{:else}
-					Your words and chats are Markdown files here. Set up Epicenter to keep their history, then connect a repository to use them elsewhere.
+					Your words and chats are Markdown files here. Epicenter syncs them across your devices.
 				{/if}
 			</span>
 		</StatusRow>

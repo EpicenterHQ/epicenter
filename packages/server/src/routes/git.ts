@@ -5,7 +5,7 @@
  * `<git audience>/folders/<folder>.git`.
  *
  * ```txt
- * <git>/folders                                   POST  folders:write: join the folder named, or make one (join before create)
+ * <git>/folders                                   POST  folders:write: make a folder ({ create }), or join an app's ({ join })
  * <git>/folders                                   GET   folders:read: where main is in every folder the token reaches
  * <git>/folders/<folder>/{changes,tree,blobs,commits}   sync's routes, folder.ts
  * <git>/folders/<folder>.git/info/refs?service=…  GET   folders:read, read  (receive-pack: folders:write, push)
@@ -15,13 +15,15 @@
  * <api>/api/folders…                              the person's folders, sharing, and apps, folders-api.ts
  * ```
  *
- * A folder exists from its first sync, which joins before it creates
- * (`POST <git>/folders`): given the id its manifest names, it joins that
- * folder when the person holds it; from an app with none named, it joins
- * the one folder attached to the app the person holds, and asks which when
- * they hold several; otherwise it makes a new folder, attached to the app
- * that made it. Nothing else creates a folder: a push to an id no one holds
- * is refused like any request to a folder the caller does not hold.
+ * A folder exists from the request that makes it, `POST <git>/folders
+ * { create: true, app? }`, which never joins: it makes a new folder held by
+ * the person, attached to the app whose token asked (or, from a token with
+ * `folders:all`, to the app it names). Joining is a separate request that
+ * names its app, `{ join: <app> }`, as a web app's first open sends it: the
+ * one folder attached to that app the person holds, `choose` when they hold
+ * several, and 404 `none` when they hold none. An app's token joins only its
+ * own app's folder. Nothing else creates a folder: a push to an id no one
+ * holds is refused like any request to a folder the caller does not hold.
  *
  * The Git audience is `https://git.epicenter.so` for the hosted cloud and
  * `<origin>/git` for any other deployment (`resolveOAuthAudiences`), so a
@@ -53,9 +55,10 @@
  *   - 403 `forbidden`            the caller does not hold the folder, the
  *                                folder is not attached to the token's app, or
  *                                the caller's role may not do this;
- *   - 409 `choose`               a first sync from an app whose person holds
- *                                several folders attached to it, listed in
- *                                `folders`;
+ *   - 404 `none`                 a join of an app the person holds no folder
+ *                                attached to;
+ *   - 409 `choose`               a join of an app whose person holds several
+ *                                folders attached to it, listed in `folders`;
  *   - 413 `too_large`            a push over the store's `pushBytes` (64 MiB on disk);
  *   - 502 `store_failed`         storage failed or refused this server;
  *   - 503 `git_unavailable`      this deployment has no store, or its database
@@ -65,7 +68,12 @@
  * a plan, so this mount takes no billing policy.
  */
 
-import { isFolderId, type JoinedFolder } from '@epicenter/definition/site';
+import {
+	type FolderRequest,
+	isAppId,
+	isFolderId,
+	type JoinedFolder,
+} from '@epicenter/definition/site';
 import type { Context, Hono, MiddlewareHandler } from 'hono';
 import { every } from 'hono/combine';
 import { createMiddleware } from 'hono/factory';
@@ -161,9 +169,11 @@ export type GitHost = {
 	receiveLimits?: ReceiveLimits;
 };
 
-/** Why a first sync joined nothing and made nothing. */
+/** Why a request to make or join a folder made nothing and joined nothing. */
 export type JoinRefusal =
 	| ResourceRefusal
+	| { status: 403; error: 'forbidden'; description: string }
+	| { status: 404; error: 'none'; description: string }
 	| {
 			status: 409;
 			error: 'choose';
@@ -186,12 +196,13 @@ export type GitAccess = {
 		target: { folder: string; operation: 'read' | 'push' },
 	): Promise<Result<FolderAccess, ResourceRefusal>>;
 	/**
-	 * A first sync: join `folder` (or, from an app, the one folder attached
-	 * to it) when the caller holds it, or make one, its storage first.
+	 * Make a folder (`create`), its storage first, which never joins; or
+	 * join the one folder attached to the app `join` names that the caller
+	 * holds.
 	 */
 	join(
 		c: Context<CloudEnv>,
-		target: { folder: string | undefined; host: GitHost },
+		target: { request: FolderRequest; host: GitHost },
 	): Promise<Result<JoinedFolder, JoinRefusal>>;
 };
 
@@ -208,7 +219,7 @@ export const databaseGitAccess: GitAccess = {
 			scope: operation === 'push' ? 'folders:write' : 'folders:read',
 			folder,
 		}),
-	async join(c, { folder, host }) {
+	async join(c, { request, host }) {
 		const decided = await authorizeAccountRequest(c.var.db, {
 			token: readAccessToken(c.req.header('authorization')),
 			audience: c.var.audiences.git,
@@ -216,30 +227,51 @@ export const databaseGitAccess: GitAccess = {
 		});
 		if (decided.error !== null) return decided;
 		const { accountId, app } = decided.data;
-		// A reader joins too: a sync of a folder they hold reads it.
-		const held = await heldFolders(c.var.db, { accountId, app });
-		if (folder !== undefined && held.some(({ id }) => id === folder))
-			return Ok({ folder, made: false });
-		if (folder === undefined && app !== null) {
-			const [only, ...more] = held;
-			if (only !== undefined && more.length === 0)
-				return Ok({ folder: only.id, made: false });
-			if (only !== undefined)
+		if ('create' in request) {
+			// An app's token makes its own app's folder; only a token that
+			// reaches every folder attaches a new one to another app.
+			if (app !== null && request.app !== undefined && request.app !== app)
 				return Err({
-					status: 409,
-					error: 'choose',
-					description:
-						'You hold several folders this app uses: name the one to sync.',
-					folders: held.map(({ id }) => id),
+					status: 403,
+					error: 'forbidden',
+					description: "An app's token makes only its own app's folder.",
 				});
+			// Storage comes first, so no row ever names a folder that has none.
+			// Storage made for `id` stays if the insert fails: it may have
+			// committed and lost only its reply.
+			const id = newFolderId();
+			await host.create(id);
+			await createFolder(c.var.db, {
+				id,
+				accountId,
+				app: app ?? request.app ?? null,
+			});
+			return Ok({ folder: id, made: true });
 		}
-		// Storage comes first, so no row ever names a folder that has none.
-		// Storage made for `id` stays if the insert fails: it may have
-		// committed and lost only its reply.
-		const id = newFolderId();
-		await host.create(id);
-		await createFolder(c.var.db, { id, accountId, app });
-		return Ok({ folder: id, made: true });
+		if (app !== null && request.join !== app)
+			return Err({
+				status: 403,
+				error: 'forbidden',
+				description: "An app's token joins only its own app's folder.",
+			});
+		// A reader joins too: a sync of a folder they hold reads it.
+		const held = await heldFolders(c.var.db, { accountId, app: request.join });
+		const [only, ...more] = held;
+		if (only === undefined)
+			return Err({
+				status: 404,
+				error: 'none',
+				description: 'You hold no folder this app uses.',
+			});
+		if (more.length > 0)
+			return Err({
+				status: 409,
+				error: 'choose',
+				description:
+					'You hold several folders this app uses: name the one to open.',
+				folders: held.map(({ id }) => id),
+			});
+		return Ok({ folder: only.id, made: false });
 	},
 };
 
@@ -459,6 +491,26 @@ async function readBody(
 }
 
 /**
+ * The body of `POST <git>/folders`, or null when it is neither shape: a
+ * create naming at most an app id, or a join naming one.
+ */
+export function readFolderRequest(body: unknown): FolderRequest | null {
+	if (typeof body !== 'object' || body === null || Array.isArray(body))
+		return null;
+	const fields = body as Record<string, unknown>;
+	const keys = Object.keys(fields);
+	const appId = (value: unknown): value is string =>
+		typeof value === 'string' && isAppId(value);
+	if (fields.create === true) {
+		if (keys.some((key) => key !== 'create' && key !== 'app')) return null;
+		if (fields.app === undefined) return { create: true };
+		return appId(fields.app) ? { create: true, app: fields.app } : null;
+	}
+	if (keys.length === 1 && appId(fields.join)) return { join: fields.join };
+	return null;
+}
+
+/**
  * Mount folders on the Git audience, and their listing, sharing, and apps
  * on the API's origin (`folders-api.ts`), both for a Git-audience token.
  * `setup` installs the database (`c.var.db`), which every request reads.
@@ -524,20 +576,22 @@ export function mountGitHost(
 		return { granted: decided.data };
 	}
 
-	/** `POST <git>/folders { folder? }`: join the folder named, or make one. */
+	/**
+	 * `POST <git>/folders`: `{ create: true, app? }` makes a folder and never
+	 * joins; `{ join: <app> }` joins the one folder attached to that app.
+	 */
 	async function join(c: Context<CloudEnv>, host: GitHost) {
-		const body = (await c.req.json().catch(() => ({}))) as {
-			folder?: unknown;
-		} | null;
-		const folder = body?.folder;
-		if (
-			folder !== undefined &&
-			(typeof folder !== 'string' || !isFolderId(folder))
-		)
-			return refuse(c, 400, 'invalid_request', 'folder is a folder id.');
+		const request = readFolderRequest(await c.req.json().catch(() => null));
+		if (request === null)
+			return refuse(
+				c,
+				400,
+				'invalid_request',
+				"Send { create: true, app? } to make a folder, or { join: <app> } to join an app's folder.",
+			);
 		let joined: Awaited<ReturnType<GitAccess['join']>>;
 		try {
-			joined = await access.join(c, { folder, host });
+			joined = await access.join(c, { request, host });
 		} catch (cause) {
 			log.error(GitHostError.CreateFailed({ cause }).error);
 			return refuse(c, 502, 'store_failed', 'The folder could not be made.');
@@ -548,6 +602,8 @@ export function mountGitHost(
 				return refuse(c, 409, refusal.error, refusal.description, [], {
 					folders: refusal.folders,
 				});
+			if ('description' in refusal)
+				return refuse(c, refusal.status, refusal.error, refusal.description);
 			return sendRefusal(c, refusal);
 		}
 		return c.json(joined.data, joined.data.made ? 201 : 200, {

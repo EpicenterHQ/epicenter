@@ -25,7 +25,9 @@
 //!   `tauri://localhost` origin (`apps/api/worker/trusted-origins.ts`), and the
 //!   bearer token stays here. A request names its audience (the API unless it
 //!   says otherwise) and is sent only to the deployment's origin or that
-//!   audience's.
+//!   audience's. A standalone app's requests are only hosted inference
+//!   (`Relays::Inference`, `INFERENCE_ROUTES`, ADR-0822); any other is refused
+//!   before a token is read.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -56,7 +58,30 @@ pub struct AccountApp {
     /// The audiences it signs in for, the API first. The deployment
     /// registers the same for its client.
     pub audiences: &'static [Audience],
+    /// What its windows may send through `account_fetch`.
+    pub relays: Relays,
 }
+
+/// What an app's windows may send on its account (`account_fetch`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Relays {
+    /// Only hosted inference, `INFERENCE_ROUTES` on the API audience: a
+    /// standalone app, which signs in only for hosted features (ADR-0822).
+    Inference,
+    /// Any request to its audiences' origins: the Epicenter app, the one
+    /// desktop program that syncs.
+    AnyRoute,
+}
+
+/// Hosted inference, as `(method, path)` on the deployment's origin: the only
+/// requests a standalone app's windows send on its account. Each is a route
+/// `apps/api` mounts (`API_ROUTES.ai` in `@epicenter/server`);
+/// `fixtures/relayed-routes.json` lists the same, and `apps/api`'s
+/// `runtime-profile.test.ts` checks each against both of its entries.
+pub const INFERENCE_ROUTES: &[(&str, &str)] = &[
+    ("POST", "/v1/chat/completions"),
+    ("POST", "/v1/audio/transcriptions"),
+];
 
 impl AccountApp {
     /// What every app that signs in for hosted models asks for: who you are,
@@ -785,6 +810,46 @@ fn reaches(url: &str, origin: &str, audience: Audience) -> bool {
     on_origin(url, origin) || on_origin(url, &origin_of(&audience.url(origin)))
 }
 
+/// Whether `method url` on `audience`'s token is hosted inference: one of
+/// `INFERENCE_ROUTES`, on the deployment's origin, with nothing after its
+/// path but a query. The path is compared as sent, so `..`, `\`, or an
+/// escape the HTTP client would read differently is never inference.
+fn is_inference(method: &str, url: &str, origin: &str, audience: Audience) -> bool {
+    let Some(rest) = url.strip_prefix(origin) else {
+        return false;
+    };
+    let path = rest.split_once('?').map_or(rest, |(path, _)| path);
+    audience == Audience::Api && INFERENCE_ROUTES.contains(&(method, path))
+}
+
+/// Whether `app` may send `method url` on `audience`'s token, or why not.
+/// Checked before a token is read or anything is sent.
+fn permits(
+    app: &AccountApp,
+    origin: &str,
+    audience: Audience,
+    method: &str,
+    url: &str,
+) -> Result<(), String> {
+    if !app.audiences.contains(&audience) {
+        return Err(format!(
+            "{} does not sign in for the {audience:?} audience",
+            app.name
+        ));
+    }
+    if !reaches(url, origin, audience) {
+        return Err(format!("{url} is not on {origin}"));
+    }
+    match app.relays {
+        Relays::AnyRoute => Ok(()),
+        Relays::Inference if is_inference(method, url, origin, audience) => Ok(()),
+        Relays::Inference => Err(format!(
+            "{} sends only Epicenter's hosted inference on its account, not {method} {url}",
+            app.name
+        )),
+    }
+}
+
 /// Request headers the relay passes on: never a credential or a header the
 /// HTTP client owns.
 fn forwarded(name: &str) -> bool {
@@ -866,25 +931,24 @@ async fn relay(account: Arc<Account>, request: RelayRequest, channel: Channel<In
     .await;
 }
 
-/// Send one request on the account, to the deployment's origin only. The
+/// Send one request on the account, to the deployment's origin only, and
+/// for a standalone app only hosted inference (`AccountApp::relays`). The
 /// response arrives on `on_event`: its head, its body in raw chunks, then
-/// its end or an error. Answers once the request is under way.
+/// its end or an error. Answers once the request is under way; a request the
+/// app may not send is refused here, before a token is read.
 #[tauri::command]
 pub async fn account_fetch(
     account: State<'_, Arc<Account>>,
     request: RelayRequest,
     on_event: Channel<InvokeResponseBody>,
 ) -> Result<(), String> {
-    let audience = request.audience.unwrap_or(Audience::Api);
-    if !account.app.audiences.contains(&audience) {
-        return Err(format!(
-            "{} does not sign in for the {audience:?} audience",
-            account.app.name
-        ));
-    }
-    if !reaches(&request.url, &account.origin, audience) {
-        return Err(format!("{} is not on {}", request.url, account.origin));
-    }
+    permits(
+        &account.app,
+        &account.origin,
+        request.audience.unwrap_or(Audience::Api),
+        &request.method,
+        &request.url,
+    )?;
     let account = account.inner().clone();
     account
         .requests
@@ -920,6 +984,7 @@ mod tests {
         name: "Vocab",
         scope: AccountApp::HOSTED_MODELS,
         audiences: AccountApp::API,
+        relays: Relays::Inference,
     };
 
     const EPICENTER: AccountApp = AccountApp {
@@ -927,7 +992,131 @@ mod tests {
         name: "Epicenter",
         scope: AccountApp::EVERY_FOLDER,
         audiences: AccountApp::API_AND_FOLDERS,
+        relays: Relays::AnyRoute,
     };
+
+    /// The fixture `apps/api`'s `runtime-profile.test.ts` checks against
+    /// the server's routes lists exactly what a standalone app relays.
+    #[test]
+    fn the_inference_routes_are_the_fixture_the_server_checks() {
+        #[derive(Deserialize)]
+        struct Route {
+            method: String,
+            path: String,
+        }
+        let fixture: Vec<Route> =
+            serde_json::from_str(include_str!("../fixtures/relayed-routes.json")).unwrap();
+        let listed: Vec<(&str, &str)> = fixture
+            .iter()
+            .map(|route| (route.method.as_str(), route.path.as_str()))
+            .collect();
+        assert_eq!(listed, INFERENCE_ROUTES);
+    }
+
+    /// A standalone app sends hosted inference and nothing else: not who is
+    /// signed in, a folder, its history, or a route the server does not have.
+    #[test]
+    fn a_standalone_app_relays_only_hosted_inference() {
+        let origin = "https://api.epicenter.so";
+        let sends = |method: &str, url: &str| permits(&VOCAB, origin, Audience::Api, method, url);
+        for url in [
+            "https://api.epicenter.so/v1/chat/completions",
+            "https://api.epicenter.so/v1/audio/transcriptions",
+            "https://api.epicenter.so/v1/chat/completions?stream=1",
+        ] {
+            assert_eq!(sends("POST", url), Ok(()), "{url}");
+        }
+        for (method, url) in [
+            ("GET", "https://api.epicenter.so/v1/chat/completions"),
+            ("post", "https://api.epicenter.so/v1/chat/completions"),
+            ("GET", "https://api.epicenter.so/api/folders"),
+            ("POST", "https://api.epicenter.so/api/folders/f/members"),
+            ("GET", "https://api.epicenter.so/auth/oauth2/userinfo"),
+            ("GET", "https://api.epicenter.so/v1/models"),
+            ("POST", "https://api.epicenter.so/v1/embeddings"),
+            ("POST", "https://api.epicenter.so/v1/chat/completions/"),
+            (
+                "POST",
+                "https://api.epicenter.so/v1/chat/completions/../../api/folders",
+            ),
+            (
+                "POST",
+                r"https://api.epicenter.so/v1/chat/completions/..\..\api/folders",
+            ),
+            ("POST", "https://api.epicenter.so/v1/chat/%63ompletions"),
+            ("POST", "https://api.epicenter.so/v1/chat/completions#x"),
+            ("POST", "https://api.epicenter.so/V1/chat/completions"),
+        ] {
+            assert_eq!(
+                sends(method, url),
+                Err(format!(
+                    "Vocab sends only Epicenter's hosted inference on its account, not {method} {url}"
+                )),
+                "{method} {url}"
+            );
+        }
+        // Not on the folders' audience, which it does not sign in for, nor
+        // to another origin.
+        assert!(permits(
+            &VOCAB,
+            origin,
+            Audience::Git,
+            "POST",
+            "https://git.epicenter.so/v1/chat/completions"
+        )
+        .is_err());
+        assert!(sends("POST", "https://evil.com/v1/chat/completions").is_err());
+        // A debug build's local API is the deployment.
+        assert_eq!(
+            permits(
+                &VOCAB,
+                "http://localhost:8787",
+                Audience::Api,
+                "POST",
+                "http://localhost:8787/v1/audio/transcriptions"
+            ),
+            Ok(())
+        );
+    }
+
+    /// The Epicenter app's windows relay what they send today on both
+    /// audiences: who is signed in, the folders, and every folder's history.
+    #[test]
+    fn the_epicenter_app_relays_any_route_on_its_audiences() {
+        let origin = "https://api.epicenter.so";
+        for (audience, method, url) in [
+            (
+                Audience::Api,
+                "GET",
+                "https://api.epicenter.so/auth/oauth2/userinfo",
+            ),
+            (
+                Audience::Api,
+                "POST",
+                "https://api.epicenter.so/v1/chat/completions",
+            ),
+            (Audience::Git, "GET", "https://api.epicenter.so/api/folders"),
+            (
+                Audience::Git,
+                "POST",
+                "https://git.epicenter.so/folders/f.git/git-upload-pack",
+            ),
+        ] {
+            assert_eq!(
+                permits(&EPICENTER, origin, audience, method, url),
+                Ok(()),
+                "{url}"
+            );
+        }
+        assert!(permits(
+            &EPICENTER,
+            origin,
+            Audience::Api,
+            "GET",
+            "https://evil.com/"
+        )
+        .is_err());
+    }
 
     #[test]
     fn the_epicenter_app_asks_for_every_folder_on_both_audiences() {

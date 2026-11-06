@@ -125,11 +125,14 @@ epicenter auth login, and the Epicenter app's. Reads only the keychain.`,
 	'auth logout': `Revokes this computer's sign-in at the server and deletes it from the
 keychain. The Epicenter app's sign-in is separate; sign it out in its Settings.`,
 	status: `Lists every folder in the Epicenter folder (~/Epicenter, or ~/Epicenter Dev
-in development): its title, and whether it never synced, synced, or is shared,
-with who holds it. A copy of another folder says so. Below them, the shares
-waiting for you and the folders you hold that this computer does not. Signed
-out or offline, it lists what this computer holds. With --json,
-{"root", "folders", "pending", "elsewhere", "unreadable", "offline"}.`,
+in development): its title, and whether it is on this computer only, synced,
+shared (with who holds it), or kept by Git, which Epicenter never syncs. A
+folder on this computer only names the folders it could be. Below them, the
+shares waiting for you and the folders you hold that this computer does not.
+It says so when the Epicenter folder is inside a file-sync service, which
+Epicenter refuses to sync. Signed out or offline, it lists what this computer
+holds. With --json, {"root", "folders", "pending", "elsewhere", "unreadable",
+"fileSync", "offline"}.`,
 	init: `Writes <path>'s epicenter.json (this directory by default): its title (the
 directory's name, or --title), and the collections its files suggest, a
 pattern per directory, {name} the item's file name. A directory's notes
@@ -160,27 +163,40 @@ for its title. Without <folder>, lists the shares waiting for you.`,
 folder: an app reaches only the folders attached to it, and its first sync
 attaches the folder it makes. Only Epicenter and this command attach one.`,
 	detach: `Stops the app <app> reaching the folder. Its files stay where they are.`,
-	sync: `Syncs <dir> (default: the current directory) with its folder on the
-server, with no Git on this computer: what changed on either side since the
-last sync is copied to the other, and a note both sides changed merges by
-Epicenter's rules, front matter by key with this computer's change winning a
-key both changed, and the body by line with one conflict block per clash. An
-edit beats a delete, and a file both sides replaced keeps this computer's;
-the other stays in the folder's history. A folder's first sync joins the folder
-its .epicenter/synced.json names when you hold it, and otherwise makes one,
-recording its id there with the directory it synced in. A copy of a folder
-(its manifest names another directory) sends nothing: --new makes it a folder
-of its own, and --same says it is that folder, moved. --all syncs every folder
-in the Epicenter folder that moved, asking the server once where every folder
-is. With --json, one {"sync": {...}} line per folder. Exits 0 when synced, 1
+	sync: `Syncs <folder> (a folder in the Epicenter folder, by its path or name; the
+current directory by default) with its folder on the server, with no Git on
+this computer: what changed on either side since the last sync is copied to
+the other, and a note both sides changed merges by Epicenter's rules, front
+matter by key with this computer's change winning a key both changed, and the
+body by line with one conflict block per clash. An edit beats a delete, and a
+file both sides replaced keeps this computer's; the other stays in the
+folder's history.
+
+What this computer synced is recorded at the Epicenter folder's root, one
+record per folder, and a folder syncs from that record only when this
+directory is proven the one that synced it: the same inode and birth time, or,
+after a move to a new computer, the same name and exactly the same files in a
+folder only you hold. A folder not proven so asks which folder it is before
+anything is sent, listing the folders you hold that it could be (by name or
+title, with who holds them): answer --join <id>, or --create to make it a new
+folder. With nothing it could be, it becomes a new folder; with one folder you
+hold alone, it joins that one. A join starts from first contact, which never
+deletes on either side. A folder kept by Git is never synced.
+
+A sync that would delete 20 or more files on the server, or 5 or more that
+are half the folder, sends nothing and says which: --push-deletions deletes
+them there, and --restore-deletions brings them back here. --all syncs every
+folder in the Epicenter folder that moved, asking the server once where every
+folder is, and a folder an app made as if you had named it. With --json, one
+{"sync": {...}} or {"question": {...}} line per folder. Exits 0 when synced, 1
 when a sync should run again, the repository refused a file (a name differing
-only in case from one it holds), or a copy asks, and 2 when it could not
-sync.`,
+only in case from one it holds), a folder asks which one it is, or deletions
+wait for an answer, and 2 when it could not sync.`,
 	clone: `Without <folder>, lists the folders you hold: id, title, and who holds them.
-With one (its id, or its title when one folder has it), brings it into <dir>,
-or into a new folder in the Epicenter folder named for its title, and syncs
-it, taking its files. A folder that already holds files keeps them, merged on
-top. Plain Git clones the same history at <git origin>/folders/<id>.git.`,
+With one (its id, or its title when one folder has it), brings it into a new
+folder in the Epicenter folder, named <name> or for its title, and syncs it,
+taking its files. Plain Git clones the same history at
+<git origin>/folders/<id>.git.`,
 	log: `Lists the folder's history on the server, newest first: each commit's id,
 time, and subject, marking the one this folder last agreed at. --limit takes
 at most that many (20 by default).`,

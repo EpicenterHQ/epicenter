@@ -1,64 +1,67 @@
 /**
- * State Layout Tests
+ * Reserved Name Tests
  *
- * Where a folder's unfinished writes live is spelled once per language:
- * `state.ts` here and `state.rs` in the folder core. Both read
- * `fixtures/state-layout.json`, so a rename on one side fails the other's
+ * The names Epicenter keeps beside a folder's files are spelled once per
+ * language: `state.ts` here and `state.rs` in the folder core. Both read
+ * `fixtures/reserved-names.json`, so a rename on one side fails the other's
  * suite.
  *
  * Key behaviors:
- * - The directory and its `saves` part match the shared layout
- * - `savesDirectory` builds the shared layout's path
- * - Staged names carry their age in the grammar the desktop shell sweeps
+ * - A staged save and a recording in progress are reserved; nothing else is
+ * - A recording in progress names its final path
+ * - New names are reserved, and a save's never collides
  */
 import { expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-	isStaleSave,
-	SAVES,
-	STATE_DIRECTORY,
-	savesDirectory,
-	scratchName,
+	isReservedName,
+	isSaveName,
+	LEGACY_DIRECTORY,
+	recordingFinal,
+	recordingName,
+	saveName,
 } from './state.js';
 
-/** The layout `state.rs` reads too. */
-const layout = JSON.parse(
+/** The names `state.rs` reads too. */
+const fixture = JSON.parse(
 	readFileSync(
 		join(
 			import.meta.dir,
-			'../../tauri-plugin-epicenter-folder/fixtures/state-layout.json',
+			'../../tauri-plugin-epicenter-folder/fixtures/reserved-names.json',
 		),
 		'utf8',
 	),
 ) as {
-	directory: string;
-	saves: string;
-	savesDirectory: string;
+	legacyDirectory: string;
+	reserved: string[];
+	notReserved: string[];
+	recordings: { pending: string; final: string }[];
 };
 
-test('the directory and its saves part are the shared layout', () => {
-	expect([STATE_DIRECTORY, SAVES]).toEqual([layout.directory, layout.saves]);
+test('a staged save and a recording in progress are reserved; nothing else is', () => {
+	expect(LEGACY_DIRECTORY).toBe(fixture.legacyDirectory);
+	for (const path of fixture.reserved) expect(isReservedName(path)).toBe(true);
+	for (const path of fixture.notReserved)
+		expect(isReservedName(path)).toBe(false);
 });
 
-test('savesDirectory builds the shared layout', () => {
-	expect(savesDirectory('/folder')).toBe(`/folder/${layout.savesDirectory}`);
+test('a recording in progress names its final path', () => {
+	for (const { pending, final } of fixture.recordings) {
+		expect(isReservedName(pending)).toBe(true);
+		expect(isSaveName(pending)).toBe(false);
+		expect(recordingFinal(pending)).toBe(final);
+	}
+	expect(recordingFinal('notes/a.md')).toBeNull();
 });
 
-test('staged names carry their age, and only a staged name is ever stale', () => {
-	const hour = 60 * 60 * 1000;
-	const name = scratchName();
-	const made = Number.parseInt(name.slice(0, name.indexOf('-')), 36);
-	expect(isStaleSave(name, made + hour)).toBe(false);
-	expect(isStaleSave(name, made + hour + 1)).toBe(true);
-	const engine = '0123456789abcdef0123456789abcdef';
-	const now = Date.now().toString(36);
-	for (const foreign of [
-		'notes.md',
-		'a',
-		`${now}-${crypto.randomUUID()}`,
-		`${now}-${engine}`,
-		`${now}-${engine}-0-1`,
-	])
-		expect(isStaleSave(foreign, Number.MAX_SAFE_INTEGER)).toBe(false);
+test('new names are reserved, and saves do not collide', () => {
+	const saves = new Set(Array.from({ length: 1000 }, saveName));
+	expect(saves.size).toBe(1000);
+	for (const name of saves) expect(isSaveName(name)).toBe(true);
+	const take = recordingName('2026-11-06 take');
+	expect(isReservedName(take)).toBe(true);
+	expect(recordingFinal(`recordings/${take}`)).toBe(
+		'recordings/2026-11-06 take.webm',
+	);
 });

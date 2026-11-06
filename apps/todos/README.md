@@ -79,18 +79,17 @@ shared recovery screen with Retry. The files remain when the app is removed.
 
 The page is the web's own build (`build/`, the dev server in
 development), over the folder (`openFolder(todos, home({ site, account }))`,
-whose `home` in a Tauri window is the Data root). It asks for no sign-in:
-signing in is to sync the folder (ADR-0785), which this window does not
-offer yet, and Epicenter can keep the folder's local history. Its header
-says whether Epicenter manages the folder, offers **Set up in Epicenter** until it does
-(`syncWithEpicenter({ contract })`, the contract at `APPS.TODOS.url`'s
-`contract.json`), and shows the shell's folder path in the status details. Closing the window or quitting does not wait.
+whose `home` in a Tauri window is the Data root). It asks for no sign-in: a
+desktop app never syncs, and Epicenter, once installed, syncs the folder
+(ADR-0822). Its header says whether Epicenter syncs the folder (from the
+record Epicenter keeps of it), says where to get Epicenter until it does,
+and shows the shell's folder path in the status details. Closing the window or quitting does not wait.
 
 One build serves both
 ([ADR-0781](../../docs/adr/0781-apps-branch-on-what-a-capability-offers-and-one-build-serves-every-surface.md)):
 `home` and `connectAccount` decide where the page runs, and the header
-branches on `folder.reveal`, showing `FolderChrome` (the folder's local
-history status and Set up in Epicenter) where the folder can be revealed and
+branches on `folder.reveal`, showing `FolderChrome` (whether Epicenter
+syncs the folder) where the folder can be revealed and
 `RepositoryChrome` (the repository's status and the account) otherwise.
 
 ## The native CLI
@@ -137,7 +136,7 @@ signed in, and a new account is a new page (sign-in returns through
 | `src/lib/contract.ts` | The contract. |
 | `src/lib/todos.ts` | A todo's file, label and order (open first, then done, each oldest first). |
 | `src/lib/components/SignIn.svelte`, `RepositoryChrome.svelte` | The web app's signed-out page; the header's status and account. |
-| `src/lib/components/FolderChrome.svelte` | The header's local history status, Set up in Epicenter, and the folder's path (`folder.displayPath`). |
+| `src/lib/components/FolderChrome.svelte` | The header's account of the folder: whether Epicenter syncs it, and its path (`folder.displayPath`). |
 | `src/lib/components/TodosApp.svelte` | The header, the list, and the open todo, over `folder.todos`. |
 
 ## Tests

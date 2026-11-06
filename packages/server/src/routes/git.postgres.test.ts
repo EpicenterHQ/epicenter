@@ -190,11 +190,9 @@ async function call(
 	});
 }
 
-/** A first sync: join `folder` when named and held, or make a folder. */
-async function join_(token: string, folder?: string) {
-	const response = await call(token, 'git', 'folders', {
-		body: folder === undefined ? {} : { folder },
-	});
+/** `POST <git>/folders`: make a folder (`{ create: true, app? }`), or join an app's (`{ join }`). */
+async function join_(token: string, body: unknown = { create: true }) {
+	const response = await call(token, 'git', 'folders', { body });
 	return {
 		status: response.status,
 		body: (await response.json()) as {
@@ -788,33 +786,62 @@ describe('sharing a folder is an invitation to an email', () => {
 	}, 60_000);
 });
 
-describe('a first sync joins before it creates', () => {
-	test('naming a folder the person holds joins it; one they do not hold makes a new folder', async () => {
-		const alice = await signedIn('join-alice');
-		const bob = await signedIn('join-bob');
-		const folder = await made(alice.token);
-		// Another of Alice's computers names the id its manifest holds.
-		expect(await join_(alice.token, folder)).toEqual({
-			status: 200,
-			body: { folder, made: false },
-		});
-		// Bob holds no such folder, so his first sync makes his own.
-		const his = await join_(bob.token, folder);
-		expect(his.status).toBe(201);
-		expect(his.body.folder).not.toBe(folder);
-		// Once he accepts an invitation to it, the same request joins it.
-		await share(alice.token, folder, bob.person.email);
-		expect((await join_(bob.token, folder)).body.made).toBe(true);
-		await accept(bob.token, folder);
-		expect(await join_(bob.token, folder)).toEqual({
-			status: 200,
-			body: { folder, made: false },
-		});
+describe('a create never joins, and a join names its app', () => {
+	test('a create makes a new folder every time, from any token; a join of an app the person holds none of is none', async () => {
+		const person = await client.person('create-never-joins');
+		const platform = await tokenFor(person);
+		const todosToken = await tokenFor(person, todos);
+		// An app's token makes its own folder, attached to it.
+		const first = await join_(todosToken);
+		expect(first.status).toBe(201);
+		const folder = first.body.folder as string;
+		// A second create from the same app's token makes another: it never
+		// joins the folder attached to the app (the old `--new` from an app
+		// token merged into it).
+		const second = await join_(todosToken);
+		expect(second.status).toBe(201);
+		const another = second.body.folder as string;
+		expect(another).not.toBe(folder);
+		// From the platform, a create names the app to attach it to.
+		const forVocab = await join_(platform, { create: true, app: vocab.clientId });
+		expect(forVocab.status).toBe(201);
+		expect(
+			(await listing(platform)).folders
+				.map(({ id, apps }) => [id, apps])
+				.sort(),
+		).toEqual(
+			[
+				[folder, [todos.clientId]],
+				[another, [todos.clientId]],
+				[forVocab.body.folder as string, [vocab.clientId]],
+			].sort(),
+		);
+		// An app's token makes nothing for another app.
+		expect(
+			(await join_(todosToken, { create: true, app: vocab.clientId })).status,
+		).toBe(403);
+		// A join names its app: Todos holds two, so it asks which.
+		const choose = await join_(todosToken, { join: todos.clientId });
+		expect(choose.status).toBe(409);
+		expect(choose.body.folders?.sort()).toEqual(
+			[folder, another].sort(),
+		);
+		// An app joins only its own app's folder.
+		expect((await join_(todosToken, { join: vocab.clientId })).status).toBe(
+			403,
+		);
+		const stranger = await client.person('create-never-joins-other');
+		expect(
+			await join_(await tokenFor(stranger, todos), { join: todos.clientId }),
+		).toMatchObject({ status: 404, body: { error: 'none' } });
+		// Neither shape is no request at all.
+		for (const body of [{}, { folder }, { create: false }, { join: 'x' }])
+			expect((await join_(platform, body)).status).toBe(400);
 	}, 60_000);
 });
 
 describe('an app reaches the folders attached to it', () => {
-	test("an app's first sync makes its folder and joins it after; another app reaches nothing until the person attaches it", async () => {
+	test("an app's first open makes its folder and joins it after; another app reaches nothing until the person attaches it", async () => {
 		const person = await client.person('attach');
 		const platform = await tokenFor(person);
 		const todosToken = await tokenFor(person, todos);
@@ -823,7 +850,7 @@ describe('an app reaches the folders attached to it', () => {
 		const first = await join_(todosToken);
 		expect(first.status).toBe(201);
 		const folder = first.body.folder as string;
-		expect(await join_(todosToken)).toEqual({
+		expect(await join_(todosToken, { join: todos.clientId })).toEqual({
 			status: 200,
 			body: { folder, made: false },
 		});
@@ -861,7 +888,7 @@ describe('an app reaches the folders attached to it', () => {
 				})
 			).status,
 		).toBe(200);
-		const choose = await join_(vocabToken);
+		const choose = await join_(vocabToken, { join: vocab.clientId });
 		expect(choose.status).toBe(409);
 		expect(choose.body).toMatchObject({ error: 'choose' });
 		expect(choose.body.folders?.sort()).toEqual([folder, own].sort());
@@ -887,7 +914,10 @@ describe('an app reaches the folders attached to it', () => {
 			folder,
 		]);
 		expect((await accept(bobTodos, folder)).status).toBe(200);
-		expect((await join_(bobTodos)).body).toEqual({ folder, made: false });
+		expect((await join_(bobTodos, { join: todos.clientId })).body).toEqual({
+			folder,
+			made: false,
+		});
 	}, 60_000);
 });
 

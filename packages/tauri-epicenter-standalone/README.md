@@ -4,14 +4,13 @@ A standalone Epicenter app is its own small Tauri program over a folder it
 owns (decisions 79 to 82, 88 to 97). This crate is the Rust every such app
 shares, so each app's `src-tauri/src/main.rs` stays a few dozen lines.
 On the page, `openFolder(contract, home({ site }))` from `@epicenter/folder`
-opens the data folder in a Tauri window, `settings` from
-`@epicenter/local` is this computer's settings in AppData, and
-`syncWithEpicenter` and `syncedWithEpicenter` from `@epicenter/folder/tauri`
-ask the Epicenter app to set the folder up for sync, a flow from before ADR-0804
-that the code still carries: a folder now syncs with `epicenter sync`, and the
-decided rule is that every program keeps the folders it has open in sync
-([ADR-0819](../../docs/adr/0819-every-program-keeps-the-folders-it-has-open-in-sync-and-the-epicenter-app-has-them-all-open.md)).
-The page's recovery and sync UI is in `@epicenter/svelte`.
+opens the data folder in a Tauri window, and `settings` from
+`@epicenter/local` is this computer's settings in AppData. A desktop app
+does not sync: on a computer only Epicenter does, and an app reads the
+record Epicenter keeps for its folder (`data_record` in the folder plugin)
+to show what is synced
+([ADR-0822](../../docs/adr/0822-only-epicenter-syncs-on-a-computer-and-a-folder-holds-only-its-content.md)).
+The page's recovery UI is in `@epicenter/svelte`.
 
 ## Two named roots
 
@@ -29,7 +28,8 @@ plugin; nothing is granted or stored
   identifier, the reversed host of its site (`so.epicenter.whispering` is
   `~/Epicenter/whispering`). The Epicenter folder is `~/Epicenter`, or
   `~/Epicenter Dev` in development (ADR-0816; the Rust code and its comments
-  still call it the library root).
+  still call it the library root). A folder the app already opened is found
+  by its identity wherever it is in the Epicenter folder (below).
 
 The environment is stated, never guessed from the identifier. Only the
 development configuration (`tauri.dev.conf.json`, used by
@@ -44,6 +44,33 @@ removes that suffix in development alone, so a production site whose first
 label is `dev` keeps it. A configuration that states something else, or a
 development identifier without `.dev`, fails startup
 (`StartupError::Environment`, `StartupError::Identity`).
+
+Startup also names the Epicenter folder for reading records
+(`Roots::name_library`), never as roots of the app's own.
+
+## Finding the data folder
+
+An app finds its folder by its identity (ADR-0822). Each time the page
+opens Data, the shell remembers the folder's inode and birth time in
+`data-folder.json` at the top of AppData (`data_identity::remember`), a
+file the folder plugin keeps from every page. At the next start, before it
+names Data at its derived path, it looks for the directory those prove: the
+derived path itself, then each directory directly inside the Epicenter
+folder (links followed, hidden names skipped). A folder the person renamed
+in the Epicenter folder opens by its new name, and an empty folder made at
+the old name meanwhile is not taken for it. An identity without a real birth
+time proves nothing, so on a file system without birth times a renamed
+folder is not followed and the derived path opens.
+
+Any directory directly inside the Epicenter folder can be the app's folder.
+Launched as `<app> --folder <name>` or `--folder <absolute path>` (or
+`--folder=<...>`), the app names Data at that directory, which must be in the
+Epicenter folder (a link there included), and remembers it once the page
+opens it. Any other argument stops startup with its reason
+(`StartupError::Folder`). Finder's Open With sends an open event rather than
+an argument, which nothing handles yet.
+
+## Opening
 
 Startup names both roots before the window opens. The page then opens Data
 off the window thread. Whatever is at its path is the app's

@@ -21,10 +21,9 @@
  * unreachable is heard as `'all'`. It stops with the stop it answered, or
  * with the account.
  *
- * `joinFolder` is a folder's first sync on the server (ADR-0811): it joins
- * the folder a manifest names when the person holds it, or from an app the
- * one folder attached to it, and otherwise makes one, answering its id:
- * what a manifest stores (`RepositoryAddress`).
+ * `makeFolder` makes a new folder on the server and never joins one
+ * (ADR-0822); `joinApp` joins the one folder attached to an app, naming the
+ * app, as a web app's first open does (ADR-0823).
  */
 import { ClientError, storedWithLfs } from '@epicenter/definition/contract';
 import { parsePointer } from '@epicenter/definition/merge';
@@ -39,6 +38,7 @@ import {
 	type BlobId,
 	type FileRead,
 	type Listed,
+	type Moved,
 	type Store,
 	StoreError,
 	type Unavailable,
@@ -103,6 +103,13 @@ export type FolderCommit = {
 /** How often a watch asks the server what changed. */
 const POLL_MS = 3000;
 
+/**
+ * How long a put waits for others to land with it as one change, after the
+ * last one made, and at most after the first (ADR-0823).
+ */
+const BATCH_MS = 50;
+const BATCH_MAX_MS = 300;
+
 const decoder = new TextDecoder();
 // A note's bytes travel as text only when they decode exactly, a byte-order mark kept.
 const strict = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
@@ -152,29 +159,57 @@ const json = (body: unknown): RequestInit => ({
 	body: JSON.stringify(body),
 });
 
-/** What a first sync on the server answered. */
-export type Joined =
-	/** The folder joined (`made: false`) or made. */
-	| { folder: string; made: boolean }
-	/** An app's person holds several folders attached to it: which one is theirs to say. */
-	| { choose: string[] };
+/** The folder id in a 200 or 201 answer to `POST <git>/folders`, or the refusal. */
+function folderOf(status: number, body: unknown) {
+	if (
+		(status !== 200 && status !== 201) ||
+		!isRecord(body) ||
+		typeof body.folder !== 'string' ||
+		!isFolderId(body.folder)
+	)
+		return refused(status, body);
+	return Ok(body.folder);
+}
 
 /**
- * A folder's first sync on the server: join `folder` (the id its manifest
- * names) when `account`'s person holds it, or, from an app with none named,
- * the one folder attached to the app; otherwise the server makes a folder,
- * attached to the app that made it.
+ * Make a new folder on the server, held by `account`'s person, and answer
+ * its id. It never joins one. From a token that reaches every folder, `app`
+ * attaches it to that app (the client id it signs in as); an app's own
+ * token attaches it to itself.
  */
-export async function joinFolder(
+export async function makeFolder(
 	account: RemoteAccount,
-	{ folder }: { folder?: string } = {},
-): Promise<Result<Joined, Unavailable>> {
+	{ app }: { app?: string } = {},
+): Promise<Result<string, Unavailable>> {
 	const { git } = resolveOAuthAudiences(account.baseURL);
 	const answered = await ask(
 		account,
 		folderUrl(git),
-		json(folder === undefined ? {} : { folder }),
+		json(app === undefined ? { create: true } : { create: true, app }),
 	);
+	if (answered.error !== null) return answered;
+	return folderOf(answered.data.status, answered.data.body);
+}
+
+/** What joining an app's folder answered. */
+export type Joined =
+	/** The one folder attached to the app that the person holds. */
+	| { folder: string }
+	/** The person holds several: which one is theirs to say. */
+	| { choose: string[] }
+	/** The person holds none. */
+	| { none: true };
+
+/**
+ * Join the one folder attached to `app` (the client id it signs in as) that
+ * `account`'s person holds. An app's token joins only its own app's folder.
+ */
+export async function joinApp(
+	account: RemoteAccount,
+	app: string,
+): Promise<Result<Joined, Unavailable>> {
+	const { git } = resolveOAuthAudiences(account.baseURL);
+	const answered = await ask(account, folderUrl(git), json({ join: app }));
 	if (answered.error !== null) return answered;
 	const { status, body } = answered.data;
 	if (
@@ -184,14 +219,11 @@ export async function joinFolder(
 		Array.isArray(body.folders)
 	)
 		return Ok({ choose: body.folders as string[] });
-	if (
-		(status !== 200 && status !== 201) ||
-		!isRecord(body) ||
-		typeof body.folder !== 'string' ||
-		!isFolderId(body.folder)
-	)
-		return refused(status, body);
-	return Ok({ folder: body.folder, made: body.made === true });
+	if (status === 404 && isRecord(body) && body.error === 'none')
+		return Ok({ none: true });
+	const folder = folderOf(status, body);
+	if (folder.error !== null) return folder;
+	return Ok({ folder: folder.data });
 }
 
 /**
@@ -202,7 +234,10 @@ export async function joinFolder(
 export function folderRepository(
 	account: RemoteAccount,
 	folder: string,
-	{ pollMs = POLL_MS }: { pollMs?: number } = {},
+	{
+		pollMs = POLL_MS,
+		batchMs = BATCH_MS,
+	}: { pollMs?: number; batchMs?: number } = {},
 ): Store &
 	Repository & {
 		log(limit?: number): Promise<Result<FolderCommit[], Unavailable>>;
@@ -426,6 +461,64 @@ export function folderRepository(
 		return Ok(at.data.commit);
 	}
 
+	/** One put, landed alone: `Moved` to what the path holds when it moved. */
+	async function putAlone({
+		path,
+		bytes,
+		expect,
+	}: Waiting['write']): Promise<Result<BlobId | null, Moved | Unavailable>> {
+		const landed = await commit([{ path, bytes, expect }]);
+		if (landed.error !== null) return landed;
+		if (landed.data === 'moved') {
+			const at = await head();
+			if (at.error !== null) return at;
+			const tree = at.data === null ? Ok([]) : await treeOf(at.data, [path]);
+			if (tree.error !== null) return tree;
+			return StoreError.Moved({ path, now: tree.data[0]?.blob ?? null });
+		}
+		// A store's put has no refusal: the folder keeps it, saying why.
+		if ('refused' in landed.data)
+			return ClientError.Unavailable({ cause: landed.data.reason });
+		return Ok(landed.data.blobs[path] ?? null);
+	}
+
+	/** A put made within a moment of others, waiting to land with them. */
+	type Waiting = {
+		write: { path: string; bytes: Uint8Array | null; expect: BlobId | null };
+		resolve(result: Result<BlobId | null, Moved | Unavailable>): void;
+	};
+	let waiting: Waiting[] = [];
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	let firstAt: number | null = null;
+
+	/**
+	 * Land every waiting put as one change (ADR-0823). When one of them
+	 * moved, or the server refuses one, nothing lands, and each is put again
+	 * alone, so each hears its own answer.
+	 */
+	async function flush() {
+		const batch = waiting;
+		waiting = [];
+		firstAt = null;
+		const paths = new Set(batch.map(({ write }) => write.path));
+		if (batch.length === 1 || paths.size !== batch.length) {
+			for (const { write, resolve } of batch) resolve(await putAlone(write));
+			return;
+		}
+		const landed = await commit(batch.map(({ write }) => write));
+		if (landed.error !== null) {
+			for (const { resolve } of batch) resolve(landed);
+			return;
+		}
+		const receipt = landed.data;
+		if (receipt === 'moved' || 'refused' in receipt) {
+			for (const { write, resolve } of batch) resolve(await putAlone(write));
+			return;
+		}
+		for (const { write, resolve } of batch)
+			resolve(Ok(receipt.blobs[write.path] ?? null));
+	}
+
 	return {
 		...repository,
 		/** `main`'s history, newest first, along first parents: at most `limit` commits. */
@@ -483,20 +576,18 @@ export function folderRepository(
 				}),
 			);
 		},
-		async put(path, bytes, expect) {
-			const landed = await commit([{ path, bytes, expect }]);
-			if (landed.error !== null) return landed;
-			if (landed.data === 'moved') {
-				const at = await head();
-				if (at.error !== null) return at;
-				const tree = at.data === null ? Ok([]) : await treeOf(at.data, [path]);
-				if (tree.error !== null) return tree;
-				return StoreError.Moved({ path, now: tree.data[0]?.blob ?? null });
-			}
-			// A store's put has no refusal: the folder keeps it, saying why.
-			if ('refused' in landed.data)
-				return ClientError.Unavailable({ cause: landed.data.reason });
-			return Ok(landed.data.blobs[path] ?? null);
+		batches: true,
+		put(path, bytes, expect) {
+			return new Promise((resolve) => {
+				waiting.push({ write: { path, bytes, expect }, resolve });
+				clearTimeout(timer);
+				firstAt ??= Date.now();
+				const wait = Math.max(
+					0,
+					Math.min(batchMs, firstAt + BATCH_MAX_MS - Date.now()),
+				);
+				timer = setTimeout(() => void flush(), wait);
+			});
 		},
 		async watch(changed) {
 			if (account.signal.aborted)

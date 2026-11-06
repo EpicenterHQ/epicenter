@@ -65,8 +65,9 @@ Its Tauri shell names the folder from Vocab's site, and the page opens it by
 name: `~/Epicenter/vocab` (`~/Epicenter Dev/vocab` in development), made
 when nothing is there. Vocab keeps no settings note of its own; the model choice and
 the connected endpoints in AppData are `@epicenter/ai`'s. A failed open shows the shared recovery screen with Retry. The header shows
-the shell's folder path and offers **Set up in Epicenter** for local history.
-Connecting a repository in Epicenter enables transfer.
+the shell's folder path and whether Epicenter syncs the folder; a desktop
+app never syncs, and Epicenter, once installed, syncs it across devices
+(ADR-0822).
 
 Signing in is optional, from the account menu, and only adds Epicenter's hosted tutor models and dictation. The shell signs in as `so.epicenter.vocab.native` through the system browser (the shared [`epicenter-account`](../../packages/tauri-epicenter-account/README.md) crate, `createTauriAuth` from `@epicenter/account/tauri`), keeps the refresh token in the app's `credentials.json` ([ADR-0740](../../docs/adr/0740-every-credential-an-app-holds-lives-in-its-own-place.md)), writes who is signed in to `account.json`, and sends the account's requests itself, so the page never holds a token; dictation's microphone needs `Info.plist`'s usage description and `entitlements.plist`.
 
@@ -74,7 +75,7 @@ The connected endpoints are machine-local and never synced. Their list (each one
 
 The page is the web's own build (`build/`, the dev server in development). One build serves both ([ADR-0781](../../docs/adr/0781-apps-branch-on-what-a-capability-offers-and-one-build-serves-every-surface.md)): each capability package decides where the page runs and loads its desktop code only there. `connectAccount()` is the browser OAuth client in a browser, which also completes a sign-in on `/auth/callback`, and the shell's account in a Tauri window (`createTauriAuth`), read from `account.json` once the page connected. `home` is the account's repository in a browser and the data folder in a Tauri window. `customEndpoints()` is this computer's settings in both, with each key in this browser's storage in a browser and in the shell's credentials file in a Tauri window.
 
-The views branch on `folder.reveal`, which is there only for a folder on this computer: the header shows `FolderChrome` (the folder's path, Set up in Epicenter, the account) there and `RepositoryChrome` (whether the repository answers, Sign in again, the account) otherwise, and `accountPurpose` (`src/lib/account-purpose.ts`) says the account is required over the repository and optional over the folder.
+The views branch on `folder.reveal`, which is there only for a folder on this computer: the header shows `FolderChrome` (the folder's path, whether Epicenter syncs it, the account) there and `RepositoryChrome` (whether the repository answers, Sign in again, the account) otherwise, and `accountPurpose` (`src/lib/account-purpose.ts`) says the account is required over the repository and optional over the folder.
 
 ## Development
 

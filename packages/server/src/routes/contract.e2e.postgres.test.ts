@@ -138,11 +138,11 @@ beforeAll(async () => {
 		},
 		body: body === undefined ? undefined : JSON.stringify(body),
 	});
-	// The recorder's first sync makes its folder; the maker shares it, and the
-	// member accepts.
+	// The recorder makes its folder; the maker shares it, and the member
+	// accepts.
 	const made = await fetch(
 		`${audiences.git}/folders`,
-		json(maker.token, 'POST', {}),
+		json(maker.token, 'POST', { create: true }),
 	);
 	shared = ((await made.json()) as { folder: string }).folder;
 	const invited = await fetch(

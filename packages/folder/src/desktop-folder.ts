@@ -10,9 +10,6 @@ import type { Store } from './device/store.js';
 
 const log = createLogger('folder/desktop');
 
-/** What became of a request the shell answers: done, or why not. */
-export type FolderRequest = { ok: true } | { ok: false; message: string };
-
 /**
  * Write or update the root `AGENTS.md` note in `store` so it links
  * `contractUrl` and names `contract`'s paths; `true` once it is current.

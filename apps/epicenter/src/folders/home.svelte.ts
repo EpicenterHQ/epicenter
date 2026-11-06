@@ -1,11 +1,12 @@
 /**
  * The Folders window's own state, made once when the page loads: the home
- * (`listHome`: every folder with its title, state, and members, the shares
- * waiting, and the folders held elsewhere) and the background sync
- * (`keepEverySynced`), which runs while the app does, with or without the
- * window shown (ADR-0819). Both are `@epicenter/folder/platform`'s; this
- * module only keeps the signed-in account they run as, and says what each
- * action did.
+ * (`listHome`: every folder with its title, state, and members, the
+ * question each folder not synced here asks, the shares waiting, and the
+ * folders held elsewhere) and the background sync (`keepEverySynced`),
+ * which runs while the app does, with or without the window shown
+ * (ADR-0819), and syncs a folder an app made as if the person had chosen
+ * to (ADR-0822). Both are `@epicenter/folder/platform`'s; this module only
+ * keeps the signed-in account they run as, and says what each action did.
  *
  * The sync starts once the settings connected and someone is signed in, and
  * starts again for another account. The home is read again when the
@@ -15,9 +16,11 @@
 import type { Account } from '@epicenter/account';
 import type { FolderRole } from '@epicenter/definition/site';
 import {
+	type Answer,
 	acceptIntoHome,
 	attachFolder,
 	cloneIntoHome,
+	firstPartyApps,
 	type Home,
 	type HomeFolder,
 	initFolder,
@@ -36,6 +39,9 @@ import { auth, root } from './app';
 /** How often the home is read again while the window is shown. */
 const HOME_EVERY_MS = 30_000;
 
+/** The apps a folder can be made by, which the sync syncs as the person would. */
+const apps = firstPartyApps();
+
 /** What an action answers: its error's message, if it failed. */
 type Done = { error: { message: string } | null };
 
@@ -53,11 +59,11 @@ function createHome() {
 	async function read() {
 		reading = true;
 		const asked = account;
-		let listed = await listHome({ root, account: asked ?? undefined });
+		let listed = await listHome({ root, account: asked ?? undefined, apps });
 		// Out of reach or refused: what this computer holds, and why.
 		if (listed.error !== null && asked !== null) {
 			homeError = listed.error.message;
-			listed = await listHome({ root });
+			listed = await listHome({ root, apps });
 		} else homeError = listed.error?.message ?? null;
 		if (asked === account && listed.error === null) home = listed.data;
 		reading = false;
@@ -77,7 +83,7 @@ function createHome() {
 		email = null;
 		account = next;
 		if (next !== null) {
-			const started = keepEverySynced({ account: next, root });
+			const started = keepEverySynced({ account: next, root, apps });
 			kept = started;
 			keptState = started.state();
 			stopKept = started.subscribe(() => {
@@ -155,21 +161,42 @@ function createHome() {
 			await read();
 		},
 
-		/** A folder's first sync: it makes its folder on the server, or joins the one it names. */
-		async syncFirst(folder: HomeFolder) {
+		/**
+		 * Sync a folder not synced here, as the person chose: with `answer`
+		 * (a folder they hold, or a new one), or, without one, as a new folder
+		 * when nothing matches and with its one match they hold alone.
+		 */
+		async syncFirst(folder: HomeFolder, answer?: Answer) {
 			const as = signedIn();
-			const local = (await root.list()).data?.folders.find(
-				({ path }) => path === folder.path,
+			if (as === null) return;
+			const done = syncFolder({
+				account: as,
+				root,
+				name: folder.name,
+				answer,
+				apps,
+			}).then((result) =>
+				result.error === null && result.data.kind === 'question'
+					? { error: { message: `Choose which folder ${folder.name} is.` } }
+					: result,
 			);
-			if (as === null || local === undefined) return;
-			await after(
-				syncFolder({
-					account: as,
-					store: local.store,
-					identity: local.identity,
-				}),
-				`${folder.title ?? folder.name} syncs now.`,
+			await after(done, `${folder.title ?? folder.name} syncs now.`);
+		},
+
+		/**
+		 * The person's answer to a folder stopped because its sync would
+		 * delete many files on the server: delete them there, or bring them
+		 * back here.
+		 */
+		async answerDeletions(folder: HomeFolder, deletions: 'push' | 'restore') {
+			if (kept === null) return void signedIn();
+			await kept.answer(folder.path, deletions);
+			toast.success(
+				deletions === 'push'
+					? `The files deleted in ${folder.title ?? folder.name} are deleted on the server too.`
+					: `The files deleted in ${folder.title ?? folder.name} are back.`,
 			);
+			await read();
 		},
 
 		/** Add a contract to a folder, titled by its name. */

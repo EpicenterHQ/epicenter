@@ -59,7 +59,7 @@ import { createFolder } from '../folder.js';
 import { blobIdOf } from '../hash.js';
 import { noteCodec } from '../note-codec.js';
 import { acceptShare, shareFolder } from './folders.js';
-import { folderRepository, joinFolder } from './repository.js';
+import { folderRepository, makeFolder } from './repository.js';
 
 const recorder = defineContract({
 	collections: {
@@ -326,10 +326,8 @@ async function signInPerson(label: string) {
 			throw new Error('not used');
 		},
 	};
-	// The app's first sync makes the person's folder, attached to the app.
-	const joined = expectOk(await joinFolder(account));
-	if (!('folder' in joined)) throw new Error('expected one folder');
-	const { folder } = joined;
+	// The person's folder, made for the app.
+	const folder = expectOk(await makeFolder(account));
 	sent.length = 0;
 	return {
 		account,
@@ -768,6 +766,34 @@ describe('a repository as a store', () => {
 		expect(person.requests(LIST)).toHaveLength(1);
 		const read = person.requests(READ);
 		expect(read).toHaveLength(1);
+		folder[Symbol.dispose]();
+	}, 30_000);
+
+	test('saves made within a moment of each other land as one commit, and each answers', async () => {
+		const person = await signIn('batched');
+		const folder = folderAt(person.at, 100);
+		for (let turn = 0; turn < 200 && folder.state().status !== 'open'; turn++)
+			await Bun.sleep(10);
+		const ids = [timeId(), timeId(), timeId()];
+		person.sent.length = 0;
+		await Promise.all(
+			ids.map((id) => folder.recordings.set({ id }, { title: id })),
+		);
+		expect(person.requests(/^POST .*\/commits$/)).toHaveLength(1);
+		expect(
+			folder.recordings
+				.items()
+				.map(({ title }) => title)
+				.sort(),
+		).toEqual([...ids].sort());
+		// One that moved under it is answered alone, and the rest still land.
+		const [first] = ids;
+		const raced = folder.recordings.set({ id: first as string }, { title: 'Mine' });
+		const other = timeId();
+		const alongside = folder.recordings.set({ id: other }, { title: other });
+		await Promise.all([raced, alongside]);
+		expect(folder.recordings.get({ id: first as string })?.title).toBe('Mine');
+		expect(folder.recordings.get({ id: other })?.title).toBe(other);
 		folder[Symbol.dispose]();
 	}, 30_000);
 

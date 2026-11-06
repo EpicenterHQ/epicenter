@@ -19,7 +19,7 @@
 //! To record, a page names a folder-relative path in a root it opened
 //! through the folder plugin (`root`, `Root::Data`); a root it has not
 //! opened is refused. `start` creates a
-//! WebM in the folder's `.epicenter/recordings` and encodes the microphone
+//! WebM beside its path under a reserved name and encodes the microphone
 //! into it as Opus as it captures, writing it a second at a time (`opus`,
 //! `webm`); `stop` finishes it in place, places it at `<path>.webm`, never
 //! over a file there (`staging`), and answers where it is. A recording is
@@ -28,7 +28,7 @@
 //! begun. When the page that started a recording reloads, or its window is
 //! destroyed, or the app exits, the recording is finished and placed for it.
 //! A recording adds no Close or Quit warning. `recover` finishes and places
-//! any recording a quit or crash left in `.epicenter/recordings`, which a page
+//! any recording a quit or crash left, which a page
 //! calls when it opens its folder, before it reads any recording.
 //!
 //! There is one recorder per host and at most one recording at a time; a

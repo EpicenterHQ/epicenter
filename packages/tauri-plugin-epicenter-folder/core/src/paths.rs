@@ -139,8 +139,9 @@ pub fn path_problem(path: &str) -> Option<&'static str> {
 
 /// Whether `path` has a hidden segment (one starting with `.`), and so is
 /// not the folder's data: `isHiddenPath` in `@epicenter/definition`. Git's
-/// state, a person's `.DS_Store`, and every unfinished write in `.epicenter`
-/// (`state`) are hidden, so no watcher reports a change to one. Which
+/// state, a person's `.DS_Store`, and every write in progress beside its
+/// target (`state::is_reserved`) are hidden, so no watcher reports a change
+/// to one. Which
 /// directories may be a folder is `admission`'s rule, not this one.
 pub fn is_hidden_path(path: &str) -> bool {
     path.split('/').any(|segment| segment.starts_with('.'))
@@ -156,6 +157,10 @@ mod tests {
         allowed: Vec<String>,
         hidden: Vec<String>,
         visible: Vec<String>,
+        #[serde(rename = "byContent")]
+        by_content: Vec<String>,
+        #[serde(rename = "byStamp")]
+        by_stamp: Vec<String>,
     }
 
     /// The vectors `paths.test.ts` reads too, so both languages agree.
@@ -174,6 +179,18 @@ mod tests {
         }
         for path in &rules.visible {
             assert!(!is_hidden_path(path), "{path:?} hidden");
+        }
+        for path in &rules.by_content {
+            assert!(
+                crate::storage::versioned_by_content(path),
+                "{path:?} named by its stamp"
+            );
+        }
+        for path in &rules.by_stamp {
+            assert!(
+                !crate::storage::versioned_by_content(path),
+                "{path:?} named by its content"
+            );
         }
     }
 

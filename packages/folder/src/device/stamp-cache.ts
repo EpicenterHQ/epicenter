@@ -3,10 +3,11 @@
  * attachment's version is the blob id of its Git LFS pointer, which needs
  * its sha256, and a listing must not read a long recording to name it. So
  * a device remembers each attachment's sha256 and size under its stamp
- * (size, modification time, and identity), in `.epicenter/hashes.json`.
- * The cache is derived and deletable: without it, each attachment is
- * hashed once again. Notes are never cached: they are small and read
- * whole anyway.
+ * (size, modification time, and identity), in a file outside the folder
+ * (ADR-0822): the Epicenter folder's `.epicenter/hashes/<identity>.json`,
+ * or an app's own data. The cache is derived and deletable: without it,
+ * each attachment is hashed once again. Notes are never cached: they are
+ * small and read whole anyway.
  *
  * Git's racy-clean rule keeps a stamp honest. A file written within the
  * second its hash was taken could change again with the same stamp, so an
@@ -16,8 +17,11 @@
 import type { BlobId } from './store.js';
 import { pointerBlobId } from '../hash.js';
 
-/** Where the cache lives, beside a folder's unfinished writes. */
-export const HASHES_PATH = '.epicenter/hashes.json';
+/** Where a cache is kept: its bytes, loaded once, and saved whole. */
+export type StampFile = {
+	load(): Promise<Uint8Array | null>;
+	save(bytes: Uint8Array): Promise<void>;
+};
 
 /** One attachment's hash as cached: under which stamp, its sha256 and size, and when it was hashed (ms). */
 type Entry = { stamp: string; oid: string; size: number; hashed: number };
@@ -43,10 +47,7 @@ export function createStampCache({
 	file,
 	now = Date.now,
 }: {
-	file: {
-		load(): Promise<Uint8Array | null>;
-		save(bytes: Uint8Array): Promise<void>;
-	};
+	file: StampFile;
 	now?: () => number;
 }) {
 	let entries: Map<string, Entry> | null = null;

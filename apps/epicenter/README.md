@@ -118,9 +118,8 @@ Epicenter opens the [Folders window](#the-folders-window) (ADR-0537):
 launching Epicenter, reopening it from the Dock, and `epicenter://` without a
 path all show it. It opens Settings from its Settings button with
 `open_home`. The tray (Show Folders, Show Settings, Quit) and deep links are
-shortcuts into the same windows; no link opens an app. An
-`epicenter://init?path=…` link, which a standalone app opens to ask that its
-folder sync, shows the Folders window:
+shortcuts into the same windows; no link opens an app, and a link with a
+query, such as the retired `epicenter://init?path=…`, opens nothing:
 
 ```bash
 open 'epicenter://'
@@ -142,10 +141,13 @@ every folder in sync until the person shows it.
 
 The Folders window (`folders`, served at `/folders/`, source `src/folders`)
 shows every folder in the Epicenter folder with its title, its mark (✓
-synced, ◌ waiting, ⚠ conflict, ✗ refused), its state (on this computer only,
-synced, or shared), and who holds it; the shares waiting for the person; and
-the folders they hold that this computer does not. From it a person syncs
-now, gives a folder its first sync, adds `epicenter.json`, brings a folder
+synced, ◌ waiting, ⚠ conflict or deletions waiting, ✗ refused), its state
+(on this computer only, synced, shared, or kept by Git), and who holds it;
+the shares waiting for the person; and the folders they hold that this
+computer does not. From it a person syncs now, answers which folder a
+folder not synced here is (one they hold, or a new one), says whether
+files deleted here are deleted on the server or brought back, adds
+`epicenter.json`, brings a folder
 held elsewhere here, accepts or declines a share, shares a folder by email
 as a member or a reader, changes a member's role or removes them, cancels an
 invitation, and attaches or detaches an app.
@@ -158,8 +160,15 @@ folder that moved on either side, at start, after a burst of a folder's
 changes, every few seconds, and on Sync now. The window hides when closed,
 so its page, and the sync, run until Epicenter quits.
 
-A copied folder stays on this computer as a local folder; nothing asks
-whether it is the folder it was copied from.
+Which directory is which folder is proven by the platform (ADR-0822): a
+record at `~/Epicenter/.epicenter/synced/<folder-id>.json` holds when the
+directory's inode and birth time match it, or, after a move to a new
+computer, its name and exact files in a folder held alone. A copied folder
+stays on this computer as a local folder until the person syncs it, which
+asks which folder it is. A folder an app made (its usual name and a
+contract that fits the app) syncs without asking when nothing else fits.
+Epicenter never syncs a folder Git keeps, nor an Epicenter folder inside a
+file-sync service.
 
 ### Capabilities
 

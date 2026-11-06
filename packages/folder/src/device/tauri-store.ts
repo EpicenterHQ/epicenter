@@ -13,7 +13,9 @@
  * and any hidden file, by the blob id of its bytes, and an attachment by its
  * stamp, which this store turns into the blob id of its Git LFS pointer
  * through the stamp cache (`stamp-cache.ts`), hashing an attachment it has
- * not cached once. The raw commands carry bytes the generated bindings
+ * not cached once. The cache is kept where the caller says (`hashes`),
+ * outside the folder (ADR-0822): an app's in its own data, the Epicenter
+ * app's in the Epicenter folder's `.epicenter`. The raw commands carry bytes the generated bindings
  * cannot type: a read answers the stamp and the bytes as one `ArrayBuffer`,
  * split at the first NUL, and a write sends its bytes as the request body,
  * with the path and its expectation in headers (`absent`, `blob:` and a
@@ -32,7 +34,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { Ok, type Result } from 'wellcrafted/result';
 import { blobIdOf, sha256Of } from '../hash.js';
 import { commands, type Landing, type Root } from '../native/bindings.gen.js';
-import { createStampCache, HASHES_PATH } from './stamp-cache.js';
+import { createStampCache, type StampFile } from './stamp-cache.js';
 import {
 	type BlobId,
 	type Changed,
@@ -43,9 +45,9 @@ import {
 } from './store.js';
 
 /**
- * A root as a raw request's `root` header spells it: `Data`, `AppData`, or
- * `Folder/<name>` for a folder in the Epicenter folder (`Root::header` in
- * the plugin).
+ * A root as a raw request's `root` header spells it: `Data`, `AppData`,
+ * `Epicenter`, or `Folder/<name>` for a folder in the Epicenter folder
+ * (`Root::header` in the plugin).
  */
 export const rootHeader = (root: Root) =>
 	typeof root === 'string' ? root : `Folder/${root.Folder}`;
@@ -66,9 +68,12 @@ const modifiedMsOf = (stamp: string) =>
 export function tauriStore({
 	root,
 	listen,
+	hashes = null,
 }: {
 	root: Root;
 	listen: (changed: Changed) => () => void;
+	/** Where its attachments' hashes are kept between runs; without one, for the store's life only. */
+	hashes?: StampFile | null;
 }): Store {
 	const unavailable = (cause: unknown) => ClientError.Unavailable({ cause });
 
@@ -113,16 +118,8 @@ export function tauriStore({
 		);
 	}
 
-	const hashes = createStampCache({
-		file: {
-			async load() {
-				const file = await readOne(HASHES_PATH);
-				return 'gone' in file ? null : file.bytes;
-			},
-			async save(bytes) {
-				await send(HASHES_PATH, bytes, 'any');
-			},
-		},
+	const cache = createStampCache({
+		file: hashes ?? { load: async () => null, save: async () => {} },
 	});
 
 	/** What the path holds now, as `Moved`. */
@@ -152,7 +149,7 @@ export function tauriStore({
 					}
 					// An attachment comes with its stamp: its version is cached by it.
 					const stamped = { stamp: version, modifiedMs: modifiedMsOf(version) };
-					const hashed = await hashes.version(path, stamped, async () => {
+					const hashed = await cache.version(path, stamped, async () => {
 						const file = await readOne(path);
 						if ('gone' in file)
 							throw new Error(`${path} went away while it was listed`);
@@ -164,8 +161,8 @@ export function tauriStore({
 					files.push({ path, version: hashed, size });
 				}
 				if (under.includes(''))
-					await hashes.keepOnly(new Set(files.map(({ path }) => path)));
-				await hashes.flush();
+					await cache.keepOnly(new Set(files.map(({ path }) => path)));
+				await cache.flush();
 				return Ok(files);
 			} catch (cause) {
 				return unavailable(cause);

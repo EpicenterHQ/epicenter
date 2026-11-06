@@ -1,23 +1,15 @@
 <!--
-	A desktop app's header actions for its folder: the last request's answer,
-	and "Set up in Epicenter" until Epicenter manages the folder.
+	A desktop app's header note for its folder (ADR-0822): the app never syncs,
+	so until Epicenter syncs the folder it says where to get Epicenter.
 -->
 <script lang="ts">
-	import { Button } from '@epicenter/ui/button';
-	import type { FolderSyncState } from './folder-sync.svelte.js';
+	import { GET_EPICENTER, type FolderSyncState } from './folder-sync.svelte.js';
 
 	let { sync }: { sync: FolderSyncState } = $props();
 </script>
 
-{#if sync.request !== undefined}
-	<p
-		role="status"
-		class={['min-w-0 truncate text-xs', sync.request.tone === 'failed' ? 'text-destructive' : 'text-muted-foreground']}
-		title={sync.request.message}
-	>
-		{sync.request.message}
+{#if !sync.synced}
+	<p class="min-w-0 truncate text-xs text-muted-foreground" title="Epicenter syncs this folder across your devices">
+		Get Epicenter to sync: <span class="select-all font-medium">{GET_EPICENTER.replace('https://', '')}</span>
 	</p>
-{/if}
-{#if !sync.managed}
-	<Button variant="outline" size="sm" disabled={sync.asking} onclick={() => sync.requestSetup()}>Set up in Epicenter</Button>
 {/if}

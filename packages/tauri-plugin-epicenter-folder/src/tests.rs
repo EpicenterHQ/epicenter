@@ -15,13 +15,17 @@
 //!   nothing behind a link whose target is gone; every storage command on
 //!   such a root answers `Disconnected` with the link's folder and target.
 //! - Two roots are separate: a file in one is never read through the other.
-//! - The shell's own credentials, `credentials.json` at the top of the
-//!   AppData root, are never listed, read, or written by a page.
+//! - The shell's own files at the top of the AppData root, its credentials
+//!   and its record of its data folder, are never listed, read, or written
+//!   by a page.
+//! - An open root answers its identity, and the Data root the record that
+//!   proves it in the Epicenter folder the shell named.
 //! - Storage reaches the data paths of the root and nothing else: never
-//!   `.git`, never outside it, never through a link. A save stages in the
-//!   root's `.epicenter/saves` and makes no `.git`; a `.git` file or link
-//!   opens and saves and is left as it is. Opening sweeps staged files a
-//!   stopped save left.
+//!   `.git`, never outside it, never through a link. A save stages beside
+//!   its target and makes no `.git`; a `.git` file or link opens and saves
+//!   and is left as it is. Opening sweeps saves a stopped writer left, and
+//!   what an older build kept in `.epicenter`, whose files a page can still
+//!   read and remove.
 //! - A put takes its bytes as a raw body and its arguments as
 //!   percent-encoded headers; a JSON array of bytes, Tauri's postMessage
 //!   fallback, is accepted too. A file read returns its bytes raw. A
@@ -311,8 +315,9 @@ fn storage_behind_a_dangling_link_is_disconnected_and_makes_nothing() {
 }
 
 /// `credentials.json` at the top of the AppData root is the shell's own
-/// (`epicenter-account`): a page never lists, reads, writes, or removes it.
-/// The same name anywhere else is an ordinary file.
+/// (`epicenter-account`), and so is `data-folder.json`, its record of its
+/// data folder: a page never lists, reads, writes, or removes either. The
+/// same name anywhere else is an ordinary file.
 #[test]
 fn a_page_never_reaches_the_shells_credentials() {
     let fixture = fixture("credentials");
@@ -321,6 +326,7 @@ fn a_page_never_reaches_the_shells_credentials() {
     open_root(&main, Root::Data).unwrap();
     let secret = br#"{"key:conn-1":"{\"endpoint\":\"https://api.example.com\",\"key\":\"sk-1\"}"}"#;
     std::fs::write(fixture.app_data.join("credentials.json"), secret).unwrap();
+    std::fs::write(fixture.app_data.join("data-folder.json"), b"{}").unwrap();
     std::fs::write(fixture.app_data.join("account.json"), b"{}").unwrap();
     std::fs::create_dir(fixture.app_data.join("notes")).unwrap();
     std::fs::write(fixture.app_data.join("notes/credentials.json"), b"mine").unwrap();
@@ -342,6 +348,15 @@ fn a_page_never_reaches_the_shells_credentials() {
     };
     assert_eq!(listed(""), ["account.json", "notes/credentials.json"]);
     assert!(listed("credentials.json").is_empty());
+    assert!(listed("data-folder.json").is_empty());
+    assert_eq!(
+        read_app_data(&main, "data-folder.json").unwrap_err(),
+        json!({
+            "name": "InvalidPath",
+            "path": "data-folder.json",
+            "reason": "it is the shell's own record of its data folder"
+        })
+    );
 
     let refused = json!({
         "name": "InvalidPath",
@@ -397,35 +412,63 @@ fn a_page_never_reaches_the_shells_credentials() {
     assert_eq!(read_file(&main, "credentials.json").unwrap(), b"data");
 }
 
-/// Asking Epicenter about a folder works for a root the page opened.
+/// An open root's identity is its folder's inode and birth time, its link
+/// followed; a root the page has not opened has none to give.
 #[test]
-fn epicenter_is_asked_only_about_an_open_root() {
-    let fixture = fixture("synced");
+fn an_open_roots_identity_is_its_folders() {
+    let fixture = fixture("identity");
     let main = fixture.window("main");
-    open_root(&main, Root::AppData).unwrap();
     assert_eq!(
-        invoke(&main, "synced_with_epicenter", json!({})).unwrap_err(),
-        json!({ "name": "Folder", "message": "The Data folder is not open." })
-    );
-    assert_eq!(
-        invoke(
-            &main,
-            "sync_with_epicenter",
-            json!({ "contract": "https://capture.epicenter.so/contract.json" })
-        )
-        .unwrap_err(),
-        json!({ "name": "Folder", "message": "The Data folder is not open." })
+        invoke(&main, "root_identity", json!({ "root": "Data" })).unwrap_err(),
+        json!({ "name": "NotOpen", "root": "Data" })
     );
     open(&main).unwrap();
+    let identity = invoke(&main, "root_identity", json!({ "root": "Data" })).unwrap();
     assert_eq!(
-        invoke(&main, "synced_with_epicenter", json!({})).unwrap(),
-        json!(false)
+        identity,
+        serde_json::to_value(crate::identity_at(&fixture.root).unwrap()).unwrap()
     );
-    open_root(&main, Root::AppData).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let inode = std::fs::metadata(&fixture.root).unwrap().ino();
+        assert_eq!(identity["inode"], inode.to_string());
+    }
+}
+
+/// A standalone app reads the record Epicenter keeps for its Data root, the
+/// one whose inode and birth time prove the folder's, and writes nothing.
+#[test]
+fn the_data_root_reads_the_record_that_proves_it() {
+    let fixture = fixture("record");
+    let main = fixture.window("main");
+    open(&main).unwrap();
+    let epicenter = fixture.root.with_file_name("Epicenter");
     assert_eq!(
-        invoke(&main, "synced_with_epicenter", json!({})).unwrap(),
-        json!(false)
+        invoke(&main, "data_record", json!({})).unwrap_err(),
+        json!({ "name": "NotNamed", "root": "Epicenter" })
     );
+    fixture.app.roots().name_library(epicenter.clone());
+    assert_eq!(invoke(&main, "data_record", json!({})).unwrap(), json!(null));
+    let identity = crate::identity_at(&fixture.root).unwrap().unwrap();
+    let records = epicenter.join(".epicenter/synced");
+    std::fs::create_dir_all(&records).unwrap();
+    let record = json!({
+        "folder": "f_1",
+        "name": "notes",
+        "inode": identity.inode,
+        "birthtime": identity.birthtime,
+        "commit": "abc",
+        "files": { "a.md": blob(b"a") },
+    });
+    std::fs::write(records.join("f_1.json"), record.to_string()).unwrap();
+    let found = invoke(&main, "data_record", json!({})).unwrap();
+    if identity.birthtime.is_some() {
+        assert_eq!(found, record);
+    } else {
+        assert_eq!(found, json!(null), "an inode alone proves nothing");
+    }
+    assert_eq!(std::fs::read_dir(&records).unwrap().count(), 1);
 }
 
 /// A note the folder made, never edited, then deleted by another program is
@@ -647,6 +690,19 @@ fn response(
     )
 }
 
+/// `read_folder_file` in the AppData root: the raw answer, or the refusal.
+fn read_app_data(window: &WebviewWindow<MockRuntime>, path: &str) -> Result<Vec<u8>, Value> {
+    match response(
+        window,
+        "read_folder_file",
+        InvokeBody::Json(json!({ "path": path, "root": "AppData" })),
+        Default::default(),
+    )? {
+        InvokeResponseBody::Raw(bytes) => Ok(bytes),
+        InvokeResponseBody::Json(json) => panic!("the bytes came back as JSON: {json}"),
+    }
+}
+
 /// `read_folder_file` in the data root, as
 /// `device/tauri-store.ts` asks for it: the bytes, which arrive raw, or the
 /// refusal.
@@ -760,20 +816,24 @@ fn git(window: &WebviewWindow<MockRuntime>, args: &[&str]) -> Result<String, Str
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
-/// `.epicenter/saves` inside the folder, where a put stages its bytes.
-fn saves(fixture: &Fixture) -> PathBuf {
-    epicenter_folder_core::state::saves(&fixture.root)
-}
-
-/// The staged files left in the folder's `saves`.
+/// The staged saves left anywhere in the folder, by folder-relative path.
 fn staged(fixture: &Fixture) -> Vec<String> {
-    std::fs::read_dir(saves(fixture))
-        .map(|entries| {
-            entries
-                .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
-                .collect()
-        })
-        .unwrap_or_default()
+    fn visit(directory: &std::path::Path, prefix: &str, found: &mut Vec<String>) {
+        let Ok(entries) = std::fs::read_dir(directory) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if entry.file_type().unwrap().is_dir() {
+                visit(&entry.path(), &format!("{prefix}{name}/"), found);
+            } else if epicenter_folder_core::state::is_staged_save(&name) {
+                found.push(format!("{prefix}{name}"));
+            }
+        }
+    }
+    let mut found = Vec::new();
+    visit(&fixture.root, "", &mut found);
+    found
 }
 
 #[test]
@@ -1049,39 +1109,49 @@ fn a_path_through_a_link_or_naming_one_is_refused() {
     );
 }
 
-/// A save that stopped before its rename leaves its staged file in the
-/// folder. Opening removes the ones an hour old, and none younger, which
-/// another process's save may still be about to rename.
+/// A save that stopped before its rename leaves its staged file beside its
+/// target. Opening removes the ones last changed over an hour ago, and none
+/// younger, which another process's save may still be about to rename. It
+/// clears what an older build kept in `.epicenter` but its manifest, which
+/// the page reads and then removes through storage.
 #[test]
-fn opening_sweeps_staged_files_a_stopped_save_left() {
+fn opening_sweeps_saves_a_stopped_writer_left_and_an_older_builds_state() {
     let fixture = fixture("sweep");
-    let saves = saves(&fixture);
-    std::fs::create_dir_all(&saves).unwrap();
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_millis() as u64;
-    let name = |made: u64| {
-        let mut digits = Vec::new();
-        let mut value = made;
-        while value > 0 {
-            digits.push(b"0123456789abcdefghijklmnopqrstuvwxyz"[(value % 36) as usize]);
-            value /= 36;
-        }
-        digits.reverse();
-        format!(
-            "{}-0123456789abcdef0123456789abcdef-0",
-            String::from_utf8(digits).unwrap()
+    let aged = |path: &str, hours: u64| {
+        let at = fixture.root.join(path);
+        std::fs::create_dir_all(at.parent().unwrap()).unwrap();
+        std::fs::write(&at, b"x").unwrap();
+        let file = std::fs::File::options().write(true).open(&at).unwrap();
+        file.set_modified(
+            std::time::SystemTime::now() - std::time::Duration::from_secs(hours * 60 * 60 + 60),
         )
+        .unwrap();
     };
-    let old = name(now - 2 * 60 * 60 * 1000);
-    let young = name(now - 60 * 1000);
-    for staged in [&old, &young] {
-        std::fs::write(saves.join(staged), b"x").unwrap();
-    }
+    aged("notes/.ep-0123456789abcdef.save", 2);
+    aged("notes/.ep-fedcba9876543210.save", 0);
+    aged(".epicenter/saves/old", 2);
+    aged(".epicenter/synced.json", 2);
     let main = fixture.window("main");
     open(&main).unwrap();
-    assert_eq!(staged(&fixture), [young]);
+    assert_eq!(staged(&fixture), ["notes/.ep-fedcba9876543210.save"]);
+    assert!(!fixture.root.join(".epicenter/saves").exists());
+    // The page reads the manifest and removes it; the next open removes the
+    // empty `.epicenter`.
+    let InvokeResponseBody::Raw(bytes) = response(
+        &main,
+        "read_folder_file",
+        InvokeBody::Json(json!({ "path": ".epicenter/synced.json", "root": "Data" })),
+        Default::default(),
+    )
+    .unwrap() else {
+        panic!("the bytes came back as JSON");
+    };
+    assert!(bytes.ends_with(b"\0x"));
+    let mut headers = put_headers(".epicenter/synced.json", true, None);
+    headers.insert("expected", encoded("any"));
+    request(&main, "put_folder_file", InvokeBody::Raw(Vec::new()), headers).unwrap();
+    open(&main).unwrap();
+    assert!(!fixture.root.join(".epicenter").exists());
 }
 
 /// A linked worktree's or submodule's `.git` file, or a `.git` link, does

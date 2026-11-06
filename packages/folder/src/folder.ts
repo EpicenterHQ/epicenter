@@ -97,17 +97,16 @@ export type RevealFolderError = RevealRootError;
 
 const log = createLogger('folder');
 
+/** The most writes the drain runs at once over a store that batches them. */
+const BATCH_WRITES = 64;
+
 const encoder = new TextEncoder();
 
 /** Where a folder keeps what sync reads of it; a symbol member, so `reactive`'s copy carries it. */
 const LOCAL = Symbol('epicenter.folderLocalStore');
 
-/** What sync reads of a folder: it as a store, and its own saves. */
-type SyncSide = {
-	store: Store;
-	/** Call `listener` each time a write the folder's collections made lands; returns the unsubscribe. */
-	hearSaves(listener: () => void): () => void;
-};
+/** What sync reads of a folder: it as a store. */
+type SyncSide = { store: Store };
 
 function syncSideOf(folder: object): SyncSide {
 	const side = (folder as { [LOCAL]?: SyncSide })[LOCAL];
@@ -126,14 +125,6 @@ export function localStoreOf(folder: object): Store {
 	return syncSideOf(folder).store;
 }
 
-/**
- * Call `listener` each time a save of `folder`'s own lands (a collection's
- * write, never one made through `localStoreOf`), for sync's moment after a
- * save; returns the unsubscribe.
- */
-export function hearSaves(folder: object, listener: () => void): () => void {
-	return syncSideOf(folder).hearSaves(listener);
-}
 
 /**
  * Where the folder is in its life. Retrying belongs to a failure, so only
@@ -757,6 +748,25 @@ export function createFolder<TContract extends Contract>(
 		notify();
 	}
 
+	/**
+	 * The writes the drain runs next: the head, and, over a store that
+	 * commits writes made at once together (`batches`), every write queued
+	 * after it up to the first at a path already among them, so saves made
+	 * within a moment of each other land as one commit (ADR-0823). Writes of
+	 * one path stay in order.
+	 */
+	function nextWrites(over: Store): Job[] {
+		if (over.batches !== true) return queue.slice(0, 1);
+		const paths = new Set<string>();
+		const group: Job[] = [];
+		for (const job of queue) {
+			if (paths.has(job.path) || group.length >= BATCH_WRITES) break;
+			paths.add(job.path);
+			group.push(job);
+		}
+		return group;
+	}
+
 	/** Run the queued writes in order, each until it lands, waiting while the store is out of reach. */
 	async function drain() {
 		if (draining) return;
@@ -765,22 +775,45 @@ export function createFolder<TContract extends Contract>(
 			let failures = 0;
 			while (queue.length > 0) {
 				while (phase === 'opening') await changed();
-				const head = queue[0];
-				if (phase !== 'open' || store === null || head === undefined) return;
-				let ran: Result<void, Unavailable>;
-				try {
-					ran = await head.run(store);
-				} catch (cause) {
-					if (queue[0] === head) queue.shift();
-					head.reject(cause);
-					if (queue.length === 0) notify();
-					continue;
+				if (phase !== 'open' || store === null || queue[0] === undefined)
+					return;
+				const to = store;
+				// Over a store that batches, writes made in the same moment
+				// (one handler saving several notes) are all queued first.
+				if (to.batches === true)
+					await new Promise((resolve) => setTimeout(resolve, 0));
+				if (phase !== 'open' || queue[0] === undefined) continue;
+				const group = nextWrites(to);
+				const ran = await Promise.all(
+					group.map((job) =>
+						job.run(to).then(
+							(result) => ({ job, result, thrown: false as const }),
+							(cause: unknown) => ({ job, cause, thrown: true as const }),
+						),
+					),
+				);
+				let unavailable: Unavailable | null = null;
+				for (const outcome of ran) {
+					const { job } = outcome;
+					const at = queue.indexOf(job);
+					// The folder failed or closed while it ran: its promise has answered.
+					if (at === -1) continue;
+					if (outcome.thrown) {
+						queue.splice(at, 1);
+						job.reject(outcome.cause);
+						continue;
+					}
+					if (outcome.result.error !== null) {
+						unavailable ??= outcome.result.error;
+						continue;
+					}
+					queue.splice(at, 1);
+					job.resolve();
 				}
-				// The folder failed or closed while it ran: its promise has answered.
-				if (queue[0] !== head) continue;
-				if (ran.error !== null) {
+				if (queue.length === 0) notify();
+				if (unavailable !== null) {
 					if (phase !== 'open') continue;
-					writing = ran.error;
+					writing = unavailable;
 					refresh();
 					await changed(backoff(failures++));
 					continue;
@@ -790,27 +823,19 @@ export function createFolder<TContract extends Contract>(
 					writing = null;
 					refresh();
 				}
-				queue.shift();
-				head.resolve();
-				if (queue.length === 0) notify();
 			}
 		} finally {
 			draining = false;
 		}
 	}
 
-	/** Who hears each of the folder's own saves land. */
-	const saveListeners = new Set<() => void>();
-
 	/**
 	 * Queue a write at `path`; throws once the folder is disposed, rejects
-	 * with `FolderClosed` once it failed. A `save` (a collection's write, not
-	 * sync's) is told to `hearSaves` when it lands.
+	 * with `FolderClosed` once it failed.
 	 */
 	function enqueue(
 		path: string,
 		write: (store: Store) => Promise<Result<void, Unavailable>>,
-		{ save }: { save: boolean },
 	) {
 		if (phase === 'closed')
 			throw new Error(
@@ -821,16 +846,7 @@ export function createFolder<TContract extends Contract>(
 			queue.push({
 				path,
 				run: (to) => lanes.run(path, () => write(to)),
-				resolve() {
-					resolve();
-					if (save)
-						for (const listener of [...saveListeners])
-							try {
-								listener();
-							} catch (cause) {
-								log.error(new Error('A save listener failed.', { cause }));
-							}
-				},
+				resolve,
 				reject,
 			});
 			if (queue.length === 1) notify();
@@ -862,7 +878,7 @@ export function createFolder<TContract extends Contract>(
 					paths.push(path);
 			return paths.sort();
 		},
-		enqueue: (path, write) => enqueue(path, write, { save: true }),
+		enqueue,
 		queuedAt,
 		landed: hold,
 		heldOf,
@@ -931,7 +947,6 @@ export function createFolder<TContract extends Contract>(
 							);
 						return Ok(undefined);
 					},
-					{ save: false },
 				);
 			} catch (cause) {
 				return ClientError.Unavailable({ cause });
@@ -981,15 +996,7 @@ export function createFolder<TContract extends Contract>(
 		},
 	};
 	Object.defineProperty(lifecycle, LOCAL, {
-		value: {
-			store: view,
-			hearSaves(listener) {
-				saveListeners.add(listener);
-				return () => {
-					saveListeners.delete(listener);
-				};
-			},
-		} satisfies SyncSide,
+		value: { store: view } satisfies SyncSide,
 	});
 	return Object.assign(
 		lifecycle,

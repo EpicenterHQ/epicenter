@@ -1,40 +1,31 @@
 /**
- * The open data folder's path and Epicenter sync status in a Tauri window.
- * The shell answers the path, which the page only shows; focus refreshes
- * whether Epicenter manages the folder. The shell's code loads with the
- * first question, so a page that never shows this never loads it.
+ * The open data folder's path, and whether Epicenter syncs it, in a Tauri
+ * window (ADR-0822). A desktop app never syncs: Epicenter, when it is
+ * installed, keeps the folder in sync across devices, and the shell reads
+ * the record Epicenter keeps of this folder (never writing it) to say so.
+ * Focus asks again. The shell's code loads with the first question, so a
+ * page that never shows this never loads it.
  */
-import type { FolderRequest } from '@epicenter/folder/tauri';
+import type { FolderRecord } from '@epicenter/folder/platform';
 import { createContext } from 'svelte';
 import { on } from 'svelte/events';
 
 const shell = () => import('@epicenter/folder/tauri');
 
+/** Where a person gets Epicenter, which syncs a desktop app's folder. */
+export const GET_EPICENTER = 'https://epicenter.sh';
+
 /**
  * Call while a component initializes; it listens for the window's focus for
  * that component's life. `path` is the data folder's path as the shell named
- * it (`folder.displayPath()`), and
- * `site` is the app's production site.
+ * it (`folder.displayPath()`).
  */
-export function folderSync({ path, site }: { path: string; site: string }) {
-	let managed = $state(false);
-	let request = $state<{ tone: 'requested' | 'failed'; message: string }>();
-	let asking = $state(false);
+export function folderSync({ path }: { path: string }) {
+	let record = $state<FolderRecord | null>(null);
 
-	/** Ask the shell again; the native predicate reads Epicenter enrollment. */
+	/** Ask the shell again for Epicenter's record of this folder. */
 	async function check() {
-		const { data } = await (await shell()).syncedWithEpicenter();
-		managed = data === true;
-	}
-
-	async function ask(action: () => Promise<FolderRequest>, requested?: string) {
-		asking = true;
-		request = undefined;
-		const answer = await action();
-		asking = false;
-		if (!answer.ok) request = { tone: 'failed', message: answer.message };
-		else if (requested !== undefined)
-			request = { tone: 'requested', message: requested };
+		record = await (await shell()).syncedRecord();
 	}
 
 	$effect(() => {
@@ -45,27 +36,13 @@ export function folderSync({ path, site }: { path: string; site: string }) {
 	return {
 		/** The data folder's path, as the shell named it, to show. */
 		path,
-		/** Whether Epicenter manages local history, as of the last focus. */
-		get managed() {
-			return managed;
+		/** Whether Epicenter syncs this folder, as of the last focus. */
+		get synced() {
+			return record !== null;
 		},
-		/** The last request's answer, to show beside the button, if any. */
-		get request() {
-			return request;
-		},
-		/** True while the shell is answering. */
-		get asking() {
-			return asking;
-		},
-		requestSetup() {
-			void ask(async () => {
-				const { error } = await (await shell()).syncWithEpicenter({
-					contract: `${site}/contract.json`,
-				});
-				return error === null
-					? { ok: true }
-					: { ok: false, message: error.message };
-			}, 'Asked your computer to open Epicenter. Set up the folder there, then connect a repository to use it on other devices.');
+		/** Epicenter's record of this folder, as of the last focus, or null. */
+		get record() {
+			return record;
 		},
 	};
 }

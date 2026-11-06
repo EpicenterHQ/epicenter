@@ -120,7 +120,8 @@ export function createNamedShell(roots: { Data: string; AppData?: string }) {
 			const named = args.root as Root;
 			const refused = control.refuse(named);
 			if (refused !== undefined) throw refused;
-			const path = typeof named === 'string' ? roots[named] : undefined;
+			const path =
+				named === 'Data' || named === 'AppData' ? roots[named] : undefined;
 			if (path === undefined)
 				throw { name: 'NotNamed', root: named } satisfies RootError;
 			return path;

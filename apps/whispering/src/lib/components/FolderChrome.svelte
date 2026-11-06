@@ -1,10 +1,10 @@
 <!--
 	The header's account of the store when the folder is on this computer
-	(`folder.reveal`): the data folder, whether Epicenter manages it, and Set
-	up in Epicenter until it does. Whispering never syncs anything itself.
+	(`folder.reveal`): the data folder, whether Epicenter syncs it, and
+	where to get Epicenter until it does. Whispering never syncs anything
+	itself (ADR-0822).
 -->
 <script lang="ts">
-	import { APPS } from '@epicenter/definition/site';
 	import { folderSync } from '@epicenter/svelte/folder-sync';
 	import FolderSyncActions from '@epicenter/svelte/folder-sync-actions';
 	import type { StatusLine } from '@epicenter/svelte/status-line';
@@ -13,10 +13,10 @@
 	import { folder } from '../app.js';
 
 	// `<WhenOpen>` renders the app, and so this, only over the open data folder.
-	const sync = folderSync({ path: folder.displayPath() ?? '', site: APPS.WHISPERING.url });
+	const sync = folderSync({ path: folder.displayPath() ?? '' });
 
 	const status = $derived<StatusLine>(
-		sync.managed ? { label: 'Kept by Epicenter', tone: 'good' } : { label: 'On this computer', tone: 'neutral' },
+		sync.synced ? { label: 'Synced by Epicenter', tone: 'good' } : { label: 'On this computer', tone: 'neutral' },
 	);
 </script>
 
@@ -25,10 +25,10 @@
 		<span class="font-medium" data-testid="status-where">This computer</span>
 		<span class="mt-0.5 block break-all text-xs text-muted-foreground" data-testid="status-folder">{sync.path}</span>
 		<span class="mt-0.5 block text-xs text-muted-foreground">
-			{#if sync.managed}
-				Epicenter keeps its local history. Connect a repository there to use it on other devices.
+			{#if sync.synced}
+				Epicenter keeps it in sync across your devices.
 			{:else}
-				A Markdown note per recording beside its audio. Set up Epicenter to keep their history, then connect a repository to use them elsewhere.
+				A Markdown note per recording beside its audio. Epicenter syncs them across your devices.
 			{/if}
 		</span>
 	</StatusRow>

@@ -137,8 +137,15 @@ export type FolderListing = {
 };
 
 /**
- * The body of `POST <git>/folders`: the folder a first sync joined (the one
- * it named, which the person holds, or the one folder attached to the app),
- * or the one it made.
+ * What `POST <git>/folders` asks (ADR-0822): make a new folder, which never
+ * joins one (attached to the app whose token asks, or, from a token that
+ * reaches every folder, to the app it names); or join the one folder
+ * attached to the app it names, as a web app's first open does.
+ */
+export type FolderRequest = { create: true; app?: string } | { join: string };
+
+/**
+ * The answer to `POST <git>/folders`: the folder joined (`made: false`), or
+ * the one made.
  */
 export type JoinedFolder = { folder: string; made: boolean };

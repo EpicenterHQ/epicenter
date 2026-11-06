@@ -77,14 +77,14 @@ test('--help lists every command but the hidden ones, and --json describes them'
 	const help = run('--help');
 	expect(help.exitCode).toBe(0);
 	for (const usage of [
-		'epicenter sync [<dir>] [--new] [--same] [--all]',
-		'epicenter clone [<folder> [<dir>]]',
+		'epicenter sync [<folder>] [--join <id>] [--create] [--push-deletions] [--restore-deletions] [--all]',
+		'epicenter clone [<folder> [<name>]]',
 		'epicenter share <folder> [<email>] [--role member|reader]',
 		'epicenter restore <commit> [<dir>] [--path <path>]',
 	])
 		expect(help.stdout).toContain(usage);
 	expect(help.stdout).not.toContain('--desktop');
-	expect(run('sync', '--help').stdout).toContain('.epicenter/synced.json');
+	expect(run('sync', '--help').stdout).toContain('one\nrecord per folder');
 	const described = JSON.parse(run('--help', '--json').stdout).commands;
 	expect(described.map((c: { command: string }) => c.command)).toEqual([
 		'check',

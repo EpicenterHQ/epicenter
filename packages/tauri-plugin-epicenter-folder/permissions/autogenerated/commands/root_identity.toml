@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-root-identity"
+description = "Enables the root_identity command without any pre-configured scope."
+commands.allow = ["root_identity"]
+
+[[permission]]
+identifier = "deny-root-identity"
+description = "Denies the root_identity command without any pre-configured scope."
+commands.deny = ["root_identity"]

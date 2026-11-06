@@ -1,28 +1,30 @@
 /**
- * The Epicenter folder in a Tauri window (ADR-0813, ADR-0819): the
- * `EpicenterRoot` the platform's functions take, over the folder plugin of a
- * shell that named the Epicenter folder (the Epicenter app). The shell lists
- * the directories directly inside it, links followed and hidden names
- * skipped, each with its identity (device and inode); each directory opens
- * as a root of its own, `{ Folder: <name> }`, whose store is the shell's
- * storage commands and whose changes are the shell's watch of it. So a copy
- * is told from a move here as `epicenterRoot` from `@epicenter/folder/node`
- * tells it in Bun.
+ * The Epicenter folder in a Tauri window (ADR-0813, ADR-0819, ADR-0822): the
+ * `EpicenterRoot` the platform's functions take, over the folder plugin of
+ * the shell that named the Epicenter folder (the Epicenter app). The shell
+ * lists the directories directly inside it, links followed and hidden names
+ * skipped, each with its identity (inode and birth time) and whether Git
+ * keeps it; each directory opens as a root of its own, `{ Folder: <name> }`,
+ * whose store is the shell's storage commands and whose changes are the
+ * shell's watch of it. The Epicenter folder's own `.epicenter`, with the
+ * records and hash caches, is the root `Epicenter`.
  *
  * A folder's root opens when a listing first finds it, and again when its
  * identity changed (a folder replaced, or a link pointed elsewhere); one
- * that does not open is listed as unreadable, with why.
+ * that does not open is listed as unreadable, with why. The shell's open
+ * sweeps stale saves and recovers what an older build left in it.
  */
 import { ClientError } from '@epicenter/definition/contract';
 import { listen } from '@tauri-apps/api/event';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { Changed, Unavailable } from '../device/store.js';
 import { tauriStore } from '../device/tauri-store.js';
+import { type FolderIdentity, sameIdentity } from '../identity.js';
 import type {
 	EpicenterRoot,
 	LocalFolder,
 } from '../platform/epicenter-folder.js';
-import type { RootIdentity } from '../sync/sync.js';
+import { type Records, recordsIn } from '../platform/records.js';
 import {
 	commands,
 	type EpicenterEntry,
@@ -52,32 +54,67 @@ async function ask<T>(
 const unavailable = (cause: unknown) =>
 	ClientError.Unavailable({ cause: rootRefusal(cause).error.message });
 
-const sameIdentity = (a: RootIdentity | null, b: RootIdentity | null) =>
-	a?.device === b?.device && a?.inode === b?.inode;
-
 /**
  * The Epicenter folder the shell named. Its `path` is known once it listed;
  * before, it is empty.
  */
 export function epicenterRoot(): EpicenterRoot {
 	let path = '';
-	/** Each folder's listeners, by name; they outlive a root opened again. */
+	/** Each root's listeners, by its header; they outlive a root opened again. */
 	const listeners = new Map<string, Set<Changed>>();
 	/** The folders whose roots opened, by name, with the identity they opened at. */
 	const opened = new Map<
 		string,
-		{ identity: RootIdentity | null; folder: LocalFolder }
+		{ identity: FolderIdentity | null; folder: LocalFolder }
 	>();
 	let listening: Promise<void> | undefined;
+	let records: Promise<Result<Records, Unavailable>> | undefined;
 
-	/** Hear every folder's changes from the shell, once, before a root opens. */
+	/** Hear every root's changes from the shell, once, before a root opens. */
 	function hear() {
 		listening ??= listen<FolderEvent>('folder-changed', ({ payload }) => {
-			if (typeof payload.root === 'string') return;
-			for (const listener of listeners.get(payload.root.Folder) ?? [])
+			const key =
+				typeof payload.root === 'string'
+					? payload.root
+					: `Folder/${payload.root.Folder}`;
+			for (const listener of listeners.get(key) ?? [])
 				listener(payload.paths ?? 'all');
 		}).then(() => {});
 		return listening;
+	}
+
+	/** Hear the root `key` names, for as long as the answered stop is not called. */
+	const listenTo = (key: string) => (changed: Changed) => {
+		let set = listeners.get(key);
+		if (set === undefined) {
+			set = new Set();
+			listeners.set(key, set);
+		}
+		set.add(changed);
+		return () => {
+			set.delete(changed);
+		};
+	};
+
+	/** The Epicenter folder's own `.epicenter`, opened once. */
+	function openRecords() {
+		records ??= (async () => {
+			try {
+				await hear();
+			} catch (cause) {
+				return unavailable(cause);
+			}
+			const root: Root = 'Epicenter';
+			const answer = await ask<string>(() => commands.openRoot(root));
+			if (answer.error !== null) {
+				records = undefined;
+				return unavailable(answer.error.cause);
+			}
+			return Ok(
+				recordsIn(tauriStore({ root, listen: listenTo('Epicenter') })),
+			);
+		})();
+		return records;
 	}
 
 	/** The folder `entry` names, its root opened when it is new or moved. */
@@ -86,33 +123,28 @@ export function epicenterRoot(): EpicenterRoot {
 	): Promise<Result<LocalFolder, string>> {
 		const kept = opened.get(entry.name);
 		if (kept !== undefined && sameIdentity(kept.identity, entry.identity))
-			return Ok(kept.folder);
+			return Ok({ ...kept.folder, git: entry.git });
+		const held = await openRecords();
+		if (held.error !== null) return Err(held.error.message);
 		const root: Root = { Folder: entry.name };
 		const answer = await ask<string>(() => commands.openRoot(root));
 		if (answer.error !== null) {
 			opened.delete(entry.name);
 			return Err(rootRefusal(answer.error.cause).error.message);
 		}
+		const identity = entry.identity;
 		const folder: LocalFolder = {
 			name: entry.name,
 			path: answer.data,
-			identity: entry.identity,
+			identity,
+			git: entry.git,
 			store: tauriStore({
 				root,
-				listen(changed) {
-					let set = listeners.get(entry.name);
-					if (set === undefined) {
-						set = new Set();
-						listeners.set(entry.name, set);
-					}
-					set.add(changed);
-					return () => {
-						set.delete(changed);
-					};
-				},
+				listen: listenTo(`Folder/${entry.name}`),
+				hashes: identity === null ? null : held.data.hashes(identity),
 			}),
 		};
-		opened.set(entry.name, { identity: entry.identity, folder });
+		opened.set(entry.name, { identity, folder });
 		return Ok(folder);
 	}
 
@@ -143,7 +175,7 @@ export function epicenterRoot(): EpicenterRoot {
 			}
 			for (const name of opened.keys())
 				if (!present.has(name)) opened.delete(name);
-			return Ok({ folders, unreadable });
+			return Ok({ folders, unreadable, realPath: listed.data.realPath });
 		},
 		async make(name): Promise<Result<LocalFolder, Unavailable>> {
 			try {
@@ -160,5 +192,6 @@ export function epicenterRoot(): EpicenterRoot {
 				return ClientError.Unavailable({ cause: folder.error });
 			return folder;
 		},
+		records: openRecords,
 	};
 }
