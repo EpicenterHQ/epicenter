@@ -24,7 +24,7 @@ export type OAuthHarness = {
 	/** The resource check for one request on the person's account. */
 	resource(
 		token: string,
-		o: { audience: string; scope: string; basic?: boolean },
+		o: { audience: string; scope: string },
 	): Promise<ResourceAnswer>;
 	desktop: { clientId: string; redirectUri: string };
 	browser: { clientId: string; redirectUri: string };
@@ -183,7 +183,7 @@ export async function checkRefreshFamily(h: OAuthHarness) {
 
 /**
  * The end-to-end flows of checks 2 and 4: discovery, opaque prefixed tokens
- * with the ADR's lifetimes, code replay, Bearer and Basic at the resource,
+ * with the ADR's lifetimes, code replay, the Bearer token at the resource,
  * audience and scope, rotation, revocation on the next request,
  * the device grant, client grant ceilings, offline grants outliving their
  * browser session, and browser grants dying with it.
@@ -243,7 +243,7 @@ export async function checkFlows(h: OAuthHarness) {
 		);
 	}
 
-	// The resource: Bearer and Basic, audience, scope.
+	// The resource: its audience and scope.
 	const owner = await h.resource(issued.access_token, read(h));
 	expect(owner.status).toBe(200);
 	expect(owner.body).toMatchObject({ accountId: person.id });
@@ -252,7 +252,6 @@ export async function checkFlows(h: OAuthHarness) {
 			await h.resource(issued.access_token, {
 				...read(h),
 				scope: 'folders:write',
-				basic: true,
 			})
 		).status,
 	).toBe(200);

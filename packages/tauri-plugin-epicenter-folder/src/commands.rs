@@ -324,8 +324,8 @@ pub async fn read_folder_file<R: Runtime>(
 /// the rest: `path`, `root` (`Data`, `AppData`, `Epicenter`, or
 /// `Folder/<name>`: `Root::header`), `remove` (`true` to
 /// remove the file, when the body is ignored), and `expected`, the version
-/// the page read there (`absent` for a create, `blob:` and the Git blob id of a note or
-/// hidden file, or `stamp:` and the stamp of an attachment: `storage::Expectation`). A JSON array of bytes is accepted
+/// the page read there (`absent` for a create, or `sha256:` and the file's version,
+/// which the shell hashes again: `storage::Expectation`). A JSON array of bytes is accepted
 /// as well: Tauri sends one when its custom-protocol IPC failed and it fell
 /// back to `postMessage`. Any other body is refused.
 ///

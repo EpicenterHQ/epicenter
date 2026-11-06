@@ -21,8 +21,8 @@
  * while it runs.
  */
 import {
-	CONTRACT_PATH,
 	ClientError,
+	CONTRACT_PATH,
 	isHiddenPath,
 } from '@epicenter/definition/contract';
 import { Err, Ok, type Result } from 'wellcrafted/result';
@@ -49,7 +49,7 @@ import {
 	questionOf,
 	type UnboundFolder,
 } from './identify.js';
-import { type FolderRecord, recordPath, type Records } from './records.js';
+import { type FolderRecord, type Records, recordPath } from './records.js';
 
 /** How a sync of one folder ended. */
 export type FolderSync =
@@ -79,7 +79,7 @@ const firstContact = (folder: string, local: LocalFolder): FolderRecord => ({
 	name: local.name,
 	inode: local.identity?.inode ?? '',
 	birthtime: local.identity?.birthtime ?? null,
-	commit: null,
+	cursor: null,
 	files: {},
 });
 
@@ -207,14 +207,18 @@ async function syncUnbound({
  * `epicenter.json` (ADR-0811): the server reads a folder's title from it,
  * so a computer that loses its record finds the folder again by name.
  */
-async function titleNew(local: LocalFolder): Promise<Result<null, Unavailable>> {
+async function titleNew(
+	local: LocalFolder,
+): Promise<Result<null, Unavailable>> {
 	const read = await local.store.read([CONTRACT_PATH]);
 	if (read.error !== null) return read;
 	const [file] = read.data;
 	if (file !== undefined && !('gone' in file)) return Ok(null);
 	const written = await local.store.put(
 		CONTRACT_PATH,
-		new TextEncoder().encode(`${JSON.stringify({ title: local.name }, null, '\t')}\n`),
+		new TextEncoder().encode(
+			`${JSON.stringify({ title: local.name }, null, '\t')}\n`,
+		),
 		null,
 	);
 	if (written.error?.name === 'Unavailable') return Err(written.error);
@@ -259,7 +263,10 @@ export async function syncFolder({
 		return Ok({ kind: 'git' });
 	const bound = identified.bound.find(({ local }) => local.name === name);
 	if (bound !== undefined) {
-		if (answer !== undefined && !('join' in answer && answer.join === bound.record.folder))
+		if (
+			answer !== undefined &&
+			!('join' in answer && answer.join === bound.record.folder)
+		)
 			return ClientError.Unavailable({
 				cause: `${bound.local.path} already syncs with ${bound.record.folder}`,
 			});
@@ -354,7 +361,13 @@ export async function cloneIntoHome({
 	if (ran.error !== null) return ran;
 	return Ok({
 		local,
-		sync: { kind: 'synced', folder, made: false, joined: true, report: ran.data },
+		sync: {
+			kind: 'synced',
+			folder,
+			made: false,
+			joined: true,
+			report: ran.data,
+		},
 	});
 }
 
@@ -451,7 +464,7 @@ export async function syncEvery({
 			});
 		else if (
 			answered !== undefined ||
-			head !== record.commit ||
+			head !== record.cursor ||
 			(await changedHere(local, record))
 		)
 			entry.result = await syncBound({
@@ -481,7 +494,9 @@ export async function syncEvery({
 		out.push({
 			...entry,
 			result,
-			...(result.data?.kind === 'question' ? { waiting: 'question' as const } : {}),
+			...(result.data?.kind === 'question'
+				? { waiting: 'question' as const }
+				: {}),
 		});
 	}
 	for (const local of identified.git)

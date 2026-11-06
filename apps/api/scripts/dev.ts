@@ -50,28 +50,12 @@ if (auth.exitCode !== 0 || !auth.stdout.toString().trim()) {
 
 // Wrangler rewrites localhost Origin headers when a local Worker keeps the
 // production custom-domain route, so a development copy removes that route.
-// Artifacts has no local simulator. Remove its binding, namespace, and required
-// account secret so local dev needs no Artifacts configuration or remote session.
-// Hosted Git answers 503 locally. Keep the copy beside wrangler.jsonc so its
-// relative paths still resolve.
+// Wrangler simulates the R2 blob bucket locally. Keep the copy beside
+// wrangler.jsonc so its relative paths still resolve.
 const config = Bun.JSONC.parse(
 	await Bun.file(resolve(apiRoot, 'wrangler.jsonc')).text(),
 ) as WranglerConfig;
-delete config.vars?.ARTIFACTS_NAMESPACE;
-await writeFile(
-	localConfig,
-	JSON.stringify({
-		...config,
-		routes: [],
-		artifacts: [],
-		secrets: {
-			...config.secrets,
-			required: config.secrets?.required?.filter(
-				(name) => name !== 'ARTIFACTS_ACCOUNT_ID',
-			),
-		},
-	}),
-);
+await writeFile(localConfig, JSON.stringify({ ...config, routes: [] }));
 let exitCode: number;
 try {
 	const wrangler =

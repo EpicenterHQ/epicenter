@@ -28,10 +28,10 @@ import {
 	type CloudEnv,
 	createCloudContextMiddleware,
 	createDb,
-	createDiskGitHost,
+	createDiskBlobStore,
 	createServerApp,
 	mountAuthRoutes,
-	mountGitHost,
+	mountFolders,
 	registerFirstPartyClients,
 	requireAccessToken,
 } from '../../../../packages/server/src/bun.js';
@@ -68,9 +68,7 @@ beforeAll(async () => {
 	const { migrate } = await import(
 		Bun.resolveSync(
 			'drizzle-orm/node-postgres/migrator',
-			fileURLToPath(
-				new URL('../../../../packages/server/', import.meta.url),
-			),
+			fileURLToPath(new URL('../../../../packages/server/', import.meta.url)),
 		)
 	);
 	await migrate(createDb(cluster.clients[0]), {
@@ -105,10 +103,10 @@ beforeAll(async () => {
 		setup: createCloudContextMiddleware({ ...context, oauthServer: true }),
 		serveAuthUiShell: (c) => c.html('<html>shell</html>'),
 	});
-	const host = createDiskGitHost({ root: join(scratch, 'git-store') });
-	mountGitHost(app, {
+	const blobs = createDiskBlobStore({ root: join(scratch, 'blobs') });
+	mountFolders(app, {
 		setup: createCloudContextMiddleware(context),
-		resolveHost: () => host,
+		resolveBlobs: () => blobs,
 	});
 	// The inference gateway's guard, in front of a route that answers as a
 	// transcription would.

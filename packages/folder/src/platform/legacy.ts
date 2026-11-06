@@ -82,7 +82,7 @@ export async function importLegacy({
 					name: local.name,
 					inode: identity.inode,
 					birthtime: identity.birthtime,
-					commit: typeof manifest.commit === 'string' ? manifest.commit : null,
+					cursor: null,
 					files: manifest.files as Record<string, never>,
 				},
 				null,

@@ -85,7 +85,7 @@
 				"method": "put",
 				"path": "Todos/a.md",
 				"bytes": null,
-				"expected": { "blobOf": "theirs" }
+				"expected": { "versionOf": "theirs" }
 			},
 			"expect": {
 				"error": {
@@ -149,7 +149,7 @@
 				"method": "put",
 				"path": "a.md",
 				"bytes": null,
-				"expected": { "blobOf": "secret" }
+				"expected": { "versionOf": "secret" }
 			},
 			"expect": {
 				"error": {
@@ -220,7 +220,7 @@
 				"method": "put",
 				"path": "a.md",
 				"bytes": "new",
-				"expected": { "blobOf": "old" }
+				"expected": { "versionOf": "old" }
 			},
 			"expect": { "value": "landed" },
 			"after": { "files": { "a.md": "new" } }
@@ -232,7 +232,7 @@
 				"method": "put",
 				"path": "a.md",
 				"bytes": "new",
-				"expected": { "blobOf": "other" }
+				"expected": { "versionOf": "other" }
 			},
 			"expect": { "value": "stale" },
 			"after": { "files": { "a.md": "old" } }
@@ -256,7 +256,7 @@
 				"method": "put",
 				"path": "new/deep/a.md",
 				"bytes": "new",
-				"expected": { "blobOf": "old" }
+				"expected": { "versionOf": "old" }
 			},
 			"expect": { "value": "stale" },
 			"after": { "absent": ["new"] }
@@ -279,7 +279,7 @@
 				"method": "put",
 				"path": "a.md",
 				"bytes": null,
-				"expected": { "blobOf": "old" }
+				"expected": { "versionOf": "old" }
 			},
 			"expect": { "value": "stale" }
 		},
@@ -290,7 +290,7 @@
 				"method": "put",
 				"path": "a.md",
 				"bytes": null,
-				"expected": { "blobOf": "old" }
+				"expected": { "versionOf": "old" }
 			},
 			"expect": { "value": "landed" },
 			"after": { "absent": ["a.md"] }
@@ -302,7 +302,7 @@
 				"method": "put",
 				"path": "a.md",
 				"bytes": null,
-				"expected": { "blobOf": "other" }
+				"expected": { "versionOf": "other" }
 			},
 			"expect": { "value": "stale" },
 			"after": { "files": { "a.md": "old" } }
@@ -327,7 +327,7 @@
 				"method": "put",
 				"path": "todos/b?.md",
 				"bytes": "new",
-				"expected": { "blobOf": "old" }
+				"expected": { "versionOf": "old" }
 			},
 			"expect": { "value": "stale" },
 			"after": { "absent": ["todos/b?.md"] }
@@ -353,7 +353,7 @@
 				"method": "put",
 				"path": "todos/a?.md",
 				"bytes": "new",
-				"expected": { "blobOf": "old" }
+				"expected": { "versionOf": "old" }
 			},
 			"expect": { "value": "landed" },
 			"after": { "files": { "todos/a?.md": "new" } }
@@ -366,7 +366,7 @@
 				"method": "put",
 				"path": "todos/a?.md",
 				"bytes": null,
-				"expected": { "blobOf": "old" }
+				"expected": { "versionOf": "old" }
 			},
 			"expect": { "value": "landed" },
 			"after": { "absent": ["todos/a?.md"] }
@@ -378,7 +378,7 @@
 				"method": "put",
 				"path": "todos/HEAD",
 				"bytes": "new",
-				"expected": { "blobOf": "ref" }
+				"expected": { "versionOf": "ref" }
 			},
 			"expect": { "error": { "name": "InvalidPath", "path": "todos/HEAD" } },
 			"after": { "files": { "todos/HEAD": "ref" } }

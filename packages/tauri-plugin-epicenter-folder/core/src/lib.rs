@@ -9,10 +9,10 @@
 //! `sweep` clears when a folder opens. `identity` is a directory's inode and
 //! birth time. Nothing here depends on Tauri.
 //! `admission` says which directories may be a folder.
-//! No Git runs here (ADR-0804); `blob` names a file by its Git blob id.
+//! No Git runs here (ADR-0804); `version` names a file by its SHA-256.
 
 pub mod admission;
-pub mod blob;
+pub mod version;
 pub mod directory;
 pub mod identity;
 pub mod page_files;

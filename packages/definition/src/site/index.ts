@@ -32,16 +32,16 @@ export {
 } from './apps.ts';
 export {
 	FOLDER_ROLES,
+	type FolderInvitee,
 	type FolderListing,
 	type FolderMember,
-	type FolderInvitee,
 	type FolderPerson,
 	type FolderRequest,
 	type FolderRole,
-	folderRemoteUrl,
 	foldersApiUrl,
 	folderUrl,
 	isFolderId,
+	isMarkName,
 	isPersonEmail,
 	type JoinedFolder,
 	type ListedFolder,

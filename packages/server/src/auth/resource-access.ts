@@ -62,24 +62,10 @@ export function protectedResourceMetadataUrl(audience: string): string {
 	return `${url.origin}/.well-known/oauth-protected-resource${path}`;
 }
 
-/**
- * Read an access token from `Authorization`: a Bearer token, or the password
- * of Basic credentials with any username, which is how Git sends it.
- */
+/** Read an access token from `Authorization`: a Bearer token, or null. */
 export function readAccessToken(authorization: string | null | undefined) {
 	if (!authorization) return null;
-	const bearer = /^Bearer\s+(.+)$/i.exec(authorization)?.[1]?.trim();
-	if (bearer) return bearer;
-	const basic = /^Basic\s+(.+)$/i.exec(authorization)?.[1]?.trim();
-	if (!basic) return null;
-	let decoded: string;
-	try {
-		decoded = atob(basic);
-	} catch {
-		return null;
-	}
-	const separator = decoded.indexOf(':');
-	return separator < 0 ? null : decoded.slice(separator + 1) || null;
+	return /^Bearer\s+(.+)$/i.exec(authorization)?.[1]?.trim() || null;
 }
 
 /** Who the token acts for on a resource that names no folder. */

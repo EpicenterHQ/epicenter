@@ -22,12 +22,12 @@
 import { expect, mock, test } from 'bun:test';
 import * as fs from 'node:fs/promises';
 import { join } from 'node:path';
+import type { Result } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
+import { versionOf } from '../hash.js';
 import { scratch } from '../scratch.test-support.js';
 import { isReservedName } from '../state.js';
-import { blobIdOf } from '../hash.js';
-import type { BlobId, Moved, Unavailable } from './store.js';
-import type { Result } from 'wellcrafted/result';
+import type { Moved, Unavailable, Version } from './store.js';
 
 /** Told the staged file each link or rename places, before it is placed. */
 let beforeRename: ((from: string) => Promise<void>) | undefined;
@@ -78,7 +78,7 @@ async function versionIn(store: ReturnType<typeof nodeStore>, path: string) {
 }
 
 /** Whether a put landed or found the path moved, whatever version it landed. */
-function outcome(put: Result<BlobId | null, Moved | Unavailable>) {
+function outcome(put: Result<Version | null, Moved | Unavailable>) {
 	if (put.error === null) return 'landed';
 	if (put.error.name === 'Moved') return 'moved';
 	throw new Error(put.error.message);
@@ -321,7 +321,6 @@ test('a name only some disks hold is never made; an existing one is replaced ove
 	}
 });
 
-
 test('a directory removed during a listing is not listed; a root removed fails the listing', async () => {
 	const root = await scratch('node-store-list-removed-');
 	try {
@@ -341,18 +340,20 @@ test('a directory removed during a listing is not listed; a root removed fails t
 	}
 });
 
-test('an attachment is named by its pointer, hashed once, and again when it changes within the second it was hashed', async () => {
+test('a large file is named by its SHA-256, hashed once, and again when it changes within the second it was hashed', async () => {
 	const root = await scratch('node-store-stamps-');
 	const cache = `${root}-hashes.json`;
 	const cached_ = () => nodeStore(root, { hashes: stampFileAt(cache) });
+	const one = new Uint8Array(70_000).fill(1);
+	const two = new Uint8Array(70_000).fill(2);
 	try {
-		await writeFile(join(root, 'take.webm'), 'one');
+		await writeFile(join(root, 'take.webm'), one);
 		const listedOnce = expectOk(await cached_().list(['']));
 		expect(listedOnce).toEqual([
 			{
 				path: 'take.webm',
-				version: await blobIdOf('take.webm', text('one')),
-				size: 3,
+				version: await versionOf(one),
+				size: 70_000,
 			},
 		]);
 		const cached = JSON.parse(await readFile(cache, 'utf8'));
@@ -361,9 +362,9 @@ test('an attachment is named by its pointer, hashed once, and again when it chan
 		expect(await readdir(root)).toEqual(['take.webm']);
 		// Rewritten within the same second, to the same length: the stamp's
 		// time could match, so the racy entry is hashed again, never trusted.
-		await writeFile(join(root, 'take.webm'), 'two');
+		await writeFile(join(root, 'take.webm'), two);
 		const [again] = expectOk(await cached_().list(['']));
-		expect(again?.version).toBe(await blobIdOf('take.webm', text('two')));
+		expect(again?.version).toBe(await versionOf(two));
 		// A cache that holds a hash under an old enough stamp answers without reading.
 		const stats = await stat(join(root, 'take.webm'), { bigint: true });
 		await writeFile(
@@ -371,14 +372,13 @@ test('an attachment is named by its pointer, hashed once, and again when it chan
 			JSON.stringify({
 				'take.webm': {
 					stamp: `${stats.size}:${stats.mtimeNs}:${stats.ino}`,
-					oid: 'f'.repeat(64),
-					size: 3,
+					version: 'f'.repeat(64),
 					hashed: Number(stats.mtimeNs / 1_000_000n) + 5000,
 				},
 			}),
 		);
 		const [trusted] = expectOk(await cached_().list(['']));
-		expect(trusted?.version).not.toBe(await blobIdOf('take.webm', text('two')));
+		expect(trusted?.version as string).toBe('f'.repeat(64));
 	} finally {
 		await rm(root, { recursive: true, force: true });
 		await rm(cache, { force: true });

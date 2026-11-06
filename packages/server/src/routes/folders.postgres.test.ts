@@ -1,13 +1,12 @@
 /**
  * Folders end to end on Bun (ADR-0811): the real routes behind the real
  * authorization server on a disposable Postgres cluster, a real `Bun.serve`
- * listener, the disk store, and the system `git` as a plain Git client.
- * Requires initdb, pg_ctl, and git on PATH; never connects to a configured
- * database.
+ * listener, and a blob store in memory. Requires initdb and pg_ctl on PATH;
+ * never connects to a configured database.
  *
  * Key behaviors:
- * - A folder exists from its first sync, which joins before it creates, and
- *   plain Git reaches its history at `<git>/folders/<id>.git`
+ * - A folder exists from the request that makes it, and its log answers
+ *   over HTTP: changes, files, history, marks, bytes, commits, and imports
  * - A share is an invitation to an email, invisible and granting nothing
  *   until the person who signs in with it, verified, accepts it
  * - Members are equal; a folder survives while any member remains
@@ -15,9 +14,6 @@
  * - A listing reads each folder's title from its `epicenter.json`
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type {
 	FolderListing,
@@ -29,15 +25,15 @@ import { type Client, Pool } from 'pg';
 import { registerFirstPartyClients } from '../auth/oauth-registrations.js';
 import { createCloudContextMiddleware } from '../create-cloud-context-middleware.js';
 import { createDb, type Db } from '../db/create-db.js';
-import { createDiskGitHost } from '../git-disk-store.js';
+import { createMemoryBlobStore } from '../log/memory-blob-store.js';
 import { createServerApp } from '../server-app.js';
 import { startDisposablePostgres } from '../test-helpers/disposable-postgres.js';
 import { OAuthTestClient, type Person } from '../test-helpers/oauth-client.js';
 import type { CloudEnv } from '../types.js';
 import { mountAuthRoutes } from './auth.js';
-import { mountGitHost } from './git.js';
+import { mountFolders } from './folders.js';
 
-const secret = 'git-postgres-secret-0123456789abcdefghij';
+const secret = 'folders-postgres-secret-0123456789abcdefghij';
 /** The Epicenter app: a platform client, reaching every folder its person holds. */
 const epicenter = {
 	clientId: 'so.epicenter',
@@ -55,8 +51,7 @@ const vocab = {
 
 let origin = '';
 let audiences = { api: '', git: '' };
-let scratch: string;
-let storeRoot: string;
+const blobs = createMemoryBlobStore();
 let stopPostgres: () => Promise<void>;
 let server: ReturnType<typeof Bun.serve>;
 let sql: Client;
@@ -65,8 +60,6 @@ let pool: Pool;
 let client: OAuthTestClient;
 
 beforeAll(async () => {
-	scratch = await mkdtemp(join(tmpdir(), 'epicenter-git-test-'));
-	storeRoot = join(scratch, 'store');
 	const cluster = await startDisposablePostgres();
 	stopPostgres = cluster.stop;
 	sql = cluster.clients[0];
@@ -85,7 +78,6 @@ beforeAll(async () => {
 		port: 0,
 		hostname: '127.0.0.1',
 		fetch: (request) => app.fetch(request),
-		// A push can pause between its two requests; do not drop it.
 		idleTimeout: 30,
 	});
 	origin = `http://127.0.0.1:${server.port}`;
@@ -109,7 +101,7 @@ beforeAll(async () => {
 			applicationType: 'web',
 		})),
 	});
-	// Requests run at once, as concurrent pushes do, so each takes its own
+	// Requests run at once, as concurrent writers' do, so each takes its own
 	// connection, as a deployment's pool gives it.
 	pool = new Pool({
 		host: '127.0.0.1',
@@ -130,10 +122,9 @@ beforeAll(async () => {
 		}),
 		serveAuthUiShell: (c) => c.html('<html>shell</html>'),
 	});
-	const host = createDiskGitHost({ root: storeRoot });
-	mountGitHost(app, {
+	mountFolders(app, {
 		setup: createCloudContextMiddleware(context),
-		resolveHost: () => host,
+		resolveBlobs: () => blobs,
 	});
 	client = new OAuthTestClient(origin, sql, secret, async (url, init) =>
 		app.fetch(new Request(url, init)),
@@ -144,7 +135,6 @@ afterAll(async () => {
 	server?.stop(true);
 	await pool?.end();
 	await stopPostgres?.();
-	if (scratch) await rm(scratch, { recursive: true, force: true });
 });
 
 type App = { clientId: string; redirectUri: string };
@@ -211,24 +201,23 @@ async function made(token: string) {
 	return joined.body.folder as string;
 }
 
-/** Land `files` (path to text) in `folder` in one commit. */
+/** The version `folder` holds at each of `paths`. */
+async function versions(token: string, folder: string, paths: string[]) {
+	const listed = (await (
+		await call(token, 'git', `folders/${folder}/files`, { body: { paths } })
+	).json()) as { files?: { path: string; version: string }[] };
+	return new Map(
+		(listed.files ?? []).map(({ path, version }) => [path, version]),
+	);
+}
+
+/** Land `files` (path to text) in `folder` in one change, over what each path holds. */
 async function write(
 	token: string,
 	folder: string,
 	files: Record<string, string>,
 ) {
-	const asked = await call(token, 'git', `folders/${folder}/changes`);
-	if (asked.status !== 200) return asked;
-	const changes = (await asked.json()) as { commit: string | null };
-	const tree =
-		changes.commit === null
-			? { entries: [] as { path: string; blob: string }[] }
-			: ((await (
-					await call(token, 'git', `folders/${folder}/tree`, {
-						body: { commit: changes.commit, paths: Object.keys(files) },
-					})
-				).json()) as { entries: { path: string; blob: string }[] });
-	const held = new Map(tree.entries.map(({ path, blob }) => [path, blob]));
+	const held = await versions(token, folder, Object.keys(files));
 	return call(token, 'git', `folders/${folder}/commits`, {
 		body: {
 			files: Object.entries(files).map(([path, text]) => ({
@@ -262,236 +251,319 @@ const unshare = (token: string, folder: string, email: string) =>
 const accept = (token: string, folder: string) =>
 	call(token, 'api', `folders/${folder}/accept`, { method: 'POST' });
 
-type Run = { code: number; stdout: string; stderr: string };
+const encoder = new TextEncoder();
 
-/** The system `git`, in a clean environment, sending `token` as a Bearer header. */
-async function git(
-	cwd: string,
-	token: string | null,
-	...args: string[]
-): Promise<Run> {
-	const child = Bun.spawn(
-		[
-			'git',
-			'-c',
-			'core.hooksPath=/dev/null',
-			'-c',
-			'protocol.version=2',
-			...(token === null
-				? []
-				: ['-c', `http.extraHeader=Authorization: Bearer ${token}`]),
-			...args,
-		],
-		{
-			cwd,
-			env: {
-				PATH: process.env.PATH,
-				HOME: scratch,
-				GIT_CONFIG_NOSYSTEM: '1',
-				GIT_CONFIG_GLOBAL: '/dev/null',
-				GIT_TERMINAL_PROMPT: '0',
-				GIT_AUTHOR_NAME: 'Test',
-				GIT_AUTHOR_EMAIL: 'test@example.test',
-				GIT_COMMITTER_NAME: 'Test',
-				GIT_COMMITTER_EMAIL: 'test@example.test',
-			},
-			stdout: 'pipe',
-			stderr: 'pipe',
-		},
+/** The SHA-256 of `bytes`, as hex: a version. */
+async function sha256(bytes: Uint8Array) {
+	const digest = await crypto.subtle.digest(
+		'SHA-256',
+		bytes as Uint8Array<ArrayBuffer>,
 	);
-	const [stdout, stderr, code] = await Promise.all([
-		new Response(child.stdout).text(),
-		new Response(child.stderr).text(),
-		child.exited,
-	]);
-	return { code, stdout, stderr };
+	return Buffer.from(digest).toString('hex');
 }
 
-/** A working copy with one commit holding `files`. */
-async function workingCopy(name: string, files: Record<string, string>) {
-	const dir = join(scratch, `${name}-${crypto.randomUUID().slice(0, 8)}`);
-	await mkdir(dir, { recursive: true });
-	await git(dir, null, 'init', '--quiet', '--initial-branch=main');
-	await commit(dir, files, 'first');
-	return dir;
-}
+/** Put `bytes` at `blobs/<sha256>` of `folder`. */
+const upload = (token: string, folder: string, bytes: Uint8Array) =>
+	sha256(bytes).then((version) =>
+		fetch(`${audiences.git}/folders/${folder}/blobs/${version}`, {
+			method: 'PUT',
+			headers: { authorization: `Bearer ${token}` },
+			body: bytes as Uint8Array<ArrayBuffer>,
+		}),
+	);
 
-async function commit(
-	dir: string,
-	files: Record<string, string>,
-	message: string,
-) {
-	for (const [path, text] of Object.entries(files))
-		await writeFile(join(dir, path), text);
-	await git(dir, null, 'add', '--all');
-	const done = await git(dir, null, 'commit', '--quiet', '-m', message);
-	expect(done.code).toBe(0);
-}
-
-const remote = (folder: string) => `${audiences.git}/folders/${folder}.git`;
-
-/** The repository ids the disk store holds. */
-const stored = async () =>
-	(await readdir(storeRoot).catch(() => []))
-		.filter((entry) => entry.endsWith('.git'))
-		.map((entry) => entry.slice(0, -'.git'.length))
-		.sort();
-
-describe("a folder's Git remote", () => {
-	test('a folder made at its first sync is cloned, fetched, and pushed by its id', async () => {
-		const { token } = await signedIn('owner');
-		const folder = await made(token);
-		// Storage is named by the folder's id.
-		expect(await stored()).toContain(folder);
-		const url = remote(folder);
-		const first = await workingCopy('notes', { 'a.md': 'one\n' });
-		const empty = await git(first, token, 'ls-remote', url);
-		expect(empty.code).toBe(0);
-		expect(empty.stdout).toBe('');
-
-		const pushed = await git(first, token, 'push', url, 'HEAD:main');
-		expect(pushed.stderr).not.toContain('rejected');
-		expect(pushed.code).toBe(0);
-		const second = join(scratch, `clone-${crypto.randomUUID().slice(0, 8)}`);
-		expect((await git(scratch, token, 'clone', url, second)).code).toBe(0);
-		expect(await Bun.file(join(second, 'a.md')).text()).toBe('one\n');
-
-		await commit(first, { 'b.md': 'two\n' }, 'second');
-		expect((await git(first, token, 'push', url, 'HEAD:main')).code).toBe(0);
-		expect(
-			(await git(second, token, 'pull', '--ff-only', 'origin', 'main')).code,
-		).toBe(0);
-		expect(await Bun.file(join(second, 'b.md')).text()).toBe('two\n');
-		// What plain Git pushed, sync reads.
-		expect(
-			(
-				(await (
-					await call(token, 'git', `folders/${folder}/changes`)
-				).json()) as { commit: string }
-			).commit,
-		).toBe((await git(first, null, 'rev-parse', 'HEAD')).stdout.trim());
-	}, 120_000);
-
-	test("a reader's forced push is refused; any member's lands and keeps the old main", async () => {
-		const maker = await signedIn('rewrite-maker');
-		const member = await signedIn('rewrite-member');
-		const reader = await signedIn('rewrite-reader');
-		const folder = await made(maker.token);
-		await share(maker.token, folder, member.person.email);
-		await share(maker.token, folder, reader.person.email, 'reader');
-		expect((await accept(member.token, folder)).status).toBe(200);
-		expect((await accept(reader.token, folder)).status).toBe(200);
-		const url = remote(folder);
-		const first = await workingCopy('one', { 'a.md': 'one\n' });
-		expect(
-			(await git(first, maker.token, 'push', url, 'HEAD:main')).code,
-		).toBe(0);
-		const old = (await git(first, null, 'rev-parse', 'HEAD')).stdout.trim();
-		const other = await workingCopy('other', { 'z.md': 'other\n' });
-		expect(
-			(await git(other, reader.token, 'push', '--force', url, 'HEAD:main'))
-				.code,
-		).not.toBe(0);
-		// No member owns the folder: the one who did not make it rewrites it too.
-		const forced = await git(
-			other,
-			member.token,
-			'push',
-			'--force',
-			url,
-			'HEAD:main',
-		);
-		expect(forced.code).toBe(0);
-		const refs = (await git(other, member.token, 'ls-remote', url)).stdout;
-		expect(refs).toMatch(
-			new RegExp(`^${old}\\trefs/epicenter/replaced/\\d{8}-\\d{9}Z$`, 'm'),
-		);
-	}, 120_000);
-
-	test('one who does not hold a folder gets 403, the same as for a folder that does not exist, and nothing is made', async () => {
+describe("a folder's log over HTTP", () => {
+	test('one who does not hold a folder gets 403, the same as for a folder that does not exist', async () => {
 		const owner = await signedIn('holder');
 		const stranger = await signedIn('stranger');
 		const folder = await made(owner.token);
-		const before = await stored();
-		for (const id of [folder, 'zzzzzzzzzzzzzzzz']) {
-			for (const service of ['git-upload-pack', 'git-receive-pack']) {
-				const response = await fetch(
-					`${remote(id)}/info/refs?service=${service}`,
-					{ headers: { authorization: `Bearer ${stranger.token}` } },
-				);
-				expect(response.status).toBe(403);
-			}
-			expect(
-				(await call(stranger.token, 'git', `folders/${id}/changes`)).status,
-			).toBe(403);
-		}
-		const dir = await workingCopy('planted', { 'a.md': 'x\n' });
+		for (const id of [folder, 'zzzzzzzzzzzzzzzz'])
+			for (const path of ['changes', 'log'])
+				expect(
+					(await call(stranger.token, 'git', `folders/${id}/${path}`)).status,
+				).toBe(403);
 		expect(
 			(
-				await git(
-					dir,
-					stranger.token,
-					'push',
-					remote('zzzzzzzzzzzzzzzz'),
-					'HEAD:main',
-				)
-			).code,
-		).not.toBe(0);
-		expect(await stored()).toEqual(before);
-	}, 120_000);
+				await call(stranger.token, 'git', `folders/${folder}/commits`, {
+					body: { files: [{ path: 'a.md', expect: null, text: 'x' }] },
+				})
+			).status,
+		).toBe(403);
+	}, 60_000);
 
-	test('a missing or unusable token gets 401 naming resource_metadata, and a read-only token cannot push', async () => {
+	test('a missing or unusable token gets 401 naming resource_metadata, and a read-only token cannot commit', async () => {
 		const { token } = await signedIn('challenged');
 		const folder = await made(token);
-		const advertise = `${remote(folder)}/info/refs?service=git-upload-pack`;
-		const none = await fetch(advertise);
+		const changes = `${audiences.git}/folders/${folder}/changes`;
+		const none = await fetch(changes);
 		expect(none.status).toBe(401);
 		expect(none.headers.get('www-authenticate')).toContain(
 			`resource_metadata="${origin}/.well-known/oauth-protected-resource/git"`,
 		);
-		// Terminal Git needs a Basic challenge to ask its credential helper.
-		expect(none.headers.get('www-authenticate')).toContain('Basic');
-		const garbage = await fetch(advertise, {
-			headers: { authorization: 'Bearer not-a-token' },
-		});
-		expect(garbage.status).toBe(401);
-		const person = await client.person('api-only');
+		expect(
+			(await fetch(changes, { headers: { authorization: 'Bearer nope' } }))
+				.status,
+		).toBe(401);
 		const api = await tokenFor(
-			person,
+			await client.person('api-only'),
 			epicenter,
 			'openid profile',
 			audiences.api,
 		);
 		expect(
-			(await fetch(advertise, { headers: { authorization: `Bearer ${api}` } }))
+			(await fetch(changes, { headers: { authorization: `Bearer ${api}` } }))
 				.status,
 		).toBe(401);
 		const readOnly = await tokenFor(
-			(await client.person('read-only')) as Person,
+			await client.person('read-only'),
 			epicenter,
 			'openid folders:read folders:all',
 		);
-		const refused = await fetch(
-			`${remote(folder)}/info/refs?service=git-receive-pack`,
-			{ headers: { authorization: `Bearer ${readOnly}` } },
-		);
-		expect(refused.status).toBe(403);
-		expect((await refused.json()) as { error: string }).toMatchObject({
-			error: 'insufficient_scope',
+		const refused = await call(readOnly, 'git', `folders/${folder}/commits`, {
+			body: { files: [{ path: 'a.md', expect: null, text: 'x' }] },
 		});
-	}, 120_000);
+		expect(refused.status).toBe(403);
+		expect(await refused.json()).toMatchObject({ error: 'insufficient_scope' });
+	}, 60_000);
 
-	test('the Basic password is the token, for terminal Git', async () => {
-		const { token } = await signedIn('basic');
+	test('a capture (a note and its audio) is one change; the audio uploads once, and a resend has moved', async () => {
+		const { token } = await signedIn('capture');
 		const folder = await made(token);
-		const response = await fetch(
-			`${remote(folder)}/info/refs?service=git-receive-pack`,
-			{ headers: { authorization: `Basic ${btoa(`epicenter:${token}`)}` } },
+		const audio = new Uint8Array(40_000).map((_, index) => index % 251);
+		const version = await sha256(audio);
+		const missing = await call(
+			token,
+			'git',
+			`folders/${folder}/blobs/missing`,
+			{
+				body: { versions: [version] },
+			},
 		);
-		expect(response.status).toBe(200);
-		expect(response.headers.get('content-type')).toBe(
-			'application/x-git-receive-pack-advertisement',
+		expect((await missing.json()) as unknown).toEqual({ missing: [version] });
+		expect((await upload(token, folder, audio)).status).toBe(201);
+		// Bytes it holds are taken again without being kept twice.
+		expect((await upload(token, folder, audio)).status).toBe(200);
+		const files = [
+			{ path: 'captures/a.md', expect: null, text: '# Heard\n' },
+			{ path: 'captures/a.webm', expect: null, version },
+		];
+		const landed = await call(token, 'git', `folders/${folder}/commits`, {
+			body: { files },
+		});
+		expect(landed.status).toBe(200);
+		const receipt = (await landed.json()) as {
+			cursor: string;
+			versions: Record<string, string>;
+		};
+		expect(receipt.cursor).toMatch(/\.1$/);
+		expect(receipt.versions).toEqual({
+			'captures/a.md': await sha256(encoder.encode('# Heard\n')),
+			'captures/a.webm': version,
+		});
+		const resent = await call(token, 'git', `folders/${folder}/commits`, {
+			body: { files },
+		});
+		expect(resent.status).toBe(409);
+		expect(await resent.json()).toMatchObject({
+			error: 'moved',
+			moved: [
+				{ path: 'captures/a.md', now: receipt.versions['captures/a.md'] },
+				{ path: 'captures/a.webm', now: version },
+			],
+		});
+		const read = await fetch(
+			`${audiences.git}/folders/${folder}/blobs/${version}`,
+			{ headers: { authorization: `Bearer ${token}` } },
 		);
+		expect(read.headers.get('cache-control')).toContain('immutable');
+		expect(new Uint8Array(await read.arrayBuffer())).toEqual(audio);
+		const blobs = (await (
+			await call(token, 'git', `folders/${folder}/blobs`, {
+				body: { versions: [receipt.versions['captures/a.md'], version] },
+			})
+		).json()) as { blobs: unknown[] };
+		expect(blobs.blobs).toEqual([
+			{ base64: Buffer.from('# Heard\n').toString('base64') },
+			{ size: audio.byteLength },
+		]);
+	}, 60_000);
+
+	test('racing changes over one version: one lands, the rest have moved, and nothing merges', async () => {
+		const { token } = await signedIn('racing');
+		const folder = await made(token);
+		await write(token, folder, { 'a.md': 'base\n' });
+		const [held] = (await versions(token, folder, ['a.md'])).values();
+		const answers = await Promise.all(
+			Array.from({ length: 6 }, (_, index) =>
+				call(token, 'git', `folders/${folder}/commits`, {
+					body: {
+						files: [{ path: 'a.md', expect: held, text: `writer ${index}\n` }],
+					},
+				}),
+			),
+		);
+		const statuses = answers.map(({ status }) => status).sort();
+		expect(statuses).toEqual([200, 409, 409, 409, 409, 409]);
+		const log = (await (
+			await call(token, 'git', `folders/${folder}/log`)
+		).json()) as { changes: { seq: number }[] };
+		expect(log.changes.map(({ seq }) => seq)).toEqual([2, 1]);
+	}, 60_000);
+
+	test('a body past the cap is refused before it is read whole, and bytes over 16 KiB come by upload', async () => {
+		const { token } = await signedIn('capped');
+		const folder = await made(token);
+		const huge = 'x'.repeat(17 * 1024 * 1024);
+		const capped = await fetch(`${audiences.git}/folders/${folder}/commits`, {
+			method: 'POST',
+			headers: {
+				authorization: `Bearer ${token}`,
+				'content-type': 'application/json',
+			},
+			body: JSON.stringify({
+				files: [{ path: 'a.md', expect: null, text: huge }],
+			}),
+		});
+		expect(capped.status).toBe(413);
+		const inline = await write(token, folder, { 'a.md': 'y'.repeat(20_000) });
+		expect(inline.status).toBe(400);
+		const head = (await (
+			await call(token, 'git', `folders/${folder}/changes`)
+		).json()) as { cursor: string };
+		expect(head.cursor).toMatch(/\.0$/);
+	}, 60_000);
+
+	test('a name differing only in case is refused, naming what the folder holds', async () => {
+		const { token } = await signedIn('cased');
+		const folder = await made(token);
+		await write(token, folder, { 'Notes/Todo.md': 'x' });
+		const refused = await write(token, folder, { 'notes/todo.md': 'y' });
+		expect(refused.status).toBe(409);
+		expect(await refused.json()).toMatchObject({
+			error: 'refused',
+			path: 'notes/todo.md',
+			held: 'Notes/Todo.md',
+			reason: 'case',
+		});
+	}, 60_000);
+
+	test('changes since a cursor answer versions; files, log, and history answer at a seq, a mark, or a time', async () => {
+		const { token } = await signedIn('history');
+		const folder = await made(token);
+		const first = (await (
+			await write(token, folder, { 'a.md': 'one', 'b.md': 'x' })
+		).json()) as { cursor: string };
+		const mark = await call(token, 'git', `folders/${folder}/marks/v1`, {
+			method: 'PUT',
+			body: {},
+		});
+		expect(mark.status).toBe(200);
+		await write(token, folder, { 'a.md': 'two' });
+		const since = (await (
+			await call(
+				token,
+				'git',
+				`folders/${folder}/changes?since=${encodeURIComponent(first.cursor)}`,
+			)
+		).json()) as { changes: unknown };
+		expect(since.changes).toEqual([
+			{ path: 'a.md', version: await sha256(encoder.encode('two')) },
+		]);
+		const atMark = (await (
+			await call(token, 'git', `folders/${folder}/files`, {
+				body: { at: 'v1', bytes: true },
+			})
+		).json()) as { seq: number; files: { path: string; base64: string }[] };
+		expect(atMark.seq).toBe(1);
+		expect(
+			atMark.files.map(({ path, base64 }) => [
+				path,
+				Buffer.from(base64, 'base64').toString(),
+			]),
+		).toEqual([
+			['a.md', 'one'],
+			['b.md', 'x'],
+		]);
+		const history = (await (
+			await call(token, 'git', `folders/${folder}/log?path=a.md`)
+		).json()) as {
+			changes: { seq: number; author: string; via: string; marks: string[] }[];
+		};
+		expect(history.changes.map(({ seq, marks }) => [seq, marks])).toEqual([
+			[2, []],
+			[1, ['v1']],
+		]);
+		expect(history.changes[0]?.author).toMatch(
+			/^history <history-[0-9a-f-]+@example\.test>$/,
+		);
+		expect(history.changes[0]?.via).toBe(epicenter.clientId);
+		const atTime = (await (
+			await call(token, 'git', `folders/${folder}/files`, {
+				body: { at: '2000-01-01T00:00:00Z' },
+			})
+		).json()) as { seq: number; files: unknown[] };
+		expect(atTime).toMatchObject({ seq: 0, files: [] });
+		const taken = await call(token, 'git', `folders/${folder}/marks/v1`, {
+			method: 'PUT',
+			body: {},
+		});
+		expect(taken.status).toBe(409);
+		const marks = (await (
+			await call(token, 'git', `folders/${folder}/marks`)
+		).json()) as { marks: { name: string; seq: number }[] };
+		expect(marks.marks).toMatchObject([{ name: 'v1', seq: 1 }]);
+	}, 60_000);
+
+	test('a folder made to import takes changes with their own authors and times until the import is done', async () => {
+		const { token } = await signedIn('importer');
+		const ordinary = await made(token);
+		const imported = {
+			changes: [
+				{
+					author: 'Grace <grace@example.test>',
+					at: '2019-05-06T07:08:09Z',
+					message: 'First',
+					files: [{ path: 'a.md', expect: null, text: 'one' }],
+				},
+			],
+		};
+		expect(
+			(
+				await call(token, 'git', `folders/${ordinary}/import`, {
+					body: imported,
+				})
+			).status,
+		).toBe(409);
+		const made_ = await join_(token, { create: true, import: true });
+		expect(made_.status).toBe(201);
+		const folder = made_.body.folder as string;
+		const landed = await call(token, 'git', `folders/${folder}/import`, {
+			body: imported,
+		});
+		expect(landed.status).toBe(200);
+		expect(
+			(
+				await call(token, 'git', `folders/${folder}/import`, {
+					body: { done: true },
+				})
+			).status,
+		).toBe(200);
+		const log = (await (
+			await call(token, 'git', `folders/${folder}/log`)
+		).json()) as {
+			changes: { at: string; author: string; message: string }[];
+		};
+		expect(log.changes).toMatchObject([
+			{
+				at: '2019-05-06T07:08:09.000Z',
+				author: 'Grace <grace@example.test>',
+				message: 'First',
+			},
+		]);
+		expect(
+			(await call(token, 'git', `folders/${folder}/import`, { body: imported }))
+				.status,
+		).toBe(409);
 	}, 60_000);
 });
 
@@ -625,7 +697,10 @@ describe('sharing a folder is an invitation to an email', () => {
 
 		// Cancelling each answers the same, and so does cancelling again.
 		for (const expected of [
-			{ status: 200, body: { person: '<email>', removed: true, folderGone: false } },
+			{
+				status: 200,
+				body: { person: '<email>', removed: true, folderGone: false },
+			},
 			{ status: 404 },
 		]) {
 			const cancelKnown = await answer(
@@ -671,12 +746,10 @@ describe('sharing a folder is an invitation to an email', () => {
 			],
 			invited: [],
 		});
-		expect(
-			(await call(token, 'git', `folders/${folder}/changes`)).status,
-		).toBe(200);
-		expect((await write(token, folder, { 'a.md': 'mine\n' })).status).toBe(
-			403,
+		expect((await call(token, 'git', `folders/${folder}/changes`)).status).toBe(
+			200,
 		);
+		expect((await write(token, folder, { 'a.md': 'mine\n' })).status).toBe(403);
 	}, 60_000);
 
 	test('an unverified email neither sees, accepts, nor declines its invitation until it is verified', async () => {
@@ -692,9 +765,9 @@ describe('sharing a folder is an invitation to an email', () => {
 		expect((await listing(token)).pending).toEqual([]);
 		expect((await accept(token, folder)).status).toBe(404);
 		expect((await unshare(token, folder, email)).status).toBe(404);
-		expect(
-			(await call(token, 'git', `folders/${folder}/changes`)).status,
-		).toBe(403);
+		expect((await call(token, 'git', `folders/${folder}/changes`)).status).toBe(
+			403,
+		);
 		// Verified, the same account finds it waiting.
 		await sql.query('update "user" set email_verified = true where id = $1', [
 			claimant.id,
@@ -782,7 +855,7 @@ describe('sharing a folder is an invitation to an email', () => {
 			(await sql.query('select 1 from folder where id = $1', [folder]))
 				.rowCount,
 		).toBe(0);
-		expect(await stored()).not.toContain(folder);
+		expect(blobs.keys().filter((key) => key.includes(folder))).toEqual([]);
 	}, 60_000);
 });
 
@@ -803,7 +876,10 @@ describe('a create never joins, and a join names its app', () => {
 		const another = second.body.folder as string;
 		expect(another).not.toBe(folder);
 		// From the platform, a create names the app to attach it to.
-		const forVocab = await join_(platform, { create: true, app: vocab.clientId });
+		const forVocab = await join_(platform, {
+			create: true,
+			app: vocab.clientId,
+		});
 		expect(forVocab.status).toBe(201);
 		expect(
 			(await listing(platform)).folders
@@ -823,9 +899,7 @@ describe('a create never joins, and a join names its app', () => {
 		// A join names its app: Todos holds two, so it asks which.
 		const choose = await join_(todosToken, { join: todos.clientId });
 		expect(choose.status).toBe(409);
-		expect(choose.body.folders?.sort()).toEqual(
-			[folder, another].sort(),
-		);
+		expect(choose.body.folders?.sort()).toEqual([folder, another].sort());
 		// An app joins only its own app's folder.
 		expect((await join_(todosToken, { join: vocab.clientId })).status).toBe(
 			403,
@@ -921,15 +995,17 @@ describe('an app reaches the folders attached to it', () => {
 	}, 60_000);
 });
 
-test('one request answers where main is in every folder the token reaches', async () => {
+test('one request answers the head of every folder the token reaches', async () => {
 	const { token } = await signedIn('heads');
 	const a = await made(token);
 	const b = await made(token);
 	const landed = (await (await write(token, a, { 'a.md': 'a\n' })).json()) as {
-		commit: string;
+		cursor: string;
 	};
 	const answer = (await (await call(token, 'git', 'folders')).json()) as {
-		heads: Record<string, string | null>;
+		heads: Record<string, string>;
 	};
-	expect(answer.heads).toEqual({ [a]: landed.commit, [b]: null });
+	expect(answer.heads[a]).toBe(landed.cursor);
+	expect(answer.heads[b]).toMatch(/^[a-z0-9]+\.0$/);
+	expect(Object.keys(answer.heads).sort()).toEqual([a, b].sort());
 }, 60_000);

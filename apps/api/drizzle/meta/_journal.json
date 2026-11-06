@@ -85,6 +85,13 @@
       "when": 1794200000000,
       "tag": "0011_history_log",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1794300000000,
+      "tag": "0012_drop_upload_ledger",
+      "breakpoints": true
     }
   ]
 }

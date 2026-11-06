@@ -30,8 +30,13 @@ use std::path::{Path, PathBuf};
 use super::*;
 use crate::testing::TempDir;
 
-fn blob(bytes: &[u8]) -> String {
-    crate::blob::blob_id(bytes)
+fn version(bytes: &[u8]) -> String {
+    crate::version::version_of(bytes)
+}
+
+/// Bytes over `HASHED_WHOLE_BYTES`, so a listing names them by their stamp.
+fn large(fill: u8) -> Vec<u8> {
+    vec![fill; crate::version::HASHED_WHOLE_BYTES as usize + 1]
 }
 
 fn folder(label: &str, files: &[(&str, &[u8])]) -> (TempDir, PathBuf) {
@@ -52,17 +57,17 @@ fn b(bytes: &[u8]) -> Option<&[u8]> {
 
 #[test]
 fn an_expectation_is_parsed_by_its_own_spelling() {
-    let hash = blob(b"x");
+    let hash = version(b"x");
     assert_eq!(Expectation::parse("absent"), Ok(Expectation::Absent));
     assert_eq!(
-        Expectation::parse(&format!("blob:{hash}")),
-        Ok(Expectation::Blob(hash.clone()))
+        Expectation::parse(&format!("sha256:{hash}")),
+        Ok(Expectation::Sha256(hash.clone()))
     );
     for refused in [
         hash.clone(),
-        "blob:absent".to_string(),
-        format!("blob:{}", hash.to_uppercase()),
-        format!("sha256:{hash}"),
+        "sha256:absent".to_string(),
+        format!("sha256:{}", hash.to_uppercase()),
+        format!("blob:{hash}"),
         "anything".to_string(),
         "present".to_string(),
         String::new(),
@@ -73,55 +78,65 @@ fn an_expectation_is_parsed_by_its_own_spelling() {
 
 #[test]
 fn list_and_read_report_the_same_stamp_and_a_write_changes_it() {
-    let (_temp, root) = folder("storage-stamp", &[("note.txt", b"old")]);
+    let old = large(1);
+    let (_temp, root) = folder("storage-stamp", &[("take.wav", &old)]);
     let initial = list(&root, &[String::new()]).unwrap()[0].version.clone();
-    assert_eq!(read(&root, "note.txt").unwrap().stamp, initial);
+    assert_eq!(
+        format!("stamp:{}", read(&root, "take.wav").unwrap().stamp),
+        initial
+    );
 
-    let landed = put(&root, "note.txt", b(b"new"), Some(&blob(b"old"))).unwrap();
+    let landed = put(&root, "take.wav", b(&large(2)), Some(&version(&old))).unwrap();
     assert_eq!(landed, PutOutcome::Landed);
     let published = list(&root, &[String::new()]).unwrap()[0].version.clone();
     assert_ne!(published, initial);
-    assert_eq!(read(&root, "note.txt").unwrap().stamp, published);
+    assert_eq!(
+        format!("stamp:{}", read(&root, "take.wav").unwrap().stamp),
+        published
+    );
 }
 
 #[test]
-fn the_contract_is_listed_by_the_blob_id_of_its_bytes_as_a_note_is() {
-    // Listed by its stamp, the page would read `epicenter.json` as changed
-    // here on every sync, and two computers would overwrite each other's
-    // title and contract.
+fn a_listing_names_a_small_file_by_its_version_and_a_large_one_by_its_stamp_whatever_its_path() {
     let contract: &[u8] = b"{\"title\":\"Notes\"}\n";
+    let big = large(3);
     let (_temp, root) = folder(
         "storage-contract",
-        &[("epicenter.json", contract), ("sub/epicenter.json", b"x")],
+        &[
+            ("epicenter.json", contract),
+            ("photo.jpg", b"x"),
+            ("notes/long.md", &big),
+        ],
     );
     let listing = list(&root, &[String::new()]).unwrap();
-    let version = |path: &str| {
+    let listed = |path: &str| {
         listing
             .iter()
             .find(|file| file.path == path)
             .map(|file| file.version.clone())
             .unwrap()
     };
-    assert_eq!(version("epicenter.json"), blob(contract));
-    assert_ne!(version("sub/epicenter.json"), blob(b"x"));
+    assert_eq!(listed("epicenter.json"), format!("sha256:{}", version(contract)));
+    assert_eq!(listed("photo.jpg"), format!("sha256:{}", version(b"x")));
+    assert!(listed("notes/long.md").starts_with("stamp:v1:"));
 }
 
 #[test]
-fn an_attachment_is_named_by_the_stamp_that_landed_and_written_over_it() {
+fn a_large_file_is_named_by_the_stamp_that_landed_and_written_over_it() {
     let (_temp, root) = folder("storage-landing", &[("todos/a.md", b"note")]);
-    let Landing::Landed(stamp) = put_landing(&root, "audio.webm", b(b"one"), &Expectation::Absent).unwrap() else {
+    let Landing::Landed(stamp) = put_landing(&root, "audio.webm", b(&large(1)), &Expectation::Absent).unwrap() else {
         panic!("a create lands");
     };
     let listing = list(&root, &["audio.webm".to_string(), "todos".to_string()]).unwrap();
-    let version = |path: &str| {
+    let listed = |path: &str| {
         listing
             .iter()
             .find(|file| file.path == path)
             .map(|file| file.version.clone())
             .unwrap()
     };
-    assert_eq!(version("audio.webm"), stamp);
-    assert_eq!(version("todos/a.md"), blob(b"note"));
+    assert_eq!(listed("audio.webm"), format!("stamp:{stamp}"));
+    assert_eq!(listed("todos/a.md"), format!("sha256:{}", version(b"note")));
     assert_eq!(read(&root, "audio.webm").unwrap().stamp, stamp);
     let over = Expectation::parse(&format!("stamp:{stamp}")).unwrap();
     assert!(matches!(
@@ -148,11 +163,11 @@ fn a_write_expecting_any_replaces_whatever_is_there() {
     assert_eq!(super::put(&root, "fresh.md", None, &any).unwrap(), PutOutcome::Landed);
 }
 
-/// What most cases here expect: the file whose Git blob id is `if_match`, or
+/// What most cases here expect: the file whose version is `if_match`, or
 /// nothing for `None`.
 fn witness(if_match: Option<&str>) -> Expectation {
     if_match.map_or(Expectation::Absent, |hash| {
-        Expectation::Blob(hash.to_string())
+        Expectation::Sha256(hash.to_string())
     })
 }
 
@@ -309,14 +324,14 @@ fn existing_nonportable_names_can_be_repaired_with_a_witness() {
     assert_eq!(read(&root, "notes/a: b.md").unwrap().bytes, b"colon");
     assert!(put(&root, "notes/a: b.md", b(b"changed"), None)
         .is_err_and(|error| invalid("notes/a: b.md")(&error)));
-    let witness = blob(b"colon");
+    let witness = version(b"colon");
     assert_eq!(
         put(&root, "notes/a: b.md", b(b"repaired"), Some(&witness)).unwrap(),
         PutOutcome::Landed
     );
     assert_eq!(read(&root, "notes/a: b.md").unwrap().bytes, b"repaired");
     assert_eq!(
-        put(&root, "notes/a: b.md", None, Some(&blob(b"repaired"))).unwrap(),
+        put(&root, "notes/a: b.md", None, Some(&version(b"repaired"))).unwrap(),
         PutOutcome::Landed
     );
     assert_eq!(
@@ -331,7 +346,7 @@ fn existing_nonportable_names_can_be_repaired_with_a_witness() {
 fn an_existing_head_is_readable_but_never_changed() {
     let (_temp, root) = folder("storage-head-private", &[("HEAD", b"notes\n")]);
     assert_eq!(read(&root, "HEAD").unwrap().bytes, b"notes\n");
-    let witness = blob(b"notes\n");
+    let witness = version(b"notes\n");
     assert!(
         put(&root, "HEAD", b(b"ref: refs/heads/main\n"), Some(&witness))
             .is_err_and(|error| invalid("HEAD")(&error))
@@ -358,7 +373,7 @@ fn a_link_is_never_followed_and_a_path_through_one_is_refused() {
             "{path}"
         );
         assert!(
-            put(&root, path, None, Some(&blob(b"theirs")))
+            put(&root, path, None, Some(&version(b"theirs")))
                 .is_err_and(|error| invalid(path)(&error)),
             "{path}"
         );
@@ -381,7 +396,7 @@ fn a_name_stored_under_another_spelling_is_another_entry() {
             Err(StorageError::NotFound { path: path.into() })
         );
         assert!(put(&root, path, b(b"mine"), None).is_err_and(|error| invalid(path)(&error)));
-        assert!(put(&root, path, None, Some(&blob(b"theirs")))
+        assert!(put(&root, path, None, Some(&version(b"theirs")))
             .is_err_and(|error| invalid(path)(&error)));
     }
     assert_eq!(read(&root, "Todos/A.md").unwrap().bytes, b"theirs");
@@ -434,38 +449,38 @@ fn a_put_lands_only_on_what_the_page_expected() {
         Ok(PutOutcome::Stale)
     );
     assert_eq!(
-        put(&root, "todos/a.md", b(b"mine"), Some(&blob(b"other"))),
+        put(&root, "todos/a.md", b(b"mine"), Some(&version(b"other"))),
         Ok(PutOutcome::Stale)
     );
     assert_eq!(fs::read(&a).unwrap(), b"first");
     // The hash of what is there lands.
     assert_eq!(
-        put(&root, "todos/a.md", b(b"second"), Some(&blob(b"first"))),
+        put(&root, "todos/a.md", b(b"second"), Some(&version(b"first"))),
         Ok(PutOutcome::Landed)
     );
     assert_eq!(fs::read(&a).unwrap(), b"second");
     // A guarded replacement of a missing file is stale.
     assert_eq!(
-        put(&root, "todos/b.md", b(b"b"), Some(&blob(b"second"))),
+        put(&root, "todos/b.md", b(b"b"), Some(&version(b"second"))),
         Ok(PutOutcome::Stale)
     );
     assert!(!root.join("todos/b.md").exists());
     // Removal: only the expected bytes, and only a file.
     assert_eq!(put(&root, "todos/a.md", None, None), Ok(PutOutcome::Stale));
     assert_eq!(
-        put(&root, "todos/a.md", None, Some(&blob(b"other"))),
+        put(&root, "todos/a.md", None, Some(&version(b"other"))),
         Ok(PutOutcome::Stale)
     );
     assert!(a.exists());
     assert_eq!(
-        put(&root, "todos/a.md", None, Some(&blob(b"second"))),
+        put(&root, "todos/a.md", None, Some(&version(b"second"))),
         Ok(PutOutcome::Landed)
     );
     assert!(!a.exists());
     // Nothing there is what a removal expecting nothing wants.
     assert_eq!(put(&root, "todos/a.md", None, None), Ok(PutOutcome::Landed));
     assert_eq!(
-        put(&root, "todos/a.md", None, Some(&blob(b"second"))),
+        put(&root, "todos/a.md", None, Some(&version(b"second"))),
         Ok(PutOutcome::Stale)
     );
     assert!(staged(&root).is_empty());
@@ -521,11 +536,11 @@ fn a_folder_with_no_git_saves_and_holds_only_what_was_saved() {
         Ok(PutOutcome::Landed)
     );
     assert_eq!(
-        put(&root, "todos/a.md", b(b"eggs"), Some(&blob(b"milk"))),
+        put(&root, "todos/a.md", b(b"eggs"), Some(&version(b"milk"))),
         Ok(PutOutcome::Landed)
     );
     assert_eq!(
-        put(&root, "readme.txt", None, Some(&blob(b"plain\n"))),
+        put(&root, "readme.txt", None, Some(&version(b"plain\n"))),
         Ok(PutOutcome::Landed)
     );
     assert_eq!(fs::read(root.join("todos/a.md")).unwrap(), b"eggs");
@@ -578,7 +593,7 @@ fn a_hard_link_is_replaced_not_written_through() {
     fs::write(&outside, b"theirs").unwrap();
     fs::hard_link(&outside, root.join("todos/a.md")).unwrap();
     assert_eq!(
-        put(&root, "todos/a.md", b(b"mine"), Some(&blob(b"theirs"))),
+        put(&root, "todos/a.md", b(b"mine"), Some(&version(b"theirs"))),
         Ok(PutOutcome::Landed)
     );
     assert_eq!(fs::read(&outside).unwrap(), b"theirs");
@@ -607,7 +622,7 @@ fn replacing_a_file_keeps_its_permission_bits() {
     }
     // A stale put changes nothing, mode included.
     assert_eq!(
-        put(&root, "private.md", b(b"x"), Some(&blob(b"other"))),
+        put(&root, "private.md", b(b"x"), Some(&version(b"other"))),
         Ok(PutOutcome::Stale)
     );
     assert_eq!(mode(&root.join("private.md")), 0o600);
@@ -618,7 +633,7 @@ fn replacing_a_file_keeps_its_permission_bits() {
         ("plain.md", &b"p"[..], &b"q"[..], 0o644),
     ] {
         assert_eq!(
-            put(&root, path, b(new), Some(&blob(old))),
+            put(&root, path, b(new), Some(&version(old))),
             Ok(PutOutcome::Landed)
         );
         assert_eq!(fs::read(root.join(path)).unwrap(), new);
@@ -635,13 +650,16 @@ fn replacing_a_file_keeps_its_permission_bits() {
 
 #[test]
 fn the_hash_is_the_one_the_page_computes() {
-    assert_eq!(blob(b""), "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391");
+    assert_eq!(
+        version(b""),
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    );
     // A file is named as its bytes are.
     let bytes: Vec<u8> = (0..200_000u32).map(|n| (n % 251) as u8).collect();
     let (_temp, root) = folder("storage-hash", &[("big.bin", &bytes)]);
     assert_eq!(
-        crate::blob::file_blob_id(&root.join("big.bin")).unwrap(),
-        blob(&bytes)
+        crate::version::file_version(&root.join("big.bin")).unwrap(),
+        version(&bytes)
     );
 }
 
@@ -789,7 +807,7 @@ fn of_writers_replacing_one_version_at_once_exactly_one_lands() {
     for round in 0..40 {
         let read = format!("read {round}");
         fs::write(root.join("note.md"), &read).unwrap();
-        let expected = Expectation::Blob(blob(read.as_bytes()));
+        let expected = Expectation::Sha256(version(read.as_bytes()));
         let outcomes = racing_puts(&root, "note.md", 8, &expected);
         assert!(landed_once(&outcomes), "round {round}: {outcomes:?}");
     }
@@ -803,7 +821,7 @@ fn a_path_holds_no_turn_once_its_puts_finish() {
     let (_temp, root) = folder("storage-turns", &[]);
     racing_puts(&root, "a.md", 4, &Expectation::Absent);
     let landed = fs::read(root.join("a.md")).unwrap();
-    put(&root, "a.md", None, Some(&blob(&landed))).unwrap();
+    put(&root, "a.md", None, Some(&version(&landed))).unwrap();
     let busy = BUSY.lock().unwrap();
     assert!(!busy.iter().any(|path| path.starts_with(&root)), "{busy:?}");
 }
@@ -813,7 +831,7 @@ fn a_path_holds_no_turn_once_its_puts_finish() {
 fn a_put_that_does_not_land_leaves_no_new_directory() {
     let (_temp, root) = folder("storage-no-new-directory", &[("old.md", b"old")]);
     assert_eq!(
-        put(&root, "new/deep/a.md", b(b"x"), Some(&blob(b"old"))),
+        put(&root, "new/deep/a.md", b(b"x"), Some(&version(b"old"))),
         Ok(PutOutcome::Stale)
     );
     assert!(!root.join("new").exists());
@@ -866,7 +884,7 @@ fn storage_follows_the_outcome_vectors() {
         let expected = match &call["expected"] {
             Value::String(kind) => Expectation::parse(kind).unwrap(),
             Value::Object(file) => {
-                Expectation::Blob(blob(file["blobOf"].as_str().unwrap().as_bytes()))
+                Expectation::Sha256(version(file["versionOf"].as_str().unwrap().as_bytes()))
             }
             _ => Expectation::Absent,
         };

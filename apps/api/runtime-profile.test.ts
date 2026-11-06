@@ -102,9 +102,9 @@ const PROFILE: Surface[] = [
 		bun: 'served',
 	},
 	{
-		surface: 'Git data plane',
+		surface: 'mountFolders',
 		method: 'GET',
-		url: `${ORIGIN}/git/folders/aaaaaaaaaaaaaaaa.git/info/refs?service=git-upload-pack`,
+		url: `${ORIGIN}/git/folders/aaaaaaaaaaaaaaaa/changes`,
 		worker: 'served',
 		bun: 'served',
 	},

@@ -75,26 +75,30 @@ export const COMMANDS: readonly CommandSpec[] = [
 		args: '[<dir>]',
 		minArgs: 0,
 		maxArgs: 1,
-		options: [{ name: 'limit', value: '<n>' }],
-		summary: "the folder's history on the server, newest first",
+		options: [
+			{ name: 'path', value: '<path>' },
+			{ name: 'at', value: '<moment>' },
+			{ name: 'limit', value: '<n>' },
+		],
+		summary: "the folder's changes on the server, newest first",
 	},
 	{
 		path: ['diff'],
 		args: '[<dir>]',
 		minArgs: 0,
 		maxArgs: 1,
-		options: [{ name: 'since', value: '<commit>' }],
+		options: [{ name: 'since', value: '<moment>' }],
 		summary:
-			'the files changed since the last sync, or on the server since a commit',
+			'the files changed since the last sync, or on the server since a moment',
 	},
 	{
 		path: ['restore'],
-		args: '<commit> [<dir>]',
+		args: '<moment> [<dir>]',
 		minArgs: 1,
 		maxArgs: 2,
 		options: [{ name: 'path', value: '<path>' }],
 		summary:
-			"make a folder's files, or one with --path, what they were at a commit",
+			"give a folder's files, or one with --path, back what they held at a moment, as a new change",
 	},
 	{
 		path: ['share'],

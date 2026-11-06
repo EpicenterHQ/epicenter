@@ -10,7 +10,7 @@
 import { ClientError } from '@epicenter/definition/contract';
 import { extractErrorMessage } from 'wellcrafted/error';
 import type { Result } from 'wellcrafted/result';
-import type { BlobId, Store, Unavailable } from '../device/store.js';
+import type { Store, Unavailable, Version } from '../device/store.js';
 import {
 	fromBase64,
 	isRecord,
@@ -180,7 +180,7 @@ export function storeHandler(
 					const put = await store.data.put(
 						path,
 						decoded,
-						expect as BlobId | null,
+						expect as Version | null,
 					);
 					if (put.error === null) return Response.json({ landed: put.data });
 					if (put.error.name === 'Moved')

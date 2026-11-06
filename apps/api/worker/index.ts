@@ -19,9 +19,10 @@ import {
 	type CloudEnv,
 	createCloudContextMiddleware,
 	createDb,
+	createR2BlobStore,
 	createServerApp,
 	mountAuthRoutes,
-	mountGitHost,
+	mountFolders,
 	mountInferenceApp,
 	mountTranscriptionApp,
 	type OAuthScope,
@@ -40,11 +41,6 @@ import {
 	chargeOpenAiTranscriptionCredits,
 } from './billing/policies.js';
 import { mountBillingApi } from './billing/routes.js';
-import {
-	type GitBindings,
-	resolveArtifactsGitHost,
-} from './git-repositories.js';
-import { type LfsBindings, resolveR2Lfs } from './lfs-store.js';
 import { buildFirstPartyClients } from './oauth-registrations.js';
 import { buildEpicenterTrustedOrigins } from './trusted-origins.js';
 
@@ -157,22 +153,14 @@ const resource = (audience: 'api' | 'git', scope: OAuthScope) =>
 	every(cloudContext, requireAccessToken({ audience, scope }));
 const accountSession = every(cloudContext, requireSessionCookie());
 
-// Folders at git.epicenter.so/folders/<id> over Cloudflare Artifacts
-// (ADR-0546, ADR-0811), and their listing and sharing at `/api/folders`.
-// Each request is decided from the access token, the folder's membership,
-// and its attached apps (`authorizeFolderRequest`), and the listing from a
-// Git-audience token, so they take no guard here.
-// Unmetered. The local dev launcher removes the Artifacts binding and required account secret, so the
-// store resolves to null and hosted Git answers 503. Hosted Git also answers
-// 503 until the R2 LFS store is complete: `wrangler.jsonc` binds
-// `LFS_BUCKET` and `LFS_BUCKET_NAME`, and the `R2_ACCESS_KEY_ID` and
-// `R2_SECRET_ACCESS_KEY` secrets reach the deployed version (README.md,
-// "Deploying R2 LFS"); then every push and web write goes through
-// `@epicenter/server`'s receiver.
-mountGitHost(app, {
+// Folders at git.epicenter.so/folders/<id> (ADR-0811, ADR-0824): each one's
+// log in Postgres through Hyperdrive, its bytes over 16 KiB in R2 (`BLOBS`),
+// and their listing and sharing at `/api/folders`. Each request is decided
+// from the access token, the folder's membership, and its attached apps
+// (`authorizeFolderRequest`), so they take no guard here. Unmetered.
+mountFolders(app, {
 	setup: cloudContext,
-	resolveHost: (env) => resolveArtifactsGitHost(env as GitBindings),
-	resolveLfs: (env) => resolveR2Lfs(env as LfsBindings),
+	resolveBlobs: (env) => createR2BlobStore((env as Cloudflare.Env).BLOBS),
 });
 mountInferenceApp(app, {
 	auth: resource('api', 'ai'),

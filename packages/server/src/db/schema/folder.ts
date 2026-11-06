@@ -1,8 +1,9 @@
 /**
  * Folders (ADR-0811): the one thing that is synced and shared. A folder has
- * an id, minted by the server at its first sync, and its history is a Git
- * repository that storage names by that id. It keeps no name or title: its
- * title is in its `epicenter.json`, read from its files.
+ * an id, minted by the server when it is made, and its history is a log of
+ * versions (ADR-0824): `change`, `change_file`, `file`, and `blob` below,
+ * with marks naming changes (`mark`, ADR-0826). It keeps no name or title:
+ * its title is in its `epicenter.json`, read from its files.
  *
  * Its members are people who accepted it (`folder_member`), and equal: a
  * `member` or a `reader`, and no owner (ADR-0820). A share is an invitation
@@ -17,12 +18,6 @@
  * OAuth client id the app signs in as. A token from an app reaches the
  * folders attached to it; a token with `folders:all` (the CLI, the Epicenter
  * app) reaches every folder its person holds.
- *
- * A `blob_upload` is an attachment's bytes uploaded to a folder and not yet
- * kept by a commit (ADR-0809): a commit that references it deletes the row,
- * and `sweepPendingUploads` deletes the bytes of one still pending after a
- * day, with the row. Bytes uploaded before the ledger, or kept, have no row
- * and are never swept.
  */
 import { relations, sql } from 'drizzle-orm';
 import {
@@ -177,23 +172,6 @@ export const folderAppRelations = relations(folderApp, ({ one }) => ({
 		references: [folder.id],
 	}),
 }));
-
-export const blobUpload = pgTable(
-	'blob_upload',
-	{
-		folderId: text('folder_id')
-			.notNull()
-			.references(() => folder.id, { onDelete: 'cascade' }),
-		/** The attachment's sha256, its Git LFS object id. */
-		oid: text('oid').notNull(),
-		uploadedAt: timestamp('uploaded_at').defaultNow().notNull(),
-	},
-	(table) => [
-		primaryKey({ columns: [table.folderId, table.oid] }),
-		index('blob_upload_uploaded_at_idx').on(table.uploadedAt),
-		check('blob_upload_oid_format', sql`${table.oid} ~ '^[0-9a-f]{64}$'`),
-	],
-);
 
 /** Postgres `bytea`, as bytes. */
 const bytea = customType<{ data: Uint8Array; driverData: Buffer }>({

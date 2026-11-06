@@ -45,12 +45,12 @@ const HANDLERS: Record<string, Run> = {
 	clone: async ({ positionals: [source, dir], json }) =>
 		(await import('./sync/commands.ts')).cloneCommand(source, dir, json),
 	log: async ({ positionals: [dir], options, json }) =>
-		(await import('./sync/commands.ts')).logCommand(dir, options, json),
+		(await import('./sync/history.ts')).logCommand(dir, options, json),
 	diff: async ({ positionals: [dir], options, json }) =>
-		(await import('./sync/commands.ts')).diffCommand(dir, options, json),
-	restore: async ({ positionals: [commit, dir], options, json }) =>
-		(await import('./sync/commands.ts')).restoreCommand(
-			commit as string,
+		(await import('./sync/history.ts')).diffCommand(dir, options, json),
+	restore: async ({ positionals: [moment, dir], options, json }) =>
+		(await import('./sync/history.ts')).restoreCommand(
+			moment as string,
 			dir,
 			options,
 			json,
@@ -197,16 +197,20 @@ With one (its id, or its title when one folder has it), brings it into a new
 folder in the Epicenter folder, named <name> or for its title, and syncs it,
 taking its files. Plain Git clones the same history at
 <git origin>/folders/<id>.git.`,
-	log: `Lists the folder's history on the server, newest first: each commit's id,
-time, and subject, marking the one this folder last agreed at. --limit takes
-at most that many (20 by default).`,
+	log: `Lists the folder's changes on the server, newest first: each change's
+number, time, author, what it wrote, and its marks, noting the one this folder
+last agreed at. --path lists only the changes to one file, --at starts from a
+moment, and --limit takes at most that many (20 by default). A moment is a
+change's number, a mark's name, or a time.`,
 	diff: `Without --since, lists the files this folder added, changed, or deleted
-since its last sync, read from the folder alone. With --since <commit>, lists
-the files the repository changed between that commit and its head.`,
-	restore: `Writes the folder's files as they were at <commit> (from epicenter log),
-removing files made since, or only the file at --path. Nothing reaches the
-server until the next epicenter sync, which records it as a new change, so
-the history keeps everything in between.`,
+since its last sync, read from the folder alone. With --since <moment> (a
+change's number, a mark, or a time), lists the files the server changed
+between that moment and now.`,
+	restore: `Makes one change on the server that gives the folder's files back the
+versions they held at <moment> (a change's number, a mark, or a time),
+removing files made since, or restores only the file at --path. It names
+versions the server keeps, so no bytes travel, and the history keeps
+everything in between. Run epicenter sync to bring it here.`,
 };
 
 const name = (command: CommandSpec) => command.path.join(' ');

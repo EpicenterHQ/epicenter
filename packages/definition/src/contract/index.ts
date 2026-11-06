@@ -35,12 +35,8 @@ export {
 } from './propose.js';
 export {
 	CONTRACT_PATH,
-	EPICENTER_BLOCK_BEGIN,
-	EPICENTER_BLOCK_END,
 	isHiddenPath,
 	isNotePath,
-	REPOSITORY_ATTRIBUTES,
-	storedWithLfs,
 } from './storage.js';
 export {
 	compileTemplate,

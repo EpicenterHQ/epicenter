@@ -1,13 +1,12 @@
 /**
- * `epicenter sync`, `clone`, `log`, `diff`, and `restore` (ADR-0804,
- * ADR-0822): a folder in the Epicenter folder synced with its folder on the
- * server by the functions every Epicenter program composes, `syncFolder`
- * and its kin from `@epicenter/folder/platform`. The local side is the
- * directory's store, the remote the folder's repository, and the manifest
- * the folder's record at the Epicenter folder's root,
- * `.epicenter/synced/<folder-id>.json`. No Git runs on this computer:
- * history is the server's, read here by `log` and `diff` and brought back
- * by `restore`.
+ * `epicenter sync` and `clone` (ADR-0804, ADR-0822): a folder in the
+ * Epicenter folder synced with its folder on the server by the functions
+ * every Epicenter program composes, `syncFolder` and its kin from
+ * `@epicenter/folder/platform`. The local side is the directory's store,
+ * the remote the folder on the server, and the manifest the folder's
+ * record at the Epicenter folder's root, `.epicenter/synced/<folder-id>.json`.
+ * No Git runs on this computer: history is the server's, read by
+ * `history.ts`.
  *
  * Which directory is which folder is proven across the whole Epicenter
  * folder (`identify`). A folder not proven its record's asks which folder it
@@ -22,7 +21,6 @@
  * command cannot use (no sign-in, no such folder, the server out of reach).
  */
 import { basename, dirname, join, resolve } from 'node:path';
-import { isHiddenPath } from '@epicenter/definition/contract';
 import {
 	type Answer,
 	cloneIntoHome,
@@ -30,14 +28,12 @@ import {
 	describeMembers,
 	type FolderSync,
 	firstPartyApps,
-	identify,
 	listFolders,
 	type Question,
 	type RemoteAccount,
 	syncEvery,
 	syncFolder,
 } from '@epicenter/folder/platform';
-import { folderRepository } from '@epicenter/folder/sync';
 import { Err, Ok } from 'wellcrafted/result';
 import { authContext } from '../auth.ts';
 import { folderNameIn, homeRoot } from '../folder-commands.ts';
@@ -53,15 +49,13 @@ function printQuestion(question: Question, json: boolean) {
 			question: {
 				folder: question.name,
 				path: question.path,
-				candidates: question.candidates.map(
-					({ folder, matchedBy, alone }) => ({
-						id: folder.id,
-						title: folder.title,
-						members: folder.members,
-						matchedBy,
-						alone,
-					}),
-				),
+				candidates: question.candidates.map(({ folder, matchedBy, alone }) => ({
+					id: folder.id,
+					title: folder.title,
+					members: folder.members,
+					matchedBy,
+					alone,
+				})),
 				preselected: question.preselected,
 				madeBy: question.madeBy?.client ?? null,
 			},
@@ -154,9 +148,16 @@ function printSync(path: string, done: FolderSync, json: boolean) {
 }
 
 /** What `--push-deletions` or `--restore-deletions` says, or why both were given. */
-function deletionsOf(options: Options): Deletions | undefined | { refused: string } {
-	if (options['push-deletions'] === true && options['restore-deletions'] === true)
-		return { refused: 'Give --push-deletions or --restore-deletions, not both.' };
+function deletionsOf(
+	options: Options,
+): Deletions | undefined | { refused: string } {
+	if (
+		options['push-deletions'] === true &&
+		options['restore-deletions'] === true
+	)
+		return {
+			refused: 'Give --push-deletions or --restore-deletions, not both.',
+		};
 	if (options['push-deletions'] === true) return 'push';
 	if (options['restore-deletions'] === true) return 'restore';
 	return undefined;
@@ -303,194 +304,4 @@ export async function cloneCommand(
 	const cloned = await cloneIntoHome({ account, root, folder, name });
 	if (cloned.error !== null) return fail(cloned.error.message, json);
 	return printSync(cloned.data.local.path, cloned.data.sync, json);
-}
-
-/** The folder `dir` names, synced here, and its repository, or the message to fail with. */
-async function syncedFolder(dir: string | undefined) {
-	const root = homeRoot();
-	const name = await folderNameIn(root, dir ?? '.');
-	if (name.error !== null) return Err(name.error);
-	const account = signedInAccount(authContext());
-	const found = await identify({ root, account });
-	if (found.error !== null) return Err(found.error.message);
-	const bound = found.data.bound.find(({ local }) => local.name === name.data);
-	const path = join(root.path, name.data);
-	if (bound === undefined)
-		return Err(
-			`${path} is not synced on this computer: run epicenter sync on it first`,
-		);
-	const { local, record } = bound;
-	return Ok({
-		path,
-		store: local.store,
-		manifest: record,
-		folder: record.folder,
-		repository: folderRepository(account, record.folder),
-	});
-}
-
-/** `epicenter log [<dir>] [--limit <n>]`: the folder's history on the server, newest first. */
-export async function logCommand(
-	dir: string | undefined,
-	options: Options,
-	json: boolean,
-) {
-	const limit = options.limit === undefined ? 20 : Number(options.limit);
-	if (!Number.isSafeInteger(limit) || limit < 1)
-		return fail('--limit is a whole number above 0', json);
-	const { data: at, error } = await syncedFolder(dir);
-	if (error !== null) return fail(error, json);
-	const log = await at.repository.log(limit);
-	if (log.error !== null) return fail(log.error.message, json);
-	if (json) writeJson({ log: log.data });
-	else
-		writeOut(
-			log.data.length === 0
-				? 'No history yet.'
-				: log.data
-						.map(
-							({ id, time, message }) =>
-								`${id.slice(0, 10)}  ${new Date(time * 1000).toISOString().slice(0, 16).replace('T', ' ')}  ${message.split('\n')[0]}${id === at.manifest.commit ? '  (this folder)' : ''}`,
-						)
-						.join('\n'),
-		);
-	return EXIT.ok;
-}
-
-type Change = { path: string; change: 'added' | 'changed' | 'deleted' };
-
-const CHANGE_MARK = { added: 'A', changed: 'M', deleted: 'D' } as const;
-
-function printChanges(changes: Change[], json: boolean, empty: string) {
-	changes.sort((a, b) => (a.path < b.path ? -1 : 1));
-	if (json) writeJson({ diff: changes });
-	else
-		writeOut(
-			changes.length === 0
-				? empty
-				: changes
-						.map(({ path, change }) => `${CHANGE_MARK[change]}  ${path}`)
-						.join('\n'),
-		);
-}
-
-/**
- * `epicenter diff [<dir>] [--since <commit>]`: the files this folder changed
- * since its last sync, or, with `--since`, the files the repository changed
- * between that commit and its head.
- */
-export async function diffCommand(
-	dir: string | undefined,
-	options: Options,
-	json: boolean,
-) {
-	const { data: at, error } = await syncedFolder(dir);
-	if (error !== null) return fail(error, json);
-	if (typeof options.since !== 'string') {
-		const listed = await at.store.list(['']);
-		if (listed.error !== null) return fail(listed.error.message, json);
-		const agreed = at.manifest.files;
-		const here = new Map(
-			listed.data
-				.filter(({ path }) => !isHiddenPath(path))
-				.map(({ path, version }) => [path, version]),
-		);
-		const changes: Change[] = [];
-		for (const [path, version] of here)
-			if (agreed[path] === undefined) changes.push({ path, change: 'added' });
-			else if (agreed[path] !== version)
-				changes.push({ path, change: 'changed' });
-		for (const path of Object.keys(agreed))
-			if (!here.has(path)) changes.push({ path, change: 'deleted' });
-		printChanges(changes, json, 'Nothing changed since the last sync.');
-		return EXIT.ok;
-	}
-	const since = await at.repository.changes(options.since);
-	if (since.error !== null) return fail(since.error.message, json);
-	const { commit: head, paths } = since.data;
-	if (paths === null || head === null)
-		return fail(`The repository holds no commit ${options.since}`, json);
-	const [before, after] = await Promise.all([
-		at.repository.tree(options.since, paths),
-		at.repository.tree(head, paths),
-	]);
-	if (before.error !== null) return fail(before.error.message, json);
-	if (after.error !== null) return fail(after.error.message, json);
-	const was = new Set(before.data.map(({ path }) => path));
-	const is = new Set(after.data.map(({ path }) => path));
-	printChanges(
-		paths
-			.filter((path) => !isHiddenPath(path))
-			.map((path) => ({
-				path,
-				change: !was.has(path)
-					? 'added'
-					: !is.has(path)
-						? 'deleted'
-						: 'changed',
-			})),
-		json,
-		`Nothing changed since ${options.since}.`,
-	);
-	return EXIT.ok;
-}
-
-/**
- * `epicenter restore <commit> [<dir>] [--path <path>]`: make the folder's
- * files (or the one at `--path`) what they were at `<commit>`, here; the
- * next sync records it as a new change. A file made since is removed.
- */
-export async function restoreCommand(
-	commit: string,
-	dir: string | undefined,
-	options: Options,
-	json: boolean,
-) {
-	const { data: at, error } = await syncedFolder(dir);
-	if (error !== null) return fail(error, json);
-	const only = typeof options.path === 'string' ? options.path : undefined;
-	const then = await at.repository.tree(
-		commit,
-		only === undefined ? undefined : [only],
-	);
-	if (then.error !== null) return fail(then.error.message, json);
-	const wanted = then.data.filter(({ path }) => !isHiddenPath(path));
-	const listed = await at.store.list([only ?? '']);
-	if (listed.error !== null) return fail(listed.error.message, json);
-	const here = new Map(
-		listed.data
-			.filter(({ path }) => !isHiddenPath(path))
-			.map(({ path, version }) => [path, version]),
-	);
-	const changed = wanted.filter(({ path, blob }) => here.get(path) !== blob);
-	const bytes = await at.repository.blobs(changed);
-	if (bytes.error !== null) return fail(bytes.error.message, json);
-	const restored: string[] = [];
-	for (const [index, { path }] of changed.entries()) {
-		const content = bytes.data[index];
-		if (content == null)
-			return fail(`${path} could not be read at ${commit}`, json);
-		const put = await at.store.put(path, content, here.get(path) ?? null);
-		if (put.error !== null) return fail(`${path}: ${put.error.message}`, json);
-		restored.push(path);
-	}
-	const kept = new Set(wanted.map(({ path }) => path));
-	const removed: string[] = [];
-	for (const [path, version] of here) {
-		if (kept.has(path)) continue;
-		const put = await at.store.put(path, null, version);
-		if (put.error !== null) return fail(`${path}: ${put.error.message}`, json);
-		removed.push(path);
-	}
-	if (json)
-		writeJson({
-			restored: { commit, folder: at.path, written: restored, removed },
-		});
-	else
-		writeOut(
-			restored.length + removed.length === 0
-				? `${at.path} already holds ${commit}.`
-				: `${at.path}: ${count(restored.length, 'file')} written and ${count(removed.length, 'file')} removed as at ${commit}; run epicenter sync to record it`,
-		);
-	return EXIT.ok;
 }

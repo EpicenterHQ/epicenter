@@ -41,7 +41,6 @@ export {
 	merge,
 	withBlocks,
 } from './merge.js';
-export { type LfsPointer, parsePointer, writePointer } from './pointer.js';
 export {
 	type Parties,
 	type Settled,

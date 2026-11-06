@@ -6,20 +6,20 @@
  * `tauri-device.test.ts` run it over an emulated shell.
  *
  * Key behaviors:
- * - A listing passes the paths asked for and keeps the shell's versions of
- *   notes and sizes; an attachment's stamp becomes its pointer's blob id,
- *   hashed once and then cached by that stamp in the cache it is given,
- *   never in the folder; every call names the root
- * - A read names every file by the blob id `blobIdOf` gives its bytes
- * - A put sends its expectation in its own spelling (absent, a note's blob
- *   id, or an attachment's stamp, read and hashed again first) and names
- *   what landed by its blob id; a `stale` answer is `Moved` to what is there
+ * - A listing passes the paths asked for and keeps the versions the shell
+ *   hashed (`sha256:`) and sizes; a large file's stamp (`stamp:`) becomes
+ *   its version, hashed once and then cached by that stamp in the cache it
+ *   is given, never in the folder; every call names the root
+ * - A read names every file by the version `versionOf` gives its bytes
+ * - A put sends its expectation (absent, or `sha256:` and the version the
+ *   shell hashes again) and names what landed by its version; a `stale`
+ *   answer is `Moved` to what is there
  * - A read the shell answers `NotFound` is gone
  */
 import { afterEach, expect, mock, test } from 'bun:test';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { blobIdOf } from '../hash.js';
-import type { BlobId } from './store.js';
+import { versionOf } from '../hash.js';
+import type { Version } from './store.js';
 
 let putHeaders: Record<string, string> | undefined;
 let readArgs: { path?: string; root?: string } | undefined;
@@ -37,8 +37,12 @@ mock.module('@tauri-apps/api/core', () => ({
 		if (command === 'plugin:epicenter-folder|list_folder') {
 			listed = body;
 			return [
-				{ path: 'notes/a.md', version: 'f'.repeat(40), size: 3 },
-				{ path: 'notes/a.webm', version: 'v1:3:1000000:3:4', size: 3 },
+				{ path: 'notes/a.md', version: `sha256:${'f'.repeat(64)}`, size: 3 },
+				{
+					path: 'notes/a.webm',
+					version: 'stamp:v1:3:1000000:3:4',
+					size: 3,
+				},
 			];
 		}
 		if (command === 'plugin:epicenter-folder|read_folder_file') {
@@ -85,13 +89,13 @@ afterEach(() => {
 	landing = { landed: 'v1:1:2:3:4' };
 });
 
-test('a listing keeps a note’s blob id, hashes an attachment once by its stamp, and names the root', async () => {
+test('a listing keeps the versions the shell hashed, hashes a stamped file once, and names the root', async () => {
 	const listing = store();
 	const expected = [
-		{ path: 'notes/a.md', version: 'f'.repeat(40) as BlobId, size: 3 },
+		{ path: 'notes/a.md', version: 'f'.repeat(64) as Version, size: 3 },
 		{
 			path: 'notes/a.webm',
-			version: await blobIdOf('notes/a.webm', old),
+			version: await versionOf(old),
 			size: 3,
 		},
 	];
@@ -105,10 +109,14 @@ test('a listing keeps a note’s blob id, hashes an attachment once by its stamp
 	// A new store over the same cache reads no attachment either.
 	expect(expectOk(await store().list(['notes']))).toEqual(expected);
 	expect(reads).toEqual([]);
-	expect(Object.keys(JSON.parse(new TextDecoder().decode(cached ?? new Uint8Array())))).toEqual(['notes/a.webm']);
+	expect(
+		Object.keys(
+			JSON.parse(new TextDecoder().decode(cached ?? new Uint8Array())),
+		),
+	).toEqual(['notes/a.webm']);
 });
 
-test('a read names every file by its blob id', async () => {
+test('a read names every file by its version', async () => {
 	const [note, audio, missing] = expectOk(
 		await store().read(['notes/a.md', 'notes/a.webm', 'notes/missing.md']),
 	);
@@ -116,52 +124,44 @@ test('a read names every file by its blob id', async () => {
 	expect(note).toEqual({
 		path: 'notes/a.md',
 		bytes: old,
-		version: await blobIdOf('notes/a.md', old),
+		version: await versionOf(old),
 	});
 	expect(audio).toMatchObject({
 		path: 'notes/a.webm',
-		version: await blobIdOf('notes/a.webm', old),
+		version: await versionOf(old),
 	});
 	expect(missing).toEqual({ path: 'notes/missing.md', gone: true });
 });
 
-test('a put sends each expectation in its own spelling, and names what landed by its blob id', async () => {
+test('a put sends its expectation, and names what landed by its version', async () => {
 	expect(expectOk(await store().put('a.md', new Uint8Array([1]), null))).toBe(
-		await blobIdOf('a.md', new Uint8Array([1])),
+		await versionOf(new Uint8Array([1])),
 	);
 	expect(putHeaders?.expected).toBe('absent');
 	expect(putHeaders?.path).toBe(encodeURIComponent('a.md'));
 	expect(putHeaders?.root).toBe(encodeURIComponent(ROOT));
-	const exact = 'e'.repeat(40) as BlobId;
+	const exact = 'e'.repeat(64) as Version;
 	expect(expectOk(await store().put('a.md', null, exact))).toBeNull();
-	expect(decodeURIComponent(putHeaders?.expected ?? '')).toBe(`blob:${exact}`);
+	expect(decodeURIComponent(putHeaders?.expected ?? '')).toBe(
+		`sha256:${exact}`,
+	);
 	expect(putHeaders?.remove).toBe('true');
-	// An attachment is read and hashed again, and replaced only over its stamp.
+	// Any file, large or small, is replaced over its version.
 	expect(
 		expectOk(
 			await store().put(
 				'notes/a.webm',
 				new Uint8Array([2]),
-				await blobIdOf('notes/a.webm', old),
+				await versionOf(old),
 			),
 		),
-	).toBe(await blobIdOf('notes/a.webm', new Uint8Array([2])));
+	).toBe(await versionOf(new Uint8Array([2])));
 	expect(decodeURIComponent(putHeaders?.expected ?? '')).toBe(
-		'stamp:v1:3:1000000:3:4',
+		`sha256:${await versionOf(old)}`,
 	);
-	// One that no longer holds what the writer expects has moved, without a write.
-	putHeaders = undefined;
-	const moved = expectErr(
-		await store().put('notes/a.webm', new Uint8Array([2]), exact),
-	);
-	expect(moved).toMatchObject({
-		name: 'Moved',
-		now: await blobIdOf('notes/a.webm', old),
-	});
-	expect(putHeaders).toBeUndefined();
 	// The shell's `stale` is `Moved` to what is there now.
 	landing = 'stale';
 	expect(
 		expectErr(await store().put('notes/a.md', new Uint8Array([3]), exact)),
-	).toMatchObject({ name: 'Moved', now: await blobIdOf('notes/a.md', old) });
+	).toMatchObject({ name: 'Moved', now: await versionOf(old) });
 });

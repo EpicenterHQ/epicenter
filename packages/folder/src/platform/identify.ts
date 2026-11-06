@@ -26,13 +26,10 @@
  * asking. Every binding not proven by rules 1 and 2 starts from first
  * contact, which never deletes.
  */
-import {
-	CONTRACT_PATH,
-	isHiddenPath,
-} from '@epicenter/definition/contract';
+import { CONTRACT_PATH, isHiddenPath } from '@epicenter/definition/contract';
 import type { FolderListing, ListedFolder } from '@epicenter/definition/site';
 import { Ok, type Result } from 'wellcrafted/result';
-import type { BlobId, Store, Unavailable } from '../device/store.js';
+import type { Store, Unavailable, Version } from '../device/store.js';
 import { proves } from '../identity.js';
 import { listFolders } from '../remote/folders.js';
 import type { RemoteAccount } from '../remote/repository.js';
@@ -49,7 +46,7 @@ export type BoundFolder = {
 	local: LocalFolder;
 	record: FolderRecord;
 	/** The record's version, which its next write goes over. */
-	version: BlobId;
+	version: Version;
 	proof: Proof;
 };
 
@@ -182,7 +179,8 @@ export async function identify({
 		if (listing !== undefined && heldAlone(listing)) {
 			free.delete(one.record.folder);
 			claimed.set(local, { held: one, proof: 'files' });
-		} else filesMet.set(local, [...(filesMet.get(local) ?? []), one.record.folder]);
+		} else
+			filesMet.set(local, [...(filesMet.get(local) ?? []), one.record.folder]);
 	}
 
 	// A proven directory that moved brings its record up to date.
@@ -285,8 +283,7 @@ export async function questionOf(
 		const byName =
 			folder.title?.toLowerCase() === name ||
 			namedHere.get(folder.id)?.toLowerCase() === name;
-		const byTitle =
-			unbound.title !== null && folder.title === unbound.title;
+		const byTitle = unbound.title !== null && folder.title === unbound.title;
 		if (!byName && !byTitle) continue;
 		candidates.push({
 			folder,
@@ -302,7 +299,8 @@ export async function questionOf(
 		name: unbound.local.name,
 		path: unbound.local.path,
 		candidates,
-		preselected: preselected.length === 1 ? (preselected[0]?.folder.id ?? null) : null,
+		preselected:
+			preselected.length === 1 ? (preselected[0]?.folder.id ?? null) : null,
 		silent:
 			candidates.length === 1 && only?.alone === true ? only.folder.id : null,
 		madeBy: await madeBy(unbound.local.name, unbound.local.store, apps),

@@ -1,7 +1,7 @@
 /**
  * The CLI's sync end to end (ADR-0804): the real authorization server and a
  * folder's routes on a disposable Postgres cluster behind a real listener,
- * repositories and attachments on disk, and fresh `epicenter` processes on
+ * larger bytes on disk, and fresh `epicenter` processes on
  * machines of their own, each signed in as its own person with the device
  * grant. No Git runs on a machine.
  *
@@ -41,11 +41,10 @@ import {
 	type CloudEnv,
 	createCloudContextMiddleware,
 	createDb,
-	createDiskGitHost,
-	createDiskLfsStore,
+	createDiskBlobStore,
 	createServerApp,
 	mountAuthRoutes,
-	mountGitHost,
+	mountFolders,
 	registerFirstPartyClients,
 } from '@epicenter/server/bun';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
@@ -133,12 +132,10 @@ beforeAll(async () => {
 		setup: createCloudContextMiddleware({ ...context, oauthServer: true }),
 		serveAuthUiShell: (c) => c.html('<html>shell</html>'),
 	});
-	const host = createDiskGitHost({ root: join(scratch, 'store') });
-	const lfs = createDiskLfsStore({ root: join(scratch, 'lfs') });
-	mountGitHost(app, {
+	const blobs = createDiskBlobStore({ root: join(scratch, 'blobs') });
+	mountFolders(app, {
 		setup: createCloudContextMiddleware(context),
-		resolveHost: () => host,
-		resolveLfs: () => lfs,
+		resolveBlobs: () => blobs,
 	});
 	oauth = new OAuthTestClient(origin, sql, secret, async (url, init) =>
 		app.fetch(new Request(url, init)),
@@ -290,14 +287,14 @@ test('a first sync makes the repository; clone brings it whole to another comput
 	expect(await readFile(join(desk, 'notes/a.md'), 'utf8')).toBe(both);
 	expect(await readFile(join(desk, 'notes/b.md'), 'utf8')).toBe(note('B'));
 
-	// The history: newest first, and what changed since the first commit.
+	// The history: newest first, and what changed since the first change.
 	const log = JSON.parse(
 		(await me.epicenter('log', desk, '--json')).stdout,
 	) as {
-		log: { id: string; message: string }[];
+		log: { seq: number }[];
 	};
 	expect(log.log.length).toBeGreaterThanOrEqual(3);
-	const oldest = log.log.at(-1)?.id as string;
+	const oldest = String(log.log.at(-1)?.seq);
 	expect(
 		JSON.parse(
 			(await me.epicenter('diff', desk, '--since', oldest, '--json')).stdout,
@@ -309,17 +306,17 @@ test('a first sync makes the repository; clone brings it whole to another comput
 		],
 	});
 
-	// Restore the first commit here, and sync it as a new change.
+	// Restore the first change on the server, as a new change, and sync it here.
 	const restored = await me.epicenter('restore', oldest, desk, '--json');
 	expect(restored.code, restored.stderr).toBe(0);
 	expect(JSON.parse(restored.stdout).restored).toMatchObject({
 		written: ['notes/a.md'],
 		removed: ['notes/b.md'],
 	});
+	expect((await me.epicenter('sync', desk)).code).toBe(0);
 	expect(await readFile(join(desk, 'notes/a.md'), 'utf8')).toBe(
 		note('A', 'one\ntwo\nthree\n'),
 	);
-	expect((await me.epicenter('sync', desk)).code).toBe(0);
 	expect((await other.epicenter('sync', laptop)).code).toBe(0);
 	expect(await readFile(join(laptop, 'notes/a.md'), 'utf8')).toBe(
 		note('A', 'one\ntwo\nthree\n'),
@@ -538,9 +535,7 @@ test('a first sync on another computer joins the folder the person holds; a copy
 	for (const target of [outside, join(diary, 'days')]) {
 		const refused = await me.epicenter('sync', target, '--json');
 		expect(refused.code).toBe(2);
-		expect(JSON.parse(refused.stdout).error).toContain(
-			'is not a folder in',
-		);
+		expect(JSON.parse(refused.stdout).error).toContain('is not a folder in');
 	}
 }, 240_000);
 
@@ -559,12 +554,17 @@ test('a sync that would delete many files stops until --push-deletions or --rest
 	const json = JSON.parse((await me.epicenter('sync', 'Log', '--json')).stdout);
 	expect(json.sync).toMatchObject({ outcome: 'deletions' });
 	expect(json.sync.deletions).toHaveLength(21);
-	expect(
-		(await me.epicenter('sync', 'Log', '--restore-deletions')).code,
-	).toBe(0);
+	expect((await me.epicenter('sync', 'Log', '--restore-deletions')).code).toBe(
+		0,
+	);
 	expect(await readdir(join(log, 'days'))).toHaveLength(25);
 	for (let day = 1; day <= 21; day++) await rm(join(log, `days/${day}.md`));
-	const pushed = await me.epicenter('sync', 'Log', '--push-deletions', '--json');
+	const pushed = await me.epicenter(
+		'sync',
+		'Log',
+		'--push-deletions',
+		'--json',
+	);
 	expect(JSON.parse(pushed.stdout).sync).toMatchObject({ outcome: 'synced' });
 	expect(JSON.parse(pushed.stdout).sync.pushed).toHaveLength(21);
 }, 240_000);

@@ -1,9 +1,9 @@
 import { expect, test } from 'bun:test';
 import {
-	folderRemoteUrl,
 	foldersApiUrl,
 	folderUrl,
 	isFolderId,
+	isMarkName,
 	isPersonEmail,
 } from './folders.ts';
 
@@ -15,9 +15,6 @@ test('a folder is addressed by its id under the audience, and joined or made at 
 		'https://g.example/folders/abcdefgh01234567',
 	);
 	expect(folderUrl('https://g.example')).toBe('https://g.example/folders');
-	expect(folderRemoteUrl('http://127.0.0.1:8787/git', 'abcdefgh01234567')).toBe(
-		'http://127.0.0.1:8787/git/folders/abcdefgh01234567.git',
-	);
 });
 
 test('the folder routes on the API encode each segment', () => {
@@ -41,4 +38,21 @@ test('a person is named by an email address', () => {
 	expect(isPersonEmail('jess')).toBe(false);
 	expect(isPersonEmail('a/b@example.com')).toBe(false);
 	expect(isPersonEmail('a b@example.com')).toBe(false);
+});
+
+test('a mark is a name a tag can carry too', () => {
+	for (const name of ['v1', 'release/1.0', 'draft_2', 'A-b.c'])
+		expect(isMarkName(name)).toBe(true);
+	for (const name of [
+		'',
+		'-v',
+		'a..b',
+		'a/',
+		'/a',
+		'v.lock',
+		'a./b',
+		'a b',
+		'x'.repeat(101),
+	])
+		expect(isMarkName(name)).toBe(false);
 });

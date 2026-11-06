@@ -13,15 +13,15 @@ use specta::Type;
 
 /// What Epicenter last agreed with the server for one folder: which server
 /// folder it is, its name, the identity of the directory that agreed it,
-/// the commit agreed, and each file's Git blob id then.
+/// the point of its log agreed, and each file's version then.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 pub struct FolderRecord {
     pub folder: String,
     pub name: String,
     pub inode: String,
     pub birthtime: Option<String>,
-    pub commit: Option<String>,
-    /// Folder-relative path to Git blob id.
+    pub cursor: Option<String>,
+    /// Folder-relative path to version: the SHA-256 of its bytes.
     pub files: BTreeMap<String, String>,
 }
 
@@ -77,14 +77,14 @@ mod tests {
             "name": "Recipes",
             "inode": "12",
             "birthtime": "1700000000123456789",
-            "commit": "abc",
-            "files": { "a.md": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391" },
+            "cursor": "abc.1",
+            "files": { "a.md": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" },
             "later": "a field a newer Epicenter writes",
         });
         fs::write(records.join("f_1.json"), record.to_string()).unwrap();
         let unborn = serde_json::json!({
             "folder": "f_2", "name": "Other", "inode": "13", "birthtime": null,
-            "commit": null, "files": {},
+            "cursor": null, "files": {},
         });
         fs::write(records.join("f_2.json"), unborn.to_string()).unwrap();
         fs::write(records.join("broken.json"), "{").unwrap();
@@ -92,7 +92,7 @@ mod tests {
 
         let found = proving(&records, &identity("12", Some("1700000000123456789"))).unwrap();
         assert_eq!(found.folder, "f_1");
-        assert_eq!(found.commit.as_deref(), Some("abc"));
+        assert_eq!(found.cursor.as_deref(), Some("abc.1"));
         assert_eq!(found.files.len(), 1);
         assert_eq!(
             proving(&records, &identity("12", Some("1700000000123456788"))),

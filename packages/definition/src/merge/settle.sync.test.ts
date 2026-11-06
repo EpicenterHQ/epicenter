@@ -20,7 +20,6 @@ import { expectOk } from 'wellcrafted/testing';
 import { formatNote, parseRowSource } from '../note/index.js';
 import { findConflicts } from './conflict.js';
 import { lfsOid } from './hash.js';
-import { writePointer } from './pointer.js';
 import { settle, settlePointer } from './settle.js';
 
 const parties = {
@@ -157,17 +156,8 @@ describe('house style on what settle writes', () => {
 test('ADR-0771: of two binary writes from one base, the later one wins', async () => {
 	const earlier = new TextEncoder().encode('webm bytes from Alice');
 	const later = new TextEncoder().encode('webm bytes from Bob');
-	const base = writePointer({
-		oid: await lfsOid(new Uint8Array([0])),
-		size: 1,
-	});
-	const current = writePointer({
-		oid: await lfsOid(earlier),
-		size: earlier.length,
-	});
-	const incoming = writePointer({
-		oid: await lfsOid(later),
-		size: later.length,
-	});
+	const base = await lfsOid(new Uint8Array([0]));
+	const current = await lfsOid(earlier);
+	const incoming = await lfsOid(later);
 	expect(settlePointer(base, current, incoming)).toBe(incoming);
 });

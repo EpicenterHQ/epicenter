@@ -1,10 +1,10 @@
 /**
  * Folder Repository Tests
  *
- * A contract's collections over a folder's repository on the real server
- * app (`folderRepository`, at `<git>/folders/<folder>`), and the folder over it:
+ * A contract's collections over a folder on the real server app
+ * (`folderRepository`, at `<git>/folders/<folder>`), and the folder over it:
  * the authorization server on a disposable Postgres, a `Bun.serve`
- * listener, the disk Git and LFS stores, and an access token from a real
+ * listener, the disk blob store, and an access token from a real
  * code grant. The account is a stand-in for `@epicenter/account`'s: it
  * carries the token, can be retired, and records every request. A miss
  * here is a write landing over a version its writer never read.
@@ -14,9 +14,9 @@
  * - A write over a version the server no longer holds, or where nothing was
  *   expected and a file is, is `Moved` and lands nothing, even for two at once
  * - The folder writes notes in house style; a note that does not read on
- *   main is listed with its text, and the editor's whole text repairs it
+ *   the server is listed with its text, and the editor's whole text repairs it
  * - A listing reads only its collection's folder, and only the notes that changed since the last
- * - Listeners hear this store's writes at once and other writers' within a poll of `main`
+ * - Listeners hear this store's writes at once and other writers' within a poll of the log
  * - A raced write is `Moved`, never a merge on the server; the folder reads
  *   again and carries its change over the other writer's
  * - A retired account makes every call `Unavailable`, never a throw
@@ -39,11 +39,10 @@ import {
 	type CloudEnv,
 	createCloudContextMiddleware,
 	createDb,
-	createDiskGitHost,
-	createDiskLfsStore,
+	createDiskBlobStore,
 	createServerApp,
 	mountAuthRoutes,
-	mountGitHost,
+	mountFolders,
 	registerFirstPartyClients,
 } from '@epicenter/server/bun';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
@@ -54,9 +53,9 @@ import { expectErr, expectOk } from 'wellcrafted/testing';
 import { startDisposablePostgres } from '../../../server/src/test-helpers/disposable-postgres.js';
 import { OAuthTestClient } from '../../../server/src/test-helpers/oauth-client.js';
 import { storeChecks } from '../device/store.conformance.js';
-import type { BlobId, Unavailable } from '../device/store.js';
+import type { Unavailable, Version } from '../device/store.js';
 import { createFolder } from '../folder.js';
-import { blobIdOf } from '../hash.js';
+import { versionOf } from '../hash.js';
 import { noteCodec } from '../note-codec.js';
 import { acceptShare, shareFolder } from './folders.js';
 import { folderRepository, makeFolder } from './repository.js';
@@ -143,14 +142,12 @@ beforeAll(async () => {
 		setup: createCloudContextMiddleware({ ...context, oauthServer: true }),
 		serveAuthUiShell: (c) => c.html('<html>shell</html>'),
 	});
-	const host = createDiskGitHost({ root: join(scratch, 'git-store') });
-	const lfs = createDiskLfsStore({ root: join(scratch, 'lfs-store') });
+	const blobs = createDiskBlobStore({ root: join(scratch, 'blobs') });
 	// As the Bun entry (`apps/api/server.ts`) does.
 	app.use('/git/*', compress());
-	mountGitHost(app, {
+	mountFolders(app, {
 		setup: createCloudContextMiddleware(context),
-		resolveHost: () => host,
-		resolveLfs: () => lfs,
+		resolveBlobs: () => blobs,
 	});
 	oauth = new OAuthTestClient(origin, sql, secret, async (url, init) =>
 		app.fetch(new Request(url, init)),
@@ -176,7 +173,7 @@ const storeAt = ({ account, folder }: At, pollMs?: number) =>
 /** A file as a test reads it below the folder: its version, and what a reader shows of it. */
 type Seen = {
 	path: string;
-	version: BlobId;
+	version: Version;
 	text: string | null;
 	item: Record<string, unknown> | null;
 };
@@ -196,7 +193,7 @@ function filesAt(at: At) {
 		);
 		if (declared === undefined) throw new Error(`no collection ${name}`);
 		const codec = noteCodec(declared);
-		const seen = (path: string, bytes: Uint8Array, version: BlobId): Seen => {
+		const seen = (path: string, bytes: Uint8Array, version: Version): Seen => {
 			const params = compiled.claim(path)?.params ?? {};
 			if (declared.kind !== 'note')
 				return { path, version, text: null, item: params };
@@ -216,7 +213,7 @@ function filesAt(at: At) {
 			async write(
 				path: string,
 				bytes: Uint8Array | null,
-				over: BlobId | null,
+				over: Version | null,
 			): Promise<Result<Seen | null | 'stale', Unavailable>> {
 				const written = await store.put(path, bytes, over);
 				if (written.error?.name === 'Moved') return Ok('stale' as const);
@@ -518,11 +515,12 @@ describe('a repository as a store', () => {
 		);
 	}, 30_000);
 
-	test('a commit retried after it moved puts no attachment the server already has', async () => {
+	test('a commit retried after it moved puts no bytes the server already has', async () => {
 		const person = await signIn('retry-upload');
 		const repository = storeAt(person.at);
 		const path = `recordings/${timeId()}.webm`;
-		const bytes = crypto.getRandomValues(new Uint8Array(4096));
+		// Over 16 KiB, so the bytes are uploaded, not sent inline.
+		const bytes = crypto.getRandomValues(new Uint8Array(40_000));
 		// Another writer lands a file first, so this commit, expecting nothing, moves.
 		const other = `recordings/${timeId()}.md`;
 		const placed = expectOk(
@@ -530,13 +528,15 @@ describe('a repository as a store', () => {
 				{ path: other, bytes: note('title: First\n'), expect: null },
 			]),
 		);
-		if (placed === 'moved' || 'refused' in placed)
+		if ('moved' in placed || 'refused' in placed)
 			throw new Error('expected a commit');
 		const writes = [
 			{ path, bytes, expect: null },
 			{ path: other, bytes: note('title: Mine\n'), expect: null },
 		];
-		expect(expectOk(await repository.commit(writes))).toBe('moved');
+		expect(expectOk(await repository.commit(writes))).toMatchObject({
+			moved: [{ path: other }],
+		});
 		const uploads = /^PUT .*\/blobs\/[0-9a-f]{64}$/;
 		expect(person.requests(uploads)).toHaveLength(1);
 		// The retry, over what the path now holds, puts the bytes no second time.
@@ -546,11 +546,11 @@ describe('a repository as a store', () => {
 				{
 					path: other,
 					bytes: note('title: Mine\n'),
-					expect: placed.blobs[other] ?? null,
+					expect: placed.versions[other] ?? null,
 				},
 			]),
 		);
-		expect(retried).toMatchObject({ blobs: { [path]: expect.any(String) } });
+		expect(retried).toMatchObject({ versions: { [path]: expect.any(String) } });
 		expect(person.requests(uploads)).toHaveLength(1);
 	}, 30_000);
 
@@ -708,12 +708,12 @@ describe('a repository as a store', () => {
 		expect(listed.map(({ version }) => version).sort()).toEqual(
 			created.map(({ version }) => version).sort(),
 		);
-		// Where main is, and its tree: no blob is read.
+		// One listing of the folder's files: no bytes are read.
 		expect(person.requests(/blobs/)).toEqual([]);
-		expect(person.sent).toHaveLength(2);
+		expect(person.sent).toHaveLength(1);
 	}, 30_000);
 
-	test("a folder's connection lists its folder once and reads every note in one request; another writer's change is read alone", async () => {
+	test("a folder's connection lists its folder once and reads every note with its bytes in one request; another writer's change is read alone", async () => {
 		const person = await signIn('connect');
 		const other = filesAt(person.at);
 		const ids = [timeId(), timeId()];
@@ -731,17 +731,16 @@ describe('a repository as a store', () => {
 				),
 			);
 		const READ = /^POST .*\/blobs$/;
-		const LIST = /^POST .*\/tree$/;
+		const LIST = /^POST .*\/files$/;
 		person.sent.length = 0;
 		const folder = folderAt(person.at, 100);
 		for (let turn = 0; turn < 200 && folder.state().status !== 'open'; turn++)
 			await Bun.sleep(10);
 		expect(folder.recordings.items()).toHaveLength(2);
-		// The tree once for the listing and once for the notes it reads, and
-		// every note's bytes in one request.
+		// The files once for the listing, and once for the notes it reads,
+		// which brings their bytes: no request for bytes alone.
 		expect(person.requests(LIST)).toHaveLength(2);
-		const reads = person.requests(READ);
-		expect(reads).toHaveLength(1);
+		expect(person.requests(READ)).toHaveLength(0);
 
 		const [first] = created;
 		if (first === undefined) throw new Error('expected a note');
@@ -762,10 +761,9 @@ describe('a repository as a store', () => {
 		)
 			await Bun.sleep(50);
 		expect(folder.recordings.get({ id: ids[0]! })?.title).toBe('Changed');
-		// The changed path alone: its blob at the head, and its bytes.
+		// The changed path alone, with its bytes.
 		expect(person.requests(LIST)).toHaveLength(1);
-		const read = person.requests(READ);
-		expect(read).toHaveLength(1);
+		expect(person.requests(READ)).toHaveLength(0);
 		folder[Symbol.dispose]();
 	}, 30_000);
 
@@ -788,7 +786,10 @@ describe('a repository as a store', () => {
 		).toEqual([...ids].sort());
 		// One that moved under it is answered alone, and the rest still land.
 		const [first] = ids;
-		const raced = folder.recordings.set({ id: first as string }, { title: 'Mine' });
+		const raced = folder.recordings.set(
+			{ id: first as string },
+			{ title: 'Mine' },
+		);
 		const other = timeId();
 		const alongside = folder.recordings.set({ id: other }, { title: other });
 		await Promise.all([raced, alongside]);
@@ -861,7 +862,7 @@ describe('a repository as a store', () => {
 			...note('title: Marked\n'),
 		]);
 		expect(expectOk(await store.put(path, bytes, null))).toBe(
-			await blobIdOf(path, bytes),
+			await versionOf(bytes),
 		);
 		const [read] = expectOk(await store.read([path]));
 		expect(read !== undefined && !('gone' in read) && read.bytes).toEqual(

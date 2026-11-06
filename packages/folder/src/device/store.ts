@@ -2,16 +2,15 @@
  * A place's store: four verbs over bytes at paths (ADR-0779), answered by
  * memory (`memory-store.ts`), a directory in Bun (`node-store.ts`), a root
  * the desktop shell named (`tauri-store.ts`), a directory a program serves
- * its page (`served/store.ts`), and a repository on the server
- * (`remote/store.ts`). Paths are relative and `/`-separated, the same paths
+ * its page (`served/store.ts`), and a folder on the server
+ * (`remote/repository.ts`). Paths are relative and `/`-separated, the same paths
  * a desktop folder holds. A store knows nothing of contracts, notes, or what
  * a page holds: the folder composes its connection from these verbs.
  *
- * A file's version is its Git blob id on every store (ADR-0808): the blob id
- * of a note's bytes (or of any hidden file's), and for an attachment, the
- * blob id of its canonical Git LFS pointer, computed from its sha256 and
- * size (`blobIdOf`). One version names one file's bytes on a computer, in
- * the browser, and in the repository, so nothing translates between them.
+ * A file's version is the SHA-256 of its bytes on every store, for every
+ * path (ADR-0824, `versionOf`). One version names one file's bytes on a
+ * computer, in the browser, and on the server, so nothing translates
+ * between them.
  *
  * A write is `put(path, bytes | null, expect)`: it lands only while the
  * path still holds `expect` (null: nothing), checked where the write lands,
@@ -28,17 +27,15 @@ import {
 	type InferErrors,
 } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
-import { blobIdOf } from '../hash.js';
+import { versionOf } from '../hash.js';
 
 export type Unavailable = InferError<typeof ClientError.Unavailable>;
 
 /**
- * A file's version: the Git blob id of what the repository stores at its
- * path (a note's bytes, or an attachment's canonical Git LFS pointer), 40
- * lowercase hex digits. Opaque to apps: the folder compares it and writes
+ * A file's version: the SHA-256 of its bytes, 64 lowercase hex digits. Opaque to apps: the folder compares it and writes
  * over it, and no app ever holds one (ADR-0774).
  */
-export type BlobId = string & Brand<'BlobId'>;
+export type Version = string & Brand<'Version'>;
 
 /** Why a `put` did not land. */
 export const StoreError = defineErrors({
@@ -46,7 +43,7 @@ export const StoreError = defineErrors({
 	 * The path no longer holds what the writer expected: `now` is what it
 	 * holds (null: nothing), and nothing changed.
 	 */
-	Moved: ({ path, now }: { path: string; now: BlobId | null }) => ({
+	Moved: ({ path, now }: { path: string; now: Version | null }) => ({
 		message: `${path} moved: it holds ${now ?? 'nothing'}`,
 		path,
 		now,
@@ -58,7 +55,7 @@ export type StoreError = InferErrors<typeof StoreError>;
 /** One file a listing found: its version, and its size in bytes where the store knows it without reading. */
 export type Listed = {
 	readonly path: string;
-	readonly version: BlobId;
+	readonly version: Version;
 	readonly size: number | null;
 };
 
@@ -67,7 +64,7 @@ export type FileRead =
 	| {
 			readonly path: string;
 			readonly bytes: Uint8Array;
-			readonly version: BlobId;
+			readonly version: Version;
 	  }
 	| { readonly path: string; readonly gone: true };
 
@@ -96,8 +93,8 @@ export type Store = {
 	put(
 		path: string,
 		bytes: Uint8Array | null,
-		expect: BlobId | null,
-	): Promise<Result<BlobId | null, Moved | Unavailable>>;
+		expect: Version | null,
+	): Promise<Result<Version | null, Moved | Unavailable>>;
 	/**
 	 * Start hearing changes: answers once it is listening, with the stop.
 	 * From then `changed` hears the paths that changed (another tab, the
@@ -125,11 +122,11 @@ export async function putLanded(
 	store: Store,
 	path: string,
 	bytes: Uint8Array | null,
-	expect: BlobId | null,
-): Promise<Result<BlobId | null, Moved | Unavailable>> {
+	expect: Version | null,
+): Promise<Result<Version | null, Moved | Unavailable>> {
 	const put = await store.put(path, bytes, expect);
 	if (put.error?.name !== 'Moved') return put;
-	const meant = bytes === null ? null : await blobIdOf(path, bytes);
+	const meant = bytes === null ? null : await versionOf(bytes);
 	return put.error.now === meant ? Ok(meant) : put;
 }
 

@@ -38,7 +38,7 @@ import { join } from 'node:path';
 import { isHiddenPath } from '@epicenter/definition/contract';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { startRepositoryServer } from '../../../server/src/test-helpers/repository-server.js';
-import { listFolders, shareFolder, acceptShare } from '../remote/folders.js';
+import { acceptShare, listFolders, shareFolder } from '../remote/folders.js';
 import { folderRepository } from '../remote/repository.js';
 import { scratch } from '../scratch.test-support.js';
 import type { KnownApp } from './apps.js';
@@ -72,14 +72,11 @@ async function serverState(
 	folder: string,
 ) {
 	const repository = folderRepository(account, folder);
-	const head = expectOk(await repository.changes(null)).commit;
-	const paths =
-		head === null
-			? []
-			: expectOk(await repository.tree(head))
-					.map(({ path }) => path)
-					.filter((path) => !isHiddenPath(path))
-					.sort();
+	const { cursor: head, files } = expectOk(await repository.files());
+	const paths = files
+		.map(({ path }) => path)
+		.filter((path) => !isHiddenPath(path))
+		.sort();
 	return { head, paths };
 }
 
@@ -94,9 +91,13 @@ test('a copy, edited, with its original deleted, deletes nothing on the server a
 	const before = await serverState(alice.account, folder);
 
 	// A Finder duplicate, edited, and then the original deleted.
-	await cp(join(alice.desk.path, 'Diary'), join(alice.desk.path, 'Diary copy'), {
-		recursive: true,
-	});
+	await cp(
+		join(alice.desk.path, 'Diary'),
+		join(alice.desk.path, 'Diary copy'),
+		{
+			recursive: true,
+		},
+	);
 	await alice.desk.write('Diary copy', { 'days/three.md': note('Three') });
 	await rm(join(alice.desk.path, 'Diary'), { recursive: true });
 
@@ -185,7 +186,10 @@ test('a folder renamed while a copy takes its old name: the renamed one is the f
 }, 120_000);
 
 /** A new computer with `from`'s whole Epicenter folder copied over: every inode is new. */
-async function migrated(from: Awaited<ReturnType<typeof computer>>, label: string) {
+async function migrated(
+	from: Awaited<ReturnType<typeof computer>>,
+	label: string,
+) {
 	const next = await computer(from.account, label);
 	await rm(next.path, { recursive: true });
 	await cp(from.path, next.path, { recursive: true });
@@ -207,7 +211,10 @@ test('a migration keeps a folder held alone syncing from its agreed state, and a
 	const mine = synced(await alice.desk.sync('Mine')).folder;
 	const ours = synced(await alice.desk.sync('Ours')).folder;
 	expectOk(
-		await shareFolder(alice.account, { folder: ours, email: bob.account.email }),
+		await shareFolder(alice.account, {
+			folder: ours,
+			email: bob.account.email,
+		}),
 	);
 	expectOk(await acceptShare(bob.account, { folder: ours }));
 
@@ -243,9 +250,9 @@ test('a migration keeps a folder held alone syncing from its agreed state, and a
 	const every = expectOk(
 		await syncEvery({ account: alice.account, root: laptop.root }),
 	);
-	expect(
-		every.folders.find(({ name }) => name === 'Ours')?.waiting,
-	).toBe('local');
+	expect(every.folders.find(({ name }) => name === 'Ours')?.waiting).toBe(
+		'local',
+	);
 	const asked = expectOk(await laptop.sync('Ours'));
 	expect(asked).toMatchObject({
 		kind: 'question',
@@ -314,18 +321,16 @@ test('an inode reused where the file system records no birth time proves nothing
 	const before = await serverState(account, folder);
 	// The record keeps the inode, with no birth time.
 	const records = expectOk(await expectOk(await desk.root.records()).list());
-	expect(records.map(({ record }) => [record.inode, record.birthtime])).toEqual([
-		['4242', null],
-	]);
+	expect(records.map(({ record }) => [record.inode, record.birthtime])).toEqual(
+		[['4242', null]],
+	);
 	// Deleted; a new, empty folder gets the old inode.
 	await rm(join(desk.path, 'Notes'), { recursive: true });
 	chosen.delete('Notes');
 	chosen.set('Other', { ino: 4242n, birthtimeNs: 0n });
 	await desk.write('Other', { 'b.md': note('B') });
 	expect(await desk.boundTo('Other')).toBeNull();
-	const every = expectOk(
-		await syncEvery({ account, root: desk.root }),
-	);
+	const every = expectOk(await syncEvery({ account, root: desk.root }));
 	expect(every.folders.map(({ name, waiting }) => [name, waiting])).toEqual([
 		['Other', 'local'],
 	]);
@@ -343,7 +348,7 @@ test('a drive mounted again keeps its folders: the device number is no part of a
 	const [held] = expectOk(await expectOk(await desk.root.records()).list());
 	expect(Object.keys(held?.record ?? {}).sort()).toEqual([
 		'birthtime',
-		'commit',
+		'cursor',
 		'files',
 		'folder',
 		'inode',
@@ -359,9 +364,9 @@ test('a drive mounted again keeps its folders: the device number is no part of a
 		}),
 	};
 	const found = expectOk(await identify({ root: remounted.root, account }));
-	expect(found.bound.map(({ record, proof }) => [record.folder, proof])).toEqual(
-		[[folder, 'identity']],
-	);
+	expect(
+		found.bound.map(({ record, proof }) => [record.folder, proof]),
+	).toEqual([[folder, 'identity']]);
 }, 120_000);
 
 const WHISPERING: KnownApp = {
@@ -462,19 +467,30 @@ test('a lost record finds its folder again by name instead of making a second on
 	await desk.write('Journal', { 'a.md': note('A') });
 	const first = synced(await desk.sync('Journal'));
 	expect(first.made).toBe(true);
-	expect(JSON.parse(await readFile(join(desk.path, 'Journal/epicenter.json'), 'utf8'))).toEqual({ title: 'Journal' });
+	expect(
+		JSON.parse(
+			await readFile(join(desk.path, 'Journal/epicenter.json'), 'utf8'),
+		),
+	).toEqual({ title: 'Journal' });
 	await rm(join(desk.path, '.epicenter'), { recursive: true });
 	await desk.write('Journal', { 'b.md': note('B') });
 
 	const again = synced(await desk.sync('Journal'));
-	expect(again).toMatchObject({ folder: first.folder, joined: true, made: false });
+	expect(again).toMatchObject({
+		folder: first.folder,
+		joined: true,
+		made: false,
+	});
 	expect(expectOk(await listFolders(account)).folders).toHaveLength(1);
 }, 120_000);
 
 test('a folder Git keeps never syncs, a link into a working tree included', async () => {
 	const account = await server.signIn('git-kept');
 	const desk = await computer(account, 'git-kept');
-	await desk.write('Code', { '.git/HEAD': 'ref: refs/heads/main\n', 'a.md': note('A') });
+	await desk.write('Code', {
+		'.git/HEAD': 'ref: refs/heads/main\n',
+		'a.md': note('A'),
+	});
 	const elsewhere = await scratch('epicenter-repo-');
 	await mkdir(join(elsewhere, '.git'));
 	await mkdir(join(elsewhere, 'docs'));
@@ -499,7 +515,9 @@ test('an Epicenter folder inside a file-sync service is refused, and one that on
 		under: 'Library/Mobile Documents/com~apple~CloudDocs',
 	});
 	await icloud.write('Notes', { 'a.md': note('A') });
-	expect(expectErr(await icloud.sync('Notes')).message).toContain('iCloud Drive');
+	expect(expectErr(await icloud.sync('Notes')).message).toContain(
+		'iCloud Drive',
+	);
 	expect(
 		expectErr(await syncEvery({ account, root: icloud.root })).message,
 	).toContain('iCloud Drive');
@@ -508,7 +526,9 @@ test('an Epicenter folder inside a file-sync service is refused, and one that on
 	).toMatchObject({ refused: expect.stringContaining('iCloud Drive') });
 	expect(expectOk(await listFolders(account)).folders).toEqual([]);
 
-	const maybe = await computer(account, 'maybe', { under: 'old dropbox backup' });
+	const maybe = await computer(account, 'maybe', {
+		under: 'old dropbox backup',
+	});
 	const every = expectOk(await syncEvery({ account, root: maybe.root }));
 	expect(every.warning).toContain('names a file-sync service');
 }, 120_000);
@@ -516,7 +536,10 @@ test('an Epicenter folder inside a file-sync service is refused, and one that on
 test('an old in-folder manifest is imported once: a record for the directory it synced in, and its recordings recovered first', async () => {
 	const account = await server.signIn('import');
 	const desk = await computer(account, 'import');
-	await desk.write('Old', { 'epicenter.json': contract('Old'), 'a.md': note('A') });
+	await desk.write('Old', {
+		'epicenter.json': contract('Old'),
+		'a.md': note('A'),
+	});
 	// Sync it, then turn its record back into the in-folder manifest an older build kept.
 	const { folder } = synced(await desk.sync('Old'));
 	const records = expectOk(await desk.root.records());
@@ -530,7 +553,7 @@ test('an old in-folder manifest is imported once: a record for the directory it 
 		JSON.stringify({
 			folder,
 			root: { device: '1', inode: held.record.inode },
-			commit: held.record.commit,
+			commit: held.record.cursor,
 			files: held.record.files,
 		}),
 	);
@@ -548,16 +571,19 @@ test('an old in-folder manifest is imported once: a record for the directory it 
 	});
 
 	const found = expectOk(await identify({ root: desk.root, account }));
-	expect(found.bound.map(({ local, record }) => [local.name, record.folder])).toEqual(
-		[['Old', folder]],
-	);
+	expect(
+		found.bound.map(({ local, record }) => [local.name, record.folder]),
+	).toEqual([['Old', folder]]);
 	expect(found.unbound.map(({ local }) => local.name)).toEqual(['Old copy']);
 	// The recording is beside its final path, under a recording's reserved name.
 	const recovered = await readdir(join(desk.path, 'Old/recordings'));
 	expect(recovered).toHaveLength(1);
 	expect(recovered[0]).toMatch(/^\.ep-[0-9a-z]{8}-take\.recording$/);
 	expect(
-		await readFile(join(desk.path, 'Old/recordings', recovered[0] as string), 'utf8'),
+		await readFile(
+			join(desk.path, 'Old/recordings', recovered[0] as string),
+			'utf8',
+		),
 	).toBe('audio');
 	// The next look finds nothing of the old layout left.
 	expectOk(await identify({ root: desk.root, account }));

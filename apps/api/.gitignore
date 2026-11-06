@@ -1,4 +1,4 @@
-# Local runtime state for the Bun server, such as a `GIT_STORE_ROOT`.
+# Local runtime state for the Bun server, such as a `BLOB_STORE_ROOT`.
 # Never committed.
 .data/
 wrangler.dev.generated.json

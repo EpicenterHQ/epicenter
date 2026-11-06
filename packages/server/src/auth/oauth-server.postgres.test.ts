@@ -10,8 +10,6 @@
  * never connects to a configured database.
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
@@ -19,10 +17,10 @@ import { every } from 'hono/combine';
 import type { Client } from 'pg';
 import { createCloudContextMiddleware } from '../create-cloud-context-middleware.js';
 import { createDb, type Db } from '../db/create-db.js';
-import { createDiskGitHost } from '../git-disk-store.js';
+import { createMemoryBlobStore } from '../log/memory-blob-store.js';
 import { requireAccessToken } from '../middleware/require-auth.js';
 import { mountAuthRoutes } from '../routes/auth.js';
-import { type GitHost, mountGitHost } from '../routes/git.js';
+import { mountFolders } from '../routes/folders.js';
 import { mountInferenceApp } from '../routes/inference.js';
 import { createServerApp } from '../server-app.js';
 import { startDisposablePostgres } from '../test-helpers/disposable-postgres.js';
@@ -65,18 +63,6 @@ const cli = { clientId: 'so.epicenter.cli' };
 const untrusted = {
 	clientId: 'test.untrusted',
 	redirectUri: 'http://127.0.0.1:53222/callback',
-};
-
-/** The disk Git store, recording which repositories it creates. */
-const gitRoot = mkdtempSync(join(tmpdir(), 'oauth-server-git-'));
-const createdRepositories: string[] = [];
-const diskHost = createDiskGitHost({ root: gitRoot });
-const recordingHost: GitHost = {
-	...diskHost,
-	async create(id) {
-		createdRepositories.push(id);
-		await diskHost.create(id);
-	},
 };
 
 let app: ReturnType<typeof createServerApp<CloudEnv>>;
@@ -190,9 +176,9 @@ beforeAll(async () => {
 	const resource = (audience: keyof typeof audiences, scope: OAuthScope) =>
 		every(resourceContext, requireAccessToken({ audience, scope }));
 	mountInferenceApp(app, { auth: resource('api', 'ai') });
-	mountGitHost(app, {
+	mountFolders(app, {
 		setup: resourceContext,
-		resolveHost: () => recordingHost,
+		resolveBlobs: () => createMemoryBlobStore(),
 	});
 	// Test-only protected route: the resource check, as every resource runs it.
 	app.get('/test/resource', async (c) => {
@@ -226,9 +212,7 @@ beforeAll(async () => {
 				audience: o.audience,
 				scope: o.scope,
 			});
-			const authorization = o.basic
-				? `Basic ${btoa(`x-access-token:${token}`)}`
-				: `Bearer ${token}`;
+			const authorization = `Bearer ${token}`;
 			const response = await app.fetch(
 				new Request(`${origin}/test/resource?${query}`, {
 					headers: { authorization },
@@ -244,7 +228,6 @@ beforeAll(async () => {
 }, 60_000);
 
 afterAll(async () => {
-	rmSync(gitRoot, { recursive: true, force: true });
 	await stop?.();
 });
 
@@ -489,10 +472,10 @@ describe('the protected routes', () => {
 		call('/v1/chat/completions', token, { method: 'POST', body: {} });
 	/** The first request of a push: the receive-pack advertisement. */
 	const push = (token: string | null, folder = 'aaaaaaaaaaaaaaaa') =>
-		call(
-			`/git/folders/${folder}.git/info/refs?service=git-receive-pack`,
-			token,
-		);
+		call(`/git/folders/${folder}/commits`, token, {
+			method: 'POST',
+			body: { files: [{ path: 'a.md', expect: null, text: 'one' }] },
+		});
 
 	test('answer 401 with resource_metadata without a token, or with a session token', async () => {
 		const person = await harness.client.person('no-token');
@@ -543,7 +526,9 @@ describe('the protected routes', () => {
 			audiences.git,
 			'openid folders:read folders:write',
 		);
-		const before = createdRepositories.length;
+		const folders = async () =>
+			(await sqlClient.query('select id from folder')).rowCount;
+		const before = await folders();
 		// A first sync from the app makes its folder, attached to the app.
 		const joined = await call('/git/folders', git.token, {
 			method: 'POST',
@@ -551,19 +536,8 @@ describe('the protected routes', () => {
 		});
 		expect(joined.status).toBe(201);
 		const { folder } = (await joined.json()) as { folder: string };
-		expect(createdRepositories.length).toBe(before + 1);
+		expect(await folders()).toBe((before ?? 0) + 1);
 		expect((await push(git.token, folder)).status).toBe(200);
-		const pushed = await app.fetch(
-			new Request(`${origin}/git/folders/${folder}.git/git-receive-pack`, {
-				method: 'POST',
-				headers: {
-					authorization: `Bearer ${git.token}`,
-					'content-type': 'application/x-git-receive-pack-request',
-				},
-				body: '0000',
-			}),
-		);
-		expect(pushed.status).toBe(200);
 	}, 60_000);
 
 	test('stop admitting a token once it is revoked or its browser session ends', async () => {

@@ -1,7 +1,7 @@
 /**
  * The server a client's repository store talks to, whole, for a test or a
  * benchmark in another package: the authorization server on a disposable
- * Postgres, a `Bun.serve` listener, the disk Git and LFS stores, and a
+ * Postgres, a `Bun.serve` listener, the disk blob store, and a
  * signed-in person whose requests carry an access token from a real code
  * grant, reaching every folder they hold (`folders:all`), as the CLI does. Requires initdb and pg_ctl on PATH.
  */
@@ -16,11 +16,10 @@ import {
 	type CloudEnv,
 	createCloudContextMiddleware,
 	createDb,
-	createDiskGitHost,
-	createDiskLfsStore,
+	createDiskBlobStore,
 	createServerApp,
 	mountAuthRoutes,
-	mountGitHost,
+	mountFolders,
 	registerFirstPartyClients,
 } from '../bun.js';
 import { startDisposablePostgres } from './disposable-postgres.js';
@@ -94,13 +93,11 @@ export async function startRepositoryServer() {
 		setup: createCloudContextMiddleware({ ...context, oauthServer: true }),
 		serveAuthUiShell: (c) => c.html('<html>shell</html>'),
 	});
-	const host = createDiskGitHost({ root: join(scratch, 'git-store') });
-	const lfs = createDiskLfsStore({ root: join(scratch, 'lfs-store') });
+	const blobs = createDiskBlobStore({ root: join(scratch, 'blobs') });
 	app.use('/git/*', compress());
-	mountGitHost(app, {
+	mountFolders(app, {
 		setup: createCloudContextMiddleware(context),
-		resolveHost: () => host,
-		resolveLfs: () => lfs,
+		resolveBlobs: () => blobs,
 	});
 	const oauth = new OAuthTestClient(origin, sql, secret, async (url, init) =>
 		app.fetch(new Request(url, init)),

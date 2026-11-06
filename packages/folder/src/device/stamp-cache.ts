@@ -1,21 +1,19 @@
 /**
- * A computer's cache of its attachments' hashes, by stamp (ADR-0808): an
- * attachment's version is the blob id of its Git LFS pointer, which needs
- * its sha256, and a listing must not read a long recording to name it. So
- * a device remembers each attachment's sha256 and size under its stamp
- * (size, modification time, and identity), in a file outside the folder
- * (ADR-0822): the Epicenter folder's `.epicenter/hashes/<identity>.json`,
- * or an app's own data. The cache is derived and deletable: without it,
- * each attachment is hashed once again. Notes are never cached: they are
- * small and read whole anyway.
+ * A computer's cache of its large files' versions, by stamp (ADR-0824): a
+ * version is the SHA-256 of a file's bytes, and a listing must not read a
+ * long recording to name it. So a device remembers the version of each file
+ * over `HASHED_WHOLE_BYTES` under its stamp (size, modification time, and
+ * identity), in a file outside the folder (ADR-0822): the Epicenter
+ * folder's `.epicenter/hashes/<identity>.json`, or an app's own data. The
+ * cache is derived and deletable: without it, each large file is hashed
+ * once again. Smaller files are never cached: they are hashed whole.
  *
  * Git's racy-clean rule keeps a stamp honest. A file written within the
  * second its hash was taken could change again with the same stamp, so an
  * entry holds only for a file whose modification time is in an earlier
  * second than the hash; anything else is hashed again.
  */
-import type { BlobId } from './store.js';
-import { pointerBlobId } from '../hash.js';
+import type { Version } from './store.js';
 
 /** Where a cache is kept: its bytes, loaded once, and saved whole. */
 export type StampFile = {
@@ -23,10 +21,10 @@ export type StampFile = {
 	save(bytes: Uint8Array): Promise<void>;
 };
 
-/** One attachment's hash as cached: under which stamp, its sha256 and size, and when it was hashed (ms). */
-type Entry = { stamp: string; oid: string; size: number; hashed: number };
+/** One file's version as cached: under which stamp, and when it was hashed (ms). */
+type Entry = { stamp: string; version: string; hashed: number };
 
-/** What a host gives the cache: its stamp of a file, and the file's hash when the cache cannot answer. */
+/** What a host gives the cache: its stamp of a file, and the file's modification time. */
 export type Stamped = {
 	/** The file's stamp, which every save changes. */
 	stamp: string;
@@ -39,9 +37,9 @@ const encoder = new TextEncoder();
 
 /**
  * The cache kept in `file` (read once, at the first lookup), answering
- * attachments' versions: from an entry that still holds, or by `hash`.
- * `flush` saves what changed; a cache that cannot be read or saved costs
- * hashing again, never a wrong version.
+ * files' versions: from an entry that still holds, or by `hash`. `flush`
+ * saves what changed; a cache that cannot be read or saved costs hashing
+ * again, never a wrong version.
  */
 export function createStampCache({
 	file,
@@ -73,14 +71,14 @@ export function createStampCache({
 
 	return {
 		/**
-		 * The version of the attachment at `path`, stamped `stamped`: its
-		 * cached hash when the entry holds, else `hash()`, remembered.
+		 * The version of the file at `path`, stamped `stamped`: its cached
+		 * version when the entry holds, else `hash()`, remembered.
 		 */
 		async version(
 			path: string,
 			stamped: Stamped,
-			hash: () => Promise<{ oid: string; size: number }>,
-		): Promise<BlobId> {
+			hash: () => Promise<Version>,
+		): Promise<Version> {
 			const cache = await loaded();
 			const entry = cache.get(path);
 			if (
@@ -88,12 +86,12 @@ export function createStampCache({
 				entry.stamp === stamped.stamp &&
 				Math.floor(stamped.modifiedMs / 1000) < Math.floor(entry.hashed / 1000)
 			)
-				return pointerBlobId(entry.oid, entry.size);
+				return entry.version as Version;
 			const hashed = now();
-			const { oid, size } = await hash();
-			cache.set(path, { stamp: stamped.stamp, oid, size, hashed });
+			const version = await hash();
+			cache.set(path, { stamp: stamped.stamp, version, hashed });
 			dirty = true;
-			return pointerBlobId(oid, size);
+			return version;
 		},
 		/** Forget every path not in `kept`, after a listing of everything. */
 		async keepOnly(kept: ReadonlySet<string>) {
@@ -125,7 +123,6 @@ const isEntry = (value: unknown): value is Entry =>
 	typeof value === 'object' &&
 	value !== null &&
 	typeof (value as Entry).stamp === 'string' &&
-	typeof (value as Entry).oid === 'string' &&
-	/^[0-9a-f]{64}$/.test((value as Entry).oid) &&
-	Number.isSafeInteger((value as Entry).size) &&
+	typeof (value as Entry).version === 'string' &&
+	/^[0-9a-f]{64}$/.test((value as Entry).version) &&
 	typeof (value as Entry).hashed === 'number';

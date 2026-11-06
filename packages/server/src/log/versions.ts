@@ -65,17 +65,3 @@ export function pathProblem(path: unknown): string | null {
 		return 'not a folder path';
 	return null;
 }
-
-/**
- * A mark's name (ADR-0826): segments of letters, digits, `.`, `_` and `-`,
- * joined by `/`, each starting with a letter or digit, at most 100
- * characters, and no `..` or trailing `.lock`, so every mark is a Git tag
- * name too.
- */
-export const isMarkName = (name: unknown): name is string =>
-	typeof name === 'string' &&
-	name.length <= 100 &&
-	/^[A-Za-z0-9][A-Za-z0-9._-]*(\/[A-Za-z0-9][A-Za-z0-9._-]*)*$/.test(name) &&
-	!name.includes('..') &&
-	!/\.lock(\/|$)/.test(name) &&
-	!/\.(\/|$)/.test(name);

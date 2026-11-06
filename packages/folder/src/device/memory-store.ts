@@ -15,13 +15,13 @@
 import { ClientError } from '@epicenter/definition/contract';
 import { Ok, type Result } from 'wellcrafted/result';
 import type { OpenFolderError } from '../errors.js';
-import { blobIdOf } from '../hash.js';
+import { versionOf } from '../hash.js';
 import {
-	type BlobId,
 	type Changed,
 	type Store,
 	StoreError,
 	type Unavailable,
+	type Version,
 	within,
 } from './store.js';
 
@@ -126,7 +126,7 @@ export function memoryStore(): Store & {
 	/** Open the store for a folder: once nothing holds the open, the store or the error set. */
 	opened(): Promise<Result<Store, OpenFolderError | Unavailable>>;
 } {
-	const files = new Map<string, { bytes: Uint8Array; version: BlobId }>();
+	const files = new Map<string, { bytes: Uint8Array; version: Version }>();
 	const listeners = new Set<Changed>();
 	const writes = gate();
 	const opens = gate();
@@ -134,9 +134,9 @@ export function memoryStore(): Store & {
 	const readRefusals = refusals();
 	let openRefusal: OpenFolderError | Unavailable | null = null;
 
-	/** The version `bytes` at `path` would be, null for a removal. */
-	const versionOf = async (path: string, bytes: Uint8Array | null) =>
-		bytes === null ? null : blobIdOf(path, bytes);
+	/** The version `bytes` would be, null for a removal. */
+	const versionOrNull = async (bytes: Uint8Array | null) =>
+		bytes === null ? null : versionOf(bytes);
 
 	/**
 	 * Put `bytes` at `path` as `version`, or remove it for null. Synchronous,
@@ -145,7 +145,7 @@ export function memoryStore(): Store & {
 	function place(
 		path: string,
 		bytes: Uint8Array | null,
-		version: BlobId | null,
+		version: Version | null,
 	) {
 		if (bytes === null || version === null) files.delete(path);
 		else files.set(path, { bytes: bytes.slice(), version });
@@ -192,7 +192,7 @@ export function memoryStore(): Store & {
 			await writes.wait();
 			const refused = writeRefusals.of(path);
 			if (refused !== null) return ClientError.Unavailable({ cause: refused });
-			const landed = await versionOf(path, bytes);
+			const landed = await versionOrNull(bytes);
 			// No await from here: of two writes over one version, one lands.
 			const now = files.get(path)?.version ?? null;
 			if (now !== expect) return StoreError.Moved({ path, now });
@@ -223,7 +223,7 @@ export function memoryStore(): Store & {
 					typeof content === 'string'
 						? new TextEncoder().encode(content)
 						: content;
-				place(path, bytes, await versionOf(path, bytes));
+				place(path, bytes, await versionOrNull(bytes));
 				tell(path);
 			},
 			read(path) {
