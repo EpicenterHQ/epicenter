@@ -1012,3 +1012,4 @@ When you add an ADR, add its row here.
 | [0814](0814-one-window-shows-one-folder.md) | One window shows one folder | Accepted (amends 0802 and 0811) |
 | [0815](0815-the-platform-gives-a-window-its-folder-and-every-app-the-same-home.md) | The platform gives a window its folder, and every app the same home | Accepted (amends 0773, 0790, 0792, and 0804; amended by 0816) |
 | [0816](0816-the-epicenter-app-is-where-a-person-sees-and-manages-every-folder.md) | The Epicenter app is where a person sees and manages every folder | Accepted (amends 0790, 0800, and 0815) |
+| [0817](0817-the-cli-exposes-every-platform-operation-and-an-app-inherits-everything-about-folders.md) | The CLI exposes every platform operation, and an app inherits everything about folders | Accepted |
