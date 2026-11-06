@@ -1,17 +1,27 @@
 {
 	"name": "@epicenter/messages-app",
-	"description": "Beeper conversations with drafts kept as Markdown notes in this browser, served on this computer",
+	"description": "Beeper conversations with replies staged as Markdown notes in a folder, served on this computer",
 	"version": "0.0.1",
 	"private": true,
 	"type": "module",
+	"imports": {
+		"#platform/root": {
+			"tauri": "./src/lib/root.tauri.ts",
+			"default": "./src/lib/root.ts"
+		}
+	},
 	"scripts": {
 		"dev": "vite dev",
 		"build": "NODE_ENV=production vite build",
+		"build:native": "EPICENTER_DESKTOP=1 MESSAGES_BUILD_DIR=build-desktop NODE_ENV=production vite build",
+		"build:sidecar": "bun scripts/build-sidecar.ts",
+		"dev:desktop": "bun run build:native && tauri dev --config src-tauri/tauri.dev.conf.json",
+		"build:desktop": "bun run build:native && bun run build:sidecar && tauri build --bundles app --config src-tauri/tauri.bundle.conf.json",
 		"start": "bun run build && bun scripts/serve.ts",
 		"preview": "vite preview",
 		"contract": "bun scripts/write-contract.ts",
 		"prepare": "svelte-kit sync || echo ''",
-		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && svelte-check --tsconfig ./tsconfig.tauri.json",
 		"test": "bun test --isolate --conditions=browser --conditions=svelte src scripts",
 		"test:e2e": "playwright test -c playwright.config.ts"
 	},
@@ -29,6 +39,7 @@
 		"@sveltejs/adapter-static": "catalog:",
 		"@sveltejs/kit": "catalog:",
 		"@sveltejs/vite-plugin-svelte": "catalog:",
+		"@tauri-apps/cli": "catalog:",
 		"@types/bun": "catalog:",
 		"playwright": "^1.61.1",
 		"svelte": "catalog:",

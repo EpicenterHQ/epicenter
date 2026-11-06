@@ -26,7 +26,7 @@ grants capabilities, never storage.
 | --- | --- |
 | Capture, Honeycrisp, Todos, Vocab | online web, desktop |
 | Whispering | local web, desktop |
-| Messages | local (a program on the computer where Beeper Desktop runs) |
+| Messages | local program, desktop shell |
 | Recorder demo | local web (`/`) and online web (`/online`) |
 
 Each desktop variant is a Tauri program of its own
@@ -34,6 +34,8 @@ Each desktop variant is a Tauri program of its own
 Honeycrisp, Todos, Vocab and Whispering share the
 [`epicenter-standalone`](../packages/tauri-epicenter-standalone/README.md)
 crate, which also describes how a web app gains a desktop variant.
+Messages has its own shell because its Bun program owns the folder, journal,
+keychain, and same-origin HTTP page.
 
 ## Svelte app root
 
@@ -107,7 +109,7 @@ editor of it (`todos.edit({ id })`), gates on `exists`, and binds its
 The root `bun dev:<app>` scripts start each app's required development
 processes. `bun dev:<app>:desktop` and `bun build:<app>:desktop` start and
 build a desktop variant (`capture`, `honeycrisp`, `todos`, `vocab`,
-`whispering`); they need a Rust toolchain. Each app README names its route
+`whispering`, `messages`); they need a Rust toolchain. Each app README names its route
 and test commands.
 
 ## Where each app's files live
@@ -129,7 +131,7 @@ enrolls it for local history; connecting a repository there enables transfer.
 | [Honeycrisp](honeycrisp/README.md) | online web; desktop | `~/Epicenter/Honeycrisp` | `honeycrisp`: `notes`, `folders` |
 | [Vocab](vocab/README.md) | online web; desktop | `~/Epicenter/Vocab` | `vocab`: `entries`, `chats`, `messages` |
 | [Whispering](whispering/README.md) | local web; desktop | `~/Epicenter/Whispering` | `whispering`: `recordings`, `audio`, `transcriptions`, `transformations`, `transformation_runs`, `text_runs`, `shortcuts` |
-| [Messages](messages/README.md) | local program (`bun run --cwd apps/messages start`) | none: the origin's OPFS | `messages`: `drafts`, `attempts` |
+| [Messages](messages/README.md) | local program; desktop | `~/Epicenter/Messages` | `messages`: `replies` |
 | [Recorder demo](recorder-demo/README.md) | local web; online web | none | `recorder-demo`: `recordings`, `audio` |
 
 A local web app keeps its files in the origin's OPFS; an online web app
@@ -156,10 +158,13 @@ application. For the naming rationale, see
 
 ## Messages and Beeper
 
-[Messages](messages/README.md) keeps its drafts and send attempts as notes of
-its own contract on the device. Conversation history stays in Beeper and is
-read into memory. Messages runs as a local program on the computer where
-Beeper Desktop runs (`bun run --cwd apps/messages start`): its server answers
-the page's Beeper requests through the Epicenter CLI, which keeps the token in
-the device keychain. It starts with fictional demo chats, and a page served
-any other way shows only those.
+[Messages](messages/README.md) keeps outgoing replies, draft or ready, as
+notes of its own contract in `~/Epicenter/Messages`, and records each send in
+a journal outside the folder before Beeper is asked. Conversation history
+stays in Beeper and is read into memory. Messages runs as a local program on
+the computer where Beeper Desktop runs, either started by its desktop shell or
+with `bun run --cwd apps/messages start`:
+its server reads the folder and answers the page's requests through the
+Epicenter CLI's one send owner, which keeps the token in the device keychain.
+A web page served any other way shows fictional demo chats. The desktop root
+shows a startup failure instead of falling back to the demo.

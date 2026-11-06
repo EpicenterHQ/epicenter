@@ -1,38 +1,36 @@
 /**
  * Messages end to end, per engine, in one persistent browser profile, served
- * by its local program with a fake Beeper behind it (see `serve.ts`).
- * Messages is local only (ADR-0700): its drafts are kept in this browser's
- * files (OPFS), with no account.
+ * by its local program with the real send owner over a scratch Messages
+ * folder and a fake Beeper behind it (see `serve.ts`).
  *
- * 1. A draft is a note in this browser: the first keystroke creates it,
- *    edits follow, a reload keeps it, and emptying it clears it (its note
- *    stays, with an empty body) and the list's preview.
- * 2. Offline, demo mode still creates and edits a draft, and it is there
- *    after a reload.
- * 3. A demo send records its attempt before Beeper is asked; one with no
- *    confirmation shows Check send, and checking it keeps the text as a draft.
- * 4. A draft another program broke shows its text, with what is wrong as
- *    typed, and saving fixed text repairs it.
- * 5. This browser's files fit the published contract (`epicenter check`).
- * 6. Live Beeper goes through the local program: connect, read, send.
+ * 1. Replies open from the folder while Beeper is not connected: a note an
+ *    agent wrote shows, and editing it and marking it ready writes the file
+ *    and sends nothing.
+ * 2. Drafts an earlier Messages kept in this browser stay visible, and one
+ *    imports into the folder as a draft, leaving the browser's copy as it was.
+ * 3. Connected, a reply saved as ready waits; Send selected sends it once,
+ *    and its note leaves the folder when Beeper reports it sent.
+ * 4. A send with no answer waits for a person and holds back the next reply
+ *    to its chat; a reload reconnects and sends nothing; "not sent" keeps it.
+ * 5. The folder fits the published contract (`epicenter check`).
+ * 6. The demo sends fictional replies through the same steps.
  * 7. The page, loaded once, reopens offline from its service worker's
- *    cache (decision 85), in demo mode with this browser's drafts.
+ *    cache (decision 85), in demo mode.
  */
-import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { type BrowserContext, expect, type Page, test } from 'playwright/test';
 import {
 	emptyOpfs,
-	goOffline,
-	opfsFiles,
 	opfsText,
 	run,
 } from '../../../packages/cli/src/app-e2e.test-support.ts';
 
-const app = 'http://127.0.0.1:5189';
+let app: string;
 const cli = resolve(import.meta.dirname, '../../../packages/cli/src/bin.ts');
+/** `E2E_FOLDER` in `serve.ts`, which this cannot import without building. */
+let folder: string;
 
 test.describe.configure({ mode: 'serial' });
 
@@ -41,7 +39,9 @@ let context: BrowserContext;
 let page: Page;
 
 test.beforeAll(async ({ playwright, browserName, launchOptions }) => {
-	profile = await mkdtemp(join(tmpdir(), `messages-${browserName}-`));
+	app = `http://127.0.0.1:${browserName === 'chromium' ? 5189 : 5191}`;
+	folder = join(tmpdir(), `epicenter-messages-e2e-${browserName}`, 'Messages');
+	profile = join(tmpdir(), `messages-${browserName}-${Date.now()}`);
 	// A persistent profile: WebKit refuses OPFS in an ephemeral context.
 	context = await playwright[browserName].launchPersistentContext(profile, {
 		...launchOptions,
@@ -52,24 +52,30 @@ test.beforeAll(async ({ playwright, browserName, launchOptions }) => {
 
 test.afterAll(async () => {
 	await context?.close();
-	if (profile) await rm(profile, { recursive: true, force: true });
 });
 
-/** The id of a draft and its attempt, as `draftId` names them. */
-const draftId = (mode: string, profile: string, chatId: string) =>
-	`${mode}-${createHash('sha256')
-		.update(JSON.stringify([mode, profile, chatId]))
-		.digest('hex')}`;
-const maya = draftId('demo', 'fictional-v1', 'demo-maya');
-const noah = draftId('demo', 'fictional-v1', 'demo-noah');
-const draftNote = (body: string, chatId = 'demo-maya') =>
-	`---\nchatId: ${chatId}\nprofile: fictional-v1\nmode: demo\n---\n${body}`;
+/** Every reply note in the folder, by file name. */
+async function replyFiles() {
+	const directory = join(folder, 'replies');
+	const names = await readdir(directory).catch(() => [] as string[]);
+	const files: Record<string, string> = {};
+	for (const name of names)
+		files[name] = await readFile(join(directory, name), 'utf8');
+	return files;
+}
+const fileWith = async (text: string) =>
+	Object.entries(await replyFiles()).find(([, body]) => body.includes(text));
 
 const conversation = (title: string) =>
 	page
 		.getByRole('complementary', { name: 'Conversations' })
 		.getByRole('button', { name: title });
+const repliesView = () => page.getByRole('region', { name: 'Replies' });
+const replyCard = (text: string) =>
+	repliesView().getByRole('article', { name: /^Reply to / }).filter({ hasText: text });
 const composer = () => page.getByLabel('Message', { exact: true });
+const sendSelected = () =>
+	repliesView().getByRole('button', { name: /^Send selected/ });
 
 /**
  * Reload the page once its service worker is ready, so the worker controls
@@ -127,212 +133,144 @@ async function reloadOffline(browserName: string) {
 	}
 }
 
-test('1. a draft is a note in this browser: created by the first keystroke, edited, kept across a reload, and cleared when emptied', async () => {
+const agentNote = `---\nchatId: live-ada\nchatTitle: Ada Test\nprofile: fake-test-installation\nstatus: draft\n---\nDrafted by an agent`;
+
+test('1. replies open from the folder while Beeper is not connected, and saving them sends nothing', async () => {
 	// WebKit keeps OPFS outside the profile directory: start from an empty origin.
 	await page.goto(`${app}/`);
 	await emptyOpfs(page);
+	await mkdir(join(folder, 'replies'), { recursive: true });
+	await writeFile(join(folder, 'replies', '2026-11-01T10-00-00-000Z-agent001.md'), agentNote);
 	await page.goto(`${app}/`);
-	await expect(page.getByText('Demo · fictional conversations')).toBeVisible();
+	await expect(page.getByText('Beeper not connected')).toBeVisible();
+	await expect(replyCard('Drafted by an agent')).toBeVisible();
 
-	await conversation('Maya Chen').click();
-	await expect(composer()).toHaveValue('');
-	// Selecting a conversation makes no file.
-	expect(
-		Object.keys(await opfsFiles(page)).filter((path) =>
-			path.startsWith('drafts/'),
-		),
-	).toEqual([]);
-
-	await composer().fill('See you Saturday');
+	// The only reply so far; a card being edited holds its text in a field.
+	const card = repliesView().getByRole('article', { name: 'Reply to Ada Test' });
+	await card.getByRole('button', { name: 'Edit' }).click();
+	await card.getByLabel('Reply text').fill('Edited in Messages');
+	await card.getByRole('button', { name: 'Save' }).click();
+	await expect(card).toContainText('Edited in Messages');
+	await card.getByRole('button', { name: 'Mark ready' }).click();
+	await expect(card.getByText('Ready', { exact: true })).toBeVisible();
 	await expect
-		.poll(() => opfsText(page, `drafts/${maya}.md`))
-		.toBe(draftNote('See you Saturday'));
-	await composer().fill('See you Saturday at ten');
-	await expect
-		.poll(() => opfsText(page, `drafts/${maya}.md`))
-		.toBe(draftNote('See you Saturday at ten'));
-	await expect(conversation('Maya Chen')).toContainText(
-		'Draft: See you Saturday at ten',
-	);
+		.poll(async () => (await replyFiles())['2026-11-01T10-00-00-000Z-agent001.md'])
+		.toBe(agentNote.replace('status: draft', 'status: ready').replace('Drafted by an agent', 'Edited in Messages'));
+	// Ready waits for Send selected, which needs Beeper.
+	await expect(sendSelected()).toBeDisabled();
+	// The same stored conversation identity can start another draft offline.
+	await card.getByRole('button', { name: 'New reply to this conversation' }).click();
+	await card.getByLabel('Message').fill('Another offline reply');
+	await card.getByRole('button', { name: 'Save draft' }).click();
+	await expect(replyCard('Another offline reply')).toBeVisible();
+	await expect.poll(async () => (await fileWith('Another offline reply'))?.[1]).toContain('status: draft');
+});
 
+test('2. drafts this browser kept stay visible, and one imports as a draft without changing them', async () => {
+	const old = `---\nchatId: live-ada\nprofile: fake-test-installation\nmode: live\n---\nFrom the browser`;
+	await page.evaluate(async (text) => {
+		const root = await navigator.storage.getDirectory();
+		const drafts = await root.getDirectoryHandle('drafts', { create: true });
+		const writable = await (
+			await drafts.getFileHandle('live-old.md', { create: true })
+		).createWritable();
+		await writable.write(text);
+		await writable.close();
+	}, old);
 	await page.reload();
-	await conversation('Maya Chen').click();
-	await expect(composer()).toHaveValue('See you Saturday at ten');
-
-	// Emptying the composer clears the draft: its note stays, with no body.
-	await composer().fill('');
-	await expect
-		.poll(() => opfsText(page, `drafts/${maya}.md`))
-		.toBe(draftNote(''));
-	await expect(conversation('Maya Chen')).not.toContainText('Draft:');
+	const kept = page.getByRole('region', { name: 'Drafts kept in this browser' });
+	await expect(kept).toContainText('From the browser');
+	await kept.getByRole('button', { name: 'Import as draft' }).click();
+	await expect(kept.getByText('Imported', { exact: true })).toBeVisible();
+	expect((await replyFiles())['browser-draft-live-old.md']).toBe(
+		'---\nchatId: live-ada\nprofile: fake-test-installation\nstatus: draft\n---\nFrom the browser',
+	);
+	expect(await opfsText(page, 'drafts/live-old.md')).toBe(old);
+	await expect(replyCard('From the browser')).toBeVisible();
 });
 
-test('2. offline, demo mode still creates and edits a draft', async () => {
-	const online = await goOffline(context);
-	try {
-		await conversation('Noah Patel').click();
-		await expect(composer()).toHaveValue('');
-		await composer().fill('Route looks good');
-		await expect
-			.poll(() => opfsText(page, `drafts/${noah}.md`))
-			.toBe(draftNote('Route looks good', 'demo-noah'));
-		await composer().fill('Route looks good, see you there');
-		await expect
-			.poll(() => opfsText(page, `drafts/${noah}.md`))
-			.toBe(draftNote('Route looks good, see you there', 'demo-noah'));
-		await expect(conversation('Noah Patel')).toContainText(
-			'Draft: Route looks good, see you there',
-		);
-	} finally {
-		await online();
-	}
-	await page.reload();
-	await expect(conversation('Noah Patel')).toContainText(
-		'Draft: Route looks good, see you there',
-	);
-	await conversation('Maya Chen').click();
-	await expect(composer()).toHaveValue('');
-});
-
-test('3. a demo send records its attempt first, and an unconfirmed one waits for a check', async () => {
-	await composer().fill('Ten works');
-	await page.getByRole('button', { name: 'Send demo reply' }).click();
-	await expect(
-		page.getByRole('status').filter({ hasText: 'Demo message sent.' }),
-	).toBeVisible();
-	await expect(page.getByRole('list', { name: 'Messages' })).toContainText(
-		'Ten works',
-	);
-	await expect(composer()).toHaveValue('');
-	expect(await opfsText(page, `attempts/${maya}.md`)).toMatch(
-		/^---\nchatId: demo-maya\nprofile: fictional-v1\nmode: demo\nstate: accepted\nattemptId: \S+\npendingId: \S+\n---\nTen works$/,
-	);
-	await expect
-		.poll(() => opfsText(page, `drafts/${maya}.md`))
-		.toBe(draftNote(''));
-
-	await page.getByRole('button', { name: 'Simulate send failure' }).click();
-	await composer().fill('Maybe eleven?');
-	await page.getByRole('button', { name: 'Send demo reply' }).click();
-	await expect(
-		page.getByText('This send has no saved confirmation.'),
-	).toBeVisible();
-	await expect(conversation('Maya Chen')).toContainText(
-		'Check send: Maybe eleven?',
-	);
-	expect(await opfsText(page, `attempts/${maya}.md`)).toContain(
-		'state: sending',
-	);
-	await expect(
-		page.getByRole('button', { name: 'Send demo reply' }),
-	).toBeDisabled();
-
-	await page.getByRole('button', { name: 'I checked: keep as draft' }).click();
-	await expect(composer()).toHaveValue('Maybe eleven?');
-	await expect
-		.poll(() => opfsText(page, `attempts/${maya}.md`))
-		.toContain('state: acknowledged');
-	await expect(conversation('Maya Chen')).toContainText('Draft: Maybe eleven?');
-});
-
-test('4. a draft another program broke shows its text, and is repaired', async () => {
-	const broken = '---\nchatId: [demo-maya\n---\nMaybe eleven?';
-	await page.evaluate(
-		async ([name, text]) => {
-			const root = await navigator.storage.getDirectory();
-			const drafts = await root.getDirectoryHandle('drafts');
-			const writable = await (
-				await drafts.getFileHandle(name)
-			).createWritable();
-			await writable.write(text);
-			await writable.close();
-		},
-		[`${maya}.md`, broken],
-	);
-	await page.reload();
-	await conversation('Maya Chen').click();
-
-	const repair = page.getByRole('region', { name: 'Draft to repair' });
-	const text = repair.getByLabel(`Text of drafts/${maya}.md`);
-	await expect(text).toHaveValue(broken);
-	await expect(composer()).toHaveCount(0);
-
-	// What is wrong follows the text as typed; text that still does not fit is refused.
-	await text.fill(
-		'---\nchatId: demo-maya\nprofile: fictional-v1\n---\nMaybe eleven?',
-	);
-	await expect(repair.getByRole('list', { name: 'Problems' })).toContainText(
-		'mode is missing',
-	);
-	await repair.getByRole('button', { name: 'Save repair' }).click();
-	await expect(
-		repair.getByRole('alert').filter({ hasText: 'Not saved' }),
-	).toBeVisible();
-
-	await text.fill(draftNote('Maybe eleven?'));
-	await expect(repair.getByText('This text reads.')).toBeVisible();
-	await repair.getByRole('button', { name: 'Save repair' }).click();
-	await expect(composer()).toHaveValue('Maybe eleven?');
-	await expect(repair).toHaveCount(0);
-	expect(await opfsText(page, `drafts/${maya}.md`)).toBe(
-		draftNote('Maybe eleven?'),
-	);
-});
-
-test('5. the files in this browser fit the published contract', async () => {
-	const folder = await mkdtemp(join(tmpdir(), 'messages-device-'));
-	try {
-		const paths = Object.keys(await opfsFiles(page));
-		expect(paths).toEqual(
-			expect.arrayContaining([`drafts/${maya}.md`, `attempts/${maya}.md`]),
-		);
-		for (const path of paths) {
-			const text = await opfsText(page, path);
-			await mkdir(dirname(join(folder, path)), { recursive: true });
-			await writeFile(join(folder, path), text ?? '');
-		}
-		const checked = await run(
-			['bun', '--no-install', cli, 'check', `${app}/contract.json`, folder],
-			{
-				cwd: folder,
-				env: { ...process.env } as Record<string, string>,
-			},
-		);
-		expect(checked.code, `${checked.stdout}\n${checked.stderr}`).toBe(0);
-	} finally {
-		await rm(folder, { recursive: true, force: true });
-	}
-});
-
-test('6. live Beeper goes through the local program', async () => {
+test('3. a ready reply waits, and Send selected sends it once', async () => {
 	await page.getByRole('button', { name: 'Connect Beeper' }).click();
 	await page.getByLabel('Beeper access token').fill('test-token');
 	await page.getByRole('button', { name: 'Connect to live Beeper' }).click();
 	await expect(page.getByText('Live Beeper', { exact: true })).toBeVisible();
-	await expect(conversation('Maya Chen')).toHaveCount(0);
 
 	await conversation('Ada Test').click();
-	await expect(page.getByRole('list', { name: 'Messages' })).toContainText(
-		'Are you there?',
-	);
+	const history = page.getByRole('list', { name: 'Messages' });
+	await expect(history).toContainText('Are you there?');
 	await composer().fill('Here now');
-	const ada = draftId('live', 'fake-test-installation', 'live-ada');
-	await expect
-		.poll(() => opfsText(page, `drafts/${ada}.md`))
-		.toBe(
-			'---\nchatId: live-ada\nprofile: fake-test-installation\nmode: live\n---\nHere now',
-		);
-	await page.getByRole('button', { name: 'Send reply' }).click();
-	await expect(page.getByText('Accepted by Beeper.')).toBeVisible();
-	await expect(page.getByRole('list', { name: 'Messages' })).toContainText(
-		'Here now',
-	);
-	expect(await opfsText(page, `attempts/${ada}.md`)).toContain(
-		'state: accepted',
-	);
+	await page.getByRole('button', { name: 'Save as ready' }).click();
+	await expect(page.getByText('Saved as ready. Send it from Replies.')).toBeVisible();
+	await expect.poll(async () => (await fileWith('Here now'))?.[1]).toContain('status: ready');
+	await expect(history).not.toContainText('Here now');
 
-	await page.getByRole('button', { name: 'Disconnect' }).click();
+	await page.getByRole('button', { name: /^Replies/ }).click();
+	await replyCard('Here now').getByRole('checkbox').check();
+	await sendSelected().click();
+	await expect(repliesView().getByRole('status').first()).toContainText('1 sent to Beeper');
+	// Beeper reports it sent, so its note leaves the folder.
+	await expect.poll(async () => (await fileWith('Here now')) === undefined, { timeout: 20_000 }).toBe(true);
+	await conversation('Ada Test').click();
+	await expect(history).toContainText('Here now');
+	await expect(history.getByText('Here now')).toHaveCount(1);
+});
+
+test('4. a send with no answer waits for a person, holds its chat, and a reload sends nothing', async () => {
+	await composer().fill('Maybe [no answer]');
+	await page.getByRole('button', { name: 'Save as ready' }).click();
+	await expect(page.getByText('Saved as ready.')).toBeVisible();
+	await composer().fill('Second thought');
+	await page.getByRole('button', { name: 'Save as ready' }).click();
+	await expect.poll(async () => (await fileWith('Second thought')) !== undefined).toBe(true);
+
+	await page.getByRole('button', { name: /^Replies/ }).click();
+	await replyCard('Maybe [no answer]').getByRole('checkbox').check();
+	await replyCard('Second thought').getByRole('checkbox').check();
+	await sendSelected().click();
+	await expect(repliesView().getByRole('status').first()).toContainText('0 sent to Beeper, 2 not sent');
+	await expect(replyCard('Maybe [no answer]').getByText('Check in Beeper')).toBeVisible();
+	await expect(replyCard('Second thought')).toContainText('held back to keep their order');
+
+	await page.reload();
+	await expect(page.getByText('Live Beeper', { exact: true })).toBeVisible();
+	await expect(replyCard('Maybe [no answer]').getByText('Check in Beeper')).toBeVisible();
+	await expect(replyCard('Second thought').getByRole('checkbox')).toBeEnabled();
+	await conversation('Ada Test').click();
+	const history = page.getByRole('list', { name: 'Messages' });
+	await expect(history).toContainText('Here now');
+	await expect(history).not.toContainText('Maybe');
+	await expect(history).not.toContainText('Second thought');
+
+	await page.getByRole('button', { name: /^Replies/ }).click();
+	await replyCard('Maybe [no answer]').getByRole('button', { name: 'I checked Beeper: not sent' }).click();
+	await expect(replyCard('Maybe [no answer]').getByText('Not sent', { exact: true })).toBeVisible();
+	expect(await fileWith('Maybe [no answer]')).toBeDefined();
+});
+
+test('5. the Messages folder fits the published contract', async () => {
+	const checked = await run(
+		['bun', '--no-install', cli, 'check', `${app}/contract.json`, folder],
+		{ cwd: folder, env: { ...process.env } as Record<string, string> },
+	);
+	expect(checked.code, `${checked.stdout}\n${checked.stderr}`).toBe(0);
+});
+
+test('6. the demo sends fictional replies through the same steps', async () => {
+	await page.getByRole('button', { name: 'Try the demo' }).click();
 	await expect(page.getByText('Demo · fictional conversations')).toBeVisible();
+	await conversation('Maya Chen').click();
+	await composer().fill('Ten works');
+	await page.getByRole('button', { name: 'Save as ready' }).click();
+	await page.getByRole('button', { name: /^Replies/ }).click();
+	await replyCard('Ten works').getByRole('checkbox').check();
+	await sendSelected().click();
+	await expect(repliesView().getByRole('status').first()).toContainText('1 sent in the demo');
+	await conversation('Maya Chen').click();
+	await expect(page.getByRole('list', { name: 'Messages' })).toContainText('Ten works');
+	// The demo never writes to the folder.
+	expect(await fileWith('Ten works')).toBeUndefined();
+	await page.getByRole('button', { name: 'Leave the demo' }).click();
+	await expect(page.getByText('Live Beeper', { exact: true })).toBeVisible();
 });
 
 test('7. the page, loaded once, reopens offline from its service worker', async ({

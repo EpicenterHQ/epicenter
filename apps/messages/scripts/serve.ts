@@ -1,22 +1,25 @@
 /**
- * Messages on this computer: serves the built app at
- * `http://127.0.0.1:5188` and answers its Beeper operations through the
- * Epicenter CLI's connection (`openBeeper` from `@epicenter/cli/messages`,
- * what `epicenter messages --json` runs), whose token stays in the device
- * keychain. Beeper Desktop listens only on this computer, so this is the
- * one way the page reaches it.
+ * Messages on this computer: serves the built app and answers its operations the way
+ * `epicenter messages --json` does (`openMessages` from
+ * `@epicenter/cli/messages`): reply notes in the Messages folder, the send
+ * journal, and Beeper through the device keychain's token. Beeper Desktop
+ * listens only on this computer, so this is the one way the page reaches
+ * it, and the folder is on this computer, so this is how the page reads it.
  *
- *   bun run --cwd apps/messages start    # build, then serve
+ * The first stdout line is `Messages: <URL>`, after the folder is open and
+ * the server is listening. The desktop shell uses that line as its readiness
+ * signal. Startup failures go to stderr and exit non-zero.
  *
- * Only Messages' own page may ask: a Beeper request must name this server's
- * own host (so a DNS-rebound name cannot reach it), come from its own origin
+ * Only Messages' own page may ask: a request must name this server's own
+ * host (so a DNS-rebound name cannot reach it), come from its own origin
  * (so another site open in the browser cannot), and be JSON.
  */
 import { stat } from 'node:fs/promises';
 import { join, resolve, sep } from 'node:path';
-import type { BeeperAnswer } from '@epicenter/cli/messages-protocol';
+import { parseArgs } from 'node:util';
+import type { MessagesAnswer } from '@epicenter/cli/messages-protocol';
 
-/** The port Messages is served on, and so the origin its drafts are kept under. */
+/** The port Messages is served on. */
 export const MESSAGES_PORT = 5188;
 
 export function serveMessages({
@@ -27,8 +30,8 @@ export function serveMessages({
 	/** The built app (`build/`). */
 	root: string;
 	port?: number;
-	/** Answers one Beeper operation; the operation is not yet validated. */
-	answer: (input: unknown) => Promise<BeeperAnswer>;
+	/** Answers one operation; the operation is not yet validated. */
+	answer: (input: unknown) => Promise<MessagesAnswer>;
 }) {
 	const base = resolve(root);
 	const server = Bun.serve({
@@ -36,7 +39,7 @@ export function serveMessages({
 		port,
 		async fetch(request) {
 			const { pathname } = new URL(request.url);
-			if (pathname === '/beeper') return beeper(request);
+			if (pathname === '/messages') return operation(request);
 			if (request.method !== 'GET' && request.method !== 'HEAD')
 				return new Response(null, { status: 405 });
 			return page(pathname);
@@ -44,7 +47,7 @@ export function serveMessages({
 	});
 	const self = `127.0.0.1:${server.port}`;
 
-	async function beeper(request: Request) {
+	async function operation(request: Request) {
 		if (request.method !== 'POST') return new Response(null, { status: 405 });
 		if (
 			request.headers.get('host') !== self ||
@@ -79,10 +82,39 @@ export function serveMessages({
 }
 
 if (import.meta.main) {
-	const { openBeeper } = await import('@epicenter/cli/messages');
-	const server = serveMessages({
-		root: resolve(import.meta.dir, '../build'),
-		answer: openBeeper().answer,
-	});
-	console.log(`Messages: ${server.url}`);
+	try {
+		const { values } = parseArgs({
+			options: {
+				root: { type: 'string', default: resolve(import.meta.dir, '../build') },
+				port: { type: 'string', default: String(MESSAGES_PORT) },
+				lifeline: { type: 'boolean', default: false },
+			},
+		});
+		const port = Number(values.port);
+		if (!Number.isInteger(port) || port < 0 || port > 65535)
+			throw new Error(`Invalid port: ${values.port}`);
+		const { beeperConnection, messagesPaths, openMessages } = await import(
+			'@epicenter/cli/messages'
+		);
+		const paths = messagesPaths();
+		const messages = await openMessages({
+			...paths,
+			beeper: beeperConnection(),
+		});
+		const server = serveMessages({
+			root: values.root,
+			port,
+			answer: messages.answer,
+		});
+		console.log(`Messages: ${server.url}`);
+		console.log(`Replies: ${paths.folder}/replies`);
+		if (values.lifeline) {
+			await Bun.stdin.text();
+			await server.stop(true);
+			messages.close();
+		}
+	} catch (error) {
+		console.error(error instanceof Error ? error.message : String(error));
+		process.exitCode = 1;
+	}
 }

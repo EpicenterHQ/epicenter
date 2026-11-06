@@ -31,6 +31,8 @@
 	"license": "AGPL-3.0-or-later",
 	"exports": {
 		"./messages": "./src/messages.ts",
+		"./messages-contract": "./src/messages-contract.ts",
+		"./messages-outbox": "./src/messages-outbox.ts",
 		"./messages-protocol": "./src/messages-protocol.ts"
 	}
 }

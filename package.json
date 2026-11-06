@@ -133,6 +133,7 @@
 		"epicenter": "bun --no-install packages/cli/src/bin.ts",
 		"build": "bun run --filter '*' build",
 		"build:capture:desktop": "bun run --cwd apps/capture build:desktop",
+		"build:messages:desktop": "bun run --cwd apps/messages build:desktop",
 		"build:honeycrisp:desktop": "bun run --cwd apps/honeycrisp build:desktop",
 		"build:todos:desktop": "bun run --cwd apps/todos build:desktop",
 		"build:vocab:desktop": "bun run --cwd apps/vocab build:desktop",
@@ -185,7 +186,8 @@
 		"cf:audit:remote": "bun run --cwd ops cf:audit:remote",
 		"jsrepo:build": "jsrepo build",
 		"build:honeycrisp:ui": "bun run --cwd apps/honeycrisp build",
-		"dev:messages": "bun run --cwd apps/messages dev"
+		"dev:messages": "bun run --cwd apps/messages dev",
+		"dev:messages:desktop": "bun run --cwd apps/messages dev:desktop"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "catalog:",

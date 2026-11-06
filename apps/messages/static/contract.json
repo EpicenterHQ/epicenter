@@ -1,52 +1,24 @@
 {
 	"name": "messages",
-	"description": "Messages: a Markdown note per conversation draft, and one for the latest send from it, kept on the device.",
+	"description": "Messages: a Markdown note per outgoing reply, a draft or ready to send through Beeper. Conversations stay in Beeper.",
 	"collections": {
-		"drafts": {
-			"path": "drafts/{id}.md",
+		"replies": {
+			"path": "replies/{id}.md",
 			"fields": {
 				"chatId": {
+					"type": "string"
+				},
+				"chatTitle": {
 					"type": "string"
 				},
 				"profile": {
 					"type": "string"
 				},
-				"mode": {
-					"enum": ["demo", "live"]
+				"status": {
+					"enum": ["draft", "ready"]
 				}
 			},
-			"required": ["chatId", "profile", "mode"]
-		},
-		"attempts": {
-			"path": "attempts/{id}.md",
-			"fields": {
-				"chatId": {
-					"type": "string"
-				},
-				"profile": {
-					"type": "string"
-				},
-				"mode": {
-					"enum": ["demo", "live"]
-				},
-				"state": {
-					"enum": ["sending", "accepted", "acknowledged"]
-				},
-				"attemptId": {
-					"type": "string"
-				},
-				"pendingId": {
-					"type": "string"
-				}
-			},
-			"required": [
-				"chatId",
-				"profile",
-				"mode",
-				"state",
-				"attemptId",
-				"pendingId"
-			]
+			"required": ["chatId", "profile", "status"]
 		}
 	}
 }

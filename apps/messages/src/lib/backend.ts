@@ -1,56 +1,87 @@
+/**
+ * Where the page's operations go: Messages' local program on this computer
+ * (`scripts/serve.ts`), which keeps the reply notes, the send journal and
+ * the Beeper token, or the fictional demo, which runs the same send owner
+ * in memory. Every view takes one `Backend` and asks it the same
+ * operations.
+ */
+import {
+	createMemoryJournal,
+	createMessages,
+} from '@epicenter/cli/messages-outbox';
 import type {
-	BeeperAnswer,
-	BeeperRequest,
 	Conversation,
 	Message,
+	MessagesAnswer,
+	MessagesRequest,
 } from '@epicenter/cli/messages-protocol';
+import { createMemoryReplies } from './demo/replies.js';
 
 export type Backend = {
-	mode: 'demo' | 'live';
-	profile: string;
-	request(request: BeeperRequest): Promise<BeeperAnswer>;
+	kind: 'local' | 'demo';
+	request(request: MessagesRequest): Promise<MessagesAnswer>;
 };
 
-/** What the page says when no local program answers for Beeper. */
+/** What the page says when no local program answers. */
 export const NOT_SERVED_HERE =
-	'Live Beeper needs Messages running on this computer: run `bun run --cwd apps/messages start` and open http://127.0.0.1:5188.';
+	'Your replies and live Beeper need Messages running on this computer: run `bun run --cwd apps/messages start` and open http://127.0.0.1:5188.';
 
-/**
- * The live Beeper connection: Messages' local program (`scripts/serve.ts`)
- * answers each operation through the Epicenter CLI, which keeps the Beeper
- * token in the device keychain; the page never sees it. Served any other
- * way (`vite dev`, a static host), nothing answers, and only the fictional
- * demo works.
- */
-export async function requestBeeper(
-	request: BeeperRequest,
-): Promise<BeeperAnswer> {
-	let response: Response;
-	try {
-		response = await fetch('/beeper', {
-			method: 'POST',
-			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify(request),
-		});
-	} catch {
-		return {
-			kind: 'error',
-			message:
-				request.action === 'send'
-					? 'The Beeper connection did not respond. Check Beeper before sending again.'
-					: 'Could not reach Messages on this computer. Is `bun run --cwd apps/messages start` still running?',
-		};
-	}
+async function post(request: MessagesRequest) {
+	const response = await fetch('/messages', {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify(request),
+	});
 	if (
 		!response.ok ||
 		!response.headers.get('content-type')?.startsWith('application/json')
 	)
-		return { kind: 'error', message: NOT_SERVED_HERE };
-	// SAFETY: the local program answers only with a `BeeperAnswer`.
-	return (await response.json()) as BeeperAnswer;
+		return null;
+	// SAFETY: the local program answers only with a `MessagesAnswer`.
+	return (await response.json()) as MessagesAnswer;
 }
 
-/** Entirely fictional conversations. Sending here cannot reach a network. */
+/**
+ * The local program: every operation goes to it, and it answers each the
+ * way `epicenter messages --json` does. Served any other way (`vite dev`, a
+ * static host), nothing answers.
+ */
+export const local: Backend = {
+	kind: 'local',
+	async request(request) {
+		try {
+			return (
+				(await post(request)) ?? { kind: 'error', message: NOT_SERVED_HERE }
+			);
+		} catch {
+			return {
+				kind: 'error',
+				message:
+					request.action === 'send'
+						? 'Messages on this computer did not answer. Your replies are still in the folder; check Beeper before sending again.'
+						: 'Could not reach Messages on this computer.',
+			};
+		}
+	},
+};
+
+/** Whether the local program answers this page. */
+export async function servedLocally() {
+	try {
+		return (await post({ action: 'replies' })) !== null;
+	} catch {
+		return false;
+	}
+}
+
+/** The profile the demo's fictional accounts have. */
+export const DEMO_PROFILE = 'fictional-v1';
+
+/**
+ * Entirely fictional conversations, with replies and sends in memory. The
+ * send owner is the real one; its Beeper is a fake that cannot reach a
+ * network.
+ */
 export function createDemoBackend(): Backend & {
 	incoming(): void;
 	failNext(): void;
@@ -120,9 +151,66 @@ export function createDemoBackend(): Backend & {
 		}
 		return message;
 	}
+	const owner = createMessages({
+		replies: createMemoryReplies(),
+		journal: createMemoryJournal(),
+		beeper: {
+			async request(request) {
+				switch (request.action) {
+					case 'connect':
+						return { kind: 'connected', profile: DEMO_PROFILE };
+					case 'disconnect':
+						return { kind: 'disconnected' };
+					case 'chats':
+						return {
+							kind: 'chats',
+							page: {
+								items: structuredClone(conversations).sort((a, b) =>
+									b.activity.localeCompare(a.activity),
+								),
+								cursor: null,
+							},
+						};
+					case 'messages':
+						return {
+							kind: 'messages',
+							page: {
+								items: structuredClone(messages.get(request.chatId) ?? []),
+								cursor: null,
+							},
+						};
+					case 'focus':
+						return { kind: 'focused' };
+				}
+			},
+			async profile() {
+				return { profile: DEMO_PROFILE };
+			},
+			async send(chatId, text) {
+				if (shouldFail) {
+					shouldFail = false;
+					return {
+						kind: 'unknown',
+						message: 'Demo: Beeper did not answer.',
+					};
+				}
+				return {
+					kind: 'accepted',
+					pendingId: append(chatId, text, true).id,
+					chatId,
+				};
+			},
+			async status(chatId, pendingId) {
+				const found = messages
+					.get(chatId)
+					?.some((message) => message.id === pendingId);
+				return { kind: 'status', status: found ? 'SUCCESS' : null };
+			},
+		},
+	});
 	return {
-		mode: 'demo',
-		profile: 'fictional-v1',
+		kind: 'demo',
+		request: (request) => owner.answer(request),
 		incoming() {
 			append(
 				'demo-maya',
@@ -132,48 +220,6 @@ export function createDemoBackend(): Backend & {
 		},
 		failNext() {
 			shouldFail = true;
-		},
-		async request(request) {
-			switch (request.action) {
-				case 'connect':
-					return { kind: 'connected', profile: 'fictional-v1' };
-				case 'disconnect':
-					return { kind: 'disconnected' };
-				case 'chats':
-					return {
-						kind: 'chats',
-						page: {
-							items: structuredClone(conversations).sort((a, b) =>
-								b.activity.localeCompare(a.activity),
-							),
-							cursor: null,
-						},
-					};
-				case 'messages':
-					return {
-						kind: 'messages',
-						page: {
-							items: structuredClone(messages.get(request.chatId) ?? []),
-							cursor: null,
-						},
-					};
-				case 'focus':
-					return { kind: 'focused' };
-				case 'send': {
-					if (shouldFail) {
-						shouldFail = false;
-						return {
-							kind: 'error',
-							message:
-								'Demo: the send outcome is unknown. Your draft is retained.',
-						};
-					}
-					return {
-						kind: 'accepted',
-						pendingId: append(request.chatId, request.text, true).id,
-					};
-				}
-			}
 		},
 	};
 }

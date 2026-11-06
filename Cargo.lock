@@ -2793,6 +2793,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "messages"
+version = "0.0.1"
+dependencies = [
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tempfile",
+]
+
+[[package]]
 name = "mime"
 version = "0.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"

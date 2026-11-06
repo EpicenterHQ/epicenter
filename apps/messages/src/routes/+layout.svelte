@@ -1,6 +1,6 @@
 <!--
 	Every page of Messages, under one boundary: until the page's `Startup`
-	has opened this browser's files, the UI kit's spinner shows.
+	knows whether its local program serves it, the UI kit's spinner shows.
 -->
 <script lang="ts">
 	import { Loading } from '@epicenter/ui/loading';

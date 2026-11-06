@@ -1,0 +1,10 @@
+{
+	"$schema": "https://schema.tauri.app/config/2",
+	"productName": "Messages Dev",
+	"identifier": "so.epicenter.messages.dev",
+	"app": {
+		"security": {
+			"capabilities": []
+		}
+	}
+}

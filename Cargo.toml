@@ -8,6 +8,7 @@
 resolver = "2"
 members = [
     "apps/capture/src-tauri",
+    "apps/messages/src-tauri",
     "apps/honeycrisp/src-tauri",
     "apps/todos/src-tauri",
     "apps/vocab/src-tauri",

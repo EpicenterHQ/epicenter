@@ -12,7 +12,7 @@ export const COMMANDS: readonly CommandSpec[] = [
 		minArgs: 0,
 		maxArgs: 0,
 		hidden: true,
-		summary: 'Beeper operation as JSON on stdin',
+		summary: 'Messages operation as JSON on stdin',
 	},
 	{
 		path: ['check'],

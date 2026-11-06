@@ -1,20 +1,23 @@
+<!--
+	One conversation: its messages, read from Beeper and never kept here,
+	the replies to it waiting in the Messages folder, and a new reply.
+-->
 <script lang="ts">
-	import type { Conversation, Message } from '@epicenter/cli/messages-protocol';
+	import type { Conversation, Message, Reply } from '@epicenter/cli/messages-protocol';
 	import { Button } from '@epicenter/ui/button';
 	import { Loading } from '@epicenter/ui/loading';
-	import { createInfiniteQuery, createMutation, createQuery, useQueryClient } from '@tanstack/svelte-query';
+	import { createInfiniteQuery, createMutation } from '@tanstack/svelte-query';
 	import { tick } from 'svelte';
 	import type { Backend } from './backend.js';
-	import { draftId } from './drafts.js';
 	import Composer from './Composer.svelte';
 	import DemoAttachment from './DemoAttachment.svelte';
 	import { demoAttachments } from './demo/attachments.js';
-	let { backend, chat, onBack }: { backend: Backend; chat: Conversation; onBack: () => void } = $props();
-	const queryClient = useQueryClient();
+	import ReplyCard from './ReplyCard.svelte';
+	let { backend, chat, profile, replies, onBack }: { backend: Backend; chat: Conversation; profile: string; replies: Reply[]; onBack: () => void } = $props();
 	let scroller: HTMLDivElement;
 	let follow = $state(true);
 	const messages = createInfiniteQuery(() => ({
-		queryKey: ['beeper', backend.mode, backend.profile, 'messages', chat.id],
+		queryKey: ['beeper', backend.kind, profile, 'messages', chat.id],
 		// SAFETY: the first page has no cursor; later pages use string cursors.
 		initialPageParam: undefined as string | undefined,
 		queryFn: async ({ pageParam }) => {
@@ -25,10 +28,6 @@
 		getNextPageParam: (page) => page.cursor ?? undefined,
 		refetchInterval: 4000,
 		staleTime: 0,
-	}));
-	const draft = createQuery(() => ({
-		queryKey: ['draft', backend.mode, backend.profile, chat.id],
-		queryFn: async () => ({ id: await draftId(backend, chat.id) }),
 	}));
 	const items = $derived([...new Map((messages.data?.pages.flatMap((page) => page.items) ?? []).map((item) => [item.id, item])).values()].sort((a, b) => a.timestamp.localeCompare(b.timestamp) || a.id.localeCompare(b.id)));
 	const openBeeper = createMutation(() => ({ mutationFn: () => backend.request({ action: 'focus', chatId: chat.id }) }));
@@ -52,7 +51,7 @@
 	<header class="flex items-center gap-3 border-b p-4">
 		<Button variant="ghost" size="sm" class="md:hidden" onclick={onBack}>Back</Button>
 		<div class="min-w-0 flex-1"><h2 class="truncate font-semibold">{chat.title}</h2><p class="text-xs text-muted-foreground">{chat.network}</p></div>
-		{#if backend.mode === 'live'}<Button variant="outline" size="sm" disabled={openBeeper.isPending} onclick={() => openBeeper.mutate()}>Open in Beeper</Button>{/if}
+		{#if backend.kind === 'local'}<Button variant="outline" size="sm" disabled={openBeeper.isPending} onclick={() => openBeeper.mutate()}>Open in Beeper</Button>{/if}
 	</header>
 	{#if openBeeper.data?.kind === 'error'}<p role="alert" class="p-3 text-sm text-destructive">{openBeeper.data.message}</p>{/if}
 	{#if openBeeper.error}<p role="alert" class="p-3 text-sm text-destructive">Could not open Beeper.</p>{/if}
@@ -63,7 +62,7 @@
 		{#if !messages.isPending && !messages.error && items.length === 0}<p class="text-sm text-muted-foreground">No messages available in Beeper yet.</p>{/if}
 		<ol class="space-y-4" aria-label="Messages">
 			{#each items as message (message.id)}
-				{@const demoAttachment = backend.mode === 'demo' ? demoAttachments[message.id] : undefined}
+				{@const demoAttachment = backend.kind === 'demo' ? demoAttachments[message.id] : undefined}
 				<li class="flex" class:justify-end={message.mine}>
 					<div class="max-w-[85%] space-y-1 rounded-lg bg-muted px-3 py-2" class:bg-primary={message.mine} class:text-primary-foreground={message.mine}>
 						<p class="text-xs opacity-75">{message.mine ? 'You' : message.sender}</p>
@@ -77,8 +76,10 @@
 			{/each}
 		</ol>
 	</div>
-	{#if draft.error}<p role="alert" class="border-t p-4 text-sm text-destructive">Could not open your draft: {draft.error.message}</p>
-	{:else if draft.data}
-		{#key draft.data.id}<Composer {backend} id={draft.data.id} chatId={chat.id} onAccepted={() => { follow = true; void messages.refetch(); void queryClient.invalidateQueries({ queryKey: ['beeper', backend.mode, backend.profile, 'chats'] }); }} />{/key}
+	{#if replies.length > 0}
+		<section class="max-h-64 space-y-2 overflow-y-auto border-t p-4" aria-label="Replies to this conversation">
+			{#each replies as reply (reply.id)}<ReplyCard {backend} {reply} {profile} />{/each}
+		</section>
 	{/if}
+	<Composer {backend} {chat} {profile} />
 </section>

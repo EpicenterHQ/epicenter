@@ -1,0 +1,8 @@
+{
+	"bundle": {
+		"externalBin": ["binaries/messages-server"],
+		"resources": {
+			"../build-desktop": "site"
+		}
+	}
+}

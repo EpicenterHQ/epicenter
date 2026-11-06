@@ -1,18 +1,39 @@
-/** Beeper's device connection. No message history or token is written to a folder. */
+/**
+ * Messages on this computer: Beeper's device connection, and the one place
+ * the local program (`apps/messages/scripts/serve.ts`) and
+ * `epicenter messages --json` open Messages' folder, send journal and send
+ * owner (`openMessages`). No message history or token is written to a
+ * folder.
+ */
+import { join } from 'node:path';
 import BeeperDesktop from '@beeper/desktop-api';
+import { openDevice } from '@epicenter/folder/node';
 import { Check } from 'typebox/value';
-import {
-	type BeeperAnswer,
-	type BeeperRequest,
-	beeperRequest,
-} from './messages-protocol.js';
+import { resolveAppPaths } from './app-paths.js';
+import { messagesContract } from './messages-contract.js';
+import { openSendJournal } from './messages-journal.js';
+import { type Beeper, createMessages } from './messages-outbox.js';
+import { type MessagesAnswer, messagesRequest } from './messages-protocol.js';
 import { writeJson } from './output.js';
 import { keychain, type SecretStore } from './secrets.js';
+
+const NO_TOKEN =
+	'Create an access token in Beeper Settings → Integrations → Approved connections, then connect.';
+const UNREACHABLE =
+	'Could not reach Beeper. Make sure it is running and the access token is approved.';
+
+/**
+ * Whether Beeper answering `status` means it did not take the message: a
+ * request it refused, but not a timeout or a conflict, after which it may
+ * have.
+ */
+const refusedStatus = (status: number) =>
+	status >= 400 && status < 500 && status !== 408 && status !== 409;
 
 export function createBeeperConnection(
 	secrets: SecretStore,
 	fetcher: typeof fetch = fetch,
-) {
+): Beeper {
 	const entry = 'beeper-desktop';
 	function client(token: string) {
 		return new BeeperDesktop({
@@ -23,7 +44,11 @@ export function createBeeperConnection(
 			fetch: fetcher,
 		});
 	}
-	async function profile(api: BeeperDesktop) {
+	async function saved() {
+		const token = await secrets.get(entry);
+		return token ? client(token) : null;
+	}
+	async function profileOf(api: BeeperDesktop) {
 		const accounts = await api.accounts.list();
 		if (accounts.length === 0)
 			throw new Error('No accounts are connected in Beeper.');
@@ -37,27 +62,21 @@ export function createBeeperConnection(
 			.digest('hex');
 	}
 	return {
-		async request(request: BeeperRequest): Promise<BeeperAnswer> {
+		async request(request): Promise<MessagesAnswer> {
 			try {
 				if (request.action === 'disconnect') {
 					await secrets.delete(entry);
 					return { kind: 'disconnected' };
 				}
-				const token =
+				const api =
 					request.action === 'connect' && request.token
-						? request.token
-						: await secrets.get(entry);
-				if (!token)
-					return {
-						kind: 'error',
-						message:
-							'Create an access token in Beeper Settings → Integrations → Approved connections, then connect.',
-					};
-				const api = client(token);
+						? client(request.token)
+						: await saved();
+				if (!api) return { kind: 'error', message: NO_TOKEN };
 				switch (request.action) {
 					case 'connect': {
-						const identity = await profile(api);
-						if (request.token) await secrets.set(entry, token);
+						const identity = await profileOf(api);
+						if (request.token) await secrets.set(entry, request.token);
 						return { kind: 'connected', profile: identity };
 					}
 					case 'chats': {
@@ -103,61 +122,126 @@ export function createBeeperConnection(
 							},
 						};
 					}
-					case 'send': {
-						if ((await profile(api)) !== request.profile)
-							return {
-								kind: 'error',
-								message:
-									'The connected accounts changed. Reconnect before sending.',
-							};
-						if (!request.text.trim())
-							return { kind: 'error', message: 'Write a message first.' };
-						const sent = await api.messages.send(request.chatId, {
-							text: request.text,
-						});
-						return { kind: 'accepted', pendingId: sent.pendingMessageID };
-					}
 					case 'focus':
 						await api.focus({ chatID: request.chatId });
 						return { kind: 'focused' };
 				}
 			} catch {
 				// SDK errors may contain request bodies. Never print them or expose them to the page.
+				return { kind: 'error', message: UNREACHABLE };
+			}
+		},
+		async profile() {
+			try {
+				const api = await saved();
+				if (!api) return { message: 'Beeper is not connected.' };
+				return { profile: await profileOf(api) };
+			} catch {
+				return { message: UNREACHABLE };
+			}
+		},
+		async send(chatId, text) {
+			let api: BeeperDesktop | null;
+			try {
+				api = await saved();
+			} catch {
+				api = null;
+			}
+			if (!api)
+				return { kind: 'refused', message: 'Beeper is not connected.' };
+			try {
+				const sent = await api.messages.send(chatId, { text });
 				return {
-					kind: 'error',
-					message:
-						request.action === 'send'
-							? 'Beeper did not confirm the request. Check the conversation in Beeper before sending again.'
-							: 'Could not reach Beeper. Make sure it is running and the access token is approved.',
+					kind: 'accepted',
+					pendingId: sent.pendingMessageID,
+					chatId: sent.chatID,
 				};
+			} catch (error) {
+				// Only an answer from Beeper says it did not take the message; a
+				// lost connection or timeout says nothing either way.
+				if (
+					error instanceof BeeperDesktop.APIError &&
+					typeof error.status === 'number' &&
+					refusedStatus(error.status)
+				)
+					return {
+						kind: 'refused',
+						message: `Beeper refused the message (status ${error.status}).`,
+					};
+				return { kind: 'unknown', message: 'Beeper did not confirm the send.' };
+			}
+		},
+		async status(chatId, pendingId) {
+			try {
+				const api = await saved();
+				if (!api) return { kind: 'error', message: 'Beeper is not connected.' };
+				const message = await api.messages.retrieve(pendingId, {
+					chatID: chatId,
+				});
+				return { kind: 'status', status: message.sendStatus?.status ?? null };
+			} catch (error) {
+				if (error instanceof BeeperDesktop.NotFoundError)
+					return { kind: 'status', status: null };
+				return { kind: 'error', message: UNREACHABLE };
 			}
 		},
 	};
 }
 
 /**
- * Answer Beeper operations the way `epicenter messages --json` does: an
- * operation that is not one `beeperRequest` admits is refused, and any other
- * runs on this installation's connection, whose token is in the device
- * keychain. Messages' local program (`apps/messages/scripts/serve.ts`)
- * answers its page with this, so the page never holds the token.
+ * Where Messages keeps its reply notes: `Messages` in the Epicenter folder
+ * (`~/Epicenter/Messages`, or under `EPICENTER_FOLDER_DIR`), and its send
+ * journal, under the app's data directory, outside any folder.
  */
-export function openBeeper(): {
-	answer(input: unknown): Promise<BeeperAnswer>;
-} {
+export function messagesPaths(env = process.env) {
+	const { folderDir, dataDir } = resolveAppPaths(env);
+	return {
+		folder: join(folderDir, 'Messages'),
+		journal: join(dataDir, 'messages', 'sends.sqlite'),
+	};
+}
+
+/** This installation's Beeper connection, whose token is in the device keychain. */
+export function beeperConnection(): Beeper {
 	// Development and explicit app-data locations never adopt another installation's token.
 	const scope = new Bun.CryptoHasher('sha256')
 		.update(process.env.EPICENTER_DATA_DIR ?? 'terminal')
 		.digest('hex');
-	const connection = createBeeperConnection(
-		keychain(`so.epicenter.messages.${scope}`),
-	);
+	return createBeeperConnection(keychain(`so.epicenter.messages.${scope}`));
+}
+
+/**
+ * Messages' operations as `epicenter messages --json` answers them, over
+ * the reply notes in `folder`, the send journal at `journal`, and
+ * `beeper`: an operation that is not one `messagesRequest` admits is
+ * refused, and any other goes to the one send owner (`createMessages`).
+ * Messages' local program answers its page with this, so the page never
+ * holds the token and every send, from either, is journaled the same way.
+ */
+export async function openMessages({
+	folder,
+	journal,
+	beeper,
+}: {
+	folder: string;
+	journal: string;
+	beeper: Beeper;
+}) {
+	const device = await openDevice(messagesContract, { path: folder });
+	if (device.error !== null) throw new Error(device.error.message);
+	const sends = openSendJournal(journal);
+	const owner = createMessages({
+		replies: device.data.replies,
+		journal: sends,
+		beeper,
+	});
 	return {
-		async answer(input) {
-			if (!Check(beeperRequest, input))
-				return { kind: 'error', message: 'Invalid Beeper operation.' };
-			return connection.request(input);
+		async answer(input: unknown): Promise<MessagesAnswer> {
+			if (!Check(messagesRequest, input))
+				return { kind: 'error', message: 'Invalid Messages operation.' };
+			return owner.answer(input);
 		},
+		close: () => sends.close(),
 	};
 }
 
@@ -168,7 +252,23 @@ export async function messagesCommand() {
 	} catch {
 		input = null;
 	}
-	const answer = await openBeeper().answer(input);
-	writeJson(answer);
-	return Check(beeperRequest, input) ? 0 : 2;
+	let messages: Awaited<ReturnType<typeof openMessages>>;
+	try {
+		messages = await openMessages({
+			...messagesPaths(),
+			beeper: beeperConnection(),
+		});
+	} catch (error) {
+		writeJson({
+			kind: 'error',
+			message: `The Messages folder could not be opened: ${error instanceof Error ? error.message : String(error)}`,
+		} satisfies MessagesAnswer);
+		return 1;
+	}
+	try {
+		writeJson(await messages.answer(input));
+	} finally {
+		messages.close();
+	}
+	return Check(messagesRequest, input) ? 0 : 2;
 }
