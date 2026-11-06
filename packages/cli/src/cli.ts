@@ -168,8 +168,9 @@ needs no epicenter.json to sync; it adds checking. Refuses a folder that has
 one. --dry-run prints the proposal and writes nothing.`,
 	export: `Writes the history of the folder <dir> names (this directory by default)
 into the Git repository at --git <repository>, made when absent: one commit per
-change on main, with its author and time, notes as files and every other file
-as a Git LFS pointer, its object in .git/lfs/objects, and each mark as a tag.
+change on main, with its author and time, notes and epicenter.json as files and
+every other file as a Git LFS pointer, its object in .git/lfs/objects, and each
+mark as a tag (projection v2).
 Run again, it adds only the changes since the last export, and a new export of
 the same history makes the same commits. A file whose bytes were purged keeps
 its pointer and is named. Push the repository anywhere to keep a mirror.`,

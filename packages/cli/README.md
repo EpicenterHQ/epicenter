@@ -187,9 +187,11 @@ change's number, a mark's name, or a time.
   removing files made since; it names versions the server keeps, so no bytes
   travel, and the next sync brings it here.
 - `export [<dir>] --git <repository>` writes the folder's history into a Git
-  repository (`src/git/export.ts`, projection v1): a commit per change, notes
-  as files and every other file as a Git LFS pointer with its object in
-  `.git/lfs/objects`, marks as tags. It is deterministic and incremental.
+  repository (`src/git/export.ts`, projection v2): a commit per change, notes
+  and `epicenter.json` as plain files and every other file as a Git LFS
+  pointer with its object in `.git/lfs/objects`, marks as tags. It is
+  deterministic and incremental, and never continues an export in another
+  projection.
 - `import --git <path or URL>` makes a folder of a Git repository's
   first-parent history, never writing the source (`src/git/import.ts`); with
   `--replace-original`, a clean local repository moves aside, its `.git`

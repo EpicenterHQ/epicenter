@@ -7,10 +7,12 @@
  *
  * Key behaviors:
  * - An export passes `git fsck`, and checking out each change gives the
- *   folder as it was then: notes as blobs, every other file as an LFS
- *   pointer whose object is in `.git/lfs/objects`, each mark a tag
+ *   folder as it was then (projection v2): notes and `epicenter.json` as
+ *   blobs, every other file as an LFS pointer whose object is in
+ *   `.git/lfs/objects`, each mark a tag
  * - An export run again writes only the new changes, and a fresh export
- *   makes the same commit ids; a purged version keeps its pointer
+ *   makes the same commit ids; a purged version keeps its pointer; an
+ *   export in an older projection is never continued
  * - An import replays the first-parent history with each commit's author,
  *   time, and message, fetches LFS objects, turns tags into marks, writes
  *   a real directory recorded as synced, and never writes the source; an
@@ -174,7 +176,7 @@ test('an export passes fsck, checks out each change as it was, runs again increm
 		);
 		for (const file of then.files) {
 			const stored = tree.get(file.path) as Uint8Array;
-			if (file.path.endsWith('.md')) {
+			if (file.path.endsWith('.md') || file.path === 'epicenter.json') {
 				expect(sha256(stored)).toBe(file.version);
 				continue;
 			}
@@ -245,6 +247,21 @@ test('an export passes fsck, checks out each change as it was, runs again increm
 			dir: a,
 		}),
 	).rejects.toThrow(`holds the export of folder ${folder}`);
+
+	// Nor continues one in an older projection, whose attributes differ.
+	const v1 = join(scratch, 'export-v1');
+	await exportGit({ folder, history: repository, dir: v1 });
+	await writeFile(
+		join(v1, '.gitattributes'),
+		'* filter=lfs diff=lfs merge=lfs -text\n*.[mM][dD] !filter !diff !merge text\n.gitattributes !filter !diff !merge text\n',
+	);
+	await gitText(['commit', '--quiet', '--amend', '--no-edit', '--all'], {
+		cwd: v1,
+	});
+	await commit([{ path: 'notes/d.md', bytes: text('d\n') }]);
+	await expect(
+		exportGit({ folder, history: repository, dir: v1 }),
+	).rejects.toThrow('older projection');
 	expect(
 		messageOf(folder, {
 			seq: 9,
@@ -288,8 +305,10 @@ async function sourceRepository(name: string) {
 	await run('lfs', 'track', '*.bin');
 	const big = crypto.getRandomValues(new Uint8Array(30_000));
 	await writeFile(join(dir, 'a.md'), '---\ntitle:   Spaced\n---\nfirst\n');
+	await writeFile(join(dir, 'epicenter.json'), '{"title":"Vault"}\n');
 	await writeFile(join(dir, 'big.bin'), big);
-	await run('add', '.gitattributes', 'a.md', 'big.bin');
+	await run('add', '.gitattributes', 'a.md', 'epicenter.json', 'big.bin');
+
 	await commitAs('First draft\n\nWith a body.', 1_600_000_000);
 	await run('tag', 'v1');
 	await mkdir(join(dir, 'notes'), { recursive: true });

@@ -1,8 +1,9 @@
 /**
- * `epicenter export --git <dir>` (ADR-0824, ADR-0826): a folder's history,
- * written as a Git repository by `git fast-import`, in projection v1.
+ * `epicenter export --git <dir>` (ADR-0824, ADR-0826, ADR-0827): a folder's
+ * history, written as a Git repository by `git fast-import`, in projection
+ * v2.
  *
- * Projection v1, deterministic, so the same log always makes the same
+ * Projection v2, deterministic, so the same log always makes the same
  * commit ids:
  * - one commit per change on `main`, its parent the previous change's;
  * - author and committer the change's author as stored, at its time in
@@ -10,13 +11,17 @@
  * - the message an imported commit kept, or one naming what the change
  *   wrote, then the trailers `Epicenter-Change: <seq>`,
  *   `Epicenter-Folder: <id>`, and `Epicenter-Digest: <digest>`;
- * - a note (`.md`) as a blob of its bytes; every other file as a Git LFS
- *   pointer whose oid is its version, with its bytes written to
+ * - the text the platform reads, a note (`.md`, at any depth) and the
+ *   folder's `epicenter.json`, as a blob of its bytes; every other file as
+ *   a Git LFS pointer whose oid is its version, with its bytes written to
  *   `.git/lfs/objects`; a version whose bytes were purged keeps its pointer
  *   and is listed in the report;
  * - `.gitattributes`, written by the export alone in the first commit, and
  *   any `.gitattributes` the folder holds left out;
  * - each mark as a lightweight tag at its change.
+ *
+ * Projection v1 wrote `epicenter.json` as an LFS pointer; its
+ * `.gitattributes` differ, so a v1 export is never continued in v2.
  *
  * It is incremental: fast-import's marks (`.git/epicenter/marks`, mark
  * `:<seq>` for change `seq`) and the tip's `Epicenter-Change` trailer say
@@ -27,7 +32,7 @@
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { isNotePath } from '@epicenter/definition/contract';
+import { CONTRACT_PATH, isNotePath } from '@epicenter/definition/contract';
 import type { FolderRepository, LoggedChange } from '@epicenter/folder/sync';
 import { git, gitText, lfsObjectPath, lfsPointer } from './run.ts';
 
@@ -52,11 +57,19 @@ export type ExportReport = {
 	checkout: 'made' | 'moved' | 'left';
 };
 
-/** The attributes projection v1 writes: notes are Git's, every other file Git LFS's. */
+/**
+ * The attributes projection v2 writes: notes and the folder's
+ * `epicenter.json` are Git's, every other file Git LFS's.
+ */
 export const EXPORT_ATTRIBUTES = `* filter=lfs diff=lfs merge=lfs -text
 *.[mM][dD] !filter !diff !merge text
+/${CONTRACT_PATH} !filter !diff !merge text
 .gitattributes !filter !diff !merge text
 `;
+
+/** Whether the export writes `path` as a blob of its bytes: text the platform reads. */
+export const isPlainPath = (path: string) =>
+	isNotePath(path) || path === CONTRACT_PATH;
 
 const PAGE = 200;
 const NOTE_CHUNK = 200;
@@ -150,6 +163,13 @@ export async function exportGit({
 			throw new Error(
 				`${dir} holds the export of folder ${found.folder}, not ${folder}`,
 			);
+		const attributes = await git(['show', `${old}:.gitattributes`], {
+			cwd: dir,
+		});
+		if (new TextDecoder().decode(attributes.stdout) !== EXPORT_ATTRIBUTES)
+			throw new Error(
+				`${dir} holds an export in an older projection; export into a new directory`,
+			);
 		from = found.seq;
 		const marks = await readMarks(marksPath);
 		if (marks.get(from) !== old) {
@@ -204,12 +224,12 @@ export async function exportGit({
 			const page = await history.log({ after, limit: PAGE });
 			if (page.error !== null) throw new Error(page.error.message);
 			if (page.data.length === 0) break;
-			// The notes' bytes, read together; each other file's, one at a time.
+			// The plain files' bytes, read together; each other file's, one at a time.
 			const notes = [
 				...new Set(
 					page.data.flatMap(({ files }) =>
 						files.flatMap(({ path, version }) =>
-							version !== null && isNotePath(path) ? [version] : [],
+							version !== null && isPlainPath(path) ? [version] : [],
 						),
 					),
 				),
@@ -248,7 +268,7 @@ export async function exportGit({
 						continue;
 					}
 					let bytes: Uint8Array | null = null;
-					if (isNotePath(path)) bytes = noteBytes.get(version) ?? null;
+					if (isPlainPath(path)) bytes = noteBytes.get(version) ?? null;
 					else {
 						const object = lfsObjectPath(gitDir, version);
 						if (!existsSync(object)) {
@@ -263,7 +283,8 @@ export async function exportGit({
 						bytes = text(lfsPointer(version, size ?? 0));
 					}
 					if (bytes === null) {
-						// A note whose bytes were purged: its pointer, as any other file's.
+						// A plain file whose bytes were purged: its pointer, as any other file's.
+
 						report.purged.push({ seq: change.seq, path, version });
 						bytes = text(lfsPointer(version, size ?? 0));
 					}

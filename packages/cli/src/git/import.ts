@@ -1,7 +1,8 @@
 /**
  * `epicenter import --git <repository> [--branch <name>]` (ADR-0826): a
- * Git repository's history entering Epicenter as a folder, projection v1
- * run backwards.
+ * Git repository's history entering Epicenter as a folder: the export's
+ * projections run backwards, a blob that is an LFS pointer read as its
+ * object.
  *
  * - The repository, a path or a URL, is mirrored into a scratch directory
  *   and read there, so the source is never written. Its Git LFS objects
