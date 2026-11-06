@@ -10,6 +10,7 @@
 - **Amended by:** [ADR-0814](0814-one-window-shows-one-folder.md) at an app's folder picker: a window shows one folder, and another folder opens in another window.
 - **Amended by:** [ADR-0820](0820-a-share-is-an-invitation-to-an-email-and-reaching-every-folder-is-a-permission.md) at sharing, owners, and app reach: a share is an invitation to an email; members are equal, and a reader only reads; `folders:all` reaches every folder, and only it attaches a folder to an app.
 - **Amended by:** [ADR-0821](0821-a-computer-remembers-what-it-synced-and-a-shell-limits-each-window-to-its-folder.md) at a copy asking before it pushes and an app reaching its attached folders: a copy stays local with no question, and on the desktop a first-party program reaches every folder the person holds.
+- **Amended by:** [ADR-0824](0824-a-folders-history-is-a-log-of-versions-and-git-is-how-it-leaves.md) at `git clone` reaching a folder's history: there is no Git remote; history leaves by `epicenter export --git`.
 - **Unbuilt:** sharing managed by person (removing someone from every folder, sharing what another person has); "Use this folder with" an app and the question a copy asks, in a window (the CLI asks with `--new` or `--same`); `epicenter init` converting YAML front matter.
 
 ## Context

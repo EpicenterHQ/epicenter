@@ -5,6 +5,7 @@
 - **Supersedes:** [ADR-0714](0714-a-files-extension-decides-how-every-folder-merges-it.md) (a file's extension decides how every folder merges it): one rule for every folder, with no binary-extension list, size cap, or migration between lists.
 - **Relates:** [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) (every file that is not a `.md` note and not a hidden path is Git LFS), [ADR-0715](0715-the-epicenter-app-browses-every-folder-and-document-a-person-has.md) (Epicenter syncs folders other programs made), [ADR-0733](0733-your-own-git-in-an-epicenter-folder-is-plain-git.md) (your own git is plain Git).
 - **Amended by:** [ADR-0771](0771-plain-files-let-epicenter-refuse-renames-attachment-conflict-copies-and-a-second-store.md) at conflict copies: the later write to an attached file wins, and the loser stays in history.
+- **Amended by:** [ADR-0824](0824-a-folders-history-is-a-log-of-versions-and-git-is-how-it-leaves.md) at files other than notes kept in Git LFS: every file's bytes are kept by their SHA-256, inline or in the blob store by size.
 - **Unbuilt:** the screen line in Epicenter.
 
 ## Context

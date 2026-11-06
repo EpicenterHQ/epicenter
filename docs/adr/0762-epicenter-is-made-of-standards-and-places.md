@@ -4,6 +4,7 @@
 - **Date:** 2026-11-04
 - **Amended by:** [ADR-0763](0763-epicenters-doctrine-is-three-roots-and-one-rule-for-apps.md) at its decision: its two halves become two roots of Epicenter's doctrine, "programs meet in shared places, never by calling each other" and "speak the standard; invent only what none covers"; [ADR-0764](0764-reaching-a-model-is-epicenter-ais-alone-in-the-openai-vocabulary.md) at "Open, not decided": the agent loop speaks the OpenAI vocabulary and keeps only its stream type, `EngineChunk`.
 - **Relates:** [ADR-0758](0758-epicenter-adapts-to-what-you-already-have-and-owns-only-what-nothing-else-can.md) (its outward form: Epicenter adapts to what you already have), [ADR-0753](0753-an-app-declares-what-it-is-and-what-it-needs-the-platform-supplies-where-how-and-when.md) (an app declares what it is and what it needs), [ADR-0750](0750-sync-is-like-save-any-program-can-sync-a-folder-and-none-owns-it.md) (programs meet in the folder), [ADR-0757](0757-every-model-is-an-endpoint-every-model-file-is-a-cache.md) (programs meet in the model cache; an endpoint is a Fetch API function).
+- **Amended by:** [ADR-0824](0824-a-folders-history-is-a-log-of-versions-and-git-is-how-it-leaves.md) at history being Git and stock `git` working unchanged: history leaves as Git, and stock Git reads an export but writes nothing.
 - **Unbuilt:** the standards and places ADR-0757 adopts (`endpoint.fetch`, the Hugging Face cache as every app's model store) and `settle` in the Rust sync core ([ADR-0751](0751-every-native-app-carries-one-sync-core.md)).
 
 ## Context

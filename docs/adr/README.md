@@ -929,7 +929,7 @@ When you add an ADR, add its row here.
 | [0731](0731-every-app-signs-in-as-its-site.md) | Every app signs in as its site | Accepted (supersedes 0720; amends 0549, 0606, 0701, and 0719; amended by 0732 and 0740) |
 | [0732](0732-a-grant-reaches-what-the-person-chooses-at-consent.md) | A grant reaches what the person chooses at consent | Accepted (amends 0718 and 0731; amended by 0787, 0793, and 0811) |
 | [0733](0733-your-own-git-in-an-epicenter-folder-is-plain-git.md) | Your own git in an Epicenter folder is plain Git | Accepted (amends 0565, 0713, and 0718; amended by 0748, 0751, 0795, 0803, and 0804) |
-| [0734](0734-every-file-other-than-a-note-is-kept-whole-in-git-lfs.md) | Every file other than a note is kept whole in Git LFS | Accepted (supersedes 0714) |
+| [0734](0734-every-file-other-than-a-note-is-kept-whole-in-git-lfs.md) | Every file other than a note is kept whole in Git LFS | Accepted (supersedes 0714; amended by 0824) |
 | [0735](0735-sync-gives-files-a-history-it-never-merges-two.md) | Sync gives files a history; it never merges two | Accepted (amends 0700 and 0721; amended by 0761) |
 | [0736](0736-a-folder-outside-the-library-is-enrolled-through-a-link-the-person-names.md) | A folder outside the library is enrolled through a link the person names | Accepted (amends 0715 and 0721) |
 | [0737](0737-an-apps-actions-are-request-notes-it-watches-in-this-devices-place.md) | An app's actions are request notes it watches in this device's place | Accepted |
@@ -957,7 +957,7 @@ When you add an ADR, add its row here.
 | [0759](0759-an-apps-native-shell-is-generated-on-every-build.md) | An app's native shell is generated on every build | Accepted (amends 0753 and 0756) |
 | [0760](0760-global-shortcuts-are-a-capability.md) | Global shortcuts are a capability | Accepted (amends 0753 and 0755) |
 | [0761](0761-sync-never-merges-two-unrelated-histories.md) | Sync never merges two unrelated histories | Accepted (amends 0735) |
-| [0762](0762-epicenter-is-made-of-standards-and-places.md) | Epicenter is made of standards and places | Accepted (amended by 0763 and 0764) |
+| [0762](0762-epicenter-is-made-of-standards-and-places.md) | Epicenter is made of standards and places | Accepted (amended by 0763, 0764, and 0824) |
 | [0763](0763-epicenters-doctrine-is-three-roots-and-one-rule-for-apps.md) | Epicenter's doctrine is three roots and one rule for apps | Accepted (amends 0719 and 0762; amended by 0787, 0801, 0813, and 0818) |
 | [0764](0764-reaching-a-model-is-epicenter-ais-alone-in-the-openai-vocabulary.md) | Reaching a model is `@epicenter/ai`'s alone, in the OpenAI vocabulary | Accepted (amends 0740, 0755, 0757, and 0762) |
 | [0765](0765-choose-by-value-not-by-name-every-capability-has-the-same-shape.md) | Choose by value, not by name; every capability has the same shape | Accepted (amends 0754; amended by 0766, 0769, and 0787) |
@@ -998,15 +998,15 @@ When you add an ADR, add its row here.
 | [0800](0800-a-stores-wire-speaks-http-conditional-requests-and-apps-connect-agents-to-the-cli.md) | A store's wire speaks HTTP's conditional requests, and apps connect agents to the CLI | Accepted (amends 0798 and 0799; amended by 0807 and 0816) |
 | [0801](0801-records-from-0763-to-0800-agree-on-the-merge-rust-patching-marks-and-agents.md) | Records from 0763 to 0800 agree on the merge, Rust's part, the marks, and agents | Accepted (amends 0763, 0780, 0788, 0790, 0793, 0794, and 0799; amended by 0804) |
 | [0802](0802-people-share-spaces-an-app-works-in-one-at-a-time-and-a-folder-carries-its-contract.md) | People share spaces, an app works in one at a time, and a folder carries its contract | Accepted (amends 0770, 0772, 0791, and 0794; amended by 0805, 0811, and 0814) |
-| [0803](0803-clients-sync-only-with-epicenter-servers-and-sync-is-a-function-of-two-stores.md) | Clients sync only with Epicenter servers, and sync is a function of two stores | Accepted (amends 0733 and 0794) |
+| [0803](0803-clients-sync-only-with-epicenter-servers-and-sync-is-a-function-of-two-stores.md) | Clients sync only with Epicenter servers, and sync is a function of two stores | Accepted (amends 0733 and 0794; amended by 0824) |
 | [0804](0804-a-computer-keeps-a-plain-folder-and-every-surface-syncs-with-one-typescript-function.md) | A computer keeps a plain folder, and every surface syncs with one TypeScript function | Accepted (supersedes 0751; amends 0733, 0772, 0785, 0788, 0791, 0793, 0794, 0795, and 0801; amended by 0805, 0808, 0809, 0815, 0821, and 0822) |
 | [0805](0805-a-folder-is-recognized-by-epicenter-json-which-is-its-contract.md) | A folder is recognized by `epicenter.json`, which is its contract | Accepted (amends 0711, 0772, 0802, and 0804; amended by 0810, 0811, 0812, and 0813) |
 | [0806](0806-an-open-app-checks-for-changes-and-a-sync-never-silently-loses-an-edit.md) | An open app checks for changes, and a sync never silently loses an edit | Accepted (amends 0750; amended by 0807 and 0819) |
 | [0807](0807-an-app-writes-only-to-a-local-store-and-only-sync-talks-to-a-server.md) | An app writes only to a local store, and only sync talks to a server | Accepted (amends 0773, 0786, 0788, 0798, 0800, and 0806; amended by 0808 and 0823) |
-| [0808](0808-a-files-version-is-its-git-blob-id-on-every-store.md) | A file's version is its Git blob id on every store | Accepted (amends 0774, 0794, 0798, 0804, and 0807; amended by 0809) |
-| [0809](0809-a-repository-is-a-spaces-app-and-bytes-nothing-needs-are-collected-or-purged.md) | A repository is a space's app, and bytes nothing needs are collected or purged | Accepted (amends 0804 and 0808; amended by 0810 and 0811) |
+| [0808](0808-a-files-version-is-its-git-blob-id-on-every-store.md) | A file's version is its Git blob id on every store | Accepted (amends 0774, 0794, 0798, 0804, and 0807; amended by 0809 and 0824) |
+| [0809](0809-a-repository-is-a-spaces-app-and-bytes-nothing-needs-are-collected-or-purged.md) | A repository is a space's app, and bytes nothing needs are collected or purged | Accepted (amends 0804 and 0808; amended by 0810, 0811, and 0824) |
 | [0810](0810-a-folder-needs-no-app-and-a-repository-is-a-spaces-named-folder.md) | A folder needs no app, and a repository is a space's named folder | Accepted (amends 0805 and 0809; amended by 0811 and 0812) |
-| [0811](0811-folders-are-shared-directly-and-an-app-reaches-the-folders-attached-to-it.md) | Folders are shared directly, and an app reaches the folders attached to it | Accepted (supersedes 0770 and 0791; amends 0732, 0772, 0802, 0805, 0809, and 0810; amended by 0812, 0813, 0814, 0820, and 0821) |
+| [0811](0811-folders-are-shared-directly-and-an-app-reaches-the-folders-attached-to-it.md) | Folders are shared directly, and an app reaches the folders attached to it | Accepted (supersedes 0770 and 0791; amends 0732, 0772, 0802, 0805, 0809, and 0810; amended by 0812, 0813, 0814, 0820, 0821, and 0824) |
 | [0812](0812-an-apps-schema-is-a-view-that-must-fit-a-folders-contract.md) | An app's schema is a view that must fit a folder's contract | Accepted (amends 0805, 0810, and 0811) |
 | [0813](0813-epicenter-is-your-folders-and-apps-are-lenses.md) | Epicenter is your folders, and apps are lenses | Accepted (amends 0763, 0805, and 0811) |
 | [0814](0814-one-window-shows-one-folder.md) | One window shows one folder | Accepted (amends 0802 and 0811) |
@@ -1019,3 +1019,4 @@ When you add an ADR, add its row here.
 | [0821](0821-a-computer-remembers-what-it-synced-and-a-shell-limits-each-window-to-its-folder.md) | A computer remembers what it synced, and a shell limits each window to its folder | Accepted (amends 0804, 0811, 0818, 0819, and 0820; amended by 0822) |
 | [0822](0822-only-epicenter-syncs-on-a-computer-and-a-folder-holds-only-its-content.md) | Only Epicenter syncs on a computer, and a folder holds only its content | Accepted (amends 0785, 0804, 0819, and 0821) |
 | [0823](0823-on-the-web-the-folder-on-the-server-is-the-apps-store.md) | On the web, the folder on the server is the app's store | Accepted (amends 0807) |
+| [0824](0824-a-folders-history-is-a-log-of-versions-and-git-is-how-it-leaves.md) | A folder's history is a log of versions, and Git is how it leaves | Accepted (amends 0734, 0762, 0803, 0808, 0809, and 0811) |
