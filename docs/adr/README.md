@@ -1004,4 +1004,4 @@ When you add an ADR, add its row here.
 | [0806](0806-an-open-app-checks-for-changes-and-a-sync-never-silently-loses-an-edit.md) | An open app checks for changes, and a sync never silently loses an edit | Accepted (amends 0750; amended by 0807) |
 | [0807](0807-an-app-writes-only-to-a-local-store-and-only-sync-talks-to-a-server.md) | An app writes only to a local store, and only sync talks to a server | Accepted (amends 0773, 0786, 0788, 0798, 0800, and 0806; amended by 0808) |
 | [0808](0808-a-files-version-is-its-git-blob-id-on-every-store.md) | A file's version is its Git blob id on every store | Accepted (amends 0774, 0794, 0798, 0804, and 0807; amended by 0809) |
-| [0809](0809-a-repository-is-addressed-by-id-and-unreferenced-bytes-are-collected-or-purged.md) | A repository is addressed by its id, and bytes nothing needs are collected or purged | Accepted (amends 0804 and 0808) |
+| [0809](0809-a-repository-is-a-spaces-app-and-bytes-nothing-needs-are-collected-or-purged.md) | A repository is a space's app, and bytes nothing needs are collected or purged | Accepted (amends 0804 and 0808) |
