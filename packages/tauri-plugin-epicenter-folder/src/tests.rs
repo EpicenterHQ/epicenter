@@ -18,10 +18,11 @@
 //! - The shell's own credentials, `credentials.json` at the top of the
 //!   AppData root, are never listed, read, or written by a page.
 //! - Storage reaches the data paths of the root and nothing else: never
-//!   `.git`, never outside it, never through a link. A save stages in the
-//!   root's `.epicenter/saves` and makes no `.git`; a `.git` file or link
-//!   opens and saves and is left as it is. Opening sweeps staged files a
-//!   stopped save left.
+//!   `.git`, never outside it, never through a link. A save stages beside
+//!   its target and makes no `.git`; a `.git` file or link opens and saves
+//!   and is left as it is. Opening sweeps saves a stopped writer left, and
+//!   what an older build kept in `.epicenter`, whose files a page can still
+//!   read and remove.
 //! - A put takes its bytes as a raw body and its arguments as
 //!   percent-encoded headers; a JSON array of bytes, Tauri's postMessage
 //!   fallback, is accepted too. A file read returns its bytes raw. A
@@ -760,20 +761,24 @@ fn git(window: &WebviewWindow<MockRuntime>, args: &[&str]) -> Result<String, Str
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
-/// `.epicenter/saves` inside the folder, where a put stages its bytes.
-fn saves(fixture: &Fixture) -> PathBuf {
-    epicenter_folder_core::state::saves(&fixture.root)
-}
-
-/// The staged files left in the folder's `saves`.
+/// The staged saves left anywhere in the folder, by folder-relative path.
 fn staged(fixture: &Fixture) -> Vec<String> {
-    std::fs::read_dir(saves(fixture))
-        .map(|entries| {
-            entries
-                .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
-                .collect()
-        })
-        .unwrap_or_default()
+    fn visit(directory: &std::path::Path, prefix: &str, found: &mut Vec<String>) {
+        let Ok(entries) = std::fs::read_dir(directory) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if entry.file_type().unwrap().is_dir() {
+                visit(&entry.path(), &format!("{prefix}{name}/"), found);
+            } else if epicenter_folder_core::state::is_staged_save(&name) {
+                found.push(format!("{prefix}{name}"));
+            }
+        }
+    }
+    let mut found = Vec::new();
+    visit(&fixture.root, "", &mut found);
+    found
 }
 
 #[test]
@@ -1049,39 +1054,49 @@ fn a_path_through_a_link_or_naming_one_is_refused() {
     );
 }
 
-/// A save that stopped before its rename leaves its staged file in the
-/// folder. Opening removes the ones an hour old, and none younger, which
-/// another process's save may still be about to rename.
+/// A save that stopped before its rename leaves its staged file beside its
+/// target. Opening removes the ones last changed over an hour ago, and none
+/// younger, which another process's save may still be about to rename. It
+/// clears what an older build kept in `.epicenter` but its manifest, which
+/// the page reads and then removes through storage.
 #[test]
-fn opening_sweeps_staged_files_a_stopped_save_left() {
+fn opening_sweeps_saves_a_stopped_writer_left_and_an_older_builds_state() {
     let fixture = fixture("sweep");
-    let saves = saves(&fixture);
-    std::fs::create_dir_all(&saves).unwrap();
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_millis() as u64;
-    let name = |made: u64| {
-        let mut digits = Vec::new();
-        let mut value = made;
-        while value > 0 {
-            digits.push(b"0123456789abcdefghijklmnopqrstuvwxyz"[(value % 36) as usize]);
-            value /= 36;
-        }
-        digits.reverse();
-        format!(
-            "{}-0123456789abcdef0123456789abcdef-0",
-            String::from_utf8(digits).unwrap()
+    let aged = |path: &str, hours: u64| {
+        let at = fixture.root.join(path);
+        std::fs::create_dir_all(at.parent().unwrap()).unwrap();
+        std::fs::write(&at, b"x").unwrap();
+        let file = std::fs::File::options().write(true).open(&at).unwrap();
+        file.set_modified(
+            std::time::SystemTime::now() - std::time::Duration::from_secs(hours * 60 * 60 + 60),
         )
+        .unwrap();
     };
-    let old = name(now - 2 * 60 * 60 * 1000);
-    let young = name(now - 60 * 1000);
-    for staged in [&old, &young] {
-        std::fs::write(saves.join(staged), b"x").unwrap();
-    }
+    aged("notes/.ep-0123456789abcdef.save", 2);
+    aged("notes/.ep-fedcba9876543210.save", 0);
+    aged(".epicenter/saves/old", 2);
+    aged(".epicenter/synced.json", 2);
     let main = fixture.window("main");
     open(&main).unwrap();
-    assert_eq!(staged(&fixture), [young]);
+    assert_eq!(staged(&fixture), ["notes/.ep-fedcba9876543210.save"]);
+    assert!(!fixture.root.join(".epicenter/saves").exists());
+    // The page reads the manifest and removes it; the next open removes the
+    // empty `.epicenter`.
+    let InvokeResponseBody::Raw(bytes) = response(
+        &main,
+        "read_folder_file",
+        InvokeBody::Json(json!({ "path": ".epicenter/synced.json", "root": "Data" })),
+        Default::default(),
+    )
+    .unwrap() else {
+        panic!("the bytes came back as JSON");
+    };
+    assert!(bytes.ends_with(b"\0x"));
+    let mut headers = put_headers(".epicenter/synced.json", true, None);
+    headers.insert("expected", encoded("any"));
+    request(&main, "put_folder_file", InvokeBody::Raw(Vec::new()), headers).unwrap();
+    open(&main).unwrap();
+    assert!(!fixture.root.join(".epicenter").exists());
 }
 
 /// A linked worktree's or submodule's `.git` file, or a `.git` link, does

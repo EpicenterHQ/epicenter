@@ -22,6 +22,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use epicenter_folder_core::storage::{self, Landing, ListedFile, StorageError};
+use epicenter_folder_core::sweep;
 use serde::Serialize;
 use specta::Type;
 use tauri::{Emitter, Manager, Runtime, Webview};
@@ -97,8 +98,9 @@ fn failed(path: &str, operation: &str, message: String) -> StorageError {
 /// whose target is gone is `Disconnected`, and nothing is made. Each call
 /// looks again, so Retry finds a folder that came back. The root's one watch
 /// sends its changes as an app event. The page listens before opening. Opening
-/// removes the staged files a stopped save left an hour or more ago
-/// (`storage::sweep_stale_scratch`).
+/// removes the saves a stopped writer left more than an hour ago, anywhere in
+/// the folder, and clears what an older build kept in its `.epicenter`
+/// (`sweep::sweep_now`).
 #[tauri::command]
 #[specta::specta]
 pub async fn open_root<R: Runtime>(webview: Webview<R>, root: Root) -> Result<String, RootError> {
@@ -109,7 +111,7 @@ pub async fn open_root<R: Runtime>(webview: Webview<R>, root: Root) -> Result<St
         move || {
             let roots = app.state::<Roots>();
             let directory = roots.open(&root)?;
-            storage::sweep_stale_scratch(directory.root());
+            sweep::sweep_now(directory.root());
             let events = app.clone();
             let event_root = root.clone();
             roots.watch(&root, &directory, move |change| {

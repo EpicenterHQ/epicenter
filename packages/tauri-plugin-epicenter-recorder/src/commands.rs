@@ -114,10 +114,10 @@ pub async fn close_meter<R: Runtime>(webview: Webview<R>, id: String) -> Result<
 /// stop it by. An ending nobody asked for arrives on `signals`.
 ///
 /// The path must be a data path the shared path rule accepts, with nothing at
-/// `<path>.webm` yet. While it records, it is a WebM in the folder's
-/// `.epicenter/recordings` (`staging::pending`), with nothing there yet
-/// either, written a second at a time; `stop` finishes it and places it at
-/// its path. Missing directories on the way are made.
+/// `<path>.webm` yet. While it records, it is a WebM beside that path under
+/// a new reserved name (`staging::pending`), written a second at a time;
+/// `stop` finishes it and places it at its path. Missing directories on the
+/// way are made.
 /// Microphone access is asked for before the device is resolved. A refusal
 /// opens nothing.
 #[tauri::command]
@@ -186,8 +186,8 @@ pub async fn start<R: Runtime>(
 /// at its path, never over a file there; answers where it is and how long it
 /// plays. Finishing writes the last second, the Cues, and the length, so it
 /// takes the same few milliseconds for a recording of any length. A file
-/// that cannot be placed stays in `.epicenter/recordings`, and the refusal
-/// says why.
+/// that cannot be placed stays beside its path under its reserved name, and
+/// the refusal says why.
 #[tauri::command]
 #[specta::specta]
 pub async fn stop<R: Runtime>(webview: Webview<R>, id: String) -> Result<StoppedRecording> {
@@ -201,11 +201,12 @@ pub async fn stop<R: Runtime>(webview: Webview<R>, id: String) -> Result<Stopped
 }
 
 /// Finish and place every recording under `under` in Data (`opened_root`)
-/// that a quit or a crash left in the folder's `.epicenter/recordings`, and
-/// answer each one placed (`recovered`), by folder-relative path with how
-/// long it plays (`durationMs`, so a page never reads the audio back to
-/// measure it), and each one left there because another file is at its
-/// path (`unplaced`), with where its audio is. A page runs it before it
+/// that a quit or a crash left beside its path (or, from an older build, in
+/// the folder's `.epicenter/recordings`), and answer each one placed
+/// (`recovered`), by folder-relative path with how long it plays
+/// (`durationMs`, so a page never reads the audio back to measure it), and
+/// each one left pending because another file is at its path (`unplaced`),
+/// with where its audio is. A page runs it before it
 /// lists, plays, or transcribes a recording, and says what is unplaced. The
 /// recording still being written is left alone. Running it again places
 /// nothing more.

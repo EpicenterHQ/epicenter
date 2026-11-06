@@ -232,10 +232,7 @@ fn a_microphone_that_is_not_connected_is_refused_not_replaced() {
             .open_meters(),
         0
     );
-    assert!(!fixture
-        .root
-        .join(epicenter_folder_core::state::recording("recordings/a"))
-        .exists());
+    assert!(pending_recordings(&fixture.root).is_empty());
 }
 
 #[test]
@@ -340,10 +337,7 @@ fn without_microphone_access_no_meter_or_recording_resolves_a_device() {
     )
     .unwrap_err();
     assert_eq!(name(&refused), "PermissionDenied", "{refused}");
-    assert!(!fixture
-        .root
-        .join(epicenter_folder_core::state::recording("recordings/a"))
-        .exists());
+    assert!(pending_recordings(&fixture.root).is_empty());
     // Listing asks for nothing.
     assert!(invoke(&main, "inputs", json!({})).is_ok());
 }
@@ -389,10 +383,7 @@ fn permission_granted_after_page_departure_resolves_no_device() {
             .state::<Recorders<MockRuntime>>()
             .lock()
             .is_capturing());
-        assert!(!fixture
-            .root
-            .join(epicenter_folder_core::state::recording("recordings/a"))
-            .exists());
+        assert!(pending_recordings(&fixture.root).is_empty());
     }
 }
 
@@ -455,10 +446,7 @@ fn permission_granted_after_exit_finalization_resolves_no_device() {
         let refused = calling.join().unwrap().unwrap_err();
         eprintln!("{command} after exit finalization: {refused}");
         refusals.push(name(&refused).to_owned());
-        assert!(!fixture
-            .root
-            .join(epicenter_folder_core::state::recording("recordings/a"))
-            .exists());
+        assert!(pending_recordings(&fixture.root).is_empty());
     }
     assert_eq!(
         refusals,
@@ -569,12 +557,8 @@ fn stop_reaches_only_a_recording_this_window_started() {
     std::fs::create_dir_all(fixture.root.join("recordings")).unwrap();
     let path = fixture.root.join("recordings/a.webm");
     let staged = crate::staging::pending(&fixture.root, "recordings/a").unwrap();
-    assert_eq!(
-        staged,
-        fixture
-            .root
-            .join(epicenter_folder_core::state::recording("recordings/a"))
-    );
+    assert_eq!(staged.parent(), Some(fixture.root.join("recordings").as_path()));
+    assert_eq!(pending_recordings(&fixture.root).len(), 0, "made when it starts");
     crate::recorder::tests::hold_recording(
         &mut recorders(&fixture),
         &staged,
@@ -616,6 +600,18 @@ fn decoded_samples(path: &std::path::Path) -> usize {
     .len()
 }
 
+/// The recordings in progress in the folder's `recordings` directory.
+fn pending_recordings(root: &std::path::Path) -> Vec<String> {
+    std::fs::read_dir(root.join("recordings"))
+        .map(|entries| {
+            entries
+                .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+                .filter(|name| name.ends_with(".recording"))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 fn recorders(fixture: &Fixture) -> std::sync::MutexGuard<'_, crate::recorder::Recorder> {
     fixture.app.state::<Recorders<MockRuntime>>().inner().lock()
 }
@@ -651,9 +647,9 @@ fn a_destroyed_window_finalizes_its_recording() {
     assert!(!staged.exists());
 }
 
-/// What a quit or a crash leaves: the recording's file in
-/// `.epicenter/recordings`, its whole seconds written and its length not
-/// yet stated. `recover` finishes and places it, and leaves the one a live
+/// What a quit or a crash leaves: the recording's file beside its path
+/// under a reserved name, its whole seconds written and its length not yet
+/// stated. `recover` finishes and places it, and leaves the one a live
 /// recording is writing.
 #[test]
 fn recover_places_cut_off_recordings_in_the_open_root() {

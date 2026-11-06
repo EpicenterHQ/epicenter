@@ -10,8 +10,9 @@ export const commands = {
 	 *  whose target is gone is `Disconnected`, and nothing is made. Each call
 	 *  looks again, so Retry finds a folder that came back. The root's one watch
 	 *  sends its changes as an app event. The page listens before opening. Opening
-	 *  removes the staged files a stopped save left an hour or more ago
-	 *  (`storage::sweep_stale_scratch`).
+	 *  removes the saves a stopped writer left more than an hour ago, anywhere in
+	 *  the folder, and clears what an older build kept in its `.epicenter`
+	 *  (`sweep::sweep_now`).
 	 */
 	openRoot: (root: Root) => typedError<string, RootError>(__TAURI_INVOKE("plugin:epicenter-folder|open_root", { root })),
 	/**

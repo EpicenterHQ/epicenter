@@ -4,18 +4,22 @@
 //! The Tauri plugin owns window bindings and their lifetime.
 //! `storage` checks each save against the version its writer read, right
 //! before the rename. `page_files` checks a path the shell changes on disk,
-//! `paths` is the path rule the folder engine shares, and `state` is where
-//! unfinished writes live (`.epicenter/`). Nothing here depends on Tauri.
+//! `paths` is the path rule the folder engine shares, and `state` names what
+//! Epicenter keeps beside a write in progress and in `.epicenter`, which
+//! `sweep` clears when a folder opens. `identity` is a directory's inode and
+//! birth time. Nothing here depends on Tauri.
 //! `admission` says which directories may be a folder.
 //! No Git runs here (ADR-0804); `blob` names a file by its Git blob id.
 
 pub mod admission;
 pub mod blob;
 pub mod directory;
+pub mod identity;
 pub mod page_files;
 pub mod paths;
 pub mod state;
 pub mod storage;
+pub mod sweep;
 
 #[cfg(test)]
 mod directory_tests;

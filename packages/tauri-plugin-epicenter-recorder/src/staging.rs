@@ -1,11 +1,13 @@
 //! Where a recording is written while it records, how it reaches its own
 //! path, and how one a crash cut off gets there.
 //!
-//! A recording in progress is a WebM among the folder's unfinished writes,
-//! at `.epicenter/recordings/<its folder-relative path>.webm` (`pending`,
-//! from `state::recording`): a hidden path, which no watcher reports and
-//! `epicenter sync` never commits, so nothing reads a recording at a data
-//! path before it is finished.
+//! A recording in progress is a WebM beside its final path under a reserved
+//! name: `<directory>/.ep-<random>-<base>.recording` for
+//! `<directory>/<base>.webm` (`pending`, from the folder core's
+//! `state::pending_recording`). No listing describes it, no watcher reports
+//! it, and sync never commits it, so nothing reads a recording at a data
+//! path before it is finished (ADR-0822). The name carries the final path,
+//! so recovery after a crash knows where it goes.
 //!
 //! Once it is finished in place, `place_recording` places it at
 //! `<path>.webm` without replacing anything there (the folder core's
@@ -17,8 +19,11 @@
 //! recording whose path another file took is never deleted: it stays
 //! pending, and `recover` answers where it is.
 //!
-//! Where these files are is `pending` and `pending_under`, each from the
-//! folder core's `state`; nothing else here names a directory.
+//! An older build wrote a recording in progress to
+//! `.epicenter/recordings/<its folder-relative stem>.webm`. `recover` still
+//! finishes and places those, so a take such a build cut off is not lost;
+//! opening the folder moves one over an hour old beside its final path (the
+//! folder core's `sweep`).
 
 use std::fs;
 use std::io;
@@ -27,38 +32,88 @@ use std::path::{Path, PathBuf};
 use epicenter_folder_core::page_files;
 use epicenter_folder_core::paths::path_problem;
 use epicenter_folder_core::state;
-use epicenter_folder_core::storage::{place, prepare_state_directory, rename_failure};
+use epicenter_folder_core::storage::place;
 use serde::Serialize;
 
 use crate::webm::{finish_cut_off, CutOff, OPUS_RATE};
 
 /// The checked full path the recording of the folder-relative `stem` (its
-/// path without an extension) is written to while it records, in `root`
-/// (`state::recording`), with its missing directories made. `.epicenter` is
-/// made `0700` when missing and refused when it is a link; every name below
-/// it is checked as a data path is.
+/// path without an extension) is written to while it records in `root`:
+/// beside `<stem>.webm` under a new reserved name
+/// (`state::pending_recording`), with its missing directories made, each
+/// checked as a data directory.
 pub fn pending(root: &Path, stem: &str) -> Result<PathBuf, String> {
-    prepare_state_directory(root)?;
-    let pending = state::recording(stem);
-    let path = page_files::data_path(root, &pending)?;
+    let pending = state::pending_recording(stem);
     if let Some((parent, _)) = pending.rsplit_once('/') {
         page_files::mkdir(root, &root.join(parent))?;
     }
-    Ok(path)
+    page_files::data_path(root, &pending)
+}
+
+/// A recording a quit or a crash left: its full path, the stem it is the
+/// recording of, and its folder-relative path.
+struct Leftover {
+    path: PathBuf,
+    stem: String,
+    pending: String,
 }
 
 /// Every recording a quit or a crash left pending under the folder-relative
-/// directory `under` in `root`: each file's full path and the stem it is the
-/// recording of. A link is never followed, and only paths the shared path
-/// rule accepts are visited. Nothing pending is nothing.
-fn pending_under(root: &Path, under: &str) -> Result<Vec<(PathBuf, String)>, String> {
-    let directory = page_files::data_path(root, &state::recordings_under(under))?;
+/// directory `under` in `root`: each beside its final path under a reserved
+/// name, and each an older build left in `.epicenter/recordings/<under>`. A
+/// link is never followed, and only paths the shared path rule accepts are
+/// visited. Nothing pending is nothing.
+fn pending_under(root: &Path, under: &str) -> Result<Vec<Leftover>, String> {
+    let mut found = Vec::new();
+    for (path, relative) in files_under(root, under)? {
+        let Some(stem) = state::recording_final(&relative)
+            .and_then(|landing| landing.strip_suffix(".webm").map(str::to_string))
+        else {
+            continue;
+        };
+        found.push(Leftover {
+            path,
+            stem,
+            pending: relative,
+        });
+    }
+    let legacy = format!("{}/{}/", state::DIRECTORY, state::LEGACY_RECORDINGS);
+    for (path, relative) in files_under(root, &format!("{legacy}{under}"))? {
+        let stem = relative
+            .strip_prefix(&legacy)
+            .and_then(|stem| stem.strip_suffix(".webm"))
+            .filter(|stem| !stem.ends_with('/'))
+            .map(str::to_string);
+        if let Some(stem) = stem {
+            found.push(Leftover {
+                path,
+                stem,
+                pending: relative,
+            });
+        }
+    }
+    Ok(found)
+}
+
+/// Every regular file at or below the folder-relative directory `under` in
+/// `root`: each one's full path and folder-relative path. A link is never
+/// followed, and only paths the shared path rule accepts are visited, so
+/// nothing in `.git` is. A missing directory holds nothing.
+fn files_under(root: &Path, under: &str) -> Result<Vec<(PathBuf, String)>, String> {
+    let directory = page_files::data_path(root, under)?;
     let mut found = Vec::new();
     let mut directories: Vec<(PathBuf, String)> = vec![(directory, under.to_string())];
     while let Some((directory, relative)) = directories.pop() {
         let entries = match fs::read_dir(&directory) {
             Ok(entries) => entries,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::NotFound | io::ErrorKind::NotADirectory
+                ) =>
+            {
+                continue
+            }
             Err(error) => return Err(format!("'{relative}' could not be listed: {error}")),
         };
         for entry in entries {
@@ -77,13 +132,8 @@ fn pending_under(root: &Path, under: &str) -> Result<Vec<(PathBuf, String)>, Str
             };
             if metadata.is_dir() {
                 directories.push((path, child));
-                continue;
-            }
-            let stem = child
-                .strip_suffix(".webm")
-                .filter(|stem| !stem.ends_with('/'));
-            if let (true, Some(stem)) = (metadata.is_file(), stem) {
-                found.push((path, stem.to_string()));
+            } else if metadata.is_file() {
+                found.push((path, child));
             }
         }
     }
@@ -102,9 +152,7 @@ pub enum PlaceError {
 /// Move the finished recording at `pending` to `<stem>.webm` in `root`,
 /// making its missing directories, each checked as a data path, and answer
 /// that folder-relative path. Something already at the path is never
-/// replaced (`storage::place`). A path across a mount
-/// point inside the folder is refused (`rename_failure`), and the file
-/// stays.
+/// replaced (`storage::place`), and the file stays.
 pub fn place_recording(root: &Path, pending: &Path, stem: &str) -> Result<String, PlaceError> {
     let relative = format!("{stem}.webm");
     if let Some((parent, _)) = relative.rsplit_once('/') {
@@ -119,7 +167,7 @@ pub fn place_recording(root: &Path, pending: &Path, stem: &str) -> Result<String
         Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
             Err(PlaceError::Taken(relative))
         }
-        Err(error) => Err(PlaceError::Failed(rename_failure(&relative, &error))),
+        Err(error) => Err(PlaceError::Failed(error.to_string())),
     }
 }
 
@@ -165,8 +213,9 @@ pub struct RecoveredRecording {
 pub struct UnplacedRecording {
     /// The folder-relative path it was not placed at: another file is there.
     pub path: String,
-    /// Where its audio is: its folder-relative path under
-    /// `.epicenter/recordings` (`state::recording`), finished.
+    /// Where its audio is, finished: its folder-relative path, beside
+    /// `path` under a reserved name (`.ep-<random>-<base>.recording`), or
+    /// in `.epicenter/recordings` where an older build left it.
     pub pending: String,
 }
 
@@ -180,12 +229,11 @@ pub struct UnplacedRecording {
 /// placed, by path, with how long it plays. A missing directory has nothing
 /// to recover. Running it again changes nothing.
 ///
-/// A leftover that holds no whole
-/// second holds no audio, and is deleted. A leftover whose path holds
-/// another file is never deleted and never placed beside it: nothing here
-/// can know the two are one recording, so it stays pending, finished, and
-/// is answered among `unplaced` with where its audio is, every time this
-/// runs, until a person moves one of the two.
+/// A leftover that holds no whole second holds no audio, and is deleted. A
+/// leftover whose path holds another file is never deleted and never placed
+/// beside it: nothing here can know the two are one recording, so it stays
+/// pending, finished, and is answered among `unplaced` with where its audio
+/// is, every time this runs, until a person moves one of the two.
 ///
 /// `under` is checked as a data path is (`page_files::data_path`). A file
 /// that cannot be finished or placed is reported and left where it is, so
@@ -193,7 +241,12 @@ pub struct UnplacedRecording {
 pub fn recover(root: &Path, under: &str, held: impl Fn(&Path) -> bool) -> Result<Recovery, String> {
     page_files::data_path(root, under)?;
     let mut recovery = Recovery::default();
-    for (pending, stem) in pending_under(root, under)? {
+    for leftover in pending_under(root, under)? {
+        let Leftover {
+            path: pending,
+            stem,
+            pending: relative,
+        } = leftover;
         if held(&pending) {
             continue;
         }
@@ -220,9 +273,11 @@ pub fn recover(root: &Path, under: &str, held: impl Fn(&Path) -> bool) -> Result
                 });
             }
             Err(PlaceError::Taken(path)) => {
-                let pending = state::recording(&stem);
-                log::warn!("Kept the recording of {stem} at {pending}: another file is at {path}");
-                recovery.unplaced.push(UnplacedRecording { path, pending });
+                log::warn!("Kept the recording of {stem} at {relative}: another file is at {path}");
+                recovery.unplaced.push(UnplacedRecording {
+                    path,
+                    pending: relative,
+                });
             }
             Err(PlaceError::Failed(error)) => {
                 log::warn!("Could not place the recording of {stem}: {error}")
@@ -279,21 +334,50 @@ mod tests {
             .len()
     }
 
+    /// `path` below `root`, folder-relative.
+    fn relative(root: &Path, path: &Path) -> String {
+        path.strip_prefix(root)
+            .unwrap()
+            .to_string_lossy()
+            .into_owned()
+    }
+
+    #[test]
+    fn a_pending_recording_waits_beside_its_path_under_a_reserved_name() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = fs::canonicalize(directory.path()).unwrap();
+        let path = pending(&root, "recordings/2026/a").unwrap();
+        let pending = relative(&root, &path);
+        assert!(pending.starts_with("recordings/2026/.ep-"), "{pending}");
+        assert!(state::is_reserved(&pending), "{pending}");
+        assert_eq!(
+            state::recording_final(&pending).as_deref(),
+            Some("recordings/2026/a.webm")
+        );
+        assert!(root.join("recordings/2026").is_dir());
+        assert!(!path.exists(), "the recorder creates the file");
+        assert!(!root.join(state::DIRECTORY).exists());
+    }
+
     #[test]
     fn recover_finishes_and_places_what_a_cut_left_pending_and_nothing_else() {
         let directory = tempfile::tempdir().unwrap();
         let root = fs::canonicalize(directory.path()).unwrap();
-        let pending = root.join(state::recordings_under("recordings"));
-        fs::create_dir_all(pending.join("2026")).unwrap();
-        fs::create_dir_all(root.join("recordings")).unwrap();
-        cut_off(&pending.join("a.webm"), 2.5);
-        cut_off(&pending.join("2026/b.webm"), 3.1);
-        cut_off(&pending.join("live.webm"), 2.5);
-        fs::write(pending.join("notes.txt"), b"not a recording").unwrap();
+        let a = pending(&root, "recordings/a").unwrap();
+        let b = pending(&root, "recordings/2026/b").unwrap();
+        let live = pending(&root, "recordings/live").unwrap();
+        cut_off(&a, 2.5);
+        cut_off(&b, 3.1);
+        cut_off(&live, 2.5);
+        fs::write(root.join("recordings/notes.txt"), b"not a recording").unwrap();
+        fs::write(root.join("recordings/.ep-0123456789abcdef.save"), b"a save").unwrap();
         cut_off(&root.join("recordings/placed.webm"), 2.5);
         let placed_bytes = fs::read(root.join("recordings/placed.webm")).unwrap();
+        // An older build's take, cut off.
+        let legacy = root.join(".epicenter/recordings/recordings/old.webm");
+        fs::create_dir_all(legacy.parent().unwrap()).unwrap();
+        cut_off(&legacy, 2.5);
 
-        let live = pending.join("live.webm");
         let live_bytes = fs::read(&live).unwrap();
         let recovery = recover(&root, "recordings", |path| path == live).unwrap();
         assert_eq!(
@@ -301,22 +385,28 @@ mod tests {
             [
                 recovered("recordings/2026/b.webm", kept_ms(3.1)),
                 recovered("recordings/a.webm", kept_ms(2.5)),
+                recovered("recordings/old.webm", kept_ms(2.5)),
             ]
         );
         assert!(recovery.unplaced.is_empty());
         // 2.5 s cut off keeps its first two seconds, less the delay.
         assert_eq!(kept_ms(2.5), 1_994);
         assert_eq!(decoded(&root.join("recordings/a.webm")), 2 * 16_000 - 104);
-        assert!(!pending.join("a.webm").exists(), "moved, not copied");
-        assert!(!pending.join("2026/b.webm").exists());
+        assert!(!a.exists(), "moved, not copied");
+        assert!(!b.exists());
+        assert!(!legacy.exists());
         assert_eq!(
             fs::read(&live).unwrap(),
             live_bytes,
             "a live recording is its writer's"
         );
         assert_eq!(
-            fs::read(pending.join("notes.txt")).unwrap(),
+            fs::read(root.join("recordings/notes.txt")).unwrap(),
             b"not a recording"
+        );
+        assert_eq!(
+            fs::read(root.join("recordings/.ep-0123456789abcdef.save")).unwrap(),
+            b"a save"
         );
         assert_eq!(
             fs::read(root.join("recordings/placed.webm")).unwrap(),
@@ -344,14 +434,13 @@ mod tests {
         let root = fs::canonicalize(directory.path()).unwrap();
         let taken = pending(&root, "recordings/taken").unwrap();
         cut_off(&taken, 2.5);
-        fs::create_dir_all(root.join("recordings")).unwrap();
         fs::write(root.join("recordings/taken.webm"), b"theirs").unwrap();
         let empty = pending(&root, "recordings/empty").unwrap();
         cut_off(&empty, 0.5);
 
         let unplaced = UnplacedRecording {
             path: "recordings/taken.webm".to_string(),
-            pending: ".epicenter/recordings/recordings/taken.webm".to_string(),
+            pending: relative(&root, &taken),
         };
         assert_eq!(
             recover(&root, "recordings", |_| false).unwrap(),
@@ -396,19 +485,22 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let root = fs::canonicalize(directory.path()).unwrap().join("folder");
         let outside = fs::canonicalize(directory.path()).unwrap().join("outside");
-        let pending = root.join(state::recordings_under("recordings"));
-        fs::create_dir_all(&pending).unwrap();
+        fs::create_dir_all(root.join("recordings")).unwrap();
         fs::create_dir_all(&outside).unwrap();
         cut_off(&outside.join("x.webm"), 2.5);
         let bytes = fs::read(outside.join("x.webm")).unwrap();
-        std::os::unix::fs::symlink(outside.join("x.webm"), pending.join("x.webm")).unwrap();
-        std::os::unix::fs::symlink(&outside, pending.join("linked")).unwrap();
+        std::os::unix::fs::symlink(
+            outside.join("x.webm"),
+            root.join("recordings/.ep-k3j9x2ab-x.recording"),
+        )
+        .unwrap();
+        std::os::unix::fs::symlink(&outside, root.join("recordings/linked")).unwrap();
         assert_eq!(
             recover(&root, "recordings", |_| false).unwrap(),
             Recovery::default()
         );
         assert_eq!(fs::read(outside.join("x.webm")).unwrap(), bytes);
-        assert!(!root.join("recordings").exists());
+        assert!(!root.join("recordings/x.webm").exists());
 
         std::os::unix::fs::symlink(&outside, root.join("linked-recordings")).unwrap();
         assert!(recover(&root, "linked-recordings", |_| false).is_err());

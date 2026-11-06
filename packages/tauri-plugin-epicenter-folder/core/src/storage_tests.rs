@@ -1,8 +1,9 @@
 //! A page's storage over a real directory.
 //!
 //! Key behaviors:
-//! - A listing leaves out `.git` at the root, lists hidden files, and
-//!   follows no link; a link is a file to it.
+//! - A listing leaves out `.git` and an older build's `.epicenter` at the
+//!   root and every reserved name at any depth, lists other hidden files,
+//!   and follows no link; a link is a file to it.
 //! - A path through a link, or naming one, is refused as `InvalidPath`; a
 //!   name stored under another spelling is absent to a read and refused to
 //!   a change, on a disk that ignores case or normalization.
@@ -13,20 +14,15 @@
 //!   exactly one lands; a path holds no turn once its puts finish.
 //! - A staged file is placed only where nothing is (`place`): whatever
 //!   appeared after a check stays, by the exclusive rename and by the hard
-//!   link it falls back to; a link move cut off after its link is placed;
-//!   and a move across a mount point says so.
-//! - A put stages inside the root, in `.epicenter/saves`, makes nothing
-//!   next to the root, and makes and changes nothing in `.git`: a folder with
-//!   no `.git`, or with a `.git` file or link, saves alike.
-//! - A `saves` directory, or the `.epicenter` holding it, that is a link or
-//!   not a directory refuses a put as `Io`, and the file at the path stays
-//!   as it was.
-//! - On Unix staged bytes have permission bits for this account alone:
-//!   `saves` is `0700`, an open one is tightened first, and each staged
-//!   file is `0600`. A replaced file keeps its mode; a new one is `0600`.
+//!   link it falls back to; and a link move cut off after its link is
+//!   placed.
+//! - A put stages beside its target under a reserved name, makes nothing
+//!   next to the root and nothing in it but what was saved, and makes and
+//!   changes nothing in `.git`: a folder with no `.git`, or with a `.git`
+//!   file or link, saves alike. A put of a reserved name is refused.
+//! - On Unix each staged file is `0600`. A replaced file keeps its mode; a
+//!   new one is `0600`.
 //! - A directory is made with its ancestors and removed only when empty.
-//! - Staged files an hour old are swept, and nothing younger or foreign: no
-//!   other file, no directory, no link, and nothing in `recordings`.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -148,20 +144,24 @@ fn put(
     super::put(root, path, bytes, &witness(if_match))
 }
 
-/// The directory saves stage in inside `root`.
-fn saves(root: &Path) -> PathBuf {
-    state::saves(root)
-}
-
-/// The staged files left in `root`'s `saves` directory.
+/// The staged saves left anywhere in `root`, by folder-relative path.
 fn staged(root: &Path) -> Vec<String> {
-    fs::read_dir(saves(root))
-        .map(|entries| {
-            entries
-                .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
-                .collect()
-        })
-        .unwrap_or_default()
+    fn visit(directory: &Path, prefix: &str, found: &mut Vec<String>) {
+        let Ok(entries) = fs::read_dir(directory) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if entry.file_type().unwrap().is_dir() {
+                visit(&entry.path(), &format!("{prefix}{name}/"), found);
+            } else if state::is_staged_save(&name) {
+                found.push(format!("{prefix}{name}"));
+            }
+        }
+    }
+    let mut found = Vec::new();
+    visit(root, "", &mut found);
+    found
 }
 
 /// Whether this disk finds `Probe` when asked for `probe`.
@@ -176,16 +176,20 @@ fn invalid(path: &str) -> impl Fn(&StorageError) -> bool + '_ {
     move |error| matches!(error, StorageError::InvalidPath { path: at, .. } if at == path)
 }
 
-/// Hidden files are listed, unfinished writes included: whoever reads a
-/// listing skips them. Only Git's own directory is left out.
+/// Hidden files are listed: whoever reads a listing skips them. Git's own
+/// directory, what an older build left in `.epicenter`, and a write in
+/// progress are left out, the last at any depth and even when asked for.
 #[test]
-fn a_listing_leaves_out_git_and_epicenter_at_the_root_and_links_and_lists_hidden_files() {
+fn a_listing_leaves_out_git_epicenter_and_reserved_names_and_links_and_lists_hidden_files() {
     let (_temp, root) = folder(
         "storage-list",
         &[
             ("todos/a.md", b"first\n"),
             (".git/HEAD", b"ref: refs/heads/main\n"),
-            (".epicenter/saves/staged", b"x"),
+            (".epicenter/synced.json", b"{}"),
+            (".ep-0123456789abcdef.save", b"x"),
+            ("todos/.ep-k3j9x2ab-take.recording", b"audio"),
+            ("todos/.ep-x.saved", b"x"),
             ("todos/.DS_Store", b"x"),
             ("kv.json", b"{}"),
         ],
@@ -198,6 +202,7 @@ fn a_listing_leaves_out_git_and_epicenter_at_the_root_and_links_and_lists_hidden
     let files = vec![
         "kv.json",
         "todos/.DS_Store",
+        "todos/.ep-x.saved",
         "todos/a.md",
     ];
     assert_eq!(
@@ -207,6 +212,36 @@ fn a_listing_leaves_out_git_and_epicenter_at_the_root_and_links_and_lists_hidden
             .collect::<Vec<_>>(),
         files
     );
+    let asked = list(
+        &root,
+        &[
+            "todos/.ep-k3j9x2ab-take.recording".to_string(),
+            ".ep-0123456789abcdef.save".to_string(),
+        ],
+    )
+    .unwrap();
+    assert!(asked.is_empty(), "{asked:?}");
+}
+
+/// A reserved name is a save or a recording in progress, never the page's:
+/// a put of one is refused and changes nothing.
+#[test]
+fn a_put_of_a_reserved_name_is_refused() {
+    let pending = "todos/.ep-k3j9x2ab-take.recording";
+    let (_temp, root) = folder("storage-reserved", &[(pending, b"audio")]);
+    for path in [pending, ".ep-0123456789abcdef.save"] {
+        assert!(
+            put(&root, path, b(b"mine"), None).is_err_and(|error| invalid(path)(&error)),
+            "{path}"
+        );
+        assert!(
+            super::put(&root, path, None, &Expectation::Any)
+                .is_err_and(|error| invalid(path)(&error)),
+            "{path}"
+        );
+    }
+    assert_eq!(fs::read(root.join(pending)).unwrap(), b"audio");
+    assert!(!root.join(".ep-0123456789abcdef.save").exists());
 }
 
 #[test]
@@ -454,14 +489,11 @@ fn names(directory: &Path) -> Vec<String> {
     names
 }
 
-/// A folder needs no Git to save: a put stages inside the root, in
-/// `.epicenter/saves`, the directory the Bun host stages in. Nothing is
-/// made beside the root, and the root holds only what was saved and the
-/// hidden `.epicenter`.
+/// A folder needs no Git to save: a put stages beside its target. Nothing
+/// is made beside the root, and the root holds only what was saved.
 #[test]
-fn a_folder_with_no_git_saves_and_stages_inside_the_root() {
+fn a_folder_with_no_git_saves_and_holds_only_what_was_saved() {
     let (temp, root) = folder("storage-no-git", &[("readme.txt", b"plain\n")]);
-    assert_eq!(saves(&root), root.join(".epicenter/saves"));
     assert_eq!(
         put(&root, "todos/a.md", b(b"milk"), None),
         Ok(PutOutcome::Landed)
@@ -475,10 +507,9 @@ fn a_folder_with_no_git_saves_and_stages_inside_the_root() {
         Ok(PutOutcome::Landed)
     );
     assert_eq!(fs::read(root.join("todos/a.md")).unwrap(), b"eggs");
-    assert_eq!(names(&root), [".epicenter", "todos"]);
+    assert_eq!(names(&root), ["todos"]);
+    assert_eq!(names(&root.join("todos")), ["a.md"]);
     assert_eq!(names(temp.path()), ["notes"]);
-    assert!(saves(&root).is_dir());
-    assert!(staged(&root).is_empty());
 }
 
 /// A `.git` file (a linked worktree or submodule) and a `.git` link are left
@@ -493,7 +524,7 @@ fn a_git_file_or_link_is_left_as_it_is_and_saves_land() {
         Ok(PutOutcome::Landed)
     );
     assert_eq!(fs::read(root.join(".git")).unwrap(), gitdir);
-    assert_eq!(names(&root), [".epicenter", ".git", "todos"]);
+    assert_eq!(names(&root), [".git", "todos"]);
     assert!(staged(&root).is_empty());
     #[cfg(unix)]
     {
@@ -580,39 +611,6 @@ fn replacing_a_file_keeps_its_permission_bits() {
     assert!(staged(&root).is_empty());
 }
 
-/// A `saves` directory made `0755` is `0700` before anything is staged in
-/// it, and the save that lands keeps the replaced file's `0644`.
-#[cfg(unix)]
-#[test]
-fn an_open_saves_directory_is_made_private_before_staging() {
-    use std::os::unix::fs::PermissionsExt;
-    let mode = |path: &Path| fs::symlink_metadata(path).unwrap().permissions().mode() & 0o777;
-    let (_temp, root) = folder("storage-private", &[("shared.md", b"old")]);
-    fs::set_permissions(root.join("shared.md"), fs::Permissions::from_mode(0o644)).unwrap();
-    fs::create_dir_all(saves(&root)).unwrap();
-    fs::set_permissions(saves(&root), fs::Permissions::from_mode(0o755)).unwrap();
-
-    assert_eq!(
-        put(&root, "shared.md", b(b"new"), Some(&blob(b"old"))),
-        Ok(PutOutcome::Landed)
-    );
-    assert_eq!(fs::read(root.join("shared.md")).unwrap(), b"new");
-    assert_eq!(mode(&root.join("shared.md")), 0o644);
-    assert_eq!(mode(&saves(&root)), 0o700);
-    assert!(staged(&root).is_empty());
-}
-
-/// A missing `saves` directory is made `0700`.
-#[cfg(unix)]
-#[test]
-fn a_new_saves_directory_is_private() {
-    use std::os::unix::fs::PermissionsExt;
-    let (_temp, root) = folder("storage-private-new", &[]);
-    assert_eq!(put(&root, "a.md", b(b"a"), None), Ok(PutOutcome::Landed));
-    let made = fs::symlink_metadata(saves(&root)).unwrap();
-    assert_eq!(made.permissions().mode() & 0o777, 0o700);
-}
-
 #[test]
 fn the_hash_is_the_one_the_page_computes() {
     assert_eq!(blob(b""), "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391");
@@ -625,125 +623,11 @@ fn the_hash_is_the_one_the_page_computes() {
     );
 }
 
-#[test]
-fn staged_names_age_as_the_page_reads_them() {
-    let engine = "0123456789abcdef0123456789abcdef";
-    let hour = 60 * 60 * 1000;
-    let made = 1_700_000_000_000u64;
-    let name = format!("{}-{engine}-0", base36(made));
-    assert!(!is_stale_scratch(&name, made + hour));
-    assert!(is_stale_scratch(&name, made + hour + 1));
-    assert!(!is_stale_scratch(&name, made - 1));
-    for foreign in [
-        "staged-1",
-        "notes.md",
-        &format!("{}-{engine}", base36(made)),
-        &format!("{}-{}-0", base36(made), &engine[1..]),
-        &format!("{}-{}-0", base36(made), engine.to_uppercase()),
-        &format!("{}-{engine}-0-1", base36(made)),
-        // Past `Number.MAX_SAFE_INTEGER`, which the page would not parse.
-        &format!("{}-{engine}-0", base36(1 << 53)),
-    ] {
-        assert!(!is_stale_scratch(foreign, u64::MAX), "{foreign}");
-    }
-    // The names a put stages carry their time.
-    let staged = scratch_name(made);
-    assert!(
-        staged.starts_with(&format!("{}-", base36(made))),
-        "{staged}"
-    );
-    assert!(is_stale_scratch(&staged, made + hour + 1), "{staged}");
-    assert!(!is_stale_scratch(&staged, made + hour), "{staged}");
-}
-
-#[test]
-fn a_sweep_removes_only_staged_files_an_hour_old() {
-    let (temp, root) = folder("storage-sweep", &[]);
-    let saves = saves(&root);
-    fs::create_dir_all(&saves).unwrap();
-    let now = now_ms();
-    let hour = 60 * 60 * 1000;
-    let old = scratch_name(now - hour - 1);
-    let young = scratch_name(now - hour + 60_000);
-    for name in [old.as_str(), young.as_str(), "foreign"] {
-        fs::write(saves.join(name), b"x").unwrap();
-    }
-    let old_directory = scratch_name(now - 2 * hour);
-    fs::create_dir(saves.join(&old_directory)).unwrap();
-    let mut expected = vec![young, "foreign".to_string(), old_directory];
-    // A link named as an old staged file is not one, and what it reaches
-    // stays.
-    #[cfg(unix)]
-    {
-        let target = temp.path().join("target.md");
-        fs::write(&target, b"theirs").unwrap();
-        let old_link = scratch_name(now - 2 * hour);
-        std::os::unix::fs::symlink(&target, saves.join(&old_link)).unwrap();
-        expected.push(old_link);
-    }
-    sweep_scratch(&root, now);
-    let mut left = staged(&root);
-    left.sort();
-    expected.sort();
-    assert_eq!(left, expected);
-    #[cfg(unix)]
-    assert_eq!(fs::read(temp.path().join("target.md")).unwrap(), b"theirs");
-    // A folder with nothing staged sweeps nothing, and makes nothing.
-    let (other, empty) = folder("storage-sweep-empty", &[]);
-    sweep_scratch(&empty, now);
-    assert_eq!(names(other.path()), ["notes"]);
-    assert!(names(&empty).is_empty());
-}
-
-/// The sweep reads only `saves/`: a recording in progress, or one a crash
-/// left for recovery, is audio, whatever its name and however old.
-#[test]
-fn a_sweep_never_touches_recordings() {
-    let (_temp, root) = folder("storage-sweep-recordings", &[]);
-    let hour = 60 * 60 * 1000;
-    let now = now_ms();
-    let recordings = state::directory(&root).join(state::RECORDINGS);
-    let pending = root.join(state::recording("recordings/a"));
-    fs::create_dir_all(pending.parent().unwrap()).unwrap();
-    fs::write(&pending, b"RIFF audio").unwrap();
-    // Named as a stale staged file would be, and still left alone.
-    let old = recordings.join(scratch_name(now - 2 * hour));
-    fs::write(&old, b"audio").unwrap();
-    fs::create_dir_all(saves(&root)).unwrap();
-    fs::write(saves(&root).join(scratch_name(now - 2 * hour)), b"x").unwrap();
-    sweep_scratch(&root, now);
-    assert!(staged(&root).is_empty());
-    assert_eq!(fs::read(&pending).unwrap(), b"RIFF audio");
-    assert_eq!(fs::read(&old).unwrap(), b"audio");
-}
-
-/// A save or a placement across a mount point inside the folder fails
-/// saying so: the system's `EXDEV`, which a rename and a hard link answer
-/// for a path on another file system, is that error and no other.
-#[test]
-fn a_move_across_a_mount_point_says_so() {
-    let crossed = io::Error::from(ErrorKind::CrossesDevices);
-    let message = rename_failure("mnt/a.md", &crossed);
-    assert!(
-        message.starts_with("cannot save across a mount point: 'mnt/a.md'"),
-        "{message}"
-    );
-    assert!(message.contains("nothing was written"), "{message}");
-    // `EXDEV` is 18 on macOS and Linux.
-    #[cfg(unix)]
-    assert_eq!(
-        io::Error::from_raw_os_error(18).kind(),
-        ErrorKind::CrossesDevices
-    );
-    let other = io::Error::from(ErrorKind::PermissionDenied);
-    assert_eq!(rename_failure("a.md", &other), other.to_string());
-}
-
-/// A staged file `put` or the recorder made, in `saves`, and the target it
-/// is placed at in the root.
+/// A staged file `put` or the recorder made beside its target, and the
+/// target it is placed at in the root.
 fn staged_and_target(label: &str) -> (TempDir, PathBuf, PathBuf) {
     let (temp, root) = folder(label, &[]);
-    let (staged, mut file) = create_scratch(&root).unwrap();
+    let (staged, mut file) = create_staged(&root).unwrap();
     file.write_all(b"mine").unwrap();
     (temp, staged, root.join("a.md"))
 }
@@ -900,88 +784,6 @@ fn a_path_holds_no_turn_once_its_puts_finish() {
     put(&root, "a.md", None, Some(&blob(&landed))).unwrap();
     let busy = BUSY.lock().unwrap();
     assert!(!busy.iter().any(|path| path.starts_with(&root)), "{busy:?}");
-}
-
-/// A `saves` directory that is a link is never followed: nothing is staged
-/// through it or swept through it, the directory it names keeps its mode, a
-/// put is `Io`, and the file at the path stays as it was.
-#[cfg(unix)]
-#[test]
-fn a_linked_saves_directory_is_not_swept_or_staged_in() {
-    use std::os::unix::fs::PermissionsExt;
-    let (temp, root) = folder("storage-sweep-link", &[("a.md", b"accepted")]);
-    let elsewhere = temp.folder("elsewhere");
-    fs::set_permissions(&elsewhere, fs::Permissions::from_mode(0o755)).unwrap();
-    let old = scratch_name(1);
-    fs::write(elsewhere.join(&old), b"theirs").unwrap();
-    fs::create_dir(root.join(".epicenter")).unwrap();
-    std::os::unix::fs::symlink(&elsewhere, saves(&root)).unwrap();
-    sweep_scratch(&root, now_ms());
-    assert!(elsewhere.join(&old).exists());
-    for (path, if_match) in [("a.md", Some(blob(b"accepted"))), ("b.md", None)] {
-        let refused = put(&root, path, b(b"mine"), if_match.as_deref()).unwrap_err();
-        let StorageError::Io { message, .. } = &refused else {
-            panic!("{refused:?}");
-        };
-        assert!(message.contains("symbolic link"), "{message}");
-    }
-    assert_eq!(fs::read(root.join("a.md")).unwrap(), b"accepted");
-    assert!(!root.join("b.md").exists());
-    assert_eq!(names(&elsewhere), [old]);
-    assert_eq!(
-        fs::metadata(&elsewhere).unwrap().permissions().mode() & 0o777,
-        0o755
-    );
-    // A removal stages nothing, so it still lands.
-    assert_eq!(
-        put(&root, "a.md", None, Some(&blob(b"accepted"))),
-        Ok(PutOutcome::Landed)
-    );
-}
-
-/// A file where the `saves` directory would be refuses a put as `Io`, and
-/// it and the file at the path stay as they were.
-#[test]
-fn a_saves_path_that_is_not_a_directory_refuses_a_put() {
-    let (_temp, root) = folder("storage-saves-file", &[("a.md", b"accepted")]);
-    fs::create_dir(root.join(".epicenter")).unwrap();
-    fs::write(saves(&root), b"someone's file").unwrap();
-    let refused = put(&root, "a.md", b(b"mine"), Some(&blob(b"accepted"))).unwrap_err();
-    let StorageError::Io {
-        path,
-        operation,
-        message,
-    } = &refused
-    else {
-        panic!("{refused:?}");
-    };
-    assert_eq!((path.as_str(), operation.as_str()), ("a.md", "write"));
-    assert!(message.contains("not a directory"), "{message}");
-    sweep_scratch(&root, now_ms());
-    assert_eq!(fs::read(saves(&root)).unwrap(), b"someone's file");
-    assert_eq!(fs::read(root.join("a.md")).unwrap(), b"accepted");
-}
-
-/// A link at `.epicenter` is never followed: nothing is staged or swept
-/// through it, a put is `Io`, and the file at the path stays as it was.
-#[cfg(unix)]
-#[test]
-fn a_linked_state_directory_is_not_swept_or_staged_in() {
-    let (temp, root) = folder("storage-state-link", &[("a.md", b"accepted")]);
-    let elsewhere = temp.folder("elsewhere");
-    fs::create_dir(elsewhere.join(state::SAVES)).unwrap();
-    let old = scratch_name(1);
-    fs::write(elsewhere.join(state::SAVES).join(&old), b"theirs").unwrap();
-    std::os::unix::fs::symlink(&elsewhere, state::directory(&root)).unwrap();
-    sweep_scratch(&root, now_ms());
-    assert!(elsewhere.join(state::SAVES).join(&old).exists());
-    let refused = put(&root, "b.md", b(b"mine"), None).unwrap_err();
-    let StorageError::Io { message, .. } = &refused else {
-        panic!("{refused:?}");
-    };
-    assert!(message.contains("symbolic link"), "{message}");
-    assert!(!root.join("b.md").exists());
-    assert_eq!(names(&elsewhere.join(state::SAVES)), [old]);
 }
 
 /// A put that does not land leaves no directory it made.
