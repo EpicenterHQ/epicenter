@@ -36,7 +36,7 @@ import { memoryStore } from './device/memory-store.js';
 import type { Store } from './device/store.js';
 import { createFolder } from './folder.js';
 import { memory, memoryFiles } from './memory.js';
-import { directory } from './node.js';
+import { nodeStore } from './node.js';
 import { openFolder } from './open-folder.js';
 
 const todos = defineContract({
@@ -408,12 +408,26 @@ test('a file collection lists entries without bytes; set is the later write, and
 	shown.stop();
 });
 
+/**
+ * A folder over the directory at `root` that hears nothing from outside, so
+ * a file written there after it listed stays unlisted however soon the
+ * operating system reports it. Its watch also answers at once, where a
+ * directory's waits until macOS's watcher hears a probe (`watchDirectory`),
+ * seconds on a loaded machine.
+ */
+function unhearing(root: string) {
+	const store = nodeStore(root);
+	return createFolder(todos, async () =>
+		Ok({ ...store, watch: async () => Ok(() => {}) }),
+	);
+}
+
 test('over a directory, a write over a note the folder has not listed reads it first', async () => {
 	const root = await mkdtemp(join(tmpdir(), 'epicenter-folder-writes-'));
 	folders.push(root);
-	const folder = openFolder(todos, directory(root));
+	const folder = unhearing(root);
 	await folder.todos.set({ id: 'a' }, { title: 'Milk', done: false });
-	const other = openFolder(todos, directory(root));
+	const other = unhearing(root);
 	await other.todos.set({ id: 'a' }, { done: true });
 	expect(await readFile(join(root, 'todos/a.md'), 'utf8')).toBe(
 		note('title: Milk\ndone: true\n'),
