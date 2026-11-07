@@ -335,6 +335,9 @@ async function runImport({
 			throw new Error(
 				'--replace-original hands over a repository on this computer, not a URL',
 			);
+		// A root in a window knows its path once it listed.
+		const listed = await root.list();
+		if (listed.error !== null) throw new Error(listed.error.message);
 		if (isWithin(local, root.path))
 			throw new Error(`${local} is in the Epicenter folder already`);
 		const status = await gitText(host, ['status', '--porcelain'], {

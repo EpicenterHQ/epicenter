@@ -121,6 +121,7 @@ export function isWithin(path: string, parent: string): boolean {
 	const trim = (value: string) => value.replace(/[\\/]+$/, '');
 	const at = trim(path);
 	const above = trim(parent);
+	if (above === '') return false;
 	return (
 		at === above || at.startsWith(`${above}/`) || at.startsWith(`${above}\\`)
 	);
