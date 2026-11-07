@@ -5,6 +5,7 @@
 - **Amends:** [ADR-0824](0824-a-folders-history-is-a-log-of-versions-and-git-is-how-it-leaves.md) at "Git is how history leaves": Git is also how history enters, and a person can name a moment in it.
 - **Relates:** [ADR-0762](0762-epicenter-is-made-of-standards-and-places.md) (standards), [ADR-0822](0822-only-epicenter-syncs-on-a-computer-and-a-folder-holds-only-its-content.md) and [ADR-0825](0825-the-epicenter-folder-contains-its-folders.md) (one owner per folder; the Epicenter folder contains its folders), [ADR-0797](0797-front-matter-is-a-strict-grammar-and-anything-else-is-body.md) (front matter's grammar).
 - **Amended by:** [ADR-0827](0827-the-cli-and-mcp-render-one-table-of-operations.md) at an import that stops midway: it resumes, or is abandoned.
+- **Amended by:** [ADR-0828](0828-names-say-folders-and-changes-and-history-is-package-functions-the-epicenter-app-shows.md) at "`epicenter import --git`": an import is a package function over a computer's Git, which the CLI and the Epicenter app both run.
 
 ## Context
 

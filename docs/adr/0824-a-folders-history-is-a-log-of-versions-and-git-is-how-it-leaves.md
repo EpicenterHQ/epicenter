@@ -6,6 +6,7 @@
 - **Relates:** [ADR-0804](0804-a-computer-keeps-a-plain-folder-and-every-surface-syncs-with-one-typescript-function.md) (no client Git), [ADR-0822](0822-only-epicenter-syncs-on-a-computer-and-a-folder-holds-only-its-content.md) (Epicenter never syncs a Git working tree), [ADR-0823](0823-on-the-web-the-folder-on-the-server-is-the-apps-store.md) (a web app's save is a commit), [ADR-0795](0795-git-merges-a-notes-body-and-epicenter-merges-its-front-matter-by-key.md) (the merge, which stays).
 - **Amended by:** [ADR-0826](0826-history-enters-and-leaves-epicenter-as-git.md) at Git being how history leaves: it is also how history enters, and a person can name a moment.
 - **Amended by:** [ADR-0827](0827-the-cli-and-mcp-render-one-table-of-operations.md) at notes as blobs and other files as LFS objects: the folder's `epicenter.json` is a blob too (projection v2).
+- **Amended by:** [ADR-0828](0828-names-say-folders-and-changes-and-history-is-package-functions-the-epicenter-app-shows.md) at "A commit is one statement": a write appends one change at `POST <folders>/<id>/changes`, and the names say folders and changes.
 - **Unbuilt:** a deployment's schedule for the pending-upload sweep and for purges, and a scheduled export kept as a copy. Nothing thins history.
 
 ## Context
