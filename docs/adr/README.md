@@ -1030,3 +1030,4 @@ When you add an ADR, add its row here.
 | [0832](0832-a-folder-is-the-directory-epicenter-last-synced-or-epicenter-asks.md) | A folder is the directory Epicenter last synced, or Epicenter asks | Accepted (amends 0821 and 0822) |
 | [0833](0833-a-folders-present-lives-in-one-shared-database-and-its-past-in-its-own-archive.md) | A folder's present lives in one shared database, and its past in its own archive | Accepted (amends 0824) |
 | [0834](0834-every-folder-is-also-a-git-remote.md) | Every folder is also a Git remote | Accepted (amends 0831) |
+| [0835](0835-records-from-0802-to-0834-agree-on-files-a-ledger-and-git-at-the-edges.md) | Records from 0802 to 0834 agree on files, a ledger, and Git at the edges | Accepted |
