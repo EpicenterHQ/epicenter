@@ -6,6 +6,8 @@
 - **Relates:** [ADR-0804](0804-a-computer-keeps-a-plain-folder-and-every-surface-syncs-with-one-typescript-function.md) (one sync function, moments in its package), [ADR-0786](0786-every-web-app-is-online-and-browser-storage-leaves-the-platform.md) (the web already checks every few seconds), [ADR-0795](0795-git-merges-a-notes-body-and-epicenter-merges-its-front-matter-by-key.md) (an edit beats a delete).
 - **Amended by:** [ADR-0807](0807-an-app-writes-only-to-a-local-store-and-only-sync-talks-to-a-server.md) at the moments on the web: sync as a burst of saves ends and when the page is hidden.
 - **Amended by:** [ADR-0819](0819-every-program-keeps-the-folders-it-has-open-in-sync-and-the-epicenter-app-has-them-all-open.md) at "nothing runs once it closes": a folder keeps syncing while any program has it open, and the Epicenter app has every folder open.
+- **Amended by:** [ADR-0829](0829-a-restore-never-deletes-on-a-device-and-historys-chain-covers-what-changed-not-who.md) at a hidden window pausing, which was never built.
+- **Amended by:** [ADR-0830](0830-epicenter-sends-a-change-the-moment-it-happens-and-checks-for-others-every-thirty-seconds.md) at checking the server every few seconds: it checks every thirty seconds.
 - **Unbuilt:** the periodic check in the sync package and in every open app.
 
 ## Context
