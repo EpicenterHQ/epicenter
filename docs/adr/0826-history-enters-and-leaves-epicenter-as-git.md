@@ -9,6 +9,7 @@
 - **Amended by:** [ADR-0831](0831-a-git-branch-lands-in-a-folder-as-one-change-through-the-cli.md) at one program owning a folder at a time: Git never syncs a folder, and a branch is translated, never synced.
 - **Amended by:** [ADR-0836](0836-one-merge-a-cursor-that-carries-its-digest-and-one-grant.md) at `epicenter mark`: a named moment is a tag.
 - **Amended by:** [ADR-0837](0837-the-ledger-is-the-persons-model-folders-the-versions-of-their-files-and-who-may-see-them.md) at marks and tags: an import drops tags with a warning, and an export writes none.
+- **Amended by:** [ADR-0838](0838-git-speaks-to-a-folder-through-a-remote-helper-and-the-cli-speaks-a-persons-verbs.md) at `export --git` and `import --git`: history leaves by `git clone` and enters by `git push`.
 
 ## Context
 

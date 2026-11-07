@@ -4,6 +4,7 @@
 - **Date:** 2026-11-07
 - **Amends:** [ADR-0831](0831-a-git-branch-lands-in-a-folder-as-one-change-through-the-cli.md) at a server endpoint for `git push` waiting for a Git-only sandbox: the Git remote is the destination, and the CLI's commands are its present form.
 - **Relates:** [ADR-0824](0824-a-folders-history-is-a-log-of-versions-and-git-is-how-it-leaves.md) (the log is the storage), [ADR-0826](0826-history-enters-and-leaves-epicenter-as-git.md) (history enters and leaves as Git), [ADR-0828](0828-names-say-folders-and-changes-and-history-is-package-functions-the-epicenter-app-shows.md) (the folders address).
+- **Amended by:** [ADR-0838](0838-git-speaks-to-a-folder-through-a-remote-helper-and-the-cli-speaks-a-persons-verbs.md) at a remote served by the server: Git reaches a folder through `git-remote-epicenter` on the computer; the server's remote waits for a Git-only sandbox.
 - **Unbuilt:** all of it: a Git view of each folder's log, cached in the blob store; clone and fetch over Git's HTTP protocol; a push translated into a change; tokens scoped to one folder for Git clients.
 
 ## Context

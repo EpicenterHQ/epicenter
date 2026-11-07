@@ -4,6 +4,7 @@
 - **Date:** 2026-11-07
 - **Relates:** every record from [ADR-0802](0802-people-share-spaces-an-app-works-in-one-at-a-time-and-a-folder-carries-its-contract.md) to [ADR-0834](0834-every-folder-is-also-a-git-remote.md), and [ADR-0801](0801-records-from-0763-to-0800-agree-on-the-merge-rust-patching-marks-and-agents.md), the last such register.
 - **Amended by:** [ADR-0837](0837-the-ledger-is-the-persons-model-folders-the-versions-of-their-files-and-who-may-see-them.md) at history's marks, app reach, and the inline threshold: see ADR-0837's table.
+- **Amended by:** [ADR-0838](0838-git-speaks-to-a-folder-through-a-remote-helper-and-the-cli-speaks-a-persons-verbs.md) at Git in and out, the Git remote, and the CLI: see ADR-0838.
 - **Unbuilt:** see the Built column below.
 
 ## Context
@@ -43,12 +44,12 @@ states it for a reader; the table below is what is in force.
 | Restores and deletion | a restore never deletes on a device; bytes leave through an outbox; the chain covers what changed, not who | 0829 | no |
 | Sharing | a grant to a person or an email; members equal; readers read | 0811, 0820, 0836, 0837 | partly: three tables remain |
 | App reach | a web window holds a token for the one folder it was opened on; a desktop app's token holds only `ai` | 0822, 0837 | partly: web apps reach attached folders today |
-| Git in and out | `export --git`, `import --git`; `git land` turns a branch into one change | 0826, 0831 | export and import yes; land no |
-| Git remote | every folder a Git remote: clone reads history, push lands as a change | 0834 | no |
+| Git in and out | `git clone epicenter::<folder>` and `git push`, through the `git-remote-epicenter` helper | 0826, 0838 | no: `export --git` and `import --git` today |
+| A Git remote on the server | only for a sandbox that has Git and cannot run the helper | 0834, 0838 | no |
 | Names | the folders audience at `<api origin>/folders`; a write is `POST …/changes` | 0828 | yes |
 | Apps | a view, a window over one folder, and capabilities; the platform owns folders | 0814, 0817, 0818 | no |
 | The Epicenter app | every folder, its history, sharing, and import; syncs every folder from login | 0816, 0819, 0828 | yes, its pages unseen running |
-| The CLI and MCP | one table of operations renders both; MCP adds tools from each contract | 0827 | yes |
+| The CLI and MCP | one table of a person's verbs renders both; MCP adds tools from each contract | 0827, 0838 | the table yes; the verbs no |
 
 **Withdrawn on the way, and why**, so they are not proposed again without a new
 reason: spaces and groups (sharing is per folder, 0811); a stamp or id inside a

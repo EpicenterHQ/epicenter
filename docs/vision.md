@@ -156,12 +156,10 @@ An agent works the way a person does:
 - on the files in `~/Epicenter`, which Epicenter syncs like any edit;
 - through `epicenter mcp`, whose tools are the CLI's operations and typed tools
   from each folder's contract ([ADR-0827]);
-- through Git: `epicenter export --git` and `import --git` carry history out
-  and in, and `epicenter git land` turns a branch into one change
-  ([ADR-0826], [ADR-0831]). Every folder will be a Git remote, where a clone
-  reads its history and a push lands as a change ([ADR-0834]). Today an agent
-  with only Git can take history out and bring a new folder in; landing a
-  branch and the Git remote are decided, not built.
+- through Git: `git clone epicenter::Recipes` takes a folder's whole history,
+  and `git push` lands as versions, through the `git-remote-epicenter` helper
+  that comes with the CLI ([ADR-0838]). Today the CLI's `export --git` and
+  `import --git` carry history out and in; the helper is decided, not built.
 
 ## What Epicenter refuses
 
@@ -193,14 +191,13 @@ An agent works the way a person does:
 [ADR-0823]: adr/0823-on-the-web-the-folder-on-the-server-is-the-apps-store.md
 [ADR-0824]: adr/0824-a-folders-history-is-a-log-of-versions-and-git-is-how-it-leaves.md
 [ADR-0825]: adr/0825-the-epicenter-folder-contains-its-folders.md
-[ADR-0826]: adr/0826-history-enters-and-leaves-epicenter-as-git.md
 [ADR-0827]: adr/0827-the-cli-and-mcp-render-one-table-of-operations.md
 [ADR-0829]: adr/0829-a-restore-never-deletes-on-a-device-and-historys-chain-covers-what-changed-not-who.md
 [ADR-0830]: adr/0830-epicenter-sends-a-change-the-moment-it-happens-and-checks-for-others-every-thirty-seconds.md
-[ADR-0831]: adr/0831-a-git-branch-lands-in-a-folder-as-one-change-through-the-cli.md
 [ADR-0832]: adr/0832-a-folder-is-the-directory-epicenter-last-synced-or-epicenter-asks.md
 [ADR-0833]: adr/0833-a-folders-present-lives-in-one-shared-database-and-its-past-in-its-own-archive.md
 [ADR-0834]: adr/0834-every-folder-is-also-a-git-remote.md
+[ADR-0838]: adr/0838-git-speaks-to-a-folder-through-a-remote-helper-and-the-cli-speaks-a-persons-verbs.md
 [ADR-0837]: adr/0837-the-ledger-is-the-persons-model-folders-the-versions-of-their-files-and-who-may-see-them.md
 [ADR-0836]: adr/0836-one-merge-a-cursor-that-carries-its-digest-and-one-grant.md
 [ADR-0835]: adr/0835-records-from-0802-to-0834-agree-on-files-a-ledger-and-git-at-the-edges.md

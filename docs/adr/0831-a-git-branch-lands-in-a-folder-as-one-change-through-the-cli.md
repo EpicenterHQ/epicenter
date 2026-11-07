@@ -5,6 +5,7 @@
 - **Amends:** [ADR-0824](0824-a-folders-history-is-a-log-of-versions-and-git-is-how-it-leaves.md) at "No Git client writes to a folder": a Git branch lands through the CLI as ordinary changes; [ADR-0826](0826-history-enters-and-leaves-epicenter-as-git.md) at one program owning a folder at a time: Git still never syncs a folder, and a branch is translated, never synced.
 - **Relates:** [ADR-0795](0795-git-merges-a-notes-body-and-epicenter-merges-its-front-matter-by-key.md) (the merge a landed branch meets), [ADR-0827](0827-the-cli-and-mcp-render-one-table-of-operations.md) (the CLI and MCP).
 - **Amended by:** [ADR-0834](0834-every-folder-is-also-a-git-remote.md) at a server endpoint for `git push` waiting for a Git-only sandbox: the Git remote is the destination, and the CLI's commands are its present form.
+- **Amended by:** [ADR-0838](0838-git-speaks-to-a-folder-through-a-remote-helper-and-the-cli-speaks-a-persons-verbs.md) at `epicenter git land`: a push lands.
 - **Unbuilt:** all of it: `epicenter git land`, its refusals, and an optional message on a change.
 
 ## Context

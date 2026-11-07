@@ -1027,15 +1027,16 @@ When you add an ADR, add its row here.
 | [0823](0823-on-the-web-the-folder-on-the-server-is-the-apps-store.md) | On the web, the folder on the server is the app's store | Accepted (amends 0807; amended by 0830) |
 | [0824](0824-a-folders-history-is-a-log-of-versions-and-git-is-how-it-leaves.md) | A folder's history is a log of versions, and Git is how it leaves | Accepted (amends 0734, 0762, 0803, 0808, 0809, and 0811; amended by 0826, 0827, 0828, 0829, 0831, 0833, and 0837) |
 | [0825](0825-the-epicenter-folder-contains-its-folders.md) | The Epicenter folder contains its folders | Accepted (amends 0736, 0815, and 0822) |
-| [0826](0826-history-enters-and-leaves-epicenter-as-git.md) | History enters and leaves Epicenter as Git | Accepted (amends 0824; amended by 0827, 0828, 0831, 0836, and 0837) |
-| [0827](0827-the-cli-and-mcp-render-one-table-of-operations.md) | The CLI and MCP render one table of operations | Accepted (amends 0799, 0805, 0817, 0822, 0824, and 0826) |
+| [0826](0826-history-enters-and-leaves-epicenter-as-git.md) | History enters and leaves Epicenter as Git | Accepted (amends 0824; amended by 0827, 0828, 0831, 0836, 0837, and 0838) |
+| [0827](0827-the-cli-and-mcp-render-one-table-of-operations.md) | The CLI and MCP render one table of operations | Accepted (amends 0799, 0805, 0817, 0822, 0824, and 0826; amended by 0838) |
 | [0828](0828-names-say-folders-and-changes-and-history-is-package-functions-the-epicenter-app-shows.md) | Names say folders and changes, and history is package functions the Epicenter app shows | Accepted (amends 0549, 0817, 0824, and 0826) |
 | [0829](0829-a-restore-never-deletes-on-a-device-and-historys-chain-covers-what-changed-not-who.md) | A restore never deletes on a device, and history's chain covers what changed, not who | Accepted (amends 0806 and 0824; amended by 0836) |
 | [0830](0830-epicenter-sends-a-change-the-moment-it-happens-and-checks-for-others-every-thirty-seconds.md) | Epicenter sends a change the moment it happens, and checks for others' every thirty seconds | Accepted (amends 0806, 0819, and 0823) |
-| [0831](0831-a-git-branch-lands-in-a-folder-as-one-change-through-the-cli.md) | A Git branch lands in a folder as one change through the CLI | Accepted (amends 0824 and 0826; amended by 0834) |
+| [0831](0831-a-git-branch-lands-in-a-folder-as-one-change-through-the-cli.md) | A Git branch lands in a folder as one change through the CLI | Accepted (amends 0824 and 0826; amended by 0834 and 0838) |
 | [0832](0832-a-folder-is-the-directory-epicenter-last-synced-or-epicenter-asks.md) | A folder is the directory Epicenter last synced, or Epicenter asks | Accepted (amends 0821 and 0822) |
 | [0833](0833-a-folders-present-lives-in-one-shared-database-and-its-past-in-its-own-archive.md) | A folder's present lives in one shared database, and its past in its own archive | Accepted (amends 0824; amended by 0837) |
-| [0834](0834-every-folder-is-also-a-git-remote.md) | Every folder is also a Git remote | Accepted (amends 0831) |
-| [0835](0835-records-from-0802-to-0834-agree-on-files-a-ledger-and-git-at-the-edges.md) | Records from 0802 to 0834 agree on files, a ledger, and Git at the edges | Accepted(amended by 0837) |
+| [0834](0834-every-folder-is-also-a-git-remote.md) | Every folder is also a Git remote | Accepted (amends 0831; amended by 0838) |
+| [0835](0835-records-from-0802-to-0834-agree-on-files-a-ledger-and-git-at-the-edges.md) | Records from 0802 to 0834 agree on files, a ledger, and Git at the edges | Accepted(amended by 0837 and 0838) |
 | [0836](0836-one-merge-a-cursor-that-carries-its-digest-and-one-grant.md) | One merge, a cursor that carries its digest, and one grant | Accepted (amends 0811, 0820, 0826, and 0829; amended by 0837) |
 | [0837](0837-the-ledger-is-the-persons-model-folders-the-versions-of-their-files-and-who-may-see-them.md) | The ledger is the person's model: folders, the versions of their files, and who may see them | Accepted (amends 0811, 0820, 0824, 0826, 0833, and 0836) |
+| [0838](0838-git-speaks-to-a-folder-through-a-remote-helper-and-the-cli-speaks-a-persons-verbs.md) | Git speaks to a folder through a remote helper, and the CLI speaks a person's verbs | Accepted (amends 0826, 0827, 0831, and 0834) |
