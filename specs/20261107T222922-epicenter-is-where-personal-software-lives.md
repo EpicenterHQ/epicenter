@@ -37,28 +37,36 @@ direction; ADR-0841 the app contract.
 ## Target shape
 
 ```
-~/Epicenter/                    the default home
-  package.json                  generated: a Bun workspace over the app folders
-  AGENTS.md                     "run `epicenter` to see what you can do"
+~/Epicenter/                    the home: a plain directory, nothing generated
   mail/                         each app folder is its own Git repo
-    epicenter.ts                export default defineApp({ … })
-    package.json                the app's own dependencies
+    epicenter.ts                export default defineApp({ name: 'mail', … })
+    package.json, bun.lock      the app's own dependencies
     lib.ts                      shared code: functions that take a `folder`
     queries/receipts.txt        a saved Gmail search
     batches/                    reviewed changes; .gitignored
   reading/
     epicenter.ts
     2026.csv
-~/Code/vault/
-  epicenter.ts                  the vault's scripts as actions, where it stands
-~/Library/Caches/Epicenter/<app>/   rebuildable: mailbox copies, browser profiles
-Keychain: epicenter.<app>            sign-ins
+  vault -> ~/Code/vault         an app elsewhere joins by a symlink
+~/Code/vault/epicenter.ts       the vault's scripts as actions (after its defineFolder file is renamed)
+~/Library/Caches/so.epicenter.apps/<name>-<hash>/   rebuildable: mailbox copies, browser profiles
+Keychain: epicenter.<name>                          sign-ins
+~/.claude/CLAUDE.md             one line: run `epicenter` to see the person's apps
 ```
 
-The contract is ADR-0841: `defineApp({ description, actions })`; an action is
-`{ description, input: { …fields }, run(input, { folder, cache, secrets }) }`,
-where `folder` is an object (`read`, `write`, `list`, `remove`, bytes forms, and
-`path` only on a computer) supplied by whatever runs the action.
+The contract is ADR-0841: `defineApp({ name, description, actions })`; an action
+is `{ description, input: { …fields }, run(input, { folder, cache, secrets }),
+readOnly?, destructive? }`, keyed by one or more words (`'calendar show'`), where
+`folder` and `cache` are objects (`read`, `write`, `list`, `remove`, bytes forms,
+and `path` only on a computer) supplied by whatever runs the action.
+
+```
+epicenter [--json]                              apps, actions, input schemas, problems
+epicenter <app> [--json]                        one app: actions, folder, cache path, Keychain service
+epicenter <app> <action words> [<positional>] [--flags] [--json]
+epicenter <path> <action words> …               a folder by path, such as a worktree
+epicenter new <name> | add <source> | sync | mcp [<app>…] | help
+```
 
 ## Packages
 
@@ -75,30 +83,37 @@ optional library for apps whose data is notes, or is deleted if no app needs it.
 ## Onboarding
 
 1. **Install.** `bun add -g @epicenter/cli` gives `epicenter`.
-2. **First run.** `epicenter` with no `~/Epicenter` offers to create it: a
-   generated `package.json` (a Bun workspace over the app folders), and an
-   `AGENTS.md` (and `CLAUDE.md` importing it) telling agents to run `epicenter`.
-3. **A new app.** `epicenter new reading` writes `reading/epicenter.ts` from a
-   template and runs `git init` in it. Usually the person asks Claude instead;
-   the app works at once because Bun runs TypeScript.
+2. **First run.** `epicenter` with no `~/Epicenter` offers to create it, and to
+   add one line to `~/.claude/CLAUDE.md` telling agents to run `epicenter`.
+   Nothing else is generated.
+3. **A new app.** `epicenter new reading` writes `reading/epicenter.ts` (with its
+   `name`) and `package.json` from a template, and runs `git init`. Usually the
+   person asks Claude instead; the app works at once because Bun runs
+   TypeScript.
 4. **Someone else's app.** `epicenter add github:someone/apps/vocab` copies the
-   app's code (never data) into `~/Epicenter/vocab`, installs its dependencies,
-   and records where it came from; `epicenter diff vocab` shows what changed
-   upstream. Then, for Mail, `epicenter mail connect` signs in.
-5. **The vault.** Add `~/Code/vault/epicenter.ts`; `cd ~/Code/vault && epicenter`
-   lists its actions.
-6. **Agents.** Claude Code needs nothing: it runs `epicenter` in the shell, and
-   permission rules allow reads by command prefix and ask on the rest. Claude
-   Desktop and other chat apps add `epicenter mcp` to their MCP settings.
-7. **A second computer.** Clone each app's repo into `~/Epicenter`,
-   `bun install`, and `connect` again where an app needs a sign-in. Caches fill
-   on first use.
+   files the source tracks at one commit into a new repository at
+   `~/Epicenter/vocab`, keeps that copy as the `upstream` branch, records
+   `{ from, sha }` in its `package.json`, and runs `bun install`. A later version
+   of the source is merged with `git merge upstream`. Then, for Mail,
+   `epicenter mail connect` signs in.
+5. **The vault.** Rename its `defineFolder` file, add an `epicenter.ts` that
+   declares `name: 'vault'`, and `ln -s ~/Code/vault ~/Epicenter/vault`;
+   `epicenter vault …` then works from anywhere, including MCP.
+6. **Agents.** Claude Code runs `epicenter` in the shell. Permission rules allow
+   reading actions by command prefix (`Bash(epicenter mail search *)`) and ask on
+   destructive ones; never allow `Bash(epicenter *)`. Claude Desktop and other
+   chat apps add `epicenter mcp` to their MCP settings.
+7. **A second computer.** Clone each app's repo into `~/Epicenter`, run
+   `bun install` in each, recreate links, and `connect` again where an app needs
+   a sign-in. Caches fill on first use.
 
 ## Sync
 
 ADR-0842. **The repository is the sync, and an action is a commit.** When an
-action returns, what it changed becomes one commit named for the action; when it
-throws, its changes are undone. Actions on one app take turns. The person
+action returns, what it changed becomes one commit named for the action, never
+including paths the person had already edited; when it throws, its changes to
+paths that were clean are undone. Exit codes: 0 ran, 1 a finding, 2 did not run,
+3 ran and threw. Actions on one app take turns. The person
 commits their own edits. `epicenter sync` pulls and pushes every app repository
 and never commits; it says which apps have uncommitted changes. Files that only
 grow are `merge=union` in the app's `.gitattributes`; other conflicts are Git's,
@@ -167,13 +182,20 @@ for folders.
 4. Whether `packages/definition` survives as a notes library or is deleted.
 5. What `vision.md`, `architecture.md`, `CONTEXT.md`, and the package READMEs say,
    once ADR-0840 is accepted.
-6. The CLI's full surface and the home's layout (under adversarial review).
+6. Before the first `epicenter new`: move the old product's folders out of
+   `~/Epicenter` (`Todos`, `Zhongwen`, `Zhongwen Dev`, `so.epicenter.*`, `local`,
+   `on-this-device`), and rename `~/Code/vault/epicenter.ts`, a `defineFolder`
+   read by `bun run epicenter generate`, so discovery does not misread it.
+7. Whether `update` is built with `add` or when the first source changes (two
+   reviewers: later; one: now, with `--dry-run` in place of `diff`).
 
 ## Done when
 
-- `epicenter` in `~/Epicenter` lists apps and actions; `epicenter <app> <action>`
-  runs one with typed flags and `--json`; inside an app folder the app name is
-  implied; `epicenter mcp` serves the same actions.
+- `epicenter` lists apps, actions, and problems from anywhere;
+  `epicenter <app> <action words>` runs one with a positional, typed flags, and
+  `--json`; exit codes and errors follow ADR-0842; `epicenter mcp` serves the
+  same actions with `readOnly` and `destructive` hints.
 - `reading` (a toy) and `mail` work end to end; the receipts and newsletter jobs
   are done with Mail and Claude Code.
-- The vault's calendar script runs as `cd ~/Code/vault && epicenter …`.
+- `epicenter vault calendar show …` runs the vault's calendar command through the
+  `~/Epicenter/vault` link.

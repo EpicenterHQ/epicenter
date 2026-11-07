@@ -4,7 +4,7 @@
 - **Date:** 2026-11-07
 - **Relates:** [ADR-0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md) (an app is a folder, each its own repository), [ADR-0840](0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md) (the direction).
 - **Spec:** [specs/20261107T222922-epicenter-is-where-personal-software-lives.md](../../specs/20261107T222922-epicenter-is-where-personal-software-lives.md)
-- **Unbuilt:** all of it: committing after an action, undoing a failed one, one action per app at a time, `epicenter sync`, and the Epicenter Cloud file API.
+- **Unbuilt:** all of it: committing after an action, undoing a failed one, one action per app at a time, exit code 3 and the error's `code` and `next`, `epicenter sync`, and the Epicenter Cloud file API.
 
 ## Context
 
@@ -19,12 +19,26 @@ this with a server ledger and a sync engine; ADR-0840 set those aside.
 **The repository is the sync.** Each app's repository is where its data lives,
 each computer holds a working copy, and a remote is where copies meet.
 
-**An action is a commit.** When `run` returns, everything it changed in the
-app's folder becomes one commit whose message names the action and its input;
-on a computer, Epicenter finds the changes by comparing the folder before and
-after, so writes through `path` count too. When `run` throws, its changes are
-undone. Epicenter never stages a path an action did not change; the person
+**An action is a commit, and never the person's edits.** Before `run`, Epicenter
+notes the paths that already have uncommitted edits. A `folder.write` to one of
+them throws. When `run` returns, every path that changed in the folder, through
+the methods or through `path`, becomes one commit whose message names the action
+and its input, except the noted paths: one of those changed through `path` stays
+uncommitted, and the result names it. When `run` throws, Epicenter undoes only
+the changed paths that were clean before; it never resets the folder. Writes
+outside the folder (Mail saving attachments into the vault) belong to that
+repository and are never committed; the return value names them. The person
 commits their own edits.
+
+**Exit codes say whether `run` started; the error says what to do next.** 0: it
+ran. 1: a finding (a `sync` conflict, uncommitted edits, a check that failed).
+2: it did not run and nothing changed (usage, an unknown app or action, input the
+schema refuses, a refusal before `run`). 3: `run` started and threw; the folder's
+changes are undone, and effects outside it may have happened. With `--json`, an
+error is `{"error":{"code":"usage"|"failed"|"needs_person","message":…,"next":…}}`,
+where `next` is the command to run (`epicenter mail connect`). This changes
+[ADR-0520](0520-the-cli-acts-on-a-data-folder-by-its-path.md)'s meaning of 2,
+which today also covers a thrown error.
 
 **Actions on one app take turns.** One action per app runs at a time; different
 apps run in parallel.
@@ -49,6 +63,13 @@ for one app's repository issued through Epicenter's sign-in.
   into commits, against the vault's stage-by-path rule.
 - **`epicenter sync` commits before pulling.** The same sweep, at a moment the
   person chose for a different reason.
+- **Comparing the whole folder before and after, and committing every change.**
+  Sweeps the person's open edits, and a concurrent agent's, into the action's
+  commit.
+- **Refusing any action that uses `path` while the folder has uncommitted
+  edits.** Blocks routine runs whenever the person has unrelated edits open.
+- **Exit 2 for a thrown error, as today.** An agent could not tell "fix the
+  call" from "it ran and failed, and Gmail may have changed".
 - **A page reaches GitHub directly.** GitHub's Git endpoints refuse calls from a
   page, and its tokens are not scoped to one folder the person signs in for.
 - **A server ledger.** ADR-0837's design; it serves many people and devices,
@@ -60,5 +81,7 @@ for one app's repository issued through Epicenter's sign-in.
 - A computer and a page behave alike: one action, one commit.
 - Hand edits travel only once the person commits them; `epicenter sync` says
   when some have not.
+- A clean file edited by hand while an action runs is swept into that action's
+  commit; actions on one app take turns, so the window is one action long.
 - Nothing without Git works until Epicenter Cloud exists; nothing needs it
   until the phone does.

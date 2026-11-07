@@ -2,9 +2,9 @@
 
 - **Status:** Proposed
 - **Date:** 2026-11-07
-- **Relates:** [ADR-0840](0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md) (the direction), [ADR-0827](0827-the-cli-and-mcp-render-one-table-of-operations.md) (one table, rendered twice).
+- **Relates:** [ADR-0840](0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md) (the direction), [ADR-0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md) (commits, exit codes, sync), [ADR-0827](0827-the-cli-and-mcp-render-one-table-of-operations.md) (one table, rendered twice).
 - **Spec:** [specs/20261107T222922-epicenter-is-where-personal-software-lives.md](../../specs/20261107T222922-epicenter-is-where-personal-software-lives.md)
-- **Unbuilt:** all of it: `@epicenter/app` with `defineApp`, `field`, and the `Folder` interface; discovery and per-app commands in `epicenter`; actions as MCP tools; `epicenter add` and `diff`.
+- **Unbuilt:** all of it: `@epicenter/app` with `defineApp`, `field`, and the `Folder` interface; discovery, the listing, and per-app commands in `epicenter`; positional fields and repeated flags in the parser; actions as MCP tools; `epicenter new` and `add`.
 
 ## Context
 
@@ -13,106 +13,158 @@ them. An app needs a name, a list of things it can do with typed input, an
 implementation for each, and somewhere to keep its data. The CLI already renders
 one description of an operation as a command and as an MCP tool
 (`packages/cli/src/operation.ts`); apps need the same, without writing a command
-or a tool by hand.
+or a tool by hand. A council of three reviewers tested the command surface
+against agents' permission rules, the vault's existing nested commands, and
+worktrees.
 
 ## Decision
 
-**An app is a folder containing `epicenter.ts`.** The folder's name is the app's
-name. Its code and its data live together in it.
+**An app is a folder containing `epicenter.ts`.** Its code and its data live
+together in it, and it is its own Git repository with its own `package.json` and
+lockfile.
 
 ```ts
 // ~/Epicenter/reading/epicenter.ts
 import { defineApp, field } from '@epicenter/app';
 
 export default defineApp({
+  name: 'reading',
   description: 'How much I read each week',
   actions: {
     log: {
       description: 'Record minutes read today',
-      input: { minutes: field.number(), book: field.text({ optional: true }) },
+      input: { minutes: field.number({ positional: true }), book: field.text({ optional: true }) },
       run: async ({ minutes, book }, { folder }) => { /* write under folder */ },
+    },
+    'week summary': {
+      description: 'Minutes read this week',
+      input: {},
+      readOnly: true,
+      run: async (_, { folder }) => ({ minutes: 210 }),
     },
   },
 });
 ```
 
-- **An action** is a key in `actions` with a `description`, an `input` that is a
-  plain record of fields, and `run(input, { folder, cache, secrets })`.
+**Names.** An app declares its `name`, which keys its Keychain service, its
+cache, and its tools, so a worktree run by path keeps its identity. Inside the
+home, a folder or link must carry the declared name; a mismatch or a duplicate is
+listed as a problem and not run. Names match `^[a-z][a-z0-9-]*$`. An action's key
+is one or more such words separated by spaces (`'calendar show'`); no action
+name is a whole-word prefix of another, so the longest match is the action.
+
+**An action** has a `description`, an `input` that is a plain record of fields,
+`run(input, { folder, cache, secrets })`, and optionally `readOnly` or
+`destructive`, which become MCP's hints and the listing's marks. `run` returns a
+value; the CLI prints it, as JSON with `--json`, and an agent receives the same
+value.
+
+**Fields** are `field.text`, `number`, `boolean`, `select([...])`, `tags`, and
+`date`, each taking `{ optional, description, positional }`, all TypeBox
+underneath. Every field is a flag; at most one is `positional`, and it remains
+usable as its flag. A repeated flag gives an array. `json`, `help`, and `version`
+are not field names. Raw TypeBox remains for anything else.
+
+**The places an action receives.**
 - **`folder`** is the app's folder as an object: `read`, `write`, `list`,
-  `remove`, and their bytes forms, plus `path` only where there is a real disk.
-  The runner supplies it: the disk for the CLI and `epicenter serve`, the repo's
-  host for a page on a phone, memory for a test. An action that uses only the
-  methods runs anywhere; one that uses `path` runs only on a computer, and says
-  so in its code. **`cache`** is the same kind of object, for anything that can
-  be rebuilt: this device only, never synced, never in history
-  (`~/Library/Caches/Epicenter/<app>/` on a computer, browser storage in a page).
-  A cache adds `clear()`, and on a computer `sqlite(name)`, which opens Bun's own
-  `Database` at `<name>.sqlite` in the cache. A cache is never migrated: after a
-  change of shape it is cleared and rebuilt, by `clear()`, by removing one
-  database, or by `epicenter cache clear <app>`. SQLite never lives in `folder`,
-  where Git could neither show nor merge it. `folder` has no `clear()`: deleting
-  data is one path at a time, in an action that becomes a commit.
-  **`secrets`** reads and writes the Keychain under `epicenter.<app>`, exists only
-  on a computer, and never touches a file.
-- **Code shared between actions and pages** is ordinary modules in the app's
-  folder that take a `folder` as an argument.
-- **Each app folder is its own Git repository with its own `package.json`**, so
-  access to one app's data is never access to another's, and a clone is
-  complete. Epicenter generates the home's `package.json` as a Bun workspace over
-  the app folders; the home holds nothing worth versioning.
-- **An app is delivered by copying it.** `epicenter add <source>` copies an
-  app's code, never its data, into the home and installs its dependencies; it
-  records the source, and `epicenter diff <app>` shows what changed upstream. A
-  one-line `epicenter.ts` re-exporting a package remains for an app its owner
-  never wants to change.
-- **`run` returns a value.** The CLI prints it, as JSON with `--json`; an agent
-  receives the same value.
-- **`field`** is `text`, `number`, `boolean`, `select`, `tags`, and `date`, each
-  taking `{ optional, description }`, all TypeBox underneath. A field says what
-  a form draws, what `--help` lists, and what MCP's schema allows. Raw TypeBox
-  remains for anything else.
-- **Discovery is the filesystem.** Inside an app's folder, `epicenter` is that
-  app: `epicenter log --minutes 30`. Anywhere else it is `~/Epicenter`, whose
-  child folders with an `epicenter.ts` are its apps: `epicenter reading log`.
-  Bare `epicenter` lists the apps and actions where it stands.
-- **Every action is a command and a local MCP tool** (`epicenter mcp`, stdio).
-  `readOnly` and `destructive`, mapped to MCP's hints, are added to an action
-  when a surface first needs them.
-- **A UI calls actions; it never writes files itself.** A page imports the app's
-  type, not its code, and calls actions through `epicenter serve`; forms come
-  from the fields.
+  `remove`, their bytes forms, and `path` only where there is a real disk. The
+  runner supplies it: the disk for the CLI and `epicenter serve`, Epicenter
+  Cloud for a page without Git, memory for a test. An action that uses only the
+  methods runs anywhere; one that uses `path` runs only on a computer. `folder`
+  has no `clear()`: data is deleted one path at a time, in an action that
+  becomes a commit.
+- **`cache`** is the same kind of object for anything that can be rebuilt: this
+  device only, never synced, never in history, at
+  `~/Library/Caches/so.epicenter.apps/<name>-<hash of the folder's real path>/`
+  on a computer, so two checkouts never share one. It adds `clear()` and, on a
+  computer, `sqlite(name)`, Bun's own `Database` at `<name>.sqlite`. A cache is
+  never migrated: after a change of shape it is cleared and rebuilt. SQLite never
+  lives in `folder`.
+- **`secrets`** reads and writes the Keychain under `epicenter.<name>`, exists
+  only on a computer, and never touches a file.
+
+Code shared between actions and pages is ordinary modules in the app's folder
+that take a `folder` as an argument.
+
+**The command surface.** Every action has exactly one spelling, wherever the
+command runs:
+
+```
+epicenter [--json]                              apps, actions, input schemas, problems
+epicenter <app> [--json]                        one app: actions, folder, cache path, Keychain service
+epicenter <app> <action words> [<positional>] [--flags] [--json]
+epicenter <path> <action words> …               a folder by path, such as a worktree
+epicenter new <name> | add <source> | sync | mcp [<app>…] | help
+```
+
+- **The home is `~/Epicenter`**, a plain directory of app folders; nothing in it
+  is generated. An app elsewhere joins by a symlink in the home
+  (`~/Epicenter/vault -> ~/Code/vault`), which the listing shows with its target.
+- **Global flags come after the action words**, so a permission rule written as a
+  command's prefix (`Bash(epicenter mail search *)`) always matches it.
+- **A folder by path** uses its declared name, and is refused when its real path
+  is an app in the home or a link's target, with the spelling to use instead.
+- **Built-ins win.** `new`, `add`, `update`, `sync`, `mcp`, `help`, `serve`, and
+  `open` are reserved; an app declaring one is listed as a problem.
+- **Discovery imports each app on its own**, so one broken app is listed as a
+  problem and the rest still run.
+- **Every action is a local MCP tool** named by its app and words joined with
+  `_` (`vault_calendar_show`).
+- **Agents learn of Epicenter from one line in `~/.claude/CLAUDE.md`**, offered on
+  first run: run `epicenter`.
+
+**An app is delivered by copying it.** `epicenter add <source>` copies the files
+the source tracks in Git at one commit into a new repository in the home, runs
+`bun install`, records `{ from, sha }` under `epicenter` in the app's
+`package.json`, and keeps that copy as the `upstream` branch. "Code, never data"
+means what the source tracks: a source that tracks its author's data passes it
+on. A later version of the source is merged with Git (`git merge upstream`);
+`update` is reserved for that and built when the first source changes.
+
+**A UI calls actions; it never writes files itself.** A page imports the app's
+type, not its code, and calls actions through `epicenter serve`; forms come from
+the fields.
 
 ## Considered alternatives
 
-- **`app.ts`.** Collides with files in existing code folders, so every Svelte
-  project would look like an app. `epicenter.ts` names the tool, as
-  `package.json` and `justfile` do.
-- **A registry** (`epicenter.config.ts` exporting a list, or `epicenter add` and
-  `forget` remembering paths). The folder already says what it is; a list can go
-  stale.
-- **Code apart from data.** Protects data history from rebuilt code and lets one
-  app open many folders; neither matters for a small personal app edited on
-  purpose.
-- **`operations`, `commands`, `tools`.** Each names one surface or a programmer's
-  view. `actions` is what Apple's App Intents and the author's own notes call
-  what an app offers.
-- **`summary` with a `title`.** `description` is the word MCP, JSON Schema, and
-  agents use; the key is already a title.
-- **An `op()` wrapper, or places given to a factory.** TypeScript 5.9 infers
-  `run`'s input from a plain record passed to `defineApp`, but not through a
-  factory; places as `run`'s second argument need neither.
-- **`Type.Object` for input.** Says nothing a form or `--help` can use.
-- **`folder` as a path.** Ties every action to a disk, so no action could run
-  in a page on a phone, and nothing stops a write outside the app's folder.
-- **One repository for every app.** A token for it would open every app's data
-  to any page given access to one.
-- **Installing apps as packages.** The owner could not change their copy without
-  forking; for personal software the copy is the point.
+- **The current directory chooses the app** (`epicenter log` inside
+  `reading/`). The same text would run different actions in different
+  directories, so a permission rule written for one would allow another; the
+  vault's `calendar` group would shadow a future `calendar` app.
+- **The folder's name is the app's name.** A worktree run by path would be a
+  stranger with no sign-in.
+- **Nested groups of actions.** A record mixing actions and groups lost
+  TypeScript's inference of `run`'s input (checked on 5.9.3); spaced keys keep it
+  and keep the vault's spellings.
+- **Kebab names for nested commands.** Would rename the vault's forty commands
+  and lose grouping in `--help` and in permission rules.
+- **Per-app commands on the PATH** (`mail search`). `/usr/bin/mail` and
+  `/usr/bin/calendar` exist, and an agent needs one listing and one MCP server.
+- **`epicenter run <app> <action>`, or a sigil.** A word or a symbol on every
+  call, forever.
+- **A generated Bun workspace in the home, and an `AGENTS.md` there.** The
+  workspace's lockfile would live outside every repository, so a clone would
+  install untested versions; agents start in the vault and repositories and never
+  read the home's file.
+- **`epicenter.config.ts`, or `add` and `forget` remembering paths.** A list can
+  go stale; the home's entries and links say what is there.
+- **`app.ts`.** Collides with files in existing code folders.
+- **`operations`, `commands`, `tools`; `summary` with a `title`; an `op()`
+  wrapper; `Type.Object` for input; `folder` as a path; one repository for every
+  app; installing apps as packages.** As recorded when each was decided: each
+  names one surface, says less, ties actions to a disk, opens every app to one
+  token, or stops the person changing their copy.
+- **A cache inside the app folder** (`.cache/`). Needs excluding from Git and from
+  backups in every folder, and is indexed by the vault's own tools.
+- **A `cache`, `link`, or `diff` command.** `epicenter <app>` prints the cache
+  path; a link is `ln -s`; `diff` reads as "my uncommitted changes".
 
 ## Consequences
 
 - Writing an app is writing one file; asking an agent for an app is asking it to
-  write one.
-- The vault becomes an app where it stands, by gaining an `epicenter.ts`.
-- A developer shares an app by putting its folder on GitHub; the person owns
-  their copy, and updates are a diff they or an agent merge.
+  write one, and `epicenter new` writes the `name` line.
+- Typing an action always includes its app's name.
+- The vault's existing `epicenter.ts` is a `defineFolder` declaration; it must be
+  renamed before the vault can become an app.
+- A developer shares an app by putting its folder in a Git repository; the person
+  owns their copy, and a new version is a merge.
