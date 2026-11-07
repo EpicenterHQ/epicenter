@@ -19,8 +19,8 @@ vocabulary.
 2. Epicenter keeps them the same on every device, and for everyone you share
    them with: your changes leave the moment you make them, and others' arrive
    within half a minute.
-3. Every version is kept, and when two edits to the same paragraph meet, you
-   see both.
+3. Every version is kept, and you can take everything, any time, as files or
+   as Git. When two edits to the same paragraph meet, you see both.
 4. Share any folder with anyone, by email.
 
 Those four sentences are the whole product vocabulary. A person sees four marks
@@ -90,9 +90,11 @@ Epicenter never syncs it.
 
 `epicenter.json` holds a `title` and `collections`, path patterns such as
 `todos/{name}.md` with JSON Schema for their fields ([ADR-0805],
-[ADR-0818]). A note's front matter is the machine's and its body the person's:
-one `key: <JSON>` per line, which is valid YAML, and anything else is body
-([ADR-0796], [ADR-0797]). Prose belongs in the body, never in a field.
+[ADR-0818]). A note's front matter is the machine's and its body the person's.
+Epicenter reads any ordinary YAML header, so a note another tool wrote keeps its
+fields, and every program writes the header one way: one `key: <JSON>` line
+per field, in the contract's order ([ADR-0796], [ADR-0839]). Prose belongs in
+the body, never in a field.
 
 ```md
 ---
@@ -177,7 +179,6 @@ An agent works the way a person does:
 [ADR-0773]: adr/0773-a-folder-opens-at-a-place-every-place-is-a-store-and-the-server-never-merges.md
 [ADR-0795]: adr/0795-git-merges-a-notes-body-and-epicenter-merges-its-front-matter-by-key.md
 [ADR-0796]: adr/0796-a-field-is-a-line-its-value-is-json-and-a-write-patches-only-the-fields-it-changes.md
-[ADR-0797]: adr/0797-front-matter-is-a-strict-grammar-and-anything-else-is-body.md
 [ADR-0804]: adr/0804-a-computer-keeps-a-plain-folder-and-every-surface-syncs-with-one-typescript-function.md
 [ADR-0805]: adr/0805-a-folder-is-recognized-by-epicenter-json-which-is-its-contract.md
 [ADR-0811]: adr/0811-folders-are-shared-directly-and-an-app-reaches-the-folders-attached-to-it.md
@@ -197,6 +198,7 @@ An agent works the way a person does:
 [ADR-0832]: adr/0832-a-folder-is-the-directory-epicenter-last-synced-or-epicenter-asks.md
 [ADR-0833]: adr/0833-a-folders-present-lives-in-one-shared-database-and-its-past-in-its-own-archive.md
 [ADR-0834]: adr/0834-every-folder-is-also-a-git-remote.md
+[ADR-0839]: adr/0839-a-save-is-one-numbered-write-a-reset-deletes-nothing-and-epicenter-owns-the-pages-every-app-links-to.md
 [ADR-0838]: adr/0838-git-speaks-to-a-folder-through-a-remote-helper-and-the-cli-speaks-a-persons-verbs.md
 [ADR-0837]: adr/0837-the-ledger-is-the-persons-model-folders-the-versions-of-their-files-and-who-may-see-them.md
 [ADR-0836]: adr/0836-one-merge-a-cursor-that-carries-its-digest-and-one-grant.md

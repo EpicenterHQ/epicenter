@@ -5,6 +5,7 @@
 - **Relates:** every record from [ADR-0802](0802-people-share-spaces-an-app-works-in-one-at-a-time-and-a-folder-carries-its-contract.md) to [ADR-0834](0834-every-folder-is-also-a-git-remote.md), and [ADR-0801](0801-records-from-0763-to-0800-agree-on-the-merge-rust-patching-marks-and-agents.md), the last such register.
 - **Amended by:** [ADR-0837](0837-the-ledger-is-the-persons-model-folders-the-versions-of-their-files-and-who-may-see-them.md) at history's marks, app reach, and the inline threshold: see ADR-0837's table.
 - **Amended by:** [ADR-0838](0838-git-speaks-to-a-folder-through-a-remote-helper-and-the-cli-speaks-a-persons-verbs.md) at Git in and out, the Git remote, and the CLI: see ADR-0838.
+- **Amended by:** [ADR-0839](0839-a-save-is-one-numbered-write-a-reset-deletes-nothing-and-epicenter-owns-the-pages-every-app-links-to.md) at saves, resets, deletions, Git, and the platform's pages: see ADR-0839.
 - **Unbuilt:** see the Built column below.
 
 ## Context
@@ -30,26 +31,26 @@ states it for a reader; the table below is what is in force.
 | A folder | every real directory in `~/Epicenter`; a link is outside and never synced | 0813, 0825 | yes |
 | What a folder holds | only its content; saves and recordings stage beside their targets under reserved names | 0822 | yes |
 | Its contract | `epicenter.json`: a title and collections, path patterns with JSON Schema | 0805, 0818 | yes |
-| A note | one `key: <JSON>` per front-matter line, anything else is body; prose belongs in the body | 0796, 0797, 0818 | grammar reader no |
+| A note | fields then body; any header a bounded YAML reader accepts is read by key; every write writes the whole header as one `key: <JSON>` line per field, in the contract's order; prose belongs in the body | 0796, 0797, 0818, 0839 | no: the code writes block YAML |
 | A version | the SHA-256 of a file's bytes, on every store | 0824 | yes |
 | The write | one door: a change naming each file's expected version; a stale write is refused | 0808, 0824 | yes |
 | Who syncs | on a computer, only Epicenter's programs; a desktop app reads and writes files | 0822 | yes |
 | The web | a web app's store is the folder on the server | 0823 | yes |
 | When | a change is sent the moment it happens; others' are checked every thirty seconds; no notifier, no live session | 0830 | no: today every three seconds |
 | The merge | a line is the unit: a field by key, the later change winning; a body by Git's line merge, both versions shown | 0795, 0830, 0836 | partly: sync yes; an app's own write and MCP still try words first |
-| Which directory is which | the directory Epicenter last synced (inode and birth time); anything else asks once | 0821, 0832 | partly: the name-and-files proof remains |
+| Which directory is which | the directory Epicenter last synced (inode and birth time); a directory nothing could be is a new folder at once; otherwise it asks | 0821, 0832, 0839 | partly: the name-and-files proof remains |
 | Git working trees | Git's; never synced | 0822, 0825 | yes |
-| History | an append-only log of file versions in Postgres, each with its author and time, reached by time; content by hash | 0824, 0826, 0837 | partly: changes and marks remain in code |
+| History | an append-only log of file versions; versions saved together share a number, each naming its program, reached by time; content by hash | 0824, 0837, 0839 | partly: changes and marks remain in code |
 | History's past | each folder's older versions in its own archive, when growth calls for it | 0833, 0837 | no |
-| Restores and deletion | a restore never deletes on a device; bytes leave through an outbox; the chain covers what changed, not who | 0829 | no |
+| Restores and deletion | a reset deletes nothing on either side; only deletions of content appearing nowhere else are held back; bytes leave through an outbox | 0829, 0836, 0839 | no |
 | Sharing | a grant to a person or an email; members equal; readers read | 0811, 0820, 0836, 0837 | partly: three tables remain |
-| App reach | a web window holds a token for the one folder it was opened on; a desktop app's token holds only `ai` | 0822, 0837 | partly: web apps reach attached folders today |
-| Git in and out | `git clone epicenter::<folder>` and `git push`, through the `git-remote-epicenter` helper | 0826, 0838 | no: `export --git` and `import --git` today |
+| App reach | a web app opens a folder through Epicenter's sign-in page and holds a token for it; History and Share open Epicenter's window; a desktop app's token holds only `ai` | 0822, 0837, 0839 | partly: web apps reach attached folders today |
+| Git in and out | `git clone epicenter::<folder>` and `git push` through the helper; a push lands only when made from the latest version | 0826, 0838, 0839 | no: `export --git` and `import --git` today |
 | A Git remote on the server | only for a sandbox that has Git and cannot run the helper | 0834, 0838 | no |
 | Names | the folders audience at `<api origin>/folders`; a write is `POST …/changes` | 0828 | yes |
 | Apps | a view, a window over one folder, and capabilities; the platform owns folders | 0814, 0817, 0818 | no |
 | The Epicenter app | every folder, its history, sharing, and import; syncs every folder from login | 0816, 0819, 0828 | yes, its pages unseen running |
-| The CLI and MCP | one table of a person's verbs renders both; MCP adds tools from each contract | 0827, 0838 | the table yes; the verbs no |
+| The CLI and MCP | one table of a person's verbs renders both; sharing is not an agent tool by default | 0827, 0838, 0839 | the table yes; the verbs no |
 
 **Withdrawn on the way, and why**, so they are not proposed again without a new
 reason: spaces and groups (sharing is per folder, 0811); a stamp or id inside a

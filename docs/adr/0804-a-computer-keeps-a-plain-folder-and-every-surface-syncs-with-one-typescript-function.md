@@ -11,6 +11,7 @@
 - **Amended by:** [ADR-0815](0815-the-platform-gives-a-window-its-folder-and-every-app-the-same-home.md) at moments wired per app: the window's runtime runs them.
 - **Amended by:** [ADR-0821](0821-a-computer-remembers-what-it-synced-and-a-shell-limits-each-window-to-its-folder.md) at the manifest in each folder: the Epicenter folder keeps one record per synced folder, trusted only when the directory is proven the one that agreed it.
 - **Amended by:** [ADR-0822](0822-only-epicenter-syncs-on-a-computer-and-a-folder-holds-only-its-content.md) at each folder's `.epicenter/`: a folder holds no Epicenter state; saves and recordings stage beside their targets, and the Epicenter folder keeps records and caches.
+- **Amended by:** [ADR-0839](0839-a-save-is-one-numbered-write-a-reset-deletes-nothing-and-epicenter-owns-the-pages-every-app-links-to.md) at a phone app syncing itself: on a phone Epicenter syncs as the system's file provider.
 - **Unbuilt:** the open folder listing every visible file; `.epicenter/sync.lock` around a sync; the server refusing a path that differs only in case from one it holds; moments in the sync package and each app syncing through it; the CLI's `epicenter sync`, `log`, `diff`, `restore`, and `clone` over the server; streaming a large attachment; retiring `packages/epicenter-core`, its Node-API addon, the merge driver, the CLI's Git sync, and the shell's sync enrollment.
 
 ## Context

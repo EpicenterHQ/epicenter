@@ -4,6 +4,7 @@
 - **Date:** 2026-11-07
 - **Amends:** [ADR-0834](0834-every-folder-is-also-a-git-remote.md) at a folder's Git remote served by the server: Git reaches a folder through `git-remote-epicenter`, a remote helper on the computer, and a remote on the server waits for a sandbox that has Git and nothing else; [ADR-0826](0826-history-enters-and-leaves-epicenter-as-git.md) at `epicenter export --git` and `import --git`: history leaves by `git clone` and enters by `git push`; [ADR-0831](0831-a-git-branch-lands-in-a-folder-as-one-change-through-the-cli.md) at `epicenter git land`: a push lands; [ADR-0827](0827-the-cli-and-mcp-render-one-table-of-operations.md) at the CLI's commands: the table holds a person's verbs.
 - **Relates:** [ADR-0837](0837-the-ledger-is-the-persons-model-folders-the-versions-of-their-files-and-who-may-see-them.md) (the ledger is the person's model), [ADR-0835](0835-records-from-0802-to-0834-agree-on-files-a-ledger-and-git-at-the-edges.md) (the register).
+- **Amended by:** [ADR-0839](0839-a-save-is-one-numbered-write-a-reset-deletes-nothing-and-epicenter-owns-the-pages-every-app-links-to.md) at a push landing merged and at the commands: a push lands only when made from the latest version, and `get` covers invitations.
 - **Unbuilt:** all of it: `git-remote-epicenter`, shipped with the CLI; the commands below; removing `export`, `import`, `land`, `init`, `clone`, `status`, `log`, `diff`, and `at` from the table.
 
 ## Context

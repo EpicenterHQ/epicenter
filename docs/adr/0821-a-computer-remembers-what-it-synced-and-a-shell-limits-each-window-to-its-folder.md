@@ -6,6 +6,7 @@
 - **Relates:** [ADR-0565](0565-a-refresh-token-keeps-its-grants-scopes-and-only-each-access-token-is-narrowed-to-its-audience.md) (a refresh family is every grant of one client for one person), [ADR-0731](0731-every-app-signs-in-as-its-site.md) (each app signs in as its site; a shared keychain item failed), [ADR-0740](0740-every-credential-an-app-holds-lives-in-its-own-place.md) (credentials as files), [ADR-0785](0785-a-desktop-app-signs-in-to-sync-its-own-folder.md) (a desktop app signs in to sync its own folder), [ADR-0732](0732-a-grant-reaches-what-the-person-chooses-at-consent.md) (consent).
 - **Amended by:** [ADR-0822](0822-only-epicenter-syncs-on-a-computer-and-a-folder-holds-only-its-content.md) at the stamp, `root.json`, the shell's record command, and desktop apps reaching every folder: identity is inode and birth time with one fallback, only Epicenter writes records, and a desktop app reaches no folder on the server.
 - **Amended by:** [ADR-0832](0832-a-folder-is-the-directory-epicenter-last-synced-or-epicenter-asks.md) at rebinding by name when the Epicenter folder moved: it asks.
+- **Amended by:** [ADR-0839](0839-a-save-is-one-numbered-write-a-reset-deletes-nothing-and-epicenter-owns-the-pages-every-app-links-to.md) at stopping before many deletions: only deletions of content appearing nowhere else are held back.
 - **Unbuilt:** none; ADR-0832 removes the rebinding by name this record kept.
 
 ## Context
