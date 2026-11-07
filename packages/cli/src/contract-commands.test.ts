@@ -60,6 +60,7 @@ async function setup() {
 	function run(...args: string[]) {
 		const result = Bun.spawnSync([...command, ...args], {
 			cwd: parent,
+			env: { ...process.env, EPICENTER_STRICT_OUTPUT: '1' },
 			stdout: 'pipe',
 			stderr: 'pipe',
 		});
@@ -73,6 +74,7 @@ async function setup() {
 	async function runAsync(...args: string[]) {
 		const child = Bun.spawn([...command, ...args], {
 			cwd: parent,
+			env: { ...process.env, EPICENTER_STRICT_OUTPUT: '1' },
 			stdout: 'pipe',
 			stderr: 'pipe',
 		});

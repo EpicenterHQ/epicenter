@@ -33,6 +33,7 @@ async function setup() {
 	function run(...args: string[]) {
 		const result = Bun.spawnSync([...command, ...args], {
 			cwd: folder,
+			env: { ...process.env, EPICENTER_STRICT_OUTPUT: '1' },
 			stdout: 'pipe',
 			stderr: 'pipe',
 		});
@@ -107,14 +108,21 @@ test('--help lists every command but the hidden ones, and --json describes them'
 		'accept',
 		'attach',
 		'detach',
+		'mcp',
 		'auth login',
 		'auth logout',
 		'auth status',
 		'auth token',
 	]);
-	expect(
-		described.find((c: { command: string }) => c.command === 'sync').output,
-	).toBe('ndjson');
+	type Described = { command: string; ndjson?: true; input?: object };
+	const find = (name: string) =>
+		(described as Described[]).find(({ command }) => command === name);
+	expect(find('auth login')?.ndjson).toBe(true);
+	// An operation is described with the input schema its tool takes.
+	expect(find('sync')?.input).toMatchObject({
+		type: 'object',
+		properties: { pushDeletions: { type: 'boolean' } },
+	});
 	expect(run('auth', '--help').stdout).toContain('epicenter auth login');
 	expect(run('check', '--help').stdout).toContain('compiler style');
 	expect(JSON.parse(run('--version', '--json').stdout).version).toMatch(

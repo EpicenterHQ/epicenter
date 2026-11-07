@@ -453,6 +453,7 @@
         "@beeper/desktop-api": "^6.0.0",
         "@epicenter/definition": "workspace:*",
         "@epicenter/folder": "workspace:*",
+        "@modelcontextprotocol/sdk": "catalog:",
         "typebox": "catalog:",
         "wellcrafted": "catalog:",
       },

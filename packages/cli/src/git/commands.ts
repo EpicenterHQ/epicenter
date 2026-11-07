@@ -1,21 +1,27 @@
 /**
  * `epicenter export --git <dir>` and `epicenter import --git <repository>`
- * (ADR-0824, ADR-0826): a folder's history leaving Epicenter as a Git
- * repository, and a Git repository's history entering as a folder.
+ * (ADR-0824, ADR-0826, ADR-0827): a folder's history leaving Epicenter as
+ * a Git repository, and a Git repository's history entering as a folder,
+ * or an import that stopped resumed or abandoned.
  *
- * Exit codes: 0 done, 2 what the command cannot use (no `git`, not synced
- * here, a repository it cannot read or write, the server out of reach).
+ * Exit codes: 0 done, 2 what the operation cannot use (no `git`, not
+ * synced here, a repository it cannot read or write, the server out of
+ * reach).
  */
 import { resolve } from 'node:path';
+import { Err, Ok } from 'wellcrafted/result';
 import { authContext } from '../auth.ts';
 import { homeRoot } from '../folder-commands.ts';
-import { count, EXIT, fail, writeErr, writeJson, writeOut } from '../output.ts';
+import type { ImplementationOf } from '../operation.ts';
+import type {
+	exportGit as exportOperation,
+	importGit as importOperation,
+} from '../operations.ts';
+import { count, writeErr, writeOut } from '../output.ts';
 import { signedInNow } from '../sync/account.ts';
 import { syncedFolder } from '../sync/history.ts';
-import { exportGit } from './export.ts';
-import { abandonImport, importGit } from './import.ts';
-
-type Options = Record<string, string | true>;
+import { exportGit as writeExport } from './export.ts';
+import { abandonImport, importGit as readImport } from './import.ts';
 
 const message = (cause: unknown) =>
 	cause instanceof Error ? cause.message : String(cause);
@@ -26,27 +32,22 @@ const message = (cause: unknown) =>
  * at `<repository>`, made when absent, adding only what is new since the
  * last export there.
  */
-export async function exportCommand(
-	dir: string | undefined,
-	options: Options,
-	json: boolean,
-) {
-	if (typeof options.git !== 'string')
-		return fail('Name the repository to write: --git <dir>.', json);
-	const at = await syncedFolder(dir);
-	if (at.error !== null) return fail(at.error, json);
-	let report: Awaited<ReturnType<typeof exportGit>>;
-	try {
-		report = await exportGit({
-			folder: at.data.record.folder,
-			history: at.data.folder,
-			dir: resolve(options.git),
-		});
-	} catch (cause) {
-		return fail(message(cause), json);
-	}
-	if (json) writeJson({ export: report });
-	else {
+export const exportGit: ImplementationOf<typeof exportOperation> = {
+	async run({ dir, git }) {
+		const at = await syncedFolder(dir);
+		if (at.error !== null) return at;
+		try {
+			const report = await writeExport({
+				folder: at.data.record.folder,
+				history: at.data.folder,
+				dir: resolve(git),
+			});
+			return Ok({ output: { export: report } });
+		} catch (cause) {
+			return Err(message(cause));
+		}
+	},
+	print({ export: report }) {
 		writeOut(
 			report.to === report.from
 				? `${report.dir} holds every change already (${report.to}).`
@@ -62,9 +63,8 @@ export async function exportCommand(
 			writeErr(
 				`${report.dir}'s checkout had changes of its own, so it was left as it was; main has the new commits`,
 			);
-	}
-	return EXIT.ok;
-}
+	},
+};
 
 /**
  * `epicenter import --git <repository> [--branch <name>] [--name <name>]
@@ -73,54 +73,54 @@ export async function exportCommand(
  * import that stopped midway (of `--git`, or the only one waiting), and
  * `--abandon <folder>` deletes one that still imports.
  */
-export async function importCommand(options: Options, json: boolean) {
-	const source = typeof options.git === 'string' ? options.git : undefined;
-	const abandon =
-		typeof options.abandon === 'string' ? options.abandon : undefined;
-	const resume = options.resume === true;
-	if (abandon !== undefined && (source !== undefined || resume))
-		return fail(
-			'--abandon <folder> gives up an import; give it alone, without --git or --resume.',
-			json,
-		);
-	if (abandon === undefined && source === undefined && !resume)
-		return fail('Name the repository to read: --git <path or URL>.', json);
-	const signedIn = await signedInNow(authContext());
-	if (signedIn.error !== null) return fail(signedIn.error, json);
-	if (abandon !== undefined) {
-		let gone: Awaited<ReturnType<typeof abandonImport>>;
+export const importGit: ImplementationOf<typeof importOperation> = {
+	async run({ git, branch, name, replaceOriginal, resume, abandon }) {
+		if (abandon !== undefined && (git !== undefined || resume))
+			return Err(
+				'--abandon <folder> gives up an import; give it alone, without --git or --resume.',
+			);
+		if (abandon === undefined && git === undefined && !resume)
+			return Err('Name the repository to read: --git <path or URL>.');
+		const signedIn = await signedInNow(authContext());
+		if (signedIn.error !== null) return Err(signedIn.error);
 		try {
-			gone = await abandonImport({
-				account: signedIn.data,
-				root: homeRoot(),
-				target: abandon,
+			if (abandon !== undefined)
+				return Ok({
+					output: {
+						abandon: await abandonImport({
+							account: signedIn.data,
+							root: homeRoot(),
+							target: abandon,
+						}),
+					},
+				});
+			return Ok({
+				output: {
+					import: await readImport({
+						source: git,
+						resume,
+						branch,
+						name,
+						replaceOriginal,
+						account: signedIn.data,
+						root: homeRoot(),
+					}),
+				},
 			});
 		} catch (cause) {
-			return fail(message(cause), json);
+			return Err(message(cause));
 		}
-		if (json) writeJson({ abandon: gone });
-		else
+	},
+	print(output) {
+		const gone = output.abandon;
+		if (gone !== undefined) {
 			writeOut(
 				`The import of ${gone.folder} is abandoned: ${gone.server === 'abandoned' ? 'its folder is deleted on the server' : 'its folder was gone from the server already'}${gone.removed === null ? '' : `, and ${gone.removed} is removed`}.`,
 			);
-		return EXIT.ok;
-	}
-	let report: Awaited<ReturnType<typeof importGit>>;
-	try {
-		report = await importGit({
-			source,
-			resume,
-			branch: typeof options.branch === 'string' ? options.branch : undefined,
-			name: typeof options.name === 'string' ? options.name : undefined,
-			replaceOriginal: options['replace-original'] === true,
-			account: signedIn.data,
-			root: homeRoot(),
-		});
-	} catch (cause) {
-		return fail(message(cause), json);
-	}
-	if (json) writeJson({ import: report });
-	else {
+			return;
+		}
+		const report = output.import;
+		if (report === undefined) return;
 		writeOut(
 			`${report.path}: ${count(report.changes, 'change')} from ${count(report.commits, 'commit')} of ${report.branch}${report.resumed > 0 ? ` (${report.resumed} landed before this run)` : ''}, ${count(report.marks.length, 'mark')}; synced as folder ${report.folder}`,
 		);
@@ -129,6 +129,5 @@ export async function importCommand(options: Options, json: boolean) {
 			writeErr(
 				`The original is at ${report.original.movedTo}, its .git within it; ${report.original.link} now links to ${report.path}.`,
 			);
-	}
-	return EXIT.ok;
-}
+	},
+};

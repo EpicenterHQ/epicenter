@@ -16,8 +16,9 @@
 		"@beeper/desktop-api": "^6.0.0",
 		"@epicenter/definition": "workspace:*",
 		"@epicenter/folder": "workspace:*",
-		"wellcrafted": "catalog:",
-		"typebox": "catalog:"
+		"@modelcontextprotocol/sdk": "catalog:",
+		"typebox": "catalog:",
+		"wellcrafted": "catalog:"
 	},
 	"devDependencies": {
 		"@epicenter/server": "workspace:*",

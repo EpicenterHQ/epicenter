@@ -1,11 +1,18 @@
 /**
- * Every command the CLI runs (ADR-0558), in the order `--help` lists them.
- * Each has a handler in `cli.ts`.
+ * Every command the CLI runs (ADR-0558), in the order `--help` lists them:
+ * each platform operation in `operations.ts`, rendered as a command, then
+ * the CLI's own, which are not platform operations and so not tools: `mcp`,
+ * which serves the operations to an agent, `auth`, the CLI's own sign-in,
+ * and `messages`, run by another program. Each of the CLI's own has a
+ * handler in `cli.ts`.
  */
 
+import { commandOf } from './operation.ts';
+import { OPERATIONS } from './operations.ts';
 import type { CommandSpec } from './parse.ts';
 
-export const COMMANDS: readonly CommandSpec[] = [
+/** The CLI's own commands. */
+export const CLI_COMMANDS: readonly CommandSpec[] = [
 	{
 		path: ['messages'],
 		args: '',
@@ -15,192 +22,13 @@ export const COMMANDS: readonly CommandSpec[] = [
 		summary: 'Beeper operation as JSON on stdin',
 	},
 	{
-		path: ['check'],
-		args: '[<dir>]',
+		path: ['mcp'],
+		args: '[<dir> ...]',
 		minArgs: 0,
-		maxArgs: 1,
-		options: [{ name: 'contract', value: '<url or path>' }],
-		summary: 'report each file in a folder that does not fit its contract',
-	},
-	{
-		path: ['format'],
-		args: '[<dir>]',
-		minArgs: 0,
-		maxArgs: 1,
-		options: [{ name: 'contract', value: '<url or path>' }],
-		summary: "rewrite every note a folder's contract claims in house style",
-	},
-	{
-		path: ['status'],
-		args: '',
-		minArgs: 0,
-		maxArgs: 0,
+		maxArgs: Number.POSITIVE_INFINITY,
+		options: [{ name: 'all' }],
 		summary:
-			"the folders in the Epicenter folder, each one's state, and the shares waiting for you",
-	},
-	{
-		path: ['init'],
-		args: '[<path>]',
-		minArgs: 0,
-		maxArgs: 1,
-		options: [{ name: 'title', value: '<title>' }, { name: 'dry-run' }],
-		summary:
-			"write a folder's epicenter.json, proposing collections from its files",
-	},
-	{
-		path: ['sync'],
-		args: '[<folder>]',
-		minArgs: 0,
-		maxArgs: 1,
-		options: [
-			{ name: 'join', value: '<id>' },
-			{ name: 'create' },
-			{ name: 'push-deletions' },
-			{ name: 'restore-deletions' },
-			{ name: 'all' },
-		],
-		summary:
-			'sync a folder in the Epicenter folder with its folder on the server, asking which one first when it is not synced here',
-		long: true,
-	},
-	{
-		path: ['clone'],
-		args: '[<folder> [<name>]]',
-		minArgs: 0,
-		maxArgs: 2,
-		summary:
-			'list your folders, or bring one into the Epicenter folder by its id or title, and sync it',
-		long: true,
-	},
-	{
-		path: ['log'],
-		args: '[<dir>]',
-		minArgs: 0,
-		maxArgs: 1,
-		options: [
-			{ name: 'path', value: '<path>' },
-			{ name: 'at', value: '<moment>' },
-			{ name: 'limit', value: '<n>' },
-		],
-		summary: "the folder's changes on the server, newest first",
-	},
-	{
-		path: ['history'],
-		args: '<path>',
-		minArgs: 1,
-		maxArgs: 1,
-		options: [
-			{ name: 'at', value: '<moment>' },
-			{ name: 'limit', value: '<n>' },
-		],
-		summary: "a file's versions on the server, who wrote each, and when",
-	},
-	{
-		path: ['show'],
-		args: '<path>',
-		minArgs: 1,
-		maxArgs: 1,
-		options: [{ name: 'at', value: '<moment>' }],
-		summary: 'a file as the server holds it, or as it was at a moment',
-	},
-	{
-		path: ['at'],
-		args: '<moment> [<dir>]',
-		minArgs: 1,
-		maxArgs: 2,
-		summary: "the folder's files as they were at a moment",
-	},
-	{
-		path: ['mark'],
-		args: '[<name> [<dir>]]',
-		minArgs: 0,
-		maxArgs: 2,
-		options: [{ name: 'move' }],
-		summary:
-			"name the folder's last change, so history and the export reach it; or list its marks",
-	},
-	{
-		path: ['diff'],
-		args: '[<dir>]',
-		minArgs: 0,
-		maxArgs: 1,
-		options: [{ name: 'since', value: '<moment>' }],
-		summary:
-			'the files changed since the last sync, or on the server since a moment',
-	},
-	{
-		path: ['restore'],
-		args: '<moment> [<dir>]',
-		minArgs: 1,
-		maxArgs: 2,
-		options: [{ name: 'path', value: '<path>' }],
-		summary:
-			"give a folder's files, or one with --path, back what they held at a moment, as a new change",
-	},
-	{
-		path: ['export'],
-		args: '[<dir>]',
-		minArgs: 0,
-		maxArgs: 1,
-		options: [{ name: 'git', value: '<repository>' }],
-		summary:
-			"write a folder's history into a Git repository, adding what is new since the last export",
-	},
-	{
-		path: ['import'],
-		args: '',
-		minArgs: 0,
-		maxArgs: 0,
-		options: [
-			{ name: 'git', value: '<path or URL>' },
-			{ name: 'branch', value: '<name>' },
-			{ name: 'name', value: '<name>' },
-			{ name: 'replace-original' },
-			{ name: 'resume' },
-			{ name: 'abandon', value: '<folder>' },
-		],
-		summary:
-			"make a folder from a Git repository's history, in the Epicenter folder and synced; or resume or abandon one that stopped",
-	},
-	{
-		path: ['share'],
-		args: '<folder> [<email>]',
-		minArgs: 1,
-		maxArgs: 2,
-		options: [{ name: 'role', value: 'member|reader' }],
-		summary:
-			'invite an email to a folder, or change the role of someone who holds it; or list who holds it',
-	},
-	{
-		path: ['unshare'],
-		args: '<folder> <email>',
-		minArgs: 2,
-		maxArgs: 2,
-		summary:
-			'take a person out of a folder or cancel their invitation; with your own email, leave it or decline',
-	},
-	{
-		path: ['accept'],
-		args: '[<folder>]',
-		minArgs: 0,
-		maxArgs: 1,
-		summary:
-			'accept a share into the Epicenter folder, or list the shares waiting for you',
-		long: true,
-	},
-	{
-		path: ['attach'],
-		args: '<folder> <app>',
-		minArgs: 2,
-		maxArgs: 2,
-		summary: 'let an app reach a folder: use this folder with it',
-	},
-	{
-		path: ['detach'],
-		args: '<folder> <app>',
-		minArgs: 2,
-		maxArgs: 2,
-		summary: 'stop an app reaching a folder',
+			"serve every operation, and each folder's collections, to an agent as MCP tools on stdin and stdout",
 	},
 	{
 		path: ['auth', 'login'],
@@ -232,4 +60,10 @@ export const COMMANDS: readonly CommandSpec[] = [
 		options: [{ name: 'resource', value: '<url>' }],
 		summary: 'print an access token, by default for the API',
 	},
+];
+
+/** Every command, operations first. */
+export const COMMANDS: readonly CommandSpec[] = [
+	...OPERATIONS.map(commandOf),
+	...CLI_COMMANDS,
 ];
