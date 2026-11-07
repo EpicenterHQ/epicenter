@@ -2,13 +2,25 @@
  * `epicenter export --git <dir>` and `epicenter import --git <repository>`
  * (ADR-0824, ADR-0826, ADR-0827): a folder's history leaving Epicenter as
  * a Git repository, and a Git repository's history entering as a folder,
- * or an import that stopped resumed or abandoned.
+ * or an import that stopped resumed or abandoned. Each is a function of
+ * `@epicenter/folder` (`exportGit`, `abandonImport`, and `gitHost` from
+ * `/node`; `importGit` from `/platform`) over this computer's `git`.
  *
  * Exit codes: 0 done, 2 what the operation cannot use (no `git`, not
  * synced here, a repository it cannot read or write, the server out of
  * reach).
  */
 import { resolve } from 'node:path';
+import {
+	abandonImport,
+	gitHost,
+	sourceOf,
+	exportGit as writeExport,
+} from '@epicenter/folder/node';
+import {
+	importGit as readImport,
+	syncedFolder,
+} from '@epicenter/folder/platform';
 import { Err, Ok } from 'wellcrafted/result';
 import { authContext } from '../auth.ts';
 import { homeRoot } from '../folder-commands.ts';
@@ -19,12 +31,7 @@ import type {
 } from '../operations.ts';
 import { count, writeErr, writeOut } from '../output.ts';
 import { signedInNow } from '../sync/account.ts';
-import { syncedFolder } from '../sync/history.ts';
-import { exportGit as writeExport } from './export.ts';
-import { abandonImport, importGit as readImport } from './import.ts';
-
-const message = (cause: unknown) =>
-	cause instanceof Error ? cause.message : String(cause);
+import { folderTarget, messageOf } from '../sync/history.ts';
 
 /**
  * `epicenter export [<dir>] --git <repository>`: write the history of the
@@ -34,18 +41,17 @@ const message = (cause: unknown) =>
  */
 export const exportGit: ImplementationOf<typeof exportOperation> = {
 	async run({ dir, git }) {
-		const at = await syncedFolder(dir);
-		if (at.error !== null) return at;
-		try {
-			const report = await writeExport({
-				folder: at.data.record.folder,
-				history: at.data.folder,
-				dir: resolve(git),
-			});
-			return Ok({ output: { export: report } });
-		} catch (cause) {
-			return Err(message(cause));
-		}
+		const target = await folderTarget(dir);
+		if (target.error !== null) return target;
+		const synced = await syncedFolder(target.data);
+		if (synced.error !== null) return Err(messageOf(synced.error, target.data));
+		const written = await writeExport({
+			folder: synced.data.record.folder,
+			history: synced.data.folder,
+			dir: resolve(git),
+		});
+		if (written.error !== null) return Err(written.error.message);
+		return Ok({ output: { export: written.data } });
 	},
 	print({ export: report }) {
 		writeOut(
@@ -83,33 +89,27 @@ export const importGit: ImplementationOf<typeof importOperation> = {
 			return Err('Name the repository to read: --git <path or URL>.');
 		const signedIn = await signedInNow(authContext());
 		if (signedIn.error !== null) return Err(signedIn.error);
-		try {
-			if (abandon !== undefined)
-				return Ok({
-					output: {
-						abandon: await abandonImport({
-							account: signedIn.data,
-							root: homeRoot(),
-							target: abandon,
-						}),
-					},
-				});
-			return Ok({
-				output: {
-					import: await readImport({
-						source: git,
-						resume,
-						branch,
-						name,
-						replaceOriginal,
-						account: signedIn.data,
-						root: homeRoot(),
-					}),
-				},
+		if (abandon !== undefined) {
+			const gone = await abandonImport({
+				account: signedIn.data,
+				root: homeRoot(),
+				target: abandon,
 			});
-		} catch (cause) {
-			return Err(message(cause));
+			if (gone.error !== null) return Err(gone.error.message);
+			return Ok({ output: { abandon: gone.data } });
 		}
+		const made = await readImport({
+			host: gitHost,
+			source: git === undefined ? undefined : sourceOf(git),
+			resume,
+			branch,
+			name,
+			replaceOriginal,
+			account: signedIn.data,
+			root: homeRoot(),
+		});
+		if (made.error !== null) return Err(made.error.message);
+		return Ok({ output: { import: made.data } });
 	},
 	print(output) {
 		const gone = output.abandon;

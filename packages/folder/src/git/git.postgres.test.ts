@@ -39,15 +39,37 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { epicenterRoot } from '@epicenter/folder/node';
-import { identify, listFolders } from '@epicenter/folder/platform';
-import { folderRepository, makeFolder } from '@epicenter/folder/sync';
+import type { Result } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import { purgeBlobs } from '../../../server/src/log/blobs.js';
 import { startRepositoryServer } from '../../../server/src/test-helpers/repository-server.js';
-import { exportGit, messageOf } from './export.ts';
-import { abandonImport, importGit, importsInProgress } from './import.ts';
-import { git, gitText, lfsObjectPath, readLfsPointer } from './run.ts';
+import { epicenterRoot } from '../device/node-root.js';
+import { identify } from '../platform/identify.js';
+import { listFolders } from '../remote/folders.js';
+import { folderRepository, makeFolder } from '../remote/repository.js';
+import { messageOf, exportGit as writeExport } from './export.js';
+import { gitText as hostText, lfsObjectPath, readLfsPointer } from './host.js';
+import { importsInProgress, importGit as readImport } from './import.js';
+import { git, gitHost, abandonImport as giveUp } from './node.js';
+
+/** Each function under test, its error thrown, so a refusal reads as a rejection. */
+const unwrap = async <T>(
+	answer: Promise<Result<T, { message: string }>>,
+): Promise<T> => {
+	const result = await answer;
+	if (result.error !== null) throw new Error(result.error.message);
+	return result.data;
+};
+const exportGit = (options: Parameters<typeof writeExport>[0]) =>
+	unwrap(writeExport(options));
+const importGit = (options: Omit<Parameters<typeof readImport>[0], 'host'>) =>
+	unwrap(readImport({ host: gitHost, ...options }));
+const abandonImport = (options: Parameters<typeof giveUp>[0]) =>
+	unwrap(giveUp(options));
+const gitText = (
+	args: readonly string[],
+	{ env, ...options }: { cwd?: string; env?: Record<string, string> } = {},
+) => hostText({ run: (args, at) => git(args, { ...at, env }) }, args, options);
 
 let server: Awaited<ReturnType<typeof startRepositoryServer>>;
 let scratch: string;

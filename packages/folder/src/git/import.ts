@@ -1,8 +1,9 @@
 /**
- * `epicenter import --git <repository> [--branch <name>]` (ADR-0826): a
- * Git repository's history entering Epicenter as a folder: the export's
- * projections run backwards, a blob that is an LFS pointer read as its
- * object.
+ * A Git repository's history entering Epicenter as a folder (ADR-0826):
+ * the export's projections run backwards, a blob that is an LFS pointer
+ * read as its object. `epicenter import --git` and the Epicenter app's
+ * "Import from Git…" both call `importGit`, each with its computer's Git
+ * (`GitHost`).
  *
  * - The repository, a path or a URL, is mirrored into a scratch directory
  *   and read there, so the source is never written. Its Git LFS objects
@@ -32,44 +33,44 @@
  * so the run makes them again in order, without a byte of the ones the
  * server's log holds already (an LFS file's version is its pointer's
  * oid), checks the last of those against the log, and lands the rest.
- * `abandonImport` deletes a folder that still imports, on the server and
- * here (ADR-0827).
+ * `abandonImport` (`@epicenter/folder/node`) deletes a folder that still
+ * imports, on the server and here (ADR-0827).
  *
  * With `replaceOriginal`, a local source hands over to Epicenter: it moves
  * aside, its `.git` kept within it as the backup, and a link at its path
  * points into the Epicenter folder. Never without the flag, and never for
  * a source with uncommitted changes.
  */
-import { existsSync } from 'node:fs';
-import {
-	lstat,
-	mkdtemp,
-	readFile,
-	rename,
-	rm,
-	symlink,
-} from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { basename, dirname, join, resolve } from 'node:path';
 import { isHiddenPath } from '@epicenter/definition/contract';
 import { isMarkName } from '@epicenter/definition/site';
-import { pathProblem } from '@epicenter/folder/node';
+import { Ok, type Result } from 'wellcrafted/result';
+import type { Version } from '../device/store.js';
+import { versionOf } from '../hash.js';
+import { pathProblem } from '../paths.js';
 import {
 	type EpicenterRoot,
 	freeName,
 	type LocalFolder,
-	makeFolder,
-	type Records,
-	type RemoteAccount,
-	recordPath,
-} from '@epicenter/folder/platform';
+} from '../platform/epicenter-folder.js';
+import type { Records } from '../platform/records.js';
 import {
 	folderRepository,
 	type ImportedChange,
 	type LoggedChange,
+	makeFolder,
 	type NamedWrite,
-} from '@epicenter/folder/sync';
-import { git, gitText, lfsObjectPath, readLfsPointer } from './run.ts';
+	type RemoteAccount,
+} from '../remote/repository.js';
+import {
+	baseName,
+	dirName,
+	GitError,
+	type GitHost,
+	gitText,
+	isWithin,
+	joinPath,
+	readLfsPointer,
+} from './host.js';
 
 /** What an import did. */
 export type ImportReport = {
@@ -122,12 +123,8 @@ const IMPORTS = 'imports';
 const notePath = (folder: string) => `${IMPORTS}/${folder}.json`;
 
 /** Whether `source` names a remote repository rather than a path on this computer. */
-const isUrl = (source: string) =>
+export const isUrl = (source: string) =>
 	/^[a-z][a-z0-9+.-]*:\/\//i.test(source) || /^[^/]+@[^/:]+:/.test(source);
-
-/** `source` as a note keeps it: a URL as given, a path made absolute. */
-const sourceKey = (source: string) =>
-	isUrl(source) ? source : resolve(source);
 
 const isNote = (value: unknown): value is ImportNote => {
 	if (typeof value !== 'object' || value === null) return false;
@@ -177,7 +174,7 @@ async function writeNote(records: Records, note: ImportNote) {
 }
 
 /** Forget the import of `folder` on this computer. */
-async function removeNote(records: Records, folder: string) {
+export async function removeNote(records: Records, folder: string) {
 	const path = notePath(folder);
 	const read = await records.store.read([path]);
 	if (read.error !== null) throw new Error(read.error.message);
@@ -190,13 +187,14 @@ async function removeNote(records: Records, folder: string) {
 
 /** Each blob's bytes by id, read from `mirror` in one `git cat-file --batch`. */
 async function readBlobs(
+	host: GitHost,
 	mirror: string,
 	ids: readonly string[],
 ): Promise<Map<string, Uint8Array>> {
 	const out = new Map<string, Uint8Array>();
 	const unique = [...new Set(ids)];
 	if (unique.length === 0) return out;
-	const run = await git(['cat-file', '--batch'], {
+	const run = await host.run(['cat-file', '--batch'], {
 		cwd: mirror,
 		input: encoder.encode(`${unique.join('\n')}\n`),
 	});
@@ -231,11 +229,6 @@ function readRaw(output: Uint8Array): RawEntry[] {
 	}
 	return entries;
 }
-
-const sha256 = async (bytes: Uint8Array) =>
-	Buffer.from(
-		await crypto.subtle.digest('SHA-256', bytes as Uint8Array<ArrayBuffer>),
-	).toString('hex');
 
 /**
  * A file a change writes, before its bytes are read: its version and size
@@ -279,20 +272,14 @@ function isPlanned(change: LoggedChange, planned: Planned) {
 }
 
 /**
- * Import the repository `source` (a path or a URL) into a new folder held
- * by `account`'s person, and write it into `root`, named `name` (or for the
- * repository); or, with `resume`, continue the import in progress of
- * `source` (the only one when none is named). See the header.
+ * Import the repository `source` (a URL, or a repository's absolute path)
+ * into a new folder held by `account`'s person, through `host`'s Git, and
+ * write it into `root`, named `name` (or for the repository); or, with
+ * `resume`, continue the import in progress of `source` (the only one when
+ * none is named). See the header.
  */
-export async function importGit({
-	source: given,
-	branch: named,
-	account,
-	root,
-	name,
-	replaceOriginal = false,
-	resume = false,
-}: {
+export async function importGit(options: {
+	host: GitHost;
 	source?: string;
 	branch?: string;
 	account: RemoteAccount;
@@ -300,7 +287,24 @@ export async function importGit({
 	name?: string;
 	replaceOriginal?: boolean;
 	resume?: boolean;
-}): Promise<ImportReport> {
+}): Promise<Result<ImportReport, GitError>> {
+	try {
+		return Ok(await runImport(options));
+	} catch (cause) {
+		return GitError.Failed({ cause });
+	}
+}
+
+async function runImport({
+	host,
+	source: given,
+	branch: named,
+	account,
+	root,
+	name,
+	replaceOriginal = false,
+	resume = false,
+}: Parameters<typeof importGit>[0]): Promise<ImportReport> {
 	const opened = await root.records();
 	if (opened.error !== null) throw new Error(opened.error.message);
 	const records = opened.data;
@@ -308,7 +312,7 @@ export async function importGit({
 	if (resume) {
 		const waiting = (await importsInProgress(records)).filter(
 			(one) =>
-				(given === undefined || one.source === sourceKey(given)) &&
+				(given === undefined || one.source === given) &&
 				(named === undefined || one.branch === named),
 		);
 		if (waiting.length === 0)
@@ -325,39 +329,46 @@ export async function importGit({
 	} else if (given === undefined)
 		throw new Error('Name the repository to read: --git <path or URL>.');
 	const source = note?.source ?? (given as string);
-	const local = isUrl(source) ? null : resolve(source);
+	const local = isUrl(source) ? null : source;
 	if (replaceOriginal) {
 		if (local === null)
 			throw new Error(
 				'--replace-original hands over a repository on this computer, not a URL',
 			);
-		if (resolve(local).startsWith(`${resolve(root.path)}/`))
+		if (isWithin(local, root.path))
 			throw new Error(`${local} is in the Epicenter folder already`);
-		const status = await gitText(['status', '--porcelain'], { cwd: local });
+		const status = await gitText(host, ['status', '--porcelain'], {
+			cwd: local,
+		});
 		if (status.trim() !== '')
 			throw new Error(
 				`${local} has uncommitted changes; commit or stash them first, so the folder holds what Git holds`,
 			);
 	}
-	const scratch = await mkdtemp(join(tmpdir(), 'epicenter-import-'));
-	const mirror = join(scratch, 'mirror.git');
+	const scratch = await host.scratch();
+	const mirror = joinPath(scratch.path, 'mirror.git');
 	const warnings: string[] = [];
 	try {
-		await gitText(['clone', '--mirror', '--quiet', local ?? source, mirror]);
+		await gitText(host, ['clone', '--mirror', '--quiet', source, mirror]);
 		const branch =
 			note?.branch ??
 			named ??
 			(
-				await gitText(['symbolic-ref', '--short', 'HEAD'], { cwd: mirror })
+				await gitText(host, ['symbolic-ref', '--short', 'HEAD'], {
+					cwd: mirror,
+				})
 			).trim();
 		const ref = `refs/heads/${branch}`;
 		if (
-			(await git(['rev-parse', '--verify', '--quiet', ref], { cwd: mirror }))
-				.code !== 0
+			(
+				await host.run(['rev-parse', '--verify', '--quiet', ref], {
+					cwd: mirror,
+				})
+			).code !== 0
 		)
 			throw new Error(`${source} has no branch ${branch}`);
 		const commits = (
-			await gitText(['rev-list', '--first-parent', '--reverse', ref], {
+			await gitText(host, ['rev-list', '--first-parent', '--reverse', ref], {
 				cwd: mirror,
 			})
 		)
@@ -367,27 +378,23 @@ export async function importGit({
 
 		/** An LFS object's bytes: from the mirror, fetched when first asked, or a local source's store. */
 		let fetched = false;
+		const stores = [
+			mirror,
+			...(local === null ? [] : [joinPath(local, '.git'), local]),
+		];
 		const lfsObject = async (oid: string) => {
-			const places = [
-				lfsObjectPath(mirror, oid),
-				...(local === null
-					? []
-					: [
-							lfsObjectPath(join(local, '.git'), oid),
-							lfsObjectPath(local, oid),
-						]),
-			];
-			for (const place of places)
-				if (existsSync(place)) return new Uint8Array(await readFile(place));
+			for (const store of stores) {
+				const bytes = await host.lfsObject(store, oid);
+				if (bytes !== null) return bytes;
+			}
 			if (!fetched) {
 				fetched = true;
-				const run = await git(['lfs', 'fetch', '--all', 'origin'], {
+				const run = await host.run(['lfs', 'fetch', '--all', 'origin'], {
 					cwd: mirror,
 				});
 				if (run.code !== 0)
 					warnings.push(`git lfs fetch failed: ${run.stderr.trim()}`);
-				if (existsSync(places[0] as string))
-					return new Uint8Array(await readFile(places[0] as string));
+				return host.lfsObject(mirror, oid);
 			}
 			return null;
 		};
@@ -399,7 +406,7 @@ export async function importGit({
 			const object = await lfsObject(pointer.oid);
 			if (object === null)
 				throw new Error(
-					`${path}'s Git LFS object ${pointer.oid} could not be fetched; fetch it into ${source} (git lfs fetch --all), then run epicenter import --git ${source} --resume`,
+					`${path}'s Git LFS object ${pointer.oid} could not be fetched; fetch it into ${source} (git lfs fetch --all), then resume the import of ${source}`,
 				);
 			return object;
 		};
@@ -414,11 +421,11 @@ export async function importGit({
 			folder = made.data;
 			note = {
 				folder,
-				source: sourceKey(source),
+				source,
 				branch,
 				name:
 					name ??
-					basename(local ?? source.replace(/\/+$/, '')).replace(/\.git$/, ''),
+					baseName(local ?? source.replace(/\/+$/, '')).replace(/\.git$/, ''),
 				directory: null,
 			};
 			await writeNote(records, note);
@@ -514,7 +521,7 @@ export async function importGit({
 				const parent = index === 0 ? null : (commits[index - 1] as string);
 				const raw = readRaw(
 					(
-						await git(
+						await host.run(
 							[
 								'diff-tree',
 								'-r',
@@ -529,6 +536,7 @@ export async function importGit({
 					).stdout,
 				);
 				const meta = await gitText(
+					host,
 					['log', '-1', '--format=%an%x00%ae%x00%at%x00%B', commit],
 					{ cwd: mirror },
 				);
@@ -559,6 +567,7 @@ export async function importGit({
 					writes.push(entry);
 				}
 				const blobs = await readBlobs(
+					host,
 					mirror,
 					writes.filter(({ status }) => status !== 'D').map(({ id }) => id),
 				);
@@ -569,7 +578,7 @@ export async function importGit({
 						if (before === undefined) continue;
 						files.push({
 							path: entry.path,
-							expect: before.version as never,
+							expect: before.version as Version,
 							version: null,
 						} satisfies NamedWrite);
 						held.delete(entry.path);
@@ -589,7 +598,7 @@ export async function importGit({
 					const blob = blobs.get(entry.id) as Uint8Array;
 					// An LFS file's version is its pointer's oid: no bytes read to know it.
 					const pointer = readLfsPointer(blob);
-					const version = pointer?.oid ?? (await sha256(blob));
+					const version = pointer?.oid ?? (await versionOf(blob));
 					if (before?.version === version) {
 						held.set(entry.path, { version, blob: entry.id });
 						continue;
@@ -650,6 +659,7 @@ export async function importGit({
 		// Each tag on the first-parent line becomes a mark on its change.
 		const marks: string[] = [];
 		const tags = await gitText(
+			host,
 			[
 				'for-each-ref',
 				'--format=%(refname:short)%00%(objectname)%00%(*objectname)',
@@ -693,6 +703,7 @@ export async function importGit({
 			there.data.map(({ path, version }) => [path, version]),
 		);
 		const last = await readBlobs(
+			host,
 			mirror,
 			[...held.values()].map(({ blob }) => blob),
 		);
@@ -702,7 +713,7 @@ export async function importGit({
 			const now = listed.get(path) ?? null;
 			if (now === version) continue;
 			const bytes = await bytesOf(last.get(blob) as Uint8Array, path);
-			const put = await directory.store.put(path, bytes, now as never);
+			const put = await directory.store.put(path, bytes, now);
 			if (put.error !== null) throw new Error(`${path}: ${put.error.message}`);
 		}
 		const head = await repository.changes(null);
@@ -717,7 +728,7 @@ export async function importGit({
 				inode: directory.identity?.inode ?? '',
 				birthtime: directory.identity?.birthtime ?? null,
 				cursor: head.data.cursor,
-				files: files as Record<string, never>,
+				files: files as Record<string, Version>,
 			},
 			before?.version ?? null,
 		);
@@ -728,16 +739,11 @@ export async function importGit({
 
 		let original: ImportReport['original'] = null;
 		if (replaceOriginal && local !== null) {
-			const aside = join(
-				dirname(local),
-				freeName(`${basename(local)} (before Epicenter)`, []),
+			const aside = joinPath(
+				dirName(local),
+				freeName(`${baseName(local)} (before Epicenter)`, []),
 			);
-			if (await lstat(aside).catch(() => null))
-				throw new Error(
-					`${aside} is there already; move it, then hand over again`,
-				);
-			await rename(local, aside);
-			await symlink(directory.path, local);
+			await host.handOver({ from: local, to: aside, target: directory.path });
 			original = { movedTo: aside, link: local };
 		}
 		return {
@@ -752,7 +758,7 @@ export async function importGit({
 			original,
 		};
 	} finally {
-		await rm(scratch, { recursive: true, force: true });
+		await scratch.remove();
 	}
 }
 
@@ -785,78 +791,4 @@ async function directoryFor(
 	note.directory = made.data.name;
 	await writeNote(records, note);
 	return made.data;
-}
-
-/** What abandoning an import did. */
-export type AbandonReport = {
-	folder: string;
-	/** Whether the folder was deleted on the server now, or was gone already. */
-	server: 'abandoned' | 'gone';
-	/** The directory the import had written here, now removed; null when it made none. */
-	removed: string | null;
-};
-
-/**
- * Give up the import of `target` (its folder's id, or the source or name
- * its note remembers): delete its folder on the server, which the server
- * does only while the folder still imports, then the directory it was
- * writing here, its record, and its note. A folder whose import finished
- * is in use and refused.
- */
-export async function abandonImport({
-	account,
-	root,
-	target,
-}: {
-	account: RemoteAccount;
-	root: EpicenterRoot;
-	target: string;
-}): Promise<AbandonReport> {
-	const opened = await root.records();
-	if (opened.error !== null) throw new Error(opened.error.message);
-	const records = opened.data;
-	const notes = await importsInProgress(records);
-	const matching = notes.filter(
-		(note) =>
-			note.folder === target ||
-			note.name === target ||
-			note.directory === target ||
-			note.source === sourceKey(target),
-	);
-	if (matching.length > 1)
-		throw new Error(
-			`Several imports match ${target}; name one by its folder: ${matching.map(({ folder }) => folder).join(', ')}`,
-		);
-	const note = matching[0];
-	const folder = note?.folder ?? target;
-	const answered = await folderRepository(account, folder).importAbandon();
-	if (answered.error !== null) throw new Error(answered.error.message);
-	if (answered.data === 'in use')
-		throw new Error(
-			`${folder} finished importing, so it is a folder in use: abandon deletes only an import that stopped midway.`,
-		);
-	if (answered.data === 'gone' && note === undefined)
-		throw new Error(
-			`No import of ${target} waits here, and you hold no such folder.`,
-		);
-	let removed: string | null = null;
-	if (note?.directory != null) {
-		const path = join(root.path, note.directory);
-		await rm(path, { recursive: true, force: true });
-		removed = path;
-	}
-	const recorded = await records.list();
-	if (recorded.error !== null) throw new Error(recorded.error.message);
-	const held = recorded.data.find(({ record }) => record.folder === folder);
-	if (held !== undefined) {
-		const gone = await records.store.put(
-			recordPath(folder),
-			null,
-			held.version,
-		);
-		if (gone.error !== null && gone.error.name !== 'Moved')
-			throw new Error(gone.error.message);
-	}
-	await removeNote(records, folder);
-	return { folder, server: answered.data, removed };
 }
