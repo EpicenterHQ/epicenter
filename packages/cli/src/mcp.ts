@@ -543,7 +543,13 @@ export function createMcpServer({
 		written.add(name);
 		kept?.changed(path);
 	};
-	const derived = derivedTools({ root, reach, opened, wrote });
+	const derive = derivedTools({ root, reach, opened, wrote });
+	/** The derived tools as last listed: listing reads every folder, so a call reads them only for a name it does not know. */
+	let listed: Map<string, DerivedTool> | null = null;
+	const derived = async () => {
+		listed = await derive();
+		return listed;
+	};
 
 	const server = new Server(
 		{ name: 'epicenter', version: packageJson.version },
@@ -589,7 +595,8 @@ export function createMcpServer({
 					: Ok(answer.data.output as Record<string, unknown>),
 			);
 		}
-		const tool = (await derived()).get(name);
+		const tool = listed?.get(name) ?? (await derived()).get(name);
+
 		if (tool === undefined)
 			throw new McpError(ErrorCode.InvalidParams, `No tool ${name}`);
 		return answerOf(await tool.run(args));
