@@ -12,6 +12,10 @@
  * | every `checkEveryMs` | a round: one request for every folder's head, and a sync of each folder that moved on either side |
  * | `now()` (Sync pressed) | a round |
  *
+ * `epicenter mcp` runs the same loop over only the folders it writes
+ * (`only`), and tells it of each write it makes (`changed`), a burst of
+ * changes like any other (ADR-0819, ADR-0827).
+ *
  * One round runs at a time: every moment that comes while one runs makes a
  * single round after it. It hears a folder's changes through its store's
  * watch, which a round starts for each folder it finds and stops for one
@@ -112,6 +116,7 @@ export function keepEverySynced({
 	account,
 	root,
 	apps = [],
+	only,
 	afterChangeMs = AFTER_CHANGE_MS,
 	checkEveryMs = CHECK_EVERY_MS,
 }: {
@@ -119,6 +124,12 @@ export function keepEverySynced({
 	root: EpicenterRoot;
 	/** The apps a folder can be made by: such a folder syncs as if the person chose to. */
 	apps?: readonly KnownApp[];
+	/**
+	 * The names of the folders to keep in sync, asked at each round; every
+	 * folder when absent. A round with none to keep asks the server nothing.
+	 * `epicenter mcp` keeps only the folders it writes (ADR-0819).
+	 */
+	only?: () => ReadonlySet<string>;
 	afterChangeMs?: number;
 	checkEveryMs?: number;
 }) {
@@ -204,7 +215,19 @@ export function keepEverySynced({
 		publish();
 		const answered = new Map(answers);
 		answers.clear();
-		const ran = await syncEvery({ account, root, apps, deletions: answered });
+		const names = only?.();
+		if (names !== undefined && names.size === 0) {
+			syncing = false;
+			publish();
+			return [];
+		}
+		const ran = await syncEvery({
+			account,
+			root,
+			apps,
+			deletions: answered,
+			names,
+		});
 		syncing = false;
 		if (stopped) return null;
 		if (ran.error !== null) {
@@ -326,6 +349,11 @@ export function keepEverySynced({
 			answers.set(path, deletions);
 			return request();
 		},
+		/**
+		 * A change made to the folder at `path` by the program itself, as a
+		 * watch would hear it: ◌ now, and a round after the burst.
+		 */
+		changed: heard,
 		/** Stop: no moment runs a round after this; a round running now finishes. */
 		[Symbol.dispose]: stop,
 	};

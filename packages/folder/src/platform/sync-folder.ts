@@ -433,6 +433,8 @@ export type EverySync = {
  * here. A folder not synced here syncs when an app made it (`apps`), as if
  * the person had chosen to, and otherwise waits for them (`waiting`).
  * `deletions` answers a folder's stop for many deletions, by its path.
+ * `names`, when given, limits the round to the folders of those names, as
+ * `epicenter mcp` keeps only the folders it writes in sync (ADR-0819).
  * `warnings` say what the file-sync check could not rule out, and that the
  * Epicenter folder is itself a Git repository.
  */
@@ -441,11 +443,13 @@ export async function syncEvery({
 	root,
 	apps = [],
 	deletions = new Map(),
+	names,
 }: {
 	account: RemoteAccount;
 	root: EpicenterRoot;
 	apps?: readonly KnownApp[];
 	deletions?: ReadonlyMap<string, Deletions>;
+	names?: ReadonlySet<string>;
 }): Promise<Result<{ folders: EverySync[]; warnings: string[] }, Unavailable>> {
 	const [heads, found] = await Promise.all([
 		folderHeads(account),
@@ -454,12 +458,14 @@ export async function syncEvery({
 	if (heads.error !== null) return heads;
 	if (found.error !== null) return found;
 	const identified = found.data;
+	const named = ({ local }: { local: LocalFolder }) =>
+		names === undefined || names.has(local.name);
 	const refused = refusedRoot(root);
 	if (refused !== null) return refused;
 	const check = fileSyncOf(root.path);
 	const git = gitRootOf(root.path, identified.rootGit);
 	const out: EverySync[] = [];
-	for (const bound of identified.bound) {
+	for (const bound of identified.bound.filter(named)) {
 		const { local, record } = bound;
 		const entry: EverySync = { name: local.name, path: local.path, local };
 		const head = heads.data[record.folder];
@@ -482,7 +488,7 @@ export async function syncEvery({
 			});
 		out.push(entry);
 	}
-	for (const unbound of identified.unbound) {
+	for (const unbound of identified.unbound.filter(named)) {
 		const { local } = unbound;
 		const entry: EverySync = { name: local.name, path: local.path, local };
 		// Only a folder an app made syncs without the person: the server is
@@ -506,7 +512,7 @@ export async function syncEvery({
 				: {}),
 		});
 	}
-	for (const local of identified.git)
+	for (const local of identified.git.filter((local) => named({ local })))
 		out.push({ name: local.name, path: local.path, local, waiting: 'git' });
 	out.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 	return Ok({
