@@ -43,13 +43,17 @@ export default defineApp({
   The runner supplies it: the disk for the CLI and `epicenter serve`, the repo's
   host for a page on a phone, memory for a test. An action that uses only the
   methods runs anywhere; one that uses `path` runs only on a computer, and says
-  so in its code. **`cache`** is `~/Library/Caches/Epicenter/<app>/`: anything
-  that can be rebuilt. **`secrets`** reads and writes the Keychain under
-  `epicenter.<app>`; secrets never touch a file.
+  so in its code. **`cache`** is the same kind of object, for anything that can
+  be rebuilt: this device only, never synced, never in history
+  (`~/Library/Caches/Epicenter/<app>/` on a computer, browser storage in a page).
+  **`secrets`** reads and writes the Keychain under `epicenter.<app>`, exists only
+  on a computer, and never touches a file.
 - **Code shared between actions and pages** is ordinary modules in the app's
   folder that take a `folder` as an argument.
-- **Each app folder is its own Git repository**, so access to one app's data is
-  never access to another's.
+- **Each app folder is its own Git repository with its own `package.json`**, so
+  access to one app's data is never access to another's, and a clone is
+  complete. Epicenter generates the home's `package.json` as a Bun workspace over
+  the app folders; the home holds nothing worth versioning.
 - **An app is delivered by copying it.** `epicenter add <source>` copies an
   app's code, never its data, into the home and installs its dependencies; it
   records the source, and `epicenter diff <app>` shows what changed upstream. A

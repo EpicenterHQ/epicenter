@@ -38,10 +38,11 @@ direction; ADR-0841 the app contract.
 
 ```
 ~/Epicenter/                    the default home
-  package.json                  "@epicenter/app" and whatever apps import
+  package.json                  generated: a Bun workspace over the app folders
   AGENTS.md                     "run `epicenter` to see what you can do"
   mail/                         each app folder is its own Git repo
     epicenter.ts                export default defineApp({ … })
+    package.json                the app's own dependencies
     lib.ts                      shared code: functions that take a `folder`
     queries/receipts.txt        a saved Gmail search
     batches/                    reviewed changes; .gitignored
@@ -75,8 +76,8 @@ optional library for apps whose data is notes, or is deleted if no app needs it.
 
 1. **Install.** `bun add -g @epicenter/cli` gives `epicenter`.
 2. **First run.** `epicenter` with no `~/Epicenter` offers to create it: a
-   `package.json` depending on `@epicenter/app`, and an `AGENTS.md` (and
-   `CLAUDE.md` importing it) telling agents to run `epicenter`.
+   generated `package.json` (a Bun workspace over the app folders), and an
+   `AGENTS.md` (and `CLAUDE.md` importing it) telling agents to run `epicenter`.
 3. **A new app.** `epicenter new reading` writes `reading/epicenter.ts` from a
    template and runs `git init` in it. Usually the person asks Claude instead;
    the app works at once because Bun runs TypeScript.
@@ -95,14 +96,14 @@ optional library for apps whose data is notes, or is deleted if no app needs it.
 
 ## Sync
 
-**Git is the protocol, run by the person.** A folder's data travels as commits;
-`epicenter` commits nothing on its own and never stages paths it did not write.
-Caches never sync, because each computer rebuilds its own. Secrets never sync,
-because a sign-in is granted per computer. Conflicts are Git's: line merges,
-with markers left in the file for the person or an agent to resolve; notes
-written with the canonical front-matter rule (one `key: <JSON>` line per field)
-merge cleanly by line. An `epicenter sync` that pulls and pushes every repo
-under the home is a later convenience, not a protocol.
+ADR-0842. **The repository is the sync, and an action is a commit.** When an
+action returns, what it changed becomes one commit named for the action; when it
+throws, its changes are undone. Actions on one app take turns. The person
+commits their own edits. `epicenter sync` pulls and pushes every app repository
+and never commits; it says which apps have uncommitted changes. Files that only
+grow are `merge=union` in the app's `.gitattributes`; other conflicts are Git's,
+left as markers. Caches and secrets never sync. A computer uses any Git remote;
+anything without Git reaches an app only through Epicenter Cloud, later.
 
 ## Mail, the first real app
 
@@ -166,9 +167,8 @@ for folders.
 4. Whether `packages/definition` survives as a notes library or is deleted.
 5. What `vision.md`, `architecture.md`, `CONTEXT.md`, and the package READMEs say,
    once ADR-0840 is accepted.
-6. Sync: whether each action commits the paths it wrote, what `epicenter sync`
-   does across app repos, and which host a page on a phone reaches (under
-   discussion; see the session of 2026-11-07).
+6. The cache's extra methods: clearing it, and SQLite databases kept in it
+   (under discussion).
 
 ## Done when
 

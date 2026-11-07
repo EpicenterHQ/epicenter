@@ -1043,3 +1043,4 @@ When you add an ADR, add its row here.
 | [0839](0839-a-save-is-one-numbered-write-a-reset-deletes-nothing-and-epicenter-owns-the-pages-every-app-links-to.md) | A save is one numbered write, a reset deletes nothing, and Epicenter owns the pages every app links to | Accepted (amends 0797, 0804, 0817, 0821, 0822, 0827, 0832, 0836, 0837, and 0838) |
 | [0840](0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md) | Epicenter is where one person's software lives, and the folder sync product waits | Proposed (would supersede 0835) |
 | [0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md) | An app is a folder whose `epicenter.ts` defines its actions | Proposed |
+| [0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md) | An action is a commit, and the repository is the sync | Proposed |
