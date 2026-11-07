@@ -62,8 +62,8 @@ Around them:
    target as `.ep-<random>.save`, checks the version again, and renames. The
    folder holds only its content; nothing of Epicenter's goes in it.
 3. The desktop app does not sync. Epicenter's programs do (step 1 of the next
-   flow), and the app reads a mark from the record Epicenter keeps
-   (`syncedRecord()` in `@epicenter/folder/tauri`).
+   flow), and the app reads the record Epicenter keeps to say whether
+   Epicenter syncs its folder (`syncedRecord()` in `@epicenter/folder/tauri`).
 
 ### The Epicenter app syncing a folder
 
@@ -79,15 +79,16 @@ Around them:
    birth time (or, when no directory matches a record, by its name and exact
    files in a folder the person holds alone).
 4. For each proven folder whose head moved past its record, or whose files
-   changed here, `syncFolder` runs `sync({ local, remote, manifest })` with
-   `folderRepository(account, id)` and `records.manifest(id)`. An unbound
+   changed here, `syncEvery` runs `sync({ local, remote, manifest })` (the
+   same call `syncFolder` makes) with `folderRepository(account, id)` and
+   `records.manifest(id)`. An unbound
    directory syncs only when an app made it; otherwise it waits and asks
    which folder it is (`questionOf`).
 5. `sync` (`src/sync/sync.ts`) lists the local store, asks `changes(since)`
    for what moved, and for each candidate path compares the two versions with
    the agreed one. It writes the local side first, each file over the version
-   listed, then `append`s to the server in one change over the versions it
-   read. A moved batch lands nothing; the sync lists again and runs another
+   listed, then `append`s to the server in batches, each one change over the
+   versions it read. A moved batch lands nothing; the sync lists again and runs another
    pass. A note both sides changed merges with `merge3`, this computer's side
    winning a field both changed, and an edit beats a delete. Before writing
    anything it stops when it would delete 20 or more files on the server, or 5
