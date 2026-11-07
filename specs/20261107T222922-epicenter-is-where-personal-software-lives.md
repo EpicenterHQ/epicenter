@@ -37,11 +37,12 @@ direction; ADR-0841 the app contract.
 ## Target shape
 
 ```
-~/Epicenter/                    a private Git repo; the default home
+~/Epicenter/                    the default home
   package.json                  "@epicenter/app" and whatever apps import
   AGENTS.md                     "run `epicenter` to see what you can do"
-  mail/
-    epicenter.ts                export default defineApp({ … })   (or one line re-exporting a package)
+  mail/                         each app folder is its own Git repo
+    epicenter.ts                export default defineApp({ … })
+    lib.ts                      shared code: functions that take a `folder`
     queries/receipts.txt        a saved Gmail search
     batches/                    reviewed changes; .gitignored
   reading/
@@ -54,7 +55,9 @@ Keychain: epicenter.<app>            sign-ins
 ```
 
 The contract is ADR-0841: `defineApp({ description, actions })`; an action is
-`{ description, input: { …fields }, run(input, { folder, cache, secrets }) }`.
+`{ description, input: { …fields }, run(input, { folder, cache, secrets }) }`,
+where `folder` is an object (`read`, `write`, `list`, `remove`, bytes forms, and
+`path` only on a computer) supplied by whatever runs the action.
 
 ## Packages
 
@@ -72,22 +75,23 @@ optional library for apps whose data is notes, or is deleted if no app needs it.
 
 1. **Install.** `bun add -g @epicenter/cli` gives `epicenter`.
 2. **First run.** `epicenter` with no `~/Epicenter` offers to create it: a
-   `package.json` depending on `@epicenter/app`, an `AGENTS.md` (and `CLAUDE.md`
-   importing it) telling agents to run `epicenter`, a `.gitignore`, and
-   `git init`. The person adds a private remote if they want one.
+   `package.json` depending on `@epicenter/app`, and an `AGENTS.md` (and
+   `CLAUDE.md` importing it) telling agents to run `epicenter`.
 3. **A new app.** `epicenter new reading` writes `reading/epicenter.ts` from a
-   template. Usually the person asks Claude instead, which writes the file; the
-   app works at once because Bun runs TypeScript.
-4. **An existing app.** `epicenter new mail --from @epicenter/mail` writes a
-   one-line `epicenter.ts` and adds the dependency. Then
-   `epicenter mail connect` signs in.
+   template and runs `git init` in it. Usually the person asks Claude instead;
+   the app works at once because Bun runs TypeScript.
+4. **Someone else's app.** `epicenter add github:someone/apps/vocab` copies the
+   app's code (never data) into `~/Epicenter/vocab`, installs its dependencies,
+   and records where it came from; `epicenter diff vocab` shows what changed
+   upstream. Then, for Mail, `epicenter mail connect` signs in.
 5. **The vault.** Add `~/Code/vault/epicenter.ts`; `cd ~/Code/vault && epicenter`
    lists its actions.
 6. **Agents.** Claude Code needs nothing: it runs `epicenter` in the shell, and
    permission rules allow reads by command prefix and ask on the rest. Claude
    Desktop and other chat apps add `epicenter mcp` to their MCP settings.
-7. **A second computer.** Clone `~/Epicenter`, `bun install`, and `connect`
-   again where an app needs a sign-in. Caches fill on first use.
+7. **A second computer.** Clone each app's repo into `~/Epicenter`,
+   `bun install`, and `connect` again where an app needs a sign-in. Caches fill
+   on first use.
 
 ## Sync
 
@@ -162,6 +166,9 @@ for folders.
 4. Whether `packages/definition` survives as a notes library or is deleted.
 5. What `vision.md`, `architecture.md`, `CONTEXT.md`, and the package READMEs say,
    once ADR-0840 is accepted.
+6. Sync: whether each action commits the paths it wrote, what `epicenter sync`
+   does across app repos, and which host a page on a phone reaches (under
+   discussion; see the session of 2026-11-07).
 
 ## Done when
 

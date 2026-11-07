@@ -4,7 +4,7 @@
 - **Date:** 2026-11-07
 - **Relates:** [ADR-0840](0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md) (the direction), [ADR-0827](0827-the-cli-and-mcp-render-one-table-of-operations.md) (one table, rendered twice).
 - **Spec:** [specs/20261107T222922-epicenter-is-where-personal-software-lives.md](../../specs/20261107T222922-epicenter-is-where-personal-software-lives.md)
-- **Unbuilt:** all of it: `@epicenter/app` with `defineApp` and `field`; discovery and per-app commands in `epicenter`; actions as MCP tools.
+- **Unbuilt:** all of it: `@epicenter/app` with `defineApp`, `field`, and the `Folder` interface; discovery and per-app commands in `epicenter`; actions as MCP tools; `epicenter add` and `diff`.
 
 ## Context
 
@@ -38,10 +38,23 @@ export default defineApp({
 
 - **An action** is a key in `actions` with a `description`, an `input` that is a
   plain record of fields, and `run(input, { folder, cache, secrets })`.
-- **`folder`** is the app's folder: in Git, readable. **`cache`** is
-  `~/Library/Caches/Epicenter/<app>/`: anything that can be rebuilt. **`secrets`**
-  reads and writes the Keychain under `epicenter.<app>`; secrets never touch a
-  file.
+- **`folder`** is the app's folder as an object: `read`, `write`, `list`,
+  `remove`, and their bytes forms, plus `path` only where there is a real disk.
+  The runner supplies it: the disk for the CLI and `epicenter serve`, the repo's
+  host for a page on a phone, memory for a test. An action that uses only the
+  methods runs anywhere; one that uses `path` runs only on a computer, and says
+  so in its code. **`cache`** is `~/Library/Caches/Epicenter/<app>/`: anything
+  that can be rebuilt. **`secrets`** reads and writes the Keychain under
+  `epicenter.<app>`; secrets never touch a file.
+- **Code shared between actions and pages** is ordinary modules in the app's
+  folder that take a `folder` as an argument.
+- **Each app folder is its own Git repository**, so access to one app's data is
+  never access to another's.
+- **An app is delivered by copying it.** `epicenter add <source>` copies an
+  app's code, never its data, into the home and installs its dependencies; it
+  records the source, and `epicenter diff <app>` shows what changed upstream. A
+  one-line `epicenter.ts` re-exporting a package remains for an app its owner
+  never wants to change.
 - **`run` returns a value.** The CLI prints it, as JSON with `--json`; an agent
   receives the same value.
 - **`field`** is `text`, `number`, `boolean`, `select`, `tags`, and `date`, each
@@ -79,11 +92,17 @@ export default defineApp({
   `run`'s input from a plain record passed to `defineApp`, but not through a
   factory; places as `run`'s second argument need neither.
 - **`Type.Object` for input.** Says nothing a form or `--help` can use.
+- **`folder` as a path.** Ties every action to a disk, so no action could run
+  in a page on a phone, and nothing stops a write outside the app's folder.
+- **One repository for every app.** A token for it would open every app's data
+  to any page given access to one.
+- **Installing apps as packages.** The owner could not change their copy without
+  forking; for personal software the copy is the point.
 
 ## Consequences
 
 - Writing an app is writing one file; asking an agent for an app is asking it to
   write one.
 - The vault becomes an app where it stands, by gaining an `epicenter.ts`.
-- A published app is a folder whose `epicenter.ts` is one line re-exporting a
-  package.
+- A developer shares an app by putting its folder on GitHub; the person owns
+  their copy, and updates are a diff they or an agent merge.
