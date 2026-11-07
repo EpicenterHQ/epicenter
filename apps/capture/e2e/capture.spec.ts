@@ -213,8 +213,9 @@ test('2. a desktop clone holds the captures byte for byte, and the folder fits t
 		stack,
 		person,
 		'check',
-		`${stack.app}/contract.json`,
 		clone,
+		'--contract',
+		`${stack.app}/contract.json`,
 	);
 	expect(checked.code, `${checked.stdout}\n${checked.stderr}`).toBe(0);
 });

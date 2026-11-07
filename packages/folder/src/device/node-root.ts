@@ -1,10 +1,11 @@
 /**
  * The Epicenter folder and the folders in it, on this computer through
- * `node:fs` (ADR-0813, ADR-0822): every directory directly inside
- * `~/Epicenter`, followed through a symbolic link to wherever it lives, each
- * with its identity (inode and birth time, `FolderIdentity`) and whether Git
- * keeps it; and the Epicenter folder's own `.epicenter`, which holds the
- * records of what this computer synced and each directory's hash cache.
+ * `node:fs` (ADR-0813, ADR-0822, ADR-0825): every real directory directly
+ * inside `~/Epicenter`, each with its identity (inode and birth time,
+ * `FolderIdentity`) and whether Git keeps it; each link there, listed as
+ * outside it and never opened; and the Epicenter folder's own `.epicenter`,
+ * which holds the records of what this computer synced and each directory's
+ * hash cache.
  *
  * Listing a folder also tidies it: stale saves anywhere in it are removed
  * (`sweepSaves`), and what an older build kept in its `.epicenter` is
@@ -15,7 +16,7 @@ import {
 	lstat,
 	mkdir,
 	readdir,
-	realpath,
+	readlink,
 	rm,
 	rmdir,
 	stat,
@@ -31,6 +32,7 @@ import {
 import type {
 	EpicenterRoot,
 	LocalFolder,
+	OutsideLink,
 } from '../platform/epicenter-folder.js';
 import { recordsIn } from '../platform/records.js';
 import {
@@ -61,26 +63,16 @@ export async function folderIdentity(
 /** A segment no folder may be inside: Git's records, or Epicenter's own. */
 const RECORD_SEGMENTS = new Set(['.git', EPICENTER_STATE]);
 
-const codeOf = (cause: unknown) => (cause as { code?: unknown } | null)?.code;
-
 /** Whether anything is at `path`, a link not followed. */
 const exists = async (path: string) =>
 	(await lstat(path).catch(() => undefined)) !== undefined;
 
 /**
- * Whether Git keeps the directory at `at` (ADR-0822): `.git` at its real
- * root, or, for a folder that is a link (`linked`), in any directory above
- * its target.
+ * Whether Git keeps the directory at `at` (ADR-0822, ADR-0825): anything
+ * named `.git` at its root, a directory or a worktree's file, found with one
+ * look and no search above it.
  */
-export async function keptByGit(at: string, linked: boolean) {
-	const real = await realpath(at).catch(() => resolve(at));
-	if (await exists(join(real, '.git'))) return true;
-	if (!linked) return false;
-	for (let up = dirname(real); ; up = dirname(up)) {
-		if (await exists(join(up, '.git'))) return true;
-		if (dirname(up) === up) return false;
-	}
-}
+export const keptByGit = (at: string) => exists(join(at, '.git'));
 
 /**
  * Remove every staged save (`.ep-<random>.save`) in the folder at `root`
@@ -121,7 +113,10 @@ async function pruneEmpty(directory: string): Promise<boolean> {
 	}
 	let empty = true;
 	for (const entry of entries)
-		if (!entry.isDirectory() || !(await pruneEmpty(join(directory, entry.name))))
+		if (
+			!entry.isDirectory() ||
+			!(await pruneEmpty(join(directory, entry.name)))
+		)
 			empty = false;
 	if (!empty) return false;
 	return rmdir(directory).then(
@@ -204,14 +199,12 @@ export async function localFolder(
 		make = false,
 		stat: read = statIdentity,
 		hashes,
-		linked = false,
 	}: {
 		make?: boolean;
 		stat?: StatIdentity;
 		hashes?: (
 			identity: FolderIdentity,
 		) => import('./stamp-cache.js').StampFile | null;
-		linked?: boolean;
 	} = {},
 ): Promise<Result<LocalFolder, Unavailable>> {
 	const absolute = resolve(path);
@@ -237,7 +230,7 @@ export async function localFolder(
 			path: absolute,
 			store: nodeStore(absolute, { hashes: hashes?.(identity) ?? null }),
 			identity,
-			git: await keptByGit(absolute, linked),
+			git: await keptByGit(absolute),
 		});
 	} catch (cause) {
 		return ClientError.Unavailable({ cause });
@@ -246,9 +239,11 @@ export async function localFolder(
 
 /**
  * The Epicenter folder at `path` (`~/Epicenter`, or `~/Epicenter Dev` in
- * development), made when it is missing: its folders are the directories
- * directly inside it, links followed, hidden names skipped. `stat` reads a
- * directory's identity, for a test that stands in for a file system.
+ * development), made when it is missing: its folders are the real
+ * directories directly inside it, hidden names skipped; a link to a folder,
+ * or to nothing, is listed as outside it and never opened (ADR-0825).
+ * `stat` reads a directory's identity, for a test that stands in for a file
+ * system.
  */
 export function epicenterRoot(
 	path: string,
@@ -258,13 +253,11 @@ export function epicenterRoot(
 	const records = recordsIn(nodeStore(join(root, EPICENTER_STATE)));
 	const open = async (name: string) => {
 		const at = join(root, name);
-		const linked = (await lstat(at).catch(() => undefined))?.isSymbolicLink();
 		await sweepSaves(at);
 		await tidyLegacy(at);
 		const local = await localFolder(at, {
 			stat: read,
 			hashes: (identity) => records.hashes(identity),
-			linked: linked === true,
 		});
 		if (local.error !== null) return local;
 		return Ok({ ...local.data, name });
@@ -280,32 +273,36 @@ export function epicenterRoot(
 				return ClientError.Unavailable({ cause });
 			}
 			const folders: LocalFolder[] = [];
+			const outside: OutsideLink[] = [];
 			const unreadable: { name: string; reason: string }[] = [];
 			for (const name of names.sort()) {
 				if (name.startsWith('.')) continue;
 				const at = join(root, name);
-				const found = await stat(at).catch((cause: unknown) => cause);
+				const found = await lstat(at).catch((cause: unknown) => cause);
 				if (found instanceof Error) {
-					unreadable.push({
+					unreadable.push({ name, reason: found.message });
+					continue;
+				}
+				const entry = found as import('node:fs').Stats;
+				if (entry.isSymbolicLink()) {
+					// A link to a file is no folder; one to a folder, or to
+					// nothing, is a folder kept outside.
+					const target = await stat(at).catch(() => undefined);
+					if (target !== undefined && !target.isDirectory()) continue;
+					outside.push({
 						name,
-						reason:
-							codeOf(found) === 'ENOENT'
-								? 'it links to a folder that is gone'
-								: found.message,
+						path: at,
+						target: await readlink(at).catch(() => ''),
 					});
 					continue;
 				}
-				if (!(found as { isDirectory(): boolean }).isDirectory()) continue;
+				if (!entry.isDirectory()) continue;
 				const local = await open(name);
 				if (local.error !== null)
 					unreadable.push({ name, reason: local.error.message });
 				else folders.push(local.data);
 			}
-			return Ok({
-				folders,
-				unreadable,
-				realPath: await realpath(root).catch(() => null),
-			});
+			return Ok({ folders, outside, unreadable, git: await keptByGit(root) });
 		},
 		async make(name) {
 			const at = join(root, name);

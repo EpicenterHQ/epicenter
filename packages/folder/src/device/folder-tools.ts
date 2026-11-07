@@ -4,6 +4,7 @@
  * and every note it claims rewritten in house style.
  */
 import {
+	CONTRACT_PATH,
 	checkContract,
 	compileContract,
 	type FileIssue,
@@ -16,7 +17,8 @@ import type { Store } from './store.js';
 
 /**
  * Every contract file of `store` checked against `contract`: one issue per
- * problem, in path order. Hidden paths and the root AGENTS.md are excluded.
+ * problem, in path order. Hidden paths, the root AGENTS.md, and the folder's
+ * own `epicenter.json` are excluded.
  * A contract that is not well formed is the error.
  */
 export async function checkStore(contract: unknown, store: Store) {
@@ -28,7 +30,10 @@ export async function checkStore(contract: unknown, store: Store) {
 	const unreadable: FileIssue[] = [];
 	const paths = listed
 		.map(({ path }) => path)
-		.filter((path) => !isHiddenPath(path) && path !== 'AGENTS.md')
+		.filter(
+			(path) =>
+				!isHiddenPath(path) && path !== 'AGENTS.md' && path !== CONTRACT_PATH,
+		)
 		.sort();
 	for (const path of paths) {
 		if (!path.endsWith('.md')) {

@@ -7,7 +7,7 @@ matter, then its text and its thoughts as a bullet list under
 `## Thoughts`. That layout is Capture's contract, `capture` in
 [`src/lib/model`](src/lib/model/README.md), published unchanged
 as `static/contract.json` (`bun run contract` rewrites it after a change), the
-file `epicenter check <url>/contract.json <dir>` checks a folder against. Any
+file `epicenter check <dir> --contract <url>/contract.json` checks a folder against. Any
 program that writes the layout is a valid writer.
 
 Capture has two variants, one store each and nothing moving between them

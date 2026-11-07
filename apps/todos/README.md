@@ -4,7 +4,7 @@ Todos keeps each todo as a Markdown note at `todos/<id>.md`: its `title` and
 `done` in front matter, its notes in the body. That layout is Todos'
 contract, `src/lib/contract.ts`, published unchanged as `static/contract.json`
 (`bun run contract` rewrites it after a change), the file
-`epicenter check <url>/contract.json <dir>` checks a folder against. Any
+`epicenter check <dir> --contract <url>/contract.json` checks a folder against. Any
 program that writes the layout is a valid writer.
 
 Todos has two variants, one store each and nothing moving between them

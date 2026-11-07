@@ -14,7 +14,9 @@
  * GET  blobs/<sha256>                  read   one version's bytes, private and immutable
  * PUT  blobs/<sha256>                  write  one version's bytes: idempotent, checked against the hash
  * POST commits { files }               write  one change, each path over the version its writer expects
- * POST import { changes } | { done }   write  an import's changes, with their own authors and times
+ * POST import { changes } | { done } | { abandon }
+ *                                      write  an import's changes, with their own authors and times;
+ *                                             its end; or the folder deleted while it imports
  * ```
  *
  * A file's version is the SHA-256 of its bytes, for every path. A cursor
@@ -563,7 +565,9 @@ export async function folderCommit(
  * changes (ADR-0826), each keeping its own author (`Name <email>`), time,
  * and message, landed in order while the folder imports; the answer of
  * the first that did not land ends it. `{ done: true }` ends the import:
- * the folder takes ordinary changes only from then.
+ * the folder takes ordinary changes only from then. `{ abandon: true }`
+ * deletes the folder, its log, and its bytes, only while it still imports:
+ * a half-filled import, never a folder in use (ADR-0827).
  */
 export async function folderImport(
 	db: Runner,
@@ -572,15 +576,42 @@ export async function folderImport(
 		account,
 		via,
 		body,
-	}: { folder: string; account: string; via: string; body: unknown },
+		store,
+	}: {
+		folder: string;
+		account: string;
+		via: string;
+		body: unknown;
+		store: BlobStore | null;
+	},
 ): Promise<Response> {
-	const request = (body ?? {}) as { changes?: unknown; done?: unknown };
+	const request = (body ?? {}) as {
+		changes?: unknown;
+		done?: unknown;
+		abandon?: unknown;
+	};
 	if (request.done === true) {
 		await db.execute(
 			sql`update folder set importing = false where id = ${folder}`,
 		);
 		return json({ done: true });
 	}
+	if (request.abandon === true) {
+		const deleted = await db.execute(
+			sql`delete from folder where id = ${folder} and importing returning id`,
+		);
+		if (deleted.rows.length === 0)
+			return json(
+				{
+					error: 'not_importing',
+					message: 'this folder is not importing, so it is not abandoned',
+				},
+				409,
+			);
+		await store?.deleteFolder(folder);
+		return json({ abandoned: true });
+	}
+
 	const changes = request.changes;
 	if (
 		!Array.isArray(changes) ||

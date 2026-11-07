@@ -6,7 +6,7 @@ matter, its text in the body. Each folder is a note of its own at
 `folders/<id>.md` with a `name` (and an optional emoji `icon`). That layout
 is Honeycrisp's contract, `src/lib/contract.ts`, published unchanged as
 `static/contract.json` (`bun run contract` rewrites it after a change), the
-file `epicenter check <url>/contract.json <dir>` checks a folder against. Any
+file `epicenter check <dir> --contract <url>/contract.json` checks a folder against. Any
 program that writes the layout is a valid writer.
 
 Part of the [Epicenter](https://github.com/EpicenterHQ/epicenter) monorepo.

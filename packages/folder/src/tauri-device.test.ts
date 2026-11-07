@@ -147,27 +147,18 @@ afterEach(async () => {
 	await rm(appData, { recursive: true, force: true });
 });
 
-test('a malformed AGENTS.md is left as it is and never stops the folder opening', async () => {
-	const malformed = 'My notes.\n<!-- BEGIN epicenter -->\nhalf a block\n';
-	await shell.write('AGENTS.md', malformed);
+test("a person's own AGENTS.md is their content: opening the folder never writes it", async () => {
+	const own = 'My notes.\n<!-- BEGIN epicenter -->\nhalf a block\n';
+	await shell.write('AGENTS.md', own);
 	expectOk(await openDataStore(notes, 'https://notes.example.com'));
-	expect(await shell.text('AGENTS.md')).toBe(malformed);
+	expect(await shell.text('AGENTS.md')).toBe(own);
 });
 
 test('the data folder opens by name, and a write lands there in house style', async () => {
 	const store = unwrap(await openDataStore(notes, 'https://notes.example.com'));
-	const agents = await shell.text('AGENTS.md');
-	expect(agents).toContain(
-		'contract: "https://notes.example.com/contract.json"',
-	);
-	expect(agents).toContain('notes: `notes/{id}.md`');
-	unwrap(await openDataStore(notes, 'https://notes.example.com'));
-	expect(await shell.text('AGENTS.md')).toBe(agents);
 	expect(
-		shell.calls.filter(
-			({ cmd, args }) => cmd === 'put_folder_file' && args.path === 'AGENTS.md',
-		),
-	).toHaveLength(1);
+		shell.calls.filter(({ cmd }) => cmd === 'put_folder_file'),
+	).toHaveLength(0);
 	const folder = folderOver(notes, store);
 	await folder.notes.set({ id: 'a' }, { title: 'First', body: 'Hello.\n' });
 	expect(await readFile(join(shell.root, 'notes/a.md'), 'utf8')).toBe(

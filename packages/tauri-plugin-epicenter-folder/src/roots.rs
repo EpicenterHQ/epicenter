@@ -4,15 +4,16 @@
 //! `Root::AppData`, with its path and the rule that refuses a location it
 //! must never be (`Roots::name`). The Epicenter app names the Epicenter
 //! folder instead of a Data root (`Roots::name_epicenter`, ADR-0813), and
-//! each directory directly in it is a root of its own, `Root::Folder(name)`,
-//! which a link there joins from wherever it lives; its own records are
-//! `Root::Epicenter` (ADR-0822). A standalone app names the Epicenter folder
-//! only to read its Data root's record (`Roots::name_library`). A page names
-//! a root, never a path. Opening
-//! a root opens whatever is at its path, following a link there, and makes
-//! the folder when nothing is there (ADR-0726); a link whose target is gone
-//! is `Disconnected`, and nothing is made. Every storage command names an
-//! open root; the shared path rule keeps its relative path inside it.
+//! each real directory directly in it is a root of its own,
+//! `Root::Folder(name)`; a link there is listed as outside the Epicenter
+//! folder and never opened as one of its folders (ADR-0825). Its own records
+//! are `Root::Epicenter` (ADR-0822). A standalone app names the Epicenter
+//! folder only to read its Data root's record (`Roots::name_library`). A
+//! page names a root, never a path. Opening a named root opens whatever is
+//! at its path, following a link there, and makes the folder when nothing is
+//! there (ADR-0726); a link whose target is gone is `Disconnected`, and
+//! nothing is made. Every storage command names an open root; the shared
+//! path rule keeps its relative path inside it.
 //!
 //! Each open root has one recursive native watch. Its changes are app events;
 //! pages subscribe before opening a root.
@@ -45,9 +46,9 @@ pub enum Root {
     /// The operating system's application data directory for this app:
     /// machine-local settings, never synced.
     AppData,
-    /// The directory `name` directly inside the Epicenter folder, which the
-    /// Epicenter app names (`Roots::name_epicenter`): one of the person's
-    /// folders, followed through a link there to wherever it lives.
+    /// The real directory `name` directly inside the Epicenter folder, which
+    /// the Epicenter app names (`Roots::name_epicenter`): one of the
+    /// person's folders. A link there is not one (ADR-0825).
     Folder(String),
     /// The Epicenter folder's own records and caches, `.epicenter` at its
     /// root (`synced/<folder-id>.json`, `hashes/<key>.json`, ADR-0822),
@@ -111,18 +112,26 @@ pub fn folder_name_problem(name: &str) -> Option<&'static str> {
     readable_path_problem(name)
 }
 
-/// One directory directly inside the Epicenter folder.
+/// One real directory directly inside the Epicenter folder.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
 pub struct EpicenterEntry {
     /// Its name there, the person's own label for it, and its root's name.
     pub name: String,
-    /// Its identity now, its link followed (`identity::identity_of`): the
-    /// inode and birth time a record names it by. Null where the system has
-    /// none.
+    /// Its identity now (`identity::identity_of`): the inode and birth time
+    /// a record names it by. Null where the system has none.
     pub identity: Option<FolderIdentity>,
     /// Whether Git keeps it (`kept_by_git`): Epicenter never syncs a Git
-    /// working tree (ADR-0822).
+    /// working tree (ADR-0822, ADR-0825).
     pub git: bool,
+}
+
+/// A link directly inside the Epicenter folder: shown as outside it, never
+/// opened as one of its folders, and never synced (ADR-0825).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+pub struct Outside {
+    pub name: String,
+    /// Where the link points, as it is written.
+    pub target: String,
 }
 
 /// Something in the Epicenter folder that is not a folder it can open, and why.
@@ -132,33 +141,25 @@ pub struct Unreadable {
     pub reason: String,
 }
 
-/// The Epicenter folder's listing: where it is, as a person reads it, and
-/// where it really is (every link resolved), its folders by name, and what
-/// is there but could not be read.
+/// The Epicenter folder's listing: where it is, as a person reads it,
+/// whether it is itself a Git repository, its folders by name, the links in
+/// it, and what is there but could not be read.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
-#[serde(rename_all = "camelCase")]
 pub struct EpicenterListing {
     pub path: String,
-    pub real_path: String,
+    /// Whether the Epicenter folder holds `.git` at its root, which
+    /// Epicenter says once (ADR-0825).
+    pub git: bool,
     pub folders: Vec<EpicenterEntry>,
+    pub outside: Vec<Outside>,
     pub unreadable: Vec<Unreadable>,
 }
 
-/// Whether Git keeps the directory at `at` in the Epicenter folder: its
-/// real root holds an entry named `.git` (a directory, a file, or a link),
-/// or, when `at` is a link, a directory above where it leads does. A
-/// directory that is not a link counts only its own root, since the
-/// Epicenter folder's own parents are not the folder's business.
+/// Whether Git keeps the directory at `at`: an entry named `.git` (a
+/// directory, a file, or a link) at its root, found with one look and no
+/// search above it (ADR-0825).
 pub fn kept_by_git(at: &Path) -> bool {
-    let has_git = |directory: &Path| fs::symlink_metadata(directory.join(".git")).is_ok();
-    let Ok(real) = dunce::canonicalize(at) else {
-        return false;
-    };
-    if has_git(&real) {
-        return true;
-    }
-    let linked = fs::symlink_metadata(at).is_ok_and(|metadata| metadata.file_type().is_symlink());
-    linked && real.ancestors().skip(1).any(has_git)
+    fs::symlink_metadata(at.join(".git")).is_ok()
 }
 
 /// Why a root did not open or cannot be used: what the page is told.
@@ -239,8 +240,8 @@ struct Named {
 
 impl State {
     /// Where `root` is and what refuses its location: a named root, or a
-    /// directory of the Epicenter folder, which may be neither the Epicenter
-    /// folder nor a folder holding it, nor inside a `.git` or `.epicenter`.
+    /// directory of the Epicenter folder, which may not be inside a `.git`
+    /// or `.epicenter`.
     fn named(&self, root: &Root) -> Result<Named, RootError> {
         if *root == Root::Epicenter {
             return self.records();
@@ -254,6 +255,7 @@ impl State {
             root: root.clone(),
         })?;
         let path = epicenter.path.join(name);
+
         if let Some(problem) = folder_name_problem(name) {
             return Err(RootError::Refused {
                 folder: path.display().to_string(),
@@ -261,16 +263,9 @@ impl State {
             });
         }
         let outer = epicenter.refusal.clone();
-        let holder = epicenter.path.clone();
         Ok(Named {
             path,
             refusal: Arc::new(move |location: &Path| {
-                if resolved(&holder).starts_with(location) {
-                    return Some(format!(
-                        "{} holds every Epicenter folder, so it cannot be one.",
-                        location.display()
-                    ));
-                }
                 if is_reserved_directory(location) {
                     return Some(format!(
                         "{} is inside a .git or {} folder, so it cannot be a folder.",
@@ -428,10 +423,12 @@ impl Roots {
             })
     }
 
-    /// Every directory directly inside the Epicenter folder, made when it is
-    /// missing: links followed, hidden names skipped, by name, each with its
-    /// identity and whether Git keeps it; and what is there but cannot be a
-    /// folder, with why. Blocks on the disk.
+    /// Every real directory directly inside the Epicenter folder, made when
+    /// it is missing, hidden names skipped, by name, each with its identity
+    /// and whether Git keeps it; each link to a folder, or to nothing, as
+    /// outside it (ADR-0825); whether the Epicenter folder is itself a Git
+    /// repository; and what is there but cannot be a folder, with why.
+    /// Blocks on the disk.
     pub fn list_epicenter(&self) -> Result<EpicenterListing, RootError> {
         let base = self.epicenter_path()?;
         let shown = base.display().to_string();
@@ -447,10 +444,6 @@ impl Roots {
         }
         fs::create_dir_all(&base)
             .map_err(|cause| unavailable(format!("the folder could not be made: {cause}")))?;
-        let real_path = dunce::canonicalize(&base)
-            .map_err(|cause| unavailable(cause.to_string()))?
-            .display()
-            .to_string();
         let mut names: Vec<String> = fs::read_dir(&base)
             .map_err(|cause| unavailable(cause.to_string()))?
             .filter_map(|entry| entry.ok())
@@ -459,21 +452,32 @@ impl Roots {
             .collect();
         names.sort();
         let mut folders = Vec::new();
+        let mut outside = Vec::new();
         let mut unreadable = Vec::new();
         for name in names {
             let at = base.join(&name);
-            let metadata = match fs::metadata(&at) {
+            let metadata = match fs::symlink_metadata(&at) {
                 Ok(metadata) => metadata,
                 Err(cause) => {
-                    let reason = if cause.kind() == ErrorKind::NotFound {
-                        "it links to a folder that is gone".to_string()
-                    } else {
-                        cause.to_string()
-                    };
-                    unreadable.push(Unreadable { name, reason });
+                    unreadable.push(Unreadable {
+                        name,
+                        reason: cause.to_string(),
+                    });
                     continue;
                 }
             };
+            if metadata.file_type().is_symlink() {
+                // A link to a file is no folder; one to a folder, or to
+                // nothing, is a folder kept outside.
+                if fs::metadata(&at).is_ok_and(|target| !target.is_dir()) {
+                    continue;
+                }
+                let target = fs::read_link(&at)
+                    .map(|target| target.display().to_string())
+                    .unwrap_or_default();
+                outside.push(Outside { name, target });
+                continue;
+            }
             if !metadata.is_dir() {
                 continue;
             }
@@ -496,9 +500,10 @@ impl Roots {
             });
         }
         Ok(EpicenterListing {
+            git: kept_by_git(&base),
             path: shown,
-            real_path,
             folders,
+            outside,
             unreadable,
         })
     }
@@ -546,13 +551,25 @@ impl Roots {
 
     /// Open `root`: whatever is at its path, made when nothing is there.
     /// Each call looks again, so a folder that came back opens and a link
-    /// pointed elsewhere is followed. Blocks on the disk.
+    /// pointed elsewhere is followed. A folder of the Epicenter folder is a
+    /// real directory, never a link (ADR-0825). Blocks on the disk.
     pub fn open(&self, root: &Root) -> Result<Directory, RootError> {
         let Named { path, refusal } = {
             let state = self.state();
             state.running()?;
             state.named(root)?
         };
+        if matches!(root, Root::Folder(_))
+            && fs::symlink_metadata(&path).is_ok_and(|metadata| metadata.file_type().is_symlink())
+        {
+            return Err(RootError::Refused {
+                folder: path.display().to_string(),
+                reason: format!(
+                    "{} is a link to a folder outside the Epicenter folder, which Epicenter does not sync.",
+                    path.display()
+                ),
+            });
+        }
         // A folder of the Epicenter folder is made by `make_epicenter_folder`
         // alone: opening one that went away does not bring it back.
         let make = !matches!(root, Root::Folder(_));
@@ -945,52 +962,36 @@ mod tests {
         ));
     }
 
-    /// A folder is kept by Git when `.git` is at its real root, or, for a
-    /// link, anywhere above where it leads; a folder that is not a link
-    /// counts only its own root.
-    #[cfg(unix)]
+    /// A folder is kept by Git when `.git` (a directory or a worktree's
+    /// file) is at its own root; nothing above it counts. The listing says
+    /// whether the Epicenter folder is itself a Git repository.
     #[test]
-    fn a_folder_in_a_git_working_tree_is_kept_by_git() {
-        use std::os::unix::fs::symlink;
-
+    fn a_folder_with_git_at_its_root_is_kept_by_git() {
         let (_temp, base) = base();
         let epicenter = base.join("Epicenter");
-        fs::create_dir_all(epicenter.join("Plain")).unwrap();
+        fs::create_dir_all(epicenter.join("Plain/docs")).unwrap();
         fs::create_dir_all(epicenter.join("Repository/.git")).unwrap();
         fs::create_dir_all(epicenter.join("Worktree")).unwrap();
         fs::write(epicenter.join("Worktree/.git"), "gitdir: /elsewhere\n").unwrap();
-        let repository = base.join("code/project");
-        fs::create_dir_all(repository.join(".git")).unwrap();
-        fs::create_dir_all(repository.join("docs/notes")).unwrap();
-        symlink(repository.join("docs/notes"), epicenter.join("Linked")).unwrap();
-        let outside = base.join("outside/notes");
-        fs::create_dir_all(&outside).unwrap();
-        symlink(&outside, epicenter.join("Elsewhere")).unwrap();
-        // `.git` above the Epicenter folder does not reach a plain folder.
+        // `.git` above a folder never reaches it.
         fs::create_dir_all(base.join(".git")).unwrap();
         let roots = Roots::default();
         roots.name_epicenter(epicenter.clone(), never);
-        let kept: Vec<(String, bool)> = roots
-            .list_epicenter()
-            .unwrap()
+        let listing = roots.list_epicenter().unwrap();
+        let kept: Vec<(&str, bool)> = listing
             .folders
-            .into_iter()
-            .map(|folder| (folder.name, folder.git))
+            .iter()
+            .map(|folder| (folder.name.as_str(), folder.git))
             .collect();
         assert_eq!(
             kept,
-            [
-                ("Elsewhere".to_string(), true),
-                ("Linked".to_string(), true),
-                ("Plain".to_string(), false),
-                ("Repository".to_string(), true),
-                ("Worktree".to_string(), true),
-            ]
+            [("Plain", false), ("Repository", true), ("Worktree", true)]
         );
-        // `Elsewhere` leads below `base`, which holds `.git`.
-        fs::remove_dir(base.join(".git")).unwrap();
-        assert!(!kept_by_git(&epicenter.join("Elsewhere")));
-        assert!(!kept_by_git(&epicenter.join("Plain")));
+        assert!(!listing.git);
+        fs::create_dir_all(epicenter.join(".git")).unwrap();
+        let listing = roots.list_epicenter().unwrap();
+        assert!(listing.git);
+        assert!(!listing.folders[0].git);
     }
 
     /// A listener hears each root that opens, with the folder it reached.
@@ -1017,9 +1018,9 @@ mod tests {
         assert_eq!(lock(&heard).len(), 2);
     }
 
-    /// The Epicenter folder lists its directories by name, a link followed
-    /// and a dangling one named; each opens as a root of its own, which a
-    /// link above or at it does not lead out of the rules.
+    /// The Epicenter folder lists its real directories by name, and each
+    /// link to a folder, or to nothing, as outside it; each real directory
+    /// opens as a root of its own, and a link never does (ADR-0825).
     #[cfg(unix)]
     #[test]
     fn the_epicenter_folder_lists_its_folders_and_each_opens_as_a_root() {
@@ -1036,7 +1037,11 @@ mod tests {
         // Made when missing, and empty.
         let listing = roots.list_epicenter().unwrap();
         assert_eq!(listing.path, epicenter.display().to_string());
-        assert!(listing.folders.is_empty() && listing.unreadable.is_empty());
+        assert!(
+            listing.folders.is_empty()
+                && listing.outside.is_empty()
+                && listing.unreadable.is_empty()
+        );
 
         fs::create_dir(epicenter.join("Notes")).unwrap();
         fs::create_dir(epicenter.join(".hidden")).unwrap();
@@ -1045,33 +1050,45 @@ mod tests {
         fs::create_dir_all(&elsewhere).unwrap();
         symlink(&elsewhere, epicenter.join("Recipes")).unwrap();
         symlink(base.join("Gone"), epicenter.join("Gone")).unwrap();
-        // A link to the Epicenter folder's own parent would hold every folder.
         symlink(&base, epicenter.join("Everything")).unwrap();
+        symlink(epicenter.join("loose.md"), epicenter.join("Loose link")).unwrap();
 
         let listing = roots.list_epicenter().unwrap();
         let names: Vec<&str> = listing.folders.iter().map(|f| f.name.as_str()).collect();
-        assert_eq!(names, ["Notes", "Recipes"]);
-        assert_eq!(listing.real_path, epicenter.display().to_string());
-        let recipes = &listing.folders[1];
-        let found = fs::metadata(&elsewhere).unwrap();
-        assert_eq!(recipes.identity, identity_of(&found));
+        assert_eq!(names, ["Notes"]);
+        let notes = &listing.folders[0];
+        let found = fs::metadata(epicenter.join("Notes")).unwrap();
+        assert_eq!(notes.identity, identity_of(&found));
         assert_eq!(
-            recipes.identity.as_ref().unwrap().inode,
+            notes.identity.as_ref().unwrap().inode,
             found.ino().to_string()
         );
-        assert!(!recipes.git && !listing.folders[0].git);
-        let unreadable: Vec<(&str, bool)> = listing
-            .unreadable
+        assert!(!notes.git);
+        let outside: Vec<(&str, String)> = listing
+            .outside
             .iter()
-            .map(|u| (u.name.as_str(), u.reason.contains("holds every Epicenter folder")))
+            .map(|link| (link.name.as_str(), link.target.clone()))
             .collect();
-        assert_eq!(unreadable, [("Everything", true), ("Gone", false)]);
+        assert_eq!(
+            outside,
+            [
+                ("Everything", base.display().to_string()),
+                ("Gone", base.join("Gone").display().to_string()),
+                ("Recipes", elsewhere.display().to_string()),
+            ]
+        );
+        assert!(listing.unreadable.is_empty());
 
-        // Each folder is its root, opened through its link.
-        let root = Root::Folder("Recipes".into());
-        assert_eq!(roots.open(&root).unwrap().root(), elsewhere);
-        assert_eq!(roots.path(&root).unwrap(), epicenter.join("Recipes"));
-        assert_eq!(roots.opened(&root).unwrap().root(), elsewhere);
+        // A real directory is its root; a link is refused, and nothing is read through it.
+        let root = Root::Folder("Notes".into());
+        assert_eq!(roots.open(&root).unwrap().root(), epicenter.join("Notes"));
+        assert_eq!(roots.opened(&root).unwrap().root(), epicenter.join("Notes"));
+        let linked = Root::Folder("Recipes".into());
+        assert!(matches!(
+            roots.open(&linked),
+            Err(RootError::Refused { reason, .. }) if reason.contains("outside the Epicenter folder")
+        ));
+        assert_eq!(roots.path(&linked).unwrap(), epicenter.join("Recipes"));
         // One that is not there is not made by opening it.
         let missing = Root::Folder("Missing".into());
         assert!(matches!(

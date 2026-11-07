@@ -26,7 +26,10 @@ const asked: Asked[] = [];
 let listing: unknown;
 let refuseOpen = new Set<string>();
 let heard: ((event: { payload: unknown }) => void) | undefined;
-const identity = (inode: string) => ({ inode, birthtime: '1700000000000000000' });
+const identity = (inode: string) => ({
+	inode,
+	birthtime: '1700000000000000000',
+});
 
 mock.module('@tauri-apps/api/core', () => ({
 	Channel: class {},
@@ -47,7 +50,7 @@ mock.module('@tauri-apps/api/core', () => ({
 				throw {
 					name: 'Refused',
 					folder: `/Users/me/Epicenter/${name}`,
-					reason: 'it holds every Epicenter folder',
+					reason: 'it is inside a .git folder',
 				};
 			return `/Users/me/Epicenter/${name}`;
 		}
@@ -86,23 +89,31 @@ const opens = () =>
 			return typeof root === 'string' ? root : root.Folder;
 		});
 
-test('a listing opens each folder once and names one that does not open', async () => {
+test('a listing opens each folder once, names one that does not open, and lists links as outside', async () => {
 	listing = {
 		path: '/Users/me/Epicenter',
-		realPath: '/Users/me/Epicenter',
+		git: true,
 		folders: [
 			{ name: 'Notes', identity: identity('1'), git: false },
 			{ name: 'Recipes', identity: identity('2'), git: true },
 			{ name: 'Everything', identity: identity('3'), git: false },
 		],
-		unreadable: [{ name: 'Gone', reason: 'it links to a folder that is gone' }],
+		outside: [{ name: 'Drive', target: '/Volumes/Archive/Drive' }],
+		unreadable: [{ name: 'Locked', reason: 'permission denied' }],
 	};
 	refuseOpen = new Set(['Everything']);
 	const root = epicenterRoot();
 	expect(root.path).toBe('');
 	const listed = expectOk(await root.list());
 	expect(root.path).toBe('/Users/me/Epicenter');
-	expect(listed.realPath).toBe('/Users/me/Epicenter');
+	expect(listed.git).toBe(true);
+	expect(listed.outside).toEqual([
+		{
+			name: 'Drive',
+			path: '/Users/me/Epicenter/Drive',
+			target: '/Volumes/Archive/Drive',
+		},
+	]);
 	expect(
 		listed.folders.map(({ name, path, identity, git }) => ({
 			name,
@@ -125,12 +136,10 @@ test('a listing opens each folder once and names one that does not open', async 
 		},
 	]);
 	expect(listed.unreadable.map(({ name }) => name)).toEqual([
-		'Gone',
+		'Locked',
 		'Everything',
 	]);
-	expect(listed.unreadable[1]?.reason).toContain(
-		'holds every Epicenter folder',
-	);
+	expect(listed.unreadable[1]?.reason).toContain('inside a .git folder');
 	expect(opens()).toEqual(['Epicenter', 'Notes', 'Recipes', 'Everything']);
 
 	// The same folders open nothing again; one replaced opens again.
@@ -138,11 +147,12 @@ test('a listing opens each folder once and names one that does not open', async 
 	refuseOpen = new Set(['Everything']);
 	listing = {
 		path: '/Users/me/Epicenter',
-		realPath: '/Users/me/Epicenter',
+		git: false,
 		folders: [
 			{ name: 'Notes', identity: identity('1'), git: false },
 			{ name: 'Recipes', identity: identity('7'), git: false },
 		],
+		outside: [],
 		unreadable: [],
 	};
 	expectOk(await root.list());
@@ -152,8 +162,9 @@ test('a listing opens each folder once and names one that does not open', async 
 test("a folder's hash cache is kept in the Epicenter folder's .epicenter, by identity", async () => {
 	listing = {
 		path: '/Users/me/Epicenter',
-		realPath: '/Users/me/Epicenter',
+		git: false,
 		folders: [{ name: 'Tapes', identity: identity('5'), git: false }],
+		outside: [],
 		unreadable: [],
 	};
 	const root = epicenterRoot();
@@ -164,21 +175,22 @@ test("a folder's hash cache is kept in the Epicenter folder's .epicenter, by ide
 	await records.hashes(identity('5')).load();
 	expect(
 		asked
-			.filter(({ command }) => command === 'plugin:epicenter-folder|read_folder_file')
+			.filter(
+				({ command }) => command === 'plugin:epicenter-folder|read_folder_file',
+			)
 			.map(({ body }) => body),
-	).toEqual([
-		{ path: 'hashes/5-1700000000000000000.json', root: 'Epicenter' },
-	]);
+	).toEqual([{ path: 'hashes/5-1700000000000000000.json', root: 'Epicenter' }]);
 });
 
 test("each folder's store hears its own changes and names its root", async () => {
 	listing = {
 		path: '/Users/me/Epicenter',
-		realPath: '/Users/me/Epicenter',
+		git: false,
 		folders: [
 			{ name: 'Notes', identity: identity('1'), git: false },
 			{ name: 'Recipes', identity: identity('2'), git: false },
 		],
+		outside: [],
 		unreadable: [],
 	};
 	const listed = expectOk(await epicenterRoot().list());

@@ -52,14 +52,15 @@ Under all of it sit three roots and one rule for apps ([ADR-0763],
 ~/Epicenter/
 ├── todos/                      a folder, labeled by its directory's name
 │   ├── epicenter.json          optional: a title and a contract
-│   ├── AGENTS.md               prose for agents; written once, then yours
+│   ├── AGENTS.md               optional: the person's own prose for agents
 │   ├── todos/call-dentist.md   an item: front matter, then body
 │   └── .epicenter/             this computer's cache, including synced.json
 └── Ancestry/                   another folder, shared with a family
 ```
 
-Every directory directly in `~/Epicenter` is a folder; one elsewhere joins by
-a symbolic link there. Nothing is registered ([ADR-0813], [ADR-0815]).
+Every real directory directly in `~/Epicenter` is a folder; a link there is
+a folder kept outside, never synced, so a folder moves in and a link at its
+old path points to it. Nothing is registered ([ADR-0813], [ADR-0825]).
 
 `epicenter.json` holds `$schema`, a `title`, and `collections`: path patterns
 such as `todos/{name}.md`, with JSON Schema for the fields. A pattern ending
@@ -202,10 +203,13 @@ epicenter share ~/Epicenter/notes jess@example.com
 ```
 
 `status`, `clone`, `log`, `diff`, `restore`, `unshare`, `accept`, `attach`, and
-`detach` are built too; `query`, `set`, `normalize`, and `mcp` are not
-([ADR-0790], [ADR-0797]). `epicenter mcp` serves each contract as typed MCP
-tools (`<collection>_query`, `_get`, `_set`, `_write`, `_delete`) to an agent,
-which reaches every folder because it acts as the person ([ADR-0799]).
+`detach` are built too; `query`, `set`, and `normalize` are not ([ADR-0790],
+[ADR-0797]). Every command is rendered from one table of operations, and
+`epicenter mcp` renders the same table as MCP tools for an agent, beside
+typed tools from each folder's contract (`<folder>_<collection>_query`,
+`_get`, `_set`, `_write`); with `--all` it reaches every folder, because the
+agent acts as the person ([ADR-0799], [ADR-0827]).
+
 
 ## What Epicenter invents, and what it refuses
 
@@ -269,3 +273,5 @@ It refuses:
 [ADR-0819]: adr/0819-every-program-keeps-the-folders-it-has-open-in-sync-and-the-epicenter-app-has-them-all-open.md
 [ADR-0820]: adr/0820-a-share-is-an-invitation-to-an-email-and-reaching-every-folder-is-a-permission.md
 [ADR-0824]: adr/0824-a-folders-history-is-a-log-of-versions-and-git-is-how-it-leaves.md
+[ADR-0825]: adr/0825-the-epicenter-folder-contains-its-folders.md
+[ADR-0827]: adr/0827-the-cli-and-mcp-render-one-table-of-operations.md

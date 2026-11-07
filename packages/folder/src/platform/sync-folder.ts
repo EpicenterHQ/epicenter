@@ -13,8 +13,9 @@
  *   (`Question`), and the person answers `{ join }` or `{ create }`. A join
  *   starts from first contact, which never deletes: a record with nothing
  *   agreed.
- * - A directory Git keeps never syncs, and neither does an Epicenter folder
- *   inside a file-sync service.
+ * - A directory Git keeps never syncs, nor does a link in the Epicenter
+ *   folder (ADR-0825), nor anything while the Epicenter folder is inside a
+ *   file-sync service.
  *
  * `syncEvery` keeps every folder in the Epicenter folder in sync from one
  * request for where every folder is (ADR-0819), as the Epicenter app does
@@ -43,6 +44,7 @@ import {
 import {
 	type BoundFolder,
 	fileSyncOf,
+	gitRootOf,
 	type Identified,
 	identify,
 	type Question,
@@ -225,9 +227,9 @@ async function titleNew(
 	return Ok(null);
 }
 
-/** Why Epicenter refuses to sync the Epicenter folder `identified` found, or null. */
-function refusedRoot(identified: Identified) {
-	const check = fileSyncOf(identified.realPath);
+/** Why Epicenter refuses to sync the Epicenter folder `root`, or null. */
+function refusedRoot(root: EpicenterRoot) {
+	const check = fileSyncOf(root.path);
 	return check !== null && 'refused' in check
 		? ClientError.Unavailable({ cause: check.refused })
 		: null;
@@ -257,10 +259,15 @@ export async function syncFolder({
 	const found = await identify({ root, account });
 	if (found.error !== null) return found;
 	const identified = found.data;
-	const refused = refusedRoot(identified);
+	const refused = refusedRoot(root);
 	if (refused !== null) return refused;
 	if (identified.git.some((local) => local.name === name))
 		return Ok({ kind: 'git' });
+	const link = identified.outside.find((one) => one.name === name);
+	if (link !== undefined)
+		return ClientError.Unavailable({
+			cause: `${link.path} is a link to ${link.target}, a folder outside the Epicenter folder, which Epicenter does not sync. Move the folder into ${root.path}, and leave a link where it was.`,
+		});
 	const bound = identified.bound.find(({ local }) => local.name === name);
 	if (bound !== undefined) {
 		if (
@@ -326,7 +333,7 @@ export async function cloneIntoHome({
 }): Promise<Result<{ local: LocalFolder; sync: FolderSync }, Unavailable>> {
 	const found = await identify({ root, account });
 	if (found.error !== null) return found;
-	const refused = refusedRoot(found.data);
+	const refused = refusedRoot(root);
 	if (refused !== null) return refused;
 	const here = found.data.bound.find(({ record }) => record.folder === folder);
 	if (here !== undefined)
@@ -426,21 +433,24 @@ export type EverySync = {
  * here. A folder not synced here syncs when an app made it (`apps`), as if
  * the person had chosen to, and otherwise waits for them (`waiting`).
  * `deletions` answers a folder's stop for many deletions, by its path.
- * `warning` says what the file-sync check could not tell.
+ * `names`, when given, limits the round to the folders of those names, as
+ * `epicenter mcp` keeps only the folders it writes in sync (ADR-0819).
+ * `warnings` say what the file-sync check could not rule out, and that the
+ * Epicenter folder is itself a Git repository.
  */
 export async function syncEvery({
 	account,
 	root,
 	apps = [],
 	deletions = new Map(),
+	names,
 }: {
 	account: RemoteAccount;
 	root: EpicenterRoot;
 	apps?: readonly KnownApp[];
 	deletions?: ReadonlyMap<string, Deletions>;
-}): Promise<
-	Result<{ folders: EverySync[]; warning: string | null }, Unavailable>
-> {
+	names?: ReadonlySet<string>;
+}): Promise<Result<{ folders: EverySync[]; warnings: string[] }, Unavailable>> {
 	const [heads, found] = await Promise.all([
 		folderHeads(account),
 		identify({ root, account }),
@@ -448,11 +458,14 @@ export async function syncEvery({
 	if (heads.error !== null) return heads;
 	if (found.error !== null) return found;
 	const identified = found.data;
-	const refused = refusedRoot(identified);
+	const named = ({ local }: { local: LocalFolder }) =>
+		names === undefined || names.has(local.name);
+	const refused = refusedRoot(root);
 	if (refused !== null) return refused;
-	const check = fileSyncOf(identified.realPath);
+	const check = fileSyncOf(root.path);
+	const git = gitRootOf(root.path, identified.rootGit);
 	const out: EverySync[] = [];
-	for (const bound of identified.bound) {
+	for (const bound of identified.bound.filter(named)) {
 		const { local, record } = bound;
 		const entry: EverySync = { name: local.name, path: local.path, local };
 		const head = heads.data[record.folder];
@@ -475,7 +488,7 @@ export async function syncEvery({
 			});
 		out.push(entry);
 	}
-	for (const unbound of identified.unbound) {
+	for (const unbound of identified.unbound.filter(named)) {
 		const { local } = unbound;
 		const entry: EverySync = { name: local.name, path: local.path, local };
 		// Only a folder an app made syncs without the person: the server is
@@ -499,11 +512,14 @@ export async function syncEvery({
 				: {}),
 		});
 	}
-	for (const local of identified.git)
+	for (const local of identified.git.filter((local) => named({ local })))
 		out.push({ name: local.name, path: local.path, local, waiting: 'git' });
 	out.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 	return Ok({
 		folders: out,
-		warning: check !== null && 'warning' in check ? check.warning : null,
+		warnings: [
+			...(check !== null && 'warning' in check ? [check.warning] : []),
+			...(git === null ? [] : [git]),
+		],
 	});
 }

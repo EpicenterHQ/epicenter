@@ -6,7 +6,7 @@
  *
  * The app's site names its repository `~/capture`. The app
  * publishes it, unchanged, as `apps/capture/static/contract.json`, so
- * `epicenter check <url>/contract.json <dir>` checks a clone.
+ * `epicenter check <dir> --contract <url>/contract.json` checks a clone.
  *
  * `capturedAt` is an RFC 3339 date and time, so a note written by hand with
  * an offset (`2026-10-01T10:30:00+08:00`) is as valid as the UTC form the

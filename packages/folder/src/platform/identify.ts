@@ -14,7 +14,8 @@
  * 3. Every other directory is unbound. A record proves at most one
  *    directory, and a directory is proven by at most one record.
  *
- * A directory Git keeps is none of these: Epicenter never syncs it. A
+ * A directory Git keeps is none of these, nor is a link in the Epicenter
+ * folder (ADR-0825): Epicenter never syncs either. A
  * folder an older build synced is imported first (`legacy.ts`). A record
  * whose directory moved is brought up to date with its name and identity.
  *
@@ -34,7 +35,11 @@ import { proves } from '../identity.js';
 import { listFolders } from '../remote/folders.js';
 import type { RemoteAccount } from '../remote/repository.js';
 import { type KnownApp, madeBy } from './apps.js';
-import type { EpicenterRoot, LocalFolder } from './epicenter-folder.js';
+import type {
+	EpicenterRoot,
+	LocalFolder,
+	OutsideLink,
+} from './epicenter-folder.js';
 import { importLegacy } from './legacy.js';
 import type { FolderRecord, HeldRecord, Records } from './records.js';
 
@@ -66,11 +71,13 @@ export type Identified = {
 	unbound: UnboundFolder[];
 	/** The directories Git keeps, which Epicenter never syncs. */
 	git: LocalFolder[];
+	/** The links in the Epicenter folder, to folders kept outside it, which Epicenter never syncs. */
+	outside: OutsideLink[];
 	unreadable: { name: string; reason: string }[];
 	/** The records no directory here proves: folders this computer synced once. */
 	free: HeldRecord[];
-	/** The Epicenter folder's real path, where it is known. */
-	realPath: string | null;
+	/** Whether the Epicenter folder is itself a Git repository. */
+	rootGit: boolean;
 	/** The folders the person holds, asked once; null without an account, or when the server could not answer. */
 	server(): Promise<FolderListing | null>;
 	/** Why the server could not answer, once asked; null when it did, or was not asked. */
@@ -226,9 +233,10 @@ export async function identify({
 		bound,
 		unbound,
 		git: listed.data.folders.filter(({ git }) => git),
+		outside: listed.data.outside,
 		unreadable: listed.data.unreadable,
 		free: [...free.values()],
-		realPath: listed.data.realPath,
+		rootGit: listed.data.git,
 		server,
 		async serverError() {
 			const answer = await (asked ?? Promise.resolve(null));
@@ -308,22 +316,19 @@ export async function questionOf(
 }
 
 /**
- * Why Epicenter will not sync an Epicenter folder at `realPath`, or what it
- * could not tell (ADR-0821): a folder inside a file-sync service (iCloud
- * Drive, a File Provider location, Dropbox, OneDrive, Google Drive) is
- * synced by that service too, which fights Epicenter over every file.
+ * Why Epicenter will not sync the Epicenter folder at `path`, or what it
+ * could not rule out (ADR-0821, ADR-0825): a folder inside a file-sync
+ * service (iCloud Drive, a File Provider location, Dropbox, OneDrive, Google
+ * Drive) is synced by that service too, which fights Epicenter over every
+ * file. Only the Epicenter folder is checked: every folder Epicenter syncs
+ * is a real directory in it.
  */
 export function fileSyncOf(
-	realPath: string | null,
+	path: string,
 ): { refused: string } | { warning: string } | null {
-	if (realPath === null)
-		return {
-			warning:
-				'Epicenter could not tell where the Epicenter folder really is, so it cannot say whether a file-sync service also syncs it.',
-		};
-	const segments = realPath.split(/[/\\]/);
+	const segments = path.split(/[/\\]/);
 	const refuse = (service: string) => ({
-		refused: `The Epicenter folder is in ${service} (${realPath}), which syncs its files too. Move it out, then Epicenter syncs it.`,
+		refused: `The Epicenter folder is in ${service} (${path}), which syncs its files too. Move it out, then Epicenter syncs it.`,
 	});
 	for (let index = 0; index < segments.length; index++) {
 		const segment = segments[index] as string;
@@ -337,9 +342,20 @@ export function fileSyncOf(
 		if (/^(Google Drive|My Drive)$/.test(segment))
 			return refuse('Google Drive');
 	}
-	if (/dropbox|onedrive|google ?drive|icloud/i.test(realPath))
+	if (/dropbox|onedrive|google ?drive|icloud/i.test(path))
 		return {
-			warning: `The Epicenter folder's path (${realPath}) names a file-sync service; if one syncs it, move it out.`,
+			warning: `The Epicenter folder's path (${path}) names a file-sync service; if one syncs it, move it out.`,
 		};
 	return null;
+}
+
+/**
+ * What to say once when the Epicenter folder at `path` is itself a Git
+ * repository (`git`, ADR-0825), or null: Epicenter syncs the folders in it
+ * all the same, and Git sees their changes too.
+ */
+export function gitRootOf(path: string, git: boolean): string | null {
+	return git
+		? `The Epicenter folder (${path}) is itself a Git repository. Epicenter syncs the folders in it; Git also sees every change to them.`
+		: null;
 }

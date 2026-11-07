@@ -435,11 +435,13 @@ pub async fn data_record<R: Runtime>(
     .await
 }
 
-/// The Epicenter folder's listing (ADR-0813): where it is and where it
-/// really is, every directory directly inside it, links followed, hidden
-/// names skipped, each with its name (its root is `Root::Folder(name)`), its
-/// identity, and whether Git keeps it, and what is there but cannot be a
-/// folder, with why. The folder is made when it is missing.
+/// The Epicenter folder's listing (ADR-0813, ADR-0825): where it is and
+/// whether it is itself a Git repository, every real directory directly
+/// inside it, hidden names skipped, each with its name (its root is
+/// `Root::Folder(name)`), its identity, and whether Git keeps it, the links
+/// in it, shown as outside it, and what is there but cannot be a folder,
+/// with why. The folder is made when it is missing.
+
 #[tauri::command]
 #[specta::specta]
 pub async fn list_epicenter<R: Runtime>(

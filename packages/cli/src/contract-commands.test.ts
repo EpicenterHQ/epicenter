@@ -1,10 +1,10 @@
 /**
  * `epicenter check` and `epicenter format` against real directories, through
- * fresh CLI processes, with the contract from an argument or AGENTS.md.
+ * fresh CLI processes, with the folder's own epicenter.json or --contract.
  *
  * Key behaviors:
  * - check prints one compiler-style line per problem and exits 0, 1, or 2
- * - hidden paths (.git, .epicenter) and root AGENTS.md are skipped
+ * - hidden paths (.git, .epicenter), epicenter.json, and a root AGENTS.md are skipped
  * - format rewrites claimed notes in house style, leaves an unparseable one, and is idempotent
  * - a contract that cannot be read or is not well formed exits 2 and writes nothing
  */
@@ -60,6 +60,7 @@ async function setup() {
 	function run(...args: string[]) {
 		const result = Bun.spawnSync([...command, ...args], {
 			cwd: parent,
+			env: { ...process.env, EPICENTER_STRICT_OUTPUT: '1' },
 			stdout: 'pipe',
 			stderr: 'pipe',
 		});
@@ -73,6 +74,7 @@ async function setup() {
 	async function runAsync(...args: string[]) {
 		const child = Bun.spawn([...command, ...args], {
 			cwd: parent,
+			env: { ...process.env, EPICENTER_STRICT_OUTPUT: '1' },
 			stdout: 'pipe',
 			stderr: 'pipe',
 		});
@@ -91,39 +93,37 @@ test('check passes a folder whose files fit, skipping hidden paths', async () =>
 	const { folder, contractPath, write, run } = await setup();
 	await write('.obsidian/workspace.json', '{}');
 	await write('.gitattributes', '* text\n');
-	const result = run('check', contractPath, folder);
+	const result = run('check', folder, '--contract', contractPath);
 	expect(result).toMatchObject({
 		exitCode: 0,
 		stdout: '2 files fit; 0 files do not.\n',
 	});
 });
 
-test('check reads a local contract from AGENTS.md and excludes that root note', async () => {
+test("check reads the folder's epicenter.json, and skips it and a person's AGENTS.md", async () => {
 	const { folder, contractPath, write, run } = await setup();
+	await write('epicenter.json', JSON.stringify(contract));
 	await write(
 		'AGENTS.md',
-		`---\n"contract": ../contract.json\ndate: 2024-01-01\n---\nMy own advice.\n`,
+		`---\ncontract: https://elsewhere.example/contract.json\n---\nMy own advice.\n`,
 	);
 	expect(run('check', folder)).toMatchObject({
 		exitCode: 0,
 		stdout: '2 files fit; 0 files do not.\n',
 	});
-	await writeFile(
-		contractPath,
+	await write(
+		'epicenter.json',
 		JSON.stringify({ collections: { other: { path: 'other/{id}.md' } } }),
 	);
 	expect(run('check', folder).exitCode).toBe(1);
-	const explicit = join(folder, '..', 'explicit.json');
-	await writeFile(explicit, JSON.stringify(contract));
-	expect(run('check', explicit, folder).exitCode).toBe(0);
+	expect(run('check', folder, '--contract', contractPath).exitCode).toBe(0);
 });
 
-test('check reports a missing contract argument and note clearly', async () => {
+test('check without an epicenter.json or --contract says which file it could not read', async () => {
 	const { folder, run } = await setup();
 	const result = run('check', folder);
 	expect(result.exitCode).toBe(2);
-	expect(result.stderr).toContain('No contract argument');
-	expect(result.stderr).toContain('AGENTS.md');
+	expect(result.stderr).toContain(join(folder, 'epicenter.json'));
 });
 
 test('check names each problem compiler style and exits 1', async () => {
@@ -131,7 +131,7 @@ test('check names each problem compiler style and exits 1', async () => {
 	await write('recordings/b.md', '---\ntitle: B\ndurationMs: long\n---\n');
 	await write('recordings/c.md', '---\ntitle: [open\n---\n');
 	await write('stray.txt', 'x');
-	const result = run('check', contractPath, folder);
+	const result = run('check', folder, '--contract', contractPath);
 	expect(result.exitCode).toBe(1);
 	expect(result.stdout).toContain('recordings/b.md:3: durationMs');
 	expect(result.stdout).toContain('recordings/c.md:3:');
@@ -139,7 +139,9 @@ test('check names each problem compiler style and exits 1', async () => {
 		'stray.txt: No file collection of this contract names this path',
 	);
 	expect(result.stdout).toEndWith('2 files fit; 3 files do not.\n');
-	const json = JSON.parse(run('check', contractPath, folder, '--json').stdout);
+	const json = JSON.parse(
+		run('check', folder, '--contract', contractPath, '--json').stdout,
+	);
 	expect(json.exitCode).toBe(1);
 	expect(json.files).toBe(5);
 	expect(json.issues.map(({ path }: { path: string }) => path)).toEqual([
@@ -150,7 +152,7 @@ test('check names each problem compiler style and exits 1', async () => {
 });
 
 test('check takes the contract as a URL, and the folder defaults to the working directory', async () => {
-	const { folder, write, runAsync } = await setup();
+	const { folder, runAsync } = await setup();
 	const server = Bun.serve({
 		port: 0,
 		fetch: (request) =>
@@ -160,19 +162,20 @@ test('check takes the contract as a URL, and the folder defaults to the working 
 	});
 	try {
 		const url = `http://localhost:${server.port}/contract.json`;
-		expect((await runAsync('check', url, folder)).exitCode).toBe(0);
-		await write('AGENTS.md', `---\ncontract: ${url}\n---\n`);
-		expect((await runAsync('check', folder)).exitCode).toBe(0);
+		expect((await runAsync('check', folder, '--contract', url)).exitCode).toBe(
+			0,
+		);
 		const missing = await runAsync(
 			'check',
-			`http://localhost:${server.port}/nope.json`,
 			folder,
+			'--contract',
+			`http://localhost:${server.port}/nope.json`,
 		);
 		expect(missing.exitCode).toBe(2);
 		expect(missing.stderr).toContain('404');
 		// From the parent, the folder argument defaults to `.`: the parent
 		// holds contract.json, which no collection names.
-		const here = await runAsync('check', url);
+		const here = await runAsync('check', '--contract', url);
 		expect(here.exitCode).toBe(1);
 		expect(here.stdout).toContain('contract.json: No file collection');
 	} finally {
@@ -182,19 +185,21 @@ test('check takes the contract as a URL, and the folder defaults to the working 
 
 test('a contract that cannot be read or is not well formed, or a missing folder, exits 2 and creates nothing', async () => {
 	const { parent, folder, contractPath, run } = await setup();
-	expect(run('check', join(parent, 'none.json'), folder).exitCode).toBe(2);
+	expect(
+		run('check', folder, '--contract', join(parent, 'none.json')).exitCode,
+	).toBe(2);
 	await writeFile(contractPath, '{"collections":');
-	const notJson = run('check', contractPath, folder, '--json');
+	const notJson = run('check', folder, '--contract', contractPath, '--json');
 	expect(notJson.exitCode).toBe(2);
 	expect(JSON.parse(notJson.stdout).error).toContain('not JSON');
 	await writeFile(contractPath, JSON.stringify({ collections: [] }));
-	const malformed = run('format', contractPath, folder);
+	const malformed = run('format', folder, '--contract', contractPath);
 	expect(malformed.exitCode).toBe(2);
 	expect(malformed.stderr).toContain('its collections are not an object');
 	await writeFile(contractPath, JSON.stringify(contract));
 	const typo = join(parent, 'typo');
-	expect(run('check', contractPath, typo).exitCode).toBe(2);
-	expect(run('format', contractPath, typo).exitCode).toBe(2);
+	expect(run('check', typo, '--contract', contractPath).exitCode).toBe(2);
+	expect(run('format', typo, '--contract', contractPath).exitCode).toBe(2);
 	await expect(stat(typo)).rejects.toThrow();
 });
 
@@ -206,7 +211,7 @@ test('format rewrites claimed notes in the contract key order, leaves the rest, 
 	);
 	await write('recordings/b.md', '---\ntitle: [open\n---\nKeep me\n');
 	await write('notes/other.md', '---\nz: 1\na: 2\n---\n');
-	const result = run('format', contractPath, folder);
+	const result = run('format', folder, '--contract', contractPath);
 	expect(result.exitCode).toBe(1);
 	expect(result.stdout).toContain('formatted recordings/a.md');
 	expect(result.stdout).toContain('recordings/b.md: line 3:');
@@ -219,7 +224,7 @@ test('format rewrites claimed notes in the contract key order, leaves the rest, 
 	expect(await text('notes/other.md')).toBe('---\nz: 1\na: 2\n---\n');
 	await write('recordings/b.md', '---\ntitle: B\n---\n');
 	const again = JSON.parse(
-		run('format', contractPath, folder, '--json').stdout,
+		run('format', folder, '--contract', contractPath, '--json').stdout,
 	);
 	expect(again).toEqual({
 		formatted: [],

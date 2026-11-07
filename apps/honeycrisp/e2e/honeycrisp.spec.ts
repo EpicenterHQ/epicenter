@@ -252,8 +252,9 @@ test('2. a desktop clone holds what was written, and the folder fits the contrac
 		stack,
 		person,
 		'check',
-		`${stack.app}/contract.json`,
 		clone,
+		'--contract',
+		`${stack.app}/contract.json`,
 	);
 	expect(checked.code, `${checked.stdout}\n${checked.stderr}`).toBe(0);
 });

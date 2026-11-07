@@ -66,6 +66,9 @@
 				{'refused' in home.fileSync ? home.fileSync.refused : home.fileSync.warning}
 			</p>
 		{/if}
+		{#if home?.git}
+			<p role="status" class="text-muted-foreground">{home.git}</p>
+		{/if}
 
 
 		{#if home === null}

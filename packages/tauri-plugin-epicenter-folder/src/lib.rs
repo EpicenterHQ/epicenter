@@ -52,8 +52,8 @@ pub use commands::{FolderError, DATA_FOLDER_FILE};
 pub use epicenter_folder_core::identity::{identity_at, identity_key, proves, FolderIdentity};
 pub use records::FolderRecord;
 pub use roots::{
-    folder_name_problem, kept_by_git, EpicenterEntry, EpicenterListing, Root, RootError, Roots,
-    RootsExt, Unreadable,
+    folder_name_problem, kept_by_git, EpicenterEntry, EpicenterListing, Outside, Root, RootError,
+    Roots, RootsExt, Unreadable,
 };
 pub use watch::{FolderChanged, FolderEvent};
 

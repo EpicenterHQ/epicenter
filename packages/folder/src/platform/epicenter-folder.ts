@@ -1,15 +1,17 @@
 /**
- * The Epicenter folder (ADR-0813, ADR-0816): `~/Epicenter`, every directory
- * directly inside it an Epicenter folder, a folder elsewhere joined by a
- * symbolic link there. Nothing registers a folder; discovery lists the
- * directory. `EpicenterRoot` is that directory as a surface reaches it: Bun
+ * The Epicenter folder (ADR-0813, ADR-0816, ADR-0825): `~/Epicenter`, every
+ * real directory directly inside it an Epicenter folder. A link there is
+ * shown as outside it and never synced: a folder kept at another path moves
+ * in, and a link at that path points to it. Nothing registers a folder;
+ * discovery lists the directory. `EpicenterRoot` is that directory as a surface reaches it: Bun
  * or Node through `@epicenter/folder/node`'s `epicenterRoot(path)`, and the
  * Epicenter app's shell through `@epicenter/folder/tauri`'s. It also holds
  * the Epicenter folder's own `.epicenter`, the records of what this computer
  * synced (`records.ts`, ADR-0822).
  *
  * `listHome` is the platform's home (ADR-0815): each folder with its title,
- * its state (on this computer only, synced, shared, or kept by Git), and,
+ * its state (on this computer only, synced, shared, kept by Git, or a link
+ * outside the Epicenter folder), and,
  * with an account, its members and, for a folder not synced here, the
  * question of which folder it is (`identify.ts`); beside them the shares
  * waiting for the person and the folders they hold that this computer does
@@ -28,6 +30,7 @@ import type { RemoteAccount } from '../remote/repository.js';
 import type { KnownApp } from './apps.js';
 import {
 	fileSyncOf,
+	gitRootOf,
 	identify,
 	type Question,
 	questionOf,
@@ -44,8 +47,17 @@ export type LocalFolder = {
 	store: Store;
 	/** The directory's identity now (inode and birth time); null where the store has none. */
 	identity: FolderIdentity | null;
-	/** Whether Git keeps it (`.git` at its root, or above a link's target): Epicenter never syncs it. */
+	/** Whether Git keeps it (`.git` at its root): Epicenter never syncs it. */
 	git: boolean;
+};
+
+/** A link directly inside the Epicenter folder: a folder kept outside it, never synced (ADR-0825). */
+export type OutsideLink = {
+	name: string;
+	/** Where the link is, to show a person. */
+	path: string;
+	/** Where it points, as the link is written. */
+	target: string;
 };
 
 /** The Epicenter folder as a surface reaches it. */
@@ -53,16 +65,18 @@ export type EpicenterRoot = {
 	/** Where it is, to show a person. */
 	path: string;
 	/**
-	 * Every directory directly inside it, links followed, hidden names
-	 * skipped, by name; what is there but could not be read, with why; and
-	 * the Epicenter folder's real path, links resolved, where it is known.
+	 * Every real directory directly inside it, hidden names skipped, by
+	 * name; each link there to a folder, or to nothing, as outside it; what
+	 * is there but could not be read, with why; and whether the Epicenter
+	 * folder is itself a Git repository (`.git` at its root).
 	 */
 	list(): Promise<
 		Result<
 			{
 				folders: LocalFolder[];
+				outside: OutsideLink[];
 				unreadable: { name: string; reason: string }[];
-				realPath: string | null;
+				git: boolean;
 			},
 			Unavailable
 		>
@@ -74,12 +88,14 @@ export type EpicenterRoot = {
 };
 
 /**
- * A folder's state (ADR-0811, ADR-0822): `local` while nothing proves it is
- * a folder synced here (never synced, a copy, or one waiting for the
- * person's answer), `synced` once it is, `shared` once someone else holds it
- * too, and `git` when Git keeps it, so Epicenter does not sync it.
+ * A folder's state (ADR-0811, ADR-0822, ADR-0825): `local` while nothing
+ * proves it is a folder synced here (never synced, a copy, or one waiting
+ * for the person's answer), `synced` once it is, `shared` once someone else
+ * holds it too, `git` when Git keeps it, and `outside` for a link to a
+ * folder outside the Epicenter folder; Epicenter syncs neither of the last
+ * two.
  */
-export type HomeState = 'local' | 'synced' | 'shared' | 'git';
+export type HomeState = 'local' | 'synced' | 'shared' | 'git' | 'outside';
 
 /** One folder in the home. */
 export type HomeFolder = {
@@ -115,8 +131,10 @@ export type Home = {
 	elsewhere: ListedFolder[];
 	/** What is in the Epicenter folder but could not be read, with why. */
 	unreadable: { name: string; reason: string }[];
-	/** Why Epicenter will not sync here, or what it could not tell (`fileSyncOf`). */
+	/** Why Epicenter will not sync here, or what the file-sync check could not rule out (`fileSyncOf`). */
 	fileSync: { refused: string } | { warning: string } | null;
+	/** What to say, once, when the Epicenter folder is itself a Git repository (`gitRootOf`). */
+	git: string | null;
 };
 
 /**
@@ -196,13 +214,26 @@ export async function listHome({
 			unlisted: null,
 			question: null,
 		});
+	for (const link of identified.outside)
+		folders.push({
+			name: link.name,
+			path: link.path,
+			title: null,
+			state: 'outside',
+			folder: null,
+			members: null,
+			role: null,
+			unlisted: null,
+			question: null,
+		});
 	folders.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 	return Ok({
 		folders,
 		pending: server?.pending ?? [],
 		elsewhere: (server?.folders ?? []).filter(({ id }) => !here.has(id)),
 		unreadable: identified.unreadable,
-		fileSync: fileSyncOf(identified.realPath),
+		fileSync: fileSyncOf(root.path),
+		git: gitRootOf(root.path, identified.rootGit),
 	});
 }
 

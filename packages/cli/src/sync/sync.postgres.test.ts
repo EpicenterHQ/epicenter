@@ -192,6 +192,8 @@ async function machine(label: string, of?: { person: Person }) {
 		EPICENTER_API_URL: origin,
 		EPICENTER_DATA_DIR: join(home, 'data'),
 		EPICENTER_TEST_SECRETS: JSON.stringify({ $auth: { [entry]: stored } }),
+		// An output its schema does not describe fails the command.
+		EPICENTER_STRICT_OUTPUT: '1',
 	};
 	const epicenterFolder = join(home, 'Epicenter');
 	return {
@@ -272,6 +274,7 @@ test('a first sync makes the repository; clone brings it whole to another comput
 	expect(
 		JSON.parse((await other.epicenter('diff', laptop, '--json')).stdout),
 	).toEqual({
+		since: null,
 		diff: [
 			{ path: 'notes/a.md', change: 'changed' },
 			{ path: 'notes/b.md', change: 'added' },
@@ -300,6 +303,7 @@ test('a first sync makes the repository; clone brings it whole to another comput
 			(await me.epicenter('diff', desk, '--since', oldest, '--json')).stdout,
 		),
 	).toEqual({
+		since: oldest,
 		diff: [
 			{ path: 'notes/a.md', change: 'changed' },
 			{ path: 'notes/b.md', change: 'added' },

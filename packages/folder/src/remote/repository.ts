@@ -861,6 +861,28 @@ export function folderRepository(
 				return refused(answered.data.status, answered.data.body);
 			return Ok(null);
 		},
+		/**
+		 * Delete the folder, its log, and its bytes, only while it still
+		 * imports (ADR-0827): `'abandoned'`; `'in use'` for a folder whose
+		 * import finished, which is never deleted this way; or `'gone'` when
+		 * the person holds no such folder, abandoned already.
+		 */
+		async importAbandon(): Promise<
+			Result<'abandoned' | 'in use' | 'gone', Unavailable>
+		> {
+			const answered = await ask(
+				account,
+				`${base}/import`,
+				json({ abandon: true }),
+			);
+			if (answered.error !== null) return answered;
+			const { status, body } = answered.data;
+			if (status === 200) return Ok('abandoned' as const);
+			if (status === 409 && isRecord(body) && body.error === 'not_importing')
+				return Ok('in use' as const);
+			if (status === 403 || status === 404) return Ok('gone' as const);
+			return refused(status, body);
+		},
 	};
 }
 

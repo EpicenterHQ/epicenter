@@ -3,17 +3,17 @@
  * an app names its folder, with a contract that fits the app, counts as made
  * by that app, and syncs as if the person had chosen to. The platform knows
  * an app only as data (ADR-0819): its client id, the name its desktop app
- * gives its folder (`relativeFolderPath` of its site), the contract its site
- * publishes, and, where known, its view.
+ * gives its folder (`relativeFolderPath` of its site), and, where known, its
+ * view.
  *
- * A folder's contract fits an app when its `epicenter.json` holds each of
+ * The directory's name is the evidence: a folder named as an app names its
+ * folder is that app's. Where the app's view is known and the folder holds
+ * an `epicenter.json`, the contract must also fit the view: it holds each of
  * the view's collections at the same path, each field with the type the
- * view reads (ADR-0812), or, for a folder with no `epicenter.json` (one an
- * app's desktop build made), when its `AGENTS.md` names the contract the
- * app's site publishes.
+ * view reads (ADR-0812). A folder an app's desktop build made holds no
+ * `epicenter.json` yet, so its name alone counts.
  */
 import { CONTRACT_PATH } from '@epicenter/definition/contract';
-import { agentsContract } from '@epicenter/definition/note';
 import {
 	APPS,
 	appDataIdentifier,
@@ -34,8 +34,6 @@ export type KnownApp = {
 	client: string;
 	/** The name its desktop build gives its folder in the Epicenter folder. */
 	name: string;
-	/** The contract its site publishes, which its folders' `AGENTS.md` names. */
-	contract: string;
 	/** The collections and fields it reads, when known. */
 	view?: { collections: Collections };
 };
@@ -56,7 +54,6 @@ export function firstPartyApps(): KnownApp[] {
 		apps.push({
 			client: appDataIdentifier(host, 'production'),
 			name,
-			contract: `${app.url}/contract.json`,
 		});
 	}
 	return apps;
@@ -94,7 +91,8 @@ const decoder = new TextDecoder();
 
 /**
  * The app that made the folder `name` whose files are in `store`, or null:
- * the app whose folder has that name, when the folder's contract fits it.
+ * the app whose folder has that name, unless the folder's `epicenter.json`
+ * does not fit the app's view.
  */
 export async function madeBy(
 	name: string,
@@ -103,26 +101,16 @@ export async function madeBy(
 ): Promise<KnownApp | null> {
 	const app = apps.find((one) => one.name.toLowerCase() === name.toLowerCase());
 	if (app === undefined) return null;
-	const read = await store.read([CONTRACT_PATH, 'AGENTS.md']);
+	if (app.view === undefined) return app;
+	const read = await store.read([CONTRACT_PATH]);
 	if (read.error !== null) return null;
-	const text = (path: string) => {
-		const file = read.data.find((one) => one.path === path);
-		return file === undefined || 'gone' in file
-			? null
-			: decoder.decode(file.bytes);
-	};
-	const contract = text(CONTRACT_PATH);
-	if (contract !== null && app.view !== undefined) {
-		try {
-			return fitsView(app.view, JSON.parse(contract)) ? app : null;
-		} catch {
-			return null;
-		}
+	const [file] = read.data;
+	if (file === undefined || 'gone' in file) return app;
+	try {
+		return fitsView(app.view, JSON.parse(decoder.decode(file.bytes)))
+			? app
+			: null;
+	} catch {
+		return null;
 	}
-	const agents = text('AGENTS.md');
-	if (agents === null) return null;
-	const found = agentsContract(agents);
-	return found.kind === 'frontmatter' && found.contract === app.contract
-		? app
-		: null;
 }

@@ -15,7 +15,7 @@
  * Messages has no settings, so it has no settings note.
  *
  * Published, unchanged, as `static/contract.json` (`bun run contract`), so
- * `epicenter check <url>/contract.json <dir>` checks a folder of them.
+ * `epicenter check <dir> --contract <url>/contract.json` checks a folder of them.
  */
 import { defineContract } from '@epicenter/definition/contract';
 

@@ -1,19 +1,23 @@
 # @epicenter/cli
 
-`check` and `format` take a contract, as a URL or a file path, and read or
-rewrite a folder against it; `check` without one reads the `contract:` key of
-the folder's `AGENTS.md`. Neither reads the folder's own `epicenter.json` yet:
-ADR-0805 made that file the contract, and the commands have not caught up.
-See [shared vocabulary](../../docs/CONTEXT.md).
+`check` and `format` read or rewrite a folder against its contract, its own
+`epicenter.json` (ADR-0805), or an app's named by `--contract` as a URL or a
+file path. See [shared vocabulary](../../docs/CONTEXT.md).
 
-The `epicenter` command. Each command is a thin wrapper over a function in a
-shared package; the CLI parses, prints, and picks the exit code, and holds no
-logic a page or the browser also needs (ADR-0556). The
-implemented command surface retains ADR-0558's `auth` group; its `app` group
-is deleted. ADR-0611 describes the planned reduction.
+The `epicenter` command. Each platform operation is a function in a shared
+package and one description in `src/operations.ts` (ADR-0827): its name, its
+positionals and options, its summary, and a JSON Schema (TypeBox) for its
+input and its output. The CLI renders each description as a command
+(`src/cli.ts`, `src/operation.ts`), and `epicenter mcp` renders the same
+descriptions as MCP tools (`src/mcp.ts`); neither is written by hand. An
+operation's code (`run`) turns its input into its output and prints
+nothing; `print` is how a person reads it, and `--json` prints the output
+as it is, the same value an agent gets as structured content. The CLI's
+own commands, `mcp`, `auth` (ADR-0558), and `messages`, are not platform
+operations, so not tools.
 
 ```sh
-bun run epicenter check path/to/contract.json path/to/folder   # from the repository root
+bun run epicenter check path/to/folder   # from the repository root
 ```
 
 The command line is the platform without windows (ADR-0817): every
@@ -43,8 +47,8 @@ built yet.
 
 | Command | Status | Wraps |
 | --- | --- | --- |
-| `epicenter check [<dir> \| <contract> [<dir>]]` | built | Reads `contract` from `<dir>/AGENTS.md` unless a contract is supplied; runs `checkFiles` in `@epicenter/folder/node` |
-| `epicenter format <contract> [<dir>]` | built | `formatNotes` in `@epicenter/folder/node` |
+| `epicenter check [<dir>] [--contract <url or path>]` | built | `checkFiles` in `@epicenter/folder/node`, against `<dir>/epicenter.json` unless `--contract` names one |
+| `epicenter format [<dir>] [--contract <url or path>]` | built | `formatNotes` in `@epicenter/folder/node`, the same way |
 | `epicenter status` | built | `listHome` in `@epicenter/folder/platform`, through `src/folder-commands.ts` |
 | `epicenter init [<path>] [--title <title>] [--dry-run]` | built | `initFolder`, through `src/folder-commands.ts` |
 | `epicenter sync [<folder>] [--join <id> \| --create] [--push-deletions \| --restore-deletions] [--all]` | built | `syncFolder` and `syncEvery`, through `src/sync/commands.ts` |
@@ -57,11 +61,12 @@ built yet.
 | `epicenter diff [<dir>] [--since <moment>]` | built | `src/sync/history.ts` |
 | `epicenter restore <moment> [<dir>] [--path <path>]` | built | `src/sync/history.ts` |
 | `epicenter export [<dir>] --git <repository>` | built | `src/git/export.ts` |
-| `epicenter import --git <path or URL> [--branch <name>] [--name <name>] [--replace-original]` | built | `src/git/import.ts` |
+| `epicenter import --git <path or URL> [--branch <name>] [--name <name>] [--replace-original] [--resume]`, `epicenter import --abandon <folder>` | built | `src/git/import.ts` |
 | `epicenter share <folder> [<email>] [--role member\|reader]` | built | `shareFolder` and `getFolder`, through `src/folder-commands.ts` |
 | `epicenter unshare <folder> <email>` | built | `unshareFolder` |
 | `epicenter accept [<folder>]` | built | `listFolders` and `acceptIntoHome` |
 | `epicenter attach <folder> <app>`, `detach` | built | `attachFolder` |
+| `epicenter mcp [<dir> ...] [--all]` | built | `src/mcp.ts`: every operation, and each folder's collections, as MCP tools |
 | `epicenter auth login` | built | `src/auth.ts` |
 | `epicenter auth logout` | built | `src/auth.ts` |
 | `epicenter auth status` | built | `src/auth.ts` |
@@ -71,32 +76,59 @@ built yet.
 `messages` is left out of `--help`: another program runs it, not a person.
 
 The decided commands that are not built: `query`, `set`, `edit`, and `delete`
-over a folder's collections, `normalize`, and `mcp` and `mcp --all`, which
-serves each contract as typed MCP tools
+over a folder's collections on the command line, and `normalize`
 ([ADR-0790](../../docs/adr/0790-the-epicenter-app-is-a-library-over-every-folder-and-the-cli-answers-its-queries.md),
-[ADR-0797](../../docs/adr/0797-front-matter-is-a-strict-grammar-and-anything-else-is-body.md),
-[ADR-0799](../../docs/adr/0799-a-folders-contract-is-also-an-mcp-server.md)),
+[ADR-0797](../../docs/adr/0797-front-matter-is-a-strict-grammar-and-anything-else-is-body.md)),
 with `epicenter init --yes` for agents
 ([ADR-0811](../../docs/adr/0811-folders-are-shared-directly-and-an-app-reaches-the-folders-attached-to-it.md)).
+An agent has the collections as tools through `epicenter mcp`.
 `format` goes with the whole-note formatter (ADR-0796). The Epicenter app
 composes the same package functions and never runs a command
 ([ADR-0817](../../docs/adr/0817-the-cli-exposes-every-platform-operation-and-an-app-inherits-everything-about-folders.md)),
 though the desktop shell still runs this binary for sign-in and Messages for
 Beeper, which ADR-0817's "no program calls the CLI" does not yet describe.
 
+## Agents
+
+`epicenter mcp [<dir> ...] [--all]` serves Epicenter to an agent over the
+Model Context Protocol on stdin and stdout, with the official TypeScript
+SDK (`@modelcontextprotocol/sdk`). An agent's MCP configuration runs
+`epicenter mcp --all` (ADR-0800, ADR-0816). Its tools:
+
+- every operation in `src/operations.ts`, named as its command, with the
+  same input and output schemas, run by the same code;
+- for each folder it reaches (those named, or every folder in the
+  Epicenter folder with `--all`), the collections its `epicenter.json`
+  declares: `<folder>_<collection>_query` (`{ where?, limit? }`: the items
+  whose fields equal `where`, without bodies), and for a note collection
+  `_get` (one note, fields and body), `_set` (`fields`, `remove?`: fields
+  set, the rest kept), and `_write` (`body`, `fields?`). Each writes
+  through the folder (`openFolder`), as an app does, and a field that does
+  not fit the contract is refused before anything is written (ADR-0799).
+  The tools are read again from each `epicenter.json` at every listing.
+
+It keeps the folders it writes in sync (ADR-0819, ADR-0822):
+`keepEverySynced` limited to them, after a burst of its writes, every few
+seconds while it runs, and once more as it ends. A folder not synced here
+stays local, as it does for any program. Signed out, it writes and says on
+stderr that it does not sync. Stdout is the protocol's alone.
+
 ## Folders
+
 
 A folder (ADR-0811) is synced and shared: the server mints its id at its
 first sync, its members are people, equal and none its owner, and its title
-is the `title` of its `epicenter.json`. Every directory directly inside the
-Epicenter folder (`~/Epicenter`, or `~/Epicenter Dev` in development) is a
-folder; one elsewhere joins by a symbolic link there.
+is the `title` of its `epicenter.json`. Every real directory directly inside
+the Epicenter folder (`~/Epicenter`, or `~/Epicenter Dev` in development) is
+a folder; a link there is a folder outside it, never synced (ADR-0825).
 
 - `status` lists every folder there with its title and state (on this
   computer only, with the folders it could be; synced; shared, with who
-  holds it; or kept by Git, which Epicenter never syncs), then the shares
-  waiting for you and the folders you hold that are not on this computer,
-  and a refusal when the Epicenter folder is inside a file-sync service.
+  holds it; kept by Git, or a link outside the Epicenter folder, neither of
+  which Epicenter syncs), then the shares waiting for you and the folders
+  you hold that are not on this computer, a refusal when the Epicenter
+  folder is inside a file-sync service, and a note when it is itself a Git
+  repository.
   Signed out or offline, it lists what this computer holds.
 - `init [<path>]` writes the folder's `epicenter.json`: its title (the
   directory's name, or `--title`), and the collections its files suggest,
@@ -153,16 +185,18 @@ computer.
   brings them back. `--all` syncs every folder in the Epicenter folder that
   moved on either side, from one request for where every folder is
   (ADR-0819), and a folder an app made as if you had named it. A folder Git
-  keeps is never synced, and an Epicenter folder inside a file-sync service
-  is refused. A sync copies what changed on one side to the other, and merges a
+  keeps (`.git` at its root) and a link are never synced, and an Epicenter
+  folder inside a file-sync service is refused.
+ A sync copies what changed on one side to the other, and merges a
   note both sides changed: front matter by key, this computer's change
   winning a key both changed, and the body by line with one conflict block
   per clash. An edit beats a delete, and a file both sides replaced keeps
   this computer's, the other staying in the folder's history. A path
   the server refuses (one differing only in case from a path it holds)
-  stays here and is named. `--json` prints one `{"sync": {...}}` or
-  `{"question": {...}}` line. Exit codes: 0 synced, 1 run again, a file
-  refused, a question, or deletions waiting, 2 could not sync.
+  stays here and is named. `--json` prints `{"sync": {...}}` or
+  `{"question": {...}}`, and with `--all` `{"every": [...], "warnings"}`.
+  Exit codes: 0 synced, 1 run again, a file refused, a question, or
+  deletions waiting, 2 could not sync.
 - `clone` lists the folders you hold, by id, title, and who holds them;
   `clone <folder> [<name>]` brings one (by id, or by a title one folder
   has) into a new directory in the Epicenter folder, named `<name>` or for
@@ -186,13 +220,21 @@ change's number, a mark's name, or a time.
   removing files made since; it names versions the server keeps, so no bytes
   travel, and the next sync brings it here.
 - `export [<dir>] --git <repository>` writes the folder's history into a Git
-  repository (`src/git/export.ts`, projection v1): a commit per change, notes
-  as files and every other file as a Git LFS pointer with its object in
-  `.git/lfs/objects`, marks as tags. It is deterministic and incremental.
+  repository (`src/git/export.ts`, projection v2): a commit per change, notes
+  and `epicenter.json` as plain files and every other file as a Git LFS
+  pointer with its object in `.git/lfs/objects`, marks as tags. It is
+  deterministic and incremental, and never continues an export in another
+  projection.
 - `import --git <path or URL>` makes a folder of a Git repository's
   first-parent history, never writing the source (`src/git/import.ts`); with
   `--replace-original`, a clean local repository moves aside, its `.git`
-  within it, and a link at its path points to the new folder.
+  within it, and a link at its path points to the new folder. An import that
+  stops midway lands the changes it finished and is remembered at
+  `~/Epicenter/.epicenter/imports/<folder-id>.json` until it is done;
+  `--resume` continues it from the change after the server's last, and
+  `--abandon <folder>` deletes its folder on the server, which the server
+  does only while the folder still imports, and the directory it was
+  writing here.
 
 `git` is needed on this computer only for `export` and `import`, and Git
 LFS only to import a repository that uses it.
@@ -253,8 +295,11 @@ lock's directory. The app sets neither: it never runs the CLI.
 ## Output and exit codes
 
 Every command takes `--json`, and only `--json` switches the output: one JSON
-value on one line of stdout, or, for `sync`, `clone`, and `auth login`,
-NDJSON progress lines ending in one result line. Without it,
+value on one line of stdout, the operation's output as its schema describes
+it, or, for `auth login`, NDJSON progress lines ending in one result line.
+`--help --json` describes each command, an operation with its input and
+output schemas. Without it,
+
 stdout is the answer and stderr is for people. A command that cannot do its
 work prints `{"error": "..."}` on stdout with `--json`, and the message on
 stderr without it.
