@@ -26,7 +26,7 @@ A Svelte app reads it through `reactive` from
 The package has two halves. The folder opens and writes a folder through a
 store, and the sync half (`@epicenter/folder/sync` and
 `@epicenter/folder/platform`) keeps a computer's plain folder in step with the
-folder's log on the server, with no Git on the computer
+folder's ledger on the server, with no Git on the computer
 ([ADR-0804](../../docs/adr/0804-a-computer-keeps-a-plain-folder-and-every-surface-syncs-with-one-typescript-function.md)),
 and holds every platform operation on folders that the CLI and the Epicenter
 app compose
@@ -45,12 +45,12 @@ is not built; today an app opens a place.
 | --- | --- |
 | `@epicenter/folder` | `openFolder(contract, place)`, and `home({ site, account })`, the app's own place, which the package picks when it runs ([ADR-0781](../../docs/adr/0781-apps-branch-on-what-a-capability-offers-and-one-build-serves-every-surface.md)): in a Tauri window the app's data folder, whose code loads when it opens; in a browser the folder attached to the app the account signs in as (ADR-0811), which needs the account; and a new place in memory under the `test` condition. |
 | `@epicenter/folder/core` | The folder's types (`Folder`, `FolderNotes`, `FolderFiles`, `FolderLifecycle`, `FolderState`, `NoteEdit`, `Unavailable`, `Place`, ...), `OpenFolderError`, and the `FolderNotOpen` and `FolderClosed` errors, the same on every build, for a library that takes a folder or a collection. |
-| `@epicenter/folder/node` | `directory(path)`, a directory as a place, for scripts and tests (Bun or Node); `checkFiles` and `formatNotes` for `epicenter check` and `epicenter format`; and the Epicenter folder on this computer: `epicenterRoot(path)` (every real directory directly inside `~/Epicenter`, each with its identity and whether Git keeps it; each link there as outside it; and the records in its own `.epicenter`), `localFolder(path)` (a folder at a path, refused inside `.git` or `.epicenter`), `folderIdentity(path)` (a directory's inode and birth time), and `sweepSaves(path)` (the stale-save sweep); and Git from Bun (ADR-0826): `gitHost` (this computer's Git, for `importGit`), `exportGit` (a folder's history as a Git repository, by `git fast-import`), and `abandonImport`. |
+| `@epicenter/folder/node` | `directory(path)`, a directory as a place, for scripts and tests (Bun or Node), and `nodeStore(path)`, its store; `checkFiles` and `formatNotes` for `epicenter check` and `epicenter format`; and the Epicenter folder on this computer: `epicenterRoot(path)` (every real directory directly inside `~/Epicenter`, each with its identity and whether Git keeps it; each link there as outside it; and the records in its own `.epicenter`), `localFolder(path)` (a folder at a path, refused inside `.git` or `.epicenter`), `folderIdentity(path)` (a directory's inode and birth time), and `sweepSaves(path)` (the stale-save sweep); and Git from Bun (ADR-0826): `gitHost` (this computer's Git, for `importGit`), `exportGit` (a folder's history as a Git repository, by `git fast-import`), and `abandonImport`. |
 | `@epicenter/folder/memory` | `memory()`, a new place in memory, and `memoryFiles(placeOrFolder)`, the world outside it, for a test. |
 | `@epicenter/folder/served` | `served(url)`, the directory the program serving this page keeps on this computer, reached through that program (Messages; ADR-0784). |
 | `@epicenter/folder/serve` | `serveDirectory(path)`, the program's half: it answers its page's store verbs over a directory, in Bun or Node. |
-| `@epicenter/folder/sync` | `sync({ local, remote, manifest })` (ADR-0803, ADR-0804): a store synced with a folder's log on the server through a manifest, `{ cursor, files }`, the point of the log both sides last agreed at and each file's version (ADR-0824), kept wherever `storeManifest(store, path)` says (on a computer, the folder's record), merging notes with `@epicenter/definition/front-matter`. A sync that would delete 20 or more files on the server, or 5 or more that are half the folder, stops before it writes anything (`outcome: 'deletions'`) until `deletions: 'push'` or `'restore'` answers it. `localStoreOf(folder)` is an open folder as the local store: it lists every visible file and reads from what the folder holds, so an unchanged sync of 10,000 notes reads no file. Two syncs of one folder may run at once: every write, the manifest's included, is over the version read. `makeFolder(account, { app?, importing? })` makes a folder on the server and never joins one; `joinApp(account, app)` joins the one folder attached to an app (ADR-0822). |
-| `@epicenter/folder/platform` | Every platform operation on folders as a function (ADR-0817), which Epicenter's programs (the CLI and the Epicenter app) compose: `identify` (which directory in the Epicenter folder is which folder, from the records at its root; ADR-0822), `questionOf` (the folders an unbound directory could be), `listHome` (each folder with its title, state, members, and question, the shares waiting, and the folders held elsewhere), `initFolder` (an `epicenter.json` proposed from the files), `syncFolder` (a proven folder syncs; an unbound one syncs by the person's answer, as a new folder when nothing matches, or with its one match held alone), `cloneIntoHome`, `acceptIntoHome`, `syncEvery` and `keepEverySynced` (every folder that moved, from one request for where every folder is, and a folder an app made; ADR-0819), the records (`recordsIn`), the import of an older build's in-folder manifest (`importLegacy`), a folder's history (`folderLog`, `fileHistory`, `fileAt`, `folderAt`, `folderDiff`, `restoreFolder`, `markFolder`, `folderMarks`; ADR-0824, ADR-0828), a Git repository's history entering as a folder (`importGit` over a `GitHost`, ADR-0826), and the person's folders on the server: `listFolders`, `getFolder`, `folderHeads`, `shareFolder`, `unshareFolder`, `acceptShare`, and `attachFolder`. |
+| `@epicenter/folder/sync` | `sync({ local, remote, manifest })` (ADR-0803, ADR-0804): a store synced with a folder's ledger on the server through a manifest, `{ cursor, files }`, the point of the ledger both sides last agreed at and each file's version (ADR-0824), kept wherever `storeManifest(store, path)` says (on a computer, the folder's record), merging notes with `@epicenter/definition/front-matter`. A sync that would delete 20 or more files on the server, or 5 or more that are half the folder, stops before it writes anything (`outcome: 'deletions'`) until `deletions: 'push'` or `'restore'` answers it. `localStoreOf(folder)` is an open folder as the local store: it lists every visible file and reads from what the folder holds, so an unchanged sync of 10,000 notes reads no file. Two syncs of one folder may run at once: every write, the manifest's included, is over the version read. `folderRepository(account, folder)` is the folder's ledger as a sync sees it (`Repository`, the code's word) and the store a web app opens; `makeFolder(account, { app?, importing? })` makes a folder on the server and never joins one; `joinApp(account, app)` joins the one folder attached to an app (ADR-0822). |
+| `@epicenter/folder/platform` | Every platform operation on folders as a function (ADR-0817), which Epicenter's programs (the CLI and the Epicenter app) compose: `identify` (which directory in the Epicenter folder is which folder, from the records at its root; ADR-0822), `questionOf` (the folders an unbound directory could be), `listHome` (each folder with its title, state, members, and question, the shares waiting, and the folders held elsewhere), `initFolder` (an `epicenter.json` proposed from the files), `syncFolder` (a proven folder syncs; an unbound one syncs by the person's answer, as a new folder when nothing matches, or with its one match held alone), `cloneIntoHome`, `acceptIntoHome`, `syncEvery` and `keepEverySynced` (every folder that moved, from one request for where every folder is, and a folder an app made; ADR-0819), the records (`recordsIn`, `FolderRecord`), the import of an older build's in-folder manifest (`importLegacy`), the apps a folder can be made by (`firstPartyApps`, `madeBy`, `fitsView`), the file-sync and Git-root checks (`fileSyncOf`), a folder's history (`folderLog`, `fileHistory`, `fileAt`, `folderAt`, `folderDiff`, `restoreFolder`, `markFolder`, `folderMarks`; ADR-0824, ADR-0828), a Git repository's history entering as a folder (`importGit` over a `GitHost`, ADR-0826), and the person's folders on the server: `listFolders`, `getFolder`, `folderHeads`, `shareFolder`, `unshareFolder`, `acceptShare`, and `attachFolder`. |
 | `@epicenter/folder/tauri` | `revealRoot(root)`, which shows a root the shell named in the file manager; `syncedRecord()`, the record Epicenter keeps of the app's data folder (read by the shell, never written), for a desktop app to say whether Epicenter syncs it; and `epicenterRoot()`, the Epicenter folder as the Epicenter app's shell names it. A desktop app never syncs (ADR-0822). What a capability keeps for this computer goes to AppData through `settings` from [`@epicenter/local`](../local/README.md), not through a folder. |
 
 Importing an entry does not open anything. A place is opaque: only this
@@ -187,7 +187,7 @@ directory, the desktop shell and a served directory to the same behavior in
 | Place | Where |
 | --- | --- |
 | `home({ site })` in a Tauri window | the `Data` root the shell named: the directory in the Epicenter folder it remembers by identity, or the path the app's bundle identifier derives ([ADR-0752](../../docs/adr/0752-an-apps-folder-sits-under-the-platforms-visible-root-of-app-folders.md), ADR-0822); it writes nothing it was not asked to, and its hash cache is kept in the app's own data |
-| `home({ site, account })` in a browser | the folder on the server attached to the app the account signs in as (`joinApp`, naming the app its site names; `makeFolder` when the person holds none; the first of several), reached by its id at `<git audience>/folders/<folder>` through `account.fetch`; it is the store (ADR-0823): saves made within a moment of each other land as one change; it opens once the account is signed in, works online only, and stops when the account is retired |
+| `home({ site, account })` in a browser | the folder on the server attached to the app the account signs in as (`joinApp`, naming the app its site names; `makeFolder` when the person holds none; the first of several), reached by its id at `<api origin>/folders/<folder>` (the folders audience) through `account.fetch`; it is the store (ADR-0823): saves made within a moment of each other land as one change; it opens once the account is signed in, works online only, and stops when the account is retired |
 | `directory(path)` | a directory, made when missing (`Unreadable` when it cannot be) |
 | `served(url)` | the directory the program serving the page owns, through that program's `serveDirectory`; `StorageUnavailable` when nothing at `url` answers for one, and `Unavailable`, still opening, while the program is out of reach |
 | `memory()`, and `home()` under `test` | memory, for the life of the process |
@@ -200,12 +200,12 @@ something waiting will not fix: `Refused` (a place a folder can never be),
 that is not connected: the person connects it, then retries) and
 `StorageUnavailable` (nothing at a served directory's URL answers, or not
 a Tauri window, a shell that named no root or did not answer).
-The account's repository waits for sign-in; a listing or write that cannot
+The folder on the server waits for sign-in; a listing or write that cannot
 reach it is `unavailable()`.
 
 The places are separate stores, and nothing moves between them
 ([ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)):
-an app's web build keeps the account's repository and nothing in the
+an app's web build keeps the folder on the server and nothing in the
 browser ([ADR-0786](../../docs/adr/0786-every-web-app-is-online-and-browser-storage-leaves-the-platform.md)),
 and its desktop window the data folder, which sync moves.
 
@@ -216,7 +216,7 @@ watches each root a page opened. See the folder plugin's README, and
 `src/device/`.
 
 The server never merges: `folderRepository(account, folder)` in
-`src/remote/repository.ts` appends each put where the path still holds the
+`src/remote/repository.ts` appends each put (a change) where the path still holds the
 version its writer expects (null for nothing), and the server refuses the
 change when it does not, naming every path that moved
 ([`@epicenter/server`](../server/README.md)), which is `Moved` here. The
@@ -227,8 +227,10 @@ small files' bytes; `blobs` by version; bytes over 16 KiB at
 `blobs/<sha256>`, uploaded first when `blobs/missing` says the server lacks
 them; and `POST changes`. It also reads history (`log`, `filesAt`, `marks`,
 `mark`, `appendVersions` for a restore, and an import's changes). A watch
-asks for `changes` every three seconds. The same object is the `Repository`
-sync takes. A manifest names its repository only by `{ folder }`
+asks for `changes` every three seconds (`POLL_MS`), where ADR-0830 decides
+thirty; saves made within 50 ms of each other (300 ms at most) land as one
+change, where it decides saves when typing pauses. The same object is the
+`Repository` sync takes. A manifest names its folder only by `{ folder }`
 (`RepositoryAddress`), and `folderUrl` in `@epicenter/definition/site` is
 the one place that becomes an address.
 
@@ -237,12 +239,12 @@ outside writes as they come: other tabs through the
 `epicenter-device` broadcast channel, the shell's watcher in Tauri, a
 recursive watch in Bun (which writes a probe under a staged save's reserved
 name until it hears one, so a change made while it started is not lost), and the
-repository's poll.
+folder on the server's poll.
 
 `evidence/first-paint/node.ts` measures the time from open to the first
 read of a collection over a directory with about 5,000 notes; the opt-in
 `EPICENTER_MEASURE=1` test in `src/remote/remote.postgres.test.ts` measures
-it over the repository on a slow link.
+it over the folder on the server on a slow link.
 
 ### Tests and scripts
 
@@ -287,7 +289,7 @@ credentials file and reads them when it sends a request
 
 ## Native directories
 
-Bun and Tauri open ordinary directories, with no required Git repository,
+Bun and Tauri open ordinary directories, with no required Git working tree,
 and write them as
 [ADR-0702](../../docs/adr/0702-a-data-folders-unfinished-writes-wait-in-epicenter-outside-its-data.md)
 decides, as amended by ADR-0822: a folder holds only its content. A save
@@ -296,7 +298,7 @@ with mode 0600, and renames them over the path right after checking the
 version its writer read.
 Within one process, writes to one path take turns, and a create lands only
 where nothing is; across processes, a replacement's check-to-rename gap is
-accepted, and the repository's history on the server is the backstop once the
+accepted, and the folder's ledger on the server is the backstop once the
 folder syncs. A new file is placed by a hard
 link, which never replaces a file that appeared after the check, so of
 writers creating one path in any process exactly one lands. Nothing is
@@ -329,8 +331,11 @@ proven across the whole Epicenter folder (`src/platform/identify.ts`): the
 inode and a real birth time; else, for a record no directory proves, its
 name and exactly its files in a folder the server says the person holds
 alone; else unbound, starting from first contact when the person or an app
-syncs it. History is not the folder's: its history is the log on the
-server, which sync appends to (ADR-0804, ADR-0824). No Git runs on a computer.
+syncs it. History is not the folder's: its history is the ledger on the
+server, which sync appends to (ADR-0804, ADR-0824). No Git runs on a computer,
+and a folder that is a Git working tree is Git's, never synced (ADR-0822,
+ADR-0825). ADR-0832 decides that only the inode and birth time prove a
+directory; the name-and-files proof above is still in the code.
 
 ## Layout
 
@@ -348,7 +353,7 @@ server, which sync appends to (ADR-0804, ADR-0824). No Git runs on a computer.
 | `src/git/` | History entering and leaving as Git (ADR-0826): `importGit` over a `GitHost` (`host.ts`; exported from `/platform`, so the Epicenter app runs it on its shell's Git), and, from Bun only, `gitHost`, `exportGit` (`git fast-import`), and `abandonImport` (exported from `/node`). |
 | `src/served/`, `served.ts`, `serve.ts` | A directory a program serves its page: the page's store, the program's handler, and the wire between them (four `POST`s of JSON; a watch is a stream of JSON lines, and a dropped one is heard as `'all'`). |
 | `src/native/`, `paths.ts`, `state.ts`, `path-turns.ts` | Watches, the shell's bindings, the path rule, where unfinished writes live, and per-path turns. |
-| `src/sync/` | `sync`, its repository contract and memory twin, the manifest, the deletion guard, and the scenarios every world runs. |
+| `src/sync/` | `sync`, its `Repository` contract (a folder's ledger as a sync sees it) and memory twin, the manifest, the deletion guard, and the scenarios every world runs. |
 | `evidence/` | Recorded experiments and measurements, and the closure check. |
 
 ## Commands

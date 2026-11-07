@@ -40,8 +40,8 @@ The CLI is its own program, with its own sign-in (ADR-0793). The Epicenter
 app neither runs nor carries it: its
 [Folders window](../../apps/epicenter/README.md#the-folders-window) composes
 `@epicenter/folder/platform` itself. `bun run --cwd packages/cli compile`
-builds the binary (`scripts/compile.ts`); an installer of its own is not
-built yet.
+builds the binary (`packages/cli/scripts/compile.ts`); an installer of its own
+is not built yet.
 
 ## Commands
 
@@ -75,7 +75,10 @@ built yet.
 
 `messages` is left out of `--help`: another program runs it, not a person.
 
-The decided commands that are not built: `query`, `set`, `edit`, and `delete`
+The decided commands that are not built: `epicenter git land`, which turns a
+Git branch into one change
+([ADR-0831](../../docs/adr/0831-a-git-branch-lands-in-a-folder-as-one-change-through-the-cli.md));
+`query`, `set`, `edit`, and `delete`
 over a folder's collections on the command line, and `normalize`
 ([ADR-0790](../../docs/adr/0790-the-epicenter-app-is-a-library-over-every-folder-and-the-cli-answers-its-queries.md),
 [ADR-0797](../../docs/adr/0797-front-matter-is-a-strict-grammar-and-anything-else-is-body.md)),
@@ -109,7 +112,7 @@ SDK (`@modelcontextprotocol/sdk`). An agent's MCP configuration runs
 
 It keeps the folders it writes in sync (ADR-0819, ADR-0822):
 `keepEverySynced` limited to them, after a burst of its writes, every few
-seconds while it runs, and once more as it ends. A folder not synced here
+seconds while it runs (3, where ADR-0830 decides 30), and once more as it ends. A folder not synced here
 stays local, as it does for any program. Signed out, it writes and says on
 stderr that it does not sync. Stdout is the protocol's alone.
 
@@ -203,7 +206,7 @@ computer.
   has) into a new directory in the Epicenter folder, named `<name>` or for
   its title, and syncs it.
 
-History is the folder's log on the server (ADR-0824). A moment is a
+History is the folder's ledger on the server (ADR-0824). A moment is a
 change's number, a mark's name, or a time.
 
 - `log [<dir>]` lists the folder's changes, newest first, with their marks,
@@ -219,7 +222,9 @@ change's number, a mark's name, or a time.
 - `restore <moment> [<dir>]` makes one change on the server giving the
   folder's files (or the one at `--path`) back the versions they held then,
   removing files made since; it names versions the server keeps, so no bytes
-  travel, and the next sync brings it here.
+  travel, and the next sync brings it here, deleting on this computer the files
+  it removed (ADR-0829 decides that a restore never deletes on a device; that is
+  not built).
 - `export [<dir>] --git <repository>` writes the folder's history into a Git
   repository (`exportGit`, projection v2): a commit per change, notes
   and `epicenter.json` as plain files and every other file as a Git LFS
@@ -322,10 +327,15 @@ command holds a timer, since Bun 1.3.14 can otherwise end the process while
 | --- | --- |
 | `src/bin.ts` | The command run from source. |
 | `src/cli.ts` | `runCli`: help, version, and dispatch to the built commands. |
-| `src/commands.ts` | Every command, with its usage. |
+| `src/commands.ts` | Every command: the operations first, then `mcp`, `auth`, and `messages`. |
 | `src/parse.ts` | The hand-written parser. |
 | `src/contract-commands.ts` | `check` and `format` against an app's contract, over `@epicenter/folder/node`. |
-| `src/sync/` | `sync`, `clone`, `log`, `diff`, and `restore`, over `@epicenter/folder/platform` and `@epicenter/folder/sync`, and the sign-in as the account a folder is reached through. |
+| `src/operations.ts`, `src/operation.ts` | The operation table (`OPERATIONS`, `defineOperation`): each platform operation as one description with TypeBox input and output schemas. |
+| `src/mcp.ts` | `epicenter mcp`: every operation, and each folder's collections, as MCP tools. |
+| `src/sync/` | `sync`, `clone`, and the history commands (`history.ts`: `log`, `history`, `show`, `at`, `mark`, `diff`, `restore`), over `@epicenter/folder/platform` and `@epicenter/folder/sync`, and the sign-in as the account a folder is reached through (`account.ts`). |
+| `src/git/commands.ts` | `export --git` and `import --git`, over `exportGit`, `importGit`, and `gitHost`. |
+| `src/messages.ts`, `src/messages-protocol.ts` | The hidden `messages` command. |
+| `src/file-lock.ts` | The exclusive lock the sign-in's refresh holds. |
 | `src/stop.ts` | The one stop-signal handler: wait for an unfinished refresh, then exit. |
 | `src/folder-commands.ts` | `status`, `init`, `share`, `unshare`, `accept`, `attach`, and `detach`, over `@epicenter/folder/platform`. |
 | `src/app-paths.ts` | Where the Epicenter folder and the sign-in's lock are. |

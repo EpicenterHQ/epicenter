@@ -8,8 +8,9 @@ Part of the [Epicenter](https://github.com/EpicenterHQ/epicenter) monorepo. AGPL
 
 Runs on Cloudflare Workers. This Worker is Epicenter's hosted server for
 folders (ADR-0811): it mounts `mountFolders` from `@epicenter/server`,
-where each folder's history is a log in Postgres at
-`api.epicenter.so/folders/<id>`, with its larger bytes in R2 (ADR-0824). See
+where each folder's ledger, the log of its changes, is in Postgres at
+`api.epicenter.so/folders/<id>`, with its larger bytes in R2 (ADR-0824). The
+server orders, remembers, and admits; nothing is edited on it (ADR-0835). See
 [Folders](#folders).
 
 The Yjs store sync this Worker used to serve is removed (ADR-0534), and so is
@@ -66,9 +67,11 @@ either `folders:all` or the folder's attachment to the app, and
 folder's bytes over 16 KiB are in R2, by their SHA-256 (ADR-0824). An app reads who signed in from Better Auth's
 `/auth/oauth2/userinfo`, which needs `openid`, and answers the email only
 with `email`. Browser
-apps get a token by authorization code with PKCE as their own client; the
-desktop app reaches the API through the `epicenter` CLI, which holds the
-desktop grant. See [Authorization server](#authorization-server).
+apps get a token by authorization code with PKCE as their own client. The
+Epicenter app signs in as `so.epicenter` through its shell, and the CLI as
+`so.epicenter.cli` by device grant; both carry `folders:all`. A standalone
+desktop app that signs in holds only `ai` (ADR-0822). See
+[Authorization server](#authorization-server).
 
 ## Trust model
 
@@ -264,7 +267,7 @@ local connection string. `bun run test` runs each test file isolated
 
 `mountFolders` serves every folder ([ADR-0811](../../docs/adr/0811-folders-are-shared-directly-and-an-app-reaches-the-folders-attached-to-it.md),
 [ADR-0824](../../docs/adr/0824-a-folders-history-is-a-log-of-versions-and-git-is-how-it-leaves.md)):
-its log at `<folders>/<id>` (`<api origin>/folders/<id>`), and `/api/folders` for listing,
+its ledger at `<folders>/<id>` (`<api origin>/folders/<id>`), and `/api/folders` for listing,
 sharing, accepting, and attaching it to an app. A folder exists from the
 request that makes it. The route authorizes each request from the access
 token, the person's role in the folder, and the token's reach;
@@ -310,7 +313,9 @@ git clone <old origin>/git/folders/<id>.git notes && (cd notes && git lfs pull)
 epicenter import --git notes --replace-original
 ```
 
-Its history then leaves as Git with `epicenter export --git <dir>`.
+Its history then leaves as Git with `epicenter export --git <dir>`. Every
+folder as a Git remote, where a clone reads history and a push lands as a
+change, is decided and not built (ADR-0834).
 
 ### Database commands
 
