@@ -105,7 +105,7 @@ type FolderRow = {
  *   the token lacks `folders:all`.
  *
  * A token naming several audiences is refused at each. Every scope rides on
- * every token (`oauthResourceInputs`), so the audience alone keeps a Git
+ * every token (`oauthResourceInputs`), so the audience alone keeps a folders
  * token out of inference, and the library issues a token for every bound
  * audience when a token request omits `resource`. Refusing those makes one
  * audience per token a server invariant rather than each client's discipline.

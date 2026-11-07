@@ -224,7 +224,7 @@ export async function runAppStack({
 		// 3. People: a browser session and a signed-in desktop each.
 		const client = new OAuthTestClient(origin, sql, secret);
 		const deployment = resolveDeployment(origin);
-		const { git } = resolveOAuthAudiences(origin);
+		const { folders } = resolveOAuthAudiences(origin);
 		const people: Record<string, Person> = {};
 		const guests: Record<string, Guest> = {};
 		for (const project of projects) {
@@ -254,10 +254,10 @@ export async function runAppStack({
 			});
 			if (login.error !== null)
 				throw new Error(`device sign-in: ${login.error.message}`);
-			// Cache the Git token too, so no CLI process refreshes.
-			const token = await accessToken(ctx, git);
+			// Cache the folders token too, so no CLI process refreshes.
+			const token = await accessToken(ctx, folders);
 			if (token.error !== null)
-				throw new Error(`git token: ${token.error.message}`);
+				throw new Error(`folders token: ${token.error.message}`);
 			const entry = `device ${deployment.origin}`;
 			const stored = JSON.parse((await secrets.get(entry)) as string);
 			const env = {

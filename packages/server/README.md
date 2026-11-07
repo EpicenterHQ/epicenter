@@ -14,9 +14,9 @@ token audiences (`resolveAudiences`, from the resolved origin). The deployment
 names its audiences once there (ADR-0326), and every request carries them as
 `c.var.audiences`: the guards, the folders mount, the protected resource
 metadata, and the authorization server all read that one value. `apps/api`
-passes `resolveOAuthAudiences`, which puts the hosted cloud's folders
-audience (still named `git`, `https://git.epicenter.so`) on its own host and
-any other deployment's under its origin.
+passes `resolveOAuthAudiences`, which puts both on the deployment's own
+origin: `api` at it and `folders` at `<origin>/folders`, the hosted cloud
+included (ADR-0828).
 
 Epicenter hosts no MCP server
 ([ADR-0578](../../docs/adr/0578-epicenter-hosts-no-mcp-server.md)):
@@ -57,15 +57,14 @@ server mints when it makes the folder, members who are people, and a
 history that is a log of versions (ADR-0824). Its title is the `title` of
 its `epicenter.json`, which the server reads from the folder's files for
 listings (`folderTitles`); the server keeps no name. The folders audience is
-`https://git.epicenter.so` for the hosted cloud and `<origin>/git`
-elsewhere (`resolveOAuthAudiences`); it keeps the name `git` because every
-token names it, though no Git client reaches it.
+`<origin>/folders` on every deployment (`resolveOAuthAudiences`), and it is
+also where the folders' routes are: `<folders>` below.
 
 | Request | Needs |
 | --- | --- |
-| `POST <git>/folders { create, app?, import? }` or `{ join }` | `folders:write`: `create` makes a folder and never joins (`import` lets it take an import's changes until the import is done, ADR-0826); `join` joins the one folder attached to the app named (`409 choose` with `folders` when several, `404 none` when none). Answers `{ folder, made }` |
-| `GET <git>/folders` | `folders:read`: `{ heads }`, the cursor of every folder the token reaches, one statement a program polls instead of one request per folder (ADR-0819) |
-| `GET <git>/folders/<id>/changes?since=`, `POST …/files`, `GET …/log`, `GET …/marks`, `POST …/blobs`, `POST …/blobs/missing`, `GET …/blobs/<sha256>` | `folders:read`, the `read` role (`src/routes/folder.ts`) |
+| `POST <folders> { create, app?, import? }` or `{ join }` | `folders:write`: `create` makes a folder and never joins (`import` lets it take an import's changes until the import is done, ADR-0826); `join` joins the one folder attached to the app named (`409 choose` with `folders` when several, `404 none` when none). Answers `{ folder, made }` |
+| `GET <folders>` | `folders:read`: `{ heads }`, the cursor of every folder the token reaches, one statement a program polls instead of one request per folder (ADR-0819) |
+| `GET <folders>/<id>/changes?since=`, `POST …/files`, `GET …/log`, `GET …/marks`, `POST …/blobs`, `POST …/blobs/missing`, `GET …/blobs/<sha256>` | `folders:read`, the `read` role (`src/routes/folder.ts`) |
 | `PUT …/blobs/<sha256>`, `POST …/commits`, `PUT …/marks/<name>`, `POST …/import` | `folders:write`, the `push` role |
 | `GET /api/folders` | `folders:read` on the folders audience: `{ folders, pending }`, the folders the token reaches with their title, the caller's role, members, invitations by email (to members, not readers), and apps, and the invitations waiting for the caller |
 | `GET /api/folders/<id>` | `folders:read`, the `read` role: one folder |
@@ -184,7 +183,7 @@ so there is no `bearer()`.
 | Offline grants | `src/auth/offline-detach.ts` | Clears `sessionId` on a native client's grant with a refresh token, so it outlives the browser session that approved it. A web client's grant stays bound, so signing out ends it. |
 | Registrations | `src/auth/oauth-registrations.ts` | `registerFirstPartyClients`, the one writer of the `oauth_client`, `oauth_resource`, and `oauth_client_resource` rows a deployment's first-party clients need: insert-only for resources, idempotent with no transaction, so concurrent writers converge. The Bun entry calls it at boot and the Worker once per isolate; no migration seeds a client. |
 | Resource check | `src/auth/resource-access.ts` | `authorizeFolderRequest`: one SQL statement from a token, an audience, a scope, and a folder to the account, its role, and the token's reach, or a 401 or 403 with `resource_metadata`. A token is admitted only when its audience is exactly the resource; one naming several is refused at each. `authorizeAccountRequest`: the same without a folder, for resources that act on the account (inference, transcription, the folder listing). |
-| Guards | `src/middleware/require-auth.ts` | `requireAccessToken({ audience, scope })` in front of every resource, where `audience` names one of `c.var.audiences` (`api` or `git`), and `requireSessionCookie()` in front of account management on the authorization server's own pages: this origin only, an `Origin` on every state change, and its own JSON 401 and 503 with no bearer challenge. |
+| Guards | `src/middleware/require-auth.ts` | `requireAccessToken({ audience, scope })` in front of every resource, where `audience` names one of `c.var.audiences` (`api` or `folders`), and `requireSessionCookie()` in front of account management on the authorization server's own pages: this origin only, an `Origin` on every state change, and its own JSON 401 and 503 with no bearer challenge. |
 | Account session | `src/auth/session-policy.ts` | `requireAccountSession`, the Better Auth hook that holds its account-management endpoints (`/link-social`, `/unlink-account`, `/delete-user`, and the passkey changes) to the same rules plus ten-minute freshness. `/delete-user` then refuses with `ACCOUNT_DELETION_UNAVAILABLE` (`src/auth/base-config.ts`). |
 
 The provider runs unpatched ([ADR-0565](../../docs/adr/0565-a-refresh-token-keeps-its-grants-scopes-and-only-each-access-token-is-narrowed-to-its-audience.md)).
@@ -192,7 +191,7 @@ Its refresh family is every grant of one client for one person: a replay
 after the 60-second reuse interval ends all of them, with every access token
 they issued. The library stores a refresh's scopes, intersected with the
 named resource's `allowedScopes`, on the new refresh token too, so both
-audiences, `api` and `git`, allow every scope and a refresh never narrows the
+audiences, `api` and `folders`, allow every scope and a refresh never narrows the
 grant; each access token is still bound to its audience. Revoking
 a refresh token ends only its latest rotation's access tokens, so a client
 signing out revokes each access token it holds as well.

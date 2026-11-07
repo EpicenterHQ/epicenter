@@ -92,7 +92,7 @@ beforeAll(async () => {
 				redirectUris: ['http://127.0.0.1/callback'],
 				grantTypes: ['authorization_code', 'refresh_token'],
 				scopes: everyScope,
-				resources: [audiences.api, audiences.git],
+				resources: [audiences.api, audiences.folders],
 				skipConsent: true,
 				applicationType: 'native',
 			},
@@ -105,7 +105,7 @@ beforeAll(async () => {
 					'refresh_token',
 				],
 				scopes: everyScope,
-				resources: [audiences.api, audiences.git],
+				resources: [audiences.api, audiences.folders],
 				skipConsent: false,
 				applicationType: 'native',
 			},
@@ -201,7 +201,7 @@ function appSignIn(person: Person) {
 		redirectUri: 'http://127.0.0.1:5555/callback',
 		cookie: person.cookie,
 		scope: 'openid offline_access folders:read folders:write folders:all',
-		resource: [audiences.api, audiences.git],
+		resource: [audiences.api, audiences.folders],
 	});
 }
 
@@ -233,19 +233,19 @@ test('device login: the code, approval on the server, and a grant that reaches t
 	).toBe(200);
 	expect(
 		await reaches(api.token, {
-			audience: audiences.git,
+			audience: audiences.folders,
 			scope: 'folders:read',
 			person,
 		}),
 	).toBe(401);
 
-	// The same grant mints a Git-audience token with write, which sync sends.
-	const git = await accessToken(ctx, audiences.git);
-	expect(git.error).toBeNull();
-	expect(git.data!.expiresAt).toBeGreaterThan(Date.now() + 7 * 3600 * 1000);
+	// The same grant mints a folders-audience token with write, which sync sends.
+	const folders = await accessToken(ctx, audiences.folders);
+	expect(folders.error).toBeNull();
+	expect(folders.data!.expiresAt).toBeGreaterThan(Date.now() + 7 * 3600 * 1000);
 	expect(
-		await reaches(git.data!.token, {
-			audience: audiences.git,
+		await reaches(folders.data!.token, {
+			audience: audiences.folders,
 			scope: 'folders:write',
 			person,
 		}),
@@ -305,7 +305,7 @@ test('a refresh token another writer replaced is retried once, and a replay afte
 			return JSON.stringify({ ...real, refreshToken: 'ep_rt_unknown' });
 		},
 	};
-	const retried = await accessToken({ ...ctx, secrets: flaky }, audiences.git);
+	const retried = await accessToken({ ...ctx, secrets: flaky }, audiences.folders);
 	expect(retried.error).toBeNull();
 
 	// Inside the 60-second reuse interval, the token just spent gets the
@@ -316,8 +316,8 @@ test('a refresh token another writer replaced is retried once, and a replay afte
 		name,
 		JSON.stringify({ ...current, refreshToken: spent, access: {} }),
 	);
-	const replayed = await accessToken(ctx, audiences.git);
-	expect(replayed.data?.token).toBe(current.access[audiences.git]!.token);
+	const replayed = await accessToken(ctx, audiences.folders);
+	expect(replayed.data?.token).toBe(current.access[audiences.folders]!.token);
 
 	// After the interval, the replay ends every CLI grant of this person, on
 	// every machine; the Epicenter app's is another client's and survives.
@@ -332,7 +332,7 @@ test('a refresh token another writer replaced is retried once, and a replay afte
 		name,
 		JSON.stringify({ ...current, refreshToken: spent, access: {} }),
 	);
-	const ended = await accessToken(ctx, audiences.git);
+	const ended = await accessToken(ctx, audiences.folders);
 	expect(ended.error?.name).toBe('SignInEnded');
 	expect(ended.error?.message).toContain('epicenter auth login');
 	const other = (await readGrant(elsewhere)).data!;
@@ -356,12 +356,12 @@ test("logout revokes the refresh token and every cached access token, and leaves
 	const ctx = machine();
 	await deviceLogin(ctx, person);
 	const epicenter = await appSignIn(person);
-	const git = await accessToken(ctx, audiences.git);
+	const folders = await accessToken(ctx, audiences.folders);
 	// Each audience's token comes from a different rotation, so revoking the
 	// refresh token alone would leave the older one live.
 	const device = (await readGrant(ctx)).data!;
 	expect(Object.keys(device.access).sort()).toEqual(
-		[audiences.api, audiences.git].sort(),
+		[audiences.api, audiences.folders].sort(),
 	);
 
 	const out = await logout(ctx);
@@ -377,8 +377,8 @@ test("logout revokes the refresh token and every cached access token, and leaves
 		}),
 	).toBe(401);
 	expect(
-		await reaches(git.data!.token, {
-			audience: audiences.git,
+		await reaches(folders.data!.token, {
+			audience: audiences.folders,
 			scope: 'folders:read',
 			person,
 		}),
@@ -432,14 +432,14 @@ test('a refresh already sent finishes its keychain write before a stop signal en
 	await writeFile(
 		script,
 		`import { accessToken } from ${JSON.stringify(join(import.meta.dir, 'auth.ts'))};
-const [file, origin, api, git, lockDir] = process.argv.slice(2);
+const [file, origin, api, folders, lockDir] = process.argv.slice(2);
 const read = async () => JSON.parse(await Bun.file(file).text());
 const secrets = {
 	get: async (key) => (await read())[key] ?? null,
 	set: async (key, value) => Bun.write(file, JSON.stringify({ ...(await read()), [key]: value })),
 	delete: async () => false,
 };
-await accessToken({ deployment: { origin, audiences: { api, git } }, secrets, lockDir, fetch, now: Date.now }, api);
+await accessToken({ deployment: { origin, audiences: { api, folders } }, secrets, lockDir, fetch, now: Date.now }, api);
 `,
 	);
 	const child = Bun.spawn(
@@ -449,7 +449,7 @@ await accessToken({ deployment: { origin, audiences: { api, git } }, secrets, lo
 			keychain,
 			server.url.origin,
 			audiences.api,
-			audiences.git,
+			audiences.folders,
 			join(dir, 'locks'),
 		],
 		{ stdout: 'ignore', stderr: 'pipe' },

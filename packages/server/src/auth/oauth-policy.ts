@@ -42,8 +42,8 @@ export const TOKEN_PREFIX = {
 export type OAuthAudiences = {
 	/** Inference and transcription. */
 	api: string;
-	/** A folder's sync routes, Git smart HTTP, and `/api/folders`. */
-	git: string;
+	/** Every folder's log, files, and bytes, at `<origin>/folders`, and `/api/folders`. */
+	folders: string;
 };
 
 /**
@@ -53,7 +53,7 @@ export type OAuthAudiences = {
  */
 export const SCOPES_SUPPORTED = {
 	api: ['ai'],
-	git: ['folders:read', 'folders:write', 'folders:all'],
+	folders: ['folders:read', 'folders:write', 'folders:all'],
 } as const satisfies Record<keyof OAuthAudiences, readonly OAuthScope[]>;
 
 /**
@@ -64,7 +64,7 @@ export const SCOPES_SUPPORTED = {
  * token as well as the access token, so a list narrower than the grant would
  * shrink the grant on its first refresh for that audience. Every audience
  * therefore allows every scope: a refresh never narrows the grant, and the
- * audience alone keeps a Git token out of inference.
+ * audience alone keeps a folders token out of inference.
  */
 export function oauthResourceInputs(
 	audiences: OAuthAudiences,

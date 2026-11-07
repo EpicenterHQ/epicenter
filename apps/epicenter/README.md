@@ -38,7 +38,7 @@ system browser only when it is the hosted account website.
 
 Epicenter signs in as its own OAuth client, `so.epicenter`, with
 `folders:all`, which reaches every folder the person holds (ADR-0820), on the
-API and Git audiences. The shell holds it through
+API and folders audiences. The shell holds it through
 [`epicenter-account`](../../packages/tauri-epicenter-account/README.md), as
 the standalone apps do: the system browser signs in (RFC 8252 loopback with
 PKCE), the refresh token stays in the app's `credentials.json`, which no page
@@ -46,7 +46,7 @@ reads, and the shell sends each request a page makes on the account
 (`account_fetch`), so no token reaches a page. Who is signed in is
 `account.json` in the app's data, which both windows read through
 `@epicenter/local`. The Folders window's account sends every request with the
-Git audience's token (`createTauriAuth({ audience: 'git' })`), as the folder
+folders audience's token (`createTauriAuth({ audience: 'folders' })`), as the folder
 routes expect. Quitting waits for a refresh in flight to store the token it
 rotated.
 

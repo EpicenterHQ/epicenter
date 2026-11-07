@@ -2,7 +2,7 @@
  * Folder Repository Tests
  *
  * A contract's collections over a folder on the real server app
- * (`folderRepository`, at `<git>/folders/<folder>`), and the folder over it:
+ * (`folderRepository`, at `<folders>/<folder>`), and the folder over it:
  * the authorization server on a disposable Postgres, a `Bun.serve`
  * listener, the disk blob store, and an access token from a real
  * code grant. The account is a stand-in for `@epicenter/account`'s: it
@@ -79,7 +79,7 @@ const demo = {
 
 let scratch: string;
 let origin = '';
-let audiences = { api: '', git: '' };
+let audiences = { api: '', folders: '' };
 let stopPostgres: () => Promise<void>;
 let server: ReturnType<typeof Bun.serve>;
 let sql: Client;
@@ -110,7 +110,7 @@ beforeAll(async () => {
 		idleTimeout: 60,
 	});
 	origin = `http://127.0.0.1:${server.port}`;
-	audiences = { api: origin, git: `${origin}/git` };
+	audiences = { api: origin, folders: `${origin}/folders` };
 	pool = new Pool({
 		host: '127.0.0.1',
 		port: cluster.port,
@@ -126,7 +126,7 @@ beforeAll(async () => {
 				redirectUris: [demo.redirectUri],
 				grantTypes: ['authorization_code'],
 				scopes: ['openid', 'profile', 'folders:read', 'folders:write'],
-				resources: [audiences.api, audiences.git],
+				resources: [audiences.api, audiences.folders],
 				skipConsent: true,
 				applicationType: 'web',
 			},
@@ -144,7 +144,7 @@ beforeAll(async () => {
 	});
 	const blobs = createDiskBlobStore({ root: join(scratch, 'blobs') });
 	// As the Bun entry (`apps/api/server.ts`) does.
-	app.use('/git/*', compress());
+	app.use('/folders/*', compress());
 	mountFolders(app, {
 		setup: createCloudContextMiddleware(context),
 		resolveBlobs: () => blobs,
@@ -283,7 +283,7 @@ async function signInPerson(label: string) {
 	const { access_token: token } = await oauth.codeGrant({
 		...demo,
 		cookie: person.cookie,
-		resource: [audiences.git],
+		resource: [audiences.folders],
 		scope: 'openid folders:read folders:write',
 	});
 	const lifetime = new AbortController();
@@ -346,7 +346,7 @@ async function signInPerson(label: string) {
 		/** Commit `files` as another writer to the person's own folder. */
 		async writeRaw(files: unknown[]) {
 			const response = await fetch(
-				`${folderUrl(audiences.git, folder)}/commits`,
+				`${folderUrl(audiences.folders, folder)}/commits`,
 				{
 					method: 'POST',
 					headers: {

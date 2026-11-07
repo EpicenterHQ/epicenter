@@ -210,12 +210,12 @@ describe('the account’s fetch', () => {
 		expect(sent).toEqual([]);
 	});
 
-	test('a folder request names the Git audience and may reach its origin', async () => {
+	test("a folder request names the folders audience, on the deployment's origin", async () => {
 		const { fake, sent } = shell(
 			replying({ kind: 'head', status: 204, headers: [] }, { kind: 'end' }),
 		);
-		const fetch = relayFetch(fake, ORIGIN, live, () => {}, 'git');
-		await fetch('https://git.epicenter.so/folders');
+		const fetch = relayFetch(fake, ORIGIN, live, () => {}, 'folders');
+		await fetch(`${ORIGIN}/folders`);
 		await fetch(`${ORIGIN}/api/folders`);
 		expect(
 			sent.map(({ args }) => {
@@ -223,12 +223,12 @@ describe('the account’s fetch', () => {
 				return [request.url, request.audience];
 			}),
 		).toEqual([
-			['https://git.epicenter.so/folders', 'git'],
-			[`${ORIGIN}/api/folders`, 'git'],
+			[`${ORIGIN}/folders`, 'folders'],
+			[`${ORIGIN}/api/folders`, 'folders'],
 		]);
-		// The API's account reaches no Git origin.
+		// Neither reaches another origin.
 		await expect(
-			relayFetch(fake, ORIGIN, live, () => {})('https://git.epicenter.so/x'),
+			relayFetch(fake, ORIGIN, live, () => {}, 'folders')('https://folders.example/x'),
 		).rejects.toThrow(TypeError);
 	});
 

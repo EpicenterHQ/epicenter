@@ -1,5 +1,5 @@
 /**
- * One folder's routes (ADR-0824), at `<folders audience>/folders/<folder>/…`
+ * One folder's routes (ADR-0824), at `<folders>/<folder>/…`
  * (`folderUrl` in `@epicenter/definition/site`), over its log
  * (`../log/`):
  *

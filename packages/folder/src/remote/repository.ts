@@ -1,6 +1,6 @@
 /**
  * A folder on the server, as sync, the web, and the CLI reach it (ADR-0807,
- * ADR-0810, ADR-0824): the routes `<git>/folders/<folder>/…`
+ * ADR-0810, ADR-0824): the routes `<folders>/<folder>/…`
  * (`packages/server/src/routes/folder.ts`), spoken over the account's
  * fetch.
  *
@@ -195,7 +195,7 @@ const json = (body: unknown, method = 'POST'): RequestInit => ({
 	body: JSON.stringify(body),
 });
 
-/** The folder id in a 200 or 201 answer to `POST <git>/folders`, or the refusal. */
+/** The folder id in a 200 or 201 answer to `POST <folders>`, or the refusal. */
 function folderOf(status: number, body: unknown) {
 	if (
 		(status !== 200 && status !== 201) ||
@@ -218,10 +218,10 @@ export async function makeFolder(
 	account: RemoteAccount,
 	{ app, importing = false }: { app?: string; importing?: boolean } = {},
 ): Promise<Result<string, Unavailable>> {
-	const { git } = resolveOAuthAudiences(account.baseURL);
+	const { folders } = resolveOAuthAudiences(account.baseURL);
 	const answered = await ask(
 		account,
-		folderUrl(git),
+		folderUrl(folders),
 		json({
 			create: true,
 			...(app === undefined ? {} : { app }),
@@ -249,8 +249,8 @@ export async function joinApp(
 	account: RemoteAccount,
 	app: string,
 ): Promise<Result<Joined, Unavailable>> {
-	const { git } = resolveOAuthAudiences(account.baseURL);
-	const answered = await ask(account, folderUrl(git), json({ join: app }));
+	const { folders } = resolveOAuthAudiences(account.baseURL);
+	const answered = await ask(account, folderUrl(folders), json({ join: app }));
 	if (answered.error !== null) return answered;
 	const { status, body } = answered.data;
 	if (
@@ -322,7 +322,7 @@ export function folderRepository(
 	}: { pollMs?: number; batchMs?: number } = {},
 ) {
 	if (!isFolderId(folder)) throw new Error(`'${folder}' is not a folder id`);
-	const base = folderUrl(resolveOAuthAudiences(account.baseURL).git, folder);
+	const base = folderUrl(resolveOAuthAudiences(account.baseURL).folders, folder);
 
 	/** Versions this folder holds bytes for: put or read here, so never asked about again. */
 	const held = new Set<string>();

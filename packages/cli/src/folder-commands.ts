@@ -5,7 +5,7 @@
  * Epicenter app composes too. Every one takes a folder by its path, or a
  * folder on the server by its id; a person by the email they sign in with.
  *
- * The credential is an access token for the deployment's Git audience, from
+ * The credential is an access token for the deployment's folders audience, from
  * the CLI's sign-in (`epicenter auth login`).
  */
 import { realpath } from 'node:fs/promises';

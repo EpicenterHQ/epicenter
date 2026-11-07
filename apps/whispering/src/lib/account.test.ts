@@ -43,7 +43,7 @@ saved.set(
 	JSON.stringify({
 		tokens: {
 			[audiences.api]: { accessToken: 'test-token', expiresAt },
-			[audiences.git]: { accessToken: 'test-git-token', expiresAt },
+			[audiences.folders]: { accessToken: 'test-folders-token', expiresAt },
 		},
 		principalId: 'alice',
 		generation: 'test-generation',

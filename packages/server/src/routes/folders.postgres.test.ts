@@ -50,7 +50,7 @@ const vocab = {
 };
 
 let origin = '';
-let audiences = { api: '', git: '' };
+let audiences = { api: '', folders: '' };
 const blobs = createMemoryBlobStore();
 let stopPostgres: () => Promise<void>;
 let server: ReturnType<typeof Bun.serve>;
@@ -81,7 +81,7 @@ beforeAll(async () => {
 		idleTimeout: 30,
 	});
 	origin = `http://127.0.0.1:${server.port}`;
-	audiences = { api: origin, git: `${origin}/git` };
+	audiences = { api: origin, folders: `${origin}/folders` };
 	await registerFirstPartyClients(db, {
 		audiences,
 		clients: [epicenter, todos, vocab].map(({ clientId, redirectUri }) => ({
@@ -96,7 +96,7 @@ beforeAll(async () => {
 				'folders:write',
 				...(clientId === epicenter.clientId ? (['folders:all'] as const) : []),
 			],
-			resources: [audiences.api, audiences.git],
+			resources: [audiences.api, audiences.folders],
 			skipConsent: true,
 			applicationType: 'web',
 		})),
@@ -139,14 +139,14 @@ afterAll(async () => {
 
 type App = { clientId: string; redirectUri: string };
 
-/** A token for `person` from `app` on the Git audience. */
+/** A token for `person` from `app` on the folders audience. */
 async function tokenFor(
 	person: Person,
 	app: App = epicenter,
 	scope = app === epicenter
 		? 'openid folders:read folders:write folders:all'
 		: 'openid folders:read folders:write',
-	resource = audiences.git,
+	resource = audiences.folders,
 ) {
 	const tokens = await client.codeGrant({
 		...app,
@@ -163,14 +163,15 @@ async function signedIn(label: string) {
 	return { person, token: await tokenFor(person) };
 }
 
-/** A JSON request with `token`, to the Git audience (`git`) or the API (`api`). */
+/** A JSON request with `token`, to the folders audience (`folders`, a path below it) or the API (`api`). */
 async function call(
 	token: string,
-	where: 'git' | 'api',
+	where: 'folders' | 'api',
 	path: string,
 	init: { method?: string; body?: unknown } = {},
 ) {
-	return fetch(`${where === 'git' ? audiences.git : `${origin}/api`}/${path}`, {
+	const base = where === 'folders' ? audiences.folders : `${origin}/api`;
+	return fetch(path === '' ? base : `${base}/${path}`, {
 		method: init.method ?? (init.body === undefined ? 'GET' : 'POST'),
 		headers: {
 			authorization: `Bearer ${token}`,
@@ -180,9 +181,9 @@ async function call(
 	});
 }
 
-/** `POST <git>/folders`: make a folder (`{ create: true, app? }`), or join an app's (`{ join }`). */
+/** `POST <folders>`: make a folder (`{ create: true, app? }`), or join an app's (`{ join }`). */
 async function join_(token: string, body: unknown = { create: true }) {
-	const response = await call(token, 'git', 'folders', { body });
+	const response = await call(token, 'folders', '', { body });
 	return {
 		status: response.status,
 		body: (await response.json()) as {
@@ -204,7 +205,7 @@ async function made(token: string) {
 /** The version `folder` holds at each of `paths`. */
 async function versions(token: string, folder: string, paths: string[]) {
 	const listed = (await (
-		await call(token, 'git', `folders/${folder}/files`, { body: { paths } })
+		await call(token, 'folders', `${folder}/files`, { body: { paths } })
 	).json()) as { files?: { path: string; version: string }[] };
 	return new Map(
 		(listed.files ?? []).map(({ path, version }) => [path, version]),
@@ -218,7 +219,7 @@ async function write(
 	files: Record<string, string>,
 ) {
 	const held = await versions(token, folder, Object.keys(files));
-	return call(token, 'git', `folders/${folder}/commits`, {
+	return call(token, 'folders', `${folder}/commits`, {
 		body: {
 			files: Object.entries(files).map(([path, text]) => ({
 				path,
@@ -265,7 +266,7 @@ async function sha256(bytes: Uint8Array) {
 /** Put `bytes` at `blobs/<sha256>` of `folder`. */
 const upload = (token: string, folder: string, bytes: Uint8Array) =>
 	sha256(bytes).then((version) =>
-		fetch(`${audiences.git}/folders/${folder}/blobs/${version}`, {
+		fetch(`${audiences.folders}/${folder}/blobs/${version}`, {
 			method: 'PUT',
 			headers: { authorization: `Bearer ${token}` },
 			body: bytes as Uint8Array<ArrayBuffer>,
@@ -280,11 +281,11 @@ describe("a folder's log over HTTP", () => {
 		for (const id of [folder, 'zzzzzzzzzzzzzzzz'])
 			for (const path of ['changes', 'log'])
 				expect(
-					(await call(stranger.token, 'git', `folders/${id}/${path}`)).status,
+					(await call(stranger.token, 'folders', `${id}/${path}`)).status,
 				).toBe(403);
 		expect(
 			(
-				await call(stranger.token, 'git', `folders/${folder}/commits`, {
+				await call(stranger.token, 'folders', `${folder}/commits`, {
 					body: { files: [{ path: 'a.md', expect: null, text: 'x' }] },
 				})
 			).status,
@@ -294,11 +295,11 @@ describe("a folder's log over HTTP", () => {
 	test('a missing or unusable token gets 401 naming resource_metadata, and a read-only token cannot commit', async () => {
 		const { token } = await signedIn('challenged');
 		const folder = await made(token);
-		const changes = `${audiences.git}/folders/${folder}/changes`;
+		const changes = `${audiences.folders}/${folder}/changes`;
 		const none = await fetch(changes);
 		expect(none.status).toBe(401);
 		expect(none.headers.get('www-authenticate')).toContain(
-			`resource_metadata="${origin}/.well-known/oauth-protected-resource/git"`,
+			`resource_metadata="${origin}/.well-known/oauth-protected-resource/folders"`,
 		);
 		expect(
 			(await fetch(changes, { headers: { authorization: 'Bearer nope' } }))
@@ -319,7 +320,7 @@ describe("a folder's log over HTTP", () => {
 			epicenter,
 			'openid folders:read folders:all',
 		);
-		const refused = await call(readOnly, 'git', `folders/${folder}/commits`, {
+		const refused = await call(readOnly, 'folders', `${folder}/commits`, {
 			body: { files: [{ path: 'a.md', expect: null, text: 'x' }] },
 		});
 		expect(refused.status).toBe(403);
@@ -333,8 +334,8 @@ describe("a folder's log over HTTP", () => {
 		const version = await sha256(audio);
 		const missing = await call(
 			token,
-			'git',
-			`folders/${folder}/blobs/missing`,
+			'folders',
+			`${folder}/blobs/missing`,
 			{
 				body: { versions: [version] },
 			},
@@ -347,7 +348,7 @@ describe("a folder's log over HTTP", () => {
 			{ path: 'captures/a.md', expect: null, text: '# Heard\n' },
 			{ path: 'captures/a.webm', expect: null, version },
 		];
-		const landed = await call(token, 'git', `folders/${folder}/commits`, {
+		const landed = await call(token, 'folders', `${folder}/commits`, {
 			body: { files },
 		});
 		expect(landed.status).toBe(200);
@@ -360,7 +361,7 @@ describe("a folder's log over HTTP", () => {
 			'captures/a.md': await sha256(encoder.encode('# Heard\n')),
 			'captures/a.webm': version,
 		});
-		const resent = await call(token, 'git', `folders/${folder}/commits`, {
+		const resent = await call(token, 'folders', `${folder}/commits`, {
 			body: { files },
 		});
 		expect(resent.status).toBe(409);
@@ -372,13 +373,13 @@ describe("a folder's log over HTTP", () => {
 			],
 		});
 		const read = await fetch(
-			`${audiences.git}/folders/${folder}/blobs/${version}`,
+			`${audiences.folders}/${folder}/blobs/${version}`,
 			{ headers: { authorization: `Bearer ${token}` } },
 		);
 		expect(read.headers.get('cache-control')).toContain('immutable');
 		expect(new Uint8Array(await read.arrayBuffer())).toEqual(audio);
 		const blobs = (await (
-			await call(token, 'git', `folders/${folder}/blobs`, {
+			await call(token, 'folders', `${folder}/blobs`, {
 				body: { versions: [receipt.versions['captures/a.md'], version] },
 			})
 		).json()) as { blobs: unknown[] };
@@ -395,7 +396,7 @@ describe("a folder's log over HTTP", () => {
 		const [held] = (await versions(token, folder, ['a.md'])).values();
 		const answers = await Promise.all(
 			Array.from({ length: 6 }, (_, index) =>
-				call(token, 'git', `folders/${folder}/commits`, {
+				call(token, 'folders', `${folder}/commits`, {
 					body: {
 						files: [{ path: 'a.md', expect: held, text: `writer ${index}\n` }],
 					},
@@ -405,7 +406,7 @@ describe("a folder's log over HTTP", () => {
 		const statuses = answers.map(({ status }) => status).sort();
 		expect(statuses).toEqual([200, 409, 409, 409, 409, 409]);
 		const log = (await (
-			await call(token, 'git', `folders/${folder}/log`)
+			await call(token, 'folders', `${folder}/log`)
 		).json()) as { changes: { seq: number }[] };
 		expect(log.changes.map(({ seq }) => seq)).toEqual([2, 1]);
 	}, 60_000);
@@ -414,7 +415,7 @@ describe("a folder's log over HTTP", () => {
 		const { token } = await signedIn('capped');
 		const folder = await made(token);
 		const huge = 'x'.repeat(17 * 1024 * 1024);
-		const capped = await fetch(`${audiences.git}/folders/${folder}/commits`, {
+		const capped = await fetch(`${audiences.folders}/${folder}/commits`, {
 			method: 'POST',
 			headers: {
 				authorization: `Bearer ${token}`,
@@ -428,7 +429,7 @@ describe("a folder's log over HTTP", () => {
 		const inline = await write(token, folder, { 'a.md': 'y'.repeat(20_000) });
 		expect(inline.status).toBe(400);
 		const head = (await (
-			await call(token, 'git', `folders/${folder}/changes`)
+			await call(token, 'folders', `${folder}/changes`)
 		).json()) as { cursor: string };
 		expect(head.cursor).toMatch(/\.0$/);
 	}, 60_000);
@@ -453,7 +454,7 @@ describe("a folder's log over HTTP", () => {
 		const first = (await (
 			await write(token, folder, { 'a.md': 'one', 'b.md': 'x' })
 		).json()) as { cursor: string };
-		const mark = await call(token, 'git', `folders/${folder}/marks/v1`, {
+		const mark = await call(token, 'folders', `${folder}/marks/v1`, {
 			method: 'PUT',
 			body: {},
 		});
@@ -462,15 +463,15 @@ describe("a folder's log over HTTP", () => {
 		const since = (await (
 			await call(
 				token,
-				'git',
-				`folders/${folder}/changes?since=${encodeURIComponent(first.cursor)}`,
+				'folders',
+				`${folder}/changes?since=${encodeURIComponent(first.cursor)}`,
 			)
 		).json()) as { changes: unknown };
 		expect(since.changes).toEqual([
 			{ path: 'a.md', version: await sha256(encoder.encode('two')) },
 		]);
 		const atMark = (await (
-			await call(token, 'git', `folders/${folder}/files`, {
+			await call(token, 'folders', `${folder}/files`, {
 				body: { at: 'v1', bytes: true },
 			})
 		).json()) as { seq: number; files: { path: string; base64: string }[] };
@@ -485,7 +486,7 @@ describe("a folder's log over HTTP", () => {
 			['b.md', 'x'],
 		]);
 		const history = (await (
-			await call(token, 'git', `folders/${folder}/log?path=a.md`)
+			await call(token, 'folders', `${folder}/log?path=a.md`)
 		).json()) as {
 			changes: { seq: number; author: string; via: string; marks: string[] }[];
 		};
@@ -498,18 +499,18 @@ describe("a folder's log over HTTP", () => {
 		);
 		expect(history.changes[0]?.via).toBe(epicenter.clientId);
 		const atTime = (await (
-			await call(token, 'git', `folders/${folder}/files`, {
+			await call(token, 'folders', `${folder}/files`, {
 				body: { at: '2000-01-01T00:00:00Z' },
 			})
 		).json()) as { seq: number; files: unknown[] };
 		expect(atTime).toMatchObject({ seq: 0, files: [] });
-		const taken = await call(token, 'git', `folders/${folder}/marks/v1`, {
+		const taken = await call(token, 'folders', `${folder}/marks/v1`, {
 			method: 'PUT',
 			body: {},
 		});
 		expect(taken.status).toBe(409);
 		const marks = (await (
-			await call(token, 'git', `folders/${folder}/marks`)
+			await call(token, 'folders', `${folder}/marks`)
 		).json()) as { marks: { name: string; seq: number }[] };
 		expect(marks.marks).toMatchObject([{ name: 'v1', seq: 1 }]);
 	}, 60_000);
@@ -529,7 +530,7 @@ describe("a folder's log over HTTP", () => {
 		};
 		expect(
 			(
-				await call(token, 'git', `folders/${ordinary}/import`, {
+				await call(token, 'folders', `${ordinary}/import`, {
 					body: imported,
 				})
 			).status,
@@ -537,19 +538,19 @@ describe("a folder's log over HTTP", () => {
 		const made_ = await join_(token, { create: true, import: true });
 		expect(made_.status).toBe(201);
 		const folder = made_.body.folder as string;
-		const landed = await call(token, 'git', `folders/${folder}/import`, {
+		const landed = await call(token, 'folders', `${folder}/import`, {
 			body: imported,
 		});
 		expect(landed.status).toBe(200);
 		expect(
 			(
-				await call(token, 'git', `folders/${folder}/import`, {
+				await call(token, 'folders', `${folder}/import`, {
 					body: { done: true },
 				})
 			).status,
 		).toBe(200);
 		const log = (await (
-			await call(token, 'git', `folders/${folder}/log`)
+			await call(token, 'folders', `${folder}/log`)
 		).json()) as {
 			changes: { at: string; author: string; message: string }[];
 		};
@@ -561,13 +562,13 @@ describe("a folder's log over HTTP", () => {
 			},
 		]);
 		expect(
-			(await call(token, 'git', `folders/${folder}/import`, { body: imported }))
+			(await call(token, 'folders', `${folder}/import`, { body: imported }))
 				.status,
 		).toBe(409);
 		// A finished import is a folder in use: it is never abandoned.
 		expect(
 			(
-				await call(token, 'git', `folders/${folder}/import`, {
+				await call(token, 'folders', `${folder}/import`, {
 					body: { abandon: true },
 				})
 			).status,
@@ -578,7 +579,7 @@ describe("a folder's log over HTTP", () => {
 		const { token } = await signedIn('abandoner');
 		const made_ = await join_(token, { create: true, import: true });
 		const folder = made_.body.folder as string;
-		const landed = await call(token, 'git', `folders/${folder}/import`, {
+		const landed = await call(token, 'folders', `${folder}/import`, {
 			body: {
 				changes: [
 					{
@@ -591,7 +592,7 @@ describe("a folder's log over HTTP", () => {
 			},
 		});
 		expect(landed.status).toBe(200);
-		const abandoned = await call(token, 'git', `folders/${folder}/import`, {
+		const abandoned = await call(token, 'folders', `${folder}/import`, {
 			body: { abandon: true },
 		});
 		expect(abandoned.status).toBe(200);
@@ -600,7 +601,7 @@ describe("a folder's log over HTTP", () => {
 			folder,
 		);
 		// Its log answers as any folder the person does not hold.
-		expect((await call(token, 'git', `folders/${folder}/log`)).status).toBe(
+		expect((await call(token, 'folders', `${folder}/log`)).status).toBe(
 			403,
 		);
 	}, 60_000);
@@ -645,7 +646,7 @@ describe('sharing a folder is an invitation to an email', () => {
 			],
 		});
 		expect(
-			(await call(bob.token, 'git', `folders/${folder}/changes`)).status,
+			(await call(bob.token, 'folders', `${folder}/changes`)).status,
 		).toBe(403);
 
 		const accepted = await accept(bob.token, folder);
@@ -690,7 +691,7 @@ describe('sharing a folder is an invitation to an email', () => {
 			403,
 		);
 		const heads = (await (
-			await call(carol.token, 'git', 'folders')
+			await call(carol.token, 'folders', '')
 		).json()) as {
 			heads: Record<string, string | null>;
 		};
@@ -785,7 +786,7 @@ describe('sharing a folder is an invitation to an email', () => {
 			],
 			invited: [],
 		});
-		expect((await call(token, 'git', `folders/${folder}/changes`)).status).toBe(
+		expect((await call(token, 'folders', `${folder}/changes`)).status).toBe(
 			200,
 		);
 		expect((await write(token, folder, { 'a.md': 'mine\n' })).status).toBe(403);
@@ -804,7 +805,7 @@ describe('sharing a folder is an invitation to an email', () => {
 		expect((await listing(token)).pending).toEqual([]);
 		expect((await accept(token, folder)).status).toBe(404);
 		expect((await unshare(token, folder, email)).status).toBe(404);
-		expect((await call(token, 'git', `folders/${folder}/changes`)).status).toBe(
+		expect((await call(token, 'folders', `${folder}/changes`)).status).toBe(
 			403,
 		);
 		// Verified, the same account finds it waiting.
@@ -828,7 +829,7 @@ describe('sharing a folder is an invitation to an email', () => {
 		await accept(reader.token, folder);
 		await accept(member.token, folder);
 		expect(
-			(await call(reader.token, 'git', `folders/${folder}/changes`)).status,
+			(await call(reader.token, 'folders', `${folder}/changes`)).status,
 		).toBe(200);
 		expect((await write(reader.token, folder, { 'a.md': 'b\n' })).status).toBe(
 			403,
@@ -862,7 +863,7 @@ describe('sharing a folder is an invitation to an email', () => {
 			(await unshare(member.token, folder, alice.person.email)).status,
 		).toBe(200);
 		expect(
-			(await call(alice.token, 'git', `folders/${folder}/changes`)).status,
+			(await call(alice.token, 'folders', `${folder}/changes`)).status,
 		).toBe(403);
 	}, 60_000);
 
@@ -980,7 +981,7 @@ describe('an app reaches the folders attached to it', () => {
 		]);
 		expect((await listing(vocabToken)).folders).toEqual([]);
 		expect(
-			(await call(vocabToken, 'git', `folders/${folder}/changes`)).status,
+			(await call(vocabToken, 'folders', `${folder}/changes`)).status,
 		).toBe(403);
 		// An app cannot attach a folder to itself; the person does, through Epicenter.
 		const path = `folders/${folder}/apps/${vocab.clientId}`;
@@ -991,7 +992,7 @@ describe('an app reaches the folders attached to it', () => {
 			200,
 		);
 		expect(
-			(await call(vocabToken, 'git', `folders/${folder}/changes`)).status,
+			(await call(vocabToken, 'folders', `${folder}/changes`)).status,
 		).toBe(200);
 		// With two of its folders, an app's first sync asks which.
 		expect(
@@ -1010,7 +1011,7 @@ describe('an app reaches the folders attached to it', () => {
 			(await call(platform, 'api', path, { method: 'DELETE' })).status,
 		).toBe(200);
 		expect(
-			(await call(vocabToken, 'git', `folders/${folder}/changes`)).status,
+			(await call(vocabToken, 'folders', `${folder}/changes`)).status,
 		).toBe(403);
 		// Nor can that app take its person out of the folder it no longer reaches.
 		expect((await unshare(vocabToken, folder, person.email)).status).toBe(403);
@@ -1041,7 +1042,7 @@ test('one request answers the head of every folder the token reaches', async () 
 	const landed = (await (await write(token, a, { 'a.md': 'a\n' })).json()) as {
 		cursor: string;
 	};
-	const answer = (await (await call(token, 'git', 'folders')).json()) as {
+	const answer = (await (await call(token, 'folders', '')).json()) as {
 		heads: Record<string, string>;
 	};
 	expect(answer.heads[a]).toBe(landed.cursor);

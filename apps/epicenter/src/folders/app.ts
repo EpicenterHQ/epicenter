@@ -13,5 +13,5 @@ import { settings } from '@epicenter/local';
 import { reactive } from '@epicenter/svelte/reactive';
 
 export const root = epicenterRoot();
-export const auth = reactive(createTauriAuth({ audience: 'git' }));
+export const auth = reactive(createTauriAuth({ audience: 'folders' }));
 export const localSettings = reactive(settings);

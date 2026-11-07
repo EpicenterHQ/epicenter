@@ -64,13 +64,13 @@ export const REUSE_MARGIN_MS = 5 * 60 * 1000;
 export type Deployment = {
 	/** The API origin, which is the authorization server's (ADR-0326). */
 	origin: string;
-	audiences: { api: string; git: string };
+	audiences: { api: string; folders: string };
 };
 
 /** The deployment named by `EPICENTER_API_URL`, or the hosted cloud (ADR-0326). */
 export function resolveDeployment(origin = EPICENTER_API_URL): Deployment {
-	const { api, git } = resolveOAuthAudiences(origin);
-	return { origin: new URL(origin).origin, audiences: { api, git } };
+	const { api, folders } = resolveOAuthAudiences(origin);
+	return { origin: new URL(origin).origin, audiences: { api, folders } };
 }
 
 /** What every function here reads and writes through. */
@@ -329,7 +329,7 @@ async function readAccount(
 
 /** The audiences this deployment issues tokens for, in the order help names them. */
 export function knownAudiences(ctx: AuthContext) {
-	return [ctx.deployment.audiences.api, ctx.deployment.audiences.git];
+	return [ctx.deployment.audiences.api, ctx.deployment.audiences.folders];
 }
 
 const usable = (ctx: AuthContext, cached: CachedToken | undefined) =>
@@ -539,7 +539,7 @@ export async function loginWithDevice(
 	const started = await post(ctx, '/device/code', {
 		client_id: AUTH_CLIENT,
 		scope: SCOPE,
-		resource: [audiences.api, audiences.git],
+		resource: [audiences.api, audiences.folders],
 	});
 	if (started.error !== null) return Err(started.error);
 	const device = started.data.body as TokenAnswer & {

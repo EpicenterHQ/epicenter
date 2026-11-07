@@ -1,7 +1,7 @@
 //! Sign-in with Epicenter for a desktop app: a standalone app signs in for
 //! its hosted capabilities (inference, transcription) on the API audience
 //! alone, and the Epicenter app also for every folder the person holds, on
-//! the Git audience (`folders:all`, ADR-0820).
+//! the folders audience (`folders:all`, ADR-0820).
 //!
 //! - Sign-in is the native-app flow (RFC 8252): the system browser opens the
 //!   authorization page, and a one-shot `http://127.0.0.1:<port>/callback`
@@ -94,20 +94,21 @@ impl AccountApp {
     pub const EVERY_FOLDER: &'static str =
         "openid offline_access profile email ai folders:read folders:write folders:all";
     /// The audiences the Epicenter app reaches: the API, and the folders'.
-    pub const API_AND_FOLDERS: &'static [Audience] = &[Audience::Api, Audience::Git];
+    pub const API_AND_FOLDERS: &'static [Audience] = &[Audience::Api, Audience::Folders];
 }
 
 /// A token audience on the deployment (RFC 8707): the API (inference,
-/// transcription, who is signed in) or Git (every folder's history, and the
-/// folder routes on the API's origin). An access token names one.
+/// transcription, who is signed in) or the folders (every folder's routes
+/// and history at `/folders`, and `/api/folders`). Both are on the API's
+/// origin. An access token names one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Audience {
     Api,
-    Git,
+    Folders,
 }
 
-/// The production API, whose Git audience has an origin of its own.
+/// The production API.
 const PRODUCTION_API: &str = "https://api.epicenter.so";
 
 impl Audience {
@@ -116,8 +117,7 @@ impl Audience {
     pub fn url(self, origin: &str) -> String {
         match self {
             Self::Api => origin.to_string(),
-            Self::Git if origin == PRODUCTION_API => "https://git.epicenter.so".to_string(),
-            Self::Git => format!("{origin}/git"),
+            Self::Folders => format!("{origin}/folders"),
         }
     }
 }
@@ -804,12 +804,6 @@ fn on_origin(url: &str, origin: &str) -> bool {
         .is_some_and(|rest| rest.is_empty() || rest.starts_with(['/', '?']))
 }
 
-/// Whether a request for `audience` may go to `url`: the deployment's
-/// origin, or the audience's own (production's Git audience is another).
-fn reaches(url: &str, origin: &str, audience: Audience) -> bool {
-    on_origin(url, origin) || on_origin(url, &origin_of(&audience.url(origin)))
-}
-
 /// Whether `method url` on `audience`'s token is hosted inference: one of
 /// `INFERENCE_ROUTES`, on the deployment's origin, with nothing after its
 /// path but a query. The path is compared as sent, so `..`, `\`, or an
@@ -837,7 +831,7 @@ fn permits(
             app.name
         ));
     }
-    if !reaches(url, origin, audience) {
+    if !on_origin(url, origin) {
         return Err(format!("{url} is not on {origin}"));
     }
     match app.relays {
@@ -1060,9 +1054,9 @@ mod tests {
         assert!(permits(
             &VOCAB,
             origin,
-            Audience::Git,
+            Audience::Folders,
             "POST",
-            "https://git.epicenter.so/v1/chat/completions"
+            "https://api.epicenter.so/v1/chat/completions"
         )
         .is_err());
         assert!(sends("POST", "https://evil.com/v1/chat/completions").is_err());
@@ -1095,11 +1089,11 @@ mod tests {
                 "POST",
                 "https://api.epicenter.so/v1/chat/completions",
             ),
-            (Audience::Git, "GET", "https://api.epicenter.so/api/folders"),
+            (Audience::Folders, "GET", "https://api.epicenter.so/api/folders"),
             (
-                Audience::Git,
+                Audience::Folders,
                 "POST",
-                "https://git.epicenter.so/folders/f.git/git-upload-pack",
+                "https://api.epicenter.so/folders/abcdefgh01234567/changes",
             ),
         ] {
             assert_eq!(
@@ -1131,32 +1125,31 @@ mod tests {
             "&scope=openid%20offline_access%20profile%20email%20ai%20folders%3Aread%20folders%3Awrite%20folders%3Aall&"
         ));
         assert!(url.ends_with(
-            "&resource=https%3A%2F%2Fapi.epicenter.so&resource=https%3A%2F%2Fgit.epicenter.so"
+            "&resource=https%3A%2F%2Fapi.epicenter.so&resource=https%3A%2F%2Fapi.epicenter.so%2Ffolders"
         ));
         assert_eq!(
-            Audience::Git.url("http://localhost:8787"),
-            "http://localhost:8787/git"
+            Audience::Folders.url("http://localhost:8787"),
+            "http://localhost:8787/folders"
         );
     }
 
     #[test]
-    fn a_folder_request_goes_to_the_deployment_or_the_git_origin() {
+    fn a_request_goes_only_to_the_deployments_origin() {
         let origin = "https://api.epicenter.so";
-        assert!(reaches("https://git.epicenter.so/folders", origin, Audience::Git));
-        assert!(reaches("https://api.epicenter.so/api/folders", origin, Audience::Git));
-        assert!(!reaches("https://git.epicenter.so/folders", origin, Audience::Api));
-        assert!(!reaches("https://git.epicenter.so.evil.com/", origin, Audience::Git));
-        let local = "http://localhost:8787";
-        assert!(reaches("http://localhost:8787/git/folders", local, Audience::Git));
+        assert!(on_origin("https://api.epicenter.so/folders", origin));
+        assert!(on_origin("https://api.epicenter.so/api/folders", origin));
+        assert!(on_origin("https://api.epicenter.so", origin));
+        assert!(!on_origin("https://api.epicenter.so.evil.com/", origin));
+        assert!(!on_origin("https://other.example/folders", origin));
     }
 
     #[test]
     fn a_relayed_request_names_its_audience_or_is_the_apis() {
         let request: RelayRequest = serde_json::from_value(serde_json::json!({
-            "id": 1, "url": "u", "method": "GET", "headers": [], "body": null, "audience": "git"
+            "id": 1, "url": "u", "method": "GET", "headers": [], "body": null, "audience": "folders"
         }))
         .unwrap();
-        assert_eq!(request.audience, Some(Audience::Git));
+        assert_eq!(request.audience, Some(Audience::Folders));
         let request: RelayRequest = serde_json::from_value(serde_json::json!({
             "id": 1, "url": "u", "method": "GET", "headers": [], "body": null
         }))
@@ -1433,7 +1426,7 @@ mod tests {
         assert!(
             tokio::time::timeout(
                 Duration::from_millis(100),
-                account.access_token(Audience::Git, false)
+                account.access_token(Audience::Folders, false)
             )
             .await
             .is_err()
@@ -1483,7 +1476,7 @@ mod tests {
         // Refused once is refused until a sign-in, for every audience: no
         // second request.
         assert_eq!(
-            account.access_token(Audience::Git, false).await,
+            account.access_token(Audience::Folders, false).await,
             Err(Refusal::Reauth)
         );
     }

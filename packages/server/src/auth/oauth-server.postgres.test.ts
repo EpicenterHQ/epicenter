@@ -6,7 +6,7 @@
  * that names a metadata document, the resource check's 401 and 403 answers through a
  * test-only protected route, and the real protected mounts behind
  * `requireAccessToken` the way the deployments compose them.
- * Requires initdb, pg_ctl, and git on PATH (a push lands in a disk store);
+ * Requires initdb and pg_ctl on PATH (a write lands in a disk store);
  * never connects to a configured database.
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
@@ -49,7 +49,7 @@ const origin = 'http://127.0.0.1:47911';
 const secret = 'oauth-server-postgres-secret-0123456789';
 const audiences = {
 	api: origin,
-	git: `${origin}/git`,
+	folders: `${origin}/folders`,
 };
 const desktop = {
 	clientId: 'so.epicenter',
@@ -98,7 +98,7 @@ beforeAll(async () => {
 					'folders:write',
 					'folders:all',
 				],
-				resources: [audiences.api, audiences.git],
+				resources: [audiences.api, audiences.folders],
 				skipConsent: true,
 				applicationType: 'native',
 			},
@@ -119,7 +119,7 @@ beforeAll(async () => {
 					'folders:write',
 					'folders:all',
 				],
-				resources: [audiences.api, audiences.git],
+				resources: [audiences.api, audiences.folders],
 				skipConsent: false,
 				applicationType: 'native',
 			},
@@ -137,7 +137,7 @@ beforeAll(async () => {
 					'folders:read',
 					'folders:write',
 				],
-				resources: [audiences.api, audiences.git],
+				resources: [audiences.api, audiences.folders],
 				skipConsent: true,
 				applicationType: 'web',
 			},
@@ -147,7 +147,7 @@ beforeAll(async () => {
 				redirectUris: ['http://127.0.0.1/callback'],
 				grantTypes: ['authorization_code', 'refresh_token'],
 				scopes: ['offline_access', 'folders:read', 'folders:write'],
-				resources: [audiences.git],
+				resources: [audiences.folders],
 				skipConsent: false,
 				applicationType: 'native',
 			},
@@ -255,7 +255,7 @@ test('a client that names a metadata document is unknown', async () => {
 		redirectUri: 'http://127.0.0.1:53999/callback',
 		cookie: person.cookie,
 		challenge,
-		resource: [audiences.git],
+		resource: [audiences.folders],
 		scope: 'offline_access folders:read',
 	});
 	// No client identifies itself by URL: there is no metadata document
@@ -265,7 +265,7 @@ test('a client that names a metadata document is unknown', async () => {
 	);
 }, 60_000);
 
-test('one grant serves the API and Git, in any order of refreshes', async () => {
+test('one grant serves the API and the folders, in any order of refreshes', async () => {
 	const { client } = harness;
 	const person = await client.person('audiences');
 	const everyScope =
@@ -274,7 +274,7 @@ test('one grant serves the API and Git, in any order of refreshes', async () => 
 		clientId: cli.clientId,
 		cookie: person.cookie,
 		scope: 'openid offline_access profile ai folders:read folders:write',
-		resource: [audiences.api, audiences.git],
+		resource: [audiences.api, audiences.folders],
 		redeemFor: audiences.api,
 	});
 	expect(grant.tokens!.scope?.split(' ').sort().join(' ')).toBe(everyScope);
@@ -282,9 +282,9 @@ test('one grant serves the API and Git, in any order of refreshes', async () => 
 	const at = async (token: string, audience: string, scope: OAuthScope) =>
 		(await harness.resource(token, { audience, scope })).status;
 	for (const [audience, scope] of [
-		[audiences.git, 'folders:write'],
+		[audiences.folders, 'folders:write'],
 		[audiences.api, 'ai'],
-		[audiences.git, 'folders:write'],
+		[audiences.folders, 'folders:write'],
 		[audiences.api, 'profile'],
 	] as const) {
 		const rotated = await client.token({
@@ -300,7 +300,7 @@ test('one grant serves the API and Git, in any order of refreshes', async () => 
 		const token = rotated.body.access_token;
 		expect(await at(token, audience, scope)).toBe(200);
 		const elsewhere =
-			audience === audiences.git ? audiences.api : audiences.git;
+			audience === audiences.folders ? audiences.api : audiences.folders;
 		expect(await at(token, elsewhere, 'folders:read')).toBe(401);
 		refresh = rotated.body.refresh_token!;
 	}
@@ -318,7 +318,7 @@ describe('the resource check', () => {
 		const tokens = await harness.client.codeGrant({
 			...desktop,
 			cookie: person.cookie,
-			resource: [audiences.git],
+			resource: [audiences.folders],
 			scope,
 		});
 		const folder = await folderOf(person.id);
@@ -343,14 +343,14 @@ describe('the resource check', () => {
 	) =>
 		authorizeFolderRequest(db, {
 			token,
-			audience: audiences.git,
+			audience: audiences.folders,
 			scope,
 			folder,
 		});
 
 	test('answers 401 with resource_metadata for a missing, foreign, unknown, expired, or revoked token', async () => {
 		const { token, folder } = await issue();
-		const metadata = `resource_metadata="${origin}/.well-known/oauth-protected-resource/git"`;
+		const metadata = `resource_metadata="${origin}/.well-known/oauth-protected-resource/folders"`;
 		for (const presented of [
 			null,
 			'not-an-epicenter-token',
@@ -472,7 +472,7 @@ describe('the protected routes', () => {
 		call('/v1/chat/completions', token, { method: 'POST', body: {} });
 	/** The first request of a push: the receive-pack advertisement. */
 	const push = (token: string | null, folder = 'aaaaaaaaaaaaaaaa') =>
-		call(`/git/folders/${folder}/commits`, token, {
+		call(`/folders/${folder}/commits`, token, {
 			method: 'POST',
 			body: { files: [{ path: 'a.md', expect: null, text: 'one' }] },
 		});
@@ -484,7 +484,7 @@ describe('the protected routes', () => {
 		);
 		for (const [response, metadata] of [
 			[await inference(null), ''],
-			[await push(null), '/git'],
+			[await push(null), '/folders'],
 			[await inference(sessionToken), ''],
 		] as const) {
 			expect(response.status).toBe(401);
@@ -495,13 +495,13 @@ describe('the protected routes', () => {
 	}, 60_000);
 
 	test("answer 401 for another audience's token and 403 for a missing scope", async () => {
-		const git = await browserToken(
-			audiences.git,
+		const folders = await browserToken(
+			audiences.folders,
 			'openid folders:read folders:write',
 		);
-		// A Git token at an API route is another audience's: 401, not 403
+		// A folders token at an API route is another audience's: 401, not 403
 		// (ADR-0549).
-		expect((await inference(git.token)).status).toBe(401);
+		expect((await inference(folders.token)).status).toBe(401);
 		const api = await browserToken(audiences.api, 'openid profile');
 		expect((await push(api.token)).status).toBe(401);
 		const refused = await inference(api.token);
@@ -510,7 +510,7 @@ describe('the protected routes', () => {
 			`Bearer error="insufficient_scope", scope="ai", resource_metadata="${origin}/.well-known/oauth-protected-resource"`,
 		);
 		expect(await refused.json()).toMatchObject({ error: 'insufficient_scope' });
-		const readOnly = await browserToken(audiences.git, 'openid folders:read');
+		const readOnly = await browserToken(audiences.folders, 'openid folders:read');
 		expect((await push(readOnly.token)).status).toBe(403);
 	}, 60_000);
 
@@ -522,22 +522,22 @@ describe('the protected routes', () => {
 		expect(await read.json()).toMatchObject({ sub: api.person.id });
 		// Past the guard, the gateway reads the body: 400, not 401 or 403.
 		expect((await inference(api.token)).status).toBe(400);
-		const git = await browserToken(
-			audiences.git,
+		const folders = await browserToken(
+			audiences.folders,
 			'openid folders:read folders:write',
 		);
-		const folders = async () =>
+		const count = async () =>
 			(await sqlClient.query('select id from folder')).rowCount;
-		const before = await folders();
+		const before = await count();
 		// A first sync from the app makes its folder, attached to the app.
-		const joined = await call('/git/folders', git.token, {
+		const joined = await call('/folders', folders.token, {
 			method: 'POST',
 			body: { create: true },
 		});
 		expect(joined.status).toBe(201);
 		const { folder } = (await joined.json()) as { folder: string };
-		expect(await folders()).toBe((before ?? 0) + 1);
-		expect((await push(git.token, folder)).status).toBe(200);
+		expect(await count()).toBe((before ?? 0) + 1);
+		expect((await push(folders.token, folder)).status).toBe(200);
 	}, 60_000);
 
 	test('stop admitting a token once it is revoked or its browser session ends', async () => {
@@ -581,7 +581,7 @@ describe('the protected routes', () => {
 	}, 60_000);
 });
 
-describe('one browser sign-in for the API and Git (decision 65)', () => {
+describe('one browser sign-in for the API and the folders (decision 65)', () => {
 	const everyScope = 'openid profile ai folders:read folders:write';
 	/** What `createBrowserOAuth` asks for with two resources. */
 	const signInScope = `${everyScope} offline_access`;
@@ -596,7 +596,7 @@ describe('one browser sign-in for the API and Git (decision 65)', () => {
 			...browser,
 			cookie: person.cookie,
 			challenge,
-			resource: [audiences.api, audiences.git],
+			resource: [audiences.api, audiences.folders],
 			scope: signInScope,
 		});
 		const code = new URL(authorized.location).searchParams.get('code');
@@ -617,40 +617,40 @@ describe('one browser sign-in for the API and Git (decision 65)', () => {
 			...(resource && { resource }),
 		});
 
-	/** The browser callback: exchange for the API, then refresh once for Git. */
+	/** The browser callback: exchange for the API, then refresh once for the folders. */
 	async function signInBoth(label: string) {
 		const authorized = await authorizeBoth(label);
 		const api = await redeem(authorized, audiences.api);
 		expect(api.status).toBe(200);
-		const git = await harness.client.token({
+		const folders = await harness.client.token({
 			grant_type: 'refresh_token',
 			client_id: browser.clientId,
 			refresh_token: api.body.refresh_token!,
-			resource: audiences.git,
+			resource: audiences.folders,
 		});
-		expect(git.status).toBe(200);
-		return { person: authorized.person, api: api.body, git: git.body };
+		expect(folders.status).toBe(200);
+		return { person: authorized.person, api: api.body, folders: folders.body };
 	}
 
 	test('a code for both audiences and one refresh give one token per audience', async () => {
-		const { person, api, git } = await signInBoth('both-audiences');
+		const { person, api, folders } = await signInBoth('both-audiences');
 		expect(await at(api.access_token, audiences.api, 'ai')).toBe(200);
-		expect(await at(api.access_token, audiences.git, 'folders:read')).toBe(401);
-		expect(await at(git.access_token, audiences.git, 'folders:write')).toBe(
+		expect(await at(api.access_token, audiences.folders, 'folders:read')).toBe(401);
+		expect(await at(folders.access_token, audiences.folders, 'folders:write')).toBe(
 			200,
 		);
-		expect(await at(git.access_token, audiences.api, 'ai')).toBe(401);
+		expect(await at(folders.access_token, audiences.api, 'ai')).toBe(401);
 		// The refresh never narrows the grant: both answers carry all of it.
 		const sorted = (scope?: string) => scope?.split(' ').sort().join(' ');
 		expect(sorted(api.scope)).toBe(sorted(signInScope));
-		expect(sorted(git.scope)).toBe(sorted(signInScope));
+		expect(sorted(folders.scope)).toBe(sorted(signInScope));
 	}, 60_000);
 
 	test('a replayed code is refused and revokes what it issued', async () => {
 		const authorized = await authorizeBoth('replay');
 		const first = await redeem(authorized, audiences.api);
 		expect(first.status).toBe(200);
-		const replay = await redeem(authorized, audiences.git);
+		const replay = await redeem(authorized, audiences.folders);
 		expect(replay.status).toBe(400);
 		expect(replay.body).toMatchObject({ error: 'invalid_grant' });
 		expect(await at(first.body.access_token, audiences.api, 'ai')).toBe(401);
@@ -663,16 +663,16 @@ describe('one browser sign-in for the API and Git (decision 65)', () => {
 		expect(both.status).toBe(200);
 		expect(await at(both.body.access_token, audiences.api, 'ai')).toBe(401);
 		expect(
-			await at(both.body.access_token, audiences.git, 'folders:read'),
+			await at(both.body.access_token, audiences.folders, 'folders:read'),
 		).toBe(401);
 	}, 60_000);
 
 	test('the browser grant stays bound to its session, and ends at sign-out', async () => {
-		const { person, api, git } = await signInBoth('session-bound');
+		const { person, api, folders } = await signInBoth('session-bound');
 		const desktopGrant = await harness.client.codeGrant({
 			...desktop,
 			cookie: person.cookie,
-			resource: [audiences.git],
+			resource: [audiences.folders],
 		});
 		const sessionOf = async (table: string, column: string, token: string) =>
 			(
@@ -685,7 +685,7 @@ describe('one browser sign-in for the API and Git (decision 65)', () => {
 			(await hashPrefixedToken(token, TOKEN_PREFIX.access))!;
 		const refreshHash = async (token: string) =>
 			(await hashPrefixedToken(token, TOKEN_PREFIX.refresh))!;
-		for (const token of [api.access_token, git.access_token])
+		for (const token of [api.access_token, folders.access_token])
 			expect(
 				await sessionOf('oauth_access_token', 'token', await accessHash(token)),
 			).toBe(person.sessionId);
@@ -693,7 +693,7 @@ describe('one browser sign-in for the API and Git (decision 65)', () => {
 			await sessionOf(
 				'oauth_refresh_token',
 				'token',
-				await refreshHash(git.refresh_token!),
+				await refreshHash(folders.refresh_token!),
 			),
 		).toBe(person.sessionId);
 		// The desktop app's offline grant is still detached from the session.
@@ -711,11 +711,11 @@ describe('one browser sign-in for the API and Git (decision 65)', () => {
 		});
 		expect(signedOut.status).toBe(200);
 		expect(await at(api.access_token, audiences.api, 'ai')).toBe(401);
-		expect(await at(git.access_token, audiences.git, 'folders:read')).toBe(401);
+		expect(await at(folders.access_token, audiences.folders, 'folders:read')).toBe(401);
 		const refreshed = await harness.client.token({
 			grant_type: 'refresh_token',
 			client_id: browser.clientId,
-			refresh_token: git.refresh_token!,
+			refresh_token: folders.refresh_token!,
 			resource: audiences.api,
 		});
 		expect(refreshed.status).toBe(400);

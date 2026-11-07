@@ -269,8 +269,8 @@ test('one request finds which folders moved, and only those sync', async () => {
 		['Still', 'still'],
 	]);
 	// One answer named where every folder is: Still was never asked about.
-	expect(sent.filter((request) => request.endsWith('/git/folders'))).toEqual([
-		'GET /git/folders',
+	expect(sent.filter((request) => request.endsWith('/folders'))).toEqual([
+		'GET /folders',
 	]);
 	expect(sent.some((request) => request.includes(stillId))).toBe(false);
 	expect(
@@ -286,7 +286,7 @@ test('one request finds which folders moved, and only those sync', async () => {
 		await syncEvery({ account: counted, root: alice.desk.root }),
 	);
 	expect(next.folders.every(({ result }) => result === undefined)).toBe(true);
-	expect(sent).toEqual(['GET /git/folders']);
+	expect(sent).toEqual(['GET /folders']);
 }, 120_000);
 
 test('kept in sync, a change here reaches the server and a change there arrives, each folder marked', async () => {

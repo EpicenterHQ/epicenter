@@ -163,7 +163,7 @@ per folder at `.epicenter/synced/<folder-id>.json`: the folder's id, the
 name and identity (inode and birth time) of the directory that agreed it,
 the cursor of the folder's log both sides last agreed at, and each file's
 version there, the SHA-256 of its bytes (ADR-0822, ADR-0824). A folder holds only its files. The CLI signs every
-request to the deployment with the grant's Git-audience token
+request to the deployment with the grant's folders-audience token
 (`src/sync/account.ts`), sent over `https`, or over `http` only to this
 computer.
 
@@ -249,7 +249,7 @@ tests never touch the real one.
 `auth` is ADR-0558's, against ADR-0549's authorization server at the
 deployment's API origin: `EPICENTER_API_URL`, or `https://api.epicenter.so`
 (`resolveOAuthAudiences` in `@epicenter/definition/site` names its API and
-Git audiences). The CLI signs in as its own client, `so.epicenter.cli`,
+folders audiences). The CLI signs in as its own client, `so.epicenter.cli`,
 with its own refresh-token family; the Epicenter app signs in as
 `so.epicenter` through its shell, and neither touches the other's.
 `auth login` is device authorization (RFC 8628): it prints the link and
@@ -266,11 +266,11 @@ them. `auth login` then caches an API token and reads who approved the grant
 from the server's userinfo, which `auth status` reports without a network
 request. Each sign-in records a random generation; token refresh keeps it
 unchanged. `sync`, `clone`,
-`log`, `diff`, and `restore` send the grant's Git-audience token on each
+`log`, `diff`, and `restore` send the grant's folders-audience token on each
 request.
 
 `auth token [--resource <url>]` prints an access token for the API or the
-Git audience. A cached token is reused until five minutes before it
+folders audience. A cached token is reused until five minutes before it
 expires; otherwise one refresh runs under `<data dir>/auth/device.lock`, an
 exclusive SQLite transaction the system releases if the process dies
 (`holdingFileLock` in `src/file-lock.ts`), and rereads the entry inside it, so concurrent callers

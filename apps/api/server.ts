@@ -17,7 +17,7 @@
  *
  * The whole Bun bootstrap lives here, in the app, not behind a shared
  * `@epicenter/server` factory: everything mechanical (the `pg.Pool`, the cloud
- * auth layer, the inference and Git mounts, `Bun.serve`) is this app's
+ * auth layer, the inference and folder mounts, `Bun.serve`) is this app's
  * composition to own. The library ships the parts.
  *
  * Runtime skew is fenced by design: Worker-only behavior (Hyperdrive, R2,
@@ -219,7 +219,7 @@ export async function startBunApiServer(): Promise<void> {
 	});
 	// Every resource takes only an access token for its audience and the scope
 	// its operation needs (ADR-0549).
-	const resource = (audience: 'api' | 'git', scope: OAuthScope) =>
+	const resource = (audience: 'api' | 'folders', scope: OAuthScope) =>
 		every(cloudContext, requireAccessToken({ audience, scope }));
 	// Folders (ADR-0824): each one's log in this Postgres, and its bytes over
 	// 16 KiB on disk under BLOB_STORE_ROOT.
@@ -231,7 +231,7 @@ export async function startBunApiServer(): Promise<void> {
 	// a web page takes at connect are megabytes of notes uncompressed.
 	// Hono's content-type filter leaves a folder's bytes as sent.
 	app.use(
-		`${new URL(audiences.git).pathname.replace(/\/$/, '')}/*`,
+		`${new URL(audiences.folders).pathname.replace(/\/$/, '')}/*`,
 		compress(),
 	);
 	mountFolders(app, {

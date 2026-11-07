@@ -210,8 +210,8 @@ export function createBrowserOAuth({
 			throw new TypeError('Each resource is named once.');
 		if (scope.split(/\s+/).includes('offline_access'))
 			throw new TypeError('A browser app holds no refresh token.');
-		// Most specific first: local and self-hosted deployments serve Git at
-		// `/git` on the API's own origin.
+		// Most specific first: every deployment serves the folders at
+		// `/folders` on the API's own origin.
 		const routes = resources
 			.map((resource) => {
 				const url = new URL(resource);

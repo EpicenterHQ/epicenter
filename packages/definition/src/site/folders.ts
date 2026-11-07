@@ -12,8 +12,8 @@
  * Its addresses under a deployment:
  *
  * ```txt
- * <git>/folders                       POST: make a folder, or join an app's; GET: every folder's head
- * <git>/folders/<id>/…                its log: what changed, its files, history, marks, bytes, commits
+ * <folders>                           POST: make a folder, or join an app's; GET: every folder's head
+ * <folders>/<id>/…                    its log: what changed, its files, history, marks, bytes, changes
  * <api>/api/folders                   the person's folders, and the shares waiting for them
  * <api>/api/folders/<id>              one folder
  * <api>/api/folders/<id>/accept       POST: accept a share
@@ -44,13 +44,13 @@ export function isPersonEmail(value: string): boolean {
 const trimmed = (origin: string) => origin.replace(/\/+$/, '');
 
 /**
- * The address of the folder `folder` under a deployment's Git audience,
- * `<git audience>/folders/<folder>`, where sync reaches its repository: the
- * one place a folder id becomes an address. `folderUrl(audience)` alone is
- * where a folder is joined or made.
+ * The address of the folder `folder` under a deployment's folders audience
+ * (`<api origin>/folders`, `resolveOAuthAudiences`), `<folders>/<folder>`,
+ * where sync reaches it: the one place a folder id becomes an address.
+ * `folderUrl(audience)` alone is where a folder is joined or made.
  */
-export function folderUrl(gitAudience: string, folder?: string): string {
-	const folders = `${trimmed(gitAudience)}/folders`;
+export function folderUrl(foldersAudience: string, folder?: string): string {
+	const folders = trimmed(foldersAudience);
 	return folder === undefined ? folders : `${folders}/${folder}`;
 }
 
@@ -145,7 +145,7 @@ export type FolderListing = {
 };
 
 /**
- * What `POST <git>/folders` asks (ADR-0822): make a new folder, which never
+ * What `POST <folders>` asks (ADR-0822): make a new folder, which never
  * joins one (attached to the app whose token asks, or, from a token that
  * reaches every folder, to the app it names); or join the one folder
  * attached to the app it names, as a web app's first open does. A folder
@@ -157,7 +157,7 @@ export type FolderRequest =
 	| { join: string };
 
 /**
- * The answer to `POST <git>/folders`: the folder joined (`made: false`), or
+ * The answer to `POST <folders>`: the folder joined (`made: false`), or
  * the one made.
  */
 export type JoinedFolder = { folder: string; made: boolean };

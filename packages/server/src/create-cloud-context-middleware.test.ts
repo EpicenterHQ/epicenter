@@ -17,7 +17,7 @@ const identity = {
 	resolveTrustedOrigins: () => [origin],
 	resolveAudiences: () => ({
 		api: origin,
-		git: `${origin}/git`,
+		folders: `${origin}/folders`,
 	}),
 };
 const authOptions = {

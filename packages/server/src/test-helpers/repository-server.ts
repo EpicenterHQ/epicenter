@@ -42,7 +42,7 @@ export async function startRepositoryServer() {
 		),
 	});
 	let origin = '';
-	let audiences = { api: '', git: '' };
+	let audiences = { api: '', folders: '' };
 	const app = createServerApp<CloudEnv>({
 		resolveOrigin: () => origin,
 		resolveTrustedOrigins: () => [origin],
@@ -55,7 +55,7 @@ export async function startRepositoryServer() {
 		idleTimeout: 60,
 	});
 	origin = `http://127.0.0.1:${server.port}`;
-	audiences = { api: origin, git: `${origin}/git` };
+	audiences = { api: origin, folders: `${origin}/folders` };
 	const pool = new Pool({
 		host: '127.0.0.1',
 		port: cluster.port,
@@ -77,7 +77,7 @@ export async function startRepositoryServer() {
 					'folders:write',
 					'folders:all',
 				],
-				resources: [audiences.api, audiences.git],
+				resources: [audiences.api, audiences.folders],
 				skipConsent: true,
 				applicationType: 'web',
 			},
@@ -94,7 +94,7 @@ export async function startRepositoryServer() {
 		serveAuthUiShell: (c) => c.html('<html>shell</html>'),
 	});
 	const blobs = createDiskBlobStore({ root: join(scratch, 'blobs') });
-	app.use('/git/*', compress());
+	app.use('/folders/*', compress());
 	mountFolders(app, {
 		setup: createCloudContextMiddleware(context),
 		resolveBlobs: () => blobs,
@@ -118,7 +118,7 @@ export async function startRepositoryServer() {
 			const { access_token: token } = await oauth.codeGrant({
 				...client,
 				cookie: person.cookie,
-				resource: [audiences.git],
+				resource: [audiences.folders],
 				scope: 'openid folders:read folders:write folders:all',
 			});
 			const lifetime = new AbortController();

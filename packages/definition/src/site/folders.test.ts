@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+import { resolveOAuthAudiences } from './apps.ts';
 import {
 	foldersApiUrl,
 	folderUrl,
@@ -11,10 +12,23 @@ test('a folder is addressed by its id under the audience, and joined or made at 
 	expect(isFolderId('abcdefgh01234567')).toBe(true);
 	expect(isFolderId('ABCDEFGH01234567')).toBe(false);
 	expect(isFolderId('abc')).toBe(false);
-	expect(folderUrl('https://g.example/', 'abcdefgh01234567')).toBe(
-		'https://g.example/folders/abcdefgh01234567',
+	expect(
+		folderUrl('https://api.example/folders/', 'abcdefgh01234567'),
+	).toBe('https://api.example/folders/abcdefgh01234567');
+	expect(folderUrl('https://api.example/folders')).toBe(
+		'https://api.example/folders',
 	);
-	expect(folderUrl('https://g.example')).toBe('https://g.example/folders');
+});
+
+test('every deployment serves the folders audience at <origin>/folders', () => {
+	expect(resolveOAuthAudiences('https://api.epicenter.so')).toEqual({
+		api: 'https://api.epicenter.so',
+		folders: 'https://api.epicenter.so/folders',
+	});
+	expect(resolveOAuthAudiences('http://localhost:8787/x')).toEqual({
+		api: 'http://localhost:8787',
+		folders: 'http://localhost:8787/folders',
+	});
 });
 
 test('the folder routes on the API encode each segment', () => {

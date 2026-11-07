@@ -21,8 +21,8 @@ export type {
 export { openFolder } from './open-folder.js';
 export type { Place } from './place.js';
 
-/** A new, empty place in memory; like every `home`, it says its account needs the repository. */
+/** A new, empty place in memory; like every `home`, it says its account needs the folders. */
 export function home({ account }: HomeOptions): Place {
-	account?.need('repository');
+	account?.need('folders');
 	return memory();
 }

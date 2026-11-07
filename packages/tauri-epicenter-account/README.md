@@ -6,7 +6,7 @@ Epicenter and to keep the app's secrets. A standalone app
 so it signs in only for hosted capabilities: inference and transcription on
 Epicenter's API. The Epicenter app signs in as `so.epicenter` for every
 folder the person holds too (`AccountApp::EVERY_FOLDER`, `folders:all`), on
-the API and Git audiences (`AccountApp::API_AND_FOLDERS`). The page's side is `createTauriAuth` from
+the API and folders audiences (`AccountApp::API_AND_FOLDERS`). The page's side is `createTauriAuth` from
 `@epicenter/account/tauri`; the page's side of the provider keys and the
 requests sent with them is `@epicenter/ai/tauri`.
 
@@ -70,9 +70,9 @@ watch of that root tells every window when it changes.
 
 The API trusts no `tauri://localhost` origin, and the token stays in Rust:
 the page sends each of the account's requests through `account_fetch`, which
-adds the bearer token of the audience the request names (`audience: "git"`,
-or the API's when it names none), sends it only to the deployment's origin
-or that audience's, renews a
+adds the bearer token of the audience the request names (`audience: "folders"`,
+or the API's when it names none), sends it only to the deployment's origin,
+where both audiences are, renews a
 token the server rejects once, and streams the answer back on a channel (its
 head, the body's raw chunks, then its end or an error). `account_fetch_cancel`
 stops one. A request with no token to send ends with `reauth-required` or

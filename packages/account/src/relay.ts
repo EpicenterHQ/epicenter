@@ -6,7 +6,6 @@
  * (`connection_fetch`) use it. Only a Tauri window loads this module, with
  * its first relayed request.
  */
-import { resolveOAuthAudiences } from '@epicenter/definition/site';
 import type { AuthFetch } from './auth-contract.js';
 import { AccountUnavailable } from './auth-errors.js';
 import type { TauriAudience, TauriShell } from './tauri.js';
@@ -173,7 +172,7 @@ export function messageOf(cause: unknown): string {
 /**
  * The account's `fetch`: each request goes to the shell, which sends it to
  * `origin` with the account's token for `audience` and streams the answer
- * back. A request anywhere but `origin`, or the audience's own origin, is
+ * back. Every audience is on `origin`, and a request anywhere else is
  * refused here, as the shell refuses it too. `lifetime` aborts when the
  * account is retired; `onRefusal` hears that the shell had no token to send.
  */
@@ -184,10 +183,7 @@ export function relayFetch(
 	onRefusal: (code: 'reauth-required' | 'auth-unavailable') => void,
 	audience: TauriAudience = 'api',
 ): AuthFetch {
-	const reached = new Set([
-		origin,
-		new URL(resolveOAuthAudiences(origin)[audience]).origin,
-	]);
+	const reached = new URL(origin).origin;
 	const relay: ShellRelay = {
 		fetch: 'account_fetch',
 		cancel: 'account_fetch_cancel',
@@ -208,7 +204,7 @@ export function relayFetch(
 				? input.url
 				: new URL(String(input), `${origin}/`).href;
 		const url = new URL(target);
-		if (!reached.has(url.origin) || url.username || url.password)
+		if (url.origin !== reached || url.username || url.password)
 			throw new TypeError(
 				`Account requests must go to ${origin}, not ${target}.`,
 			);
