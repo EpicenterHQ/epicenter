@@ -24,7 +24,7 @@ those classes stored, then deploys this configuration as a new Worker.
 
 Local-first doesn't mean no server. It means your data lives on your machine and you aren't dependent on a cloud service to function. But some operations genuinely need a single authority: user identity, API key storage, AI proxying. Trying to make every device a peer for these operations led to three failed attempts at distributed key management before we split into hub (central authority) and local (device-side execution).
 
-The hub handles auth, folders, and AI. Local servers handle filesystem access, offline editing, and low-latency operations. Neither tries to do the other's job. See [Why Epicenter Split Into Hub and Local Servers](/docs/articles/why-epicenter-split-into-hub-and-local-servers.md) for the full story.
+The hub is a ledger: it signs people in, orders each folder's changes and keeps every version, admits the people a folder is shared with, and proxies AI. The work happens on devices, in plain files, which Epicenter's programs sync with the hub ([vision](../../docs/vision.md), [ADR-0835](../../docs/adr/0835-records-from-0802-to-0834-agree-on-files-a-ledger-and-git-at-the-edges.md)).
 
 ## Stack and priorities
 

@@ -7,6 +7,7 @@
 - **Amended by:** [ADR-0827](0827-the-cli-and-mcp-render-one-table-of-operations.md) at an import that stops midway: it resumes, or is abandoned.
 - **Amended by:** [ADR-0828](0828-names-say-folders-and-changes-and-history-is-package-functions-the-epicenter-app-shows.md) at "`epicenter import --git`": an import is a package function over a computer's Git, which the CLI and the Epicenter app both run.
 - **Amended by:** [ADR-0831](0831-a-git-branch-lands-in-a-folder-as-one-change-through-the-cli.md) at one program owning a folder at a time: Git never syncs a folder, and a branch is translated, never synced.
+- **Amended by:** [ADR-0836](0836-one-merge-a-cursor-that-carries-its-digest-and-one-grant.md) at `epicenter mark`: a named moment is a tag.
 
 ## Context
 

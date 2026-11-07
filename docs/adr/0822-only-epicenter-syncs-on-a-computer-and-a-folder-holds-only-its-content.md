@@ -7,7 +7,7 @@
 - **Amended by:** [ADR-0825](0825-the-epicenter-folder-contains-its-folders.md) at Git working trees above a link's target and file-sync detection per folder: Git owns a folder with `.git` at its root, and only the Epicenter folder is checked for a file-sync service.
 - **Amended by:** [ADR-0827](0827-the-cli-and-mcp-render-one-table-of-operations.md) at "with a contract that fits the app": the directory's name counts alone where the app's view is unknown or the folder holds no `epicenter.json`.
 - **Amended by:** [ADR-0832](0832-a-folder-is-the-directory-epicenter-last-synced-or-epicenter-asks.md) at the second proof by name and exact files, and at a folder held alone joining without asking: only the directory's identity proves it, and anything else asks.
-- **Unbuilt:** all of it: records and hash caches named by identity at the Epicenter folder's root; the identity rules; temporary files beside their targets under reserved names; desktop apps without sync, with tokens holding only `ai`; an app finding its folder by identity, reading its record for marks, and opening any folder in the Epicenter folder; "Get Epicenter to sync" in apps; leaving Git working trees unsynced; removing the stamp, `.epicenter/` in folders, and the record command from the shells.
+- **Unbuilt:** the fit check that tells an app's own folder by its view, since no app has a view yet; ADR-0832 removes the second proof and the joins by name.
 
 ## Context
 

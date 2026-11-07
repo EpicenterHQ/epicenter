@@ -5,7 +5,7 @@
 - **Amends:** [ADR-0807](0807-an-app-writes-only-to-a-local-store-and-only-sync-talks-to-a-server.md) at "An app writes only to a local store, and only sync talks to a server", "On the web the local store is memory, seeded from the repository", a web app syncing as a burst of saves ends, and "The server has no single-file routes": a web app's store is the folder on the server, and nothing syncs on the web.
 - **Relates:** [ADR-0822](0822-only-epicenter-syncs-on-a-computer-and-a-folder-holds-only-its-content.md) (only Epicenter syncs on a computer), [ADR-0808](0808-a-files-version-is-its-git-blob-id-on-every-store.md) (a write expects a version), [ADR-0786](0786-every-web-app-is-online-and-browser-storage-leaves-the-platform.md) (every web app is online).
 - **Amended by:** [ADR-0830](0830-epicenter-sends-a-change-the-moment-it-happens-and-checks-for-others-every-thirty-seconds.md) at saves arriving together landing as one commit: a web app saves when typing pauses.
-- **Unbuilt:** saves debounced into fewer commits; removing the memory store's seeding and the web's sync moments from code and docs.
+- **Unbuilt:** saves when typing pauses (ADR-0830); today saves that arrive within 50 ms land as one change.
 
 ## Context
 

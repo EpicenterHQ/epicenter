@@ -34,7 +34,7 @@ states it for a reader; the table below is what is in force.
 | Who syncs | on a computer, only Epicenter's programs; a desktop app reads and writes files | 0822 | yes |
 | The web | a web app's store is the folder on the server | 0823 | yes |
 | When | a change is sent the moment it happens; others' are checked every thirty seconds; no notifier, no live session | 0830 | no: today every three seconds |
-| The merge | a line is the unit: a field by key, the later change winning; a body by Git's line merge, both versions shown | 0795, 0830 | yes |
+| The merge | a line is the unit: a field by key, the later change winning; a body by Git's line merge, both versions shown | 0795, 0830, 0836 | partly: sync yes; an app's own write and MCP still try words first |
 | Which directory is which | the directory Epicenter last synced (inode and birth time); anything else asks once | 0821, 0832 | partly: the name-and-files proof remains |
 | Git working trees | Git's; never synced | 0822, 0825 | yes |
 | History | an append-only log of changes in Postgres, with authors and marks; bytes in R2 | 0824, 0826 | yes |

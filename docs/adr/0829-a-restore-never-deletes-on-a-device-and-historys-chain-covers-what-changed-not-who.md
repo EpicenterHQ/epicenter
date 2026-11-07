@@ -4,6 +4,7 @@
 - **Date:** 2026-11-07
 - **Amends:** [ADR-0824](0824-a-folders-history-is-a-log-of-versions-and-git-is-how-it-leaves.md) at the digest covering the change and at "writes conflict only on the same file": the digest covers what changed and when, never who; every commit to a folder waits its turn, and only a write to the same file is refused; [ADR-0806](0806-an-open-app-checks-for-changes-and-a-sync-never-silently-loses-an-edit.md) at a window pausing while hidden, which was never built.
 - **Relates:** [ADR-0809](0809-a-repository-is-a-spaces-app-and-bytes-nothing-needs-are-collected-or-purged.md) (purge), [ADR-0821](0821-a-computer-remembers-what-it-synced-and-a-shell-limits-each-window-to-its-folder.md) (the record of what was agreed), [ADR-0826](0826-history-enters-and-leaves-epicenter-as-git.md) (the export).
+- **Amended by:** [ADR-0836](0836-one-merge-a-cursor-that-carries-its-digest-and-one-grant.md) at rotating every folder's epoch on a restore: a cursor carries its digest, and no epoch exists.
 - **Unbuilt:** all of it: epoch rotation on restore and its runbook step; the digest in each `changes` answer and a client dropping its base on a mismatch; the scan for bytes a restore lost; the deletion outbox and its scheduled sweeper; a re-upload that claims a purged row first; a chain without author fields.
 
 ## Context

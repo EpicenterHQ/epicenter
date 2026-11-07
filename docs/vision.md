@@ -17,7 +17,8 @@ vocabulary.
 
 1. Your folders live in `~/Epicenter`, as plain files.
 2. Epicenter keeps them the same on every device, and for everyone you share
-   them with, as soon as anything changes.
+   them with: your changes leave the moment you make them, and others' arrive
+   within half a minute.
 3. Every version is kept, and when two edits to the same paragraph meet, you
    see both.
 4. Share any folder with anyone, by email.
@@ -58,7 +59,8 @@ of the ledger, or a lens on the files.
 4. **A line is the unit of merge, and the ledger's order decides ties.** A
    front-matter field is one line and merges alone; a body paragraph is one
    line and merges by Git's line merge, showing both versions when both sides
-   changed it ([ADR-0795], [ADR-0830]).
+   changed it. Every writer merges the same way ([ADR-0795], [ADR-0830],
+   [ADR-0836]).
 5. **Standards at the edges, the simplest engine inside.** Markdown and JSON
    in the files, Git for history in and out, OAuth, MCP, and HTTP; inside, a
    log of changes ([ADR-0762], [ADR-0824], [ADR-0834]).
@@ -104,15 +106,15 @@ Ask about the Thursday slot.
 **Sending.** Epicenter, a menu-bar app that starts at login, sends a change the
 moment a file changes, and checks for others' changes every thirty seconds
 ([ADR-0830]). On a computer only Epicenter's programs (the app, the CLI,
-`epicenter mcp`) talk to the server; desktop apps read and write files
-([ADR-0822]). A web app has no disk, so its folder is the folder on the server,
+`epicenter mcp`) sync with the server; desktop apps read and write files, and
+reach the server only for hosted AI ([ADR-0822]). A web app has no disk, so its folder is the folder on the server,
 and each save is a change ([ADR-0823]).
 
 **Merging.** A device merges, never the server ([ADR-0773]):
 
 | What | How it merges |
 | --- | --- |
-| a front-matter field | by key; both changed: the change ordered later wins |
+| a front-matter field | by key; both changed: the change ordered later wins (in a sync, the computer that syncs second) |
 | a note's body | Git's line merge; both changed one paragraph: both versions, marked |
 | any other file | the later change; the other stays in history |
 | an edit against a delete | the edit |
@@ -124,8 +126,8 @@ Anything else asks once; a new computer asks "Reconnect these folders?"
 ([ADR-0821], [ADR-0832]).
 
 **History.** Every change is kept, with who made it and when: see a file's
-versions, the folder as of any moment, restore, and mark a moment by name
-([ADR-0824], [ADR-0826]). A restore never deletes on a device ([ADR-0829]). A
+versions, the folder as of any moment, restore, and tag a moment by name
+([ADR-0824], [ADR-0826], [ADR-0836]). A restore never deletes on a device ([ADR-0829]). A
 folder's recent history lives in the shared database and its past in its own
 archive ([ADR-0833]).
 
@@ -155,7 +157,9 @@ An agent works the way a person does:
 - through Git: `epicenter export --git` and `import --git` carry history out
   and in, and `epicenter git land` turns a branch into one change
   ([ADR-0826], [ADR-0831]). Every folder will be a Git remote, where a clone
-  reads its history and a push lands as a change ([ADR-0834]).
+  reads its history and a push lands as a change ([ADR-0834]). Today an agent
+  with only Git can take history out and bring a new folder in; landing a
+  branch and the Git remote are decided, not built.
 
 ## What Epicenter refuses
 
@@ -195,4 +199,5 @@ An agent works the way a person does:
 [ADR-0832]: adr/0832-a-folder-is-the-directory-epicenter-last-synced-or-epicenter-asks.md
 [ADR-0833]: adr/0833-a-folders-present-lives-in-one-shared-database-and-its-past-in-its-own-archive.md
 [ADR-0834]: adr/0834-every-folder-is-also-a-git-remote.md
+[ADR-0836]: adr/0836-one-merge-a-cursor-that-carries-its-digest-and-one-grant.md
 [ADR-0835]: adr/0835-records-from-0802-to-0834-agree-on-files-a-ledger-and-git-at-the-edges.md

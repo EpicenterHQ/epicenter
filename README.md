@@ -203,5 +203,5 @@ See the root [LICENSE](LICENSE), [FINANCIAL_SUSTAINABILITY.md](FINANCIAL_SUSTAIN
 </p>
 
 <p align="center">
-  <sub>Your data outlives the app that wrote it. Local-first, open source, built on plain files and Git.</sub>
+  <sub>Your data outlives the app that wrote it. Local-first, open source, built on plain files, with a history you can take with you as Git.</sub>
 </p>

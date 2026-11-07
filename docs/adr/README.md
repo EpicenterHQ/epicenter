@@ -5,6 +5,12 @@ decided, and what that costs. ADRs are the authoritative record of _why_ the
 system is shaped the way it is. Specs explore options; an ADR records the one
 outcome we committed to.
 
+**Start with [ADR-0835](0835-records-from-0802-to-0834-agree-on-files-a-ledger-and-git-at-the-edges.md).**
+It lists every decision in force for folders, sync, history, sharing, Git, and
+apps, the record that made each, and whether it is built. Many earlier records
+were amended later; where a record disagrees with ADR-0835, ADR-0835 governs,
+and the record's "Amended by" lines say where.
+
 **An ADR wins on why, and on the rule. The code and the package README win on
 the current name, signature, and layout.** If a spec in `specs/` or a row in
 `docs/spec-history.md` disagrees with an accepted ADR about a decision, the ADR
@@ -1006,7 +1012,7 @@ When you add an ADR, add its row here.
 | [0808](0808-a-files-version-is-its-git-blob-id-on-every-store.md) | A file's version is its Git blob id on every store | Accepted (amends 0774, 0794, 0798, 0804, and 0807; amended by 0809 and 0824) |
 | [0809](0809-a-repository-is-a-spaces-app-and-bytes-nothing-needs-are-collected-or-purged.md) | A repository is a space's app, and bytes nothing needs are collected or purged | Accepted (amends 0804 and 0808; amended by 0810, 0811, and 0824) |
 | [0810](0810-a-folder-needs-no-app-and-a-repository-is-a-spaces-named-folder.md) | A folder needs no app, and a repository is a space's named folder | Accepted (amends 0805 and 0809; amended by 0811 and 0812) |
-| [0811](0811-folders-are-shared-directly-and-an-app-reaches-the-folders-attached-to-it.md) | Folders are shared directly, and an app reaches the folders attached to it | Accepted (supersedes 0770 and 0791; amends 0732, 0772, 0802, 0805, 0809, and 0810; amended by 0812, 0813, 0814, 0820, 0821, and 0824) |
+| [0811](0811-folders-are-shared-directly-and-an-app-reaches-the-folders-attached-to-it.md) | Folders are shared directly, and an app reaches the folders attached to it | Accepted (supersedes 0770 and 0791; amends 0732, 0772, 0802, 0805, 0809, and 0810; amended by 0812, 0813, 0814, 0820, 0821, 0824, and 0836) |
 | [0812](0812-an-apps-schema-is-a-view-that-must-fit-a-folders-contract.md) | An app's schema is a view that must fit a folder's contract | Accepted (amends 0805, 0810, and 0811) |
 | [0813](0813-epicenter-is-your-folders-and-apps-are-lenses.md) | Epicenter is your folders, and apps are lenses | Accepted (amends 0763, 0805, and 0811) |
 | [0814](0814-one-window-shows-one-folder.md) | One window shows one folder | Accepted (amends 0802 and 0811) |
@@ -1015,19 +1021,20 @@ When you add an ADR, add its row here.
 | [0817](0817-the-cli-exposes-every-platform-operation-and-an-app-inherits-everything-about-folders.md) | The CLI exposes every platform operation, and an app inherits everything about folders | Accepted (amended by 0827 and 0828) |
 | [0818](0818-an-app-is-a-view-a-window-and-its-capabilities-and-everything-is-repairable-by-hand.md) | An app is a view, a window, and its capabilities, and everything is repairable by hand | Accepted (amends 0763; amended by 0821) |
 | [0819](0819-every-program-keeps-the-folders-it-has-open-in-sync-and-the-epicenter-app-has-them-all-open.md) | Every program keeps the folders it has open in sync, and the Epicenter app has them all open | Accepted (amends 0750, 0806, and 0816; amended by 0821, 0822, and 0830) |
-| [0820](0820-a-share-is-an-invitation-to-an-email-and-reaching-every-folder-is-a-permission.md) | A share is an invitation to an email, and reaching every folder is a permission | Accepted (amends 0811; amended by 0821) |
+| [0820](0820-a-share-is-an-invitation-to-an-email-and-reaching-every-folder-is-a-permission.md) | A share is an invitation to an email, and reaching every folder is a permission | Accepted (amends 0811; amended by 0821 and 0836) |
 | [0821](0821-a-computer-remembers-what-it-synced-and-a-shell-limits-each-window-to-its-folder.md) | A computer remembers what it synced, and a shell limits each window to its folder | Accepted (amends 0804, 0811, 0818, 0819, and 0820; amended by 0822 and 0832) |
 | [0822](0822-only-epicenter-syncs-on-a-computer-and-a-folder-holds-only-its-content.md) | Only Epicenter syncs on a computer, and a folder holds only its content | Accepted (amends 0785, 0804, 0819, and 0821; amended by 0825, 0827, and 0832) |
 | [0823](0823-on-the-web-the-folder-on-the-server-is-the-apps-store.md) | On the web, the folder on the server is the app's store | Accepted (amends 0807; amended by 0830) |
 | [0824](0824-a-folders-history-is-a-log-of-versions-and-git-is-how-it-leaves.md) | A folder's history is a log of versions, and Git is how it leaves | Accepted (amends 0734, 0762, 0803, 0808, 0809, and 0811; amended by 0826, 0827, 0828, 0829, 0831, and 0833) |
 | [0825](0825-the-epicenter-folder-contains-its-folders.md) | The Epicenter folder contains its folders | Accepted (amends 0736, 0815, and 0822) |
-| [0826](0826-history-enters-and-leaves-epicenter-as-git.md) | History enters and leaves Epicenter as Git | Accepted (amends 0824; amended by 0827, 0828, and 0831) |
+| [0826](0826-history-enters-and-leaves-epicenter-as-git.md) | History enters and leaves Epicenter as Git | Accepted (amends 0824; amended by 0827, 0828, 0831, and 0836) |
 | [0827](0827-the-cli-and-mcp-render-one-table-of-operations.md) | The CLI and MCP render one table of operations | Accepted (amends 0799, 0805, 0817, 0822, 0824, and 0826) |
 | [0828](0828-names-say-folders-and-changes-and-history-is-package-functions-the-epicenter-app-shows.md) | Names say folders and changes, and history is package functions the Epicenter app shows | Accepted (amends 0549, 0817, 0824, and 0826) |
-| [0829](0829-a-restore-never-deletes-on-a-device-and-historys-chain-covers-what-changed-not-who.md) | A restore never deletes on a device, and history's chain covers what changed, not who | Accepted (amends 0806 and 0824) |
+| [0829](0829-a-restore-never-deletes-on-a-device-and-historys-chain-covers-what-changed-not-who.md) | A restore never deletes on a device, and history's chain covers what changed, not who | Accepted (amends 0806 and 0824; amended by 0836) |
 | [0830](0830-epicenter-sends-a-change-the-moment-it-happens-and-checks-for-others-every-thirty-seconds.md) | Epicenter sends a change the moment it happens, and checks for others' every thirty seconds | Accepted (amends 0806, 0819, and 0823) |
 | [0831](0831-a-git-branch-lands-in-a-folder-as-one-change-through-the-cli.md) | A Git branch lands in a folder as one change through the CLI | Accepted (amends 0824 and 0826; amended by 0834) |
 | [0832](0832-a-folder-is-the-directory-epicenter-last-synced-or-epicenter-asks.md) | A folder is the directory Epicenter last synced, or Epicenter asks | Accepted (amends 0821 and 0822) |
 | [0833](0833-a-folders-present-lives-in-one-shared-database-and-its-past-in-its-own-archive.md) | A folder's present lives in one shared database, and its past in its own archive | Accepted (amends 0824) |
 | [0834](0834-every-folder-is-also-a-git-remote.md) | Every folder is also a Git remote | Accepted (amends 0831) |
 | [0835](0835-records-from-0802-to-0834-agree-on-files-a-ledger-and-git-at-the-edges.md) | Records from 0802 to 0834 agree on files, a ledger, and Git at the edges | Accepted |
+| [0836](0836-one-merge-a-cursor-that-carries-its-digest-and-one-grant.md) | One merge, a cursor that carries its digest, and one grant | Accepted (amends 0811, 0820, 0826, and 0829) |
