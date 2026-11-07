@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-git-lfs-object"
+description = "Enables the git_lfs_object command without any pre-configured scope."
+commands.allow = ["git_lfs_object"]
+
+[[permission]]
+identifier = "deny-git-lfs-object"
+description = "Denies the git_lfs_object command without any pre-configured scope."
+commands.deny = ["git_lfs_object"]

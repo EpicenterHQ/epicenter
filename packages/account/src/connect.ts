@@ -3,7 +3,7 @@
  * chooses when it runs (ADR-0781). The app lists nothing it uses the
  * account for: each capability it hands the account to says what it needs
  * when it is made (`need`), and sign-in asks for all of them (ADR-0792).
- * `home({ site, account })` needs the app's repository, `hosted(account)`
+ * `home({ site, account })` needs the app's folder, `hosted(account)`
  * the AI gateway, and `openProfile(account)` the person's name and email.
  *
  * - In a browser the account is a browser OAuth client that asks for the
@@ -25,11 +25,11 @@ import { createBrowserOAuth } from './browser-oauth.js';
 import { createTauriAuth } from './tauri.js';
 
 /**
- * What a capability needs the account to reach: the app's repository
- * (`repository`, which a Tauri window's folder syncs with), Epicenter's AI
+ * What a capability needs the account to reach: the app's folder on the
+ * server (`folders`, which a Tauri window's folder syncs with), Epicenter's AI
  * gateway (`ai`), or who is signed in, by name and email (`profile`).
  */
-export type AccountNeed = 'repository' | 'ai' | 'profile';
+export type AccountNeed = 'folders' | 'ai' | 'profile';
 
 /** An app's account: a sign-in each capability that takes it says it needs. */
 export type AppAccount = AuthClient & {
@@ -94,12 +94,12 @@ export function connectAccount({
  */
 function browserGrant(
 	needs: ReadonlySet<AccountNeed>,
-	audiences: { api: string; git: string },
+	audiences: { api: string; folders: string },
 ): { resources: [string, ...string[]]; scope: string } {
 	const reachesApi = needs.has('ai') || needs.has('profile');
 	const [first, ...rest] = [
 		...(reachesApi ? [audiences.api] : []),
-		...(needs.has('repository') ? [audiences.git] : []),
+		...(needs.has('folders') ? [audiences.folders] : []),
 	];
 	if (first === undefined)
 		throw new TypeError(
@@ -109,7 +109,7 @@ function browserGrant(
 		'openid',
 		...(needs.has('profile') ? ['profile', 'email'] : []),
 		...(needs.has('ai') ? ['ai'] : []),
-		...(needs.has('repository') ? ['folders:read', 'folders:write'] : []),
+		...(needs.has('folders') ? ['folders:read', 'folders:write'] : []),
 	].join(' ');
 	return { resources: [first, ...rest], scope };
 }

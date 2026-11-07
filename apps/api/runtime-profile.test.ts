@@ -104,7 +104,7 @@ const PROFILE: Surface[] = [
 	{
 		surface: 'mountFolders',
 		method: 'GET',
-		url: `${ORIGIN}/git/folders/aaaaaaaaaaaaaaaa/changes`,
+		url: `${ORIGIN}/folders/aaaaaaaaaaaaaaaa/changes`,
 		worker: 'served',
 		bun: 'served',
 	},
@@ -265,7 +265,7 @@ const RELAYED_ROUTES: { method: string; path: string }[] = JSON.parse(
 );
 
 test("a standalone desktop app's relayed routes are hosted inference both runtimes serve", async () => {
-	// The inference gateways' own routes, so never a folder, Git, member,
+	// The inference gateways' own routes, so never a folder, member,
 	// share, attach, or account route.
 	const inference = Object.values(API_ROUTES.ai).flatMap((route) =>
 		typeof route === 'object' ? [route.pattern] : [],
@@ -379,12 +379,10 @@ test('both runtime compositions fail closed on protected operations during a dat
 			[worker, 'worker'],
 			[bun, 'bun'],
 		] as const) {
-			// Neither entry has a Git store here, so the Git data plane answers
-			// 503 before it reads Postgres.
 			for (const row of PROFILE.filter(
 				(row) =>
 					row[runtime] === 'served' &&
-					!['health', 'dashboard SPA', 'Git data plane'].includes(row.surface),
+					!['health', 'dashboard SPA'].includes(row.surface),
 			)) {
 				const callsBefore = databaseCalls;
 				const response = await fetcher(

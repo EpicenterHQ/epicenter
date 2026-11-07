@@ -41,7 +41,7 @@ export const folder = pgTable(
 		/** Sixteen characters of lowercase a-z and 0-9; the blob store names its bytes by it too. */
 		id: text('id').primaryKey(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
-		/** The sequence number of its last change, 0 before the first; each commit locks this row to take the next. */
+		/** The sequence number of its last change, 0 before the first; each change locks this row to take the next. */
 		seq: bigint('seq', { mode: 'number' }).default(0).notNull(),
 		/**
 		 * Which log `seq` counts in: a cursor is `<epoch>.<seq>`, so a cursor
@@ -223,11 +223,11 @@ export const blob = pgTable(
 
 /**
  * One change of a folder's log (ADR-0824): its sequence number, dense and in
- * commit order; when; who, by account id and as their name and email read
+ * the order they landed; when; who, by account id and as their name and email read
  * then; the program (`via`, the OAuth client the token was issued to); an
  * imported commit's message (ADR-0826), null otherwise; and `digest`, the
  * SHA-256 of the previous change's digest and this change's canonical text
- * (`epicenter_commit` in `apps/api/drizzle`). The account id is no foreign
+ * (`epicenter_append_change` in `apps/api/drizzle`). The account id is no foreign
  * key: history outlives an account.
  */
 export const change = pgTable(
@@ -277,7 +277,7 @@ export const changeFile = pgTable(
 /**
  * Each path a folder holds now: its version and size, and the change that
  * wrote it. `folded` is the path as a disk that ignores case compares it
- * (NFC, then lower case), unique in the folder; a commit also refuses a file
+ * (NFC, then lower case), unique in the folder; a change also refuses a file
  * where a folder is, below a file, or in a folder spelled in another case.
  */
 export const file = pgTable(

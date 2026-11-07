@@ -78,6 +78,8 @@ export type Identified = {
 	free: HeldRecord[];
 	/** Whether the Epicenter folder is itself a Git repository. */
 	rootGit: boolean;
+	/** Where the Epicenter folder really is, its links followed: what the file-sync check reads. */
+	real: string;
 	/** The folders the person holds, asked once; null without an account, or when the server could not answer. */
 	server(): Promise<FolderListing | null>;
 	/** Why the server could not answer, once asked; null when it did, or was not asked. */
@@ -237,6 +239,7 @@ export async function identify({
 		unreadable: listed.data.unreadable,
 		free: [...free.values()],
 		rootGit: listed.data.git,
+		real: listed.data.real,
 		server,
 		async serverError() {
 			const answer = await (asked ?? Promise.resolve(null));
@@ -321,7 +324,9 @@ export async function questionOf(
  * service (iCloud Drive, a File Provider location, Dropbox, OneDrive, Google
  * Drive) is synced by that service too, which fights Epicenter over every
  * file. Only the Epicenter folder is checked: every folder Epicenter syncs
- * is a real directory in it.
+ * is a real directory in it. `path` is where it really is, its links
+ * followed (`real` of its listing), so `~/Epicenter` linked into iCloud
+ * Drive is caught.
  */
 export function fileSyncOf(
 	path: string,

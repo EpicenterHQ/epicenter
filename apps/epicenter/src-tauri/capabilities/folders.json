@@ -1,7 +1,7 @@
 {
 	"$schema": "../gen/schemas/desktop-schema.json",
 	"identifier": "folders",
-	"description": "Epicenter’s Folders window: it lists every folder in the Epicenter folder and keeps each in sync by composing @epicenter/folder/platform in its page (ADR-0817, ADR-0819). It reaches the Epicenter folder and each folder in it through the folder plugin (`epicenter-folder:epicenter` lists and makes them; `epicenter-folder:default` opens each as a root and reads and writes it), reads who is signed in from the app's data (`account.json`), and sends its folder requests through the shell's sign-in (`account_fetch`), which holds the token; it may start a sign-in, and only Settings signs out. Its page is served on the local epicenter-app scheme.",
+	"description": "Epicenter’s Folders window: it lists every folder in the Epicenter folder and keeps each in sync by composing @epicenter/folder/platform in its page (ADR-0817, ADR-0819). It reaches the Epicenter folder and each folder in it through the folder plugin (`epicenter-folder:epicenter` lists and makes them; `epicenter-folder:default` opens each as a root and reads and writes it), reads who is signed in from the app's data (`account.json`), and sends its folder requests through the shell's sign-in (`account_fetch`), which holds the token; it may start a sign-in, and only Settings signs out. To import a Git repository it asks the shell to choose one and runs the system `git` through the shell's Git commands (`git.rs`, ADR-0828). Its page is served on the local epicenter-app scheme.",
 	"local": true,
 	"windows": ["folders"],
 	"permissions": [
@@ -9,6 +9,12 @@
 		"allow-account-sign-in",
 		"allow-account-fetch",
 		"allow-account-fetch-cancel",
+		"allow-choose-repository",
+		"allow-git-run",
+		"allow-git-scratch",
+		"allow-git-scratch-remove",
+		"allow-git-lfs-object",
+		"allow-git-hand-over",
 		"epicenter-folder:default",
 		"epicenter-folder:epicenter",
 		"core:event:allow-listen",

@@ -3,7 +3,7 @@
  *
  * The sync scenarios (`sync.scenarios.ts`) over two directories in Bun,
  * each keeping its manifest in a directory beside it, syncing with a
- * repository on the real server: Postgres, the Git and LFS disk stores,
+ * repository on the real server: Postgres, the disk blob store,
  * and a signed-in person's token (`startRepositoryServer`). Each scenario
  * gets its own repository. Requires initdb and pg_ctl on PATH.
  *

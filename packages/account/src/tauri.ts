@@ -46,11 +46,11 @@ export const tauriShell: TauriShell = {
 
 /**
  * The token audience the shell sends an account's requests with: the API's
- * (hosted models, who is signed in), or Git's (the folder routes and every
- * folder's history), which only an app that signs in for folders has
+ * (hosted models, who is signed in), or the folders' (every folder's
+ * routes and history, and `/api/folders`), which only an app that signs in for folders has
  * (`AccountApp::API_AND_FOLDERS` in `epicenter-account`).
  */
-export type TauriAudience = 'api' | 'git';
+export type TauriAudience = 'api' | 'folders';
 
 /** `account.json`, the identity the shell writes: who is signed in, and whether the server ended it. */
 type Identity = {
@@ -83,7 +83,7 @@ function identityIn(text: string | null): Identity | null {
  * identity it writes (`account.json` in this computer's settings). Its reads
  * answer once the settings connected; before, they throw `SettingsNotOpen`.
  * Its account's requests carry the token for `audience`: the API's unless
- * an app that signs in for folders asks for Git's.
+ * an app that signs in for folders asks for the folders'.
  */
 export function createTauriAuth({
 	shell = tauriShell,

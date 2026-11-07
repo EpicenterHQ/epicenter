@@ -178,7 +178,13 @@ export function epicenterRoot(): EpicenterRoot {
 			const outside: OutsideLink[] = listed.data.outside.map(
 				({ name, target }) => ({ name, path: `${path}/${name}`, target }),
 			);
-			return Ok({ folders, outside, unreadable, git: listed.data.git });
+			return Ok({
+				folders,
+				outside,
+				unreadable,
+				git: listed.data.git,
+				real: listed.data.real,
+			});
 		},
 		async make(name): Promise<Result<LocalFolder, Unavailable>> {
 			try {

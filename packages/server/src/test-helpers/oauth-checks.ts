@@ -72,7 +72,7 @@ async function closeReplayWindow(h: OAuthHarness, refreshToken: string) {
 }
 
 const read = (h: OAuthHarness) => ({
-	audience: h.audiences.git,
+	audience: h.audiences.folders,
 	scope: 'folders:read',
 });
 
@@ -86,7 +86,7 @@ export async function checkRefreshFamily(h: OAuthHarness) {
 	const { client } = h;
 	const person = await client.person('family');
 	const other = await client.person('family-other');
-	const resource = [h.audiences.git];
+	const resource = [h.audiences.folders];
 	const code = (who: Person) =>
 		client.codeGrant({ ...h.desktop, cookie: who.cookie, resource });
 	const device = async () => {
@@ -202,7 +202,7 @@ export async function checkFlows(h: OAuthHarness) {
 	expect(metadata.grant_types_supported).not.toContain('client_credentials');
 
 	const person = await client.person('flows');
-	const resource = [h.audiences.git];
+	const resource = [h.audiences.folders];
 	const issued = await client.codeGrant({
 		...h.desktop,
 		cookie: person.cookie,
@@ -437,7 +437,7 @@ export async function checkFlows(h: OAuthHarness) {
 export async function checkConsent(h: OAuthHarness) {
 	const { client } = h;
 	const person = await client.person('consent');
-	const resource = [h.audiences.git];
+	const resource = [h.audiences.folders];
 
 	const { verifier, challenge } = await pkce();
 	const authorized = await client.authorize({
@@ -519,7 +519,7 @@ export async function checkConsent(h: OAuthHarness) {
 export async function checkSilentReauthorization(h: OAuthHarness) {
 	const { client } = h;
 	const person = await client.person('silent');
-	const resource = [h.audiences.api, h.audiences.git];
+	const resource = [h.audiences.api, h.audiences.folders];
 	const { verifier, challenge } = await pkce();
 	const silent = await client.authorize({
 		...h.browser,
@@ -537,7 +537,7 @@ export async function checkSilentReauthorization(h: OAuthHarness) {
 		...h.browser,
 		code,
 		verifier,
-		resource: [h.audiences.git],
+		resource: [h.audiences.folders],
 	});
 	expect(issued.refresh_token).toBeUndefined();
 	expect((await h.resource(issued.access_token, read(h))).status).toBe(200);

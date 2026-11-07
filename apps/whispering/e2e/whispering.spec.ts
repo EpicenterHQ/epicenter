@@ -214,12 +214,12 @@ test('2. a take lands whole at Stop, and leaving mid-recording loses it', async 
 }) => {
 	await page.goto(app);
 	const listedBefore = await listedIds();
-	// A write is a folder's `commits`, or an attachment's bytes put at its
+	// A write is a folder's `POST changes`, or an attachment's bytes put at its
 	// sha256; a read is any other request.
 	const heard = (request: { method(): string; url(): string }) => {
 		if (!request.url().startsWith(stack.origin)) return;
 		const path = new URL(request.url()).pathname;
-		if (path.endsWith('/commits') || request.method() === 'PUT')
+		if ((path.endsWith('/changes') && request.method() === 'POST') || request.method() === 'PUT')
 			writes.push(`${request.method()} ${path}`);
 	};
 	page.on('request', heard);

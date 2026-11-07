@@ -141,12 +141,16 @@ pub struct Unreadable {
     pub reason: String,
 }
 
-/// The Epicenter folder's listing: where it is, as a person reads it,
-/// whether it is itself a Git repository, its folders by name, the links in
-/// it, and what is there but could not be read.
+/// The Epicenter folder's listing: where it is, as a person reads it, and
+/// where it really is, every link on its way followed, which the file-sync
+/// check reads; whether it is itself a Git repository, its folders by name,
+/// the links in it, and what is there but could not be read.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
 pub struct EpicenterListing {
     pub path: String,
+    /// Where it really is (`resolved`): `~/Epicenter` linked into iCloud
+    /// Drive is in iCloud Drive.
+    pub real: String,
     /// Whether the Epicenter folder holds `.git` at its root, which
     /// Epicenter says once (ADR-0825).
     pub git: bool,
@@ -501,6 +505,7 @@ impl Roots {
         }
         Ok(EpicenterListing {
             git: kept_by_git(&base),
+            real: resolved(&base).display().to_string(),
             path: shown,
             folders,
             outside,
@@ -992,6 +997,26 @@ mod tests {
         let listing = roots.list_epicenter().unwrap();
         assert!(listing.git);
         assert!(!listing.folders[0].git);
+    }
+
+    /// The listing says where the Epicenter folder really is, its link
+    /// followed, so `~/Epicenter` linked into iCloud Drive is checked there.
+    #[cfg(unix)]
+    #[test]
+    fn the_listing_says_where_a_linked_epicenter_folder_really_is() {
+        let (_temp, base) = base();
+        let icloud = base.join("Library/Mobile Documents/com~apple~CloudDocs/Epicenter");
+        fs::create_dir_all(&icloud).unwrap();
+        let epicenter = base.join("Epicenter");
+        std::os::unix::fs::symlink(&icloud, &epicenter).unwrap();
+        let roots = Roots::default();
+        roots.name_epicenter(epicenter.clone(), never);
+        let listing = roots.list_epicenter().unwrap();
+        assert_eq!(listing.path, epicenter.display().to_string());
+        assert_eq!(
+            listing.real,
+            dunce::canonicalize(&icloud).unwrap().display().to_string()
+        );
     }
 
     /// A listener hears each root that opens, with the folder it reached.

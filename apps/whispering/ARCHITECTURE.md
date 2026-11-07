@@ -249,11 +249,11 @@ window it is optional and adds Epicenter's models alone. The browser's
 OAuth client (`connectAccount()`) asks for what each capability given the
 account said it needs
 ([ADR-0792](../../docs/adr/0792-an-account-asks-for-what-the-capabilities-that-take-it-need.md)):
-`home` the repository (the Git audience and the `folders:*` scopes) and
+`home` the folder (the folders audience and the `folders:*` scopes) and
 `hosted(account)` the AI gateway (the API audience and `ai`).
 `web-sign-in.postgres.test.ts` checks it against the real authorization
-server: the API takes its token for a transcription and the Git host for
-the person's repository. Over a data folder, signing in or out changes what
+server: the API takes its token for a transcription and the folders audience
+for the person's folder. Over a data folder, signing in or out changes what
 `hosted(account)` lists and changes no file.
 
 ## Deleting

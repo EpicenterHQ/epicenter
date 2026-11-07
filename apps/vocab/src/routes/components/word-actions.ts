@@ -6,7 +6,7 @@ export function confirmDelete(entries: Entries, entry: Entry) {
 	confirmationDialog.open({
 		title: `Delete “${entry.text}”?`,
 		description:
-			'It is deleted from your repository with its note and stage. Its Git history keeps them.',
+			'It is deleted from your folder with its note and stage. Its history keeps them.',
 		confirm: { text: 'Delete', variant: 'destructive' },
 		onConfirm: () => entries.delete(entry.id),
 	});

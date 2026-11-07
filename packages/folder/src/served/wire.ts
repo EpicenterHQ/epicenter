@@ -11,7 +11,7 @@
  * | `put` `{ path, bytes \| null, expect: version \| null }` | `{ landed: version \| null }`, or `{ moved: version \| null }` |
  * | `watch` `{}` | a stream of JSON lines: `{ listening: true }` once the directory is watched, then `{ changed: paths \| 'all' }`; an empty line keeps it open |
  *
- * Bytes travel as base64. A version is a Git blob id (ADR-0808), the
+ * Bytes travel as base64. A version is the SHA-256 of the bytes (ADR-0824), the
  * directory store's own, passed through unread. A store that
  * cannot be reached answers `503` with `{ unavailable }`, the reason; a
  * request the program cannot read answers `400`. A directory has no

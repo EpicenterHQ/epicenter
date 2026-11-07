@@ -120,7 +120,7 @@ test('1. signed in, words are added, noted, staged and deleted and a chat is sta
 	await add('gone');
 	await card('gone').getByRole('button', { name: 'Delete' }).click();
 	await expect(page.getByRole('alertdialog')).toContainText(
-		'Its Git history keeps them',
+		'Its history keeps them',
 	);
 	await page
 		.getByRole('alertdialog')

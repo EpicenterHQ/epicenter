@@ -17,8 +17,8 @@ import { asPrincipalId } from './principal.js';
 const SERVER = 'https://api.test';
 const APP = 'https://todos.test';
 const CLIENT_ID = 'so.epicenter.todos';
-// The hosted cloud serves Git from an origin of its own.
-const RESOURCE = 'https://git.test';
+// A resource may be on an origin of its own.
+const RESOURCE = 'https://folders.test';
 const SCOPE = 'openid folders:read folders:write';
 const REDIRECT_URI = `${APP}/auth/callback`;
 const TOKEN_KEY = `${CLIENT_ID}.oauth:${SERVER}`;
@@ -682,9 +682,9 @@ test("Account.fetch attaches the bearer only for its own server and its token's 
 	expect(sent.init?.credentials).toBe('omit');
 	expect(sent.init?.redirect).toBe('manual');
 
-	await account.fetch(`${RESOURCE}/abcdefghij12/notes.git/info/refs`);
+	await account.fetch(`${RESOURCE}/abcdefghij12/changes`);
 	const toResource = world.requests.at(-1)!;
-	expect(toResource.url).toBe(`${RESOURCE}/abcdefghij12/notes.git/info/refs`);
+	expect(toResource.url).toBe(`${RESOURCE}/abcdefghij12/changes`);
 	expect(new Headers(toResource.init?.headers).get('authorization')).toBe(
 		'Bearer token-1',
 	);
@@ -694,10 +694,10 @@ test("Account.fetch attaches the bearer only for its own server and its token's 
 		TypeError,
 	);
 	// A look-alike host is another origin.
-	await expect(account.fetch('https://git.test.evil/x')).rejects.toThrow(
+	await expect(account.fetch('https://folders.test.evil/x')).rejects.toThrow(
 		TypeError,
 	);
-	await expect(account.fetch('http://git.test/x')).rejects.toThrow(TypeError);
+	await expect(account.fetch('http://folders.test/x')).rejects.toThrow(TypeError);
 	await expect(account.fetch('https://user:pass@api.test/x')).rejects.toThrow(
 		TypeError,
 	);
@@ -774,10 +774,10 @@ test('dispose clears the renewal timer and the storage listener', async () => {
 });
 
 describe('one sign-in for several resources', () => {
-	// Local and self-hosted deployments serve Git under the API's origin.
+	// Every deployment serves the folders under the API's origin.
 	const API = SERVER;
-	const LOCAL_GIT = `${SERVER}/git`;
-	const BOTH = [API, LOCAL_GIT] as const;
+	const FOLDERS = `${SERVER}/folders`;
+	const BOTH = [API, FOLDERS] as const;
 
 	test('one navigation names every resource and asks for offline_access', async () => {
 		const world = createWorld({ resources: BOTH });
@@ -786,7 +786,7 @@ describe('one sign-in for several resources', () => {
 		expectOk(await auth.startSignIn());
 		expect(tab.assigned).toHaveLength(1);
 		const params = new URL(tab.assigned[0]!).searchParams;
-		expect(params.getAll('resource')).toEqual([API, LOCAL_GIT]);
+		expect(params.getAll('resource')).toEqual([API, FOLDERS]);
 		expect(params.get('scope')).toBe(`${SCOPE} offline_access`);
 	});
 
@@ -802,12 +802,12 @@ describe('one sign-in for several resources', () => {
 			})),
 		).toEqual([
 			{ grant: 'authorization_code', resource: API, refreshToken: null },
-			{ grant: 'refresh_token', resource: LOCAL_GIT, refreshToken: 'ep_rt_1' },
+			{ grant: 'refresh_token', resource: FOLDERS, refreshToken: 'ep_rt_1' },
 		]);
 		expect(JSON.parse(world.storage.getItem(TOKEN_KEY)!)).toEqual({
 			tokens: {
 				[API]: { accessToken: 'token-1', expiresAt: expect.any(Number) },
-				[LOCAL_GIT]: { accessToken: 'token-2', expiresAt: expect.any(Number) },
+				[FOLDERS]: { accessToken: 'token-2', expiresAt: expect.any(Number) },
 			},
 			principalId: 'alice',
 			generation: expect.any(String),
@@ -825,12 +825,12 @@ describe('one sign-in for several resources', () => {
 	});
 
 	test.each([
-		['under the API origin', LOCAL_GIT],
+		['under the API origin', FOLDERS],
 		['on an origin of its own', RESOURCE],
 	])(
-		'Account.fetch sends each resource its own token, with Git %s',
-		async (_, git) => {
-			const world = createWorld({ resources: [API, git] });
+		'Account.fetch sends each resource its own token, with the folders %s',
+		async (_, folders) => {
+			const world = createWorld({ resources: [API, folders] });
 			const { auth } = await signIn(world);
 			const account = auth.state().account!;
 			const sentWith = async (url: string) => {
@@ -839,13 +839,13 @@ describe('one sign-in for several resources', () => {
 					'authorization',
 				);
 			};
-			expect(await sentWith(`${git}/alice/notes.git/info/refs`)).toBe(
+			expect(await sentWith(`${folders}/abcdefghij12/changes`)).toBe(
 				'Bearer token-2',
 			);
-			expect(await sentWith(git)).toBe('Bearer token-2');
+			expect(await sentWith(folders)).toBe('Bearer token-2');
 			expect(await sentWith(`${API}/ai/chat`)).toBe('Bearer token-1');
-			// A path that only starts with the Git path is the API's.
-			expect(await sentWith(`${API}/github`)).toBe('Bearer token-1');
+			// A path that only starts with the folders' path is the API's.
+			expect(await sentWith(`${API}/folderstuff`)).toBe('Bearer token-1');
 			expect(await sentWith('/auth/oauth2/userinfo')).toBe('Bearer token-1');
 			await expect(account.fetch('https://elsewhere.test/x')).rejects.toThrow(
 				TypeError,
@@ -884,9 +884,9 @@ describe('one sign-in for several resources', () => {
 		const account = auth.state().account!;
 
 		world.server.refusedTokens.add('token-2');
-		expect((await account.fetch(`${LOCAL_GIT}/x`)).status).toBe(401);
+		expect((await account.fetch(`${FOLDERS}/x`)).status).toBe(401);
 		expect(auth.state()).toEqual({ status: 'reauth-required', account });
-		await expect(account.fetch(`${LOCAL_GIT}/x`)).rejects.toMatchObject({
+		await expect(account.fetch(`${FOLDERS}/x`)).rejects.toMatchObject({
 			code: 'reauth-required',
 		});
 		// The API token was not refused, so its requests still go out.
@@ -895,7 +895,7 @@ describe('one sign-in for several resources', () => {
 		expectOk(await auth.signOut());
 		expect(account.signal.aborted).toBe(true);
 		await expect(account.fetch(`${API}/ai`)).rejects.toBeDefined();
-		await expect(account.fetch(`${LOCAL_GIT}/x`)).rejects.toBeDefined();
+		await expect(account.fetch(`${FOLDERS}/x`)).rejects.toBeDefined();
 		expect(world.revoked.map((form) => form.get('token')).sort()).toEqual([
 			'token-1',
 			'token-2',
@@ -908,7 +908,7 @@ describe('one sign-in for several resources', () => {
 		const { auth: first } = await signIn(world);
 		first[Symbol.dispose]();
 		const cell = JSON.parse(world.storage.getItem(TOKEN_KEY)!);
-		cell.tokens[LOCAL_GIT].expiresAt -= HOUR;
+		cell.tokens[FOLDERS].expiresAt -= HOUR;
 		world.storage.setItem(TOKEN_KEY, JSON.stringify(cell));
 		world.advance(7 * HOUR - 9 * MINUTE);
 
@@ -919,14 +919,14 @@ describe('one sign-in for several resources', () => {
 		expect(leaving.state().status).toBe('signed-in');
 		const params = new URL(tab.assigned[0]!).searchParams;
 		expect(params.get('prompt')).toBe('none');
-		expect(params.getAll('resource')).toEqual([API, LOCAL_GIT]);
+		expect(params.getAll('resource')).toEqual([API, FOLDERS]);
 
 		tab.location.href = world.server.authorize(tab.assigned[0]!);
 		using callback = tab.create();
 		expectOk(await callback.completeSignIn());
 		const renewed = JSON.parse(world.storage.getItem(TOKEN_KEY)!);
 		expect(renewed.tokens[API].accessToken).toBe('token-3');
-		expect(renewed.tokens[LOCAL_GIT].accessToken).toBe('token-4');
+		expect(renewed.tokens[FOLDERS].accessToken).toBe('token-4');
 		expect(renewed.generation).toBe(cell.generation);
 	});
 

@@ -9,7 +9,7 @@ Part of the [Epicenter](https://github.com/EpicenterHQ/epicenter) monorepo. AGPL
 Runs on Cloudflare Workers. This Worker is Epicenter's hosted server for
 folders (ADR-0811): it mounts `mountFolders` from `@epicenter/server`,
 where each folder's history is a log in Postgres at
-`git.epicenter.so/folders/<id>`, with its larger bytes in R2 (ADR-0824). See
+`api.epicenter.so/folders/<id>`, with its larger bytes in R2 (ADR-0824). See
 [Folders](#folders).
 
 The Yjs store sync this Worker used to serve is removed (ADR-0534), and so is
@@ -57,10 +57,10 @@ sign-in, consent, device approval, and the dashboard's account management
 This Worker is the OAuth 2.1 authorization server of
 [ADR-0549](../../docs/adr/0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md),
 and every resource it serves accepts only its opaque access tokens: `/v1/*`
-takes the API audience and `ai`, a folder's routes the Git audience with
+takes the API audience and `ai`, a folder's routes the folders audience with
 `folders:read` or `folders:write`, the caller's role in the folder, and
 either `folders:all` or the folder's attachment to the app, and
-`/api/folders` the Git audience with `folders:read` (listing) or
+`/api/folders` the folders audience with `folders:read` (listing) or
 `folders:write` (sharing, accepting, attaching). Epicenter hosts no MCP server
 ([ADR-0578](../../docs/adr/0578-epicenter-hosts-no-mcp-server.md)). A
 folder's bytes over 16 KiB are in R2, by their SHA-256 (ADR-0824). An app reads who signed in from Better Auth's
@@ -115,8 +115,8 @@ Cloudflare Workers
 │   ├── /device                device code entry; approval is the consent page
 │   ├── /.well-known/*         authorization server and protected resource metadata
 │   ├── /api/folders           the caller's folders and invitations; invite, accept, attach
-│   ├── git audience /folders  make or join a folder (POST) and every folder's head (GET)
-│   ├── git audience /folders/:id/*  a folder's log: changes, files, history, marks, bytes, commits
+│   ├── /folders               the folders audience: make or join a folder (POST), every folder's head (GET)
+│   ├── /folders/:id/*         a folder's log: changes read and appended, files, history, marks, bytes
 │   ├── /v1/*                  OpenAI-compatible chat and STT gateways
 │   └── /api/billing/*         Autumn (hosted-only, worker/billing/)
 │
@@ -220,10 +220,9 @@ disposable Postgres clusters and drives them with real access tokens.
 names what is deployment-specific:
 
 - **Audiences**, from `resolveOAuthAudiences` in `@epicenter/definition/site`,
-  which the `epicenter` CLI reads too. Hosted, they are
-  `https://api.epicenter.so` and `https://git.epicenter.so`. Any other origin
-  (local dev, self-host) serves both from itself: `<origin>` and
-  `<origin>/git` (ADR-0326). No client registers itself or identifies itself
+  which the `epicenter` CLI reads too. Every deployment serves both from
+  its own origin: `<origin>` and `<origin>/folders` (ADR-0326, ADR-0828),
+  hosted `https://api.epicenter.so` and `https://api.epicenter.so/folders`. No client registers itself or identifies itself
   by a metadata document: every client is one of these first-party rows.
 - **First-party clients**, in `worker/oauth-registrations.ts`. Each browser build is its app id, a public PKCE
   client with its exact `/auth/callback`, consent skipped, reaching the
@@ -251,7 +250,7 @@ concurrent writers against a fresh database.
 Better Auth runs unpatched, at an exact 1.8 beta in the root catalog. The
 device page sends a code to `/auth/oauth2/authorize?user_code=<code>`, and the
 consent page approves it. Migration
-`0005_better_auth_1_8` adds the 1.8 columns. `api` and `git` allow every
+`0005_better_auth_1_8` adds the 1.8 columns. `api` and `folders` allow every
 first-party scope, so a refresh never narrows the grant (ADR-0565).
 
 `oauth-server.postgres.test.ts` runs the spike's checks (refresh family,
@@ -265,7 +264,7 @@ local connection string. `bun run test` runs each test file isolated
 
 `mountFolders` serves every folder ([ADR-0811](../../docs/adr/0811-folders-are-shared-directly-and-an-app-reaches-the-folders-attached-to-it.md),
 [ADR-0824](../../docs/adr/0824-a-folders-history-is-a-log-of-versions-and-git-is-how-it-leaves.md)):
-its log at `<git audience>/folders/<id>`, and `/api/folders` for listing,
+its log at `<folders>/<id>` (`<api origin>/folders/<id>`), and `/api/folders` for listing,
 sharing, accepting, and attaching it to an app. A folder exists from the
 request that makes it. The route authorizes each request from the access
 token, the person's role in the folder, and the token's reach;
@@ -279,8 +278,8 @@ to an email that answers the same whether or not anyone signs in with it,
 and waits for the account whose verified email it names, at sign-up or
 later (ADR-0820).
 
-Each folder's log is in Postgres, through Hyperdrive on the Worker: a
-commit is one statement, and so is every read. Bytes over 16 KiB live in R2
+Each folder's log is in Postgres, through Hyperdrive on the Worker:
+appending a change is one statement, and so is every read. Bytes over 16 KiB live in R2
 (`BLOBS`, the bucket `epicenter-lfs`, at `folders/<id>/blobs/<sha256>`),
 read and written over the binding alone, with no key pair and no presigned
 URL; Wrangler simulates the bucket in `bun dev:api`. The Bun entry keeps
@@ -295,8 +294,7 @@ BLOB_STORE_ROOT=/tmp/epicenter/blobs bun run dev:bun
 The deployment schedules `sweepPendingBlobs` (uploads no change named
 within a day) and, when an operator purges history, `purgeBlobs`, which
 keeps every row and by default the versions of the last 90 days. Folders
-are unmetered. The hosted cloud also needs `git.epicenter.so` routed to
-this Worker; that is a deploy step, not in this repository's config.
+are unmetered.
 
 **Git storage is gone, as a clean break.** Folders were Git repositories
 in Cloudflare Artifacts (hosted) or bare repositories under

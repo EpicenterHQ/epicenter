@@ -1,7 +1,8 @@
 /**
- * `epicenter export --git <dir>` (ADR-0824, ADR-0826, ADR-0827): a folder's
- * history, written as a Git repository by `git fast-import`, in projection
- * v2.
+ * A folder's history leaving Epicenter as a Git repository (ADR-0824,
+ * ADR-0826, ADR-0827), written by `git fast-import` in projection v2:
+ * `epicenter export --git <dir>`. It drives `git` from Bun, so it is
+ * `@epicenter/folder/node`'s.
  *
  * Projection v2, deterministic, so the same log always makes the same
  * commit ids:
@@ -33,8 +34,18 @@ import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { CONTRACT_PATH, isNotePath } from '@epicenter/definition/contract';
-import type { FolderRepository, LoggedChange } from '@epicenter/folder/sync';
-import { git, gitText, lfsObjectPath, lfsPointer } from './run.ts';
+import { Ok, type Result } from 'wellcrafted/result';
+import type { FolderRepository, LoggedChange } from '../remote/repository.js';
+import {
+	GitError,
+	gitText as hostText,
+	lfsObjectPath,
+	lfsPointer,
+} from './host.js';
+import { git, gitHost } from './node.js';
+
+const gitText = (args: readonly string[], options: { cwd?: string } = {}) =>
+	hostText(gitHost, args, options);
 
 /** What an export reads of a folder: its log, bytes by version, and marks. */
 export type History = Pick<FolderRepository, 'log' | 'blobs' | 'marks'>;
@@ -128,7 +139,19 @@ async function readMarks(path: string): Promise<Map<number, string>> {
  * Git repository at `dir`, made when absent: every change after the last
  * one exported there.
  */
-export async function exportGit({
+export async function exportGit(options: {
+	folder: string;
+	history: History;
+	dir: string;
+}): Promise<Result<ExportReport, GitError>> {
+	try {
+		return Ok(await runExport(options));
+	} catch (cause) {
+		return GitError.Failed({ cause });
+	}
+}
+
+async function runExport({
 	folder,
 	history,
 	dir,

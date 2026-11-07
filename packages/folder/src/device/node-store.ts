@@ -20,7 +20,7 @@
  * - Within this process, writes to one path take turns from the check to the
  *   change (`createPathTurns`): of two writers over one version, one lands
  *   and the other finds it `Moved`. Across processes nothing holds a path between
- *   a replacement's check and its rename; Git history is the backstop.
+ *   a replacement's check and its rename; the folder's history on the server is the backstop.
  * - A path that leaves the directory or names `.git` is refused, and a name
  *   only some disks hold (`pathProblem`) is never made; an existing one is
  *   replaced or removed over its version like any other.

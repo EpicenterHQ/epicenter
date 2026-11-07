@@ -171,7 +171,7 @@ export function parseArgs(
 	return { kind: 'command', command, positionals, options, json };
 }
 
-/** `epicenter restore <commit> [<dir>] [--path <path>]`, without hidden options. */
+/** `epicenter restore <moment> [<dir>] [--path <path>]`, without hidden options. */
 export function usageLine(command: CommandSpec) {
 	const options = (command.options ?? [])
 		.filter((o) => !o.hidden)

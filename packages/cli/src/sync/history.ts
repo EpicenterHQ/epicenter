@@ -1,23 +1,26 @@
 /**
- * A folder's history, read through Epicenter (ADR-0824, ADR-0826):
- * `epicenter log`, `history <path>`, `show <path>`, `diff`, `at <moment>`,
- * `restore <moment>`, and `mark <name>`. The folder is one synced here; its
- * history is its log on the server, one change per save, and a moment in
- * it is a change's number, a mark's name, or a time (ISO 8601, or anything
- * `Date` reads).
- *
- * `restore` is a forward change on the server: each file named takes back
- * the version it held at the moment, naming a version the server holds, so
- * no bytes travel. The next `epicenter sync` brings it here.
+ * A folder's history on the command line (ADR-0824, ADR-0826): `epicenter
+ * log`, `history <path>`, `show <path>`, `diff`, `at <moment>`, `restore
+ * <moment>`, and `mark <name>`, each over its function in
+ * `@epicenter/folder/platform` (`history.ts`). This module names the folder
+ * from a path on disk and prints the answer.
  *
  * Exit codes: 0 done, 2 what the operation cannot use (not synced here, no
  * such moment, the server out of reach).
  */
 import { join, relative, resolve, sep } from 'node:path';
-import { isHiddenPath } from '@epicenter/definition/contract';
-import { isMarkName } from '@epicenter/definition/site';
-import { identify } from '@epicenter/folder/platform';
-import { folderRepository } from '@epicenter/folder/sync';
+import {
+	fileAt,
+	fileHistory,
+	folderAt,
+	folderDiff,
+	folderLog,
+	folderMarks,
+	type HistoryError,
+	type HistoryTarget,
+	markFolder,
+	restoreFolder,
+} from '@epicenter/folder/platform';
 import { Err, Ok } from 'wellcrafted/result';
 import { authContext } from '../auth.ts';
 import { folderNameIn, homeRoot } from '../folder-commands.ts';
@@ -34,36 +37,20 @@ import type {
 import { count, writeOut } from '../output.ts';
 import { signedInAccount } from './account.ts';
 
-/** The folder `name` (in the Epicenter folder) synced here, and its folder on the server, or the message to fail with. */
-async function bound(name: string) {
-	const root = homeRoot();
-	const account = signedInAccount(authContext());
-	const found = await identify({ root, account });
-	if (found.error !== null) return Err(found.error.message);
-	const held = found.data.bound.find(({ local }) => local.name === name);
-	const path = join(root.path, name);
-	if (held === undefined)
-		return Err(
-			`${path} is not synced on this computer: run epicenter sync on it first`,
-		);
-	const { local, record } = held;
-	return Ok({
-		path,
-		store: local.store,
-		record,
-		folder: folderRepository(account, record.folder),
-	});
+/** The folder `name` in the Epicenter folder, as the history functions name it. */
+function targetOf(name: string): HistoryTarget {
+	return { root: homeRoot(), account: signedInAccount(authContext()), name };
 }
 
-/** The folder `dir` names (this directory by default), synced here. */
-export async function syncedFolder(dir: string | undefined) {
+/** The folder `dir` names (this directory by default). */
+export async function folderTarget(dir: string | undefined) {
 	const name = await folderNameIn(homeRoot(), dir ?? '.');
 	if (name.error !== null) return Err(name.error);
-	return bound(name.data);
+	return Ok(targetOf(name.data));
 }
 
-/** The synced folder holding the file `target` names on disk, and the file's path in it. */
-async function fileIn(target: string) {
+/** The folder holding the file `target` names on disk, and the file's path in it. */
+function fileIn(target: string) {
 	const root = homeRoot();
 	const inside = relative(root.path, resolve(target));
 	const [name, ...rest] = inside.split(sep);
@@ -74,9 +61,25 @@ async function fileIn(target: string) {
 		rest.length === 0
 	)
 		return Err(`${resolve(target)} is not a file in a folder in ${root.path}`);
-	const at = await bound(name);
-	if (at.error !== null) return at;
-	return Ok({ ...at.data, file: rest.join('/') });
+	return Ok({ target: targetOf(name), path: rest.join('/') });
+}
+
+/** What the command line says of a history error: its message, and what to run when that helps. */
+export function messageOf(
+	error: HistoryError | { message: string },
+	{ name }: Partial<HistoryTarget> = {},
+): string {
+	if (!('name' in error)) return error.message;
+	switch (error.name) {
+		case 'NotSynced':
+			return `${join(homeRoot().path, name ?? '')} is not synced on this computer: run epicenter sync on it first`;
+		case 'MarkTaken':
+			return `${error.message}; give --move to move it.`;
+		case 'RestoreMoved':
+			return `${error.message}; run restore again.`;
+		default:
+			return error.message;
+	}
 }
 
 /** A change's time, as a person reads it: `2026-11-07 09:15`. */
@@ -91,15 +94,12 @@ const nameOf = (author: string) => author.replace(/\s*<[^>]*>$/, '') || author;
  * each with its marks; with `--path`, only the changes to that file.
  */
 export const log: ImplementationOf<typeof logOperation> = {
-	async run({ dir, path, at: moment, limit = 20 }) {
-		const at = await syncedFolder(dir);
-		if (at.error !== null) return at;
-		const changes = await at.data.folder.log({ limit, at: moment, path });
-		if (changes.error !== null) return Err(changes.error.message);
-		const cursor = at.data.record.cursor;
-		const here =
-			cursor === null ? null : Number(cursor.split('.')[1] ?? Number.NaN);
-		return Ok({ output: { log: changes.data, here } });
+	async run({ dir, path, at, limit }) {
+		const target = await folderTarget(dir);
+		if (target.error !== null) return target;
+		const read = await folderLog({ ...target.data, at, path, limit });
+		if (read.error !== null) return Err(messageOf(read.error, target.data));
+		return Ok({ output: read.data });
 	},
 	print({ log: changes, here }) {
 		if (changes.length === 0) {
@@ -128,33 +128,18 @@ export const log: ImplementationOf<typeof logOperation> = {
  * of one file, newest first, who wrote it, and when.
  */
 export const history: ImplementationOf<typeof historyOperation> = {
-	async run({ path, at: moment, limit = 50 }) {
-		const at = await fileIn(path);
-		if (at.error !== null) return at;
-		const changes = await at.data.folder.log({
+	async run({ path, at, limit }) {
+		const file = fileIn(path);
+		if (file.error !== null) return file;
+		const { target } = file.data;
+		const read = await fileHistory({
+			...target,
+			path: file.data.path,
+			at,
 			limit,
-			path: at.data.file,
-			at: moment,
 		});
-		if (changes.error !== null) return Err(changes.error.message);
-		return Ok({
-			output: {
-				history: {
-					path: at.data.file,
-					versions: changes.data.map(
-						({ seq, at, author, via, files, marks }) => ({
-							seq,
-							at,
-							author,
-							via,
-							version: files[0]?.version ?? null,
-							size: files[0]?.size ?? null,
-							marks,
-						}),
-					),
-				},
-			},
-		});
+		if (read.error !== null) return Err(messageOf(read.error, target));
+		return Ok({ output: { history: read.data } });
 	},
 	print({ history: { path, versions } }) {
 		writeOut(
@@ -180,26 +165,13 @@ const strictUtf8 = new TextDecoder('utf-8', { fatal: true });
  * as they are or as they were at a moment, on stdout.
  */
 export const show: ImplementationOf<typeof showOperation> = {
-	async run({ path, at: moment }) {
-		const at = await fileIn(path);
-		if (at.error !== null) return at;
-		const listed = await at.data.folder.filesAt({
-			at: moment,
-			paths: [at.data.file],
-		});
-		if (listed.error !== null) return Err(listed.error.message);
-		const [file] = listed.data.files;
-		if (file === undefined)
-			return Err(
-				`${at.data.file} held nothing${moment === undefined ? '' : ` at ${moment}`}`,
-			);
-		const read = await at.data.folder.blobs([file.version]);
-		if (read.error !== null) return Err(read.error.message);
-		const [bytes] = read.data;
-		if (bytes == null)
-			return Err(
-				`${at.data.file}'s bytes at ${moment ?? 'its last change'} are no longer kept`,
-			);
+	async run({ path, at }) {
+		const file = fileIn(path);
+		if (file.error !== null) return file;
+		const { target } = file.data;
+		const read = await fileAt({ ...target, path: file.data.path, at });
+		if (read.error !== null) return Err(messageOf(read.error, target));
+		const { bytes, ...shown } = read.data;
 		let text: string | undefined;
 		try {
 			text = strictUtf8.decode(bytes);
@@ -209,10 +181,7 @@ export const show: ImplementationOf<typeof showOperation> = {
 		return Ok({
 			output: {
 				show: {
-					path: file.path,
-					seq: listed.data.seq,
-					version: file.version,
-					size: file.size,
+					...shown,
 					...(text === undefined
 						? { base64: Buffer.from(bytes).toString('base64') }
 						: { text }),
@@ -233,12 +202,11 @@ export const show: ImplementationOf<typeof showOperation> = {
  */
 export const at: ImplementationOf<typeof atOperation> = {
 	async run({ moment, dir }) {
-		const at = await syncedFolder(dir);
-		if (at.error !== null) return at;
-		const listed = await at.data.folder.filesAt({ at: moment });
-		if (listed.error !== null) return Err(listed.error.message);
-		const files = listed.data.files.filter(({ path }) => !isHiddenPath(path));
-		return Ok({ output: { at: { moment, seq: listed.data.seq, files } } });
+		const target = await folderTarget(dir);
+		if (target.error !== null) return target;
+		const read = await folderAt({ ...target.data, at: moment });
+		if (read.error !== null) return Err(messageOf(read.error, target.data));
+		return Ok({ output: { at: read.data } });
 	},
 	print({ at: { moment, seq, files } }) {
 		writeOut(
@@ -255,26 +223,7 @@ export const at: ImplementationOf<typeof atOperation> = {
 	},
 };
 
-type Change = { path: string; change: 'added' | 'changed' | 'deleted' };
-
 const CHANGE_MARK = { added: 'A', changed: 'M', deleted: 'D' } as const;
-
-/** Each path whose version differs between `before` and `after`, by path. */
-function changed(
-	before: ReadonlyMap<string, string>,
-	after: ReadonlyMap<string, string>,
-): Change[] {
-	const out: Change[] = [];
-	for (const [path, version] of after)
-		if (!before.has(path)) out.push({ path, change: 'added' });
-		else if (before.get(path) !== version)
-			out.push({ path, change: 'changed' });
-	for (const path of before.keys())
-		if (!after.has(path)) out.push({ path, change: 'deleted' });
-	return out
-		.filter(({ path }) => !isHiddenPath(path))
-		.sort((a, b) => (a.path < b.path ? -1 : 1));
-}
 
 /**
  * `epicenter diff [<dir>] [--since <moment>]`: the files this folder added,
@@ -283,35 +232,11 @@ function changed(
  */
 export const diff: ImplementationOf<typeof diffOperation> = {
 	async run({ dir, since }) {
-		const at = await syncedFolder(dir);
-		if (at.error !== null) return at;
-		if (since === undefined) {
-			const listed = await at.data.store.list(['']);
-			if (listed.error !== null) return Err(listed.error.message);
-			return Ok({
-				output: {
-					since: null,
-					diff: changed(
-						new Map(Object.entries(at.data.record.files)),
-						new Map(listed.data.map(({ path, version }) => [path, version])),
-					),
-				},
-			});
-		}
-		const [then, now] = await Promise.all([
-			at.data.folder.filesAt({ at: since }),
-			at.data.folder.filesAt(),
-		]);
-		if (then.error !== null) return Err(then.error.message);
-		if (now.error !== null) return Err(now.error.message);
-		const versions = (files: { path: string; version: string }[]) =>
-			new Map(files.map(({ path, version }) => [path, version]));
-		return Ok({
-			output: {
-				since,
-				diff: changed(versions(then.data.files), versions(now.data.files)),
-			},
-		});
+		const target = await folderTarget(dir);
+		if (target.error !== null) return target;
+		const read = await folderDiff({ ...target.data, since });
+		if (read.error !== null) return Err(messageOf(read.error, target.data));
+		return Ok({ output: read.data });
 	},
 	print({ diff: changes, since }) {
 		writeOut(
@@ -327,67 +252,16 @@ export const diff: ImplementationOf<typeof diffOperation> = {
 /**
  * `epicenter restore <moment> [<dir>] [--path <path>]`: one change on the
  * server that gives the folder's files (or the one at `--path`) back the
- * versions they held at the moment, removing files made since. It names
- * versions the server holds, so no bytes travel; the next sync brings it
- * here, and the history keeps everything in between.
+ * versions they held at the moment, removing files made since. The next
+ * sync brings it here.
  */
 export const restore: ImplementationOf<typeof restoreOperation> = {
 	async run({ moment, dir, path }) {
-		const at = await syncedFolder(dir);
-		if (at.error !== null) return at;
-		const only = path === undefined ? undefined : [path];
-		const [then, now] = await Promise.all([
-			at.data.folder.filesAt({ at: moment, paths: only }),
-			at.data.folder.filesAt({ paths: only }),
-		]);
-		if (then.error !== null) return Err(then.error.message);
-		if (now.error !== null) return Err(now.error.message);
-		const visible = (files: { path: string; version: string }[]) =>
-			new Map(
-				files
-					.filter(({ path }) => !isHiddenPath(path))
-					.map(({ path, version }) => [path, version]),
-			);
-		const was = visible(then.data.files);
-		const is = visible(now.data.files);
-		const writes = [
-			...[...was]
-				.filter(([path, version]) => is.get(path) !== version)
-				.map(([path, version]) => ({
-					path,
-					expect: is.get(path) ?? null,
-					version,
-				})),
-			...[...is.keys()]
-				.filter((path) => !was.has(path))
-				.map((path) => ({
-					path,
-					expect: is.get(path) ?? null,
-					version: null,
-				})),
-		];
-		const paths = (list: typeof writes) => list.map(({ path }) => path).sort();
-		const restored = (cursor: string | null) => ({
-			moment,
-			folder: at.data.path,
-			written: paths(writes.filter(({ version }) => version !== null)),
-			removed: paths(writes.filter(({ version }) => version === null)),
-			cursor,
-		});
-		if (writes.length === 0)
-			return Ok({ output: { restored: restored(now.data.cursor) } });
-		const landed = await at.data.folder.commitVersions(writes as never);
-		if (landed.error !== null) return Err(landed.error.message);
-		if ('missing' in landed.data)
-			return Err(
-				`Some versions at ${moment} are no longer kept on the server: ${landed.data.missing.join(', ')}`,
-			);
-		if ('moved' in landed.data)
-			return Err(
-				`The folder changed on the server while restoring (${landed.data.moved.map(({ path }) => path).join(', ')}); run restore again.`,
-			);
-		if ('refused' in landed.data) return Err(landed.data.reason);
-		return Ok({ output: { restored: restored(landed.data.cursor) } });
+		const target = await folderTarget(dir);
+		if (target.error !== null) return target;
+		const read = await restoreFolder({ ...target.data, at: moment, path });
+		if (read.error !== null) return Err(messageOf(read.error, target.data));
+		return Ok({ output: { restored: read.data } });
 	},
 	print({ restored: { moment, folder, written, removed } }) {
 		writeOut(
@@ -406,26 +280,16 @@ export const restore: ImplementationOf<typeof restoreOperation> = {
  */
 export const mark: ImplementationOf<typeof markOperation> = {
 	async run({ name, dir, move = false }) {
-		const at = await syncedFolder(dir);
-		if (at.error !== null) return at;
+		const target = await folderTarget(dir);
+		if (target.error !== null) return target;
 		if (name === undefined) {
-			const marks = await at.data.folder.marks();
-			if (marks.error !== null) return Err(marks.error.message);
+			const marks = await folderMarks(target.data);
+			if (marks.error !== null) return Err(messageOf(marks.error, target.data));
 			return Ok({ output: { marks: marks.data } });
 		}
-		if (!isMarkName(name))
-			return Err(
-				`'${name}' cannot be a mark: use letters, digits, ., _ and -, in segments joined by /`,
-			);
-		const marked = await at.data.folder.mark(name, { move });
-		if (marked.error !== null) return Err(marked.error.message);
-		if ('empty' in marked.data)
-			return Err('The folder has no change on the server to mark yet.');
-		if ('taken' in marked.data)
-			return Err(
-				`${name} marks change ${marked.data.taken.seq} already; give --move to move it.`,
-			);
-		return Ok({ output: { mark: marked.data.mark } });
+		const marked = await markFolder({ ...target.data, mark: name, move });
+		if (marked.error !== null) return Err(messageOf(marked.error, target.data));
+		return Ok({ output: { mark: marked.data } });
 	},
 	print(output) {
 		if (output.mark !== undefined) {

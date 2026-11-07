@@ -1,16 +1,16 @@
 /**
  * A folder on the server, as sync, the web, and the CLI reach it (ADR-0807,
- * ADR-0810, ADR-0824): the routes `<git>/folders/<folder>/…`
+ * ADR-0810, ADR-0824): the routes `<folders>/<folder>/…`
  * (`packages/server/src/routes/folder.ts`), spoken over the account's
  * fetch.
  *
  * `folderRepository(account, folder)` answers the `Repository` sync needs
  * (what changed since a cursor, every file, bytes by version, and a
- * commit), the store verbs a web folder opens, and the folder's history
- * (its log, its files at any change, its marks, a commit naming versions it
- * holds, and an import's changes). A file's version is the SHA-256 of its
+ * change to append), the store verbs a web folder opens, and the folder's
+ * history (its log, its files at any change, its marks, a change naming
+ * versions it holds, and an import's changes). A file's version is the SHA-256 of its
  * bytes, so nothing translates: bytes up to 16 KiB travel inline, and
- * larger ones by version at `blobs/<sha256>`, checked against it. A commit
+ * larger ones by version at `blobs/<sha256>`, checked against it. A change
  * asks which of its larger versions the folder lacks and uploads those
  * first (idempotent, so a lost reply is put again), then lands every path
  * in one change where it still holds the version its writer expects; one
@@ -48,9 +48,9 @@ import { versionOf } from '../hash.js';
 import { fromBase64, toBase64 } from '../served/wire.js';
 import type {
 	ChangedPath,
-	CommitMoved,
-	CommitReceipt,
-	CommitRefusal,
+	ChangeMoved,
+	ChangeReceipt,
+	ChangeRefusal,
 	FileEntry,
 	Repository,
 } from '../sync/repository.js';
@@ -116,7 +116,7 @@ export type Mark = { name: string; seq: number; at: string };
 /** A file as of some change, with its bytes when asked for and kept inline. */
 export type FileAt = FileEntry & { bytes?: Uint8Array };
 
-/** One write of a commit that names a version: one the folder holds, or null to delete. */
+/** One write of a change that names a version: one the folder holds, or null to delete. */
 export type NamedWrite = {
 	path: string;
 	expect: Version | null;
@@ -144,7 +144,7 @@ const POLL_MS = 3000;
 const BATCH_MS = 50;
 const BATCH_MAX_MS = 300;
 
-/** The most bytes that travel inside a commit; larger ones are uploaded and named. */
+/** The most bytes that travel inside a change; larger ones are uploaded and named. */
 export const INLINE_MAX = 16 * 1024;
 
 // A note's bytes travel as text only when they decode exactly, a byte-order mark kept.
@@ -195,7 +195,7 @@ const json = (body: unknown, method = 'POST'): RequestInit => ({
 	body: JSON.stringify(body),
 });
 
-/** The folder id in a 200 or 201 answer to `POST <git>/folders`, or the refusal. */
+/** The folder id in a 200 or 201 answer to `POST <folders>`, or the refusal. */
 function folderOf(status: number, body: unknown) {
 	if (
 		(status !== 200 && status !== 201) ||
@@ -218,10 +218,10 @@ export async function makeFolder(
 	account: RemoteAccount,
 	{ app, importing = false }: { app?: string; importing?: boolean } = {},
 ): Promise<Result<string, Unavailable>> {
-	const { git } = resolveOAuthAudiences(account.baseURL);
+	const { folders } = resolveOAuthAudiences(account.baseURL);
 	const answered = await ask(
 		account,
-		folderUrl(git),
+		folderUrl(folders),
 		json({
 			create: true,
 			...(app === undefined ? {} : { app }),
@@ -249,8 +249,8 @@ export async function joinApp(
 	account: RemoteAccount,
 	app: string,
 ): Promise<Result<Joined, Unavailable>> {
-	const { git } = resolveOAuthAudiences(account.baseURL);
-	const answered = await ask(account, folderUrl(git), json({ join: app }));
+	const { folders } = resolveOAuthAudiences(account.baseURL);
+	const answered = await ask(account, folderUrl(folders), json({ join: app }));
 	if (answered.error !== null) return answered;
 	const { status, body } = answered.data;
 	if (
@@ -267,17 +267,17 @@ export async function joinApp(
 	return Ok({ folder: folder.data });
 }
 
-/** A commit's answer, read: landed, moved, refused, or the versions it lacks. */
-type CommitAnswer =
-	| CommitReceipt
-	| CommitMoved
-	| CommitRefusal
+/** An appended change's answer, read: landed, moved, refused, or the versions it lacks. */
+type AppendAnswer =
+	| ChangeReceipt
+	| ChangeMoved
+	| ChangeRefusal
 	| { missing: Version[] };
 
-function readCommitAnswer(
+function readAppendAnswer(
 	status: number,
 	body: unknown,
-): Result<CommitAnswer, Unavailable> {
+): Result<AppendAnswer, Unavailable> {
 	const fields = isRecord(body) ? body : {};
 	if (
 		status === 200 &&
@@ -289,7 +289,7 @@ function readCommitAnswer(
 			versions: fields.versions as Record<string, Version | null>,
 		});
 	if (status === 409 && fields.error === 'moved' && Array.isArray(fields.moved))
-		return Ok({ moved: fields.moved as CommitMoved['moved'] });
+		return Ok({ moved: fields.moved as ChangeMoved['moved'] });
 	if (
 		status === 409 &&
 		fields.error === 'missing' &&
@@ -322,7 +322,7 @@ export function folderRepository(
 	}: { pollMs?: number; batchMs?: number } = {},
 ) {
 	if (!isFolderId(folder)) throw new Error(`'${folder}' is not a folder id`);
-	const base = folderUrl(resolveOAuthAudiences(account.baseURL).git, folder);
+	const base = folderUrl(resolveOAuthAudiences(account.baseURL).folders, folder);
 
 	/** Versions this folder holds bytes for: put or read here, so never asked about again. */
 	const held = new Set<string>();
@@ -490,7 +490,7 @@ export function folderRepository(
 		return Ok(null);
 	}
 
-	/** One write as the commit route takes it: inline bytes, or a version uploaded first. */
+	/** One write as `POST changes` takes it: inline bytes, or a version uploaded first. */
 	async function wireOf(write: {
 		path: string;
 		expect: Version | null;
@@ -516,13 +516,13 @@ export function folderRepository(
 
 	/** Post `files` to `route` after uploading what the folder lacks; once more when it says some went missing. */
 	async function send(
-		route: 'commits' | 'import',
+		route: 'changes' | 'import',
 		body: (files: unknown[]) => unknown,
 		prepared: {
 			file: unknown;
 			upload?: { version: Version; bytes: Uint8Array };
 		}[],
-	): Promise<Result<CommitAnswer, Unavailable>> {
+	): Promise<Result<AppendAnswer, Unavailable>> {
 		const uploads = prepared.flatMap(({ upload }) =>
 			upload === undefined ? [] : [upload],
 		);
@@ -535,7 +535,7 @@ export function folderRepository(
 				json(body(prepared.map(({ file }) => file))),
 			);
 			if (answered.error !== null) return answered;
-			const read = readCommitAnswer(answered.data.status, answered.data.body);
+			const read = readAppendAnswer(answered.data.status, answered.data.body);
 			if (read.error !== null || !('missing' in read.data) || attempt === 2)
 				return read;
 			// Swept since it was uploaded: forget it, and upload it again.
@@ -543,15 +543,15 @@ export function folderRepository(
 		}
 	}
 
-	async function commit(
+	async function append(
 		writes: readonly {
 			path: string;
 			bytes: Uint8Array | null;
 			expect: Version | null;
 		}[],
-	): Promise<Result<CommitReceipt | CommitMoved | CommitRefusal, Unavailable>> {
+	): Promise<Result<ChangeReceipt | ChangeMoved | ChangeRefusal, Unavailable>> {
 		const sent = await send(
-			'commits',
+			'changes',
 			(files) => ({ files }),
 			await Promise.all(writes.map(wireOf)),
 		);
@@ -569,7 +569,7 @@ export function folderRepository(
 			return Ok({ cursor: listed.data.cursor, files: listed.data.files });
 		},
 		blobs,
-		commit,
+		append,
 	};
 
 	/** One put, landed alone: `Moved` to what the path holds when it moved. */
@@ -578,7 +578,7 @@ export function folderRepository(
 		bytes,
 		expect,
 	}: Waiting['write']): Promise<Result<Version | null, Moved | Unavailable>> {
-		const landed = await commit([{ path, bytes, expect }]);
+		const landed = await append([{ path, bytes, expect }]);
 		if (landed.error !== null) return landed;
 		if ('moved' in landed.data)
 			return StoreError.Moved({
@@ -615,7 +615,7 @@ export function folderRepository(
 			for (const { write, resolve } of batch) resolve(await putAlone(write));
 			return;
 		}
-		const landed = await commit(batch.map(({ write }) => write));
+		const landed = await append(batch.map(({ write }) => write));
 		if (landed.error !== null) {
 			for (const { resolve } of batch) resolve(landed);
 			return;
@@ -784,12 +784,12 @@ export function folderRepository(
 		 * Land `writes` in one change, each naming a version the folder holds
 		 * (null to delete): a restore, which moves no bytes.
 		 */
-		async commitVersions(
+		async appendVersions(
 			writes: readonly NamedWrite[],
-		): Promise<Result<CommitAnswer, Unavailable>> {
+		): Promise<Result<AppendAnswer, Unavailable>> {
 			const answered = await ask(
 				account,
-				`${base}/commits`,
+				`${base}/changes`,
 				json({
 					files: writes.map(({ path, expect, version }) =>
 						version === null
@@ -799,7 +799,7 @@ export function folderRepository(
 				}),
 			);
 			if (answered.error !== null) return answered;
-			return readCommitAnswer(answered.data.status, answered.data.body);
+			return readAppendAnswer(answered.data.status, answered.data.body);
 		},
 		/**
 		 * Land an import's `changes` in order (ADR-0826), each keeping its
@@ -807,7 +807,7 @@ export function folderRepository(
 		 */
 		async importChanges(
 			changes: readonly ImportedChange[],
-		): Promise<Result<CommitAnswer, Unavailable>> {
+		): Promise<Result<AppendAnswer, Unavailable>> {
 			const prepared = await Promise.all(
 				changes.map(async (change) => ({
 					change,

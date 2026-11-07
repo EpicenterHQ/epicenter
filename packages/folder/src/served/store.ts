@@ -6,7 +6,7 @@
  * `wire.ts` for the requests.
  *
  * A watch answers once the program says it is watching the directory, and
- * from then forwards what the program hears. A directory has no commits, so
+ * from then forwards what the program hears. A directory keeps no log, so
  * nothing replays what a dropped watch missed: a dropped watch is heard as
  * `'all'`, the store asks again every `retryMs`, and when the program
  * answers it is heard as `'all'` once more, so a reader lists again and

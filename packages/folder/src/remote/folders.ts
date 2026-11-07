@@ -77,7 +77,7 @@ export async function folderHeads(
 ): Promise<Result<Record<string, string>, Unavailable>> {
 	const answered = await request<{ heads: Record<string, string> }>(
 		account,
-		folderUrl(resolveOAuthAudiences(account.baseURL).git),
+		folderUrl(resolveOAuthAudiences(account.baseURL).folders),
 	);
 	if (answered.error !== null) return answered;
 	return Ok(answered.data.heads);

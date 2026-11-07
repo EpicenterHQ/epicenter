@@ -5,8 +5,8 @@
  * itself; the rest is the same for every app:
  *
  * 1. A disposable Postgres cluster, migrated with `apps/api/drizzle`.
- * 2. The real local API, `bun apps/api/server.ts`, on a free port, with Git
- *    and LFS stores in a temporary directory. It registers every browser
+ * 2. The real local API, `bun apps/api/server.ts`, on a free port, with its
+ *    blob store in a temporary directory. It registers every browser
  *    app's OAuth client at its `localhost` origin, and the local-only ones.
  * 3. One person per browser project, with a signed-in session cookie for
  *    the browser, and a desktop sandbox for the `epicenter` CLI: its own
@@ -224,7 +224,7 @@ export async function runAppStack({
 		// 3. People: a browser session and a signed-in desktop each.
 		const client = new OAuthTestClient(origin, sql, secret);
 		const deployment = resolveDeployment(origin);
-		const { git } = resolveOAuthAudiences(origin);
+		const { folders } = resolveOAuthAudiences(origin);
 		const people: Record<string, Person> = {};
 		const guests: Record<string, Guest> = {};
 		for (const project of projects) {
@@ -254,10 +254,10 @@ export async function runAppStack({
 			});
 			if (login.error !== null)
 				throw new Error(`device sign-in: ${login.error.message}`);
-			// Cache the Git token too, so no CLI process refreshes.
-			const token = await accessToken(ctx, git);
+			// Cache the folders token too, so no CLI process refreshes.
+			const token = await accessToken(ctx, folders);
 			if (token.error !== null)
-				throw new Error(`git token: ${token.error.message}`);
+				throw new Error(`folders token: ${token.error.message}`);
 			const entry = `device ${deployment.origin}`;
 			const stored = JSON.parse((await secrets.get(entry)) as string);
 			const env = {
@@ -380,7 +380,7 @@ async function run(
 		);
 }
 
-/** Git and the server's git never read the real home or global config. */
+/** The CLI never reads the real home, and a `git` an import or export runs reads no global config. */
 function sandboxEnv(home: string): Record<string, string> {
 	return {
 		PATH: process.env.PATH as string,

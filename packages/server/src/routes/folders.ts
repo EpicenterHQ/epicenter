@@ -1,22 +1,22 @@
 /**
- * Folders on their audience (ADR-0811, ADR-0824): each folder's history is
- * a log in Postgres, with its larger bytes in a blob store, reached at
- * `<folders audience>/folders/<folder>`.
+ * Folders on their audience (ADR-0811, ADR-0824, ADR-0828): each folder's
+ * history is a log in Postgres, with its larger bytes in a blob store,
+ * reached at `<folders>/<folder>`.
  *
  * ```txt
- * <git>/folders                     POST  folders:write: make a folder ({ create, import? }), or join an app's ({ join })
- * <git>/folders                     GET   folders:read: every folder's head, as a cursor
- * <git>/folders/<folder>/…                one folder's routes, folder.ts
+ * <folders>                         POST  folders:write: make a folder ({ create, import? }), or join an app's ({ join })
+ * <folders>                         GET   folders:read: every folder's head, as a cursor
+ * <folders>/<folder>/…                    one folder's routes, folder.ts
  * <api>/api/folders…                      the person's folders, sharing, and apps, folders-api.ts
  * ```
  *
- * The audience keeps its name, `git` (`https://git.epicenter.so` for the
- * hosted cloud, `<origin>/git` for any other deployment,
- * `resolveOAuthAudiences`): it is the OAuth resource every token names. No
- * Git client reaches it: history leaves as Git through `epicenter export
- * --git`, and enters through `epicenter import --git` (ADR-0826).
+ * `<folders>` is the folders audience, `<api origin>/folders` on every
+ * deployment (`resolveOAuthAudiences`): the OAuth resource every folder
+ * token names, and the address of the routes themselves. No Git client
+ * reaches it: history leaves as Git through `epicenter export --git`, and
+ * enters through `epicenter import --git` (ADR-0826).
  *
- * A folder exists from the request that makes it, `POST <git>/folders
+ * A folder exists from the request that makes it, `POST <folders>
  * { create: true, app? }`, which never joins: it makes a new folder held by
  * the person, attached to the app whose token asked (or, from a token with
  * `folders:all`, to the app it names). `import: true` makes it take
@@ -83,7 +83,7 @@ import {
 	type FolderEndpoint,
 	folderBlobs,
 	folderChanges,
-	folderCommit,
+	postChange,
 	folderFiles,
 	folderImport,
 	folderLog,
@@ -91,7 +91,7 @@ import {
 	folderMissing,
 	folderOperation,
 	getBlob,
-	MAX_COMMIT_BYTES,
+	MAX_CHANGE_BYTES,
 	MAX_NAMED,
 	putBlobRoute,
 	putMark,
@@ -143,14 +143,14 @@ export const databaseFolderGuard: FolderGuard = {
 	authorize: (c, { folder, operation }) =>
 		authorizeFolderRequest(c.var.db, {
 			token: readAccessToken(c.req.header('authorization')),
-			audience: c.var.audiences.git,
+			audience: c.var.audiences.folders,
 			scope: operation === 'push' ? 'folders:write' : 'folders:read',
 			folder,
 		}),
 	async join(c, request) {
 		const decided = await authorizeAccountRequest(c.var.db, {
 			token: readAccessToken(c.req.header('authorization')),
-			audience: c.var.audiences.git,
+			audience: c.var.audiences.folders,
 			scope: 'folders:write',
 		});
 		if (decided.error !== null) return decided;
@@ -222,9 +222,9 @@ const log = createLogger('folders');
 export type FoldersTarget =
 	/** One folder's routes (`folder.ts`). */
 	| { kind: 'folder'; folder: string; endpoint: FolderEndpoint }
-	/** `POST <git>/folders`: join or make a folder. */
+	/** `POST <folders>`: join or make a folder. */
 	| { kind: 'join' }
-	/** `GET <git>/folders`: every folder's head. */
+	/** `GET <folders>`: every folder's head. */
 	| { kind: 'heads' }
 	| { kind: 'unknown' };
 
@@ -248,7 +248,7 @@ export function readFoldersTarget(
 	)
 		return undefined;
 	const below = url.pathname.slice(prefix.length);
-	if (below === '/folders') {
+	if (below === '') {
 		if (url.search !== '') return { kind: 'unknown' };
 		return method === 'POST'
 			? { kind: 'join' }
@@ -256,7 +256,7 @@ export function readFoldersTarget(
 				? { kind: 'heads' }
 				: { kind: 'unknown' };
 	}
-	const folder = /^\/folders\/([^/]+)\/(.+)$/.exec(below);
+	const folder = /^\/([^/]+)\/(.+)$/.exec(below);
 	if (folder !== null) {
 		const [, id = '', rest = ''] = folder;
 		const endpoint = readFolderEndpoint(method, rest);
@@ -325,7 +325,7 @@ async function readBody(
 }
 
 /**
- * The body of `POST <git>/folders`, or null when it is neither shape: a
+ * The body of `POST <folders>`, or null when it is neither shape: a
  * create naming at most an app id and whether it imports, or a join naming
  * one app.
  */
@@ -400,14 +400,14 @@ export function mountFolders(
 					'forbidden',
 					`Your role in this folder may not ${target.operation === 'push' ? 'change' : 'read'} it.`,
 					[
-						`Bearer resource_metadata="${protectedResourceMetadataUrl(c.var.audiences.git)}"`,
+						`Bearer resource_metadata="${protectedResourceMetadataUrl(c.var.audiences.folders)}"`,
 					],
 				),
 			};
 		return { granted: decided.data };
 	}
 
-	/** `POST <git>/folders`: make a folder (never joining), or join an app's. */
+	/** `POST <folders>`: make a folder (never joining), or join an app's. */
 	async function join(c: Context<CloudEnv>) {
 		const request = readFolderRequest(await c.req.json().catch(() => null));
 		if (request === null)
@@ -440,7 +440,7 @@ export function mountFolders(
 	}
 
 	/**
-	 * `GET <git>/folders`: the head of every folder the token reaches, as a
+	 * `GET <folders>`: the head of every folder the token reaches, as a
 	 * cursor: one statement a program polls to learn which of its folders
 	 * moved (ADR-0819).
 	 */
@@ -448,7 +448,7 @@ export function mountFolders(
 		try {
 			const decided = await authorizeAccountRequest(c.var.db, {
 				token: readAccessToken(c.req.header('authorization')),
-				audience: c.var.audiences.git,
+				audience: c.var.audiences.folders,
 				scope: 'folders:read',
 			});
 			if (decided.error !== null) return sendRefusal(c, decided.error);
@@ -543,14 +543,14 @@ export function mountFolders(
 								request: c.req.raw,
 							})
 						: await getBlob(db, store, folder, endpoint.version);
-				case 'commits': {
-					const body = await bodyOf(MAX_COMMIT_BYTES);
+				case 'append': {
+					const body = await bodyOf(MAX_CHANGE_BYTES);
 					return body === null
 						? tooLarge()
-						: await folderCommit(db, { ...writer, body });
+						: await postChange(db, { ...writer, body });
 				}
 				case 'import': {
-					const body = await bodyOf(MAX_COMMIT_BYTES);
+					const body = await bodyOf(MAX_CHANGE_BYTES);
 					return body === null
 						? tooLarge()
 						: await folderImport(db, { ...writer, body, store });
@@ -566,7 +566,7 @@ export function mountFolders(
 		const target = readFoldersTarget(
 			c.req.method,
 			new URL(c.req.url),
-			c.var.audiences.git,
+			c.var.audiences.folders,
 		);
 		switch (target?.kind) {
 			case 'join':
@@ -585,7 +585,7 @@ export function mountFolders(
 		const target = readFoldersTarget(
 			c.req.method,
 			new URL(c.req.url),
-			c.var.audiences.git,
+			c.var.audiences.folders,
 		);
 		if (target === undefined) return next();
 		return handle(c, next);

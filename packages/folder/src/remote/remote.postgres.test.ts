@@ -2,7 +2,7 @@
  * Folder Repository Tests
  *
  * A contract's collections over a folder on the real server app
- * (`folderRepository`, at `<git>/folders/<folder>`), and the folder over it:
+ * (`folderRepository`, at `<folders>/<folder>`), and the folder over it:
  * the authorization server on a disposable Postgres, a `Bun.serve`
  * listener, the disk blob store, and an access token from a real
  * code grant. The account is a stand-in for `@epicenter/account`'s: it
@@ -79,7 +79,7 @@ const demo = {
 
 let scratch: string;
 let origin = '';
-let audiences = { api: '', git: '' };
+let audiences = { api: '', folders: '' };
 let stopPostgres: () => Promise<void>;
 let server: ReturnType<typeof Bun.serve>;
 let sql: Client;
@@ -110,7 +110,7 @@ beforeAll(async () => {
 		idleTimeout: 60,
 	});
 	origin = `http://127.0.0.1:${server.port}`;
-	audiences = { api: origin, git: `${origin}/git` };
+	audiences = { api: origin, folders: `${origin}/folders` };
 	pool = new Pool({
 		host: '127.0.0.1',
 		port: cluster.port,
@@ -126,7 +126,7 @@ beforeAll(async () => {
 				redirectUris: [demo.redirectUri],
 				grantTypes: ['authorization_code'],
 				scopes: ['openid', 'profile', 'folders:read', 'folders:write'],
-				resources: [audiences.api, audiences.git],
+				resources: [audiences.api, audiences.folders],
 				skipConsent: true,
 				applicationType: 'web',
 			},
@@ -144,7 +144,7 @@ beforeAll(async () => {
 	});
 	const blobs = createDiskBlobStore({ root: join(scratch, 'blobs') });
 	// As the Bun entry (`apps/api/server.ts`) does.
-	app.use('/git/*', compress());
+	app.use('/folders/*', compress());
 	mountFolders(app, {
 		setup: createCloudContextMiddleware(context),
 		resolveBlobs: () => blobs,
@@ -283,7 +283,7 @@ async function signInPerson(label: string) {
 	const { access_token: token } = await oauth.codeGrant({
 		...demo,
 		cookie: person.cookie,
-		resource: [audiences.git],
+		resource: [audiences.folders],
 		scope: 'openid folders:read folders:write',
 	});
 	const lifetime = new AbortController();
@@ -301,7 +301,7 @@ async function signInPerson(label: string) {
 			if (new URL(url).origin !== origin)
 				throw new TypeError('Account requests must target their own server.');
 			const method = init?.method ?? 'GET';
-			if (method === 'POST' && url.endsWith('/commits')) {
+			if (method === 'POST' && url.endsWith('/changes')) {
 				const before = beforeWrite;
 				beforeWrite = undefined;
 				await before?.();
@@ -343,10 +343,10 @@ async function signInPerson(label: string) {
 		raceNextWrite(task: () => Promise<void>) {
 			beforeWrite = task;
 		},
-		/** Commit `files` as another writer to the person's own folder. */
+		/** Append `files` as another writer to the person's own folder. */
 		async writeRaw(files: unknown[]) {
 			const response = await fetch(
-				`${folderUrl(audiences.git, folder)}/commits`,
+				`${folderUrl(audiences.folders, folder)}/changes`,
 				{
 					method: 'POST',
 					headers: {
@@ -515,33 +515,33 @@ describe('a repository as a store', () => {
 		);
 	}, 30_000);
 
-	test('a commit retried after it moved puts no bytes the server already has', async () => {
+	test('a change retried after it moved puts no bytes the server already has', async () => {
 		const person = await signIn('retry-upload');
 		const repository = storeAt(person.at);
 		const path = `recordings/${timeId()}.webm`;
 		// Over 16 KiB, so the bytes are uploaded, not sent inline.
 		const bytes = crypto.getRandomValues(new Uint8Array(40_000));
-		// Another writer lands a file first, so this commit, expecting nothing, moves.
+		// Another writer lands a file first, so this change, expecting nothing, moves.
 		const other = `recordings/${timeId()}.md`;
 		const placed = expectOk(
-			await repository.commit([
+			await repository.append([
 				{ path: other, bytes: note('title: First\n'), expect: null },
 			]),
 		);
 		if ('moved' in placed || 'refused' in placed)
-			throw new Error('expected a commit');
+			throw new Error('expected a change');
 		const writes = [
 			{ path, bytes, expect: null },
 			{ path: other, bytes: note('title: Mine\n'), expect: null },
 		];
-		expect(expectOk(await repository.commit(writes))).toMatchObject({
+		expect(expectOk(await repository.append(writes))).toMatchObject({
 			moved: [{ path: other }],
 		});
 		const uploads = /^PUT .*\/blobs\/[0-9a-f]{64}$/;
 		expect(person.requests(uploads)).toHaveLength(1);
 		// The retry, over what the path now holds, puts the bytes no second time.
 		const retried = expectOk(
-			await repository.commit([
+			await repository.append([
 				{ path, bytes, expect: null },
 				{
 					path: other,
@@ -767,7 +767,7 @@ describe('a repository as a store', () => {
 		folder[Symbol.dispose]();
 	}, 30_000);
 
-	test('saves made within a moment of each other land as one commit, and each answers', async () => {
+	test('saves made within a moment of each other land as one change, and each answers', async () => {
 		const person = await signIn('batched');
 		const folder = folderAt(person.at, 100);
 		for (let turn = 0; turn < 200 && folder.state().status !== 'open'; turn++)
@@ -777,7 +777,7 @@ describe('a repository as a store', () => {
 		await Promise.all(
 			ids.map((id) => folder.recordings.set({ id }, { title: id })),
 		);
-		expect(person.requests(/^POST .*\/commits$/)).toHaveLength(1);
+		expect(person.requests(/^POST .*\/changes$/)).toHaveLength(1);
 		expect(
 			folder.recordings
 				.items()

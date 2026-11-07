@@ -1,6 +1,6 @@
 /**
  * A folder's log on a disposable Postgres cluster (ADR-0824, ADR-0826):
- * every migration in `apps/api/drizzle` applied, then commits, reads,
+ * every migration in `apps/api/drizzle` applied, then appends, reads,
  * bytes, marks, and retention driven through the module's own functions.
  * Requires initdb and pg_ctl on PATH; never connects to a configured
  * database.
@@ -21,7 +21,7 @@ import {
 	putBlob,
 	sweepPendingBlobs,
 } from './blobs.js';
-import { type CommitWrite, commitChange } from './commit.js';
+import { type ChangeWrite, appendChange } from './append.js';
 import { listMarks, seqOfMark, setMark } from './marks.js';
 import { createMemoryBlobStore } from './memory-blob-store.js';
 import {
@@ -82,8 +82,8 @@ async function folder() {
 	return id;
 }
 
-const commit = (id: string, files: CommitWrite[]) =>
-	commitChange(db, { folder: id, account: 'ada', via: 'so.epicenter', files });
+const append = (id: string, files: ChangeWrite[]) =>
+	appendChange(db, { folder: id, account: 'ada', via: 'so.epicenter', files });
 
 /** What `path` holds now, or null. */
 async function versionAt(id: string, path: string) {
@@ -93,7 +93,7 @@ async function versionAt(id: string, path: string) {
 
 /** Write `files` (path to text, null to delete) over whatever each path holds. */
 async function write(id: string, files: Record<string, string | null>) {
-	const writes: CommitWrite[] = [];
+	const writes: ChangeWrite[] = [];
 	for (const [path, value] of Object.entries(files)) {
 		const expect = await versionAt(id, path);
 		writes.push(
@@ -102,12 +102,12 @@ async function write(id: string, files: Record<string, string | null>) {
 				: { path, expect, bytes: text(value) },
 		);
 	}
-	const landed = await commit(id, writes);
+	const landed = await append(id, writes);
 	if (!('landed' in landed)) throw new Error(JSON.stringify(landed));
 	return landed;
 }
 
-describe('a commit', () => {
+describe('an appended change', () => {
 	test('lands every path at once, numbered densely, and answers each version', async () => {
 		const id = await folder();
 		const first = await write(id, { 'a.md': 'one', 'b/c.md': 'two' });
@@ -128,7 +128,7 @@ describe('a commit', () => {
 	test('refuses with every path that moved, and lands nothing', async () => {
 		const id = await folder();
 		await write(id, { 'a.md': 'one', 'b.md': 'two' });
-		const stale = await commit(id, [
+		const stale = await append(id, [
 			{ path: 'a.md', expect: null, bytes: text('x') },
 			{ path: 'b.md', expect: await sha256Hex(text('old')), bytes: text('y') },
 			{ path: 'c.md', expect: null, bytes: text('z') },
@@ -145,7 +145,7 @@ describe('a commit', () => {
 	test('writing what a path holds, or deleting nothing, makes no change', async () => {
 		const id = await folder();
 		await write(id, { 'a.md': 'one' });
-		const again = await commit(id, [
+		const again = await append(id, [
 			{
 				path: 'a.md',
 				expect: await sha256Hex(text('one')),
@@ -161,7 +161,7 @@ describe('a commit', () => {
 		const big = new Uint8Array(INLINE_MAX + 10).fill(7);
 		const version = await sha256Hex(big);
 		expect(
-			await commit(id, [{ path: 'take.webm', expect: null, version }]),
+			await append(id, [{ path: 'take.webm', expect: null, version }]),
 		).toEqual({ missing: [version] });
 		expect(await missingVersions(db, id, [version])).toEqual([version]);
 		const put = await putBlob({
@@ -174,11 +174,11 @@ describe('a commit', () => {
 		});
 		expect(put).toEqual({ status: 201, size: big.byteLength });
 		expect(await missingVersions(db, id, [version])).toEqual([]);
-		await commit(id, [{ path: 'take.webm', expect: null, version }]);
+		await append(id, [{ path: 'take.webm', expect: null, version }]);
 		const oldNote = (await write(id, { 'a.md': 'old' })).versions['a.md'];
 		await write(id, { 'a.md': 'new' });
 		// The restore names the old version: no bytes travel.
-		const restored = await commit(id, [
+		const restored = await append(id, [
 			{
 				path: 'a.md',
 				expect: await sha256Hex(text('new')),
@@ -196,7 +196,7 @@ describe('a commit', () => {
 		const id = await folder();
 		await write(id, { 'Notes/Todo.md': 'x', 'a.md': 'y' });
 		const refused = async (path: string) => {
-			const answer = await commit(id, [
+			const answer = await append(id, [
 				{ path, expect: null, bytes: text('z') },
 			]);
 			return 'refused' in answer ? answer.refused : answer;
@@ -228,7 +228,7 @@ describe('a commit', () => {
 		});
 		expect((await filesAt(db, id))?.seq).toBe(1);
 		// A case-only rename in one change is no clash.
-		const renamed = await commit(id, [
+		const renamed = await append(id, [
 			{ path: 'a.md', expect: await sha256Hex(text('y')), delete: true },
 			{ path: 'A.md', expect: null, bytes: text('y') },
 		]);
@@ -242,11 +242,11 @@ describe('a commit', () => {
 			at: new Date('2020-01-02T03:04:05Z'),
 			message: 'First draft\n\nWith a body.',
 		};
-		const files: CommitWrite[] = [
+		const files: ChangeWrite[] = [
 			{ path: 'a.md', expect: null, bytes: text('one') },
 		];
 		expect(
-			await commitChange(db, {
+			await appendChange(db, {
 				folder: id,
 				account: 'ada',
 				via: 'so.epicenter.cli',
@@ -255,7 +255,7 @@ describe('a commit', () => {
 			}),
 		).toEqual({ error: 'not_importing' });
 		await pool.query('update folder set importing = true where id = $1', [id]);
-		await commitChange(db, {
+		await appendChange(db, {
 			folder: id,
 			account: 'ada',
 			via: 'so.epicenter.cli',
@@ -327,7 +327,7 @@ describe('the change feed', () => {
 		).toEqual([]);
 	});
 
-	test('two writers committing at once: every change lands, numbered densely, and a poller never skips one', async () => {
+	test('two writers appending at once: every change lands, numbered densely, and a poller never skips one', async () => {
 		const id = await folder();
 		const writers = 8;
 		const each = 15;
@@ -349,7 +349,7 @@ describe('the change feed', () => {
 		await Promise.all(
 			Array.from({ length: writers }, async (_, writer) => {
 				for (let n = 0; n < each; n++) {
-					const landed = await commit(id, [
+					const landed = await append(id, [
 						{ path: `w${writer}/${n}.md`, expect: null, bytes: text(`${n}`) },
 					]);
 					expect('landed' in landed).toBe(true);
@@ -375,7 +375,7 @@ describe('the change feed', () => {
 		const expect_ = await sha256Hex(text('one'));
 		const answers = await Promise.all(
 			['two', 'three'].map((value) =>
-				commit(id, [{ path: 'a.md', expect: expect_, bytes: text(value) }]),
+				append(id, [{ path: 'a.md', expect: expect_, bytes: text(value) }]),
 			),
 		);
 		expect(answers.filter((answer) => 'landed' in answer)).toHaveLength(1);
@@ -424,7 +424,7 @@ describe('history', () => {
 			body: stream(contract),
 			length: contract.byteLength,
 		});
-		await commit(big, [{ path: 'epicenter.json', expect: null, version }]);
+		await append(big, [{ path: 'epicenter.json', expect: null, version }]);
 		const titles = await folderTitles(db, store, [id, big, await folder()]);
 		expect([...titles.values()]).toEqual(['Journal', 'Big', null]);
 	});
@@ -473,7 +473,7 @@ describe('bytes', () => {
 				body: stream(bytes),
 				length: bytes.byteLength,
 			});
-		await commit(id, [
+		await append(id, [
 			{ path: 'kept.bin', expect: null, version: await sha256Hex(kept) },
 		]);
 		const swept = await sweepPendingBlobs({

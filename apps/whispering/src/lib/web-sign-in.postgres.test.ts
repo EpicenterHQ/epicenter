@@ -3,7 +3,7 @@
  * (ADR-0786): one sign-in through `connectAccount`, as `app.ts` asks for
  * it, against the real authorization server on a disposable Postgres
  * cluster and a `Bun.serve` listener, with this deployment's first-party
- * registrations. It asks for the API audience first and the Git audience,
+ * registrations. It asks for the API audience first and the folders audience,
  * with `ai` and the `folders:*` scopes; the Account sends a transcription
  * over the API, and its first sync makes the folder attached to Whispering
  * (ADR-0811), which its token reaches. No refresh token is left in the browser's storage.
@@ -172,7 +172,7 @@ test('one Whispering sign-in transcribes over the API and reaches the person’s
 	const authorize = new URL(navigations[0]!);
 	expect(authorize.searchParams.getAll('resource')).toEqual([
 		origin,
-		`${origin}/git`,
+		`${origin}/folders`,
 	]);
 	expect(authorize.searchParams.get('scope')?.split(' ').sort()).toEqual(
 		['ai', 'folders:read', 'folders:write', 'offline_access', 'openid'].sort(),
@@ -206,7 +206,7 @@ test('one Whispering sign-in transcribes over the API and reaches the person’s
 
 	// The sign-in's first sync makes Whispering's folder, attached to it,
 	// and its token reaches that folder.
-	const joined = await state.account.fetch(`${origin}/git/folders`, {
+	const joined = await state.account.fetch(`${origin}/folders`, {
 		method: 'POST',
 		headers: { 'content-type': 'application/json' },
 		body: JSON.stringify({ create: true }),
@@ -214,7 +214,7 @@ test('one Whispering sign-in transcribes over the API and reaches the person’s
 	expect(joined.status).toBe(201);
 	const { folder } = (await joined.json()) as { folder: string };
 	const changes = await state.account.fetch(
-		`${origin}/git/folders/${folder}/changes`,
+		`${origin}/folders/${folder}/changes`,
 	);
 	expect(changes.status).toBe(200);
 }, 60_000);

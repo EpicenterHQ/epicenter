@@ -1,5 +1,5 @@
 /**
- * One folder's routes (ADR-0824), at `<folders audience>/folders/<folder>/…`
+ * One folder's routes (ADR-0824), at `<folders>/<folder>/…`
  * (`folderUrl` in `@epicenter/definition/site`), over its log
  * (`../log/`):
  *
@@ -13,7 +13,7 @@
  * POST blobs/missing { versions }      read   the versions it holds no bytes for
  * GET  blobs/<sha256>                  read   one version's bytes, private and immutable
  * PUT  blobs/<sha256>                  write  one version's bytes: idempotent, checked against the hash
- * POST commits { files }               write  one change, each path over the version its writer expects
+ * POST changes { files }               write  one change, each path over the version its writer expects
  * POST import { changes } | { done } | { abandon }
  *                                      write  an import's changes, with their own authors and times;
  *                                             its end; or the folder deleted while it imports
@@ -23,7 +23,7 @@
  * is `<epoch>.<seq>`. `at` names a change by its seq, a mark, or a time
  * (ISO 8601). `folders.ts` decides each request first.
  *
- * A commit is `{ files }`, each one of `{ path, expect, text }` or
+ * A change is `{ files }`, each one of `{ path, expect, text }` or
  * `{ path, expect, base64 }` (bytes up to `INLINE_MAX`, which come with
  * it), `{ path, expect, version }` (a version the folder holds, uploaded
  * first or restored), or `{ path, expect, delete: true }`. `expect` is the
@@ -43,11 +43,11 @@ import type { Db } from '../db/create-db.js';
 import type { BlobStore } from '../log/blob-store.js';
 import { putBlob } from '../log/blobs.js';
 import {
-	type CommitAnswer,
-	type CommitWrite,
-	commitChange,
+	type AppendAnswer,
+	type ChangeWrite,
+	appendChange,
 	type Imported,
-} from '../log/commit.js';
+} from '../log/append.js';
 import { listMarks, seqOfMark, setMark } from '../log/marks.js';
 import {
 	blobsOf,
@@ -76,26 +76,26 @@ export type FolderEndpoint =
 	| { kind: 'blobs' }
 	| { kind: 'missing' }
 	| { kind: 'blob'; version: string; upload: boolean }
-	| { kind: 'commits' }
+	| { kind: 'append' }
 	| { kind: 'import' };
 
-/** The endpoint `rest` (the path below `folders/<folder>/`) names for `method`, or undefined. */
+/** The endpoint `rest` (the path below `<folders>/<folder>/`) names for `method`, or undefined. */
 export function readFolderEndpoint(
 	method: string,
 	rest: string,
 ): FolderEndpoint | undefined {
-	const routes: Record<string, [string, FolderEndpoint]> = {
-		changes: ['GET', { kind: 'changes' }],
-		files: ['POST', { kind: 'files' }],
-		log: ['GET', { kind: 'log' }],
-		marks: ['GET', { kind: 'marks' }],
-		blobs: ['POST', { kind: 'blobs' }],
-		'blobs/missing': ['POST', { kind: 'missing' }],
-		commits: ['POST', { kind: 'commits' }],
-		import: ['POST', { kind: 'import' }],
+	const routes: Record<string, FolderEndpoint> = {
+		'GET changes': { kind: 'changes' },
+		'POST changes': { kind: 'append' },
+		'POST files': { kind: 'files' },
+		'GET log': { kind: 'log' },
+		'GET marks': { kind: 'marks' },
+		'POST blobs': { kind: 'blobs' },
+		'POST blobs/missing': { kind: 'missing' },
+		'POST import': { kind: 'import' },
 	};
-	const route = routes[rest];
-	if (route !== undefined) return route[0] === method ? route[1] : undefined;
+	const route = routes[`${method} ${rest}`];
+	if (route !== undefined) return route;
 	const version = /^blobs\/([0-9a-f]{64})$/.exec(rest)?.[1];
 	if (version !== undefined)
 		return method === 'GET' || method === 'PUT'
@@ -115,7 +115,7 @@ export function readFolderEndpoint(
 
 /** What `endpoint` does to the folder: read it, or write it. */
 export const folderOperation = (endpoint: FolderEndpoint): 'read' | 'push' =>
-	endpoint.kind === 'commits' ||
+	endpoint.kind === 'append' ||
 	endpoint.kind === 'import' ||
 	endpoint.kind === 'mark' ||
 	(endpoint.kind === 'blob' && endpoint.upload)
@@ -124,8 +124,8 @@ export const folderOperation = (endpoint: FolderEndpoint): 'read' | 'push' =>
 
 /** The most paths or versions one request may name. */
 export const MAX_NAMED = 10_000;
-/** The largest commit or import body read; a larger one is refused (413) before it is read whole. */
-export const MAX_COMMIT_BYTES = 16 * 1024 * 1024;
+/** The largest change or import body read; a larger one is refused (413) before it is read whole. */
+export const MAX_CHANGE_BYTES = 16 * 1024 * 1024;
 /** The most files one change writes. */
 export const MAX_FILES = 1000;
 /** The most files one imported change writes: a commit's first tree can be large. */
@@ -424,15 +424,15 @@ export async function putBlobRoute({
 	return json({ error: answer.error, message: answer.message }, answer.status);
 }
 
-/** The writes of a commit request's `files`, or why they are refused. */
-export function readCommitFiles(
+/** The writes of a change request's `files`, or why they are refused. */
+export function readChangeFiles(
 	files: unknown,
 	most = MAX_FILES,
-): CommitWrite[] | { message: string; path?: string } {
+): ChangeWrite[] | { message: string; path?: string } {
 	if (!Array.isArray(files) || files.length === 0 || files.length > most)
 		return { message: `files: 1 to ${most}` };
 	const seen = new Set<string>();
-	const out: CommitWrite[] = [];
+	const out: ChangeWrite[] = [];
 	for (const file of files as Record<string, unknown>[]) {
 		const path = file?.path;
 		const problem = pathProblem(path);
@@ -489,8 +489,8 @@ export function readCommitFiles(
 	return out;
 }
 
-/** A commit's answer, as sent. */
-function sendCommit(answer: CommitAnswer): Response {
+/** A change's answer, as sent. */
+function sendAppended(answer: AppendAnswer): Response {
 	if ('landed' in answer)
 		return json({
 			cursor: writeCursor(answer.cursor),
@@ -512,7 +512,7 @@ function sendCommit(answer: CommitAnswer): Response {
 			{
 				error: 'missing',
 				missing: answer.missing,
-				message: 'put these versions at blobs/<sha256>, then commit',
+				message: 'put these versions at blobs/<sha256>, then send the change again',
 			},
 			409,
 		);
@@ -545,8 +545,8 @@ function sendCommit(answer: CommitAnswer): Response {
 			);
 }
 
-/** `POST commits { files }`: one change, as `account` through `via` (see the header). */
-export async function folderCommit(
+/** `POST changes { files }`: one change, as `account` through `via` (see the header). */
+export async function postChange(
 	db: Runner,
 	{
 		folder,
@@ -555,9 +555,9 @@ export async function folderCommit(
 		body,
 	}: { folder: string; account: string; via: string; body: unknown },
 ): Promise<Response> {
-	const files = readCommitFiles((body as { files?: unknown } | null)?.files);
+	const files = readChangeFiles((body as { files?: unknown } | null)?.files);
 	if (!Array.isArray(files)) return invalid(files.message, files.path);
-	return sendCommit(await commitChange(db, { folder, account, via, files }));
+	return sendAppended(await appendChange(db, { folder, account, via, files }));
 }
 
 /**
@@ -619,7 +619,7 @@ export async function folderImport(
 		changes.length > MAX_IMPORTED
 	)
 		return invalid(`changes: 1 to ${MAX_IMPORTED}, or { done: true }`);
-	const read: { imported: Imported; files: CommitWrite[] }[] = [];
+	const read: { imported: Imported; files: ChangeWrite[] }[] = [];
 	for (const change of changes as Record<string, unknown>[]) {
 		const { author, at, message } = change ?? {};
 		const time = typeof at === 'string' ? Date.parse(at) : Number.NaN;
@@ -632,17 +632,17 @@ export async function folderImport(
 			return invalid(
 				'each change is { author, at: an ISO time, message, files }',
 			);
-		const files = readCommitFiles(change.files, MAX_IMPORTED_FILES);
+		const files = readChangeFiles(change.files, MAX_IMPORTED_FILES);
 		if (!Array.isArray(files)) return invalid(files.message, files.path);
 		read.push({
 			imported: { author, at: new Date(time), message },
 			files,
 		});
 	}
-	let last: CommitAnswer | null = null;
+	let last: AppendAnswer | null = null;
 	for (const { imported, files } of read) {
-		last = await commitChange(db, { folder, account, via, files, imported });
-		if (!('landed' in last)) return sendCommit(last);
+		last = await appendChange(db, { folder, account, via, files, imported });
+		if (!('landed' in last)) return sendAppended(last);
 	}
-	return sendCommit(last as CommitAnswer);
+	return sendAppended(last as AppendAnswer);
 }

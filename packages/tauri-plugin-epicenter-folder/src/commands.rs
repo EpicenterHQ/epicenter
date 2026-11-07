@@ -13,8 +13,8 @@
 //! ADR-0740, and its record of its data folder) are never listed, read, or
 //! written by a page: `InvalidPath`. Every command that touches
 //! the disk runs on the blocking pool, never on the thread that drives the
-//! windows. The folder's Git is not here: the `epicenter` CLI runs it
-//! (ADR-0559).
+//! windows. No Git runs here: a folder's history is its log on the
+//! server (ADR-0824).
 
 use std::ffi::OsString;
 use std::path::Path;

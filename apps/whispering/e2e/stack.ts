@@ -1,7 +1,7 @@
 /**
  * Whispering's end-to-end environment (`runAppStack` in
  * `packages/cli/src/app-stack.test-support.ts`): a disposable Postgres, the
- * local API with temporary Git and LFS stores, a person per browser project
+ * local API with a temporary blob store, a person per browser project
  * with a desktop sandbox, and Whispering built against that API and served
  * by `vite preview` on its registered origin, `http://localhost:1420`.
  *

@@ -40,6 +40,26 @@ export {
 } from './device/node-root.js';
 /** The store of a directory on this computer: what `epicenter sync` syncs. */
 export { nodeStore } from './device/node-store.js';
+/**
+ * Git from Bun (ADR-0826): a folder's history written as a Git repository
+ * (`exportGit`), this computer's Git for `importGit` (`gitHost`), and giving
+ * up an import that stopped midway (`abandonImport`). Each spawns the
+ * system `git`, so it needs Bun.
+ */
+export {
+	type ExportReport,
+	exportGit,
+	type History,
+	isPlainPath,
+	messageOf,
+} from './git/export.js';
+export {
+	type AbandonReport,
+	abandonImport,
+	git,
+	gitHost,
+	sourceOf,
+} from './git/node.js';
 /** Why a path cannot be a file on every disk, or undefined: what an import skips. */
 export { pathProblem } from './paths.js';
 

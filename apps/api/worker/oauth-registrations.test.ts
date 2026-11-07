@@ -31,7 +31,7 @@ describe('native clients', () => {
 			expect(clientId).toMatch(/^so\.epicenter\.[a-z]+\.native$/);
 	});
 
-	test('a loopback redirect on any port, the API alone, and no Git scope', () => {
+	test('a loopback redirect on any port, the API alone, and no folders scope', () => {
 		for (const client of natives) {
 			expect(client.applicationType).toBe('native');
 			expect(client.redirectUris).toEqual(['http://127.0.0.1/callback']);

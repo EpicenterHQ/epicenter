@@ -122,7 +122,7 @@ async function harnessFor(
 				redirectUris: ['http://127.0.0.1/callback'],
 				grantTypes: ['authorization_code', 'refresh_token'],
 				scopes: ['offline_access', 'folders:read', 'folders:write'],
-				resources: [audiences.git],
+				resources: [audiences.folders],
 				skipConsent: false,
 				applicationType: 'native',
 			},
@@ -193,16 +193,16 @@ function checks(
 }
 
 /**
- * One person's Git-audience token lists their folders; an API-audience
- * token is refused, since the listing is the Git audience's.
+ * One person's folders-audience token lists their folders; an API-audience
+ * token is refused, since the listing is the folders audience's.
  */
 async function checkResourcesOverHttp(h: OAuthHarness) {
 	const { client } = h;
 	const person = await client.person('http');
-	const git = await client.codeGrant({
+	const folders = await client.codeGrant({
 		...h.desktop,
 		cookie: person.cookie,
-		resource: [h.audiences.git],
+		resource: [h.audiences.folders],
 	});
 	const api = await client.codeGrant({
 		...h.desktop,
@@ -213,7 +213,7 @@ async function checkResourcesOverHttp(h: OAuthHarness) {
 	const bearer = (token: string) => ({ authorization: `Bearer ${token}` });
 
 	const listing = await fetch(`${client.origin}/api/folders`, {
-		headers: bearer(git.access_token),
+		headers: bearer(folders.access_token),
 	});
 	expect(listing.status).toBe(200);
 	expect((await listing.json()) as FolderListing).toEqual({

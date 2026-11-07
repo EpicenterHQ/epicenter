@@ -3,7 +3,7 @@
  * `sync({ local, remote, manifest })`. `local` is any store (a folder's
  * directory, the open folder, the web's memory); `remote` is a folder's
  * log on the server (`repository.ts`): what changed since a cursor with
- * each path's version, every file, bytes by version, and a commit. No Git
+ * each path's version, every file, bytes by version, and appending a change. No Git
  * runs on this side.
  *
  * A file's version is the SHA-256 of its bytes on every store (ADR-0824),
@@ -18,7 +18,7 @@
  * 1. Lists the local store, then asks the server what changed since
  *    `cursor`, each path with its version now (every file when the manifest
  *    names no cursor, or one the log does not answer), and takes as candidates
- *    the paths changed on either side, with every path this sync committed
+ *    the paths changed on either side, with every path this sync appended
  *    earlier. A candidate the server did not name holds its agreed version
  *    there, since nothing changed it since the cursor.
  * 2. Copies a file changed on one side to the other. A note changed on
@@ -27,12 +27,12 @@
  *    computer's; an edit beats a delete; equal versions agree.
  * 3. Writes the local side first, each file over the version listed, so a
  *    file another program wrote meanwhile is `Moved` and kept for the next
- *    sync to merge. Then it commits to the server in batches, each over
+ *    sync to merge. Then it appends to the server in batches, each over
  *    the versions read. A moved batch lands nothing: the sync lists again
  *    and runs another pass.
- * 4. A pass that committed is followed by one more, which reads again every
- *    path this sync committed and takes what others landed meanwhile; a
- *    pass that committed nothing agrees at the head it read, and the
+ * 4. A pass that appended is followed by one more, which reads again every
+ *    path this sync appended and takes what others landed meanwhile; a
+ *    pass that appended nothing agrees at the head it read, and the
  *    manifest moves there, unless a file it kept for the next sync changed
  *    on the server: then the cursor stays, so the next sync hears it again.
  *
@@ -72,7 +72,7 @@ import {
 	type Version,
 	within,
 } from '../device/store.js';
-import type { CommitReceipt, Repository } from './repository.js';
+import type { ChangeReceipt, Repository } from './repository.js';
 
 /**
  * Which folder on the server a folder syncs with: its id, which the server
@@ -235,7 +235,7 @@ const encoder = new TextEncoder();
 /**
  * Sync `local` with `remote` from the state `manifest` holds, and move the
  * manifest to the state they agree on. At most `passes` passes: a pass
- * whose commit found the server moved lists again.
+ * whose append found the server moved lists again.
  */
 export async function sync({
 	local,
@@ -266,8 +266,8 @@ export async function sync({
 		refused: [],
 		deletions: [],
 	};
-	/** Every path this sync committed: each later pass reads it again at the head. */
-	const committed = new Set<string>();
+	/** Every path this sync appended: each later pass reads it again at the head. */
+	const appended = new Set<string>();
 	/** The local listing a pass reuses: the last pass's, with this sync's own writes. */
 	let listing: Map<string, Version> | null = null;
 	while (report.passes < passes) {
@@ -280,7 +280,7 @@ export async function sync({
 			state,
 			report,
 			listing,
-			committed,
+			appended,
 			deletions,
 		});
 		if (ran.error !== null) return ran;
@@ -293,7 +293,7 @@ export async function sync({
 		if (ran.data.done && report.pushed.length === pushedBefore) break;
 		// A pass that pushed is followed by one that agrees at the head,
 		// taking what others landed meanwhile. Only the server moved: it
-		// reuses this listing. A pass whose commit found it moved lists again.
+		// reuses this listing. A pass whose append found it moved lists again.
 		listing = ran.data.done ? ran.data.listing : null;
 	}
 	// A file a moved pass handled is handled again by the next: name it once.
@@ -389,7 +389,7 @@ async function syncPass({
 	state,
 	report,
 	listing,
-	committed,
+	appended,
 	deletions,
 }: {
 	local: Store;
@@ -399,8 +399,8 @@ async function syncPass({
 	report: SyncReport;
 	/** The local store's visible files and versions, when the last pass's still hold; null to list them. */
 	listing: Map<string, Version> | null;
-	/** Every path this sync committed, which this pass reads again. */
-	committed: Set<string>;
+	/** Every path this sync appended, which this pass reads again. */
+	appended: Set<string>;
 	deletions: Deletions;
 }): Promise<
 	Result<
@@ -446,7 +446,7 @@ async function syncPass({
 		else after.set(path, version);
 	};
 
-	const candidates = new Set<string>([...theirs.keys(), ...committed]);
+	const candidates = new Set<string>([...theirs.keys(), ...appended]);
 	for (const [path, version] of mine)
 		if (files[path] !== version) candidates.add(path);
 	for (const path of Object.keys(files))
@@ -683,7 +683,7 @@ async function syncPass({
 	if (batch.length > 0) batches.push(batch);
 	let pushed = false;
 	for (const group of batches) {
-		const landedBatch = await commitBatch(remote, group, report);
+		const landedBatch = await appendBatch(remote, group, report);
 		if (landedBatch.error !== null) return landedBatch;
 		if (landedBatch.data === null) continue;
 		if (landedBatch.data === 'moved') {
@@ -698,13 +698,13 @@ async function syncPass({
 		pushed = true;
 		for (const push of landedBatch.data.pushes) {
 			settle(push.path, push.local);
-			committed.add(push.path);
+			appended.add(push.path);
 			landed.add(push.path);
 			report.pushed.push(push.path);
 		}
 	}
 
-	// 4. A pass that committed is agreed by the next; one that did not agrees at the head it read.
+	// 4. A pass that appended is agreed by the next; one that did not agrees at the head it read.
 	if (pushed) {
 		const saved = await save(midway());
 		if (saved.error !== null) return saved;
@@ -727,23 +727,23 @@ async function syncPass({
 }
 
 /**
- * Commit `pushes` to the server, leaving out every path it refuses,
+ * Append `pushes` to the server, leaving out every path it refuses,
  * which `report` names: the pushes that landed with the receipt, `'moved'`
  * when a path moved, or null when every path was refused.
  */
-async function commitBatch(
+async function appendBatch(
 	remote: Repository,
 	pushes: Push[],
 	report: SyncReport,
 ): Promise<
 	Result<
-		{ pushes: Push[]; receipt: CommitReceipt } | 'moved' | null,
+		{ pushes: Push[]; receipt: ChangeReceipt } | 'moved' | null,
 		Unavailable
 	>
 > {
 	let writing = pushes;
 	while (writing.length > 0) {
-		const landed = await remote.commit(
+		const landed = await remote.append(
 			writing.map(({ path, bytes, expect }) => ({ path, bytes, expect })),
 		);
 		if (landed.error !== null) return landed;

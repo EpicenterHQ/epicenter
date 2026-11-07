@@ -3,8 +3,9 @@
 //! Each test builds an app with the plugin installed, names its roots as a
 //! shell does at startup, creates a window, and sends
 //! `plugin:epicenter-folder|...` requests exactly as a page's `invoke`
-//! would. The folder is a real directory; a test makes its repository with
-//! the real `git`, which the plugin itself never runs (ADR-0559).
+//! would. The folder is a real directory; a test that needs a Git
+//! repository in it makes one with the real `git`, which the plugin itself
+//! never runs.
 //!
 //! Key behaviors:
 //! - The generated TypeScript bindings match the registered commands.

@@ -16,7 +16,7 @@ function setup() {
 		c.set('authBaseURL', origin);
 		c.set('audiences', {
 			api: origin,
-			git: 'https://git.example.test',
+			folders: `${origin}/folders`,
 		});
 		await next();
 	});
@@ -73,13 +73,16 @@ test('protected resource metadata answers only for audiences on this origin', as
 		(await app.request(`${origin}/.well-known/oauth-protected-resource/mcp`))
 			.status,
 	).toBe(404);
-	// Git's audience is another host; this origin does not speak for it.
+	// Another origin's metadata is not this origin's to answer.
 	expect(
-		(await app.request(`${origin}/.well-known/oauth-protected-resource/git`))
-			.status,
+		(
+			await app.request(
+				'https://other.example.test/.well-known/oauth-protected-resource/folders',
+			)
+		).status,
 	).toBe(404);
 });
-test("each audience's metadata lists its own scopes, on its own host", async () => {
+test("each audience's metadata lists its own scopes, at its own path", async () => {
 	const app = setup();
 	const api = await app.request(
 		`${origin}/.well-known/oauth-protected-resource`,
@@ -87,12 +90,11 @@ test("each audience's metadata lists its own scopes, on its own host", async () 
 	expect(await api.json()).toMatchObject({
 		scopes_supported: ['ai'],
 	});
-	// When the Git host routes here, it is answered there, naming this issuer.
-	const git = await app.request(
-		'https://git.example.test/.well-known/oauth-protected-resource',
+	const folders = await app.request(
+		`${origin}/.well-known/oauth-protected-resource/folders`,
 	);
-	expect((await git.json()) as object).toEqual({
-		resource: 'https://git.example.test',
+	expect((await folders.json()) as object).toEqual({
+		resource: `${origin}/folders`,
 		authorization_servers: [`${origin}/auth`],
 		scopes_supported: ['folders:read', 'folders:write', 'folders:all'],
 		bearer_methods_supported: ['header'],

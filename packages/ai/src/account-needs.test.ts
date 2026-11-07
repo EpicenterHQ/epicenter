@@ -6,7 +6,7 @@
  * Key behaviors:
  * - An app that gives the account to `home` and to `hosted` asks for both
  *   the repository's audience and the API's, the API's first
- * - An app that gives it only to `home` asks for the repository alone
+ * - An app that gives it only to `home` asks for the folders alone
  */
 import { afterEach, expect, test } from 'bun:test';
 import { type AppAccount, connectAccount } from '@epicenter/account';
@@ -54,24 +54,24 @@ afterEach(() => {
 		Reflect.deleteProperty(globalThis, key);
 });
 
-test('an app composing home and hosted models asks for the repository and the API', async () => {
+test('an app composing home and hosted models asks for the folders and the API', async () => {
 	const asked = await signInFor((account) => {
 		home({ site: SITE, account });
 		hosted(account);
 	});
-	expect(asked.resources).toEqual([API, `${API}/git`]);
+	expect(asked.resources).toEqual([API, `${API}/folders`]);
 	expect(asked.scope?.split(' ')).toEqual(
 		expect.arrayContaining(['ai', 'folders:read', 'folders:write']),
 	);
 });
 
-test('an app composing only home asks for the repository alone', async () => {
+test('an app composing only home asks for the folders alone', async () => {
 	expect(
 		await signInFor((account) => {
 			home({ site: SITE, account });
 		}),
 	).toEqual({
 		scope: 'openid folders:read folders:write',
-		resources: [`${API}/git`],
+		resources: [`${API}/folders`],
 	});
 });

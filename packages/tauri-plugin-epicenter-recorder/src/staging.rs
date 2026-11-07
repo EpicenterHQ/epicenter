@@ -5,7 +5,7 @@
 //! name: `<directory>/.ep-<random>-<base>.recording` for
 //! `<directory>/<base>.webm` (`pending`, from the folder core's
 //! `state::pending_recording`). No listing describes it, no watcher reports
-//! it, and sync never commits it, so nothing reads a recording at a data
+//! it, and sync never sends it, so nothing reads a recording at a data
 //! path before it is finished (ADR-0822). The name carries the final path,
 //! so recovery after a crash knows where it goes.
 //!

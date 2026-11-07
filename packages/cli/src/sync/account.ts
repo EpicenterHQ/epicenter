@@ -1,7 +1,7 @@
 /**
  * The CLI's own sign-in as the account a folder's repository is reached
  * through (`@epicenter/folder/sync`'s `RemoteAccount`): every request to the
- * deployment carries the grant's access token for the Git audience, fetched
+ * deployment carries the grant's access token for the folders audience, fetched
  * (and refreshed, under its lock) as each request starts, so a long sync
  * never sends a stale one. A token travels over `https`, or over `http` only
  * to this computer (a development API).
@@ -25,7 +25,7 @@ export function carriesTokens(url: string): boolean {
  * signed-out computer is told how to sign in before anything else is read.
  */
 export async function signedInNow(ctx: AuthContext) {
-	const { error } = await accessToken(ctx, ctx.deployment.audiences.git);
+	const { error } = await accessToken(ctx, ctx.deployment.audiences.folders);
 	if (error !== null) return { data: null, error: error.message } as const;
 	return { data: signedInAccount(ctx), error: null } as const;
 }
@@ -42,7 +42,7 @@ export function signedInAccount(ctx: AuthContext): RemoteAccount {
 				throw new Error(`${url} is neither https nor this computer`);
 			const { data, error } = await accessToken(
 				ctx,
-				ctx.deployment.audiences.git,
+				ctx.deployment.audiences.folders,
 			);
 			if (error !== null) throw new Error(error.message);
 			const headers = new Headers(init?.headers);

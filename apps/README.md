@@ -17,8 +17,8 @@ sync, history, and sharing supplied by the platform
 `defineView` and `@epicenter/app` are not built, and no app syncs its own
 folder yet.
 
-Apps never commit and keep no Git on a computer. A folder's history is the
-server's Git repository, which `epicenter sync` commits to
+Apps never sync and keep no Git on a computer. A folder's history is its
+log on the server, which `epicenter sync` appends to
 ([ADR-0804](../docs/adr/0804-a-computer-keeps-a-plain-folder-and-every-surface-syncs-with-one-typescript-function.md)),
 at `/folders/<id>`. The code still says note and `{id}` where the records
 decided item and `{name}`; the rename is pending

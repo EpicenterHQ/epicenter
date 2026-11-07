@@ -159,7 +159,7 @@ test('1. signed in, captures are added, given thoughts, edited, downloaded and d
 	await page.getByRole('button', { name: 'More capture actions' }).click();
 	await page.getByRole('menuitem', { name: 'Delete capture…' }).click();
 	await expect(page.getByRole('alertdialog')).toContainText(
-		'Its Git history keeps them',
+		'Its history keeps them',
 	);
 	await page
 		.getByRole('alertdialog')

@@ -1,6 +1,6 @@
 /**
  * A person's folders on the API's origin (ADR-0811, ADR-0820), for a token
- * on the Git audience, which a client already holds for the folders
+ * on the folders audience, which a client already holds for the folders
  * themselves:
  *
  * ```txt
@@ -141,7 +141,7 @@ export function mountFolderApi(
 			try {
 				const decided = await authorizeAccountRequest(c.var.db, {
 					token: readAccessToken(c.req.header('authorization')),
-					audience: c.var.audiences.git,
+					audience: c.var.audiences.folders,
 					scope,
 				});
 				if (decided.error !== null)
@@ -176,7 +176,7 @@ export function mountFolderApi(
 			try {
 				const decided = await authorizeFolderRequest(c.var.db, {
 					token: readAccessToken(c.req.header('authorization')),
-					audience: c.var.audiences.git,
+					audience: c.var.audiences.folders,
 					scope,
 					folder,
 				});

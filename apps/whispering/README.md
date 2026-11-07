@@ -41,7 +41,7 @@ its files are the folder attached to Whispering on the server (a repository
 at `/folders/<id>`), through the account (`openFolder(whispering, home({ site, account }))` in
 `src/lib/app.ts`), at the same paths a folder holds. Signed out it asks for
 a sign-in (`src/lib/components/SignIn.svelte`); signed in, every recording,
-edit, transcript and result is a commit there, and nothing is kept in the
+edit, transcript and result is a change there, and nothing is kept in the
 browser. It needs the network; there is no browser copy to fall back on
 ([ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)).
 
@@ -219,7 +219,7 @@ The build is static: any host that answers unknown paths with `index.html`
 (for `/auth/callback`) serves it, at an origin the API registers.
 
 `test:e2e` starts `e2e/stack.ts`: a disposable Postgres, the local API with
-temporary Git and LFS stores, a person per browser with a desktop sandbox for
+a temporary blob store, a person per browser with a desktop sandbox for
 the `epicenter` CLI, and the app built against that API on
 `http://localhost:1420` (which must be free). It walks one person through
 five steps per engine (`e2e/whispering.spec.ts`): signed out, Whispering
@@ -233,8 +233,7 @@ a stub of the API's transcription route) and keeps the transcript in the
 repository; `epicenter clone` holds the recordings with their audio and
 `epicenter check` passes; and signing out asks for a sign-in again, with
 nothing left in the browser. `bun apps/whispering/e2e/stack.ts --demo` runs
-the same stack to try by hand. It needs `initdb`, `pg_ctl`, `git`, and
-`git-lfs` on `PATH`.
+the same stack to try by hand. It needs `initdb` and `pg_ctl` on `PATH`.
 
 ## The desktop app
 

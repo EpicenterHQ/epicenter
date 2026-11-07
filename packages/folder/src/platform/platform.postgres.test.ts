@@ -1,7 +1,7 @@
 /**
  * The platform's folder operations end to end (ADR-0811, ADR-0819,
  * ADR-0822): each person's Epicenter folder a directory in Bun, and the real
- * server on a disposable Postgres with the Git and LFS disk stores
+ * server on a disposable Postgres with the disk blob store
  * (`startRepositoryServer`), every person signed in as the CLI is, reaching
  * every folder they hold. Requires initdb and pg_ctl on PATH.
  *
@@ -142,24 +142,24 @@ test('init proposes a contract; a first sync makes the folder; a share lands in 
 }, 120_000);
 
 /**
- * A repository whose first commit waits until `release` resolves, so two
- * syncs of one folder can be made to overlap at their commits.
+ * A repository whose first append waits until `release` resolves, so two
+ * syncs of one folder can be made to overlap at their appends.
  */
 function held(repository: Repository, release: Promise<void>): Repository {
 	let first = true;
 	return {
 		...repository,
-		async commit(writes) {
+		async append(writes) {
 			if (first) {
 				first = false;
 				await release;
 			}
-			return repository.commit(writes);
+			return repository.append(writes);
 		},
 	};
 }
 
-test('two syncs of one folder at once lose no edit: the slower re-runs after its commit or its record is refused', async () => {
+test('two syncs of one folder at once lose no edit: the slower re-runs after its append or its record is refused', async () => {
 	const alice = await person(server, 'two-syncers');
 	await alice.desk.write('Studio', {
 		'epicenter.json': contract('Studio'),
@@ -269,8 +269,8 @@ test('one request finds which folders moved, and only those sync', async () => {
 		['Still', 'still'],
 	]);
 	// One answer named where every folder is: Still was never asked about.
-	expect(sent.filter((request) => request.endsWith('/git/folders'))).toEqual([
-		'GET /git/folders',
+	expect(sent.filter((request) => request.endsWith('/folders'))).toEqual([
+		'GET /folders',
 	]);
 	expect(sent.some((request) => request.includes(stillId))).toBe(false);
 	expect(
@@ -286,7 +286,7 @@ test('one request finds which folders moved, and only those sync', async () => {
 		await syncEvery({ account: counted, root: alice.desk.root }),
 	);
 	expect(next.folders.every(({ result }) => result === undefined)).toBe(true);
-	expect(sent).toEqual(['GET /git/folders']);
+	expect(sent).toEqual(['GET /folders']);
 }, 120_000);
 
 test('kept in sync, a change here reaches the server and a change there arrives, each folder marked', async () => {

@@ -62,8 +62,8 @@ const app = createServerApp<CloudEnv>({
 	// to this deployment's own `Cloudflare.Env` is the honest edge (ADR-0066).
 	resolveOrigin: resolveApiOrigin,
 	resolveTrustedOrigins: buildEpicenterTrustedOrigins,
-	// The hosted origin's Git audience lives on its own host
-	// (`git.epicenter.so`); any other origin's sits under it (ADR-0326).
+	// Both audiences are on this origin: the API at it, the folders at
+	// `/folders` (ADR-0326, ADR-0828).
 	resolveAudiences: resolveOAuthAudiences,
 });
 
@@ -149,11 +149,11 @@ mountAuthRoutes(app, {
 // its operation needs (ADR-0549). Account management on the authorization
 // server's own pages takes only its session cookie: billing here, and sign-in
 // methods and account deletion through Better Auth under `/auth/*`.
-const resource = (audience: 'api' | 'git', scope: OAuthScope) =>
+const resource = (audience: 'api' | 'folders', scope: OAuthScope) =>
 	every(cloudContext, requireAccessToken({ audience, scope }));
 const accountSession = every(cloudContext, requireSessionCookie());
 
-// Folders at git.epicenter.so/folders/<id> (ADR-0811, ADR-0824): each one's
+// Folders at api.epicenter.so/folders/<id> (ADR-0811, ADR-0824): each one's
 // log in Postgres through Hyperdrive, its bytes over 16 KiB in R2 (`BLOBS`),
 // and their listing and sharing at `/api/folders`. Each request is decided
 // from the access token, the folder's membership, and its attached apps

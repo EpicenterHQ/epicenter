@@ -45,7 +45,7 @@ export type { Place } from './place.js';
  * ```
  */
 export function home({ site, account }: HomeOptions): Place {
-	account?.need('repository');
+	account?.need('folders');
 	if (isTauri()) return dataFolder();
 	if (!account)
 		throw new TypeError(

@@ -52,7 +52,7 @@ export const profile = openProfile(signIn); // the person's name and email
 
 | Need | Declared by | A browser sign-in asks for |
 | --- | --- | --- |
-| `repository` | `home` from `@epicenter/folder` | the Git audience, `folders:read folders:write` |
+| `folders` | `home` from `@epicenter/folder` | the folders audience, `folders:read folders:write` |
 | `ai` | `hosted` from `@epicenter/ai` | the API audience, `ai` |
 | `profile` | `openProfile` | the API audience, `profile email` |
 
@@ -128,7 +128,7 @@ never redirected.
 
 `Account.fetch` picks the token of the most specific resource the target
 matches: the same origin, and a path equal to the resource's path or under it
-(so `/github` is not under `/git`). Other requests to the server's origin use
+(so `/folderstuff` is not under `/folders`). Other requests to the server's origin use
 the first resource's token, and any other origin is refused. It sends
 `Authorization: Bearer <token>`, no cookies, `credentials: 'omit'`, and
 `redirect: 'manual'`. A 401 publishes `reauth-required` on the same Account,
@@ -149,8 +149,8 @@ page and uses its session cookie.
 
 Every desktop app signs in through its own shell. The Epicenter app signs in
 as `so.epicenter`, reaching every folder the person holds (`folders:all`,
-ADR-0820), on the API and Git audiences; its pages ask for the Git
-audience's token with `createTauriAuth({ audience: 'git' })`. Compile its
+ADR-0820), on the API and folders audiences; its pages ask for the folders
+audience's token with `createTauriAuth({ audience: 'folders' })`. Compile its
 shell with `EPICENTER_SERVER_ORIGIN` for a self-hosted build; the default is
 Cloud. The `epicenter` CLI is a separate program with its own sign-in
 (`so.epicenter.cli`). No WebView holds a token (ADR-0549's desktop row).

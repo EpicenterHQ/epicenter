@@ -15,7 +15,7 @@
  *   target is gone is `Disconnected`, with words a person reads, and Retry
  *   opens it once it is back; a storage call on it is `Unavailable` with
  *   that `Disconnected` as its cause, and a write waits until it is back
- * - Versions are Git blob ids, so a put over a version the file no longer
+ * - Versions are the SHA-256 of the bytes, so a put over a version the file no longer
  *   holds is `Moved` and lands nothing; the folder reads again and applies its
  *   change over what another program wrote
  * - A storage refusal is `Unavailable`; a page outside Tauri opens nothing

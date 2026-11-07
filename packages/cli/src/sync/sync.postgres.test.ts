@@ -117,7 +117,7 @@ beforeAll(async () => {
 					'refresh_token',
 				],
 				scopes: scopes as never,
-				resources: [audiences.api, audiences.git],
+				resources: [audiences.api, audiences.folders],
 				skipConsent: false,
 				applicationType: 'native',
 			},
@@ -152,7 +152,7 @@ type Run = { code: number; stdout: string; stderr: string };
 
 /**
  * A computer of a person (a new one, or `of`'s): signed in with the device
- * grant as `epicenter auth login` does, its Git-audience token cached so no
+ * grant as `epicenter auth login` does, its folders-audience token cached so no
  * process refreshes, and an `epicenter` that runs as them. Its Epicenter
  * folder is `<home>/Epicenter`.
  */
@@ -183,7 +183,7 @@ async function machine(label: string, of?: { person: Person }) {
 		},
 	});
 	expect(login.error).toBeNull();
-	expectOk(await accessToken(ctx, ctx.deployment.audiences.git));
+	expectOk(await accessToken(ctx, ctx.deployment.audiences.folders));
 	const entry = `device ${ctx.deployment.origin}`;
 	const stored = JSON.parse((await secrets.get(entry)) as string);
 	const env = {

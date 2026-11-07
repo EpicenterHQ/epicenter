@@ -30,8 +30,8 @@
  *
  * One clash is one conflict block, however many writes follow it: an edit of
  * lines that a block already offers as one of its sides continues that side,
- * and adds no block (`continuedBlock`). The server merging a commit onto a
- * moved main, a device replaying unsent work over what arrived, and an
+ * and adds no block (`continuedBlock`). A sync merging what both sides
+ * changed, a device replaying unsent work over what arrived, and an
  * editor's write all reach it here.
  */
 import {

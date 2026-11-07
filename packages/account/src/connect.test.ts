@@ -67,38 +67,38 @@ afterEach(() => {
 		Reflect.deleteProperty(globalThis, key);
 });
 
-test('in a browser, the repository alone asks for its audience alone', async () => {
-	expect(await authorization(['repository'])).toEqual({
+test('in a browser, the folders alone ask for their audience alone', async () => {
+	expect(await authorization(['folders'])).toEqual({
 		scope: 'openid folders:read folders:write',
-		resources: [`${API}/git`],
+		resources: [`${API}/folders`],
 	});
 });
 
 test('in a browser, every need is asked for once, the API first', async () => {
-	expect(await authorization(['repository', 'ai', 'profile', 'ai'])).toEqual({
+	expect(await authorization(['folders', 'ai', 'profile', 'ai'])).toEqual({
 		// Two audiences: the callback refreshes once for the second.
 		scope: 'openid profile email ai folders:read folders:write offline_access',
-		resources: [API, `${API}/git`],
+		resources: [API, `${API}/folders`],
 	});
 });
 
 test('a need declared after the account was made is asked for at the next sign-in', async () => {
 	const sent = browserPage();
 	const account = connectAccount({ clientId: 'so.epicenter.todos', api: API });
-	account.need('repository');
+	account.need('folders');
 	expect(account.state().status).toBe('signed-out');
 	account.need('ai');
 	await account.startSignIn();
 	account[Symbol.dispose]();
 	expect(new URL(sent.url).searchParams.getAll('resource')).toEqual([
 		API,
-		`${API}/git`,
+		`${API}/folders`,
 	]);
 });
 
 test('in a Tauri window every app signs in through the shell', () => {
 	inTauri = true;
 	const account = connectAccount({ clientId: 'so.epicenter.todos', api: API });
-	account.need('repository');
+	account.need('folders');
 	expect('completeSignIn' in account).toBe(false);
 });

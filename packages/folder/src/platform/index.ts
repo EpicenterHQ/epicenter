@@ -7,14 +7,30 @@
  * (`questionOf`), adding a contract (`initFolder`), a folder's sync
  * (`syncFolder`), cloning, accepting a share into the Epicenter folder,
  * keeping every folder in sync from one request (`syncEvery`,
- * `keepEverySynced`), and the person's folders on the server: listing,
- * sharing, unsharing, accepting, and attaching to apps.
+ * `keepEverySynced`), a folder's history (its log, a file's versions, the
+ * folder at a moment, a diff, a restore, and marks: `history.ts`), a Git
+ * repository's history entering as a folder (`importGit`, over a
+ * `GitHost`), and the person's folders on the server: listing, sharing,
+ * unsharing, accepting, and attaching to apps.
  *
  * It reads and writes through stores, so it runs wherever a store does; the
  * Epicenter folder on this computer comes from `@epicenter/folder/node`
  * (`epicenterRoot`) or, in the Epicenter app, `@epicenter/folder/tauri`.
+ * Git itself is the caller's: `gitHost` in `@epicenter/folder/node`, which
+ * also exports a history as Git (`exportGit`), or the Epicenter app's shell.
  */
 
+export {
+	GitError,
+	type GitHost,
+	type GitRun,
+} from '../git/host.js';
+export {
+	type ImportNote,
+	type ImportReport,
+	importGit,
+	importsInProgress,
+} from '../git/import.js';
 export type { FolderIdentity } from '../identity.js';
 export {
 	acceptShare,
@@ -26,6 +42,8 @@ export {
 	unshareFolder,
 } from '../remote/folders.js';
 export {
+	type LoggedChange,
+	type Mark,
 	makeFolder,
 	type RemoteAccount,
 	RemoteError,
@@ -46,6 +64,23 @@ export {
 	type LocalFolder,
 	listHome,
 } from './epicenter-folder.js';
+export {
+	type DiffEntry,
+	type FileAtMoment,
+	type FileVersion,
+	fileAt,
+	fileHistory,
+	folderAt,
+	folderDiff,
+	folderLog,
+	folderMarks,
+	HistoryError,
+	type HistoryTarget,
+	markFolder,
+	type Restored,
+	restoreFolder,
+	syncedFolder,
+} from './history.js';
 export {
 	type BoundFolder,
 	type Candidate,

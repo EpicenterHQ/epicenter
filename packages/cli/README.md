@@ -53,15 +53,15 @@ built yet.
 | `epicenter init [<path>] [--title <title>] [--dry-run]` | built | `initFolder`, through `src/folder-commands.ts` |
 | `epicenter sync [<folder>] [--join <id> \| --create] [--push-deletions \| --restore-deletions] [--all]` | built | `syncFolder` and `syncEvery`, through `src/sync/commands.ts` |
 | `epicenter clone [<folder> [<name>]]` | built | `listFolders` and `cloneIntoHome`, through `src/sync/commands.ts` |
-| `epicenter log [<dir>] [--path <path>] [--at <moment>] [--limit <n>]` | built | `src/sync/history.ts` |
-| `epicenter history <path> [--at <moment>] [--limit <n>]` | built | `src/sync/history.ts` |
-| `epicenter show <path> [--at <moment>]` | built | `src/sync/history.ts` |
-| `epicenter at <moment> [<dir>]` | built | `src/sync/history.ts` |
-| `epicenter mark [<name> [<dir>]] [--move]` | built | `src/sync/history.ts` |
-| `epicenter diff [<dir>] [--since <moment>]` | built | `src/sync/history.ts` |
-| `epicenter restore <moment> [<dir>] [--path <path>]` | built | `src/sync/history.ts` |
-| `epicenter export [<dir>] --git <repository>` | built | `src/git/export.ts` |
-| `epicenter import --git <path or URL> [--branch <name>] [--name <name>] [--replace-original] [--resume]`, `epicenter import --abandon <folder>` | built | `src/git/import.ts` |
+| `epicenter log [<dir>] [--path <path>] [--at <moment>] [--limit <n>]` | built | `folderLog` in `@epicenter/folder/platform`, through `src/sync/history.ts` |
+| `epicenter history <path> [--at <moment>] [--limit <n>]` | built | `fileHistory` |
+| `epicenter show <path> [--at <moment>]` | built | `fileAt` |
+| `epicenter at <moment> [<dir>]` | built | `folderAt` |
+| `epicenter mark [<name> [<dir>]] [--move]` | built | `markFolder` and `folderMarks` |
+| `epicenter diff [<dir>] [--since <moment>]` | built | `folderDiff` |
+| `epicenter restore <moment> [<dir>] [--path <path>]` | built | `restoreFolder` |
+| `epicenter export [<dir>] --git <repository>` | built | `exportGit` in `@epicenter/folder/node`, through `src/git/commands.ts` |
+| `epicenter import --git <path or URL> [--branch <name>] [--name <name>] [--replace-original] [--resume]`, `epicenter import --abandon <folder>` | built | `importGit` in `@epicenter/folder/platform` over `gitHost`, and `abandonImport`, from `@epicenter/folder/node` |
 | `epicenter share <folder> [<email>] [--role member\|reader]` | built | `shareFolder` and `getFolder`, through `src/folder-commands.ts` |
 | `epicenter unshare <folder> <email>` | built | `unshareFolder` |
 | `epicenter accept [<folder>]` | built | `listFolders` and `acceptIntoHome` |
@@ -157,13 +157,14 @@ machine of their own, against the real server.
 ## Sync
 
 `sync` and `clone` live in `src/sync/commands.ts`, and the history commands in
-`src/sync/history.ts`. What
+`src/sync/history.ts`, over the history functions of
+`@epicenter/folder/platform` the Epicenter app's History view calls too. What
 this computer synced is recorded at the Epicenter folder's root, one record
 per folder at `.epicenter/synced/<folder-id>.json`: the folder's id, the
 name and identity (inode and birth time) of the directory that agreed it,
 the cursor of the folder's log both sides last agreed at, and each file's
 version there, the SHA-256 of its bytes (ADR-0822, ADR-0824). A folder holds only its files. The CLI signs every
-request to the deployment with the grant's Git-audience token
+request to the deployment with the grant's folders-audience token
 (`src/sync/account.ts`), sent over `https`, or over `http` only to this
 computer.
 
@@ -220,13 +221,13 @@ change's number, a mark's name, or a time.
   removing files made since; it names versions the server keeps, so no bytes
   travel, and the next sync brings it here.
 - `export [<dir>] --git <repository>` writes the folder's history into a Git
-  repository (`src/git/export.ts`, projection v2): a commit per change, notes
+  repository (`exportGit`, projection v2): a commit per change, notes
   and `epicenter.json` as plain files and every other file as a Git LFS
   pointer with its object in `.git/lfs/objects`, marks as tags. It is
   deterministic and incremental, and never continues an export in another
   projection.
 - `import --git <path or URL>` makes a folder of a Git repository's
-  first-parent history, never writing the source (`src/git/import.ts`); with
+  first-parent history, never writing the source (`importGit`); with
   `--replace-original`, a clean local repository moves aside, its `.git`
   within it, and a link at its path points to the new folder. An import that
   stops midway lands the changes it finished and is remembered at
@@ -249,7 +250,7 @@ tests never touch the real one.
 `auth` is ADR-0558's, against ADR-0549's authorization server at the
 deployment's API origin: `EPICENTER_API_URL`, or `https://api.epicenter.so`
 (`resolveOAuthAudiences` in `@epicenter/definition/site` names its API and
-Git audiences). The CLI signs in as its own client, `so.epicenter.cli`,
+folders audiences). The CLI signs in as its own client, `so.epicenter.cli`,
 with its own refresh-token family; the Epicenter app signs in as
 `so.epicenter` through its shell, and neither touches the other's.
 `auth login` is device authorization (RFC 8628): it prints the link and
@@ -266,11 +267,11 @@ them. `auth login` then caches an API token and reads who approved the grant
 from the server's userinfo, which `auth status` reports without a network
 request. Each sign-in records a random generation; token refresh keeps it
 unchanged. `sync`, `clone`,
-`log`, `diff`, and `restore` send the grant's Git-audience token on each
+`log`, `diff`, and `restore` send the grant's folders-audience token on each
 request.
 
 `auth token [--resource <url>]` prints an access token for the API or the
-Git audience. A cached token is reused until five minutes before it
+folders audience. A cached token is reused until five minutes before it
 expires; otherwise one refresh runs under `<data dir>/auth/device.lock`, an
 exclusive SQLite transaction the system releases if the process dies
 (`holdingFileLock` in `src/file-lock.ts`), and rereads the entry inside it, so concurrent callers

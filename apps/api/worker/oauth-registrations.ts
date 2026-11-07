@@ -86,8 +86,8 @@ const NATIVE_APPS = [
  * A desktop app's client (`epicenter-account`): the system browser returns to
  * a loopback listener on any port (RFC 8252; the registered port is ignored),
  * with PKCE. It signs in only for hosted models: its data are files in a
- * folder Epicenter syncs, so it asks for the API audience alone and no Git
- * scope. Its refresh token stays in that computer's keychain.
+ * folder Epicenter syncs, so it asks for the API audience alone and no
+ * folders scope. Its refresh token stays in that computer's keychain.
  */
 function nativeClient(
 	{
@@ -118,7 +118,7 @@ function nativeClient(
 export function buildFirstPartyClients(origin: string): FirstPartyClient[] {
 	const audiences = resolveOAuthAudiences(origin);
 	const local = isLocalDeployment(origin);
-	const firstPartyResources = [audiences.api, audiences.git];
+	const firstPartyResources = [audiences.api, audiences.folders];
 	return [
 		...BROWSER_APPS.map(({ clientId, name, app }) =>
 			browserClient({ clientId, name, resources: firstPartyResources }, [
