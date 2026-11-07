@@ -1,7 +1,9 @@
 <!--
 	The Folders window (ADR-0816, ADR-0819): every folder in the Epicenter
 	folder with its title, mark, state, and members; the shares waiting for
-	the person; and the folders they hold that are not on this computer. It
+	the person; and the folders they hold that are not on this computer. A
+	synced folder's history opens beside it (`History.svelte`), and a Git
+	repository comes in through "Import from Git…" (`ImportGit.svelte`). It
 	composes `@epicenter/folder/platform` (ADR-0817) and runs no CLI. Its
 	page keeps running while the window is hidden, so the background sync
 	(`home.svelte.ts`) keeps every folder in sync while Epicenter runs.
@@ -17,11 +19,17 @@
 	import { commands } from '../ui/bindings.gen';
 	import { auth, localSettings, root } from './app';
 	import FolderRow from './FolderRow.svelte';
+	import History from './History.svelte';
 	import { folders } from './home.svelte';
+	import ImportGit from './ImportGit.svelte';
 	import ManageFolder from './ManageFolder.svelte';
 
 	let managing = $state<{ id: string; title: string } | null>(null);
 	let manageOpen = $state(false);
+	/** The folder whose history is shown, by its directory's name. */
+	let viewing = $state<{ name: string; title: string } | null>(null);
+	let historyOpen = $state(false);
+	let importOpen = $state(false);
 	const home = $derived(folders.home());
 </script>
 
@@ -34,6 +42,7 @@
 			</div>
 			<div class="flex gap-2">
 				{#if folders.account()}
+					<Button variant="ghost" onclick={() => (importOpen = true)}>Import from Git…</Button>
 					<Button variant="outline" disabled={folders.sync()?.syncing} onclick={() => folders.syncNow()}>
 						{folders.sync()?.syncing ? 'Syncing…' : 'Sync now'}
 					</Button>
@@ -91,6 +100,10 @@
 							if (folder.folder === null) return;
 							managing = { id: folder.folder, title: folder.title ?? folder.name };
 							manageOpen = true;
+						}}
+						onHistory={() => {
+							viewing = { name: folder.name, title: folder.title ?? folder.name };
+							historyOpen = true;
 						}}
 					/>
 				{:else}
@@ -158,4 +171,10 @@
 		<ManageFolder bind:open={manageOpen} id={managing.id} title={managing.title} />
 	{/key}
 {/if}
+{#if viewing}
+	{#key viewing.name}
+		<History bind:open={historyOpen} name={viewing.name} title={viewing.title} />
+	{/key}
+{/if}
+<ImportGit bind:open={importOpen} />
 <Toaster closeButton />

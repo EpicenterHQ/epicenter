@@ -152,11 +152,18 @@ files deleted here are deleted on the server or brought back, adds
 `epicenter.json`, brings a folder
 held elsewhere here, accepts or declines a share, shares a folder by email
 as a member or a reader, changes a member's role or removes them, cancels an
-invitation, and attaches or detaches an app.
+invitation, and attaches or detaches an app. A synced folder's History
+shows its changes with who made each and when, a file's versions, one
+version as it was, a restore of it (a new change, which the sync brings
+here), and a mark naming the folder's last change. "Import from Git…"
+makes a folder of a Git repository on this computer, or at a URL, and,
+only when its checkbox is ticked, replaces the original with a link to the
+new folder (ADR-0826).
 
 Every one of these is a function of `@epicenter/folder/platform` over
 `epicenterRoot()` from `@epicenter/folder/tauri` and the app's sign-in
-(`src/folders/home.svelte.ts`). While signed in, the page runs
+(`src/folders/home.svelte.ts`, `History.svelte`, `ImportGit.svelte`), the
+same the CLI calls. While signed in, the page runs
 `keepEverySynced`: one request for where every folder is, and a sync of each
 folder that moved on either side, at start, after a burst of a folder's
 changes, every few seconds, and on Sync now. The window hides when closed,
@@ -183,7 +190,15 @@ lists every app command):
 - `folders.json` grants the Folders window `open_home`, the sign-in's
   requests and sign-in (`account_sign_in`, `account_fetch`,
   `account_fetch_cancel`), the folder plugin (`epicenter-folder:default`, and
-  `epicenter-folder:epicenter` to list and make folders), and event listening.
+  `epicenter-folder:epicenter` to list and make folders), event listening,
+  and the shell's Git for an import (`src-tauri/src/git.rs`): a folder
+  picker that chooses a repository (`choose_repository`), the system `git`
+  (`git_run`), a scratch directory for the mirror (`git_scratch`,
+  `git_scratch_remove`, which removes only one it made), a Git LFS object
+  read by its SHA-256 (`git_lfs_object`), and the hand-over that moves a
+  repository aside and links its path into the Epicenter folder
+  (`git_hand_over`). The page runs `importGit` over them
+  (`src/folders/git-host.ts`); no page opens a file picker itself.
 - `home.json` grants Settings sign-in and sign-out, the login item
   (`start_at_login`, `set_start_at_login`), the folder plugin's default set
   (for `account.json`), and model administration: the transcription plugin's

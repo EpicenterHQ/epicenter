@@ -9,7 +9,18 @@
 // `build.rs` pulls this in with `include!`, so it cannot drift from the crate.
 
 /// The commands every build registers in its typed page API.
-pub const COMMANDS: &[&str] = &["open_home", "start_at_login", "set_start_at_login"];
+pub const COMMANDS: &[&str] = &[
+    "open_home",
+    "start_at_login",
+    "set_start_at_login",
+    // The Folders window's Git, for an import (`git.rs`).
+    "choose_repository",
+    "git_run",
+    "git_scratch",
+    "git_scratch_remove",
+    "git_lfs_object",
+    "git_hand_over",
+];
 
 /// The sign-in's commands (`epicenter_account::COMMANDS`), which the shell
 /// registers beside the typed API: the page's side is `createTauriAuth`, not

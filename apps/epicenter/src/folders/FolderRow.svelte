@@ -24,11 +24,14 @@
 		folder,
 		mark,
 		onManage,
+		onHistory,
 	}: {
 		folder: HomeFolder;
 		/** Its mark, while the app syncs; null signed out. */
 		mark: FolderMark | null;
 		onManage: () => void;
+		/** Show its history, once it syncs here. */
+		onHistory: () => void;
 	} = $props();
 
 	const MARKS = {
@@ -93,6 +96,7 @@
 			</DropdownMenu.Trigger>
 			<DropdownMenu.Content align="end" class="w-48">
 				{#if folder.folder !== null}
+					<DropdownMenu.Item onSelect={onHistory}>History…</DropdownMenu.Item>
 					<DropdownMenu.Item onSelect={onManage}>Share and apps…</DropdownMenu.Item>
 				{/if}
 				{#if folder.title === null && folder.state !== 'git' && folder.state !== 'outside'}

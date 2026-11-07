@@ -14,6 +14,7 @@ use tauri_plugin_opener::OpenerExt;
 mod command_names;
 
 mod desktop_paths;
+mod git;
 use crate::desktop_paths::DesktopPaths;
 mod login;
 #[cfg(target_os = "macos")]
@@ -101,6 +102,12 @@ macro_rules! shell_commands {
             open_home,
             login::start_at_login,
             login::set_start_at_login,
+            git::choose_repository,
+            git::git_run,
+            git::git_scratch,
+            git::git_scratch_remove,
+            git::git_lfs_object,
+            git::git_hand_over,
             $($extra)*
         ]
     };
@@ -927,8 +934,10 @@ mod tests {
 
     /// The Folders window reaches the Epicenter folder and each folder in it
     /// through the folder plugin, and the server through the shell's
-    /// sign-in, composing `@epicenter/folder/platform` in its page (ADR-0817);
-    /// it administers no model or login item. Only it lists and makes folders.
+    /// sign-in, composing `@epicenter/folder/platform` in its page (ADR-0817),
+    /// and runs Git for an import through the shell (`git.rs`, ADR-0828); it
+    /// administers no model or login item. Only it lists and makes folders,
+    /// and only it runs Git.
     #[test]
     fn the_folders_window_reaches_every_folder_and_nothing_else() {
         let capability: serde_json::Value = serde_json::from_str(FOLDERS).unwrap();
@@ -940,6 +949,12 @@ mod tests {
                 "allow-account-sign-in",
                 "allow-account-fetch",
                 "allow-account-fetch-cancel",
+                "allow-choose-repository",
+                "allow-git-run",
+                "allow-git-scratch",
+                "allow-git-scratch-remove",
+                "allow-git-lfs-object",
+                "allow-git-hand-over",
                 "epicenter-folder:default",
                 "epicenter-folder:epicenter",
                 "core:event:allow-listen",
@@ -948,10 +963,12 @@ mod tests {
             "folders"
         );
         let home: serde_json::Value = serde_json::from_str(HOME).unwrap();
-        assert!(!home["permissions"]
-            .as_array()
-            .unwrap()
-            .contains(&serde_json::json!("epicenter-folder:epicenter")));
+        for folders_only in ["epicenter-folder:epicenter", "allow-git-run", "allow-git-hand-over"] {
+            assert!(!home["permissions"]
+                .as_array()
+                .unwrap()
+                .contains(&serde_json::json!(folders_only)));
+        }
         for encoded in ALL_CAPABILITIES {
             let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
             for permission in capability["permissions"].as_array().unwrap() {
@@ -962,7 +979,7 @@ mod tests {
                     .unwrap();
                 assert!(
                     !permission.starts_with("dialog:") || permission == "dialog:allow-message",
-                    "only message dialogs are allowed; no page opens a file picker"
+                    "only message dialogs are allowed; no page opens a file picker (the shell's choose_repository does)"
                 );
             }
         }

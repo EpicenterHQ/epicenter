@@ -5,8 +5,9 @@
  * folders held elsewhere) and the background sync (`keepEverySynced`),
  * which runs while the app does, with or without the window shown
  * (ADR-0819), and syncs a folder an app made as if the person had chosen
- * to (ADR-0822). Both are `@epicenter/folder/platform`'s; this module only
- * keeps the signed-in account they run as, and says what each action did.
+ * to (ADR-0822). Both are `@epicenter/folder/platform`'s, as is a Git
+ * import (`importGit`, over the shell's Git); this module only keeps the
+ * signed-in account they run as, and says what each action did.
  *
  * The sync starts once the settings connected and someone is signed in, and
  * starts again for another account. The home is read again when the
@@ -23,6 +24,7 @@ import {
 	firstPartyApps,
 	type Home,
 	type HomeFolder,
+	importGit,
 	initFolder,
 	type KeptFolders,
 	type KeptState,
@@ -35,6 +37,7 @@ import {
 import { settings } from '@epicenter/local';
 import { toast } from '@epicenter/ui/sonner';
 import { auth, root } from './app';
+import { shellGit } from './git-host';
 
 /** How often the home is read again while the window is shown. */
 const HOME_EVERY_MS = 30_000;
@@ -206,7 +209,11 @@ function createHome() {
 			);
 			if (local === undefined) return;
 			await after(
-				initFolder({ store: local.store, title: folder.name, path: folder.path }),
+				initFolder({
+					store: local.store,
+					title: folder.name,
+					path: folder.path,
+				}),
 				`${folder.name} has an epicenter.json now.`,
 			);
 		},
@@ -267,13 +274,51 @@ function createHome() {
 			);
 		},
 
+		/**
+		 * Make a folder of the Git repository at `source` (a path on this
+		 * computer, or a URL), through the shell's Git, and say what was left
+		 * out. With `replaceOriginal`, the repository moves aside and a link
+		 * at its path points to the new folder.
+		 */
+		async importFromGit(source: string, replaceOriginal: boolean) {
+			const as = signedIn();
+			if (as === null) return false;
+			const made = await importGit({
+				host: shellGit,
+				source: source.trim(),
+				replaceOriginal,
+				account: as,
+				root,
+			});
+			if (made.error !== null) {
+				toast.error(made.error.message);
+				return false;
+			}
+			const { path, changes, warnings, original } = made.data;
+			toast.success(`${path} holds ${changes} changes from Git.`, {
+				description:
+					[
+						...(original === null
+							? []
+							: [
+									`The original is at ${original.movedTo}, and ${original.link} links to the new folder.`,
+								]),
+						...warnings,
+					].join('\n') || undefined,
+			});
+			await read();
+			return true;
+		},
+
 		/** Attach a folder to an app, so the app reaches it, or detach it. */
 		attach(id: string, app: string, attached: boolean) {
 			const as = signedIn();
 			if (as === null) return Promise.resolve(false);
 			return after(
 				attachFolder(as, { folder: id, app, attached }),
-				attached ? `${app} reaches this folder now.` : `${app} no longer reaches this folder.`,
+				attached
+					? `${app} reaches this folder now.`
+					: `${app} no longer reaches this folder.`,
 			);
 		},
 	};

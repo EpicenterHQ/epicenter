@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-git-run"
+description = "Enables the git_run command without any pre-configured scope."
+commands.allow = ["git_run"]
+
+[[permission]]
+identifier = "deny-git-run"
+description = "Denies the git_run command without any pre-configured scope."
+commands.deny = ["git_run"]
