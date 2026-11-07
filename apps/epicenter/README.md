@@ -2,7 +2,8 @@
 
 Epicenter is where a person sees and manages every folder in the Epicenter
 folder, `~/Epicenter` (ADR-0816), and it keeps every folder in sync while it
-runs, with or without a window (ADR-0819). Its Folders window does that by
+runs, with or without a window (ADR-0819). On a computer only Epicenter's
+programs sync; the apps read and write files (ADR-0822). Its Folders window does that by
 composing the same package functions the `epicenter` CLI does,
 `@epicenter/folder/platform` (ADR-0817); it neither runs nor carries the CLI
 (ADR-0793). Apps are separate programs that read and write folders
@@ -166,13 +167,18 @@ Every one of these is a function of `@epicenter/folder/platform` over
 same the CLI calls. While signed in, the page runs
 `keepEverySynced`: one request for where every folder is, and a sync of each
 folder that moved on either side, at start, after a burst of a folder's
-changes, every few seconds, and on Sync now. The window hides when closed,
-so its page, and the sync, run until Epicenter quits.
+changes (3 seconds after the last), every 3 seconds, and on Sync now. ADR-0830
+decides a change sent at once and a check every 30 seconds; the code does not
+yet. The window hides when closed,
+so its page, and the sync, run until Epicenter quits. Its pages are built and
+not yet seen running (ADR-0835). "Connect your agents", views across folders,
+and purge are decided and not built (ADR-0816).
 
-Which directory is which folder is proven by the platform (ADR-0822): a
-record at `~/Epicenter/.epicenter/synced/<folder-id>.json` holds when the
-directory's inode and birth time match it, or, after a move to a new
-computer, its name and exact files in a folder held alone. A copied folder
+Which directory is which folder is proven by the platform (ADR-0822,
+ADR-0832): a record at `~/Epicenter/.epicenter/synced/<folder-id>.json` holds
+when the directory's inode and birth time match it, or, after a move to a new
+computer, its name and exact files in a folder held alone (ADR-0832 removes
+that second proof; the code still has it). A copied folder
 stays on this computer as a local folder until the person syncs it, which
 asks which folder it is. A folder an app made (its usual name and a
 contract that fits the app) syncs without asking when nothing else fits.

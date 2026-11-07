@@ -1,6 +1,6 @@
 # Epicenter
 
-Local-first personal data platform. Monorepo of apps over Git-backed data folders, with Svelte UI.
+Local-first personal data platform. Monorepo of apps over plain-file data folders, with Svelte UI. Folders sync through an Epicenter server, and Git is how history enters and leaves.
 
 For orientation, read the relevant app or package README and verify it against
 current code. `apps/README.md` describes application composition; package

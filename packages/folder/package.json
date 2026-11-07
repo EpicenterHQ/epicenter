@@ -2,7 +2,7 @@
 	"name": "@epicenter/folder",
 	"version": "0.0.1",
 	"private": true,
-	"description": "Open an app's folder at a place as its contract's collections, and sync a folder with its repository: the desktop's data folder, the account's repository, a directory in Bun, or memory under test.",
+	"description": "Open an app's folder at a place as its contract's collections, and sync a folder with its ledger on the server: the desktop's data folder, the account's folder on the server, a directory in Bun, or memory under test.",
 	"type": "module",
 	"exports": {
 		".": {

@@ -14,13 +14,18 @@ Any program that writes the layout is a valid writer. The decided shape is
 `openFolder(view)` over the folder a window was opened on, with the home,
 sync, history, and sharing supplied by the platform
 ([ADR-0815](../docs/adr/0815-the-platform-gives-a-window-its-folder-and-every-app-the-same-home.md));
-`defineView` and `@epicenter/app` are not built, and no app syncs its own
-folder yet.
+`defineView` and `@epicenter/app` are not built.
 
-Apps never sync and keep no Git on a computer. A folder's history is its
-log on the server, which `epicenter sync` appends to
-([ADR-0804](../docs/adr/0804-a-computer-keeps-a-plain-folder-and-every-surface-syncs-with-one-typescript-function.md)),
-at `/folders/<id>`. The code still says note and `{id}` where the records
+On a computer an app reads and writes files and does not sync: only
+Epicenter's programs (the Epicenter app, the CLI, `epicenter mcp`) do
+([ADR-0822](../docs/adr/0822-only-epicenter-syncs-on-a-computer-and-a-folder-holds-only-its-content.md)),
+and no Git runs there
+([ADR-0804](../docs/adr/0804-a-computer-keeps-a-plain-folder-and-every-surface-syncs-with-one-typescript-function.md)).
+A folder's history is its ledger on the server, at
+`<api origin>/folders/<id>`. A web app has no disk, so its folder is the
+folder on the server and each save is a change
+([ADR-0823](../docs/adr/0823-on-the-web-the-folder-on-the-server-is-the-apps-store.md)).
+The code still says note and `{id}` where the records
 decided item and `{name}`; the rename is pending
 ([ADR-0802](../docs/adr/0802-people-share-spaces-an-app-works-in-one-at-a-time-and-a-folder-carries-its-contract.md)).
 
@@ -50,7 +55,8 @@ The surfaces need not promise the same things
 ([ADR-0780](../docs/adr/0780-a-surface-uses-what-its-platform-gives-and-parity-is-not-a-goal.md)).
 A guarantee that needs a process outliving the page is the desktop's:
 keeping a recording through a crash or a closed window, recording in the
-background, a global shortcut, and syncing a folder offline. Each app's
+background, a global shortcut, and working on a folder offline, which Epicenter
+syncs when it can. Each app's
 README says what its web build does not promise.
 
 Each desktop app is a Tauri program of its own
@@ -75,7 +81,6 @@ const signIn = connectAccount({ clientId: 'so.epicenter.todos', api: APP_URLS.AP
 
 export const account = reactive(signIn);
 export const folder = reactive(
-  // `home` says the account needs the repository (ADR-0792).
   openFolder(todos, home({ site: APPS.TODOS.url, account: signIn })),
 );
 ```
@@ -136,7 +141,8 @@ A failed open shows `<WhenOpen>`'s recovery screen with Retry. The decided
 shape is a folder directly inside the Epicenter folder that the app's first
 run offers to make or to pick, and that the app remembers by its id
 ([ADR-0813](../docs/adr/0813-epicenter-is-your-folders-and-apps-are-lenses.md)).
-A person syncs and shares a folder with `epicenter sync` and `epicenter share`.
+Epicenter syncs the folder: the Epicenter app while it runs, or `epicenter
+sync`; a person shares it with the Epicenter app or `epicenter share`.
 
 | App | Surfaces | Desktop folder | Contract |
 | --- | --- | --- | --- |

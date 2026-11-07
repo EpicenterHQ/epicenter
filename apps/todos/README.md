@@ -17,7 +17,7 @@ never by Todos.
 ## The web app
 
 Todos in a browser is its online variant only: the folder attached to Todos
-on the server (its history is the repository at `/folders/<id>`). Signed out
+on the server (its history is the folder's ledger at `/folders/<id>`). Signed out
 it asks for a sign-in;
 signed in, every create, edit, completion and delete is a change there, and
 nothing is kept in the browser. It needs the network; there is no browser

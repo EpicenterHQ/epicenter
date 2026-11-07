@@ -26,7 +26,7 @@ The package is seven subpaths.
 | `@epicenter/definition/note` | The note codec and its house style, `formatNote` |
 | `@epicenter/definition/merge` | `settle`, the note merge a folder runs over a note that changed under its write, plus conflict blocks and the hashes their labels use |
 | `@epicenter/definition/ids` | `timeId()` and `nanoid()`, for naming files, and `timeOf()`, when a `timeId` was made |
-| `@epicenter/definition/site` | The names a site derives: the app registry (`APPS`, dev ports, `localUrl`, `resolveOAuthAudiences`), an app's folder and data identifier from its production site (ADR-0722), and a folder's id, addresses, and listing on the server (ADR-0811) |
+| `@epicenter/definition/site` | The names a site derives: the app registry (`APPS`, dev ports, `localUrl`), `resolveOAuthAudiences` (the `api` audience at the origin and the `folders` audience at `<origin>/folders`, ADR-0828), an app's folder and data identifier from its production site (ADR-0722), and a folder's id, addresses (`folderUrl`, `foldersApiUrl`), roles (`member`, `reader`), and listing on the server (ADR-0811, ADR-0820) |
 | `@epicenter/definition/site/app-data` | The application-data root on this machine (`epicenterDataRoot`), an app's directory below it, and `isAppId` |
 
 `fixtures/front-matter.json` holds every front-matter case with its exact
@@ -78,10 +78,11 @@ before it writes it, and settles a change made since with `settle`
 ### Merging a note
 
 `settle(base, current, incoming, { parties })` is the note merge a folder
-runs when a note changed between showing it and writing it; sync merges with
-`merge3` from `@epicenter/definition/front-matter`, and the server never
-merges (ADR-0773). `incoming` is the later
-arrival:
+runs when a note changed between showing it and writing it, and an agent's
+`epicenter mcp` write runs through it. Sync merges with `merge3` from
+`@epicenter/definition/front-matter` (a field by key, a body by Git's line
+merge, this computer's change the later one), and the server never merges
+(ADR-0773). `incoming` is the later arrival:
 
 ```ts
 import { settle } from '@epicenter/definition/merge';
@@ -111,7 +112,10 @@ Pay Alice later
 
 A front matter key both sides set goes to the later arrival. The body merges
 by line, then by word within a line both sides changed; two different changes
-at the same spot make one conflict block of whole lines. An edit beats a
+at the same spot make one conflict block of whole lines. ADR-0830 withdrew the
+merge by word, which splices a rewrite without a mark, so `merge3` merges by
+line alone; `settle` still merges by word first, and goes when the whole-note
+formatter does (ADR-0796). An edit beats a
 delete. A binary file never merges: `settlePointer` lands the later write,
 and the version it replaced stays in history (ADR-0771). Whatever `settle`
 writes is in house style.
@@ -119,7 +123,7 @@ writes is in house style.
 ### How a folder is stored on the server
 
 A computer keeps no Git (ADR-0804); the server keeps the folder's history as
-a log of versions (ADR-0824). A file's version is the SHA-256 of its bytes for
+a ledger, a log of changes (ADR-0824). A file's version is the SHA-256 of its bytes for
 every path, and how its bytes are kept depends on their size, never the path,
 so `/contract` names only how a path is read: `isNotePath` (a `.md` note, in
 any case, which merges), `isHiddenPath` (a segment starting with `.`, not a

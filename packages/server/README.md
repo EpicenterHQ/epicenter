@@ -20,9 +20,11 @@ included (ADR-0828).
 
 Epicenter hosts no MCP server
 ([ADR-0578](../../docs/adr/0578-epicenter-hosts-no-mcp-server.md)):
-agents on a machine use files and the `epicenter` CLI. A folder's history is
-a log in Postgres, and its bytes over 16 KiB are in a blob store: R2 on the
-Worker, a directory on Bun (ADR-0824).
+agents on a machine use files and the `epicenter` CLI. This server is a
+ledger, not a workplace (ADR-0835): it orders each folder's changes, keeps
+every version, and admits people, and nothing is edited on it. A folder's
+ledger is a log in Postgres, and its bytes over 16 KiB are in a blob store: R2
+on the Worker, a directory on Bun (ADR-0824).
 
 ## The surfaces
 
@@ -54,7 +56,7 @@ live in `apps/api/worker/billing/`, because they are hosted-only.
 
 A folder (ADR-0811) is the one thing that is synced and shared: an id the
 server mints when it makes the folder, members who are people, and a
-history that is a log of versions (ADR-0824). Its title is the `title` of
+ledger, a log of changes that keeps every version (ADR-0824). Its title is the `title` of
 its `epicenter.json`, which the server reads from the folder's files for
 listings (`folderTitles`); the server keeps no name. The folders audience is
 `<origin>/folders` on every deployment (`resolveOAuthAudiences`), and it is
@@ -93,17 +95,19 @@ store too.
 reaches every folder its person holds. Any other token reaches the folders
 attached to its app, `folder_app` rows naming the app by its OAuth client
 id: an app's first sync attaches the folder it makes, and the person
-attaches another through Epicenter, which no app can do for itself.
+attaches another through Epicenter, which no app can do for itself. A
+desktop app's token holds only `ai` (ADR-0822), since on a computer only
+Epicenter's programs sync.
 
-### A folder's log
+### A folder's ledger
 
-A folder's history is an append-only log in Postgres (`src/log/`,
+A folder's ledger is an append-only log in Postgres (`src/log/`,
 migration `0011`):
 
 | Table | Holds |
 | --- | --- |
 | `folder` | `seq`, its last change's number, which each change locks the row to take, so changes are numbered densely in the order they land; `epoch`, so a cursor `<epoch>.<seq>` from a log that was reset names nothing; and `importing` |
-| `change` | `seq`, `at`, `account_id`, `author_text` (`Name <email>` as it was then), `via` (the OAuth client), `message` (an imported commit's), and `digest`, the SHA-256 of the previous digest and the change's canonical text |
+| `change` | `seq`, `at`, `account_id`, `author_text` (`Name <email>` as it was then), `via` (the OAuth client), `message` (an imported commit's), and `digest`, the SHA-256 of the previous digest and the change's canonical text, which today includes the account, author, and client (ADR-0829 decides a chain that covers what changed, not who) |
 | `change_file` | each path a change wrote, its version (null for a deletion), and size; keyed `(folder, path, seq)`, indexed `(folder, seq)` |
 | `file` | each path's version now, and its `folded` name (NFC, lower case), unique in the folder |
 | `blob` | each SHA-256 the folder holds: its size, its bytes inline when they are at most 16 KiB, and whether it is `pending`, `kept`, or `purged` |
@@ -139,13 +143,18 @@ past a day (`PENDING_FOR_MS`). `purgeBlobs` deletes kept bytes and keeps
 every row naming them; by default it refuses a version a file holds now or
 held within 90 days (`KEEP_MERGE_BASES_MS`), so a computer offline that
 long still has the version it merges against. The deployment schedules
-both; nothing thins history yet.
+both; nothing thins history yet. ADR-0833 decides text inline up to 2 KiB and
+each folder's older changes in its own archive; neither is built, and the
+inline limit stays 16 KiB (`INLINE_MAX`).
 
 **Git.** History leaves as Git through `epicenter export --git`, a
 deterministic projection, and enters through `epicenter import --git`
-(`packages/folder/src/git`, ADR-0826). No Git client writes to a folder,
-since Git's writes carry neither a per-path expected version nor the merge
-by key. A folder made to import takes `POST …/import { changes }` until
+(`packages/folder/src/git`, ADR-0826). No Git client reads from or writes to a
+folder here: ADR-0834 decides that every folder is also a Git remote, where a
+clone reads history and a push lands as a change, and ADR-0831 that
+`epicenter git land` turns a branch into one change. Neither is built. Git's
+writes carry neither a per-path expected version nor the merge by key, so they
+arrive as a change that names each version it replaces. A folder made to import takes `POST …/import { changes }` until
 `{ done: true }`; `{ abandon: true }` deletes it, its log, and its bytes,
 only while it still imports (409 `not_importing` otherwise).
 
@@ -164,6 +173,7 @@ change or an import), 502 `store_failed`, 503 `unavailable` when the
 database could not decide. A folder that does not exist is refused like
 one the caller does not hold, so a refusal says nothing of whether it
 does. Folders take no billing policy.
+
 ## The authorization server
 
 [ADR-0549](../../docs/adr/0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md)
@@ -207,8 +217,8 @@ deployment names each mount's audience and scope:
 | Mount | Audience | Scope |
 | --- | --- | --- |
 | `mountInferenceApp`, `mountTranscriptionApp` (`/v1/*`) | API | `ai` |
-| `mountFolders` (a folder's routes) | Git | `folders:read` to read, `folders:write` to write |
-| `mountFolders` (`/api/folders`) | Git | `folders:read` to list, `folders:write` to change; `folders:all` to attach |
+| `mountFolders` (a folder's routes) | Folders | `folders:read` to read, `folders:write` to write |
+| `mountFolders` (`/api/folders`) | Folders | `folders:read` to list, `folders:write` to change; `folders:all` to attach |
 
 A missing, unknown, revoked, or other-audience token answers 401 and a missing
 scope 403, both with `WWW-Authenticate` naming the audience's
@@ -229,8 +239,8 @@ members, and a repository named for an app into that app's attachment, and
 dropped namespaces. Migration `0010` moved each share still waiting into an
 invitation to its person's email, made every `owner` and `writer` a
 `member`, and left the trigger only deleting a folder with its last member.
-Migration `0011` added the log, and `0012` dropped the upload ledger its
-`blob` table replaces. Folders held as Git repositories were not carried
+Migration `0011` added the log, `0012` dropped the upload ledger its
+`blob` table replaces, and `0013` renamed the append function `epicenter_append_change`. Folders held as Git repositories were not carried
 over: hosted Git never ran, and a self-hosted server's repositories are
 dropped (`apps/api/README.md`).
 
@@ -244,5 +254,5 @@ authorization server checks that `apps/api` also runs against its Bun and
 Worker entries.
 
 A folder syncs with this server and no other (ADR-0803): the client keeps no
-Git, and the server's log is the folder's history. The Yjs store sync
+Git, and the server's ledger is the folder's history. The Yjs store sync
 this package used to mount is removed (ADR-0534).

@@ -7,9 +7,11 @@ share them with, keeps every version, and lets you leave at any moment with
 everything, as files and as Git.
 
 This page is the front door: what Epicenter is, the rules it keeps, and where
-to read next. [ADR-0835] lists every decision in force with the record that
-made it; [architecture](architecture.md) and the package READMEs say what is
-built and where; [CONTEXT](CONTEXT.md) owns the vocabulary.
+to read next. It describes the design as decided; parts of it are not built
+yet. [ADR-0835] lists every decision in force, the record that made it, and
+whether it is built; [architecture](architecture.md) and the package READMEs
+say what the code does today and where; [CONTEXT](CONTEXT.md) owns the
+vocabulary.
 
 ## What a person knows
 
@@ -52,7 +54,7 @@ of the ledger, or a lens on the files.
    server; it orders, remembers, and admits ([ADR-0824], [ADR-0830]).
 3. **There is one write door.** Every write, from a device, a web app, an
    agent, or Git, is a change that names the version of each file it replaces,
-   and a stale write is refused, never applied ([ADR-0808], [ADR-0824]).
+   and a stale write is refused, never applied ([ADR-0824]).
 4. **A line is the unit of merge, and the ledger's order decides ties.** A
    front-matter field is one line and merges alone; a body paragraph is one
    line and merges by Git's line merge, showing both versions when both sides
@@ -174,7 +176,6 @@ An agent works the way a person does:
 [ADR-0797]: adr/0797-front-matter-is-a-strict-grammar-and-anything-else-is-body.md
 [ADR-0804]: adr/0804-a-computer-keeps-a-plain-folder-and-every-surface-syncs-with-one-typescript-function.md
 [ADR-0805]: adr/0805-a-folder-is-recognized-by-epicenter-json-which-is-its-contract.md
-[ADR-0808]: adr/0808-a-files-version-is-its-git-blob-id-on-every-store.md
 [ADR-0811]: adr/0811-folders-are-shared-directly-and-an-app-reaches-the-folders-attached-to-it.md
 [ADR-0814]: adr/0814-one-window-shows-one-folder.md
 [ADR-0816]: adr/0816-the-epicenter-app-is-where-a-person-sees-and-manages-every-folder.md
