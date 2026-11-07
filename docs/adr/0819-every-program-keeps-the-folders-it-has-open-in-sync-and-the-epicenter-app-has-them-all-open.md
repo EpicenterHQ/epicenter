@@ -6,7 +6,7 @@
 - **Relates:** [ADR-0713](0713-one-epicenter-engine-per-machine-syncs-every-apps-folder.md) (one engine per computer, which 0750 retired), [ADR-0804](0804-a-computer-keeps-a-plain-folder-and-every-surface-syncs-with-one-typescript-function.md) (one sync function), [ADR-0808](0808-a-files-version-is-its-git-blob-id-on-every-store.md) (writes that expect a version), [ADR-0811](0811-folders-are-shared-directly-and-an-app-reaches-the-folders-attached-to-it.md) (attached apps), [ADR-0812](0812-an-apps-schema-is-a-view-that-must-fit-a-folders-contract.md) (the fit check), [ADR-0817](0817-the-cli-exposes-every-platform-operation-and-an-app-inherits-everything-about-folders.md) (programs compose packages), [ADR-0799](0799-a-folders-contract-is-also-an-mcp-server.md) (MCP from a contract).
 - **Amended by:** [ADR-0821](0821-a-computer-remembers-what-it-synced-and-a-shell-limits-each-window-to-its-folder.md) at an app reaching only its attached folders: that holds for web sites and third-party apps; a desktop app's shell limits each window to its folder.
 - **Amended by:** [ADR-0822](0822-only-epicenter-syncs-on-a-computer-and-a-folder-holds-only-its-content.md) at every program syncing what it has open: on a computer only Epicenter's programs sync, and a web app syncs its own folder.
-- **Unbuilt:** sync in `epicenter mcp`; apps publishing a view and a way to open a window on a folder; Open with, New folder for, and attaching an app by choosing it, in the Epicenter app (a folder is attached to an app by its client id today).
+- **Unbuilt:** apps publishing a view and a way to open a window on a folder; Open with, New folder for, and attaching an app by choosing it, in the Epicenter app (a folder is attached to an app by its client id today).
 
 ## Context
 

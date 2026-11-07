@@ -3,6 +3,7 @@
 - **Status:** Accepted (2026-11-06)
 - **Date:** 2026-11-06
 - **Relates:** [ADR-0793](0793-programs-only-compose-typescript-holds-what-epicenter-means-and-rust-holds-the-os-git-and-secrets.md) (programs only compose), [ADR-0762](0762-epicenter-is-made-of-standards-and-places.md) (programs never call each other), [ADR-0813](0813-epicenter-is-your-folders-and-apps-are-lenses.md) (folders and lenses), [ADR-0815](0815-the-platform-gives-a-window-its-folder-and-every-app-the-same-home.md) (a window's folder and the home), [ADR-0816](0816-the-epicenter-app-is-where-a-person-sees-and-manages-every-folder.md) (the Epicenter app), [ADR-0799](0799-a-folders-contract-is-also-an-mcp-server.md) (MCP from a contract).
+- **Amended by:** [ADR-0827](0827-the-cli-and-mcp-render-one-table-of-operations.md) at "a command here": an operation is a package function and one description, which the CLI and `epicenter mcp` both render.
 - **Unbuilt:** a command for each platform operation that lacks one; the platform's pieces an app places in its window (history, share, the marks, repair).
 
 ## Context
