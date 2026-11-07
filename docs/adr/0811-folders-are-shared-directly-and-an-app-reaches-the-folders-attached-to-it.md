@@ -12,6 +12,7 @@
 - **Amended by:** [ADR-0821](0821-a-computer-remembers-what-it-synced-and-a-shell-limits-each-window-to-its-folder.md) at a copy asking before it pushes and an app reaching its attached folders: a copy stays local with no question, and on the desktop a first-party program reaches every folder the person holds.
 - **Amended by:** [ADR-0824](0824-a-folders-history-is-a-log-of-versions-and-git-is-how-it-leaves.md) at `git clone` reaching a folder's history: there is no Git remote; history leaves by `epicenter export --git`.
 - **Amended by:** [ADR-0836](0836-one-merge-a-cursor-that-carries-its-digest-and-one-grant.md) at members and attachments as separate things: each is a grant.
+- **Amended by:** [ADR-0837](0837-the-ledger-is-the-persons-model-folders-the-versions-of-their-files-and-who-may-see-them.md) at a web app reaching its attached folders: a web window holds a token for the one folder it was opened on.
 - **Unbuilt:** sharing managed by person (removing someone from every folder, sharing what another person has); "Use this folder with" an app and the question a copy asks, in a window (the CLI asks with `--new` or `--same`); `epicenter init` converting YAML front matter.
 
 ## Context

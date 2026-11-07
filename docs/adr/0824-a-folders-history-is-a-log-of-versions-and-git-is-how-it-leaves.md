@@ -10,6 +10,7 @@
 - **Amended by:** [ADR-0829](0829-a-restore-never-deletes-on-a-device-and-historys-chain-covers-what-changed-not-who.md) at the digest and at conflicts only on the same file: the chain covers what changed and when, never who; every commit to a folder waits its turn.
 - **Amended by:** [ADR-0831](0831-a-git-branch-lands-in-a-folder-as-one-change-through-the-cli.md) at no Git client writing to a folder: a Git branch lands through the CLI as ordinary changes.
 - **Amended by:** [ADR-0833](0833-a-folders-present-lives-in-one-shared-database-and-its-past-in-its-own-archive.md) at text up to 16 KiB stored inline: text up to about 2 KiB is stored inline, and older changes move to the folder's archive.
+- **Amended by:** [ADR-0837](0837-the-ledger-is-the-persons-model-folders-the-versions-of-their-files-and-who-may-see-them.md) at a change as a batch and at marks: the log is one row per file version, and nothing names a moment.
 - **Unbuilt:** a deployment's schedule for the pending-upload sweep and for purges, and a scheduled export kept as a copy. Nothing thins history.
 
 ## Context

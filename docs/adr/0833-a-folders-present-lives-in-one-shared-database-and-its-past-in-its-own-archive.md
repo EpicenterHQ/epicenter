@@ -4,7 +4,8 @@
 - **Date:** 2026-11-07
 - **Amends:** [ADR-0824](0824-a-folders-history-is-a-log-of-versions-and-git-is-how-it-leaves.md) at text up to about 16 KiB stored inline: text up to about 2 KiB is stored inline, and older changes move to the folder's archive.
 - **Relates:** [ADR-0826](0826-history-enters-and-leaves-epicenter-as-git.md) (history leaves as Git), [ADR-0809](0809-a-repository-is-a-spaces-app-and-bytes-nothing-needs-are-collected-or-purged.md) (bytes kept per folder).
-- **Unbuilt:** the 2 KiB threshold; the archive, the job that compacts into it, and history reads that fall through to it.
+- **Amended by:** [ADR-0837](0837-the-ledger-is-the-persons-model-folders-the-versions-of-their-files-and-who-may-see-them.md) at text up to 2 KiB stored inline: where bytes sit is the code's choice, not a decision.
+- **Unbuilt:** the archive, the job that compacts into it, and history reads that fall through to it.
 
 ## Context
 

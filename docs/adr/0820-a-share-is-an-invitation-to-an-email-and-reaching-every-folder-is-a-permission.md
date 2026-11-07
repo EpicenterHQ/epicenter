@@ -6,6 +6,7 @@
 - **Relates:** [ADR-0817](0817-the-cli-exposes-every-platform-operation-and-an-app-inherits-everything-about-folders.md) (the CLI's operations), [ADR-0819](0819-every-program-keeps-the-folders-it-has-open-in-sync-and-the-epicenter-app-has-them-all-open.md) (the Epicenter app has every folder open), [ADR-0732](0732-a-grant-reaches-what-the-person-chooses-at-consent.md) (consent).
 - **Amended by:** [ADR-0821](0821-a-computer-remembers-what-it-synced-and-a-shell-limits-each-window-to-its-folder.md) at `folders:all` belonging to the CLI and the Epicenter app: every first-party desktop program reaches every folder, and consent says so.
 - **Amended by:** [ADR-0836](0836-one-merge-a-cursor-that-carries-its-digest-and-one-grant.md) at members, invitations, and app attachments: each is a grant.
+- **Amended by:** [ADR-0837](0837-the-ledger-is-the-persons-model-folders-the-versions-of-their-files-and-who-may-see-them.md) at a web app reaching its attached folders: a web window holds a token for the one folder it was opened on.
 - **Unbuilt:** none.
 
 ## Context

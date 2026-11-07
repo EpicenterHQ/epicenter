@@ -3,6 +3,7 @@
 - **Status:** Accepted (2026-11-07)
 - **Date:** 2026-11-07
 - **Relates:** every record from [ADR-0802](0802-people-share-spaces-an-app-works-in-one-at-a-time-and-a-folder-carries-its-contract.md) to [ADR-0834](0834-every-folder-is-also-a-git-remote.md), and [ADR-0801](0801-records-from-0763-to-0800-agree-on-the-merge-rust-patching-marks-and-agents.md), the last such register.
+- **Amended by:** [ADR-0837](0837-the-ledger-is-the-persons-model-folders-the-versions-of-their-files-and-who-may-see-them.md) at history's marks, app reach, and the inline threshold: see ADR-0837's table.
 - **Unbuilt:** see the Built column below.
 
 ## Context
@@ -37,11 +38,11 @@ states it for a reader; the table below is what is in force.
 | The merge | a line is the unit: a field by key, the later change winning; a body by Git's line merge, both versions shown | 0795, 0830, 0836 | partly: sync yes; an app's own write and MCP still try words first |
 | Which directory is which | the directory Epicenter last synced (inode and birth time); anything else asks once | 0821, 0832 | partly: the name-and-files proof remains |
 | Git working trees | Git's; never synced | 0822, 0825 | yes |
-| History | an append-only log of changes in Postgres, with authors and marks; bytes in R2 | 0824, 0826 | yes |
-| History's past | each folder's older changes in its own archive; text inline up to 2 KiB | 0833 | no |
+| History | an append-only log of file versions in Postgres, each with its author and time, reached by time; content by hash | 0824, 0826, 0837 | partly: changes and marks remain in code |
+| History's past | each folder's older versions in its own archive, when growth calls for it | 0833, 0837 | no |
 | Restores and deletion | a restore never deletes on a device; bytes leave through an outbox; the chain covers what changed, not who | 0829 | no |
-| Sharing | an invitation to an email; members equal; readers read | 0811, 0820 | yes |
-| App reach | a web app reaches the folders attached to it; a desktop app's token holds only `ai` | 0820, 0822 | yes |
+| Sharing | a grant to a person or an email; members equal; readers read | 0811, 0820, 0836, 0837 | partly: three tables remain |
+| App reach | a web window holds a token for the one folder it was opened on; a desktop app's token holds only `ai` | 0822, 0837 | partly: web apps reach attached folders today |
 | Git in and out | `export --git`, `import --git`; `git land` turns a branch into one change | 0826, 0831 | export and import yes; land no |
 | Git remote | every folder a Git remote: clone reads history, push lands as a change | 0834 | no |
 | Names | the folders audience at `<api origin>/folders`; a write is `POST …/changes` | 0828 | yes |

@@ -56,10 +56,11 @@ of the ledger, or a lens on the files.
 3. **There is one write door.** Every write, from a device, a web app, an
    agent, or Git, is a change that names the version of each file it replaces,
    and a stale write is refused, never applied ([ADR-0824]).
-4. **A line is the unit of merge, and the ledger's order decides ties.** A
-   front-matter field is one line and merges alone; a body paragraph is one
-   line and merges by Git's line merge, showing both versions when both sides
-   changed it. Every writer merges the same way ([ADR-0795], [ADR-0830],
+4. **Machines edit fields; people edit prose.** A front-matter field is
+   machine-edited, one `key: <JSON>` per line, and merges by key, the change
+   ordered later winning. The body is the person's: it merges by paragraph, and
+   a conflict stays visible and repairable in the file. Every writer merges the
+   same way ([ADR-0795], [ADR-0830],
    [ADR-0836]).
 5. **Standards at the edges, the simplest engine inside.** Markdown and JSON
    in the files, Git for history in and out, OAuth, MCP, and HTTP; inside, a
@@ -126,8 +127,8 @@ Anything else asks once; a new computer asks "Reconnect these folders?"
 ([ADR-0821], [ADR-0832]).
 
 **History.** Every change is kept, with who made it and when: see a file's
-versions, the folder as of any moment, restore, and tag a moment by name
-([ADR-0824], [ADR-0826], [ADR-0836]). A restore never deletes on a device ([ADR-0829]). A
+versions, the folder as of any moment, restore. History is reached by time: the folder last Tuesday, a note before
+someone's edit ([ADR-0824], [ADR-0837]). A restore never deletes on a device ([ADR-0829]). A
 folder's recent history lives in the shared database and its past in its own
 archive ([ADR-0833]).
 
@@ -136,7 +137,8 @@ archive ([ADR-0833]).
 A folder is the one thing shared ([ADR-0811]). A share is an invitation to an
 email, granting nothing until accepted; members are equal, and a reader only
 reads ([ADR-0820]). A shared folder appears in each member's `~/Epicenter` as
-plain files. A web app reaches only the folders attached to it.
+plain files. A web app has no disk, so opening a folder in it grants that
+window a token for that one folder, and nothing else ([ADR-0837]).
 
 ## Apps
 
@@ -199,5 +201,6 @@ An agent works the way a person does:
 [ADR-0832]: adr/0832-a-folder-is-the-directory-epicenter-last-synced-or-epicenter-asks.md
 [ADR-0833]: adr/0833-a-folders-present-lives-in-one-shared-database-and-its-past-in-its-own-archive.md
 [ADR-0834]: adr/0834-every-folder-is-also-a-git-remote.md
+[ADR-0837]: adr/0837-the-ledger-is-the-persons-model-folders-the-versions-of-their-files-and-who-may-see-them.md
 [ADR-0836]: adr/0836-one-merge-a-cursor-that-carries-its-digest-and-one-grant.md
 [ADR-0835]: adr/0835-records-from-0802-to-0834-agree-on-files-a-ledger-and-git-at-the-edges.md
