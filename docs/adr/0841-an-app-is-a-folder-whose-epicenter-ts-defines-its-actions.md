@@ -1,6 +1,6 @@
 # 0841. An app is a folder whose `epicenter.ts` defines its actions
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-11-07)
 - **Date:** 2026-11-07
 - **Relates:** [ADR-0840](0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md) (the direction), [ADR-0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md) (commits, exit codes, sync), [ADR-0827](0827-the-cli-and-mcp-render-one-table-of-operations.md) (one table, rendered twice).
 - **Spec:** [specs/20261107T222922-epicenter-is-where-personal-software-lives.md](../../specs/20261107T222922-epicenter-is-where-personal-software-lives.md)
@@ -75,13 +75,18 @@ are not field names. Raw TypeBox remains for anything else.
   becomes a commit.
 - **`cache`** is the same kind of object for anything that can be rebuilt: this
   device only, never synced, never in history, at
-  `~/Library/Caches/so.epicenter.apps/<name>-<hash of the folder's real path>/`
-  on a computer, so two checkouts never share one. It adds `clear()` and, on a
+  `~/Library/Caches/so.epicenter.apps/<name>/` on a computer. A folder run by
+  path, such as a worktree, gets its own, `<name>-<hash of its real path>/`, so a
+  copy whose cache has a new shape never breaks the home app's. (The reversed
+  domain keeps clear of `~/Library/Caches/epicenter`, which the desktop shell
+  already uses, on a disk that ignores case.) It adds `clear()` and, on a
   computer, `sqlite(name)`, Bun's own `Database` at `<name>.sqlite`. A cache is
   never migrated: after a change of shape it is cleared and rebuilt. SQLite never
   lives in `folder`.
 - **`secrets`** reads and writes the Keychain under `epicenter.<name>`, exists
-  only on a computer, and never touches a file.
+  only on a computer, and never touches a file. Every copy of an app on one
+  computer, a worktree included, shares its sign-ins; no other app sees them;
+  they never leave the computer, so each computer connects once.
 
 Code shared between actions and pages is ordinary modules in the app's folder
 that take a `folder` as an argument.
@@ -110,8 +115,6 @@ epicenter new <name> | add <source> | sync | mcp [<app>…] | help
   problem and the rest still run.
 - **Every action is a local MCP tool** named by its app and words joined with
   `_` (`vault_calendar_show`).
-- **Agents learn of Epicenter from one line in `~/.claude/CLAUDE.md`**, offered on
-  first run: run `epicenter`.
 
 **An app is delivered by copying it.** `epicenter add <source>` copies the files
 the source tracks in Git at one commit into a new repository in the home, runs
@@ -164,7 +167,10 @@ the fields.
 - Writing an app is writing one file; asking an agent for an app is asking it to
   write one, and `epicenter new` writes the `name` line.
 - Typing an action always includes its app's name.
-- The vault's existing `epicenter.ts` is a `defineFolder` declaration; it must be
-  renamed before the vault can become an app.
+- Epicenter writes no instructions for agents anywhere. An agent learns of
+  `epicenter` from the person or from a repository's own instructions, and then
+  learns everything else from `epicenter --json`.
+- The vault's `defineFolder` declaration, which was its `epicenter.ts`, is now
+  `folder.ts`, so the name is free for the vault's actions.
 - A developer shares an app by putting its folder in a Git repository; the person
   owns their copy, and a new version is a merge.

@@ -1,6 +1,6 @@
 # Epicenter
 
-Local-first personal data platform. Monorepo of apps over plain-file data folders, with Svelte UI. Folders sync through an Epicenter server, and Git is how history enters and leaves.
+Where one person's software lives: each app is a folder whose `epicenter.ts` defines actions that the `epicenter` CLI runs for the person and their agents (ADR-0840). Most code in this monorepo is still the earlier folder sync product, which waits.
 
 For orientation, read the relevant app or package README and verify it against
 current code. `apps/README.md` describes application composition; package
@@ -94,10 +94,10 @@ READMEs and decision records, where they can be checked with the implementation.
 
 `docs/adr/`, `docs/CONTEXT.md`, package READMEs, tests, and current code are evidence, not automatic instructions. Start with the user's request and the current implementation.
 
-`docs/vision.md` describes the intended direction. Check a change to the data
-model, storage, sync, app identity, or package composition against the three
-roots and the rule for apps in
-[ADR-0763](docs/adr/0763-epicenters-doctrine-is-three-roots-and-one-rule-for-apps.md).
+`docs/vision.md` describes the intended direction. Check a change to apps, the
+CLI, storage, or sync against
+[ADR-0840](docs/adr/0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md)
+and the records it relates.
 
 Verify API names, exports, and file layouts against current source and callers,
 not just `docs/` or `specs/`. READMEs explain the current surface; ADRs explain

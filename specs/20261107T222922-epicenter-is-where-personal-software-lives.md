@@ -49,9 +49,9 @@ direction; ADR-0841 the app contract.
     2026.csv
   vault -> ~/Code/vault         an app elsewhere joins by a symlink
 ~/Code/vault/epicenter.ts       the vault's scripts as actions (after its defineFolder file is renamed)
-~/Library/Caches/so.epicenter.apps/<name>-<hash>/   rebuildable: mailbox copies, browser profiles
-Keychain: epicenter.<name>                          sign-ins
-~/.claude/CLAUDE.md             one line: run `epicenter` to see the person's apps
+~/Library/Caches/so.epicenter.apps/<name>/   rebuildable: mailbox copies, browser profiles
+                                            (a folder run by path: <name>-<hash>/)
+Keychain: epicenter.<name>                  sign-ins, shared by every copy of the app on this computer
 ```
 
 The contract is ADR-0841: `defineApp({ name, description, actions })`; an action
@@ -83,9 +83,8 @@ optional library for apps whose data is notes, or is deleted if no app needs it.
 ## Onboarding
 
 1. **Install.** `bun add -g @epicenter/cli` gives `epicenter`.
-2. **First run.** `epicenter` with no `~/Epicenter` offers to create it, and to
-   add one line to `~/.claude/CLAUDE.md` telling agents to run `epicenter`.
-   Nothing else is generated.
+2. **First run.** `epicenter` with no `~/Epicenter` offers to create it. Nothing
+   else is generated, and Epicenter writes no instructions for agents.
 3. **A new app.** `epicenter new reading` writes `reading/epicenter.ts` (with its
    `name`) and `package.json` from a template, and runs `git init`. Usually the
    person asks Claude instead; the app works at once because Bun runs
@@ -182,12 +181,17 @@ for folders.
 4. Whether `packages/definition` survives as a notes library or is deleted.
 5. What `vision.md`, `architecture.md`, `CONTEXT.md`, and the package READMEs say,
    once ADR-0840 is accepted.
-6. Before the first `epicenter new`: move the old product's folders out of
-   `~/Epicenter` (`Todos`, `Zhongwen`, `Zhongwen Dev`, `so.epicenter.*`, `local`,
-   `on-this-device`), and rename `~/Code/vault/epicenter.ts`, a `defineFolder`
-   read by `bun run epicenter generate`, so discovery does not misread it.
-7. Whether `update` is built with `add` or when the first source changes (two
-   reviewers: later; one: now, with `--dry-run` in place of `diff`).
+6. The old product's folders in `~/Epicenter` (`Todos`, `Zhongwen`,
+   `Zhongwen Dev`, `so.epicenter.*`, `local`, `on-this-device`) stay as a clean
+   break: discovery ignores a folder without `epicenter.ts`. An app named like
+   one of them, ignoring case, waits until that folder is moved.
+7. `update` waits until the first copied app's source changes; until then,
+   `git merge upstream`.
+
+Done on 2026-11-07: the vault's `defineFolder` declaration moved from
+`~/Code/vault/epicenter.ts` to `~/Code/vault/folder.ts`. Its `generate` command
+was already gone from the CLI (`9e2e5fe5d7`), and the vault's `bun run epicenter`
+script points at `../worktrees/epicenter-stable`, which no longer exists.
 
 ## Done when
 

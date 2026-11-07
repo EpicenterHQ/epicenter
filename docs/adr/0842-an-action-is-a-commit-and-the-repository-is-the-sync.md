@@ -1,6 +1,6 @@
 # 0842. An action is a commit, and the repository is the sync
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-11-07)
 - **Date:** 2026-11-07
 - **Relates:** [ADR-0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md) (an app is a folder, each its own repository), [ADR-0840](0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md) (the direction).
 - **Spec:** [specs/20261107T222922-epicenter-is-where-personal-software-lives.md](../../specs/20261107T222922-epicenter-is-where-personal-software-lives.md)

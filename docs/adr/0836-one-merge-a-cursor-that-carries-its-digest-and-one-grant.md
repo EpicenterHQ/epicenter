@@ -1,7 +1,8 @@
 # 0836. One merge, a cursor that carries its digest, and one grant
 
-- **Status:** Accepted (2026-11-07)
+- **Status:** Superseded
 - **Date:** 2026-11-07
+- **Superseded by:** [ADR-0840](0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md), the same day: Epicenter became the home of one person's apps and agents, and the folder sync product this record belongs to waits. Read it as that product's design.
 - **Amends:** [ADR-0829](0829-a-restore-never-deletes-on-a-device-and-historys-chain-covers-what-changed-not-who.md) at a restore rotating every folder's epoch: a cursor names its change's digest, and a device that finds the digest changed drops its base, so no epoch exists; [ADR-0820](0820-a-share-is-an-invitation-to-an-email-and-reaching-every-folder-is-a-permission.md) and [ADR-0811](0811-folders-are-shared-directly-and-an-app-reaches-the-folders-attached-to-it.md) at members, invitations, and app attachments as separate things: each is a grant; [ADR-0826](0826-history-enters-and-leaves-epicenter-as-git.md) at `epicenter mark`: a named moment is a tag.
 - **Relates:** [ADR-0830](0830-epicenter-sends-a-change-the-moment-it-happens-and-checks-for-others-every-thirty-seconds.md) (a line is the unit of merge), [ADR-0835](0835-records-from-0802-to-0834-agree-on-files-a-ledger-and-git-at-the-edges.md) (the register).
 - **Amended by:** [ADR-0837](0837-the-ledger-is-the-persons-model-folders-the-versions-of-their-files-and-who-may-see-them.md) at a grant holding a web app and at tags: a grant holds a person or an email, and there are no tags.

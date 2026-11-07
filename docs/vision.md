@@ -1,205 +1,113 @@
 # Vision
 
-Your life's data is plain files you own, in one place on your computer. Small
-apps are lenses on those files, and agents work on them as easily as you do.
-Epicenter keeps the files the same on every device and with the people you
-share them with, keeps every version, and lets you leave at any moment with
-everything, as files and as Git.
+Epicenter is where your personal software lives. Each app is a folder holding
+its code and its data together, in files you can read. Everything an app can do
+is a command you type and a tool your agent calls, and every change an app makes
+is a commit, so nothing it does is lost or hidden.
 
-This page is the front door: what Epicenter is, the rules it keeps, and where
-to read next. It describes the design as decided; parts of it are not built
-yet. [ADR-0835] lists every decision in force, the record that made it, and
-whether it is built; [architecture](architecture.md) and the package READMEs
-say what the code does today and where; [CONTEXT](CONTEXT.md) owns the
-vocabulary.
+This page is the front door. It describes the design as decided on 2026-11-07;
+none of it is built yet. [ADR-0840] records the direction and why it changed,
+[ADR-0841] what an app is, and [ADR-0842] how its data is kept and moves. The
+[spec](../specs/20261107T222922-epicenter-is-where-personal-software-lives.md)
+carries onboarding, the first app (Mail), and open questions.
+[Architecture](architecture.md), [CONTEXT](CONTEXT.md), and the package READMEs
+still describe the code that exists, which is the earlier product below.
 
 ## What a person knows
 
-1. Your folders live in `~/Epicenter`, as plain files.
-2. Epicenter keeps them the same on every device, and for everyone you share
-   them with: your changes leave the moment you make them, and others' arrive
-   within half a minute.
-3. Every version is kept, and you can take everything, any time, as files or
-   as Git. When two edits to the same paragraph meet, you see both.
-4. Share any folder with anyone, by email.
+1. Each of your apps is a folder in `~/Epicenter`: its code and its data, in
+   files you can read.
+2. Everything an app can do is a command for you and a tool for your agent.
+3. Every change an app makes is a commit, so every version is kept, and any
+   folder can be taken anywhere as Git.
+4. Your apps are yours: you or Claude write them, change them, and copy them
+   from anyone.
 
-Those four sentences are the whole product vocabulary. A person sees four marks
-beside a folder or a note: ✓ synced, ◌ waiting, ⚠ a conflict to look at, ✗ a
-file the server refused.
+## An app is a folder
 
-## Three places and one change
+```ts
+// ~/Epicenter/reading/epicenter.ts
+import { defineApp, field } from '@epicenter/app';
 
-```txt
-   your devices                the server: a ledger              outside
- ┌────────────────┐  a change  ┌────────────────────────┐  out  ┌─────────┐
- │ plain files in │ ─────────▶ │ who may see a folder   │ ────▶ │   Git   │
- │ ~/Epicenter    │ ◀───────── │ every change, in order │ ◀──── │         │
- └────────────────┘            └────────────────────────┘  in   └─────────┘
-  where you, apps, and           where web apps write
-  agents work
+export default defineApp({
+  name: 'reading',
+  description: 'How much I read each week',
+  actions: {
+    log: {
+      description: 'Record minutes read today',
+      input: { minutes: field.number({ positional: true }), book: field.text({ optional: true }) },
+      run: async ({ minutes, book }, { folder }) => { /* write under folder */ },
+    },
+  },
+});
 ```
 
-A folder lives in three places. **Your devices** are where work happens, in
-files. **The server** is a ledger: it puts changes in order, keeps every
-version, and knows who may see what. **Git** is the door in and out. One thing
-moves between them: **a change**, a set of files each going from the version it
-replaced to a new one. Every feature is a change moving between places, a read
-of the ledger, or a lens on the files.
+An action has a description, an input made of fields, and `run`. Epicenter
+hands `run` three places ([ADR-0841]):
 
-## The rules
+| Place | Holds | If it is lost |
+| --- | --- | --- |
+| `folder` | what you would keep if Epicenter vanished; in Git | gone, which is why it is in Git |
+| `cache` | anything the app can rebuild: a copy of your mailbox, an index, a browser profile | you wait while it rebuilds |
+| `secrets` | sign-ins, in the Keychain, on this computer only | you connect again |
 
-1. **Files are the artifact.** What you write with is what remains. Everything
-   Epicenter knows is in the files, in plain JSON beside them, or in the
-   ledger, and all of it can be read and repaired by hand ([ADR-0818]).
-2. **The server is a ledger, not a workplace.** Nothing is edited on the
-   server; it orders, remembers, and admits ([ADR-0824], [ADR-0830]).
-3. **There is one write door.** Every write, from a device, a web app, an
-   agent, or Git, is a change that names the version of each file it replaces,
-   and a stale write is refused, never applied ([ADR-0824]).
-4. **Machines edit fields; people edit prose.** A front-matter field is
-   machine-edited, one `key: <JSON>` per line, and merges by key, the change
-   ordered later winning. The body is the person's: it merges by paragraph, and
-   a conflict stays visible and repairable in the file. Every writer merges the
-   same way ([ADR-0795], [ADR-0830],
-   [ADR-0836]).
-5. **Standards at the edges, the simplest engine inside.** Markdown and JSON
-   in the files, Git for history in and out, OAuth, MCP, and HTTP; inside, a
-   log of changes ([ADR-0762], [ADR-0824], [ADR-0834]).
+`folder` and `cache` are objects with the same four verbs (`read`, `write`,
+`list`, `remove`), and a real `path` only on a computer, so an action that only
+touches files can run anywhere. What a person reads is Markdown; what a machine
+makes is CSV, JSON, or SQL; a cache can be anything, including SQLite.
 
-A new idea is weighed by three questions: does it keep the truth in plain
-files on devices; does it keep the server a ledger; and does it add anything a
-person has to hear beyond the four sentences? An idea that fails one earns it
-with a concrete need, not elegance.
+## One command
 
-## A folder is files
-
-```txt
-~/Epicenter/
-├── Notes/
-│   ├── epicenter.json        optional: a title and the folder's collections
-│   └── ideas.md              a note: front matter, then body
-├── Whispering/               recordings, each beside a note of its transcript
-└── Recipes/                  shared with Jess
+```
+epicenter                                      your apps, their actions, any problems
+epicenter mail search 'receipt after:2026/09/01'
+epicenter vault calendar show 2026-11-07
+epicenter new <name> | add <source> | sync | mcp
 ```
 
-Every real directory in `~/Epicenter` is a folder; a link there is shown as
-outside and never synced, so a folder kept elsewhere moves in and a link at its
-old path points back ([ADR-0825]). A folder holds only its content: no state of
-Epicenter's ([ADR-0822]). A folder that is a Git working tree is Git's, and
-Epicenter never syncs it.
+Every action has one spelling, wherever it is typed, so an agent's permission
+rules, a commit message, and an MCP tool name always agree. An app outside
+`~/Epicenter`, such as the vault, joins by a symlink. `--json` gives an agent
+every action's input schema in one call, and `epicenter mcp` offers the same
+actions to chat apps.
 
-`epicenter.json` holds a `title` and `collections`, path patterns such as
-`todos/{name}.md` with JSON Schema for their fields ([ADR-0805],
-[ADR-0818]). A note's front matter is the machine's and its body the person's.
-Epicenter reads any ordinary YAML header, so a note another tool wrote keeps its
-fields, and every program writes the header one way: one `key: <JSON>` line
-per field, in the contract's order ([ADR-0796], [ADR-0839]). Prose belongs in
-the body, never in a field.
+## History and sync
 
-```md
----
-title: "Call dentist"
-done: false
----
-Ask about the Thursday slot.
-```
+Each app folder is its own Git repository ([ADR-0842]). When an action returns,
+what it changed becomes one commit named for it; when it fails, its changes are
+undone; it never commits edits you had open. You commit your own edits.
+`epicenter sync` pulls and pushes every app and never commits. Caches and
+sign-ins never leave a computer. A computer uses any Git host; anything without
+Git, such as a page on a phone, will reach an app only through Epicenter Cloud.
 
-## Changes and the ledger
+## Agents
 
-**Sending.** Epicenter, a menu-bar app that starts at login, sends a change the
-moment a file changes, and checks for others' changes every thirty seconds
-([ADR-0830]). On a computer only Epicenter's programs (the app, the CLI,
-`epicenter mcp`) sync with the server; desktop apps read and write files, and
-reach the server only for hosted AI ([ADR-0822]). A web app has no disk, so its folder is the folder on the server,
-and each save is a change ([ADR-0823]).
+Agents write files and call actions; apps act on the world. Anything that
+changes the world outside your folders, such as archiving mail, is an action
+marked `destructive`, which an agent's permission rules ask you about.
 
-**Merging.** A device merges, never the server ([ADR-0773]):
+## What Epicenter refuses, for now
 
-| What | How it merges |
-| --- | --- |
-| a front-matter field | by key; both changed: the change ordered later wins (in a sync, the computer that syncs second) |
-| a note's body | Git's line merge; both changed one paragraph: both versions, marked |
-| any other file | the later change; the other stays in history |
-| an edit against a delete | the edit |
+A user interface beyond the terminal; a server process; phones and browsers;
+sharing; live editing; a sync engine of its own; running other people's code
+in a sandbox; installing apps any way but copying them. Each can come later
+without changing how an action is written ([ADR-0840]).
 
-**Knowing which folder is which.** Epicenter remembers what it synced, beside
-the folders in `~/Epicenter/.epicenter/`, and follows a folder the way a Finder
-alias does: renamed or moved, it is the same folder; copied, it is a new one.
-Anything else asks once; a new computer asks "Reconnect these folders?"
-([ADR-0821], [ADR-0832]).
+## What came before
 
-**History.** Every change is kept, with who made it and when: see a file's
-versions, the folder as of any moment, restore. History is reached by time: the folder last Tuesday, a note before
-someone's edit ([ADR-0824], [ADR-0837]). A restore never deletes on a device ([ADR-0829]). A
-folder's recent history lives in the shared database and its past in its own
-archive ([ADR-0833]).
+Records [ADR-0802] to [ADR-0839] designed a folder sync product for many
+people: folders kept the same on every device and with everyone they were
+shared with, a server keeping every version, Git at the edges, and web and
+phone apps. [ADR-0835] was its register. It waits, because its one user needed
+something smaller first; the code in this repository today is mostly that
+product. What carried over: files a person can read, Git as history, one table
+of operations rendered as CLI and MCP ([ADR-0827]), and the rule that a note's
+fields are written one `key: <JSON>` line each.
 
-## Sharing
-
-A folder is the one thing shared ([ADR-0811]). A share is an invitation to an
-email, granting nothing until accepted; members are equal, and a reader only
-reads ([ADR-0820]). A shared folder appears in each member's `~/Epicenter` as
-plain files. A web app has no disk, so opening a folder in it grants that
-window a token for that one folder, and nothing else ([ADR-0837]).
-
-## Apps
-
-An app is a view of what it understands in a folder, a window over one folder,
-and its capabilities (a recorder, AI, shortcuts); the platform does everything
-about folders ([ADR-0817], [ADR-0818]). Many apps can open one folder, and one
-window shows one folder ([ADR-0814]). The Epicenter app is the Finder of
-folders: every folder, its members and state, history, sharing, repair, and
-"Connect your agents" ([ADR-0816]).
-
-## Agents and the CLI
-
-An agent works the way a person does:
-
-- on the files in `~/Epicenter`, which Epicenter syncs like any edit;
-- through `epicenter mcp`, whose tools are the CLI's operations and typed tools
-  from each folder's contract ([ADR-0827]);
-- through Git: `git clone epicenter::Recipes` takes a folder's whole history,
-  and `git push` lands as versions, through the `git-remote-epicenter` helper
-  that comes with the CLI ([ADR-0838]). Today the CLI's `export --git` and
-  `import --git` carry history out and in; the helper is decided, not built.
-
-## What Epicenter refuses
-
-- Live sessions and keystroke co-editing; a second store of any kind
-  ([ADR-0771], [ADR-0830]).
-- Git as storage, on a computer or on the server ([ADR-0804], [ADR-0824]).
-- Programs calling each other; they meet in files and the ledger ([ADR-0762],
-  [ADR-0817]).
-- Guessing which folder is which from its name or contents ([ADR-0832]).
-- Syncing anything outside `~/Epicenter`, or `~/Epicenter` inside another sync
-  service ([ADR-0825]).
-
-[ADR-0762]: adr/0762-epicenter-is-made-of-standards-and-places.md
-[ADR-0771]: adr/0771-plain-files-let-epicenter-refuse-renames-attachment-conflict-copies-and-a-second-store.md
-[ADR-0773]: adr/0773-a-folder-opens-at-a-place-every-place-is-a-store-and-the-server-never-merges.md
-[ADR-0795]: adr/0795-git-merges-a-notes-body-and-epicenter-merges-its-front-matter-by-key.md
-[ADR-0796]: adr/0796-a-field-is-a-line-its-value-is-json-and-a-write-patches-only-the-fields-it-changes.md
-[ADR-0804]: adr/0804-a-computer-keeps-a-plain-folder-and-every-surface-syncs-with-one-typescript-function.md
-[ADR-0805]: adr/0805-a-folder-is-recognized-by-epicenter-json-which-is-its-contract.md
-[ADR-0811]: adr/0811-folders-are-shared-directly-and-an-app-reaches-the-folders-attached-to-it.md
-[ADR-0814]: adr/0814-one-window-shows-one-folder.md
-[ADR-0816]: adr/0816-the-epicenter-app-is-where-a-person-sees-and-manages-every-folder.md
-[ADR-0817]: adr/0817-the-cli-exposes-every-platform-operation-and-an-app-inherits-everything-about-folders.md
-[ADR-0818]: adr/0818-an-app-is-a-view-a-window-and-its-capabilities-and-everything-is-repairable-by-hand.md
-[ADR-0820]: adr/0820-a-share-is-an-invitation-to-an-email-and-reaching-every-folder-is-a-permission.md
-[ADR-0821]: adr/0821-a-computer-remembers-what-it-synced-and-a-shell-limits-each-window-to-its-folder.md
-[ADR-0822]: adr/0822-only-epicenter-syncs-on-a-computer-and-a-folder-holds-only-its-content.md
-[ADR-0823]: adr/0823-on-the-web-the-folder-on-the-server-is-the-apps-store.md
-[ADR-0824]: adr/0824-a-folders-history-is-a-log-of-versions-and-git-is-how-it-leaves.md
-[ADR-0825]: adr/0825-the-epicenter-folder-contains-its-folders.md
+[ADR-0802]: adr/0802-people-share-spaces-an-app-works-in-one-at-a-time-and-a-folder-carries-its-contract.md
 [ADR-0827]: adr/0827-the-cli-and-mcp-render-one-table-of-operations.md
-[ADR-0829]: adr/0829-a-restore-never-deletes-on-a-device-and-historys-chain-covers-what-changed-not-who.md
-[ADR-0830]: adr/0830-epicenter-sends-a-change-the-moment-it-happens-and-checks-for-others-every-thirty-seconds.md
-[ADR-0832]: adr/0832-a-folder-is-the-directory-epicenter-last-synced-or-epicenter-asks.md
-[ADR-0833]: adr/0833-a-folders-present-lives-in-one-shared-database-and-its-past-in-its-own-archive.md
-[ADR-0834]: adr/0834-every-folder-is-also-a-git-remote.md
-[ADR-0839]: adr/0839-a-save-is-one-numbered-write-a-reset-deletes-nothing-and-epicenter-owns-the-pages-every-app-links-to.md
-[ADR-0838]: adr/0838-git-speaks-to-a-folder-through-a-remote-helper-and-the-cli-speaks-a-persons-verbs.md
-[ADR-0837]: adr/0837-the-ledger-is-the-persons-model-folders-the-versions-of-their-files-and-who-may-see-them.md
-[ADR-0836]: adr/0836-one-merge-a-cursor-that-carries-its-digest-and-one-grant.md
 [ADR-0835]: adr/0835-records-from-0802-to-0834-agree-on-files-a-ledger-and-git-at-the-edges.md
+[ADR-0839]: adr/0839-a-save-is-one-numbered-write-a-reset-deletes-nothing-and-epicenter-owns-the-pages-every-app-links-to.md
+[ADR-0840]: adr/0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md
+[ADR-0841]: adr/0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md
+[ADR-0842]: adr/0842-an-action-is-a-commit-and-the-repository-is-the-sync.md

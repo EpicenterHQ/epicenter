@@ -1,7 +1,8 @@
 # 0835. Records from 0802 to 0834 agree on files, a ledger, and Git at the edges
 
-- **Status:** Accepted (2026-11-07)
+- **Status:** Superseded
 - **Date:** 2026-11-07
+- **Superseded by:** [ADR-0840](0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md), the same day: Epicenter became the home of one person's apps and agents, and the folder sync product this record belongs to waits. Read it as that product's design.
 - **Relates:** every record from [ADR-0802](0802-people-share-spaces-an-app-works-in-one-at-a-time-and-a-folder-carries-its-contract.md) to [ADR-0834](0834-every-folder-is-also-a-git-remote.md), and [ADR-0801](0801-records-from-0763-to-0800-agree-on-the-merge-rust-patching-marks-and-agents.md), the last such register.
 - **Amended by:** [ADR-0837](0837-the-ledger-is-the-persons-model-folders-the-versions-of-their-files-and-who-may-see-them.md) at history's marks, app reach, and the inline threshold: see ADR-0837's table.
 - **Amended by:** [ADR-0838](0838-git-speaks-to-a-folder-through-a-remote-helper-and-the-cli-speaks-a-persons-verbs.md) at Git in and out, the Git remote, and the CLI: see ADR-0838.

@@ -5,11 +5,15 @@ decided, and what that costs. ADRs are the authoritative record of _why_ the
 system is shaped the way it is. Specs explore options; an ADR records the one
 outcome we committed to.
 
-**Start with [ADR-0835](0835-records-from-0802-to-0834-agree-on-files-a-ledger-and-git-at-the-edges.md).**
-It lists every decision in force for folders, sync, history, sharing, Git, and
-apps, the record that made each, and whether it is built. Many earlier records
-were amended later; where a record disagrees with ADR-0835, ADR-0835 governs,
-and the record's "Amended by" lines say where.
+**Start with [ADR-0840](0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md).** On 2026-11-07 Epicenter became where one person's
+software lives: each app is a folder whose `epicenter.ts` defines its actions
+([ADR-0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md)),
+and an action is a commit in that folder's repository
+([ADR-0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md)).
+Records 0802 to 0839 designed a folder sync product for many people, with
+[ADR-0835](0835-records-from-0802-to-0834-agree-on-files-a-ledger-and-git-at-the-edges.md)
+as its register; ADR-0840 supersedes them as governing current work, and they
+remain the design of a product that waits.
 
 **An ADR wins on why, and on the rule. The code and the package README win on
 the current name, signature, and layout.** If a spec in `specs/` or a row in
@@ -1036,11 +1040,11 @@ When you add an ADR, add its row here.
 | [0832](0832-a-folder-is-the-directory-epicenter-last-synced-or-epicenter-asks.md) | A folder is the directory Epicenter last synced, or Epicenter asks | Accepted (amends 0821 and 0822; amended by 0839) |
 | [0833](0833-a-folders-present-lives-in-one-shared-database-and-its-past-in-its-own-archive.md) | A folder's present lives in one shared database, and its past in its own archive | Accepted (amends 0824; amended by 0837) |
 | [0834](0834-every-folder-is-also-a-git-remote.md) | Every folder is also a Git remote | Accepted (amends 0831; amended by 0838) |
-| [0835](0835-records-from-0802-to-0834-agree-on-files-a-ledger-and-git-at-the-edges.md) | Records from 0802 to 0834 agree on files, a ledger, and Git at the edges | Accepted(amended by 0837, 0838, and 0839) |
-| [0836](0836-one-merge-a-cursor-that-carries-its-digest-and-one-grant.md) | One merge, a cursor that carries its digest, and one grant | Accepted (amends 0811, 0820, 0826, and 0829; amended by 0837 and 0839) |
-| [0837](0837-the-ledger-is-the-persons-model-folders-the-versions-of-their-files-and-who-may-see-them.md) | The ledger is the person's model: folders, the versions of their files, and who may see them | Accepted (amends 0811, 0820, 0824, 0826, 0833, and 0836; amended by 0839) |
-| [0838](0838-git-speaks-to-a-folder-through-a-remote-helper-and-the-cli-speaks-a-persons-verbs.md) | Git speaks to a folder through a remote helper, and the CLI speaks a person's verbs | Accepted (amends 0826, 0827, 0831, and 0834; amended by 0839) |
-| [0839](0839-a-save-is-one-numbered-write-a-reset-deletes-nothing-and-epicenter-owns-the-pages-every-app-links-to.md) | A save is one numbered write, a reset deletes nothing, and Epicenter owns the pages every app links to | Accepted (amends 0797, 0804, 0817, 0821, 0822, 0827, 0832, 0836, 0837, and 0838) |
-| [0840](0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md) | Epicenter is where one person's software lives, and the folder sync product waits | Proposed (would supersede 0835) |
-| [0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md) | An app is a folder whose `epicenter.ts` defines its actions | Proposed |
-| [0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md) | An action is a commit, and the repository is the sync | Proposed |
+| [0835](0835-records-from-0802-to-0834-agree-on-files-a-ledger-and-git-at-the-edges.md) | Records from 0802 to 0834 agree on files, a ledger, and Git at the edges | Superseded by 0840 |
+| [0836](0836-one-merge-a-cursor-that-carries-its-digest-and-one-grant.md) | One merge, a cursor that carries its digest, and one grant | Superseded by 0840 |
+| [0837](0837-the-ledger-is-the-persons-model-folders-the-versions-of-their-files-and-who-may-see-them.md) | The ledger is the person's model: folders, the versions of their files, and who may see them | Superseded by 0840 |
+| [0838](0838-git-speaks-to-a-folder-through-a-remote-helper-and-the-cli-speaks-a-persons-verbs.md) | Git speaks to a folder through a remote helper, and the CLI speaks a person's verbs | Superseded by 0840 |
+| [0839](0839-a-save-is-one-numbered-write-a-reset-deletes-nothing-and-epicenter-owns-the-pages-every-app-links-to.md) | A save is one numbered write, a reset deletes nothing, and Epicenter owns the pages every app links to | Superseded by 0840 |
+| [0840](0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md) | Epicenter is where one person's software lives, and the folder sync product waits | Accepted (supersedes 0835, 0836, 0837, 0838, and 0839) |
+| [0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md) | An app is a folder whose `epicenter.ts` defines its actions | Accepted |
+| [0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md) | An action is a commit, and the repository is the sync | Accepted |

@@ -1,9 +1,9 @@
 # 0840. Epicenter is where one person's software lives, and the folder sync product waits
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-11-07)
 - **Date:** 2026-11-07
-- **Supersedes:** [ADR-0835](0835-records-from-0802-to-0834-agree-on-files-a-ledger-and-git-at-the-edges.md), the register of the folder sync product, and with it the decisions it lists from [ADR-0802](0802-people-share-spaces-an-app-works-in-one-at-a-time-and-a-folder-carries-its-contract.md) to [ADR-0839](0839-a-save-is-one-numbered-write-a-reset-deletes-nothing-and-epicenter-owns-the-pages-every-app-links-to.md), as governing current work. They stay as the design of a product that waits.
-- **Relates:** [ADR-0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md) (what an app is), [ADR-0827](0827-the-cli-and-mcp-render-one-table-of-operations.md) (one table rendered as CLI and MCP, which carries over).
+- **Supersedes:** [ADR-0835](0835-records-from-0802-to-0834-agree-on-files-a-ledger-and-git-at-the-edges.md), the register of the folder sync product, and so the decisions it lists from [ADR-0802](0802-people-share-spaces-an-app-works-in-one-at-a-time-and-a-folder-carries-its-contract.md) to ADR-0834, as governing current work; and the records that amended the register, [ADR-0836](0836-one-merge-a-cursor-that-carries-its-digest-and-one-grant.md), [ADR-0837](0837-the-ledger-is-the-persons-model-folders-the-versions-of-their-files-and-who-may-see-them.md), [ADR-0838](0838-git-speaks-to-a-folder-through-a-remote-helper-and-the-cli-speaks-a-persons-verbs.md), and [ADR-0839](0839-a-save-is-one-numbered-write-a-reset-deletes-nothing-and-epicenter-owns-the-pages-every-app-links-to.md). They stay as the design of a product that waits.
+- **Relates:** [ADR-0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md) (what an app is), [ADR-0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md) (an action is a commit, and the repository is the sync), [ADR-0827](0827-the-cli-and-mcp-render-one-table-of-operations.md) (one table rendered as CLI and MCP, which carries over).
 - **Spec:** [specs/20261107T222922-epicenter-is-where-personal-software-lives.md](../../specs/20261107T222922-epicenter-is-where-personal-software-lives.md)
 - **Unbuilt:** all of it: `@epicenter/app`, app discovery in the CLI, the first real app (Mail).
 
