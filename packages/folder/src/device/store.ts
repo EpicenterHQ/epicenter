@@ -107,7 +107,7 @@ export type Store = {
 	close(): void;
 	/**
 	 * Whether puts made at once land together (the folder on the server
-	 * commits them as one), so the folder runs the writes waiting at
+	 * appends them as one change), so the folder runs the writes waiting at
 	 * different paths at once rather than one after another.
 	 */
 	readonly batches?: true;

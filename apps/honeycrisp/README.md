@@ -30,7 +30,7 @@ moves its file. Deleting a folder deletes its file alone: notes that name it
 keep their `folderId`, show in All Notes, and say "A deleted folder" until
 moved. That is one write, so it cannot half happen, and it needs no note to
 be readable. Deleting a note deletes its file; there is no trash. The
-repository's Git history keeps what a delete removed.
+folder's history on the server keeps what a delete removed.
 
 Honeycrisp has no settings, so it has no settings note, and keeps no other
 files.
@@ -48,7 +48,7 @@ Honeycrisp in a browser is its online variant only: the folder attached to
 Honeycrisp on the server (its history is the repository at `/folders/<id>`),
 at `/`. Signed out it
 asks for a sign-in; signed in, every create, edit, move, pin and delete is a
-commit there, and nothing is kept in the browser. It needs the network;
+change there, and nothing is kept in the browser. It needs the network;
 there is no browser copy to fall back on
 ([ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)).
 
@@ -150,8 +150,8 @@ bun run --cwd apps/honeycrisp demo         # the whole stack, to try it by hand
 The build is static: any host that answers unknown paths with `index.html`
 (for `/auth/callback`) serves it, at an origin the API registers.
 
-`demo` boots a disposable Postgres, the local API with temporary Git and LFS
-stores, the built app on `http://localhost:5175`, a demo person, and a
+`demo` boots a disposable Postgres, the local API with a temporary blob
+store, the built app on `http://localhost:5175`, a demo person, and a
 desktop sandbox for the `epicenter` CLI, then prints a sign-in helper URL and
 the `epicenter clone`, `check` and `sync` commands for the person's
 `honeycrisp` repository. It needs `initdb`, `pg_ctl`, `git` and `git-lfs` on

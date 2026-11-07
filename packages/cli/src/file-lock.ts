@@ -1,10 +1,7 @@
 /**
  * A lock across processes on this machine, held for the length of one piece
  * of work: the CLI's sign-in refresh, one per grant, so two processes never
- * spend one refresh token. (A sync round's lock is the sync core's; its
- * `fcntl` lock covers the bytes SQLite locks, so this lock on a round's
- * `<git dir>/epicenter-sync.lock` also excludes a round, as the e2e tests
- * use it.)
+ * spend one refresh token.
  *
  * The lock is an exclusive SQLite transaction on its file, which writes
  * nothing. SQLite holds it with an operating-system file lock (`fcntl`),

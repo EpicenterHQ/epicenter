@@ -35,7 +35,8 @@
 //! (`place`), which never replaces what appeared there after the check,
 //! whoever made it, and is `Stale` instead. The recorder places its
 //! recordings the same way. External editors never took a lock anyway, and
-//! Git history keeps every version sync committed (ADR-0568, ADR-0702). On
+//! the folder's history on the server keeps every version sync sent
+//! (ADR-0824). On
 //! Unix each staged file is `0600` before its first byte, so the permission
 //! bits keep staged bytes from other accounts. An access control entry the
 //! folder passes on is kept: it is a grant the person made on their folder,

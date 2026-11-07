@@ -10,10 +10,8 @@
 //! Bun store (`device/node-store.ts` in `@epicenter/folder`): no `.git`, a
 //! `.git` file or link (a linked worktree or submodule), and a repository
 //! all open and save alike, since a save stages in the root's `.epicenter`
-//! and the shell runs no Git. Git state that would send history writes
-//! elsewhere is the `epicenter` CLI's to refuse, before each history
-//! operation (`gitLayoutProblem` in `@epicenter/folder`), as is whether a
-//! data folder may get a repository of its own (`enclosingRepository`).
+//! and the shell runs no Git. Epicenter never syncs a folder Git keeps
+//! (ADR-0822); that is the platform's to say, not the store's.
 
 use std::fmt;
 use std::fs;

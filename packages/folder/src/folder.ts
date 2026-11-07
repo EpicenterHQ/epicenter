@@ -749,9 +749,9 @@ export function createFolder<TContract extends Contract>(
 
 	/**
 	 * The writes the drain runs next: the head, and, over a store that
-	 * commits writes made at once together (`batches`), every write queued
+	 * lands writes made at once together (`batches`), every write queued
 	 * after it up to the first at a path already among them, so saves made
-	 * within a moment of each other land as one commit (ADR-0823). Writes of
+	 * within a moment of each other land as one change (ADR-0823). Writes of
 	 * one path stay in order.
 	 */
 	function nextWrites(over: Store): Job[] {

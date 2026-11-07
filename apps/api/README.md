@@ -250,7 +250,7 @@ concurrent writers against a fresh database.
 Better Auth runs unpatched, at an exact 1.8 beta in the root catalog. The
 device page sends a code to `/auth/oauth2/authorize?user_code=<code>`, and the
 consent page approves it. Migration
-`0005_better_auth_1_8` adds the 1.8 columns. `api` and `git` allow every
+`0005_better_auth_1_8` adds the 1.8 columns. `api` and `folders` allow every
 first-party scope, so a refresh never narrows the grant (ADR-0565).
 
 `oauth-server.postgres.test.ts` runs the spike's checks (refresh family,
@@ -264,7 +264,7 @@ local connection string. `bun run test` runs each test file isolated
 
 `mountFolders` serves every folder ([ADR-0811](../../docs/adr/0811-folders-are-shared-directly-and-an-app-reaches-the-folders-attached-to-it.md),
 [ADR-0824](../../docs/adr/0824-a-folders-history-is-a-log-of-versions-and-git-is-how-it-leaves.md)):
-its log at `<git audience>/folders/<id>`, and `/api/folders` for listing,
+its log at `<folders>/<id>` (`<api origin>/folders/<id>`), and `/api/folders` for listing,
 sharing, accepting, and attaching it to an app. A folder exists from the
 request that makes it. The route authorizes each request from the access
 token, the person's role in the folder, and the token's reach;

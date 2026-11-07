@@ -9,8 +9,7 @@
  *   read, `Moved` (carrying what is there) over any other, a removal, a
  *   listing below the paths asked for, and a read that says what is gone;
  *   a listing, a read and a put name one file's bytes by one version, its
- *   Git blob id (ADR-0808): a note's of its bytes, an attachment's of its
- *   Git LFS pointer.
+ *   SHA-256, the same for every path (ADR-0824).
  * - Arming before listing: once `watch` answered, a write from outside is
  *   heard, and the listing after it shows it.
  * - A hint never precedes readable bytes: a read made the moment a path is

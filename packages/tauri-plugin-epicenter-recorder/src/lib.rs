@@ -23,7 +23,7 @@
 //! into it as Opus as it captures, writing it a second at a time (`opus`,
 //! `webm`); `stop` finishes it in place, places it at `<path>.webm`, never
 //! over a file there (`staging`), and answers where it is. A recording is
-//! never at a data path until it is finished, so sync never commits a
+//! never at a data path until it is finished, so sync never sends a
 //! half-written one. Nothing deletes a recording's audio once capture has
 //! begun. When the page that started a recording reloads, or its window is
 //! destroyed, or the app exits, the recording is finished and placed for it.

@@ -5,7 +5,7 @@
  * The page gives it the folder's captures (`folder.captures` from
  * `$lib/app`), one store's for the page's whole life: the person's
  * `capture` repository (ADR-0700), or the desktop window's folder. Add
- * writes a capture to that store, where it is a commit. The timeline shows
+ * writes a capture to that store, where it is a change. The timeline shows
  * the list newest first. A write never fails: while the store cannot be
  * reached the folder keeps it, and `<WhenOpen>` says so (ADR-0775).
  */

@@ -5,7 +5,7 @@
  *   bun x playwright test -c apps/whispering/playwright.config.ts --project=webkit
  *
  * `globalSetup` starts `e2e/stack.ts`: a disposable Postgres, the local API
- * with temporary Git and LFS stores, and the built app on its registered
+ * with a temporary blob store, and the built app on its registered
  * port (1420, which must be free). Both projects record from the same
  * microphone, a generated tone the suite installs in the page
  * (`fakeMicrophone`), since WebKit under Playwright has no capture device.

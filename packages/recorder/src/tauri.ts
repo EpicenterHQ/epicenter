@@ -5,7 +5,7 @@
  * The shell's recorder encodes the microphone to Opus from the first sample
  * and writes it, a second at a time, into a WebM in the data folder's
  * own `.epicenter/recordings`, a hidden path no watcher reports and sync
- * never commits. The shell always records into the open Data root.
+ * never sends. The shell always records into the open Data root.
  * `stop` finishes it in place and places it at `<path>.webm`, never over a
  * file there, so the recording appears at its path whole, and answers where
  * it is. When the page reloads or its window closes, the shell finishes and

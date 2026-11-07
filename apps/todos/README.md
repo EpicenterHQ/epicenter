@@ -19,7 +19,7 @@ never by Todos.
 Todos in a browser is its online variant only: the folder attached to Todos
 on the server (its history is the repository at `/folders/<id>`). Signed out
 it asks for a sign-in;
-signed in, every create, edit, completion and delete is a commit there, and
+signed in, every create, edit, completion and delete is a change there, and
 nothing is kept in the browser. It needs the network; there is no browser
 copy to fall back on
 ([ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)).
@@ -58,8 +58,8 @@ bun run --cwd apps/todos demo          # the whole stack, to try it by hand
 The build is static: any host that answers unknown paths with `index.html`
 (for `/auth/callback`) serves it, at an origin the API registers.
 
-`demo` boots a disposable Postgres, the local API with temporary Git and LFS
-stores, the built app on `http://localhost:5186`, a demo person, and a
+`demo` boots a disposable Postgres, the local API with a temporary blob
+store, the built app on `http://localhost:5186`, a demo person, and a
 desktop sandbox for the `epicenter` CLI, then prints a sign-in helper URL and
 the `epicenter clone`, `check` and `sync` commands for the person's `todos`
 repository. It needs `initdb`, `pg_ctl`, `git` and `git-lfs` on `PATH`, and
@@ -102,7 +102,7 @@ bun apps/todos/scripts/native.ts /tmp/todos complete <id>
 
 It opens Todos' folder at the directory (`openFolder(todos, directory(path))`,
 `directory` from `@epicenter/folder/node`), keeps front matter keys and
-notes Todos does not name, and never commits or contacts a server.
+notes Todos does not name, and never syncs or contacts a server.
 `complete` lists the todos first and changes only one that is there, since
 `set` would make a note where none is.
 

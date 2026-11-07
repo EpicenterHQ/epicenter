@@ -22,7 +22,7 @@ never by Capture.
 Capture in a browser is its online variant only: the folder attached to
 Capture on the server (its history is the repository at `/folders/<id>`), at
 `/`. Signed out it
-asks for a sign-in; signed in, every add, edit and delete is a commit
+asks for a sign-in; signed in, every add, edit and delete is a change
 there, and nothing is kept in the browser. It needs the network; there is
 no browser copy to fall back on
 ([ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)).
@@ -62,8 +62,8 @@ lines.
 
 **More** holds Copy capture text, Download file (the note's file once the
 shown body has landed), and Delete capture. Deletion asks first, then
-closes the capture; a deleted capture stays in the repository's Git
-history.
+closes the capture; a deleted capture stays in the folder's history on
+the server.
 
 The timeline lists captures newest first by the instant captured (a
 `capturedAt` with an offset sorts by when it was), then files at a capture's
@@ -94,8 +94,8 @@ bun run --cwd apps/capture demo         # the whole stack, to try it by hand
 The build is static: any host that answers unknown paths with `index.html`
 (for `/auth/callback`) serves it, at an origin the API registers.
 
-`demo` boots a disposable Postgres, the local API with temporary Git and LFS
-stores, the built app on `http://localhost:5179`, a demo person, and a
+`demo` boots a disposable Postgres, the local API with a temporary blob
+store, the built app on `http://localhost:5179`, a demo person, and a
 desktop sandbox for the `epicenter` CLI, then prints a sign-in helper URL and
 the `epicenter clone`, `check` and `sync` commands for the person's
 `capture` repository. It needs `initdb`, `pg_ctl`, `git` and `git-lfs` on

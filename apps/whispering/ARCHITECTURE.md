@@ -252,8 +252,8 @@ account said it needs
 `home` the folder (the folders audience and the `folders:*` scopes) and
 `hosted(account)` the AI gateway (the API audience and `ai`).
 `web-sign-in.postgres.test.ts` checks it against the real authorization
-server: the API takes its token for a transcription and the Git host for
-the person's repository. Over a data folder, signing in or out changes what
+server: the API takes its token for a transcription and the folders audience
+for the person's folder. Over a data folder, signing in or out changes what
 `hosted(account)` lists and changes no file.
 
 ## Deleting

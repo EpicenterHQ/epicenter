@@ -1,7 +1,7 @@
 /**
  * The platform's folder operations end to end (ADR-0811, ADR-0819,
  * ADR-0822): each person's Epicenter folder a directory in Bun, and the real
- * server on a disposable Postgres with the Git and LFS disk stores
+ * server on a disposable Postgres with the disk blob store
  * (`startRepositoryServer`), every person signed in as the CLI is, reaching
  * every folder they hold. Requires initdb and pg_ctl on PATH.
  *

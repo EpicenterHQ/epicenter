@@ -1,6 +1,6 @@
 /**
  * Deleting a capture, with the confirmation it needs. The capture is
- * deleted from the store: the person's repository, whose Git history keeps
+ * deleted from the store: the person's folder on the server, whose history keeps
  * it, or the desktop window's folder.
  */
 
@@ -16,8 +16,8 @@ export function confirmDelete(captures: Captures, id: string) {
 		title: 'Delete this capture?',
 		description:
 			folder.reveal !== null
-				? `${named}and its thoughts are deleted from Capture's folder. If Epicenter syncs it, its Git history keeps them.`
-				: `${named}and its thoughts are deleted from your repository. Its Git history keeps them.`,
+				? `${named}and its thoughts are deleted from Capture's folder. If Epicenter syncs it, its history keeps them.`
+				: `${named}and its thoughts are deleted from your folder. Its history keeps them.`,
 		confirm: {
 			text: 'Delete',
 			variant: 'destructive',

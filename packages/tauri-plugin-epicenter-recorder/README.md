@@ -103,7 +103,7 @@ name, `<directory>/.ep-<random>-<base>.recording` for
 which alone spells these names; ADR-0822). The random part is 8 lowercase
 base 36 characters, so the name reads back to the path it goes to. A
 reserved name is hidden: no listing describes it, no watcher reports it,
-and sync never commits it, so no reader sees a half-written recording at a
+and sync never sends it, so no reader sees a half-written recording at a
 data path. The folder's sweep never removes one: a cut-off recording waits
 there until the app opens once. It is created with `create_new`, so nothing
 already there is written through. A folder holds nothing else of the

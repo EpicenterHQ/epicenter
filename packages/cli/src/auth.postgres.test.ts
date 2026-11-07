@@ -205,7 +205,7 @@ function appSignIn(person: Person) {
 	});
 }
 
-test('device login: the code, approval on the server, and a grant that reaches the API and Git', async () => {
+test('device login: the code, approval on the server, and a grant that reaches the API and the folders', async () => {
 	const person = await client.person('device-person');
 	const ctx = machine();
 	const { result, code } = await deviceLogin(ctx, person);

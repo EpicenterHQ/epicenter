@@ -22,7 +22,7 @@
  *   as sync settles it
  * - A thought's Edit as text selects its lines, after pending typing lands
  * - Thought moves and deletes refuse a list that changed beneath them
- * - Deleting a capture asks first, saying its Git history keeps it, and
+ * - Deleting a capture asks first, saying its history keeps it, and
  *   one made while the store cannot be reached lands once it can
  */
 import '../../../../../packages/svelte/src/svelte-dom.test-support.js';
@@ -319,12 +319,12 @@ test('deleting from the text editor with a draft does not recreate the file', as
 	await saved((text) => text === null);
 });
 
-test('deleting a capture asks first, saying its Git history keeps it', async () => {
+test('deleting a capture asks first, saying its history keeps it', async () => {
 	const h = await setup(FILE, 'text');
 	button(h.target, 'Delete…').click();
 	await until(
 		() =>
-			document.body.textContent?.includes('Its Git history keeps them') ===
+			document.body.textContent?.includes('Its history keeps them') ===
 			true,
 	);
 	button(document, 'Cancel').click();

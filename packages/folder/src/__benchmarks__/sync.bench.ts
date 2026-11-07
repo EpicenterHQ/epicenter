@@ -184,7 +184,7 @@ async function measure(world: World) {
 	for (let index = 0; index < COUNT; index++)
 		await a.write(pathOf(index), noteOf(index));
 	await run('first sync', a);
-	await run('second (agrees on the pushed commits)', a);
+	await run('second (agrees on the pushed changes)', a);
 	for (let index = 0; index < UNCHANGED_RUNS; index++)
 		await run('unchanged', a, `run ${index + 1}`);
 	for (let index = 0; index < EDITS; index++)
