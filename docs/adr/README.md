@@ -1026,6 +1026,7 @@ When you add an ADR, add its row here.
 | [0828](0828-names-say-folders-and-changes-and-history-is-package-functions-the-epicenter-app-shows.md) | Names say folders and changes, and history is package functions the Epicenter app shows | Accepted (amends 0549, 0817, 0824, and 0826) |
 | [0829](0829-a-restore-never-deletes-on-a-device-and-historys-chain-covers-what-changed-not-who.md) | A restore never deletes on a device, and history's chain covers what changed, not who | Accepted (amends 0806 and 0824) |
 | [0830](0830-epicenter-sends-a-change-the-moment-it-happens-and-checks-for-others-every-thirty-seconds.md) | Epicenter sends a change the moment it happens, and checks for others' every thirty seconds | Accepted (amends 0806, 0819, and 0823) |
-| [0831](0831-a-git-branch-lands-in-a-folder-as-one-change-through-the-cli.md) | A Git branch lands in a folder as one change through the CLI | Accepted (amends 0824 and 0826) |
+| [0831](0831-a-git-branch-lands-in-a-folder-as-one-change-through-the-cli.md) | A Git branch lands in a folder as one change through the CLI | Accepted (amends 0824 and 0826; amended by 0834) |
 | [0832](0832-a-folder-is-the-directory-epicenter-last-synced-or-epicenter-asks.md) | A folder is the directory Epicenter last synced, or Epicenter asks | Accepted (amends 0821 and 0822) |
 | [0833](0833-a-folders-present-lives-in-one-shared-database-and-its-past-in-its-own-archive.md) | A folder's present lives in one shared database, and its past in its own archive | Accepted (amends 0824) |
+| [0834](0834-every-folder-is-also-a-git-remote.md) | Every folder is also a Git remote | Accepted (amends 0831) |
