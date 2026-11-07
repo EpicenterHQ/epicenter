@@ -115,8 +115,8 @@ Cloudflare Workers
 │   ├── /device                device code entry; approval is the consent page
 │   ├── /.well-known/*         authorization server and protected resource metadata
 │   ├── /api/folders           the caller's folders and invitations; invite, accept, attach
-│   ├── git audience /folders  make or join a folder (POST) and every folder's head (GET)
-│   ├── git audience /folders/:id/*  a folder's log: changes, files, history, marks, bytes, commits
+│   ├── /folders               the folders audience: make or join a folder (POST), every folder's head (GET)
+│   ├── /folders/:id/*         a folder's log: changes read and appended, files, history, marks, bytes
 │   ├── /v1/*                  OpenAI-compatible chat and STT gateways
 │   └── /api/billing/*         Autumn (hosted-only, worker/billing/)
 │
@@ -278,8 +278,8 @@ to an email that answers the same whether or not anyone signs in with it,
 and waits for the account whose verified email it names, at sign-up or
 later (ADR-0820).
 
-Each folder's log is in Postgres, through Hyperdrive on the Worker: a
-commit is one statement, and so is every read. Bytes over 16 KiB live in R2
+Each folder's log is in Postgres, through Hyperdrive on the Worker:
+appending a change is one statement, and so is every read. Bytes over 16 KiB live in R2
 (`BLOBS`, the bucket `epicenter-lfs`, at `folders/<id>/blobs/<sha256>`),
 read and written over the binding alone, with no key pair and no presigned
 URL; Wrangler simulates the bucket in `bun dev:api`. The Bun entry keeps

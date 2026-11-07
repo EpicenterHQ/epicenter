@@ -376,7 +376,7 @@ export const restore: ImplementationOf<typeof restoreOperation> = {
 		});
 		if (writes.length === 0)
 			return Ok({ output: { restored: restored(now.data.cursor) } });
-		const landed = await at.data.folder.commitVersions(writes as never);
+		const landed = await at.data.folder.appendVersions(writes as never);
 		if (landed.error !== null) return Err(landed.error.message);
 		if ('missing' in landed.data)
 			return Err(

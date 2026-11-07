@@ -472,7 +472,7 @@ describe('the protected routes', () => {
 		call('/v1/chat/completions', token, { method: 'POST', body: {} });
 	/** The first request of a push: the receive-pack advertisement. */
 	const push = (token: string | null, folder = 'aaaaaaaaaaaaaaaa') =>
-		call(`/folders/${folder}/commits`, token, {
+		call(`/folders/${folder}/changes`, token, {
 			method: 'POST',
 			body: { files: [{ path: 'a.md', expect: null, text: 'one' }] },
 		});

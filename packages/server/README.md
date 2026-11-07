@@ -31,7 +31,7 @@ choice and any deployment policy.
 
 | Mount | Source | Notes |
 | --- | --- | --- |
-| `mountFolders` | `src/routes/folders.ts`, `src/routes/folder.ts`, `src/routes/folders-api.ts` | Folders (ADR-0811, ADR-0824): each folder's log by its id (changes, files, history, marks, bytes, commits, imports), making or joining a folder, every folder's head, and `/api/folders` for listing, sharing, accepting, and attaching to apps; the deployment supplies the blob store (`BlobStore`). |
+| `mountFolders` | `src/routes/folders.ts`, `src/routes/folder.ts`, `src/routes/folders-api.ts` | Folders (ADR-0811, ADR-0824): each folder's log by its id (changes read and appended, files, history, marks, bytes, imports), making or joining a folder, every folder's head, and `/api/folders` for listing, sharing, accepting, and attaching to apps; the deployment supplies the blob store (`BlobStore`). |
 | `mountInferenceApp` | `src/routes/inference.ts` | Provider-backed inference. |
 | `mountTranscriptionApp` | `src/routes/transcription.ts` | Provider-backed speech to text. |
 | `mountAuthRoutes` | `src/routes/auth.ts` | Public auth shells (sign-in, consent, device approval), discovery metadata, and Better Auth's endpoints, including the authorization server. |
@@ -65,7 +65,7 @@ also where the folders' routes are: `<folders>` below.
 | `POST <folders> { create, app?, import? }` or `{ join }` | `folders:write`: `create` makes a folder and never joins (`import` lets it take an import's changes until the import is done, ADR-0826); `join` joins the one folder attached to the app named (`409 choose` with `folders` when several, `404 none` when none). Answers `{ folder, made }` |
 | `GET <folders>` | `folders:read`: `{ heads }`, the cursor of every folder the token reaches, one statement a program polls instead of one request per folder (ADR-0819) |
 | `GET <folders>/<id>/changes?since=`, `POST …/files`, `GET …/log`, `GET …/marks`, `POST …/blobs`, `POST …/blobs/missing`, `GET …/blobs/<sha256>` | `folders:read`, the `read` role (`src/routes/folder.ts`) |
-| `PUT …/blobs/<sha256>`, `POST …/commits`, `PUT …/marks/<name>`, `POST …/import` | `folders:write`, the `push` role |
+| `PUT …/blobs/<sha256>`, `POST …/changes`, `PUT …/marks/<name>`, `POST …/import` | `folders:write`, the `push` role |
 | `GET /api/folders` | `folders:read` on the folders audience: `{ folders, pending }`, the folders the token reaches with their title, the caller's role, members, invitations by email (to members, not readers), and apps, and the invitations waiting for the caller |
 | `GET /api/folders/<id>` | `folders:read`, the `read` role: one folder |
 | `POST /api/folders/<id>/accept` | `folders:write`: accept the invitation waiting for the caller's verified email |
@@ -102,15 +102,16 @@ migration `0011`):
 
 | Table | Holds |
 | --- | --- |
-| `folder` | `seq`, its last change's number, which each commit locks the row to take, so changes are numbered densely in commit order; `epoch`, so a cursor `<epoch>.<seq>` from a log that was reset names nothing; and `importing` |
+| `folder` | `seq`, its last change's number, which each change locks the row to take, so changes are numbered densely in the order they land; `epoch`, so a cursor `<epoch>.<seq>` from a log that was reset names nothing; and `importing` |
 | `change` | `seq`, `at`, `account_id`, `author_text` (`Name <email>` as it was then), `via` (the OAuth client), `message` (an imported commit's), and `digest`, the SHA-256 of the previous digest and the change's canonical text |
 | `change_file` | each path a change wrote, its version (null for a deletion), and size; keyed `(folder, path, seq)`, indexed `(folder, seq)` |
 | `file` | each path's version now, and its `folded` name (NFC, lower case), unique in the folder |
 | `blob` | each SHA-256 the folder holds: its size, its bytes inline when they are at most 16 KiB, and whether it is `pending`, `kept`, or `purged` |
 | `mark` | a name a person gave one change (ADR-0826) |
 
-A file's version is the SHA-256 of its bytes, for every path. A commit is
-one call of `epicenter_commit`, so one round trip through Hyperdrive. It
+A file's version is the SHA-256 of its bytes, for every path. Appending a
+change is one call of `epicenter_append_change`, so one round trip through
+Hyperdrive. It
 lands each path only where it still holds the version its writer expects;
 otherwise nothing lands and it answers `409 moved` with every path that
 moved and what it holds. A write either brings bytes of at most 16 KiB
@@ -159,7 +160,7 @@ Refusals answer `{ error, error_description }`: 401 `invalid_token` with
 `WWW-Authenticate` naming `resource_metadata`, 403 `insufficient_scope` or
 `forbidden`, 404 `not_found`, 409 `choose` for a join among several
 folders, 413 `too_large` for a body over the route's cap (16 MiB for a
-commit or an import), 502 `store_failed`, 503 `unavailable` when the
+change or an import), 502 `store_failed`, 503 `unavailable` when the
 database could not decide. A folder that does not exist is refused like
 one the caller does not hold, so a refusal says nothing of whether it
 does. Folders take no billing policy.

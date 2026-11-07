@@ -142,24 +142,24 @@ test('init proposes a contract; a first sync makes the folder; a share lands in 
 }, 120_000);
 
 /**
- * A repository whose first commit waits until `release` resolves, so two
- * syncs of one folder can be made to overlap at their commits.
+ * A repository whose first append waits until `release` resolves, so two
+ * syncs of one folder can be made to overlap at their appends.
  */
 function held(repository: Repository, release: Promise<void>): Repository {
 	let first = true;
 	return {
 		...repository,
-		async commit(writes) {
+		async append(writes) {
 			if (first) {
 				first = false;
 				await release;
 			}
-			return repository.commit(writes);
+			return repository.append(writes);
 		},
 	};
 }
 
-test('two syncs of one folder at once lose no edit: the slower re-runs after its commit or its record is refused', async () => {
+test('two syncs of one folder at once lose no edit: the slower re-runs after its append or its record is refused', async () => {
 	const alice = await person(server, 'two-syncers');
 	await alice.desk.write('Studio', {
 		'epicenter.json': contract('Studio'),

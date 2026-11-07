@@ -83,7 +83,7 @@ import {
 	type FolderEndpoint,
 	folderBlobs,
 	folderChanges,
-	folderCommit,
+	postChange,
 	folderFiles,
 	folderImport,
 	folderLog,
@@ -91,7 +91,7 @@ import {
 	folderMissing,
 	folderOperation,
 	getBlob,
-	MAX_COMMIT_BYTES,
+	MAX_CHANGE_BYTES,
 	MAX_NAMED,
 	putBlobRoute,
 	putMark,
@@ -543,14 +543,14 @@ export function mountFolders(
 								request: c.req.raw,
 							})
 						: await getBlob(db, store, folder, endpoint.version);
-				case 'commits': {
-					const body = await bodyOf(MAX_COMMIT_BYTES);
+				case 'append': {
+					const body = await bodyOf(MAX_CHANGE_BYTES);
 					return body === null
 						? tooLarge()
-						: await folderCommit(db, { ...writer, body });
+						: await postChange(db, { ...writer, body });
 				}
 				case 'import': {
-					const body = await bodyOf(MAX_COMMIT_BYTES);
+					const body = await bodyOf(MAX_CHANGE_BYTES);
 					return body === null
 						? tooLarge()
 						: await folderImport(db, { ...writer, body, store });

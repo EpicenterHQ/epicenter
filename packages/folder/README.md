@@ -187,7 +187,7 @@ directory, the desktop shell and a served directory to the same behavior in
 | Place | Where |
 | --- | --- |
 | `home({ site })` in a Tauri window | the `Data` root the shell named: the directory in the Epicenter folder it remembers by identity, or the path the app's bundle identifier derives ([ADR-0752](../../docs/adr/0752-an-apps-folder-sits-under-the-platforms-visible-root-of-app-folders.md), ADR-0822); it writes nothing it was not asked to, and its hash cache is kept in the app's own data |
-| `home({ site, account })` in a browser | the folder on the server attached to the app the account signs in as (`joinApp`, naming the app its site names; `makeFolder` when the person holds none; the first of several), reached by its id at `<git audience>/folders/<folder>` through `account.fetch`; it is the store (ADR-0823): saves made within a moment of each other land as one commit; it opens once the account is signed in, works online only, and stops when the account is retired |
+| `home({ site, account })` in a browser | the folder on the server attached to the app the account signs in as (`joinApp`, naming the app its site names; `makeFolder` when the person holds none; the first of several), reached by its id at `<git audience>/folders/<folder>` through `account.fetch`; it is the store (ADR-0823): saves made within a moment of each other land as one change; it opens once the account is signed in, works online only, and stops when the account is retired |
 | `directory(path)` | a directory, made when missing (`Unreadable` when it cannot be) |
 | `served(url)` | the directory the program serving the page owns, through that program's `serveDirectory`; `StorageUnavailable` when nothing at `url` answers for one, and `Unavailable`, still opening, while the program is out of reach |
 | `memory()`, and `home()` under `test` | memory, for the life of the process |
@@ -216,7 +216,7 @@ watches each root a page opened. See the folder plugin's README, and
 `src/device/`.
 
 The server never merges: `folderRepository(account, folder)` in
-`src/remote/repository.ts` commits each put where the path still holds the
+`src/remote/repository.ts` appends each put where the path still holds the
 version its writer expects (null for nothing), and the server refuses the
 change when it does not, naming every path that moved
 ([`@epicenter/server`](../server/README.md)), which is `Moved` here. The
@@ -225,8 +225,8 @@ body with `settle`. It speaks the folder's routes: `changes` since a cursor,
 each path with its version; `files` now or at any change, a read bringing
 small files' bytes; `blobs` by version; bytes over 16 KiB at
 `blobs/<sha256>`, uploaded first when `blobs/missing` says the server lacks
-them; and `commits`. It also reads history (`log`, `filesAt`, `marks`,
-`mark`, `commitVersions` for a restore, and an import's changes). A watch
+them; and `POST changes`. It also reads history (`log`, `filesAt`, `marks`,
+`mark`, `appendVersions` for a restore, and an import's changes). A watch
 asks for `changes` every three seconds. The same object is the `Repository`
 sync takes. A manifest names its repository only by `{ folder }`
 (`RepositoryAddress`), and `folderUrl` in `@epicenter/definition/site` is
@@ -330,7 +330,7 @@ inode and a real birth time; else, for a record no directory proves, its
 name and exactly its files in a folder the server says the person holds
 alone; else unbound, starting from first contact when the person or an app
 syncs it. History is not the folder's: its history is the log on the
-server, which sync commits to (ADR-0804, ADR-0824). No Git runs on a computer.
+server, which sync appends to (ADR-0804, ADR-0824). No Git runs on a computer.
 
 ## Layout
 

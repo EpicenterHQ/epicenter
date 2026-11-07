@@ -431,14 +431,14 @@ export const syncScenarios: Record<string, (world: World) => Promise<void>> = {
 		let raced = false;
 		const racing: Repository = {
 			...world.repository,
-			async commit(...args) {
+			async append(...args) {
 				if (!raced) {
 					raced = true;
 					await b.write('todos/a.md', todo.replace('Thursday', 'Monday'));
 					await b.write('todos/new.md', note('title: "New"\n'));
 					await syncOf(world, b);
 				}
-				return world.repository.commit(...args);
+				return world.repository.append(...args);
 			},
 		};
 		const report = await syncOf(world, a, { remote: racing });
@@ -498,7 +498,7 @@ export const syncScenarios: Record<string, (world: World) => Promise<void>> = {
 		await a.write('todos/a.md', text.replace('two', 'from A'));
 		const offline: Repository = {
 			...world.repository,
-			commit: async () => ClientError.Unavailable({ cause: 'offline' }),
+			append: async () => ClientError.Unavailable({ cause: 'offline' }),
 		};
 		expectErr(
 			await sync({ local: a.store, remote: offline, manifest: a.manifest }),
@@ -560,7 +560,7 @@ export const syncScenarios: Record<string, (world: World) => Promise<void>> = {
 		// The sequence that once needed a file's own base in the manifest:
 		// the save after the merge records the merged note as agreed at the
 		// repository's blob it merged with, and the kept note at its old
-		// blob, at once; with no commit named, the next sync compares both.
+		// blob, at once; with no change named, the next sync compares both.
 		const text = note('title: "Y"\n', 'one\ntwo\nthree\n');
 		const { a, b } = await synced(world, 'todos/y.md', text);
 		await a.write('todos/x.md', todo);
@@ -581,7 +581,7 @@ export const syncScenarios: Record<string, (world: World) => Promise<void>> = {
 		};
 		const offline: Repository = {
 			...world.repository,
-			commit: async () => ClientError.Unavailable({ cause: 'offline' }),
+			append: async () => ClientError.Unavailable({ cause: 'offline' }),
 		};
 		expectErr(await sync({ local, remote: offline, manifest: a.manifest }));
 		expect(await a.read('todos/x.md')).toBe(agent);

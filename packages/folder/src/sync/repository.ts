@@ -10,7 +10,7 @@
  * (`files`), and bytes by version (`blobs`): a note's base for a merge is the
  * version the manifest agreed on, read by it. It lands a batch of files in
  * one change, each only where the path still holds the version its writer
- * expects (`commit`), or nothing; a batch adding a path that differs only in
+ * expects (`append`), or nothing; a batch adding a path that differs only in
  * case from one the folder holds is refused, naming that path (ADR-0804).
  */
 import { Ok, type Result } from 'wellcrafted/result';
@@ -23,28 +23,28 @@ export type ChangedPath = { path: string; version: Version | null };
 /** One file the folder holds: its version, and its size. */
 export type FileEntry = { path: string; version: Version; size: number | null };
 
-/** One file of a commit: its bytes, or null to delete it, where the path holds the version its writer expects (null: nothing). */
-export type CommitWrite = {
+/** One file of a change: its bytes, or null to delete it, where the path holds the version its writer expects (null: nothing). */
+export type ChangeWrite = {
 	path: string;
 	bytes: Uint8Array | null;
 	expect: Version | null;
 };
 
 /**
- * A commit the folder refused for one place, which no retry fixes: a path
+ * A change the folder refused for one place, which no retry fixes: a path
  * that differs only in case from one it holds (`refused` is that path, or
  * the folder whose name clashes), and why.
  */
-export type CommitRefusal = { refused: string; reason: string };
+export type ChangeRefusal = { refused: string; reason: string };
 
-/** A commit that landed: the log's head after it, and the version now at each path (null where a delete landed). */
-export type CommitReceipt = {
+/** A change that landed: the log's head after it, and the version now at each path (null where a delete landed). */
+export type ChangeReceipt = {
 	cursor: string;
 	versions: Record<string, Version | null>;
 };
 
-/** A commit that landed nothing: every path that held something other than its writer expected, and what. */
-export type CommitMoved = {
+/** A change that landed nothing: every path that held something other than its writer expected, and what. */
+export type ChangeMoved = {
 	moved: { path: string; now: Version | null }[];
 };
 
@@ -66,13 +66,13 @@ export type Repository = {
 		versions: readonly Version[],
 	): Promise<Result<(Uint8Array | null)[], Unavailable>>;
 	/**
-	 * Land every write in one change, or none: `CommitMoved` when any path
-	 * holds something other than its `expect`, and a `CommitRefusal` when a
+	 * Land every write in one change, or none: `ChangeMoved` when any path
+	 * holds something other than its `expect`, and a `ChangeRefusal` when a
 	 * path would differ only in case from one the folder then holds.
 	 */
-	commit(
-		writes: readonly CommitWrite[],
-	): Promise<Result<CommitReceipt | CommitMoved | CommitRefusal, Unavailable>>;
+	append(
+		writes: readonly ChangeWrite[],
+	): Promise<Result<ChangeReceipt | ChangeMoved | ChangeRefusal, Unavailable>>;
 };
 
 /** The most paths `changes` answers before it answers "compare every path". */
@@ -80,7 +80,7 @@ const CHANGES_LIMIT = 2000;
 
 /**
  * A folder's log in memory: each change keeps the versions it wrote, and
- * every version ever committed keeps its bytes. For tests, and the measure
+ * every version ever appended keeps its bytes. For tests, and the measure
  * of what `sync` costs without a disk or a network.
  */
 export function memoryRepository({
@@ -97,7 +97,7 @@ export function memoryRepository({
 	/**
 	 * The first place an added path names (itself, or a folder on its way)
 	 * that differs only in case from another place `next` holds, as the
-	 * server's commit finds it, or null.
+	 * server's append finds it, or null.
 	 */
 	function caseClash(next: Map<string, Version>, added: readonly string[]) {
 		const fold = (place: string) => place.normalize('NFC').toLowerCase();
@@ -122,7 +122,7 @@ export function memoryRepository({
 					return {
 						refused: place,
 						reason: `${place} differs only in case from ${held}, which the folder holds: a disk that ignores case cannot keep them apart`,
-					} satisfies CommitRefusal;
+					} satisfies ChangeRefusal;
 			}
 		}
 		return null;
@@ -163,10 +163,10 @@ export function memoryRepository({
 				versions.map((version) => bytesOf.get(version)?.slice() ?? null),
 			);
 		},
-		async commit(
-			writes: readonly CommitWrite[],
+		async append(
+			writes: readonly ChangeWrite[],
 		): Promise<
-			Result<CommitReceipt | CommitMoved | CommitRefusal, Unavailable>
+			Result<ChangeReceipt | ChangeMoved | ChangeRefusal, Unavailable>
 		> {
 			const prepared = await Promise.all(
 				writes.map(async (write) => ({
@@ -174,7 +174,7 @@ export function memoryRepository({
 					version: write.bytes === null ? null : await versionOf(write.bytes),
 				})),
 			);
-			// No await from here: the check and the commit are one step.
+			// No await from here: the check and the append are one step.
 			const moved = prepared
 				.filter(({ path, expect }) => (current.get(path) ?? null) !== expect)
 				.map(({ path }) => ({ path, now: current.get(path) ?? null }));

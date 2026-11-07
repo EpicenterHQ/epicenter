@@ -124,7 +124,7 @@ test('an export passes fsck, checks out each change as it was, runs again increm
 		);
 		const now = new Map(held.files.map(({ path, version }) => [path, version]));
 		const landed = expectOk(
-			await repository.commit(
+			await repository.append(
 				writes.map(({ path, bytes }) => ({
 					path,
 					bytes,

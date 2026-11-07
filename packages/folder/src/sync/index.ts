@@ -23,10 +23,10 @@ export {
 } from '../remote/repository.js';
 export {
 	type ChangedPath,
-	type CommitMoved,
-	type CommitReceipt,
-	type CommitRefusal,
-	type CommitWrite,
+	type ChangeMoved,
+	type ChangeReceipt,
+	type ChangeRefusal,
+	type ChangeWrite,
 	type FileEntry,
 	memoryRepository,
 	type Repository,

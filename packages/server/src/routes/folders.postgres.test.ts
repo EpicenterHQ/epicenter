@@ -6,7 +6,7 @@
  *
  * Key behaviors:
  * - A folder exists from the request that makes it, and its log answers
- *   over HTTP: changes, files, history, marks, bytes, commits, and imports
+ *   over HTTP: changes, files, history, marks, bytes, changes, and imports
  * - A share is an invitation to an email, invisible and granting nothing
  *   until the person who signs in with it, verified, accepts it
  * - Members are equal; a folder survives while any member remains
@@ -219,7 +219,7 @@ async function write(
 	files: Record<string, string>,
 ) {
 	const held = await versions(token, folder, Object.keys(files));
-	return call(token, 'folders', `${folder}/commits`, {
+	return call(token, 'folders', `${folder}/changes`, {
 		body: {
 			files: Object.entries(files).map(([path, text]) => ({
 				path,
@@ -285,14 +285,14 @@ describe("a folder's log over HTTP", () => {
 				).toBe(403);
 		expect(
 			(
-				await call(stranger.token, 'folders', `${folder}/commits`, {
+				await call(stranger.token, 'folders', `${folder}/changes`, {
 					body: { files: [{ path: 'a.md', expect: null, text: 'x' }] },
 				})
 			).status,
 		).toBe(403);
 	}, 60_000);
 
-	test('a missing or unusable token gets 401 naming resource_metadata, and a read-only token cannot commit', async () => {
+	test('a missing or unusable token gets 401 naming resource_metadata, and a read-only token cannot write', async () => {
 		const { token } = await signedIn('challenged');
 		const folder = await made(token);
 		const changes = `${audiences.folders}/${folder}/changes`;
@@ -320,7 +320,7 @@ describe("a folder's log over HTTP", () => {
 			epicenter,
 			'openid folders:read folders:all',
 		);
-		const refused = await call(readOnly, 'folders', `${folder}/commits`, {
+		const refused = await call(readOnly, 'folders', `${folder}/changes`, {
 			body: { files: [{ path: 'a.md', expect: null, text: 'x' }] },
 		});
 		expect(refused.status).toBe(403);
@@ -348,7 +348,7 @@ describe("a folder's log over HTTP", () => {
 			{ path: 'captures/a.md', expect: null, text: '# Heard\n' },
 			{ path: 'captures/a.webm', expect: null, version },
 		];
-		const landed = await call(token, 'folders', `${folder}/commits`, {
+		const landed = await call(token, 'folders', `${folder}/changes`, {
 			body: { files },
 		});
 		expect(landed.status).toBe(200);
@@ -361,7 +361,7 @@ describe("a folder's log over HTTP", () => {
 			'captures/a.md': await sha256(encoder.encode('# Heard\n')),
 			'captures/a.webm': version,
 		});
-		const resent = await call(token, 'folders', `${folder}/commits`, {
+		const resent = await call(token, 'folders', `${folder}/changes`, {
 			body: { files },
 		});
 		expect(resent.status).toBe(409);
@@ -396,7 +396,7 @@ describe("a folder's log over HTTP", () => {
 		const [held] = (await versions(token, folder, ['a.md'])).values();
 		const answers = await Promise.all(
 			Array.from({ length: 6 }, (_, index) =>
-				call(token, 'folders', `${folder}/commits`, {
+				call(token, 'folders', `${folder}/changes`, {
 					body: {
 						files: [{ path: 'a.md', expect: held, text: `writer ${index}\n` }],
 					},
@@ -415,7 +415,7 @@ describe("a folder's log over HTTP", () => {
 		const { token } = await signedIn('capped');
 		const folder = await made(token);
 		const huge = 'x'.repeat(17 * 1024 * 1024);
-		const capped = await fetch(`${audiences.folders}/${folder}/commits`, {
+		const capped = await fetch(`${audiences.folders}/${folder}/changes`, {
 			method: 'POST',
 			headers: {
 				authorization: `Bearer ${token}`,
