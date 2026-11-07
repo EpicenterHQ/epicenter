@@ -167,8 +167,7 @@ for folders.
 4. Whether `packages/definition` survives as a notes library or is deleted.
 5. What `vision.md`, `architecture.md`, `CONTEXT.md`, and the package READMEs say,
    once ADR-0840 is accepted.
-6. The cache's extra methods: clearing it, and SQLite databases kept in it
-   (under discussion).
+6. The CLI's full surface and the home's layout (under adversarial review).
 
 ## Done when
 

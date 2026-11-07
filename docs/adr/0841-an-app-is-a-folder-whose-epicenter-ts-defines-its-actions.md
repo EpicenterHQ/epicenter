@@ -46,6 +46,12 @@ export default defineApp({
   so in its code. **`cache`** is the same kind of object, for anything that can
   be rebuilt: this device only, never synced, never in history
   (`~/Library/Caches/Epicenter/<app>/` on a computer, browser storage in a page).
+  A cache adds `clear()`, and on a computer `sqlite(name)`, which opens Bun's own
+  `Database` at `<name>.sqlite` in the cache. A cache is never migrated: after a
+  change of shape it is cleared and rebuilt, by `clear()`, by removing one
+  database, or by `epicenter cache clear <app>`. SQLite never lives in `folder`,
+  where Git could neither show nor merge it. `folder` has no `clear()`: deleting
+  data is one path at a time, in an action that becomes a commit.
   **`secrets`** reads and writes the Keychain under `epicenter.<app>`, exists only
   on a computer, and never touches a file.
 - **Code shared between actions and pages** is ordinary modules in the app's
