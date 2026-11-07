@@ -92,6 +92,7 @@ const opens = () =>
 test('a listing opens each folder once, names one that does not open, and lists links as outside', async () => {
 	listing = {
 		path: '/Users/me/Epicenter',
+		real: '/Users/me/Epicenter',
 		git: true,
 		folders: [
 			{ name: 'Notes', identity: identity('1'), git: false },
@@ -147,6 +148,7 @@ test('a listing opens each folder once, names one that does not open, and lists 
 	refuseOpen = new Set(['Everything']);
 	listing = {
 		path: '/Users/me/Epicenter',
+		real: '/Users/me/Epicenter',
 		git: false,
 		folders: [
 			{ name: 'Notes', identity: identity('1'), git: false },
@@ -162,6 +164,7 @@ test('a listing opens each folder once, names one that does not open, and lists 
 test("a folder's hash cache is kept in the Epicenter folder's .epicenter, by identity", async () => {
 	listing = {
 		path: '/Users/me/Epicenter',
+		real: '/Users/me/Epicenter',
 		git: false,
 		folders: [{ name: 'Tapes', identity: identity('5'), git: false }],
 		outside: [],
@@ -185,6 +188,7 @@ test("a folder's hash cache is kept in the Epicenter folder's .epicenter, by ide
 test("each folder's store hears its own changes and names its root", async () => {
 	listing = {
 		path: '/Users/me/Epicenter',
+		real: '/Users/me/Epicenter',
 		git: false,
 		folders: [
 			{ name: 'Notes', identity: identity('1'), git: false },

@@ -17,6 +17,7 @@ import {
 	mkdir,
 	readdir,
 	readlink,
+	realpath,
 	rm,
 	rmdir,
 	stat,
@@ -38,9 +39,9 @@ import { recordsIn } from '../platform/records.js';
 import {
 	EPICENTER_STATE,
 	isSaveName,
+	LEGACY_DIRECTORY,
 	LEGACY_RECORDINGS,
 	LEGACY_SAVES,
-	LEGACY_DIRECTORY,
 	recordingName,
 	STALE_SAVE_MS,
 } from '../state.js';
@@ -302,7 +303,13 @@ export function epicenterRoot(
 					unreadable.push({ name, reason: local.error.message });
 				else folders.push(local.data);
 			}
-			return Ok({ folders, outside, unreadable, git: await keptByGit(root) });
+			return Ok({
+				folders,
+				outside,
+				unreadable,
+				git: await keptByGit(root),
+				real: await realpath(root).catch(() => root),
+			});
 		},
 		async make(name) {
 			const at = join(root, name);

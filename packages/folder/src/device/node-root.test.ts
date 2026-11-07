@@ -7,11 +7,14 @@
  * - An identity is the inode and birth time; zero is no birth time
  * - Git keeps a folder with `.git` at its root, and nothing above it counts
  * - The Epicenter folder lists its real directories, and each link as outside it
+ * - The file-sync check reads where the Epicenter folder really is, so one
+ *   linked into iCloud Drive is refused
  */
 import { expect, test } from 'bun:test';
 import {
 	mkdir,
 	readdir,
+	realpath,
 	rm,
 	stat,
 	symlink,
@@ -21,6 +24,8 @@ import {
 import { join } from 'node:path';
 import { expectOk } from 'wellcrafted/testing';
 import { identityOf, proves } from '../identity.js';
+import { listHome } from '../platform/epicenter-folder.js';
+import { syncFolder } from '../platform/sync-folder.js';
 import { scratch } from '../scratch.test-support.js';
 import {
 	epicenterRoot,
@@ -127,6 +132,35 @@ test('the Epicenter folder lists its real directories, and each link as outside 
 		expect(listed.git).toBe(false);
 		await mkdir(join(home, '.git'));
 		expect(expectOk(await epicenterRoot(home).list()).git).toBe(true);
+	} finally {
+		await rm(base, { recursive: true, force: true });
+	}
+});
+
+test('an Epicenter folder linked into iCloud Drive is found there, and refused', async () => {
+	const base = await scratch('node-root-icloud-');
+	try {
+		const icloud = join(
+			base,
+			'Library/Mobile Documents/com~apple~CloudDocs/Epicenter',
+		);
+		await mkdir(join(icloud, 'Notes'), { recursive: true });
+		const home = join(base, 'Epicenter');
+		await symlink(icloud, home);
+		const root = epicenterRoot(home);
+		// A person reads the link's path; the check reads where it leads.
+		expect(root.path).toBe(home);
+		expect(expectOk(await root.list()).real).toBe(await realpath(icloud));
+		expect(expectOk(await listHome({ root })).fileSync).toEqual({
+			refused: expect.stringContaining('iCloud Drive'),
+		});
+		const account = {
+			baseURL: 'http://127.0.0.1:1',
+			signal: new AbortController().signal,
+			fetch: () => Promise.reject(new Error('no server is asked')),
+		};
+		const synced = await syncFolder({ account, root, name: 'Notes' });
+		expect(synced.error?.message).toContain('iCloud Drive');
 	} finally {
 		await rm(base, { recursive: true, force: true });
 	}

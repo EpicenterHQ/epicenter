@@ -93,12 +93,18 @@ export type EpicenterEntry = {
 };
 
 /**
- *  The Epicenter folder's listing: where it is, as a person reads it,
- *  whether it is itself a Git repository, its folders by name, the links in
- *  it, and what is there but could not be read.
+ *  The Epicenter folder's listing: where it is, as a person reads it, and
+ *  where it really is, every link on its way followed, which the file-sync
+ *  check reads; whether it is itself a Git repository, its folders by name,
+ *  the links in it, and what is there but could not be read.
  */
 export type EpicenterListing = {
 	path: string,
+	/**
+	 *  Where it really is (`resolved`): `~/Epicenter` linked into iCloud
+	 *  Drive is in iCloud Drive.
+	 */
+	real: string,
 	/**
 	 *  Whether the Epicenter folder holds `.git` at its root, which
 	 *  Epicenter says once (ADR-0825).

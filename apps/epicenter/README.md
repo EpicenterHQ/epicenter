@@ -177,7 +177,9 @@ stays on this computer as a local folder until the person syncs it, which
 asks which folder it is. A folder an app made (its usual name and a
 contract that fits the app) syncs without asking when nothing else fits.
 Epicenter never syncs a folder Git keeps (`.git` at its root) or a link, nor
-anything while the Epicenter folder is inside a file-sync service; it says
+anything while the Epicenter folder is inside a file-sync service, where it
+really is with its links followed (`~/Epicenter` linked into iCloud Drive
+is in iCloud Drive); it says
 once when the Epicenter folder is itself a Git repository.
 
 

@@ -67,8 +67,10 @@ export type EpicenterRoot = {
 	/**
 	 * Every real directory directly inside it, hidden names skipped, by
 	 * name; each link there to a folder, or to nothing, as outside it; what
-	 * is there but could not be read, with why; and whether the Epicenter
-	 * folder is itself a Git repository (`.git` at its root).
+	 * is there but could not be read, with why; whether the Epicenter
+	 * folder is itself a Git repository (`.git` at its root); and where it
+	 * really is, every link on its way followed, which the file-sync check
+	 * reads (`fileSyncOf`): `~/Epicenter` linked into iCloud Drive is there.
 	 */
 	list(): Promise<
 		Result<
@@ -77,6 +79,7 @@ export type EpicenterRoot = {
 				outside: OutsideLink[];
 				unreadable: { name: string; reason: string }[];
 				git: boolean;
+				real: string;
 			},
 			Unavailable
 		>
@@ -232,7 +235,7 @@ export async function listHome({
 		pending: server?.pending ?? [],
 		elsewhere: (server?.folders ?? []).filter(({ id }) => !here.has(id)),
 		unreadable: identified.unreadable,
-		fileSync: fileSyncOf(root.path),
+		fileSync: fileSyncOf(identified.real),
 		git: gitRootOf(root.path, identified.rootGit),
 	});
 }

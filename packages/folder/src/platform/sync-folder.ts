@@ -227,9 +227,9 @@ async function titleNew(
 	return Ok(null);
 }
 
-/** Why Epicenter refuses to sync the Epicenter folder `root`, or null. */
-function refusedRoot(root: EpicenterRoot) {
-	const check = fileSyncOf(root.path);
+/** Why Epicenter refuses to sync the Epicenter folder, really at `real`, or null. */
+function refusedRoot({ real }: Identified) {
+	const check = fileSyncOf(real);
 	return check !== null && 'refused' in check
 		? ClientError.Unavailable({ cause: check.refused })
 		: null;
@@ -259,7 +259,7 @@ export async function syncFolder({
 	const found = await identify({ root, account });
 	if (found.error !== null) return found;
 	const identified = found.data;
-	const refused = refusedRoot(root);
+	const refused = refusedRoot(identified);
 	if (refused !== null) return refused;
 	if (identified.git.some((local) => local.name === name))
 		return Ok({ kind: 'git' });
@@ -333,7 +333,7 @@ export async function cloneIntoHome({
 }): Promise<Result<{ local: LocalFolder; sync: FolderSync }, Unavailable>> {
 	const found = await identify({ root, account });
 	if (found.error !== null) return found;
-	const refused = refusedRoot(root);
+	const refused = refusedRoot(found.data);
 	if (refused !== null) return refused;
 	const here = found.data.bound.find(({ record }) => record.folder === folder);
 	if (here !== undefined)
@@ -460,9 +460,9 @@ export async function syncEvery({
 	const identified = found.data;
 	const named = ({ local }: { local: LocalFolder }) =>
 		names === undefined || names.has(local.name);
-	const refused = refusedRoot(root);
+	const refused = refusedRoot(identified);
 	if (refused !== null) return refused;
-	const check = fileSyncOf(root.path);
+	const check = fileSyncOf(identified.real);
 	const git = gitRootOf(root.path, identified.rootGit);
 	const out: EverySync[] = [];
 	for (const bound of identified.bound.filter(named)) {
