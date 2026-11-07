@@ -45,7 +45,7 @@ never by Honeycrisp, and any editor can change it.
 ## The web app
 
 Honeycrisp in a browser is its online variant only: the folder attached to
-Honeycrisp on the server (its history is the repository at `/folders/<id>`),
+Honeycrisp on the server (its history is the folder's ledger at `/folders/<id>`),
 at `/`. Signed out it
 asks for a sign-in; signed in, every create, edit, move, pin and delete is a
 change there, and nothing is kept in the browser. It needs the network;

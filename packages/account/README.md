@@ -57,8 +57,10 @@ export const profile = openProfile(signIn); // the person's name and email
 | `profile` | `openProfile` | the API audience, `profile email` |
 
 In a Tauri window the account is the shell's (`createTauriAuth`), which signs
-in through the system browser to sync the app's folder and to use hosted
-models ([ADR-0785](../../docs/adr/0785-a-desktop-app-signs-in-to-sync-its-own-folder.md)).
+in through the system browser to use hosted models. It does not sync the
+app's folder: on a computer only Epicenter's programs do, and a desktop app's
+token holds only `ai`
+([ADR-0822](../../docs/adr/0822-only-epicenter-syncs-on-a-computer-and-a-folder-holds-only-its-content.md)).
 Nothing in an app waits on sign-in.
 
 `PrincipalId` is the branded principal id and the partition key every server

@@ -2,7 +2,7 @@
 
 Vocab helps a learner collect English expressions and practice using them in tutor-led conversations. Each saved expression has exact text, a learner-owned note, and a self-reported stage: New, Recognize, Understand, or Use. Only the learner changes the stage.
 
-Words, notes, stages, chats, and finished messages are Markdown notes of Vocab's contract: in the folder attached to Vocab on the server on the web (its history is the repository at `/folders/<id>`), or in a folder on the computer in the desktop app, which `epicenter sync` syncs to the same folder. Other devices, plain Git clones of its history, and agents reach them.
+Words, notes, stages, chats, and finished messages are Markdown notes of Vocab's contract: in the folder attached to Vocab on the server on the web (its history is the folder's ledger at `/folders/<id>`), or in a folder on the computer in the desktop app, which `epicenter sync` syncs to the same folder. Other devices and agents reach them, and its history leaves as Git with `epicenter export --git`.
 
 Vocab has two variants (decision 79), both served by one build: where the page runs picks the store ([ADR-0781](../../docs/adr/0781-apps-branch-on-what-a-capability-offers-and-one-build-serves-every-surface.md)).
 

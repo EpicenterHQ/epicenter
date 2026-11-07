@@ -18,7 +18,7 @@ The files that carry it:
 - `packages/folder/src/sync/` and `packages/folder/src/remote/`: the sync
   function, and the requests it makes of a folder on the server
 - `packages/server/src/routes/folder.ts` and `routes/folders.ts`: a folder's
-  routes, with a token for one folder, and `packages/server/src/log/`: its log
+  routes, which a token reaches by `folders:all` or by the folder's attachment to its app, and `packages/server/src/log/`: its ledger
 - `apps/api/worker/index.ts`: where Epicenter's hosted server keeps bytes, in
   Cloudflare R2
 
@@ -56,7 +56,7 @@ only with an Epicenter server. Its files come to any computer with
 ([ADR-0803](adr/0803-clients-sync-only-with-epicenter-servers-and-sync-is-a-function-of-two-stores.md),
 [ADR-0826](adr/0826-history-enters-and-leaves-epicenter-as-git.md)).
 
-A folder's readers are its members, and each member is an owner, a writer, or a
+A folder's readers are its members, and each member is a member or a
 reader. A share is an invitation to an email that waits until that person accepts
 it, and the server answers it the same whether or not the email has an account
 ([ADR-0820](adr/0820-a-share-is-an-invitation-to-an-email-and-reaching-every-folder-is-a-permission.md)).

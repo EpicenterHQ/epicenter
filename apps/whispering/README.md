@@ -250,10 +250,10 @@ microphone, is this computer's settings (`settings` from `@epicenter/local`:
 files in AppData, written only by the shell), which the page connects to
 beside the folder. A failed open shows the shared recovery screen with
 Retry. The
-status details and Settings show the shell's folder path. **Set up in
-Epicenter** enrolls the folder for local history; connecting a repository
-there enables transfer. Whispering does not sync it itself yet
-([ADR-0785](../../docs/adr/0785-a-desktop-app-signs-in-to-sync-its-own-folder.md)).
+status details and Settings show the shell's folder path, and whether
+Epicenter syncs the folder, with where to get Epicenter until it does.
+Whispering never syncs it; Epicenter (the app or `epicenter sync`) does
+([ADR-0822](../../docs/adr/0822-only-epicenter-syncs-on-a-computer-and-a-folder-holds-only-its-content.md)).
 
 The page is the web's own build (`build/`, the dev server in development).
 One build serves both
@@ -338,9 +338,9 @@ build script declares, and how an accelerator parses.
 
 ## What is not supported
 
-- Whispering syncing the desktop app's folder itself, which ADR-0785
-  decides and is not built, or moving recordings between that folder and
-  the repository.
+- Whispering syncing the desktop app's folder itself: on a computer only
+  Epicenter's programs sync (ADR-0822), and Whispering moves no recordings
+  between that folder and the web's folder on the server.
 - In the web app, keeping a take through a crash or a closed tab, recording
   in the background, working with no network, and a global shortcut: these
   are the desktop app's.

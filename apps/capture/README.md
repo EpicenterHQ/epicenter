@@ -20,7 +20,7 @@ never by Capture.
 ## What it does
 
 Capture in a browser is its online variant only: the folder attached to
-Capture on the server (its history is the repository at `/folders/<id>`), at
+Capture on the server (its history is the folder's ledger at `/folders/<id>`), at
 `/`. Signed out it
 asks for a sign-in; signed in, every add, edit and delete is a change
 there, and nothing is kept in the browser. It needs the network; there is
