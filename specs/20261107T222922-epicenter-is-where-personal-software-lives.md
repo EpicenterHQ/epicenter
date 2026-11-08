@@ -8,13 +8,14 @@
 
 ## One Sentence
 
-An app is a Git repository of files and actions: its `epicenter.ts` declares
-collections, each of which gives `list`, `show`, `save`, and `delete`, and the
-actions its author writes. `epicenter` runs an action in a folder and makes one
-commit, or nothing. Your Epicenter is the computer where `epicenter serve`
-always runs and your sign-ins live. A program with the folder writes files and
-commits what it wrote; one without it asks for actions over MCP (ADR-0849 to
-ADR-0856).
+An app is a folder with a declared shape: its `epicenter.json` (no code) or
+`epicenter.ts` (with actions) declares collections, each of which gives `list`,
+`show`, `save`, and `delete`, and the actions its author writes. Each job takes
+the least powerful form that does it. `epicenter` runs an action in a folder and
+makes one commit, or nothing. Your Epicenter is the computer where
+`epicenter serve` always runs and your sign-ins live. A program with the folder
+writes files and commits what it wrote; one without it asks for actions over MCP
+(ADR-0849 to ADR-0857).
 
 ## Why the direction changed
 
@@ -49,9 +50,10 @@ On your Epicenter (ADR-0849):
 ```
 ~/Epicenter/                    the only list of apps: folders, or links to them
   mail/                         each app is its own Git repo, with one remote, origin
-    epicenter.ts                export default defineApp({ name: 'mail', … })
+    epicenter.ts                export default defineApp({ name: 'mail', … }): it has actions
     package.json, bun.lock      its own dependencies and editor types; not needed for @epicenter/app
     .gitignore                  node_modules/, .cache/
+    .gitattributes              binaries through LFS (ADR-0856)
     lib.ts                      shared code: functions that take a `folder`
     queries/receipts.txt        a saved Gmail search
     batches/                    reviewed changes; gitignored
@@ -60,17 +62,20 @@ On your Epicenter (ADR-0849):
     epicenter.ts
     2026.csv
   reminders/                    an ordinary app from the registry (ADR-0855)
-  vault -> ~/Code/vault         an app elsewhere joins by a link
+  whispering/                   epicenter.json only: Whispering writes it (ADR-0853)
+  vault -> ~/Code/vault         an app elsewhere, linked by epicenter add
 Keychain: epicenter.<name>      sign-ins, on your Epicenter only
 epicenter serve                 the only way in: MCP, on the tailnet
 ```
 
-The contract is ADR-0841 with ADR-0853 and ADR-0854:
-`defineApp({ name, description, collections, actions })`; a collection is
+The contract is ADR-0841 with ADR-0853, ADR-0854, and ADR-0857. The
+declaration is plain data, `{ name, description, collections, actions }`, in
+`epicenter.json` or as `epicenter.ts`'s default export; a collection is
 `{ path, fields, readOnly? }` and gives `list`, `show`, `save`, and `delete`; an
 action is `{ description, input: { …fields }, run(input, { folder, secrets }),
-readOnly?, destructive? }`, keyed by one or more words (`'calendar show'`), where
-`folder` is an object (`read`, `write`, `list`, `remove`, bytes forms, and
+readOnly?, destructive? }`, keyed by one or more words (`'calendar show'`); a
+field is `'text'`, `'number?'`, `['new', 'known']`, or a long form with options;
+`folder` is an object (`read`, `write`, `list`, `delete`, bytes forms, and
 `path` only on a computer) supplied by whatever runs the action.
 
 ```
@@ -78,25 +83,25 @@ epicenter [--json]                              apps, actions, input schemas, pr
 epicenter <app> [--json]                        one app: collections, actions, folder, Keychain service
 epicenter <app> <action words> [<positional>] [--flags] [--json]
 epicenter <path> <action words> …               a folder by path, such as a worktree
-epicenter setup | serve | new <name> | add <source> | mcp [<app>…] | help
+epicenter setup | serve [--stdio] | new <name> | add <source or folder> | help
 ```
 
 ## Packages
 
 | Package | Holds | Precedent |
 | --- | --- | --- |
-| `@epicenter/app` | `defineApp`, `field`, the types. No Node or Bun APIs, so a page can import its types | Convex's `convex/server` (`query`, `mutation`, `action` with `args: { x: v.string() }`), Trigger.dev's `task({ run })`, Drizzle's split of `drizzle-orm` (definitions) from `drizzle-kit` (CLI) |
-| `@epicenter/cli` | the `epicenter` binary: discovery, commands, `mcp`, later `serve` and `open` | `drizzle-kit`, `vite` |
+| `@epicenter/app` | the declaration's TypeBox schema (the source of `epicenter.schema.json`), `defineApp`, the types, and the typed MCP client. No Node or Bun APIs, so a page can import it | Convex's `convex/server` (`query`, `mutation`, `action` with `args: { x: v.string() }`), Trigger.dev's `task({ run })`, Drizzle's split of `drizzle-orm` (definitions) from `drizzle-kit` (CLI) |
+| `@epicenter/cli` | the `epicenter` binary: discovery, commands, `serve` (MCP over HTTP or stdio), `setup`, `add` | `drizzle-kit`, `vite` |
 | `@epicenter/mail` | Mail's default app, re-exported by `~/Epicenter/mail/epicenter.ts` | |
 
 The unscoped `epicenter` name on npm is not ours; everything is under the
 `@epicenter` scope.
 
-`@epicenter/app` holds what an app author touches: `defineApp`, `field`, the
-`Folder`, `Cache`, and `Secrets` types, and `createMemoryContext` for tests,
-which is plain JavaScript. What needs a computer is `epicenter`'s and lives in
-`@epicenter/cli`: the folder on disk, the cache directory and its SQLite, the
-Keychain, Git. A notes library, when an app needs one, is new code that copies
+`@epicenter/app` holds what an app author touches: the declaration's schema,
+`defineApp`, the `Folder` and `Secrets` types, `createMemoryContext` for tests,
+and `connect` for pages, all plain JavaScript. What needs a computer is
+`epicenter`'s and lives in `@epicenter/cli`: the folder on disk, the Keychain,
+Git. A notes library, when an app needs one, is new code that copies
 the front-matter rule; `packages/definition` is not adapted (ADR-0843).
 
 ## Onboarding
@@ -104,11 +109,11 @@ the front-matter rule; `packages/definition` is not adapted (ADR-0843).
 1. **Install.** `bun add -g @epicenter/cli` gives `epicenter`.
 2. **First run.** `epicenter` with no `~/Epicenter` offers to create it. Nothing
    else is generated, and Epicenter writes no instructions for agents.
-3. **A new app.** `epicenter new reading` writes `reading/epicenter.ts` (with its
-   `name`), `.gitignore`, `.gitattributes`, and `package.json` from a template,
-   and runs `git init`. Usually the
-   person asks Claude instead; the app works at once because Bun runs
-   TypeScript.
+3. **A new app.** `epicenter new reading` writes `reading/epicenter.json` (with
+   its `$schema` and `name`), `.gitignore`, and `.gitattributes` from a template,
+   and runs `git init`. Its first action renames the file to `epicenter.ts`.
+   Usually the person asks Claude instead; the app works at once because Bun
+   runs TypeScript.
 4. **Someone else's app.** `epicenter add github:someone/apps/vocab` copies the
    files the source tracks at one commit into a new repository at
    `~/Epicenter/vocab`, keeps that copy as the `upstream` branch, and runs
@@ -116,13 +121,13 @@ the front-matter rule; `packages/definition` is not adapted (ADR-0843).
    of the source is merged with `git merge upstream`. Then, for Mail,
    `epicenter mail connect` signs in.
 5. **The vault.** Rename its `defineFolder` file, add an `epicenter.ts` that
-   declares `name: 'vault'`, and `ln -s ~/Code/vault ~/Epicenter/vault`;
+   declares `name: 'vault'`, and `epicenter add ~/Code/vault`, which links it;
    `epicenter vault …` then works from anywhere, including MCP.
 6. **Agents.** Claude Code runs `epicenter` in the shell. Permission rules allow
    reading actions by command prefix (`Bash(epicenter mail search *)`) and ask on
    destructive ones; never allow `Bash(epicenter *)`. Claude Desktop and other
-   chat apps add `epicenter mcp` to their MCP settings on your Epicenter, or
-   `serve`'s MCP address on another computer (ADR-0849).
+   chat apps add `epicenter serve --stdio` to their MCP settings on your
+   Epicenter, or `serve`'s MCP address on another computer (ADR-0849).
 7. **A second computer.** Clone each app's repo into `~/Epicenter`, run
    `bun install` in each, recreate links, and `connect` again where an app needs
    a sign-in. Caches fill on first use.
@@ -196,6 +201,12 @@ them below.
   packages that pick their implementation at run time (the platform-seams rule).
 - **Remote agents.** Claude's connectors call from Anthropic's cloud, so this
   needs a public address (Tailscale Funnel or a relay) and a real sign-in.
+- **Epicenter Cloud's LFS.** `https://api.epicenter.so/lfs/<repository>` in
+  `apps/api`, answering Git LFS's batch API with signed R2 links, named by the
+  `.lfsconfig` Epicenter Cloud commits (ADR-0856).
+- **WebAssembly actions, or a Rust core** (ADR-0852): when apps from strangers
+  run with a person's sign-ins, or when a second program wants to embed
+  collections, Git, and MCP.
 
 ## Open questions
 
@@ -206,7 +217,8 @@ them below.
    `~/Epicenter/mail/` until it is worth publishing.
 4. The old product's folders in `~/Epicenter` (`Todos`, `Zhongwen`,
    `Zhongwen Dev`, `so.epicenter.*`, `local`, `on-this-device`) stay as a clean
-   break: discovery ignores a folder without `epicenter.ts`. An app named like
+   break: discovery ignores a folder without `epicenter.json` or
+   `epicenter.ts`. An app named like
    one of them, ignoring case, waits until that folder is moved.
 5. `update` waits until the first copied app's source changes; until then,
    `git merge upstream`.
@@ -218,7 +230,8 @@ leaves by deletion, one package at a time, once nothing imports it. Each wave
 below is one or more commits, each passing `bun run typecheck` and the tests of
 what it touches with no failure the commit before it did not have.
 
-Waves 0 and 1 are done (2026-11-08). Next is wave 2, Mail.
+Waves 0 and 1 are done (2026-11-08). Next is 1d, the declaration as data,
+then wave 2, Mail.
 
 **0. Tag and prune.** Tag `folder-sync-product` at the last commit with the old
 product whole. Delete `apps/epicenter`, whose job (sync, sharing, history)
@@ -252,6 +265,17 @@ Claude Code.
   temporary repository: dirty paths noted, a write to one refused, one commit
   after `run`, only clean paths undone after a throw, one action per app at a
   time. Then `epicenter sync` and `epicenter new`.
+- **1d. The declaration as data** (ADR-0857). In `packages/app`: the
+  declaration's TypeBox schema and its published `epicenter.schema.json`; fields
+  in the short and long forms, replacing `field`; `defineApp` inferring inputs
+  from them through a `const` type parameter, with type tests for `'number'`,
+  `'text?'`, and a select; `folder.delete` for `remove`. In `packages/cli`:
+  discovery of `epicenter.json` beside `epicenter.ts` (both is a problem), the
+  check against the schema, `@epicenter/app` supplied to an app with no
+  `node_modules`, and `epicenter mcp` becoming `epicenter serve --stdio`. The
+  `reading` example in the short form. Done when `reading` runs unchanged in
+  behavior, a code-free `epicenter.json` app lists and shows its collection,
+  and Claude Code reaches both through `epicenter serve --stdio`.
 
 **2. Mail.** Salvage the Gmail client, OAuth, and token code from
 `280bdf4d44^:apps/local-mail/src/`; build the commands in "Mail, the first real

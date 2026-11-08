@@ -57,7 +57,7 @@ what is due. A web screen shows what is due when it is opened.
   "Send at 9" sends at noon if nothing is opened before noon.
 - Screens depend on an app named `reminders` with `due` and `claim`, not on
   anything in Epicenter itself; without the app, screens show no reminders.
-- Fields gain a date-time type; `field.date` holds only a day.
+- Fields gain `'datetime'` (ADR-0857); `'date'` holds only a day.
 
 ## Considered alternatives
 

@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-11-08
 - **Amends:** [ADR-0845](0845-an-app-declares-collections-each-a-path-and-fields-which-the-hub-views.md) at how a collection is used: through actions it gives the app, not a separate data view; a collection's own `save` refuses input that does not fit, while hand edits are still never refused. [ADR-0844](0844-one-runner-runs-anywhere-and-every-surface-is-a-view-over-it.md) at what the hub is: a program asking `epicenter serve` over MCP. [ADR-0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md) at Epicenter Cloud's file API, which is not built: a program without Git asks for actions instead.
-- **Relates:** [ADR-0849](0849-your-epicenter-is-one-always-reachable-computer-that-runs-named-actions.md) (`serve`), [ADR-0850](0850-running-an-action-makes-one-commit-or-nothing.md) (each write is one commit), [ADR-0852](0852-an-app-is-a-git-repository-of-files-and-actions.md) (the five nouns, and having the folder or asking).
+- **Relates:** [ADR-0849](0849-your-epicenter-is-one-always-reachable-computer-that-runs-named-actions.md) (`serve`), [ADR-0850](0850-running-an-action-makes-one-commit-or-nothing.md) (each write is one commit), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (the five nouns, and having the folder or asking), [ADR-0857](0857-an-apps-declaration-is-plain-data-in-epicenter-json-or-epicenter-ts.md) (fields in the short form).
 - **Unbuilt:** all of it.
 
 ## Context
@@ -22,8 +22,8 @@ screen that asked for every write.
 
 ```ts
 collections: {
-  words:    { path: 'words/{stem}.md', fields: { stage: field.select(['new', 'known']) } },
-  settings: { path: 'settings.md',     fields: { dailyGoal: field.number() } },
+  words:    { path: 'words/{stem}.md', fields: { stage: ['new', 'known'] } },
+  settings: { path: 'settings.md',     fields: { dailyGoal: 'number' } },
 },
 ```
 
@@ -54,7 +54,7 @@ vocab settings save --dailyGoal 20                    one file, so no list or de
 - An app's own actions with the same words win.
 
 **`epicenter serve` speaks MCP and nothing else**, over HTTP at its address
-(MCP's Streamable HTTP transport) and over stdio as `epicenter mcp`. Each
+(MCP's Streamable HTTP transport), or over stdio with `epicenter serve --stdio`. Each
 action is one MCP tool (`vocab_words_save`): its fields are the tool's input
 schema, its result is structured content, and `readOnly` and `destructive` are
 the tool's hints. The CLI on another computer forwards an action as a tool
@@ -73,16 +73,20 @@ await vocab.words.save({ stem: 'serendipity', stage: 'known' });
 The Epicenter app shows `list` and `show` as tables and detail views, and
 `save` and an app's own actions as forms drawn from the tools' input schemas.
 
-**A program with the folder writes files and commits what it wrote.** Whispering
-creates its folder with an `epicenter.ts` that declares only collections, the
-shapes it writes. After a take it writes the audio and its note, and, if the
-folder is a Git repository, commits exactly those paths with `git commit --only`
-and pushes when the branch tracks a remote. It uses the installed `git`, because
-libgit2 does not run Git LFS's filters (ADR-0856). Placed in `~/Epicenter` or
-linked there, the folder is an app like any other: its recordings are listed,
-read, and edited by every program that asks, and Whispering knows nothing of
-it. Whispering has no actions until another program needs to ask it for
-something; recording needs the device's microphone and is not an action.
+**A program with the folder writes files and commits what it wrote.**
+Whispering's folder is `~/Epicenter/whispering` unless the person picks another,
+which `epicenter add <folder>` links. Whispering creates it with an
+`epicenter.json` declaring only collections, the shapes it writes, and a
+`.gitattributes` that routes audio through LFS (ADR-0856); it writes both from a
+template and reads neither back. After a take it writes the audio and its note,
+and, once the folder is a Git repository, commits exactly those paths with
+`git commit --only` and pushes when the branch tracks a remote. It uses the
+installed `git`, because libgit2 does not run Git LFS's filters, and it never
+needs `epicenter`. Every program that asks lists, reads, and edits its
+recordings, and Whispering knows nothing of it. Whispering has no actions:
+recording, its shortcut, and pasting need the device. Transcribing a file needs
+only a key, and could become an action on your Epicenter when a program needs to
+ask for it.
 
 ## Consequences
 
@@ -98,6 +102,7 @@ something; recording needs the device's microphone and is not an action.
   collection's fields, an app's own action, or the folder itself.
 - `serve` follows MCP's specification as it changes, and a byte collection's
   `save` carries its file as base64 inside a tool call.
+- `epicenter mcp` becomes `epicenter serve --stdio`.
 
 ## Considered alternatives
 
