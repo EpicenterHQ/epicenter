@@ -229,64 +229,76 @@ a browser; a schema language of Epicenter's own (ADR-0857); programs that ship
 ## Build order
 
 ADR-0843 is the rule: new code imports nothing from the waiting product, which
-leaves by deletion, one package at a time, once nothing imports it. Each wave
-below is one or more commits, each passing `bun run typecheck` and the tests of
-what it touches with no failure the commit before it did not have.
+leaves by deletion, one package at a time, once nothing imports it.
 
-Waves 0, 1, 2a, and 2b, and wave 3's offline parts, are done (2026-11-09). Next
-is 2c, Mail, which needs the author's Google sign-in, and the rest of wave 3:
-`serve` over HTTP, `setup`, and forwarding.
+**How each step is built.** Acceptance tests come first: black-box runs of the
+real `epicenter` in a temporary `HOME` (`packages/cli/src/runner.test-support.ts`),
+each with an ID, committed on their own and failing. Then the implementation, in
+small commits that each pass `bun run typecheck` and the tests of what they touch
+with no failure the commit before did not have. After each step, a collapse pass
+deletes what the step made unnecessary, and an independent review runs where its
+findings can still change the next step. Work in progress is a commit, never a
+stash, so a session that dies leaves its work in `git log`. Tests never touch the
+real `~/Epicenter`, the vault, or the Keychain.
+
+| IDs | Step | Where | State |
+| --- | --- | --- | --- |
+| D1–D7 | the declaration | `acceptance.declaration.test.ts` | pass |
+| C1–C9 | the commit rule, with the race in `scripts/race.ts` | `acceptance.commit.test.ts` | pass; 1,000 runs, 0 lost, 0 misfiled |
+| W1–W6 | the folder, offline | `acceptance.folder.test.ts` | pass |
+| M1–M6 | Mail | to write | next, with the author present |
+| S1–S2 | `serve` over HTTP, forwarding | to write | after Mail |
+| K1–K2 | collections and their handles | to write | with Vocab |
+
+Done (2026-11-09): waves 0 and 1, and 2a, 2b, and wave 3's offline parts. Next
+is 2c, Mail.
 
 **0. Tag and prune.** Done. Tagged `folder-sync-product`; `apps/epicenter`
 deleted; the frozen apps stay until each is rebuilt (ADR-0843).
 
-**1. The kit.** Done. `packages/app` (1a), the CLI's core (1b), and commits and
-sync (1c) as ADR-0841 and ADR-0842 wrote them; `epicenter reading log 30` writes
-and commits, and `epicenter mcp` serves it to Claude Code.
+**1. The kit.** Done. `packages/app`, the CLI's core, and commits as ADR-0841 and
+ADR-0842 first wrote them.
 
 **2. Mail.**
 
-- **2a. The declaration** (ADR-0857). Done, except reaching `reading` from
-  Claude Code itself, which needs the author's machine; acceptance D1 to D7
-  run the same path black-box. In `packages/app`: the declaration's TypeBox
-  schema and `epicenter.schema.json`; `defineApp(declaration, { collections?,
-  actions })` taking its name and description from `epicenter.json`; `positional`
-  and `annotations` on the action; `folder.delete` for `remove`. In
-  `packages/cli`: loading `epicenter.json` and merging it with `epicenter.ts`,
-  the listing's problems for anything declared twice, the check against the
-  schema, writing `epicenter.d.json.ts` on load and with `epicenter types`,
-  `@epicenter/app` supplied to an app with no `node_modules`, `epicenter mcp`
-  becoming `epicenter serve --stdio`, and `EPICENTER_HOME` removed (tests set
-  `HOME`). `reading` gains an `epicenter.json`. Done when `reading` runs as
-  before, a folder with only `epicenter.json` is listed, a type test shows
-  `epicenter.d.json.ts` narrowing the import, and Claude Code reaches `reading`
-  through `epicenter serve --stdio`.
-- **2b. The commit rule** (ADR-0850). Done: each write stored as a Git object
-  and the commit built from them, acceptance C1 to C9, and the race in
-  `packages/cli/scripts/race.ts`. The undo after a throw goes; what an action
-  wrote is committed whatever happens, labelled with the outcome; a path that
-  changed after the action wrote it is left uncommitted and named. Done when a
-  throwing action leaves a labelled commit, an agent's edit made during a run
-  stays uncommitted and named, and a race of 1,000 runs against an agent's
-  commits and edits loses or misfiles nothing.
+- **2a. The declaration** (ADR-0857). Done. `epicenter.json` and
+  `defineApp(declaration, { collections?, actions })`; the schema and its check;
+  problems for anything declared twice; `positional` and `annotations` on the
+  action; `epicenter types`; `@epicenter/app` supplied; `serve --stdio`, one
+  fresh process per call; `EPICENTER_HOME` gone; `folder.delete`. Left: Claude
+  Code reaching `reading` through `epicenter serve --stdio` on the author's Mac.
+- **2b. The commit rule** (ADR-0850). Done. Each write stored as a Git object and
+  the commit built from them; failures labelled in the subject; a path changed
+  during the run left uncommitted and named; the CLI's failures as one tagged
+  union (`packages/cli/src/errors.ts`).
 - **2c. Mail.** Salvage the Gmail client, OAuth, and token code from
-  `280bdf4d44^:apps/local-mail/src/`; build the commands in "Mail, the first real
-  app" in `~/Epicenter/mail/`. Done when the receipts and newsletter jobs are
-  finished with Mail and Claude Code.
+  `280bdf4d44^:apps/local-mail/src/`; build the commands in "Mail, the first
+  real app" in `~/Epicenter/mail/`, with a fake Gmail for the tests:
+  - M1. `mail connect` stores a refresh token in the Keychain; an expired
+    sign-in fails naming `epicenter mail connect` as the next step.
+  - M2. `mail search` and `mail show` are read-only and commit nothing.
+  - M3. `mail show --attachments <folder>` writes into that folder and leaves
+    the files uncommitted there.
+  - M4. `mail plan` writes a batch under the ignored `batches/`, one line per
+    message, grouped by sender.
+  - M5. `mail apply` archives only the lines left in the batch, marks each as it
+    goes, and a failure partway leaves the batch showing what was applied.
+  - M6. A saved query in `queries/` is committed when written.
 
-**3. Your Epicenter** (ADR-0849, ADR-0851, ADR-0852, ADR-0854, ADR-0856). The
-parts that need no network are done (2026-11-09, acceptance W1 to W6): `.cache/`,
-`sync` deleted, the push and ahead and behind, `new` and `add`, and the LFS
-refusal. Left: `serve` over HTTP, `setup`, forwarding, and the checks on the
-Mac. `cache`
-replaced by `.cache/` in the folder; `epicenter sync` deleted; a fast-forward
-push after each commit and "behind origin" in the listing; `new` from a template
-and `add` from a URL or a folder; `epicenter serve` over HTTP on the tailnet,
-running each call in a fresh process; `epicenter setup`; the CLI and
-`serve --stdio` forwarding named actions to your Epicenter; the template's
-`.gitattributes` and the refusal to commit an LFS path without `git-lfs`. Done
-when Claude Desktop on the laptop runs `mail search` on the Mac, every commit
-reaches its `origin`, and remote FileVault unlock over SSH has been tried.
+  Done when M1 to M6 pass against the fake and the receipts and newsletter jobs
+  are finished with the real Gmail and Claude Code.
+
+**3. Your Epicenter** (ADR-0849, ADR-0851, ADR-0852, ADR-0854, ADR-0856). Done
+offline: `.cache/` in the folder, `sync` deleted, the fast-forward push and ahead
+and behind in the listing, `new` and `add`, and the LFS refusal. Left:
+  - S1. `epicenter serve` on the tailnet speaks MCP over Streamable HTTP, each call
+    in a fresh process.
+  - S2. `epicenter setup`, and the CLI and `serve --stdio` on another computer
+    forwarding a named action with the same output and exit code.
+
+  Done when Claude Desktop on the laptop runs `mail search` on the Mac, every
+  commit reaches its `origin`, and remote FileVault unlock over SSH has been
+  tried.
 
 **4. The vault.** `epicenter add ~/Code/vault`; an `epicenter.json` and a
 `.gitattributes`; its scripts become actions in `~/Code/vault/epicenter.ts`, with
@@ -294,10 +306,12 @@ the scripts' writes to tracked files moved onto `folder` and their ignored
 mirrors (`.calendar/`, `.todoist/`, `.photos/`) left as they are. Done when
 `epicenter vault calendar show …` runs from the laptop.
 
-**5. Vocab and collections** (ADR-0853). The four collection actions, the
-handles in `run`, the typed client, and the Epicenter app, which shows
-collections as tables and `save` and actions as forms in a browser or a desktop
-window; Vocab rebuilt on them. The frozen Vocab leaves when the rebuilt one runs.
+**5. Vocab and collections** (ADR-0853). K1: a collection's `list`, `show`,
+`save`, and `delete` through the CLI and MCP, `save` refusing input that does not
+fit. K2: the same as handles in `run`, typed from the `field` helpers and
+`epicenter.d.json.ts`. Then the typed client and the Epicenter app, which shows
+collections as tables and `save` and actions as forms; Vocab rebuilt on them. The
+frozen Vocab leaves when the rebuilt one runs.
 
 **6. Prune the rest.** Collection paths with two placeholders come here, with
 Whispering's and Vocab's formats: Whispering's audio is `{id}.{ext}` and Vocab's
