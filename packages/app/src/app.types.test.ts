@@ -8,14 +8,35 @@ type Equal<X, Y> =
 		: false;
 const assertType = <T extends true>(): T | undefined => undefined;
 
-const reading = defineApp({
+/** A declaration as TypeScript reads an imported epicenter.json without epicenter.d.json.ts: widened. */
+const widened: {
+	$schema: string;
+	name: string;
+	description: string;
+	collections: {
+		books: {
+			path: string;
+			fields: { type: string; properties: { title: { type: string } } };
+		};
+	};
+} = {
+	$schema: 'https://epicenter.so/epicenter.schema.json',
 	name: 'reading',
 	description: 'How much I read each week',
+	collections: {
+		books: {
+			path: 'books/{slug}.md',
+			fields: { type: 'object', properties: { title: { type: 'string' } } },
+		},
+	},
+};
+
+const reading = defineApp(widened, {
 	actions: {
 		log: {
 			description: 'Record minutes read today',
 			input: {
-				minutes: field.number({ positional: true }),
+				minutes: field.number(),
 				book: field.text({ optional: true }),
 				kind: field.select(['paper', 'ebook']),
 				day: field.date({ optional: true }),
@@ -23,6 +44,7 @@ const reading = defineApp({
 				tags: field.tags(),
 				note: Type.Optional(Type.String()),
 			},
+			positional: ['minutes', 'tags'],
 			run: async (input, { folder }) => {
 				assertType<
 					Equal<
@@ -45,7 +67,7 @@ const reading = defineApp({
 		'week show': {
 			description: 'Minutes read this week',
 			input: {},
-			readOnly: true,
+			annotations: { readOnlyHint: true },
 			run: () => 210,
 		},
 	},
@@ -56,19 +78,25 @@ type Output<K extends keyof (typeof reading)['actions']> = Awaited<
 >;
 
 describe('defineApp', () => {
-	test("run's return value stays typed", () => {
+	test("run's return value stays typed, and the declaration keeps its type", () => {
 		assertType<
 			Equal<Output<'log'>, { minutes: number; kind: 'paper' | 'ebook' }>
 		>();
 		assertType<Equal<Output<'week show'>, number>>();
+		assertType<Equal<(typeof reading)['declaration']['name'], string>>();
+	});
+
+	test('an exact declaration, as epicenter.d.json.ts gives it, keeps its literals', () => {
+		const exact = defineApp({ name: 'vocab', description: 'Words' } as const, {
+			actions: {},
+		});
+		assertType<Equal<(typeof exact)['declaration']['name'], 'vocab'>>();
 	});
 });
 
 describe('type errors', () => {
 	test('a run that disagrees with its fields is refused', () => {
-		defineApp({
-			name: 'wrong',
-			description: 'Wrong',
+		defineApp(widened, {
 			actions: {
 				log: {
 					description: 'Log',
@@ -81,9 +109,7 @@ describe('type errors', () => {
 	});
 
 	test('a field without optional is required', () => {
-		defineApp({
-			name: 'required',
-			description: 'Required',
+		defineApp(widened, {
 			actions: {
 				log: {
 					description: 'Log',
@@ -99,14 +125,31 @@ describe('type errors', () => {
 		});
 	});
 
+	test('a positional names one of its fields', () => {
+		defineApp(widened, {
+			actions: {
+				log: {
+					description: 'Log',
+					input: { minutes: field.number() },
+					// @ts-expect-error — "hours" is not a field
+					positional: ['hours'],
+					run: () => 0,
+				},
+			},
+		});
+	});
+
 	test('an action needs a description', () => {
-		defineApp({
-			name: 'bare',
-			description: 'Bare',
+		defineApp(widened, {
 			actions: {
 				// @ts-expect-error — description is missing
 				log: { input: {}, run: () => 0 },
 			},
 		});
+	});
+
+	test('a declaration needs a name', () => {
+		// @ts-expect-error — name is missing
+		defineApp({ description: 'Nameless' }, { actions: {} });
 	});
 });

@@ -16,7 +16,7 @@ async function setup(source: string) {
 	roots.push(f.root);
 	const folder = await f.app(
 		'reading',
-		`export default defineApp({name:'reading',description:'Test',actions:{${source}}});`,
+		`export default defineApp(declaration, {actions:{${source}}});`,
 	);
 	return { ...f, folder };
 }
@@ -28,7 +28,7 @@ const show = async (folder: string, ...args: string[]) =>
 
 test('two writes make one commit with subject and input; staged hand edits stay out', async () => {
 	const f = await setup(
-		`two:{description:'Two',input:{who:field.text({positional:true})},run:async({who},{folder})=>{await folder.write('a.md',who);await folder.write('b.md',who);return who}}`,
+		`two:{description:'Two',input:{who:field.text()},positional:['who'],run:async({who},{folder})=>{await folder.write('a.md',who);await folder.write('b.md',who);return who}}`,
 	);
 	await writeFile(join(f.folder, 'hand.md'), 'person');
 	await checkedGit(f.folder, 'add', '--', 'hand.md');
@@ -71,7 +71,7 @@ test('a no-op action makes no commit', async () => {
 
 test('commit includes tracked edits and deletions but excludes ignored files', async () => {
 	const f = await setup(
-		`change:{description:'Change',input:{},run:async(_,{folder})=>{await folder.write('edit.md','updated');await folder.remove('remove.md');await folder.write('ignored.tmp','cache')}}`,
+		`change:{description:'Change',input:{},run:async(_,{folder})=>{await folder.write('edit.md','updated');await folder.delete('remove.md');await folder.write('ignored.tmp','cache')}}`,
 	);
 	await writeFile(join(f.folder, 'edit.md'), 'old');
 	await writeFile(join(f.folder, 'remove.md'), 'old');
@@ -154,11 +154,11 @@ test('a folder inside another repository is refused before run', async () => {
 });
 
 test('same-app actions take turns and different apps can run together', async () => {
-	const source = `slow:{description:'Slow',input:{id:field.text({positional:true})},run:async({id},{folder})=>{const check=Bun.spawn(['git','-C',folder.path,'show','HEAD:one.txt'],{stdout:'pipe',stderr:'pipe'});const sawCommit=(await check.exited)===0;const started=Date.now();await Bun.sleep(250);await folder.write(id+'.txt',id);return {sawCommit,started,ended:Date.now()}}}`;
+	const source = `slow:{description:'Slow',input:{id:field.text()},positional:['id'],run:async({id},{folder})=>{const check=Bun.spawn(['git','-C',folder.path,'show','HEAD:one.txt'],{stdout:'pipe',stderr:'pipe'});const sawCommit=(await check.exited)===0;const started=Date.now();await Bun.sleep(250);await folder.write(id+'.txt',id);return {sawCommit,started,ended:Date.now()}}}`;
 	const f = await setup(source);
 	await f.app(
 		'other',
-		`export default defineApp({name:'other',description:'Other',actions:{${source}}});`,
+		`export default defineApp(declaration, {actions:{${source}}});`,
 	);
 	const first = f.run('reading', 'slow', 'one', '--json');
 	await Bun.sleep(60);

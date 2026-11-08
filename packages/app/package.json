@@ -5,9 +5,11 @@
 	"description": "What an app's epicenter.ts imports: defineApp, the fields an action's input is made of, and the places an action receives.",
 	"type": "module",
 	"exports": {
-		".": "./src/index.ts"
+		".": "./src/index.ts",
+		"./epicenter.schema.json": "./epicenter.schema.json"
 	},
 	"scripts": {
+		"schema": "bun scripts/schema.ts",
 		"typecheck": "tsc --noEmit -p tsconfig.json",
 		"test": "bun test"
 	},

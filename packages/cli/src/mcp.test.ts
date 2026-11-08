@@ -13,11 +13,11 @@ import { fixture, reading, vault } from './runner.test-support.ts';
 test('tools list plain schemas and annotations and return structured answers or action errors', async () => {
 	const f = await fixture();
 	const previous = {
-		home: process.env.EPICENTER_HOME,
+		home: process.env.HOME,
 		cache: process.env.EPICENTER_CACHE_HOME,
 		secrets: process.env.EPICENTER_TEST_SECRETS,
 	};
-	process.env.EPICENTER_HOME = f.home;
+	process.env.HOME = f.root;
 	process.env.EPICENTER_CACHE_HOME = f.cache;
 	process.env.EPICENTER_TEST_SECRETS = f.env.EPICENTER_TEST_SECRETS;
 	const client = new Client({ name: 'test', version: '1' });
@@ -96,7 +96,7 @@ test('tools list plain schemas and annotations and return structured answers or 
 		await client.close();
 		await server?.close();
 		for (const [key, value] of Object.entries({
-			EPICENTER_HOME: previous.home,
+			HOME: previous.home,
 			EPICENTER_CACHE_HOME: previous.cache,
 			EPICENTER_TEST_SECRETS: previous.secrets,
 		})) {
@@ -111,7 +111,7 @@ test('stdio command returns its exit code after the client ends stdin', async ()
 	const f = await fixture();
 	try {
 		await f.app('vault', vault);
-		const source = `import { mcpCommand } from ${JSON.stringify(`${import.meta.dir}/mcp.ts`)}; const code = await mcpCommand([]); process.stderr.write('Returned ' + code + '\\n');`;
+		const source = `import { serveStdio } from ${JSON.stringify(`${import.meta.dir}/mcp.ts`)}; const code = await serveStdio(); process.stderr.write('Returned ' + code + '\\n');`;
 		const child = Bun.spawn([process.execPath, '-e', source], {
 			env: f.env,
 			stdin: 'pipe',

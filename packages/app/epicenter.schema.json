@@ -1,0 +1,59 @@
+{
+	"type": "object",
+	"required": [
+		"name",
+		"description"
+	],
+	"properties": {
+		"$schema": {
+			"type": "string"
+		},
+		"name": {
+			"type": "string",
+			"pattern": "^[a-z][a-z0-9-]*$",
+			"description": "The app, as `epicenter <name>` runs it: lowercase letters, digits, and dashes"
+		},
+		"description": {
+			"type": "string",
+			"minLength": 1
+		},
+		"collections": {
+			"type": "object",
+			"patternProperties": {
+				"^[a-z][a-z0-9-]*$": {
+					"type": "object",
+					"required": [
+						"path",
+						"fields"
+					],
+					"properties": {
+						"path": {
+							"type": "string",
+							"pattern": "^[^/{}][^{}]*(\\{[A-Za-z_][A-Za-z0-9_]*\\}[^{}]*)?$",
+							"description": "Where its files are, relative to the folder, with at most one placeholder: words/{stem}.md"
+						},
+						"fields": {
+							"type": "object",
+							"required": [
+								"type"
+							],
+							"properties": {
+								"type": {
+									"type": "string",
+									"const": "object"
+								}
+							},
+							"additionalProperties": true,
+							"description": "JSON Schema of each file's fields: its front matter, or a JSON file's contents"
+						}
+					},
+					"additionalProperties": false
+				}
+			},
+			"additionalProperties": false
+		}
+	},
+	"$id": "https://epicenter.so/epicenter.schema.json",
+	"title": "An Epicenter app",
+	"additionalProperties": false
+}

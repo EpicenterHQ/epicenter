@@ -3,7 +3,6 @@
  * (ADR-0841). It parses words, shows what can run, checks input, and prints the
  * answer. Its returned exit code follows whether run started (ADR-0842).
  */
-import { isPositional } from '@epicenter/app';
 import packageJson from '../package.json' with { type: 'json' };
 import {
 	discoverAll,
@@ -22,28 +21,30 @@ import {
 } from './input.ts';
 import {
 	actionHelp,
-	actionListing,
+	actionTool,
 	homeListing,
 	oneAppListing,
 } from './listing.ts';
-import { mcpCommand } from './mcp.ts';
+import { serveStdio } from './mcp.ts';
 import { newCommand } from './new.ts';
 import { fail, writeErr, writeJson, writeOut } from './output.ts';
 import { runAction } from './run.ts';
 import { syncCommand } from './sync.ts';
+import { typesCommand } from './types.ts';
 
 const HELP = `epicenter [--json]
 epicenter <app> [--json]
-epicenter <app> <action words> [<positional>] [--flags] [--json]
-epicenter <path> <action words> [<positional>] [--flags] [--json]
-epicenter mcp [<app>…]
-epicenter new <name> | sync | add <source> | update | serve | open
+epicenter <app> <action words> [<positionals>] [--flags] [--json]
+epicenter <path> <action words> [<positionals>] [--flags] [--json]
+epicenter serve --stdio
+epicenter types [<app> | <path>]
+epicenter new <name> | sync | add <source> | update | open
 epicenter help [<app> [<action words>]]
 epicenter --version
 
+Your apps are the folders in ~/Epicenter with an epicenter.json.
 Global flags come after the action words: --json, --help (-h).
 Exit codes: 0 success, 1 finding, 2 did not run, 3 action started and threw.
-EPICENTER_HOME: app home (default ~/Epicenter).
 EPICENTER_CACHE_HOME: device cache (default ~/Library/Caches/so.epicenter.apps).
 EPICENTER_TEST_SECRETS: JSON service stores held in memory for this process.
 EPICENTER_SKIP_INSTALL=1: skip bun install in new (tests).
@@ -125,16 +126,32 @@ export async function runCli(argv: string[]): Promise<number> {
 				);
 			return syncCommand(json);
 		}
-		if (['add', 'update', 'serve', 'open'].includes(name))
-			return fail(
-				{ code: 'usage', message: `epicenter ${name} is not built yet` },
-				json,
-			);
-		if (name === 'mcp') {
+		if (name === 'types') {
 			if (help) {
-				print('epicenter mcp [<app>…]');
+				print('epicenter types [<app> | <path>]');
 				return 0;
 			}
+			if (words.length > 1)
+				return fail(
+					{ code: 'usage', message: 'epicenter types takes one app or path' },
+					json,
+				);
+			return typesCommand(words[0] ?? '.', json);
+		}
+		if (name === 'serve') {
+			if (help) {
+				print('epicenter serve --stdio');
+				return 0;
+			}
+			if (words.join(' ') !== '--stdio')
+				return fail(
+					{
+						code: 'usage',
+						message: 'epicenter serve over the network is not built yet',
+						next: 'epicenter serve --stdio',
+					},
+					json,
+				);
 			if (json)
 				return fail(
 					{
@@ -143,8 +160,13 @@ export async function runCli(argv: string[]): Promise<number> {
 					},
 					json,
 				);
-			return mcpCommand(words);
+			return serveStdio();
 		}
+		if (['add', 'update', 'open'].includes(name))
+			return fail(
+				{ code: 'usage', message: `epicenter ${name} is not built yet` },
+				json,
+			);
 		let located: Located;
 		try {
 			located = await (isFolderPath(name)
@@ -171,7 +193,7 @@ export async function runCli(argv: string[]): Promise<number> {
 			return 0;
 		}
 		const app = located.app;
-		const matched = matchAction(app, words);
+		const matched = matchAction(app.actions, words);
 		const action = matched && app.actions[matched.key];
 		if (!matched || !action)
 			return fail(
@@ -189,7 +211,7 @@ export async function runCli(argv: string[]): Promise<number> {
 		if (help) {
 			print(
 				json
-					? actionListing(located.name, matched.key, action)
+					? actionTool(located.name, matched.key, action)
 					: actionHelp(name, matched.key, action),
 			);
 			return 0;
@@ -198,10 +220,9 @@ export async function runCli(argv: string[]): Promise<number> {
 		const parsed = inputFromArgs(action, matched.rest);
 		if ('error' in parsed)
 			return fail({ code: 'usage', message: parsed.error, next }, json);
-		const checked = checkInput(action, parsed.input, (key) => {
-			const schema = action.input[key];
-			return schema && isPositional(schema) ? `<${key}>` : `--${flagOf(key)}`;
-		});
+		const checked = checkInput(action, parsed.input, (key) =>
+			action.positional?.includes(key) ? `<${key}>` : `--${flagOf(key)}`,
+		);
 		if ('error' in checked)
 			return fail({ code: 'usage', message: checked.error, next }, json);
 		const result = await runAction(located, matched.key, checked.input);

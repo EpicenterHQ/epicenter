@@ -24,8 +24,15 @@ test('new creates the starter files and one initial commit', async () => {
 	});
 	const folder = join(f.home, 'notes');
 	expect(await readFile(join(folder, '.gitignore'), 'utf8')).toBe(
-		'node_modules/\n',
+		'node_modules/\n.cache/\nepicenter.d.json.ts\n',
 	);
+	expect(
+		JSON.parse(await readFile(join(folder, 'epicenter.json'), 'utf8')),
+	).toEqual({
+		$schema: 'https://epicenter.so/epicenter.schema.json',
+		name: 'notes',
+		description: 'Describe notes',
+	});
 	expect(
 		JSON.parse(await readFile(join(folder, 'package.json'), 'utf8')),
 	).toMatchObject({

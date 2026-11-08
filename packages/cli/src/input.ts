@@ -1,9 +1,11 @@
 /**
- * An action's fields become CLI arguments and MCP input (ADR-0841). Both use
- * the app's schema for defaults and validation, so a command and a tool accept
- * the same values and name the field that needs attention.
+ * An action's fields become CLI arguments and MCP input (ADR-0841, ADR-0857).
+ * Both use the app's schema for defaults and validation, so a command and a
+ * tool accept the same values and name the field that needs attention. The
+ * action's `positional` list says which fields the command line also reads by
+ * position, in order.
  */
-import { type Action, type App, isPositional } from '@epicenter/app';
+import type { Action, Input } from '@epicenter/app';
 import { type TSchema, Type } from 'typebox';
 import { Value } from 'typebox/value';
 
@@ -13,14 +15,14 @@ import { Value } from 'typebox/value';
  * search. A negative number is a value, not a flag.
  */
 export function matchAction(
-	app: App<Record<string, Action>>,
+	actions: object,
 	words: string[],
 ): { key: string; rest: string[] } | undefined {
 	let end = words.findIndex((word) => !/^[a-z][a-z0-9-]*$/.test(word));
 	if (end < 0) end = words.length;
 	for (; end > 0; end--) {
 		const key = words.slice(0, end).join(' ');
-		if (Object.hasOwn(app.actions, key)) return { key, rest: words.slice(end) };
+		if (Object.hasOwn(actions, key)) return { key, rest: words.slice(end) };
 	}
 	return undefined;
 }
@@ -47,7 +49,7 @@ export function fieldKind(field: TSchema): string {
 	return 'text';
 }
 
-/** Parse flags and the one positional before validating values against the app's schema. */
+/** Parse flags and positionals, in the action's order, before validating values against its schema. */
 export function inputFromArgs(
 	action: Action,
 	tokens: string[],
@@ -57,7 +59,10 @@ export function inputFromArgs(
 	const flags = new Map(
 		fields.map(([key, schema]) => [`--${flagOf(key)}`, { key, schema }]),
 	);
-	const positional = fields.find(([, schema]) => isPositional(schema));
+	const positionals = (action.positional ?? []).map(
+		(key) => [key, action.input[key] as TSchema] as const,
+	);
+	let position = 0;
 	const repeated = (key: string) => `--${flagOf(key)} was given more than once`;
 	function put(
 		key: string,
@@ -113,9 +118,12 @@ export function inputFromArgs(
 			const error = put(field.key, field.schema, raw);
 			if (error) return { error };
 		} else {
+			const positional = positionals[position];
 			if (!positional)
 				return { error: `Unexpected positional ${JSON.stringify(token)}` };
 			const [key, schema] = positional;
+			// A list takes every word left; any other positional takes one.
+			if (fieldKind(schema) !== 'list') position++;
 			if (Object.hasOwn(input, key) && fieldKind(schema) !== 'list')
 				return {
 					error: `${repeated(key)}; unexpected positional ${JSON.stringify(token)}`,
@@ -160,7 +168,7 @@ export function checkInput(
 	};
 }
 
-/** Render an action's accepted arguments in the order its fields declare them. */
+/** Render an action's positionals in their order, then its flags in the order its fields declare them. */
 export function usageLine(
 	appName: string,
 	key: string,
@@ -168,9 +176,10 @@ export function usageLine(
 ): string {
 	const schema = Type.Object(action.input);
 	const required = new Set(schema.required ?? []);
+	const positional = new Set<string>(action.positional ?? []);
 	const args: string[] = [];
-	for (const [name, field] of Object.entries(action.input)) {
-		if (!isPositional(field)) continue;
+	for (const name of positional) {
+		const field = action.input[name] as TSchema;
 		args.push(
 			fieldKind(field) === 'list'
 				? `[<${name}>...]`
@@ -180,7 +189,7 @@ export function usageLine(
 		);
 	}
 	for (const [name, field] of Object.entries(action.input)) {
-		if (isPositional(field)) continue;
+		if (positional.has(name)) continue;
 		const kind = fieldKind(field);
 		const flag = `--${flagOf(name)}`;
 		const arg =
@@ -198,19 +207,16 @@ export function usageLine(
 	return [`epicenter ${appName} ${key}`, ...args].join(' ');
 }
 
-/** Copy the input as JSON Schema without runner metadata or TypeBox's internal keywords. */
-export function inputSchema(action: Action): {
+/** A map of fields as the JSON Schema of one object, without TypeBox's internal keywords. */
+export function jsonSchema(fields: Input): {
 	type: 'object';
 	properties?: Record<string, object>;
 	[key: string]: unknown;
 } {
 	return JSON.parse(
 		JSON.stringify(
-			Type.Object(action.input, { additionalProperties: false }),
-			(key, value) =>
-				(key === 'positional' && value === true) || key.startsWith('~')
-					? undefined
-					: value,
+			Type.Object(fields, { additionalProperties: false }),
+			(key, value) => (key.startsWith('~') ? undefined : value),
 		),
 	);
 }

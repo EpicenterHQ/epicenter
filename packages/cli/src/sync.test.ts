@@ -16,7 +16,7 @@ async function repo() {
 	roots.push(f.root);
 	const folder = await f.app(
 		'reading',
-		`export default defineApp({name:'reading',description:'Reading',actions:{}});`,
+		`export default defineApp(declaration, {actions:{}});`,
 	);
 	const bare = join(f.root, 'remote.git');
 	await mkdir(bare);
@@ -54,10 +54,7 @@ async function sync(f: Awaited<ReturnType<typeof repo>>) {
 
 test('sync reports current, pulled, pushed, no remote, and uncommitted', async () => {
 	const f = await repo();
-	await f.app(
-		'other',
-		`export default defineApp({name:'other',description:'Other',actions:{}});`,
-	);
+	await f.app('other', `export default defineApp(declaration, {actions:{}});`);
 	let result = await sync(f);
 	expect(result.code).toBe(0);
 	expect(result.rows.map((row) => [row.name, row.status])).toEqual([
@@ -122,7 +119,7 @@ test('sync refuses an app nested in another repository', async () => {
 	roots.push(f.root);
 	const folder = await f.app(
 		'reading',
-		`export default defineApp({name:'reading',description:'Reading',actions:{}});`,
+		`export default defineApp(declaration, {actions:{}});`,
 	);
 	await rm(join(folder, '.git'), { recursive: true });
 	await checkedGit(f.home, 'init', '-q');

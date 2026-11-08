@@ -1,19 +1,31 @@
 import { describe, expect, test } from 'bun:test';
+import { join } from 'node:path';
 import {
 	createMemoryContext,
+	declarationJsonSchema,
 	defineApp,
 	field,
 	normalizePath,
 	problemsOf,
 } from './index.ts';
 
-const reading = defineApp({
+const declaration = {
 	name: 'reading',
 	description: 'How much I read each week',
+	collections: {
+		books: {
+			path: 'books/{slug}.md',
+			fields: { type: 'object', properties: { title: { type: 'string' } } },
+		},
+	},
+};
+
+const reading = defineApp(declaration, {
 	actions: {
 		log: {
 			description: 'Record minutes read today',
-			input: { minutes: field.number({ positional: true }) },
+			input: { minutes: field.number() },
+			positional: ['minutes'],
 			run: async ({ minutes }, { folder }) => {
 				const before = (await folder.read('2026.csv')) ?? 'minutes\n';
 				await folder.write('2026.csv', `${before}${minutes}\n`);
@@ -33,20 +45,12 @@ describe('createMemoryContext', () => {
 		expect(await context.folder.list()).toEqual(['2026.csv']);
 	});
 
-	test('a missing file reads as undefined, and a removed one is gone', async () => {
+	test('a missing file reads as undefined, and a deleted one is gone', async () => {
 		const { folder } = createMemoryContext({ 'a/b.md': 'b' });
 		expect(await folder.read('nope.md')).toBeUndefined();
 		expect(await folder.list('a')).toEqual(['a/b.md']);
-		await folder.remove('a/b.md');
+		await folder.delete('a/b.md');
 		expect(await folder.list()).toEqual([]);
-	});
-
-	test('the cache clears; the folder has no clear', async () => {
-		const context = createMemoryContext();
-		await context.cache.write('index.json', '{}');
-		await context.cache.clear();
-		expect(await context.cache.list()).toEqual([]);
-		expect('clear' in context.folder).toBe(false);
 	});
 });
 
@@ -64,45 +68,82 @@ describe('normalizePath', () => {
 });
 
 describe('problemsOf', () => {
-	test('a well-formed app has none', () => {
-		expect(problemsOf(reading)).toEqual([]);
+	test('a declaration alone, and a declaration with its code, have none', () => {
+		expect(problemsOf(declaration)).toEqual([]);
+		expect(problemsOf(declaration, reading)).toEqual([]);
 	});
 
-	test('names each problem', () => {
-		const problems = problemsOf({
-			name: 'sync',
-			description: '',
-			actions: {
-				calendar: { description: 'c', input: {}, readonly: true, run() {} },
-				'calendar show': {
-					description: 'Show',
-					input: {
-						a: field.text({ positional: true }),
-						b: field.text({ positional: true }),
-						json: field.boolean(),
-					},
-					readOnly: true,
-					destructive: true,
-					run() {},
+	test('names what the declaration schema refuses, by JSON pointer', () => {
+		expect(
+			problemsOf({
+				name: 'Reading',
+				collections: { books: { path: '/abs/{a}/{b}.md', fields: {} } },
+				extra: true,
+			}),
+		).toEqual([
+			'epicenter.json at / must have required properties description',
+			'epicenter.json at / has "extra", which a declaration does not take',
+			'epicenter.json at /name must match pattern "^[a-z][a-z0-9-]*$"',
+			'epicenter.json at /collections/books/path must match pattern "^[^/{}][^{}]*(\\{[A-Za-z_][A-Za-z0-9_]*\\}[^{}]*)?$"',
+			'epicenter.json at /collections/books/fields must have required properties type',
+		]);
+	});
+
+	test('names each problem in the code', () => {
+		const problems = problemsOf(
+			{
+				name: 'serve',
+				description: 'Bad',
+				collections: {
+					words: { path: 'words/{stem}.md', fields: { type: 'object' } },
 				},
-				'Bad Name': { description: 'b', input: {}, run() {} },
 			},
-		});
+			{
+				collections: {
+					words: { path: 'words/{stem}.md', fields: {} },
+					settings: { path: 'settings.json', fields: {} },
+				},
+				actions: {
+					calendar: { description: 'c', input: {}, readonly: true, run() {} },
+					'calendar show': {
+						description: 'Show',
+						input: { a: field.text(), b: field.tags(), json: field.boolean() },
+						positional: ['b', 'a', 'a', 'nope'],
+						annotations: { readOnlyHint: true, dangerous: true },
+						run() {},
+					},
+					'words save': { description: 'Mine', input: {}, run() {} },
+					settings: { description: 'Settings', input: {}, run() {} },
+					'Bad Name': { description: 'b', input: {}, run() {} },
+				},
+			},
+		);
 		expect(problems).toEqual([
-			'its name "sync" is an epicenter command',
-			'it has no description',
+			'its name "serve" is an epicenter command',
+			'collection "words" is declared in both epicenter.json and epicenter.ts',
 			'action "calendar" is the start of action "calendar show", so "calendar show" could not be told apart',
 			'action "calendar" has "readonly", which an action does not take',
-			'action "calendar show" is both readOnly and destructive',
+			'action "calendar show" has the annotation "dangerous", which MCP does not define',
 			'action "calendar show" has a field named "json", which epicenter reads itself',
-			'action "calendar show" has 2 positional fields (a, b); at most one',
+			'action "calendar show" has the list "b" as a positional before the last, so the ones after it could never be given',
+			'action "calendar show" lists the positional "a" twice',
+			'action "calendar show" has the positional "nope", which is not one of its fields',
+			'action "words save" is one collection "words" gives; name it something else',
+			'action "settings" is the start of action "settings show", so "settings show" could not be told apart',
 			'action "Bad Name" is not words of lowercase letters, digits, and dashes, one space apart',
 		]);
 	});
 
-	test('something that is not an app', () => {
-		expect(problemsOf(undefined)).toEqual([
-			'epicenter.ts does not export an app by default',
+	test('code that is not defineApp(...)', () => {
+		expect(problemsOf(declaration, undefined)).toEqual([]);
+		expect(problemsOf(declaration, null)).toEqual([
+			'epicenter.ts does not export defineApp(...) by default',
 		]);
 	});
+});
+
+test('epicenter.schema.json is the declaration schema; run `bun run schema` after changing it', async () => {
+	expect(
+		await Bun.file(join(import.meta.dir, '../epicenter.schema.json')).text(),
+	).toBe(declarationJsonSchema());
 });

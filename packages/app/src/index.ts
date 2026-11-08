@@ -1,6 +1,10 @@
 export {
 	type Action,
+	ANNOTATION_DEFAULTS,
+	type Annotations,
 	type App,
+	type CodeCollection,
+	collectionActionWords,
 	defineApp,
 	type Input,
 	type InputOf,
@@ -14,5 +18,12 @@ export {
 	normalizePath,
 	type Secrets,
 } from './context.ts';
-export { field, isPositional, type TSwitch, type TTags } from './field.ts';
+export {
+	type Collection,
+	type Declaration,
+	DeclarationSchema,
+	declarationJsonSchema,
+	SCHEMA_URL,
+} from './declaration.ts';
+export { field, type TSwitch, type TTags } from './field.ts';
 export { createMemoryContext } from './memory.ts';

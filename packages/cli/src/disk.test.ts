@@ -37,8 +37,8 @@ test('writes make parents, replace whole files and leave no temporary files', as
 	await folder.writeBytes('bytes', new Uint8Array([0, 255]));
 	expect(await folder.readBytes('bytes')).toEqual(Buffer.from([0, 255]));
 	expect(await folder.read('missing')).toBeUndefined();
-	await folder.remove('missing');
-	await folder.remove('bytes');
+	await folder.delete('missing');
+	await folder.delete('bytes');
 	expect(await folder.readBytes('bytes')).toBeUndefined();
 });
 
@@ -49,7 +49,7 @@ test('normalization refuses climbing, absolute and Git paths on every file metho
 		await expect(folder.readBytes(path)).rejects.toThrow();
 		await expect(folder.write(path, 'no')).rejects.toThrow();
 		await expect(folder.writeBytes(path, new Uint8Array())).rejects.toThrow();
-		await expect(folder.remove(path)).rejects.toThrow();
+		await expect(folder.delete(path)).rejects.toThrow();
 		await expect(folder.list(path)).rejects.toThrow();
 	}
 });

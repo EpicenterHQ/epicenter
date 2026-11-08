@@ -1,8 +1,9 @@
 /**
- * The fields an action's input is made of (ADR-0841). Each is a TypeBox
- * schema, so raw TypeBox sits beside them in the same input. The CLI reads a
- * field as a flag named for its key, or also as the command's positional when
- * it says `positional`; MCP shows it as a property of the tool's input.
+ * The fields an action's input is made of (ADR-0857). Each is a TypeBox
+ * schema, which is JSON Schema, so raw TypeBox sits beside them in the same
+ * input. The CLI reads a field as a flag named for its key, and as a
+ * positional when the action lists it; MCP shows it as a property of the
+ * tool's input.
  *
  * A field is required unless it says `optional`. A switch (`boolean`) and a
  * list (`tags`) are never required: an absent switch is `false`, an absent
@@ -19,11 +20,7 @@ import {
 	Type,
 } from 'typebox';
 
-type Options = {
-	description?: string;
-	/** Also read from the command's one positional, as `epicenter reading log 30` is. */
-	positional?: boolean;
-};
+type Options = { description?: string };
 
 type MaybeOptional = Options & { optional?: boolean };
 
@@ -34,7 +31,7 @@ type Optionally<T extends TSchema, O> = O extends { optional: true }
 /** A switch: `false` unless its flag is given. */
 export type TSwitch = TOptional<TBoolean> & { default: false };
 
-/** A list of text: every time its flag is given, or every positional; empty unless given. */
+/** A list of text: every time its flag is given, or every word left when it is the last positional; empty unless given. */
 export type TTags = TOptional<TArray<TString>> & { default: string[] };
 
 function maybeOptional<T extends TSchema, O extends MaybeOptional>(
@@ -47,14 +44,11 @@ function maybeOptional<T extends TSchema, O extends MaybeOptional>(
 	>;
 }
 
-/** The schema options a field carries: its description, and whether it is the positional. */
+/** The schema options a field carries: its description. */
 function schemaOptions(options: Options | undefined) {
-	return {
-		...(options?.description === undefined
-			? {}
-			: { description: options.description }),
-		...(options?.positional ? { positional: true } : {}),
-	};
+	return options?.description === undefined
+		? {}
+		: { description: options.description };
 }
 
 export const field = {
@@ -90,7 +84,7 @@ export const field = {
 			options,
 		),
 
-	boolean: (options?: Omit<Options, 'positional'>): TSwitch =>
+	boolean: (options?: Options): TSwitch =>
 		Type.Optional(
 			Type.Boolean({ ...schemaOptions(options), default: false }),
 		) as TSwitch,
@@ -100,8 +94,3 @@ export const field = {
 			Type.Array(Type.String(), { ...schemaOptions(options), default: [] }),
 		) as TTags,
 };
-
-/** Whether `schema` is read from the command's positional. */
-export function isPositional(schema: TSchema): boolean {
-	return (schema as { positional?: unknown }).positional === true;
-}

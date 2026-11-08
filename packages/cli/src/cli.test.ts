@@ -24,14 +24,11 @@ async function setup() {
 test('listing isolates broken imports, invalid apps and mismatches and shows linked apps', async () => {
 	const f = await setup();
 	await f.app('broken', `throw new Error('import exploded');`);
-	await f.app('copy', reading);
-	await f.app(
-		'invalid',
-		`export default {name:'invalid',description:'Invalid',actions:{bad:{input:{}}}};`,
-	);
+	await f.app('copy', reading, f.home, 'reading');
+	await f.app('invalid', `export default {actions:{bad:{input:{}}}};`);
 	const linked = await f.app(
 		'linked',
-		`export default defineApp({name:'linked',description:'Linked app',actions:{}});`,
+		`export default defineApp(declaration, {actions:{}});`,
 		f.root,
 	);
 	await symlink(linked, join(f.home, 'linked'));
@@ -49,9 +46,8 @@ test('listing isolates broken imports, invalid apps and mismatches and shows lin
 	]);
 	expect(value.apps[0].link).toBe(linked);
 	expect(value.apps[1].actions[0]).toMatchObject({
-		name: 'log',
-		usage: 'epicenter reading log <minutes> [--book <text>]',
-		input: {
+		name: 'reading_log',
+		inputSchema: {
 			type: 'object',
 			additionalProperties: false,
 			properties: { minutes: { type: 'number' } },
@@ -192,7 +188,7 @@ test('a throwing action returns exit 3 with its message', async () => {
 
 test('path runs keep declared identity and use a separate cache while home aliases are refused', async () => {
 	const f = await setup();
-	const outside = await f.app('worktree', reading, f.root);
+	const outside = await f.app('worktree', reading, f.root, 'reading');
 	const result = await f.run(outside, 'inspect', '--json');
 	expect(result.code).toBe(0);
 	const value = JSON.parse(result.stdout);
@@ -208,7 +204,7 @@ test('path runs keep declared identity and use a separate cache while home alias
 	);
 	const target = await f.app(
 		'linked',
-		`export default defineApp({name:'linked',description:'Linked',actions:{}});`,
+		`export default defineApp(declaration, {actions:{}});`,
 		f.root,
 	);
 	await symlink(target, join(f.home, 'linked'));
@@ -238,7 +234,7 @@ test('app and action views include locations, schemas, field help and version', 
 	);
 	expect(
 		JSON.parse((await f.run('reading', 'log', '--help', '--json')).stdout),
-	).toMatchObject({ name: 'log', input: { type: 'object' } });
+	).toMatchObject({ name: 'reading_log', inputSchema: { type: 'object' } });
 	expect(JSON.parse((await f.run('--version', '--json')).stdout)).toEqual({
 		version: '0.0.1',
 	});
@@ -265,10 +261,7 @@ test('missing and empty homes are successful answers and missing apps suggest cr
 
 test('a name mismatch is a problem even when no other app declares that name', async () => {
 	const f = await setup();
-	await f.app(
-		'other-name',
-		reading.replace("name: 'reading'", "name: 'elsewhere'"),
-	);
+	await f.app('other-name', reading, f.home, 'elsewhere');
 	const listed = JSON.parse((await f.run('--json')).stdout);
 	expect(listed.problems).toContainEqual({
 		entry: 'other-name',

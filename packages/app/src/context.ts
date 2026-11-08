@@ -1,5 +1,5 @@
 /**
- * The context an action's `run` receives (ADR-0841): its folder, its cache,
+ * The context an action's `run` receives (ADR-0841, ADR-0857): its folder, its cache,
  * and its secrets, which differ by how long what they hold lives. Whatever runs
  * the action supplies them: the `epicenter` CLI on a computer, memory in a
  * test.
@@ -21,7 +21,7 @@ export type Folder = {
 	/** Every file under `dir`, or the whole folder, relative to the folder and sorted. Never `.git` or `node_modules`. */
 	list(dir?: string): Promise<string[]>;
 	/** Deletes the file at `path`, if there is one. */
-	remove(path: string): Promise<void>;
+	delete(path: string): Promise<void>;
 	/** The folder on disk; only on a computer. */
 	readonly path?: string;
 };

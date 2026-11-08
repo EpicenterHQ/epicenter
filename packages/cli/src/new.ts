@@ -1,7 +1,7 @@
 /** Create a small app in its own repository (ADR-0841). */
 import { mkdir, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { nameProblem } from '@epicenter/app';
+import { nameProblem, SCHEMA_URL } from '@epicenter/app';
 import { checkedGit } from './git.ts';
 import { homeDir } from './home.ts';
 import { fail, writeErr, writeJson, writeOut } from './output.ts';
@@ -31,17 +31,25 @@ export async function newCommand(
 	const folder = join(home, name);
 	await mkdir(folder);
 	await writeFile(
+		join(folder, 'epicenter.json'),
+		`${JSON.stringify(
+			{ $schema: SCHEMA_URL, name, description: `Describe ${name}` },
+			null,
+			2,
+		)}\n`,
+	);
+	await writeFile(
 		join(folder, 'epicenter.ts'),
-		`import { defineApp, field } from '@epicenter/app';
+		`import declaration from './epicenter.json';
+import { defineApp, field } from '@epicenter/app';
 
-export default defineApp({
-	name: '${name}',
-	description: 'Describe ${name}',
+export default defineApp(declaration, {
 	actions: {
 		hello: {
 			description: 'Say hello',
-			input: { who: field.text({ positional: true, optional: true }) },
-			readOnly: true,
+			input: { who: field.text({ optional: true }) },
+			positional: ['who'],
+			annotations: { readOnlyHint: true },
 			run: ({ who }) => \`Hello, \${who ?? 'you'}\`,
 		},
 	},
@@ -62,7 +70,10 @@ export default defineApp({
 			2,
 		)}\n`,
 	);
-	await writeFile(join(folder, '.gitignore'), 'node_modules/\n');
+	await writeFile(
+		join(folder, '.gitignore'),
+		'node_modules/\n.cache/\nepicenter.d.json.ts\n',
+	);
 	try {
 		await checkedGit(folder, 'init');
 	} catch (error) {

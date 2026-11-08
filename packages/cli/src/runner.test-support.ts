@@ -2,7 +2,6 @@ import { mkdir, mkdtemp, realpath, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
-const appSource = resolve(import.meta.dir, '../../app/src/index.ts');
 const bin = resolve(import.meta.dir, 'bin.ts');
 
 /** Run git in `dir`, throwing with its stderr when it fails. */
@@ -35,7 +34,6 @@ export async function fixture() {
 	const env: Record<string, string | undefined> = {
 		...process.env,
 		HOME: root,
-		EPICENTER_HOME: home,
 		EPICENTER_CACHE_HOME: cache,
 		EPICENTER_SKIP_INSTALL: '1',
 		GIT_AUTHOR_NAME: 'Epicenter Test',
@@ -69,10 +67,21 @@ export async function fixture() {
 		return dir;
 	}
 
-	/** An app in the old shape: one `epicenter.ts` importing the app package by path. */
-	async function app(entry: string, source: string, parent = home) {
+	/**
+	 * An app named `name` at `parent/entry`: an `epicenter.json` declaring it,
+	 * and an `epicenter.ts` of `source` with the declaration, `defineApp`, and
+	 * `field` imported.
+	 */
+	async function app(
+		entry: string,
+		source: string,
+		parent = home,
+		name = entry,
+	) {
 		return folder(join(parent, entry), {
-			'epicenter.ts': `import { defineApp, field } from ${JSON.stringify(appSource)};\n${source}`,
+			'.gitignore': gitignore,
+			'epicenter.json': declarationOf(name),
+			'epicenter.ts': `import declaration from './epicenter.json';\nimport { defineApp, field } from '@epicenter/app';\n${source}`,
 		});
 	}
 
@@ -168,16 +177,16 @@ export function declarationOf(
 	return `${JSON.stringify({ name, description: `The ${name} app`, ...extra }, null, 2)}\n`;
 }
 
-export const reading = `export default defineApp({ name: 'reading', description: 'Reading records', actions: {
-	log: { description: 'Record reading', input: { minutes: field.number({positional:true}), book: field.text({optional:true}) }, run: async (input, {folder}) => { await folder.write('records/log.json', JSON.stringify(input)); return input; } },
-	'week summary': { description: 'Weekly minutes', input: {}, readOnly:true, run: () => ({minutes:210}) },
+export const reading = `export default defineApp(declaration, { actions: {
+	log: { description: 'Record reading', input: { minutes: field.number(), book: field.text({optional:true}) }, positional: ['minutes'], run: async (input, {folder}) => { await folder.write('records/log.json', JSON.stringify(input)); return input; } },
+	'week summary': { description: 'Weekly minutes', input: {}, annotations: { readOnlyHint: true }, run: () => ({minutes:210}) },
 	tag: { description:'Tag records', input: { tags: field.tags(), done: field.boolean() }, run: (input) => input },
-	collect: { description:'Collect tags', input: { tags: field.tags({positional:true}) }, run: (input) => input },
+	collect: { description:'Collect tags', input: { tags: field.tags() }, positional: ['tags'], run: (input) => input },
 	inspect: { description:'Inspect the context', input:{}, run: async (_, {folder,cache,secrets}) => { const db = cache.sqlite('index'); db.run('CREATE TABLE IF NOT EXISTS items (id INTEGER)'); db.close(); await secrets.set('token','round trip'); return {folder:folder.path,cache:cache.path,token:await secrets.get('token'),seed:await secrets.get('seed'),foreign:await secrets.get('foreign') ?? null}; } },
 	explode: { description:'Throw an error', input:{}, run: () => {throw new Error('action exploded');} },
 } });`;
 
-export const vault = `export default defineApp({name:'vault',description:'Calendar',actions:{
-	'calendar show': {description:'Show a day',readOnly:true,input:{day:field.date({positional:true})},run:({day})=>({day})},
-	'calendar add': {description:'Add a day',destructive:true,input:{day:field.date({positional:true})},run:({day})=>({day})},
-}});`;
+export const vault = `export default defineApp(declaration, { actions: {
+	'calendar show': {description:'Show a day',annotations:{readOnlyHint:true,destructiveHint:false},input:{day:field.date()},positional:['day'],run:({day})=>({day})},
+	'calendar add': {description:'Add a day',input:{day:field.date()},positional:['day'],run:({day})=>({day})},
+} });`;

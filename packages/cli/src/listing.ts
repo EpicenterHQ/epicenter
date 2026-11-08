@@ -1,45 +1,68 @@
 /**
- * The home, app, and action views (ADR-0841). Human descriptions and JSON
- * listings come from the same actions and fields that commands and tools run,
- * so the person can see what is available and what needs fixing.
+ * The home, app, and action views (ADR-0841, ADR-0857). `--json` prints the
+ * merged declaration with each action as the MCP tool `serve` offers, so a
+ * listing and `tools/list` agree; the human views come from the same actions.
  */
-import { type Action, isPositional } from '@epicenter/app';
+import { type Action, ANNOTATION_DEFAULTS } from '@epicenter/app';
 import { type TSchemaOptions, Type } from 'typebox';
 import type { Discovery, Located } from './home.ts';
-import { fieldKind, flagOf, inputSchema, usageLine } from './input.ts';
+import { fieldKind, flagOf, jsonSchema, usageLine } from './input.ts';
 
-/** Describe one action for JSON listings and action help from the same schemas MCP uses. */
-export function actionListing(name: string, key: string, action: Action) {
+/** An action as an MCP tool definition: its name, input schema, and all four hints, explicit. */
+export function actionTool(app: string, key: string, action: Action) {
 	return {
-		name: key,
+		name: `${app}_${key.replaceAll(' ', '_')}`,
 		description: action.description,
-		...(action.readOnly === true ? { readOnly: true } : {}),
-		...(action.destructive === true ? { destructive: true } : {}),
-		usage: usageLine(name, key, action),
-		input: inputSchema(action),
+		inputSchema: jsonSchema(action.input),
+		annotations: { ...ANNOTATION_DEFAULTS, ...action.annotations },
 	};
 }
 
-/** Describe a healthy app without exposing its executable module. */
+function loaded(located: Located) {
+	if (!located.app || !located.declaration)
+		throw new Error(`${located.name} has no loaded app`);
+	return { app: located.app, declaration: located.declaration };
+}
+
+/** The app as `--json` prints it: its declaration, its code's collections as JSON Schema, and its actions as tools. */
 export function appListing(located: Located) {
-	if (!located.app) throw new Error(`${located.name} has no loaded app`);
+	const { app, declaration } = loaded(located);
 	return {
 		name: located.name,
-		description: located.app.description,
+		description: declaration.description,
 		folder: located.folder,
 		...(located.link ? { link: located.link } : {}),
-		actions: Object.entries(located.app.actions).map(([key, action]) =>
-			actionListing(located.name, key, action),
+		collections: {
+			...declaration.collections,
+			...Object.fromEntries(
+				Object.entries(app.collections).map(([key, { path, fields }]) => [
+					key,
+					{ path, fields: jsonSchema(fields) },
+				]),
+			),
+		},
+		actions: Object.entries(app.actions).map(([key, action]) =>
+			actionTool(located.name, key, action),
 		),
 	};
 }
 
+function hints(action: Action) {
+	const { readOnlyHint, destructiveHint } = {
+		...ANNOTATION_DEFAULTS,
+		...action.annotations,
+	};
+	if (readOnlyHint) return ' (read-only)';
+	return destructiveHint ? '' : ' (not destructive)';
+}
+
 function actionLines(located: Located) {
-	if (!located.app) throw new Error(`${located.name} has no loaded app`);
-	return Object.entries(located.app.actions).flatMap(([key, action]) => [
-		`  ${usageLine(located.name, key, action)}`,
-		`    ${action.description}${action.readOnly ? ' (read-only)' : ''}${action.destructive ? ' (destructive)' : ''}`,
-	]);
+	return Object.entries(loaded(located).app.actions).flatMap(
+		([key, action]) => [
+			`  ${usageLine(located.name, key, action)}`,
+			`    ${action.description}${hints(action)}`,
+		],
+	);
 }
 
 /** Render discovery as one answer while keeping broken entries separate from runnable apps. */
@@ -56,14 +79,11 @@ export function homeListing(found: Discovery, json: boolean): unknown {
 			...(found.missing ? { missing: true } : {}),
 		};
 	if (found.missing)
-		return `There is no Epicenter home at ${found.home}. Make one with: mkdir ${process.env.EPICENTER_HOME ? found.home : '~/Epicenter'}`;
-	const lines = found.apps.flatMap((located) => {
-		if (!located.app) throw new Error(`${located.name} has no loaded app`);
-		return [
-			`${located.name}  ${located.app.description}${located.link ? ` -> ${located.link}` : ''}`,
-			...actionLines(located),
-		];
-	});
+		return `There is no Epicenter home at ${found.home}. Make one with: mkdir ${found.home}`;
+	const lines = found.apps.flatMap((located) => [
+		`${located.name}  ${loaded(located).declaration.description}${located.link ? ` -> ${located.link}` : ''}`,
+		...actionLines(located),
+	]);
 	if (!found.apps.length) lines.push('There are no apps yet.');
 	if (found.problems.length) {
 		lines.push('', 'Problems:');
@@ -79,7 +99,6 @@ export function homeListing(found: Discovery, json: boolean): unknown {
 
 /** Render the app's disk and keychain locations beside its actions for inspection. */
 export function oneAppListing(located: Located, json: boolean): unknown {
-	if (!located.app) throw new Error(`${located.name} has no loaded app`);
 	if (json)
 		return {
 			...appListing(located),
@@ -88,7 +107,7 @@ export function oneAppListing(located: Located, json: boolean): unknown {
 		};
 	return [
 		located.name,
-		located.app.description,
+		loaded(located).declaration.description,
 		`folder: ${located.folder}`,
 		...(located.link ? [`link: ${located.link}`] : []),
 		`cache: ${located.cacheDir}`,
@@ -99,6 +118,7 @@ export function oneAppListing(located: Located, json: boolean): unknown {
 
 /** Explain each action field, including defaults and its positional spelling. */
 export function actionHelp(name: string, key: string, action: Action): string {
+	const positional = new Set<string>(action.positional ?? []);
 	const required = new Set(Type.Object(action.input).required ?? []);
 	return [
 		usageLine(name, key, action),
@@ -110,7 +130,7 @@ export function actionHelp(name: string, key: string, action: Action): string {
 				: required.has(key)
 					? 'required'
 					: 'optional';
-			return `  --${flagOf(key)}${isPositional(schema) ? ` (<${key}>)` : ''}: ${fieldKind(schema)}, ${status}${schema.description ? `, ${schema.description}` : ''}`;
+			return `  --${flagOf(key)}${positional.has(key) ? ` (<${key}>)` : ''}: ${fieldKind(schema)}, ${status}${schema.description ? `, ${schema.description}` : ''}`;
 		}),
 	].join('\n');
 }

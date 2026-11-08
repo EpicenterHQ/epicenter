@@ -46,7 +46,7 @@ function createMemoryFolder(
 			const prefix = dir === undefined ? '' : `${normalizePath(dir)}/`;
 			return [...bytes.keys()].filter((path) => path.startsWith(prefix)).sort();
 		},
-		async remove(path) {
+		async delete(path) {
 			bytes.delete(normalizePath(path));
 		},
 		async clear() {

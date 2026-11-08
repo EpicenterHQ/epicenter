@@ -72,7 +72,7 @@ function diskFolder(
 		async write(path, text) {
 			await writeBytes(path, new TextEncoder().encode(text));
 		},
-		async remove(path) {
+		async delete(path) {
 			try {
 				await unlink(writable(path));
 			} catch (error) {
