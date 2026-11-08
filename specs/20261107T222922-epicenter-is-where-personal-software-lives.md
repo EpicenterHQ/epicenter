@@ -1,7 +1,7 @@
 # Epicenter is where personal software lives
 
 **Date**: 2026-11-07
-**Status**: Draft
+**Status**: In Progress
 **Owner**: Braden
 **Branch**: claude/phase-2-machine
 **Supersedes**: the folder sync product of ADR-0802 to ADR-0839, as current work (see ADR-0840)
@@ -29,8 +29,12 @@ direction; ADR-0841 the app contract.
 
 - `packages/cli`: the `epicenter` CLI. `operation.ts` renders one description
   (name, TypeBox input and output, lazily loaded code) as a command and an MCP
-  tool. Commands today are platform operations for the folder sync product.
-- `packages/definition`: front matter, merge, contracts for the sync product.
+  tool; `parse.ts`, `output.ts`, `mcp.ts`, and `secrets.ts` are the parser, the
+  stdout and exit-code rules, the MCP server, and the Keychain. Its commands
+  today are the folder sync product's: folders, sync, sign-in, Messages.
+- The waiting product (ADR-0840) is most of the repository, and nearly
+  everything imports it: Whispering, `apps/api`, `packages/account`, `ai`,
+  `svelte`, `recorder`, and the CLI. ADR-0843 says how it leaves.
 - The author's tools are scripts in `~/Code/vault/scripts/` (calendar, photos,
   todoist), run by Claude.
 
@@ -77,8 +81,14 @@ epicenter new <name> | add <source> | sync | mcp [<app>…] | help
 | `@epicenter/mail` | Mail's default app, re-exported by `~/Epicenter/mail/epicenter.ts` | |
 
 The unscoped `epicenter` name on npm is not ours; everything is under the
-`@epicenter` scope. `packages/definition`'s note and merge code moves to an
-optional library for apps whose data is notes, or is deleted if no app needs it.
+`@epicenter` scope.
+
+`@epicenter/app` holds what an app author touches: `defineApp`, `field`, the
+`Folder`, `Cache`, and `Secrets` types, and `createMemoryFolder` for tests,
+which is plain JavaScript. What needs a computer is the runner's and lives in
+`@epicenter/cli`: the folder on disk, the cache directory and its SQLite, the
+Keychain, Git. A notes library, when an app needs one, is new code that copies
+the front-matter rule; `packages/definition` is not adapted (ADR-0843).
 
 ## Onboarding
 
@@ -178,15 +188,72 @@ for folders.
 3. Where `@epicenter/mail` lives while unpublished: in this monorepo, linked
    into `~/Epicenter` with `bun link`, or written directly in
    `~/Epicenter/mail/` until it is worth publishing.
-4. Whether `packages/definition` survives as a notes library or is deleted.
-5. What `vision.md`, `architecture.md`, `CONTEXT.md`, and the package READMEs say,
-   once ADR-0840 is accepted.
-6. The old product's folders in `~/Epicenter` (`Todos`, `Zhongwen`,
+4. The old product's folders in `~/Epicenter` (`Todos`, `Zhongwen`,
    `Zhongwen Dev`, `so.epicenter.*`, `local`, `on-this-device`) stay as a clean
    break: discovery ignores a folder without `epicenter.ts`. An app named like
    one of them, ignoring case, waits until that folder is moved.
-7. `update` waits until the first copied app's source changes; until then,
+5. `update` waits until the first copied app's source changes; until then,
    `git merge upstream`.
+
+## Build order
+
+ADR-0843 is the rule: new code imports nothing from the waiting product, which
+leaves by deletion, one package at a time, once nothing imports it. Each wave
+below is one or more commits, each passing `bun run typecheck` and the tests of
+what it touches with no failure the commit before it did not have.
+
+**0. Tag and prune.** Tag `folder-sync-product` at the last commit with the old
+product whole. Delete `apps/epicenter`, `vocab`, `todos`, `honeycrisp`,
+`capture`, and `messages`, with their root scripts, workflows, Cargo members,
+and the checks that name them. Done when
+nothing outside `docs/` and `specs/` names a deleted app, and `bun install`,
+`bun run typecheck`, and `cargo check --workspace` pass.
+
+**1. The kit.** Done when the `reading` example works end to end
+(`epicenter reading log 30` writes and commits) and `epicenter mcp` serves it to
+Claude Code.
+
+- **1a. `packages/app`.** `defineApp`, `field`, the place types, and
+  `createMemoryFolder`, as ADR-0841 writes them. Type tests prove that `run`'s
+  input is inferred from the fields, that a field without `optional` is
+  required, and that an action's return value types its `--json`. A test runs
+  an action against a memory folder. The import check ADR-0843 names starts
+  here, over `packages/app`; 1b adds `packages/cli` to it.
+- **1b. The CLI's core.** `packages/cli` is rewritten in place. Its folder,
+  sync, git, server, sign-in, and Messages commands go, and with them its
+  dependencies on the old product. Kept and changed: `parse.ts` learns that an
+  app's action words are the command, a positional field, and repeated flags as
+  arrays; `operation.ts` renders an action, not a platform operation; `mcp.ts`
+  serves apps; `output.ts` takes exit code 3 and the error's `code` and `next`.
+  New: discovery of the home (`EPICENTER_HOME`, else `~/Epicenter`), the
+  listing and its problems, `epicenter <app>`, `epicenter <path> …`, and the
+  places on a computer (the folder on disk, the cache directory and
+  `sqlite(name)`, the Keychain under `epicenter.<name>`).
+- **1c. Commits and sync.** The commit rule of ADR-0842 with tests against a
+  temporary repository: dirty paths noted, a write to one refused, one commit
+  after `run`, only clean paths undone after a throw, one action per app at a
+  time. Then `epicenter sync` and `epicenter new`.
+
+**2. Mail.** Salvage the Gmail client, OAuth, and token code from
+`280bdf4d44^:apps/local-mail/src/`; build the commands in "Mail, the first real
+app". Done when the receipts and newsletter jobs are finished with Mail and
+Claude Code.
+
+**3. The vault.** The vault's scripts become actions in
+`~/Code/vault/epicenter.ts`, linked as `~/Epicenter/vault`. Done when
+`epicenter vault calendar show …` runs, which proves nested action words on a
+real app. `epicenter add` comes when the first app is copied from a source.
+
+**4. Prune the rest.** In the order ADR-0843 gives: `apps/api` loses its folder
+sync routes; `packages/account`, `ai`, `svelte`, and `recorder` cut their
+imports; Whispering is untangled; then `packages/folder`, `server`,
+`definition`, `local`, `tauri-plugin-epicenter-folder`, and
+`tauri-epicenter-standalone` are deleted, each in its own commit.
+
+**5. Docs.** `docs/architecture.md`, `docs/CONTEXT.md`, and each affected
+package README are rewritten as the code they describe goes. This spec is
+deleted when waves 1 to 3 are done, its lasting parts already in ADR-0841,
+ADR-0842, or the READMEs.
 
 Done on 2026-11-07: the vault's `defineFolder` declaration moved from
 `~/Code/vault/epicenter.ts` to `~/Code/vault/folder.ts`. Its `generate` command
@@ -194,6 +261,8 @@ was already gone from the CLI (`9e2e5fe5d7`), and the vault's `bun run epicenter
 script points at `../worktrees/epicenter-stable`, which no longer exists.
 
 ## Done when
+
+Waves 1 to 3 are done:
 
 - `epicenter` lists apps, actions, and problems from anywhere;
   `epicenter <app> <action words>` runs one with a positional, typed flags, and

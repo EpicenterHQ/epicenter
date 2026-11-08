@@ -1048,3 +1048,4 @@ When you add an ADR, add its row here.
 | [0840](0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md) | Epicenter is where one person's software lives, and the folder sync product waits | Accepted (supersedes 0835, 0836, 0837, 0838, and 0839) |
 | [0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md) | An app is a folder whose `epicenter.ts` defines its actions | Accepted |
 | [0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md) | An action is a commit, and the repository is the sync | Accepted |
+| [0843](0843-new-code-imports-nothing-from-the-waiting-product-which-leaves-by-deletion.md) | New code imports nothing from the waiting product, which leaves by deletion | Accepted |
