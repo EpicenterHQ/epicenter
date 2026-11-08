@@ -1049,3 +1049,7 @@ When you add an ADR, add its row here.
 | [0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md) | An app is a folder whose `epicenter.ts` defines its actions | Accepted |
 | [0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md) | An action is a commit, and the repository is the sync | Accepted |
 | [0843](0843-new-code-imports-nothing-from-the-waiting-product-which-leaves-by-deletion.md) | New code imports nothing from the waiting product, which leaves by deletion | Accepted |
+| [0844](0844-one-runner-runs-anywhere-and-every-surface-is-a-view-over-it.md) | One runner runs anywhere, and every surface is a view over it | Accepted |
+| [0845](0845-an-app-declares-collections-each-a-path-and-fields-which-the-hub-views.md) | An app declares collections, each a path and fields, which the hub views | Accepted |
+| [0846](0846-the-always-on-box-is-the-git-remote-and-an-encrypted-copy-leaves-only-as-a-backup.md) | The always-on box is the Git remote, and an encrypted copy leaves only as a backup | Proposed |
+| [0847](0847-an-app-brings-its-providers-credentials-with-a-default-in-its-code.md) | An app brings its provider's credentials, with a default in its code | Accepted |

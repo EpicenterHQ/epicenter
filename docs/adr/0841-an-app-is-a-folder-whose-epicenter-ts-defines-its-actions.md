@@ -4,6 +4,8 @@
 - **Date:** 2026-11-07
 - **Relates:** [ADR-0840](0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md) (the direction), [ADR-0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md) (commits, exit codes, sync), [ADR-0827](0827-the-cli-and-mcp-render-one-table-of-operations.md) (one table, rendered twice).
 - **Spec:** [specs/20261107T222922-epicenter-is-where-personal-software-lives.md](../../specs/20261107T222922-epicenter-is-where-personal-software-lives.md)
+- **Amended by:** [ADR-0845](0845-an-app-declares-collections-each-a-path-and-fields-which-the-hub-views.md): `defineApp` also takes `collections`, each a path and fields. [ADR-0844](0844-one-runner-runs-anywhere-and-every-surface-is-a-view-over-it.md) at where the context comes from: each host supplies it.
+- **Amended:** 2026-11-08, `add` takes any source (below).
 - **Unbuilt:** `epicenter add`.
 
 ## Context
@@ -122,7 +124,10 @@ the source tracks in Git at one commit into a new repository in the home, runs
 `package.json`, and keeps that copy as the `upstream` branch. "Code, never data"
 means what the source tracks: a source that tracks its author's data passes it
 on. A later version of the source is merged with Git (`git merge upstream`);
-`update` is reserved for that and built when the first source changes.
+`update` is reserved for that and built when the first source changes. A
+source is a Git URL, the URL of a single `epicenter.ts` for a one-file app, or
+a registry entry listing an app's files; whatever it is, the copy is owned code
+that the person or their agent changes freely.
 
 **A UI calls actions; it never writes files itself.** A page imports the app's
 type, not its code, and calls actions through `epicenter serve`; forms come from

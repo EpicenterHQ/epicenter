@@ -158,16 +158,20 @@ epicenter mail apply newsletters                         # the person runs this
 - **Code.** Salvage `gmail-client.ts`, `oauth.ts`, and `token-manager.ts` from
   `280bdf4d44^:apps/local-mail/src/` (they import no Yjs). Mail imports nothing
   from folder or sync code.
-- **Before writing code.** Google issues 7-day refresh tokens to clients in
-  "Testing". Reuse the vault's calendar Google project, confirmed "In production",
-  or move it there. An expired sign-in prints "run `epicenter mail connect`".
+- **Its Google client** (ADR-0847). `mail connect` uses the client in Mail's
+  `secrets`; Mail ships no default yet. The author's is the vault calendar's
+  personal Google project (`GOOGLE_CALENDAR_CLIENT_ID` in Infisical's personal
+  `/vault`; its refresh exchange works as of 2026-11-08), with the Gmail API
+  enabled and `gmail.modify` added. Google issues 7-day refresh tokens to
+  clients in "Testing", so the project must be "In production". An expired
+  sign-in prints "run `epicenter mail connect`".
 
 ## Refused for now
 
-A UI; `epicenter serve`; remote MCP; phones and browsers; Tauri and native
-capabilities (Whispering stays its own app); a sync engine; shared providers
-such as Google sign-in in core; installing apps from links; sandboxing; schemas
-for folders.
+A sync engine; shared providers such as Google sign-in in core (ADR-0847);
+sandboxing; validating schemas for folders (collections describe, ADR-0845); a
+runner on the phone. `epicenter serve`, the hub, the box, and the phone as a
+client are no longer refused: ADR-0844 orders them below.
 
 ## Later, without changing an action
 
@@ -242,12 +246,23 @@ Claude Code.
 app". Done when the receipts and newsletter jobs are finished with Mail and
 Claude Code.
 
-**3. The vault.** The vault's scripts become actions in
+**3. `epicenter serve` and the box.** The runner over HTTP, on the author's
+always-on Mac, with the cache root and secrets for Linux and Windows
+(ADR-0844), and the box as each repository's remote with a scheduled
+encrypted backup (ADR-0846, once accepted). Done when the phone opens a page
+from the box over Tailscale and runs a Mail action, and an action run on the
+laptop reaches the box with `epicenter sync`.
+
+**4. The vault.** The vault's scripts become actions in
 `~/Code/vault/epicenter.ts`, linked as `~/Epicenter/vault`. Done when
 `epicenter vault calendar show …` runs, which proves nested action words on a
 real app. `epicenter add` comes when the first app is copied from a source.
 
-**4. Prune the rest.** In the order ADR-0843 gives: `apps/api` loses its folder
+**5. Vocab, then the hub.** Vocab's actions and collections, rebuilt from the
+frozen app; then the hub (ADR-0844): its action view and its data view over
+collections (ADR-0845). The frozen Vocab leaves when the rebuilt one runs.
+
+**6. Prune the rest.** In the order ADR-0843 gives: `apps/api` loses its folder
 sync routes; `packages/account`, `ai`, `svelte`, and `recorder` cut their
 imports; Whispering is untangled; then `packages/folder`, `server`,
 `definition`, `local`, `tauri-plugin-epicenter-folder`, and
@@ -256,9 +271,9 @@ app (Vocab, Todos, Capture, Honeycrisp, Messages) leaves when its rebuilt
 successor runs, or when the author says it can go; it may hold the old packages
 in the tree until then.
 
-**5. Docs.** `docs/architecture.md`, `docs/CONTEXT.md`, and each affected
+**7. Docs.** `docs/architecture.md`, `docs/CONTEXT.md`, and each affected
 package README are rewritten as the code they describe goes. This spec is
-deleted when waves 1 to 3 are done, its lasting parts already in ADR-0841,
+deleted when waves 1 to 5 are done, its lasting parts already in ADR-0841,
 ADR-0842, or the READMEs.
 
 Done on 2026-11-07: the vault's `defineFolder` declaration moved from
@@ -268,7 +283,7 @@ script points at `../worktrees/epicenter-stable`, which no longer exists.
 
 ## Done when
 
-Waves 1 to 3 are done:
+Waves 1 to 5 are done:
 
 - `epicenter` lists apps, actions, and problems from anywhere;
   `epicenter <app> <action words>` runs one with a positional, typed flags, and
@@ -278,3 +293,6 @@ Waves 1 to 3 are done:
   are done with Mail and Claude Code.
 - `epicenter vault calendar show …` runs the vault's calendar command through the
   `~/Epicenter/vault` link.
+- The phone opens a page from the always-on box and runs an action there.
+- Vocab runs as an app with actions and collections, and the hub shows its
+  actions as a palette and its words as a table.
