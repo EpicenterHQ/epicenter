@@ -4,7 +4,7 @@
 - **Date:** 2026-11-08
 - **Supersedes:** [ADR-0846](0846-epicenter-owns-no-infrastructure-and-each-repository-has-one-meeting-point.md): schedules and `epicenter tick`, the front door and its OS timer, a meeting point per app, the door into a box branch, the backup check, and the secrets experiment.
 - **Amends:** [ADR-0844](0844-one-runner-runs-anywhere-and-every-surface-is-a-view-over-it.md) at who runs a named action (your Epicenter only), the laptop's own runner (a folder path instead), and the browser runner (refused). [ADR-0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md) at discovery: `~/Epicenter` exists on your Epicenter, and another computer lists your Epicenter's apps.
-- **Relates:** [ADR-0850](0850-running-an-action-makes-one-commit-or-nothing.md) (the commit rule), [ADR-0851](0851-each-app-has-one-git-remote-its-meeting-point-and-backup.md) (the remote), [ADR-0852](0852-an-app-is-a-git-repository-of-files-and-verbs.md) (files plus verbs), [ADR-0853](0853-collections-give-an-app-its-standard-verbs-and-screens-are-clients.md) (screens), [ADR-0855](0855-reminders-are-an-app-and-a-screen-runs-what-is-due-when-it-opens.md) (reminders).
+- **Relates:** [ADR-0850](0850-running-an-action-makes-one-commit-or-nothing.md) (the commit rule), [ADR-0851](0851-each-app-has-one-git-remote-its-meeting-point-and-backup.md) (the remote), [ADR-0852](0852-an-app-is-a-git-repository-of-files-and-actions.md) (the five nouns), [ADR-0853](0853-collections-give-four-actions-and-programs-without-the-folder-ask-over-mcp.md) (MCP and programs that ask), [ADR-0855](0855-reminders-are-an-app-and-a-screen-runs-what-is-due-when-it-opens.md) (reminders).
 - **Unbuilt:** all of it: `epicenter setup`, forwarding to `serve`, `epicenter serve`.
 
 ## Context
@@ -23,7 +23,7 @@ required `serve` and the CLI already forwarded to Epicenter Cloud over HTTP.
 
 **Your Epicenter is one computer the person keeps reachable.** The author's Mac
 now; an Epicenter Cloud container for anyone who cannot keep one on. Epicenter
-assumes it is reachable: when it is not, a named verb fails and says so, and
+assumes it is reachable: when it is not, a named action fails and says so, and
 nothing else is designed around its absence. `epicenter setup` asks one
 question, whether this computer is your Epicenter or connects to one. "This one"
 creates `~/Epicenter`, starts `epicenter serve` as a login service, and keeps the
@@ -35,10 +35,10 @@ folder or a link to one (`~/Epicenter/vault → ~/Code/vault`); `EPICENTER_HOME`
 moves it. The CLI, MCP, `serve`, and the desktop app all read it, and adding an
 app anywhere means making an entry.
 
-**`epicenter serve` is the only way in.** It offers every app's verbs over HTTP
-and MCP. On another computer the CLI sends a named verb to it, streaming the
-output and returning the exit code; Claude elsewhere connects to its MCP
-address; screens call it. Your own Mac and an Epicenter Cloud container differ
+**`epicenter serve` is the only way in.** It offers every app's actions over
+MCP (ADR-0853). On another computer the CLI forwards a named action to it as a
+tool call, printing the result and returning the exit code; Claude elsewhere
+connects to its address; the Epicenter app and other pages call it. Your own Mac and an Epicenter Cloud container differ
 only in address. On a person's own computer `serve` listens only on their
 tailnet, so only their devices reach it; on Epicenter Cloud the person's
 Epicenter account signs them in.
@@ -47,7 +47,7 @@ Epicenter account signs them in.
 
 ```txt
 epicenter vocab add serendipity …      on your Epicenter, sent to serve from anywhere else
-{ "type": "http",                      Claude on another computer gets every verb
+{ "type": "http",                      Claude on another computer gets every action
   "url": "https://<your Epicenter>/mcp" }
 epicenter ./vocab add serendipity …    here, in that folder
 ```
@@ -59,8 +59,8 @@ itself, Claude can also use `epicenter mcp` directly.
 
 **Sign-ins live on your Epicenter.** `epicenter mail connect` runs there.
 
-**There are no schedules.** Your Epicenter runs nothing on its own: a verb runs
-because a person, their agent, or a screen they opened asks for it. Reminders
+**There are no schedules.** Your Epicenter runs nothing on its own: an action
+runs because a person, their agent, or a page they opened asks for it. Reminders
 are an app (ADR-0855).
 
 ## Consequences
@@ -68,10 +68,10 @@ are an app (ADR-0855).
 - Deleted: schedules, the timer, routing between computers, sign-ins on laptops,
   forwarding over SSH, Remote Login and `epicenter` on SSH's path as setup
   steps, and a meeting point per app.
-- The CLI's forwarding carries streamed output, the exit code, and an
-  interruption over HTTP, which SSH gave for free.
+- The CLI's forwarding maps an MCP result to its output and exit code, and an
+  interruption to a cancelled request, which SSH gave for free.
 - While your Epicenter is unreachable (a FileVault reboot waits at the unlock
-  screen), every named verb is down; folder paths and editing still work.
+  screen), every named action is down; folder paths and editing still work.
   Remote FileVault unlock over SSH, an administrator's step outside Epicenter,
   is to be tried before the first trip.
 - Claude on the phone reaches `serve` only through a public address (Tailscale
@@ -87,4 +87,4 @@ are an app (ADR-0855).
 - **Schedules (ADR-0846).** Most hard cases came from runs nobody started.
 - **The desktop app or the CLI keeps its own list of apps.** A second list that
   can drift from the folder.
-- **A runner in the browser or on the phone.** Nothing needs one.
+- **Running actions in the browser or on the phone.** Nothing needs it.

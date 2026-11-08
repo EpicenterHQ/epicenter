@@ -1057,7 +1057,8 @@ When you add an ADR, add its row here.
 | [0849](0849-your-epicenter-is-one-always-reachable-computer-that-runs-named-actions.md) | Your Epicenter is one always-reachable computer that runs named actions | Proposed |
 | [0850](0850-running-an-action-makes-one-commit-or-nothing.md) | Running an action makes one commit, or nothing | Proposed |
 | [0851](0851-each-app-has-one-git-remote-its-meeting-point-and-backup.md) | Each app has one Git remote, its meeting point and its backup | Proposed |
-| [0852](0852-an-app-is-a-git-repository-of-files-and-verbs.md) | An app is a Git repository of files and verbs | Proposed |
-| [0853](0853-collections-give-an-app-its-standard-verbs-and-screens-are-clients.md) | Collections give an app its standard verbs, and screens are clients | Proposed |
+| [0852](0852-an-app-is-a-git-repository-of-files-and-actions.md) | An app is a Git repository of files and actions | Proposed |
+| [0853](0853-collections-give-four-actions-and-programs-without-the-folder-ask-over-mcp.md) | Collections give four actions, and programs without the folder ask over MCP | Proposed |
 | [0854](0854-an-apps-cache-is-the-files-it-gitignores.md) | An app's cache is the files it gitignores | Proposed |
 | [0855](0855-reminders-are-an-app-and-a-screen-runs-what-is-due-when-it-opens.md) | Reminders are an app, and a screen runs what is due when it opens | Proposed |
+| [0856](0856-binary-files-go-through-git-lfs.md) | Binary files go through Git LFS | Proposed |

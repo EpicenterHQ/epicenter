@@ -3,8 +3,8 @@
 - **Status:** Proposed
 - **Date:** 2026-11-08
 - **Amends:** [ADR-0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md) at `epicenter sync`, which is removed: Git and your Epicenter's pull and push do its work.
-- **Relates:** [ADR-0849](0849-your-epicenter-is-one-always-reachable-computer-that-runs-named-actions.md), [ADR-0850](0850-running-an-action-makes-one-commit-or-nothing.md), [ADR-0852](0852-an-app-is-a-git-repository-of-files-and-verbs.md) (the remote is `origin`).
-- **Unbuilt:** pull before and push after a run on your Epicenter. `epicenter sync` is built and is to be deleted.
+- **Relates:** [ADR-0849](0849-your-epicenter-is-one-always-reachable-computer-that-runs-named-actions.md), [ADR-0850](0850-running-an-action-makes-one-commit-or-nothing.md), [ADR-0852](0852-an-app-is-a-git-repository-of-files-and-actions.md) (the remote is `origin`).
+- **Unbuilt:** pushing after every commit `epicenter` makes, and pulling before a run on your Epicenter. `epicenter sync` is built and is to be deleted.
 
 ## Context
 
@@ -20,7 +20,14 @@ the place copies meet and the backup.** A private GitHub repository now;
 Epicenter Cloud (a repository on Cloudflare Artifacts) by default later; any Git
 host works.
 
-- Your Epicenter pulls before each run and pushes after each commit.
+- `epicenter` pushes after each commit it makes, wherever it runs, when the
+  branch tracks a remote branch; a worktree branch with none is never pushed.
+  If the remote has moved it merges first. Offline, or when the merge would
+  touch a file with uncommitted edits or conflict, the commit stays local and
+  leaves with the next push; Git's unpushed commits are the only queue.
+- Your Epicenter also pulls before each run.
+- A program that commits what it wrote, such as Whispering (ADR-0853), pushes
+  the same way.
 - A person or agent pulls and pushes a clone with Git, or with a Git-aware
   editor. Pushing an app's code is deploying it: your Epicenter runs what it
   pulled.

@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-11-08
-- **Relates:** [ADR-0849](0849-your-epicenter-is-one-always-reachable-computer-that-runs-named-actions.md) (no schedules), [ADR-0850](0850-running-an-action-makes-one-commit-or-nothing.md) (claiming is a commit), [ADR-0853](0853-collections-give-an-app-its-standard-verbs-and-screens-are-clients.md) (collections and screens).
+- **Relates:** [ADR-0849](0849-your-epicenter-is-one-always-reachable-computer-that-runs-named-actions.md) (no schedules), [ADR-0850](0850-running-an-action-makes-one-commit-or-nothing.md) (claiming is a commit), [ADR-0853](0853-collections-give-four-actions-and-programs-without-the-folder-ask-over-mcp.md) (collections and screens).
 - **Unbuilt:** all of it: a date-time field, the Reminders app, a screen running what is due, and phone notifications.
 
 ## Context
@@ -10,7 +10,7 @@
 ADR-0849 dropped schedules because their hard cases (catching up after sleep,
 moving machines without sending twice, a timer nobody watches) all came from
 runs nobody started. People still want reminders: a note at a time, and
-sometimes a verb to run then ("send Alex the draft at 9").
+sometimes an action to run then ("send Alex the draft at 9").
 
 ## Decision
 
@@ -66,5 +66,5 @@ what is due. A web screen shows what is due when it is opened.
 - **Reminders built into the Epicenter app.** A second home for data that is
   otherwise an app's files, and a feature no other client could reach.
 - **Claiming after the run.** Two screens opening together would both run it.
-  For a verb like sending mail, at most once with the person watching is the
+  For an action like sending mail, at most once with the person watching is the
   right promise.

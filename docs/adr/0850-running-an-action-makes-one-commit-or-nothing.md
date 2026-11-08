@@ -4,7 +4,7 @@
 - **Date:** 2026-11-08
 - **Supersedes:** [ADR-0848](0848-the-runner-owns-only-what-an-action-wrote.md): recorded writes as they happen, per-file hashes, run phases, and undo.
 - **Amends:** [ADR-0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md) at what happens when an action throws (nothing was written, so nothing is undone) and at when its writes reach the folder (when `run` returns).
-- **Relates:** [ADR-0849](0849-your-epicenter-is-one-always-reachable-computer-that-runs-named-actions.md) (where actions run), [ADR-0851](0851-each-app-has-one-git-remote-its-meeting-point-and-backup.md) (pull and push), [ADR-0853](0853-collections-give-an-app-its-standard-verbs-and-screens-are-clients.md) (a collection's `save` and `delete` follow the same rule), [ADR-0854](0854-an-apps-cache-is-the-files-it-gitignores.md) (ignored files).
+- **Relates:** [ADR-0849](0849-your-epicenter-is-one-always-reachable-computer-that-runs-named-actions.md) (where actions run), [ADR-0851](0851-each-app-has-one-git-remote-its-meeting-point-and-backup.md) (pushing after a commit), [ADR-0853](0853-collections-give-four-actions-and-programs-without-the-folder-ask-over-mcp.md) (a collection's `save` and `delete` follow the same rule), [ADR-0854](0854-an-apps-cache-is-the-files-it-gitignores.md) (ignored files).
 - **Unbuilt:** writes held until `run` returns. `packages/cli/src/run.ts` already notes dirty paths, refuses a write to one, and commits with `--only`; it still writes as the action runs and undoes changed paths when the action throws.
 
 ## Context
@@ -24,15 +24,15 @@ sent email, makes no commit.
 
 - Its `folder` writes and removes are held in memory, and its reads see them.
 - When `run` throws, nothing is written.
-- When `run` returns, the runner checks that no written path has uncommitted
+- When `run` returns, `epicenter` checks that no written path has uncommitted
   edits (in the index or the working tree). A commit of that path would carry
   the person's edit, so nothing is written and the run fails naming the path
   ("commit or stash your edit to pages/x.md first").
 - Otherwise it writes the files, then commits the tracked ones with
   `git commit --only <paths>`, named for the action, retrying while another Git
   command holds the index lock. Gitignored paths are written and never committed.
-- On your Epicenter a run first pulls the app's remote and afterwards pushes to
-  it (ADR-0851).
+- After a commit it pushes, if the branch tracks a remote branch (ADR-0851).
+  On your Epicenter a run also pulls first.
 
 Writes made through `folder.path` by another program are outside the action and
 are not held or committed.

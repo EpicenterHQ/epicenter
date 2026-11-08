@@ -8,12 +8,13 @@
 
 ## One Sentence
 
-An app is a Git repository of files and verbs: its `epicenter.ts` names
-collections, which give `list`, `show`, `save`, and `delete`, and actions, the
-verbs its author writes. Running a verb makes one commit, or nothing. Your
-Epicenter is the computer that's always on and holds your sign-ins; every verb
-runs there, and the terminal, Claude, and screens ask it through
-`epicenter serve` (ADR-0849 to ADR-0855).
+An app is a Git repository of files and actions: its `epicenter.ts` declares
+collections, each of which gives `list`, `show`, `save`, and `delete`, and the
+actions its author writes. `epicenter` runs an action in a folder and makes one
+commit, or nothing. Your Epicenter is the computer where `epicenter serve`
+always runs and your sign-ins live. A program with the folder writes files and
+commits what it wrote; one without it asks for actions over MCP (ADR-0849 to
+ADR-0856).
 
 ## Why the direction changed
 
@@ -49,7 +50,7 @@ On your Epicenter (ADR-0849):
 ~/Epicenter/                    the only list of apps: folders, or links to them
   mail/                         each app is its own Git repo, with one remote, origin
     epicenter.ts                export default defineApp({ name: 'mail', … })
-    package.json, bun.lock      the app's own dependencies
+    package.json, bun.lock      its own dependencies and editor types; not needed for @epicenter/app
     .gitignore                  node_modules/, .cache/
     lib.ts                      shared code: functions that take a `folder`
     queries/receipts.txt        a saved Gmail search
@@ -61,7 +62,7 @@ On your Epicenter (ADR-0849):
   reminders/                    an ordinary app from the registry (ADR-0855)
   vault -> ~/Code/vault         an app elsewhere joins by a link
 Keychain: epicenter.<name>      sign-ins, on your Epicenter only
-epicenter serve                 the only way in: HTTP and MCP, on the tailnet
+epicenter serve                 the only way in: MCP, on the tailnet
 ```
 
 The contract is ADR-0841 with ADR-0853 and ADR-0854:
@@ -93,7 +94,7 @@ The unscoped `epicenter` name on npm is not ours; everything is under the
 
 `@epicenter/app` holds what an app author touches: `defineApp`, `field`, the
 `Folder`, `Cache`, and `Secrets` types, and `createMemoryContext` for tests,
-which is plain JavaScript. What needs a computer is the runner's and lives in
+which is plain JavaScript. What needs a computer is `epicenter`'s and lives in
 `@epicenter/cli`: the folder on disk, the cache directory and its SQLite, the
 Keychain, Git. A notes library, when an app needs one, is new code that copies
 the front-matter rule; `packages/definition` is not adapted (ADR-0843).
@@ -104,13 +105,14 @@ the front-matter rule; `packages/definition` is not adapted (ADR-0843).
 2. **First run.** `epicenter` with no `~/Epicenter` offers to create it. Nothing
    else is generated, and Epicenter writes no instructions for agents.
 3. **A new app.** `epicenter new reading` writes `reading/epicenter.ts` (with its
-   `name`) and `package.json` from a template, and runs `git init`. Usually the
+   `name`), `.gitignore`, `.gitattributes`, and `package.json` from a template,
+   and runs `git init`. Usually the
    person asks Claude instead; the app works at once because Bun runs
    TypeScript.
 4. **Someone else's app.** `epicenter add github:someone/apps/vocab` copies the
    files the source tracks at one commit into a new repository at
-   `~/Epicenter/vocab`, keeps that copy as the `upstream` branch, records
-   `{ from, sha }` in its `package.json`, and runs `bun install`. A later version
+   `~/Epicenter/vocab`, keeps that copy as the `upstream` branch, and runs
+   `bun install` if it has a `package.json`. A later version
    of the source is merged with `git merge upstream`. Then, for Mail,
    `epicenter mail connect` signs in.
 5. **The vault.** Rename its `defineFolder` file, add an `epicenter.ts` that
@@ -128,15 +130,17 @@ the front-matter rule; `packages/definition` is not adapted (ADR-0843).
 ## Sync
 
 ADR-0842, as ADR-0850 and ADR-0851 amend it. **The repository is the sync, and
-running a verb makes one commit, or nothing.** A verb's writes are held until it
+running an action makes one commit, or nothing.** An action's writes are held until it
 returns, then committed with `--only`; one that throws writes nothing, and one
 that would write a path the person has edited fails without writing. Exit
 codes: 0 ran, 1 a finding, 2 did not run, 3 ran and threw. Runs of one app take
 turns. The person commits their own edits. Each app has one remote, `origin`;
-your Epicenter pulls before a run and pushes after, and everyone else uses Git.
+`epicenter` pushes after each commit when the branch tracks a remote, your
+Epicenter also pulls before a run, and everyone else uses Git. Binary files go
+through Git LFS (ADR-0856).
 Files that only grow are `merge=union` in the app's `.gitattributes`; other
 conflicts are Git's, left as markers. `.cache/` and secrets never sync.
-Anything without Git uses verbs through `serve`.
+Anything without the folder asks for actions through `serve`.
 
 ## Mail, the first real app
 
@@ -178,15 +182,15 @@ epicenter mail apply newsletters                         # the person runs this
 ## Refused for now
 
 A sync engine; schedules, with reminders as an app instead (ADR-0849, ADR-0855); shared providers such as Google sign-in in core (ADR-0847);
-sandboxing; validating schemas for folders (collections describe, ADR-0845); a
-runner on the phone or in a browser. `epicenter serve`, the hub, your
+sandboxing; validating schemas for folders (collections describe, ADR-0845); running
+actions on the phone or in a browser. `epicenter serve`, the hub, your
 Epicenter, and the phone as a client are no longer refused: ADR-0849 orders
 them below.
 
 ## Later, without changing an action
 
-- **A custom UI.** Static pages served by `epicenter serve`, importing the app's
-  type (`import type`) and calling actions over HTTP through a typed client. A
+- **A custom UI.** A page importing the app's type (`import type`) and calling
+  actions over MCP through the typed client in `@epicenter/app` (ADR-0853). A
   page never imports `run`, which needs Bun and secrets.
 - **Native power.** A page inside a Tauri window reaches Rust through capability
   packages that pick their implementation at run time (the platform-seams rule).
@@ -258,9 +262,11 @@ Claude Code.
 held until `run` returns, then written and committed with `--only` (ADR-0850);
 `cache` replaced by `.cache/` in the folder (ADR-0854); `epicenter sync`
 deleted and `new` made `add` from a template (ADR-0851, ADR-0852). Then
-`epicenter serve` (HTTP and MCP) as the only way in, `epicenter setup`, the
-CLI forwarding named verbs to `serve` with streamed output and exit codes, and
-pull before and push after a run on your Epicenter (ADR-0849). Done when Claude
+`epicenter serve` (MCP) as the only way in, `epicenter setup` (checking `git`
+and `git-lfs`), the CLI forwarding named actions to `serve` as tool calls, a
+push after every commit and a pull before a run on your Epicenter, the
+template's `.gitattributes` and the LFS check before committing, and
+`epicenter` supplying `@epicenter/app` (ADR-0849 to ADR-0852, ADR-0856). Done when Claude
 on the laptop runs `mail search` on the Mac through `serve`'s MCP address, an
 agent's edit is untouched by a Mail action
 failing in the same folder, a race of 1,000 runs against an agent's commits
@@ -275,15 +281,19 @@ real app. `epicenter add` comes when the first app is copied from a source.
 
 **5. Vocab, then the hub.** A collection's `list`, `show`, `save`, and `delete`
 in `packages/app` and `packages/cli` (ADR-0853); Vocab's actions and
-collections, rebuilt from the frozen app; then the Epicenter app, a client of
-`epicenter serve` that shows collections as tables, `save` and actions as
-forms, in a browser or a desktop window (ADR-0853). Then a date-time field, the
+collections, rebuilt from the frozen app; then the typed MCP client in
+`@epicenter/app` and the Epicenter app, which asks `epicenter serve` through it
+and shows collections as tables, `save` and actions as forms, in a browser or a
+desktop window (ADR-0853). Then a date-time field, the
 Reminders app, and the Epicenter app running what is due when it opens
 (ADR-0855). The frozen Vocab leaves when the rebuilt one runs.
 
 **6. Prune the rest.** In the order ADR-0843 gives: `apps/api` loses its folder
 sync routes; `packages/account`, `ai`, `svelte`, and `recorder` cut their
-imports; Whispering is untangled; then `packages/folder`, `server`,
+imports; Whispering is untangled: its contract becomes an `epicenter.ts` of
+collections that it writes into its folder, its desktop app writes files and
+commits and pushes what it wrote with the installed `git`, and its web variant
+leaves with the waiting product (ADR-0853); then `packages/folder`, `server`,
 `definition`, `local`, `tauri-plugin-epicenter-folder`, and
 `tauri-epicenter-standalone` are deleted, each in its own commit. A frozen
 app (Vocab, Todos, Capture, Honeycrisp, Messages) leaves when its rebuilt

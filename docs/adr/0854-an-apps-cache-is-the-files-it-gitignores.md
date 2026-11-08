@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-11-08
 - **Amends:** [ADR-0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md) at the context, which becomes `folder` and `secrets`: `cache`, its directory under `~/Library/Caches`, `clear()`, and `sqlite(name)` go. [ADR-0844](0844-one-runner-runs-anywhere-and-every-surface-is-a-view-over-it.md) at its cache root per operating system.
-- **Relates:** [ADR-0850](0850-running-an-action-makes-one-commit-or-nothing.md) (ignored paths are written and never committed), [ADR-0852](0852-an-app-is-a-git-repository-of-files-and-verbs.md) (the template's `.gitignore`).
+- **Relates:** [ADR-0850](0850-running-an-action-makes-one-commit-or-nothing.md) (ignored paths are written and never committed), [ADR-0852](0852-an-app-is-a-git-repository-of-files-and-actions.md) (the template's `.gitignore`).
 - **Unbuilt:** all of it. `cache` exists in `packages/app` and `packages/cli`.
 
 ## Context
