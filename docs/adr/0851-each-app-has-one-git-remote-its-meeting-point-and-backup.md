@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-11-08
 - **Amends:** [ADR-0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md) at `epicenter sync`, which is removed: Git and your Epicenter's pull and push do its work.
-- **Relates:** [ADR-0849](0849-your-epicenter-is-one-always-reachable-computer-that-runs-named-actions.md), [ADR-0850](0850-an-action-commits-exactly-the-files-it-wrote-wherever-it-runs.md), [ADR-0852](0852-epicenter-is-one-contract-and-four-open-slots.md) (the remote is one of the slots).
+- **Relates:** [ADR-0849](0849-your-epicenter-is-one-always-reachable-computer-that-runs-named-actions.md), [ADR-0850](0850-running-an-action-makes-one-commit-or-nothing.md), [ADR-0852](0852-an-app-is-a-git-repository-of-files-and-verbs.md) (the remote is `origin`).
 - **Unbuilt:** pull before and push after a run on your Epicenter. `epicenter sync` is built and is to be deleted.
 
 ## Context

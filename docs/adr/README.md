@@ -1055,8 +1055,9 @@ When you add an ADR, add its row here.
 | [0847](0847-an-app-brings-its-providers-credentials-with-a-default-in-its-code.md) | An app brings its provider's credentials, with a default in its code | Accepted |
 | [0848](0848-the-runner-owns-only-what-an-action-wrote.md) | The runner owns only what an action wrote | Accepted |
 | [0849](0849-your-epicenter-is-one-always-reachable-computer-that-runs-named-actions.md) | Your Epicenter is one always-reachable computer that runs named actions | Proposed |
-| [0850](0850-an-action-commits-exactly-the-files-it-wrote-wherever-it-runs.md) | An action commits exactly the files it wrote, wherever it runs | Proposed |
+| [0850](0850-running-an-action-makes-one-commit-or-nothing.md) | Running an action makes one commit, or nothing | Proposed |
 | [0851](0851-each-app-has-one-git-remote-its-meeting-point-and-backup.md) | Each app has one Git remote, its meeting point and its backup | Proposed |
-| [0852](0852-epicenter-is-one-contract-and-four-open-slots.md) | Epicenter is one contract and four open slots | Proposed |
-| [0853](0853-collections-give-an-app-its-reading-actions-and-screens-are-clients.md) | Collections give an app its reading actions, and screens are clients | Proposed |
+| [0852](0852-an-app-is-a-git-repository-of-files-and-verbs.md) | An app is a Git repository of files and verbs | Proposed |
+| [0853](0853-collections-give-an-app-its-standard-verbs-and-screens-are-clients.md) | Collections give an app its standard verbs, and screens are clients | Proposed |
 | [0854](0854-an-apps-cache-is-the-files-it-gitignores.md) | An app's cache is the files it gitignores | Proposed |
+| [0855](0855-reminders-are-an-app-and-a-screen-runs-what-is-due-when-it-opens.md) | Reminders are an app, and a screen runs what is due when it opens | Proposed |

@@ -8,9 +8,12 @@
 
 ## One Sentence
 
-Each app is a folder whose `epicenter.ts` defines its actions; the `epicenter`
-CLI turns every action into a command for the person and a tool for their
-agent, and hands it a folder, a cache, and secrets.
+An app is a Git repository of files and verbs: its `epicenter.ts` names
+collections, which give `list`, `show`, `save`, and `delete`, and actions, the
+verbs its author writes. Running a verb makes one commit, or nothing. Your
+Epicenter is the computer that's always on and holds your sign-ins; every verb
+runs there, and the terminal, Claude, and screens ask it through
+`epicenter serve` (ADR-0849 to ADR-0855).
 
 ## Why the direction changed
 
@@ -40,36 +43,41 @@ direction; ADR-0841 the app contract.
 
 ## Target shape
 
+On your Epicenter (ADR-0849):
+
 ```
-~/Epicenter/                    the home: a plain directory, nothing generated
-  mail/                         each app folder is its own Git repo
+~/Epicenter/                    the only list of apps: folders, or links to them
+  mail/                         each app is its own Git repo, with one remote, origin
     epicenter.ts                export default defineApp({ name: 'mail', … })
     package.json, bun.lock      the app's own dependencies
+    .gitignore                  node_modules/, .cache/
     lib.ts                      shared code: functions that take a `folder`
     queries/receipts.txt        a saved Gmail search
-    batches/                    reviewed changes; .gitignored
+    batches/                    reviewed changes; gitignored
+    .cache/                     rebuildable: mailbox copies, browser profiles
   reading/
     epicenter.ts
     2026.csv
-  vault -> ~/Code/vault         an app elsewhere joins by a symlink
-~/Code/vault/epicenter.ts       the vault's scripts as actions (after its defineFolder file is renamed)
-~/Library/Caches/so.epicenter.apps/<name>/   rebuildable: mailbox copies, browser profiles
-                                            (a folder run by path: <name>-<hash>/)
-Keychain: epicenter.<name>                  sign-ins, shared by every copy of the app on this computer
+  reminders/                    an ordinary app from the registry (ADR-0855)
+  vault -> ~/Code/vault         an app elsewhere joins by a link
+Keychain: epicenter.<name>      sign-ins, on your Epicenter only
+epicenter serve                 the only way in: HTTP and MCP, on the tailnet
 ```
 
-The contract is ADR-0841: `defineApp({ name, description, actions })`; an action
-is `{ description, input: { …fields }, run(input, { folder, cache, secrets }),
+The contract is ADR-0841 with ADR-0853 and ADR-0854:
+`defineApp({ name, description, collections, actions })`; a collection is
+`{ path, fields, readOnly? }` and gives `list`, `show`, `save`, and `delete`; an
+action is `{ description, input: { …fields }, run(input, { folder, secrets }),
 readOnly?, destructive? }`, keyed by one or more words (`'calendar show'`), where
-`folder` and `cache` are objects (`read`, `write`, `list`, `remove`, bytes forms,
-and `path` only on a computer) supplied by whatever runs the action.
+`folder` is an object (`read`, `write`, `list`, `remove`, bytes forms, and
+`path` only on a computer) supplied by whatever runs the action.
 
 ```
 epicenter [--json]                              apps, actions, input schemas, problems
-epicenter <app> [--json]                        one app: actions, folder, cache path, Keychain service
+epicenter <app> [--json]                        one app: collections, actions, folder, Keychain service
 epicenter <app> <action words> [<positional>] [--flags] [--json]
 epicenter <path> <action words> …               a folder by path, such as a worktree
-epicenter new <name> | add <source> | sync | mcp [<app>…] | help
+epicenter setup | serve | new <name> | add <source> | mcp [<app>…] | help
 ```
 
 ## Packages
@@ -111,24 +119,24 @@ the front-matter rule; `packages/definition` is not adapted (ADR-0843).
 6. **Agents.** Claude Code runs `epicenter` in the shell. Permission rules allow
    reading actions by command prefix (`Bash(epicenter mail search *)`) and ask on
    destructive ones; never allow `Bash(epicenter *)`. Claude Desktop and other
-   chat apps add `epicenter mcp` to their MCP settings, or
-   `ssh <your Epicenter> epicenter mcp` on another computer (ADR-0849).
+   chat apps add `epicenter mcp` to their MCP settings on your Epicenter, or
+   `serve`'s MCP address on another computer (ADR-0849).
 7. **A second computer.** Clone each app's repo into `~/Epicenter`, run
    `bun install` in each, recreate links, and `connect` again where an app needs
    a sign-in. Caches fill on first use.
 
 ## Sync
 
-ADR-0842. **The repository is the sync, and an action is a commit.** When an
-action returns, what it changed becomes one commit named for the action, never
-including paths the person had already edited; when it throws, its changes to
-paths that were clean are undone. Exit codes: 0 ran, 1 a finding, 2 did not run,
-3 ran and threw. Actions on one app take turns. The person
-commits their own edits. `epicenter sync` pulls and pushes every app repository
-and never commits; it says which apps have uncommitted changes. Files that only
-grow are `merge=union` in the app's `.gitattributes`; other conflicts are Git's,
-left as markers. Caches and secrets never sync. A computer uses any Git remote;
-anything without Git reaches an app only through Epicenter Cloud, later.
+ADR-0842, as ADR-0850 and ADR-0851 amend it. **The repository is the sync, and
+running a verb makes one commit, or nothing.** A verb's writes are held until it
+returns, then committed with `--only`; one that throws writes nothing, and one
+that would write a path the person has edited fails without writing. Exit
+codes: 0 ran, 1 a finding, 2 did not run, 3 ran and threw. Runs of one app take
+turns. The person commits their own edits. Each app has one remote, `origin`;
+your Epicenter pulls before a run and pushes after, and everyone else uses Git.
+Files that only grow are `merge=union` in the app's `.gitattributes`; other
+conflicts are Git's, left as markers. `.cache/` and secrets never sync.
+Anything without Git uses verbs through `serve`.
 
 ## Mail, the first real app
 
@@ -153,7 +161,7 @@ epicenter mail apply newsletters                         # the person runs this
   Git.
 - **No mailbox copy at first.** Gmail's quota (6,000 units a minute per user,
   20 per message fetch) makes a whole-mailbox copy take hours. An Inbox-only
-  copy in `cache`, for SQL triage, comes when a question needs it.
+  copy in `.cache/`, for SQL triage, comes when a question needs it.
 - **Permissions.** Claude Code allows `epicenter mail search`, `show`, and `plan`;
   it asks on `apply`.
 - **Code.** Salvage `gmail-client.ts`, `oauth.ts`, and `token-manager.ts` from
@@ -169,7 +177,7 @@ epicenter mail apply newsletters                         # the person runs this
 
 ## Refused for now
 
-A sync engine; schedules (ADR-0849); shared providers such as Google sign-in in core (ADR-0847);
+A sync engine; schedules, with reminders as an app instead (ADR-0849, ADR-0855); shared providers such as Google sign-in in core (ADR-0847);
 sandboxing; validating schemas for folders (collections describe, ADR-0845); a
 runner on the phone or in a browser. `epicenter serve`, the hub, your
 Epicenter, and the phone as a client are no longer refused: ADR-0849 orders
@@ -177,8 +185,6 @@ them below.
 
 ## Later, without changing an action
 
-- **Forms for free.** `epicenter open <app>` serves a page drawing a form for each
-  action from its fields.
 - **A custom UI.** Static pages served by `epicenter serve`, importing the app's
   type (`import type`) and calling actions over HTTP through a typed client. A
   page never imports `run`, which needs Bun and secrets.
@@ -252,10 +258,11 @@ Claude Code.
 held until `run` returns, then written and committed with `--only` (ADR-0850);
 `cache` replaced by `.cache/` in the folder (ADR-0854); `epicenter sync`
 deleted and `new` made `add` from a template (ADR-0851, ADR-0852). Then
-`epicenter setup`, forwarding named actions and `epicenter mcp` over SSH, pull
-before and push after a run on your Epicenter, and `epicenter serve` (HTTP and
-MCP) (ADR-0849). Done when Claude on the laptop runs `mail search` on the Mac
-through `ssh … epicenter mcp`, an agent's edit is untouched by a Mail action
+`epicenter serve` (HTTP and MCP) as the only way in, `epicenter setup`, the
+CLI forwarding named verbs to `serve` with streamed output and exit codes, and
+pull before and push after a run on your Epicenter (ADR-0849). Done when Claude
+on the laptop runs `mail search` on the Mac through `serve`'s MCP address, an
+agent's edit is untouched by a Mail action
 failing in the same folder, a race of 1,000 runs against an agent's commits
 loses nothing, every commit reaches the app's remote, and remote FileVault
 unlock over SSH has been tried.
@@ -266,10 +273,13 @@ remote. Done when
 `epicenter vault calendar show …` runs, which proves nested action words on a
 real app. `epicenter add` comes when the first app is copied from a source.
 
-**5. Vocab, then the hub.** Vocab's actions and collections, rebuilt from the
-frozen app, with reading actions from its collections; then the Epicenter app,
-a client of `epicenter serve` that browses data through reading actions and runs
-actions as forms, in a browser or a desktop window (ADR-0853). The frozen Vocab leaves when the rebuilt one runs.
+**5. Vocab, then the hub.** A collection's `list`, `show`, `save`, and `delete`
+in `packages/app` and `packages/cli` (ADR-0853); Vocab's actions and
+collections, rebuilt from the frozen app; then the Epicenter app, a client of
+`epicenter serve` that shows collections as tables, `save` and actions as
+forms, in a browser or a desktop window (ADR-0853). Then a date-time field, the
+Reminders app, and the Epicenter app running what is due when it opens
+(ADR-0855). The frozen Vocab leaves when the rebuilt one runs.
 
 **6. Prune the rest.** In the order ADR-0843 gives: `apps/api` loses its folder
 sync routes; `packages/account`, `ai`, `svelte`, and `recorder` cut their
@@ -304,4 +314,7 @@ Waves 1 to 5 are done:
   `~/Epicenter/vault` link, from the laptop as well.
 - The phone runs an action on your Epicenter, which commits it and pushes it to the app's remote.
 - Vocab runs as an app with actions and collections, and the Epicenter app
-  shows its words as a table and its actions as forms.
+  shows its words as a table, edits one with `save`, and runs its actions as
+  forms.
+- A reminder whose time has passed runs once when the Epicenter app opens, even
+  with the phone and laptop opening together.
