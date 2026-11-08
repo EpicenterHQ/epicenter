@@ -1,9 +1,0 @@
-{
-	// Bun entrypoints: publishing the contract, and the end-to-end stack and suite.
-	"extends": "../../tsconfig.dom.json",
-	"compilerOptions": {
-		"types": ["bun"],
-		"noEmit": true
-	},
-	"include": ["scripts/**/*.ts", "e2e/**/*.ts", "playwright.config.ts"]
-}

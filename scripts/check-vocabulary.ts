@@ -105,10 +105,7 @@ const RULES: readonly Rule[] = [
 		scope: [
 			'packages/svelte/',
 			'packages/server/workers/',
-			'apps/honeycrisp/',
 			'apps/whispering/',
-			'apps/vocab/',
-			'apps/epicenter/',
 			'.agents/skills/yjs/',
 			'.agents/skills/svelte/',
 			'.agents/skills/collapse-pass/',

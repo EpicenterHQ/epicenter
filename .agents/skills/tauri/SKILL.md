@@ -67,8 +67,7 @@ When a Tauri app uses `tauri-specta`, keep the Rust command registry, generated 
 Verification for IPC changes usually needs both sides:
 
 ```bash
-cargo check --manifest-path apps/epicenter/src-tauri/Cargo.toml
-cargo test --manifest-path apps/epicenter/src-tauri/Cargo.toml export_types
+cargo check --manifest-path apps/whispering/src-tauri/Cargo.toml
 ```
 
 If binding generation rewrites unrelated sections, inspect the diff before committing it.

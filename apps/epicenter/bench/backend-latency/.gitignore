@@ -1,6 +1,0 @@
-# One target dir per posture, since the README recommends CARGO_TARGET_DIR to
-# avoid a full native rebuild on every posture switch.
-target*/
-# Result files accumulate locally; the run that produced them is what gets
-# reported, not a checked-in snapshot.
-*.jsonl

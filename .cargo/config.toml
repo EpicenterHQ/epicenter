@@ -1,5 +1,4 @@
-# Cargo reads this for every build run from inside the repository, whichever
-# manifest it builds (the workspace's or `apps/epicenter/src-tauri`'s).
+# Cargo reads this for every build run from inside the repository.
 
 [env]
 # libopus (through `audiopus_sys`, for the recorder's encoder and the

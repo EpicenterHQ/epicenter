@@ -37,12 +37,11 @@ const desktopModules = (modules: readonly string[]) =>
 		.filter((path) => !SMALL_DESKTOP_PART.some((part) => path.endsWith(part)))
 		.map((path) => path.slice(path.indexOf(root) + root.length + 1));
 
-for (const app of ['todos', 'capture', 'honeycrisp', 'vocab', 'whispering'])
-	test(`${app}'s first load holds no desktop module`, async () => {
-		const modules = await firstLoadModules(join(root, 'apps', app));
-		// The page's own code is there, so the build read the app.
-		expect(
-			modules.some((path) => path.endsWith(`apps/${app}/src/lib/app.ts`)),
-		).toBe(true);
-		expect(desktopModules(modules)).toEqual([]);
-	}, 180_000);
+test('whispering first load holds no desktop module', async () => {
+	const modules = await firstLoadModules(join(root, 'apps/whispering'));
+	// The page's own code is there, so the build read the app.
+	expect(
+		modules.some((path) => path.endsWith('apps/whispering/src/lib/app.ts')),
+	).toBe(true);
+	expect(desktopModules(modules)).toEqual([]);
+}, 180_000);

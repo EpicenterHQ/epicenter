@@ -40,17 +40,15 @@ Keep the error non-nullable. Specta's `DataError` mode uses `null` to mean succe
 
 ## Generate the application result shape
 
-Epicenter's `make_specta_builder()` registers the commands and sets `ErrorHandlingMode::DataError`. The generated command returns `{ data: T, error: null } | { data: null, error: E }`, which is compatible with Wellcrafted's `Result<T, E>`. Callers branch on `error !== null`, forward an error they do not own, and let the interaction owner present the final outcome. Infallible commands retain their plain generated return type.
+The native plugins' Specta builders set `ErrorHandlingMode::DataError`. The generated command returns `{ data: T, error: null } | { data: null, error: E }`, which is compatible with Wellcrafted's `Result<T, E>`. Callers branch on `error !== null`, forward an error they do not own, and let the interaction owner present the final outcome. Infallible commands retain their plain generated return type.
 
 This mode changes the generated TypeScript API. Tauri still sends a Rust `Err` through its rejected IPC channel. The generated helper catches a non-`Error` rejection and casts it to `E`; it rethrows a JavaScript `Error`. Generation therefore establishes the compile-time contract, not runtime validation of every rejection. Do not present an unexpected thrown failure as a known Rust domain variant. Adapt a transport rejection only where an operation deliberately owns that failure meaning.
 
-A consumer's command boundary combines generated commands with any handwritten raw-byte command. It must not reshape every generated command: `DataError` already produces the application Result. A raw `tauri::ipc::Response` command remains handwritten because Specta cannot export that response type. The standalone Whispering app no longer calls these commands; its shell registers none.
+A consumer's command boundary combines generated commands with any handwritten raw-byte command. It must not reshape every generated command: `DataError` already produces the application Result. A raw `tauri::ipc::Response` command remains handwritten because Specta cannot export that response type.
 
 ## Keep the generated contract in sync
 
-A Rust command or error change must update `make_specta_builder()`, regenerate `apps/epicenter/src/ui/bindings.gen.ts` (the `export_bindings` test in `apps/epicenter/src-tauri/src/lib.rs` writes it), and review its diff. Generated types should change when the wire contract changes. Check the relevant TypeScript type assertions and the Epicenter consumer. Keep exhaustive `switch (error.name)` handling where a caller translates every variant.
-
-The current `DataError` implementation is pinned to upstream Git revisions in `apps/epicenter/src-tauri/Cargo.toml` because it landed after the last published `tauri-specta` release. Replace those pins with released compatible versions when available; do not silently downgrade to the status-tagged mode while the generated callers expect `{ data, error }`.
+Regenerate the bindings owned by a changed plugin and review their diff. Generated types should change when the wire contract changes. Check the relevant TypeScript type assertions and consumers. Keep exhaustive `switch (error.name)` handling where a caller translates every variant.
 
 Rust's `tracing` and TypeScript's `wellcrafted/logger` both choose severity at the emission site, not on the error variant. See `logging` for the diagnostic contract and the mapping below. A returned `Err` is not itself a log event; log where an owner can add context or where the failure would otherwise be invisible.
 

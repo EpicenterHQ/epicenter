@@ -36,10 +36,8 @@ epicenter share ~/Epicenter/notes jess@example.com
 epicenter accept                      # the shares waiting for you
 ```
 
-The CLI is its own program, with its own sign-in (ADR-0793). The Epicenter
-app neither runs nor carries it: its
-[Folders window](../../apps/epicenter/README.md#the-folders-window) composes
-`@epicenter/folder/platform` itself. `bun run --cwd packages/cli compile`
+The CLI is its own program, with its own sign-in (ADR-0793).
+`bun run --cwd packages/cli compile`
 builds the binary (`packages/cli/scripts/compile.ts`); an installer of its own
 is not built yet.
 
@@ -348,7 +346,6 @@ command holds a timer, since Bun 1.3.14 can otherwise end the process while
 
 ```sh
 bun test                       # from source
-EPICENTER_BIN=../../apps/epicenter/src-tauri/binaries/epicenter-cli-<triple> bun test src/epicenter.test.ts
 bun run typecheck
 ```
 

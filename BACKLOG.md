@@ -352,19 +352,6 @@ another chat and does not create an implementation assignment.
 
 ## Release and hosted operations
 
-### Ship a trusted Epicenter macOS application
-
-- Desired result: Distribute a Developer ID signed, notarized, and stapled DMG,
-  including its bundled Bun sidecar, that passes Gatekeeper.
-- Grounding: [Tauri configuration](apps/epicenter/src-tauri/tauri.conf.json)
-  still uses ad hoc signing. Verify an actual distributed build before closing
-  this item.
-- Revisit when: Before distributing outside the development team.
-- Keychain acceptance: In the signed distributed build, verify `Bun.secrets`
-  set/get for the stored grant and AI keys, then verify those entries remain
-  readable after installing the next signed build. Development or ad hoc signing
-  does not establish this release behavior.
-
 ### Establish hosted erasure before external onboarding
 
 - Desired result: Attribute hosted allocations to their account and verify an

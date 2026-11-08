@@ -13,9 +13,6 @@ test('dashboard startup supplies its public origin without changing ordinary API
 		'API_PUBLIC_ORIGIN=http://localhost:5178 bun run --filter @epicenter/api --filter @epicenter/api-ui dev',
 	);
 	expect(scripts['dev:api']).toBe('bun run --cwd apps/api dev');
-	expect(scripts['dev:epicenter']).toBe(
-		'EPICENTER_API_URL=http://localhost:8787 bun run --filter @epicenter/api --filter @epicenter/epicenter dev',
-	);
 });
 
 test('dev launcher validates the loopback override and removes production routes before starting Wrangler', async () => {

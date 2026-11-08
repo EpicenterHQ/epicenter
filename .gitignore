@@ -73,13 +73,9 @@ test-results/
 
 # Smoke-test and tooling run logs (machine-local, regenerated per run)
 .artifacts/
-dist-epicenter
 
 # Agent scratch (machine-local, never commit)
 .scratch/
-
-# Held while an Epicenter build runs; see apps/epicenter/scripts/with-build-lock.ts
-.build-lock/
 
 # Temporary UI browser regression fixtures
 packages/ui/.browser-migration-*/

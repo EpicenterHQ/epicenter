@@ -5,7 +5,7 @@
   <h1 align="center">Epicenter</h1>
   <p align="center"><strong>Local-first apps over files you own.</strong></p>
   <p align="center">Apps keep their data as ordinary Markdown and JSON files in a folder on your computer, and sync it with an Epicenter server, hosted or self-hosted. An editor, Git tool, or agent can open the same files.</p>
-  <p align="center"><a href="apps/todos">Todos</a>, <a href="apps/whispering">Whispering</a>, and <a href="apps/honeycrisp">Honeycrisp</a> are built on it today.</p>
+  <p align="center"><a href="apps/whispering">Whispering</a> and <a href="apps/local-books">Local Books</a> are built here today.</p>
   <p align="center">Run the apps freely under AGPL-3.0-or-later. <a href="#license">What that means</a>.</p>
 </p>
 
@@ -45,33 +45,19 @@ contract's schemas interpret them. Opening needs no account, remote, or
 declaration file. A desktop app or a Bun script opens a directory; in a browser
 the folder is the signed-in account's folder on the server.
 
-```ts
-import { openFolder } from '@epicenter/folder';
-import { directory } from '@epicenter/folder/node';
-
-const folder = openFolder(todos, directory('/Users/me/Epicenter/todos'));
-await folder.todos.set({ id: 'milk' }, { title: 'Milk', done: false });
-```
-
 A write never fails: the folder keeps it, in order, until it lands. Sync is
-separate from opening. Epicenter, the app while it runs or `epicenter sync`,
-syncs a folder with its ledger on the server, with no Git on your computer.
+separate from opening. The `epicenter sync` command syncs a folder with its
+ledger on the server, with no Git on your computer.
 
 [Read the folder API](packages/folder/README.md)
 
 ## Status
 
-Apps run in the browser and as desktop apps, over folders. Todos opens at once
-with no account; Whispering, Capture, Vocab, and Honeycrisp use local folders
-too. The Yjs store and its sync were
-removed, with the Local Mail, Skills, and sync-lab apps built on them; Git
-history keeps them for a return.
-
-Matter, a typed grid over Markdown folders with its own schema and SQLite
-mirror, was removed too. The Epicenter app's Folders window and the
-`epicenter` command sync, share, show history, restore, and import from Git;
-the window is built and not yet seen running. [Local Books](apps/local-books) is a headless mirror that
-pulls a QuickBooks account into local SQLite and keeps its own format.
+Whispering runs in the browser and as a desktop app. The `epicenter` command
+still works with folders. [Local Books](apps/local-books) is a headless mirror
+that pulls a QuickBooks account into local SQLite and keeps its own format.
+The next app model is a folder whose `epicenter.ts` defines its actions
+([ADR-0840](docs/adr/0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md)).
 
 ## Trust Boundaries
 
@@ -92,14 +78,11 @@ A folder syncs only with an Epicenter server, which can read its files in plaint
 
 | App | Status | Notes |
 | --- | --- | --- |
-| [Honeycrisp](apps/honeycrisp) | Runs, development milestone | Markdown notes on the file contract, edited as Markdown with live preview: in a browser, the signed-in person's folder on the server; on the desktop, a folder on the computer. |
 | [Local Books](apps/local-books) | Runs, separately | Headless CLI mirror that pulls QuickBooks into local SQLite. |
 | [API](apps/api) | Hosted infrastructure | Personal cloud Worker. Owns sign-in, each folder's ledger, the AI gateways, hosted-only billing, and the dashboard. Self-host it on Bun with Postgres (`apps/api/server.ts`). |
-| [Whispering](apps/whispering) | Runs, development milestone | Voice recorder in a browser tab. Recordings, transcripts, and settings are files in a folder. |
-| [Todos](apps/todos) | Runs, development milestone | Todos as Markdown notes on the file contract: in a browser, your folder on the server once signed in; on the desktop, a folder on the computer with no account. |
-| [Vocab](apps/vocab) | Runs, development | Words and chats as notes of its contract, in the browser the learner's folder on the server, on the desktop a folder on the computer, with AI over `@epicenter/ai`. |
-| [Epicenter](apps/epicenter) | Runs, development | Settings and the Folders window over every folder in `~/Epicenter`: sync, sharing, history, and import from Git. The window is built and not yet seen running. Apps run as separate programs. |
-| Other app folders | Research and prototypes | Useful history and experiments, not the current product lineup. |
+| [Whispering](apps/whispering) | Runs | Voice recorder in a browser tab or desktop window. Recordings, transcripts, and settings are files in a folder. |
+| [Landing](apps/landing) | Runs | Public site. |
+| [PostHog reverse proxy](apps/posthog-reverse-proxy) | Runs | Analytics proxy Worker. |
 
 ### Packages
 
@@ -144,19 +127,17 @@ cd epicenter
 bun install
 ```
 
-Every app starts from the repo root. `bun dev:<app>` runs every process the app needs; for apps that talk to the hosted API, that includes the API worker on `localhost:8787`. `bun dev:<app>:ui` runs the app's frontend alone when that split exists, and `bun dev:api` runs just the backend. Bare `bun dev` is `bun dev:honeycrisp`, and `bun run` with no arguments lists every target.
+Every app starts from the repo root. `bun dev:<app>` runs every process the app needs; for apps that talk to the hosted API, that includes the API worker on `localhost:8787`. `bun dev:<app>:ui` runs the app's frontend alone when that split exists, and `bun dev:api` runs just the backend. Bare `bun dev` is `bun dev:whispering`, and `bun run` with no arguments lists every target.
 
 | Command | Starts | App port |
 | --- | --- | --- |
-| `bun dev:honeycrisp` | Honeycrisp in the browser, no API | 5175 |
+| `bun dev:whispering` | Whispering in the browser | 1420 |
 | `bun dev:api` | Hosted API worker alone | 8787 |
 | `bun dev:api-dashboard` | API + dashboard UI | 5178 |
 | `bun dev:landing` | Landing site, standalone | 4321 |
 | `bun dev:posthog-reverse-proxy` | PostHog reverse proxy Worker | wrangler default |
 
-`bun dev:whispering` runs Whispering in a browser tab. `bun dev:todos`, `bun dev:vocab`, and `bun dev:epicenter` run those apps.
-
-The API needs local Postgres and Infisical; see [apps/api/README.md](apps/api/README.md). Rust is needed for Tauri apps such as Epicenter. Local Books runs its own multi-process dev flow; its README documents it.
+The API needs local Postgres and Infisical; see [apps/api/README.md](apps/api/README.md). Rust is needed for Whispering's desktop build. Local Books runs its own multi-process dev flow; its README documents it.
 
 `bun run check` is the gate. It runs lint, typecheck, every workspace test, and the structural checks, and it is the same gate CI runs, so a green local run predicts a green pull request. Formatting is handled separately by the autofix workflow.
 

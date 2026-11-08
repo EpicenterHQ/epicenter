@@ -6,9 +6,9 @@
 // Svelte error surface can mount. The Safari gate falsified exactly this on
 // 2026-07-18. The contract: `runtime.open()` is asynchronous and resolves
 // only with a ready handle, and every fallible acquisition runs inside a
-// mounted observer. Whispering and Honeycrisp synchronously create one
-// application-opening promise in a mounted component and render it through a
-// stable `{#await}` boundary. Their library modules remain inert.
+// mounted observer. Whispering synchronously creates one
+// application-opening promise in a mounted component and renders it through a
+// stable `{#await}` boundary. Its library modules remain inert.
 //
 // This is a tripwire, not a parser: it flags `await` at module scope using a
 // brace/paren depth heuristic over the app lib trees. Top-level await inside
@@ -19,7 +19,7 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
-const ROOTS = ['apps/honeycrisp/src/lib', 'apps/whispering/src/lib'];
+const ROOTS = ['apps/whispering/src/lib'];
 
 function* walk(dir: string): Generator<string> {
 	for (const entry of readdirSync(dir)) {

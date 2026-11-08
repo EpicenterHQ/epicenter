@@ -1,8 +1,0 @@
-@import "@epicenter/ui/app.css";
-
-/* Finished Markdown and arriving text use the same reading size. */
-.vocab-reply {
-	font-size: 1rem;
-	line-height: 1.75;
-	overflow-wrap: anywhere;
-}
