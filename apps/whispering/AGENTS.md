@@ -109,11 +109,9 @@ optional and adds Epicenter's models. Read `README.md` for behavior and
 From `apps/whispering`: `bun run typecheck`,
 `bun run test` (Svelte's browser runtime; the lists notify nothing on the
 server runtime), `bun run build`, `cargo test -p whispering` (after
-`bun run build`),
-and `bun run test:e2e` (Playwright in Chromium and WebKit over the local
-stack; port 1420 must be free). `bun run test:postgres` checks the sign-in
+`bun run build`). `bun run test:postgres` checks the sign-in
 against a real authorization server. Unit tests run under the `test`
 condition, where `app.ts`'s folder and this computer's settings are memory;
 Whispering's own tests open a place in memory (`memory()` from
-`@epicenter/folder/memory`) and a folder and library over it. Only the
-end-to-end suite, or using the app, establishes that it works in a browser.
+`@epicenter/folder/memory`) and a folder and library over it. Only using
+the app establishes that it works in a browser.

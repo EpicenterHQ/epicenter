@@ -212,28 +212,10 @@ From the repository root:
 bun dev:whispering                         # Vite dev server on http://localhost:1420
 bun run --cwd apps/whispering build        # static files in apps/whispering/build/
 bun run --cwd apps/whispering test         # unit tests (Svelte's browser runtime)
-bun run --cwd apps/whispering test:e2e     # Playwright, Chromium and WebKit
 ```
 
 The build is static: any host that answers unknown paths with `index.html`
 (for `/auth/callback`) serves it, at an origin the API registers.
-
-`test:e2e` starts `e2e/stack.ts`: a disposable Postgres, the local API with
-a temporary blob store, a person per browser with a desktop sandbox for
-the `epicenter` CLI, and the app built against that API on
-`http://localhost:1420` (which must be free). It walks one person through
-five steps per engine (`e2e/whispering.spec.ts`): signed out, Whispering
-asks for a sign-in, and signed in it records into the repository (audio and
-note, never the browser's files), edits a title and a transcript,
-transcribes over a stubbed custom endpoint, and deletes a recording, all
-there after a reload; a take sends nothing until Stop, leaving
-mid-recording loses it, and a stopped take lands as its audio and note
-together; Epicenter's transcription model sends the account's API token (to
-a stub of the API's transcription route) and keeps the transcript in the
-repository; `epicenter clone` holds the recordings with their audio and
-`epicenter check` passes; and signing out asks for a sign-in again, with
-nothing left in the browser. `bun apps/whispering/e2e/stack.ts --demo` runs
-the same stack to try by hand. It needs `initdb` and `pg_ctl` on `PATH`.
 
 ## The desktop app
 

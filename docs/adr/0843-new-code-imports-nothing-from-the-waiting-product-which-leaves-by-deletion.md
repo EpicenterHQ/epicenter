@@ -4,7 +4,7 @@
 - **Date:** 2026-11-08
 - **Relates:** [ADR-0840](0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md) (the direction, and the product that waits), [ADR-0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md) (what the new code builds), [ADR-0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md).
 - **Spec:** [specs/20261107T222922-epicenter-is-where-personal-software-lives.md](../../specs/20261107T222922-epicenter-is-where-personal-software-lives.md), whose build order carries this out.
-- **Unbuilt:** steps 2 to 4 of the order. The tag, the import check (`bun run check:clean-break`, over `packages/app` so far), and step 1 are done.
+- **Unbuilt:** steps 3 and 4 of the order. The tag, the import check (`bun run check:clean-break`, over `packages/app` and `packages/cli`), and steps 1 and 2 are done.
 
 ## Context
 

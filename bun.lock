@@ -198,7 +198,6 @@
         "@tauri-apps/cli": "catalog:",
         "@types/bun": "catalog:",
         "mode-watcher": "catalog:",
-        "playwright": "^1.61.1",
         "svelte": "catalog:",
         "svelte-check": "catalog:",
         "svelte-sonner": "catalog:",
@@ -272,20 +271,12 @@
         "epicenter": "./src/bin.ts",
       },
       "dependencies": {
-        "@beeper/desktop-api": "^6.0.0",
-        "@epicenter/definition": "workspace:*",
-        "@epicenter/folder": "workspace:*",
+        "@epicenter/app": "workspace:*",
         "@modelcontextprotocol/sdk": "catalog:",
         "typebox": "catalog:",
-        "wellcrafted": "catalog:",
       },
       "devDependencies": {
-        "@epicenter/server": "workspace:*",
         "@types/bun": "catalog:",
-        "@types/pg": "^8.18.0",
-        "drizzle-orm": "catalog:",
-        "pg": "^8.20.0",
-        "playwright": "^1.61.1",
         "typescript": "catalog:",
       },
     },
@@ -591,8 +582,6 @@
     "@babel/parser": ["@babel/parser@7.29.2", "", { "dependencies": { "@babel/types": "^7.29.0" }, "bin": "./bin/babel-parser.js" }, "sha512-4GgRzy/+fsBa72/RZVJmGKPmZu9Byn8o4MoLpmNe1m8ZfYnz5emHLQz3U4gLud6Zwl0RZIcgiLD7Uq7ySFuDLA=="],
 
     "@babel/types": ["@babel/types@7.29.0", "", { "dependencies": { "@babel/helper-string-parser": "^7.27.1", "@babel/helper-validator-identifier": "^7.28.5" } }, "sha512-LwdZHpScM4Qz8Xw2iKSzS+cfglZzJGvofQICy7W7v4caru4EaAmyUuO6BGrbyQ2mYV11W0U8j5mBhd14dd3B0A=="],
-
-    "@beeper/desktop-api": ["@beeper/desktop-api@6.0.0", "", {}, "sha512-dpFltNVoUg4gKwFp/czJwA1PAxiBOOmcwJTlTyXOaBgGE0dMbneoHaKcFU3dfSQ48qwHZpM0lT5uetW+Qyx/uA=="],
 
     "@better-auth/core": ["@better-auth/core@1.8.0-beta.0", "", { "dependencies": { "@opentelemetry/semantic-conventions": "^1.41.1", "@standard-schema/spec": "^1.1.0", "zod": "^4.5.4" }, "peerDependencies": { "@better-auth/utils": "^0.4.2 || ^0.5.0", "@better-fetch/fetch": "1.3.2", "@opentelemetry/api": "^1.9.0", "better-call": "1.4.2", "jose": "^6.1.0", "kysely": "^0.28.5 || ^0.29.0", "nanostores": "^1.0.1" }, "optionalPeers": ["@opentelemetry/api"] }, "sha512-taCTk6t3H+5t3fDgEkwc5czi86M6qHt4pxGyceTS7Ui9FwsYCaWses4ljLeE/8yUv+TxEefnu5Ly80KYKoWvOQ=="],
 

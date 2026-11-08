@@ -8,7 +8,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 /** The packages written to ADR-0841. Each joins as it is written. */
-const NEW_CODE = ['packages/app'];
+const NEW_CODE = ['packages/app', 'packages/cli'];
 
 /** The waiting product, by every spelling an import or a dependency uses. */
 const WAITING =

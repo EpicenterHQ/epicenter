@@ -1,100 +1,66 @@
 /**
- * This computer's keychain, as the `epicenter` CLI reaches it (ADR-0556):
- * `Bun.secrets`, the sign-in's entry under {@link AUTH_KEYCHAIN_SERVICE}
- * (ADR-0558), and Messages' Beeper token under its own service. The CLI is
- * the only program that reads or writes these entries; the Epicenter app
- * keeps its own sign-in in its own credentials file (ADR-0793).
- *
- * `EPICENTER_TEST_SECRETS` replaces the keychain with stores held in memory
- * for one process, the sign-ins' seeded from its `$auth` member
- * (`{ "$auth": { "<entry name>": <stored grant> } }`, empty by default) and
- * every other service's empty, so tests and a compiled binary's smoke run
- * never touch the real keychain. Nothing in them is ever written anywhere.
+ * Each app reaches this computer's Keychain under epicenter.<name> (ADR-0841).
+ * EPICENTER_TEST_SECRETS supplies process-local stores instead: a JSON object
+ * shaped as { "epicenter.reading": { "token": "plain value" } }. Values stay
+ * as strings, and every call for one service shares the same store.
  */
+import type { Secrets } from '@epicenter/app';
 
-/**
- * Where keychain entries are kept, by entry name. The CLI binds
- * `Bun.secrets` per service; tests bind {@link createMemorySecrets}. A
- * method may throw.
- */
-export type SecretStore = {
-	get(name: string): Promise<string | null>;
-	set(name: string, value: string): Promise<void>;
-	delete(name: string): Promise<boolean>;
-};
+const testStores = new Map<string, Secrets>();
 
-/** A store that forgets everything with its process, seeded with `entries`, each kept as its JSON. */
-export function createMemorySecrets(
-	entries: Readonly<Record<string, unknown>> = {},
-): SecretStore {
-	const values = new Map(
-		Object.entries(entries).map(([name, entry]) => [
-			name,
-			JSON.stringify(entry),
-		]),
-	);
-	return {
-		async get(name) {
-			return values.get(name) ?? null;
-		},
-		async set(name, value) {
-			values.set(name, value);
-		},
-		async delete(name) {
-			return values.delete(name);
-		},
-	};
-}
-
-/** The keychain service the sign-in's refresh token and cached access tokens are filed under. */
-export const AUTH_KEYCHAIN_SERVICE = 'so.epicenter.auth';
-
-type BunSecrets = {
-	get(options: { service: string; name: string }): Promise<string | null>;
-	set(options: { service: string; name: string; value: string }): Promise<void>;
-	delete(options: { service: string; name: string }): Promise<boolean>;
-};
-
-/** A store whose every call fails with why the keychain cannot be used. */
-function unavailable(reason: string): SecretStore {
+function unavailable(message: string): Secrets {
 	const refuse = async (): Promise<never> => {
-		throw new Error(reason);
+		throw new Error(message);
 	};
 	return { get: refuse, set: refuse, delete: refuse };
 }
 
-/** One test store per service, so every call in a process sees the same one. */
-const testStores = new Map<string, SecretStore>();
+/** Name the service shared by every local copy of an app. */
+export function keychainService(name: string): string {
+	return `epicenter.${name}`;
+}
 
-/**
- * The store this run uses for `service`: the keychain, or the test store
- * `EPICENTER_TEST_SECRETS` stands up.
- */
-export function keychain(service: string): SecretStore {
+/** Bind this computer's keychain to one app, or a process-local seeded store in tests. */
+export function keychain(service: string): Secrets {
 	const seed = process.env.EPICENTER_TEST_SECRETS;
 	if (seed !== undefined) {
-		let store = testStores.get(service);
-		if (store === undefined) {
-			try {
-				const { $auth } = JSON.parse(seed);
-				store = createMemorySecrets(
-					service === AUTH_KEYCHAIN_SERVICE ? ($auth ?? {}) : {},
-				);
-			} catch {
-				return unavailable('EPICENTER_TEST_SECRETS is not JSON');
-			}
-			testStores.set(service, store);
+		let entries: Record<string, Record<string, string>>;
+		try {
+			entries = JSON.parse(seed);
+		} catch {
+			return unavailable('EPICENTER_TEST_SECRETS is not JSON');
 		}
+		const existing = testStores.get(service);
+		if (existing) return existing;
+		const values = new Map(Object.entries(entries?.[service] ?? {}));
+		const store: Secrets = {
+			async get(name) {
+				return values.get(name);
+			},
+			async set(name, value) {
+				values.set(name, value);
+			},
+			async delete(name) {
+				values.delete(name);
+			},
+		};
+		testStores.set(service, store);
 		return store;
 	}
-	const secrets = (Bun as unknown as { secrets?: BunSecrets }).secrets;
-	if (secrets === undefined)
+	const secrets = Bun.secrets;
+	if (!secrets)
 		return unavailable(
-			`this build of the epicenter command has no Bun.secrets (Bun ${Bun.version}), so it cannot reach the system keychain`,
+			'This Bun build has no Bun.secrets and cannot reach the system keychain',
 		);
 	return {
-		get: (name) => secrets.get({ service, name }),
-		set: (name, value) => secrets.set({ service, name, value }),
-		delete: (name) => secrets.delete({ service, name }),
+		async get(name) {
+			return (await secrets.get({ service, name })) ?? undefined;
+		},
+		async set(name, value) {
+			await secrets.set({ service, name, value });
+		},
+		async delete(name) {
+			await secrets.delete({ service, name });
+		},
 	};
 }
