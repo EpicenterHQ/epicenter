@@ -14,7 +14,7 @@ ADR-0840 makes Epicenter the home of one person's apps and the agents that use
 them. An app needs a name, a list of things it can do with typed input, an
 implementation for each, and somewhere to keep its data. The CLI already renders
 one description of an operation as a command and as an MCP tool
-(`packages/cli/src/operation.ts`); apps need the same, without writing a command
+([ADR-0827](0827-the-cli-and-mcp-render-one-table-of-operations.md)); apps need the same, without writing a command
 or a tool by hand. A council of three reviewers tested the command surface
 against agents' permission rules, the vault's existing nested commands, and
 worktrees.

@@ -1051,5 +1051,6 @@ When you add an ADR, add its row here.
 | [0843](0843-new-code-imports-nothing-from-the-waiting-product-which-leaves-by-deletion.md) | New code imports nothing from the waiting product, which leaves by deletion | Accepted |
 | [0844](0844-one-runner-runs-anywhere-and-every-surface-is-a-view-over-it.md) | One runner runs anywhere, and every surface is a view over it | Accepted |
 | [0845](0845-an-app-declares-collections-each-a-path-and-fields-which-the-hub-views.md) | An app declares collections, each a path and fields, which the hub views | Accepted |
-| [0846](0846-the-always-on-box-is-the-git-remote-and-an-encrypted-copy-leaves-only-as-a-backup.md) | The always-on box is the Git remote, and an encrypted copy leaves only as a backup | Proposed |
+| [0846](0846-epicenter-owns-no-infrastructure-and-each-repository-has-one-meeting-point.md) | Epicenter owns no infrastructure, and each repository has one meeting point | Accepted |
 | [0847](0847-an-app-brings-its-providers-credentials-with-a-default-in-its-code.md) | An app brings its provider's credentials, with a default in its code | Accepted |
+| [0848](0848-the-runner-owns-only-what-an-action-wrote.md) | The runner owns only what an action wrote | Accepted |
