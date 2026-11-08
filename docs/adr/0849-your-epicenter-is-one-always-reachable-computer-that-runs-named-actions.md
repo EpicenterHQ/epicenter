@@ -5,7 +5,7 @@
 - **Supersedes:** [ADR-0846](0846-epicenter-owns-no-infrastructure-and-each-repository-has-one-meeting-point.md): schedules and `epicenter tick`, the front door and its OS timer, a meeting point per app, the door into a box branch, the backup check, and the secrets experiment.
 - **Amends:** [ADR-0844](0844-one-runner-runs-anywhere-and-every-surface-is-a-view-over-it.md) at who runs a named action (your Epicenter only), the laptop's own runner (a folder path instead), and the browser runner (refused). [ADR-0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md) at discovery: `~/Epicenter` exists on your Epicenter and is not moved by an environment variable, and another computer lists your Epicenter's apps.
 - **Relates:** [ADR-0850](0850-every-writer-commits-exactly-what-it-wrote.md) (the commit rule), [ADR-0851](0851-an-app-with-history-has-one-git-remote-its-meeting-point-and-backup.md) (the remote), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (programs that have the folder or ask), [ADR-0853](0853-collections-give-four-actions-and-programs-without-the-folder-ask-over-mcp.md) (MCP).
-- **Unbuilt:** `epicenter setup`, forwarding to `serve`, `epicenter serve` over HTTP, and removing `EPICENTER_HOME`. `epicenter mcp` over stdio is built and becomes `epicenter serve --stdio`.
+- **Unbuilt:** `epicenter setup`, forwarding to `serve`, and `epicenter serve` over HTTP. Built: `epicenter serve --stdio`, which replaced `epicenter mcp`, and the home at `$HOME/Epicenter` with `EPICENTER_HOME` removed.
 
 ## Context
 

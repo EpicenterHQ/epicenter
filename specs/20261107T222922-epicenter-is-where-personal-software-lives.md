@@ -233,8 +233,8 @@ leaves by deletion, one package at a time, once nothing imports it. Each wave
 below is one or more commits, each passing `bun run typecheck` and the tests of
 what it touches with no failure the commit before it did not have.
 
-Waves 0 and 1 are done (2026-11-08). Next is wave 2, which starts with the
-declaration and the commit rule and then builds Mail.
+Waves 0, 1, and 2a are done (2a on 2026-11-09). Next is 2b, the commit rule,
+then Mail.
 
 **0. Tag and prune.** Done. Tagged `folder-sync-product`; `apps/epicenter`
 deleted; the frozen apps stay until each is rebuilt (ADR-0843).
@@ -245,7 +245,9 @@ and commits, and `epicenter mcp` serves it to Claude Code.
 
 **2. Mail.**
 
-- **2a. The declaration** (ADR-0857). In `packages/app`: the declaration's TypeBox
+- **2a. The declaration** (ADR-0857). Done, except reaching `reading` from
+  Claude Code itself, which needs the author's machine; acceptance D1 to D7
+  run the same path black-box. In `packages/app`: the declaration's TypeBox
   schema and `epicenter.schema.json`; `defineApp(declaration, { collections?,
   actions })` taking its name and description from `epicenter.json`; `positional`
   and `annotations` on the action; `folder.delete` for `remove`. In

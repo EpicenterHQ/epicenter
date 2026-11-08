@@ -4,7 +4,7 @@
 - **Date:** 2026-11-08
 - **Amends:** [ADR-0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md) at the declaration: an app's name, description, and the collections a program or person writes live in `epicenter.json`; `epicenter.ts`, when present, holds actions and the collections they introduce. At fields: JSON Schema, which the `field` helpers produce. At an action's hints, which are MCP's `annotations`, and its positional, which moves onto the action. At the folder's `remove`, which is `delete`. [ADR-0845](0845-an-app-declares-collections-each-a-path-and-fields-which-the-hub-views.md) at a collection's fields, which are the JSON Schema of its front matter.
 - **Relates:** [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (programs that have the folder), [ADR-0853](0853-collections-give-four-actions-and-programs-without-the-folder-ask-over-mcp.md) (collection actions and MCP).
-- **Unbuilt:** all of it: loading `epicenter.json`, `defineApp` taking it, the generated `epicenter.d.json.ts`, the published schema, `positional` and `annotations` on actions, collection handles, `@epicenter/app` supplied by `epicenter`, and `folder.delete`. `packages/app` has `defineApp({ name, actions })` and TypeBox-based `field` helpers, which stay.
+- **Unbuilt:** collection handles in `run`, and publishing the schema at its URL. Built 2026-11-09: loading `epicenter.json` and merging it with `epicenter.ts`, `defineApp(declaration, …)`, the declaration's TypeBox schema and `packages/app/epicenter.schema.json`, `epicenter.d.json.ts` on load and with `epicenter types`, `positional` and `annotations` on actions, `@epicenter/app` supplied by `epicenter`, and `folder.delete`.
 
 ## Context
 
