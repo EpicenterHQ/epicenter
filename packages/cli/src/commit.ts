@@ -12,6 +12,10 @@
  * never what gets committed, so an edit someone saves after the action's
  * write stays an uncommitted change on top, and is named.
  *
+ * A path marked for Git LFS is refused before it lands unless `git-lfs` is
+ * installed and its filter set up, since Git without the filter stores the
+ * whole file (ADR-0856).
+ *
  * The limit, stated: the check and the rename are two steps, so an editor
  * save landing between them can be overwritten. Writes an action makes
  * around `folder` (through `folder.path`) are not recorded and not committed.
@@ -38,6 +42,36 @@ export class PathRefused extends Error {
 		);
 		this.name = 'PathRefused';
 	}
+}
+
+/** A path marked for Git LFS cannot be written: without the filter, Git would store the whole file in history (ADR-0856). */
+export class LfsUnavailable extends Error {
+	constructor(
+		readonly path: string,
+		/** True when `git-lfs` is on PATH but its filter is not set up for this repository. */
+		readonly installed: boolean,
+	) {
+		super(
+			installed
+				? `${path} goes through Git LFS, whose filter is not set up here, so the action did not write it`
+				: `${path} goes through Git LFS, which is not installed, so the action did not write it`,
+		);
+		this.name = 'LfsUnavailable';
+	}
+}
+
+/** Throws `LfsUnavailable` unless `git-lfs` is on PATH and its filter is configured for `folder`. */
+async function requireLfs(folder: string, path: string) {
+	if (!Bun.which('git-lfs')) throw new LfsUnavailable(path, false);
+	const filterProcess = await git(
+		folder,
+		'config',
+		'--get',
+		'filter.lfs.process',
+	);
+	const clean = await git(folder, 'config', '--get', 'filter.lfs.clean');
+	if (filterProcess.code !== 0 && clean.code !== 0)
+		throw new LfsUnavailable(path, true);
 }
 
 /** What one run wrote, as Git objects; `null` is a deletion. Ignored paths are written and never recorded. */
@@ -81,6 +115,10 @@ export function createWriteLog(folder: string): WriteLog {
 				ignored.add(path);
 				return;
 			}
+			const filter = (
+				await checkedGit(folder, 'check-attr', 'filter', '--', path)
+			).toString();
+			if (filter.trimEnd().endsWith(': lfs')) await requireLfs(folder, path);
 			const status = await checkedGit(
 				folder,
 				'status',

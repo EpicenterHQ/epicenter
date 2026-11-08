@@ -4,7 +4,6 @@
  * code. Each entry loads on its own so a broken app is listed without stopping
  * the others. Refusals carry the next command as data (ADR-0842).
  */
-import { createHash } from 'node:crypto';
 import {
 	lstat,
 	readdir,
@@ -23,7 +22,6 @@ import {
 	isName,
 	problemsOf,
 } from '@epicenter/app';
-import { cacheRoot } from './disk.ts';
 
 /** Where an entry is on disk: the same for an app that runs and one with problems. */
 type Place = {
@@ -66,15 +64,6 @@ export type Located =
 
 /** An app that can run. */
 export type Runnable = Extract<Located, { ok: true }>;
-
-/** This copy's cache directory: a folder run by path gets its own, apart from the home app it copies. */
-export function cacheDirOf(app: Runnable): string {
-	const suffix =
-		app.entry === undefined
-			? `-${createHash('sha256').update(app.realPath).digest('hex').slice(0, 12)}`
-			: '';
-	return join(cacheRoot(), `${app.name}${suffix}`);
-}
 
 /** A refusal before an action starts, with the command that resolves it when known. */
 export class Refusal extends Error {

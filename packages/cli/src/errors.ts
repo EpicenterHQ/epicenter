@@ -71,6 +71,25 @@ export const CliError = defineErrors({
 		commit,
 		uncommitted,
 	}),
+	/** The action tried to write a path marked for Git LFS where LFS cannot store it; nothing was written to it. */
+	GitLfsMissing: ({
+		folder,
+		path,
+		installed,
+		commit,
+		uncommitted,
+	}: Outcome & { folder: string; path: string; installed: boolean }) => ({
+		message: installed
+			? `${path} goes through Git LFS, whose filter is not set up in ${folder}, so the action did not write it`
+			: `${path} goes through Git LFS, which is not installed, so the action did not write it`,
+		folder,
+		path,
+		next: installed
+			? `git -C ${folder} lfs install --local`
+			: 'brew install git-lfs',
+		commit,
+		uncommitted,
+	}),
 	/** The action threw; what it wrote before throwing is committed, labelled with the failure. */
 	ActionThrew: ({
 		cause,
@@ -113,6 +132,7 @@ export function exitCodeOf(error: CliError): 2 | 3 {
 		case 'MidMerge':
 			return 2;
 		case 'PathUncommitted':
+		case 'GitLfsMissing':
 		case 'ActionThrew':
 		case 'CommitFailed':
 		case 'GitFailed':

@@ -11,7 +11,6 @@ export {
 	problemsOf,
 } from './app.ts';
 export {
-	type Cache,
 	type Context,
 	type Folder,
 	normalizePath,

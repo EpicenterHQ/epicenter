@@ -12,7 +12,8 @@ epicenter reading log --help
 epicenter types
 epicenter serve --stdio
 epicenter new notes
-epicenter sync
+epicenter add ~/Code/vault --init
+epicenter add https://github.com/someone/recipes
 epicenter help
 epicenter --version
 ```
@@ -33,14 +34,17 @@ Each app folder must be the top level of its own Git repository. Runs of one app
 
 stdout carries only the answer: the returned value, or with `--json` one object, `{ "result", "commit": { "sha", "subject", "paths" } | null, "uncommitted": [paths] }` or `{ "error": { "name", "message", … } }`. While an action runs, its `console.log` and `console.info` go to stderr. stderr carries notes for a person: `committed a1b2c3d reading log`, `left uncommitted: 2026.csv (changed during the run)`, and errors, each followed by `Run: <next step>` when there is one. An action that throws a tagged error (`{ name, message, …fields }`) reports it whole as the error's `thrown`. MCP returns the same object as `structuredContent`, with `isError` on failure.
 
-`epicenter sync` pulls and pushes each app with an upstream branch, including linked apps. It reports conflicts and uncommitted paths and never commits them. `epicenter sync --json` returns an `apps` array with each app's status. `epicenter new <name>` creates a Git repository with a starter `epicenter.json`, `epicenter.ts`, package manifest, and `.gitignore`, installs dependencies, and makes its first commit.
+After each commit, `epicenter` pushes fast-forward only to `origin`, and only when the branch tracks a branch there (ADR-0851). It never pulls or merges: when `origin` has commits this copy does not, the commit stays local, `epicenter` fetches so it knows, and stderr says to pull. The listing shows how far each app is ahead of and behind `origin`. A worktree branch that tracks nothing is never pushed.
+
+`epicenter new <name>` creates a repository from the built-in template: `epicenter.json` with its `$schema`, a `.gitignore` with `node_modules/`, `.cache/`, and `epicenter.d.json.ts`, and a `.gitattributes` routing binary types through Git LFS, and makes its first commit. `epicenter add <folder>` links a folder with an `epicenter.json` into `~/Epicenter` under its declared name; a folder that is not yet a repository needs `--init`, which commits what is there. `epicenter add <git url>` copies an app into a new repository, keeping the source as the `upstream` remote and branch; the copy's own branch tracks nothing until you give it an `origin` (ADR-0852).
+
+What an app can rebuild lives in files it gitignores in its folder, such as `.cache/` (ADR-0854). A write to a path marked for Git LFS is refused when `git-lfs` is not on `PATH` or its filter is not set up, since Git would otherwise store the whole file (ADR-0856).
 
 Exit codes: 0 success; 1 a finding; 2 the action did not run; 3 the action started and threw.
 
-The home is `$HOME/Epicenter`; tests move it by setting `HOME`. Other environment variables:
+The home is `$HOME/Epicenter`; tests move it by setting `HOME`. One environment variable remains:
 
-- `EPICENTER_CACHE_HOME`: cache root, default `~/Library/Caches/so.epicenter.apps`.
-- `EPICENTER_TEST_SECRETS`: JSON keyed by service, such as `{"epicenter.reading":{"token":"value"}}`. Replaces the keychain with process-local stores for tests.
+- `EPICENTER_TEST_SECRETS`: JSON keyed by service, such as `{"epicenter.reading":{"token":"value"}}`. Replaces the Keychain with process-local stores, so tests never reach the real one.
 
 Compile the executable from the repository root:
 
@@ -50,4 +54,4 @@ bun run --cwd packages/cli compile
 
 ## Tests
 
-Run `bun test` in `packages/cli`. `acceptance.*.test.ts` runs the real `epicenter` against a temporary `HOME`, one test per acceptance ID. The new-app tests set `EPICENTER_SKIP_INSTALL=1` to skip `bun install`; the JSON answer then reports `installed: false`.
+Run `bun test` in `packages/cli`, a file at a time when memory is short. `acceptance.*.test.ts` runs the real `epicenter` against a temporary `HOME`, one test per acceptance ID. `bun scripts/race.ts --runs 1000 --concurrency 4` races runs against an agent committing in the same folder and reports anything lost or misfiled.

@@ -1,5 +1,5 @@
 /**
- * The folder and cache on disk preserve relative paths, atomic writes and rebuildable caches.
+ * The folder on disk preserves relative paths and atomic writes.
  * Listing excludes dependency and Git directories and never traverses directory links.
  */
 import { afterEach, expect, test } from 'bun:test';
@@ -13,7 +13,7 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { cacheOnDisk, folderOnDisk } from './disk.ts';
+import { folderOnDisk } from './disk.ts';
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -79,26 +79,4 @@ test('listing is sorted and folder-relative and skips dependency trees and direc
 	expect(await folder.list('missing')).toEqual([]);
 	expect(await folder.list('directory-link')).toEqual([]);
 	expect(await folder.list('nested/node_modules')).toEqual([]);
-});
-
-test('cache reads and lists stay lazy, sqlite creates the cache, and clear empties it', async () => {
-	const root = await setup();
-	const path = join(root, 'cache');
-	const cache = cacheOnDisk(path);
-	expect(await cache.read('missing')).toBeUndefined();
-	expect(await cache.list()).toEqual([]);
-	await cache.clear();
-	expect(await readdir(root)).toEqual([]);
-	const sqlite = cache.sqlite;
-	if (!sqlite) throw new Error('Disk cache has no sqlite');
-	expect(() => sqlite('../no')).toThrow();
-	expect(() => sqlite('Upper')).toThrow();
-	const db = sqlite('index');
-	db.run('CREATE TABLE items (id INTEGER)');
-	db.close();
-	await cache.write('nested/item', 'data');
-	expect(await readdir(path)).toContain('index.sqlite');
-	await cache.clear();
-	expect(await cache.list()).toEqual([]);
-	expect('clear' in folderOnDisk(root)).toBe(false);
 });

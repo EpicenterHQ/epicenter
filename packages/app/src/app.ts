@@ -135,7 +135,6 @@ const BUILT_INS = new Set([
 	'types',
 	'help',
 	'serve',
-	'sync',
 	'setup',
 	'open',
 ]);

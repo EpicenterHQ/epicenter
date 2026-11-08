@@ -4,7 +4,7 @@
 - **Date:** 2026-11-08
 - **Amends:** [ADR-0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md) at `epicenter sync`, which is removed: Git and the push after each commit do its work.
 - **Relates:** [ADR-0849](0849-your-epicenter-is-one-always-reachable-computer-that-runs-named-actions.md), [ADR-0850](0850-every-writer-commits-exactly-what-it-wrote.md), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (`origin`).
-- **Unbuilt:** the push after each commit and "behind origin" in the listing. `epicenter sync` is built and is to be deleted.
+- **Unbuilt:** Whispering's own pull and push. Built 2026-11-09: the fast-forward push after each commit `epicenter` makes, a fetch after a refused push, and ahead and behind `origin` in the listing; `epicenter sync` is deleted.
 
 ## Context
 

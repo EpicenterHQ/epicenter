@@ -5,7 +5,7 @@
 - **Supersedes:** [ADR-0848](0848-the-runner-owns-only-what-an-action-wrote.md): recorded writes and run phases. Its per-path record survives as the Git object each write stores.
 - **Amends:** [ADR-0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md) at what happens when an action throws: what it wrote is committed and labelled, and nothing is undone.
 - **Relates:** [ADR-0849](0849-your-epicenter-is-one-always-reachable-computer-that-runs-named-actions.md) (where actions run), [ADR-0851](0851-an-app-with-history-has-one-git-remote-its-meeting-point-and-backup.md) (pushing), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (programs that write a folder), [ADR-0854](0854-an-apps-cache-is-the-files-it-gitignores.md) (ignored files).
-- **Unbuilt:** nothing. Built 2026-11-09 in `packages/cli/src/commit.ts` and `run.ts`: the check before each write lands, each write stored as a Git object, the commit built from those objects with the branch moved by compare-and-swap, the labelled commit after a throw, and `writeOnly` inputs kept out of the body. The undo is deleted. Acceptance C1 to C9; `packages/cli/scripts/race.ts` is the race.
+- **Built:** 2026-11-09, in `packages/cli/src/commit.ts` and `run.ts`: the check before each write lands, each write stored as a Git object, the commit built from those objects with the branch moved by compare-and-swap, the labelled commit after a throw, and `writeOnly` inputs kept out of the body. The undo is deleted. Acceptance C1 to C9; `packages/cli/scripts/race.ts` is the race.
 
 ## Context
 

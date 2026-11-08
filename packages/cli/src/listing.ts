@@ -5,8 +5,9 @@
  */
 import { type Action, ANNOTATION_DEFAULTS } from '@epicenter/app';
 import { type TSchemaOptions, Type } from 'typebox';
-import { cacheDirOf, type Discovery, type Runnable } from './home.ts';
+import type { Discovery, Runnable } from './home.ts';
 import { fieldKind, flagOf, jsonSchema, usageLine } from './input.ts';
+import { originOf } from './push.ts';
 import { keychainService } from './secrets.ts';
 
 /** An action as an MCP tool definition: its name, input schema, and all four hints, explicit. */
@@ -19,14 +20,21 @@ export function actionTool(app: string, key: string, action: Action) {
 	};
 }
 
-/** The app as `--json` prints it: its declaration, its code's collections as JSON Schema, and its actions as tools. */
-export function appListing(located: Runnable) {
+type Origin = Awaited<ReturnType<typeof originOf>>;
+
+/**
+ * The app as `--json` prints it: its declaration, its code's collections as
+ * JSON Schema, its actions as tools, and how far it is ahead of and behind
+ * `origin` when it tracks a branch there.
+ */
+function appListing(located: Runnable, origin: Origin) {
 	const { declaration } = located;
 	return {
 		name: located.name,
 		description: declaration.description,
 		folder: located.folder,
 		...(located.link ? { link: located.link } : {}),
+		...(origin ? { origin } : {}),
 		collections: {
 			...declaration.collections,
 			...Object.fromEntries(
@@ -60,11 +68,19 @@ function actionLines(located: Runnable) {
 }
 
 /** Render discovery as one answer while keeping broken entries separate from runnable apps. */
-export function homeListing(found: Discovery, json: boolean): unknown {
+export async function homeListing(
+	found: Discovery,
+	json: boolean,
+): Promise<unknown> {
+	const origins = await Promise.all(
+		found.apps.map((located) => originOf(located.realPath)),
+	);
 	if (json)
 		return {
 			home: found.home,
-			apps: found.apps.map(appListing),
+			apps: found.apps.map((located, index) =>
+				appListing(located, origins[index]),
+			),
 			problems: found.problems.map(({ entry, folder, problems }) => ({
 				entry,
 				folder,
@@ -74,8 +90,8 @@ export function homeListing(found: Discovery, json: boolean): unknown {
 		};
 	if (found.missing)
 		return `There is no Epicenter home at ${found.home}. Make one with: mkdir ${found.home}`;
-	const lines = found.apps.flatMap((located) => [
-		`${located.name}  ${located.declaration.description}${located.link ? ` -> ${located.link}` : ''}`,
+	const lines = found.apps.flatMap((located, index) => [
+		`${located.name}  ${located.declaration.description}${located.link ? ` -> ${located.link}` : ''}${originNote(origins[index])}`,
 		...actionLines(located),
 		...located.notes.map((note) => `  note: ${note}`),
 	]);
@@ -92,20 +108,32 @@ export function homeListing(found: Discovery, json: boolean): unknown {
 	return lines.join('\n');
 }
 
+/** `  (1 ahead and 2 behind origin)`, or nothing when the copy is even with origin or tracks nothing there. */
+function originNote(origin: Origin) {
+	if (!origin || (origin.ahead === 0 && origin.behind === 0)) return '';
+	const parts = [
+		...(origin.ahead ? [`${origin.ahead} ahead`] : []),
+		...(origin.behind ? [`${origin.behind} behind`] : []),
+	];
+	return `  (${parts.join(' and ')} ${origin.behind ? '' : 'of '}origin)`;
+}
+
 /** Render the app's disk and keychain locations beside its actions for inspection. */
-export function oneAppListing(located: Runnable, json: boolean): unknown {
+export async function oneAppListing(
+	located: Runnable,
+	json: boolean,
+): Promise<unknown> {
+	const origin = await originOf(located.realPath);
 	if (json)
 		return {
-			...appListing(located),
-			cache: cacheDirOf(located),
+			...appListing(located, origin),
 			keychain: keychainService(located.name),
 		};
 	return [
 		located.name,
-		located.declaration.description,
+		`${located.declaration.description}${originNote(origin)}`,
 		`folder: ${located.folder}`,
 		...(located.link ? [`link: ${located.link}`] : []),
-		`cache: ${cacheDirOf(located)}`,
 		`keychain: ${keychainService(located.name)}`,
 		...actionLines(located),
 	].join('\n');

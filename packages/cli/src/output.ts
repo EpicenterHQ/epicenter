@@ -7,10 +7,8 @@
  */
 import type { CliError, Outcome } from './errors.ts';
 import { exitCodeOf } from './errors.ts';
+import type { Pushed } from './push.ts';
 import type { Ran } from './run.ts';
-
-/** Exit codes: 0 ran, 1 a finding, 2 did not run, 3 ran and failed or threw. */
-export const EXIT = { ok: 0, finding: 1, unusable: 2, failed: 3 } as const;
 
 /** Write one JSON answer per line so callers can read stdout directly. */
 export function writeJson(value: unknown) {
@@ -39,11 +37,19 @@ function outcomeNotes({ commit, uncommitted }: Partial<Outcome>) {
 	];
 }
 
+/** What the push after a commit did, in a person's words. */
+function pushNotes(pushed: Pushed | undefined) {
+	if (!pushed) return [];
+	if (pushed.pushed) return ['pushed to origin'];
+	return [`not pushed: ${pushed.reason}`, `Run: ${pushed.next}`];
+}
+
 /** Present a failure and return its exit code, without forcing exit. */
-export function fail(error: CliError, json: boolean): number {
+export function fail(error: CliError, json: boolean, pushed?: Pushed): number {
 	if (json) writeJson({ error });
 	else {
 		for (const note of outcomeNotes(error as Partial<Outcome>)) writeErr(note);
+		for (const note of pushNotes(pushed)) writeErr(note);
 		writeErr(error.message);
 		const next = (error as { next?: string }).next;
 		if (next) writeErr(`Run: ${next}`);
@@ -51,15 +57,16 @@ export function fail(error: CliError, json: boolean): number {
 	return exitCodeOf(error);
 }
 
-/** Present a run that returned: its notes on stderr, its answer on stdout. */
-export function ran(value: Ran, json: boolean): number {
+/** Present a run that returned, exit 0: its notes on stderr, its answer on stdout. */
+export function ran(value: Ran, json: boolean, pushed?: Pushed): number {
 	if (json) {
 		writeJson(value);
-		return EXIT.ok;
+		return 0;
 	}
 	for (const note of outcomeNotes(value)) writeErr(note);
+	for (const note of pushNotes(pushed)) writeErr(note);
 	if (typeof value.result === 'string') writeOut(value.result);
 	else if (value.result !== undefined)
 		writeOut(JSON.stringify(value.result, null, 2));
-	return EXIT.ok;
+	return 0;
 }

@@ -94,14 +94,18 @@ reads as one that may destroy.
 
 ## Context
 
-`run` receives its input and a context, `{ folder, cache, secrets }`, three
-stores that differ by how long what they hold lives:
+`run` receives its input and a context, `{ folder, secrets }`
+([ADR-0854](../../docs/adr/0854-an-apps-cache-is-the-files-it-gitignores.md)):
 
 | Store | Holds | Methods |
 | --- | --- | --- |
 | `folder` | the app's data, in its Git repository | `read`, `readBytes`, `write`, `writeBytes`, `list`, `delete`; `path` on a computer |
-| `cache` | anything the app can rebuild, on this device only | the same, plus `clear()`; `path` and `sqlite(name)` on a computer |
 | `secrets` | sign-ins, in this computer's Keychain | `get`, `set`, `delete`; only on a computer |
+
+What the app can rebuild lives in files it gitignores inside its folder, such
+as `.cache/`, which the template ignores. An action writes them through
+`folder` like any file, and `epicenter` writes them and never commits them. A
+database is a file there, opened through `folder.path`.
 
 Paths are relative to the folder with `/` between parts. `read` gives
 `undefined` for a missing file. The `epicenter` command supplies the context on

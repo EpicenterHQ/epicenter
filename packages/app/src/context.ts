@@ -1,10 +1,10 @@
 /**
- * The context an action's `run` receives (ADR-0841, ADR-0857): its folder, its cache,
- * and its secrets, which differ by how long what they hold lives. Whatever runs
- * the action supplies them: the `epicenter` CLI on a computer, memory in a
- * test.
+ * The context an action's `run` receives (ADR-0841, ADR-0854): its folder and
+ * its secrets. What an app can rebuild lives in files it gitignores inside the
+ * folder, such as `.cache/`, written through `folder` like any file and never
+ * committed. Whatever runs the action supplies the context: the `epicenter`
+ * CLI on a computer, memory in a test.
  */
-import type { Database } from 'bun:sqlite';
 
 /**
  * An app's folder as an object. Paths are relative to the folder, with `/`
@@ -26,18 +26,6 @@ export type Folder = {
 	readonly path?: string;
 };
 
-/**
- * What an app can rebuild: on this device only, never synced, never in
- * history. A cache is never migrated; after a change of shape it is cleared
- * and rebuilt.
- */
-export type Cache = Folder & {
-	/** Deletes everything in the cache. */
-	clear(): Promise<void>;
-	/** Bun's own database at `<name>.sqlite` in the cache; only on a computer. */
-	sqlite?(name: string): Database;
-};
-
 /** Sign-ins, kept in this computer's Keychain under `epicenter.<app name>`. */
 export type Secrets = {
 	get(name: string): Promise<string | undefined>;
@@ -48,7 +36,6 @@ export type Secrets = {
 /** What `run` receives beside its input. */
 export type Context = {
 	folder: Folder;
-	cache: Cache;
 	/** Only on a computer. */
 	secrets?: Secrets;
 };

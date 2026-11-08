@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from 'bun:test';
 import { readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { checkedGit, dirtyPaths, git } from './git.ts';
+import { checkedGit, git } from './git.ts';
 import { fixture } from './runner.test-support.ts';
 
 const roots: string[] = [];
@@ -21,6 +21,20 @@ async function setup(source: string) {
 	return { ...f, folder };
 }
 
+/** Paths `git status` reports, in porcelain order. */
+const dirtyPaths = async (folder: string) =>
+	(
+		await checkedGit(
+			folder,
+			'status',
+			'--porcelain=v1',
+			'--untracked-files=all',
+		)
+	)
+		.toString()
+		.split('\n')
+		.filter(Boolean)
+		.map((line) => line.slice(3));
 const head = async (folder: string) =>
 	(await checkedGit(folder, 'rev-parse', 'HEAD')).toString().trim();
 const show = async (folder: string, ...args: string[]) =>

@@ -28,30 +28,3 @@ export async function checkedGit(folder: string, ...args: string[]) {
 		);
 	return result.stdout;
 }
-
-/** Porcelain v1 -z names, including both sides of a rename or copy. */
-export function statusPaths(output: Buffer): string[] {
-	const parts = output.toString().split('\0');
-	const paths: string[] = [];
-	for (let index = 0; index < parts.length && parts[index]; index++) {
-		const entry = parts[index]!;
-		paths.push(entry.slice(3));
-		if (/[RC]/.test(entry.slice(0, 2))) {
-			const source = parts[++index];
-			if (source) paths.push(source);
-		}
-	}
-	return [...new Set(paths)];
-}
-
-export async function dirtyPaths(folder: string) {
-	return statusPaths(
-		await checkedGit(
-			folder,
-			'status',
-			'--porcelain=v1',
-			'-z',
-			'--untracked-files=all',
-		),
-	);
-}

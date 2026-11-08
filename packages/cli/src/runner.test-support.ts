@@ -29,13 +29,10 @@ export async function fixture() {
 		await mkdtemp(join(tmpdir(), 'epicenter-runner-')),
 	);
 	const home = join(root, 'Epicenter');
-	const cache = join(root, 'cache');
 	await mkdir(home);
 	const env: Record<string, string | undefined> = {
 		...process.env,
 		HOME: root,
-		EPICENTER_CACHE_HOME: cache,
-		EPICENTER_SKIP_INSTALL: '1',
 		GIT_AUTHOR_NAME: 'Epicenter Test',
 		GIT_AUTHOR_EMAIL: 'epicenter-test@example.com',
 		GIT_COMMITTER_NAME: 'Epicenter Test',
@@ -100,7 +97,7 @@ export async function fixture() {
 		return { stdout, stderr, code };
 	}
 	const run = (...args: string[]) => runIn(root, ...args);
-	return { root, home, cache, env, bin, folder, app, run, runIn };
+	return { root, home, env, bin, folder, app, run, runIn };
 }
 
 /** The ignore file every test app carries, as `epicenter new` writes it. */
@@ -182,7 +179,7 @@ export const reading = `export default defineApp(declaration, { actions: {
 	'week summary': { description: 'Weekly minutes', input: {}, annotations: { readOnlyHint: true }, run: () => ({minutes:210}) },
 	tag: { description:'Tag records', input: { tags: field.tags(), done: field.boolean() }, run: (input) => input },
 	collect: { description:'Collect tags', input: { tags: field.tags() }, positional: ['tags'], run: (input) => input },
-	inspect: { description:'Inspect the context', input:{}, run: async (_, {folder,cache,secrets}) => { const db = cache.sqlite('index'); db.run('CREATE TABLE IF NOT EXISTS items (id INTEGER)'); db.close(); await secrets.set('token','round trip'); return {folder:folder.path,cache:cache.path,token:await secrets.get('token'),seed:await secrets.get('seed'),foreign:await secrets.get('foreign') ?? null}; } },
+	inspect: { description:'Inspect the context', input:{}, run: async (_, {folder,secrets}) => { await folder.write('.cache/index.json', '{}'); await secrets.set('token','round trip'); return {folder:folder.path,token:await secrets.get('token'),seed:await secrets.get('seed'),foreign:await secrets.get('foreign') ?? null}; } },
 	explode: { description:'Throw an error', input:{}, run: () => {throw new Error('action exploded');} },
 } });`;
 

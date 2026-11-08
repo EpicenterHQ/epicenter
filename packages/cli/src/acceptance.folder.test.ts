@@ -70,7 +70,7 @@ const journal = {
 	'epicenter.ts': journalCode,
 };
 
-test.failing('W1 the cache is .cache/ in the folder, and run receives { folder, secrets }', async () => {
+test('W1 the cache is .cache/ in the folder, and run receives { folder, secrets }', async () => {
 	const f = await setup();
 	const folder = await f.folder(join(f.home, 'journal'), journal);
 	const result = await f.run('journal', 'context', '--json');
@@ -82,14 +82,17 @@ test.failing('W1 the cache is .cache/ in the folder, and run receives { folder, 
 	});
 	expect(existsSync(join(folder, '.cache/index.sqlite'))).toBe(true);
 	expect(await gitIn(folder, 'status', '--porcelain')).toBe('');
-	expect(existsSync(join(f.root, 'Library'))).toBe(false);
+	// Bun keeps its own transpiler cache under ~/Library/Caches/bun; epicenter keeps none there.
+	expect(existsSync(join(f.root, 'Library/Caches/so.epicenter.apps'))).toBe(
+		false,
+	);
 	expect((await f.run('--help')).stdout).not.toContain('EPICENTER_CACHE_HOME');
 	expect(
 		JSON.parse((await f.run('journal', '--json')).stdout),
 	).not.toHaveProperty('cache');
 });
 
-test.failing('W2 epicenter sync is gone', async () => {
+test('W2 epicenter sync is gone', async () => {
 	const f = await setup();
 	const result = await f.run('sync', '--json');
 	expect(result.code).toBe(2);
@@ -99,7 +102,7 @@ test.failing('W2 epicenter sync is gone', async () => {
 	expect((await f.run('--help')).stdout).not.toContain('sync');
 });
 
-test.failing('W3 after a commit epicenter pushes fast-forward to origin when tracked, never pulls, and the listing reports ahead and behind', async () => {
+test('W3 after a commit epicenter pushes fast-forward to origin when tracked, never pulls, and the listing reports ahead and behind', async () => {
 	const f = await setup();
 	const seed = await f.folder(join(f.root, 'seed'), journal);
 	const bare = join(f.root, 'origin.git');
@@ -154,7 +157,7 @@ test.failing('W3 after a commit epicenter pushes fast-forward to origin when tra
 	expect((await gitIn(bare, 'branch', '--list', 'experiment')).trim()).toBe('');
 });
 
-test.failing('W4 epicenter new writes the template and runs git init', async () => {
+test('W4 epicenter new writes the template and runs git init', async () => {
 	const f = await setup();
 	const result = await f.run('new', 'garden', '--json');
 	expect(result.code).toBe(0);
@@ -181,7 +184,7 @@ test.failing('W4 epicenter new writes the template and runs git init', async () 
 	]);
 });
 
-test.failing('W5 epicenter add links a folder, makes its history on request, and copies an app from a Git URL with an upstream branch', async () => {
+test('W5 epicenter add links a folder, makes its history on request, and copies an app from a Git URL with an upstream branch', async () => {
 	const f = await setup();
 	const vault = await f.folder(
 		join(f.root, 'Code', 'vault'),
@@ -241,7 +244,7 @@ test.failing('W5 epicenter add links a folder, makes its history on request, and
 	]);
 });
 
-test.failing('W6 a write to a path marked for LFS is refused when git-lfs is not on PATH or its filter is not set up', async () => {
+test('W6 a write to a path marked for LFS is refused when git-lfs is not on PATH or its filter is not set up', async () => {
 	const f = await setup();
 	const folder = await f.folder(join(f.home, 'journal'), journal);
 	const before = await gitIn(folder, 'rev-parse', 'HEAD');

@@ -7,19 +7,13 @@
  * expect(await context.folder.read('2026.csv')).toContain('30');
  * ```
  *
- * The folder and cache have no `path`, and the cache no `sqlite`; an action
- * that needs them runs only on a computer.
+ * The folder has no `path`; an action that needs one runs only on a computer.
  */
-import {
-	type Cache,
-	type Folder,
-	normalizePath,
-	type Secrets,
-} from './context.ts';
+import { type Folder, normalizePath, type Secrets } from './context.ts';
 
 function createMemoryFolder(
 	files: Readonly<Record<string, string | Uint8Array>>,
-): Folder & { clear(): Promise<void> } {
+): Folder {
 	const encoder = new TextEncoder();
 	const decoder = new TextDecoder();
 	const bytes = new Map<string, Uint8Array>();
@@ -49,9 +43,6 @@ function createMemoryFolder(
 		async delete(path) {
 			bytes.delete(normalizePath(path));
 		},
-		async clear() {
-			bytes.clear();
-		},
 	};
 }
 
@@ -70,14 +61,9 @@ function createMemorySecrets(): Secrets {
 	};
 }
 
-/** A folder seeded with `files`, an empty cache, and empty secrets, all in memory. */
+/** A folder seeded with `files`, and empty secrets, all in memory. */
 export function createMemoryContext(
 	files: Readonly<Record<string, string | Uint8Array>> = {},
-): { folder: Folder; cache: Cache; secrets: Secrets } {
-	const { clear: _, ...folder } = createMemoryFolder(files);
-	return {
-		folder,
-		cache: createMemoryFolder({}),
-		secrets: createMemorySecrets(),
-	};
+): { folder: Folder; secrets: Secrets } {
+	return { folder: createMemoryFolder(files), secrets: createMemorySecrets() };
 }

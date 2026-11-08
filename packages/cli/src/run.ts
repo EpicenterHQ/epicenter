@@ -13,17 +13,22 @@ import {
 	commitWrites,
 	createWriteLog,
 	gitPath,
+	LfsUnavailable,
 	PathRefused,
 } from './commit.ts';
-import { cacheOnDisk, folderOnDisk } from './disk.ts';
+import { folderOnDisk } from './disk.ts';
 import { CliError, type Outcome } from './errors.ts';
 import { holdingFileLock, NothingChanged } from './file-lock.ts';
 import { git, revParse } from './git.ts';
-import { cacheDirOf, type Runnable } from './home.ts';
+import type { Runnable } from './home.ts';
+import { type Pushed, pushToOrigin } from './push.ts';
 import { keychain, keychainService } from './secrets.ts';
 
 /** What a run that returned produced: its answer, and what it left behind. */
 export type Ran = Outcome & { result: unknown };
+
+/** A run's outcome, and what the push after its commit did, when there was one. */
+export type RunReport = { outcome: Result<Ran, CliError>; pushed?: Pushed };
 
 /** The longest a failure's first line may be in a commit subject before it is cut. */
 const SUBJECT_FAILURE = 60;
@@ -79,22 +84,24 @@ export async function runAction(
 	located: Runnable,
 	key: string,
 	input: Record<string, unknown>,
-): Promise<Result<Ran, CliError>> {
+): Promise<RunReport> {
 	const folder = located.realPath;
 	const top = await git(folder, 'rev-parse', '--show-toplevel');
 	if (
 		top.code !== 0 ||
 		(await realpath(top.stdout.toString().trim())) !== folder
 	)
-		return CliError.NotRepository({ folder });
+		return { outcome: CliError.NotRepository({ folder }) };
 	if ((await revParse(folder, 'MERGE_HEAD')) !== null)
-		return CliError.MidMerge({ folder });
+		return { outcome: CliError.MidMerge({ folder }) };
 	const action = located.actions[key];
 	if (!action)
-		return CliError.Usage({
-			message: `Unknown action ${located.name} ${key}`,
-			next: `epicenter ${located.name}`,
-		});
+		return {
+			outcome: CliError.Usage({
+				message: `Unknown action ${located.name} ${key}`,
+				next: `epicenter ${located.name}`,
+			}),
+		};
 	try {
 		return await holdingFileLock(
 			await gitPath(folder, 'epicenter.lock'),
@@ -109,7 +116,6 @@ export async function runAction(
 					try {
 						result = await action.run(input, {
 							folder: folderOnDisk(folder, log),
-							cache: cacheOnDisk(cacheDirOf(located)),
 							secrets: keychain(keychainService(located.name)),
 						});
 					} catch (error) {
@@ -128,10 +134,12 @@ export async function runAction(
 						body,
 					});
 				} catch (error) {
-					return CliError.CommitFailed({
-						cause: error,
-						uncommitted: [...log.writes.keys()].sort(),
-					});
+					return {
+						outcome: CliError.CommitFailed({
+							cause: error,
+							uncommitted: [...log.writes.keys()].sort(),
+						}),
+					};
 				}
 				const committed = new Map(
 					[...log.writes].filter(([path]) => made.commit?.paths.includes(path)),
@@ -142,22 +150,36 @@ export async function runAction(
 						...(await changedSince(folder, committed)),
 					]),
 				].sort();
-				const outcome = { commit: made.commit, uncommitted };
+				const left = { commit: made.commit, uncommitted };
+				const pushed = made.commit ? await pushToOrigin(folder) : undefined;
+				const report = (outcome: Result<Ran, CliError>): RunReport =>
+					pushed ? { outcome, pushed } : { outcome };
 				if (cause instanceof PathRefused)
-					return CliError.PathUncommitted({
-						folder,
-						path: cause.path,
-						during: cause.during,
-						...outcome,
-					});
-				if (threw) return CliError.ActionThrew({ cause, ...outcome });
-				return Ok({ result, ...outcome });
+					return report(
+						CliError.PathUncommitted({
+							folder,
+							path: cause.path,
+							during: cause.during,
+							...left,
+						}),
+					);
+				if (cause instanceof LfsUnavailable)
+					return report(
+						CliError.GitLfsMissing({
+							folder,
+							path: cause.path,
+							installed: cause.installed,
+							...left,
+						}),
+					);
+				if (threw) return report(CliError.ActionThrew({ cause, ...left }));
+				return report(Ok({ result, ...left }));
 			},
 		);
 	} catch (error) {
 		// Only a lock never taken means the action did not run; anything else is a bug and propagates.
 		if (error instanceof NothingChanged)
-			return CliError.Usage({ message: messageOf(error) });
+			return { outcome: CliError.Usage({ message: messageOf(error) }) };
 		throw error;
 	}
 }

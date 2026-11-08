@@ -233,8 +233,9 @@ leaves by deletion, one package at a time, once nothing imports it. Each wave
 below is one or more commits, each passing `bun run typecheck` and the tests of
 what it touches with no failure the commit before it did not have.
 
-Waves 0, 1, 2a, and 2b are done (2a and 2b on 2026-11-09). Next is 2c, Mail,
-which needs the author's Google sign-in, and wave 3's offline parts.
+Waves 0, 1, 2a, and 2b, and wave 3's offline parts, are done (2026-11-09). Next
+is 2c, Mail, which needs the author's Google sign-in, and the rest of wave 3:
+`serve` over HTTP, `setup`, and forwarding.
 
 **0. Tag and prune.** Done. Tagged `folder-sync-product`; `apps/epicenter`
 deleted; the frozen apps stay until each is rebuilt (ADR-0843).
@@ -273,7 +274,11 @@ and commits, and `epicenter mcp` serves it to Claude Code.
   app" in `~/Epicenter/mail/`. Done when the receipts and newsletter jobs are
   finished with Mail and Claude Code.
 
-**3. Your Epicenter** (ADR-0849, ADR-0851, ADR-0852, ADR-0854, ADR-0856). `cache`
+**3. Your Epicenter** (ADR-0849, ADR-0851, ADR-0852, ADR-0854, ADR-0856). The
+parts that need no network are done (2026-11-09, acceptance W1 to W6): `.cache/`,
+`sync` deleted, the push and ahead and behind, `new` and `add`, and the LFS
+refusal. Left: `serve` over HTTP, `setup`, forwarding, and the checks on the
+Mac. `cache`
 replaced by `.cache/` in the folder; `epicenter sync` deleted; a fast-forward
 push after each commit and "behind origin" in the listing; `new` from a template
 and `add` from a URL or a folder; `epicenter serve` over HTTP on the tailnet,

@@ -139,7 +139,7 @@ test('usage errors return exit 2 and exactly one JSON error', async () => {
 		[['reading', 'log', '3', '--book'], 'needs a value'],
 		[['reading', 'tag', '--done=false'], 'takes no value'],
 		[['reading', 'log', '3', '--version'], '--version'],
-		[['add'], 'not built yet'],
+		[['open'], 'not built yet'],
 		[['--json', 'reading', 'log', '3'], 'after the action words'],
 		[['--help', 'reading'], 'after the action words'],
 	];
@@ -182,17 +182,19 @@ test('a throwing action returns exit 3 with its message', async () => {
 	});
 });
 
-test('path runs keep declared identity and use a separate cache while home aliases are refused', async () => {
+test('path runs keep declared identity and their own .cache while home aliases are refused', async () => {
 	const f = await setup();
 	const outside = await f.app('worktree', reading, f.root, 'reading');
 	const result = await f.run(outside, 'inspect', '--json');
 	expect(result.code).toBe(0);
 	const value = JSON.parse(result.stdout).result;
-	expect(value.cache).toMatch(new RegExp(`${f.cache}/reading-[a-f0-9]{12}$`));
+	expect(value.folder).toBe(outside);
 	expect(value.token).toBe('round trip');
 	expect(value.seed).toBe('plain seed');
 	expect(value.foreign).toBeNull();
-	expect(await Bun.file(join(value.cache, 'index.sqlite')).exists()).toBe(true);
+	expect(await Bun.file(join(outside, '.cache/index.json')).exists()).toBe(
+		true,
+	);
 	const refused = await f.run(join(f.home, 'reading'), 'log', '30', '--json');
 	expect(refused.code).toBe(2);
 	expect(JSON.parse(refused.stdout).error.next).toBe(
@@ -210,10 +212,10 @@ test('path runs keep declared identity and use a separate cache while home alias
 	const homeRun = JSON.parse(
 		(await f.run('reading', 'inspect', '--json')).stdout,
 	).result;
-	expect(homeRun.cache).toBe(join(f.cache, 'reading'));
-	expect(await Bun.file(join(f.cache, 'reading/index.sqlite')).exists()).toBe(
-		true,
-	);
+	expect(homeRun.folder).toBe(join(f.home, 'reading'));
+	expect(
+		await Bun.file(join(f.home, 'reading/.cache/index.json')).exists(),
+	).toBe(true);
 });
 
 test('app and action views include locations, schemas, field help and version', async () => {
@@ -221,7 +223,6 @@ test('app and action views include locations, schemas, field help and version', 
 	const view = JSON.parse((await f.run('reading', '--json')).stdout);
 	expect(view).toMatchObject({
 		name: 'reading',
-		cache: join(f.cache, 'reading'),
 		keychain: 'epicenter.reading',
 	});
 	expect((await f.run('reading')).stdout).toContain('folder:');

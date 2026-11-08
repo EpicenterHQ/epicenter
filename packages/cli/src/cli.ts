@@ -5,6 +5,7 @@
  */
 import type { Action } from '@epicenter/app';
 import packageJson from '../package.json' with { type: 'json' };
+import { addCommand, newCommand } from './add.ts';
 import { CliError } from './errors.ts';
 import {
 	discoverAll,
@@ -28,10 +29,8 @@ import {
 	oneAppListing,
 } from './listing.ts';
 import { serveStdio } from './mcp.ts';
-import { newCommand } from './new.ts';
 import { fail, ran, writeJson, writeOut } from './output.ts';
 import { runAction } from './run.ts';
-import { syncCommand } from './sync.ts';
 import { typesCommand } from './types.ts';
 
 const HELP = `epicenter [--json]
@@ -40,16 +39,16 @@ epicenter <app> <action words> [<positionals>] [--flags] [--json]
 epicenter <path> <action words> [<positionals>] [--flags] [--json]
 epicenter serve --stdio
 epicenter types [<app> | <path>]
-epicenter new <name> | sync | add <source> | update | open
+epicenter new <name>
+epicenter add <folder> [--init] | add <git url>
+epicenter update | open
 epicenter help [<app> [<action words>]]
 epicenter --version
 
 Your apps are the folders in ~/Epicenter with an epicenter.json.
 Global flags come after the action words: --json, --help (-h).
 Exit codes: 0 success, 1 finding, 2 did not run, 3 action started and threw.
-EPICENTER_CACHE_HOME: device cache (default ~/Library/Caches/so.epicenter.apps).
-EPICENTER_TEST_SECRETS: JSON service stores held in memory for this process.
-EPICENTER_SKIP_INSTALL=1: skip bun install in new (tests).
+EPICENTER_TEST_SECRETS: JSON service stores held in memory for this process, so tests never reach the Keychain.
 Run epicenter for your apps.`;
 const GLOBALS = new Set(['--json', '--help', '-h', '--version', '-V']);
 
@@ -125,7 +124,7 @@ export async function runCli(argv: string[]): Promise<number> {
 						: `epicenter ${packageJson.version}`,
 				);
 			else if (help) print(HELP);
-			else print(homeListing(await discoverAll(), json));
+			else print(await homeListing(await discoverAll(), json));
 			return 0;
 		}
 		const [name, ...words] = tokens as [string, ...string[]];
@@ -134,25 +133,29 @@ export async function runCli(argv: string[]): Promise<number> {
 				print('epicenter new <name>');
 				return 0;
 			}
-			if (words.length !== 1)
+			const [only] = words;
+			if (words.length !== 1 || only === undefined)
 				return fail(
 					CliError.Usage({ message: 'epicenter new needs one name' }).error,
 					json,
 				);
-			return newCommand(words[0], json);
+			return newCommand(only, json);
 		}
-		if (name === 'sync') {
+		if (name === 'add') {
 			if (help) {
-				print('epicenter sync');
+				print('epicenter add <folder> [--init]\nepicenter add <git url>');
 				return 0;
 			}
-			if (words.length)
+			const init = words.includes('--init');
+			const sources = words.filter((word) => word !== '--init');
+			if (sources.length !== 1 || sources[0] === undefined)
 				return fail(
-					CliError.Usage({ message: 'epicenter sync takes no arguments' })
-						.error,
+					CliError.Usage({
+						message: 'epicenter add needs one folder or Git URL',
+					}).error,
 					json,
 				);
-			return syncCommand(json);
+			return addCommand(sources[0], init, json);
 		}
 		if (name === 'types') {
 			if (help) {
@@ -189,7 +192,7 @@ export async function runCli(argv: string[]): Promise<number> {
 				);
 			return serveStdio();
 		}
-		if (['add', 'update', 'open'].includes(name))
+		if (['update', 'open'].includes(name))
 			return fail(
 				CliError.Usage({ message: `epicenter ${name} is not built yet` }).error,
 				json,
@@ -215,7 +218,7 @@ export async function runCli(argv: string[]): Promise<number> {
 				json,
 			);
 		if (!words.length) {
-			print(oneAppListing(located, json));
+			print(await oneAppListing(located, json));
 			return 0;
 		}
 		const matched = matchAction(located.actions, words);
@@ -244,9 +247,13 @@ export async function runCli(argv: string[]): Promise<number> {
 		const given = inputOf(action, matched.rest);
 		if ('error' in given)
 			return fail(CliError.Usage({ message: given.error, next }).error, json);
-		const { data, error } = await runAction(located, matched.key, given.input);
-		if (error !== null) return fail(error, json);
-		return ran(data, json);
+		const { outcome, pushed } = await runAction(
+			located,
+			matched.key,
+			given.input,
+		);
+		if (outcome.error !== null) return fail(outcome.error, json, pushed);
+		return ran(outcome.data, json, pushed);
 	} catch (error) {
 		return fail(
 			CliError.Usage({

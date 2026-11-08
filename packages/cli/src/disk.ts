@@ -1,14 +1,13 @@
 /**
- * An action's folder and cache on this computer's disk (ADR-0841): its data
- * folder and a cache it can rebuild. Writes replace a whole file at once; a
+ * An action's folder on this computer's disk (ADR-0841, ADR-0854). Writes
+ * replace a whole file at once; a
  * folder's writes go through the run's write log, which refuses a path someone
  * else changed and records what the action wrote (ADR-0850). Listing avoids
  * Git, dependencies, and directory links so those trees never become app data.
  */
 
-import { Database } from 'bun:sqlite';
 import { randomUUID } from 'node:crypto';
-import { type Dirent, mkdirSync } from 'node:fs';
+import type { Dirent } from 'node:fs';
 import {
 	lstat,
 	mkdir,
@@ -20,19 +19,16 @@ import {
 	unlink,
 	writeFile,
 } from 'node:fs/promises';
-import { homedir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
-import { type Cache, type Folder, normalizePath } from '@epicenter/app';
+import { type Folder, normalizePath } from '@epicenter/app';
 import type { WriteLog } from './commit.ts';
 
 function missing(error: unknown) {
 	return (error as NodeJS.ErrnoException).code === 'ENOENT';
 }
 
-function diskFolder(
-	dir: string,
-	log?: WriteLog,
-): Folder & { clear(): Promise<void> } {
+/** Give an action disk-backed data methods, writing through `log`. */
+export function folderOnDisk(dir: string, log?: WriteLog): Folder {
 	const pathOf = (path: string) => join(dir, normalizePath(path));
 	async function readBytes(path: string) {
 		try {
@@ -128,43 +124,5 @@ function diskFolder(
 			await walk(relative);
 			return found.sort();
 		},
-		async clear() {
-			try {
-				for (const name of await readdir(dir))
-					await rm(join(dir, name), { recursive: true, force: true });
-			} catch (error) {
-				if (!missing(error)) throw error;
-			}
-		},
 	};
-}
-
-/** Give an action disk-backed data methods, writing through `log`, without a way to clear the whole folder. */
-export function folderOnDisk(dir: string, log?: WriteLog): Folder {
-	const { clear: _, ...folder } = diskFolder(dir, log);
-	return folder;
-}
-
-/** Give an action a lazily created cache, including disposable SQLite databases. */
-export function cacheOnDisk(dir: string): Cache {
-	return {
-		...diskFolder(dir),
-		sqlite(name) {
-			if (!/^[a-z][a-z0-9-]*$/.test(name))
-				throw new Error(
-					`${JSON.stringify(name)} is not lowercase letters, digits, and dashes, starting with a letter`,
-				);
-			// SQLite opens synchronously, so its parent must exist before the constructor.
-			mkdirSync(dir, { recursive: true });
-			return new Database(join(dir, `${name}.sqlite`));
-		},
-	};
-}
-
-/** Locate this device's app caches independently of the app home. */
-export function cacheRoot(): string {
-	return (
-		process.env.EPICENTER_CACHE_HOME ??
-		join(homedir(), 'Library/Caches/so.epicenter.apps')
-	);
 }
