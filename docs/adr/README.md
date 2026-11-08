@@ -1055,11 +1055,10 @@ When you add an ADR, add its row here.
 | [0847](0847-an-app-brings-its-providers-credentials-with-a-default-in-its-code.md) | An app brings its provider's credentials, with a default in its code | Accepted |
 | [0848](0848-the-runner-owns-only-what-an-action-wrote.md) | The runner owns only what an action wrote | Accepted |
 | [0849](0849-your-epicenter-is-one-always-reachable-computer-that-runs-named-actions.md) | Your Epicenter is one always-reachable computer that runs named actions | Proposed |
-| [0850](0850-running-an-action-makes-one-commit-or-nothing.md) | Running an action makes one commit, or nothing | Proposed |
+| [0850](0850-every-writer-commits-exactly-what-it-wrote.md) | Every writer commits exactly what it wrote | Proposed |
 | [0851](0851-an-app-with-history-has-one-git-remote-its-meeting-point-and-backup.md) | An app with history has one Git remote, its meeting point and its backup | Proposed |
 | [0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) | An app is a folder with a declared shape, and each job takes the least powerful form | Proposed |
 | [0853](0853-collections-give-four-actions-and-programs-without-the-folder-ask-over-mcp.md) | Collections give four actions, and programs without the folder ask over MCP | Proposed |
 | [0854](0854-an-apps-cache-is-the-files-it-gitignores.md) | An app's cache is the files it gitignores | Proposed |
-| [0855](0855-reminders-are-an-app-and-a-screen-runs-what-is-due-when-it-opens.md) | Reminders are an app, and a screen runs what is due when it opens | Proposed |
 | [0856](0856-binary-files-go-through-git-lfs.md) | Binary files go through Git LFS | Proposed |
-| [0857](0857-an-apps-declaration-is-plain-data-in-epicenter-json-or-epicenter-ts.md) | An app's declaration is plain data, in `epicenter.json` or `epicenter.ts` | Proposed |
+| [0857](0857-an-app-declares-itself-in-epicenter-json-and-its-code-in-epicenter-ts.md) | An app declares itself in `epicenter.json`, and its code in `epicenter.ts` | Proposed |
