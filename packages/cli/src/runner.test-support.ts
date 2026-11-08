@@ -1,19 +1,40 @@
 import { mkdir, mkdtemp, realpath, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 
 const appSource = resolve(import.meta.dir, '../../app/src/index.ts');
+const bin = resolve(import.meta.dir, 'bin.ts');
 
-/** Create isolated app homes and run the real entrypoint so output and exit codes are tested together. */
+/** Run git in `dir`, throwing with its stderr when it fails. */
+export async function gitIn(dir: string, ...args: string[]) {
+	const child = Bun.spawn(['git', '-C', dir, ...args], {
+		stdout: 'pipe',
+		stderr: 'pipe',
+	});
+	const [stdout, stderr, code] = await Promise.all([
+		new Response(child.stdout).text(),
+		new Response(child.stderr).text(),
+		child.exited,
+	]);
+	if (code !== 0) throw new Error(`git ${args.join(' ')}: ${stderr}`);
+	return stdout.trim();
+}
+
+/**
+ * A temporary `HOME` whose `Epicenter` folder is the app home, and the real
+ * `bin.ts` run against it, so output, exit codes, and the folders on disk are
+ * tested together. Nothing here reads the person's own home or Keychain.
+ */
 export async function fixture() {
 	const root = await realpath(
 		await mkdtemp(join(tmpdir(), 'epicenter-runner-')),
 	);
-	const home = join(root, 'home');
+	const home = join(root, 'Epicenter');
 	const cache = join(root, 'cache');
 	await mkdir(home);
-	const env = {
+	const env: Record<string, string | undefined> = {
 		...process.env,
+		HOME: root,
 		EPICENTER_HOME: home,
 		EPICENTER_CACHE_HOME: cache,
 		EPICENTER_SKIP_INSTALL: '1',
@@ -26,37 +47,42 @@ export async function fixture() {
 			'epicenter.other': { foreign: 'hidden' },
 		}),
 	};
-	async function app(entry: string, source: string, parent = home) {
-		const dir = join(parent, entry);
+
+	/** Write `files` under `dir` and, unless `git` is false, commit them as a new repository. */
+	async function folder(
+		dir: string,
+		files: Record<string, string>,
+		{ git = true }: { git?: boolean } = {},
+	) {
 		await mkdir(dir, { recursive: true });
-		await writeFile(
-			join(dir, 'epicenter.ts'),
-			`import { defineApp, field } from ${JSON.stringify(appSource)};\n${source}`,
-		);
-		for (const args of [
-			['init', '-q'],
-			['config', 'user.name', 'Epicenter Test'],
-			['config', 'user.email', 'epicenter-test@example.com'],
-			['add', '-A'],
-			['commit', '-q', '--no-verify', '-m', 'initial'],
-		]) {
-			const child = Bun.spawn(['git', '-C', dir, ...args], {
-				stdout: 'pipe',
-				stderr: 'pipe',
-			});
-			const [stderr, code] = await Promise.all([
-				new Response(child.stderr).text(),
-				child.exited,
-			]);
-			if (code !== 0) throw new Error(stderr);
+		for (const [path, text] of Object.entries(files)) {
+			await mkdir(dirname(join(dir, path)), { recursive: true });
+			await writeFile(join(dir, path), text);
+		}
+		if (git) {
+			await gitIn(dir, 'init', '-q');
+			await gitIn(dir, 'config', 'user.name', 'Epicenter Test');
+			await gitIn(dir, 'config', 'user.email', 'epicenter-test@example.com');
+			await gitIn(dir, 'add', '-A');
+			await gitIn(dir, 'commit', '-q', '--no-verify', '-m', 'initial');
 		}
 		return dir;
 	}
-	async function run(...args: string[]) {
-		const child = Bun.spawn(
-			[process.execPath, resolve(import.meta.dir, 'bin.ts'), ...args],
-			{ env, stdout: 'pipe', stderr: 'pipe' },
-		);
+
+	/** An app in the old shape: one `epicenter.ts` importing the app package by path. */
+	async function app(entry: string, source: string, parent = home) {
+		return folder(join(parent, entry), {
+			'epicenter.ts': `import { defineApp, field } from ${JSON.stringify(appSource)};\n${source}`,
+		});
+	}
+
+	async function runIn(cwd: string, ...args: string[]) {
+		const child = Bun.spawn([process.execPath, bin, ...args], {
+			cwd,
+			env,
+			stdout: 'pipe',
+			stderr: 'pipe',
+		});
 		const [stdout, stderr, code] = await Promise.all([
 			new Response(child.stdout).text(),
 			new Response(child.stderr).text(),
@@ -64,7 +90,82 @@ export async function fixture() {
 		]);
 		return { stdout, stderr, code };
 	}
-	return { root, home, cache, env, app, run };
+	const run = (...args: string[]) => runIn(root, ...args);
+	return { root, home, cache, env, bin, folder, app, run, runIn };
+}
+
+/** The ignore file every test app carries, as `epicenter new` writes it. */
+export const gitignore = 'node_modules/\n.cache/\nepicenter.d.json.ts\n';
+
+/** Reading, as an app with both declaration files. */
+export const readingApp = {
+	'.gitignore': gitignore,
+	'epicenter.json': `${JSON.stringify(
+		{
+			$schema: 'https://epicenter.so/epicenter.schema.json',
+			name: 'reading',
+			description: 'How much I read each week',
+			collections: {
+				books: {
+					path: 'books/{slug}.md',
+					fields: {
+						type: 'object',
+						properties: { title: { type: 'string' } },
+						required: ['title'],
+					},
+				},
+			},
+		},
+		null,
+		2,
+	)}\n`,
+	'epicenter.ts': `import declaration from './epicenter.json';
+import { defineApp, field } from '@epicenter/app';
+
+export default defineApp(declaration, {
+	actions: {
+		log: {
+			description: 'Record minutes read today',
+			input: { minutes: field.number(), book: field.text({ optional: true }) },
+			positional: ['minutes'],
+			run: async ({ minutes, book }, { folder }) => {
+				const before = (await folder.read('2026.csv')) ?? 'minutes,book\\n';
+				await folder.write('2026.csv', \`\${before}\${minutes},\${book ?? ''}\\n\`);
+				return { minutes, book: book ?? null };
+			},
+		},
+		between: {
+			description: 'Minutes read between two days',
+			input: { from: field.date(), to: field.date() },
+			positional: ['from', 'to'],
+			annotations: { readOnlyHint: true },
+			run: ({ from, to }) => ({ from, to }),
+		},
+		'week show': {
+			description: 'Minutes read this week',
+			input: {},
+			annotations: { readOnlyHint: true, openWorldHint: false },
+			run: () => 210,
+		},
+		explode: {
+			description: 'Write, then throw',
+			input: {},
+			run: async (_, { folder }) => {
+				await folder.write('2026.csv', 'minutes,book\\n1,\\n');
+				throw new Error('line 4 is not a number');
+			},
+		},
+	},
+});
+`,
+};
+
+/** An epicenter.json with only a name and a description. */
+export function declarationOf(
+	name: string,
+	extra: Record<string, unknown> = {},
+) {
+	return `${JSON.stringify({ name, description: `The ${name} app`, ...extra }, null, 2)}\n`;
 }
 
 export const reading = `export default defineApp({ name: 'reading', description: 'Reading records', actions: {
