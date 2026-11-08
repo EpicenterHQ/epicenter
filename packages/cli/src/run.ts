@@ -18,7 +18,7 @@ import {
 import { cacheOnDisk, folderOnDisk } from './disk.ts';
 import { CliError, type Outcome } from './errors.ts';
 import { holdingFileLock, NothingChanged } from './file-lock.ts';
-import { git } from './git.ts';
+import { git, revParse } from './git.ts';
 import { cacheDirOf, type Runnable } from './home.ts';
 import { keychain, keychainService } from './secrets.ts';
 
@@ -72,11 +72,6 @@ async function withStdoutKept<T>(work: () => Promise<T>) {
 		console.log = log;
 		console.info = info;
 	}
-}
-
-async function revParse(folder: string, rev: string) {
-	const found = await git(folder, 'rev-parse', '-q', '--verify', rev);
-	return found.code === 0 ? found.stdout.toString().trim() : null;
 }
 
 /** Check the repository before an action starts, then hold its turn through the commit. */

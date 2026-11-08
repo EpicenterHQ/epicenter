@@ -20,7 +20,7 @@ import { randomUUID } from 'node:crypto';
 import { copyFile, lstat, open, rename, rm } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
 import type { Commit } from './errors.ts';
-import { checkedGit, git } from './git.ts';
+import { checkedGit, git, revParse } from './git.ts';
 
 const ZERO = '0000000000000000000000000000000000000000';
 
@@ -111,11 +111,6 @@ export function createWriteLog(folder: string): WriteLog {
 			if (!ignored.has(path)) writes.set(path, null);
 		},
 	};
-}
-
-async function revParse(folder: string, rev: string) {
-	const found = await git(folder, 'rev-parse', '-q', '--verify', rev);
-	return found.code === 0 ? found.stdout.toString().trim() : null;
 }
 
 /** Where Git keeps `name` for this repository, as an absolute path. */

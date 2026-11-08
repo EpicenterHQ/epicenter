@@ -12,6 +12,12 @@ export async function git(folder: string, ...args: string[]) {
 	return { stdout: Buffer.from(stdout), stderr: stderr.trim(), code };
 }
 
+/** The commit `rev` names, or `null` when it names none (an unborn branch, no merge in progress). */
+export async function revParse(folder: string, rev: string) {
+	const found = await git(folder, 'rev-parse', '-q', '--verify', rev);
+	return found.code === 0 ? found.stdout.toString().trim() : null;
+}
+
 export async function checkedGit(folder: string, ...args: string[]) {
 	const result = await git(folder, ...args);
 	if (result.code !== 0)
