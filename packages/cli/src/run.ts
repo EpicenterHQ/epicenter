@@ -9,10 +9,10 @@ import {
 	rmdir,
 } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
+import { cacheOnDisk, folderOnDisk } from './disk.ts';
 import { holdingFileLock, NothingChanged } from './file-lock.ts';
 import { checkedGit, dirtyPaths, git } from './git.ts';
 import type { Located } from './home.ts';
-import { cacheOnDisk, folderOnDisk } from './places.ts';
 import { keychain } from './secrets.ts';
 
 type RunResult =

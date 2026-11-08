@@ -1,6 +1,6 @@
 /**
- * The disk places an action receives (ADR-0841): its data folder and a cache
- * it can rebuild. Writes replace a whole file at once; listing avoids Git,
+ * An action's folder and cache on this computer's disk (ADR-0841): its data
+ * folder and a cache it can rebuild. Writes replace a whole file at once; listing avoids Git,
  * dependencies, and directory links so those trees never become app data.
  */
 

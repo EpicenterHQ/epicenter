@@ -18,8 +18,8 @@
  * ```
  */
 import type { Static, TObject, TSchema } from 'typebox';
+import type { Context } from './context.ts';
 import { isPositional } from './field.ts';
-import type { Places } from './places.ts';
 
 /** An action's input: a plain record of fields, or of any TypeBox schemas. */
 export type Input = Record<string, TSchema>;
@@ -46,7 +46,7 @@ export type Action<I extends Input = Input> = {
 	/** Changes something outside the folder that cannot be taken back, such as archiving mail. */
 	destructive?: boolean;
 	/** Returns what the person sees, and what `--json` prints. */
-	run(input: InputOf<I>, places: Places): unknown;
+	run(input: InputOf<I>, context: Context): unknown;
 };
 
 type Actions = Record<string, { run: (...args: never) => unknown }>;

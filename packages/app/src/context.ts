@@ -1,7 +1,8 @@
 /**
- * The places an action receives (ADR-0841): its folder, its cache, and its
- * secrets. Whatever runs the action supplies them: the `epicenter` CLI on a
- * computer, memory in a test.
+ * The context an action's `run` receives (ADR-0841): its folder, its cache,
+ * and its secrets, which differ by how long what they hold lives. Whatever runs
+ * the action supplies them: the `epicenter` CLI on a computer, memory in a
+ * test.
  */
 import type { Database } from 'bun:sqlite';
 
@@ -44,7 +45,8 @@ export type Secrets = {
 	delete(name: string): Promise<void>;
 };
 
-export type Places = {
+/** What `run` receives beside its input. */
+export type Context = {
 	folder: Folder;
 	cache: Cache;
 	/** Only on a computer. */

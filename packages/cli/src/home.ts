@@ -9,7 +9,7 @@ import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { type Action, type App, problemsOf } from '@epicenter/app';
-import { cacheRoot } from './places.ts';
+import { cacheRoot } from './disk.ts';
 import { keychainService } from './secrets.ts';
 
 /** An app's disk identity, loaded definition, and problems that prevent a run. */

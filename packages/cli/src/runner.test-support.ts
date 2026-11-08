@@ -72,7 +72,7 @@ export const reading = `export default defineApp({ name: 'reading', description:
 	'week summary': { description: 'Weekly minutes', input: {}, readOnly:true, run: () => ({minutes:210}) },
 	tag: { description:'Tag records', input: { tags: field.tags(), done: field.boolean() }, run: (input) => input },
 	collect: { description:'Collect tags', input: { tags: field.tags({positional:true}) }, run: (input) => input },
-	inspect: { description:'Inspect places', input:{}, run: async (_, {folder,cache,secrets}) => { const db = cache.sqlite('index'); db.run('CREATE TABLE IF NOT EXISTS items (id INTEGER)'); db.close(); await secrets.set('token','round trip'); return {folder:folder.path,cache:cache.path,token:await secrets.get('token'),seed:await secrets.get('seed'),foreign:await secrets.get('foreign') ?? null}; } },
+	inspect: { description:'Inspect the context', input:{}, run: async (_, {folder,cache,secrets}) => { const db = cache.sqlite('index'); db.run('CREATE TABLE IF NOT EXISTS items (id INTEGER)'); db.close(); await secrets.set('token','round trip'); return {folder:folder.path,cache:cache.path,token:await secrets.get('token'),seed:await secrets.get('seed'),foreign:await secrets.get('foreign') ?? null}; } },
 	explode: { description:'Throw an error', input:{}, run: () => {throw new Error('action exploded');} },
 } });`;
 

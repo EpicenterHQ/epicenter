@@ -65,7 +65,7 @@ underneath. Every field is a flag; at most one is `positional`, and it remains
 usable as its flag. A repeated flag gives an array. `json`, `help`, and `version`
 are not field names. Raw TypeBox remains for anything else.
 
-**The places an action receives.**
+**The context an action receives**, three stores that differ by how long what they hold lives.
 - **`folder`** is the app's folder as an object: `read`, `write`, `list`,
   `remove`, their bytes forms, and `path` only where there is a real disk. The
   runner supplies it: the disk for the CLI and `epicenter serve`, Epicenter

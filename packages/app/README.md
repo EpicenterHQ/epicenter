@@ -52,30 +52,31 @@ An action may say `readOnly` (it changes nothing) or `destructive` (it changes
 something outside the folder that cannot be taken back); agents see both as
 MCP hints.
 
-## Places
+## Context
 
-`run` receives `{ folder, cache, secrets }`:
+`run` receives its input and a context, `{ folder, cache, secrets }`, three
+stores that differ by how long what they hold lives:
 
-| Place | Holds | Methods |
+| Store | Holds | Methods |
 | --- | --- | --- |
 | `folder` | the app's data, in its Git repository | `read`, `readBytes`, `write`, `writeBytes`, `list`, `remove`; `path` on a computer |
 | `cache` | anything the app can rebuild, on this device only | the same, plus `clear()`; `path` and `sqlite(name)` on a computer |
 | `secrets` | sign-ins, in this computer's Keychain | `get`, `set`, `delete`; only on a computer |
 
 Paths are relative to the folder with `/` between parts. `read` gives
-`undefined` for a missing file. The `epicenter` command supplies the places on
+`undefined` for a missing file. The `epicenter` command supplies the context on
 a computer; this package has no Node or Bun runtime code, so a page can import
 an app's types.
 
 ## Testing an action
 
 ```ts
-import { createMemoryPlaces } from '@epicenter/app';
+import { createMemoryContext } from '@epicenter/app';
 import reading from './epicenter.ts';
 
-const places = createMemoryPlaces({ '2026.csv': 'minutes,book\n' });
-await reading.actions.log.run({ minutes: 30 }, places);
-expect(await places.folder.read('2026.csv')).toBe('minutes,book\n30,\n');
+const context = createMemoryContext({ '2026.csv': 'minutes,book\n' });
+await reading.actions.log.run({ minutes: 30 }, context);
+expect(await context.folder.read('2026.csv')).toBe('minutes,book\n30,\n');
 ```
 
 `problemsOf(app)` lists what is wrong with an app as the `epicenter` command

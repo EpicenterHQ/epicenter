@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import {
-	createMemoryPlaces,
+	createMemoryContext,
 	defineApp,
 	field,
 	normalizePath,
@@ -23,18 +23,18 @@ const reading = defineApp({
 	},
 });
 
-describe('createMemoryPlaces', () => {
+describe('createMemoryContext', () => {
 	test('an action runs against a folder in memory', async () => {
-		const places = createMemoryPlaces({ '2026.csv': 'minutes\n10\n' });
-		expect(await reading.actions.log.run({ minutes: 30 }, places)).toEqual({
+		const context = createMemoryContext({ '2026.csv': 'minutes\n10\n' });
+		expect(await reading.actions.log.run({ minutes: 30 }, context)).toEqual({
 			minutes: 30,
 		});
-		expect(await places.folder.read('2026.csv')).toBe('minutes\n10\n30\n');
-		expect(await places.folder.list()).toEqual(['2026.csv']);
+		expect(await context.folder.read('2026.csv')).toBe('minutes\n10\n30\n');
+		expect(await context.folder.list()).toEqual(['2026.csv']);
 	});
 
 	test('a missing file reads as undefined, and a removed one is gone', async () => {
-		const { folder } = createMemoryPlaces({ 'a/b.md': 'b' });
+		const { folder } = createMemoryContext({ 'a/b.md': 'b' });
 		expect(await folder.read('nope.md')).toBeUndefined();
 		expect(await folder.list('a')).toEqual(['a/b.md']);
 		await folder.remove('a/b.md');
@@ -42,11 +42,11 @@ describe('createMemoryPlaces', () => {
 	});
 
 	test('the cache clears; the folder has no clear', async () => {
-		const places = createMemoryPlaces();
-		await places.cache.write('index.json', '{}');
-		await places.cache.clear();
-		expect(await places.cache.list()).toEqual([]);
-		expect('clear' in places.folder).toBe(false);
+		const context = createMemoryContext();
+		await context.cache.write('index.json', '{}');
+		await context.cache.clear();
+		expect(await context.cache.list()).toEqual([]);
+		expect('clear' in context.folder).toBe(false);
 	});
 });
 

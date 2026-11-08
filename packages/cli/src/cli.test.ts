@@ -1,6 +1,6 @@
 /**
  * App runner integration tests exercise the real executable's discovery, command
- * grammar, output, and disk places. Broken apps must not block healthy apps.
+ * grammar, output, and the folder and cache on disk. Broken apps must not block healthy apps.
  */
 import { afterEach, expect, test } from 'bun:test';
 import { mkdir, readFile, rm, symlink } from 'node:fs/promises';

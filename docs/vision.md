@@ -43,9 +43,10 @@ export default defineApp({
 ```
 
 An action has a description, an input made of fields, and `run`. Epicenter
-hands `run` three places ([ADR-0841]):
+hands `run` a context of three stores, which differ by how long what they hold
+lives ([ADR-0841]):
 
-| Place | Holds | If it is lost |
+| Store | Holds | If it is lost |
 | --- | --- | --- |
 | `folder` | what you would keep if Epicenter vanished; in Git | gone, which is why it is in Git |
 | `cache` | anything the app can rebuild: a copy of your mailbox, an index, a browser profile | you wait while it rebuilds |

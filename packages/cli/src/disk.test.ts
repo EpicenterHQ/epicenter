@@ -1,5 +1,5 @@
 /**
- * Disk places preserve relative paths, atomic writes and rebuildable caches.
+ * The folder and cache on disk preserve relative paths, atomic writes and rebuildable caches.
  * Listing excludes dependency and Git directories and never traverses directory links.
  */
 import { afterEach, expect, test } from 'bun:test';
@@ -13,7 +13,7 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { cacheOnDisk, folderOnDisk } from './places.ts';
+import { cacheOnDisk, folderOnDisk } from './disk.ts';
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -22,7 +22,7 @@ afterEach(async () => {
 	);
 });
 async function setup() {
-	const root = await mkdtemp(join(tmpdir(), 'epicenter-places-'));
+	const root = await mkdtemp(join(tmpdir(), 'epicenter-disk-'));
 	roots.push(root);
 	return root;
 }

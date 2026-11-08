@@ -1,10 +1,10 @@
 /**
- * Places held in memory, for testing an action without a computer:
+ * A context held in memory, for testing an action without a computer:
  *
  * ```ts
- * const places = createMemoryPlaces({ '2026.csv': 'day,minutes\n' });
- * await app.actions.log.run({ minutes: 30 }, places);
- * expect(await places.folder.read('2026.csv')).toContain('30');
+ * const context = createMemoryContext({ '2026.csv': 'day,minutes\n' });
+ * await app.actions.log.run({ minutes: 30 }, context);
+ * expect(await context.folder.read('2026.csv')).toContain('30');
  * ```
  *
  * The folder and cache have no `path`, and the cache no `sqlite`; an action
@@ -15,7 +15,7 @@ import {
 	type Folder,
 	normalizePath,
 	type Secrets,
-} from './places.ts';
+} from './context.ts';
 
 function createMemoryFolder(
 	files: Readonly<Record<string, string | Uint8Array>>,
@@ -71,7 +71,7 @@ function createMemorySecrets(): Secrets {
 }
 
 /** A folder seeded with `files`, an empty cache, and empty secrets, all in memory. */
-export function createMemoryPlaces(
+export function createMemoryContext(
 	files: Readonly<Record<string, string | Uint8Array>> = {},
 ): { folder: Folder; cache: Cache; secrets: Secrets } {
 	const { clear: _, ...folder } = createMemoryFolder(files);

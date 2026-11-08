@@ -84,7 +84,7 @@ The unscoped `epicenter` name on npm is not ours; everything is under the
 `@epicenter` scope.
 
 `@epicenter/app` holds what an app author touches: `defineApp`, `field`, the
-`Folder`, `Cache`, and `Secrets` types, and `createMemoryPlaces` for tests,
+`Folder`, `Cache`, and `Secrets` types, and `createMemoryContext` for tests,
 which is plain JavaScript. What needs a computer is the runner's and lives in
 `@epicenter/cli`: the folder on disk, the cache directory and its SQLite, the
 Keychain, Git. A notes library, when an app needs one, is new code that copies
@@ -216,8 +216,8 @@ frozen, until each is rebuilt (ADR-0843). Done when nothing outside `docs/` and
 (`epicenter reading log 30` writes and commits) and `epicenter mcp` serves it to
 Claude Code.
 
-- **1a. `packages/app`.** `defineApp`, `field`, the place types, and
-  `createMemoryPlaces`, as ADR-0841 writes them. Type tests prove that `run`'s
+- **1a. `packages/app`.** `defineApp`, `field`, the context types, and
+  `createMemoryContext`, as ADR-0841 writes them. Type tests prove that `run`'s
   input is inferred from the fields, that a field without `optional` is
   required, and that an action's return value types its `--json`. A test runs
   an action against a memory folder. The import check ADR-0843 names starts
@@ -230,7 +230,7 @@ Claude Code.
   serves apps; `output.ts` takes exit code 3 and the error's `code` and `next`.
   New: discovery of the home (`EPICENTER_HOME`, else `~/Epicenter`), the
   listing and its problems, `epicenter <app>`, `epicenter <path> …`, and the
-  places on a computer (the folder on disk, the cache directory and
+  context on a computer (the folder on disk, the cache directory and
   `sqlite(name)`, the Keychain under `epicenter.<name>`).
 - **1c. Commits and sync.** The commit rule of ADR-0842 with tests against a
   temporary repository: dirty paths noted, a write to one refused, one commit
