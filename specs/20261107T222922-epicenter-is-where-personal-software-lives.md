@@ -168,7 +168,7 @@ epicenter mail apply newsletters                         # the person runs this
 
 ## Refused for now
 
-A sync engine; shared providers such as Google sign-in in core (ADR-0847);
+A sync engine; schedules (ADR-0849); shared providers such as Google sign-in in core (ADR-0847);
 sandboxing; validating schemas for folders (collections describe, ADR-0845); a
 runner on the phone. `epicenter serve`, the hub, the box, and the phone as a
 client are no longer refused: ADR-0844 orders them below.
@@ -246,15 +246,16 @@ Claude Code.
 app". Done when the receipts and newsletter jobs are finished with Mail and
 Claude Code.
 
-**3. The runner's safety, then your Epicenter.** First ADR-0848 in
-`packages/cli`: commit and undo only what an action wrote, the run record with
-its phase and hashes, `readOnly` enforced, a bounded lock, `epicenter mcp`
-spawning per call. Then the secrets experiment (ADR-0846's gate) on the
-author's Mac. Then ADR-0846: `epicenter setup`, the front door, `schedules` and
-`tick`, `--on home`, the one door into a box-placed branch, the backup check.
-Done when the phone opens a Mail page from the always-on Mac over Tailscale and
-runs an action, an 8am schedule runs (and is refused, visibly, while Mail's
-code is uncommitted), and the power-cut test's result is recorded in ADR-0846.
+**3. Your Epicenter.** ADR-0849 in `packages/cli`: in a copy the CLI applies
+an action's writes when `run` returns and never commits; your Epicenter keeps
+each app in a folder only it writes, runs requests there one at a time, commits
+or discards, accepts fast-forward pushes between runs, and pushes to the backup
+remote. Then `epicenter serve` (HTTP and MCP over Tailscale), `--remote`, and a
+laptop sending an action that needs a sign-in it lacks. Done when the phone runs
+a Mail action on the always-on Mac, Claude on the laptop runs `mail search`
+there, an agent's edit in `~/Epicenter/mail` survives a Mail action failing on
+the same Mac, and the vault's GitHub repository receives every commit as
+backup.
 
 **4. The vault.** The vault's scripts become actions in
 `~/Code/vault/epicenter.ts`, linked as `~/Epicenter/vault`. Done when
@@ -296,6 +297,6 @@ Waves 1 to 5 are done:
   are done with Mail and Claude Code.
 - `epicenter vault calendar show …` runs the vault's calendar command through the
   `~/Epicenter/vault` link.
-- The phone opens a page from your Epicenter and runs an action there; schedules run.
+- The phone runs an action on your Epicenter, which commits it and pushes it to the backup.
 - Vocab runs as an app with actions and collections, and the hub shows its
   actions as a palette and its words as a table.
