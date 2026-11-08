@@ -1,0 +1,38 @@
+# 0854. An app's cache is the files it gitignores
+
+- **Status:** Proposed
+- **Date:** 2026-11-08
+- **Amends:** [ADR-0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md) at the context, which becomes `folder` and `secrets`: `cache`, its directory under `~/Library/Caches`, `clear()`, and `sqlite(name)` go. [ADR-0844](0844-one-runner-runs-anywhere-and-every-surface-is-a-view-over-it.md) at its cache root per operating system.
+- **Relates:** [ADR-0850](0850-an-action-commits-exactly-the-files-it-wrote-wherever-it-runs.md) (ignored paths are written and never committed), [ADR-0852](0852-epicenter-is-one-contract-and-four-open-slots.md) (the template's `.gitignore`).
+- **Unbuilt:** all of it. `cache` exists in `packages/app` and `packages/cli`.
+
+## Context
+
+ADR-0841 kept rebuildable state outside the folder, in a cache directory per
+app with its own object, and rejected `.cache/` inside the folder because it
+would need excluding from Git and from backups everywhere and would be indexed
+by the vault's tools. Since then the template ships a `.gitignore`, backup is
+the Git remote (ADR-0851), and the vault already keeps rebuildable mirrors
+(`.calendar/`, `.todoist/`) as ignored files beside its notes.
+
+## Decision
+
+**What an app can rebuild lives in files it gitignores, inside its own folder.**
+The template ignores `.cache/`; an app may ignore other paths. An action reads
+and writes them through `folder` like any file; the commit rule writes them and
+never commits them. A database is a file there, opened through `folder.path`.
+The context is `{ folder, secrets }`.
+
+## Consequences
+
+- Each clone has its own cache by construction, so a worktree's new cache shape
+  never breaks another copy's.
+- Deleted: the `cache` object, its directory per operating system, its per-path
+  hash for worktrees, `clear()`, and `sqlite(name)`.
+- Clearing a cache is deleting `.cache/`.
+
+## Considered alternatives
+
+- **A cache directory outside the folder (ADR-0841).** A second object, a
+  second location per operating system, and a naming scheme for worktrees, for
+  files Git already knows how to ignore.

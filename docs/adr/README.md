@@ -1054,4 +1054,9 @@ When you add an ADR, add its row here.
 | [0846](0846-epicenter-owns-no-infrastructure-and-each-repository-has-one-meeting-point.md) | Epicenter owns no infrastructure, and each repository has one meeting point | Accepted |
 | [0847](0847-an-app-brings-its-providers-credentials-with-a-default-in-its-code.md) | An app brings its provider's credentials, with a default in its code | Accepted |
 | [0848](0848-the-runner-owns-only-what-an-action-wrote.md) | The runner owns only what an action wrote | Accepted |
-| [0849](0849-every-app-lives-on-your-epicenter-one-always-reachable-computer.md) | Every app lives on your Epicenter, one always-reachable computer | Proposed |
+| [0849](0849-your-epicenter-is-one-always-reachable-computer-that-runs-named-actions.md) | Your Epicenter is one always-reachable computer that runs named actions | Proposed |
+| [0850](0850-an-action-commits-exactly-the-files-it-wrote-wherever-it-runs.md) | An action commits exactly the files it wrote, wherever it runs | Proposed |
+| [0851](0851-each-app-has-one-git-remote-its-meeting-point-and-backup.md) | Each app has one Git remote, its meeting point and its backup | Proposed |
+| [0852](0852-epicenter-is-one-contract-and-four-open-slots.md) | Epicenter is one contract and four open slots | Proposed |
+| [0853](0853-collections-give-an-app-its-reading-actions-and-screens-are-clients.md) | Collections give an app its reading actions, and screens are clients | Proposed |
+| [0854](0854-an-apps-cache-is-the-files-it-gitignores.md) | An app's cache is the files it gitignores | Proposed |
