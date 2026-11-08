@@ -1,8 +1,8 @@
 import { afterEach, expect, test } from 'bun:test';
 import { readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { checkedGit, git } from './git.ts';
-import { fixture } from './runner.test-support.ts';
+import { git } from './git.ts';
+import { fixture, gitIn } from './runner.test-support.ts';
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -24,28 +24,22 @@ async function setup(source: string) {
 /** Paths `git status` reports, in porcelain order. */
 const dirtyPaths = async (folder: string) =>
 	(
-		await checkedGit(
-			folder,
-			'status',
-			'--porcelain=v1',
-			'--untracked-files=all',
-		)
-	)
+		await git(folder, ['status', '--porcelain=v1', '--untracked-files=all'])
+	).stdout
 		.toString()
 		.split('\n')
 		.filter(Boolean)
 		.map((line) => line.slice(3));
-const head = async (folder: string) =>
-	(await checkedGit(folder, 'rev-parse', 'HEAD')).toString().trim();
+const head = async (folder: string) => gitIn(folder, 'rev-parse', 'HEAD');
 const show = async (folder: string, ...args: string[]) =>
-	(await checkedGit(folder, ...args)).toString().trim();
+	gitIn(folder, ...args);
 
 test('two writes make one commit with subject and input; staged hand edits stay out', async () => {
 	const f = await setup(
 		`two:{description:'Two',input:{who:field.text()},positional:['who'],run:async({who},{folder})=>{await folder.write('a.md',who);await folder.write('b.md',who);return who}}`,
 	);
 	await writeFile(join(f.folder, 'hand.md'), 'person');
-	await checkedGit(f.folder, 'add', '--', 'hand.md');
+	await gitIn(f.folder, 'add', '--', 'hand.md');
 	const before = await head(f.folder);
 	const result = await f.run('reading', 'two', 'Ada', '--json');
 	expect(result.code).toBe(0);
@@ -97,8 +91,8 @@ test('commit includes tracked edits and deletions but excludes ignored files', a
 	await writeFile(join(f.folder, 'edit.md'), 'old');
 	await writeFile(join(f.folder, 'remove.md'), 'old');
 	await writeFile(join(f.folder, '.gitignore'), '*.tmp\n');
-	await checkedGit(f.folder, 'add', '-A');
-	await checkedGit(f.folder, 'commit', '-q', '-m', 'data');
+	await gitIn(f.folder, 'add', '-A');
+	await gitIn(f.folder, 'commit', '-q', '-m', 'data');
 	const result = await f.run('reading', 'change', '--json');
 	expect(result.code).toBe(0);
 	expect(
@@ -155,7 +149,7 @@ test('a folder inside another repository is refused before run', async () => {
 		`touch:{description:'Touch',input:{},run:async(_,{folder})=>{await folder.write('ran.md','yes')}}`,
 	);
 	await rm(join(f.folder, '.git'), { recursive: true });
-	await checkedGit(f.home, 'init', '-q');
+	await gitIn(f.home, 'init', '-q');
 	const result = await f.run('reading', 'touch', '--json');
 	expect(result.code).toBe(2);
 	expect(JSON.parse(result.stdout).error.next).toBe(`git -C ${f.folder} init`);
@@ -195,15 +189,15 @@ test('an action during an unfinished merge is refused before it runs', async () 
 	);
 	const main = await show(f.folder, 'rev-parse', '--abbrev-ref', 'HEAD');
 	await writeFile(join(f.folder, 'a.md'), 'base\n');
-	await checkedGit(f.folder, 'add', '-A');
-	await checkedGit(f.folder, 'commit', '-q', '-m', 'base');
-	await checkedGit(f.folder, 'checkout', '-q', '-b', 'other');
+	await gitIn(f.folder, 'add', '-A');
+	await gitIn(f.folder, 'commit', '-q', '-m', 'base');
+	await gitIn(f.folder, 'checkout', '-q', '-b', 'other');
 	await writeFile(join(f.folder, 'a.md'), 'other\n');
-	await checkedGit(f.folder, 'commit', '-q', '-am', 'other');
-	await checkedGit(f.folder, 'checkout', '-q', main);
+	await gitIn(f.folder, 'commit', '-q', '-am', 'other');
+	await gitIn(f.folder, 'checkout', '-q', main);
 	await writeFile(join(f.folder, 'a.md'), 'main\n');
-	await checkedGit(f.folder, 'commit', '-q', '-am', 'main');
-	expect((await git(f.folder, 'merge', 'other')).code).not.toBe(0);
+	await gitIn(f.folder, 'commit', '-q', '-am', 'main');
+	expect((await git(f.folder, ['merge', 'other'])).code).not.toBe(0);
 	const result = await f.run('reading', 'touch', '--json');
 	expect(result.code).toBe(2);
 	expect(JSON.parse(result.stdout).error.message).toContain(

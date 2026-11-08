@@ -14,11 +14,15 @@ export type Pushed =
 
 /** The branch HEAD is on and the branch it tracks on `origin`, or `undefined` when it tracks none there. */
 async function trackedOnOrigin(folder: string) {
-	const branch = await git(folder, 'symbolic-ref', '-q', '--short', 'HEAD');
+	const branch = await git(folder, ['symbolic-ref', '-q', '--short', 'HEAD']);
 	if (branch.code !== 0) return undefined;
 	const name = branch.stdout.toString().trim();
-	const remote = await git(folder, 'config', '--get', `branch.${name}.remote`);
-	const merge = await git(folder, 'config', '--get', `branch.${name}.merge`);
+	const remote = await git(folder, [
+		'config',
+		'--get',
+		`branch.${name}.remote`,
+	]);
+	const merge = await git(folder, ['config', '--get', `branch.${name}.merge`]);
 	if (remote.stdout.toString().trim() !== 'origin' || merge.code !== 0)
 		return undefined;
 	return { branch: name, merge: merge.stdout.toString().trim() };
@@ -30,17 +34,16 @@ export async function pushToOrigin(
 ): Promise<Pushed | undefined> {
 	const tracked = await trackedOnOrigin(folder);
 	if (!tracked) return undefined;
-	const push = await git(
-		folder,
+	const push = await git(folder, [
 		'push',
 		'-q',
 		'origin',
 		`HEAD:${tracked.merge}`,
-	);
+	]);
 	if (push.code === 0) return { pushed: true };
 	if (/\[rejected\]|non-fast-forward|fetch first/.test(push.stderr)) {
 		// Fetching is not pulling: it only updates what this copy knows of origin, so the listing can say it is behind.
-		await git(folder, 'fetch', '-q', 'origin');
+		await git(folder, ['fetch', '-q', 'origin']);
 		return {
 			pushed: false,
 			reason: 'origin has commits this copy does not; the commit stays here',
@@ -58,13 +61,12 @@ export async function pushToOrigin(
 /** How far this copy is ahead of and behind what it knows of `origin`, or `undefined` when it tracks nothing there. */
 export async function originOf(folder: string) {
 	if (!(await trackedOnOrigin(folder))) return undefined;
-	const counted = await git(
-		folder,
+	const counted = await git(folder, [
 		'rev-list',
 		'--left-right',
 		'--count',
 		'HEAD...@{u}',
-	);
+	]);
 	if (counted.code !== 0) return undefined;
 	const [ahead = 0, behind = 0] = counted.stdout
 		.toString()

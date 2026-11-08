@@ -42,10 +42,9 @@ export function folderOnDisk(dir: string, log?: WriteLog): Folder {
 		const normalized = normalizePath(path);
 		const target = join(dir, normalized);
 		await mkdir(dirname(target), { recursive: true });
-		const temp = join(
-			dirname(target),
-			`.${basename(target)}.${randomUUID()}.tmp`,
-		);
+		const temp = log
+			? await log.tempFor(target)
+			: join(dirname(target), `.${basename(target)}.${randomUUID()}.tmp`);
 		try {
 			await writeFile(temp, bytes);
 			// As late as possible, so an edit saved before this point is refused rather than overwritten.

@@ -12,14 +12,13 @@ import {
 	changedSince,
 	commitWrites,
 	createWriteLog,
-	gitPath,
 	LfsUnavailable,
 	PathRefused,
 } from './commit.ts';
 import { folderOnDisk } from './disk.ts';
 import { CliError, type Outcome } from './errors.ts';
 import { holdingFileLock, NothingChanged } from './file-lock.ts';
-import { git, revParse } from './git.ts';
+import { git, gitPath, revParse } from './git.ts';
 import type { Runnable } from './home.ts';
 import { type Pushed, pushToOrigin } from './push.ts';
 import { keychain, keychainService } from './secrets.ts';
@@ -86,7 +85,7 @@ export async function runAction(
 	input: Record<string, unknown>,
 ): Promise<RunReport> {
 	const folder = located.realPath;
-	const top = await git(folder, 'rev-parse', '--show-toplevel');
+	const top = await git(folder, ['rev-parse', '--show-toplevel']);
 	if (
 		top.code !== 0 ||
 		(await realpath(top.stdout.toString().trim())) !== folder

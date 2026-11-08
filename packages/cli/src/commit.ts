@@ -21,10 +21,19 @@
  * around `folder` (through `folder.path`) are not recorded and not committed.
  */
 import { randomUUID } from 'node:crypto';
-import { copyFile, lstat, open, rename, rm } from 'node:fs/promises';
-import { isAbsolute, join } from 'node:path';
+import {
+	copyFile,
+	lstat,
+	mkdir,
+	open,
+	rename,
+	rm,
+	stat,
+} from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import type { Commit } from './errors.ts';
-import { checkedGit, git, revParse } from './git.ts';
+import { checkedGit, git, gitPath, revParse } from './git.ts';
 
 const ZERO = '0000000000000000000000000000000000000000';
 
@@ -63,15 +72,28 @@ export class LfsUnavailable extends Error {
 /** Throws `LfsUnavailable` unless `git-lfs` is on PATH and its filter is configured for `folder`. */
 async function requireLfs(folder: string, path: string) {
 	if (!Bun.which('git-lfs')) throw new LfsUnavailable(path, false);
-	const filterProcess = await git(
-		folder,
+	const filterProcess = await git(folder, [
 		'config',
 		'--get',
 		'filter.lfs.process',
-	);
-	const clean = await git(folder, 'config', '--get', 'filter.lfs.clean');
+	]);
+	const clean = await git(folder, ['config', '--get', 'filter.lfs.clean']);
 	if (filterProcess.code !== 0 && clean.code !== 0)
 		throw new LfsUnavailable(path, true);
+}
+
+/**
+ * Whether Git ignores `path`, which may not exist yet: `check-ignore` answers
+ * for a missing path, which `status` does not. Its arguments are path names,
+ * not pathspecs, and it refuses the literal magic every other call gets.
+ */
+async function isIgnored(folder: string, path: string) {
+	const checked = await git(folder, ['check-ignore', '-q', '--', path], {
+		env: { GIT_LITERAL_PATHSPECS: '0' },
+	});
+	if (checked.code > 1)
+		throw new Error(checked.stderr || 'git check-ignore failed');
+	return checked.code === 0;
 }
 
 /** What one run wrote, as Git objects; `null` is a deletion. Ignored paths are written and never recorded. */
@@ -82,6 +104,13 @@ export type WriteLog = {
 	wrote(path: string, bytes: Uint8Array): Promise<void>;
 	/** Record that this run just deleted `path`. */
 	deleted(path: string): Promise<void>;
+	/**
+	 * Where to stage the bytes for `target` before they are renamed into
+	 * place: under the repository's Git directory when that is on the same
+	 * filesystem, so a run killed mid-write leaves nothing in the working
+	 * tree for `git add -A` to sweep in; otherwise beside the target.
+	 */
+	tempFor(target: string): Promise<string>;
 	/** The paths recorded, in the order first written. */
 	readonly writes: ReadonlyMap<string, string | null>;
 };
@@ -93,16 +122,22 @@ async function onDisk(folder: string, path: string) {
 	} catch {
 		return null;
 	}
-	return (await checkedGit(folder, 'hash-object', '--', path))
-		.toString()
-		.trim();
+	return checkedGit(folder, ['hash-object', '--', path]);
 }
 
 export function createWriteLog(folder: string): WriteLog {
 	const writes = new Map<string, string | null>();
 	const ignored = new Set<string>();
+	// Decided once per run: the Git directory, when a rename from it into the folder stays on one filesystem.
+	const staging = gitPath(folder, 'epicenter-tmp').then(async (dir) => {
+		await mkdir(dir, { recursive: true });
+		return (await stat(dir)).dev === (await stat(folder)).dev ? dir : undefined;
+	});
 	return {
 		writes,
+		async tempFor(target) {
+			return join((await staging) ?? dirname(target), `.${randomUUID()}.tmp`);
+		},
 		async check(path) {
 			if (ignored.has(path)) return;
 			if (writes.has(path)) {
@@ -110,40 +145,37 @@ export function createWriteLog(folder: string): WriteLog {
 					throw new PathRefused(path, true);
 				return;
 			}
-			// check-ignore answers for a path that does not exist yet, which status does not.
-			if ((await git(folder, 'check-ignore', '-q', '--', path)).code === 0) {
+			if (await isIgnored(folder, path)) {
 				ignored.add(path);
 				return;
 			}
-			const filter = (
-				await checkedGit(folder, 'check-attr', 'filter', '--', path)
-			).toString();
-			if (filter.trimEnd().endsWith(': lfs')) await requireLfs(folder, path);
-			const status = await checkedGit(
-				folder,
+			const filter = await checkedGit(folder, [
+				'check-attr',
+				'filter',
+				'--',
+				path,
+			]);
+			if (filter.endsWith(': lfs')) await requireLfs(folder, path);
+			const status = await checkedGit(folder, [
 				'status',
 				'--porcelain=v1',
 				'-z',
 				'--untracked-files=all',
 				'--',
 				path,
-			);
+			]);
 			if (status.length) throw new PathRefused(path, false);
 		},
 		async wrote(path, bytes) {
 			if (ignored.has(path)) return;
-			const child = Bun.spawn(
-				['git', '-C', folder, 'hash-object', '-w', '--stdin', `--path=${path}`],
-				{ stdin: bytes, stdout: 'pipe', stderr: 'pipe' },
+			writes.set(
+				path,
+				await checkedGit(
+					folder,
+					['hash-object', '-w', '--stdin', `--path=${path}`],
+					{ stdin: bytes },
+				),
 			);
-			const [stdout, stderr, code] = await Promise.all([
-				new Response(child.stdout).text(),
-				new Response(child.stderr).text(),
-				child.exited,
-			]);
-			if (code !== 0)
-				throw new Error(stderr.trim() || 'git hash-object failed');
-			writes.set(path, stdout.trim());
 		},
 		async deleted(path) {
 			if (!ignored.has(path)) writes.set(path, null);
@@ -151,34 +183,14 @@ export function createWriteLog(folder: string): WriteLog {
 	};
 }
 
-/** Where Git keeps `name` for this repository, as an absolute path. */
-export async function gitPath(folder: string, name: string) {
-	const path = (await checkedGit(folder, 'rev-parse', '--git-path', name))
-		.toString()
-		.trim();
-	return isAbsolute(path) ? path : join(folder, path);
-}
-
-/** Run git with `GIT_INDEX_FILE` set, feeding `stdin`. */
-async function withIndex(
+/** Run git with `GIT_INDEX_FILE` set to `index`, feeding `stdin`. */
+function withIndex(
 	folder: string,
 	index: string,
 	args: string[],
 	stdin?: string,
 ) {
-	const child = Bun.spawn(['git', '-C', folder, ...args], {
-		env: { ...process.env, GIT_INDEX_FILE: index },
-		stdin: stdin === undefined ? 'ignore' : new TextEncoder().encode(stdin),
-		stdout: 'pipe',
-		stderr: 'pipe',
-	});
-	const [stdout, stderr, code] = await Promise.all([
-		new Response(child.stdout).text(),
-		new Response(child.stderr).text(),
-		child.exited,
-	]);
-	if (code !== 0) throw new Error(stderr.trim() || `git ${args[0]} failed`);
-	return stdout.trim();
+	return checkedGit(folder, args, { stdin, env: { GIT_INDEX_FILE: index } });
 }
 
 /**
@@ -213,7 +225,7 @@ async function indexLines(
 			continue;
 		}
 		const tree = base
-			? (await checkedGit(folder, 'ls-tree', base, '--', path)).toString()
+			? await checkedGit(folder, ['ls-tree', base, '--', path])
 			: '';
 		const mode = /^(100755|120000) /.exec(tree)?.[1] ?? '100644';
 		lines.push(`${mode} ${object}\t${path}`);
@@ -246,7 +258,7 @@ export async function commitWrites(
 	const lock = await lockIndex(indexPath);
 	// Once renamed over the index the lock is released, and the name may already be another Git command's lock.
 	let held = true;
-	const scratch = await gitPath(folder, `epicenter-index-${randomUUID()}`);
+	const scratch = join(tmpdir(), `epicenter-index-${randomUUID()}`);
 	try {
 		let contested: string[] = [];
 		for (let attempt = 0; attempt < 20; attempt++) {
@@ -254,8 +266,7 @@ export async function commitWrites(
 			// A commit made during the run that touches one of these paths wins; the run's version stays on disk, uncommitted.
 			if (head !== startHead && startHead !== null && head !== null)
 				contested = (
-					await checkedGit(
-						folder,
+					await checkedGit(folder, [
 						'diff',
 						'--name-only',
 						'--no-renames',
@@ -263,9 +274,8 @@ export async function commitWrites(
 						head,
 						'--',
 						...writes.keys(),
-					)
+					])
 				)
-					.toString()
 					.split('\n')
 					.filter(Boolean);
 			const mine = new Map(
@@ -289,15 +299,14 @@ export async function commitWrites(
 				['commit-tree', tree, ...(head ? ['-p', head] : []), '-F', '-'],
 				`${subject}\n\n${body}\n`,
 			);
-			const moved = await git(
-				folder,
+			const moved = await git(folder, [
 				'update-ref',
 				'-m',
 				`epicenter: ${subject}`,
 				'HEAD',
 				sha,
 				head ?? ZERO,
-			);
+			]);
 			if (moved.code !== 0) continue;
 			// The index, under the same lock, now says what HEAD says for these paths, so `git status` shows only later edits.
 			try {

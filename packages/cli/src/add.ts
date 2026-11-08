@@ -84,9 +84,9 @@ async function taken(name: string) {
 
 /** Make `folder` a repository whose first commit holds what is there now. */
 async function firstCommit(folder: string, subject: string) {
-	await checkedGit(folder, 'init', '-q');
-	await checkedGit(folder, 'add', '-A');
-	await checkedGit(folder, 'commit', '-q', '--no-verify', '-m', subject);
+	await checkedGit(folder, ['init', '-q']);
+	await checkedGit(folder, ['add', '-A']);
+	await checkedGit(folder, ['commit', '-q', '--no-verify', '-m', subject]);
 }
 
 /** The declaration's name in `folder`, or why there is none. */
@@ -180,7 +180,7 @@ async function addFolder(source: string, init: boolean, json: boolean) {
 				.error,
 			json,
 		);
-	const top = await git(folder, 'rev-parse', '--show-toplevel');
+	const top = await git(folder, ['rev-parse', '--show-toplevel']);
 	const isRepository =
 		top.code === 0 && (await realpath(top.stdout.toString().trim())) === folder;
 	if (!isRepository) {
@@ -208,15 +208,14 @@ async function addFromUrl(url: string, json: boolean) {
 	// Clone beside the apps under a hidden name, which discovery skips, then move it into place.
 	const staging = join(homeDir(), `.adding-${randomUUID()}`);
 	try {
-		await checkedGit(
-			homeDir(),
+		await checkedGit(homeDir(), [
 			'clone',
 			'-q',
 			'--origin',
 			'upstream',
 			url,
 			staging,
-		);
+		]);
 		const declared = await declaredName(staging);
 		if ('error' in declared)
 			return fail(CliError.Usage({ message: declared.error }).error, json);
@@ -227,20 +226,19 @@ async function addFromUrl(url: string, json: boolean) {
 					.error,
 				json,
 			);
-		const branch = (
-			await checkedGit(staging, 'rev-parse', '--abbrev-ref', 'HEAD')
-		)
-			.toString()
-			.trim();
-		await checkedGit(
-			staging,
+		const branch = await checkedGit(staging, [
+			'rev-parse',
+			'--abbrev-ref',
+			'HEAD',
+		]);
+		await checkedGit(staging, [
 			'branch',
 			'--track',
 			'upstream',
 			`upstream/${branch}`,
-		);
+		]);
 		// The copy is yours: its branch pushes nowhere until it has an origin.
-		await checkedGit(staging, 'branch', '--unset-upstream', branch);
+		await checkedGit(staging, ['branch', '--unset-upstream', branch]);
 		await rename(staging, join(homeDir(), name));
 		return done(name, json);
 	} catch (error) {
