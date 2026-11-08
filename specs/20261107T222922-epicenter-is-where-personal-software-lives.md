@@ -246,12 +246,14 @@ real `~/Epicenter`, the vault, or the Keychain.
 | D1–D7 | the declaration | `acceptance.declaration.test.ts` | pass |
 | C1–C9 | the commit rule, with the race in `scripts/race.ts` | `acceptance.commit.test.ts` | pass; 1,000 runs, 0 lost, 0 misfiled |
 | W1–W6 | the folder, offline | `acceptance.folder.test.ts` | pass |
-| M1–M6 | Mail | to write | next, with the author present |
+| F1–F14 | the final review's repairs | to write | next, before the merge into `main` |
+| M1–M6 | Mail | to write | after the merge, with the author present |
 | S1–S2 | `serve` over HTTP, forwarding | to write | after Mail |
 | K1–K2 | collections and their handles | to write | with Vocab |
 
 Done (2026-11-09): waves 0 and 1, and 2a, 2b, and wave 3's offline parts. Next
-is 2c, Mail.
+is 2c, the final review's repairs; then the branch merges into `main`; then 2d,
+Mail.
 
 **0. Tag and prune.** Done. Tagged `folder-sync-product`; `apps/epicenter`
 deleted; the frozen apps stay until each is rebuilt (ADR-0843).
@@ -271,7 +273,102 @@ ADR-0842 first wrote them.
   the commit built from them; failures labelled in the subject; a path changed
   during the run left uncommitted and named; the CLI's failures as one tagged
   union (`packages/cli/src/errors.ts`).
-- **2c. Mail.** Salvage the Gmail client, OAuth, and token code from
+- **2c. The final review's repairs.** Three independent reviewers read
+  `7d13124458..32a94de043`, used the CLI in a temporary `HOME`, and agreed on these
+  changes. The commit mechanism's shape stays (objects at write time, a commit
+  built from them, a compare-and-swap); what it records and reports changes.
+  Each item lands with its acceptance test.
+  - F1. **One run report.** A run returns
+    `{ action: { returned } | { threw }, refused, commit, paths: [{ path, state }],
+    push: { pushed, ahead, behind, reason? } }`, `state` one of committed,
+    already-in-history, changed-after, contested, not-committed. The exit code is
+    derived from it. `--json` and MCP are that value, and stderr is a rendering of
+    it, for every command: `new` and `add` move their `Next:` line to stderr.
+    `CliError` keeps only "did not run" variants, an internal-error variant (an
+    unexpected throw before the run starts is never `Usage`), and a Git failure
+    for `new` and `add`. Deleted: `RunReport`, `Ran`, the `Outcome` fields in four
+    variants, the `Partial<Outcome>` cast, the `instanceof` ladder, `Refusal` and
+    the other Error classes mapped once into `CliError`, and the duplicated
+    refusal messages. Tests: every stderr line is derivable from `--json`; push
+    state appears in `--json` and MCP.
+  - F2. **Refusals recorded by the run.** The `WriteLog` records each refusal, so
+    an action that catches or wraps one still exits 3 with the path in `refused`.
+    Tests: a swallowed and a wrapped refusal.
+  - F3. **A full record per path.** At write time, `{ base, mode, object }`; at
+    commit, a path whose HEAD blob equals its `base` is committed, one equal to its
+    `object` is already in history, anything else is contested. A symlink target
+    is refused; the executable bit is kept. Deleted: `startHead`, the
+    `diff startHead..head`, the `ls-tree` loop, and the `hash-object` loop in
+    `changedSince`. Tests: the false contest, a commit that already holds the
+    action's bytes, a symlink, the executable bit, the first commit made during a
+    run on an unborn branch.
+  - F4. **One Git spawn.** `git(folder, args, { stdin, env })` always sets
+    `GIT_LITERAL_PATHSPECS=1`, sets `GIT_OPTIONAL_LOCKS=0` on reads, and
+    `GIT_TERMINAL_PROMPT=0` on push. The scratch index lives in the OS temporary
+    directory; a temporary write file lives under the repository's git path when
+    that is on the target's filesystem, otherwise beside the target. Test: a path
+    with glob characters.
+  - F5. **Push to the same name, after the run.** `refs/heads/<branch>` only to
+    the same name, after the run lock is released. Test: a worktree branch whose
+    upstream is `origin/main` does not push there.
+  - F6. **An action runs in its own process.** Running an action is two
+    processes; everything else (listing, help, `new`, `add`) stays one. The parent
+    only relays: it forwards SIGINT and SIGTERM, copies the child's stdout and
+    stderr to the person's stderr, renders the report it reads from an extra file
+    descriptor, and exits with the code derived from it. The child owns the whole
+    run: it imports the app, checks the input, takes the lock, commits, and pushes,
+    and finishes the run even if the parent dies (it ignores EPIPE on the
+    report descriptor). `serve` spawns the child directly. Every self-spawn passes
+    `process.execArgv`. The report flag is internal and undocumented. This removes
+    the accident of an action's console output reaching the answer, not deliberate
+    interference. If the child exits without a report, the outcome is "unknown":
+    exit 3, with the branch head before and after. Deleted: `withStdoutKept`.
+    Tests: an action calling `console.debug` under `--json` and `serve --stdio`;
+    the child killed after its commit reports exit 3 with the heads.
+  - F7. **MCP without relisting.** `tools/call` decodes the tool name into app and
+    action words and lets the child validate. A broken app's listing failure
+    removes only its tools. `serve` never invents a failure when the child exits 0.
+    Test: a broken app beside a healthy one over MCP.
+  - F8. **One adopt step.** `new`, `add --init`, and `add <url>` write missing
+    template files and run `git lfs install --local` when `git-lfs` exists before
+    the first commit stages anything. Test: `add --init` on a folder holding
+    `node_modules/` and an image.
+  - F9. **The vocabulary owned once.** One exported table drives the CLI's
+    dispatch and the reserved names. The `update` and `open` stubs go; `setup`
+    says it is not built yet; `--json` is accepted in any position; defaulted
+    fields are left out of `required`.
+  - F10. **Typing waits for its first consumer** (the author's decision, which all
+    three reviewers supported). Deleted until collection handles (K1, K2) arrive:
+    `epicenter types`, `epicenter.d.json.ts` and its ignore line, the `D` generic
+    and `App.declaration`, the differs-from-`epicenter.json` problem, the types
+    notes, and D4. `defineApp(declaration, code)` keeps its signature; its JSDoc
+    says the `epicenter.json` on disk is the declaration and the argument will
+    type collection handles.
+  - F11. **Deletions.** Exit code 1, everywhere it is documented; `file-lock.ts`'s
+    `turns` queue and `waitMs` and `held`; `declaredName`'s duplicate pass;
+    `folderOnDisk`'s optional `log`; the `EPICENTER_TEST_SECRETS` line in the
+    person-facing help. `Context.secrets` becomes required.
+  - F12. **`field.date()` carries `format: 'date'`**, and the CLI reads the format,
+    not the pattern's text.
+  - F13. **Records and READMEs match the code.** ADR-0850: the per-path record, the
+    Git environment, and which operations hold the index lock. ADR-0851: push to
+    the same name, replacing the worktree sentence. ADR-0852: `add <url>` clones
+    history. ADR-0857: typing moved to K1 and K2. Both READMEs: `new` and `add` as
+    built, no exit code 1. Accepted records' decisions are not edited.
+  - F14. **Cleanups found on the way**: the "or undo" left in `file-lock.ts`'s
+    header.
+
+  Done when F1 to F14 pass, the earlier acceptance tests still pass, and the
+  1,000-run race still loses and misfiles nothing.
+- **With Mail, from the same review:** the narrower lock window (build the tree
+  and commit outside the lock; take it only for the compare-and-swap and the
+  index); a "waiting for <app>" note instead of a silent wait; problems as data
+  (`{ at, message, next? }`); error kinds by who acts; repository state in the
+  listing; one field descriptor for parsing, usage, help, errors, and JSON Schema;
+  one reader of `epicenter.json` and one merge of declaration and code in
+  `@epicenter/app`; `MidMerge` covering rebase, cherry-pick, and revert; how M3
+  writes into another folder; and checking LFS's pre-push hook.
+- **2d. Mail.** Salvage the Gmail client, OAuth, and token code from
   `280bdf4d44^:apps/local-mail/src/`; build the commands in "Mail, the first
   real app" in `~/Epicenter/mail/`, with a fake Gmail for the tests:
   - M1. `mail connect` stores a refresh token in the Keychain; an expired
