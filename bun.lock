@@ -254,6 +254,17 @@
         "typescript": "catalog:",
       },
     },
+    "packages/app": {
+      "name": "@epicenter/app",
+      "version": "0.0.1",
+      "dependencies": {
+        "typebox": "catalog:",
+      },
+      "devDependencies": {
+        "@types/bun": "catalog:",
+        "typescript": "catalog:",
+      },
+    },
     "packages/cli": {
       "name": "@epicenter/cli",
       "version": "0.0.1",
@@ -690,6 +701,8 @@
     "@epicenter/api": ["@epicenter/api@workspace:apps/api"],
 
     "@epicenter/api-ui": ["@epicenter/api-ui@workspace:apps/api/ui"],
+
+    "@epicenter/app": ["@epicenter/app@workspace:packages/app"],
 
     "@epicenter/cli": ["@epicenter/cli@workspace:packages/cli"],
 

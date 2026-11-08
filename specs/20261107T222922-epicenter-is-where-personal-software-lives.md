@@ -84,7 +84,7 @@ The unscoped `epicenter` name on npm is not ours; everything is under the
 `@epicenter` scope.
 
 `@epicenter/app` holds what an app author touches: `defineApp`, `field`, the
-`Folder`, `Cache`, and `Secrets` types, and `createMemoryFolder` for tests,
+`Folder`, `Cache`, and `Secrets` types, and `createMemoryPlaces` for tests,
 which is plain JavaScript. What needs a computer is the runner's and lives in
 `@epicenter/cli`: the folder on disk, the cache directory and its SQLite, the
 Keychain, Git. A notes library, when an app needs one, is new code that copies
@@ -214,7 +214,7 @@ nothing outside `docs/` and `specs/` names a deleted app, and `bun install`,
 Claude Code.
 
 - **1a. `packages/app`.** `defineApp`, `field`, the place types, and
-  `createMemoryFolder`, as ADR-0841 writes them. Type tests prove that `run`'s
+  `createMemoryPlaces`, as ADR-0841 writes them. Type tests prove that `run`'s
   input is inferred from the fields, that a field without `optional` is
   required, and that an action's return value types its `--json`. A test runs
   an action against a memory folder. The import check ADR-0843 names starts

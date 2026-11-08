@@ -4,7 +4,7 @@
 - **Date:** 2026-11-07
 - **Relates:** [ADR-0840](0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md) (the direction), [ADR-0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md) (commits, exit codes, sync), [ADR-0827](0827-the-cli-and-mcp-render-one-table-of-operations.md) (one table, rendered twice).
 - **Spec:** [specs/20261107T222922-epicenter-is-where-personal-software-lives.md](../../specs/20261107T222922-epicenter-is-where-personal-software-lives.md)
-- **Unbuilt:** all of it: `@epicenter/app` with `defineApp`, `field`, and the `Folder` interface; discovery, the listing, and per-app commands in `epicenter`; positional fields and repeated flags in the parser; actions as MCP tools; `epicenter new` and `add`.
+- **Unbuilt:** discovery, the listing, and per-app commands in `epicenter`; positional fields and repeated flags in the parser; actions as MCP tools; `epicenter new` and `add`.
 
 ## Context
 
