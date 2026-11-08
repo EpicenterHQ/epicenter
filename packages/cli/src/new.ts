@@ -3,7 +3,7 @@ import { mkdir, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { nameProblem, SCHEMA_URL } from '@epicenter/app';
 import { checkedGit } from './git.ts';
-import { homeDir } from './home.ts';
+import { homeDir, writeDeclarationTypes } from './home.ts';
 import { fail, writeErr, writeJson, writeOut } from './output.ts';
 
 /** `epicenter new <name>`: an app from a template, in its own repository with one commit. */
@@ -30,14 +30,16 @@ export async function newCommand(
 		);
 	const folder = join(home, name);
 	await mkdir(folder);
+	const declaration = {
+		$schema: SCHEMA_URL,
+		name,
+		description: `Describe ${name}`,
+	};
 	await writeFile(
 		join(folder, 'epicenter.json'),
-		`${JSON.stringify(
-			{ $schema: SCHEMA_URL, name, description: `Describe ${name}` },
-			null,
-			2,
-		)}\n`,
+		`${JSON.stringify(declaration, null, 2)}\n`,
 	);
+	await writeDeclarationTypes(folder, declaration);
 	await writeFile(
 		join(folder, 'epicenter.ts'),
 		`import declaration from './epicenter.json';

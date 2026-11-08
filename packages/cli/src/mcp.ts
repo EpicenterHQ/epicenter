@@ -10,17 +10,16 @@ import {
 	ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import packageJson from '../package.json' with { type: 'json' };
-import { discoverAll, type Located } from './home.ts';
+import { discoverAll, type Runnable } from './home.ts';
 import { checkInput } from './input.ts';
 import { actionTool } from './listing.ts';
 import { fail, writeErr } from './output.ts';
 import { runAction } from './run.ts';
 
 /** Build one MCP tool per healthy app action, sharing input checks and execution with the CLI. */
-export function createMcpServer(apps: Located[]): Server {
+export function createMcpServer(apps: Runnable[]): Server {
 	const tools = apps.flatMap((located) => {
-		if (located.problems.length || !located.app) return [];
-		return Object.entries(located.app.actions).map(([key, action]) => ({
+		return Object.entries(located.actions).map(([key, action]) => ({
 			located,
 			key,
 			action,
@@ -74,7 +73,7 @@ export function createMcpServer(apps: Located[]): Server {
 
 /** Serve every healthy app in the home until the client ends stdin, keeping stdout for protocol only. */
 export async function serveStdio(): Promise<number> {
-	let apps: Located[];
+	let apps: Runnable[];
 	try {
 		const found = await discoverAll();
 		apps = found.apps;

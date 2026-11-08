@@ -62,7 +62,6 @@ export function inputFromArgs(
 	const positionals = (action.positional ?? []).map(
 		(key) => [key, action.input[key] as TSchema] as const,
 	);
-	let position = 0;
 	const repeated = (key: string) => `--${flagOf(key)} was given more than once`;
 	function put(
 		key: string,
@@ -118,16 +117,14 @@ export function inputFromArgs(
 			const error = put(field.key, field.schema, raw);
 			if (error) return { error };
 		} else {
-			const positional = positionals[position];
+			// The first positional still unset takes the word; a list, last, takes every word left.
+			const positional = positionals.find(
+				([key, schema]) =>
+					fieldKind(schema) === 'list' || !Object.hasOwn(input, key),
+			);
 			if (!positional)
 				return { error: `Unexpected positional ${JSON.stringify(token)}` };
 			const [key, schema] = positional;
-			// A list takes every word left; any other positional takes one.
-			if (fieldKind(schema) !== 'list') position++;
-			if (Object.hasOwn(input, key) && fieldKind(schema) !== 'list')
-				return {
-					error: `${repeated(key)}; unexpected positional ${JSON.stringify(token)}`,
-				};
 			const error = put(key, schema, token);
 			if (error) return { error };
 		}

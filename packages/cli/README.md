@@ -19,7 +19,7 @@ epicenter --version
 
 Put global flags after the action words. The listing shows each app's actions and the problems in individual apps. `epicenter --json` prints the merged declaration: each app's name, description, folder, collections from both files as JSON Schema, and each action as the MCP tool `serve` offers, with all four annotations explicit. A folder with neither `epicenter.json` nor `epicenter.ts` is not an app and is not listed.
 
-`epicenter` supplies `@epicenter/app` to every `epicenter.ts` it loads, so a folder needs no `node_modules` to run. Loading an app with code writes its `epicenter.d.json.ts`; `epicenter types [<app> | <path>]` writes it on request, for the current folder by default.
+`epicenter` supplies `@epicenter/app` to every `epicenter.ts` it loads, so a folder needs no `node_modules` to run. Listing and running an app only read it. `epicenter types [<app> | <path>]` writes its `epicenter.d.json.ts`, for the current folder by default, and the listing notes when that file is missing or stale. An invalid `epicenter.json` is reported before any of the app's code is imported.
 
 `epicenter serve --stdio` serves every healthy app in the home over MCP on stdin and stdout. Its `tools/list` is the actions `epicenter --json` lists. `add`, `update`, `open`, and `serve` over the network are reserved for future commands.
 

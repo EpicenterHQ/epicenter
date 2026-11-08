@@ -22,6 +22,7 @@ export {
 	type Declaration,
 	DeclarationSchema,
 	declarationJsonSchema,
+	isName,
 	SCHEMA_URL,
 } from './declaration.ts';
 export { field, type TSwitch, type TTags } from './field.ts';

@@ -16,40 +16,65 @@ import {
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import * as appPackage from '@epicenter/app';
 import {
 	type Action,
-	type App,
+	type CodeCollection,
 	type Declaration,
+	isName,
 	problemsOf,
 } from '@epicenter/app';
-import { plugin } from 'bun';
 import { cacheRoot } from './disk.ts';
-import { keychainService } from './secrets.ts';
 
-/** An app's disk identity, loaded definition, and problems that prevent a run. */
-export type Located = {
+/** Where an entry is on disk: the same for an app that runs and one with problems. */
+type Place = {
 	/** The folder or link name in the home; absent for a folder run by path. */
 	entry?: string;
-	/** The app's declared name when valid, otherwise its entry name or empty. */
-	name: string;
 	/** The home entry's path, or the explicit folder path, before resolving links. */
 	folder: string;
 	/** The real directory whose declaration, code, and data the runner uses. */
 	realPath: string;
 	/** The real target when the entry itself is a symlink, for the listing. */
 	link?: string;
-	/** This copy's cache directory, separate for a folder run by path. */
-	cacheDir: string;
-	/** The Keychain service shared by local copies of the declared app. */
-	keychain: string;
-	/** The app when problemsOf accepts it: its declaration, and its code, empty for a folder with no `epicenter.ts`. */
-	app?: App<Record<string, Action>>;
-	/** A syntactically valid declared name, even when other app problems exist. */
-	declaredName?: string;
-	/** The reasons this entry cannot run; empty for a healthy app. */
-	problems: string[];
 };
+
+/**
+ * A home entry or folder as `epicenter` found it: an app that can run, with
+ * its `epicenter.json` as read from disk and its code's collections and
+ * actions, or an entry with the problems that keep it from running.
+ */
+export type Located =
+	| (Place & {
+			ok: true;
+			name: string;
+			/** The parsed `epicenter.json`: the one source of the app's name, description, and declared collections. */
+			declaration: Declaration;
+			/** Collections `epicenter.ts` introduces; empty without code. */
+			collections: Record<string, CodeCollection>;
+			/** `epicenter.ts`'s actions; empty without code. */
+			actions: Record<string, Action>;
+			/** Things worth knowing that do not stop a run, such as stale editor types. */
+			notes: string[];
+	  })
+	| (Place & {
+			ok: false;
+			/** The entry's name, for the listing. */
+			name: string;
+			/** A valid name `epicenter.json` declares, so two entries declaring one name are both reported. */
+			declaredName?: string;
+			problems: string[];
+	  });
+
+/** An app that can run. */
+export type Runnable = Extract<Located, { ok: true }>;
+
+/** This copy's cache directory: a folder run by path gets its own, apart from the home app it copies. */
+export function cacheDirOf(app: Runnable): string {
+	const suffix =
+		app.entry === undefined
+			? `-${createHash('sha256').update(app.realPath).digest('hex').slice(0, 12)}`
+			: '';
+	return join(cacheRoot(), `${app.name}${suffix}`);
+}
 
 /** A refusal before an action starts, with the command that resolves it when known. */
 export class Refusal extends Error {
@@ -62,29 +87,9 @@ export class Refusal extends Error {
 	}
 }
 
-/**
- * `epicenter` supplies `@epicenter/app` to every `epicenter.ts` it loads
- * (ADR-0857), so an app needs a `package.json` only for its own
- * dependencies, and every app shares the one copy the command checks fields
- * with. The compiled binary carries this module and serves it the same way.
- */
-plugin({
-	name: '@epicenter/app',
-	setup(build) {
-		build.module('@epicenter/app', () => ({
-			exports: appPackage,
-			loader: 'object',
-		}));
-	},
-});
-
-/**
- * `~/Epicenter`: the only list of apps (ADR-0849). Tests move it by setting
- * `HOME`, read here on each call because Bun's `homedir()` keeps the value
- * the process started with.
- */
+/** `~/Epicenter`: the only list of apps (ADR-0849). Tests move it by setting `HOME`. */
 export function homeDir(): string {
-	return join(process.env.HOME || homedir(), 'Epicenter');
+	return join(homedir(), 'Epicenter');
 }
 
 const DECLARATION = 'epicenter.json';
@@ -174,69 +179,75 @@ async function entries() {
 }
 
 async function load(
-	{ code, ...found }: NonNullable<Awaited<ReturnType<typeof entryAt>>>,
+	{ code, ...place }: NonNullable<Awaited<ReturnType<typeof entryAt>>>,
 	entry?: string,
 ): Promise<Located> {
-	const located: Located = {
-		...found,
-		entry,
+	const at = { ...place, entry };
+	const broken = (problems: string[], declaredName?: string): Located => ({
+		...at,
+		ok: false,
 		name: entry ?? '',
-		cacheDir: '',
-		keychain: '',
-		problems: [],
-	};
-	const finish = () => {
-		const suffix =
-			entry === undefined
-				? `-${createHash('sha256').update(found.realPath).digest('hex').slice(0, 12)}`
-				: '';
-		located.cacheDir = join(cacheRoot(), `${located.name}${suffix}`);
-		located.keychain = keychainService(located.name);
-		return located;
-	};
+		...(declaredName ? { declaredName } : {}),
+		problems,
+	});
 	let declaration: unknown;
 	try {
 		declaration = JSON.parse(
-			await readFile(join(found.realPath, DECLARATION), 'utf8'),
+			await readFile(join(place.realPath, DECLARATION), 'utf8'),
 		);
 	} catch (error) {
-		located.problems.push(
+		return broken([
 			(error as NodeJS.ErrnoException).code === 'ENOENT'
 				? `has ${CODE} but no ${DECLARATION}`
 				: `${DECLARATION} is not JSON: ${message(error)}`,
-		);
-		return finish();
+		]);
 	}
 	const name = (declaration as { name?: unknown } | null)?.name;
-	if (typeof name === 'string' && /^[a-z][a-z0-9-]*$/.test(name))
-		located.declaredName = name;
+	const declaredName = isName(name) ? name : undefined;
+	// An invalid declaration is reported before any of the app's code runs.
+	const declared = problemsOf(declaration);
+	if (declared.length) return broken(declared, declaredName);
 	let module: { default?: unknown } | undefined;
 	if (code) {
 		try {
-			// Types first, so an editor sees the declaration as it is now even when the code is broken.
-			if (problemsOf(declaration).length === 0)
-				await writeDeclarationTypes(found.realPath, declaration);
-			module = await import(pathToFileURL(join(found.realPath, CODE)).href);
+			module = await import(pathToFileURL(join(place.realPath, CODE)).href);
 		} catch (error) {
-			located.problems.push(`importing ${CODE} threw: ${message(error)}`);
-			return finish();
+			return broken(
+				[`importing ${CODE} threw: ${message(error)}`],
+				declaredName,
+			);
 		}
 	}
-	located.problems = problemsOf(declaration, module?.default);
-	if (located.problems.length) return finish();
-	located.app = (module?.default as
-		| App<Record<string, Action>>
-		| undefined) ?? {
-		declaration: declaration as Declaration,
-		collections: {},
-		actions: {},
-	};
-	located.name = name as string;
+	const problems = problemsOf(declaration, module && (module.default ?? null));
 	if (entry !== undefined && name !== entry)
-		located.problems.push(
-			`declares the name "${name}" but its folder is "${entry}"`,
-		);
-	return finish();
+		problems.push(`declares the name "${name}" but its folder is "${entry}"`);
+	if (problems.length) return broken(problems, declaredName);
+	const app = module?.default as
+		| {
+				collections: Record<string, CodeCollection>;
+				actions: Record<string, Action>;
+		  }
+		| undefined;
+	return {
+		...at,
+		ok: true,
+		name: name as string,
+		declaration: declaration as Declaration,
+		collections: app?.collections ?? {},
+		actions: app?.actions ?? {},
+		notes: code ? await typesNotes(place.realPath, declaration) : [],
+	};
+}
+
+/** A note when `epicenter.d.json.ts` is missing or no longer matches `epicenter.json`; loading never writes it. */
+async function typesNotes(dir: string, declaration: unknown) {
+	const current = await readFile(join(dir, GENERATED_TYPES), 'utf8').catch(
+		() => undefined,
+	);
+	if (current === declarationTypes(declaration)) return [];
+	return [
+		`${GENERATED_TYPES} is ${current === undefined ? 'missing' : 'stale'}; run epicenter types ${dir}`,
+	];
 }
 
 function message(error: unknown) {
@@ -249,22 +260,30 @@ export async function discoverAll() {
 	const loaded = await Promise.all(
 		found.entries.map((entry) => load(entry, entry.entry)),
 	);
-	for (const located of loaded) {
-		const name = located.declaredName;
-		if (!name || located.entry === name) continue;
+	const declared = (located: Located) =>
+		located.ok ? located.name : located.declaredName;
+	const checked = loaded.map((located): Located => {
+		const name = declared(located);
 		const others = loaded.filter(
-			(other) => other !== located && other.declaredName === name,
+			(other) => other !== located && declared(other) === name,
 		);
-		if (others.length)
-			located.problems.push(
-				`"${name}" is also declared by ${others.map((other) => other.entry).join(', ')}`,
-			);
-	}
+		if (!name || located.entry === name || !others.length) return located;
+		const problem = `"${name}" is also declared by ${others.map((other) => other.entry).join(', ')}`;
+		return located.ok
+			? {
+					...located,
+					ok: false,
+					name: located.entry ?? '',
+					declaredName: name,
+					problems: [problem],
+				}
+			: { ...located, problems: [...located.problems, problem] };
+	});
 	return {
 		home: homeDir(),
 		missing: found.missing,
-		apps: loaded.filter((app) => app.problems.length === 0),
-		problems: loaded.filter((app) => app.problems.length > 0),
+		apps: checked.filter((located) => located.ok),
+		problems: checked.filter((located) => !located.ok),
 	};
 }
 
@@ -273,8 +292,7 @@ export type Discovery = Awaited<ReturnType<typeof discoverAll>>;
 
 /** Load only the requested home entry so unrelated apps cannot affect a run. */
 export async function loadHomeApp(name: string): Promise<Located> {
-	if (!/^[a-z][a-z0-9-]*$/.test(name))
-		throw new Refusal(`Unknown app "${name}"`, 'epicenter');
+	if (!isName(name)) throw new Refusal(`Unknown app "${name}"`, 'epicenter');
 	const found = await entryAt(join(homeDir(), name));
 	if (found) return load(found, name);
 	try {
@@ -298,18 +316,23 @@ export function isFolderPath(value: string): boolean {
 	);
 }
 
-/** Load a folder outside the home, refusing alternate spellings of home apps. */
-export async function loadFolder(
-	path: string,
-	words: string[],
-): Promise<Located> {
-	const folder = resolve(
+/** A folder path as a person typed it, with `~` expanded, as an absolute path. */
+export function resolveFolder(path: string): string {
+	return resolve(
 		path === '~'
 			? homedir()
 			: path.startsWith('~/')
 				? join(homedir(), path.slice(2))
 				: path,
 	);
+}
+
+/** Load a folder outside the home, refusing alternate spellings of home apps. */
+export async function loadFolder(
+	path: string,
+	words: string[],
+): Promise<Located> {
+	const folder = resolveFolder(path);
 	const found = await entryAt(folder);
 	if (!found)
 		throw new Error(`${path} must be a directory containing ${DECLARATION}`);

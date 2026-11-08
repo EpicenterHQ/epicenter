@@ -183,7 +183,7 @@ export async function runCli(argv: string[]): Promise<number> {
 				json,
 			);
 		}
-		if (located.problems.length || !located.app)
+		if (!located.ok)
 			return fail(
 				{ code: 'usage', message: `${name}: ${located.problems.join('; ')}` },
 				json,
@@ -192,15 +192,14 @@ export async function runCli(argv: string[]): Promise<number> {
 			print(oneAppListing(located, json));
 			return 0;
 		}
-		const app = located.app;
-		const matched = matchAction(app.actions, words);
-		const action = matched && app.actions[matched.key];
+		const matched = matchAction(located.actions, words);
+		const action = matched && located.actions[matched.key];
 		if (!matched || !action)
 			return fail(
 				{
 					code: 'usage',
 					message: `Unknown action ${words.join(' ')}.\n${Object.entries(
-						app.actions,
+						located.actions,
 					)
 						.map(([key, action]) => usageLine(name, key, action))
 						.join('\n')}`,

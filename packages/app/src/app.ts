@@ -21,12 +21,13 @@
  * ```
  */
 import type { Static, TObject, TSchema } from 'typebox';
+import { Value } from 'typebox/value';
 import type { Context } from './context.ts';
 import {
 	COLLECTION_PATH,
 	type Declaration,
 	declarationProblems,
-	NAME,
+	isName,
 } from './declaration.ts';
 
 /** An action's input: a plain record of fields, or of any TypeBox schemas. */
@@ -124,7 +125,6 @@ export function defineApp<
 	};
 }
 
-const NAME_PATTERN = new RegExp(NAME);
 const PATH_PATTERN = new RegExp(COLLECTION_PATH);
 
 /** Words the `epicenter` command keeps for itself: no app is named one. */
@@ -168,7 +168,7 @@ export function collectionActionWords(name: string, path: string): string[] {
  * word the `epicenter` command keeps for itself.
  */
 export function nameProblem(name: unknown): string | undefined {
-	if (typeof name !== 'string' || !NAME_PATTERN.test(name))
+	if (!isName(name))
 		return `${JSON.stringify(name)} is not lowercase letters, digits, and dashes, starting with a letter`;
 	if (BUILT_INS.has(name)) return `"${name}" is an epicenter command`;
 	return undefined;
@@ -198,11 +198,30 @@ export function problemsOf(declaration: unknown, code?: unknown): string[] {
 			...problems,
 			'epicenter.ts does not export defineApp(...) by default',
 		];
+	// epicenter.json on disk is the app's one declaration; the copy defineApp received is only for types.
+	if (
+		app.declaration !== undefined &&
+		!Value.Equal(app.declaration, declaration)
+	)
+		problems.push(
+			"epicenter.ts passes defineApp a declaration that differs from epicenter.json; import it from './epicenter.json'",
+		);
 
 	const given = new Map<string, string>();
-	for (const [key, collection] of Object.entries(collections))
+	const paths = new Map<string, string>();
+	const samePath = (key: string, path: string) => {
+		const other = paths.get(path);
+		if (other !== undefined)
+			problems.push(
+				`collections "${other}" and "${key}" share the path ${path}`,
+			);
+		else paths.set(path, key);
+	};
+	for (const [key, collection] of Object.entries(collections)) {
+		samePath(key, collection.path);
 		for (const words of collectionActionWords(key, collection.path))
 			given.set(words, key);
+	}
 	for (const [key, collection] of Object.entries(
 		(app.collections ?? {}) as Record<string, unknown>,
 	)) {
@@ -214,7 +233,7 @@ export function problemsOf(declaration: unknown, code?: unknown): string[] {
 		}
 		const path = (collection as { path?: unknown } | null)?.path;
 		const fields = (collection as { fields?: unknown } | null)?.fields;
-		if (!NAME_PATTERN.test(key))
+		if (!isName(key))
 			problems.push(
 				`collection "${key}" is not lowercase letters, digits, and dashes`,
 			);
@@ -222,18 +241,28 @@ export function problemsOf(declaration: unknown, code?: unknown): string[] {
 			problems.push(
 				`collection "${key}" has no path with at most one placeholder, such as words/{stem}.md`,
 			);
-		else
+		else {
+			samePath(key, path);
 			for (const words of collectionActionWords(key, path))
 				given.set(words, key);
+		}
 		if (typeof fields !== 'object' || fields === null)
 			problems.push(`collection "${key}" has no fields`);
+		else if (
+			Object.values(fields).some(
+				(field) => typeof field !== 'object' || field === null,
+			)
+		)
+			problems.push(
+				`collection "${key}" has fields that are not a map of fields, such as { title: field.text() }; JSON Schema belongs in epicenter.json`,
+			);
 	}
 
 	const actions = app.actions as Record<string, unknown>;
 	const keys = [...Object.keys(actions), ...given.keys()];
 	for (const key of Object.keys(actions)) {
 		const words = key.split(' ');
-		if (!words.every((word) => NAME_PATTERN.test(word))) {
+		if (!words.every(isName)) {
 			problems.push(
 				`action "${key}" is not words of lowercase letters, digits, and dashes, one space apart`,
 			);

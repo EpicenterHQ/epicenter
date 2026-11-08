@@ -5,8 +5,9 @@
  */
 import { type Action, ANNOTATION_DEFAULTS } from '@epicenter/app';
 import { type TSchemaOptions, Type } from 'typebox';
-import type { Discovery, Located } from './home.ts';
+import { cacheDirOf, type Discovery, type Runnable } from './home.ts';
 import { fieldKind, flagOf, jsonSchema, usageLine } from './input.ts';
+import { keychainService } from './secrets.ts';
 
 /** An action as an MCP tool definition: its name, input schema, and all four hints, explicit. */
 export function actionTool(app: string, key: string, action: Action) {
@@ -18,15 +19,9 @@ export function actionTool(app: string, key: string, action: Action) {
 	};
 }
 
-function loaded(located: Located) {
-	if (!located.app) throw new Error(`${located.name} has no loaded app`);
-	return located.app;
-}
-
 /** The app as `--json` prints it: its declaration, its code's collections as JSON Schema, and its actions as tools. */
-export function appListing(located: Located) {
-	const app = loaded(located);
-	const { declaration } = app;
+export function appListing(located: Runnable) {
+	const { declaration } = located;
 	return {
 		name: located.name,
 		description: declaration.description,
@@ -35,15 +30,16 @@ export function appListing(located: Located) {
 		collections: {
 			...declaration.collections,
 			...Object.fromEntries(
-				Object.entries(app.collections).map(([key, { path, fields }]) => [
+				Object.entries(located.collections).map(([key, { path, fields }]) => [
 					key,
 					{ path, fields: jsonSchema(fields) },
 				]),
 			),
 		},
-		actions: Object.entries(app.actions).map(([key, action]) =>
+		actions: Object.entries(located.actions).map(([key, action]) =>
 			actionTool(located.name, key, action),
 		),
+		...(located.notes.length ? { notes: located.notes } : {}),
 	};
 }
 
@@ -56,8 +52,8 @@ function hints(action: Action) {
 	return destructiveHint ? '' : ' (not destructive)';
 }
 
-function actionLines(located: Located) {
-	return Object.entries(loaded(located).actions).flatMap(([key, action]) => [
+function actionLines(located: Runnable) {
+	return Object.entries(located.actions).flatMap(([key, action]) => [
 		`  ${usageLine(located.name, key, action)}`,
 		`    ${action.description}${hints(action)}`,
 	]);
@@ -79,8 +75,9 @@ export function homeListing(found: Discovery, json: boolean): unknown {
 	if (found.missing)
 		return `There is no Epicenter home at ${found.home}. Make one with: mkdir ${found.home}`;
 	const lines = found.apps.flatMap((located) => [
-		`${located.name}  ${loaded(located).declaration.description}${located.link ? ` -> ${located.link}` : ''}`,
+		`${located.name}  ${located.declaration.description}${located.link ? ` -> ${located.link}` : ''}`,
 		...actionLines(located),
+		...located.notes.map((note) => `  note: ${note}`),
 	]);
 	if (!found.apps.length) lines.push('There are no apps yet.');
 	if (found.problems.length) {
@@ -96,20 +93,20 @@ export function homeListing(found: Discovery, json: boolean): unknown {
 }
 
 /** Render the app's disk and keychain locations beside its actions for inspection. */
-export function oneAppListing(located: Located, json: boolean): unknown {
+export function oneAppListing(located: Runnable, json: boolean): unknown {
 	if (json)
 		return {
 			...appListing(located),
-			cache: located.cacheDir,
-			keychain: located.keychain,
+			cache: cacheDirOf(located),
+			keychain: keychainService(located.name),
 		};
 	return [
 		located.name,
-		loaded(located).declaration.description,
+		located.declaration.description,
 		`folder: ${located.folder}`,
 		...(located.link ? [`link: ${located.link}`] : []),
-		`cache: ${located.cacheDir}`,
-		`keychain: ${located.keychain}`,
+		`cache: ${cacheDirOf(located)}`,
+		`keychain: ${keychainService(located.name)}`,
 		...actionLines(located),
 	].join('\n');
 }

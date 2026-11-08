@@ -21,12 +21,20 @@ import { Value } from 'typebox/value';
 /** Lowercase letters, digits, and dashes, starting with a letter: an app's name, a collection's, an action's word. */
 export const NAME = '^[a-z][a-z0-9-]*$';
 
+const NAME_PATTERN = new RegExp(NAME);
+
+/** Whether `value` is a name: lowercase letters, digits, and dashes, starting with a letter. */
+export function isName(value: unknown): value is string {
+	return typeof value === 'string' && NAME_PATTERN.test(value);
+}
+
 /**
  * A relative path with at most one level-1 URI Template placeholder (RFC
- * 6570), such as `words/{stem}.md`, or none, such as `settings.json`.
+ * 6570), such as `words/{stem}.md`, or none, such as `settings.json`. It stays
+ * inside the folder: no `.` or `..` part, no empty part, no trailing `/`.
  */
 export const COLLECTION_PATH =
-	'^[^/{}][^{}]*(\\{[A-Za-z_][A-Za-z0-9_]*\\}[^{}]*)?$';
+	'^(?!(.*/)?\\.\\.?(/|$))(?!.*//)(?!.*/$)[^/{}][^{}]*(\\{[A-Za-z_][A-Za-z0-9_]*\\}[^{}]*)?$';
 
 export const SCHEMA_URL = 'https://epicenter.so/epicenter.schema.json';
 
@@ -96,6 +104,8 @@ export function declarationProblems(value: unknown): string[] {
 		const at = error.instancePath || '/';
 		const extra = (error.params as { additionalProperties?: string[] })
 			.additionalProperties;
+		if (error.keyword === 'pattern' && /^\/collections\/[^/]+\/path$/.test(at))
+			return `epicenter.json at ${at} is not a path inside the folder with at most one placeholder, such as words/{stem}.md`;
 		if (error.keyword === 'additionalProperties' && extra?.length)
 			return `epicenter.json at ${at} has ${extra.map((key) => `"${key}"`).join(', ')}, which a declaration does not take`;
 		return `epicenter.json at ${at} ${error.message}`;

@@ -1,37 +1,28 @@
 /**
  * MCP tools use the same actions, schema defaults and errors as command runs.
- * In-memory SDK transports verify the protocol without using stdout.
+ * Each test runs the real `epicenter serve --stdio` against a temporary HOME.
  */
 import { expect, test } from 'bun:test';
 import { rm } from 'node:fs/promises';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { discoverAll } from './home.ts';
-import { createMcpServer } from './mcp.ts';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { fixture, reading, vault } from './runner.test-support.ts';
 
 test('tools list plain schemas and annotations and return structured answers or action errors', async () => {
 	const f = await fixture();
-	const previous = {
-		home: process.env.HOME,
-		cache: process.env.EPICENTER_CACHE_HOME,
-		secrets: process.env.EPICENTER_TEST_SECRETS,
-	};
-	process.env.HOME = f.root;
-	process.env.EPICENTER_CACHE_HOME = f.cache;
-	process.env.EPICENTER_TEST_SECRETS = f.env.EPICENTER_TEST_SECRETS;
 	const client = new Client({ name: 'test', version: '1' });
-	let server: ReturnType<typeof createMcpServer> | undefined;
 	try {
 		await f.app('reading', reading);
 		await f.app('vault', vault);
-		server = createMcpServer((await discoverAll()).apps);
-		const [clientTransport, serverTransport] =
-			InMemoryTransport.createLinkedPair();
-		await Promise.all([
-			server.connect(serverTransport),
-			client.connect(clientTransport),
-		]);
+		await client.connect(
+			new StdioClientTransport({
+				command: process.execPath,
+				args: [f.bin, 'serve', '--stdio'],
+				cwd: f.root,
+				env: f.env as Record<string, string>,
+				stderr: 'pipe',
+			}),
+		);
 		const listed = await client.listTools();
 		const show = listed.tools.find(
 			(tool) => tool.name === 'vault_calendar_show',
@@ -94,25 +85,16 @@ test('tools list plain schemas and annotations and return structured answers or 
 		).toEqual({ tags: [], done: false });
 	} finally {
 		await client.close();
-		await server?.close();
-		for (const [key, value] of Object.entries({
-			HOME: previous.home,
-			EPICENTER_CACHE_HOME: previous.cache,
-			EPICENTER_TEST_SECRETS: previous.secrets,
-		})) {
-			if (value === undefined) delete process.env[key];
-			else process.env[key] = value;
-		}
 		await rm(f.root, { recursive: true, force: true });
 	}
 });
 
-test('stdio command returns its exit code after the client ends stdin', async () => {
+test('serve --stdio exits 0 after the client ends stdin', async () => {
 	const f = await fixture();
 	try {
 		await f.app('vault', vault);
-		const source = `import { serveStdio } from ${JSON.stringify(`${import.meta.dir}/mcp.ts`)}; const code = await serveStdio(); process.stderr.write('Returned ' + code + '\\n');`;
-		const child = Bun.spawn([process.execPath, '-e', source], {
+		const child = Bun.spawn([process.execPath, f.bin, 'serve', '--stdio'], {
+			cwd: f.root,
 			env: f.env,
 			stdin: 'pipe',
 			stdout: 'pipe',
@@ -127,7 +109,6 @@ test('stdio command returns its exit code after the client ends stdin', async ()
 		expect(code).toBe(0);
 		expect(stdout).toBe('');
 		expect(stderr).toContain('Serving 1 apps over MCP.');
-		expect(stderr).toContain('Returned 0');
 	} finally {
 		await rm(f.root, { recursive: true, force: true });
 	}

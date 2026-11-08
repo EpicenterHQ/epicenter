@@ -58,7 +58,7 @@ test('D1 the listing shows declared folders, ignores the rest, and names each pr
 		'epicenter.json': declarationOf('journal'),
 	});
 	await symlink(linked, join(f.home, 'journal'));
-	await f.folder(join(f.home, 'notes'), { 'README.md': 'not an app\n' });
+	await f.folder(join(f.home, 'readme-only'), { 'README.md': 'not an app\n' });
 	await f.folder(join(f.home, 'twice'), {
 		'.gitignore': gitignore,
 		'epicenter.json': declarationOf('twice', { collections: { words } }),
@@ -84,6 +84,12 @@ export default defineApp(declaration, {
 	});
 	await f.folder(join(f.home, 'malformed'), {
 		'epicenter.json': JSON.stringify({ name: 3, description: 'Bad' }),
+		'epicenter.ts': `await Bun.write(${JSON.stringify(join(f.root, 'ran'))}, 'ran');\nexport default {};\n`,
+	});
+	await f.folder(join(f.home, 'nodefault'), {
+		'.gitignore': gitignore,
+		'epicenter.json': declarationOf('nodefault'),
+		'epicenter.ts': `export const actions = {};\n`,
 	});
 
 	const result = await f.run('--json');
@@ -104,14 +110,21 @@ export default defineApp(declaration, {
 			entry.problems.join('\n'),
 		]),
 	);
-	expect(Object.keys(problems)).toEqual(['clash', 'malformed', 'twice']);
+	expect(Object.keys(problems)).toEqual([
+		'clash',
+		'malformed',
+		'nodefault',
+		'twice',
+	]);
+	expect(problems.nodefault).toContain('does not export defineApp');
+	expect(existsSync(join(f.root, 'ran'))).toBe(false);
 	expect(problems.twice).toContain('"words"');
 	expect(problems.twice).toContain('both epicenter.json and epicenter.ts');
 	expect(problems.clash).toContain('"words save"');
 	expect(problems.clash).toContain('collection "words"');
 	expect(problems.malformed).toContain('epicenter.json');
 	expect(problems.malformed).toContain('/name');
-	expect(JSON.stringify(listing)).not.toContain('notes');
+	expect(JSON.stringify(listing)).not.toContain('readme-only');
 
 	const human = await f.run();
 	expect(human.stdout).toContain('vocab  The vocab app');
@@ -219,6 +232,17 @@ test("D3 positionals come from the action's ordered list; flags always work", as
 		from: '2026-11-01',
 		to: '2026-11-08',
 	});
+	const mixed = await f.run(
+		'reading',
+		'between',
+		'--from',
+		'2026-11-01',
+		'2026-11-08',
+	);
+	expect(JSON.parse(mixed.stdout)).toEqual({
+		from: '2026-11-01',
+		to: '2026-11-08',
+	});
 	const extra = await f.run(
 		'reading',
 		'between',
@@ -232,7 +256,7 @@ test("D3 positionals come from the action's ordered list; flags always work", as
 	expect(help.stdout).toContain('epicenter reading between <from> <to>');
 });
 
-test('D4 epicenter types writes epicenter.d.json.ts, which narrows the import, and loading regenerates it', async () => {
+test('D4 epicenter types writes epicenter.d.json.ts, which narrows the import; loading only notes it missing or stale', async () => {
 	const f = await setup();
 	const folder = await f.folder(join(f.home, 'vocab'), {
 		'.gitignore': gitignore,
@@ -283,7 +307,12 @@ export const other: Stage = 'other';
 	expect(await typecheck()).toEqual({ stdout: '', code: 0 });
 
 	await rm(generated);
-	expect((await f.run('vocab')).code).toBe(0);
+	const missing = JSON.parse((await f.run('vocab', '--json')).stdout);
+	expect(existsSync(generated)).toBe(false);
+	expect(missing.notes).toEqual([
+		`epicenter.d.json.ts is missing; run epicenter types ${folder}`,
+	]);
+	expect((await f.runIn(f.root, 'types', '~/Epicenter/vocab')).code).toBe(0);
 	expect(existsSync(generated)).toBe(true);
 	await writeFile(
 		join(folder, 'epicenter.json'),
@@ -299,7 +328,11 @@ export const other: Stage = 'other';
 			},
 		}),
 	);
-	await f.run('--json');
+	expect((await f.run()).stdout).toContain(
+		`note: epicenter.d.json.ts is stale; run epicenter types ${folder}`,
+	);
+	expect(await readFile(generated, 'utf8')).not.toContain('"other"');
+	await f.runIn(folder, 'types');
 	expect(await readFile(generated, 'utf8')).toContain('"other"');
 	expect(await gitIn(folder, 'status', '--porcelain')).toBe('M epicenter.json');
 });

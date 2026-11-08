@@ -12,8 +12,8 @@ import { basename, dirname, join } from 'node:path';
 import { cacheOnDisk, folderOnDisk } from './disk.ts';
 import { holdingFileLock, NothingChanged } from './file-lock.ts';
 import { checkedGit, dirtyPaths, git } from './git.ts';
-import type { Located } from './home.ts';
-import { keychain } from './secrets.ts';
+import { cacheDirOf, type Runnable } from './home.ts';
+import { keychain, keychainService } from './secrets.ts';
 
 type RunResult =
 	| { ok: true; value: unknown; notes: string[] }
@@ -81,7 +81,7 @@ async function undo(folder: string, paths: string[]) {
 
 /** Check the repository before an action starts, then hold its lock through commit or undo. */
 export async function runAction(
-	located: Located,
+	located: Runnable,
 	key: string,
 	input: Record<string, unknown>,
 ): Promise<RunResult> {
@@ -110,10 +110,8 @@ export async function runAction(
 			error: `${folder} is in the middle of a merge; resolve the conflicts and commit first`,
 			notes: [],
 		};
-	const lock = join(
-		dirname(located.cacheDir),
-		`${basename(located.cacheDir)}.lock`,
-	);
+	const cacheDir = cacheDirOf(located);
+	const lock = join(dirname(cacheDir), `${basename(cacheDir)}.lock`);
 	try {
 		return await holdingFileLock(
 			lock,
@@ -144,12 +142,12 @@ export async function runAction(
 				};
 				let value: unknown;
 				try {
-					const action = located.app?.actions[key];
+					const action = located.actions[key];
 					if (!action) throw new Error(`Unknown action ${located.name} ${key}`);
 					value = await action.run(input, {
 						folder: folderOnDisk(folder, dirty),
-						cache: cacheOnDisk(located.cacheDir),
-						secrets: keychain(located.keychain),
+						cache: cacheOnDisk(cacheDir),
+						secrets: keychain(keychainService(located.name)),
 					});
 				} catch (error) {
 					try {

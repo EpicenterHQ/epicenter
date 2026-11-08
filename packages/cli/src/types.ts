@@ -1,13 +1,18 @@
 /**
  * `epicenter types`: write `epicenter.d.json.ts` beside an app's
  * `epicenter.json`, so TypeScript reads the import with its literal types
- * (ADR-0857). Loading an app with code writes it too; this is for an editor
- * before the first run.
+ * (ADR-0857). Only this command and `epicenter new` write it; loading an app
+ * never does, and the listing notes when it is missing or stale.
  */
 import { readFile, realpath } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { problemsOf } from '@epicenter/app';
-import { homeDir, isFolderPath, writeDeclarationTypes } from './home.ts';
+import {
+	homeDir,
+	isFolderPath,
+	resolveFolder,
+	writeDeclarationTypes,
+} from './home.ts';
 import { fail, writeJson, writeOut } from './output.ts';
 
 /** Write the types for the app named `target` in the home, or for the folder at `target`. */
@@ -20,7 +25,7 @@ export async function typesCommand(
 	let declaration: unknown;
 	try {
 		folder = await realpath(
-			isFolderPath(target) ? resolve(target) : join(homeDir(), target),
+			isFolderPath(target) ? resolveFolder(target) : join(homeDir(), target),
 		);
 		declaration = JSON.parse(
 			await readFile(join(folder, 'epicenter.json'), 'utf8'),

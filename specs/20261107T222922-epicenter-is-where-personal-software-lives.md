@@ -292,7 +292,10 @@ handles in `run`, the typed client, and the Epicenter app, which shows
 collections as tables and `save` and actions as forms in a browser or a desktop
 window; Vocab rebuilt on them. The frozen Vocab leaves when the rebuilt one runs.
 
-**6. Prune the rest.** In the order ADR-0843 gives: `apps/api` loses its folder
+**6. Prune the rest.** Collection paths with two placeholders come here, with
+Whispering's and Vocab's formats: Whispering's audio is `{id}.{ext}` and Vocab's
+messages are `{chat}/{id}`, which a one-placeholder path cannot describe. Until
+then those files stay outside generic collections. In the order ADR-0843 gives: `apps/api` loses its folder
 sync routes; `packages/account`, `ai`, `svelte`, and `recorder` cut their
 imports; Whispering is untangled: its contract becomes the `epicenter.json` it
 owns, its desktop app writes and commits its takes with the installed `git`,

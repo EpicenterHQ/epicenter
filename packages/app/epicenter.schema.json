@@ -29,7 +29,7 @@
 					"properties": {
 						"path": {
 							"type": "string",
-							"pattern": "^[^/{}][^{}]*(\\{[A-Za-z_][A-Za-z0-9_]*\\}[^{}]*)?$",
+							"pattern": "^(?!(.*/)?\\.\\.?(/|$))(?!.*//)(?!.*/$)[^/{}][^{}]*(\\{[A-Za-z_][A-Za-z0-9_]*\\}[^{}]*)?$",
 							"description": "Where its files are, relative to the folder, with at most one placeholder: words/{stem}.md"
 						},
 						"fields": {

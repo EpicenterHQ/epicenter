@@ -84,8 +84,56 @@ describe('problemsOf', () => {
 			'epicenter.json at / must have required properties description',
 			'epicenter.json at / has "extra", which a declaration does not take',
 			'epicenter.json at /name must match pattern "^[a-z][a-z0-9-]*$"',
-			'epicenter.json at /collections/books/path must match pattern "^[^/{}][^{}]*(\\{[A-Za-z_][A-Za-z0-9_]*\\}[^{}]*)?$"',
+			'epicenter.json at /collections/books/path is not a path inside the folder with at most one placeholder, such as words/{stem}.md',
 			'epicenter.json at /collections/books/fields must have required properties type',
+		]);
+	});
+
+	test.each([
+		'../x.md',
+		'a/../{id}.md',
+		'./{id}.md',
+		'a//{id}.md',
+		'words/',
+		'{a}/{b}.md',
+	])('refuses the collection path %p', (path) => {
+		expect(
+			problemsOf({
+				name: 'vocab',
+				description: 'Words',
+				collections: { words: { path, fields: { type: 'object' } } },
+			}),
+		).toEqual([
+			'epicenter.json at /collections/words/path is not a path inside the folder with at most one placeholder, such as words/{stem}.md',
+		]);
+	});
+
+	test('names code that is missing, carries another declaration, or writes fields as JSON Schema', () => {
+		const vocab = {
+			name: 'vocab',
+			description: 'Words',
+			collections: {
+				words: { path: 'words/{stem}.md', fields: { type: 'object' } },
+			},
+		};
+		expect(problemsOf(vocab, null)).toEqual([
+			'epicenter.ts does not export defineApp(...) by default',
+		]);
+		expect(
+			problemsOf(vocab, {
+				declaration: { ...vocab, description: 'Other words' },
+				collections: {
+					quizzes: {
+						path: 'words/{stem}.md',
+						fields: { type: 'object', properties: {} },
+					},
+				},
+				actions: {},
+			}),
+		).toEqual([
+			"epicenter.ts passes defineApp a declaration that differs from epicenter.json; import it from './epicenter.json'",
+			'collections "words" and "quizzes" share the path words/{stem}.md',
+			'collection "quizzes" has fields that are not a map of fields, such as { title: field.text() }; JSON Schema belongs in epicenter.json',
 		]);
 	});
 
