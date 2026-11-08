@@ -16,6 +16,11 @@ export async function fixture() {
 		...process.env,
 		EPICENTER_HOME: home,
 		EPICENTER_CACHE_HOME: cache,
+		EPICENTER_SKIP_INSTALL: '1',
+		GIT_AUTHOR_NAME: 'Epicenter Test',
+		GIT_AUTHOR_EMAIL: 'epicenter-test@example.com',
+		GIT_COMMITTER_NAME: 'Epicenter Test',
+		GIT_COMMITTER_EMAIL: 'epicenter-test@example.com',
 		EPICENTER_TEST_SECRETS: JSON.stringify({
 			'epicenter.reading': { seed: 'plain seed' },
 			'epicenter.other': { foreign: 'hidden' },
@@ -28,6 +33,23 @@ export async function fixture() {
 			join(dir, 'epicenter.ts'),
 			`import { defineApp, field } from ${JSON.stringify(appSource)};\n${source}`,
 		);
+		for (const args of [
+			['init', '-q'],
+			['config', 'user.name', 'Epicenter Test'],
+			['config', 'user.email', 'epicenter-test@example.com'],
+			['add', '-A'],
+			['commit', '-q', '--no-verify', '-m', 'initial'],
+		]) {
+			const child = Bun.spawn(['git', '-C', dir, ...args], {
+				stdout: 'pipe',
+				stderr: 'pipe',
+			});
+			const [stderr, code] = await Promise.all([
+				new Response(child.stderr).text(),
+				child.exited,
+			]);
+			if (code !== 0) throw new Error(stderr);
+		}
 		return dir;
 	}
 	async function run(...args: string[]) {

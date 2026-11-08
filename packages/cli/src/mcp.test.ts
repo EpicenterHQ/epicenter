@@ -78,6 +78,17 @@ test('tools list plain schemas and annotations and return structured answers or 
 			content: [{ type: 'text', text: 'action exploded' }],
 		});
 		expect((await client.callTool({ name: 'unknown' })).isError).toBe(true);
+		const committed = await client.callTool({
+			name: 'reading_log',
+			arguments: { minutes: 30 },
+		});
+		expect(committed.content).toEqual([
+			{ type: 'text', text: '{"minutes":30}' },
+			{
+				type: 'text',
+				text: expect.stringMatching(/^committed [a-f0-9]+ reading log$/),
+			},
+		]);
 		expect(
 			(await client.callTool({ name: 'reading_tag' })).structuredContent,
 		).toEqual({ tags: [], done: false });

@@ -4,7 +4,7 @@
 - **Date:** 2026-11-07
 - **Relates:** [ADR-0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md) (an app is a folder, each its own repository), [ADR-0840](0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md) (the direction).
 - **Spec:** [specs/20261107T222922-epicenter-is-where-personal-software-lives.md](../../specs/20261107T222922-epicenter-is-where-personal-software-lives.md)
-- **Unbuilt:** all of it: committing after an action, undoing a failed one, one action per app at a time, exit code 3 and the error's `code` and `next`, `epicenter sync`, and the Epicenter Cloud file API.
+- **Unbuilt:** the Epicenter Cloud file API. The rest is built in `packages/cli` (`run.ts`, `sync.ts`), which also refuses an action while its repository is in the middle of a merge, since the commit could not be made.
 
 ## Context
 

@@ -43,9 +43,14 @@ export function createMcpServer(apps: Located[]): Server {
 	}));
 	server.setRequestHandler(CallToolRequestSchema, async (request) => {
 		const found = tools.find(({ tool }) => tool.name === request.params.name);
-		const error = (text: string) => ({
+		const error = (text: string, notes: string[] = []) => ({
 			isError: true,
-			content: [{ type: 'text' as const, text }],
+			content: [
+				{ type: 'text' as const, text },
+				...(notes.length
+					? [{ type: 'text' as const, text: notes.join('\n') }]
+					: []),
+			],
 		});
 		if (!found) return error(`Unknown tool ${request.params.name}`);
 		const checked = checkInput(
@@ -55,10 +60,15 @@ export function createMcpServer(apps: Located[]): Server {
 		);
 		if ('error' in checked) return error(checked.error);
 		const result = await runAction(found.located, found.key, checked.input);
-		if (!result.ok) return error(result.error);
+		if (!result.ok) return error(result.error, result.notes);
 		const value = result.value;
 		return {
-			content: [{ type: 'text' as const, text: JSON.stringify(value ?? null) }],
+			content: [
+				{ type: 'text' as const, text: JSON.stringify(value ?? null) },
+				...(result.notes.length
+					? [{ type: 'text' as const, text: result.notes.join('\n') }]
+					: []),
+			],
 			...(value !== null &&
 			typeof value === 'object' &&
 			Object.getPrototypeOf(value) === Object.prototype

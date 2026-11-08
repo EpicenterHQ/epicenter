@@ -6,6 +6,7 @@
 - **Amended by:** [ADR-0527](0527-a-data-folder-may-keep-its-declaration-as-typescript.md) at running the folder's code: `epicenter generate` runs `epicenter.ts`; `check` and `query` still never do.
 - **Amended by:** [ADR-0558](0558-the-epicenter-cli-groups-only-its-app-and-auth-commands.md) at "The CLI has no account or transfer commands": it has `auth`, `sync`, `clone`, and `repos`, every command that acts on a local folder still takes its path, and exit code 2 also covers a program a command needs that is missing.
 - **Amended:** 2026-10-14, `query` answers from the files that conform and names the rest (below).
+- **Amended by:** [ADR-0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md) at exit codes: 2 means the command did not run and nothing changed, and an action that started and threw exits 3. The CLI now runs apps by name (ADR-0841), not data folders by path.
 - **Amended by:** [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) at `epicenter check <dir>` reading `epicenter.json`: `check` and `format` take a contract, and `sync` exits 1 to run again and 2 when stopped.
 - **Unbuilt:** running the CLI outside an Epicenter checkout.
 

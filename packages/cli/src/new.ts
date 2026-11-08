@@ -1,0 +1,130 @@
+/** Create a small app in its own repository (ADR-0841). */
+import { mkdir, readdir, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { checkedGit } from './git.ts';
+import { homeDir } from './home.ts';
+import { fail, writeErr, writeJson, writeOut } from './output.ts';
+
+const RESERVED = new Set([
+	'new',
+	'add',
+	'update',
+	'sync',
+	'mcp',
+	'help',
+	'serve',
+	'open',
+]);
+
+export async function newCommand(
+	name: string | undefined,
+	json: boolean,
+): Promise<number> {
+	if (!name || !/^[a-z][a-z0-9-]*$/.test(name) || RESERVED.has(name))
+		return fail(
+			{
+				code: 'usage',
+				message: `${JSON.stringify(name ?? '')} is not an available app name`,
+			},
+			json,
+		);
+	const home = homeDir();
+	await mkdir(home, { recursive: true });
+	if (
+		(await readdir(home)).some(
+			(entry) => entry.toLowerCase() === name.toLowerCase(),
+		)
+	)
+		return fail(
+			{ code: 'usage', message: `${name} already exists in ${home}` },
+			json,
+		);
+	const folder = join(home, name);
+	await mkdir(folder);
+	await writeFile(
+		join(folder, 'epicenter.ts'),
+		`import { defineApp, field } from '@epicenter/app';
+
+export default defineApp({
+	name: '${name}',
+	description: 'Describe ${name}',
+	actions: {
+		hello: {
+			description: 'Say hello',
+			input: { who: field.text({ positional: true, optional: true }) },
+			readOnly: true,
+			run: ({ who }) => \`Hello, \${who ?? 'you'}\`,
+		},
+	},
+});
+`,
+	);
+	await writeFile(
+		join(folder, 'package.json'),
+		`${JSON.stringify(
+			{
+				name,
+				private: true,
+				type: 'module',
+				dependencies: { '@epicenter/app': 'link:@epicenter/app' },
+				devDependencies: { '@types/bun': 'latest' },
+			},
+			null,
+			2,
+		)}\n`,
+	);
+	await writeFile(join(folder, '.gitignore'), 'node_modules/\n');
+	try {
+		await checkedGit(folder, 'init');
+	} catch (error) {
+		return fail(
+			{
+				code: 'failed',
+				message: error instanceof Error ? error.message : String(error),
+			},
+			json,
+		);
+	}
+	let installed = false;
+	if (process.env.EPICENTER_SKIP_INSTALL !== '1') {
+		let problem = '';
+		try {
+			const child = Bun.spawn(['bun', 'install'], {
+				cwd: folder,
+				stdout: 'pipe',
+				stderr: 'pipe',
+			});
+			const [stdout, stderr, code] = await Promise.all([
+				new Response(child.stdout).text(),
+				new Response(child.stderr).text(),
+				child.exited,
+			]);
+			installed = code === 0;
+			problem = stderr.trim() || stdout.trim();
+		} catch (error) {
+			problem = error instanceof Error ? error.message : String(error);
+		}
+		if (!installed)
+			writeErr(
+				`bun install failed: ${problem}\nRun bun link once in the Epicenter repository's packages/app, then bun install in ${folder}`,
+			);
+	}
+	try {
+		await checkedGit(folder, 'add', '-A');
+		await checkedGit(folder, 'commit', '--no-verify', '-m', `new ${name}`);
+	} catch (error) {
+		return fail(
+			{
+				code: 'failed',
+				message: error instanceof Error ? error.message : String(error),
+			},
+			json,
+		);
+	}
+	if (json) writeJson({ name, folder, installed });
+	else {
+		writeOut(folder);
+		writeOut(`Next: epicenter ${name} hello`);
+	}
+	return 0;
+}

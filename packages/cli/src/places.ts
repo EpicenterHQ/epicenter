@@ -26,8 +26,19 @@ function missing(error: unknown) {
 	return (error as NodeJS.ErrnoException).code === 'ENOENT';
 }
 
-function diskFolder(dir: string): Folder & { clear(): Promise<void> } {
+function diskFolder(
+	dir: string,
+	dirty: ReadonlySet<string> = new Set(),
+): Folder & { clear(): Promise<void> } {
 	const pathOf = (path: string) => join(dir, normalizePath(path));
+	const writable = (path: string) => {
+		const normalized = normalizePath(path);
+		if (dirty.has(normalized))
+			throw new Error(
+				`${normalized} has changes you have not committed; commit or discard them first`,
+			);
+		return join(dir, normalized);
+	};
 	async function readBytes(path: string) {
 		try {
 			return await readFile(pathOf(path));
@@ -37,7 +48,7 @@ function diskFolder(dir: string): Folder & { clear(): Promise<void> } {
 		}
 	}
 	async function writeBytes(path: string, bytes: Uint8Array) {
-		const target = pathOf(path);
+		const target = writable(path);
 		await mkdir(dirname(target), { recursive: true });
 		const temp = join(
 			dirname(target),
@@ -63,7 +74,7 @@ function diskFolder(dir: string): Folder & { clear(): Promise<void> } {
 		},
 		async remove(path) {
 			try {
-				await unlink(pathOf(path));
+				await unlink(writable(path));
 			} catch (error) {
 				if (!missing(error)) throw error;
 			}
@@ -126,8 +137,8 @@ function diskFolder(dir: string): Folder & { clear(): Promise<void> } {
 }
 
 /** Give an action disk-backed data methods without a way to clear the whole folder. */
-export function folderOnDisk(dir: string): Folder {
-	const { clear: _, ...folder } = diskFolder(dir);
+export function folderOnDisk(dir: string, dirty?: ReadonlySet<string>): Folder {
+	const { clear: _, ...folder } = diskFolder(dir, dirty);
 	return folder;
 }
 

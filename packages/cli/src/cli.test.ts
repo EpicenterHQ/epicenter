@@ -89,11 +89,9 @@ test('commands write disk data and return one JSON answer without diagnostics', 
 		'Dune',
 		'--json',
 	);
-	expect(result).toEqual({
-		code: 0,
-		stderr: '',
-		stdout: '{"minutes":30,"book":"Dune"}\n',
-	});
+	expect(result.code).toBe(0);
+	expect(result.stderr).toMatch(/^committed [a-f0-9]+ reading log\n$/);
+	expect(result.stdout).toBe('{"minutes":30,"book":"Dune"}\n');
 	expect(
 		JSON.parse(
 			await readFile(join(f.home, 'reading/records/log.json'), 'utf8'),
@@ -109,12 +107,17 @@ test('commands write disk data and return one JSON answer without diagnostics', 
 
 test('negative numbers work as positional, separate flag and inline flag values', async () => {
 	const f = await setup();
-	for (const args of [['-3'], ['--minutes', '-3'], ['--minutes=-3']]) {
-		expect(await f.run('reading', 'log', ...args, '--json')).toEqual({
-			code: 0,
-			stdout: '{"minutes":-3}\n',
-			stderr: '',
-		});
+	for (const [index, args] of [
+		['-3'],
+		['--minutes', '-3'],
+		['--minutes=-3'],
+	].entries()) {
+		const result = await f.run('reading', 'log', ...args, '--json');
+		expect(result.code).toBe(0);
+		expect(result.stdout).toBe('{"minutes":-3}\n');
+		expect(result.stderr).toMatch(
+			index === 0 ? /^committed [a-f0-9]+ reading log\n$/ : /^$/,
+		);
 	}
 });
 
@@ -132,7 +135,7 @@ test('usage errors return exit 2 and exactly one JSON error', async () => {
 		[['reading', 'log', '3', '--book'], 'needs a value'],
 		[['reading', 'tag', '--done=false'], 'takes no value'],
 		[['reading', 'log', '3', '--version'], '--version'],
-		[['sync'], 'not built yet'],
+		[['add'], 'not built yet'],
 		[['--json', 'reading', 'log', '3'], 'after the action words'],
 		[['--help', 'reading'], 'after the action words'],
 	];

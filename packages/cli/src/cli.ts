@@ -27,15 +27,17 @@ import {
 	oneAppListing,
 } from './listing.ts';
 import { mcpCommand } from './mcp.ts';
-import { fail, writeJson, writeOut } from './output.ts';
+import { newCommand } from './new.ts';
+import { fail, writeErr, writeJson, writeOut } from './output.ts';
 import { runAction } from './run.ts';
+import { syncCommand } from './sync.ts';
 
 const HELP = `epicenter [--json]
 epicenter <app> [--json]
 epicenter <app> <action words> [<positional>] [--flags] [--json]
 epicenter <path> <action words> [<positional>] [--flags] [--json]
 epicenter mcp [<app>…]
-epicenter new <name> | add <source> | update | sync | serve | open
+epicenter new <name> | sync | add <source> | update | serve | open
 epicenter help [<app> [<action words>]]
 epicenter --version
 
@@ -44,6 +46,7 @@ Exit codes: 0 success, 1 finding, 2 did not run, 3 action started and threw.
 EPICENTER_HOME: app home (default ~/Epicenter).
 EPICENTER_CACHE_HOME: device cache (default ~/Library/Caches/so.epicenter.apps).
 EPICENTER_TEST_SECRETS: JSON service stores held in memory for this process.
+EPICENTER_SKIP_INSTALL=1: skip bun install in new (tests).
 Run epicenter for your apps.`;
 const GLOBALS = new Set(['--json', '--help', '-h', '--version', '-V']);
 
@@ -98,7 +101,31 @@ export async function runCli(argv: string[]): Promise<number> {
 			return 0;
 		}
 		const [name, ...words] = tokens as [string, ...string[]];
-		if (['new', 'add', 'update', 'sync', 'serve', 'open'].includes(name))
+		if (name === 'new') {
+			if (help) {
+				print('epicenter new <name>');
+				return 0;
+			}
+			if (words.length !== 1)
+				return fail(
+					{ code: 'usage', message: 'epicenter new needs one name' },
+					json,
+				);
+			return newCommand(words[0], json);
+		}
+		if (name === 'sync') {
+			if (help) {
+				print('epicenter sync');
+				return 0;
+			}
+			if (words.length)
+				return fail(
+					{ code: 'usage', message: 'epicenter sync takes no arguments' },
+					json,
+				);
+			return syncCommand(json);
+		}
+		if (['add', 'update', 'serve', 'open'].includes(name))
 			return fail(
 				{ code: 'usage', message: `epicenter ${name} is not built yet` },
 				json,
@@ -178,8 +205,12 @@ export async function runCli(argv: string[]): Promise<number> {
 		if ('error' in checked)
 			return fail({ code: 'usage', message: checked.error, next }, json);
 		const result = await runAction(located, matched.key, checked.input);
+		for (const note of result.notes) writeErr(note);
 		if (!result.ok)
-			return fail({ code: 'failed', message: result.error }, json);
+			return fail(
+				{ code: result.code, message: result.error, next: result.next },
+				json,
+			);
 		if (json) writeJson(result.value ?? null);
 		else if (typeof result.value === 'string') writeOut(result.value);
 		else if (result.value !== undefined)
