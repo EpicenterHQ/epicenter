@@ -1,4 +1,4 @@
-# 0851. Each app has one Git remote, its meeting point and its backup
+# 0851. An app with history has one Git remote, its meeting point and its backup
 
 - **Status:** Proposed
 - **Date:** 2026-11-08
@@ -15,7 +15,7 @@ an ordinary clone, and one remote can do all three jobs.
 
 ## Decision
 
-**Each app's repository has exactly one Git remote, `origin`, and it is both
+**An app with history (ADR-0852's second rung) has exactly one Git remote, `origin`, and it is both
 the place copies meet and the backup.** A private GitHub repository now;
 Epicenter Cloud (a repository on Cloudflare Artifacts) by default later; any Git
 host works.

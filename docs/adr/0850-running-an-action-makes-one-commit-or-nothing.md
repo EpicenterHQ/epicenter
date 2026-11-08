@@ -4,7 +4,7 @@
 - **Date:** 2026-11-08
 - **Supersedes:** [ADR-0848](0848-the-runner-owns-only-what-an-action-wrote.md): recorded writes as they happen, per-file hashes, run phases, and undo.
 - **Amends:** [ADR-0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md) at what happens when an action throws (nothing was written, so nothing is undone) and at when its writes reach the folder (when `run` returns).
-- **Relates:** [ADR-0849](0849-your-epicenter-is-one-always-reachable-computer-that-runs-named-actions.md) (where actions run), [ADR-0851](0851-each-app-has-one-git-remote-its-meeting-point-and-backup.md) (pushing after a commit), [ADR-0853](0853-collections-give-four-actions-and-programs-without-the-folder-ask-over-mcp.md) (a collection's `save` and `delete` follow the same rule), [ADR-0854](0854-an-apps-cache-is-the-files-it-gitignores.md) (ignored files).
+- **Relates:** [ADR-0849](0849-your-epicenter-is-one-always-reachable-computer-that-runs-named-actions.md) (where actions run), [ADR-0851](0851-an-app-with-history-has-one-git-remote-its-meeting-point-and-backup.md) (pushing after a commit), [ADR-0853](0853-collections-give-four-actions-and-programs-without-the-folder-ask-over-mcp.md) (a collection's `save` and `delete` follow the same rule), [ADR-0854](0854-an-apps-cache-is-the-files-it-gitignores.md) (ignored files).
 - **Unbuilt:** writes held until `run` returns. `packages/cli/src/run.ts` already notes dirty paths, refuses a write to one, and commits with `--only`; it still writes as the action runs and undoes changed paths when the action throws.
 
 ## Context
