@@ -1054,4 +1054,4 @@ When you add an ADR, add its row here.
 | [0846](0846-epicenter-owns-no-infrastructure-and-each-repository-has-one-meeting-point.md) | Epicenter owns no infrastructure, and each repository has one meeting point | Accepted |
 | [0847](0847-an-app-brings-its-providers-credentials-with-a-default-in-its-code.md) | An app brings its provider's credentials, with a default in its code | Accepted |
 | [0848](0848-the-runner-owns-only-what-an-action-wrote.md) | The runner owns only what an action wrote | Accepted |
-| [0849](0849-your-epicenter-runs-other-devices-actions-in-a-folder-only-it-writes.md) | Your Epicenter runs other devices' actions in a folder only it writes | Proposed |
+| [0849](0849-every-app-lives-on-your-epicenter-one-always-reachable-computer.md) | Every app lives on your Epicenter, one always-reachable computer | Proposed |

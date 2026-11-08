@@ -105,13 +105,15 @@ the front-matter rule; `packages/definition` is not adapted (ADR-0843).
    `{ from, sha }` in its `package.json`, and runs `bun install`. A later version
    of the source is merged with `git merge upstream`. Then, for Mail,
    `epicenter mail connect` signs in.
-5. **The vault.** Rename its `defineFolder` file, add an `epicenter.ts` that
-   declares `name: 'vault'`, and `ln -s ~/Code/vault ~/Epicenter/vault`;
-   `epicenter vault …` then works from anywhere, including MCP.
+5. **The vault.** It lives at `~/Epicenter/vault` on your Epicenter, with an
+   `epicenter.ts` that declares `name: 'vault'`; `~/Code/vault` is a clone the
+   author edits (ADR-0849). `epicenter vault …` then works from anywhere,
+   including MCP.
 6. **Agents.** Claude Code runs `epicenter` in the shell. Permission rules allow
    reading actions by command prefix (`Bash(epicenter mail search *)`) and ask on
    destructive ones; never allow `Bash(epicenter *)`. Claude Desktop and other
-   chat apps add `epicenter mcp` to their MCP settings.
+   chat apps add `epicenter mcp` to their MCP settings, or
+   `ssh <your Epicenter> epicenter mcp` on another computer (ADR-0849).
 7. **A second computer.** Clone each app's repo into `~/Epicenter`, run
    `bun install` in each, recreate links, and `connect` again where an app needs
    a sign-in. Caches fill on first use.
@@ -170,8 +172,9 @@ epicenter mail apply newsletters                         # the person runs this
 
 A sync engine; schedules (ADR-0849); shared providers such as Google sign-in in core (ADR-0847);
 sandboxing; validating schemas for folders (collections describe, ADR-0845); a
-runner on the phone. `epicenter serve`, the hub, the box, and the phone as a
-client are no longer refused: ADR-0844 orders them below.
+runner on the phone or in a browser. `epicenter serve`, the hub, your
+Epicenter, and the phone as a client are no longer refused: ADR-0849 orders
+them below.
 
 ## Later, without changing an action
 
@@ -246,25 +249,29 @@ Claude Code.
 app". Done when the receipts and newsletter jobs are finished with Mail and
 Claude Code.
 
-**3. Your Epicenter.** ADR-0849 in `packages/cli`: in a copy the CLI applies
-an action's writes when `run` returns and never commits; your Epicenter keeps
-each app in a folder only it writes, runs requests there one at a time, commits
-or discards, accepts fast-forward pushes between runs, and pushes to the backup
-remote. Then `epicenter serve` (HTTP and MCP over Tailscale), `--remote`, and a
-laptop sending an action that needs a sign-in it lacks. Done when the phone runs
-a Mail action on the always-on Mac, Claude on the laptop runs `mail search`
-there, an agent's edit in `~/Epicenter/mail` survives a Mail action failing on
-the same Mac, and the vault's GitHub repository receives every commit as
-backup.
+**3. Your Epicenter.** ADR-0849 in `packages/cli`: only `~/Epicenter` on your
+Epicenter commits (runs of an app take turns; commit on return, discard on
+throw, push to the backup remote); `epicenter ./<folder> <action>` runs as a
+script anywhere and never commits; another computer forwards
+`epicenter <app> <action>` and `epicenter mcp` over SSH; a push to your
+Epicenter is a deploy, accepted as a fast-forward between runs. Then
+`epicenter serve` (pages, HTTP, and MCP for a folder or for all of
+`~/Epicenter`) and `epicenter setup`. Done when Claude on the laptop runs
+`mail search` on the Mac through `ssh … epicenter mcp`, the phone runs a Mail
+action from `serve`'s page, an agent's edit in a worktree is untouched by a Mail
+action failing on the Mac, every commit reaches the backup remote, and remote
+FileVault unlock over SSH has been tried.
 
-**4. The vault.** The vault's scripts become actions in
-`~/Code/vault/epicenter.ts`, linked as `~/Epicenter/vault`. Done when
+**4. The vault.** The vault moves to `~/Epicenter/vault` on the Mac, with
+GitHub as its backup remote; `~/Code/vault` becomes a clone the author edits.
+Its scripts become actions in its `epicenter.ts`. Done when
 `epicenter vault calendar show …` runs, which proves nested action words on a
 real app. `epicenter add` comes when the first app is copied from a source.
 
 **5. Vocab, then the hub.** Vocab's actions and collections, rebuilt from the
-frozen app; then the hub (ADR-0844): its action view and its data view over
-collections (ADR-0845). The frozen Vocab leaves when the rebuilt one runs.
+frozen app; then the hub: `epicenter serve`'s pages, an action view and a data
+view over collections (ADR-0845), opened in a browser or a desktop window onto
+that address (ADR-0849). The frozen Vocab leaves when the rebuilt one runs.
 
 **6. Prune the rest.** In the order ADR-0843 gives: `apps/api` loses its folder
 sync routes; `packages/account`, `ai`, `svelte`, and `recorder` cut their
@@ -295,8 +302,8 @@ Waves 1 to 5 are done:
   same actions with `readOnly` and `destructive` hints.
 - `reading` (a toy) and `mail` work end to end; the receipts and newsletter jobs
   are done with Mail and Claude Code.
-- `epicenter vault calendar show …` runs the vault's calendar command through the
-  `~/Epicenter/vault` link.
+- `epicenter vault calendar show …` runs the vault's calendar command on your
+  Epicenter, from the laptop as well.
 - The phone runs an action on your Epicenter, which commits it and pushes it to the backup.
 - Vocab runs as an app with actions and collections, and the hub shows its
   actions as a palette and its words as a table.
