@@ -46,17 +46,19 @@ declaration file. A desktop app or a Bun script opens a directory; in a browser
 the folder is the signed-in account's folder on the server.
 
 A write never fails: the folder keeps it, in order, until it lands. Sync is
-separate from opening. The `epicenter sync` command syncs a folder with its
-ledger on the server, with no Git on your computer.
+separate from opening, and nothing syncs these folders while the folder sync
+product waits
+([ADR-0840](docs/adr/0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md)).
 
 [Read the folder API](packages/folder/README.md)
 
 ## Status
 
 Whispering runs in the browser and as a desktop app. The `epicenter` command
-still works with folders. [Local Books](apps/local-books) is a headless mirror
+runs apps: each is a folder in `~/Epicenter` whose `epicenter.ts` defines its
+actions, and each action is a commit in that folder's repository. [Local Books](apps/local-books) is a headless mirror
 that pulls a QuickBooks account into local SQLite and keeps its own format.
-The next app model is a folder whose `epicenter.ts` defines its actions
+Most of the rest of this repository is the folder sync product, which waits
 ([ADR-0840](docs/adr/0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md)).
 
 ## Trust Boundaries
@@ -91,7 +93,8 @@ These packages carry the main architecture.
 | Package | Role | License |
 | --- | --- | --- |
 | [`@epicenter/folder`](packages/folder) | A folder: its collections and files, opened in a browser, a desktop page, or Bun, and synced with its ledger on the server. | AGPL-3.0-or-later |
-| [`@epicenter/cli`](packages/cli) | The `epicenter` command: sync, share, accept, clone, history, and sign-in. | AGPL-3.0-or-later |
+| [`@epicenter/app`](packages/app) | What an app's `epicenter.ts` imports: `defineApp`, fields, and the places an action receives. | AGPL-3.0-or-later |
+| [`@epicenter/cli`](packages/cli) | The `epicenter` command: runs each app's actions as commands and MCP tools, commits what they change, and syncs app repositories. | AGPL-3.0-or-later |
 | [`@epicenter/definition`](packages/definition) | A folder's contract, the front-matter and merge rules, and the names a site derives. | AGPL-3.0-or-later |
 | [`@epicenter/ai`](packages/ai) | Every source of models as an endpoint, one OpenAI-compatible client, the agent loop, and the model picker. | AGPL-3.0-or-later |
 | [`@epicenter/ui`](packages/ui) | Shared Svelte component library used by multiple apps. | AGPL-3.0-or-later |

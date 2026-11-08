@@ -1,31 +1,20 @@
 /** Create a small app in its own repository (ADR-0841). */
 import { mkdir, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { nameProblem } from '@epicenter/app';
 import { checkedGit } from './git.ts';
 import { homeDir } from './home.ts';
 import { fail, writeErr, writeJson, writeOut } from './output.ts';
 
-const RESERVED = new Set([
-	'new',
-	'add',
-	'update',
-	'sync',
-	'mcp',
-	'help',
-	'serve',
-	'open',
-]);
-
+/** `epicenter new <name>`: an app from a template, in its own repository with one commit. */
 export async function newCommand(
 	name: string | undefined,
 	json: boolean,
 ): Promise<number> {
-	if (!name || !/^[a-z][a-z0-9-]*$/.test(name) || RESERVED.has(name))
+	const problem = nameProblem(name);
+	if (problem !== undefined || name === undefined)
 		return fail(
-			{
-				code: 'usage',
-				message: `${JSON.stringify(name ?? '')} is not an available app name`,
-			},
+			{ code: 'usage', message: `${problem}, so it cannot name an app` },
 			json,
 		);
 	const home = homeDir();

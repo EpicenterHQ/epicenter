@@ -101,6 +101,18 @@ const ACTION_KEYS = new Set([
 const GLOBAL_FLAGS = new Set(['json', 'help', 'version']);
 
 /**
+ * Why `name` cannot name an app, or `undefined` when it can: it must be
+ * lowercase letters, digits, and dashes, starting with a letter, and not a
+ * word the `epicenter` command keeps for itself.
+ */
+export function nameProblem(name: unknown): string | undefined {
+	if (typeof name !== 'string' || !NAME.test(name))
+		return `${JSON.stringify(name)} is not lowercase letters, digits, and dashes, starting with a letter`;
+	if (BUILT_INS.has(name)) return `"${name}" is an epicenter command`;
+	return undefined;
+}
+
+/**
  * What is wrong with `app` as an app's default export, one sentence each;
  * empty when nothing is. The CLI lists an app with problems and does not run
  * it.
@@ -110,12 +122,8 @@ export function problemsOf(app: unknown): string[] {
 		return ['epicenter.ts does not export an app by default'];
 	const { name, description, actions } = app as Record<string, unknown>;
 	const problems: string[] = [];
-	if (typeof name !== 'string' || !NAME.test(name))
-		problems.push(
-			`its name ${JSON.stringify(name)} is not lowercase letters, digits, and dashes, starting with a letter`,
-		);
-	else if (BUILT_INS.has(name))
-		problems.push(`its name "${name}" is an epicenter command`);
+	const badName = nameProblem(name);
+	if (badName !== undefined) problems.push(`its name ${badName}`);
 	if (typeof description !== 'string' || description === '')
 		problems.push('it has no description');
 	if (typeof actions !== 'object' || actions === null)

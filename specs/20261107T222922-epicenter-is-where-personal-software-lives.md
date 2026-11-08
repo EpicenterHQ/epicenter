@@ -202,6 +202,8 @@ leaves by deletion, one package at a time, once nothing imports it. Each wave
 below is one or more commits, each passing `bun run typecheck` and the tests of
 what it touches with no failure the commit before it did not have.
 
+Waves 0 and 1 are done (2026-11-08). Next is wave 2, Mail.
+
 **0. Tag and prune.** Tag `folder-sync-product` at the last commit with the old
 product whole. Delete `apps/epicenter`, `vocab`, `todos`, `honeycrisp`,
 `capture`, and `messages`, with their root scripts, workflows, Cargo members,

@@ -4,6 +4,7 @@ export {
 	defineApp,
 	type Input,
 	type InputOf,
+	nameProblem,
 	problemsOf,
 } from './app.ts';
 export { field, isPositional, type TSwitch, type TTags } from './field.ts';

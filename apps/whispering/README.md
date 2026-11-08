@@ -234,8 +234,10 @@ beside the folder. A failed open shows the shared recovery screen with
 Retry. The
 status details and Settings show the shell's folder path, and whether
 Epicenter syncs the folder, with where to get Epicenter until it does.
-Whispering never syncs it; Epicenter (the app or `epicenter sync`) does
-([ADR-0822](../../docs/adr/0822-only-epicenter-syncs-on-a-computer-and-a-folder-holds-only-its-content.md)).
+Whispering never syncs it
+([ADR-0822](../../docs/adr/0822-only-epicenter-syncs-on-a-computer-and-a-folder-holds-only-its-content.md)),
+and nothing else does while the folder sync product waits
+([ADR-0840](../../docs/adr/0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md)).
 
 The page is the web's own build (`build/`, the dev server in development).
 One build serves both
