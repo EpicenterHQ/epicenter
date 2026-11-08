@@ -36,6 +36,8 @@ rung) has no remote.
   cloud agent clones from the remote and pushes a branch; a person merges it.
 - Who can read an app: whoever holds a clone, your Epicenter, and the remote's
   host. Epicenter builds no encryption.
+- A backup on another host is a second push URL on `origin`, never a second
+  meeting point.
 
 ## Consequences
 

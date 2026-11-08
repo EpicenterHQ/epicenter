@@ -1,7 +1,9 @@
 /**
  * An action's folder and cache on this computer's disk (ADR-0841): its data
- * folder and a cache it can rebuild. Writes replace a whole file at once; listing avoids Git,
- * dependencies, and directory links so those trees never become app data.
+ * folder and a cache it can rebuild. Writes replace a whole file at once; a
+ * folder's writes go through the run's write log, which refuses a path someone
+ * else changed and records what the action wrote (ADR-0850). Listing avoids
+ * Git, dependencies, and directory links so those trees never become app data.
  */
 
 import { Database } from 'bun:sqlite';
@@ -21,6 +23,7 @@ import {
 import { homedir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { type Cache, type Folder, normalizePath } from '@epicenter/app';
+import type { WriteLog } from './commit.ts';
 
 function missing(error: unknown) {
 	return (error as NodeJS.ErrnoException).code === 'ENOENT';
@@ -28,17 +31,9 @@ function missing(error: unknown) {
 
 function diskFolder(
 	dir: string,
-	dirty: ReadonlySet<string> = new Set(),
+	log?: WriteLog,
 ): Folder & { clear(): Promise<void> } {
 	const pathOf = (path: string) => join(dir, normalizePath(path));
-	const writable = (path: string) => {
-		const normalized = normalizePath(path);
-		if (dirty.has(normalized))
-			throw new Error(
-				`${normalized} has changes you have not committed; commit or discard them first`,
-			);
-		return join(dir, normalized);
-	};
 	async function readBytes(path: string) {
 		try {
 			return await readFile(pathOf(path));
@@ -48,7 +43,8 @@ function diskFolder(
 		}
 	}
 	async function writeBytes(path: string, bytes: Uint8Array) {
-		const target = writable(path);
+		const normalized = normalizePath(path);
+		const target = join(dir, normalized);
 		await mkdir(dirname(target), { recursive: true });
 		const temp = join(
 			dirname(target),
@@ -56,7 +52,10 @@ function diskFolder(
 		);
 		try {
 			await writeFile(temp, bytes);
+			// As late as possible, so an edit saved before this point is refused rather than overwritten.
+			await log?.check(normalized);
 			await rename(temp, target);
+			await log?.wrote(normalized, bytes);
 		} finally {
 			await rm(temp, { force: true });
 		}
@@ -73,11 +72,15 @@ function diskFolder(
 			await writeBytes(path, new TextEncoder().encode(text));
 		},
 		async delete(path) {
+			const normalized = normalizePath(path);
+			await log?.check(normalized);
 			try {
-				await unlink(writable(path));
+				await unlink(join(dir, normalized));
 			} catch (error) {
-				if (!missing(error)) throw error;
+				if (missing(error)) return;
+				throw error;
 			}
+			await log?.deleted(normalized);
 		},
 		async list(subdir) {
 			const found: string[] = [];
@@ -136,9 +139,9 @@ function diskFolder(
 	};
 }
 
-/** Give an action disk-backed data methods without a way to clear the whole folder. */
-export function folderOnDisk(dir: string, dirty?: ReadonlySet<string>): Folder {
-	const { clear: _, ...folder } = diskFolder(dir, dirty);
+/** Give an action disk-backed data methods, writing through `log`, without a way to clear the whole folder. */
+export function folderOnDisk(dir: string, log?: WriteLog): Folder {
+	const { clear: _, ...folder } = diskFolder(dir, log);
 	return folder;
 }
 

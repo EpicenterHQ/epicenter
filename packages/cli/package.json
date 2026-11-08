@@ -15,7 +15,8 @@
 	"dependencies": {
 		"@epicenter/app": "workspace:*",
 		"@modelcontextprotocol/sdk": "catalog:",
-		"typebox": "catalog:"
+		"typebox": "catalog:",
+		"wellcrafted": "catalog:"
 	},
 	"devDependencies": {
 		"@types/bun": "catalog:",

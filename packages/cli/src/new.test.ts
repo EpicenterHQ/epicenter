@@ -60,6 +60,6 @@ test('new refuses duplicate names without regard to case and reserved words', as
 	for (const name of ['reading', 'sync', 'Bad_Name']) {
 		const result = await f.run('new', name, '--json');
 		expect(result.code).toBe(2);
-		expect(JSON.parse(result.stdout).error.code).toBe('usage');
+		expect(JSON.parse(result.stdout).error.name).toBe('Usage');
 	}
 });

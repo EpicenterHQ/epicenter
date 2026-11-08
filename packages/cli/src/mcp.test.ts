@@ -2,11 +2,14 @@
  * MCP tools use the same actions, schema defaults and errors as command runs.
  * Each test runs the real `epicenter serve --stdio` against a temporary HOME.
  */
-import { expect, test } from 'bun:test';
+import { expect, setDefaultTimeout, test } from 'bun:test';
 import { rm } from 'node:fs/promises';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { fixture, reading, vault } from './runner.test-support.ts';
+
+// Each test runs the real command several times as separate processes.
+setDefaultTimeout(30_000);
 
 test('tools list plain schemas and annotations and return structured answers or action errors', async () => {
 	const f = await fixture();
@@ -41,9 +44,14 @@ test('tools list plain schemas and annotations and return structured answers or 
 			name: 'vault_calendar_show',
 			arguments: { day: '2026-11-08' },
 		});
-		expect(answer.structuredContent).toEqual({ day: '2026-11-08' });
+		const shown = {
+			result: { day: '2026-11-08' },
+			commit: null,
+			uncommitted: [],
+		};
+		expect(answer.structuredContent).toEqual(shown);
 		expect(answer.content).toEqual([
-			{ type: 'text', text: '{"day":"2026-11-08"}' },
+			{ type: 'text', text: JSON.stringify(shown) },
 		]);
 		expect(
 			(
@@ -73,16 +81,14 @@ test('tools list plain schemas and annotations and return structured answers or 
 			name: 'reading_log',
 			arguments: { minutes: 30 },
 		});
-		expect(committed.content).toEqual([
-			{ type: 'text', text: '{"minutes":30}' },
-			{
-				type: 'text',
-				text: expect.stringMatching(/^committed [a-f0-9]+ reading log$/),
-			},
-		]);
+		expect(committed.structuredContent).toMatchObject({
+			result: { minutes: 30 },
+			commit: { subject: 'reading log', paths: ['records/log.json'] },
+			uncommitted: [],
+		});
 		expect(
 			(await client.callTool({ name: 'reading_tag' })).structuredContent,
-		).toEqual({ tags: [], done: false });
+		).toMatchObject({ result: { tags: [], done: false } });
 	} finally {
 		await client.close();
 		await rm(f.root, { recursive: true, force: true });
@@ -108,7 +114,7 @@ test('serve --stdio exits 0 after the client ends stdin', async () => {
 		]);
 		expect(code).toBe(0);
 		expect(stdout).toBe('');
-		expect(stderr).toContain('Serving 1 apps over MCP.');
+		expect(stderr).toContain('Serving your apps over MCP.');
 	} finally {
 		await rm(f.root, { recursive: true, force: true });
 	}

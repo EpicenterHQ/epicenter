@@ -35,9 +35,16 @@ test('two writes make one commit with subject and input; staged hand edits stay 
 	const before = await head(f.folder);
 	const result = await f.run('reading', 'two', 'Ada', '--json');
 	expect(result.code).toBe(0);
-	expect(result.stdout).toBe('"Ada"\n');
-	expect(result.stderr).toMatch(/^committed [a-f0-9]+ reading two\n$/);
-	expect(await show(f.folder, 'log', '-1', '--format=%B')).toBe(
+	expect(JSON.parse(result.stdout)).toMatchObject({
+		result: 'Ada',
+		commit: { subject: 'reading two', paths: ['a.md', 'b.md'] },
+		uncommitted: [],
+	});
+	expect(result.stderr).toBe('');
+	expect((await f.run('reading', 'two', 'Bo')).stderr).toMatch(
+		/^committed [a-f0-9]{7} reading two\n$/,
+	);
+	expect(await show(f.folder, 'log', '-1', '--format=%B', 'HEAD~1')).toBe(
 		'reading two\n\n{"who":"Ada"}',
 	);
 	expect(
@@ -53,7 +60,7 @@ test('two writes make one commit with subject and input; staged hand edits stay 
 		).split('\n'),
 	).toEqual(['a.md', 'b.md']);
 	expect(await show(f.folder, 'rev-list', '--count', `${before}..HEAD`)).toBe(
-		'1',
+		'2',
 	);
 	expect(await dirtyPaths(f.folder)).toEqual(['hand.md']);
 });
@@ -63,7 +70,7 @@ test('a no-op action makes no commit', async () => {
 	const before = await head(f.folder);
 	expect(await f.run('reading', 'nothing', '--json')).toEqual({
 		code: 0,
-		stdout: '42\n',
+		stdout: '{"result":42,"commit":null,"uncommitted":[]}\n',
 		stderr: '',
 	});
 	expect(await head(f.folder)).toBe(before);
@@ -95,45 +102,33 @@ test('commit includes tracked edits and deletions but excludes ignored files', a
 	expect(await Bun.file(join(f.folder, 'ignored.tmp')).exists()).toBe(true);
 });
 
-test('dirty write refusal undoes earlier writes and preserves the hand edit', async () => {
+test('a refused write keeps the writes before it, committed with the failure named', async () => {
 	const f = await setup(
 		`touch:{description:'Touch',input:{},run:async(_,{folder})=>{await folder.write('b.md','action');await folder.write('a.md','wrong')}}`,
 	);
 	await writeFile(join(f.folder, 'a.md'), 'person bytes\n');
 	const result = await f.run('reading', 'touch', '--json');
 	expect(result.code).toBe(3);
-	expect(JSON.parse(result.stdout).error.message).toContain(
-		'a.md has changes you have not committed',
+	expect(JSON.parse(result.stdout).error).toMatchObject({
+		name: 'PathUncommitted',
+		path: 'a.md',
+		commit: { paths: ['b.md'] },
+	});
+	expect(await show(f.folder, 'show', 'HEAD:b.md')).toBe('action');
+	expect(await show(f.folder, 'log', '-1', '--format=%s')).toBe(
+		'reading touch (failed: a.md has changes you have not committed, so the action did…)',
 	);
-	expect(await Bun.file(join(f.folder, 'b.md')).exists()).toBe(false);
 	expect(await readFile(join(f.folder, 'a.md'), 'utf8')).toBe('person bytes\n');
 });
 
-test('throw restores a tracked edit and removes a new file without touching old untracked data', async () => {
-	const f = await setup(
-		`explode:{description:'Explode',input:{},run:async(_,{folder})=>{await folder.write('tracked.md','action');await folder.write('made/new.md','new');throw new Error('boom')}}`,
-	);
-	await writeFile(join(f.folder, 'tracked.md'), 'original');
-	await checkedGit(f.folder, 'add', '--', 'tracked.md');
-	await checkedGit(f.folder, 'commit', '-q', '-m', 'tracked');
-	await writeFile(join(f.folder, 'personal.md'), 'mine');
-	const result = await f.run('reading', 'explode', '--json');
-	expect(result.code).toBe(3);
-	expect(await readFile(join(f.folder, 'tracked.md'), 'utf8')).toBe('original');
-	expect(await Bun.file(join(f.folder, 'made/new.md')).exists()).toBe(false);
-	expect(await readFile(join(f.folder, 'personal.md'), 'utf8')).toBe('mine');
-});
-
-test('a dirty path changed through folder.path is reported and remains uncommitted', async () => {
+test('a write around the folder, through folder.path, is not recorded and stays uncommitted', async () => {
 	const f = await setup(
 		`path:{description:'Path',input:{},run:async(_,{folder})=>{await Bun.write(folder.path+'/a.md','changed by path');await folder.write('b.md','action')}}`,
 	);
 	await writeFile(join(f.folder, 'a.md'), 'mine');
 	const result = await f.run('reading', 'path', '--json');
 	expect(result.code).toBe(0);
-	expect(result.stderr).toContain(
-		'left uncommitted: a.md (it had changes before the action)',
-	);
+	expect(JSON.parse(result.stdout).commit.paths).toEqual(['b.md']);
 	expect(await readFile(join(f.folder, 'a.md'), 'utf8')).toBe(
 		'changed by path',
 	);
@@ -166,15 +161,15 @@ test('same-app actions take turns and different apps can run together', async ()
 	const [one, two] = await Promise.all([first, second]);
 	expect(one.code).toBe(0);
 	expect(two.code).toBe(0);
-	expect(JSON.parse(two.stdout)).toMatchObject({ sawCommit: true });
+	expect(JSON.parse(two.stdout).result).toMatchObject({ sawCommit: true });
 	const [reading, other] = await Promise.all([
 		f.run('reading', 'slow', 'three', '--json'),
 		f.run('other', 'slow', 'four', '--json'),
 	]);
 	expect(reading.code).toBe(0);
 	expect(other.code).toBe(0);
-	const oneInterval = JSON.parse(reading.stdout);
-	const otherInterval = JSON.parse(other.stdout);
+	const oneInterval = JSON.parse(reading.stdout).result;
+	const otherInterval = JSON.parse(other.stdout).result;
 	expect(Math.max(oneInterval.started, otherInterval.started)).toBeLessThan(
 		Math.min(oneInterval.ended, otherInterval.ended),
 	);

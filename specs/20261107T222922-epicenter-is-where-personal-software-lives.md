@@ -233,8 +233,8 @@ leaves by deletion, one package at a time, once nothing imports it. Each wave
 below is one or more commits, each passing `bun run typecheck` and the tests of
 what it touches with no failure the commit before it did not have.
 
-Waves 0, 1, and 2a are done (2a on 2026-11-09). Next is 2b, the commit rule,
-then Mail.
+Waves 0, 1, 2a, and 2b are done (2a and 2b on 2026-11-09). Next is 2c, Mail,
+which needs the author's Google sign-in, and wave 3's offline parts.
 
 **0. Tag and prune.** Done. Tagged `folder-sync-product`; `apps/epicenter`
 deleted; the frozen apps stay until each is rebuilt (ADR-0843).
@@ -260,7 +260,9 @@ and commits, and `epicenter mcp` serves it to Claude Code.
   before, a folder with only `epicenter.json` is listed, a type test shows
   `epicenter.d.json.ts` narrowing the import, and Claude Code reaches `reading`
   through `epicenter serve --stdio`.
-- **2b. The commit rule** (ADR-0850). The undo after a throw goes; what an action
+- **2b. The commit rule** (ADR-0850). Done: each write stored as a Git object
+  and the commit built from them, acceptance C1 to C9, and the race in
+  `packages/cli/scripts/race.ts`. The undo after a throw goes; what an action
   wrote is committed whatever happens, labelled with the outcome; a path that
   changed after the action wrote it is left uncommitted and named. Done when a
   throwing action leaves a labelled commit, an agent's edit made during a run

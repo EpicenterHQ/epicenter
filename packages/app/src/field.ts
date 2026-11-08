@@ -20,7 +20,14 @@ import {
 	Type,
 } from 'typebox';
 
-type Options = { description?: string };
+type Options = {
+	description?: string;
+	/**
+	 * JSON Schema's `writeOnly`: a value the action takes but nothing records,
+	 * such as a token. It stays out of the commit body.
+	 */
+	writeOnly?: boolean;
+};
 
 type MaybeOptional = Options & { optional?: boolean };
 
@@ -44,11 +51,14 @@ function maybeOptional<T extends TSchema, O extends MaybeOptional>(
 	>;
 }
 
-/** The schema options a field carries: its description. */
+/** The schema options a field carries: its description, and whether it is write-only. */
 function schemaOptions(options: Options | undefined) {
-	return options?.description === undefined
-		? {}
-		: { description: options.description };
+	return {
+		...(options?.description === undefined
+			? {}
+			: { description: options.description }),
+		...(options?.writeOnly ? { writeOnly: true } : {}),
+	};
 }
 
 export const field = {

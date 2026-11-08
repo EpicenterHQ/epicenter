@@ -7,6 +7,7 @@
 import { readFile, realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import { problemsOf } from '@epicenter/app';
+import { CliError } from './errors.ts';
 import {
 	homeDir,
 	isFolderPath,
@@ -20,7 +21,8 @@ export async function typesCommand(
 	target: string,
 	json: boolean,
 ): Promise<number> {
-	const failure = (message: string) => fail({ code: 'usage', message }, json);
+	const failure = (message: string) =>
+		fail(CliError.Usage({ message }).error, json);
 	let folder: string;
 	let declaration: unknown;
 	try {

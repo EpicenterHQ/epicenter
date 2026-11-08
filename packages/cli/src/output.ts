@@ -1,16 +1,16 @@
 /**
- * The command's answers and failures (ADR-0842): stdout carries the answer,
- * stderr explains a problem to a person. Exit codes and the error's code and
- * next tell a caller whether an action ran and what to do next.
+ * The one place a run's outcome becomes what a caller sees (ADR-0842,
+ * ADR-0850). stdout carries only the answer: the returned value, or one JSON
+ * object with `--json`. stderr carries notes for a person: what was
+ * committed, what was left uncommitted, refusals and errors, each followed by
+ * a `Run: <next step>` line when there is one. MCP gets the same object.
  */
-/** Exit codes distinguish refused input from an action that started and threw. */
-export const EXIT = { ok: 0, finding: 1, unusable: 2, failed: 3 } as const;
+import type { CliError, Outcome } from './errors.ts';
+import { exitCodeOf } from './errors.ts';
+import type { Ran } from './run.ts';
 
-export type CliError = {
-	code: 'usage' | 'failed' | 'needs_person';
-	message: string;
-	next?: string;
-};
+/** Exit codes: 0 ran, 1 a finding, 2 did not run, 3 ran and failed or threw. */
+export const EXIT = { ok: 0, finding: 1, unusable: 2, failed: 3 } as const;
 
 /** Write one JSON answer per line so callers can read stdout directly. */
 export function writeJson(value: unknown) {
@@ -27,12 +27,39 @@ export function writeErr(text: string) {
 	process.stderr.write(text.endsWith('\n') ? text : `${text}\n`);
 }
 
-/** Present a refusal or action failure and return its exit code without forcing exit. */
+/** The notes a person reads about what a run left behind. */
+function outcomeNotes({ commit, uncommitted }: Partial<Outcome>) {
+	return [
+		...(commit
+			? [`committed ${commit.sha.slice(0, 7)} ${commit.subject}`]
+			: []),
+		...(uncommitted ?? []).map(
+			(path) => `left uncommitted: ${path} (changed during the run)`,
+		),
+	];
+}
+
+/** Present a failure and return its exit code, without forcing exit. */
 export function fail(error: CliError, json: boolean): number {
 	if (json) writeJson({ error });
 	else {
+		for (const note of outcomeNotes(error as Partial<Outcome>)) writeErr(note);
 		writeErr(error.message);
-		if (error.next) writeErr(`Run: ${error.next}`);
+		const next = (error as { next?: string }).next;
+		if (next) writeErr(`Run: ${next}`);
 	}
-	return error.code === 'failed' ? EXIT.failed : EXIT.unusable;
+	return exitCodeOf(error);
+}
+
+/** Present a run that returned: its notes on stderr, its answer on stdout. */
+export function ran(value: Ran, json: boolean): number {
+	if (json) {
+		writeJson(value);
+		return EXIT.ok;
+	}
+	for (const note of outcomeNotes(value)) writeErr(note);
+	if (typeof value.result === 'string') writeOut(value.result);
+	else if (value.result !== undefined)
+		writeOut(JSON.stringify(value.result, null, 2));
+	return EXIT.ok;
 }

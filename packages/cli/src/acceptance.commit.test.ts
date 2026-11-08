@@ -55,7 +55,7 @@ export default defineApp(declaration, {
 			description: 'Write, then throw',
 			input: { text: field.text({ optional: true }) },
 			run: async ({ text }, { folder }) => {
-				await folder.write('a.md', 'partial');
+				await folder.write('a.md', text ?? 'partial');
 				throw new Error(text ?? 'line 4 is not a number');
 			},
 		},
@@ -162,7 +162,7 @@ function mcp(f: Awaited<ReturnType<typeof setup>>) {
 	});
 }
 
-test.failing('C1 an action that writes makes one commit named for it', async () => {
+test('C1 an action that writes makes one commit named for it', async () => {
 	const f = await setup();
 	const before = await f.head();
 	const human = await f.run('notes', 'two', 'Ada');
@@ -189,7 +189,7 @@ test.failing('C1 an action that writes makes one commit named for it', async () 
 	expect(await gitIn(f.folder, 'status', '--porcelain')).toBe('');
 });
 
-test.failing('C2 an action that writes and throws exits 3, and its writes are committed with the failure named', async () => {
+test('C2 an action that writes and throws exits 3, and its writes are committed with the failure named', async () => {
 	const f = await setup();
 	const human = await f.run('notes', 'explode');
 	expect(human.code).toBe(3);
@@ -263,7 +263,7 @@ test.failing('C2 an action that writes and throws exits 3, and its writes are co
 	}
 });
 
-test.failing('C3 a write to a path with uncommitted edits is refused before anything is written', async () => {
+test('C3 a write to a path with uncommitted edits is refused before anything is written', async () => {
 	const f = await setup();
 	await writeFile(join(f.folder, 'a.md'), 'my edit\n');
 	const before = await f.head();
@@ -282,7 +282,7 @@ test.failing('C3 a write to a path with uncommitted edits is refused before anyt
 	expect(human.stderr).toContain('Run: ');
 });
 
-test.failing('C4 a path someone changes during the run stays uncommitted and named; the rest commits', async () => {
+test('C4 a path someone changes during the run stays uncommitted and named; the rest commits', async () => {
 	const f = await setup();
 	const running = f.run('notes', 'paused', '--signals', f.signals, '--json');
 	await f.paused();
@@ -319,7 +319,7 @@ test.failing('C4 a path someone changes during the run stays uncommitted and nam
 	expect(await f.head()).toBe(before);
 });
 
-test.failing('C5 gitignored paths are written and never committed', async () => {
+test('C5 gitignored paths are written and never committed', async () => {
 	const f = await setup();
 	const result = await f.run('notes', 'ignored', '--json');
 	expect(result.code).toBe(0);
@@ -330,7 +330,7 @@ test.failing('C5 gitignored paths are written and never committed', async () => 
 	expect(await gitIn(f.folder, 'status', '--porcelain')).toBe('');
 });
 
-test.failing('C6 a run killed with SIGKILL leaves its writes uncommitted, and the next run that writes them is refused', async () => {
+test('C6 a run killed with SIGKILL leaves its writes uncommitted, and the next run that writes them is refused', async () => {
 	const f = await setup();
 	const before = await f.head();
 	const child = Bun.spawn(
@@ -352,7 +352,7 @@ test.failing('C6 a run killed with SIGKILL leaves its writes uncommitted, and th
 	expect(existsSync(join(f.folder, 'b.md'))).toBe(false);
 });
 
-test.failing('C7 runs racing an agent that commits and edits lose nothing and misfile nothing', async () => {
+test('C7 runs racing an agent that commits and edits lose nothing and misfile nothing', async () => {
 	const script = resolve(import.meta.dir, '../scripts/race.ts');
 	const child = Bun.spawn(
 		[process.execPath, script, '--runs', '24', '--concurrency', '3'],
@@ -373,7 +373,7 @@ test.failing('C7 runs racing an agent that commits and edits lose nothing and mi
 	expect(JSON.parse(stdout)).toMatchObject({ runs: 24, lost: 0, misfiled: 0 });
 });
 
-test.failing('C8 stdout belongs to epicenter: an action that logs does not corrupt --json or serve --stdio', async () => {
+test('C8 stdout belongs to epicenter: an action that logs does not corrupt --json or serve --stdio', async () => {
 	const f = await setup();
 	const json = await f.run('notes', 'chatty', '--json');
 	expect(json.code).toBe(0);
@@ -395,7 +395,7 @@ test.failing('C8 stdout belongs to epicenter: an action that logs does not corru
 	}
 });
 
-test.failing('C9 an input marked writeOnly stays out of the commit body', async () => {
+test('C9 an input marked writeOnly stays out of the commit body', async () => {
 	const f = await setup();
 	const result = await f.run(
 		'notes',

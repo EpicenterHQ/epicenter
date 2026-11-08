@@ -2,10 +2,13 @@
  * App runner integration tests exercise the real executable's discovery, command
  * grammar, output, and the folder and cache on disk. Broken apps must not block healthy apps.
  */
-import { afterEach, expect, test } from 'bun:test';
+import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
 import { mkdir, readFile, rm, symlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fixture, reading, vault } from './runner.test-support.ts';
+
+// Each test runs the real command several times as separate processes.
+setDefaultTimeout(30_000);
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -86,19 +89,23 @@ test('commands write disk data and return one JSON answer without diagnostics', 
 		'--json',
 	);
 	expect(result.code).toBe(0);
-	expect(result.stderr).toMatch(/^committed [a-f0-9]+ reading log\n$/);
-	expect(result.stdout).toBe('{"minutes":30,"book":"Dune"}\n');
+	expect(result.stderr).toBe('');
+	expect(JSON.parse(result.stdout)).toMatchObject({
+		result: { minutes: 30, book: 'Dune' },
+		commit: { subject: 'reading log', paths: ['records/log.json'] },
+		uncommitted: [],
+	});
 	expect(
 		JSON.parse(
 			await readFile(join(f.home, 'reading/records/log.json'), 'utf8'),
 		),
 	).toEqual({ minutes: 30, book: 'Dune' });
-	expect((await f.run('reading', 'log', '15')).stdout).toContain(
-		'"minutes": 15',
-	);
+	const human = await f.run('reading', 'log', '15');
+	expect(human.stdout).toContain('"minutes": 15');
+	expect(human.stderr).toMatch(/^committed [a-f0-9]{7} reading log\n$/);
 	expect(
 		(await f.run('vault', 'calendar', 'show', '2026-11-08', '--json')).stdout,
-	).toBe('{"day":"2026-11-08"}\n');
+	).toBe('{"result":{"day":"2026-11-08"},"commit":null,"uncommitted":[]}\n');
 });
 
 test('negative numbers work as positional, separate flag and inline flag values', async () => {
@@ -110,10 +117,11 @@ test('negative numbers work as positional, separate flag and inline flag values'
 	].entries()) {
 		const result = await f.run('reading', 'log', ...args, '--json');
 		expect(result.code).toBe(0);
-		expect(result.stdout).toBe('{"minutes":-3}\n');
-		expect(result.stderr).toMatch(
-			index === 0 ? /^committed [a-f0-9]+ reading log\n$/ : /^$/,
-		);
+		expect(result.stderr).toBe('');
+		expect(JSON.parse(result.stdout)).toMatchObject({
+			result: { minutes: -3 },
+			commit: index === 0 ? { subject: 'reading log' } : null,
+		});
 	}
 });
 
@@ -141,7 +149,7 @@ test('usage errors return exit 2 and exactly one JSON error', async () => {
 		expect(result.stderr).toBe('');
 		expect(result.stdout.trim().split('\n')).toHaveLength(1);
 		expect(JSON.parse(result.stdout).error).toMatchObject({
-			code: 'usage',
+			name: 'Usage',
 			message: expect.stringContaining(message),
 		});
 	}
@@ -150,24 +158,11 @@ test('usage errors return exit 2 and exactly one JSON error', async () => {
 
 test('lists repeat, switches default and literal positionals append to flagged values', async () => {
 	const f = await setup();
-	expect(JSON.parse((await f.run('reading', 'tag', '--json')).stdout)).toEqual({
-		tags: [],
-		done: false,
-	});
+	const answer = async (...args: string[]) =>
+		JSON.parse((await f.run(...args, '--json')).stdout).result;
+	expect(await answer('reading', 'tag')).toEqual({ tags: [], done: false });
 	expect(
-		JSON.parse(
-			(
-				await f.run(
-					'reading',
-					'tag',
-					'--tags',
-					'a',
-					'--tags=b',
-					'--done',
-					'--json',
-				)
-			).stdout,
-		),
+		await answer('reading', 'tag', '--tags', 'a', '--tags=b', '--done'),
 	).toEqual({ tags: ['a', 'b'], done: true });
 	expect(
 		JSON.parse(
@@ -181,7 +176,8 @@ test('a throwing action returns exit 3 with its message', async () => {
 	const f = await setup();
 	expect(await f.run('reading', 'explode', '--json')).toEqual({
 		code: 3,
-		stdout: '{"error":{"code":"failed","message":"action exploded"}}\n',
+		stdout:
+			'{"error":{"message":"action exploded","commit":null,"uncommitted":[],"name":"ActionThrew"}}\n',
 		stderr: '',
 	});
 });
@@ -191,7 +187,7 @@ test('path runs keep declared identity and use a separate cache while home alias
 	const outside = await f.app('worktree', reading, f.root, 'reading');
 	const result = await f.run(outside, 'inspect', '--json');
 	expect(result.code).toBe(0);
-	const value = JSON.parse(result.stdout);
+	const value = JSON.parse(result.stdout).result;
 	expect(value.cache).toMatch(new RegExp(`${f.cache}/reading-[a-f0-9]{12}$`));
 	expect(value.token).toBe('round trip');
 	expect(value.seed).toBe('plain seed');
@@ -213,7 +209,7 @@ test('path runs keep declared identity and use a separate cache while home alias
 	).toContain('epicenter linked');
 	const homeRun = JSON.parse(
 		(await f.run('reading', 'inspect', '--json')).stdout,
-	);
+	).result;
 	expect(homeRun.cache).toBe(join(f.cache, 'reading'));
 	expect(await Bun.file(join(f.cache, 'reading/index.sqlite')).exists()).toBe(
 		true,

@@ -2,6 +2,7 @@
 import { mkdir, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { nameProblem, SCHEMA_URL } from '@epicenter/app';
+import { CliError } from './errors.ts';
 import { checkedGit } from './git.ts';
 import { homeDir, writeDeclarationTypes } from './home.ts';
 import { fail, writeErr, writeJson, writeOut } from './output.ts';
@@ -14,7 +15,7 @@ export async function newCommand(
 	const problem = nameProblem(name);
 	if (problem !== undefined || name === undefined)
 		return fail(
-			{ code: 'usage', message: `${problem}, so it cannot name an app` },
+			CliError.Usage({ message: `${problem}, so it cannot name an app` }).error,
 			json,
 		);
 	const home = homeDir();
@@ -25,7 +26,7 @@ export async function newCommand(
 		)
 	)
 		return fail(
-			{ code: 'usage', message: `${name} already exists in ${home}` },
+			CliError.Usage({ message: `${name} already exists in ${home}` }).error,
 			json,
 		);
 	const folder = join(home, name);
@@ -80,10 +81,9 @@ export default defineApp(declaration, {
 		await checkedGit(folder, 'init');
 	} catch (error) {
 		return fail(
-			{
-				code: 'failed',
-				message: error instanceof Error ? error.message : String(error),
-			},
+			CliError.GitFailed({
+				cause: error,
+			}).error,
 			json,
 		);
 	}
@@ -116,10 +116,9 @@ export default defineApp(declaration, {
 		await checkedGit(folder, 'commit', '--no-verify', '-m', `new ${name}`);
 	} catch (error) {
 		return fail(
-			{
-				code: 'failed',
-				message: error instanceof Error ? error.message : String(error),
-			},
+			CliError.GitFailed({
+				cause: error,
+			}).error,
 			json,
 		);
 	}

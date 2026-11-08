@@ -3,7 +3,9 @@
  * (ADR-0841). It parses words, shows what can run, checks input, and prints the
  * answer. Its returned exit code follows whether run started (ADR-0842).
  */
+import type { Action } from '@epicenter/app';
 import packageJson from '../package.json' with { type: 'json' };
+import { CliError } from './errors.ts';
 import {
 	discoverAll,
 	isFolderPath,
@@ -27,7 +29,7 @@ import {
 } from './listing.ts';
 import { serveStdio } from './mcp.ts';
 import { newCommand } from './new.ts';
-import { fail, writeErr, writeJson, writeOut } from './output.ts';
+import { fail, ran, writeJson, writeOut } from './output.ts';
 import { runAction } from './run.ts';
 import { syncCommand } from './sync.ts';
 import { typesCommand } from './types.ts';
@@ -50,6 +52,32 @@ EPICENTER_TEST_SECRETS: JSON service stores held in memory for this process.
 EPICENTER_SKIP_INSTALL=1: skip bun install in new (tests).
 Run epicenter for your apps.`;
 const GLOBALS = new Set(['--json', '--help', '-h', '--version', '-V']);
+
+/**
+ * The action's input, checked against its fields: from `--input <json>`, one
+ * JSON object as MCP and scripts pass it, or else from flags and positionals.
+ */
+function inputOf(action: Action, rest: string[]) {
+	if (rest[0] !== '--input')
+		return (() => {
+			const parsed = inputFromArgs(action, rest);
+			if ('error' in parsed) return parsed;
+			return checkInput(action, parsed.input, (key) =>
+				action.positional?.includes(key) ? `<${key}>` : `--${flagOf(key)}`,
+			);
+		})();
+	if (rest.length !== 2)
+		return { error: '--input takes one JSON object and nothing else' };
+	let raw: unknown;
+	try {
+		raw = JSON.parse(rest[1] as string);
+	} catch {
+		return { error: '--input is not JSON' };
+	}
+	if (typeof raw !== 'object' || raw === null || Array.isArray(raw))
+		return { error: '--input is not a JSON object' };
+	return checkInput(action, raw, (key) => key);
+}
 
 /** Dispatch app commands and return an exit code so the entrypoint can let stdout drain. */
 export async function runCli(argv: string[]): Promise<number> {
@@ -77,11 +105,10 @@ export async function runCli(argv: string[]): Promise<number> {
 	}
 	if (leading > 0 && leading < argv.length) {
 		return fail(
-			{
-				code: 'usage',
+			CliError.Usage({
 				message: 'Global flags come after the action words',
 				next: `epicenter ${[...argv.slice(leading), ...argv.slice(0, leading)].join(' ')}`,
-			},
+			}).error,
 			json,
 		);
 	}
@@ -109,7 +136,7 @@ export async function runCli(argv: string[]): Promise<number> {
 			}
 			if (words.length !== 1)
 				return fail(
-					{ code: 'usage', message: 'epicenter new needs one name' },
+					CliError.Usage({ message: 'epicenter new needs one name' }).error,
 					json,
 				);
 			return newCommand(words[0], json);
@@ -121,7 +148,8 @@ export async function runCli(argv: string[]): Promise<number> {
 			}
 			if (words.length)
 				return fail(
-					{ code: 'usage', message: 'epicenter sync takes no arguments' },
+					CliError.Usage({ message: 'epicenter sync takes no arguments' })
+						.error,
 					json,
 				);
 			return syncCommand(json);
@@ -133,7 +161,8 @@ export async function runCli(argv: string[]): Promise<number> {
 			}
 			if (words.length > 1)
 				return fail(
-					{ code: 'usage', message: 'epicenter types takes one app or path' },
+					CliError.Usage({ message: 'epicenter types takes one app or path' })
+						.error,
 					json,
 				);
 			return typesCommand(words[0] ?? '.', json);
@@ -145,26 +174,24 @@ export async function runCli(argv: string[]): Promise<number> {
 			}
 			if (words.join(' ') !== '--stdio')
 				return fail(
-					{
-						code: 'usage',
+					CliError.Usage({
 						message: 'epicenter serve over the network is not built yet',
 						next: 'epicenter serve --stdio',
-					},
+					}).error,
 					json,
 				);
 			if (json)
 				return fail(
-					{
-						code: 'usage',
+					CliError.Usage({
 						message: 'MCP uses stdout for protocol; --json does not apply',
-					},
+					}).error,
 					json,
 				);
 			return serveStdio();
 		}
 		if (['add', 'update', 'open'].includes(name))
 			return fail(
-				{ code: 'usage', message: `epicenter ${name} is not built yet` },
+				CliError.Usage({ message: `epicenter ${name} is not built yet` }).error,
 				json,
 			);
 		let located: Located;
@@ -175,17 +202,16 @@ export async function runCli(argv: string[]): Promise<number> {
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
 			return fail(
-				{
-					code: 'usage',
+				CliError.Usage({
 					message,
 					next: error instanceof Refusal ? error.next : undefined,
-				},
+				}).error,
 				json,
 			);
 		}
 		if (!located.ok)
 			return fail(
-				{ code: 'usage', message: `${name}: ${located.problems.join('; ')}` },
+				CliError.AppProblems({ app: name, problems: located.problems }).error,
 				json,
 			);
 		if (!words.length) {
@@ -196,15 +222,14 @@ export async function runCli(argv: string[]): Promise<number> {
 		const action = matched && located.actions[matched.key];
 		if (!matched || !action)
 			return fail(
-				{
-					code: 'usage',
+				CliError.Usage({
 					message: `Unknown action ${words.join(' ')}.\n${Object.entries(
 						located.actions,
 					)
 						.map(([key, action]) => usageLine(name, key, action))
 						.join('\n')}`,
 					next: `epicenter ${name}`,
-				},
+				}).error,
 				json,
 			);
 		if (help) {
@@ -216,32 +241,17 @@ export async function runCli(argv: string[]): Promise<number> {
 			return 0;
 		}
 		const next = `epicenter ${name} ${matched.key} --help`;
-		const parsed = inputFromArgs(action, matched.rest);
-		if ('error' in parsed)
-			return fail({ code: 'usage', message: parsed.error, next }, json);
-		const checked = checkInput(action, parsed.input, (key) =>
-			action.positional?.includes(key) ? `<${key}>` : `--${flagOf(key)}`,
-		);
-		if ('error' in checked)
-			return fail({ code: 'usage', message: checked.error, next }, json);
-		const result = await runAction(located, matched.key, checked.input);
-		for (const note of result.notes) writeErr(note);
-		if (!result.ok)
-			return fail(
-				{ code: result.code, message: result.error, next: result.next },
-				json,
-			);
-		if (json) writeJson(result.value ?? null);
-		else if (typeof result.value === 'string') writeOut(result.value);
-		else if (result.value !== undefined)
-			writeOut(JSON.stringify(result.value, null, 2));
-		return 0;
+		const given = inputOf(action, matched.rest);
+		if ('error' in given)
+			return fail(CliError.Usage({ message: given.error, next }).error, json);
+		const { data, error } = await runAction(located, matched.key, given.input);
+		if (error !== null) return fail(error, json);
+		return ran(data, json);
 	} catch (error) {
 		return fail(
-			{
-				code: 'usage',
+			CliError.Usage({
 				message: error instanceof Error ? error.message : String(error),
-			},
+			}).error,
 			json,
 		);
 	}

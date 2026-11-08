@@ -78,7 +78,8 @@ missing or stale. It is gitignored, and needs `resolveJsonModule` and
 | `field.tags()` | `string[]`, empty unless given | `--name a --name b` |
 
 Each field is JSON Schema, so any TypeBox schema works as a field too. A field
-is required unless it says `optional: true`. `run`'s input is typed from the
+is required unless it says `optional: true`. A field that says `writeOnly: true`
+(JSON Schema's keyword), such as a token, stays out of the commit body. `run`'s input is typed from the
 fields, and its return value stays typed for whatever calls the action.
 
 An action's `positional` lists, in order, the fields the command line also
@@ -122,4 +123,4 @@ expect(await context.folder.read('2026.csv')).toBe('minutes,book\n30,\n');
 `epicenter` command would: a declaration that fails the schema, a reserved
 name, anything declared twice, an action whose words start another's, a
 positional that is not one of the action's fields, an annotation MCP does not
-define, a field named `json`, `help`, or `version`.
+define, a field named `json`, `help`, `version`, or `input`.
