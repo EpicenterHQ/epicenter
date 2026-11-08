@@ -43,9 +43,7 @@ export type Located = {
 	cacheDir: string;
 	/** The Keychain service shared by local copies of the declared app. */
 	keychain: string;
-	/** The parsed `epicenter.json` when it fits the schema. */
-	declaration?: Declaration;
-	/** The app's code when problemsOf accepts it; empty actions for a folder with no `epicenter.ts`. */
+	/** The app when problemsOf accepts it: its declaration, and its code, empty for a folder with no `epicenter.ts`. */
 	app?: App<Record<string, Action>>;
 	/** A syntactically valid declared name, even when other app problems exist. */
 	declaredName?: string;
@@ -93,10 +91,10 @@ const DECLARATION = 'epicenter.json';
 const CODE = 'epicenter.ts';
 
 /** The sibling TypeScript reads `epicenter.json`'s import through, with its literal types (ADR-0857). */
-export const GENERATED_TYPES = 'epicenter.d.json.ts';
+const GENERATED_TYPES = 'epicenter.d.json.ts';
 
 /** The text of `epicenter.d.json.ts` for a declaration: its JSON, as a type. */
-export function declarationTypes(declaration: unknown): string {
+function declarationTypes(declaration: unknown): string {
 	return `// Written by epicenter from epicenter.json, so its import keeps literal types. Do not edit.
 declare const declaration: ${JSON.stringify(declaration, null, '\t')};
 export default declaration;
@@ -226,11 +224,10 @@ async function load(
 	}
 	located.problems = problemsOf(declaration, module?.default);
 	if (located.problems.length) return finish();
-	located.declaration = declaration as Declaration;
 	located.app = (module?.default as
 		| App<Record<string, Action>>
 		| undefined) ?? {
-		declaration: located.declaration,
+		declaration: declaration as Declaration,
 		collections: {},
 		actions: {},
 	};

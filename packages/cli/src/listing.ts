@@ -19,14 +19,14 @@ export function actionTool(app: string, key: string, action: Action) {
 }
 
 function loaded(located: Located) {
-	if (!located.app || !located.declaration)
-		throw new Error(`${located.name} has no loaded app`);
-	return { app: located.app, declaration: located.declaration };
+	if (!located.app) throw new Error(`${located.name} has no loaded app`);
+	return located.app;
 }
 
 /** The app as `--json` prints it: its declaration, its code's collections as JSON Schema, and its actions as tools. */
 export function appListing(located: Located) {
-	const { app, declaration } = loaded(located);
+	const app = loaded(located);
+	const { declaration } = app;
 	return {
 		name: located.name,
 		description: declaration.description,
@@ -57,12 +57,10 @@ function hints(action: Action) {
 }
 
 function actionLines(located: Located) {
-	return Object.entries(loaded(located).app.actions).flatMap(
-		([key, action]) => [
-			`  ${usageLine(located.name, key, action)}`,
-			`    ${action.description}${hints(action)}`,
-		],
-	);
+	return Object.entries(loaded(located).actions).flatMap(([key, action]) => [
+		`  ${usageLine(located.name, key, action)}`,
+		`    ${action.description}${hints(action)}`,
+	]);
 }
 
 /** Render discovery as one answer while keeping broken entries separate from runnable apps. */

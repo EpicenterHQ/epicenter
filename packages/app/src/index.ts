@@ -4,7 +4,6 @@ export {
 	type Annotations,
 	type App,
 	type CodeCollection,
-	collectionActionWords,
 	defineApp,
 	type Input,
 	type InputOf,
