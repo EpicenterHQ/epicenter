@@ -1,0 +1,10 @@
+{
+	"count": 1635,
+	"prohibited": [],
+	"editorModules": [
+		"/Users/braden/Code/worktrees/epicenter/app-schema-derive-export-import/apps/honeycrisp/src/lib/draft.svelte.ts",
+		"/Users/braden/Code/worktrees/epicenter/app-schema-derive-export-import/apps/honeycrisp/src/lib/notes.svelte.ts",
+		"/Users/braden/Code/worktrees/epicenter/app-schema-derive-export-import/apps/honeycrisp/src/routes/components/RichEditor.svelte",
+		"/Users/braden/Code/worktrees/epicenter/app-schema-derive-export-import/apps/honeycrisp/src/routes/components/RichEditor.svelte?svelte&type=style&lang.css"
+	]
+}

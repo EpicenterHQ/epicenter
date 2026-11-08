@@ -1,0 +1,82 @@
+{
+	"date": "2026-10-01",
+	"taskStartHead": "c9699838ac50e0bcbc8d5fbaa87acf556c225a3b",
+	"platform": "macOS arm64",
+	"root": "/private/tmp/honeycrisp-acceptance-20261001/ui-root",
+	"historicalRoot": "/private/tmp/honeycrisp-acceptance-20261001/historical-root",
+	"files": [
+		{
+			"path": "folders/glvayou6cq.md",
+			"bytes": 43,
+			"sha256": "0166e662e597dce0014c061f1caf244659c6d57dfa89b4d4538168072b03a406"
+		},
+		{
+			"path": "kv.json",
+			"bytes": 3,
+			"sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356"
+		},
+		{
+			"path": "notes/malformed.md",
+			"bytes": 174,
+			"sha256": "4b7c67e98153addef7b5716190eb6d24f53e985a1bcca13954482214b9beb0c2"
+		},
+		{
+			"path": "notes/recovered-note.md",
+			"bytes": 202,
+			"sha256": "c535b35b54a2aabd69442f9ccce2d522ea9bbdc00261f606f2436afb803404a4"
+		},
+		{
+			"path": "notes/uiev0ddolh.md",
+			"bytes": 592,
+			"sha256": "7473e8f5bd14d801f5900f2b5e684d1ee4ea6691ac741ba8f9d747f680121f03"
+		},
+		{
+			"path": "notes/unsupported.md",
+			"bytes": 221,
+			"sha256": "316cd6ed84ff5ea89a936f9be1e598106ecd1e9ea7fa652a1110adad38eeb31f"
+		}
+	],
+	"gitStatusPorcelain": "",
+	"gitLog": [
+		"a567bfc4004048af9a6cdd05d30f18142532be7a Update 2 files",
+		"0cda5e5deac3a3316e54cb2807512687da804b05 Update 2 files",
+		"cc90ad47e0cf0afefb5c26f0cb071be0c4b8df2c Update notes/skr4a83dsx.md",
+		"6a93c410dc525aebb104c0b081265548a70f5fae Update notes/skr4a83dsx.md",
+		"3a100b8c2b87c44104eec1038bb032a82a18d6e2 Update notes/uiev0ddolh.md",
+		"25aefcba0ecfb95cb66db2b44e548759342a78fb Update notes/uiev0ddolh.md",
+		"fb9fc191a2f79639d2d3dc52170206992a1d754e Update notes/uiev0ddolh.md",
+		"f3f7bed7aea02cf03bb8b218228de3db1ea3a591 Update notes/uiev0ddolh.md",
+		"21aabcfa41646c257cbdbd899f3c433d8cec6e0d Update notes/uiev0ddolh.md",
+		"92203b08d8f7e0ec1efd4569c0f41b764823bf3c Update notes/uiev0ddolh.md",
+		"3f2966edc9c31c4ed9046c2de13aee62825cd55f Update notes/uiev0ddolh.md",
+		"689e787a3a693910b4bd33da32f1eb938d58e391 Update 2 files",
+		"8c2ac39193bb7eb66ae9d0282fd0e7efe07acf7b Update notes/uiev0ddolh.md",
+		"de2b85e90dc4ff6f6f18f57a46a05fb6b8457ec6 Add folders/glvayou6cq.md",
+		"eb063210a83164039ff8b2a02fa257419c9da7f7 Update notes/uiev0ddolh.md",
+		"b8591aee76d8e32dd42221f26cf4dbb86e9fb46c Update notes/uiev0ddolh.md",
+		"907a2b0984f648bc8589493416e3f7f916422688 Update notes/uiev0ddolh.md",
+		"1c5a41d2ae39ba101b90b6eeacb7094c469356ea Update notes/uiev0ddolh.md",
+		"0e6fc5362baad734ad6e28599cac537f83347a94 Update notes/uiev0ddolh.md",
+		"2d6e594e19d266565ea8bd3740bd76b50058e30c Update notes/uiev0ddolh.md"
+	],
+	"inFlightSave": {
+		"capturedCommit": "f3f7bed7aea02cf03bb8b218228de3db1ea3a591",
+		"newerCommit": "fb9fc191a2f79639d2d3dc52170206992a1d754e",
+		"capturedHasNewerTyping": false,
+		"nextHasBoth": true
+	},
+	"historicalRestore": {
+		"commit": "8c2ac39193bb7eb66ae9d0282fd0e7efe07acf7b",
+		"sha256": "2c7e61a74a5b0742bd37d459f0b1473a4a6b142d175c883fb56649f9bd864009",
+		"exactBytesAfterNativeOpenAndQuit": true
+	},
+	"assertions": {
+		"unknownFrontmatterExactStringsPreserved": true,
+		"logicalFolderIdAndFileStemRetained": true,
+		"unsupportedSourceBytesUnchanged": true,
+		"deletedDirtyNoteRecoveredAndRenamed": true,
+		"malformedSourceRepaired": true,
+		"hostLossDirtyDraftAbsentFromSavedFile": true,
+		"noGitLocksAfterQuit": true
+	}
+}

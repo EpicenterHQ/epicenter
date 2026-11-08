@@ -1,0 +1,12 @@
+{
+	"$schema": "../gen/schemas/desktop-schema.json",
+	"identifier": "honeycrisp",
+	"description": "The one Honeycrisp window. Through the folder plugin the page opens the data folder Rust names at startup, by name (openFolder from @epicenter/folder), ~/Epicenter/honeycrisp, which its bundle identifier names and which the first open makes when nothing is there. The page holds no path but the one it shows. No capability names a folder. Through the folder plugin it may read an open root's identity and the record Epicenter keeps for the data folder, to show what is synced; the app never syncs (ADR-0822).",
+	"local": true,
+	"windows": ["honeycrisp:*"],
+	"permissions": [
+		"epicenter-folder:default",
+		"core:event:allow-listen",
+		"core:event:allow-unlisten"
+	]
+}

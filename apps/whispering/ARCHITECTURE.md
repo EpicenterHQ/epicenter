@@ -291,5 +291,4 @@ with stubbed endpoints; `whispering.test-support.ts` makes the app as
 `WhisperingApp` does, over a folder opened at that place, and follows its
 lists. `desktop.test.ts` composes the capabilities as a Tauri window gets
 them, over a stand-in shell; `account.test.ts` and `shortcut.test.ts` check
-the browser's sign-in and the global shortcut. `e2e/` is the Playwright
-suite over the shared stack (`packages/cli/src/app-stack.test-support.ts`).
+the browser's sign-in and the global shortcut.

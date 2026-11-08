@@ -205,11 +205,12 @@ what it touches with no failure the commit before it did not have.
 Waves 0 and 1 are done (2026-11-08). Next is wave 2, Mail.
 
 **0. Tag and prune.** Tag `folder-sync-product` at the last commit with the old
-product whole. Delete `apps/epicenter`, `vocab`, `todos`, `honeycrisp`,
-`capture`, and `messages`, with their root scripts, workflows, Cargo members,
-and the checks that name them. Done when
-nothing outside `docs/` and `specs/` names a deleted app, and `bun install`,
-`bun run typecheck`, and `cargo check --workspace` pass.
+product whole. Delete `apps/epicenter`, whose job (sync, sharing, history)
+belongs to the waiting product, with its scripts, release workflows, and the
+checks that name it. Vocab, Todos, Capture, Honeycrisp, and Messages stay,
+frozen, until each is rebuilt (ADR-0843). Done when nothing outside `docs/` and
+`specs/` names the desktop app, and `bun install`, `bun run typecheck`, and
+`cargo check --workspace` pass.
 
 **1. The kit.** Done when the `reading` example works end to end
 (`epicenter reading log 30` writes and commits) and `epicenter mcp` serves it to
@@ -250,7 +251,10 @@ real app. `epicenter add` comes when the first app is copied from a source.
 sync routes; `packages/account`, `ai`, `svelte`, and `recorder` cut their
 imports; Whispering is untangled; then `packages/folder`, `server`,
 `definition`, `local`, `tauri-plugin-epicenter-folder`, and
-`tauri-epicenter-standalone` are deleted, each in its own commit.
+`tauri-epicenter-standalone` are deleted, each in its own commit. A frozen
+app (Vocab, Todos, Capture, Honeycrisp, Messages) leaves when its rebuilt
+successor runs, or when the author says it can go; it may hold the old packages
+in the tree until then.
 
 **5. Docs.** `docs/architecture.md`, `docs/CONTEXT.md`, and each affected
 package README are rewritten as the code they describe goes. This spec is

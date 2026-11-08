@@ -39,10 +39,7 @@ Epicenter is a monorepo containing multiple applications. The main application r
 3. **Start development from the repository root**
 
    ```bash
-   # Run the Epicenter desktop app (needs Rust)
-   bun dev:epicenter
-
-   # Or run Whispering's page alone in a browser tab
+   # Run Whispering's page in a browser tab
    bun dev:whispering
    ```
 

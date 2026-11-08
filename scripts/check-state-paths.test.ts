@@ -66,13 +66,13 @@ test('owners, tests, comments, docs, and dotted names pass', () => {
 		'packages/tauri-plugin-epicenter-folder/core/src/state.rs':
 			'pub const DIRECTORY: &str = ".epicenter";\n',
 		'packages/folder/src/store.test.ts': "join(root, '.epicenter');\n",
-		'apps/whispering/src/lib/device.test-support.ts': "'.epicenter/'\n",
+		'apps/capture/src/lib/device.test-support.ts': "'.epicenter/'\n",
 		'packages/recorder/src/tests.rs': 'root.join(".epicenter/recordings");\n',
 		'packages/folder/smoke/device.ts': "getDirectoryHandle('.epicenter');\n",
 		'packages/recorder/src/wav.rs':
 			'//! Pending in `.epicenter/recordings`.\nfn main() {}\n\n#[cfg(test)]\nmod tests {\n    fn t() {\n        let _ = ".epicenter/recordings";\n    }\n}\n',
 		'packages/folder/src/watch.ts':
-			"/**\n * Unfinished writes live in `.epicenter`.\n */\n// .epicenter is hidden\nconst id = 'so.epicenter.whispering';\nconst api = 'https://api.epicenter.so';\nconst demo = '.epicenter-whispering-demo';\n",
+			"/**\n * Unfinished writes live in `.epicenter`.\n */\n// .epicenter is hidden\nconst id = 'so.epicenter.todos';\nconst api = 'https://api.epicenter.so';\nconst demo = '.epicenter-todos-demo';\n",
 		'packages/folder/README.md': 'Saves stage in `.epicenter/saves`.\n',
 	});
 	try {

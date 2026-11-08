@@ -1,0 +1,27 @@
+{
+	"$schema": "../../node_modules/wrangler/config-schema.json",
+	"name": "vocab",
+	"compatibility_date": "2025-11-04",
+	// Build the SPA before publishing. Wrangler runs build.command for both
+	// `deploy` and `versions upload`, so local, CI, and previews share one
+	// build path. (This app never uses `wrangler dev`.)
+	"build": {
+		"command": "bun run build"
+	},
+	// --- Custom domain: vocab.epicenter.so (auto-creates DNS record on deploy) ---
+	"routes": [
+		{
+			"pattern": "vocab.epicenter.so",
+			"custom_domain": true
+		}
+	],
+	"assets": {
+		"directory": "build",
+		"not_found_handling": "single-page-application"
+	},
+	// Enable preview URLs for PR previews via `wrangler versions upload --preview-alias`
+	"preview_urls": true,
+	"observability": {
+		"enabled": true
+	}
+}

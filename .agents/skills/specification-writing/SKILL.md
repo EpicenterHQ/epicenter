@@ -286,6 +286,41 @@ When the spec changes a consumer-facing API, show **at least 2-3 real call sites
 
 Find actual usages in the codebase first. Show the verbatim "Before" with file:line, then the "After" translation. Annotate any non-obvious mapping with a brief comment.
 
+````markdown
+## Call sites: before and after
+
+### honeycrisp notes table
+
+**Before** (`apps/honeycrisp/src/lib/workspace.ts:78`):
+
+```ts
+const notesTable = defineTable(
+  type({ id: NoteId, title: 'string', _v: '1' }),
+  type({ id: NoteId, title: 'string', wordCount: 'number | undefined', _v: '2' }),
+).migrate(...)
+```
+
+**After**:
+
+```ts
+const notesTable = defineTable(
+  { id: field.string<NoteId>(), title: field.string() },
+  {
+    id: field.string<NoteId>(),
+    title: field.string(),
+    wordCount: nullable(field.number()),
+  },
+).migrate(({ value, version }) => {
+  switch (version) {
+    case 1: return { ...value, wordCount: null };
+    case 2: return value;
+  }
+});
+```
+
+**Semantic shift to flag**: rows previously stored with `wordCount` key absent will now read as `null` instead of `undefined`. Affects app code doing `if (row.wordCount === undefined)`. Also: `_v` no longer appears in the column record; it is library-managed and stripped from returned rows.
+````
+
 The "semantic shift to flag" callouts are critical: they're what the implementer needs to grep for and codemod across the codebase.
 
 ### Implementation Plan

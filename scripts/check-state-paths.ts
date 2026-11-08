@@ -14,8 +14,8 @@
  *     `smoke/`, `e2e/` and `tests/` directories.
  *   - Comments, and every file that is not code (docs, ADRs, fixtures).
  *
- * A dotted name that merely contains it, such as `so.epicenter.whispering`,
- * `api.epicenter.so` or `.epicenter-whispering-demo`, is not the directory.
+ * A dotted name that merely contains it, such as `so.epicenter.todos`,
+ * `api.epicenter.so` or `.epicenter-todos-demo`, is not the directory.
  *
  * Run it with `bun run check:state-paths`.
  */

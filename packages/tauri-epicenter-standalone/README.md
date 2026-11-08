@@ -123,7 +123,8 @@ the page runs (see the `platform-seams` skill), and the routes stay the same.
    `home` is the data folder. Where a view differs, branch on what a
    capability offers: `folder.reveal` is there for a folder on this
    computer, so the header shows `FolderChrome` there and
-   `RepositoryChrome` otherwise.
+   `RepositoryChrome` otherwise. `apps/todos` is the smallest worked
+   example.
 2. **Build.** `src-tauri/tauri.conf.json` loads `../build` and builds it
    first (`"beforeBuildCommand": "bun run build"`); `tauri.dev.conf.json`
    loads the app's dev server (`"devUrl": "http://localhost:<port>"`,

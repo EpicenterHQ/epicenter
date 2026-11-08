@@ -5,10 +5,12 @@
  */
 
 import { expect, test } from 'bun:test';
-import { win32 } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { join, win32 } from 'node:path';
 import {
 	appDataDir,
 	type DataRootSystem,
+	EPICENTER_BUNDLE_IDENTIFIER,
 	epicenterDataRoot,
 	isAppId,
 	partitionDir,
@@ -110,6 +112,30 @@ test('a relative EPICENTER_DATA_DIR is refused, not resolved', () => {
 	expect(() =>
 		epicenterDataRoot(system({ env: { EPICENTER_DATA_DIR: 'tmp/data' } })),
 	).toThrow(/absolute/);
+});
+
+test('the bundle identifier equals the desktop bundle it has to match', () => {
+	// A drift here is a host and a CLI writing to two different mailboxes, and
+	// nothing else in either process would notice.
+	const conf: unknown = JSON.parse(
+		readFileSync(
+			join(
+				import.meta.dir,
+				'..',
+				'..',
+				'..',
+				'..',
+				'apps',
+				'epicenter',
+				'src-tauri',
+				'tauri.conf.json',
+			),
+			'utf8',
+		),
+	);
+	expect((conf as { identifier: string }).identifier).toBe(
+		EPICENTER_BUNDLE_IDENTIFIER,
+	);
 });
 
 test('an app directory sits under apps/', () => {
