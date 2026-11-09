@@ -19,7 +19,7 @@ which is mostly the earlier product described at the end.
    `epicenter.ts`, if present, says what you can do.
 2. Actions change files; whoever knows the intent commits, and `epicenter sync`
    commits the rest.
-3. `epicenter` runs actions, and your Epicenter runs them through `serve` for
+3. `epicenter` runs actions, and your server runs them through `serve` for
    anything without the folder.
 4. Git moves everything, `epicenter` never merges, and each job takes the least
    powerful form that does it.
@@ -59,11 +59,10 @@ which is mostly the earlier product described at the end.
 | a field | JSON Schema for one value; in TypeScript, written with helpers such as `field.text()` |
 | an action | something you can ask an app to do: a collection's four, or one the author writes with a `run` function |
 | `epicenter` | the program that runs an action in a folder |
-| your Epicenter | the one computer you keep on, where `epicenter serve` runs and your sign-ins live |
+| your server | the one computer you keep on, where `epicenter serve` runs and your sign-ins live |
 | Git | history, `origin` where copies meet, `upstream` where code came from, LFS for binaries |
 
-"Your Epicenter" is the computer; `epicenter` is the program. Everything else is a
-program that either has the folder or asks for actions: your editor, Claude Code,
+Everything else is a program that either has the folder or asks for actions: your editor, Claude Code,
 Claude Desktop, Whispering, the Epicenter app.
 
 ## An app
@@ -142,7 +141,7 @@ tell an agent what happened: 0 returned, 1 threw, 2 did not run.
 
 Code goes where what it needs is. Recording needs the microphone, so it lives in
 Whispering. Searching Gmail needs your sign-in, so it is an action that runs on
-your Epicenter.
+your server.
 
 ```txt
 ssh studio                                          you, then `epicenter …` there
@@ -177,7 +176,7 @@ Every app climbs the same ladder, and each rung is optional.
 | 1. Files | nothing | any program reads and writes it |
 | 2. History | Git, `git-lfs`, an `origin` | backup, history, copies elsewhere |
 | 3. Actions | `epicenter` | its actions in the terminal and for Claude Code |
-| 4. Reach | your Epicenter | the same actions from your other computers |
+| 4. Reach | your server | the same actions from your other computers |
 
 Whispering is whole at rung 1. Mail needs rung 4, because its code needs your
 Gmail sign-in on a computer that is always on.
@@ -223,5 +222,5 @@ fields are written one `key: <JSON>` line each.
 [ADR-0835]: adr/0835-records-from-0802-to-0834-agree-on-files-a-ledger-and-git-at-the-edges.md
 [ADR-0839]: adr/0839-a-save-is-one-numbered-write-a-reset-deletes-nothing-and-epicenter-owns-the-pages-every-app-links-to.md
 [ADR-0840]: adr/0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md
-[ADR-0849]: adr/0849-your-epicenter-is-one-always-reachable-computer-that-runs-named-actions.md
+[ADR-0849]: adr/0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md
 [ADR-0857]: adr/0857-an-app-declares-itself-in-epicenter-json-and-its-code-in-epicenter-ts.md

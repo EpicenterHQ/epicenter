@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-11-08
 - **Amends:** [ADR-0845](0845-an-app-declares-collections-each-a-path-and-fields-which-the-hub-views.md) at how a collection is used: through actions it gives the app, not a separate data view; a collection's own `save` refuses input that does not fit, while hand edits are still never refused. [ADR-0844](0844-one-runner-runs-anywhere-and-every-surface-is-a-view-over-it.md) at what the hub is: a program asking `epicenter serve` over MCP. [ADR-0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md) at Epicenter Cloud's file API, which is not built: a program without the folder asks for actions instead.
-- **Relates:** [ADR-0849](0849-your-epicenter-is-one-always-reachable-computer-that-runs-named-actions.md) (`serve`), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (who commits), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (programs that have the folder or ask), [ADR-0857](0857-an-app-declares-itself-in-epicenter-json-and-its-code-in-epicenter-ts.md) (fields and annotations), [ADR-0858](0858-where-a-file-lives-decides-whether-it-travels-survives-or-dies-with-its-program.md) (where Whispering's files and state live).
+- **Relates:** [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) (`serve`), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (who commits), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (programs that have the folder or ask), [ADR-0857](0857-an-app-declares-itself-in-epicenter-json-and-its-code-in-epicenter-ts.md) (fields and annotations), [ADR-0858](0858-where-a-file-lives-decides-whether-it-travels-survives-or-dies-with-its-program.md) (where Whispering's files and state live).
 - **Unbuilt:** all of it except MCP over stdio: the four collection actions, `collections` in `run`, `serve` over HTTP, and the typed client. They come with the first app that needs them (Vocab). Amended 2026-11-09: the verbs are `list`, `get`, `set`, `delete`; written actions lay over the collection actions; `set` and `delete` are destructive; the client is typed by the `App` that `epicenter:app` declares (ADR-0857).
 
 ## Context
@@ -133,7 +133,7 @@ shortcut, and pasting need the device and are never actions.
 - **The context as actions (`folder`, `secrets` exposed).** A generic file write
   skips every field and rule.
 - **A standalone app that asks for every write.** It holds what it captured
-  until your Epicenter confirms it, an outbox, and its core work waits on the
+  until your server confirms it, an outbox, and its core work waits on the
   network.
 - **A standalone app that ships `epicenter`.** About 70 MB beside Whispering's
   31 MB (measured), to run three Git commands for files only it writes.

@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-11-08
 - **Amends:** [ADR-0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md) at `epicenter sync`, which stays as the one command that commits what is left, pulls with `--rebase`, and pushes.
-- **Relates:** [ADR-0849](0849-your-epicenter-is-one-always-reachable-computer-that-runs-named-actions.md), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (`origin`).
+- **Relates:** [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (`origin`).
 - **Unbuilt:** `epicenter sync` and Whispering's own sync. Built 2026-11-09 and to be deleted: the fast-forward push after each commit `epicenter` made, the fetch after a refused push, and ahead and behind `origin` in the listing (`packages/cli/src/push.ts`).
 
 ## Context
@@ -49,7 +49,7 @@ rung) has no remote.
   with Git and pulls with `--rebase` and pushes as `sync` does.
 - A person or agent pulls and pushes any clone with Git or a Git-aware editor. A
   cloud agent clones from the remote and pushes a branch; a person merges it.
-- Who can read an app: whoever holds a clone, your Epicenter, and the remote's
+- Who can read an app: whoever holds a clone, your server, and the remote's
   host. Epicenter builds no encryption.
 - A backup on another host is a second push URL on `origin`, never a second
   meeting point.
@@ -70,7 +70,7 @@ rung) has no remote.
 
 - **Pull before every run, merging when the remote moved.** Merges into a tree
   the person is editing, fails reads on conflicts, and fetches on every call.
-- **Your Epicenter as the meeting point, the remote as a backup.** Pushes into a
+- **Your server as the meeting point, the remote as a backup.** Pushes into a
   folder someone may be editing, and two remotes per app.
 - **An end-to-end encrypted remote.** Re-uploads history or needs key
   management, and rules out hosted runs.

@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-11-08
 - **Amends:** [ADR-0844](0844-one-runner-runs-anywhere-and-every-surface-is-a-view-over-it.md) at Epicenter Cloud, which hosts a remote and a computer rather than being a separate product. [ADR-0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md) at `epicenter add`, which also links a folder, at `epicenter new`, which becomes `add` from a built-in template, and at the `{ from, sha }` record, which the `upstream` branch already holds.
-- **Relates:** [ADR-0849](0849-your-epicenter-is-one-always-reachable-computer-that-runs-named-actions.md) (your Epicenter), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (the commit rule), [ADR-0851](0851-an-app-with-history-has-one-git-remote-its-meeting-point-and-backup.md) (`origin`), [ADR-0853](0853-collections-give-four-actions-and-programs-without-the-folder-ask-over-mcp.md) (MCP), [ADR-0856](0856-binary-files-go-through-git-lfs.md) (binary files), [ADR-0857](0857-an-app-declares-itself-in-epicenter-json-and-its-code-in-epicenter-ts.md) (the declaration). [docs/vision.md](../vision.md) explains the whole.
+- **Relates:** [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) (your server), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (the commit rule), [ADR-0851](0851-an-app-with-history-has-one-git-remote-its-meeting-point-and-backup.md) (`origin`), [ADR-0853](0853-collections-give-four-actions-and-programs-without-the-folder-ask-over-mcp.md) (MCP), [ADR-0856](0856-binary-files-go-through-git-lfs.md) (binary files), [ADR-0857](0857-an-app-declares-itself-in-epicenter-json-and-its-code-in-epicenter-ts.md) (the declaration). [docs/vision.md](../vision.md) explains the whole.
 - **Unbuilt:** the registry, Epicenter Cloud, and `add` without `--init` and without the `upstream` remote. Built 2026-11-09: `new` as the built-in template, `add <folder>` linking a folder and making its history with `--init`, and `add <git url>` cloning the app and keeping the source as the `upstream` remote and branch; `--init`, `upstream`, and the commit `add` makes are to be deleted.
 
 ## Context
@@ -34,9 +34,9 @@ same job.
 | Big files | a line in `.gitattributes` (ADR-0856) | never: no Epicenter setting |
 | Reach from anywhere | an existing protocol, MCP (ADR-0853) | never: no Epicenter API |
 | Run something later | a person or agent asks | never: no scheduler (ADR-0849) |
-| Where code runs | a program on the device | it needs sign-ins or reach: an action on your Epicenter |
+| Where code runs | a program on the device | it needs sign-ins or reach: an action on your server |
 
-One step up is deliberate: your Epicenter is a computer that is always on,
+One step up is deliberate: your server is a computer that is always on,
 because a phone and Claude anywhere need something to answer them.
 
 **An app is a folder with a declared shape.** Its `epicenter.json` names it and
@@ -48,7 +48,7 @@ program at all to be an app.
 **Code goes where what it needs is.** Code that needs the device (a microphone,
 a global shortcut, pasting into another program) lives in a program on that
 device. Code that needs the person's sign-ins, or must be reachable from
-anywhere, is an action run on your Epicenter. Every app has the same shape with
+anywhere, is an action run on your server. Every app has the same shape with
 different parts filled in: Mail has actions and no program of its own;
 Whispering has a program and, until someone adds some, no actions.
 
@@ -73,7 +73,7 @@ second way, such as an npm package an app re-exports.
 
 **Epicenter provides defaults, each an ordinary instance of an open standard.**
 The registry is a list of Git URLs. Epicenter Cloud hosts an app's `origin` and
-can be your Epicenter (a container running the same `epicenter serve`). The
+can be your server (a container running the same `epicenter serve`). The
 Epicenter app is a program that asks over MCP. A person who takes every default
 installs the Epicenter app, signs in, and never sees Git; a developer uses any
 Git host, their own computer, or their own program without changing an app.
@@ -103,4 +103,4 @@ Git host, their own computer, or their own program without changing an app.
   once shapes are JSON, so a small core could serve code-free apps and be linked
   into other programs. Revisit when a second program wants to embed it.
 - **Epicenter Cloud as its own product with its own sync.** A second
-  implementation of the remote and of your Epicenter.
+  implementation of the remote and of your server.

@@ -1056,7 +1056,7 @@ When you add an ADR, add its row here.
 | [0846](0846-epicenter-owns-no-infrastructure-and-each-repository-has-one-meeting-point.md) | Epicenter owns no infrastructure, and each repository has one meeting point | Accepted |
 | [0847](0847-an-app-brings-its-providers-credentials-with-a-default-in-its-code.md) | An app brings its provider's credentials, with a default in its code | Accepted |
 | [0848](0848-the-runner-owns-only-what-an-action-wrote.md) | The runner owns only what an action wrote | Accepted |
-| [0849](0849-your-epicenter-is-one-always-reachable-computer-that-runs-named-actions.md) | Your Epicenter is one always-reachable computer that runs named actions | Proposed |
+| [0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) | Your server is one always-reachable computer that runs named actions | Proposed |
 | [0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) | Every writer commits exactly what it wrote | Proposed |
 | [0851](0851-an-app-with-history-has-one-git-remote-its-meeting-point-and-backup.md) | An app with history has one Git remote, its meeting point and its backup | Proposed |
 | [0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) | An app is a folder with a declared shape, and each job takes the least powerful form | Proposed |

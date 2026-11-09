@@ -10,7 +10,7 @@
 
 An app is a folder: `epicenter.json` says what its files are, and
 `epicenter.ts`, if present, says what you can do. Every writer commits exactly
-what it wrote. `epicenter` runs actions, and your Epicenter runs them through
+what it wrote. `epicenter` runs actions, and your server runs them through
 `serve` for anything without the folder. Git moves everything, `epicenter` never
 merges, and each job takes the least powerful form (ADR-0849 to ADR-0857;
 [docs/vision.md](../docs/vision.md)).
@@ -49,7 +49,7 @@ ADR-0849 to ADR-0857.
 
 ## Target shape
 
-On your Epicenter (ADR-0849):
+On your server (ADR-0849):
 
 ```
 ~/Epicenter/                    the only list of apps: folders, or links to them
@@ -71,7 +71,7 @@ On your Epicenter (ADR-0849):
     2026.csv
   whispering/                   Whispering writes epicenter.json and its takes
   vault -> ~/Code/vault         linked by epicenter add
-Keychain: epicenter.<name>      sign-ins, on your Epicenter only
+Keychain: epicenter.<name>      sign-ins, on your server only
 epicenter serve                 the only way in: MCP, on the tailnet
 ```
 
@@ -112,7 +112,7 @@ library, when an app needs one, is new code that copies the front-matter rule;
 ## Onboarding
 
 1. **Install.** `bun add -g @epicenter/cli` gives `epicenter`; `epicenter setup`
-   checks for `git` and `git-lfs`, and on the Mac makes it your Epicenter.
+   checks for `git` and `git-lfs`, and on the Mac makes it your server.
 2. **A new app.** `epicenter new reading` writes `reading/epicenter.json` (with
    its `$schema` and `name`), `.gitignore`, and `.gitattributes`, and runs
    `git init`. Its first action adds `epicenter.ts`, `package.json`, and
@@ -131,7 +131,7 @@ library, when an app needs one, is new code that copies the front-matter rule;
    destructive ones; never allow `Bash(epicenter *)`. Claude Desktop adds
    `epicenter serve --stdio` to its MCP settings. Claude and ChatGPT on the phone
    do not reach apps until `serve` has a public address (ADR-0849).
-6. **A second computer.** `epicenter setup` connects it to your Epicenter. Clones
+6. **A second computer.** `epicenter setup` connects it to your server. Clones
    of apps for editing are ordinary Git clones.
 
 ## Writing and moving data
@@ -401,7 +401,7 @@ ADR-0842 first wrote them.
   Done when M1 to M6 pass against the fake and the receipts and newsletter jobs
   are finished with the real Gmail and Claude Code.
 
-**3. Your Epicenter** (ADR-0849, ADR-0851, ADR-0852, ADR-0854, ADR-0856). Done
+**3. Your server** (ADR-0849, ADR-0851, ADR-0852, ADR-0854, ADR-0856). Done
 offline: `.cache/` in the folder, `sync` deleted, the fast-forward push and ahead
 and behind in the listing, `new` and `add`, and the LFS refusal. Left:
   - S1. `epicenter serve` on the tailnet speaks MCP over Streamable HTTP, each call
