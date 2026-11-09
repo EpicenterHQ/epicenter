@@ -209,7 +209,7 @@ test('views serve files and refuse traversal and symlinks outside views', async 
 	);
 	const redirect = await fetch(`${f.base}/reading`, { redirect: 'manual' });
 	expect(redirect.status).toBe(308);
-	expect(redirect.headers.get('location')).toBe(`${f.base}/reading/`);
+	expect(redirect.headers.get('location')).toBe('/reading/');
 	expect(await (await fetch(`${f.base}/reading/`)).text()).toBe(
 		'<h1>Reading</h1>',
 	);

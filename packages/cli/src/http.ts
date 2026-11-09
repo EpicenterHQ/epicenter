@@ -207,7 +207,8 @@ export function startHttpServer(host: string, port: number) {
 					await server.close();
 				}
 			}
-			if (request.method !== 'GET') return notFound();
+			if (request.method !== 'GET' && request.method !== 'HEAD')
+				return notFound();
 			if (pathname === '/') {
 				const apps = await Promise.all(
 					(await homeEntries()).map(async (entry) => {
@@ -239,7 +240,11 @@ export function startHttpServer(host: string, port: number) {
 			if (match[2] === undefined) {
 				if (!(await homeEntries()).some((entry) => entry.entry === app))
 					return notFound();
-				return Response.redirect(new URL(`/${app}/`, request.url), 308);
+				// Relative, so a proxy in front (tailscale serve) keeps its own host and scheme.
+				return new Response(null, {
+					status: 308,
+					headers: { location: `/${encodeURIComponent(app)}/` },
+				});
 			}
 			return viewFile(app, match[2]);
 		},
