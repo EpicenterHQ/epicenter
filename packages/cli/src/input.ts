@@ -5,7 +5,7 @@
  * action's `positional` list says which fields the command line also reads by
  * position, in order.
  */
-import type { Action, Input } from '@epicenter/app';
+import { type Action, type Input, isName } from '@epicenter/app';
 import { type TSchema, Type } from 'typebox';
 import { Value } from 'typebox/value';
 
@@ -18,13 +18,22 @@ export function matchAction(
 	actions: object,
 	words: string[],
 ): { key: string; rest: string[] } | undefined {
-	let end = words.findIndex((word) => !/^[a-z][a-z0-9-]*$/.test(word));
+	let end = words.findIndex((word) => !isName(word));
 	if (end < 0) end = words.length;
 	for (; end > 0; end--) {
 		const key = words.slice(0, end).join(' ');
 		if (Object.hasOwn(actions, key)) return { key, rest: words.slice(end) };
 	}
 	return undefined;
+}
+
+/** The fields a caller must give: those TypeBox requires, less any with a default, which fills them. */
+export function requiredKeys(input: Input): Set<string> {
+	return new Set(
+		(Type.Object(input).required ?? []).filter(
+			(key) => !Object.hasOwn(input[key] ?? {}, 'default'),
+		),
+	);
 }
 
 /** Turn a field key into the flag a person types. */
@@ -171,8 +180,7 @@ export function usageLine(
 	key: string,
 	action: Action,
 ): string {
-	const schema = Type.Object(action.input);
-	const required = new Set(schema.required ?? []);
+	const required = requiredKeys(action.input);
 	const positional = new Set<string>(action.positional ?? []);
 	const args: string[] = [];
 	for (const name of positional) {
@@ -210,10 +218,14 @@ export function jsonSchema(fields: Input): {
 	properties?: Record<string, object>;
 	[key: string]: unknown;
 } {
-	return JSON.parse(
+	const schema = JSON.parse(
 		JSON.stringify(
 			Type.Object(fields, { additionalProperties: false }),
 			(key, value) => (key.startsWith('~') ? undefined : value),
 		),
 	);
+	const required = [...requiredKeys(fields)];
+	if (required.length) schema.required = required;
+	else delete schema.required;
+	return schema;
 }

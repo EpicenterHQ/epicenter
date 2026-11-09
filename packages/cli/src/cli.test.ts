@@ -141,9 +141,7 @@ test('usage errors return exit 2 and exactly one JSON error', async () => {
 		[['reading', 'log', '3', '--book'], 'needs a value'],
 		[['reading', 'tag', '--done=false'], 'takes no value'],
 		[['reading', 'log', '3', '--version'], '--version'],
-		[['open'], 'not built yet'],
-		[['--json', 'reading', 'log', '3'], 'after the action words'],
-		[['--help', 'reading'], 'after the action words'],
+		[['setup'], 'not built yet'],
 	];
 	for (const [args, message] of cases) {
 		const result = await f.run(...args, '--json');

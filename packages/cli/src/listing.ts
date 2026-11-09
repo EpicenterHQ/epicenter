@@ -4,9 +4,15 @@
  * listing and `tools/list` agree; the human views come from the same actions.
  */
 import { type Action, ANNOTATION_DEFAULTS } from '@epicenter/app';
-import { type TSchemaOptions, Type } from 'typebox';
+import type { TSchemaOptions } from 'typebox';
 import type { Discovery, Runnable } from './home.ts';
-import { fieldKind, flagOf, jsonSchema, usageLine } from './input.ts';
+import {
+	fieldKind,
+	flagOf,
+	jsonSchema,
+	requiredKeys,
+	usageLine,
+} from './input.ts';
 import { originOf } from './push.ts';
 import { keychainService } from './secrets.ts';
 
@@ -140,7 +146,7 @@ export async function oneAppListing(
 /** Explain each action field, including defaults and its positional spelling. */
 export function actionHelp(name: string, key: string, action: Action): string {
 	const positional = new Set<string>(action.positional ?? []);
-	const required = new Set(Type.Object(action.input).required ?? []);
+	const required = requiredKeys(action.input);
 	return [
 		usageLine(name, key, action),
 		action.description,

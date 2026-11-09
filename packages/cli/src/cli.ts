@@ -3,7 +3,7 @@
  * (ADR-0841). It parses words, shows what can run, checks input, and prints the
  * answer. Its returned exit code follows whether run started (ADR-0842).
  */
-import type { Action } from '@epicenter/app';
+import { type Action, COMMANDS, type Command } from '@epicenter/app';
 import packageJson from '../package.json' with { type: 'json' };
 import { addCommand, newCommand } from './add.ts';
 import { CliError } from './errors.ts';
@@ -38,19 +38,56 @@ const HELP = `epicenter [--json]
 epicenter <app> [--json]
 epicenter <app> <action words> [<positionals>] [--flags] [--json]
 epicenter <path> <action words> [<positionals>] [--flags] [--json]
-epicenter serve --stdio
-epicenter new <name>
-epicenter add <folder> [--init] | add <git url>
-epicenter update | open
-epicenter help [<app> [<action words>]]
+${Object.values(COMMANDS).join('\n')}
 epicenter --version
 
 Your apps are the folders in ~/Epicenter with an epicenter.json.
-Global flags come after the action words: --json, --help (-h).
+--json and --help (-h) go anywhere before --.
 Exit codes: 0 success, 1 finding, 2 did not run, 3 action started and threw.
 EPICENTER_TEST_SECRETS: JSON service stores held in memory for this process, so tests never reach the Keychain.
 Run epicenter for your apps.`;
 const GLOBALS = new Set(['--json', '--help', '-h', '--version', '-V']);
+
+type Handler = (words: string[], json: boolean) => Promise<number>;
+
+const usage = (message: string, next?: string) =>
+	CliError.Usage({ message, ...(next ? { next } : {}) }).error;
+
+/** What each command in `COMMANDS` does; `help` is read before dispatch, as `--help`. */
+const HANDLERS: { [K in Exclude<Command, 'help'>]: Handler } = {
+	async new(words, json) {
+		const [only] = words;
+		if (words.length !== 1 || only === undefined)
+			return fail(usage('epicenter new needs one name'), json);
+		return newCommand(only, json);
+	},
+	async add(words, json) {
+		const init = words.includes('--init');
+		const sources = words.filter((word) => word !== '--init');
+		if (sources.length !== 1 || sources[0] === undefined)
+			return fail(usage('epicenter add needs one folder or Git URL'), json);
+		return addCommand(sources[0], init, json);
+	},
+	async serve(words, json) {
+		if (words.join(' ') !== '--stdio')
+			return fail(
+				usage(
+					'epicenter serve over the network is not built yet',
+					'epicenter serve --stdio',
+				),
+				json,
+			);
+		if (json)
+			return fail(
+				usage('MCP uses stdout for protocol; --json does not apply'),
+				json,
+			);
+		return serveStdio();
+	},
+	async setup(_, json) {
+		return fail(usage('epicenter setup is not built yet'), json);
+	},
+};
 
 /**
  * The action's input, checked against its fields: from `--input <json>`, one
@@ -88,8 +125,8 @@ export async function runCli(argv: string[]): Promise<number> {
 	}
 	const relayed = argv;
 	if (argv[0] === 'help') argv = [...argv.slice(1), '--help'];
-	let leading = 0;
-	while (GLOBALS.has(argv[leading] ?? '')) leading++;
+	// --version is read only on its own, so an action's --version stays its own flag.
+	const onlyGlobals = argv.every((token) => GLOBALS.has(token));
 	const tokens: string[] = [];
 	let json = reportArg !== undefined;
 	let help = false;
@@ -102,21 +139,9 @@ export async function runCli(argv: string[]): Promise<number> {
 			tokens.push(token);
 		} else if (token === '--json') json = true;
 		else if (token === '--help' || token === '-h') help = true;
-		else if (
-			(token === '--version' || token === '-V') &&
-			leading === argv.length
-		)
+		else if ((token === '--version' || token === '-V') && onlyGlobals)
 			version = true;
 		else tokens.push(token);
-	}
-	if (leading > 0 && leading < argv.length) {
-		return fail(
-			CliError.Usage({
-				message: 'Global flags come after the action words',
-				next: `epicenter ${[...argv.slice(leading), ...argv.slice(0, leading)].join(' ')}`,
-			}).error,
-			json,
-		);
 	}
 	const print = (value: unknown) => {
 		if (json) writeJson(value);
@@ -135,62 +160,14 @@ export async function runCli(argv: string[]): Promise<number> {
 			return 0;
 		}
 		const [name, ...words] = tokens as [string, ...string[]];
-		if (name === 'new') {
+		if (name !== 'help' && Object.hasOwn(HANDLERS, name)) {
+			const command = name as keyof typeof HANDLERS;
 			if (help) {
-				print('epicenter new <name>');
+				print(COMMANDS[command]);
 				return 0;
 			}
-			const [only] = words;
-			if (words.length !== 1 || only === undefined)
-				return fail(
-					CliError.Usage({ message: 'epicenter new needs one name' }).error,
-					json,
-				);
-			return newCommand(only, json);
+			return HANDLERS[command](words, json);
 		}
-		if (name === 'add') {
-			if (help) {
-				print('epicenter add <folder> [--init]\nepicenter add <git url>');
-				return 0;
-			}
-			const init = words.includes('--init');
-			const sources = words.filter((word) => word !== '--init');
-			if (sources.length !== 1 || sources[0] === undefined)
-				return fail(
-					CliError.Usage({
-						message: 'epicenter add needs one folder or Git URL',
-					}).error,
-					json,
-				);
-			return addCommand(sources[0], init, json);
-		}
-		if (name === 'serve') {
-			if (help) {
-				print('epicenter serve --stdio');
-				return 0;
-			}
-			if (words.join(' ') !== '--stdio')
-				return fail(
-					CliError.Usage({
-						message: 'epicenter serve over the network is not built yet',
-						next: 'epicenter serve --stdio',
-					}).error,
-					json,
-				);
-			if (json)
-				return fail(
-					CliError.Usage({
-						message: 'MCP uses stdout for protocol; --json does not apply',
-					}).error,
-					json,
-				);
-			return serveStdio();
-		}
-		if (['update', 'open'].includes(name))
-			return fail(
-				CliError.Usage({ message: `epicenter ${name} is not built yet` }).error,
-				json,
-			);
 		// Running an action is two processes; the child owns the whole run.
 		if (!reportArg && words.length > 0 && !help)
 			return presentAnswer(

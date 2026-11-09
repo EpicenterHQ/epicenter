@@ -117,17 +117,24 @@ export function defineApp<I extends Record<string, Input>, A extends Actions>(
 
 const PATH_PATTERN = new RegExp(COLLECTION_PATH);
 
-/** Words the `epicenter` command keeps for itself: no app is named one. */
-const BUILT_INS = new Set([
-	'new',
-	'add',
-	'update',
-	'types',
-	'help',
-	'serve',
-	'setup',
-	'open',
-]);
+/**
+ * The commands `epicenter` keeps for itself, each with its usage. The CLI
+ * dispatches from this table and prints its help from it, and no app may be
+ * named one of its words.
+ */
+export const COMMANDS = {
+	new: 'epicenter new <name>',
+	add: 'epicenter add <folder> [--init] | add <git url>',
+	serve: 'epicenter serve --stdio',
+	setup: 'epicenter setup',
+	help: 'epicenter help [<app> [<action words>]]',
+} as const;
+
+export type Command = keyof typeof COMMANDS;
+
+function isCommand(name: string): name is Command {
+	return Object.hasOwn(COMMANDS, name);
+}
 
 /** What an action is made of; anything else, such as `readonly`, is a typo the types let through. */
 const ACTION_KEYS = new Set([
@@ -159,7 +166,7 @@ export function collectionActionWords(name: string, path: string): string[] {
 export function nameProblem(name: unknown): string | undefined {
 	if (!isName(name))
 		return `${JSON.stringify(name)} is not lowercase letters, digits, and dashes, starting with a letter`;
-	if (BUILT_INS.has(name)) return `"${name}" is an epicenter command`;
+	if (isCommand(name)) return `"${name}" is an epicenter command`;
 	return undefined;
 }
 
@@ -173,7 +180,7 @@ export function problemsOf(declaration: unknown, code?: unknown): string[] {
 	const problems = declarationProblems(declaration);
 	if (problems.length) return problems;
 	const { name, collections = {} } = declaration as Declaration;
-	if (BUILT_INS.has(name))
+	if (isCommand(name))
 		problems.push(`its name "${name}" is an epicenter command`);
 	if (code === undefined) return problems;
 	const app = code as Record<string, unknown> | null;
