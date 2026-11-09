@@ -205,19 +205,20 @@ export default defineApp(declaration, { actions: { hello: { description: 'Say he
 test('F9 one table owns the vocabulary; --json goes anywhere; defaulted fields are not required', async () => {
 	const f = await setup();
 	await notes(f);
-	for (const word of ['update', 'open', 'types']) {
+	for (const word of ['update', 'open', 'types', 'setup', 'help']) {
 		const result = await f.json(word);
 		expect(result.code).toBe(2);
 		expect(result.report.error.message).toContain(`Unknown app "${word}"`);
 	}
-	const setupCommand = await f.json('setup');
-	expect(setupCommand.code).toBe(2);
-	expect(setupCommand.report.error.message).toContain('not built yet');
-	expect((await f.json('new', 'setup')).code).toBe(2);
+	for (const word of ['new', 'add', 'sync', 'serve'])
+		expect((await f.json('new', word)).code).toBe(2);
 	const help = (await f.run('--help')).stdout;
-	expect(help).toContain('epicenter setup');
-	expect(help).not.toContain('update');
-	expect(help).not.toContain('epicenter types');
+	expect(help).toContain('epicenter sync [<app>]');
+	expect(help).toContain(
+		'Exit codes: 0 done, 1 the action threw or an app did not sync, 2 did not run.',
+	);
+	for (const gone of ['update', 'epicenter types', 'setup', 'epicenter help'])
+		expect(help).not.toContain(gone);
 
 	const leading = await f.run('--json', 'notes', 'two', 'Ada');
 	expect(leading.code).toBe(0);
@@ -232,7 +233,7 @@ test('F9 one table owns the vocabulary; --json goes anywhere; defaulted fields a
 	expect(tool.inputSchema.required ?? []).not.toContain('count');
 	const ran = await f.json('notes', 'defaulted');
 	expect(ran.report.returned).toEqual({ count: 3 });
-	expect((await f.run('help', 'notes', 'defaulted')).stdout).toContain(
+	expect((await f.run('notes', 'defaulted', '--help')).stdout).toContain(
 		'--count: number, default 3',
 	);
 });
@@ -270,7 +271,7 @@ test("F12 field.date() carries format: 'date', and the CLI reads the format", as
 		type: 'string',
 		format: 'date',
 	});
-	expect((await f.run('help', 'reading', 'between')).stdout).toContain(
+	expect((await f.run('reading', 'between', '-h')).stdout).toContain(
 		'--from (<from>): date, required',
 	);
 	const bad = await f.json('reading', 'between', '2026-13-45', '2026-11-08');

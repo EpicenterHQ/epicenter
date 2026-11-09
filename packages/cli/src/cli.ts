@@ -44,7 +44,7 @@ epicenter --version
 
 Your apps are the folders in ~/Epicenter with an epicenter.json.
 --json and --help (-h) go anywhere before --.
-Exit codes: 0 returned, 1 threw, 2 did not run.
+Exit codes: 0 done, 1 the action threw or an app did not sync, 2 did not run.
 Run epicenter for your apps.`;
 const GLOBALS = new Set(['--json', '--help', '-h', '--version', '-V']);
 
@@ -53,8 +53,8 @@ type Handler = (words: string[], json: boolean) => Promise<number>;
 const usage = (message: string, next?: string) =>
 	CliError.Usage({ message, ...(next ? { next } : {}) }).error;
 
-/** What each command in `COMMANDS` does; `help` is read before dispatch, as `--help`. */
-const HANDLERS: { [K in Exclude<Command, 'help'>]: Handler } = {
+/** What each command in `COMMANDS` does. */
+const HANDLERS: { [K in Command]: Handler } = {
 	async new(words, json) {
 		const [only] = words;
 		if (words.length !== 1 || only === undefined)
@@ -83,9 +83,6 @@ const HANDLERS: { [K in Exclude<Command, 'help'>]: Handler } = {
 				json,
 			);
 		return serveStdio();
-	},
-	async setup(_, json) {
-		return fail(usage('epicenter setup is not built yet'), json);
 	},
 };
 
@@ -123,7 +120,6 @@ export async function runCli(argv: string[]): Promise<number> {
 		argv = argv.slice(1);
 	}
 	const relayed = argv;
-	if (argv[0] === 'help') argv = [...argv.slice(1), '--help'];
 	// --version is read only on its own, so an action's --version stays its own flag.
 	const onlyGlobals = argv.every((token) => GLOBALS.has(token));
 	const tokens: string[] = [];

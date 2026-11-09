@@ -130,7 +130,7 @@ test('usage errors return exit 2 and exactly one JSON error', async () => {
 		[['reading', 'log', '3', '--book'], 'needs a value'],
 		[['reading', 'tag', '--done=false'], 'takes no value'],
 		[['reading', 'log', '3', '--version'], '--version'],
-		[['setup'], 'not built yet'],
+		[['setup'], 'Unknown app "setup"'],
 	];
 	for (const [args, message] of cases) {
 		const result = await f.run(...args, '--json');
@@ -214,7 +214,7 @@ test('app and action views include locations, schemas, field help and version', 
 		keychain: 'epicenter.reading',
 	});
 	expect((await f.run('reading')).stdout).toContain('folder:');
-	expect((await f.run('help', 'reading', 'log')).stdout).toContain(
+	expect((await f.run('reading', 'log', '-h')).stdout).toContain(
 		'--minutes (<minutes>): number, required',
 	);
 	expect(

@@ -221,7 +221,7 @@ test("D3 positionals come from the action's ordered list; flags always work", as
 	);
 	expect(extra.code).toBe(2);
 	expect(extra.stderr).toContain('2026-11-09');
-	const help = await f.run('help', 'reading', 'between');
+	const help = await f.run('reading', 'between', '--help');
 	expect(help.stdout).toContain('epicenter reading between <from> <to>');
 });
 
