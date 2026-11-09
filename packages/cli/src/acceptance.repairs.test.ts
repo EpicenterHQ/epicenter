@@ -764,7 +764,7 @@ test('F11 the deletions: exit code 1, the lock queue, the test-secrets help line
 		join(repo, 'packages/cli/src/file-lock.ts'),
 		'utf8',
 	);
-	for (const gone of ['turns', 'waitMs', 'held'])
+	for (const gone of ['const turns', 'waitMs', 'held:', 'holdingFileLock'])
 		expect(lock).not.toContain(gone);
 	const context = await readFile(
 		join(repo, 'packages/app/src/context.ts'),

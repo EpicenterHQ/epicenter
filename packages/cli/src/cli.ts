@@ -43,8 +43,7 @@ epicenter --version
 
 Your apps are the folders in ~/Epicenter with an epicenter.json.
 --json and --help (-h) go anywhere before --.
-Exit codes: 0 success, 1 finding, 2 did not run, 3 action started and threw.
-EPICENTER_TEST_SECRETS: JSON service stores held in memory for this process, so tests never reach the Keychain.
+Exit codes: 0 ran, 2 did not run, 3 ran and failed.
 Run epicenter for your apps.`;
 const GLOBALS = new Set(['--json', '--help', '-h', '--version', '-V']);
 

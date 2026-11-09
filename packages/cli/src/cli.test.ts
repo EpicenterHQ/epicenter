@@ -67,9 +67,9 @@ test('listing isolates broken imports, invalid apps and mismatches and shows lin
 		entry: 'copy',
 		folder: join(f.home, 'copy'),
 	});
-	expect(value.problems[1].problems.join(' ')).toContain(
-		'also declared by reading',
-	);
+	expect(value.problems[1].problems).toEqual([
+		'declares the name "reading" but its folder is "copy"',
+	]);
 	const human = await f.run();
 	expect(human.stdout).toContain('Problems:');
 	expect(human.stdout).toContain('import exploded');

@@ -175,17 +175,26 @@ export function createWriteLog(folder: string): WriteLog {
 		const found = checked.get(path);
 		if (found && found !== 'ignored') written.set(path, { ...found, object });
 	};
-	// Decided once per run: the Git directory, when a rename from it into the folder stays on one filesystem.
-	const staging = gitPath(folder, 'epicenter-tmp').then(async (dir) => {
-		await mkdir(dir, { recursive: true });
-		return (await stat(dir)).dev === (await stat(folder)).dev ? dir : undefined;
-	});
+	// Decided once, at the run's first write: the Git directory, when a rename from it into the folder stays on one filesystem.
+	let staging: Promise<string | undefined> | undefined;
+	const stagingDir = () => {
+		staging ??= gitPath(folder, 'epicenter-tmp').then(async (dir) => {
+			await mkdir(dir, { recursive: true });
+			return (await stat(dir)).dev === (await stat(folder)).dev
+				? dir
+				: undefined;
+		});
+		return staging;
+	};
 	return {
 		refused,
 		written: () =>
 			[...written].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
 		async tempFor(target) {
-			return join((await staging) ?? dirname(target), `.${randomUUID()}.tmp`);
+			return join(
+				(await stagingDir()) ?? dirname(target),
+				`.${randomUUID()}.tmp`,
+			);
 		},
 		async check(path) {
 			if (checked.get(path) === 'ignored') return;

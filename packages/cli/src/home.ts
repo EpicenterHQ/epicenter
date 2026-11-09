@@ -51,8 +51,6 @@ export type Located =
 			ok: false;
 			/** The entry's name, for the listing. */
 			name: string;
-			/** A valid name `epicenter.json` declares, so two entries declaring one name are both reported. */
-			declaredName?: string;
 			problems: string[];
 	  });
 
@@ -135,11 +133,10 @@ async function load(
 	entry?: string,
 ): Promise<Located> {
 	const at = { ...place, entry };
-	const broken = (problems: string[], declaredName?: string): Located => ({
+	const broken = (problems: string[]): Located => ({
 		...at,
 		ok: false,
 		name: entry ?? '',
-		...(declaredName ? { declaredName } : {}),
 		problems,
 	});
 	let declaration: unknown;
@@ -155,25 +152,21 @@ async function load(
 		]);
 	}
 	const name = (declaration as { name?: unknown } | null)?.name;
-	const declaredName = isName(name) ? name : undefined;
 	// An invalid declaration is reported before any of the app's code runs.
 	const declared = problemsOf(declaration);
-	if (declared.length) return broken(declared, declaredName);
+	if (declared.length) return broken(declared);
 	let module: { default?: unknown } | undefined;
 	if (code) {
 		try {
 			module = await import(pathToFileURL(join(place.realPath, CODE)).href);
 		} catch (error) {
-			return broken(
-				[`importing ${CODE} threw: ${message(error)}`],
-				declaredName,
-			);
+			return broken([`importing ${CODE} threw: ${message(error)}`]);
 		}
 	}
 	const problems = problemsOf(declaration, module && (module.default ?? null));
 	if (entry !== undefined && name !== entry)
 		problems.push(`declares the name "${name}" but its folder is "${entry}"`);
-	if (problems.length) return broken(problems, declaredName);
+	if (problems.length) return broken(problems);
 	const app = module?.default as
 		| {
 				collections: Record<string, CodeCollection>;
@@ -199,36 +192,21 @@ export async function entryNames() {
 	return (await entries()).entries.map(({ entry }) => entry);
 }
 
-/** Import every home entry independently so one broken app does not hide the rest. */
+/**
+ * Import every home entry independently so one broken app does not hide the
+ * rest. Each entry must declare its own folder's name, so two entries can
+ * never both run under one name.
+ */
 export async function discoverAll() {
 	const found = await entries();
 	const loaded = await Promise.all(
 		found.entries.map((entry) => load(entry, entry.entry)),
 	);
-	const declared = (located: Located) =>
-		located.ok ? located.name : located.declaredName;
-	const checked = loaded.map((located): Located => {
-		const name = declared(located);
-		const others = loaded.filter(
-			(other) => other !== located && declared(other) === name,
-		);
-		if (!name || located.entry === name || !others.length) return located;
-		const problem = `"${name}" is also declared by ${others.map((other) => other.entry).join(', ')}`;
-		return located.ok
-			? {
-					...located,
-					ok: false,
-					name: located.entry ?? '',
-					declaredName: name,
-					problems: [problem],
-				}
-			: { ...located, problems: [...located.problems, problem] };
-	});
 	return {
 		home: homeDir(),
 		missing: found.missing,
-		apps: checked.filter((located) => located.ok),
-		problems: checked.filter((located) => !located.ok),
+		apps: loaded.filter((located) => located.ok),
+		problems: loaded.filter((located) => !located.ok),
 	};
 }
 

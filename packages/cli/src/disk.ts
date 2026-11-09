@@ -6,7 +6,6 @@
  * Git, dependencies, and directory links so those trees never become app data.
  */
 
-import { randomUUID } from 'node:crypto';
 import type { Dirent } from 'node:fs';
 import {
 	chmod,
@@ -20,7 +19,7 @@ import {
 	unlink,
 	writeFile,
 } from 'node:fs/promises';
-import { basename, dirname, join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { type Folder, normalizePath } from '@epicenter/app';
 import type { WriteLog } from './commit.ts';
 
@@ -29,7 +28,7 @@ function missing(error: unknown) {
 }
 
 /** Give an action disk-backed data methods, writing through `log`. */
-export function folderOnDisk(dir: string, log?: WriteLog): Folder {
+export function folderOnDisk(dir: string, log: WriteLog): Folder {
 	const pathOf = (path: string) => join(dir, normalizePath(path));
 	async function readBytes(path: string) {
 		try {
@@ -43,18 +42,16 @@ export function folderOnDisk(dir: string, log?: WriteLog): Folder {
 		const normalized = normalizePath(path);
 		const target = join(dir, normalized);
 		await mkdir(dirname(target), { recursive: true });
-		const temp = log
-			? await log.tempFor(target)
-			: join(dirname(target), `.${basename(target)}.${randomUUID()}.tmp`);
+		const temp = await log.tempFor(target);
 		try {
 			await writeFile(temp, bytes);
 			// The file keeps its mode, so an executable script stays one on disk as in history.
 			const existing = await lstat(target).catch(() => undefined);
 			if (existing?.isFile()) await chmod(temp, existing.mode & 0o7777);
 			// As late as possible, so an edit saved before this point is refused rather than overwritten.
-			await log?.check(normalized);
+			await log.check(normalized);
 			await rename(temp, target);
-			await log?.wrote(normalized, bytes);
+			await log.wrote(normalized, bytes);
 		} finally {
 			await rm(temp, { force: true });
 		}
@@ -72,14 +69,14 @@ export function folderOnDisk(dir: string, log?: WriteLog): Folder {
 		},
 		async delete(path) {
 			const normalized = normalizePath(path);
-			await log?.check(normalized);
+			await log.check(normalized);
 			try {
 				await unlink(join(dir, normalized));
 			} catch (error) {
 				if (missing(error)) return;
 				throw error;
 			}
-			await log?.deleted(normalized);
+			await log.deleted(normalized);
 		},
 		async list(subdir) {
 			const found: string[] = [];

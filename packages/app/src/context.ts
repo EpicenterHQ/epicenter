@@ -36,8 +36,7 @@ export type Secrets = {
 /** What `run` receives beside its input. */
 export type Context = {
 	folder: Folder;
-	/** Only on a computer. */
-	secrets?: Secrets;
+	secrets: Secrets;
 };
 
 /**

@@ -12,7 +12,7 @@ import { Ok, type Result } from 'wellcrafted/result';
 import { commitWrites, createWriteLog } from './commit.ts';
 import { folderOnDisk } from './disk.ts';
 import { CliError } from './errors.ts';
-import { holdingFileLock, NothingChanged } from './file-lock.ts';
+import { takeFileLock } from './file-lock.ts';
 import { git, gitPath, revParse } from './git.ts';
 import type { Runnable } from './home.ts';
 import { pushToOrigin } from './push.ts';
@@ -63,6 +63,60 @@ function threwOf(cause: unknown): {
 	return { message, thrown: JSON.parse(JSON.stringify(cause)) };
 }
 
+/** The run itself, while it holds the app's turn: the action, then the commit of what it wrote. */
+async function runInTurn(
+	located: Runnable,
+	key: string,
+	action: Action,
+	input: Record<string, unknown>,
+	started: (start: { folder: string; head: string | null }) => void,
+): Promise<RunReport> {
+	const folder = located.realPath;
+	const log = createWriteLog(folder);
+	started({ folder, head: await revParse(folder, 'HEAD') });
+	let outcome: RunReport['action'];
+	try {
+		const returned = await action.run(input, {
+			folder: folderOnDisk(folder, log),
+			secrets: keychain(keychainService(located.name)),
+		});
+		outcome = { returned: returned ?? null };
+	} catch (error) {
+		outcome = { threw: threwOf(error) };
+	}
+	const failure =
+		'threw' in outcome ? outcome.threw.message : log.refused[0]?.message;
+	const subject = `${located.name} ${key}${failure === undefined ? '' : failureLabel(failure)}`;
+	const body = `${JSON.stringify(recorded(action, input))}${'threw' in outcome ? `\n\n${outcome.threw.message}` : ''}`;
+	const written = log.written();
+	const refused = [...log.refused];
+	let made: Awaited<ReturnType<typeof commitWrites>>;
+	try {
+		made = await commitWrites(folder, { written, subject, body });
+	} catch (error) {
+		return {
+			action: outcome,
+			refused,
+			commit: { failed: extractErrorMessage(error) },
+			paths: written.map(([path]) => ({
+				path,
+				state: 'not-committed',
+			})),
+			push: null,
+		};
+	}
+	return {
+		action: outcome,
+		refused,
+		commit: made.commit,
+		paths: written.map(([path]) => ({
+			path,
+			state: made.states.get(path) ?? 'not-committed',
+		})),
+		push: null,
+	};
+}
+
 /** Check the repository before an action starts, then hold its turn through the commit. */
 export async function runAction(
 	located: Runnable,
@@ -86,62 +140,17 @@ export async function runAction(
 			message: `Unknown action ${located.name} ${key}`,
 			next: `epicenter ${located.name}`,
 		});
+	let release: () => void;
+	try {
+		release = await takeFileLock(await gitPath(folder, 'epicenter.lock'));
+	} catch (error) {
+		return CliError.LockFailed({ cause: error });
+	}
 	let report: RunReport;
 	try {
-		report = await holdingFileLock(
-			await gitPath(folder, 'epicenter.lock'),
-			{ waitMs: 86_400_000, held: `${located.name} is busy` },
-			async (): Promise<RunReport> => {
-				const log = createWriteLog(folder);
-				started({ folder, head: await revParse(folder, 'HEAD') });
-				let outcome: RunReport['action'];
-				try {
-					const returned = await action.run(input, {
-						folder: folderOnDisk(folder, log),
-						secrets: keychain(keychainService(located.name)),
-					});
-					outcome = { returned: returned ?? null };
-				} catch (error) {
-					outcome = { threw: threwOf(error) };
-				}
-				const failure =
-					'threw' in outcome ? outcome.threw.message : log.refused[0]?.message;
-				const subject = `${located.name} ${key}${failure === undefined ? '' : failureLabel(failure)}`;
-				const body = `${JSON.stringify(recorded(action, input))}${'threw' in outcome ? `\n\n${outcome.threw.message}` : ''}`;
-				const written = log.written();
-				const refused = [...log.refused];
-				let made: Awaited<ReturnType<typeof commitWrites>>;
-				try {
-					made = await commitWrites(folder, { written, subject, body });
-				} catch (error) {
-					return {
-						action: outcome,
-						refused,
-						commit: { failed: extractErrorMessage(error) },
-						paths: written.map(([path]) => ({
-							path,
-							state: 'not-committed',
-						})),
-						push: null,
-					};
-				}
-				return {
-					action: outcome,
-					refused,
-					commit: made.commit,
-					paths: written.map(([path]) => ({
-						path,
-						state: made.states.get(path) ?? 'not-committed',
-					})),
-					push: null,
-				};
-			},
-		);
-	} catch (error) {
-		// Only a lock never taken means the action did not run; anything else is a bug and propagates.
-		if (error instanceof NothingChanged)
-			return CliError.LockFailed({ cause: error });
-		throw error;
+		report = await runInTurn(located, key, action, input, started);
+	} finally {
+		release();
 	}
 	// After the lock, so a slow push never holds up the app's next run.
 	const pushed = report.commit && 'sha' in report.commit;
