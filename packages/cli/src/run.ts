@@ -16,7 +16,7 @@ import { takeFileLock } from './file-lock.ts';
 import { git, gitPath, revParse } from './git.ts';
 import type { Runnable } from './home.ts';
 import { pushToOrigin } from './push.ts';
-import type { RunReport } from './report.ts';
+import type { PathState, RunReport } from './report.ts';
 import { keychain, keychainService } from './secrets.ts';
 
 /** The longest a failure's first line may be in a commit subject before it is cut. */
@@ -70,7 +70,7 @@ async function runInTurn(
 	action: Action,
 	input: Record<string, unknown>,
 	started: (start: { folder: string; head: string | null }) => void,
-): Promise<RunReport> {
+): Promise<Omit<RunReport, 'push'>> {
 	const folder = located.realPath;
 	const log = createWriteLog(folder);
 	started({ folder, head: await revParse(folder, 'HEAD') });
@@ -89,31 +89,25 @@ async function runInTurn(
 	const subject = `${located.name} ${key}${failure === undefined ? '' : failureLabel(failure)}`;
 	const body = `${JSON.stringify(recorded(action, input))}${'threw' in outcome ? `\n\n${outcome.threw.message}` : ''}`;
 	const written = log.written();
-	const refused = [...log.refused];
-	let made: Awaited<ReturnType<typeof commitWrites>>;
+	let commit: RunReport['commit'];
+	let states = new Map<string, PathState>();
 	try {
-		made = await commitWrites(folder, { written, subject, body });
+		({ commit, states } = await commitWrites(folder, {
+			written,
+			subject,
+			body,
+		}));
 	} catch (error) {
-		return {
-			action: outcome,
-			refused,
-			commit: { failed: extractErrorMessage(error) },
-			paths: written.map(([path]) => ({
-				path,
-				state: 'not-committed',
-			})),
-			push: null,
-		};
+		commit = { failed: extractErrorMessage(error) };
 	}
 	return {
 		action: outcome,
-		refused,
-		commit: made.commit,
+		refused: [...log.refused],
+		commit,
 		paths: written.map(([path]) => ({
 			path,
-			state: made.states.get(path) ?? 'not-committed',
+			state: states.get(path) ?? 'not-committed',
 		})),
-		push: null,
 	};
 }
 
@@ -146,7 +140,7 @@ export async function runAction(
 	} catch (error) {
 		return CliError.LockFailed({ cause: error });
 	}
-	let report: RunReport;
+	let report: Omit<RunReport, 'push'>;
 	try {
 		report = await runInTurn(located, key, action, input, started);
 	} finally {
