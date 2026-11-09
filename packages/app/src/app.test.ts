@@ -108,7 +108,7 @@ describe('problemsOf', () => {
 		]);
 	});
 
-	test('names code that is missing, carries another declaration, or writes fields as JSON Schema', () => {
+	test('names code that is missing or writes fields as JSON Schema', () => {
 		const vocab = {
 			name: 'vocab',
 			description: 'Words',
@@ -121,7 +121,6 @@ describe('problemsOf', () => {
 		]);
 		expect(
 			problemsOf(vocab, {
-				declaration: { ...vocab, description: 'Other words' },
 				collections: {
 					quizzes: {
 						path: 'words/{stem}.md',
@@ -131,7 +130,6 @@ describe('problemsOf', () => {
 				actions: {},
 			}),
 		).toEqual([
-			"epicenter.ts passes defineApp a declaration that differs from epicenter.json; import it from './epicenter.json'",
 			'collections "words" and "quizzes" share the path words/{stem}.md',
 			'collection "quizzes" has fields that are not a map of fields, such as { title: field.text() }; JSON Schema belongs in epicenter.json',
 		]);

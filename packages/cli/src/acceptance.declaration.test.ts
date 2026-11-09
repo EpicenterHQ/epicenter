@@ -5,7 +5,7 @@
 
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
 import { existsSync } from 'node:fs';
-import { readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { readFile, rm, symlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
@@ -254,87 +254,6 @@ test("D3 positionals come from the action's ordered list; flags always work", as
 	expect(extra.stderr).toContain('2026-11-09');
 	const help = await f.run('help', 'reading', 'between');
 	expect(help.stdout).toContain('epicenter reading between <from> <to>');
-});
-
-test('D4 epicenter types writes epicenter.d.json.ts, which narrows the import; loading only notes it missing or stale', async () => {
-	const f = await setup();
-	const folder = await f.folder(join(f.home, 'vocab'), {
-		'.gitignore': gitignore,
-		'epicenter.json': declarationOf('vocab', { collections: { words } }),
-		'epicenter.ts': `import declaration from './epicenter.json';
-import { defineApp } from '@epicenter/app';
-export default defineApp(declaration, { actions: {} });
-`,
-		'use.ts': `import declaration from './epicenter.json';
-type Stage = (typeof declaration.collections.words.fields.properties.stage.enum)[number];
-export const known: Stage = 'known';
-// @ts-expect-error: 'other' is not one of the stages
-export const other: Stage = 'other';
-`,
-		'tsconfig.json': JSON.stringify({
-			compilerOptions: {
-				module: 'preserve',
-				moduleResolution: 'bundler',
-				resolveJsonModule: true,
-				allowArbitraryExtensions: true,
-				strict: true,
-				noEmit: true,
-				types: [],
-			},
-			files: ['use.ts'],
-		}),
-	});
-	const generated = join(folder, 'epicenter.d.json.ts');
-	const tsc = Bun.resolveSync('typescript/bin/tsc', import.meta.dir);
-	const typecheck = async () => {
-		const child = Bun.spawn([process.execPath, tsc, '-p', folder], {
-			stdout: 'pipe',
-			stderr: 'pipe',
-		});
-		const [stdout, code] = await Promise.all([
-			new Response(child.stdout).text(),
-			child.exited,
-		]);
-		return { stdout, code };
-	};
-	const widened = await typecheck();
-	expect(widened.code).not.toBe(0);
-	expect(widened.stdout).toContain("Unused '@ts-expect-error'");
-
-	const written = await f.runIn(folder, 'types');
-	expect(written.code).toBe(0);
-	expect(existsSync(generated)).toBe(true);
-	expect(await typecheck()).toEqual({ stdout: '', code: 0 });
-
-	await rm(generated);
-	const missing = JSON.parse((await f.run('vocab', '--json')).stdout);
-	expect(existsSync(generated)).toBe(false);
-	expect(missing.notes).toEqual([
-		`epicenter.d.json.ts is missing; run epicenter types ${folder}`,
-	]);
-	expect((await f.runIn(f.root, 'types', '~/Epicenter/vocab')).code).toBe(0);
-	expect(existsSync(generated)).toBe(true);
-	await writeFile(
-		join(folder, 'epicenter.json'),
-		declarationOf('vocab', {
-			collections: {
-				words: {
-					...words,
-					fields: {
-						...words.fields,
-						properties: { stage: { enum: ['new', 'known', 'other'] } },
-					},
-				},
-			},
-		}),
-	);
-	expect((await f.run()).stdout).toContain(
-		`note: epicenter.d.json.ts is stale; run epicenter types ${folder}`,
-	);
-	expect(await readFile(generated, 'utf8')).not.toContain('"other"');
-	await f.runIn(folder, 'types');
-	expect(await readFile(generated, 'utf8')).toContain('"other"');
-	expect(await gitIn(folder, 'status', '--porcelain')).toBe('M epicenter.json');
 });
 
 test('D5 an epicenter.ts importing @epicenter/app loads from a folder with no node_modules', async () => {

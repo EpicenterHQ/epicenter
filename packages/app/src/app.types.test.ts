@@ -8,7 +8,7 @@ type Equal<X, Y> =
 		: false;
 const assertType = <T extends true>(): T | undefined => undefined;
 
-/** A declaration as TypeScript reads an imported epicenter.json without epicenter.d.json.ts: widened. */
+/** A declaration as TypeScript reads an imported epicenter.json: widened. */
 const widened: {
 	$schema: string;
 	name: string;
@@ -78,19 +78,11 @@ type Output<K extends keyof (typeof reading)['actions']> = Awaited<
 >;
 
 describe('defineApp', () => {
-	test("run's return value stays typed, and the declaration keeps its type", () => {
+	test("run's return value stays typed", () => {
 		assertType<
 			Equal<Output<'log'>, { minutes: number; kind: 'paper' | 'ebook' }>
 		>();
 		assertType<Equal<Output<'week show'>, number>>();
-		assertType<Equal<(typeof reading)['declaration']['name'], string>>();
-	});
-
-	test('an exact declaration, as epicenter.d.json.ts gives it, keeps its literals', () => {
-		const exact = defineApp({ name: 'vocab', description: 'Words' } as const, {
-			actions: {},
-		});
-		assertType<Equal<(typeof exact)['declaration']['name'], 'vocab'>>();
 	});
 });
 

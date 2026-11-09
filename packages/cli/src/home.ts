@@ -5,14 +5,7 @@
  * the others. A name or path that finds no app is a `CliError` with the next
  * command as data (ADR-0842).
  */
-import {
-	lstat,
-	readdir,
-	readFile,
-	realpath,
-	stat,
-	writeFile,
-} from 'node:fs/promises';
+import { lstat, readdir, readFile, realpath, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -53,8 +46,6 @@ export type Located =
 			collections: Record<string, CodeCollection>;
 			/** `epicenter.ts`'s actions; empty without code. */
 			actions: Record<string, Action>;
-			/** Things worth knowing that do not stop a run, such as stale editor types. */
-			notes: string[];
 	  })
 	| (Place & {
 			ok: false;
@@ -75,26 +66,6 @@ export function homeDir(): string {
 
 const DECLARATION = 'epicenter.json';
 const CODE = 'epicenter.ts';
-
-/** The sibling TypeScript reads `epicenter.json`'s import through, with its literal types (ADR-0857). */
-const GENERATED_TYPES = 'epicenter.d.json.ts';
-
-/** The text of `epicenter.d.json.ts` for a declaration: its JSON, as a type. */
-function declarationTypes(declaration: unknown): string {
-	return `// Written by epicenter from epicenter.json, so its import keeps literal types. Do not edit.
-declare const declaration: ${JSON.stringify(declaration, null, '\t')};
-export default declaration;
-`;
-}
-
-/** Write `epicenter.d.json.ts` beside the declaration when its text differs. */
-export async function writeDeclarationTypes(dir: string, declaration: unknown) {
-	const path = join(dir, GENERATED_TYPES);
-	const text = declarationTypes(declaration);
-	const current = await readFile(path, 'utf8').catch(() => undefined);
-	if (current !== text) await writeFile(path, text);
-	return path;
-}
 
 async function isFile(path: string) {
 	try {
@@ -216,19 +187,7 @@ async function load(
 		declaration: declaration as Declaration,
 		collections: app?.collections ?? {},
 		actions: app?.actions ?? {},
-		notes: code ? await typesNotes(place.realPath, declaration) : [],
 	};
-}
-
-/** A note when `epicenter.d.json.ts` is missing or no longer matches `epicenter.json`; loading never writes it. */
-async function typesNotes(dir: string, declaration: unknown) {
-	const current = await readFile(join(dir, GENERATED_TYPES), 'utf8').catch(
-		() => undefined,
-	);
-	if (current === declarationTypes(declaration)) return [];
-	return [
-		`${GENERATED_TYPES} is ${current === undefined ? 'missing' : 'stale'}; run epicenter types ${dir}`,
-	];
 }
 
 function message(error: unknown) {

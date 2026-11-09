@@ -47,7 +47,6 @@ function appListing(located: Runnable, origin: Origin) {
 		actions: Object.entries(located.actions).map(([key, action]) =>
 			actionTool(located.name, key, action),
 		),
-		...(located.notes.length ? { notes: located.notes } : {}),
 	};
 }
 
@@ -93,7 +92,6 @@ export async function homeListing(
 	const lines = found.apps.flatMap((located, index) => [
 		`${located.name}  ${located.declaration.description}${located.link ? ` -> ${located.link}` : ''}${originNote(origins[index])}`,
 		...actionLines(located),
-		...located.notes.map((note) => `  note: ${note}`),
 	]);
 	if (!found.apps.length) lines.push('There are no apps yet.');
 	if (found.problems.length) {

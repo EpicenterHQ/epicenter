@@ -33,14 +33,12 @@ import {
 	writeStarted,
 } from './output.ts';
 import { runAction } from './run.ts';
-import { typesCommand } from './types.ts';
 
 const HELP = `epicenter [--json]
 epicenter <app> [--json]
 epicenter <app> <action words> [<positionals>] [--flags] [--json]
 epicenter <path> <action words> [<positionals>] [--flags] [--json]
 epicenter serve --stdio
-epicenter types [<app> | <path>]
 epicenter new <name>
 epicenter add <folder> [--init] | add <git url>
 epicenter update | open
@@ -165,19 +163,6 @@ export async function runCli(argv: string[]): Promise<number> {
 					json,
 				);
 			return addCommand(sources[0], init, json);
-		}
-		if (name === 'types') {
-			if (help) {
-				print('epicenter types [<app> | <path>]');
-				return 0;
-			}
-			if (words.length > 1)
-				return fail(
-					CliError.Usage({ message: 'epicenter types takes one app or path' })
-						.error,
-					json,
-				);
-			return typesCommand(words[0] ?? '.', json);
 		}
 		if (name === 'serve') {
 			if (help) {

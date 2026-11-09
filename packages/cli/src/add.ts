@@ -55,7 +55,7 @@ function template(name: string) {
 			null,
 			2,
 		)}\n`,
-		'.gitignore': 'node_modules/\n.cache/\nepicenter.d.json.ts\n',
+		'.gitignore': 'node_modules/\n.cache/\n',
 		'.gitattributes': LFS_TYPES.map(
 			(kind) => `*.${kind} filter=lfs diff=lfs merge=lfs -text\n`,
 		).join(''),

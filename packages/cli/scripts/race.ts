@@ -52,10 +52,7 @@ async function run(cmd: string[], cwd = folder) {
 const git = (...args: string[]) => run(['git', ...args]);
 
 await mkdir(folder, { recursive: true });
-await writeFile(
-	join(folder, '.gitignore'),
-	'node_modules/\n.cache/\nepicenter.d.json.ts\n',
-);
+await writeFile(join(folder, '.gitignore'), 'node_modules/\n.cache/\n');
 await writeFile(join(folder, 'notes.md'), 'agent notes\n');
 await writeFile(
 	join(folder, 'epicenter.json'),

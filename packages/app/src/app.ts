@@ -21,7 +21,6 @@
  * ```
  */
 import type { Static, TObject, TSchema } from 'typebox';
-import { Value } from 'typebox/value';
 import type { Context } from './context.ts';
 import {
 	COLLECTION_PATH,
@@ -90,39 +89,30 @@ export type CodeCollection = { path: string; fields: Input };
 type Actions = Record<string, { run: (...args: never) => unknown }>;
 
 /** An app's code as `defineApp` returns it, its actions typed as written. */
-export type App<
-	A extends Actions = Actions,
-	D extends Declaration = Declaration,
-> = {
-	/** The `epicenter.json` this code was written against. */
-	declaration: D;
+export type App<A extends Actions = Actions> = {
 	/** Collections this code introduces; those in `epicenter.json` are not repeated here. */
 	collections: Record<string, CodeCollection>;
 	actions: A;
 };
 
 /**
- * Define an app's code against its declaration, imported from
- * `./epicenter.json`. Each action's `run` receives its input typed by its
+ * Define an app's code. Each action's `run` receives its input typed by its
  * fields; the app keeps each action as written, so `run`'s return value stays
  * typed for whatever calls it.
+ *
+ * The `epicenter.json` on disk is the app's declaration: `epicenter` reads it
+ * there, never from this call. `declaration`, imported from
+ * `./epicenter.json`, is taken now so that collection handles in `run` can be
+ * typed from it when they arrive (K1, K2), without changing any app.
  */
-export function defineApp<
-	const D extends Declaration,
-	I extends Record<string, Input>,
-	A extends Actions,
->(
-	declaration: D,
+export function defineApp<I extends Record<string, Input>, A extends Actions>(
+	_declaration: Declaration,
 	code: {
 		collections?: Record<string, CodeCollection>;
 		actions: { [K in keyof I]: Action<I[K]> } & A;
 	},
-): App<A, D> {
-	return {
-		declaration,
-		collections: code.collections ?? {},
-		actions: code.actions,
-	};
+): App<A> {
+	return { collections: code.collections ?? {}, actions: code.actions };
 }
 
 const PATH_PATTERN = new RegExp(COLLECTION_PATH);
@@ -197,15 +187,6 @@ export function problemsOf(declaration: unknown, code?: unknown): string[] {
 			...problems,
 			'epicenter.ts does not export defineApp(...) by default',
 		];
-	// epicenter.json on disk is the app's one declaration; the copy defineApp received is only for types.
-	if (
-		app.declaration !== undefined &&
-		!Value.Equal(app.declaration, declaration)
-	)
-		problems.push(
-			"epicenter.ts passes defineApp a declaration that differs from epicenter.json; import it from './epicenter.json'",
-		);
-
 	const given = new Map<string, string>();
 	const paths = new Map<string, string>();
 	const samePath = (key: string, path: string) => {

@@ -80,11 +80,7 @@ export const DeclarationSchema = Type.Object(
 	},
 );
 
-/**
- * A declaration as TypeScript reads an imported `epicenter.json`: widened
- * without a generated `epicenter.d.json.ts`, exact with one. Only what
- * `defineApp` needs to know is required.
- */
+/** A declaration as TypeScript reads an imported `epicenter.json`, widened. Only what `defineApp` needs to know is required. */
 export type Declaration = {
 	readonly $schema?: string;
 	readonly name: string;

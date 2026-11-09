@@ -101,7 +101,7 @@ export async function fixture() {
 }
 
 /** The ignore file every test app carries, as `epicenter new` writes it. */
-export const gitignore = 'node_modules/\n.cache/\nepicenter.d.json.ts\n';
+export const gitignore = 'node_modules/\n.cache/\n';
 
 /** Reading, as an app with both declaration files. */
 export const readingApp = {
