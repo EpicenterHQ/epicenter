@@ -372,6 +372,8 @@
       "version": "0.0.1",
       "dependencies": {
         "@epicenter/app": "workspace:*",
+        "markdown-it": "^14.0.0",
+        "wellcrafted": "catalog:",
       },
       "devDependencies": {
         "@epicenter/ui": "workspace:*",
@@ -382,6 +384,7 @@
         "@sveltejs/vite-plugin-svelte": "catalog:",
         "@tailwindcss/vite": "catalog:",
         "@types/bun": "catalog:",
+        "@types/markdown-it": "^14.0.0",
         "mode-watcher": "catalog:",
         "svelte": "catalog:",
         "svelte-check": "catalog:",
