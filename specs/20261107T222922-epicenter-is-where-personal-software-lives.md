@@ -118,11 +118,11 @@ library, when an app needs one, is new code that copies the front-matter rule;
    `git init`. Its first action adds `epicenter.ts`, `package.json`, and
    `tsconfig.json`. Usually the person asks Claude instead; the app works at once
    because Bun runs TypeScript.
-3. **Someone else's app.** `epicenter add github:someone/apps/vocab` copies the
-   files the source tracks at one commit into a new repository at
-   `~/Epicenter/vocab`, keeps that copy as the `upstream` branch, and runs
-   `bun install` if it has a `package.json`. A later version of the source is
-   merged with `git merge upstream`. For Mail, `epicenter mail connect` signs in.
+3. **An app from the Epicenter repository.** `bun epicenter/install.ts capture`
+   copies `epicenter/capture`'s `epicenter.json` and `epicenter.ts` into
+   `~/Epicenter/capture`, commits them, and builds its view into the ignored
+   `views/` (ADR-0864). There is no `upstream` and no catalog. For Mail,
+   `epicenter mail connect` signs in.
 4. **The vault.** Rename its `defineFolder` file, add `epicenter.json` and
    `epicenter.ts`, and run `epicenter add ~/Code/vault`, which links it;
    `epicenter vault …` then works from anywhere on the tailnet.
@@ -130,9 +130,11 @@ library, when an app needs one, is new code that copies the front-matter rule;
    reading actions by command prefix (`Bash(epicenter mail search *)`) and ask on
    destructive ones; never allow `Bash(epicenter *)`. Claude Desktop adds
    `epicenter serve --stdio` to its MCP settings. Claude and ChatGPT on the phone
-   do not reach apps until `serve` has a public address (ADR-0849).
-6. **A second computer.** `epicenter setup` connects it to your server. Clones
-   of apps for editing are ordinary Git clones.
+   reach apps through `serve`'s public address and its passkey sign-in
+   (ADR-0849, ADR-0864).
+6. **A second computer.** Nothing to set up: it reaches your server by `ssh` or
+   through `serve`. Only Whispering keeps a copy there, with your server as its
+   remote (ADR-0851).
 
 ## Writing and moving data
 
@@ -205,14 +207,11 @@ a browser; a schema language of Epicenter's own (ADR-0857); programs that ship
 
 ## Later, each when something needs it
 
-- **Reach from the phone and claude.ai** (ADR-0849): `serve` at a public HTTPS
-  address with a sign-in and a per-action allow-or-ask policy, when the author
-  wants an app on the phone.
-- **Collections' four actions, handles in `run`, the typed client, and the
-  Epicenter app** (ADR-0853): with Vocab.
+- **Handles in `run` and the typed client** (ADR-0853): with Vocab.
 - **Reminders**, as an ordinary app, if a real job needs one.
-- **Epicenter Cloud**, with its LFS on R2 (ADR-0856) after a partial-clone check,
-  and the registry: with the first person who cannot keep a computer on.
+- **A hosted Epicenter**, with its LFS on R2 (ADR-0856) after a partial-clone
+  check: with the first person who cannot keep a computer on (ADR-0864 leaves
+  it undecided).
 - **Rewriting the vault's history into LFS**: the author's choice, after
   measuring its media and the quota it would use.
 - **Read-only collections, collections of uploaded files, two-placeholder
@@ -230,8 +229,8 @@ a browser; a schema language of Epicenter's own (ADR-0857); programs that ship
    `Zhongwen Dev`, `so.epicenter.*`, `local`, `on-this-device`) stay as a clean
    break: discovery ignores a folder without `epicenter.json`. An app named like
    one of them, ignoring case, waits until that folder is moved.
-3. `update` waits until the first copied app's source changes; until then,
-   `git merge upstream`.
+3. An installed app is updated by running `bun epicenter/install.ts <app>`
+   again; there is no `upstream` (ADR-0864).
 
 ## Build order
 
@@ -255,7 +254,7 @@ real `~/Epicenter`, the vault, or the Keychain.
 | W1–W5 | the folder, `sync`, `new`, and `add` | `acceptance.folder.test.ts` | pass |
 | F1, F6, F7, F9, F10 | the final review's repairs that outlived the commit machinery | `acceptance.repairs.test.ts` | pass |
 | M1–M6 | Mail | to write | after the merge, with the author present |
-| S1 | `serve` over HTTP, for the phone and claude.ai | to write | when an app is wanted on the phone |
+| S1 | `serve` over HTTPS: MCP at `/mcp`, views at `/<app>/`, and its sign-in | to write | with Capture's view (ADR-0864) |
 | K1–K2 | collection actions (`list`, `get`, `set`, `delete`), `collections` in `run`, and generated types | to write | with Vocab |
 
 Done (2026-11-09): waves 0 and 1, and 2a, 2b, 2c, and wave 3's offline parts.
@@ -423,8 +422,8 @@ mirrors (`.calendar/`, `.todoist/`, `.photos/`) left as they are. Done when
 `set`, and `delete` through the CLI and MCP, `set` refusing input that does not
 fit. K2: the same as `collections` in `run`, typed through `epicenter:app`
 (ADR-0857 as amended 2026-11-09; F10 deleted the earlier `epicenter.d.json.ts`).
-Then the typed client and the Epicenter app, which shows collections as tables
-and `set` and actions as forms; Vocab rebuilt on them. The
+Then the typed client and Vocab's view, served by `serve` at `/vocab/`
+(ADR-0860); Vocab rebuilt on them. The
 frozen Vocab leaves when the rebuilt one runs.
 
 **6. Prune the rest.** Collection paths with two placeholders come here, with
@@ -464,5 +463,5 @@ Waves 2 to 5 are done:
   are done with Mail and Claude Code.
 - `epicenter vault calendar show …` runs the vault's calendar command from the
   laptop.
-- Vocab runs as an app with collections and actions, and the Epicenter app shows
-  its words as a table, edits one with `save`, and runs its actions as forms.
+- Vocab runs as an app with collections and actions, and its view in a browser
+  lists its words, edits one with `set`, and runs its actions.
