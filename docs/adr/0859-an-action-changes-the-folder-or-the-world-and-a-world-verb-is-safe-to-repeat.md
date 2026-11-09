@@ -1,7 +1,7 @@
 # 0859. An action changes the folder or the world, and a world verb is safe to repeat on the targets it is given
 
 - **Status:** Proposed
-- **Date:** 2026-11-09
+- **Date:** 2026-11-09 (amended 2026-11-09: only a person or an agent reruns a world verb)
 - **Amends:** [ADR-0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md) at writes outside the folder: an action no longer writes another app's folder, so Mail saves attachments into its own.
 - **Relates:** [ADR-0858](0858-where-a-file-lives-decides-whether-it-travels-survives-or-dies-with-its-program.md) (inside the folder, the path is the policy), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (how the folder is committed), [ADR-0853](0853-collections-give-four-actions-and-programs-without-the-folder-ask-over-mcp.md) (collection actions), [ADR-0854](0854-an-apps-cache-is-the-files-it-gitignores.md) (the cache).
 - **Unbuilt:** Mail's verbs, and `@<file>` for a list field.
@@ -35,7 +35,9 @@ action, so an action never names it.
 `epicenter mail archive <ids>` archives those messages and nothing else; running
 it again on messages already archived changes nothing. A run that fails partway
 is finished by running the same command again, so no action records its
-progress in the folder. A verb that cannot be repeated safely, such as sending,
+progress in the folder. Only a person or an agent reruns a verb; nothing in
+Epicenter reruns one on its own, and a rerun reads an `@<file>` batch again as
+it stands then. A verb that cannot be repeated safely, such as sending,
 is the exception that keeps its own record, and says so in its description.
 
 **A reviewed batch is a file of targets, read by the same verb.** A list field

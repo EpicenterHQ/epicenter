@@ -1,7 +1,7 @@
 # 0849. Your server is one always-reachable computer that runs named actions
 
 - **Status:** Proposed
-- **Date:** 2026-11-08 (amended 2026-11-09: "your Epicenter" renamed "your server", since the product, the program, and the Epicenter app are already called Epicenter; and by [ADR-0861](0861-whats-yours-is-everywhere-and-everything-else-is-used-where-it-is.md): your server is optional, needed only for actions that use what is on it)
+- **Date:** 2026-11-08 (amended 2026-11-09: "your Epicenter" renamed "your server", since the product, the program, and the Epicenter app are already called Epicenter; and by [ADR-0861](0861-whats-yours-is-everywhere-and-everything-else-is-used-where-it-is.md): your server is optional, needed only for actions that use what is on it; and by [ADR-0863](0863-epicenter-is-one-place-and-one-app-shows-it-on-every-device-you-own.md): your server is how places that hold no copy reach apps)
 - **Supersedes:** [ADR-0846](0846-epicenter-owns-no-infrastructure-and-each-repository-has-one-meeting-point.md): schedules and `epicenter tick`, the front door and its OS timer, a meeting point per app, the door into a box branch, the backup check, and the secrets experiment.
 - **Amends:** [ADR-0844](0844-one-runner-runs-anywhere-and-every-surface-is-a-view-over-it.md) at who runs a named action (your server only), the laptop's own runner (a folder path instead), and the browser runner (refused). [ADR-0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md) at discovery: `~/Epicenter` exists on your server and is not moved by an environment variable, and another computer lists your server's apps.
 - **Relates:** [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (the commit rule), [ADR-0851](0851-an-app-with-history-has-one-git-remote-its-meeting-point-and-backup.md) (the remote), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (programs that have the folder or ask), [ADR-0853](0853-collections-give-four-actions-and-programs-without-the-folder-ask-over-mcp.md) (MCP).
@@ -23,9 +23,10 @@ address (checked 2026-11-08).
 
 **Your server is a computer the person keeps on, and it is optional.** It is
 needed only for actions that use what is on it: a sign-in kept there, Beeper
-Desktop, the microphone. What is yours meets in the meeting place, which is
-always reachable, so an action that uses only an app's files needs no computer
-on (ADR-0861). The author's Mac now; an Epicenter Cloud container for anyone
+Desktop, the microphone. An app whose actions use only its files needs no
+computer on in the Epicenter app on a phone, which holds its own copy
+(ADR-0863); a browser, claude.ai, and Claude on the phone hold nothing and reach
+apps through your server. The author's Mac now; an Epicenter Cloud container for anyone
 who wants Gmail's actions without keeping a computer on. When it is not
 reachable, an action that needs it fails and says so, and nothing else is
 designed around its absence. `epicenter setup` asks whether this computer is your
@@ -42,8 +43,8 @@ folder or a link to one. Tests and containers that need another place set
 run `epicenter` there; an agent elsewhere uses `ssh <your server> epicenter
 serve --stdio` as its MCP server, which offers every app's actions (ADR-0853).
 Each call runs in a fresh `epicenter` process, so code pulled or edited a moment
-ago is what runs. `serve` over HTTP is only for claude.ai and Claude on the
-phone; a browser reaches an app's files through the meeting place (ADR-0861).
+ago is what runs. `serve` over HTTPS is for the places that hold no copy: a
+browser, claude.ai, and Claude on the phone.
 
 **A command means this computer.** `epicenter vocab define serendipity` runs
 Vocab's copy on the computer it is typed on, and never forwards.
@@ -52,19 +53,18 @@ developing an app or a folder of one's own. A run commits only when its action
 calls `folder.commit` (ADR-0850), and runs do not take turns.
 
 **A sign-in lives where the actions that use it run** (ADR-0861): Gmail's on
-your server, where `epicenter mail connect` runs, unless a browser signs in
-itself.
+your server, where `epicenter mail connect` runs.
 Keychain access does not stop another program running as the same user, so the
 person's agent permission rules are the gate for now.
 
 **There are no schedules.** Your server runs nothing on its own: an action
 runs because a person, their agent, or a page they opened asks for it.
 
-**Reach from the phone and claude.ai is not built.** Claude and ChatGPT on the
+**Reach from claude.ai, Claude on the phone, and a browser is not built.** Claude and ChatGPT on the
 phone, and claude.ai in a browser, need `serve` at a public HTTPS address with a
 sign-in. That comes, with a per-action allow-or-ask policy enforced by `serve`,
-when the author wants an app on the phone; until then those surfaces do not
-reach apps.
+when the author wants one of them; until then those surfaces do not reach apps.
+The phone itself has the Epicenter app (ADR-0863).
 
 ## Consequences
 
@@ -91,4 +91,5 @@ reach apps.
   Runs nobody asked for, moved from a timer into a screen. Reminders return as an
   ordinary app if a real job needs one.
 - **The desktop app or the CLI keeps its own list of apps.** A second list.
-- **Running actions in the browser or on the phone.** Nothing needs it.
+- **Running actions in a browser.** It holds no copy (ADR-0863). The Epicenter
+  app on a phone runs an app's collections against its own copy.

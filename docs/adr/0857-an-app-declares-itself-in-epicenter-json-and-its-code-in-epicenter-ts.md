@@ -1,10 +1,10 @@
 # 0857. An app declares itself in `epicenter.json`, and its code in `epicenter.ts`
 
 - **Status:** Proposed
-- **Date:** 2026-11-08 (amended 2026-11-09: `epicenter.ts` exports its actions, typed through `epicenter:app`)
+- **Date:** 2026-11-08 (amended 2026-11-09: `epicenter.ts` exports its actions, typed through `epicenter:app`; and by [ADR-0863](0863-epicenter-is-one-place-and-one-app-shows-it-on-every-device-you-own.md): an optional `id` names the publisher, and `epicenter.json` runs everywhere while `epicenter.ts` runs on computers)
 - **Amends:** [ADR-0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md) at the declaration: an app's description and every collection live in `epicenter.json`, and its name is its entry in `~/Epicenter` (ADR-0852); `epicenter.ts`, when present, exports actions, and `defineApp` leaves apps. At fields: JSON Schema, which the `field` helpers produce. At an action's hints, which are MCP's `annotations`, and its positional, which is its first required field. At the folder's `remove`, which is `delete`. [ADR-0845](0845-an-app-declares-collections-each-a-path-and-fields-which-the-hub-views.md) at a collection's fields, which are the JSON Schema of its front matter.
 - **Relates:** [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (programs that have the folder), [ADR-0853](0853-collections-give-four-actions-and-programs-without-the-folder-ask-over-mcp.md) (collection actions, groups, and the client), [ADR-0854](0854-an-apps-cache-is-the-files-it-gitignores.md) (`.cache/`), [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (views).
-- **Unbuilt:** `name` leaving `epicenter.json` (amended 2026-11-09), `epicenter:app` and the generated `.cache/epicenter/`, `action()`, exports as actions and groups, `view` on an action, `collections` in `run`, the first required field read by position, `folder`'s `get`, `getBytes`, and `set` of bytes, asserting `format`, and publishing the schema at its URL. Built 2026-11-09 and kept: loading `epicenter.json`, the declaration's TypeBox schema and `packages/app/epicenter.schema.json`, `annotations` on actions, `@epicenter/app` supplied by `epicenter`, and `folder.delete`. Built 2026-11-09 and retired by this amendment: `defineApp(declaration, { actions })` and `positional`.
+- **Unbuilt:** `id` (2026-11-09), `name` leaving `epicenter.json` (amended 2026-11-09), `epicenter:app` and the generated `.cache/epicenter/`, `action()`, exports as actions and groups, `view` on an action, `collections` in `run`, the first required field read by position, `folder`'s `get`, `getBytes`, and `set` of bytes, asserting `format`, and publishing the schema at its URL. Built 2026-11-09 and kept: loading `epicenter.json`, the declaration's TypeBox schema and `packages/app/epicenter.schema.json`, `annotations` on actions, `@epicenter/app` supplied by `epicenter`, and `folder.delete`. Built 2026-11-09 and retired by this amendment: `defineApp(declaration, { actions })` and `positional`.
 
 ## Context
 
@@ -31,6 +31,7 @@ the JSON does not have.
 ```json
 {
   "$schema": "https://epicenter.so/epicenter.schema.json",
+  "id": "so.epicenter.whispering",
   "description": "Voice notes",
   "collections": {
     "recordings": {
@@ -62,6 +63,14 @@ export const summarizeWeek = action({
 });
 ```
 
+- **`id` names who publishes the app, and is optional.** It is a reverse
+  domain: `so.epicenter.notes` for Epicenter's Notes,
+  `com.bradenwong.honeycrisp` for the author's. An app needs one only to be
+  published to a catalog or updated from one (ADR-0863); its short name is its
+  folder's name in `~/Epicenter`.
+- **`epicenter.json` runs everywhere; `epicenter.ts` runs on computers.** The
+  Epicenter app on a phone runs each collection's four actions with no code
+  (ADR-0863); an action in `epicenter.ts` runs where `epicenter` runs.
 - **Every collection is declared in `epicenter.json`.** `epicenter.ts` holds
   actions and nothing else of the app's shape, so a program, a screen, or an
   agent reads every shape without loading code.
@@ -117,8 +126,7 @@ collides with nothing.
 collections, and the type `App`, the app's whole tree of actions, which types a
 client (ADR-0853). At run time `epicenter` serves it with a Bun plugin; in an
 editor the app's `tsconfig.json` resolves it to `.cache/epicenter/app.d.ts`.
-`epicenter` writes `.cache/epicenter/` in `epicenter new` and `epicenter add`,
-and again whenever it loads an app whose generated files are missing or older
+`epicenter` writes `.cache/epicenter/` in `epicenter new`, and again whenever it loads an app whose generated files are missing or older
 than `epicenter.json`. They are rebuildable and ignored with the rest of
 `.cache/` (ADR-0854), so nobody edits or commits them.
 
@@ -134,7 +142,7 @@ supplies both modules when it loads `epicenter.ts`, so an app needs a
 `package.json` and `node_modules` only for dependencies of its own.
 
 **`epicenter.json` on disk is the declaration.** `epicenter` reads the app's
-description and collections from the file, and its name from its entry in
+`id`, description, and collections from the file, and its name from its entry in
 `~/Epicenter`, never from the file; the generated types carry
 them to an editor and nowhere else.
 
@@ -156,8 +164,7 @@ loading.
 - An app with code has `epicenter.json`, `epicenter.ts`, and a one-line
   `tsconfig.json`. Its types live in `.cache/epicenter/`.
 - An editor's types follow an edit to `epicenter.json` once `epicenter` next
-  loads the app, and a clone made with `git clone` instead of `epicenter add` is
-  untyped until then.
+  loads the app, and a fresh clone is untyped until then.
 - A program that rewrites `epicenter.json` parses it and keeps the collections
   it does not own.
 - Apps no longer call `defineApp`; `@epicenter/app` keeps `field`, the types,
@@ -189,7 +196,7 @@ loading.
   `grade` to `'great'` compiled.
 - **Generated types committed beside `epicenter.json`.** A generated file in the
   person's history that two writers regenerate, and a fresh clone typed before
-  anything runs, which `epicenter add` gives anyway.
+  anything runs, which the first `epicenter` run gives anyway.
 - **One declaration file per app: `epicenter.json` without code, `epicenter.ts`
   with code, never both.** Adding an action to Whispering's folder would mean
   taking over Whispering's shapes.

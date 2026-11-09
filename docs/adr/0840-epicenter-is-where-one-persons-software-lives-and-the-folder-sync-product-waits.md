@@ -5,6 +5,7 @@
 - **Supersedes:** [ADR-0835](0835-records-from-0802-to-0834-agree-on-files-a-ledger-and-git-at-the-edges.md), the register of the folder sync product, and so the decisions it lists from [ADR-0802](0802-people-share-spaces-an-app-works-in-one-at-a-time-and-a-folder-carries-its-contract.md) to ADR-0834, as governing current work; and the records that amended the register, [ADR-0836](0836-one-merge-a-cursor-that-carries-its-digest-and-one-grant.md), [ADR-0837](0837-the-ledger-is-the-persons-model-folders-the-versions-of-their-files-and-who-may-see-them.md), [ADR-0838](0838-git-speaks-to-a-folder-through-a-remote-helper-and-the-cli-speaks-a-persons-verbs.md), and [ADR-0839](0839-a-save-is-one-numbered-write-a-reset-deletes-nothing-and-epicenter-owns-the-pages-every-app-links-to.md). They stay as the design of a product that waits.
 - **Relates:** [ADR-0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md) (what an app is), [ADR-0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md) (an action is a commit, and the repository is the sync), [ADR-0827](0827-the-cli-and-mcp-render-one-table-of-operations.md) (one table rendered as CLI and MCP, which carries over).
 - **Spec:** [specs/20261107T222922-epicenter-is-where-personal-software-lives.md](../../specs/20261107T222922-epicenter-is-where-personal-software-lives.md)
+- **Amended by:** [ADR-0863](0863-epicenter-is-one-place-and-one-app-shows-it-on-every-device-you-own.md) (2026-11-09) at "no web or phone app" and at the rejected "platform that runs apps": the phone gets one Epicenter app, built after the first apps work on the Mac, once the author named about twenty apps and their phone use.
 - **Unbuilt:** the first real app (Mail). `@epicenter/app` (`packages/app`) and the CLI that runs apps (`packages/cli`) are built.
 
 ## Context
@@ -37,7 +38,8 @@ it can rebuild (a cache), and a place for secrets (the Keychain). Everything els
 from Google sign-in to scraping to SQLite, is the app's business.
 
 **The folder sync product waits.** No ledger, no sync engine, no server holding
-history, no sharing, no web or phone app, no live mode. Git is how a folder
+history, no sharing, no web app of its own, no live mode. The phone gets one
+Epicenter app (amended 2026-11-09, [ADR-0863](0863-epicenter-is-one-place-and-one-app-shows-it-on-every-device-you-own.md)). Git is how a folder
 moves between computers, run by the person.
 
 **What carries over:** files a person can read; Git as history; one table of
@@ -55,6 +57,8 @@ anything.
 - **A platform that runs apps** (one shell hosting apps as views, apps installed
   from links, a phone app containing every app). Rejected for now: no stated
   need, and it requires a sandbox, a runtime, and an install story first.
+  Revisited 2026-11-09 in [ADR-0863](0863-epicenter-is-one-place-and-one-app-shows-it-on-every-device-you-own.md), once the need was stated and each of
+  the three was designed.
 - **No framework at all, only scripts and skills.** Close to current practice,
   but actions would have no typed input, no `--help`, no `--json`, and no MCP or
   UI without rewriting each script.

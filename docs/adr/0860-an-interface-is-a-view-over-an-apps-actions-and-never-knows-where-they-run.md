@@ -1,9 +1,9 @@
 # 0860. An interface is a view over an app's actions, and never knows where they run
 
 - **Status:** Proposed
-- **Date:** 2026-11-09
-- **Relates:** [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) (your server, and reach from vendors' clouds), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (programs that have the folder or ask), [ADR-0853](0853-collections-give-four-actions-and-programs-without-the-folder-ask-over-mcp.md) (MCP, the typed client), [ADR-0857](0857-an-app-declares-itself-in-epicenter-json-and-its-code-in-epicenter-ts.md) (actions in `epicenter.ts`).
-- **Unbuilt:** all of it: `views/`, `view` on an action, `ui://` resources in `serve`, the Epicenter app, and a view running an app's actions in a browser against the meeting place (ADR-0861).
+- **Date:** 2026-11-09 (amended 2026-11-09 by [ADR-0863](0863-epicenter-is-one-place-and-one-app-shows-it-on-every-device-you-own.md): the Epicenter app holds a copy of each app on a Mac and a phone and runs views against it; a browser runs no actions; a view may hold state that need not survive it)
+- **Relates:** [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) (your server, and reach from vendors' clouds), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (programs that have the folder or ask), [ADR-0853](0853-collections-give-four-actions-and-programs-without-the-folder-ask-over-mcp.md) (MCP, the typed client), [ADR-0857](0857-an-app-declares-itself-in-epicenter-json-and-its-code-in-epicenter-ts.md) (actions in `epicenter.ts`), [ADR-0863](0863-epicenter-is-one-place-and-one-app-shows-it-on-every-device-you-own.md) (the place and the Epicenter app).
+- **Unbuilt:** all of it: `views/`, `view` on an action, `ui://` resources in `serve`, and the Epicenter app.
 
 ## Context
 
@@ -51,8 +51,10 @@ that lists views itself.
 
 **A view follows four rules.**
 
-1. It holds no data and no rules. Data is in the folder and rules are in
-   actions, so whatever a view can do, an agent and the terminal can do.
+1. It holds nothing that must survive it closing, and no rule an agent or the
+   terminal would need. A card being shown or a draft not yet sent is the
+   view's; saved data is in the folder and rules are in actions, so whatever a
+   view can do, an agent and the terminal can do.
 2. Only what needs the device stays in a program: the microphone, a global
    shortcut, pasting. Everything else is an action.
 3. Each step up the ladder below names what the step beneath could not do.
@@ -64,34 +66,36 @@ that lists views itself.
 | Rung | Interface | Steps up when |
 | --- | --- | --- |
 | 1 | text: the terminal, Claude, Claude Code | a person wants to see or tap, not type |
-| 2 | the Epicenter app: every app's actions in a command palette, `list` and `get` as tables, the rest as forms from their input schemas | a form and a table cannot do it |
-| 3 | a view, shown by Claude or the Epicenter app | it needs the device, or to work offline |
-| 4 | a program with the folder (Whispering), which writes files and commits | never |
+| 2 | the Epicenter app, on a Mac or a phone: every app's actions in a command palette, `list` and `get` as tables, the rest as forms from their input schemas | a form and a table cannot do it |
+| 3 | a view, shown by Claude or the Epicenter app | it needs the device in a way the Epicenter app does not give |
+| 4 | a program of its own with the folder (Whispering), which writes files and commits | never |
 
 **The Epicenter app is a host like Claude.** It lists every app's actions and
-views, and opens a view full screen; a phone keeps one view on its home screen.
-In a browser or on a phone, a view runs the app's actions itself, against the
-meeting place, for actions that use only the app's files (ADR-0861). A view is
-one HTML file however it is made: a plain file, or a project whose build
-produces one file; Svelte with Epicenter's components is the default template,
-not a requirement. Claude Desktop shows
-views from a server it starts over stdio, so `ssh studio epicenter serve
---stdio` reaches it now. claude.ai and Claude's phone apps show views only from
-connectors added by URL, which need a public address with a sign-in (ADR-0849)
-and wait.
+views, and opens a view full screen, on a Mac and on a phone (ADR-0863). It
+holds a copy of each app, so a view there runs the app's collections against
+local files, offline included; on a Mac it also reaches `epicenter.ts` through
+`epicenter`. A view runs in a sandboxed iframe and talks to its host only by
+`postMessage`; the host checks where each message came from and never lets a
+view call its native commands. A view is one HTML file however it is made: a
+plain file, or a project whose build produces one file; Svelte with
+Epicenter's components is the default template, not a requirement. Claude
+Desktop shows views from a server it starts over stdio, so `ssh studio
+epicenter serve --stdio` reaches it now. claude.ai and Claude's phone apps show
+views only from connectors added by URL, which need a public address with a
+sign-in (ADR-0849) and wait.
 
 **A view never knows where actions run.** It speaks MCP over whichever
 transport its host gives it, and an action reaches data only through
 `{ collections, folder, secrets }` and the network. `origin` is the truth, and
-every place that runs actions is a clone of it that commits and syncs
-(ADR-0851), or a browser that commits to it directly (ADR-0861).
+every place that runs actions holds a clone of it that commits and syncs
+(ADR-0851, ADR-0863). A browser runs none.
 
 ```txt
-transport                    runtime                                 when
-postMessage, through Claude  your server, over ssh … serve --stdio   now, in Claude Desktop
-in memory, in a browser      the browser, against the meeting place  now, for actions that use only files
-HTTP                         a container running the same epicenter  Epicenter Cloud, for Gmail without a computer on
-in memory, same process      a program with the folder               a view that must work offline
+transport                      runtime                                   when
+postMessage, through Claude    epicenter over stdio, here or ssh studio  now, in Claude Desktop
+in the same process            the Epicenter app with its copy           collections, on a Mac and a phone
+stdio, from the Epicenter app  epicenter on this Mac                     epicenter.ts, on a Mac
+HTTPS                          your server's epicenter serve             a browser, claude.ai, Claude on the phone
 ```
 
 ## Consequences
@@ -100,8 +104,8 @@ in memory, same process      a program with the folder               a view that
   on a phone, and as text in a terminal.
 - A view sees no change it did not ask for: after an action it asks again. MCP's
   resource subscriptions may make collections live later.
-- A view does not work offline. Offline is rung 4, a program with the folder,
-  where the same view can run with an in-memory transport.
+- A view works offline in the Epicenter app, which holds the app's files; in
+  Claude and in a browser it needs its runtime reachable.
 - An action that uses only its context runs wherever `epicenter` runs; one that
   imports `node:fs` or calls a Bun API runs only on a computer.
 - Claude sees every app through one server, so a view shown there can call any

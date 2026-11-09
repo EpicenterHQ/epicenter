@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-11-08
 - **Amends:** [ADR-0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md) at `epicenter sync`, which stays as the one command that commits what is left, pulls with `--rebase`, and pushes.
-- **Relates:** [ADR-0861](0861-whats-yours-is-everywhere-and-everything-else-is-used-where-it-is.md) (the meeting place), [ADR-0862](0862-nothing-blocks-and-nothing-is-lost.md) (merging), [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (`origin`).
+- **Relates:** [ADR-0861](0861-whats-yours-is-everywhere-and-everything-else-is-used-where-it-is.md) (the meeting place), [ADR-0862](0862-notes-merge-field-by-field-and-every-conflict-is-listed-for-repair.md) (merging), [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (`origin`).
 - **Unbuilt:** `epicenter sync` and Whispering's own sync. Built 2026-11-09 and to be deleted: the fast-forward push after each commit `epicenter` made, the fetch after a refused push, and ahead and behind `origin` in the listing (`packages/cli/src/push.ts`).
 
 ## Context

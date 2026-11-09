@@ -1,14 +1,15 @@
 # Vision
 
-Epicenter is where one person's software lives. Each app is a folder of files
-the person, their editor, and their agents can read and change; Epicenter runs
-the app's actions for them and their agents, from the terminal, from Claude, and
-from any program that asks.
+Epicenter is where your personal software lives: small apps that you and your
+agents make and change, whose data is your files, and which you can use on every
+device you own. Each app is a folder in one place, `~/Epicenter`; the
+`epicenter` command runs its actions for you and your agents, Claude reaches
+them over MCP, and the Epicenter app shows them on your Mac and your phone.
 
 This page is the front door. It describes the design proposed on 2026-11-08 in
 [ADR-0849] to [ADR-0857] and reviewed by three independent reviewers before
 anything beyond the first kit was built. [ADR-0840] records why the direction
-changed. The [spec](../specs/20261107T222922-epicenter-is-where-personal-software-lives.md)
+changed, and [ADR-0863] how the phone gets your apps. The [spec](../specs/20261107T222922-epicenter-is-where-personal-software-lives.md)
 carries the build order and the first app, Mail. [Architecture](architecture.md),
 [CONTEXT](CONTEXT.md), and the package READMEs describe the code that exists,
 which is mostly the earlier product described at the end.
@@ -25,8 +26,34 @@ which is mostly the earlier product described at the end.
 
 An app is a folder: `epicenter.json` (what its files are), `epicenter.ts` (what
 you can do), `views/` (for people), and `prompts/` (for agents). Getting the
-folder installs it. Nothing blocks and nothing is lost: merges never stop, and
+folder installs it. Notes merge field by field and never stop a sync, and
 anything to repair is on the app's problems list ([ADR-0861], [ADR-0862]).
+
+## The place and the app
+
+`~/Epicenter` is the place: a folder per app, each a Git working copy. The
+Epicenter app shows the place, on a Mac and on a phone, where it keeps its own
+copy ([ADR-0863]).
+
+| Place | Holds | Runs |
+| --- | --- | --- |
+| a Mac: `epicenter`, the Epicenter app, Whispering | `~/Epicenter` | everything |
+| a phone: the Epicenter app | its own copy of each app | collections, views, an on-device model |
+| a browser, claude.ai, Claude on the phone | nothing | nothing; they ask your server |
+
+An app is one of three kinds, by what its actions use:
+
+| Kind | Apps | Where its actions run |
+| --- | --- | --- |
+| files only | vocab, zhongwen, notes, honeycrisp, capture, tasks, timebox, theark | everywhere, the phone included, offline |
+| a service or one machine | mail, messages, photos | on the Mac with the sign-in or the machine; its files show everywhere |
+| a device program | whispering, bureaucracy, tabs | in its own program, which writes its folder in the place |
+
+An app has a folder (its short name, `~/Epicenter/notes`), an optional identity
+naming its publisher (`so.epicenter.notes`, `com.bradenwong.honeycrisp`), and a
+program of its own only if it needs the device. Agents make apps from the root:
+you start Claude Code in `~/Epicenter`, ask for an app, and it writes the folder;
+the Epicenter app on your phone shows it at its next sync.
 
 ## What it is like
 
@@ -45,6 +72,12 @@ anything to repair is on the app's problems list ([ADR-0861], [ADR-0862]).
   groups events; it edits `epicenter.ts` in a worktree, tries it with
   `epicenter ./worktree calendar show`, and merges. The next run uses the new
   code.
+- **Words on the subway.** You open Vocab in the Epicenter app on your phone
+  with no signal, practise, and mark three words known. The app commits on the
+  phone and pushes when the train surfaces; your Mac has them at its next sync.
+- **A new app by asking.** In `~/Epicenter` you ask Claude Code for a reading
+  log. It writes `reading/epicenter.json` and a view, commits, and pushes. That
+  evening the Epicenter app on your phone lists Reading, with no build.
 - **A recording on a plane.** Whispering records, transcribes, and pastes, with no
   network and no `epicenter`. It writes each recording into `~/Epicenter/whispering`
   and commits it; when the laptop is back online, Whispering syncs, and your
@@ -58,23 +91,27 @@ anything to repair is on the app's problems list ([ADR-0861], [ADR-0862]).
 
 | Noun | What it is |
 | --- | --- |
-| an app | a folder whose `epicenter.json` names it and declares its collections; an `epicenter.ts` beside it adds actions |
+| the place | `~/Epicenter`: a folder per app, and nothing else |
+| an app | a folder whose `epicenter.json` declares its collections and, optionally, its publisher's `id`; an `epicenter.ts` beside it adds actions |
 | a collection | a kind of file in the app, by path (`words/{stem}.md`) and fields; it gives `list`, `get`, `set`, and `delete` |
 | a field | JSON Schema for one value; in TypeScript, written with helpers such as `field.text()` |
 | an action | something you can ask an app to do: a collection's four, or one the author writes with a `run` function |
 | a view | an HTML page in the app's folder that shows its data and calls its actions, inside Claude or the Epicenter app |
 | `epicenter` | the program that runs an action in a folder |
-| your server | a computer you keep on, needed only for actions that use what is on it: a sign-in kept there, Beeper, the microphone |
+| the Epicenter app | the program that shows the place on a Mac and a phone: every app's actions, its views, and sync |
+| a device program | an app's own program, when it needs the device: Whispering |
+| your server | a computer you keep on, needed by places that hold no copy and by actions that use what is on it: a sign-in kept there, Beeper |
 | Git | history, `origin` where copies meet, `upstream` where code came from, LFS for binaries |
 
-Everything else is a program that either has the folder or asks for actions: your editor, Claude Code,
-Claude Desktop, Whispering, the Epicenter app.
+Everything else is a program that either has the folder or asks for actions:
+your editor, Claude Code, Whispering, and the Epicenter app have it; Claude
+Desktop, claude.ai, and a browser ask.
 
 ## An app
 
 ```txt
 vocab/
-  epicenter.json          name, description, collections
+  epicenter.json          id, description, collections
   epicenter.ts            actions
   tsconfig.json           one line, extending .cache/epicenter/tsconfig.json
   words/serendipity.md    data: front matter and a body
@@ -86,7 +123,7 @@ vocab/
 ```json
 {
   "$schema": "https://epicenter.so/epicenter.schema.json",
-  "name": "vocab",
+  "id": "com.bradenwong.vocab",
   "description": "Words I'm learning",
   "collections": {
     "words": {
@@ -130,12 +167,12 @@ collection's schema). `epicenter:app` is the app's own module, which
 ## How a write happens
 
 **If you have the folder, write the files and commit them when you know what the
-change was.** That is true for you in your editor, for Claude Code, and for
-Whispering.
+change was.** That is true for you in your editor, for Claude Code, for
+Whispering, and for the Epicenter app.
 
 **If you do not, or the write needs a sign-in or an app's rule, ask for an
-action.** That is true for Claude Desktop, an agent on another computer, and
-the Epicenter app.
+action.** That is true for Claude Desktop, an agent on another computer,
+claude.ai, and a browser.
 
 **An action changes files and commits only if its author says so.** `run` calls
 `folder.commit('Add 12 words')` when one run is one change; otherwise what it
@@ -158,7 +195,8 @@ A command always means the computer it is typed on. `serve` speaks MCP and
 nothing else, and runs each call in a fresh process, so code you just pulled is
 what runs. **Claude and ChatGPT on your phone, and claude.ai, do not reach
 your apps yet**: they connect from their vendors' clouds and need a public
-address with a sign-in, which comes when you want an app on your phone. Until
+address with a sign-in, which comes when you want one of them; your phone itself
+has the Epicenter app. Until
 then, nothing guards your sign-ins from another program running as you except
 your agents' permission rules.
 
@@ -168,16 +206,16 @@ An app's interfaces are views ([ADR-0860]): HTML in its `views/` folder, from
 one page to a whole single-page app, that reads and changes the app only by
 calling its actions. A view is an MCP App, so the same file shows inside a
 Claude conversation when an action names it, full screen in the Epicenter app
-on your phone, and as plain text in a terminal. A view never knows where the
-actions run: on your server today, and later in a container for someone without
-one, or in the same process for a program that must work offline.
+on your Mac or phone, and as plain text in a terminal. A view never knows where
+the actions run: in the Epicenter app against its own copy, offline included; in
+`epicenter` on a Mac; or on your server, for a browser and claude.ai.
 
 | Rung | Interface | Steps up when |
 | --- | --- | --- |
 | 1 | the terminal, Claude, Claude Code | you want to see or tap, not type |
-| 2 | the Epicenter app: every action in a command palette, tables, and forms | a table and a form cannot do it |
-| 3 | a view of the app's own | it needs the device, or to work offline |
-| 4 | a program with the folder, such as Whispering | never |
+| 2 | the Epicenter app, on a Mac or a phone: every action in a command palette, tables, and forms | a table and a form cannot do it |
+| 3 | a view of the app's own | it needs the device in a way the Epicenter app does not give |
+| 4 | a program of its own with the folder, such as Whispering | never |
 
 ## How data moves
 
@@ -185,7 +223,8 @@ Each app with history has one Git remote, `origin`: where copies meet, and the
 backup. `epicenter sync` commits what is left, pulls with `--rebase`, and pushes;
 it is the only command that touches a remote. You, an agent, a screen's button,
 or a launchd job on each computer runs it. The Mac Studio and the laptop never
-talk to each other; each syncs with `origin`. Binary files a
+talk to each other; each syncs with `origin`, and so does the Epicenter app on
+your phone, with libgit2, whenever it opens. Binary files a
 folder tracks go through Git LFS: text is history, binaries are content.
 `.cache/` and sign-ins never leave a computer.
 
@@ -198,10 +237,10 @@ Every app climbs the same ladder, and each rung is optional.
 | 1. Files | nothing | any program reads and writes it |
 | 2. History | Git, `git-lfs`, an `origin` | backup, history, copies elsewhere |
 | 3. Actions | `epicenter` | its actions in the terminal and for Claude Code |
-| 4. Reach | your server | the same actions from your other computers |
+| 4. Everywhere | the Epicenter app, and your server | the app on your phone, offline; a browser and claude.ai through your server |
 
-Whispering is whole at rung 1. Mail needs rung 4, because its code needs your
-Gmail sign-in on a computer that is always on.
+Whispering is whole at rung 1. Mail's actions run where your Gmail sign-in is,
+on a computer you keep on; its files reach every rung.
 
 ## Each job, the least powerful form
 
@@ -221,14 +260,16 @@ Gmail sign-in on a computer that is always on.
 
 **Refused:** a sync engine, schedules, merging by `epicenter`, a schema language of
 its own, an API beside MCP, programs that ship `epicenter`, apps hosted inside the
-Epicenter app through an API of its own, a folder kept in a browser.
+Epicenter app through an API of its own, a folder kept in a browser, a browser
+that runs actions.
 
-**Later, each when something needs it:** reach from the phone; collections'
-four actions, views, and the Epicenter app (with Vocab);
-reminders as an ordinary app; Epicenter Cloud and its registry, for people who
-cannot keep a computer on; actions run inside a program on the device, when a
-view must work offline; moving the vault's history into LFS; WebAssembly
-actions or a Rust core, when apps from strangers run with your sign-ins.
+**Later, each when something needs it:** collections' four actions, views, and
+the Epicenter app on the Mac and the phone, after Vocab and Mail work on the Mac;
+`serve` over HTTPS, for claude.ai, Claude on the phone, and a browser; the
+catalog, when other people install apps; reminders as an ordinary app; Epicenter
+Cloud running your server, for people who cannot keep a computer on; moving the
+vault into `~/Epicenter`, and its history into LFS; WebAssembly actions or a Rust
+core, when apps from strangers run with your sign-ins.
 
 ## What came before
 
@@ -248,6 +289,7 @@ fields are written one `key: <JSON>` line each.
 [ADR-0840]: adr/0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md
 [ADR-0849]: adr/0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md
 [ADR-0861]: adr/0861-whats-yours-is-everywhere-and-everything-else-is-used-where-it-is.md
-[ADR-0862]: adr/0862-nothing-blocks-and-nothing-is-lost.md
+[ADR-0862]: adr/0862-notes-merge-field-by-field-and-every-conflict-is-listed-for-repair.md
 [ADR-0860]: adr/0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md
+[ADR-0863]: adr/0863-epicenter-is-one-place-and-one-app-shows-it-on-every-device-you-own.md
 [ADR-0857]: adr/0857-an-app-declares-itself-in-epicenter-json-and-its-code-in-epicenter-ts.md
