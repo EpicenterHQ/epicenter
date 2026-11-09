@@ -1,11 +1,19 @@
 /**
- * Acceptance, stage 3: the folder, offline (ADR-0851, ADR-0852, ADR-0854,
- * ADR-0856). Black-box runs of the real `epicenter` against a temporary HOME,
- * with bare repositories standing in for `origin` and for a shared app.
+ * Acceptance, stage 3: the folder and `epicenter sync` (ADR-0851, ADR-0852,
+ * ADR-0854). Black-box runs of the real `epicenter` against a temporary HOME,
+ * with bare repositories in temporary folders standing in for `origin` and
+ * for a shared app.
  */
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
 import { existsSync } from 'node:fs';
-import { lstat, readFile, readlink, rm } from 'node:fs/promises';
+import {
+	lstat,
+	readFile,
+	readlink,
+	rm,
+	symlink,
+	writeFile,
+} from 'node:fs/promises';
 import { join } from 'node:path';
 import {
 	declarationOf,
@@ -82,14 +90,182 @@ test('W1 the cache is .cache/ in the folder, and run receives { folder, secrets 
 	).not.toHaveProperty('cache');
 });
 
-test('W2 epicenter sync is gone', async () => {
+/** A clone of a bare `origin`, in the home as `name`, and a peer clone that pushes to the same origin. */
+async function withOrigin(f: Awaited<ReturnType<typeof setup>>, name: string) {
+	const seed = await f.folder(join(f.root, `${name}-seed`), {
+		'.gitignore': gitignore,
+		'epicenter.json': declarationOf(name),
+		'page.md': 'base\n',
+	});
+	const bare = join(f.root, `${name}.git`);
+	await gitIn(f.root, 'clone', '-q', '--bare', seed, bare);
+	const folder = join(f.home, name);
+	await gitIn(f.root, 'clone', '-q', bare, folder);
+	const peer = join(f.root, `${name}-peer`);
+	await gitIn(f.root, 'clone', '-q', bare, peer);
+	const peerCommits = async (path: string, text: string) => {
+		await writeFile(join(peer, path), text);
+		await gitIn(peer, 'add', path);
+		await gitIn(peer, 'commit', '-q', '-m', `peer ${path}`);
+		await gitIn(peer, 'push', '-q');
+	};
+	return { folder, bare, peerCommits };
+}
+
+test('W2 epicenter sync commits what is left, pulls with --rebase, pushes, and reports ahead and behind', async () => {
 	const f = await setup();
-	const result = await f.run('sync', '--json');
-	expect(result.code).toBe(2);
-	expect(JSON.parse(result.stdout).error.message).toContain(
-		'Unknown app "sync"',
+	const journal = await withOrigin(f, 'journal');
+	await journal.peerCommits('peer.md', 'from the laptop\n');
+	await writeFile(join(journal.folder, 'monday.md'), 'monday\n');
+	await writeFile(join(journal.folder, 'tuesday.md'), 'tuesday\n');
+	await f.folder(join(f.home, 'notes'), {
+		'.gitignore': gitignore,
+		'epicenter.json': declarationOf('notes'),
+	});
+	await writeFile(join(f.home, 'notes', 'kept.md'), 'kept\n');
+
+	const synced = await f.run('sync', '--json');
+	expect(synced.code).toBe(0);
+	expect(JSON.parse(synced.stdout)).toEqual({
+		apps: [
+			{
+				app: 'journal',
+				folder: journal.folder,
+				committed: { subject: 'sync: journal (2 files)', files: 2 },
+				pushed: true,
+				upstream: { ahead: 0, behind: 0 },
+			},
+			{
+				app: 'notes',
+				folder: join(f.home, 'notes'),
+				committed: { subject: 'sync: notes (1 file)', files: 1 },
+				pushed: false,
+				upstream: null,
+			},
+		],
+	});
+	expect(await readFile(join(journal.folder, 'peer.md'), 'utf8')).toBe(
+		'from the laptop\n',
 	);
-	expect((await f.run('--help')).stdout).not.toContain('sync');
+	expect(await gitIn(journal.bare, 'log', '--format=%s')).toBe(
+		'sync: journal (2 files)\npeer peer.md\ninitial',
+	);
+	expect(await gitIn(join(f.home, 'notes'), 'status', '--porcelain')).toBe('');
+
+	const again = await f.run('sync', 'journal');
+	expect(again.code).toBe(0);
+	expect(again.stdout).toBe(
+		'journal: nothing to commit; pushed; 0 ahead, 0 behind\n',
+	);
+	expect(again.stderr).toBe('');
+	expect((await f.run('sync', 'nope', '--json')).code).toBe(2);
+
+	// The listing reads nothing from Git.
+	const listed = JSON.parse((await f.run('--json')).stdout);
+	expect(listed.apps[0]).not.toHaveProperty('origin');
+});
+
+test('W3 sync stops one app on a conflict, a failed push, or no repository, and goes on with the others', async () => {
+	const f = await setup();
+	const clash = await withOrigin(f, 'clash');
+	await clash.peerCommits('page.md', 'the laptop says\n');
+	await writeFile(join(clash.folder, 'page.md'), 'the desk says\n');
+	const offline = await withOrigin(f, 'offline');
+	await writeFile(join(offline.folder, 'note.md'), 'written offline\n');
+	await gitIn(
+		offline.folder,
+		'remote',
+		'set-url',
+		'--push',
+		'origin',
+		join(f.root, 'gone.git'),
+	);
+	await f.folder(
+		join(f.home, 'loose'),
+		{ 'epicenter.json': declarationOf('loose') },
+		{ git: false },
+	);
+	const fine = await withOrigin(f, 'fine');
+	await writeFile(join(fine.folder, 'new.md'), 'new\n');
+
+	const synced = await f.run('sync', '--json');
+	expect(synced.code).toBe(1);
+	const apps = Object.fromEntries(
+		JSON.parse(synced.stdout).apps.map((app: { app: string }) => [
+			app.app,
+			app,
+		]),
+	);
+	expect(apps.clash).toMatchObject({
+		committed: { subject: 'sync: clash (1 file)' },
+		pushed: false,
+		upstream: { ahead: 1, behind: 1 },
+		error: {
+			message: expect.stringContaining('conflict'),
+			next: `git -C ${clash.folder} pull --rebase`,
+		},
+	});
+	expect(await readFile(join(clash.folder, 'page.md'), 'utf8')).toBe(
+		'the desk says\n',
+	);
+	expect(await gitIn(clash.folder, 'status', '--porcelain')).toBe('');
+	expect(apps.offline).toMatchObject({
+		committed: { files: 1 },
+		pushed: false,
+		error: {
+			message: expect.stringContaining('not pushed'),
+			next: `git -C ${offline.folder} push`,
+		},
+	});
+	expect(apps.loose).toMatchObject({
+		committed: null,
+		pushed: false,
+		upstream: null,
+		error: { message: expect.stringContaining('not a git repository') },
+	});
+	expect(apps.fine).toMatchObject({
+		pushed: true,
+		upstream: { ahead: 0, behind: 0 },
+	});
+
+	const human = await f.run('sync');
+	expect(human.code).toBe(1);
+	expect(human.stderr).toContain(`Run: git -C ${clash.folder} pull --rebase`);
+});
+
+test('W3 sync of an app inside a larger repository commits only its folder and sets the rest aside while it pulls', async () => {
+	const f = await setup();
+	const seed = await f.folder(join(f.root, 'vault-seed'), {
+		'journal/today.md': 'today\n',
+		'recipes/epicenter.json': declarationOf('recipes'),
+		'recipes/soup.md': 'soup\n',
+	});
+	const bare = join(f.root, 'vault.git');
+	await gitIn(f.root, 'clone', '-q', '--bare', seed, bare);
+	const vault = join(f.root, 'vault');
+	await gitIn(f.root, 'clone', '-q', bare, vault);
+	await symlink(join(vault, 'recipes'), join(f.home, 'recipes'));
+	const peer = join(f.root, 'vault-peer');
+	await gitIn(f.root, 'clone', '-q', bare, peer);
+	await writeFile(join(peer, 'peer.md'), 'peer\n');
+	await gitIn(peer, 'add', 'peer.md');
+	await gitIn(peer, 'commit', '-q', '-m', 'peer');
+	await gitIn(peer, 'push', '-q');
+
+	await writeFile(join(vault, 'journal/today.md'), 'changed beside\n');
+	await writeFile(join(vault, 'recipes/bread.md'), 'bread\n');
+	const synced = await f.run('sync', 'recipes', '--json');
+	expect(synced.code).toBe(0);
+	expect(JSON.parse(synced.stdout).apps[0]).toMatchObject({
+		committed: { subject: 'sync: recipes (1 file)' },
+		pushed: true,
+	});
+	expect(await gitIn(bare, 'show', '--name-only', '--format=', 'HEAD')).toBe(
+		'recipes/bread.md',
+	);
+	expect(await gitIn(vault, 'diff', '--name-only')).toBe('journal/today.md');
+	expect(await gitIn(vault, 'diff', '--cached', '--name-only')).toBe('');
+	expect(existsSync(join(vault, 'peer.md'))).toBe(true);
 });
 
 test('W4 epicenter new writes the template and runs git init', async () => {
@@ -179,4 +355,35 @@ test('W5 epicenter add links a folder, makes its history on request, and copies 
 		'recipes',
 		'vault',
 	]);
+});
+
+test('W3 sync says so when changes beside the app cannot be put back after pulling', async () => {
+	const f = await setup();
+	const seed = await f.folder(join(f.root, 'vault-seed'), {
+		'journal/today.md': 'today\n',
+		'recipes/epicenter.json': declarationOf('recipes'),
+	});
+	const bare = join(f.root, 'vault.git');
+	await gitIn(f.root, 'clone', '-q', '--bare', seed, bare);
+	const vault = join(f.root, 'vault');
+	await gitIn(f.root, 'clone', '-q', bare, vault);
+	await symlink(join(vault, 'recipes'), join(f.home, 'recipes'));
+	const peer = join(f.root, 'vault-peer');
+	await gitIn(f.root, 'clone', '-q', bare, peer);
+	await writeFile(join(peer, 'journal/today.md'), 'the laptop\n');
+	await gitIn(peer, 'commit', '-q', '-am', 'peer');
+	await gitIn(peer, 'push', '-q');
+
+	await writeFile(join(vault, 'journal/today.md'), 'the desk\n');
+	await writeFile(join(vault, 'recipes/bread.md'), 'bread\n');
+	const synced = await f.run('sync', 'recipes', '--json');
+	expect(synced.code).toBe(1);
+	expect(JSON.parse(synced.stdout).apps[0]).toMatchObject({
+		pushed: true,
+		error: {
+			message: expect.stringContaining('stash'),
+			next: `git -C ${join(vault, 'recipes')} stash list`,
+		},
+	});
+	expect(await gitIn(vault, 'stash', 'list')).toContain('autostash');
 });

@@ -13,7 +13,6 @@ import {
 	requiredKeys,
 	usageLine,
 } from './input.ts';
-import { originOf } from './push.ts';
 import { keychainService } from './secrets.ts';
 
 /** An action as an MCP tool definition: its name, input schema, and all four hints, explicit. */
@@ -26,21 +25,17 @@ export function actionTool(app: string, key: string, action: Action) {
 	};
 }
 
-type Origin = Awaited<ReturnType<typeof originOf>>;
-
 /**
  * The app as `--json` prints it: its declaration, its code's collections as
- * JSON Schema, its actions as tools, and how far it is ahead of and behind
- * `origin` when it tracks a branch there.
+ * JSON Schema, and its actions as tools. Nothing here reads Git (ADR-0851).
  */
-function appListing(located: Runnable, origin: Origin) {
+function appListing(located: Runnable) {
 	const { declaration } = located;
 	return {
 		name: located.name,
 		description: declaration.description,
 		folder: located.folder,
 		...(located.link ? { link: located.link } : {}),
-		...(origin ? { origin } : {}),
 		collections: {
 			...declaration.collections,
 			...Object.fromEntries(
@@ -73,19 +68,11 @@ function actionLines(located: Runnable) {
 }
 
 /** Render discovery as one answer while keeping broken entries separate from runnable apps. */
-export async function homeListing(
-	found: Discovery,
-	json: boolean,
-): Promise<unknown> {
-	const origins = await Promise.all(
-		found.apps.map((located) => originOf(located.realPath)),
-	);
+export function homeListing(found: Discovery, json: boolean): unknown {
 	if (json)
 		return {
 			home: found.home,
-			apps: found.apps.map((located, index) =>
-				appListing(located, origins[index]),
-			),
+			apps: found.apps.map(appListing),
 			problems: found.problems.map(({ entry, folder, problems }) => ({
 				entry,
 				folder,
@@ -95,8 +82,8 @@ export async function homeListing(
 		};
 	if (found.missing)
 		return `There is no Epicenter home at ${found.home}. Make one with: mkdir ${found.home}`;
-	const lines = found.apps.flatMap((located, index) => [
-		`${located.name}  ${located.declaration.description}${located.link ? ` -> ${located.link}` : ''}${originNote(origins[index])}`,
+	const lines = found.apps.flatMap((located) => [
+		`${located.name}  ${located.declaration.description}${located.link ? ` -> ${located.link}` : ''}`,
 		...actionLines(located),
 	]);
 	if (!found.apps.length) lines.push('There are no apps yet.');
@@ -112,30 +99,16 @@ export async function homeListing(
 	return lines.join('\n');
 }
 
-/** `  (1 ahead and 2 behind origin)`, or nothing when the copy is even with origin or tracks nothing there. */
-function originNote(origin: Origin) {
-	if (!origin || (origin.ahead === 0 && origin.behind === 0)) return '';
-	const parts = [
-		...(origin.ahead ? [`${origin.ahead} ahead`] : []),
-		...(origin.behind ? [`${origin.behind} behind`] : []),
-	];
-	return `  (${parts.join(' and ')} ${origin.behind ? '' : 'of '}origin)`;
-}
-
 /** Render the app's disk and keychain locations beside its actions for inspection. */
-export async function oneAppListing(
-	located: Runnable,
-	json: boolean,
-): Promise<unknown> {
-	const origin = await originOf(located.realPath);
+export function oneAppListing(located: Runnable, json: boolean): unknown {
 	if (json)
 		return {
-			...appListing(located, origin),
+			...appListing(located),
 			keychain: keychainService(located.name),
 		};
 	return [
 		located.name,
-		`${located.declaration.description}${originNote(origin)}`,
+		located.declaration.description,
 		`folder: ${located.folder}`,
 		...(located.link ? [`link: ${located.link}`] : []),
 		`keychain: ${keychainService(located.name)}`,

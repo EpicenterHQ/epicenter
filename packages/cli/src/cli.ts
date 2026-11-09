@@ -33,6 +33,7 @@ import {
 } from './output.ts';
 import type { Answer } from './report.ts';
 import { runAction } from './run.ts';
+import { syncCommand } from './sync.ts';
 
 const HELP = `epicenter [--json]
 epicenter <app> [--json]
@@ -67,6 +68,7 @@ const HANDLERS: { [K in Exclude<Command, 'help'>]: Handler } = {
 			return fail(usage('epicenter add needs one folder or Git URL'), json);
 		return addCommand(sources[0], init, json);
 	},
+	sync: syncCommand,
 	async serve(words, json) {
 		if (words.join(' ') !== '--stdio')
 			return fail(
@@ -154,7 +156,7 @@ export async function runCli(argv: string[]): Promise<number> {
 						: `epicenter ${packageJson.version}`,
 				);
 			else if (help) print(HELP);
-			else print(await homeListing(await discoverAll(), json));
+			else print(homeListing(await discoverAll(), json));
 			return 0;
 		}
 		const [name, ...words] = tokens as [string, ...string[]];
@@ -182,7 +184,7 @@ export async function runCli(argv: string[]): Promise<number> {
 				json,
 			);
 		if (!words.length) {
-			print(await oneAppListing(located, json));
+			print(oneAppListing(located, json));
 			return 0;
 		}
 		const matched = matchAction(located.actions, words);

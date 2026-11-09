@@ -192,9 +192,9 @@ function message(error: unknown) {
 	return error instanceof Error ? error.message : String(error);
 }
 
-/** The names of the home's entries that look like apps, sorted, without importing any of them. */
-export async function entryNames() {
-	return (await entries()).entries.map(({ entry }) => entry);
+/** The home's entries that look like apps, sorted by name, without importing any of them. */
+export async function homeEntries() {
+	return (await entries()).entries;
 }
 
 /**

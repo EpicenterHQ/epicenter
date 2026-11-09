@@ -284,7 +284,8 @@ test('D6 serve --stdio answers initialize, lists the same tools as --json, and r
 		await client.connect(transport);
 		expect(client.getServerVersion()?.name).toBe('epicenter');
 		const { tools } = await client.listTools();
-		expect(tools).toEqual(
+		expect(tools[0]?.name).toBe('sync');
+		expect(tools.slice(1)).toEqual(
 			listing.apps.flatMap((app: { actions: unknown[] }) => app.actions),
 		);
 		const called = await client.callTool({
