@@ -2,9 +2,9 @@
 
 - **Status:** Proposed
 - **Date:** 2026-11-08
-- **Amends:** [ADR-0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md) at the declaration: an app's name, description, and the collections a program or person writes live in `epicenter.json`; `epicenter.ts`, when present, holds actions and the collections they introduce. At fields: JSON Schema, which the `field` helpers produce. At an action's hints, which are MCP's `annotations`, and its positional, which moves onto the action. At the folder's `remove`, which is `delete`. [ADR-0845](0845-an-app-declares-collections-each-a-path-and-fields-which-the-hub-views.md) at a collection's fields, which are the JSON Schema of its front matter.
+- **Amends:** [ADR-0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md) at the declaration: an app's name, description, and every collection live in `epicenter.json`; `epicenter.ts`, when present, holds actions. At fields: JSON Schema, which the `field` helpers produce. At an action's hints, which are MCP's `annotations`, and its positional, which moves onto the action. At the folder's `remove`, which is `delete`. [ADR-0845](0845-an-app-declares-collections-each-a-path-and-fields-which-the-hub-views.md) at a collection's fields, which are the JSON Schema of its front matter.
 - **Relates:** [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (programs that have the folder), [ADR-0853](0853-collections-give-four-actions-and-programs-without-the-folder-ask-over-mcp.md) (collection actions and MCP).
-- **Unbuilt:** collection handles in `run`, and publishing the schema at its URL. Built 2026-11-09: loading `epicenter.json` and merging it with `epicenter.ts`, `defineApp(declaration, …)`, the declaration's TypeBox schema and `packages/app/epicenter.schema.json`, `positional` and `annotations` on actions, `@epicenter/app` supplied by `epicenter`, and `folder.delete`.
+- **Unbuilt:** collection handles in `run`, the generated `epicenter.d.json.ts`, and publishing the schema at its URL. Built 2026-11-09: loading `epicenter.json` and merging it with `epicenter.ts`, `defineApp(declaration, …)`, the declaration's TypeBox schema and `packages/app/epicenter.schema.json`, `positional` and `annotations` on actions, `@epicenter/app` supplied by `epicenter`, and `folder.delete`. Amended 2026-11-09: collections in `epicenter.ts` and the merge are to be deleted.
 
 ## Context
 
@@ -36,6 +36,10 @@ one declaration file per app were considered and refused (below).
         "properties": { "title": { "type": "string" }, "durationMs": { "type": "number" } },
         "required": ["title"]
       }
+    },
+    "summaries": {
+      "path": "summaries/{week}.md",
+      "fields": { "type": "object", "properties": { "title": { "type": "string" } } }
     }
   }
 }
@@ -46,9 +50,6 @@ import declaration from './epicenter.json';
 import { defineApp, field } from '@epicenter/app';
 
 export default defineApp(declaration, {
-  collections: {
-    summaries: { path: 'summaries/{week}.md', fields: { title: field.text() } },
-  },
   actions: {
     'summarize week': {
       description: 'Summarize one week of recordings',
@@ -64,20 +65,17 @@ export default defineApp(declaration, {
 });
 ```
 
-- **A shape is declared beside whoever writes it.** A program that writes the
-  folder (Whispering), or a person declaring a collection by hand, declares it in
-  `epicenter.json`. Collections an app's own actions introduce are declared in
-  `epicenter.ts`. The app's name and description are always in `epicenter.json`.
-- **Each declaration file has one writer.** Whispering writes `epicenter.json` for its folder,
-  creating it if absent and rewriting its collections when its format changes; a
-  person or agent writes `epicenter.ts`; `epicenter` writes neither, except
-  `epicenter new` creating them.
-- **Nothing is declared twice.** A collection or action in both files, or a
-  hand-written action whose words equal one a collection gives (`words save`), is
-  a problem in the listing. `epicenter.ts` never overrides a shape in
-  `epicenter.json`; its actions fit the shapes they write.
-- **`epicenter --json` prints the merged declaration**, with each action as an
-  MCP tool definition.
+- **Every collection is declared in `epicenter.json`.** `epicenter.ts` holds
+  actions and nothing else of the app's shape, so a program, a screen, or an
+  agent reads every shape without loading code.
+- **`epicenter.json` can have two writers, and each owns its own collections.**
+  Whispering creates the file if absent and rewrites only the collections it
+  owns when its format changes, keeping the others; a person or agent adds a
+  collection by editing the file. `epicenter` writes it only in `epicenter new`.
+- **A hand-written action whose words equal one a collection gives
+  (`words save`) is a problem in the listing.**
+- **`epicenter --json` prints the declaration**, with each action as an MCP
+  tool definition.
 
 **Fields are JSON Schema.** A collection's `fields` is the JSON Schema of its
 files' front matter (or a JSON file's contents); an action's `input` is a map of
@@ -99,21 +97,18 @@ action that is not read-only reads as destructive unless it says
 `show`, `save`, and `delete` every client gets, checked against the collection's
 schema when they run.
 
-**Typing waits for its first consumer.** Collections declared in
-`epicenter.json` reach `defineApp` through the import, whose types TypeScript
-widens (`"enum": ["new", "known"]` would be `string[]`). Literal types for them
-matter only once collection handles exist in `run`, so how they are typed is
-decided with the handles, in the build step that adds them (K1 and K2 in
-`specs/20261107T222922-epicenter-is-where-personal-software-lives.md`). Amended
-2026-11-09 (F10): the generated `epicenter.d.json.ts`, `epicenter types`, the
-listing's note about it, and the problem for a declaration that differs from the
-file were built and then deleted, since nothing read their types yet.
+**Collections are typed from a generated `epicenter.d.json.ts`.** `epicenter`
+writes it beside `epicenter.json` in `epicenter new`, and again whenever it loads
+an app whose `epicenter.d.json.ts` is missing or older than `epicenter.json`. It
+declares the file's literal type, so `import declaration from './epicenter.json'`
+is typed exactly (an `enum` of `["new", "known"]` stays those two strings) and
+`defineApp(declaration, { actions })` types each collection handle in `run` from
+it. The file is committed, so a fresh clone is typed before anything runs, and
+nobody edits it. An app's `tsconfig.json` sets `allowArbitraryExtensions`.
 
 **`epicenter.json` on disk is the declaration.** `epicenter` reads the app's
-name, description, and declared collections from the file, never from
-`defineApp`'s first argument. The argument, imported from `./epicenter.json`, is
-taken now so that collection handles can be typed from it without changing any
-app.
+name, description, and collections from the file, never from `defineApp`'s
+first argument, which exists to carry the types.
 
 **One schema defines the declaration.** A TypeBox schema in `@epicenter/app` is
 the source of the JSON Schema published at
@@ -128,14 +123,16 @@ editor.
 
 - A folder with only `epicenter.json` cannot run code, and any language can read
   and write its declaration.
-- A program's shapes and another author's actions share a folder without either
-  taking over the other's file, so actions can be added to a folder a program
-  owns.
-- An app with code has two declaration files, plus a `package.json` and a
-  `tsconfig.json` for its editor.
+- A program's shapes and another author's actions share a folder: the actions
+  are in `epicenter.ts`, and a collection they need is one more entry in
+  `epicenter.json`, which the program keeps when it rewrites its own.
+- An app with code has `epicenter.json`, the generated `epicenter.d.json.ts`,
+  and `epicenter.ts`, plus a `package.json` and a `tsconfig.json` for its editor.
+- A program that rewrites `epicenter.json` parses it and keeps the collections
+  it does not own.
 - `defineApp` no longer takes `name` or `description`, and the `reading` example
   gains an `epicenter.json`.
-- Verified 2026-11-08, and kept for when K1 and K2 decide typing: TypeScript 7.0.2 widens a JSON import, so a test assigning
+- Verified 2026-11-08, the evidence for `epicenter.d.json.ts`: TypeScript 7.0.2 widens a JSON import, so a test assigning
   `'other'` to an `enum` of `['new', 'known']` compiled; with a sibling
   `epicenter.d.json.ts` and `allowArbitraryExtensions`, the same assignment was
   refused, and without the flag TypeScript refuses to resolve the sibling. A
@@ -148,9 +145,10 @@ editor.
 - **One declaration file per app: `epicenter.json` without code, `epicenter.ts`
   with code, never both.** Adding an action to Whispering's folder would mean
   taking over Whispering's shapes.
-- **All shapes in `epicenter.json`, actions only in `epicenter.ts`.** Two writers
-  of one file when an agent adds a collection to a program's folder, each needing
-  to merge the other's collections.
+- **A shape declared beside whoever writes it (this record's decision until
+  2026-11-09).** Collections in two files, a rule for a collection in both, and
+  a merge in the listing, to spare a program from keeping collections it does
+  not own.
 - **A short form for fields (`'text'`, `'number?'`, `['new', 'known']`).** A
   schema language of Epicenter's own, translated at every consumer, with a long
   form for what it cannot say.

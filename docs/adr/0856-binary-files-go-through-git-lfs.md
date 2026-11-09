@@ -40,7 +40,7 @@ Each job has the owner Git already gives it; nothing in Epicenter sets LFS up.
 | Which files go through LFS | the folder's `.gitattributes`, written by its author |
 | Installing the filter | each computer, once; `epicenter setup` checks for `git-lfs` and says how to install it |
 | Where the bytes are stored | the `origin` host, or a `.lfsconfig` naming another server |
-| Never committing a binary into plain history | every program that commits: it refuses a path marked for LFS when `git lfs version` fails, because Git without the filter ignores the attribute and stores the whole file |
+| Never committing a binary into plain history | every program that commits: it refuses to commit when `.gitattributes` marks a path for LFS and this computer has no LFS filter, because Git without the filter ignores the attribute and stores the whole file |
 
 **Rewriting a folder's existing history into LFS is the author's choice, made
 separately.** For the vault it means measuring the media in its 9.1 GB and the

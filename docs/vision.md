@@ -17,7 +17,8 @@ which is mostly the earlier product described at the end.
 
 1. An app is a folder: `epicenter.json` says what its files are, and
    `epicenter.ts`, if present, says what you can do.
-2. Every writer commits exactly what it wrote.
+2. Actions change files; whoever knows the intent commits, and `epicenter sync`
+   commits the rest.
 3. `epicenter` runs actions, and your Epicenter runs them through `serve` for
    anything without the folder.
 4. Git moves everything, `epicenter` never merges, and each job takes the least
@@ -28,7 +29,7 @@ which is mostly the earlier product described at the end.
 - **Receipts.** You ask Claude Code to find last month's receipts for a friend.
   It runs `epicenter mail search 'receipt after:2026/09/01'`, reads a few with
   `epicenter mail show --attachments`, which saves their files into Mail's own
-  folder and commits them. Gmail is unchanged.
+  folder. Gmail is unchanged.
 - **The inbox.** `epicenter mail archive <id>` archives one message. For many,
   `epicenter mail search 'category:promotions' > batches/newsletters.local.md`
   writes a batch: one id per line, grouped by sender. You delete the lines for
@@ -42,8 +43,8 @@ which is mostly the earlier product described at the end.
   code.
 - **A recording on a plane.** Whispering records, transcribes, and pastes, with no
   network and no `epicenter`. It writes each recording into `~/Epicenter/whispering`
-  and commits it; when the laptop is back online, Whispering pushes, and your
-  Epicenter's copy has it after a pull.
+  and commits it; when the laptop is back online, Whispering syncs, and your
+  Epicenter's copy has it at its next sync.
 - **Adding to someone else's folder.** You ask an agent for a weekly summary of
   your voice notes. It adds an `epicenter.ts` to Whispering's folder with a
   `summaries` collection and a `summarize week` action. Whispering keeps writing
@@ -71,6 +72,7 @@ Claude Desktop, Whispering, the Epicenter app.
 vocab/
   epicenter.json          name, description, collections
   epicenter.ts            actions
+  epicenter.d.json.ts     types for epicenter.json, written by epicenter
   words/serendipity.md    data: front matter and a body
   .cache/                 rebuildable files, ignored by Git
   .gitignore, .gitattributes
@@ -110,28 +112,28 @@ export default defineApp(declaration, {
 });
 ```
 
-A folder with only `epicenter.json` is a whole app that cannot run code. Each
-declaration file has one writer: Whispering writes its folder's
-`epicenter.json`; you or an agent write `epicenter.ts`. Nothing is declared in
-both. `run` gets `folder` (the app's files), `secrets` (its sign-ins), and
-`collections` (the same four actions every client gets, checked against each
-collection's schema). Types come from the `field` helpers; how `epicenter.json`'s
-collections are typed is decided with the collection handles.
+A folder with only `epicenter.json` is a whole app that cannot run code. Every
+collection is declared in `epicenter.json`; `epicenter.ts` holds only actions.
+`run` gets `folder` (the app's files, and `folder.commit`), `secrets` (its
+sign-ins), and `collections` (the same four actions every client gets, checked
+against each collection's schema). Each collection is typed from
+`epicenter.d.json.ts`, which `epicenter` regenerates when `epicenter.json`
+changes.
 
 ## How a write happens
 
-**If you have the folder, write the files and commit what you wrote.** That is
-true for you in your editor, for Claude Code, and for Whispering.
+**If you have the folder, write the files and commit them when you know what the
+change was.** That is true for you in your editor, for Claude Code, and for
+Whispering.
 
 **If you do not, or the write needs a sign-in or an app's rule, ask for an
 action.** That is true for Claude Desktop, the Epicenter app, and the terminal on
 another computer.
 
-**An action commits exactly what it wrote, whatever happens.** It writes as it
-runs and is refused any file you have edited and not committed. When it ends,
-`epicenter` commits the files that still hold what it wrote, with a message
-naming the action and, if it failed, why. `git revert` undoes it. Exit codes
-tell an agent what happened: 0 ran, 2 did not run, 3 ran and failed.
+**An action changes files and commits only if its author says so.** `run` calls
+`folder.commit('Add 12 words')` when one run is one change; otherwise what it
+wrote waits for you, your agent, or `epicenter sync` to commit it. Exit codes
+tell an agent what happened: 0 returned, 1 threw, 2 did not run.
 
 ## Where code runs, and how to reach it
 
@@ -156,9 +158,10 @@ your agents' permission rules.
 ## How data moves
 
 Each app with history has one Git remote, `origin`: where copies meet, and the
-backup. After each commit `epicenter` pushes, fast-forward only. It never pulls
-and never merges; the listing tells you when a copy is behind, and taking in
-another computer's changes is a pull you or your agent make. Binary files a
+backup. `epicenter sync` commits what is left, pulls with `--rebase`, and pushes;
+it is the only command that touches a remote. You, an agent, a screen's button,
+or a launchd job on each computer runs it. The Mac Studio and the laptop never
+talk to each other; each syncs with `origin`. Binary files a
 folder tracks go through Git LFS: text is history, binaries are content.
 `.cache/` and sign-ins never leave a computer.
 
@@ -184,7 +187,7 @@ Gmail sign-in on a computer that is always on.
 | Describe a field | JSON Schema | never |
 | Change data | edit a file | it needs a rule, a sign-in, or reach |
 | An action | a collection's four | it needs logic |
-| Record what ran | its commit and its own files | never |
+| Record what ran | its own files, and a commit by whoever knows the intent | never |
 | Share data between programs | the folder | never |
 | Move data | Git | never |
 | Big files | `.gitattributes` | never |

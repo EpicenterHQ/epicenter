@@ -255,9 +255,11 @@ real `~/Epicenter`, the vault, or the Keychain.
 | K1–K2 | collections and their handles | to write | with Vocab |
 
 Done (2026-11-09): waves 0 and 1, and 2a, 2b, 2c, and wave 3's offline parts.
-Next, after the branch merges into `main`: a prototype of each action working in
-its own checkout, on the next app (Vocab or Zhongwen, not yet chosen); then
-Mail, as ADR-0859 reshapes it.
+Next: ADR-0850 as rewritten on 2026-11-09 replaces the checkout prototype. Delete
+the commit machinery, add `folder.commit` and `epicenter sync` (ADR-0851), then
+build Vocab with collections only in `epicenter.json` and types from
+`epicenter.d.json.ts` (ADR-0857, K1, K2); then Mail, as ADR-0859 reshapes it.
+C1–C9 and the race retire with the machinery.
 
 **0. Tag and prune.** Done. Tagged `folder-sync-product`; `apps/epicenter`
 deleted; the frozen apps stay until each is rebuilt (ADR-0843).

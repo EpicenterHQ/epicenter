@@ -3,8 +3,8 @@
 - **Status:** Proposed
 - **Date:** 2026-11-08
 - **Amends:** [ADR-0844](0844-one-runner-runs-anywhere-and-every-surface-is-a-view-over-it.md) at Epicenter Cloud, which hosts a remote and a computer rather than being a separate product. [ADR-0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md) at `epicenter add`, which also links a folder, at `epicenter new`, which becomes `add` from a built-in template, and at the `{ from, sha }` record, which the `upstream` branch already holds.
-- **Relates:** [ADR-0849](0849-your-epicenter-is-one-always-reachable-computer-that-runs-named-actions.md) (your Epicenter), [ADR-0850](0850-every-writer-commits-exactly-what-it-wrote.md) (the commit rule), [ADR-0851](0851-an-app-with-history-has-one-git-remote-its-meeting-point-and-backup.md) (`origin`), [ADR-0853](0853-collections-give-four-actions-and-programs-without-the-folder-ask-over-mcp.md) (MCP), [ADR-0856](0856-binary-files-go-through-git-lfs.md) (binary files), [ADR-0857](0857-an-app-declares-itself-in-epicenter-json-and-its-code-in-epicenter-ts.md) (the declaration). [docs/vision.md](../vision.md) explains the whole.
-- **Unbuilt:** the registry and Epicenter Cloud. Built 2026-11-09: `new` as the built-in template, `add <folder>` linking a folder and making its history with `--init`, and `add <git url>` cloning the app and keeping the source as the `upstream` remote and branch. Repaired 2026-11-09 after the final review (F8): `new`, `add --init`, and `add <git url>` adopt a folder through one step.
+- **Relates:** [ADR-0849](0849-your-epicenter-is-one-always-reachable-computer-that-runs-named-actions.md) (your Epicenter), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (the commit rule), [ADR-0851](0851-an-app-with-history-has-one-git-remote-its-meeting-point-and-backup.md) (`origin`), [ADR-0853](0853-collections-give-four-actions-and-programs-without-the-folder-ask-over-mcp.md) (MCP), [ADR-0856](0856-binary-files-go-through-git-lfs.md) (binary files), [ADR-0857](0857-an-app-declares-itself-in-epicenter-json-and-its-code-in-epicenter-ts.md) (the declaration). [docs/vision.md](../vision.md) explains the whole.
+- **Unbuilt:** the registry, Epicenter Cloud, and `add` without `--init` and without the `upstream` remote. Built 2026-11-09: `new` as the built-in template, `add <folder>` linking a folder and making its history with `--init`, and `add <git url>` cloning the app and keeping the source as the `upstream` remote and branch; `--init`, `upstream`, and the commit `add` makes are to be deleted.
 
 ## Context
 
@@ -28,7 +28,7 @@ same job.
 | Describe a field | JSON Schema, an existing standard (ADR-0857) | never: no schema language of Epicenter's own |
 | Change data | edit a file and commit it | it needs a rule, a sign-in, or reach: an action |
 | An action | a collection's `list`, `show`, `save`, `delete` (ADR-0853) | it needs logic: one the author writes |
-| Record what an action did | its commit, and its own files (ADR-0850) | never: no transactions or run log |
+| Record what an action did | its own files, and a commit by whoever knows the intent (ADR-0850) | never: no transactions or run log |
 | Two programs sharing data | share the folder | never: programs do not call each other |
 | Move data between computers | Git, with no merging by Epicenter (ADR-0851) | never: no sync engine |
 | Big files | a line in `.gitattributes` (ADR-0856) | never: no Epicenter setting |
@@ -53,22 +53,21 @@ different parts filled in: Mail has actions and no program of its own;
 Whispering has a program and, until someone adds some, no actions.
 
 **A program has the folder or asks.** With the folder, it writes files and
-commits exactly what it wrote (ADR-0850). Without it, or when it needs a sign-in
+commits them when it knows the intent, or leaves them to `epicenter sync`
+(ADR-0850, ADR-0851). Without it, or when it needs a sign-in
 or an app's rule, it asks for an action over MCP. Programs never call each
 other; two programs sharing an app meet at its folder. No program changes how it
 writes because another program is installed.
 
-**`epicenter add` makes something one of your apps.** From a Git URL it clones the
-app, its history included, and keeps the source as its `upstream` remote and
-branch, which record where it came from and at which commit; the copy's own
-branch tracks nothing until it has an `origin`. From a folder it links the
-folder into `~/Epicenter`, and, if the folder is not yet a Git repository, makes
-one when asked with `--init`, committing what is there as its first commit.
-`epicenter new <name>` is `add` from a built-in template: `epicenter.json` with
-its `$schema`, a `.gitignore` with `node_modules/` and `.cache/`, and a
-`.gitattributes` (ADR-0856). All three adopt the folder the same way: write the
-template files it lacks, make it a repository if it is not one, set up Git LFS
-when it is installed, and commit what that added. Sharing an app is sharing its Git URL; there is no
+**`epicenter add` makes something one of your apps, by linking or cloning.**
+`epicenter add <folder>` links the folder into `~/Epicenter`, whether or not it
+is a repository, or inside one. `epicenter add <git url>` is `git clone` into
+`~/Epicenter`; the clone's remotes are Git's. Neither commits anything.
+`epicenter new <name>` makes the folder from a built-in template:
+`epicenter.json` with its `$schema`, a `.gitignore` with `node_modules/`,
+`.cache/`, `*.local`, and `*.local.*` (ADR-0858), and a `.gitattributes`
+(ADR-0856); it makes the folder a repository, sets up Git LFS when it is
+installed, and commits the template. Sharing an app is sharing its Git URL; there is no
 second way, such as an npm package an app re-exports.
 
 **Epicenter provides defaults, each an ordinary instance of an open standard.**

@@ -4,7 +4,7 @@
 - **Date:** 2026-11-08
 - **Supersedes:** [ADR-0846](0846-epicenter-owns-no-infrastructure-and-each-repository-has-one-meeting-point.md): schedules and `epicenter tick`, the front door and its OS timer, a meeting point per app, the door into a box branch, the backup check, and the secrets experiment.
 - **Amends:** [ADR-0844](0844-one-runner-runs-anywhere-and-every-surface-is-a-view-over-it.md) at who runs a named action (your Epicenter only), the laptop's own runner (a folder path instead), and the browser runner (refused). [ADR-0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md) at discovery: `~/Epicenter` exists on your Epicenter and is not moved by an environment variable, and another computer lists your Epicenter's apps.
-- **Relates:** [ADR-0850](0850-every-writer-commits-exactly-what-it-wrote.md) (the commit rule), [ADR-0851](0851-an-app-with-history-has-one-git-remote-its-meeting-point-and-backup.md) (the remote), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (programs that have the folder or ask), [ADR-0853](0853-collections-give-four-actions-and-programs-without-the-folder-ask-over-mcp.md) (MCP).
+- **Relates:** [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (the commit rule), [ADR-0851](0851-an-app-with-history-has-one-git-remote-its-meeting-point-and-backup.md) (the remote), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (programs that have the folder or ask), [ADR-0853](0853-collections-give-four-actions-and-programs-without-the-folder-ask-over-mcp.md) (MCP).
 - **Unbuilt:** `epicenter setup`, forwarding to `serve`, and `epicenter serve` over HTTP. Built: `epicenter serve --stdio`, which replaced `epicenter mcp`, and the home at `$HOME/Epicenter` with `EPICENTER_HOME` removed.
 
 ## Context
@@ -49,8 +49,9 @@ epicenter ./vocab define serendipity   here, in that folder
 ```
 
 A folder path runs in that folder, on this computer, for developing an app,
-working offline, or a folder of one's own. Both follow the same commit rule
-(ADR-0850). Runs of one app on one computer take turns.
+working offline, or a folder of one's own. Both follow the same rule: a run
+commits only when its action calls `folder.commit` (ADR-0850), and runs do not
+take turns.
 
 **Sign-ins live on your Epicenter.** `epicenter mail connect` runs there.
 Keychain access does not stop another program running as the same user, so the

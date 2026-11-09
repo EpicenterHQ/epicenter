@@ -8,8 +8,10 @@ outcome we committed to.
 **Start with [ADR-0840](0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md).** On 2026-11-07 Epicenter became where one person's
 software lives: each app is a folder whose `epicenter.ts` defines its actions
 ([ADR-0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md)),
-and an action is a commit in that folder's repository
-([ADR-0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md)).
+and the folder's repository is its history and its sync
+([ADR-0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md)),
+committed by whoever knows the intent rather than by each action
+([ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md)).
 Records 0802 to 0839 designed a folder sync product for many people, with
 [ADR-0835](0835-records-from-0802-to-0834-agree-on-files-a-ledger-and-git-at-the-edges.md)
 as its register; ADR-0840 supersedes them as governing current work, and they
@@ -1055,7 +1057,7 @@ When you add an ADR, add its row here.
 | [0847](0847-an-app-brings-its-providers-credentials-with-a-default-in-its-code.md) | An app brings its provider's credentials, with a default in its code | Accepted |
 | [0848](0848-the-runner-owns-only-what-an-action-wrote.md) | The runner owns only what an action wrote | Accepted |
 | [0849](0849-your-epicenter-is-one-always-reachable-computer-that-runs-named-actions.md) | Your Epicenter is one always-reachable computer that runs named actions | Proposed |
-| [0850](0850-every-writer-commits-exactly-what-it-wrote.md) | Every writer commits exactly what it wrote | Proposed |
+| [0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) | Every writer commits exactly what it wrote | Proposed |
 | [0851](0851-an-app-with-history-has-one-git-remote-its-meeting-point-and-backup.md) | An app with history has one Git remote, its meeting point and its backup | Proposed |
 | [0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) | An app is a folder with a declared shape, and each job takes the least powerful form | Proposed |
 | [0853](0853-collections-give-four-actions-and-programs-without-the-folder-ask-over-mcp.md) | Collections give four actions, and programs without the folder ask over MCP | Proposed |
