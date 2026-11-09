@@ -2,15 +2,16 @@
 
 - **Status:** Proposed
 - **Date:** 2026-11-10
-- **Relates:** [ADR-0840](0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md) (one person's software), [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) (your server), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (who commits), [ADR-0851](0851-an-app-with-history-has-one-git-remote-its-meeting-point-and-backup.md) (the remote), [ADR-0853](0853-collections-give-four-actions-and-programs-without-the-folder-ask-over-mcp.md) (the four verbs, MCP), [ADR-0857](0857-an-app-declares-itself-in-epicenter-json-and-its-code-in-epicenter-ts.md) (`epicenter.json`, `epicenter.ts`), [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (views), [ADR-0861](0861-whats-yours-is-everywhere-and-everything-else-is-used-where-it-is.md), [ADR-0862](0862-notes-merge-field-by-field-and-every-conflict-is-listed-for-repair.md) (the merge), [ADR-0863](0863-epicenter-is-one-place-and-one-app-shows-it-on-every-device-you-own.md) (the Epicenter app). Where those Proposed records disagree with this one, they are edited to match.
+- **Relates:** [ADR-0840](0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md) (one person's software), [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) (your server), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (who commits), [ADR-0851](0851-an-app-with-history-has-one-git-remote-its-meeting-point-and-backup.md) (the remote), [ADR-0853](0853-collections-give-four-actions-and-programs-without-the-folder-ask-over-mcp.md) (the four verbs, MCP), [ADR-0857](0857-an-app-declares-itself-in-epicenter-json-and-its-code-in-epicenter-ts.md) (`epicenter.json`, `epicenter.ts`), [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (views), [ADR-0861](0861-whats-yours-is-everywhere-and-everything-else-is-used-where-it-is.md), [ADR-0862](0862-notes-merge-field-by-field-and-every-conflict-is-listed-for-repair.md) (the merge).
 - **Unbuilt:** `epicenter serve` over HTTPS, one commit per write through it and the push to its mirror, the typed client `open()`, the list of trusted repositories, the sign-in, Whispering's Git sync, and the `push-to-checkout` hook. Built: each collection's `list`, `get`, `set`, and `delete` from the command line and over `epicenter serve --stdio` (`packages/app/src/collection.ts`).
 
 ## Context
 
-ADR-0863 put one Epicenter app on every device, each phone holding its own Git
-copy of every app, and ran `epicenter.json` everywhere and `epicenter.ts` only on
-computers. Designing a hosted version for other people then led to running every
-app's `epicenter.ts` in the cloud: a Durable Object per repository holding its
+ADR-0863 (deleted; recoverable at `d779775119`) put one Epicenter app on every
+device, each phone holding its own Git copy of every app, and ran
+`epicenter.json` everywhere and `epicenter.ts` only on computers. Designing a
+hosted version for other people then led to running every app's
+`epicenter.ts` in the cloud: a Durable Object per repository holding its
 files, a Cloudflare Dynamic Worker per call, and a context of bindings (Google
 sign-ins, `fetch` to declared hosts, models) that Epicenter would hold and keep
 growing. Each step followed from one premise: that Epicenter runs other people's
@@ -122,7 +123,7 @@ Another person's Epicenter is the same program on their own computer.
 - **A hosted runtime for every app's code: Durable Objects, Dynamic Workers, a
   context of bindings.** Epicenter would sandbox strangers' code, hold their
   tokens, and grow a binding for each service an app needs.
-- **One Epicenter app holding a copy on every device (ADR-0863 as written).**
+- **One Epicenter app holding a copy on every device (ADR-0863).**
   Git, a merge, and App Review on the phone, for offline use nobody asked for.
 - **A container per person.** Its disk is gone after it sleeps, so every wake
   clones again and every write must push before answering.

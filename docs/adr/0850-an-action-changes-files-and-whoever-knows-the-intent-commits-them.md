@@ -4,8 +4,8 @@
 - **Date:** 2026-11-09 (first drafted 2026-11-08 as "Every writer commits exactly what it wrote")
 - **Supersedes:** [ADR-0848](0848-the-runner-owns-only-what-an-action-wrote.md): recorded writes and run phases.
 - **Amends:** [ADR-0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md) at "an action is a commit": a run makes no commit of its own, nothing is undone, exit codes are 0, 1, and 2, and a refusal to run is `{ error: { name, message, next? } }` without `code`.
-- **Relates:** [ADR-0851](0851-an-app-with-history-has-one-git-remote-its-meeting-point-and-backup.md) (`epicenter sync`), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (programs that write a folder), [ADR-0856](0856-binary-files-go-through-git-lfs.md) (LFS), [ADR-0858](0858-where-a-file-lives-decides-whether-it-travels-survives-or-dies-with-its-program.md) (what each path becomes), [ADR-0859](0859-an-action-changes-the-folder-or-the-world-and-a-world-verb-is-safe-to-repeat.md) (the folder and the world).
-- **Unbuilt:** all of it: `folder.commit`, the report as `{ returned }` or `{ threw }`, exit code 1, and the deletions under Consequences. The first draft was built 2026-11-09 and is what `packages/cli/src/commit.ts` and `run.ts` do today; it is recoverable at `9943c668db`.
+- **Relates:** [ADR-0851](0851-an-app-with-history-has-one-git-remote-its-meeting-point-and-backup.md) (`epicenter sync`), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (programs that write a folder), [ADR-0856](0856-binary-files-go-through-git-lfs.md) (LFS), [ADR-0858](0858-where-a-file-lives-decides-whether-it-travels-survives-or-dies-with-its-program.md) (what each path becomes), [ADR-0859](0859-an-action-changes-the-folder-or-the-world-and-a-world-verb-is-safe-to-repeat.md) (the folder and the world), [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (a commit per write through `serve`).
+- **Unbuilt:** `epicenter serve`'s commit after each write it runs (ADR-0864). Built: `folder.commit`, the answer as `{ returned }`, `{ threw }`, or `{ error }` with exit codes 0, 1, and 2, and the deletions under Consequences. The first draft is recoverable at `9943c668db`.
 
 ## Context
 
@@ -31,9 +31,10 @@ it leaves is uncommitted until something commits it.
 **Whoever knows the intent commits.**
 
 ```txt
-the action   await folder.commit('Add 12 words')   its author decided one run is one change
-an agent     git commit -m '…'                      after a sequence it understands
-anyone       epicenter sync                         everything left (ADR-0851)
+the action        await folder.commit('Add 12 words')   its author decided one run is one change
+epicenter serve   capture: captures set dune            one write a client asked for (ADR-0864)
+an agent          git commit -m '…'                      after a sequence it understands
+anyone            epicenter sync                         everything left (ADR-0851)
 ```
 
 **`folder.commit(message)` commits everything changed in the app's folder and
