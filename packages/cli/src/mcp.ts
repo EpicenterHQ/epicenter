@@ -1,9 +1,10 @@
 /**
  * `epicenter serve --stdio`: your apps' actions over MCP (ADR-0849, ADR-0853).
  *
- * The server never imports an app. `tools/list` runs `epicenter --json` and
- * offers each action it lists; `tools/call` runs
- * `epicenter <app> <words> --input <json> --json` in a fresh process. So the
+ * The server never imports an app. `tools/list` runs `epicenter <app> --json`
+ * for each home entry and offers the actions each lists; `tools/call` decodes
+ * the tool name and runs `epicenter <app> <words> --input <json>` in a fresh
+ * process, which checks the app, the action, and the input. So the
  * code and declaration on disk when a call arrives are what runs, an edit
  * between two calls is seen by the second, and a call's result is the same
  * object `--json` prints: `structuredContent` on success, and with
@@ -20,26 +21,25 @@ import {
 import packageJson from '../package.json' with { type: 'json' };
 import { renderReport, writeErr } from './output.ts';
 import { runChild } from './child.ts';
+import { entryNames } from './home.ts';
 import type { RunReport, Unknown } from './report.ts';
 
-type Listed = {
-	apps: { name: string; actions: Tool[] }[];
-	problems: { entry: string; problems: string[] }[];
-};
-
-/** The tools the home offers now, each with the app and action words that run it. */
-async function listTools() {
-	const { apps, problems } = (await runChild(['--json'], { stdin: 'ignore' }))
-		.answer as Listed;
-	for (const { entry, problems: found } of problems)
-		writeErr(`${entry}: ${found.join('; ')}`);
-	return apps.flatMap((app) =>
-		app.actions.map((tool) => ({
-			tool,
-			app: app.name,
-			words: tool.name.slice(app.name.length + 1).split('_'),
-		})),
+/**
+ * The tools the home offers now. Each entry is listed by its own child, so an
+ * app that fails to import, or prints while importing, loses only its own
+ * tools; why is written to stderr.
+ */
+async function listTools(): Promise<Tool[]> {
+	const listed = await Promise.all(
+		(await entryNames()).map(async (entry) => {
+			const { answer } = await runChild([entry, '--json'], { stdin: 'ignore' });
+			const value = answer as { actions?: Tool[]; error?: { message: string } };
+			if (value.actions) return value.actions;
+			writeErr(`${entry}: ${value.error?.message ?? JSON.stringify(answer)}`);
+			return [];
+		}),
 	);
+	return listed.flat();
 }
 
 /**
@@ -74,27 +74,15 @@ export async function serveStdio(): Promise<number> {
 		{ capabilities: { tools: {} } },
 	);
 	server.setRequestHandler(ListToolsRequestSchema, async () => ({
-		tools: (await listTools()).map(({ tool }) => tool),
+		tools: await listTools(),
 	}));
 	server.setRequestHandler(CallToolRequestSchema, async (request) => {
-		const found = (await listTools()).find(
-			({ tool }) => tool.name === request.params.name,
-		);
-		if (!found) {
-			const error = {
-				name: 'Usage',
-				message: `Unknown tool ${request.params.name}`,
-			};
-			return {
-				isError: true,
-				content: [{ type: 'text' as const, text: error.message }],
-				structuredContent: { error },
-			};
-		}
+		// `<app>_<word>_<word>`: no app name or action word holds an underscore, so this undoes the encoding.
+		const [app = '', ...words] = request.params.name.split('_');
 		const { answer, code } = await runChild(
 			[
-				found.app,
-				...found.words,
+				app,
+				...words,
 				'--input',
 				JSON.stringify(request.params.arguments ?? {}),
 				'--json',

@@ -235,6 +235,11 @@ function message(error: unknown) {
 	return error instanceof Error ? error.message : String(error);
 }
 
+/** The names of the home's entries that look like apps, sorted, without importing any of them. */
+export async function entryNames() {
+	return (await entries()).entries.map(({ entry }) => entry);
+}
+
 /** Import every home entry independently so one broken app does not hide the rest. */
 export async function discoverAll() {
 	const found = await entries();
