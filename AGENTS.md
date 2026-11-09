@@ -1,6 +1,6 @@
 # Epicenter
 
-Where one person's software lives: small apps the person and their agents make and change, each a folder of files in `~/Epicenter`; the `epicenter` CLI runs their actions, and the Epicenter app shows them on every device the person owns (ADR-0840, ADR-0863). Most code in this monorepo is still the earlier folder sync product, which waits.
+Where one person's software lives: small apps the person and their agents make and change, each a folder of files in `~/Epicenter`; the `epicenter` CLI runs their actions, and `epicenter serve` on the person's always-on computer offers them to every device they own and to their agents (ADR-0840, ADR-0864). Most code in this monorepo is still the earlier folder sync product, which waits.
 
 For orientation, read the relevant app or package README and verify it against
 current code. `apps/README.md` describes application composition; package
