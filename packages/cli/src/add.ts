@@ -15,7 +15,6 @@ import { randomUUID } from 'node:crypto';
 import {
 	mkdir,
 	readdir,
-	readFile,
 	realpath,
 	rename,
 	rm,
@@ -24,10 +23,10 @@ import {
 	writeFile,
 } from 'node:fs/promises';
 import { join } from 'node:path';
-import { nameProblem, problemsOf, SCHEMA_URL } from '@epicenter/app';
+import { nameProblem, SCHEMA_URL } from '@epicenter/app';
 import { CliError } from './errors.ts';
 import { checkedGit, git } from './git.ts';
-import { homeDir, resolveFolder } from './home.ts';
+import { homeDir, readDeclaration, resolveFolder } from './home.ts';
 import { fail, made } from './output.ts';
 
 /** Binary types the template routes through Git LFS (ADR-0856). */
@@ -111,23 +110,6 @@ async function isRepositoryTop(folder: string) {
 	);
 }
 
-/** The declaration's name in `folder`, or why there is none. */
-async function declaredName(
-	folder: string,
-): Promise<{ error: string } | { name: string }> {
-	let declaration: unknown;
-	try {
-		declaration = JSON.parse(
-			await readFile(join(folder, 'epicenter.json'), 'utf8'),
-		);
-	} catch {
-		return { error: `${folder} has no readable epicenter.json` };
-	}
-	const problems = problemsOf(declaration);
-	if (problems.length) return { error: problems.join('\n') };
-	return { name: (declaration as { name: string }).name };
-}
-
 function done(name: string, json: boolean) {
 	return made(
 		{ name, folder: join(homeDir(), name), next: `epicenter ${name}` },
@@ -187,10 +169,13 @@ async function addFolder(source: string, init: boolean, json: boolean) {
 			json,
 		);
 	}
-	const declared = await declaredName(folder);
-	if ('error' in declared)
-		return fail(CliError.Usage({ message: declared.error }).error, json);
-	const { name } = declared;
+	const read = await readDeclaration(folder);
+	if ('problems' in read)
+		return fail(
+			CliError.AppProblems({ app: folder, problems: read.problems }).error,
+			json,
+		);
+	const { name } = read.declaration;
 	if (await taken(name))
 		return fail(
 			CliError.Usage({ message: `${name} already exists in ${homeDir()}` })
@@ -230,10 +215,13 @@ async function addFromUrl(url: string, json: boolean) {
 			url,
 			staging,
 		]);
-		const declared = await declaredName(staging);
-		if ('error' in declared)
-			return fail(CliError.Usage({ message: declared.error }).error, json);
-		const { name } = declared;
+		const read = await readDeclaration(staging);
+		if ('problems' in read)
+			return fail(
+				CliError.AppProblems({ app: url, problems: read.problems }).error,
+				json,
+			);
+		const { name } = read.declaration;
 		if (await taken(name))
 			return fail(
 				CliError.Usage({ message: `${name} already exists in ${homeDir()}` })

@@ -128,6 +128,28 @@ async function entries() {
 	}
 }
 
+/** `folder`'s `epicenter.json`, parsed and checked, or what is wrong with it. Imports no code. */
+export async function readDeclaration(
+	folder: string,
+): Promise<{ declaration: Declaration } | { problems: string[] }> {
+	let declaration: unknown;
+	try {
+		declaration = JSON.parse(await readFile(join(folder, DECLARATION), 'utf8'));
+	} catch (error) {
+		return {
+			problems: [
+				(error as NodeJS.ErrnoException).code === 'ENOENT'
+					? `has no ${DECLARATION}`
+					: `${DECLARATION} is not JSON: ${message(error)}`,
+			],
+		};
+	}
+	const problems = problemsOf(declaration);
+	return problems.length
+		? { problems }
+		: { declaration: declaration as Declaration };
+}
+
 async function load(
 	{ code, ...place }: NonNullable<Awaited<ReturnType<typeof entryAt>>>,
 	entry?: string,
@@ -139,22 +161,11 @@ async function load(
 		name: entry ?? '',
 		problems,
 	});
-	let declaration: unknown;
-	try {
-		declaration = JSON.parse(
-			await readFile(join(place.realPath, DECLARATION), 'utf8'),
-		);
-	} catch (error) {
-		return broken([
-			(error as NodeJS.ErrnoException).code === 'ENOENT'
-				? `has ${CODE} but no ${DECLARATION}`
-				: `${DECLARATION} is not JSON: ${message(error)}`,
-		]);
-	}
-	const name = (declaration as { name?: unknown } | null)?.name;
 	// An invalid declaration is reported before any of the app's code runs.
-	const declared = problemsOf(declaration);
-	if (declared.length) return broken(declared);
+	const read = await readDeclaration(place.realPath);
+	if ('problems' in read) return broken(read.problems);
+	const { declaration } = read;
+	const { name } = declaration;
 	let module: { default?: unknown } | undefined;
 	if (code) {
 		try {
@@ -176,8 +187,8 @@ async function load(
 	return {
 		...at,
 		ok: true,
-		name: name as string,
-		declaration: declaration as Declaration,
+		name,
+		declaration,
 		collections: app?.collections ?? {},
 		actions: app?.actions ?? {},
 	};
