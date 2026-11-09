@@ -560,7 +560,9 @@ test('F6 the child killed after its commit reports exit 3 with the heads; the ch
 		},
 	});
 	await rm(hook);
+	// Killed between moving HEAD and updating the index, the child leaves Git's index lock and an index that still says HEAD~1.
 	await rm(join(folder, '.git', 'index.lock'), { force: true });
+	await gitIn(folder, 'reset', '-q');
 
 	const parent = Bun.spawn(
 		[process.execPath, f.bin, 'notes', 'orphan', '--signals', f.signals],

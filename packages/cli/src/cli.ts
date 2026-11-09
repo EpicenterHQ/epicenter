@@ -22,7 +22,16 @@ import {
 	oneAppListing,
 } from './listing.ts';
 import { serveStdio } from './mcp.ts';
-import { fail, presentReport, writeJson, writeOut } from './output.ts';
+import { REPORT_FLAG, runChild } from './child.ts';
+import {
+	answerInto,
+	fail,
+	presentAnswer,
+	presentReport,
+	writeJson,
+	writeOut,
+	writeStarted,
+} from './output.ts';
 import { runAction } from './run.ts';
 import { typesCommand } from './types.ts';
 
@@ -73,11 +82,18 @@ function inputOf(action: Action, rest: string[]) {
 
 /** Dispatch app commands and return an exit code so the entrypoint can let stdout drain. */
 export async function runCli(argv: string[]): Promise<number> {
+	// A child of another epicenter answers into the report file it names (child.ts).
+	const reportArg = argv.find((token) => token.startsWith(REPORT_FLAG));
+	if (reportArg) {
+		answerInto(reportArg.slice(REPORT_FLAG.length));
+		argv = argv.filter((token) => token !== reportArg);
+	}
+	const relayed = argv;
 	if (argv[0] === 'help') argv = [...argv.slice(1), '--help'];
 	let leading = 0;
 	while (GLOBALS.has(argv[leading] ?? '')) leading++;
 	const tokens: string[] = [];
-	let json = false;
+	let json = reportArg !== undefined;
 	let help = false;
 	let version = false;
 	let literal = false;
@@ -190,6 +206,12 @@ export async function runCli(argv: string[]): Promise<number> {
 				CliError.Usage({ message: `epicenter ${name} is not built yet` }).error,
 				json,
 			);
+		// Running an action is two processes; the child owns the whole run.
+		if (!reportArg && words.length > 0 && !help)
+			return presentAnswer(
+				(await runChild(relayed, { stdin: 'inherit' })).answer,
+				json,
+			);
 		const { data: located, error: notFound } = await (isFolderPath(name)
 			? loadFolder(name, words)
 			: loadHomeApp(name));
@@ -233,6 +255,7 @@ export async function runCli(argv: string[]): Promise<number> {
 			located,
 			matched.key,
 			given.input,
+			writeStarted,
 		);
 		if (error) return fail(error, json);
 		return presentReport(report, json);

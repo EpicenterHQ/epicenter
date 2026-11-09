@@ -6,7 +6,6 @@
  * written path became, and what the push did. Nothing is undone.
  */
 import { realpath } from 'node:fs/promises';
-import { format } from 'node:util';
 import type { Action } from '@epicenter/app';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
@@ -64,31 +63,13 @@ function threwOf(cause: unknown): {
 	return { message, thrown: JSON.parse(JSON.stringify(cause)) };
 }
 
-/**
- * While the action runs, stdout is epicenter's: `console.log` and
- * `console.info` go to stderr, so `--json` and `serve --stdio` stay one
- * answer each.
- */
-async function withStdoutKept<T>(work: () => Promise<T>) {
-	const { log, info } = console;
-	const toStderr = (...args: unknown[]) => {
-		process.stderr.write(`${format(...args)}\n`);
-	};
-	console.log = toStderr;
-	console.info = toStderr;
-	try {
-		return await work();
-	} finally {
-		console.log = log;
-		console.info = info;
-	}
-}
-
 /** Check the repository before an action starts, then hold its turn through the commit. */
 export async function runAction(
 	located: Runnable,
 	key: string,
 	input: Record<string, unknown>,
+	/** Called once the run holds the app's turn, with the HEAD it starts from. */
+	started: (start: { folder: string; head: string | null }) => void,
 ): Promise<Result<RunReport, CliError>> {
 	const folder = located.realPath;
 	const top = await git(folder, ['rev-parse', '--show-toplevel']);
@@ -112,19 +93,17 @@ export async function runAction(
 			{ waitMs: 86_400_000, held: `${located.name} is busy` },
 			async (): Promise<RunReport> => {
 				const log = createWriteLog(folder);
-				const outcome = await withStdoutKept(
-					async (): Promise<RunReport['action']> => {
-						try {
-							const returned = await action.run(input, {
-								folder: folderOnDisk(folder, log),
-								secrets: keychain(keychainService(located.name)),
-							});
-							return { returned: returned ?? null };
-						} catch (error) {
-							return { threw: threwOf(error) };
-						}
-					},
-				);
+				started({ folder, head: await revParse(folder, 'HEAD') });
+				let outcome: RunReport['action'];
+				try {
+					const returned = await action.run(input, {
+						folder: folderOnDisk(folder, log),
+						secrets: keychain(keychainService(located.name)),
+					});
+					outcome = { returned: returned ?? null };
+				} catch (error) {
+					outcome = { threw: threwOf(error) };
+				}
 				const failure =
 					'threw' in outcome ? outcome.threw.message : log.refused[0]?.message;
 				const subject = `${located.name} ${key}${failure === undefined ? '' : failureLabel(failure)}`;

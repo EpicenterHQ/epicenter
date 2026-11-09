@@ -19,28 +19,8 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import packageJson from '../package.json' with { type: 'json' };
 import { renderReport, writeErr } from './output.ts';
-import type { RunReport } from './report.ts';
-
-/** How to run this same `epicenter`: the compiled binary alone, or Bun with this entry. */
-function self(): string[] {
-	return Bun.main.startsWith('/$bunfs/')
-		? [process.execPath]
-		: [process.execPath, Bun.main];
-}
-
-async function epicenter(args: string[]) {
-	const child = Bun.spawn([...self(), ...args], {
-		stdin: 'ignore',
-		stdout: 'pipe',
-		stderr: 'pipe',
-	});
-	const [stdout, stderr, code] = await Promise.all([
-		new Response(child.stdout).text(),
-		new Response(child.stderr).text(),
-		child.exited,
-	]);
-	return { stdout, stderr: stderr.trim(), code };
-}
+import { runChild } from './child.ts';
+import type { RunReport, Unknown } from './report.ts';
 
 type Listed = {
 	apps: { name: string; actions: Tool[] }[];
@@ -49,8 +29,8 @@ type Listed = {
 
 /** The tools the home offers now, each with the app and action words that run it. */
 async function listTools() {
-	const listed = await epicenter(['--json']);
-	const { apps, problems } = JSON.parse(listed.stdout) as Listed;
+	const { apps, problems } = (await runChild(['--json'], { stdin: 'ignore' }))
+		.answer as Listed;
 	for (const { entry, problems: found } of problems)
 		writeErr(`${entry}: ${found.join('; ')}`);
 	return apps.flatMap((app) =>
@@ -62,8 +42,29 @@ async function listTools() {
 	);
 }
 
-function textOf(value: unknown) {
-	return [{ type: 'text' as const, text: JSON.stringify(value) }];
+/**
+ * A child's answer as an MCP result: the same value `--json` prints, as
+ * `structuredContent`, and `isError` exactly when the exit code is not 0.
+ * A failure's text is what a person would read on stderr.
+ */
+function toolResult(answer: unknown, code: number) {
+	const value = answer as Record<string, unknown>;
+	if (code === 0)
+		return {
+			content: [{ type: 'text' as const, text: JSON.stringify(value) }],
+			structuredContent: value,
+		};
+	const text =
+		'error' in value
+			? (value.error as { message: string }).message
+			: 'unknown' in value
+				? (value as Unknown).unknown.message
+				: renderReport(value as RunReport).stderr.trim();
+	return {
+		isError: true,
+		content: [{ type: 'text' as const, text }],
+		structuredContent: value,
+	};
 }
 
 /** Serve every healthy app in the home until the client ends stdin. */
@@ -90,38 +91,17 @@ export async function serveStdio(): Promise<number> {
 				structuredContent: { error },
 			};
 		}
-		const called = await epicenter([
-			found.app,
-			...found.words,
-			'--input',
-			JSON.stringify(request.params.arguments ?? {}),
-			'--json',
-		]);
-		if (called.stderr) writeErr(called.stderr);
-		let answer: Record<string, unknown>;
-		try {
-			answer = JSON.parse(called.stdout);
-		} catch {
-			const error = {
-				name: 'ActionThrew',
-				message: called.stderr || `epicenter exited ${called.code}`,
-			};
-			return {
-				isError: true,
-				content: [{ type: 'text' as const, text: error.message }],
-				structuredContent: { error },
-			};
-		}
-		if (called.code === 0)
-			return { content: textOf(answer), structuredContent: answer };
-		const message =
-			(answer.error as { message?: string } | undefined)?.message ??
-			renderReport(answer as RunReport).stderr.trim();
-		return {
-			isError: true,
-			content: [{ type: 'text' as const, text: message }],
-			structuredContent: answer,
-		};
+		const { answer, code } = await runChild(
+			[
+				found.app,
+				...found.words,
+				'--input',
+				JSON.stringify(request.params.arguments ?? {}),
+				'--json',
+			],
+			{ stdin: 'ignore' },
+		);
+		return toolResult(answer, code);
 	});
 	const transport = new StdioServerTransport();
 	const { promise: closed, resolve: closeNow } = Promise.withResolvers<void>();

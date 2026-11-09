@@ -6,6 +6,7 @@
  * same value: what was committed, left uncommitted, refused, or pushed, and a
  * `Run: <next step>` line wherever there is one.
  */
+import { writeReport } from './child.ts';
 import type { CliError } from './errors.ts';
 import {
 	exitCodeOf,
@@ -14,9 +15,23 @@ import {
 	type Unknown,
 } from './report.ts';
 
-/** Write one JSON answer per line so callers can read stdout directly. */
+/** The report file this process answers into, when it is a child (`child.ts`). */
+let reportPath: string | undefined;
+
+/** Make this process a child: its one JSON answer goes to `path`, never to stdout. */
+export function answerInto(path: string) {
+	reportPath = path;
+}
+
+/** Write the one JSON answer: to stdout, or to the report file in a child. */
 export function writeJson(value: unknown) {
-	process.stdout.write(`${JSON.stringify(value)}\n`);
+	if (reportPath) writeReport(reportPath, { answer: value });
+	else process.stdout.write(`${JSON.stringify(value)}\n`);
+}
+
+/** In a child, record that the run has begun, so a child that dies after it still says what landed. */
+export function writeStarted(started: { folder: string; head: string | null }) {
+	if (reportPath) writeReport(reportPath, { started });
 }
 
 /** Write an answer with a final newline for a person reading the command. */
@@ -94,6 +109,16 @@ export function presentUnknown(value: Unknown, json: boolean): number {
 		writeErr(`HEAD now: ${head.after ?? '(none)'}`);
 	}
 	return 3;
+}
+
+/** Present what a child answered: a report, an unknown end, a refusal to run, or a listing. */
+export function presentAnswer(answer: unknown, json: boolean): number {
+	const value = answer as Record<string, unknown>;
+	if ('error' in value) return fail(value.error as CliError, json);
+	if ('unknown' in value) return presentUnknown(value as Unknown, json);
+	if ('action' in value) return presentReport(value as RunReport, json);
+	writeJson(value);
+	return 0;
 }
 
 /** Present a command that did not run, exit 2. */

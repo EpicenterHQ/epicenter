@@ -98,8 +98,9 @@ export default defineApp(declaration, {
 			input: { signals: field.text() },
 			run: async ({ signals }, { folder }) => {
 				await folder.write('a.md', 'hung');
+				await Bun.write(signals + '/pid', String(process.pid));
 				await Bun.write(signals + '/paused', '1');
-				await new Promise(() => {});
+				await new Promise(() => setInterval(() => {}, 1000));
 			},
 		},
 		chatty: {
@@ -346,13 +347,17 @@ test('C5 gitignored paths are written and never committed', async () => {
 test('C6 a run killed with SIGKILL leaves its writes uncommitted, and the next run that writes them is refused', async () => {
 	const f = await setup();
 	const before = await f.head();
-	const child = Bun.spawn(
+	const parent = Bun.spawn(
 		[process.execPath, f.bin, 'notes', 'hang', '--signals', f.signals],
 		{ cwd: f.root, env: f.env, stdout: 'pipe', stderr: 'pipe' },
 	);
 	await f.paused();
-	child.kill('SIGKILL');
-	await child.exited;
+	// The action runs in a child of the epicenter started here (F6); the run is the child.
+	process.kill(
+		Number(await readFile(join(f.signals, 'pid'), 'utf8')),
+		'SIGKILL',
+	);
+	expect(await parent.exited).toBe(3);
 	expect(await f.head()).toBe(before);
 	expect(await readFile(join(f.folder, 'a.md'), 'utf8')).toBe('hung');
 	expect(await gitIn(f.folder, 'status', '--porcelain')).toBe('M a.md');
