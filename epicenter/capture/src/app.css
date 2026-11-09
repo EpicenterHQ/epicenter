@@ -1,1 +1,20 @@
-@import '@epicenter/ui/app.css';
+@import "@epicenter/ui/app.css";
+
+/* The scrollbar's room is kept whether or not the page scrolls, so nothing shifts as the list grows. */
+html {
+	scrollbar-gutter: stable;
+}
+
+/* The page clears an iPhone's notch, status bar, and home indicator. */
+.safe-area {
+	padding-top: max(1rem, env(safe-area-inset-top));
+	padding-right: max(1rem, env(safe-area-inset-right));
+	padding-bottom: max(4rem, env(safe-area-inset-bottom));
+	padding-left: max(1rem, env(safe-area-inset-left));
+}
+
+@media (min-width: 640px) {
+	.safe-area {
+		padding-top: max(2.5rem, env(safe-area-inset-top));
+	}
+}

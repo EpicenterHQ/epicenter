@@ -1,4 +1,5 @@
 import {
+	type Action,
 	type Collection,
 	collectionActions,
 	defineApp,
@@ -12,7 +13,9 @@ function localTime(at: Date): string {
 	const offset = -at.getTimezoneOffset();
 	const sign = offset >= 0 ? '+' : '-';
 	const pad = (n: number) => String(Math.trunc(Math.abs(n))).padStart(2, '0');
-	const local = new Date(at.getTime() + offset * 60_000).toISOString().slice(0, 19);
+	const local = new Date(at.getTime() + offset * 60_000)
+		.toISOString()
+		.slice(0, 19);
 	return `${local}${sign}${pad(offset / 60)}:${pad(offset % 60)}`;
 }
 
@@ -23,7 +26,7 @@ const PREVIEW = 280;
 const get = collectionActions(
 	'captures',
 	declaration.collections.captures as Collection,
-)['captures get']!;
+)['captures get'] as Action;
 
 /**
  * What a list shows of a capture's body: its text, cut at `PREVIEW`
@@ -96,7 +99,12 @@ const app = defineApp(declaration, {
 					if (needle && !read.body.toLowerCase().includes(needle)) continue;
 					const capturedAt =
 						typeof read.capturedAt === 'string' ? read.capturedAt : undefined;
-					found.push({ id, capturedAt, body: read.body, at: instant(capturedAt) });
+					found.push({
+						id,
+						capturedAt,
+						body: read.body,
+						at: instant(capturedAt),
+					});
 				}
 				// Newest first; ties, and captures with no date, by id, newest first.
 				found.sort(
@@ -106,7 +114,11 @@ const app = defineApp(declaration, {
 					total: found.length,
 					captures: found
 						.slice(0, Math.max(0, Math.floor(limit)))
-						.map(({ id, capturedAt, body }) => ({ id, capturedAt, ...preview(body) })),
+						.map(({ id, capturedAt, body }) => ({
+							id,
+							capturedAt,
+							...preview(body),
+						})),
 				};
 			},
 		},

@@ -20,11 +20,11 @@
 import { expect, test } from 'bun:test';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import {
-	fromTextarea,
 	type CaptureBody,
 	type CaptureBodyReading,
 	captureBody,
 	composeBody,
+	fromTextarea,
 	normalizeThought,
 	type Refusal,
 } from './document.js';
