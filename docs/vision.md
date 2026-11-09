@@ -39,8 +39,8 @@ which is mostly the earlier product described at the end.
   groups events; it edits `epicenter.ts` in a worktree, tries it with
   `epicenter ./worktree calendar show`, and merges. The next run uses the new
   code.
-- **A take on a plane.** Whispering records, transcribes, and pastes, with no
-  network and no `epicenter`. It writes each take into `~/Epicenter/whispering`
+- **A recording on a plane.** Whispering records, transcribes, and pastes, with no
+  network and no `epicenter`. It writes each recording into `~/Epicenter/whispering`
   and commits it; when the laptop is back online, Whispering pushes, and your
   Epicenter's copy has it after a pull.
 - **Adding to someone else's folder.** You ask an agent for a weekly summary of

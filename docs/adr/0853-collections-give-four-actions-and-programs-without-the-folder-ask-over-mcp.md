@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-11-08
 - **Amends:** [ADR-0845](0845-an-app-declares-collections-each-a-path-and-fields-which-the-hub-views.md) at how a collection is used: through actions it gives the app, not a separate data view; a collection's own `save` refuses input that does not fit, while hand edits are still never refused. [ADR-0844](0844-one-runner-runs-anywhere-and-every-surface-is-a-view-over-it.md) at what the hub is: a program asking `epicenter serve` over MCP. [ADR-0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md) at Epicenter Cloud's file API, which is not built: a program without the folder asks for actions instead.
-- **Relates:** [ADR-0849](0849-your-epicenter-is-one-always-reachable-computer-that-runs-named-actions.md) (`serve`), [ADR-0850](0850-every-writer-commits-exactly-what-it-wrote.md) (each write is a commit), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (programs that have the folder or ask), [ADR-0857](0857-an-app-declares-itself-in-epicenter-json-and-its-code-in-epicenter-ts.md) (fields and annotations).
+- **Relates:** [ADR-0849](0849-your-epicenter-is-one-always-reachable-computer-that-runs-named-actions.md) (`serve`), [ADR-0850](0850-every-writer-commits-exactly-what-it-wrote.md) (each write is a commit), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (programs that have the folder or ask), [ADR-0857](0857-an-app-declares-itself-in-epicenter-json-and-its-code-in-epicenter-ts.md) (fields and annotations), [ADR-0858](0858-where-a-file-lives-decides-whether-it-travels-survives-or-dies-with-its-program.md) (where Whispering's files and state live).
 - **Unbuilt:** all of it except MCP over stdio. The four collection actions, the handles, and the typed client come with the first app that needs them (Vocab).
 
 ## Context
@@ -48,11 +48,13 @@ the Epicenter app shows `list` and `show` as tables, and `save` and an app's
 actions as forms drawn from their input schemas.
 
 **A program with the folder writes files and commits what it wrote.** Whispering's
-folder is `~/Epicenter/whispering` unless the person picks another, which
-`epicenter add <folder>` links. Whispering owns its `epicenter.json`, writing it
+folder is `~/Epicenter/whispering`, created at the first recording after a sheet
+that names it, unless the person picks another, which `~/Epicenter/whispering`
+then links to (ADR-0858). Whispering owns its `epicenter.json`, writing it
 from a template when absent and rewriting its collections when its format
-changes, and its `.gitattributes`; it ignores files it does not know. After a take
-it writes the audio and its note and, once the folder is a Git repository,
+changes, and its `.gitattributes`; it ignores files it does not know. After a recording
+it writes its note and audio, the audio named `<id>.local.<ext>` when the person
+keeps it on that computer (ADR-0858), and, once the folder is a Git repository,
 commits exactly those paths and pushes (ADR-0850, ADR-0851). It uses the installed
 `git`, because libgit2 does not run Git LFS's filters, and it never needs
 `epicenter`. Every program that asks lists, reads, and edits its recordings
