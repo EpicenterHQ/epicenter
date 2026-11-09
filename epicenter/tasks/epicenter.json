@@ -1,0 +1,29 @@
+{
+	"$schema": "https://epicenter.so/epicenter.schema.json",
+	"description": "Things I mean to do: a note per task, its title, whether it is done, and when it is due; its notes in the body",
+	"collections": {
+		"tasks": {
+			"path": "tasks/{id}.md",
+			"fields": {
+				"type": "object",
+				"properties": {
+					"title": {
+						"type": "string",
+						"description": "What to do, one line"
+					},
+					"done": {
+						"type": "boolean",
+						"default": false,
+						"description": "Whether it is done"
+					},
+					"due": {
+						"type": ["string", "null"],
+						"format": "date",
+						"description": "The day it is due, as 2026-11-10; null or absent when it has none"
+					}
+				},
+				"required": ["title", "done"]
+			}
+		}
+	}
+}
