@@ -5,7 +5,7 @@ import { isName } from '@epicenter/app';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { commitFolder, git, gitMessage } from './git.ts';
-import { homeEntries } from './home.ts';
+import { homeEntries, readDeclaration } from './home.ts';
 import {
 	callTool,
 	createMcpServer,
@@ -28,6 +28,42 @@ function commitSubject(app: string, words: string[], value: unknown) {
 			? ''
 			: ` ${typeof value === 'string' ? value : JSON.stringify(value)}`;
 	return `${app}: ${words.join(' ')}${suffix.replace(/\s+/g, ' ').slice(0, 61)}`;
+}
+
+const escapeHtml = (text: string) =>
+	text.replace(
+		/[&<>"']/g,
+		(char) =>
+			({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[
+				char
+			] as string,
+	);
+
+/** The page at `/`: each app with a view, its icon, name, and description, linking to `/<app>/`. */
+function launcherPage(
+	apps: { name: string; description: string; icon: boolean }[],
+) {
+	const items = apps
+		.map(({ name, description, icon }) => {
+			const href = `/${encodeURIComponent(name)}/`;
+			const image = icon
+				? `<img src="${href}icon.png" alt="" width="56" height="56">`
+				: `<span class="blank">${escapeHtml(name.slice(0, 1).toUpperCase())}</span>`;
+			return `<li><a href="${href}">${image}<span><strong>${escapeHtml(name)}</strong><small>${escapeHtml(description)}</small></span></a></li>`;
+		})
+		.join('');
+	return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><meta name="color-scheme" content="light dark"><title>Epicenter</title><style>
+:root{--bg:#fafafa;--fg:#0a0a0a;--muted:#6b6b6b;--card:#fff;--line:#e5e5e5}
+@media (prefers-color-scheme:dark){:root{--bg:#141414;--fg:#f5f5f5;--muted:#a0a0a0;--card:#1e1e1e;--line:#2c2c2c}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:max(24px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(24px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))}
+main{max-width:560px;margin:0 auto}h1{font-size:28px;margin:8px 0 20px;letter-spacing:-.02em}
+ul{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+a{display:flex;gap:14px;align-items:center;padding:12px;border:1px solid var(--line);border-radius:16px;background:var(--card);color:inherit;text-decoration:none}
+a:active{transform:scale(.99)}img,.blank{width:56px;height:56px;border-radius:13px;flex:none}
+.blank{display:grid;place-items:center;background:var(--line);font-weight:600;font-size:22px}
+strong{display:block;font-size:17px;text-transform:capitalize}small{display:block;color:var(--muted);font-size:14px}
+p{color:var(--muted)}
+</style></head><body><main><h1>Epicenter</h1>${items ? `<ul>${items}</ul>` : '<p>No app here has a view yet.</p>'}</main></body></html>`;
 }
 
 /** Start the server. The caller owns its lifetime. Port 0 asks Bun for a free port. */
@@ -212,19 +248,18 @@ export function startHttpServer(host: string, port: number) {
 			if (pathname === '/') {
 				const apps = await Promise.all(
 					(await homeEntries()).map(async (entry) => {
-						const response = await viewFile(entry.entry, 'index.html');
-						return response.ok ? entry.entry : undefined;
+						if (!(await viewFile(entry.entry, 'index.html')).ok) return undefined;
+						const read = await readDeclaration(entry.realPath);
+						return {
+							name: entry.entry,
+							description:
+								'declaration' in read ? read.declaration.description : '',
+							icon: (await viewFile(entry.entry, 'icon.png')).ok,
+						};
 					}),
 				);
-				const links = apps
-					.filter((app) => app !== undefined)
-					.map(
-						(app) =>
-							`<li><a href="/${encodeURIComponent(app)}/">${app}</a></li>`,
-					)
-					.join('');
 				return new Response(
-					`<!doctype html><html><head><meta charset="utf-8"><title>Epicenter</title></head><body><h1>Apps</h1><ul>${links}</ul></body></html>`,
+					launcherPage(apps.filter((app) => app !== undefined)),
 					{
 						headers: {
 							'content-type': 'text/html; charset=utf-8',
