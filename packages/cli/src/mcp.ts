@@ -19,10 +19,10 @@ import {
 	type Tool,
 } from '@modelcontextprotocol/sdk/types.js';
 import packageJson from '../package.json' with { type: 'json' };
-import { renderReport, writeErr } from './output.ts';
 import { runChild } from './child.ts';
 import { entryNames } from './home.ts';
-import type { RunReport, Unknown } from './report.ts';
+import { renderAnswer, writeErr } from './output.ts';
+import { type Answer, exitCodeOf } from './report.ts';
 
 /**
  * The tools the home offers now. Each entry is listed by its own child, so an
@@ -32,7 +32,7 @@ import type { RunReport, Unknown } from './report.ts';
 async function listTools(): Promise<Tool[]> {
 	const listed = await Promise.all(
 		(await entryNames()).map(async (entry) => {
-			const { answer } = await runChild([entry, '--json'], { stdin: 'ignore' });
+			const answer = await runChild([entry, '--json'], { stdin: 'ignore' });
 			const value = answer as { actions?: Tool[]; error?: { message: string } };
 			if (value.actions) return value.actions;
 			writeErr(`${entry}: ${value.error?.message ?? JSON.stringify(answer)}`);
@@ -47,23 +47,18 @@ async function listTools(): Promise<Tool[]> {
  * `structuredContent`, and `isError` exactly when the exit code is not 0.
  * A failure's text is what a person would read on stderr.
  */
-function toolResult(answer: unknown, code: number) {
-	const value = answer as Record<string, unknown>;
-	if (code === 0)
+function toolResult(answer: Answer) {
+	const structuredContent = answer as Record<string, unknown>;
+	if (exitCodeOf(answer) === 0)
 		return {
-			content: [{ type: 'text' as const, text: JSON.stringify(value) }],
-			structuredContent: value,
+			content: [{ type: 'text' as const, text: JSON.stringify(answer) }],
+			structuredContent,
 		};
-	const text =
-		'error' in value
-			? (value.error as { message: string }).message
-			: 'unknown' in value
-				? (value as Unknown).unknown.message
-				: renderReport(value as RunReport).stderr.trim();
+	const text = renderAnswer(answer).stderr.trim();
 	return {
 		isError: true,
 		content: [{ type: 'text' as const, text }],
-		structuredContent: value,
+		structuredContent,
 	};
 }
 
@@ -79,7 +74,7 @@ export async function serveStdio(): Promise<number> {
 	server.setRequestHandler(CallToolRequestSchema, async (request) => {
 		// `<app>_<word>_<word>`: no app name or action word holds an underscore, so this undoes the encoding.
 		const [app = '', ...words] = request.params.name.split('_');
-		const { answer, code } = await runChild(
+		const answer = await runChild(
 			[
 				app,
 				...words,
@@ -89,7 +84,7 @@ export async function serveStdio(): Promise<number> {
 			],
 			{ stdin: 'ignore' },
 		);
-		return toolResult(answer, code);
+		return toolResult(answer as Answer);
 	});
 	const transport = new StdioServerTransport();
 	const { promise: closed, resolve: closeNow } = Promise.withResolvers<void>();

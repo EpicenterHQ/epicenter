@@ -23,7 +23,7 @@ import { readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { revParse } from './git.ts';
-import { exitCodeOf, type RunReport, type Unknown } from './report.ts';
+import type { Unknown } from './report.ts';
 
 /** The internal flag that makes `epicenter` a child writing its answer to a file; undocumented. */
 export const REPORT_FLAG = '--report=';
@@ -44,24 +44,14 @@ export function writeReport(path: string, record: object) {
 
 type Started = { folder: string; head: string | null };
 
-/** What a child's command answered: the value `--json` prints, and the exit code derived from it. */
-export type ChildAnswer = { answer: unknown; code: number };
-
-/** The exit code an answer implies: 2 did not run, 3 ran and failed or ended unknown, otherwise 0 or the report's. */
-export function exitCodeOfAnswer(answer: unknown): number {
-	if (typeof answer !== 'object' || answer === null) return 0;
-	if ('error' in answer) return 2;
-	if ('unknown' in answer) return 3;
-	if ('action' in answer && 'refused' in answer)
-		return exitCodeOf(answer as RunReport);
-	return 0;
-}
-
-/** Run `epicenter <args>` as a child and return its answer. */
+/**
+ * Run `epicenter <args>` as a child and return the one JSON value it
+ * answered: for an action, an `Answer`; for a listing, the listing.
+ */
 export async function runChild(
 	args: string[],
 	{ stdin }: { stdin: 'inherit' | 'ignore' },
-): Promise<ChildAnswer> {
+): Promise<unknown> {
 	const path = join(tmpdir(), `epicenter-report-${randomUUID()}.json`);
 	const child = Bun.spawn([...self(), ...args, `${REPORT_FLAG}${path}`], {
 		stdio: [stdin, 2, 2],
@@ -80,8 +70,7 @@ export async function runChild(
 		process.off('SIGTERM', forward);
 		rmSync(path, { force: true });
 	}
-	if ('answer' in record)
-		return { answer: record.answer, code: exitCodeOfAnswer(record.answer) };
+	if ('answer' in record) return record.answer;
 	const ended =
 		child.signalCode === null
 			? `exit code ${child.exitCode}`
@@ -98,5 +87,5 @@ export async function runChild(
 			},
 		},
 	};
-	return { answer: unknown, code: 3 };
+	return unknown;
 }

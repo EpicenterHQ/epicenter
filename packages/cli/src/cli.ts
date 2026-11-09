@@ -6,6 +6,7 @@
 import { type Action, COMMANDS, type Command } from '@epicenter/app';
 import packageJson from '../package.json' with { type: 'json' };
 import { addCommand, newCommand } from './add.ts';
+import { REPORT_FLAG, runChild } from './child.ts';
 import { CliError } from './errors.ts';
 import { discoverAll, isFolderPath, loadFolder, loadHomeApp } from './home.ts';
 import {
@@ -22,16 +23,15 @@ import {
 	oneAppListing,
 } from './listing.ts';
 import { serveStdio } from './mcp.ts';
-import { REPORT_FLAG, runChild } from './child.ts';
 import {
 	answerInto,
 	fail,
 	presentAnswer,
-	presentReport,
 	writeJson,
 	writeOut,
 	writeStarted,
 } from './output.ts';
+import type { Answer } from './report.ts';
 import { runAction } from './run.ts';
 
 const HELP = `epicenter [--json]
@@ -170,7 +170,7 @@ export async function runCli(argv: string[]): Promise<number> {
 		// Running an action is two processes; the child owns the whole run.
 		if (!reportArg && words.length > 0 && !help)
 			return presentAnswer(
-				(await runChild(relayed, { stdin: 'inherit' })).answer,
+				(await runChild(relayed, { stdin: 'inherit' })) as Answer,
 				json,
 			);
 		const { data: located, error: notFound } = await (isFolderPath(name)
@@ -219,7 +219,7 @@ export async function runCli(argv: string[]): Promise<number> {
 			writeStarted,
 		);
 		if (error) return fail(error, json);
-		return presentReport(report, json);
+		return presentAnswer(report, json);
 	} catch (error) {
 		return fail(CliError.Internal({ cause: error }).error, json);
 	}

@@ -33,7 +33,7 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { checkedGit, git, gitPath, revParse } from './git.ts';
-import type { Commit, PathState, Refused, RefusalReason } from './report.ts';
+import type { Commit, PathState, RefusalReason, Refused } from './report.ts';
 
 const ZERO = '0000000000000000000000000000000000000000';
 

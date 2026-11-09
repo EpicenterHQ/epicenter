@@ -65,7 +65,12 @@ test('tools list plain schemas and annotations and return structured answers or 
 		).toBe(true);
 		const missing = await client.callTool({ name: 'vault_calendar_show' });
 		expect(missing.isError).toBe(true);
-		expect(missing.content).toEqual([{ type: 'text', text: 'day is needed' }]);
+		expect(missing.content).toEqual([
+			{
+				type: 'text',
+				text: 'day is needed\nRun: epicenter vault calendar show --help',
+			},
+		]);
 		expect(
 			(
 				await client.callTool({

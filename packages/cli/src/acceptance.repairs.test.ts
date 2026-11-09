@@ -21,7 +21,7 @@ import {
 import { join, resolve } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { renderReport } from './output.ts';
+import { renderAnswer } from './output.ts';
 import {
 	declarationOf,
 	fixture,
@@ -283,7 +283,7 @@ test('F1 every stderr line is derivable from --json, and push state is in --json
 		if (action === 'two') await gitIn(folder, 'checkout', '--', 'a.md');
 		const human = await f.run('notes', ...args);
 		expect(human.code).toBe(json.code);
-		expect(renderReport(json.report)).toEqual({
+		expect(renderAnswer(json.report)).toEqual({
 			stdout: human.stdout,
 			stderr: human.stderr,
 		});

@@ -8,12 +8,7 @@
  */
 import { writeReport } from './child.ts';
 import type { CliError } from './errors.ts';
-import {
-	exitCodeOf,
-	type PathState,
-	type RunReport,
-	type Unknown,
-} from './report.ts';
+import { type Answer, exitCodeOf, type PathState } from './report.ts';
 
 /** The report file this process answers into, when it is a child (`child.ts`). */
 let reportPath: string | undefined;
@@ -51,85 +46,68 @@ const LEFT: Partial<Record<PathState, string>> = {
 	'not-committed': 'the commit failed',
 };
 
-/** A run's report as a person reads it: the returned value on stdout, everything else on stderr. */
-export function renderReport(report: RunReport): {
+/**
+ * An answer as a person reads it: a run's returned value on stdout, and on
+ * stderr what was committed, left uncommitted, refused, or pushed, the error,
+ * and a `Run: <next step>` line wherever there is one.
+ */
+export function renderAnswer(answer: Answer): {
 	stdout: string;
 	stderr: string;
 } {
 	const lines: string[] = [];
-	const { commit } = report;
-	if (commit && 'failed' in commit)
-		lines.push(`Could not commit the action's writes: ${commit.failed}`);
-	else if (commit)
-		lines.push(`committed ${commit.sha.slice(0, 7)} ${commit.subject}`);
-	for (const { path, state } of report.paths)
-		if (LEFT[state]) lines.push(`left uncommitted: ${path} (${LEFT[state]})`);
-	for (const { message, next } of report.refused)
-		lines.push(message, ...(next ? [`Run: ${next}`] : []));
-	const { push } = report;
-	if (push?.pushed) lines.push('pushed to origin');
-	else if (push)
-		lines.push(
-			`not pushed: ${push.reason}`,
-			...(push.next ? [`Run: ${push.next}`] : []),
-		);
 	let stdout = '';
-	if ('threw' in report.action) lines.push(report.action.threw.message);
-	else {
-		const { returned } = report.action;
-		if (typeof returned === 'string')
-			stdout = returned.endsWith('\n') ? returned : `${returned}\n`;
-		else if (returned !== null)
-			stdout = `${JSON.stringify(returned, null, 2)}\n`;
+	if ('error' in answer) {
+		const { message, next } = answer.error;
+		lines.push(message, ...(next ? [`Run: ${next}`] : []));
+	} else if ('unknown' in answer) {
+		const { message, head } = answer.unknown;
+		lines.push(
+			message,
+			`HEAD before: ${head.before ?? '(none)'}`,
+			`HEAD now: ${head.after ?? '(none)'}`,
+		);
+	} else {
+		const { commit, push, action } = answer;
+		if (commit && 'failed' in commit)
+			lines.push(`Could not commit the action's writes: ${commit.failed}`);
+		else if (commit)
+			lines.push(`committed ${commit.sha.slice(0, 7)} ${commit.subject}`);
+		for (const { path, state } of answer.paths)
+			if (LEFT[state]) lines.push(`left uncommitted: ${path} (${LEFT[state]})`);
+		for (const { message, next } of answer.refused)
+			lines.push(message, ...(next ? [`Run: ${next}`] : []));
+		if (push?.pushed) lines.push('pushed to origin');
+		else if (push)
+			lines.push(
+				`not pushed: ${push.reason}`,
+				...(push.next ? [`Run: ${push.next}`] : []),
+			);
+		if ('threw' in action) lines.push(action.threw.message);
+		else if (typeof action.returned === 'string')
+			stdout = action.returned.endsWith('\n')
+				? action.returned
+				: `${action.returned}\n`;
+		else if (action.returned !== null)
+			stdout = `${JSON.stringify(action.returned, null, 2)}\n`;
 	}
-	return {
-		stdout,
-		stderr: lines.map((line) => `${line}\n`).join(''),
-	};
+	return { stdout, stderr: lines.map((line) => `${line}\n`).join('') };
 }
 
-/** Present a run's report and return its exit code. */
-export function presentReport(report: RunReport, json: boolean): number {
-	if (json) writeJson(report);
+/** Present an answer, as one JSON value or for a person, and return its exit code. */
+export function presentAnswer(answer: Answer, json: boolean): number {
+	if (json) writeJson(answer);
 	else {
-		const { stdout, stderr } = renderReport(report);
+		const { stdout, stderr } = renderAnswer(answer);
 		process.stdout.write(stdout);
 		process.stderr.write(stderr);
 	}
-	return exitCodeOf(report);
-}
-
-/** Present a run whose child ended without a report: exit 3, with the heads that say what landed. */
-export function presentUnknown(value: Unknown, json: boolean): number {
-	if (json) writeJson(value);
-	else {
-		const { message, head } = value.unknown;
-		writeErr(message);
-		writeErr(`HEAD before: ${head.before ?? '(none)'}`);
-		writeErr(`HEAD now: ${head.after ?? '(none)'}`);
-	}
-	return 3;
-}
-
-/** Present what a child answered: a report, an unknown end, a refusal to run, or a listing. */
-export function presentAnswer(answer: unknown, json: boolean): number {
-	const value = answer as Record<string, unknown>;
-	if ('error' in value) return fail(value.error as CliError, json);
-	if ('unknown' in value) return presentUnknown(value as Unknown, json);
-	if ('action' in value) return presentReport(value as RunReport, json);
-	writeJson(value);
-	return 0;
+	return exitCodeOf(answer);
 }
 
 /** Present a command that did not run, exit 2. */
 export function fail(error: CliError, json: boolean): number {
-	if (json) writeJson({ error });
-	else {
-		writeErr(error.message);
-		const next = (error as { next?: string }).next;
-		if (next) writeErr(`Run: ${next}`);
-	}
-	return 2;
+	return presentAnswer({ error }, json);
 }
 
 /** Present a command that made something: its answer on stdout, its next step on stderr. */

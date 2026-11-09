@@ -70,11 +70,26 @@ export type Unknown = {
 	};
 };
 
-/** 0: it ran and nothing went wrong. 3: it threw, a write was refused, or the commit failed. */
-export function exitCodeOf(report: RunReport): 0 | 3 {
+/**
+ * What a command that runs an action answers: the run's report, a run whose
+ * child ended without one, or why nothing ran. The CLI presents it and MCP
+ * returns it.
+ */
+export type Answer =
+	| RunReport
+	| Unknown
+	| { error: { name: string; message: string; next?: string } };
+
+/**
+ * 0: it ran and nothing went wrong. 2: it did not run. 3: it threw, a write
+ * was refused, the commit failed, or the run ended without a report.
+ */
+export function exitCodeOf(answer: Answer): 0 | 2 | 3 {
+	if ('error' in answer) return 2;
+	if ('unknown' in answer) return 3;
 	const failed =
-		'threw' in report.action ||
-		report.refused.length > 0 ||
-		(report.commit !== null && 'failed' in report.commit);
+		'threw' in answer.action ||
+		answer.refused.length > 0 ||
+		(answer.commit !== null && 'failed' in answer.commit);
 	return failed ? 3 : 0;
 }
