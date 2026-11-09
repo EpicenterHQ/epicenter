@@ -27,13 +27,14 @@ which is mostly the earlier product described at the end.
 
 - **Receipts.** You ask Claude Code to find last month's receipts for a friend.
   It runs `epicenter mail search 'receipt after:2026/09/01'`, reads a few with
-  `epicenter mail show`, and saves their attachments into your vault. Nothing in
-  Mail changed, so nothing was committed.
-- **The inbox.** `epicenter mail plan newsletters --q 'category:promotions'`
-  writes a batch: one line per message, grouped by sender. You delete the lines
-  for mail you want to keep, then run `epicenter mail apply newsletters`. Each
-  line is marked applied as it is archived; if Gmail fails at line 612, the batch
-  shows exactly what happened, and the commit says `(failed: …)`.
+  `epicenter mail show --attachments`, which saves their files into Mail's own
+  folder and commits them. Gmail is unchanged.
+- **The inbox.** `epicenter mail archive <id>` archives one message. For many,
+  `epicenter mail search 'category:promotions' > batches/newsletters.local.md`
+  writes a batch: one id per line, grouped by sender. You delete the lines for
+  mail you want to keep, then run `epicenter mail archive --ids
+  @batches/newsletters.local.md`, the same verb. If Gmail fails at line 612,
+  you run it again: archiving an archived message changes nothing.
 - **A vault script becomes an action.** The calendar script in your vault turns
   into `epicenter vault calendar show`. Later you ask Claude Code to change how it
   groups events; it edits `epicenter.ts` in a worktree, tries it with

@@ -57,11 +57,11 @@ On your Epicenter (ADR-0849):
     epicenter.json              name, description, collections
     epicenter.ts                defineApp(declaration, { actions })
     package.json, tsconfig.json its own dependencies, and types in an editor
-    .gitignore                  node_modules/, .cache/, batches/
+    .gitignore                  node_modules/, .cache/, *.local, *.local.* (ADR-0858)
     .gitattributes              binaries through LFS (ADR-0856)
     lib.ts                      shared code: functions that take a `folder`
-    queries/receipts.txt        a saved Gmail search
-    batches/                    reviewed changes, each message marked as applied
+    attachments/<id>/           files saved from a message, through LFS
+    batches/*.local.md          ids to act on, reviewed, kept on this computer
     .cache/                     rebuildable: mailbox copies
   reading/
     epicenter.json
@@ -153,28 +153,33 @@ is written directly in `~/Epicenter/mail/`.
 ```sh
 epicenter mail connect                                   # loopback OAuth; refresh token in the Keychain
 epicenter mail search 'receipt after:2026/09/01'         # live Gmail search
-epicenter mail show <id> --attachments ~/Code/vault/…    # read one; save its files
-epicenter mail plan newsletters --q 'category:promotions older_than:14d' --do archive
-epicenter mail apply newsletters                         # the person runs this
+epicenter mail show <id> --attachments                   # read one; save its files into mail/
+epicenter mail archive <id>                              # one message, directly
+epicenter mail search 'category:promotions older_than:14d' > batches/newsletters.local.md
+epicenter mail archive --ids @batches/newsletters.local.md   # the same verb, reviewed
+epicenter mail trash <id>
+epicenter mail label <id> --add receipts
 ```
 
-- **A batch** (`batches/<name>.md`, gitignored, because it lists other people's
-  names and subjects) lists exact message ids, one action per line
-  (`archive <id>  # sender: subject`), grouped under a heading per sender. The
-  person deletes lines to keep mail. `apply` checks each id still exists, sends
-  one `batchModify` per 1,000 ids, and marks each line applied as it goes, so a
-  run that fails partway shows what it did. A batch never re-runs its search, so
-  mail that arrives after review is never swept in.
-- **Saved queries** are `queries/<name>.txt`, one Gmail search each, tracked in
-  Git.
-- **Attachments saved into the vault** are written by `epicenter` on Mail's
-  behalf into another folder, and stay uncommitted there for the person.
+- **World verbs** (ADR-0859): `archive`, `trash`, and `label` act on the ids they
+  are given, through `batchModify` 1,000 at a time, and are safe to repeat, so a
+  run that fails partway is finished by running it again. Nothing records
+  progress in the folder.
+- **A batch** is a file of ids, read by the same verb through `@<file>`.
+  `search` prints one id per line with `# sender: subject` after it, grouped
+  under a heading per sender, so its output is a batch; the person deletes lines
+  to keep mail. A batch never re-runs its search, so mail that arrives after
+  review is never swept in. Named `.local.md`, it stays on this computer
+  (ADR-0858), since it lists other people's names and subjects.
+- **Attachments** are saved into `mail/` (`attachments/<id>/`, through Git LFS);
+  an action writes only its own app's folder (ADR-0859).
 - **No mailbox copy at first.** Gmail's quota (6,000 units a minute per user,
   20 per message fetch) makes a whole-mailbox copy take hours. An Inbox-only
   copy in `.cache/`, for SQL triage, comes when a question needs it.
-- **Permissions.** Claude Code allows `epicenter mail search`, `show`, and `plan`;
-  it asks on `apply`. `apply` declares `destructiveHint: false`; it archives,
-  which Gmail undoes.
+- **Permissions.** Claude Code allows `epicenter mail search` and `show`; it asks
+  on `archive`, `trash`, and `label`. Each declares `idempotentHint: true`;
+  `archive` and `label` declare `destructiveHint: false`, which Gmail undoes, and
+  `trash` keeps the default, since Gmail empties the trash after 30 days.
 - **Code.** Salvage `gmail-client.ts`, `oauth.ts`, and `token-manager.ts` from
   `280bdf4d44^:apps/local-mail/src/` (they import no Yjs). Mail imports nothing
   from folder or sync code.
@@ -217,12 +222,11 @@ a browser; a schema language of Epicenter's own (ADR-0857); programs that ship
 ## Open questions
 
 1. Trash in Mail's first version: undoable for 30 days, but not forever.
-2. Whether `undo <batch>` ships with `apply` or a week later.
-3. The old product's folders in `~/Epicenter` (`Todos`, `Zhongwen`,
+2. The old product's folders in `~/Epicenter` (`Todos`, `Zhongwen`,
    `Zhongwen Dev`, `so.epicenter.*`, `local`, `on-this-device`) stay as a clean
    break: discovery ignores a folder without `epicenter.json`. An app named like
    one of them, ignoring case, waits until that folder is moved.
-4. `update` waits until the first copied app's source changes; until then,
+3. `update` waits until the first copied app's source changes; until then,
    `git merge upstream`.
 
 ## Build order
@@ -374,13 +378,15 @@ ADR-0842 first wrote them.
   - M1. `mail connect` stores a refresh token in the Keychain; an expired
     sign-in fails naming `epicenter mail connect` as the next step.
   - M2. `mail search` and `mail show` are read-only and commit nothing.
-  - M3. `mail show --attachments <folder>` writes into that folder and leaves
-    the files uncommitted there.
-  - M4. `mail plan` writes a batch under the ignored `batches/`, one line per
-    message, grouped by sender.
-  - M5. `mail apply` archives only the lines left in the batch, marks each as it
-    goes, and a failure partway leaves the batch showing what was applied.
-  - M6. A saved query in `queries/` is committed when written.
+  - M3. `mail show --attachments` saves into `mail/attachments/<id>/` and
+    commits them through LFS; nothing is written outside `mail/`.
+  - M4. `mail search` prints a batch: one id per line, `# sender: subject`
+    after it, grouped by sender.
+  - M5. `mail archive --ids @<file>` archives only the ids left in the file;
+    a run stopped partway and run again archives the rest and changes nothing
+    already archived.
+  - M6. `mail archive <id>` archives one message directly, and records nothing
+    in the folder.
 
   Done when M1 to M6 pass against the fake and the receipts and newsletter jobs
   are finished with the real Gmail and Claude Code.

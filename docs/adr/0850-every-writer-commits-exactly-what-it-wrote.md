@@ -57,8 +57,8 @@ For an action:
   `GIT_TERMINAL_PROMPT=0`, so a push never waits for a password nobody can type.
   `git check-ignore` is the exception to the first: Git refuses literal
   pathspecs there, and `epicenter` passes it one path at a time.
-- The commit message states the outcome: `mail apply newsletters` or
-  `mail apply newsletters (failed: quota exceeded)`, the failure's first line
+- The commit message states the outcome: `vocab words save` or
+  `vocab words save (failed: quota exceeded)`, the failure's first line
   cut to about 60 characters. The body is the input as JSON, then the full
   error. `git revert` undoes the commit.
 - Every run answers with one report: what the action returned or threw, the
@@ -71,8 +71,9 @@ For an action:
   `{ "error": { "name", "message", "next"? } }`, replacing ADR-0842's `code`.
 - An input marked `writeOnly` stays out of the commit body.
 - Gitignored paths are written and never committed.
-- An action that acts outside the folder records its progress in its own files as
-  it goes; Mail's `apply` marks each message in its batch as it is applied.
+- An action that changes the world does not record its progress in the folder:
+  its verbs are safe to repeat on the targets they are given, so a run that
+  fails partway is finished by running it again (ADR-0859).
 - A killed process leaves its writes uncommitted. The next run refuses those
   paths until the person commits or discards them, and `git status` shows them.
 
