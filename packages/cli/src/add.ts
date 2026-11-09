@@ -82,11 +82,33 @@ async function taken(name: string) {
 	}
 }
 
-/** Make `folder` a repository whose first commit holds what is there now. */
-async function firstCommit(folder: string, subject: string) {
-	await checkedGit(folder, ['init', '-q']);
+/**
+ * Make `folder` an app's repository the way every app is made, for `new`,
+ * `add --init`, and `add <url>` alike: write the template's files it lacks,
+ * make it a repository if it is not one, set up Git LFS's filter when
+ * `git-lfs` is installed, and only then stage and commit, so the ignore rules
+ * and LFS apply to the first thing committed. Commits nothing when nothing
+ * changed.
+ */
+async function adopt(folder: string, name: string, subject: string) {
+	for (const [path, text] of Object.entries(template(name)))
+		if (!(await exists(join(folder, path))))
+			await writeFile(join(folder, path), text);
+	if (!(await isRepositoryTop(folder)))
+		await checkedGit(folder, ['init', '-q']);
+	if (Bun.which('git-lfs'))
+		await checkedGit(folder, ['lfs', 'install', '--local']);
 	await checkedGit(folder, ['add', '-A']);
-	await checkedGit(folder, ['commit', '-q', '--no-verify', '-m', subject]);
+	if ((await git(folder, ['diff', '--cached', '--quiet'])).code !== 0)
+		await checkedGit(folder, ['commit', '-q', '--no-verify', '-m', subject]);
+}
+
+/** Whether `folder` is the top of its own Git repository. */
+async function isRepositoryTop(folder: string) {
+	const top = await git(folder, ['rev-parse', '--show-toplevel']);
+	return (
+		top.code === 0 && (await realpath(top.stdout.toString().trim())) === folder
+	);
 }
 
 /** The declaration's name in `folder`, or why there is none. */
@@ -129,10 +151,8 @@ export async function newCommand(name: string, json: boolean): Promise<number> {
 		);
 	const folder = join(homeDir(), name);
 	await mkdir(folder, { recursive: true });
-	for (const [path, text] of Object.entries(template(name)))
-		await writeFile(join(folder, path), text);
 	try {
-		await firstCommit(folder, `new ${name}`);
+		await adopt(folder, name, `new ${name}`);
 	} catch (error) {
 		return fail(CliError.GitFailed({ cause: error }).error, json);
 	}
@@ -177,10 +197,7 @@ async function addFolder(source: string, init: boolean, json: boolean) {
 				.error,
 			json,
 		);
-	const top = await git(folder, ['rev-parse', '--show-toplevel']);
-	const isRepository =
-		top.code === 0 && (await realpath(top.stdout.toString().trim())) === folder;
-	if (!isRepository) {
+	if (!(await isRepositoryTop(folder))) {
 		if (!init)
 			return fail(
 				CliError.Usage({
@@ -190,7 +207,7 @@ async function addFolder(source: string, init: boolean, json: boolean) {
 				json,
 			);
 		try {
-			await firstCommit(folder, `add ${name}`);
+			await adopt(folder, name, `add ${name}`);
 		} catch (error) {
 			return fail(CliError.GitFailed({ cause: error }).error, json);
 		}
@@ -236,6 +253,7 @@ async function addFromUrl(url: string, json: boolean) {
 		]);
 		// The copy is yours: its branch pushes nowhere until it has an origin.
 		await checkedGit(staging, ['branch', '--unset-upstream', branch]);
+		await adopt(staging, name, `add ${name}`);
 		await rename(staging, join(homeDir(), name));
 		return done(name, json);
 	} catch (error) {

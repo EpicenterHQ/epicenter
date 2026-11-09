@@ -209,7 +209,9 @@ test('W5 epicenter add links a folder, makes its history on request, and copies 
 	expect((await lstat(join(f.home, 'vault'))).isSymbolicLink()).toBe(true);
 	expect(await readlink(join(f.home, 'vault'))).toBe(vault);
 	expect(await gitIn(vault, 'log', '--format=%s')).toBe('add vault');
-	expect(await gitIn(vault, 'ls-files')).toBe('epicenter.json\nnotes/a.md');
+	expect(await gitIn(vault, 'ls-files')).toBe(
+		'.gitattributes\n.gitignore\nepicenter.json\nnotes/a.md',
+	);
 
 	const source = await f.folder(join(f.root, 'shared', 'recipes'), {
 		'.gitignore': gitignore,
