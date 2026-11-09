@@ -391,6 +391,30 @@
         "vite": "catalog:",
       },
     },
+    "epicenter/vocab": {
+      "name": "@epicenter/home-vocab",
+      "version": "0.0.1",
+      "dependencies": {
+        "@epicenter/app": "workspace:*",
+      },
+      "devDependencies": {
+        "@epicenter/ui": "workspace:*",
+        "@epicenter/vite-config": "workspace:*",
+        "@lucide/svelte": "catalog:",
+        "@sveltejs/adapter-static": "catalog:",
+        "@sveltejs/kit": "catalog:",
+        "@sveltejs/vite-plugin-svelte": "catalog:",
+        "@tailwindcss/vite": "catalog:",
+        "@types/bun": "catalog:",
+        "mode-watcher": "catalog:",
+        "svelte": "catalog:",
+        "svelte-check": "catalog:",
+        "svelte-sonner": "catalog:",
+        "tailwindcss": "catalog:",
+        "typescript": "catalog:",
+        "vite": "catalog:",
+      },
+    },
     "ops": {
       "name": "@epicenter/ops",
       "devDependencies": {
@@ -914,6 +938,8 @@
     "@epicenter/folder": ["@epicenter/folder@workspace:packages/folder"],
 
     "@epicenter/home-capture": ["@epicenter/home-capture@workspace:epicenter/capture"],
+
+    "@epicenter/home-vocab": ["@epicenter/home-vocab@workspace:epicenter/vocab"],
 
     "@epicenter/honeycrisp": ["@epicenter/honeycrisp@workspace:apps/honeycrisp"],
 
