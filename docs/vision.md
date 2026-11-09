@@ -58,6 +58,7 @@ which is mostly the earlier product described at the end.
 | a collection | a kind of file in the app, by path (`words/{stem}.md`) and fields; it gives `list`, `get`, `set`, and `delete` |
 | a field | JSON Schema for one value; in TypeScript, written with helpers such as `field.text()` |
 | an action | something you can ask an app to do: a collection's four, or one the author writes with a `run` function |
+| a view | an HTML page in the app's folder that shows its data and calls its actions, inside Claude or the Epicenter app |
 | `epicenter` | the program that runs an action in a folder |
 | your server | the one computer you keep on, where `epicenter serve` runs and your sign-ins live |
 | Git | history, `origin` where copies meet, `upstream` where code came from, LFS for binaries |
@@ -157,6 +158,23 @@ address with a sign-in, which comes when you want an app on your phone. Until
 then, nothing guards your sign-ins from another program running as you except
 your agents' permission rules.
 
+## Views
+
+An app's interfaces are views ([ADR-0860]): HTML in its `views/` folder, from
+one page to a whole single-page app, that reads and changes the app only by
+calling its actions. A view is an MCP App, so the same file shows inside a
+Claude conversation when an action names it, full screen in the Epicenter app
+on your phone, and as plain text in a terminal. A view never knows where the
+actions run: on your server today, and later in a container for someone without
+one, or in the same process for a program that must work offline.
+
+| Rung | Interface | Steps up when |
+| --- | --- | --- |
+| 1 | the terminal, Claude, Claude Code | you want to see or tap, not type |
+| 2 | the Epicenter app: every action in a command palette, tables, and forms | a table and a form cannot do it |
+| 3 | a view of the app's own | it needs the device, or to work offline |
+| 4 | a program with the folder, such as Whispering | never |
+
 ## How data moves
 
 Each app with history has one Git remote, `origin`: where copies meet, and the
@@ -194,16 +212,18 @@ Gmail sign-in on a computer that is always on.
 | Move data | Git | never |
 | Big files | `.gitattributes` | never |
 | Reach | MCP | never |
+| An interface | Claude or the terminal | it needs to be seen: the Epicenter app, then a view |
 | Run something later | someone asks | never |
 
 **Refused:** a sync engine, schedules, merging by `epicenter`, a schema language of
 its own, an API beside MCP, programs that ship `epicenter`, apps hosted inside the
-Epicenter app, running actions on the phone or in a browser.
+Epicenter app through an API of its own, a folder kept in a browser.
 
 **Later, each when something needs it:** reach from the phone; collections'
-four actions, the typed page client, and the Epicenter app (with Vocab);
+four actions, views, and the Epicenter app (with Vocab);
 reminders as an ordinary app; Epicenter Cloud and its registry, for people who
-cannot keep a computer on; moving the vault's history into LFS; WebAssembly
+cannot keep a computer on; actions run inside a program on the device, when a
+view must work offline; moving the vault's history into LFS; WebAssembly
 actions or a Rust core, when apps from strangers run with your sign-ins.
 
 ## What came before
@@ -223,4 +243,5 @@ fields are written one `key: <JSON>` line each.
 [ADR-0839]: adr/0839-a-save-is-one-numbered-write-a-reset-deletes-nothing-and-epicenter-owns-the-pages-every-app-links-to.md
 [ADR-0840]: adr/0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md
 [ADR-0849]: adr/0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md
+[ADR-0860]: adr/0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md
 [ADR-0857]: adr/0857-an-app-declares-itself-in-epicenter-json-and-its-code-in-epicenter-ts.md

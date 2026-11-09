@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-11-08
 - **Amends:** [ADR-0844](0844-one-runner-runs-anywhere-and-every-surface-is-a-view-over-it.md) at Epicenter Cloud, which hosts a remote and a computer rather than being a separate product. [ADR-0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md) at `epicenter add`, which also links a folder, at `epicenter new`, which becomes `add` from a built-in template, and at the `{ from, sha }` record, which the `upstream` branch already holds.
-- **Relates:** [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) (your server), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (the commit rule), [ADR-0851](0851-an-app-with-history-has-one-git-remote-its-meeting-point-and-backup.md) (`origin`), [ADR-0853](0853-collections-give-four-actions-and-programs-without-the-folder-ask-over-mcp.md) (MCP), [ADR-0856](0856-binary-files-go-through-git-lfs.md) (binary files), [ADR-0857](0857-an-app-declares-itself-in-epicenter-json-and-its-code-in-epicenter-ts.md) (the declaration). [docs/vision.md](../vision.md) explains the whole.
+- **Relates:** [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) (your server), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (the commit rule), [ADR-0851](0851-an-app-with-history-has-one-git-remote-its-meeting-point-and-backup.md) (`origin`), [ADR-0853](0853-collections-give-four-actions-and-programs-without-the-folder-ask-over-mcp.md) (MCP), [ADR-0856](0856-binary-files-go-through-git-lfs.md) (binary files), [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (views), [ADR-0857](0857-an-app-declares-itself-in-epicenter-json-and-its-code-in-epicenter-ts.md) (the declaration). [docs/vision.md](../vision.md) explains the whole.
 - **Unbuilt:** the registry, Epicenter Cloud, and `add` without `--init` and without the `upstream` remote. Built 2026-11-09: `new` as the built-in template, `add <folder>` linking a folder and making its history with `--init`, and `add <git url>` cloning the app and keeping the source as the `upstream` remote and branch; `--init`, `upstream`, and the commit `add` makes are to be deleted.
 
 ## Context
@@ -93,8 +93,10 @@ Git host, their own computer, or their own program without changing an app.
   it, to run three Git commands.
 - **A program that writes files until `epicenter` is installed, then asks.** Two
   write paths in every program.
-- **Apps ship their interface in the folder, and the Epicenter app hosts it.**
-  Rebuilds the platform layer the earlier Mail died of, and makes Epicenter a gate.
+- **Apps ship their interface in the folder, and the Epicenter app hosts it
+  through an API of its own.** Rebuilds the platform layer the earlier Mail died
+  of, and makes Epicenter a gate. Views (ADR-0860) ship in the folder as MCP
+  Apps, a standard that hosts Epicenter does not own also render.
 - **Actions as WebAssembly, run by a CLI rewritten in Rust.** Sandboxing and
   actions that run anywhere, at the cost of a build step, most of npm, and
   Claude's edit-and-run loop. Revisit when apps from strangers run with a

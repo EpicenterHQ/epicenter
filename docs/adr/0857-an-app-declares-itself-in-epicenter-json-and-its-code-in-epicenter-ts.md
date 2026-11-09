@@ -3,8 +3,8 @@
 - **Status:** Proposed
 - **Date:** 2026-11-08 (amended 2026-11-09: `epicenter.ts` exports its actions, typed through `epicenter:app`)
 - **Amends:** [ADR-0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md) at the declaration: an app's name, description, and every collection live in `epicenter.json`; `epicenter.ts`, when present, exports actions, and `defineApp` leaves apps. At fields: JSON Schema, which the `field` helpers produce. At an action's hints, which are MCP's `annotations`, and its positional, which is its first required field. At the folder's `remove`, which is `delete`. [ADR-0845](0845-an-app-declares-collections-each-a-path-and-fields-which-the-hub-views.md) at a collection's fields, which are the JSON Schema of its front matter.
-- **Relates:** [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (programs that have the folder), [ADR-0853](0853-collections-give-four-actions-and-programs-without-the-folder-ask-over-mcp.md) (collection actions, groups, and the client), [ADR-0854](0854-an-apps-cache-is-the-files-it-gitignores.md) (`.cache/`).
-- **Unbuilt:** `epicenter:app` and the generated `.cache/epicenter/`, `action()`, exports as actions and groups, `collections` in `run`, the first required field read by position, `folder`'s `get`, `getBytes`, and `set` of bytes, asserting `format`, and publishing the schema at its URL. Built 2026-11-09 and kept: loading `epicenter.json`, the declaration's TypeBox schema and `packages/app/epicenter.schema.json`, `annotations` on actions, `@epicenter/app` supplied by `epicenter`, and `folder.delete`. Built 2026-11-09 and retired by this amendment: `defineApp(declaration, { actions })` and `positional`.
+- **Relates:** [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (programs that have the folder), [ADR-0853](0853-collections-give-four-actions-and-programs-without-the-folder-ask-over-mcp.md) (collection actions, groups, and the client), [ADR-0854](0854-an-apps-cache-is-the-files-it-gitignores.md) (`.cache/`), [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (views).
+- **Unbuilt:** `epicenter:app` and the generated `.cache/epicenter/`, `action()`, exports as actions and groups, `view` on an action, `collections` in `run`, the first required field read by position, `folder`'s `get`, `getBytes`, and `set` of bytes, asserting `format`, and publishing the schema at its URL. Built 2026-11-09 and kept: loading `epicenter.json`, the declaration's TypeBox schema and `packages/app/epicenter.schema.json`, `annotations` on actions, `@epicenter/app` supplied by `epicenter`, and `folder.delete`. Built 2026-11-09 and retired by this amendment: `defineApp(declaration, { actions })` and `positional`.
 
 ## Context
 
@@ -101,6 +101,9 @@ passes every field by name.
 action that is not read-only reads as destructive unless it says
 `destructiveHint: false`. `epicenter --json` prints all four. `epicenter` trusts
 what an author writes and checks none of it.
+
+**An action may name a view** (`view: 'practice'` for `views/practice.html`),
+which hosts that render MCP Apps show with its result (ADR-0860).
 
 **`run` receives `{ collections, folder, secrets }`.** `collections.<name>`
 offers the same `list`, `get`, `set`, and `delete` every client gets, checked

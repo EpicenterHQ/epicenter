@@ -69,12 +69,12 @@ A name of more than one word is camelCase in code and kebab-case elsewhere
 (MCP's Streamable HTTP transport), or over stdio with `epicenter serve --stdio`.
 Each action is one MCP tool (`vocab_words_set`) whose `inputSchema` comes from
 its fields and whose `annotations` are its own. There is no file API and no data
-API beside the actions. A page asks through a typed client in
+API beside the actions. A view (ADR-0860) asks through a typed client in
 `@epicenter/app/client`, typed by `App`, the app's whole tree of actions that
 `epicenter:app` declares (its collections' groups with `epicenter.ts`'s exports
-laid over them), with the transport passed in: MCP over HTTP to `serve`, MCP
-over stdio (`ssh studio epicenter serve --stdio`), or the app in memory for
-tests.
+laid over them), with the transport passed in: `postMessage` through the host
+that shows the view, MCP over HTTP to `serve`, MCP over stdio (`ssh studio
+epicenter serve --stdio`), or the app in memory for tests.
 
 ```ts
 import type { App } from 'epicenter:app';
@@ -88,8 +88,8 @@ await epicenter.vocab.review({ stem: '你好', grade: 'good' });
 The app's name is written once, as the key of the type, and checked against the
 name in its `epicenter.json`; the client turns the property path into the tool
 name, because `import type` leaves no name at run time. One client can carry
-several apps. A page inside the app's folder has `epicenter:app`; how a page
-elsewhere names an app's type is left to the first such page. One name has three spellings: `vocab words get` in a terminal,
+several apps. A view inside the app's folder has `epicenter:app`; how a program
+elsewhere names an app's type is left to the first such program. One name has three spellings: `vocab words get` in a terminal,
 `vocab_words_get` over MCP, `epicenter.vocab.words.get` in a client. The Epicenter app
 shows `list` and `get` as tables, and `set` and an app's actions as forms drawn
 from their input schemas.
