@@ -116,7 +116,7 @@ describe('problemsOf', () => {
 		]);
 	});
 
-	test('names code that is missing or writes fields as JSON Schema', () => {
+	test('names code that is missing, and collections that share a path, without code', () => {
 		const vocab = {
 			name: 'vocab',
 			description: 'Words',
@@ -128,18 +128,15 @@ describe('problemsOf', () => {
 			'epicenter.ts does not export defineApp(...) by default',
 		]);
 		expect(
-			problemsOf(vocab, {
+			problemsOf({
+				...vocab,
 				collections: {
-					quizzes: {
-						path: 'words/{stem}.md',
-						fields: { type: 'object', properties: {} },
-					},
+					...vocab.collections,
+					quizzes: { path: 'words/{stem}.md', fields: { type: 'object' } },
 				},
-				actions: {},
 			}),
 		).toEqual([
 			'collections "words" and "quizzes" share the path words/{stem}.md',
-			'collection "quizzes" has fields that are not a map of fields, such as { title: field.text() }; JSON Schema belongs in epicenter.json',
 		]);
 	});
 
@@ -150,13 +147,10 @@ describe('problemsOf', () => {
 				description: 'Bad',
 				collections: {
 					words: { path: 'words/{stem}.md', fields: { type: 'object' } },
+					settings: { path: 'settings.json', fields: { type: 'object' } },
 				},
 			},
 			{
-				collections: {
-					words: { path: 'words/{stem}.md', fields: {} },
-					settings: { path: 'settings.json', fields: {} },
-				},
 				actions: {
 					calendar: { description: 'c', input: {}, readonly: true, run() {} },
 					'calendar show': {
@@ -180,7 +174,6 @@ describe('problemsOf', () => {
 		);
 		expect(problems).toEqual([
 			'its name "serve" is an epicenter command',
-			'collection "words" is declared in both epicenter.json and epicenter.ts',
 			'action "calendar" is the start of action "calendar show", so "calendar show" could not be told apart',
 			'action "calendar" has "readonly", which an action does not take',
 			'action "calendar show" has the annotation "dangerous", which MCP does not define',

@@ -4,7 +4,6 @@ export {
 	type Annotations,
 	type App,
 	COMMANDS,
-	type CodeCollection,
 	type Command,
 	defineApp,
 	type Input,

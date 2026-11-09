@@ -140,6 +140,14 @@ describe('type errors', () => {
 		});
 	});
 
+	test('collections belong in epicenter.json, not in code', () => {
+		defineApp(widened, {
+			// @ts-expect-error — epicenter.ts holds actions only
+			collections: { quizzes: { path: 'quizzes/{day}.md', fields: {} } },
+			actions: {},
+		});
+	});
+
 	test('a declaration needs a name', () => {
 		// @ts-expect-error — name is missing
 		defineApp({ description: 'Nameless' }, { actions: {} });

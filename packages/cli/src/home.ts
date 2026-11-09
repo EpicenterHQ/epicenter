@@ -11,7 +11,6 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
 	type Action,
-	type CodeCollection,
 	type Declaration,
 	isName,
 	problemsOf,
@@ -33,17 +32,15 @@ type Place = {
 
 /**
  * A home entry or folder as `epicenter` found it: an app that can run, with
- * its `epicenter.json` as read from disk and its code's collections and
- * actions, or an entry with the problems that keep it from running.
+ * its `epicenter.json` as read from disk and its code's actions, or an entry
+ * with the problems that keep it from running.
  */
 export type Located =
 	| (Place & {
 			ok: true;
 			name: string;
-			/** The parsed `epicenter.json`: the one source of the app's name, description, and declared collections. */
+			/** The parsed `epicenter.json`: the one source of the app's name, description, and collections. */
 			declaration: Declaration;
-			/** Collections `epicenter.ts` introduces; empty without code. */
-			collections: Record<string, CodeCollection>;
 			/** `epicenter.ts`'s actions; empty without code. */
 			actions: Record<string, Action>;
 	  })
@@ -173,17 +170,13 @@ async function load(
 		problems.push(`declares the name "${name}" but its folder is "${entry}"`);
 	if (problems.length) return broken(problems);
 	const app = module?.default as
-		| {
-				collections: Record<string, CodeCollection>;
-				actions: Record<string, Action>;
-		  }
+		| { actions: Record<string, Action> }
 		| undefined;
 	return {
 		...at,
 		ok: true,
 		name,
 		declaration,
-		collections: app?.collections ?? {},
 		actions: app?.actions ?? {},
 	};
 }

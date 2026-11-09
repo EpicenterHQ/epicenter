@@ -59,17 +59,6 @@ test('D1 the listing shows declared folders, ignores the rest, and names each pr
 	});
 	await symlink(linked, join(f.home, 'journal'));
 	await f.folder(join(f.home, 'readme-only'), { 'README.md': 'not an app\n' });
-	await f.folder(join(f.home, 'twice'), {
-		'.gitignore': gitignore,
-		'epicenter.json': declarationOf('twice', { collections: { words } }),
-		'epicenter.ts': `import declaration from './epicenter.json';
-import { defineApp, field } from '@epicenter/app';
-export default defineApp(declaration, {
-	collections: { words: { path: 'words/{stem}.md', fields: { stage: field.text() } } },
-	actions: {},
-});
-`,
-	});
 	await f.folder(join(f.home, 'clash'), {
 		'.gitignore': gitignore,
 		'epicenter.json': declarationOf('clash', { collections: { words } }),
@@ -110,16 +99,9 @@ export default defineApp(declaration, {
 			entry.problems.join('\n'),
 		]),
 	);
-	expect(Object.keys(problems)).toEqual([
-		'clash',
-		'malformed',
-		'nodefault',
-		'twice',
-	]);
+	expect(Object.keys(problems)).toEqual(['clash', 'malformed', 'nodefault']);
 	expect(problems.nodefault).toContain('does not export defineApp');
 	expect(existsSync(join(f.root, 'ran'))).toBe(false);
-	expect(problems.twice).toContain('"words"');
-	expect(problems.twice).toContain('both epicenter.json and epicenter.ts');
 	expect(problems.clash).toContain('"words save"');
 	expect(problems.clash).toContain('collection "words"');
 	expect(problems.malformed).toContain('epicenter.json');
@@ -132,18 +114,15 @@ export default defineApp(declaration, {
 	expect(human.stdout).toContain('Problems:');
 });
 
-test('D2 --json prints the merged declaration, each action an MCP tool', async () => {
+test('D2 --json prints the declaration from epicenter.json, each action an MCP tool', async () => {
 	const f = await setup();
 	await f.folder(join(f.home, 'reading'), readingApp);
 	await f.folder(join(f.home, 'vocab'), {
 		'.gitignore': gitignore,
 		'epicenter.json': declarationOf('vocab', { collections: { words } }),
 		'epicenter.ts': `import declaration from './epicenter.json';
-import { defineApp, field } from '@epicenter/app';
-export default defineApp(declaration, {
-	collections: { quizzes: { path: 'quizzes/{day}.md', fields: { score: field.number({ optional: true }) } } },
-	actions: {},
-});
+import { defineApp } from '@epicenter/app';
+export default defineApp(declaration, { actions: {} });
 `,
 	});
 	const listing = JSON.parse((await f.run('--json')).stdout);
@@ -187,17 +166,7 @@ export default defineApp(declaration, {
 	const vocab = listing.apps.find(
 		(app: { name: string }) => app.name === 'vocab',
 	);
-	expect(vocab.collections).toEqual({
-		words,
-		quizzes: {
-			path: 'quizzes/{day}.md',
-			fields: {
-				type: 'object',
-				properties: { score: { type: 'number' } },
-				additionalProperties: false,
-			},
-		},
-	});
+	expect(vocab.collections).toEqual({ words });
 	const one = JSON.parse((await f.run('reading', '--json')).stdout);
 	expect(one).toMatchObject({
 		name: 'reading',

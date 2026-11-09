@@ -1,7 +1,7 @@
 /**
  * The home, app, and action views (ADR-0841, ADR-0857). `--json` prints the
- * merged declaration with each action as the MCP tool `serve` offers, so a
- * listing and `tools/list` agree; the human views come from the same actions.
+ * declaration with each action as the MCP tool `serve` offers, so a listing
+ * and `tools/list` agree; the human views come from the same actions.
  */
 import { type Action, ANNOTATION_DEFAULTS } from '@epicenter/app';
 import type { TSchemaOptions } from 'typebox';
@@ -26,8 +26,8 @@ export function actionTool(app: string, key: string, action: Action) {
 }
 
 /**
- * The app as `--json` prints it: its declaration, its code's collections as
- * JSON Schema, and its actions as tools. Nothing here reads Git (ADR-0851).
+ * The app as `--json` prints it: its declaration from `epicenter.json` and
+ * its actions as tools. Nothing here reads Git (ADR-0851).
  */
 function appListing(located: Runnable) {
 	const { declaration } = located;
@@ -36,15 +36,7 @@ function appListing(located: Runnable) {
 		description: declaration.description,
 		folder: located.folder,
 		...(located.link ? { link: located.link } : {}),
-		collections: {
-			...declaration.collections,
-			...Object.fromEntries(
-				Object.entries(located.collections).map(([key, { path, fields }]) => [
-					key,
-					{ path, fields: jsonSchema(fields) },
-				]),
-			),
-		},
+		collections: declaration.collections ?? {},
 		actions: Object.entries(located.actions).map(([key, action]) =>
 			actionTool(located.name, key, action),
 		),

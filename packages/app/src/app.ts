@@ -1,8 +1,7 @@
 /**
  * An app's code: what its `epicenter.ts` default-exports (ADR-0857). The
- * app's name, description, and the collections a program or person writes
- * are in `epicenter.json`; `epicenter.ts` adds actions and the collections
- * its own actions introduce.
+ * app's name, description, and every collection are in `epicenter.json`;
+ * `epicenter.ts` holds actions and nothing else of the app's shape.
  *
  * ```ts
  * import declaration from './epicenter.json';
@@ -23,7 +22,6 @@
 import type { Static, TObject, TSchema } from 'typebox';
 import type { Context } from './context.ts';
 import {
-	COLLECTION_PATH,
 	type Declaration,
 	declarationProblems,
 	isName,
@@ -83,15 +81,10 @@ export type Action<I extends Input = Input> = {
 	run(input: InputOf<I>, context: Context): unknown;
 };
 
-/** A collection an app's own actions introduce: its fields written with the `field` helpers. */
-export type CodeCollection = { path: string; fields: Input };
-
 type Actions = Record<string, { run: (...args: never) => unknown }>;
 
 /** An app's code as `defineApp` returns it, its actions typed as written. */
 export type App<A extends Actions = Actions> = {
-	/** Collections this code introduces; those in `epicenter.json` are not repeated here. */
-	collections: Record<string, CodeCollection>;
 	actions: A;
 };
 
@@ -108,14 +101,11 @@ export type App<A extends Actions = Actions> = {
 export function defineApp<I extends Record<string, Input>, A extends Actions>(
 	_declaration: Declaration,
 	code: {
-		collections?: Record<string, CodeCollection>;
 		actions: { [K in keyof I]: Action<I[K]> } & A;
 	},
 ): App<A> {
-	return { collections: code.collections ?? {}, actions: code.actions };
+	return { actions: code.actions };
 }
-
-const PATH_PATTERN = new RegExp(COLLECTION_PATH);
 
 /**
  * The commands `epicenter` keeps for itself, each with its usage. The CLI
@@ -187,6 +177,18 @@ export function problemsOf(declaration: unknown, code?: unknown): string[] {
 	const { name, collections = {} } = declaration as Declaration;
 	if (isCommand(name))
 		problems.push(`its name "${name}" is an epicenter command`);
+	// The actions each collection gives, by their words, which no hand-written action may take.
+	const given = new Map<string, string>();
+	const paths = new Map<string, string>();
+	for (const [key, { path }] of Object.entries(collections)) {
+		const other = paths.get(path);
+		if (other !== undefined)
+			problems.push(
+				`collections "${other}" and "${key}" share the path ${path}`,
+			);
+		else paths.set(path, key);
+		for (const words of collectionActionWords(key, path)) given.set(words, key);
+	}
 	if (code === undefined) return problems;
 	const app = code as Record<string, unknown> | null;
 	if (
@@ -199,57 +201,6 @@ export function problemsOf(declaration: unknown, code?: unknown): string[] {
 			...problems,
 			'epicenter.ts does not export defineApp(...) by default',
 		];
-	const given = new Map<string, string>();
-	const paths = new Map<string, string>();
-	const samePath = (key: string, path: string) => {
-		const other = paths.get(path);
-		if (other !== undefined)
-			problems.push(
-				`collections "${other}" and "${key}" share the path ${path}`,
-			);
-		else paths.set(path, key);
-	};
-	for (const [key, collection] of Object.entries(collections)) {
-		samePath(key, collection.path);
-		for (const words of collectionActionWords(key, collection.path))
-			given.set(words, key);
-	}
-	for (const [key, collection] of Object.entries(
-		(app.collections ?? {}) as Record<string, unknown>,
-	)) {
-		if (Object.hasOwn(collections, key)) {
-			problems.push(
-				`collection "${key}" is declared in both epicenter.json and epicenter.ts`,
-			);
-			continue;
-		}
-		const path = (collection as { path?: unknown } | null)?.path;
-		const fields = (collection as { fields?: unknown } | null)?.fields;
-		if (!isName(key))
-			problems.push(
-				`collection "${key}" is not lowercase letters, digits, and dashes`,
-			);
-		if (typeof path !== 'string' || !PATH_PATTERN.test(path))
-			problems.push(
-				`collection "${key}" has no path with at most one placeholder, such as words/{stem}.md`,
-			);
-		else {
-			samePath(key, path);
-			for (const words of collectionActionWords(key, path))
-				given.set(words, key);
-		}
-		if (typeof fields !== 'object' || fields === null)
-			problems.push(`collection "${key}" has no fields`);
-		else if (
-			Object.values(fields).some(
-				(field) => typeof field !== 'object' || field === null,
-			)
-		)
-			problems.push(
-				`collection "${key}" has fields that are not a map of fields, such as { title: field.text() }; JSON Schema belongs in epicenter.json`,
-			);
-	}
-
 	const actions = app.actions as Record<string, unknown>;
 	const keys = [...Object.keys(actions), ...given.keys()];
 	for (const key of Object.keys(actions)) {
