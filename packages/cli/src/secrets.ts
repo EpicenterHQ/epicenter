@@ -2,11 +2,10 @@
  * Each app reaches this computer's Keychain under epicenter.<name> (ADR-0841).
  * EPICENTER_TEST_SECRETS supplies process-local stores instead: a JSON object
  * shaped as { "epicenter.reading": { "token": "plain value" } }. Values stay
- * as strings, and every call for one service shares the same store.
+ * as strings. Each run is its own process and binds its app's store once, so
+ * a store lives as long as the run.
  */
 import type { Secrets } from '@epicenter/app';
-
-const testStores = new Map<string, Secrets>();
 
 function unavailable(message: string): Secrets {
 	const refuse = async (): Promise<never> => {
@@ -30,10 +29,8 @@ export function keychain(service: string): Secrets {
 		} catch {
 			return unavailable('EPICENTER_TEST_SECRETS is not JSON');
 		}
-		const existing = testStores.get(service);
-		if (existing) return existing;
 		const values = new Map(Object.entries(entries?.[service] ?? {}));
-		const store: Secrets = {
+		return {
 			async get(name) {
 				return values.get(name);
 			},
@@ -44,8 +41,6 @@ export function keychain(service: string): Secrets {
 				values.delete(name);
 			},
 		};
-		testStores.set(service, store);
-		return store;
 	}
 	const secrets = Bun.secrets;
 	if (!secrets)

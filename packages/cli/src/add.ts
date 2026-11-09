@@ -25,7 +25,7 @@ import {
 import { join } from 'node:path';
 import { nameProblem, SCHEMA_URL } from '@epicenter/app';
 import { CliError } from './errors.ts';
-import { checkedGit, git } from './git.ts';
+import { checkedGit, git, isRepositoryTop } from './git.ts';
 import { homeDir, readDeclaration, resolveFolder } from './home.ts';
 import { fail, made } from './output.ts';
 
@@ -102,14 +102,6 @@ async function adopt(folder: string, name: string, subject: string) {
 		await checkedGit(folder, ['commit', '-q', '--no-verify', '-m', subject]);
 }
 
-/** Whether `folder` is the top of its own Git repository. */
-async function isRepositoryTop(folder: string) {
-	const top = await git(folder, ['rev-parse', '--show-toplevel']);
-	return (
-		top.code === 0 && (await realpath(top.stdout.toString().trim())) === folder
-	);
-}
-
 function done(name: string, json: boolean) {
 	return made(
 		{ name, folder: join(homeDir(), name), next: `epicenter ${name}` },
@@ -182,20 +174,18 @@ async function addFolder(source: string, init: boolean, json: boolean) {
 				.error,
 			json,
 		);
-	if (!(await isRepositoryTop(folder))) {
-		if (!init)
-			return fail(
-				CliError.Usage({
-					message: `${folder} is not a Git repository yet; --init makes one and commits what is there`,
-					next: `epicenter add ${source} --init`,
-				}).error,
-				json,
-			);
-		try {
-			await adopt(folder, name, `add ${name}`);
-		} catch (error) {
-			return fail(CliError.GitFailed({ cause: error }).error, json);
-		}
+	if (!init && !(await isRepositoryTop(folder)))
+		return fail(
+			CliError.Usage({
+				message: `${folder} is not a Git repository yet; --init makes one and commits what is there`,
+				next: `epicenter add ${source} --init`,
+			}).error,
+			json,
+		);
+	try {
+		await adopt(folder, name, `add ${name}`);
+	} catch (error) {
+		return fail(CliError.GitFailed({ cause: error }).error, json);
 	}
 	await mkdir(homeDir(), { recursive: true });
 	await symlink(folder, join(homeDir(), name));

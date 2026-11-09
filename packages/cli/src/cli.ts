@@ -117,10 +117,10 @@ function inputOf(action: Action, rest: string[]) {
 /** Dispatch app commands and return an exit code so the entrypoint can let stdout drain. */
 export async function runCli(argv: string[]): Promise<number> {
 	// A child of another epicenter answers into the report file it names (child.ts).
-	const reportArg = argv.find((token) => token.startsWith(REPORT_FLAG));
+	const reportArg = argv[0]?.startsWith(REPORT_FLAG) ? argv[0] : undefined;
 	if (reportArg) {
 		answerInto(reportArg.slice(REPORT_FLAG.length));
-		argv = argv.filter((token) => token !== reportArg);
+		argv = argv.slice(1);
 	}
 	const relayed = argv;
 	if (argv[0] === 'help') argv = [...argv.slice(1), '--help'];
@@ -215,6 +215,7 @@ export async function runCli(argv: string[]): Promise<number> {
 		const { data: report, error } = await runAction(
 			located,
 			matched.key,
+			action,
 			given.input,
 			writeStarted,
 		);

@@ -25,7 +25,7 @@ import { join } from 'node:path';
 import { revParse } from './git.ts';
 import type { Unknown } from './report.ts';
 
-/** The internal flag that makes `epicenter` a child writing its answer to a file; undocumented. */
+/** The internal flag that makes `epicenter` a child writing its answer to a file; undocumented, and read only as the first argument, so an action's own input can never be taken for it. */
 export const REPORT_FLAG = '--report=';
 
 /** How to run this same `epicenter`: the compiled binary alone, or Bun, with the flags it was started with, and this entry. */
@@ -53,7 +53,7 @@ export async function runChild(
 	{ stdin }: { stdin: 'inherit' | 'ignore' },
 ): Promise<unknown> {
 	const path = join(tmpdir(), `epicenter-report-${randomUUID()}.json`);
-	const child = Bun.spawn([...self(), ...args, `${REPORT_FLAG}${path}`], {
+	const child = Bun.spawn([...self(), `${REPORT_FLAG}${path}`, ...args], {
 		stdio: [stdin, 2, 2],
 	});
 	const forward = (signal: NodeJS.Signals) => child.kill(signal);

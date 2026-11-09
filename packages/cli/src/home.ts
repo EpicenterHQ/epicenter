@@ -47,12 +47,7 @@ export type Located =
 			/** `epicenter.ts`'s actions; empty without code. */
 			actions: Record<string, Action>;
 	  })
-	| (Place & {
-			ok: false;
-			/** The entry's name, for the listing. */
-			name: string;
-			problems: string[];
-	  });
+	| (Place & { ok: false; problems: string[] });
 
 /** An app that can run. */
 export type Runnable = Extract<Located, { ok: true }>;
@@ -158,7 +153,6 @@ async function load(
 	const broken = (problems: string[]): Located => ({
 		...at,
 		ok: false,
-		name: entry ?? '',
 		problems,
 	});
 	// An invalid declaration is reported before any of the app's code runs.

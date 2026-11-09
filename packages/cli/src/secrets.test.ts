@@ -11,7 +11,7 @@ test('test services retain values and bad JSON refuses every method', async () =
 		const store = keychain(service);
 		expect(await store.get('seed')).toBe('plain');
 		await store.set('token', 'value');
-		expect(await keychain(service).get('token')).toBe('value');
+		expect(await store.get('token')).toBe('value');
 		expect(await keychain('epicenter.separate').get('token')).toBeUndefined();
 		await store.delete('token');
 		expect(await store.get('token')).toBeUndefined();

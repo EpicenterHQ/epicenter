@@ -10,6 +10,7 @@
  * - `GIT_TERMINAL_PROMPT=0`: a push never waits on a credential prompt no one
  *   can see; it fails, and the report says so.
  */
+import { realpath } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
 
 type Options = {
@@ -78,4 +79,12 @@ export async function revParse(folder: string, rev: string) {
 export async function gitPath(folder: string, name: string) {
 	const path = await checkedGit(folder, ['rev-parse', '--git-path', name]);
 	return isAbsolute(path) ? path : join(folder, path);
+}
+
+/** Whether `folder`, a real path, is the top level of its own Git repository. */
+export async function isRepositoryTop(folder: string) {
+	const top = await git(folder, ['rev-parse', '--show-toplevel']);
+	return (
+		top.code === 0 && (await realpath(top.stdout.toString().trim())) === folder
+	);
 }

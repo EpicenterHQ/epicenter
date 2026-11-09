@@ -5,7 +5,6 @@
  * report says what the action did, which writes were refused, what each
  * written path became, and what the push did. Nothing is undone.
  */
-import { realpath } from 'node:fs/promises';
 import type { Action } from '@epicenter/app';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
@@ -13,7 +12,7 @@ import { commitWrites, createWriteLog } from './commit.ts';
 import { folderOnDisk } from './disk.ts';
 import { CliError } from './errors.ts';
 import { takeFileLock } from './file-lock.ts';
-import { git, gitPath, revParse } from './git.ts';
+import { gitPath, isRepositoryTop, revParse } from './git.ts';
 import type { Runnable } from './home.ts';
 import { pushToOrigin } from './push.ts';
 import type { PathState, RunReport } from './report.ts';
@@ -115,25 +114,16 @@ async function runInTurn(
 export async function runAction(
 	located: Runnable,
 	key: string,
+	action: Action,
 	input: Record<string, unknown>,
 	/** Called once the run holds the app's turn, with the HEAD it starts from. */
 	started: (start: { folder: string; head: string | null }) => void,
 ): Promise<Result<RunReport, CliError>> {
 	const folder = located.realPath;
-	const top = await git(folder, ['rev-parse', '--show-toplevel']);
-	if (
-		top.code !== 0 ||
-		(await realpath(top.stdout.toString().trim())) !== folder
-	)
+	if (!(await isRepositoryTop(folder)))
 		return CliError.NotRepository({ folder });
 	if ((await revParse(folder, 'MERGE_HEAD')) !== null)
 		return CliError.MidMerge({ folder });
-	const action = located.actions[key];
-	if (!action)
-		return CliError.Usage({
-			message: `Unknown action ${located.name} ${key}`,
-			next: `epicenter ${located.name}`,
-		});
 	let release: () => void;
 	try {
 		release = await takeFileLock(await gitPath(folder, 'epicenter.lock'));
