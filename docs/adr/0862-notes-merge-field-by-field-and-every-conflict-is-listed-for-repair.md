@@ -1,9 +1,9 @@
 # 0862. Notes merge field by field, and every conflict is listed for repair
 
 - **Status:** Proposed
-- **Date:** 2026-11-09 (amended 2026-11-09: retitled from "Nothing blocks, and nothing is lost", a promise broader than the mechanism; the merge's second caller is the Epicenter app on a phone, not a browser, [ADR-0863](0863-epicenter-is-one-place-and-one-app-shows-it-on-every-device-you-own.md))
-- **Relates:** [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (who commits), [ADR-0851](0851-an-app-with-history-has-one-git-remote-its-meeting-point-and-backup.md) (`sync`, edited), [ADR-0856](0856-binary-files-go-through-git-lfs.md) (binary files), [ADR-0861](0861-whats-yours-is-everywhere-and-everything-else-is-used-where-it-is.md) (the meeting place), [ADR-0863](0863-epicenter-is-one-place-and-one-app-shows-it-on-every-device-you-own.md) (the Epicenter app on a phone).
-- **Unbuilt:** all of it: the `key: <JSON>` writer, the merge function and its Git driver, conflicted copies, and the problems list.
+- **Date:** 2026-11-09
+- **Relates:** [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (who commits), [ADR-0851](0851-an-app-with-history-has-one-git-remote-its-meeting-point-and-backup.md) (`sync`, edited), [ADR-0856](0856-binary-files-go-through-git-lfs.md) (binary files), [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (only Whispering keeps a copy, and its conflicts use Git's line merge first).
+- **Unbuilt:** the merge function and its Git driver, conflicted copies, and the problems list's files, values, conflicts, and missing sign-ins. Built: the `key: <JSON>` writer in a collection's `set` (`packages/app/src/collection.ts`).
 
 ## Context
 
@@ -18,6 +18,11 @@ handed it both sides' commits: `HEAD` for the remote's, and
 note's fields one `key: <JSON>` per line in the folder sync product.
 
 ## Decision
+
+**The field merge waits until conflicts prove frequent.** Only a program's copy
+on another Mac, Whispering's, ever merges (ADR-0864). Until its conflicts prove
+frequent, they use Git's line merge, and `sync` aborts a rebase that stops
+(ADR-0851). What follows is the merge that replaces it then.
 
 **The promise: a note's merge never stops, and every conflict is listed for
 repair.** A value the merge replaces is in history and named in the `sync`
@@ -41,10 +46,9 @@ The lines are YAML, so every tool reads them, and a JSON value means what it
 says (`"2026-11-15"` stays a string, `"no"` stays a string). Any YAML front
 matter is read; the first `set` on a file rewrites its fields in this form.
 
-**One merge function, `merge(base, ours, theirs)`, has two callers.** Git runs it
-as a merge driver (`*.md merge=epicenter` in `.gitattributes`), which `sync`
-configures in each repository before it pulls; the Epicenter app on a phone
-runs it over libgit2's three-way file merge when it syncs (ADR-0863).
+**One merge function, `merge(base, ours, theirs)`, is Git's merge driver for
+notes** (`*.md merge=epicenter` in `.gitattributes`), which `sync` configures
+in each repository before it pulls.
 
 1. Each version is parsed into fields and a body. If any does not parse, the
    whole file gets Git's text merge.
@@ -88,8 +92,9 @@ there to fix it.
 
 ## Considered alternatives
 
-- **`sync` stops and leaves the conflict to a person (ADR-0851 as written).** The
-  common case, two fields of one file, stopped it.
+- **`sync` stops and leaves the conflict to a person, for good.** The common
+  case, two fields of one file, stops it; it stays only until conflicts prove
+  frequent.
 - **A time for each field, stored in the file.** Exact "newest wins" for a field
   nobody reads.
 - **This computer's value wins.** Which value survives would depend on which
