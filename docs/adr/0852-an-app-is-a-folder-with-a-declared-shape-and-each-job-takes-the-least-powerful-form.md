@@ -3,8 +3,8 @@
 - **Status:** Proposed
 - **Date:** 2026-11-08
 - **Amends:** [ADR-0844](0844-one-runner-runs-anywhere-and-every-surface-is-a-view-over-it.md) at Epicenter Cloud, which hosts a remote and a computer rather than being a separate product. [ADR-0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md) at `epicenter add`, which also links a folder, at `epicenter new`, which becomes `add` from a built-in template, and at the `{ from, sha }` record, which the `upstream` branch already holds.
-- **Relates:** [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) (your server), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (the commit rule), [ADR-0851](0851-an-app-with-history-has-one-git-remote-its-meeting-point-and-backup.md) (`origin`), [ADR-0853](0853-collections-give-four-actions-and-programs-without-the-folder-ask-over-mcp.md) (MCP), [ADR-0856](0856-binary-files-go-through-git-lfs.md) (binary files), [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (views), [ADR-0857](0857-an-app-declares-itself-in-epicenter-json-and-its-code-in-epicenter-ts.md) (the declaration). [docs/vision.md](../vision.md) explains the whole.
-- **Unbuilt:** the registry, Epicenter Cloud, and `add` without `--init` and without the `upstream` remote. Built 2026-11-09: `new` as the built-in template, `add <folder>` linking a folder and making its history with `--init`, and `add <git url>` cloning the app and keeping the source as the `upstream` remote and branch; `--init`, `upstream`, and the commit `add` makes are to be deleted.
+- **Relates:** [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) (your server), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (the commit rule), [ADR-0851](0851-an-app-with-history-has-one-git-remote-its-meeting-point-and-backup.md) (`origin`), [ADR-0853](0853-collections-give-four-actions-and-programs-without-the-folder-ask-over-mcp.md) (MCP), [ADR-0856](0856-binary-files-go-through-git-lfs.md) (binary files), [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (views), [ADR-0857](0857-an-app-declares-itself-in-epicenter-json-and-its-code-in-epicenter-ts.md) (the declaration), [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (one copy, no catalog, no upstreams). [docs/vision.md](../vision.md) explains the whole.
+- **Unbuilt:** the deletion of `epicenter add`, which is built as `add <folder>` (a link, and history with `--init`) and `add <git url>` (a clone keeping its source as the `upstream` remote and branch). Built: `new` as the built-in template.
 
 ## Context
 
@@ -27,7 +27,7 @@ same job.
 | Declare an app | `epicenter.json`, data that cannot run (ADR-0857) | it has code: `epicenter.ts` |
 | Describe a field | JSON Schema, an existing standard (ADR-0857) | never: no schema language of Epicenter's own |
 | Change data | edit a file and commit it | it needs a rule, a sign-in, or reach: an action |
-| An action | a collection's `list`, `show`, `save`, `delete` (ADR-0853) | it needs logic: one the author writes |
+| An action | a collection's `list`, `get`, `set`, `delete` (ADR-0853) | it needs logic: one the author writes |
 | Record what an action did | its own files, and a commit by whoever knows the intent (ADR-0850) | never: no transactions or run log |
 | Two programs sharing data | share the folder | never: programs do not call each other |
 | Move data between computers | Git, with no merging by Epicenter (ADR-0851) | never: no sync engine |
@@ -39,8 +39,8 @@ same job.
 One step up is deliberate: your server is a computer that is always on,
 because a phone and Claude anywhere need something to answer them.
 
-**An app is a folder with a declared shape.** Its `epicenter.json` names it and
-declares the collections programs and people write; its `epicenter.ts`, when
+**An app is a folder with a declared shape.** Its `epicenter.json` describes it
+and declares the collections programs and people write; its `epicenter.ts`, when
 present, holds its actions (ADR-0857). An app belongs to Epicenter by that
 declaration, not by its runtime: a folder with only `epicenter.json` needs no
 program at all to be an app.
@@ -63,7 +63,8 @@ writes because another program is installed.
 linked there (`ln -s ~/Code/vault ~/Epicenter/vault`), or made there by a program
 or by `epicenter new`. Its name is its entry there. `~/Epicenter` holds nothing
 else of Epicenter's: no list of apps, no settings. `epicenter add`, built
-2026-11-09, is retired: it was `ln -s` and `git clone` (ADR-0861).
+2026-11-09, is retired: it was `ln -s` and `git clone`, and an app keeps no
+`upstream` remote (ADR-0864).
 `epicenter new <name>` makes the folder from a built-in template:
 `epicenter.json` with its `$schema`, a `.gitignore` with `node_modules/`,
 `.cache/`, `*.local`, and `*.local.*` (ADR-0858), and a `.gitattributes`
@@ -72,12 +73,12 @@ LFS's filter is set up once per computer (`git lfs install`), never per
 repository (ADR-0856). Sharing an app is sharing its Git URL; there is no
 second way, such as an npm package an app re-exports.
 
-**Epicenter provides defaults, each an ordinary instance of an open standard.**
-The registry is a list of Git URLs. Epicenter Cloud hosts an app's `origin` and
-can be your server (a container running the same `epicenter serve`). The
-Epicenter app is a program that asks over MCP. A person who takes every default
-installs the Epicenter app, signs in, and never sees Git; a developer uses any
-Git host, their own computer, or their own program without changing an app.
+**Epicenter's defaults are ordinary instances of open standards.** A remote is
+any Git host, GitHub by default (ADR-0851); reach is MCP (ADR-0853); a view is
+a web page that asks over MCP (ADR-0860). A hosted Epicenter, if one comes, runs
+the same `epicenter serve` rather than being a product of its own; ADR-0864
+leaves it undecided. A developer uses any Git host, their own computer, or their
+own program without changing an app.
 
 ## Consequences
 
@@ -96,8 +97,8 @@ Git host, their own computer, or their own program without changing an app.
   write paths in every program.
 - **Apps ship their interface in the folder, and the Epicenter app hosts it
   through an API of its own.** Rebuilds the platform layer the earlier Mail died
-  of, and makes Epicenter a gate. Views (ADR-0860) ship in the folder as MCP
-  Apps, a standard that hosts Epicenter does not own also render.
+  of, and makes Epicenter a gate. Views (ADR-0860) are web pages that ask over
+  MCP, as any agent does.
 - **Actions as WebAssembly, run by a CLI rewritten in Rust.** Sandboxing and
   actions that run anywhere, at the cost of a build step, most of npm, and
   Claude's edit-and-run loop. Revisit when apps from strangers run with a
