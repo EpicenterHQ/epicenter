@@ -248,18 +248,20 @@ real `~/Epicenter`, the vault, or the Keychain.
 | --- | --- | --- | --- |
 | D1–D7 | the declaration | `acceptance.declaration.test.ts` | pass |
 | C1–C9 | the commit rule as rewritten: `folder.commit`, no commit of a run's own | `acceptance.commit.test.ts` | pass |
-| W1–W6 | the folder, offline | `acceptance.folder.test.ts` | pass |
-| F1–F14 | the final review's repairs | `acceptance.repairs.test.ts` | pass; 1,000 runs, 0 lost, 0 misfiled, index whole |
+| W1–W5 | the folder, `sync`, `new`, and `add` | `acceptance.folder.test.ts` | pass |
+| F1, F6, F7, F9, F10 | the final review's repairs that outlived the commit machinery | `acceptance.repairs.test.ts` | pass |
 | M1–M6 | Mail | to write | after the merge, with the author present |
-| S1–S2 | `serve` over HTTP, forwarding | to write | after Mail |
-| K1–K2 | collections and their handles | to write | with Vocab |
+| S1 | `serve` over HTTP, for the phone and claude.ai | to write | when an app is wanted on the phone |
+| K1–K2 | collection actions (`list`, `get`, `set`, `delete`), `collections` in `run`, and generated types | to write | with Vocab |
 
 Done (2026-11-09): waves 0 and 1, and 2a, 2b, 2c, and wave 3's offline parts.
 Next: ADR-0850 as rewritten on 2026-11-09 replaces the checkout prototype. Delete
 the commit machinery, add `folder.commit` and `epicenter sync` (ADR-0851), then
 build Vocab with collections only in `epicenter.json` and types from
 `epicenter.d.json.ts` (ADR-0857, K1, K2); then Mail, as ADR-0859 reshapes it.
-C1–C9 and the race retire with the machinery.
+Done the same day: the machinery is deleted, `folder.commit` and `sync` are
+built. Next: the API of ADR-0853 and ADR-0857 as amended 2026-11-09, built with
+Vocab.
 
 **0. Tag and prune.** Done. Tagged `folder-sync-product`; `apps/epicenter`
 deleted; the frozen apps stay until each is rebuilt (ADR-0843).

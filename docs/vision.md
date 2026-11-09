@@ -55,7 +55,7 @@ which is mostly the earlier product described at the end.
 | Noun | What it is |
 | --- | --- |
 | an app | a folder whose `epicenter.json` names it and declares its collections; an `epicenter.ts` beside it adds actions |
-| a collection | a kind of file in the app, by path (`words/{stem}.md`) and fields; it gives `list`, `show`, `save`, and `delete` |
+| a collection | a kind of file in the app, by path (`words/{stem}.md`) and fields; it gives `list`, `get`, `set`, and `delete` |
 | a field | JSON Schema for one value; in TypeScript, written with helpers such as `field.text()` |
 | an action | something you can ask an app to do: a collection's four, or one the author writes with a `run` function |
 | `epicenter` | the program that runs an action in a folder |
@@ -97,19 +97,25 @@ import declaration from './epicenter.json';
 import { defineApp, field } from '@epicenter/app';
 
 export default defineApp(declaration, {
-  actions: {
-    define: {
-      description: "Look up a word's definition",
-      input: { stem: field.text() },
-      positional: ['stem'],
-      annotations: { readOnlyHint: true, openWorldHint: true },
-      run: async ({ stem }, { collections }) => {
-        const word = await collections.words.show(stem);
-        // ask a dictionary, return what it says
-      },
+  define: {
+    description: "Look up a word's definition",
+    input: { stem: field.text() },
+    annotations: { readOnlyHint: true, openWorldHint: true },
+    run: async ({ stem }, { collections }) => {
+      const word = await collections.words.get({ stem });
+      // ask a dictionary, return what it says
     },
   },
 });
+```
+
+Vocab's tools are `words list`, `words get`, `words set`, `words delete` from
+`epicenter.json`, and `define` from `epicenter.ts`; a written action with a
+collection action's name replaces it, and `null` removes one. On the command
+line the first required field is read by position: `epicenter vocab define
+serendipity`.
+
+```txt
 ```
 
 A folder with only `epicenter.json` is a whole app that cannot run code. Every
@@ -127,8 +133,8 @@ change was.** That is true for you in your editor, for Claude Code, and for
 Whispering.
 
 **If you do not, or the write needs a sign-in or an app's rule, ask for an
-action.** That is true for Claude Desktop, the Epicenter app, and the terminal on
-another computer.
+action.** That is true for Claude Desktop, an agent on another computer, and
+the Epicenter app.
 
 **An action changes files and commits only if its author says so.** `run` calls
 `folder.commit('Add 12 words')` when one run is one change; otherwise what it
@@ -142,14 +148,14 @@ Whispering. Searching Gmail needs your sign-in, so it is an action that runs on
 your Epicenter.
 
 ```txt
-epicenter vocab define serendipity     on your Epicenter, forwarded from any other computer
-epicenter ./vocab define serendipity   here, in that folder
+ssh studio                                          you, then `epicenter …` there
+ssh studio epicenter serve --stdio                  an agent's MCP server, from any computer
+epicenter vocab define serendipity                  this computer's copy of Vocab; never forwarded
 ```
 
-`epicenter serve` is the only way in. It speaks MCP and nothing else, on your
-tailnet, and runs each call in a fresh process, so code you just pulled is what
-runs. Claude Code connects to it; Claude Desktop runs `epicenter serve --stdio`,
-which forwards. **Claude and ChatGPT on your phone, and claude.ai, do not reach
+A command always means the computer it is typed on. `serve` speaks MCP and
+nothing else, and runs each call in a fresh process, so code you just pulled is
+what runs. **Claude and ChatGPT on your phone, and claude.ai, do not reach
 your apps yet**: they connect from their vendors' clouds and need a public
 address with a sign-in, which comes when you want an app on your phone. Until
 then, nothing guards your sign-ins from another program running as you except

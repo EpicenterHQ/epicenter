@@ -66,8 +66,9 @@ is a repository, or inside one. `epicenter add <git url>` is `git clone` into
 `epicenter new <name>` makes the folder from a built-in template:
 `epicenter.json` with its `$schema`, a `.gitignore` with `node_modules/`,
 `.cache/`, `*.local`, and `*.local.*` (ADR-0858), and a `.gitattributes`
-(ADR-0856); it makes the folder a repository, sets up Git LFS when it is
-installed, and commits the template. Sharing an app is sharing its Git URL; there is no
+(ADR-0856); it makes the folder a repository and commits the template. Git
+LFS's filter is set up once per computer (`git lfs install`), never per
+repository (ADR-0856). Sharing an app is sharing its Git URL; there is no
 second way, such as an npm package an app re-exports.
 
 **Epicenter provides defaults, each an ordinary instance of an open standard.**
