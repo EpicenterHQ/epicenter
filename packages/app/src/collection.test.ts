@@ -77,6 +77,16 @@ describe('a Markdown collection', () => {
 		);
 	});
 
+	test('set removes a field given as null, as JSON Merge Patch does', async () => {
+		const context = createMemoryContext({
+			'items/a.md': '---\nkind: "link"\nurl: "https://example.com"\nadded: "2026-11-01"\n---\nKeep me.\n',
+		});
+		await run('items set', { id: 'a', url: null }, context);
+		expect(await context.folder.read('items/a.md')).toBe(
+			'---\nkind: "link"\nadded: "2026-11-01"\n---\nKeep me.\n',
+		);
+	});
+
 	test('set rewrites YAML front matter as key: <JSON> lines and keeps the body', async () => {
 		const context = createMemoryContext({
 			'items/a.md': '---\nkind: thought # a comment\nadded: 2026-11-01\ntags: [x, y]\n---\nBody\n',
@@ -165,6 +175,16 @@ describe('a JSON collection', () => {
 			other: true,
 			theme: 'dark',
 		});
+	});
+
+	test('set removes a JSON field given as null', async () => {
+		const settings = collectionActions('settings', {
+			path: 'settings.json',
+			fields: { type: 'object', properties: { theme: { type: 'string' } } },
+		});
+		const context = createMemoryContext({ 'settings.json': '{ "theme": "dark", "size": 12 }' });
+		await settings['settings set']?.run({ theme: null } as never, context);
+		expect(await context.folder.read('settings.json')).toBe('{\n  "size": 12\n}\n');
 	});
 
 	test('set refuses a file that is not a JSON object', async () => {

@@ -20,9 +20,11 @@
  * matter as `key: <JSON>`, keeping the body. A file whose front matter is
  * neither is listed and read, its whole text as body, and `set` refuses it.
  *
- * `set` checks its input against the collection's fields before writing, with
- * `format` asserted, and a new file must have every required field. A field a
- * hand edit made wrong is kept; nothing re-checks the fields `set` was not given.
+ * `set` merges as JSON Merge Patch (RFC 7396) does: a field given as `null`
+ * is removed, and one not given is kept. It checks its input against the
+ * collection's fields before writing, with `format` asserted, and a new file
+ * must have every required field. A field a hand edit made wrong is kept;
+ * nothing re-checks the fields `set` was not given.
  */
 import {
 	isFieldKey,
@@ -146,26 +148,34 @@ function markdownOf(fields: Fields, body: string): string {
 	return `---\n${lines.join('')}---\n${body}`;
 }
 
-/** `text` with `given` set and, when `body` is given, its body replaced. */
+/** `fields` less the keys in `removed`. */
+function without(fields: Fields, removed: string[]): Fields {
+	return Object.fromEntries(
+		Object.entries(fields).filter(([key]) => !removed.includes(key)),
+	);
+}
+
+/** `text` with `given` set, `removed` gone, and, when `body` is given, its body replaced. */
 function written(
 	kind: 'markdown' | 'json',
 	text: string | undefined,
 	read: Read,
 	given: Fields,
+	removed: string[],
 	body: string | undefined,
 ): string {
 	if (kind === 'json')
-		return `${JSON.stringify({ ...read.fields, ...given }, null, 2)}\n`;
+		return `${JSON.stringify(without({ ...read.fields, ...given }, removed), null, 2)}\n`;
 	const newBody = body ?? read.body;
 	if (text !== undefined) {
-		const patched = patchFrontMatter(text, { set: given });
+		const patched = patchFrontMatter(text, { set: given, delete: removed });
 		if (patched !== 'outside') {
 			if (body === undefined) return patched;
 			const kept = parseFrontMatter(patched)?.body ?? '';
 			return patched.slice(0, patched.length - kept.length) + newBody;
 		}
 	}
-	return markdownOf({ ...read.fields, ...given }, newBody);
+	return markdownOf(without({ ...read.fields, ...given }, removed), newBody);
 }
 
 /** The first thing wrong with `value` against `schema`, as a sentence naming its field. */
@@ -220,11 +230,17 @@ export function collectionActions(
 	const read = (text: string) =>
 		kind === 'json' ? readJson(text) : readMarkdown(text);
 
-	// Every field is optional to `set`, which merges; a default would overwrite the file's value, so it applies only to a new file.
+	// Every field is optional to `set`, which merges, and `null` removes it; a default would overwrite the file's value, so it applies only to a new file.
 	const setInput: Input = { ...keyInput };
 	for (const [key, property] of Object.entries(properties)) {
 		const { default: _, ...rest } = property;
-		setInput[key] = Type.Optional(rest as TSchema);
+		setInput[key] = Type.Optional(
+			Type.Union([rest as TSchema, Type.Null()], {
+				description: rest.description
+					? `${rest.description}; null removes it`
+					: 'null removes it',
+			}),
+		);
 	}
 	if (kind === 'markdown')
 		setInput.body = Type.Optional(
@@ -252,7 +268,7 @@ export function collectionActions(
 	};
 
 	const set: Action = {
-		description: `Change the fields given in one ${name} file, keeping the rest${kind === 'markdown' ? ' and the body' : ''}; makes the file when there is none`,
+		description: `Change the fields given in one ${name} file, keeping the rest${kind === 'markdown' ? ' and the body' : ''}; a field given as null is removed; makes the file when there is none`,
 		input: setInput,
 		positional,
 		annotations: { idempotentHint: true, openWorldHint: false },
@@ -261,7 +277,8 @@ export function collectionActions(
 			const path = pathOf(input);
 			const { body, ...rest } = input;
 			if (keyName) delete rest[keyName];
-			const given = rest as Fields;
+			const removed = Object.keys(rest).filter((key) => rest[key] === null);
+			const given = without(rest as Fields, removed);
 			const text = await folder.read(path);
 			if (text === undefined) {
 				for (const [key, property] of Object.entries(properties))
@@ -287,6 +304,7 @@ export function collectionActions(
 					text,
 					before,
 					inDeclaredOrder(given, properties),
+					removed,
 					body as string | undefined,
 				),
 			);

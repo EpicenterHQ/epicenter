@@ -41,14 +41,24 @@ export function flagOf(key: string): string {
 	return key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
 }
 
-/** Describe the CLI value a schema accepts for usage and field help. */
+type Described = {
+	type?: string;
+	format?: string;
+	enum?: unknown[];
+	anyOf?: Described[];
+	const?: unknown;
+};
+
+/**
+ * Describe the CLI value a schema accepts for usage and field help. `X | null`
+ * is described as `X`: a collection's `set` takes `null` to remove a field,
+ * which only `--input` can say.
+ */
 export function fieldKind(field: TSchema): string {
-	const schema = field as {
-		type?: string;
-		format?: string;
-		enum?: unknown[];
-		anyOf?: { const?: unknown }[];
-	};
+	let schema = field as Described;
+	const nonNull = schema.anyOf?.filter((choice) => choice.type !== 'null');
+	if (nonNull?.length === 1 && nonNull[0] && schema.anyOf?.length === 2)
+		schema = nonNull[0];
 	if (schema.type === 'boolean') return 'switch';
 	if (schema.type === 'array') return 'list';
 	if (schema.type === 'number' || schema.type === 'integer') return 'number';
