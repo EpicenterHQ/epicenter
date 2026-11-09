@@ -17,9 +17,9 @@
 						"description": "Whether it is done"
 					},
 					"due": {
-						"type": ["string", "null"],
+						"type": "string",
 						"format": "date",
-						"description": "The day it is due, as 2026-11-10; null or absent when it has none"
+						"description": "The day it is due, as 2026-11-10; absent when it has none"
 					}
 				},
 				"required": ["title", "done"]

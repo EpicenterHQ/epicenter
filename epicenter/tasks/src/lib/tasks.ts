@@ -9,7 +9,7 @@ export type Task = {
 	id: string;
 	title: string;
 	done: boolean;
-	/** The day it is due; `null` or absent when it has none. */
+	/** The day it is due; absent when it has none (a hand-written `null` reads the same). */
 	due?: string | null;
 };
 

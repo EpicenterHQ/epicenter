@@ -15,7 +15,7 @@ The deck is in Drive.
 ```
 
 `tasks/<id>.md`, its id made from the time it was added. `title` and `done`
-are required; `due` is a day, and `null` or absent when there is none. The
+are required; `due` is a day, absent when there is none. The
 notes are the body, in Markdown. This is the earlier Todos app's shape
 (`todos/<id>.md` with `title` and `done`) plus `due`, so its files move over by
 renaming the folder.
@@ -24,9 +24,8 @@ The title is a field, not the body's first line, because `tasks list` gives
 every task's fields without its body: the list, and an agent asking what is
 left to do, read titles from one call.
 
-`due` takes `null` because `tasks set` merges the fields it is given and cannot
-remove one. `tasks set <id> --due 2026-11-12` sets a day; `due: null`, over MCP
-or from the view, clears it.
+`tasks set <id> --due 2026-11-12` sets a day. `tasks set` merges as JSON Merge
+Patch does, so `due: null`, over MCP or from the view, removes the line.
 
 ## Actions
 
