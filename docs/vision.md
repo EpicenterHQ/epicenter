@@ -114,8 +114,8 @@ declaration file has one writer: Whispering writes its folder's
 `epicenter.json`; you or an agent write `epicenter.ts`. Nothing is declared in
 both. `run` gets `folder` (the app's files), `secrets` (its sign-ins), and
 `collections` (the same four actions every client gets, checked against each
-collection's schema). Types come from the `field` helpers and from a generated,
-ignored `epicenter.d.json.ts` that lets TypeScript read `epicenter.json` exactly.
+collection's schema). Types come from the `field` helpers; how `epicenter.json`'s
+collections are typed is decided with the collection handles.
 
 ## How a write happens
 
@@ -130,7 +130,7 @@ another computer.
 runs and is refused any file you have edited and not committed. When it ends,
 `epicenter` commits the files that still hold what it wrote, with a message
 naming the action and, if it failed, why. `git revert` undoes it. Exit codes
-tell an agent what happened: 0 ran, 1 a finding, 2 did not run, 3 ran and threw.
+tell an agent what happened: 0 ran, 2 did not run, 3 ran and failed.
 
 ## Where code runs, and how to reach it
 

@@ -56,9 +56,8 @@ On your Epicenter (ADR-0849):
   mail/                         its own Git repo, with one remote, origin
     epicenter.json              name, description, collections
     epicenter.ts                defineApp(declaration, { actions })
-    epicenter.d.json.ts         generated from epicenter.json; gitignored
     package.json, tsconfig.json its own dependencies, and types in an editor
-    .gitignore                  node_modules/, .cache/, epicenter.d.json.ts, batches/
+    .gitignore                  node_modules/, .cache/, batches/
     .gitattributes              binaries through LFS (ADR-0856)
     lib.ts                      shared code: functions that take a `folder`
     queries/receipts.txt        a saved Gmail search
@@ -136,8 +135,8 @@ library, when an app needs one, is new code that copies the front-matter rule;
 ADR-0850 and ADR-0851. **Every writer commits exactly what it wrote.** An action
 writes as it runs and is refused a path with uncommitted edits; when it ends,
 returned or thrown, `epicenter` commits the paths that still hold what it wrote,
-and the message says the outcome. Exit codes: 0 ran, 1 a finding, 2 did not run,
-3 ran and threw. Runs of one app take turns. The person commits their own edits.
+and the message says the outcome. Exit codes: 0 ran, 2 did not run, 3 ran and
+failed. Runs of one app take turns. The person commits their own edits.
 Each app with history has one remote, `origin`; `epicenter` pushes fast-forward
 only after each commit and never pulls or merges; the listing says when a copy is
 behind. Binary files a folder tracks go through Git LFS (ADR-0856). Files that
@@ -266,7 +265,7 @@ ADR-0842 first wrote them.
 - **2a. The declaration** (ADR-0857). Done. `epicenter.json` and
   `defineApp(declaration, { collections?, actions })`; the schema and its check;
   problems for anything declared twice; `positional` and `annotations` on the
-  action; `epicenter types`; `@epicenter/app` supplied; `serve --stdio`, one
+  action; `epicenter types` (deleted in 2c, F10); `@epicenter/app` supplied; `serve --stdio`, one
   fresh process per call; `EPICENTER_HOME` gone; `folder.delete`. Left: Claude
   Code reaching `reading` through `epicenter serve --stdio` on the author's Mac.
 - **2b. The commit rule** (ADR-0850). Done. Each write stored as a Git object and
@@ -405,8 +404,9 @@ mirrors (`.calendar/`, `.todoist/`, `.photos/`) left as they are. Done when
 
 **5. Vocab and collections** (ADR-0853). K1: a collection's `list`, `show`,
 `save`, and `delete` through the CLI and MCP, `save` refusing input that does not
-fit. K2: the same as handles in `run`, typed from the `field` helpers and
-`epicenter.d.json.ts`. Then the typed client and the Epicenter app, which shows
+fit. K2: the same as handles in `run`, typed from the `field` helpers, with how
+`epicenter.json`'s collections are typed decided here (F10 deleted the earlier
+`epicenter.d.json.ts`). Then the typed client and the Epicenter app, which shows
 collections as tables and `save` and actions as forms; Vocab rebuilt on them. The
 frozen Vocab leaves when the rebuilt one runs.
 

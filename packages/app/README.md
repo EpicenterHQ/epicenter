@@ -57,14 +57,10 @@ Declaring one in both, or naming an action like one a collection gives
 (`words save`), is a problem.
 
 The file on disk is the declaration: `epicenter` reads the name, description,
-and collections from `epicenter.json`, and `defineApp`'s first argument exists
-for types. Passing it anything but the imported file is a problem.
-
-TypeScript widens an imported JSON file, so `epicenter types` writes a sibling
-`epicenter.d.json.ts` with its literal types, and `epicenter new` writes it with
-the template. Loading an app never writes it; the listing notes when it is
-missing or stale. It is gitignored, and needs `resolveJsonModule` and
-`allowArbitraryExtensions` in the app's `tsconfig.json`.
+and collections from `epicenter.json`, never from `defineApp`'s first
+argument. The argument, imported from `./epicenter.json`, is taken now so that
+collection handles in `run` can be typed from it when they arrive, without
+changing any app.
 
 ## Fields
 

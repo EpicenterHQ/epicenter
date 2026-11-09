@@ -4,7 +4,7 @@
 - **Date:** 2026-11-07
 - **Relates:** [ADR-0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md) (an app is a folder, each its own repository), [ADR-0840](0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md) (the direction).
 - **Spec:** [specs/20261107T222922-epicenter-is-where-personal-software-lives.md](../../specs/20261107T222922-epicenter-is-where-personal-software-lives.md)
-- **Amended by:** [ADR-0848](0848-the-runner-owns-only-what-an-action-wrote.md): an action's commit and undo cover only the paths it wrote, guarded by a record of each write's hash. [ADR-0846](0846-epicenter-owns-no-infrastructure-and-each-repository-has-one-meeting-point.md): each repository has one meeting point, and nothing merges in the folder that runs actions.
+- **Amended by:** [ADR-0848](0848-the-runner-owns-only-what-an-action-wrote.md): an action's commit and undo cover only the paths it wrote, guarded by a record of each write's hash. [ADR-0846](0846-epicenter-owns-no-infrastructure-and-each-repository-has-one-meeting-point.md): each repository has one meeting point, and nothing merges in the folder that runs actions. [ADR-0850](0850-every-writer-commits-exactly-what-it-wrote.md): nothing is undone; exit code 1 is deleted, so 3 means ran and failed; a refusal to run is `{ error: { name, message, next? } }` without `code`.
 - **Unbuilt:** the Epicenter Cloud file API. The rest is built in `packages/cli` (`run.ts`, `sync.ts`), which also refuses an action while its repository is in the middle of a merge, since the commit could not be made.
 
 ## Context

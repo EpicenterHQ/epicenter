@@ -5,7 +5,7 @@
 - **Supersedes:** [ADR-0848](0848-the-runner-owns-only-what-an-action-wrote.md): recorded writes and run phases. Its per-path record survives as the Git object each write stores.
 - **Amends:** [ADR-0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md) at what happens when an action throws: what it wrote is committed and labelled, and nothing is undone.
 - **Relates:** [ADR-0849](0849-your-epicenter-is-one-always-reachable-computer-that-runs-named-actions.md) (where actions run), [ADR-0851](0851-an-app-with-history-has-one-git-remote-its-meeting-point-and-backup.md) (pushing), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (programs that write a folder), [ADR-0854](0854-an-apps-cache-is-the-files-it-gitignores.md) (ignored files).
-- **Built:** 2026-11-09, in `packages/cli/src/commit.ts` and `run.ts`: the check before each write lands, each write stored as a Git object, the commit built from those objects with the branch moved by compare-and-swap, the labelled commit after a throw, and `writeOnly` inputs kept out of the body. The undo is deleted. Acceptance C1 to C9; `packages/cli/scripts/race.ts` is the race.
+- **Built:** 2026-11-09, in `packages/cli/src/commit.ts` and `run.ts`: the check before each write lands, each write stored as a Git object, the commit built from those objects with the branch moved by compare-and-swap, the labelled commit after a throw, and `writeOnly` inputs kept out of the body. The undo is deleted. Acceptance C1 to C9; `packages/cli/scripts/race.ts` is the race. Repaired 2026-11-09 after the final review (F1 to F6): the per-path `{ base, mode, object }` record, the Git environment on every command, each run in its own process (`child.ts`), and one report for every run.
 
 ## Context
 
@@ -30,21 +30,45 @@ For an action:
   path is named.
 - Once a write lands, `epicenter` stores its bytes as a Git object
   (`git hash-object -w --path`, so the path's filters apply as `git add` would)
-  and records the object for that path; a deletion is recorded too.
-- When the action ends, whether it returned or threw, `epicenter` builds the
-  commit from HEAD plus exactly the recorded objects, in a temporary index, and
-  moves the branch only if it still points at that HEAD (compare-and-swap).
-  Holding Git's own index lock, so no `git add` or `git commit` interleaves, it
-  then updates the index for those paths. What is on disk when Git looks is
-  never what gets committed, so an edit someone saved after the action's write
-  stays an uncommitted change on top, and is named.
+  and records `{ base, mode, object }` for that path: the blob and file mode the
+  index held before the run's first write there, and the object the path holds
+  now, `null` for a deletion. A write keeps the file's mode, so an executable
+  stays executable.
+- When the action ends, whether it returned or threw, `epicenter` compares each
+  recorded path with HEAD. HEAD still holding `base` means the path is the run's
+  to commit; HEAD already holding `object` means it is already in history;
+  anything else means a commit made during the run changed it too. It builds the
+  commit from HEAD plus exactly the run's objects, with their modes, in a
+  temporary index, and moves the branch only if it still points at that HEAD
+  (compare-and-swap). It then updates the index for those paths. What is on disk
+  when Git looks is never what gets committed, so an edit someone saved after
+  the action's write stays an uncommitted change on top, and is named.
 - If a commit made during the run changed one of the action's paths, that path
   is left out and named; `epicenter` never merges.
+- Two locks, held for different spans. The app's turn, a lock file in its `.git`
+  directory, is held from before the action starts through the commit, so runs
+  of one app take turns; the push happens after it is released. Git's own index
+  lock is held only while committing: from reading HEAD, through building the
+  commit and the compare-and-swap, to the index update, so no `git add` or
+  `git commit` interleaves. Nothing else `epicenter` runs takes the index lock.
+- Every Git command `epicenter` runs sets `GIT_LITERAL_PATHSPECS=1`, so a path
+  such as `notes/*.md` is a name and never a pattern; `GIT_OPTIONAL_LOCKS=0`, so
+  a read such as `git status` never takes the index lock; and
+  `GIT_TERMINAL_PROMPT=0`, so a push never waits for a password nobody can type.
+  `git check-ignore` is the exception to the first: Git refuses literal
+  pathspecs there, and `epicenter` passes it one path at a time.
 - The commit message states the outcome: `mail apply newsletters` or
   `mail apply newsletters (failed: quota exceeded)`, the failure's first line
   cut to about 60 characters. The body is the input as JSON, then the full
-  error. Exit code 3 still reports the throw, and `git revert` undoes the
-  commit.
+  error. `git revert` undoes the commit.
+- Every run answers with one report: what the action returned or threw, the
+  writes refused, the commit (or `null`, or why it failed), what each written
+  path became, and what the push did. `--json` prints it and MCP returns it. Exit
+  codes: 0 ran; 2 did not run; 3 ran and failed, meaning it threw, a write was
+  refused, the commit failed, or the run ended without a report. ADR-0842's exit
+  code 1, a finding, is gone: a refused write is the run failing, and nothing
+  else reported a finding. A command that did not run answers
+  `{ "error": { "name", "message", "next"? } }`, replacing ADR-0842's `code`.
 - An input marked `writeOnly` stays out of the commit body.
 - Gitignored paths are written and never committed.
 - An action that acts outside the folder records its progress in its own files as

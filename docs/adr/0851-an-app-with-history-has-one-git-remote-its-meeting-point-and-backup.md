@@ -4,7 +4,7 @@
 - **Date:** 2026-11-08
 - **Amends:** [ADR-0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md) at `epicenter sync`, which is removed: Git and the push after each commit do its work.
 - **Relates:** [ADR-0849](0849-your-epicenter-is-one-always-reachable-computer-that-runs-named-actions.md), [ADR-0850](0850-every-writer-commits-exactly-what-it-wrote.md), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (`origin`).
-- **Unbuilt:** Whispering's own pull and push. Built 2026-11-09: the fast-forward push after each commit `epicenter` makes, a fetch after a refused push, and ahead and behind `origin` in the listing; `epicenter sync` is deleted.
+- **Unbuilt:** Whispering's own pull and push. Built 2026-11-09: the fast-forward push after each commit `epicenter` makes, a fetch after a refused push, and ahead and behind `origin` in the listing; `epicenter sync` is deleted. Repaired 2026-11-09 after the final review (F5): the push names `refs/heads/<branch>` on both sides, only when the branch tracks the same name on `origin`, after the app's turn is released.
 
 ## Context
 
@@ -22,8 +22,10 @@ Cloud later; any Git host works. An app with no history yet (ADR-0852's first
 rung) has no remote.
 
 - **`epicenter` never pulls and never merges.** After each commit it makes, it
-  pushes fast-forward only, and only when the branch tracks a remote branch. A
-  worktree branch with none is never pushed. When the push cannot fast-forward,
+  pushes the branch fast-forward to the branch of the same name on `origin`, and
+  only when that is the branch it tracks. A worktree branch that tracks
+  `origin/main` but is not `main` is never pushed, and neither is a branch that
+  tracks nothing. When the push cannot fast-forward,
   or the network is down, the commit stays local and leaves with a later push;
   Git's unpushed commits are the only queue.
 - **The listing says when a copy is behind `origin`.** Deploying code or taking
