@@ -82,4 +82,4 @@ bun run --cwd packages/cli compile
 
 ## Tests
 
-Run `bun test` in `packages/cli` one file per process when memory is short. `acceptance.*.test.ts` runs the real `epicenter` against a temporary `HOME`, one test per acceptance ID. `bun scripts/race.ts --runs 1000 --concurrency 4` races runs against an agent committing in the same folder and reports anything lost or misfiled.
+Run `bun test` in `packages/cli` one file per process when memory is short. `acceptance.*.test.ts` runs the real `epicenter` against a temporary `HOME`, one test per acceptance ID. `bun scripts/race.ts --runs 1000 --concurrency 4` races runs against an agent committing in the same folder and reports anything lost, misfiled, or missing from the index afterwards.

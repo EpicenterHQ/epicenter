@@ -8,8 +8,11 @@
  * Afterwards every run's file and every file the agent committed must be at
  * HEAD with the bytes its writer wrote (`lost` counts those that are not), and
  * every commit must hold only its own writer's paths (`misfiled` counts those
- * that do not). Prints one JSON object; exits 1 when anything was lost or
- * misfiled. Everything happens under a temporary HOME.
+ * that do not). The index must still hold every path HEAD holds
+ * (`indexMissing` counts those it lost), since a commit that writes a partial
+ * index loses nothing in history but sets up the agent's next commit to delete
+ * the rest. Prints one JSON object; exits 1 when anything was lost, misfiled,
+ * or missing from the index. Everything happens under a temporary HOME.
  *
  *   bun packages/cli/scripts/race.ts --runs 1000 --concurrency 4
  */
@@ -161,6 +164,12 @@ for (const line of log.stdout.split('\n')) {
 }
 
 const status = (await git('status', '--porcelain')).stdout;
+// Paths HEAD holds that the index has lost: a commit that wrote a partial index shows up here, never in history.
+const indexMissing = (
+	await git('diff', '--cached', '--name-only', '--diff-filter=D')
+).stdout
+	.split('\n')
+	.filter(Boolean).length;
 const report = {
 	runs,
 	concurrency,
@@ -169,9 +178,10 @@ const report = {
 	failed,
 	lost,
 	misfiled,
+	indexMissing,
 	uncommittedAfter: status.split('\n').filter(Boolean),
 	...(failures.length ? { failures } : {}),
 };
 process.stdout.write(`${JSON.stringify(report)}\n`);
 if (!values.keep) await rm(root, { recursive: true, force: true });
-process.exitCode = lost || misfiled || failed ? 1 : 0;
+process.exitCode = lost || misfiled || failed || indexMissing ? 1 : 0;
