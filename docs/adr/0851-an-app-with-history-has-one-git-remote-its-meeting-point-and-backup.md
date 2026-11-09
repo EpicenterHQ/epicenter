@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-11-08
 - **Amends:** [ADR-0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md) at `epicenter sync`, which stays as the one command that commits what is left, pulls with `--rebase`, and pushes.
-- **Relates:** [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (`origin`).
+- **Relates:** [ADR-0861](0861-whats-yours-is-everywhere-and-everything-else-is-used-where-it-is.md) (the meeting place), [ADR-0862](0862-nothing-blocks-and-nothing-is-lost.md) (merging), [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (`origin`).
 - **Unbuilt:** `epicenter sync` and Whispering's own sync. Built 2026-11-09 and to be deleted: the fast-forward push after each commit `epicenter` made, the fetch after a refused push, and ahead and behind `origin` in the listing (`packages/cli/src/push.ts`).
 
 ## Context
@@ -19,8 +19,9 @@ left to push after.
 ## Decision
 
 **An app with history has exactly one Git remote, `origin`, and it is both the
-place copies meet and the backup.** A private GitHub repository now; Epicenter
-Cloud later; any Git host works. An app with no history yet (ADR-0852's first
+place copies meet and the backup.** A repository in Cloudflare Artifacts, the
+meeting place (ADR-0861), with a GitHub repository as a second push URL for a
+backup; any Git host works. An app with no history yet (ADR-0852's first
 rung) has no remote.
 
 - **`epicenter sync [<app>]` is the only command that touches a remote.** For
@@ -30,9 +31,10 @@ rung) has no remote.
   repository commits only its own folder but pulls and pushes that whole
   repository, so other uncommitted files there are set aside and put back by
   `--autostash`; when they cannot be put back, Git keeps them in its stash and
-  `sync` says so. A rebase that stops on a conflict is aborted
-  (`git rebase --abort`); the commits stay local, and `sync` names the app and
-  prints `git -C <folder> pull --rebase` as the next step. Offline, it commits
+  `sync` says so. Before it pulls, `sync` configures Epicenter's merge driver
+  in the repository, so content never stops a rebase (ADR-0862); a rebase that
+  stops for another reason is aborted (`git rebase --abort`), the commits stay
+  local, and `sync` says why. Offline, it commits
   and says it could not push. Which branch it pushes is Git's: the upstream and
   `push.default` the clone already has, so a branch that tracks nothing is
   committed and not pushed. It reports how far each app is ahead of and behind

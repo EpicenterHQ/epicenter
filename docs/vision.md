@@ -13,16 +13,20 @@ carries the build order and the first app, Mail. [Architecture](architecture.md)
 [CONTEXT](CONTEXT.md), and the package READMEs describe the code that exists,
 which is mostly the earlier product described at the end.
 
-## In four lines
+## In three laws
 
-1. An app is a folder: `epicenter.json` says what its files are, and
-   `epicenter.ts`, if present, says what you can do.
-2. Actions change files; whoever knows the intent commits, and `epicenter sync`
-   commits the rest.
-3. `epicenter` runs actions, and your server runs them through `serve` for
-   anything without the folder.
-4. Git moves everything, `epicenter` never merges, and each job takes the least
-   powerful form that does it.
+1. **What's yours is everywhere.** What you and your agents make is files in an
+   app's folder, and every copy converges through one meeting place, merged
+   field by field ([ADR-0862]). `*.local` and `.cache/` stay where they are.
+2. **Everything else is used where it is.** A sign-in, a machine's hardware, a
+   service that exists on one machine. An action runs where what it uses is.
+3. **Everything you see or ask is an interface to actions.** The terminal, MCP,
+   and the palette come from an app's actions; views and prompts are written.
+
+An app is a folder: `epicenter.json` (what its files are), `epicenter.ts` (what
+you can do), `views/` (for people), and `prompts/` (for agents). Getting the
+folder installs it. Nothing blocks and nothing is lost: merges never stop, and
+anything to repair is on the app's problems list ([ADR-0861], [ADR-0862]).
 
 ## What it is like
 
@@ -60,7 +64,7 @@ which is mostly the earlier product described at the end.
 | an action | something you can ask an app to do: a collection's four, or one the author writes with a `run` function |
 | a view | an HTML page in the app's folder that shows its data and calls its actions, inside Claude or the Epicenter app |
 | `epicenter` | the program that runs an action in a folder |
-| your server | the one computer you keep on, where `epicenter serve` runs and your sign-ins live |
+| your server | a computer you keep on, needed only for actions that use what is on it: a sign-in kept there, Beeper, the microphone |
 | Git | history, `origin` where copies meet, `upstream` where code came from, LFS for binaries |
 
 Everything else is a program that either has the folder or asks for actions: your editor, Claude Code,
@@ -243,5 +247,7 @@ fields are written one `key: <JSON>` line each.
 [ADR-0839]: adr/0839-a-save-is-one-numbered-write-a-reset-deletes-nothing-and-epicenter-owns-the-pages-every-app-links-to.md
 [ADR-0840]: adr/0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md
 [ADR-0849]: adr/0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md
+[ADR-0861]: adr/0861-whats-yours-is-everywhere-and-everything-else-is-used-where-it-is.md
+[ADR-0862]: adr/0862-nothing-blocks-and-nothing-is-lost.md
 [ADR-0860]: adr/0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md
 [ADR-0857]: adr/0857-an-app-declares-itself-in-epicenter-json-and-its-code-in-epicenter-ts.md

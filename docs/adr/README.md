@@ -1067,3 +1067,5 @@ When you add an ADR, add its row here.
 | [0858](0858-where-a-file-lives-decides-whether-it-travels-survives-or-dies-with-its-program.md) | Where a file lives decides whether it travels, survives, or dies with its program | Accepted |
 | [0859](0859-an-action-changes-the-folder-or-the-world-and-a-world-verb-is-safe-to-repeat.md) | An action changes the folder or the world, and a world verb is safe to repeat on the targets it is given | Proposed |
 | [0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) | An interface is a view over an app's actions, and never knows where they run | Proposed |
+| [0861](0861-whats-yours-is-everywhere-and-everything-else-is-used-where-it-is.md) | What's yours is everywhere, and everything else is used where it is | Proposed |
+| [0862](0862-nothing-blocks-and-nothing-is-lost.md) | Nothing blocks, and nothing is lost | Proposed |

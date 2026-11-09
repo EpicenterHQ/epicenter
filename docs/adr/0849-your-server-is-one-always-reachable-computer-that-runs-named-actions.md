@@ -1,7 +1,7 @@
 # 0849. Your server is one always-reachable computer that runs named actions
 
 - **Status:** Proposed
-- **Date:** 2026-11-08 (amended 2026-11-09: "your Epicenter" renamed "your server", since the product, the program, and the Epicenter app are already called Epicenter)
+- **Date:** 2026-11-08 (amended 2026-11-09: "your Epicenter" renamed "your server", since the product, the program, and the Epicenter app are already called Epicenter; and by [ADR-0861](0861-whats-yours-is-everywhere-and-everything-else-is-used-where-it-is.md): your server is optional, needed only for actions that use what is on it)
 - **Supersedes:** [ADR-0846](0846-epicenter-owns-no-infrastructure-and-each-repository-has-one-meeting-point.md): schedules and `epicenter tick`, the front door and its OS timer, a meeting point per app, the door into a box branch, the backup check, and the secrets experiment.
 - **Amends:** [ADR-0844](0844-one-runner-runs-anywhere-and-every-surface-is-a-view-over-it.md) at who runs a named action (your server only), the laptop's own runner (a folder path instead), and the browser runner (refused). [ADR-0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md) at discovery: `~/Epicenter` exists on your server and is not moved by an environment variable, and another computer lists your server's apps.
 - **Relates:** [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (the commit rule), [ADR-0851](0851-an-app-with-history-has-one-git-remote-its-meeting-point-and-backup.md) (the remote), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (programs that have the folder or ask), [ADR-0853](0853-collections-give-four-actions-and-programs-without-the-folder-ask-over-mcp.md) (MCP).
@@ -21,10 +21,14 @@ address (checked 2026-11-08).
 
 ## Decision
 
-**Your server is one computer the person keeps reachable.** The author's Mac
-now; an Epicenter Cloud container for anyone who cannot keep one on. When it is
-not reachable, a named action fails and says so, and nothing else is designed
-around its absence. `epicenter setup` asks whether this computer is your
+**Your server is a computer the person keeps on, and it is optional.** It is
+needed only for actions that use what is on it: a sign-in kept there, Beeper
+Desktop, the microphone. What is yours meets in the meeting place, which is
+always reachable, so an action that uses only an app's files needs no computer
+on (ADR-0861). The author's Mac now; an Epicenter Cloud container for anyone
+who wants Gmail's actions without keeping a computer on. When it is not
+reachable, an action that needs it fails and says so, and nothing else is
+designed around its absence. `epicenter setup` asks whether this computer is your
 Epicenter or connects to one. "This one" creates `~/Epicenter`, starts
 `epicenter serve` as a login service, and keeps the machine reachable (restart
 after power loss, Tailscale). On another computer there is nothing to set up:
@@ -38,8 +42,8 @@ folder or a link to one. Tests and containers that need another place set
 run `epicenter` there; an agent elsewhere uses `ssh <your server> epicenter
 serve --stdio` as its MCP server, which offers every app's actions (ADR-0853).
 Each call runs in a fresh `epicenter` process, so code pulled or edited a moment
-ago is what runs. `serve` over HTTP is only for what cannot use SSH: the phone
-and claude.ai.
+ago is what runs. `serve` over HTTP is only for claude.ai and Claude on the
+phone; a browser reaches an app's files through the meeting place (ADR-0861).
 
 **A command means this computer.** `epicenter vocab define serendipity` runs
 Vocab's copy on the computer it is typed on, and never forwards.
@@ -47,7 +51,9 @@ Vocab's copy on the computer it is typed on, and never forwards.
 developing an app or a folder of one's own. A run commits only when its action
 calls `folder.commit` (ADR-0850), and runs do not take turns.
 
-**Sign-ins live on your server.** `epicenter mail connect` runs there.
+**A sign-in lives where the actions that use it run** (ADR-0861): Gmail's on
+your server, where `epicenter mail connect` runs, unless a browser signs in
+itself.
 Keychain access does not stop another program running as the same user, so the
 person's agent permission rules are the gate for now.
 

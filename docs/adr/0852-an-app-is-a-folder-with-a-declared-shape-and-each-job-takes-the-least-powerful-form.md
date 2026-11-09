@@ -59,10 +59,11 @@ or an app's rule, it asks for an action over MCP. Programs never call each
 other; two programs sharing an app meet at its folder. No program changes how it
 writes because another program is installed.
 
-**`epicenter add` makes something one of your apps, by linking or cloning.**
-`epicenter add <folder>` links the folder into `~/Epicenter`, whether or not it
-is a repository, or inside one. `epicenter add <git url>` is `git clone` into
-`~/Epicenter`; the clone's remotes are Git's. Neither commits anything.
+**An app is one of yours when its folder is in `~/Epicenter`:** cloned there,
+linked there (`ln -s ~/Code/vault ~/Epicenter/vault`), or made there by a program
+or by `epicenter new`. Its name is its entry there. `~/Epicenter` holds nothing
+else of Epicenter's: no list of apps, no settings. `epicenter add`, built
+2026-11-09, is retired: it was `ln -s` and `git clone` (ADR-0861).
 `epicenter new <name>` makes the folder from a built-in template:
 `epicenter.json` with its `$schema`, a `.gitignore` with `node_modules/`,
 `.cache/`, `*.local`, and `*.local.*` (ADR-0858), and a `.gitattributes`
@@ -80,7 +81,7 @@ Git host, their own computer, or their own program without changing an app.
 
 ## Consequences
 
-- The vault joins with `epicenter add ~/Code/vault` instead of a hand-made link.
+- The vault joins by a link, `~/Epicenter/vault`, to `~/Code/vault`.
 - Mail is written in `~/Epicenter/mail`, not published as a package.
 - An app works in every program that asks over MCP once it is added.
 

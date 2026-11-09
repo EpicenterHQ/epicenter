@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-11-09
 - **Relates:** [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) (your server, and reach from vendors' clouds), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (programs that have the folder or ask), [ADR-0853](0853-collections-give-four-actions-and-programs-without-the-folder-ask-over-mcp.md) (MCP, the typed client), [ADR-0857](0857-an-app-declares-itself-in-epicenter-json-and-its-code-in-epicenter-ts.md) (actions in `epicenter.ts`).
-- **Unbuilt:** all of it: `views/`, `view` on an action, `ui://` resources in `serve`, the Epicenter app, and HTTP `serve` on the tailnet.
+- **Unbuilt:** all of it: `views/`, `view` on an action, `ui://` resources in `serve`, the Epicenter app, and a view running an app's actions in a browser against the meeting place (ADR-0861).
 
 ## Context
 
@@ -70,7 +70,11 @@ that lists views itself.
 
 **The Epicenter app is a host like Claude.** It lists every app's actions and
 views, and opens a view full screen; a phone keeps one view on its home screen.
-It and HTTP `serve` are reachable on the tailnet only. Claude Desktop shows
+In a browser or on a phone, a view runs the app's actions itself, against the
+meeting place, for actions that use only the app's files (ADR-0861). A view is
+one HTML file however it is made: a plain file, or a project whose build
+produces one file; Svelte with Epicenter's components is the default template,
+not a requirement. Claude Desktop shows
 views from a server it starts over stdio, so `ssh studio epicenter serve
 --stdio` reaches it now. claude.ai and Claude's phone apps show views only from
 connectors added by URL, which need a public address with a sign-in (ADR-0849)
@@ -80,14 +84,14 @@ and wait.
 transport its host gives it, and an action reaches data only through
 `{ collections, folder, secrets }` and the network. `origin` is the truth, and
 every place that runs actions is a clone of it that commits and syncs
-(ADR-0851).
+(ADR-0851), or a browser that commits to it directly (ADR-0861).
 
 ```txt
-transport                         runtime                                 when
-postMessage, through Claude       your server, over ssh … serve --stdio  now, in Claude Desktop
-HTTP on the tailnet               your server                            now
-HTTP                              a container running the same epicenter  Epicenter Cloud, for people with no server
-in memory, same process           a program with the folder              a view that must work offline
+transport                    runtime                                 when
+postMessage, through Claude  your server, over ssh … serve --stdio   now, in Claude Desktop
+in memory, in a browser      the browser, against the meeting place  now, for actions that use only files
+HTTP                         a container running the same epicenter  Epicenter Cloud, for Gmail without a computer on
+in memory, same process      a program with the folder               a view that must work offline
 ```
 
 ## Consequences
