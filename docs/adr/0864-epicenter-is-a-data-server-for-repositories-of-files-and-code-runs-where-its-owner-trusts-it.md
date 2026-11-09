@@ -1,0 +1,137 @@
+# 0864. Epicenter is a data server for repositories of files, and code runs where its owner trusts it
+
+- **Status:** Proposed
+- **Date:** 2026-11-10
+- **Relates:** [ADR-0840](0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md) (one person's software), [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) (your server), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (who commits), [ADR-0851](0851-an-app-with-history-has-one-git-remote-its-meeting-point-and-backup.md) (the remote), [ADR-0853](0853-collections-give-four-actions-and-programs-without-the-folder-ask-over-mcp.md) (the four verbs, MCP), [ADR-0857](0857-an-app-declares-itself-in-epicenter-json-and-its-code-in-epicenter-ts.md) (`epicenter.json`, `epicenter.ts`), [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (views), [ADR-0861](0861-whats-yours-is-everywhere-and-everything-else-is-used-where-it-is.md), [ADR-0862](0862-notes-merge-field-by-field-and-every-conflict-is-listed-for-repair.md) (the merge), [ADR-0863](0863-epicenter-is-one-place-and-one-app-shows-it-on-every-device-you-own.md) (the Epicenter app). Where those Proposed records disagree with this one, they are edited to match.
+- **Unbuilt:** `epicenter serve` over HTTPS, one commit per write through it and the push to its mirror, the typed client `open()`, the list of trusted repositories, the sign-in, Whispering's Git sync, and the `push-to-checkout` hook. Built: each collection's `list`, `get`, `set`, and `delete` from the command line and over `epicenter serve --stdio` (`packages/app/src/collection.ts`).
+
+## Context
+
+ADR-0863 put one Epicenter app on every device, each phone holding its own Git
+copy of every app, and ran `epicenter.json` everywhere and `epicenter.ts` only on
+computers. Designing a hosted version for other people then led to running every
+app's `epicenter.ts` in the cloud: a Durable Object per repository holding its
+files, a Cloudflare Dynamic Worker per call, and a context of bindings (Google
+sign-ins, `fetch` to declared hosts, models) that Epicenter would hold and keep
+growing. Each step followed from one premise: that Epicenter runs other people's
+code. That premise brought sandboxing, custody of everyone's third-party tokens,
+a file system rebuilt from Durable Objects, and a ceiling on what an app could do.
+
+The author's own need is narrower. Their Mac Studio is always on and they reach
+it by SSH and MCP; no app of theirs needs a phone offline. A personal data
+server that runs no app code is a known shape: the AT Protocol's personal data
+server holds a person's repository of schema-checked records, and apps are
+separate programs that read and write it.
+
+## Decision
+
+**1. Your data is repositories of files with declared shapes.** An app is a Git
+repository, `~/Epicenter/<app>/`, whose `epicenter.json` declares its
+collections (ADR-0857). A collection's files are Markdown with `key: <JSON>`
+front matter, or JSON. Any tool can read the files with no Epicenter running.
+
+```txt
+~/Epicenter/
+  capture/      epicenter.json  captures/<id>.md
+  vocab/        epicenter.json  epicenter.ts  views/practice.html  words/<word>.md
+  whispering/   epicenter.json  recordings/<id>.md  recordings/<id>.local.webm
+  mail/         epicenter.json  epicenter.ts  receipts/<id>.md
+```
+
+**2. Epicenter opens repositories for any client, directly or as a server.
+There is one copy, the Studio's, and clients ask it; a program whose own work
+must go on offline keeps a copy and syncs it with Git.**
+
+| Way in | What it is | Who uses it |
+| --- | --- | --- |
+| `epicenter <app> <collection> <verb>` | the command, opening the folder directly | you, agents with a shell |
+| `open('~/Epicenter/vocab')` | the same, as a typed library | your scripts, tests |
+| `epicenter serve` | MCP over HTTPS: `vocab_words_list`, `capture_captures_set`, each trusted action; and `views/` as web pages | Claude, ChatGPT, any agent; views in a browser |
+| Git over SSH | `studio:Epicenter/whispering` as the copy's remote | a program that keeps a copy: Whispering |
+
+- Capture, Tasks, Vocab, agents, and views keep nothing on a device and always
+  see the current files. A write through `epicenter serve` is one commit, named
+  for the call (`capture: captures set dune`), and each commit is pushed to the
+  repository's GitHub mirror, which is the backup.
+- Whispering keeps a copy on each Mac it runs on, commits what it writes, and on
+  a Mac other than the Studio pulls from and pushes to the Studio over SSH when
+  it can. It is not always up to date, and an occasional conflict is resolved on
+  that Mac when it pulls. On the Studio it writes into the server's folder and
+  commits there.
+- The server's repositories set `receive.denyCurrentBranch updateInstead` and a
+  `push-to-checkout` hook running `git read-tree -u -m HEAD "$1"`, so a push
+  lands unless it touches a file with uncommitted changes. The server's copy
+  never merges.
+- Whoever edits the Studio's files directly (Claude Code over SSH, an editor)
+  commits as in any repository; `epicenter sync` commits what is left and
+  pushes to the mirror. Nothing runs on a timer.
+- Who may ask is `epicenter serve`'s sign-in; who may pull and push is SSH's
+  `authorized_keys`.
+
+**3. Code runs where its owner trusts it.** `epicenter serve` runs the
+`epicenter.ts` of each repository its operator trusts, and offers its actions as
+MCP tools. A repository the operator made is trusted; one added from someone
+else is trusted only when the operator says so. A server that serves people who
+do not trust each other runs no one's `epicenter.ts`. A client holds its own
+credentials: Mail's Google token is in the Keychain of the machine that runs
+Mail's actions, and Epicenter holds only its own sign-in.
+
+**Your Epicenter is the Studio running `epicenter serve`.** Your own devices
+reach it over your tailnet. Claude.ai and ChatGPT connect from their companies'
+servers, so `epicenter serve` also has one public HTTPS address, through
+Tailscale Funnel, and signs a client in with
+OAuth, as MCP requires: adding the connector opens a page on the Studio where
+you approve it with a passkey, and the client receives a token you can revoke.
+Another person's Epicenter is the same program on their own computer.
+
+## Consequences
+
+- Deleted from the plan: the Epicenter app for Mac and iPhone, Git on the phone,
+  App Intents, the catalog and its install sheet, `id` in `epicenter.json`,
+  upstreams, the three kinds of app, models as an Epicenter setting, Epicenter
+  holding third-party credentials, and running code in isolates or Durable
+  Objects.
+- A view is a web client: served from a repository's `views/` or from anywhere,
+  it asks over MCP like an agent, and the browser sandboxes it.
+- A rule another author's app needs everywhere lives in that app's client, or in
+  an `epicenter.ts` a person chooses to trust, or in that author's own MCP
+  server. The server enforces shapes only.
+- No app but Whispering has Git on a device. ADR-0862's field merge is not
+  needed to start: Whispering's conflicts use Git's line merge, and the field
+  merge becomes Git's merge driver for `*.md` if they prove frequent.
+- Everything stops when the Studio is down, including after a power cut, when
+  FileVault waits at its unlock screen. A client that asks has nothing offline;
+  a client with a copy keeps working and pushes later.
+- History has one commit per write through the server.
+- `epicenter serve` holds no Git server of its own and no token list for Git:
+  SSH does both.
+- A hosted Epicenter, serving people who do not run a computer of their own, is
+  not part of this decision.
+
+## Considered alternatives
+
+- **A hosted runtime for every app's code: Durable Objects, Dynamic Workers, a
+  context of bindings.** Epicenter would sandbox strangers' code, hold their
+  tokens, and grow a binding for each service an app needs.
+- **One Epicenter app holding a copy on every device (ADR-0863 as written).**
+  Git, a merge, and App Review on the phone, for offline use nobody asked for.
+- **A container per person.** Its disk is gone after it sleeps, so every wake
+  clones again and every write must push before answering.
+- **A separate web app with its own database for each app.** Each app repeats
+  accounts, storage, and MCP, and the data belongs to the app.
+- **Yjs documents beside the files.** Agents cannot read them without a runtime;
+  nothing here edits one text live with other people.
+- **One hub per household with tokens scoped to apps.** Sharing is per
+  repository, as Git hosts already do it.
+- **Every client asks, Whispering included.** Whispering would hold recordings
+  in an outbox until the Studio answered; its own copy and Git already do that.
+- **A file watcher on the Studio committing every change.** It patched pushes
+  into a folder with uncommitted files, which the `push-to-checkout` hook
+  allows directly.
+- **GitHub as the copies' remote, the server pulling to see what they pushed.**
+  A timer or webhook before the server sees a push, and the server's copy merges
+  unattended, leaving any conflict in the folder every agent reads.
+- **`epicenter serve` as a Git server over HTTPS.** Its own Git endpoint and
+  token list, where SSH to the Studio already works.
+- **A Cloudflare Worker in front for sign-in.** A second service for one
+  person's OAuth page.

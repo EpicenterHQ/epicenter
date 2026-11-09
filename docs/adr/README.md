@@ -1070,3 +1070,4 @@ When you add an ADR, add its row here.
 | [0861](0861-whats-yours-is-everywhere-and-everything-else-is-used-where-it-is.md) | What's yours is everywhere, and everything else is used where it is | Proposed |
 | [0862](0862-notes-merge-field-by-field-and-every-conflict-is-listed-for-repair.md) | Notes merge field by field, and every conflict is listed for repair | Proposed |
 | [0863](0863-epicenter-is-one-place-and-one-app-shows-it-on-every-device-you-own.md) | Epicenter is one place, and one app shows it on every device you own | Proposed |
+| [0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) | Epicenter is a data server for repositories of files, and code runs where its owner trusts it | Proposed |
