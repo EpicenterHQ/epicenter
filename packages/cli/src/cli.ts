@@ -62,11 +62,10 @@ const HANDLERS: { [K in Exclude<Command, 'help'>]: Handler } = {
 		return newCommand(only, json);
 	},
 	async add(words, json) {
-		const init = words.includes('--init');
-		const sources = words.filter((word) => word !== '--init');
-		if (sources.length !== 1 || sources[0] === undefined)
+		const [only] = words;
+		if (words.length !== 1 || only === undefined)
 			return fail(usage('epicenter add needs one folder or Git URL'), json);
-		return addCommand(sources[0], init, json);
+		return addCommand(only, json);
 	},
 	sync: syncCommand,
 	async serve(words, json) {

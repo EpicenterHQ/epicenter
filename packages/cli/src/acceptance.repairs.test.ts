@@ -12,7 +12,6 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import {
 	declarationOf,
 	fixture,
-	gitIn,
 	gitignore,
 	readingApp,
 } from './runner.test-support.ts';
@@ -203,60 +202,6 @@ export default defineApp(declaration, { actions: { hello: { description: 'Say he
 	}
 });
 
-test('F8 new, add --init, and add <url> adopt a folder the same way: template files and LFS before the first commit', async () => {
-	const f = await setup();
-	const lfs = Bun.which('git-lfs') !== null;
-	const loose = await f.folder(
-		join(f.root, 'Code', 'photos'),
-		{
-			'epicenter.json': declarationOf('photos'),
-			'node_modules/pkg/index.js': 'module.exports = 1;\n',
-		},
-		{ git: false },
-	);
-	await writeFile(
-		join(loose, 'cover.png'),
-		new Uint8Array([137, 80, 78, 71, 1, 2, 3]),
-	);
-	const added = await f.run('add', loose, '--init');
-	expect(added.code).toBe(0);
-	expect((await gitIn(loose, 'ls-files')).split('\n').sort()).toEqual([
-		'.gitattributes',
-		'.gitignore',
-		'cover.png',
-		'epicenter.json',
-	]);
-	expect(await readFile(join(loose, '.gitignore'), 'utf8')).toBe(gitignore);
-	if (lfs) {
-		expect(await gitIn(loose, 'show', 'HEAD:cover.png')).toStartWith(
-			'version https://git-lfs.github.com/spec/v1',
-		);
-		expect(
-			await gitIn(loose, 'config', '--local', '--get', 'filter.lfs.process'),
-		).not.toBe('');
-	}
-
-	expect((await f.run('new', 'garden')).code).toBe(0);
-	const garden = join(f.home, 'garden');
-	if (lfs)
-		expect(
-			await gitIn(garden, 'config', '--local', '--get', 'filter.lfs.process'),
-		).not.toBe('');
-
-	const source = await f.folder(join(f.root, 'shared', 'recipes'), {
-		'epicenter.json': declarationOf('recipes'),
-		'soup.md': 'soup\n',
-	});
-	expect((await f.run('add', `file://${source}`)).code).toBe(0);
-	const recipes = join(f.home, 'recipes');
-	expect(await readFile(join(recipes, '.gitignore'), 'utf8')).toBe(gitignore);
-	expect(await gitIn(recipes, 'status', '--porcelain')).toBe('');
-	if (lfs)
-		expect(
-			await gitIn(recipes, 'config', '--local', '--get', 'filter.lfs.process'),
-		).not.toBe('');
-});
-
 test('F9 one table owns the vocabulary; --json goes anywhere; defaulted fields are not required', async () => {
 	const f = await setup();
 	await notes(f);
@@ -296,7 +241,7 @@ test('F10 typing waits for its first consumer: no epicenter types, no generated 
 	const f = await setup();
 	expect((await f.run('new', 'garden')).code).toBe(0);
 	expect(await readFile(join(f.home, 'garden', '.gitignore'), 'utf8')).toBe(
-		'node_modules/\n.cache/\n',
+		gitignore,
 	);
 	await f.folder(join(f.home, 'other'), {
 		'.gitignore': gitignore,

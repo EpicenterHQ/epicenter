@@ -1,15 +1,14 @@
 /**
- * `epicenter add` makes something one of your apps (ADR-0852):
+ * `epicenter add` makes something one of your apps, by linking or cloning
+ * (ADR-0852). Neither commits anything:
  *
- * - From a folder, it links the folder into `~/Epicenter` under its declared
- *   name. A folder that is not yet a Git repository is refused unless
- *   `--init` asks to make one, committing what is there.
- * - From a Git URL, it copies the app into a new repository in
- *   `~/Epicenter`, keeping the source as the `upstream` remote and branch,
- *   which record where it came from and at which commit. The copy's own
- *   branch tracks nothing until you give it an `origin`.
+ * - `add <folder>` links the folder into `~/Epicenter` under its declared
+ *   name, whatever it is: a repository, a folder inside one, or neither.
+ * - `add <git url>` is `git clone` into `~/Epicenter`; the clone's remotes
+ *   are Git's.
  *
- * `epicenter new <name>` is `add` from the built-in template.
+ * `epicenter new <name>` makes the folder from the built-in template, makes
+ * it a repository, and commits the template.
  */
 import { randomUUID } from 'node:crypto';
 import {
@@ -25,7 +24,7 @@ import {
 import { join } from 'node:path';
 import { nameProblem, SCHEMA_URL } from '@epicenter/app';
 import { CliError } from './errors.ts';
-import { checkedGit, git } from './git.ts';
+import { checkedGit } from './git.ts';
 import { homeDir, readDeclaration, resolveFolder } from './home.ts';
 import { fail, made } from './output.ts';
 
@@ -54,17 +53,11 @@ function template(name: string) {
 			null,
 			2,
 		)}\n`,
-		'.gitignore': 'node_modules/\n.cache/\n',
+		'.gitignore': 'node_modules/\n.cache/\n*.local\n*.local.*\n',
 		'.gitattributes': LFS_TYPES.map(
 			(kind) => `*.${kind} filter=lfs diff=lfs merge=lfs -text\n`,
 		).join(''),
 	};
-}
-
-/** Whether `folder`, a real path, is the top level of its own Git repository. */
-async function isRepositoryTop(folder: string) {
-	const top = await git(folder, ['rev-parse', '--show-toplevel']);
-	return top.code === 0 && (await realpath(top.stdout)) === folder;
 }
 
 async function exists(path: string) {
@@ -87,27 +80,6 @@ async function taken(name: string) {
 	}
 }
 
-/**
- * Make `folder` an app's repository the way every app is made, for `new`,
- * `add --init`, and `add <url>` alike: write the template's files it lacks,
- * make it a repository if it is not one, set up Git LFS's filter when
- * `git-lfs` is installed, and only then stage and commit, so the ignore rules
- * and LFS apply to the first thing committed. Commits nothing when nothing
- * changed.
- */
-async function adopt(folder: string, name: string, subject: string) {
-	for (const [path, text] of Object.entries(template(name)))
-		if (!(await exists(join(folder, path))))
-			await writeFile(join(folder, path), text);
-	if (!(await isRepositoryTop(folder)))
-		await checkedGit(folder, ['init', '-q']);
-	if (Bun.which('git-lfs'))
-		await checkedGit(folder, ['lfs', 'install', '--local']);
-	await checkedGit(folder, ['add', '-A']);
-	if ((await git(folder, ['diff', '--cached', '--quiet'])).code !== 0)
-		await checkedGit(folder, ['commit', '-q', '--no-verify', '-m', subject]);
-}
-
 function done(name: string, json: boolean) {
 	return made(
 		{ name, folder: join(homeDir(), name), next: `epicenter ${name}` },
@@ -115,7 +87,11 @@ function done(name: string, json: boolean) {
 	);
 }
 
-/** `epicenter new <name>`: an app from the built-in template, in its own repository with one commit. */
+/**
+ * `epicenter new <name>`: an app from the built-in template, in its own
+ * repository whose first commit is the template. It does not set up Git LFS;
+ * that is each computer's, once (`git lfs install`).
+ */
 export async function newCommand(name: string, json: boolean): Promise<number> {
 	const problem = nameProblem(name);
 	if (problem !== undefined)
@@ -131,8 +107,12 @@ export async function newCommand(name: string, json: boolean): Promise<number> {
 		);
 	const folder = join(homeDir(), name);
 	await mkdir(folder, { recursive: true });
+	for (const [path, text] of Object.entries(template(name)))
+		await writeFile(join(folder, path), text);
 	try {
-		await adopt(folder, name, `new ${name}`);
+		await checkedGit(folder, ['init', '-q']);
+		await checkedGit(folder, ['add', '-A']);
+		await checkedGit(folder, ['commit', '-q', '-m', `new ${name}`]);
 	} catch (error) {
 		return fail(CliError.GitFailed({ cause: error }).error, json);
 	}
@@ -146,18 +126,15 @@ function isUrl(source: string) {
 	);
 }
 
-/** `epicenter add <folder> [--init]` or `epicenter add <git url>`. */
+/** `epicenter add <folder>` or `epicenter add <git url>`. */
 export async function addCommand(
 	source: string,
-	init: boolean,
 	json: boolean,
 ): Promise<number> {
-	return isUrl(source)
-		? addFromUrl(source, json)
-		: addFolder(source, init, json);
+	return isUrl(source) ? addFromUrl(source, json) : addFolder(source, json);
 }
 
-async function addFolder(source: string, init: boolean, json: boolean) {
+async function addFolder(source: string, json: boolean) {
 	let folder: string;
 	try {
 		folder = await realpath(resolveFolder(source));
@@ -180,19 +157,6 @@ async function addFolder(source: string, init: boolean, json: boolean) {
 				.error,
 			json,
 		);
-	if (!init && !(await isRepositoryTop(folder)))
-		return fail(
-			CliError.Usage({
-				message: `${folder} is not a Git repository yet; --init makes one and commits what is there`,
-				next: `epicenter add ${source} --init`,
-			}).error,
-			json,
-		);
-	try {
-		await adopt(folder, name, `add ${name}`);
-	} catch (error) {
-		return fail(CliError.GitFailed({ cause: error }).error, json);
-	}
 	await mkdir(homeDir(), { recursive: true });
 	await symlink(folder, join(homeDir(), name));
 	return done(name, json);
@@ -203,14 +167,7 @@ async function addFromUrl(url: string, json: boolean) {
 	// Clone beside the apps under a hidden name, which discovery skips, then move it into place.
 	const staging = join(homeDir(), `.adding-${randomUUID()}`);
 	try {
-		await checkedGit(homeDir(), [
-			'clone',
-			'-q',
-			'--origin',
-			'upstream',
-			url,
-			staging,
-		]);
+		await checkedGit(homeDir(), ['clone', '-q', url, staging]);
 		const read = await readDeclaration(staging);
 		if ('problems' in read)
 			return fail(
@@ -224,20 +181,6 @@ async function addFromUrl(url: string, json: boolean) {
 					.error,
 				json,
 			);
-		const branch = await checkedGit(staging, [
-			'rev-parse',
-			'--abbrev-ref',
-			'HEAD',
-		]);
-		await checkedGit(staging, [
-			'branch',
-			'--track',
-			'upstream',
-			`upstream/${branch}`,
-		]);
-		// The copy is yours: its branch pushes nowhere until it has an origin.
-		await checkedGit(staging, ['branch', '--unset-upstream', branch]);
-		await adopt(staging, name, `add ${name}`);
 		await rename(staging, join(homeDir(), name));
 		return done(name, json);
 	} catch (error) {

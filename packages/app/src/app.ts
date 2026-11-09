@@ -124,7 +124,7 @@ const PATH_PATTERN = new RegExp(COLLECTION_PATH);
  */
 export const COMMANDS = {
 	new: 'epicenter new <name>',
-	add: 'epicenter add <folder> [--init] | add <git url>',
+	add: 'epicenter add <folder> | add <git url>',
 	sync: 'epicenter sync [<app>]',
 	serve: 'epicenter serve --stdio',
 	setup: 'epicenter setup',

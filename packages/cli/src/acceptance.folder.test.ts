@@ -295,65 +295,59 @@ test('W4 epicenter new writes the template and runs git init', async () => {
 	]);
 });
 
-test('W5 epicenter add links a folder, makes its history on request, and copies an app from a Git URL with an upstream branch', async () => {
+test('W5 epicenter add links a folder of any kind and clones a Git URL, committing nothing', async () => {
 	const f = await setup();
-	const vault = await f.folder(
-		join(f.root, 'Code', 'vault'),
-		{ 'epicenter.json': declarationOf('vault'), 'notes/a.md': 'a\n' },
+	const loose = await f.folder(
+		join(f.root, 'Code', 'loose'),
+		{ 'epicenter.json': declarationOf('loose'), 'notes/a.md': 'a\n' },
 		{ git: false },
 	);
-	const refused = await f.run('add', vault, '--json');
-	expect(refused.code).toBe(2);
-	expect(JSON.parse(refused.stdout).error.next).toBe(
-		`epicenter add ${vault} --init`,
-	);
-	expect(existsSync(join(f.home, 'vault'))).toBe(false);
-
-	const added = await f.run('add', vault, '--init', '--json');
+	const added = await f.run('add', loose, '--json');
 	expect(added.code).toBe(0);
 	expect(JSON.parse(added.stdout)).toEqual({
-		name: 'vault',
-		folder: join(f.home, 'vault'),
+		name: 'loose',
+		folder: join(f.home, 'loose'),
 	});
-	expect((await lstat(join(f.home, 'vault'))).isSymbolicLink()).toBe(true);
-	expect(await readlink(join(f.home, 'vault'))).toBe(vault);
-	expect(await gitIn(vault, 'log', '--format=%s')).toBe('add vault');
-	expect(await gitIn(vault, 'ls-files')).toBe(
-		'.gitattributes\n.gitignore\nepicenter.json\nnotes/a.md',
+	expect((await lstat(join(f.home, 'loose'))).isSymbolicLink()).toBe(true);
+	expect(await readlink(join(f.home, 'loose'))).toBe(loose);
+	expect(existsSync(join(loose, '.git'))).toBe(false);
+	expect(existsSync(join(loose, '.gitignore'))).toBe(false);
+
+	const vault = await f.folder(join(f.root, 'Code', 'vault'), {
+		'recipes/epicenter.json': declarationOf('recipes'),
+		'journal/today.md': 'today\n',
+	});
+	const head = await gitIn(vault, 'rev-parse', 'HEAD');
+	await writeFile(join(vault, 'recipes', 'soup.md'), 'soup\n');
+	expect((await f.run('add', join(vault, 'recipes'))).code).toBe(0);
+	expect(await readlink(join(f.home, 'recipes'))).toBe(join(vault, 'recipes'));
+	expect(await gitIn(vault, 'rev-parse', 'HEAD')).toBe(head);
+	expect(await gitIn(vault, 'status', '--porcelain')).toBe(
+		'?? recipes/soup.md',
 	);
 
-	const source = await f.folder(join(f.root, 'shared', 'recipes'), {
+	const source = await f.folder(join(f.root, 'shared', 'garden'), {
 		'.gitignore': gitignore,
-		'epicenter.json': declarationOf('recipes'),
-		'soup.md': 'soup\n',
+		'epicenter.json': declarationOf('garden'),
+		'beds.md': 'beds\n',
 	});
 	const sha = await gitIn(source, 'rev-parse', 'HEAD');
 	const url = `file://${source}`;
-	const copied = await f.run('add', url, '--json');
-	expect(copied.code).toBe(0);
-	const folder = join(f.home, 'recipes');
-	expect(JSON.parse(copied.stdout)).toEqual({ name: 'recipes', folder });
-	expect(await readFile(join(folder, 'soup.md'), 'utf8')).toBe('soup\n');
-	expect(await gitIn(folder, 'rev-parse', 'upstream')).toBe(sha);
-	expect(await gitIn(folder, 'remote', 'get-url', 'upstream')).toBe(url);
-	expect(await gitIn(folder, 'remote')).toBe('upstream');
-	const branch = await gitIn(folder, 'rev-parse', '--abbrev-ref', 'HEAD');
-	expect(branch).not.toBe('upstream');
-	expect(
-		(
-			await gitIn(
-				folder,
-				'config',
-				'--get-regexp',
-				`^branch\\.${branch}\\.`,
-			).catch(() => '')
-		).trim(),
-	).toBe('');
+	const cloned = await f.run('add', url, '--json');
+	expect(cloned.code).toBe(0);
+	const folder = join(f.home, 'garden');
+	expect(JSON.parse(cloned.stdout)).toEqual({ name: 'garden', folder });
+	expect(await readFile(join(folder, 'beds.md'), 'utf8')).toBe('beds\n');
+	expect(await gitIn(folder, 'rev-parse', 'HEAD')).toBe(sha);
+	expect(await gitIn(folder, 'remote')).toBe('origin');
+	expect(await gitIn(folder, 'remote', 'get-url', 'origin')).toBe(url);
 
+	expect((await f.run('add', loose, '--init', '--json')).code).toBe(2);
 	const listed = JSON.parse((await f.run('--json')).stdout);
 	expect(listed.apps.map((app: { name: string }) => app.name)).toEqual([
+		'garden',
+		'loose',
 		'recipes',
-		'vault',
 	]);
 });
 

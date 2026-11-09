@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from 'bun:test';
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { declarationOf, fixture, gitIn } from './runner.test-support.ts';
 
@@ -21,9 +22,26 @@ test('new refuses duplicate names without regard to case and reserved words', as
 	}
 });
 
-test('add adopts a folder that is already a repository, as new and --init do', async () => {
+test('new commits its template, and add commits nothing in a repository it links', async () => {
 	const f = await fixture();
 	roots.push(f.root);
+	expect((await f.run('new', 'garden')).code).toBe(0);
+	const garden = join(f.home, 'garden');
+	expect(await gitIn(garden, 'log', '--format=%s')).toBe('new garden');
+	expect(await gitIn(garden, 'ls-files')).toBe(
+		'.gitattributes\n.gitignore\nepicenter.json',
+	);
+	expect(await gitIn(garden, 'status', '--porcelain')).toBe('');
+	expect(
+		await gitIn(
+			garden,
+			'config',
+			'--local',
+			'--get',
+			'filter.lfs.process',
+		).catch(() => ''),
+	).toBe('');
+
 	const folder = join(f.root, 'kept');
 	await mkdir(folder);
 	await writeFile(join(folder, 'epicenter.json'), declarationOf('kept'));
@@ -41,9 +59,6 @@ test('add adopts a folder that is already a repository, as new and --init do', a
 	);
 	const added = await f.run('add', folder, '--json');
 	expect(added.code).toBe(0);
-	expect(await readFile(join(folder, '.gitignore'), 'utf8')).toContain(
-		'.cache/',
-	);
-	expect(await gitIn(folder, 'log', '-1', '--format=%s')).toBe('add kept');
-	expect(await gitIn(folder, 'status', '--porcelain')).toBe('');
+	expect(existsSync(join(folder, '.gitignore'))).toBe(false);
+	expect(await gitIn(folder, 'log', '--format=%s')).toBe('start');
 });
