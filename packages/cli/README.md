@@ -14,6 +14,7 @@ epicenter add ~/Code/vault
 epicenter add https://github.com/someone/recipes
 epicenter sync
 epicenter sync reading
+epicenter serve
 epicenter serve --stdio
 epicenter --version
 ```
@@ -26,9 +27,13 @@ The commands are `new`, `add`, `sync`, and `serve`; any other first word names a
 
 The `epicenter` you start only relays. It runs the action in a child `epicenter` whose stdout and stderr both go to your stderr, forwards SIGINT and SIGTERM, and reads the child's answer from a report file once the child exits. So nothing an action prints, through any `console` method or `process.stdout`, reaches the answer. A child that ends without an answer, killed or calling `process.exit`, answers that it threw, naming its exit code or signal. A child whose parent dies finishes the run.
 
-`epicenter serve --stdio` serves your apps over MCP on stdin and stdout. It never imports an app. `tools/list` runs `epicenter <app> --json` for each home entry in its own child, so an app that fails to load loses only its own tools, and says why on stderr. Each `tools/call` decodes the tool name and runs `epicenter <app> <words> --input <json>` in a fresh child, so an edit between two calls is seen by the second. `--input` takes the action's input as one JSON object instead of flags. `serve` also offers the tool `sync`, below.
+`epicenter serve` starts an HTTP server on `127.0.0.1:4747`. `--host <address>` and `--port <n>` change where it listens. It serves MCP at `POST /mcp` and each app's `views/` at `/<app>/`. The home page links to apps with `views/index.html`. An Origin must match the request Host; requests without Origin are accepted. A reverse proxy such as `tailscale serve` can provide HTTPS.
 
-## A run commits nothing
+Both HTTP and `serve --stdio` offer every app action and `sync`. The server never imports an app. `tools/list` runs `epicenter <app> --json` for each home entry in its own child, so an app that fails to load loses only its own tools and says why on stderr. Each `tools/call` runs `epicenter <app> <words> --input <json>` in a fresh child, so an edit between calls is seen by the next. `--input` takes the action's input as one JSON object instead of flags. `serve --stdio` uses stdin and stdout for MCP.
+
+HTTP calls to actions marked read-only run without a commit. Other successful calls take turns per app. Each commits the app folder's changes as `<app>: <action words> [first positional value]` when the folder is in a Git repository. If the branch has an upstream, the server pushes in the background. A thrown action makes no commit. A call that changes no files makes no commit. Push failures go to stderr and leave the commit local.
+
+## Direct runs commit nothing
 
 Running an action needs nothing from Git: the folder need not be a repository, or the top of one ([ADR-0850](../../docs/adr/0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md)). An action writes through `folder` and its writes stay uncommitted until whoever knows the intent commits them:
 
@@ -56,7 +61,7 @@ An action that returns nothing answers `{ "returned": null }`. An action that th
 
 ## Syncing
 
-`epicenter sync [<app>]` is the only command that touches a remote ([ADR-0851](../../docs/adr/0851-an-app-with-history-has-one-git-remote-its-meeting-point-and-backup.md)). For each app in the home, or the one named, one after another, from its folder:
+`epicenter sync [<app>]` commits what is left and pulls before pushing ([ADR-0851](../../docs/adr/0851-an-app-with-history-has-one-git-remote-its-meeting-point-and-backup.md)). For each app in the home, or the one named, one after another, from its folder:
 
 1. `git add -A -- .`, and when anything changed, a commit `sync: <app> (<n> files)` of the folder only, with the same LFS check as `folder.commit`.
 2. When the branch has an upstream, `git pull --rebase --autostash`, then `git push`. Which branch is Git's: the upstream and `push.default` the clone already has. A branch that tracks nothing is committed and not pushed.
