@@ -9,68 +9,90 @@ epicenter reading log 30 --book Dune
 epicenter reading log 30 --json
 epicenter ./worktree log 30
 epicenter reading log --help
-epicenter serve --stdio
 epicenter new notes
-epicenter add ~/Code/vault --init
+epicenter add ~/Code/vault
 epicenter add https://github.com/someone/recipes
-epicenter help
+epicenter sync
+epicenter sync reading
+epicenter serve --stdio
 epicenter --version
 ```
 
-`--json` and `--help` go anywhere before `--`; `--version` is read only on its own. The listing shows each app's actions and the problems in individual apps. `epicenter --json` prints the merged declaration: each app's name, description, folder, collections from both files as JSON Schema, and each action as the MCP tool `serve` offers, with all four annotations explicit. A folder with neither `epicenter.json` nor `epicenter.ts` is not an app and is not listed. `epicenter setup` is reserved and says it is not built yet.
+The commands are `new`, `add`, `sync`, and `serve`; any other first word names an app. `--json` and `--help` (`-h`) go anywhere before `--`; `--version` is read only on its own. The listing shows each app's actions and the problems in individual apps. `epicenter --json` prints each app's declaration: its name, description, folder, the collections from its `epicenter.json`, and each action as the MCP tool `serve` offers, with all four annotations explicit. The listing reads nothing from Git. A folder with neither `epicenter.json` nor `epicenter.ts` is not an app and is not listed.
 
 `epicenter` supplies `@epicenter/app` to every `epicenter.ts` it loads, so a folder needs no `node_modules` to run. Listing and running an app only read it. An invalid `epicenter.json` is reported before any of the app's code is imported.
 
 ## Each run is its own process
 
-The `epicenter` you start only relays. It runs the action in a child `epicenter` whose stdout and stderr both go to your stderr, forwards SIGINT and SIGTERM, and reads the child's answer from a report file once the child exits. So nothing an action prints, through any `console` method or `process.stdout`, reaches the answer. A child that dies after the run began answers "unknown", exit 3, with the branch head before and after, so you can see what landed.
+The `epicenter` you start only relays. It runs the action in a child `epicenter` whose stdout and stderr both go to your stderr, forwards SIGINT and SIGTERM, and reads the child's answer from a report file once the child exits. So nothing an action prints, through any `console` method or `process.stdout`, reaches the answer. A child that ends without an answer, killed or calling `process.exit`, answers that it threw, naming its exit code or signal. A child whose parent dies finishes the run.
 
-`epicenter serve --stdio` serves your apps over MCP on stdin and stdout. It never imports an app. `tools/list` runs `epicenter <app> --json` for each home entry in its own child, so an app that fails to load loses only its own tools, and says why on stderr. Each `tools/call` decodes the tool name and runs `epicenter <app> <words> --input <json>` in a fresh child, so an edit between two calls is seen by the second. `--input` takes the action's input as one JSON object instead of flags.
+`epicenter serve --stdio` serves your apps over MCP on stdin and stdout. It never imports an app. `tools/list` runs `epicenter <app> --json` for each home entry in its own child, so an app that fails to load loses only its own tools, and says why on stderr. Each `tools/call` decodes the tool name and runs `epicenter <app> <words> --input <json>` in a fresh child, so an edit between two calls is seen by the second. `--input` takes the action's input as one JSON object instead of flags. `serve` also offers the tool `sync`, below.
 
-## Writing and committing
+## A run commits nothing
 
-Each app folder must be the top level of its own Git repository. Runs of one app take turns. An action writes as it runs, and whether it returns or throws, `epicenter` commits exactly what it wrote as one commit (ADR-0850):
+Running an action needs nothing from Git: the folder need not be a repository, or the top of one ([ADR-0850](../../docs/adr/0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md)). An action writes through `folder` and its writes stay uncommitted until whoever knows the intent commits them:
 
-- Immediately before each write lands, the path must have no uncommitted edits, or still hold what this run wrote to it; otherwise the write is refused and nothing is written there. A symbolic link is refused too.
-- Each write is stored as a Git object, with the blob and mode the path had before. The commit is built from HEAD plus exactly those objects, keeping each file's mode, and the branch moves only if HEAD has not. An edit someone saves after the action wrote a path stays uncommitted and is named. A path a commit made during the run also changed is left out and named; nothing is merged.
-- The subject is `<app> <action words>`, with ` (failed: <first line of the error>)` when it threw or a write was refused, cut to about 60 characters. The body is the input as JSON, without `writeOnly` inputs, then the full error.
-- Gitignored paths are written and never committed. Nothing is undone; `git revert` undoes a commit.
-- The limit: an editor save in the instant between the check and the write landing can be overwritten, and writes made through `folder.path` are not recorded or committed. While `epicenter` moves the branch and updates the index it holds Git's index lock, so an agent's `git add` or `git commit` at that moment fails and can be retried.
+```txt
+the action   await folder.commit('Add 12 words')   its author decided one run is one change
+an agent     git commit -m '…'                      after a sequence it understands
+anyone       epicenter sync                         everything left
+```
 
-After each commit, `epicenter` pushes the branch fast-forward to the branch of the same name on `origin`, and only when that is the branch it tracks (ADR-0851). It pushes after the app's turn ends, so a slow push never holds up the next run. It never pulls or merges: when `origin` has commits this copy does not, the commit stays local, `epicenter` fetches so it knows, and says to pull. The listing shows how far each app is ahead of and behind `origin`. A worktree branch that tracks `origin/main` but is not `main` is never pushed.
+`folder` is a convenience, not a sandbox. Paths are normalized and `.git` is refused; writes replace a whole file at once and are recorded nowhere. `folder.path` is the folder, and an action may use `node:fs` too. Runs of one app do not take turns.
+
+`folder.commit(message)` runs `git add -A -- .` and then `git commit -m <message> -- .` from the app's folder, so it commits everything changed in the folder, staged or not, and nothing outside it. An app inside a larger repository commits into that repository and leaves the rest of it alone. With nothing changed it does nothing. It throws Git's own error when the folder is in no repository. Before staging, when the folder's `.gitattributes` mentions `filter=lfs` and `git config filter.lfs.process` is empty, it throws a message ending `run: git lfs install`, since Git without the filter would store the whole file ([ADR-0856](../../docs/adr/0856-binary-files-go-through-git-lfs.md)). When another Git process holds `index.lock`, it retries for about 2 seconds, then throws Git's message. It never pushes.
 
 ## What a run answers
 
-With `--json`, stdout is one JSON object, the run's report, and MCP returns the same object as `structuredContent`, with `isError` when the exit code is not 0:
+With `--json`, stdout is one JSON object, and MCP returns the same object as `structuredContent`, with `isError` when the exit code is not 0:
+
+```txt
+{ "returned": <value> }                       exit 0
+{ "threw": { "message", "thrown"? } }         exit 1, also when the run ended without an answer
+{ "error": { "name", "message", "next"? } }   exit 2, nothing ran
+```
+
+An action that returns nothing answers `{ "returned": null }`. An action that throws a tagged error (`{ name, message, …fields }`) reports it whole as `thrown`. Without `--json`, stdout carries only the returned value (a string as is, anything else as JSON), and stderr carries what the action threw, or why nothing ran followed by `Run: <next step>` when there is one.
+
+## Syncing
+
+`epicenter sync [<app>]` is the only command that touches a remote ([ADR-0851](../../docs/adr/0851-an-app-with-history-has-one-git-remote-its-meeting-point-and-backup.md)). For each app in the home, or the one named, one after another, from its folder:
+
+1. `git add -A -- .`, and when anything changed, a commit `sync: <app> (<n> files)` of the folder only, with the same LFS check as `folder.commit`.
+2. When the branch has an upstream, `git pull --rebase --autostash`, then `git push`. Which branch is Git's: the upstream and `push.default` the clone already has. A branch that tracks nothing is committed and not pushed.
+
+An app inside a larger repository commits only its own folder but pulls and pushes the whole repository, so other uncommitted files there are set aside and put back by `--autostash`; when they cannot be put back, Git keeps them in its stash and sync says so. A pull that stops on a conflict is aborted with `git rebase --abort`, so the folder is never left mid-rebase; the commits stay local and the next step is `git -C <folder> pull --rebase`. A pull or push that fails, offline for instance, leaves the commit local and says it was not pushed. A folder that is not a repository reports Git's error. One app's failure never stops the others.
 
 ```json
 {
-  "action": { "returned": 30 },
-  "refused": [{ "path": "2026.csv", "reason": "uncommitted", "message": "…", "next": "…" }],
-  "commit": { "sha": "…", "subject": "reading log", "paths": ["2026.csv"] },
-  "paths": [{ "path": "2026.csv", "state": "committed" }],
-  "push": { "pushed": true, "ahead": 0, "behind": 0 }
+  "apps": [
+    {
+      "app": "reading",
+      "folder": "/Users/you/Epicenter/reading",
+      "committed": { "subject": "sync: reading (2 files)", "files": 2 },
+      "pushed": true,
+      "upstream": { "ahead": 0, "behind": 0 }
+    }
+  ]
 }
 ```
 
-- `action` is `{ "returned" }` or `{ "threw": { "message", "thrown"? } }`. An action that throws a tagged error (`{ name, message, …fields }`) reports it whole as `thrown`.
-- `commit` is the commit, `null` when nothing of the run's remained to commit, or `{ "failed": <message> }`.
-- Each written path's `state` is `committed`, `already-in-history`, `changed-after`, `contested`, or `not-committed`.
-- `push` is `null` when the branch does not track its own name on `origin`; otherwise it carries `reason` and `next` when it did not push.
+`committed` is `null` when nothing was left; `upstream` is how far the branch is from its upstream afterwards, or `null` when it tracks none; `error` is `{ message, next? }` when the app did not finish syncing. Without `--json`, stdout has one line per app, such as `reading: committed sync: reading (2 files); pushed; 0 ahead, 0 behind`, and stderr has each error with its `Run:` line. Exit 0 when every app synced, 1 when any did not, 2 when the app named is not in the home.
 
-A command that did not run answers `{ "error": { "name", "message", "next"? } }`. Without `--json`, stdout carries only the returned value, and stderr renders the rest for a person: `committed a1b2c3d reading log`, `left uncommitted: 2026.csv (changed after the action wrote it)`, refusals and errors, each followed by `Run: <next step>` when there is one.
-
-Exit codes: 0 ran; 2 did not run; 3 ran and failed: it threw, a write was refused, the commit failed, or the run ended without a report.
+Over MCP the tool `sync` takes `{ app?: string }`, runs `epicenter sync` in a child, and returns the same object, with `isError` when any app did not sync.
 
 ## Adding apps
 
-`epicenter new <name>`, `epicenter add <folder>`, and `epicenter add <git url>` make a folder one of your apps the same way (ADR-0852). Each writes whichever template files are missing (`epicenter.json` with its `$schema`, a `.gitignore` with `node_modules/` and `.cache/`, and a `.gitattributes` routing binary types through Git LFS), makes the folder a repository if it is not one, runs `git lfs install --local` when `git-lfs` is installed, and commits what that added. Each prints the folder on stdout and `Run: epicenter <name>` on stderr.
+`epicenter add` makes something one of your apps, by linking or cloning, and commits nothing ([ADR-0852](../../docs/adr/0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md)):
 
-- `new <name>` starts from the built-in template.
-- `add <folder>` links a folder with an `epicenter.json` into `~/Epicenter` under its declared name. A folder that is not yet a repository needs `--init`, which commits what is there.
-- `add <git url>` clones the app into `~/Epicenter`, keeping its history and the source as the `upstream` remote and branch. The copy's own branch tracks nothing until you give it an `origin`.
+- `add <folder>` links a folder with an `epicenter.json` into `~/Epicenter` under its declared name, whatever it is: a repository, a folder inside one, or neither.
+- `add <git url>` is `git clone` into `~/Epicenter`; the clone's remotes are Git's.
 
-What an app can rebuild lives in files it gitignores in its folder, such as `.cache/` (ADR-0854). A write to a path marked for Git LFS is refused when `git-lfs` is not on `PATH` or its filter is not set up, since Git would otherwise store the whole file (ADR-0856).
+`epicenter new <name>` makes the folder from the built-in template: `epicenter.json` with its `$schema`, a `.gitignore` of exactly `node_modules/`, `.cache/`, `*.local`, and `*.local.*` ([ADR-0858](../../docs/adr/0858-where-a-file-lives-decides-whether-it-travels-survives-or-dies-with-its-program.md)), and a `.gitattributes` routing binary types through Git LFS. It runs `git init` and commits the template as `new <name>`. It does not set up Git LFS; `git lfs install` is each computer's, once.
+
+Each prints the folder on stdout and `Run: epicenter <name>` on stderr. A name already in the home, ignoring case, is refused, as is a name that is one of the commands.
+
+What an app can rebuild lives in files it gitignores in its folder, such as `.cache/` ([ADR-0854](../../docs/adr/0854-an-apps-cache-is-the-files-it-gitignores.md)).
 
 The home is `$HOME/Epicenter`; tests move it by setting `HOME`. Tests replace the Keychain with process-local stores through `EPICENTER_TEST_SECRETS`, JSON keyed by service, such as `{"epicenter.reading":{"token":"value"}}`, so they never reach the real one.
 
@@ -82,4 +104,4 @@ bun run --cwd packages/cli compile
 
 ## Tests
 
-Run `bun test` in `packages/cli` one file per process when memory is short. `acceptance.*.test.ts` runs the real `epicenter` against a temporary `HOME`, one test per acceptance ID. `bun scripts/race.ts --runs 1000 --concurrency 4` races runs against an agent committing in the same folder and reports anything lost, misfiled, or missing from the index afterwards.
+Run `bun test <file>` in `packages/cli` one file per process when memory is short. `acceptance.*.test.ts` runs the real `epicenter` against a temporary `HOME`, one test per acceptance ID, with bare repositories in temporary folders standing in for remotes.

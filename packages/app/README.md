@@ -5,7 +5,7 @@ What an app's `epicenter.ts` imports
 [ADR-0857](../../docs/adr/0857-an-app-declares-itself-in-epicenter-json-and-its-code-in-epicenter-ts.md)).
 An app is a folder. Its `epicenter.json` says what the app is and what its
 files are; its `epicenter.ts`, if present, default-exports
-`defineApp(declaration, { collections?, actions })`, and the `epicenter`
+`defineApp(declaration, { actions })`, and the `epicenter`
 command turns each action into a command for the person and an MCP tool for
 their agent.
 
@@ -51,10 +51,11 @@ loading and the source of `epicenter.schema.json` (`bun run schema` rewrites
 it). A collection is `{ path, fields }`: a path with at most one placeholder,
 such as `words/{stem}.md`, and the JSON Schema of each file's fields.
 
-Collections a program or a person writes go in `epicenter.json`; collections
-the app's own actions introduce go in `epicenter.ts`, with `field` helpers.
-Declaring one in both, or naming an action like one a collection gives
-(`words save`), is a problem.
+Every collection is declared in `epicenter.json`; `epicenter.ts` holds
+actions and nothing else of the app's shape, so a program, a screen, or an
+agent reads every shape without loading code. Two collections with one path,
+or a hand-written action named like one a collection gives (`words save`),
+is a problem.
 
 The file on disk is the declaration: `epicenter` reads the name, description,
 and collections from `epicenter.json`, never from `defineApp`'s first
@@ -74,9 +75,10 @@ changing any app.
 | `field.tags()` | `string[]`, empty unless given | `--name a --name b` |
 
 Each field is JSON Schema, so any TypeBox schema works as a field too. A field
-is required unless it says `optional: true`. A field that says `writeOnly: true`
-(JSON Schema's keyword), such as a token, stays out of the commit body. `run`'s input is typed from the
-fields, and its return value stays typed for whatever calls the action.
+is required unless it says `optional: true`. `writeOnly: true` is JSON
+Schema's keyword and means only what JSON Schema says; nothing in `epicenter`
+reads it. `run`'s input is typed from the fields, and its return value stays
+typed for whatever calls the action.
 
 An action's `positional` lists, in order, the fields the command line also
 reads by position: `positional: ['from', 'to']` reads
@@ -95,13 +97,25 @@ reads as one that may destroy.
 
 | Store | Holds | Methods |
 | --- | --- | --- |
-| `folder` | the app's data, in its Git repository | `read`, `readBytes`, `write`, `writeBytes`, `list`, `delete`; `path` on a computer |
+| `folder` | the app's data, in its folder | `read`, `readBytes`, `write`, `writeBytes`, `list`, `delete`, `commit`; `path` on a computer |
 | `secrets` | sign-ins, in this computer's Keychain | `get`, `set`, `delete`; only on a computer |
 
-What the app can rebuild lives in files it gitignores inside its folder, such
-as `.cache/`, which the template ignores. An action writes them through
-`folder` like any file, and `epicenter` writes them and never commits them. A
-database is a file there, opened through `folder.path`.
+A run commits nothing on its own
+([ADR-0850](../../docs/adr/0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md)).
+An action whose author decided one run is one change calls
+`await folder.commit('Add 12 words')`, which commits everything changed in the
+app's folder, staged or not, and nothing outside it, and does nothing when
+nothing changed. It throws Git's error when the folder is in no repository,
+and throws `run: git lfs install` before staging when `.gitattributes` routes
+files through Git LFS and this computer has no LFS filter. It never pushes.
+Otherwise the writes stay uncommitted until a person, an agent, or
+`epicenter sync` commits them.
+
+`folder` is a convenience, not a sandbox: an action may also write through
+`folder.path` with `node:fs`. What the app can rebuild lives in files it
+gitignores inside its folder, such as `.cache/`, which the template ignores;
+they are written like any file and never committed. A database is a file
+there, opened through `folder.path`.
 
 Paths are relative to the folder with `/` between parts. `read` gives
 `undefined` for a missing file. The `epicenter` command supplies the context on
@@ -119,8 +133,13 @@ await reading.actions.log.run({ minutes: 30 }, context);
 expect(await context.folder.read('2026.csv')).toBe('minutes,book\n30,\n');
 ```
 
+The memory context has no Git: `folder.commit` appends its message to
+`context.commits`, so a test can check what the action would have committed.
+
 `problemsOf(declaration, code)` lists what is wrong with an app as the
-`epicenter` command would: a declaration that fails the schema, a reserved
-name, anything declared twice, an action whose words start another's, a
+`epicenter` command would: a declaration that fails the schema, a name that
+is one of the commands (`new`, `add`, `sync`, `serve`), two collections with
+one path, an action named like one a collection gives, an action whose words
+start another's, a
 positional that is not one of the action's fields, an annotation MCP does not
 define, a field named `json`, `help`, or `input`.

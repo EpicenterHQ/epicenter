@@ -247,7 +247,7 @@ real `~/Epicenter`, the vault, or the Keychain.
 | IDs | Step | Where | State |
 | --- | --- | --- | --- |
 | D1–D7 | the declaration | `acceptance.declaration.test.ts` | pass |
-| C1–C9 | the commit rule, with the race in `scripts/race.ts` | `acceptance.commit.test.ts` | pass; 1,000 runs, 0 lost, 0 misfiled |
+| C1–C9 | the commit rule as rewritten: `folder.commit`, no commit of a run's own | `acceptance.commit.test.ts` | pass |
 | W1–W6 | the folder, offline | `acceptance.folder.test.ts` | pass |
 | F1–F14 | the final review's repairs | `acceptance.repairs.test.ts` | pass; 1,000 runs, 0 lost, 0 misfiled, index whole |
 | M1–M6 | Mail | to write | after the merge, with the author present |

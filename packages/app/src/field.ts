@@ -23,8 +23,8 @@ import {
 type Options = {
 	description?: string;
 	/**
-	 * JSON Schema's `writeOnly`: a value the action takes but nothing records,
-	 * such as a token. It stays out of the commit body.
+	 * JSON Schema's `writeOnly`, such as for a token. It means only what JSON
+	 * Schema says; nothing in `epicenter` reads it.
 	 */
 	writeOnly?: boolean;
 };
