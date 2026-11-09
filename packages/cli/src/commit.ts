@@ -33,7 +33,7 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { checkedGit, git, gitPath, revParse } from './git.ts';
-import type { Commit, Refused, RefusalReason } from './report.ts';
+import type { Commit, PathState, Refused, RefusalReason } from './report.ts';
 
 const ZERO = '0000000000000000000000000000000000000000';
 
@@ -106,7 +106,19 @@ async function isIgnored(folder: string, path: string) {
 	return checked.code === 0;
 }
 
-/** What one run wrote, as Git objects; `null` is a deletion. Ignored paths are written and never recorded. */
+/**
+ * One path the run wrote, recorded in full when it was first checked and
+ * written: the blob HEAD held for it then (`null` when it had none), its mode
+ * there, and the object the action's bytes became (`null` for a deletion).
+ * At commit time those three answer everything about the path.
+ */
+export type Written = {
+	base: string | null;
+	mode: string;
+	object: string | null;
+};
+
+/** What one run wrote. Ignored paths are written and never recorded. */
 export type WriteLog = {
 	/**
 	 * Throws unless `path` may be written now, recording the refusal in
@@ -125,8 +137,8 @@ export type WriteLog = {
 	 * tree for `git add -A` to sweep in; otherwise beside the target.
 	 */
 	tempFor(target: string): Promise<string>;
-	/** The paths recorded, in the order first written. */
-	readonly writes: ReadonlyMap<string, string | null>;
+	/** Every path recorded, sorted. */
+	written(): [path: string, Written][];
 	/** Every write refused this run, in order. */
 	readonly refused: readonly Refused[];
 };
@@ -141,14 +153,27 @@ async function onDisk(folder: string, path: string) {
 	return checkedGit(folder, ['hash-object', '--', path]);
 }
 
+async function isSymlink(folder: string, path: string) {
+	try {
+		return (await lstat(join(folder, path))).isSymbolicLink();
+	} catch {
+		return false;
+	}
+}
+
 export function createWriteLog(folder: string): WriteLog {
-	const writes = new Map<string, string | null>();
-	const ignored = new Set<string>();
+	/** What the first check of each path found: its base and mode, or that Git ignores it. */
+	const checked = new Map<string, Omit<Written, 'object'> | 'ignored'>();
+	const written = new Map<string, Written>();
 	const refused: Refused[] = [];
 	const refuse = (path: string, reason: RefusalReason) => {
 		const record = refusal(folder, path, reason);
 		refused.push(record);
 		throw new Error(record.message);
+	};
+	const record = (path: string, object: string | null) => {
+		const found = checked.get(path);
+		if (found && found !== 'ignored') written.set(path, { ...found, object });
 	};
 	// Decided once per run: the Git directory, when a rename from it into the folder stays on one filesystem.
 	const staging = gitPath(folder, 'epicenter-tmp').then(async (dir) => {
@@ -156,20 +181,24 @@ export function createWriteLog(folder: string): WriteLog {
 		return (await stat(dir)).dev === (await stat(folder)).dev ? dir : undefined;
 	});
 	return {
-		writes,
 		refused,
+		written: () =>
+			[...written].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
 		async tempFor(target) {
 			return join((await staging) ?? dirname(target), `.${randomUUID()}.tmp`);
 		},
 		async check(path) {
-			if (ignored.has(path)) return;
-			if (writes.has(path)) {
-				if ((await onDisk(folder, path)) !== writes.get(path))
+			if (checked.get(path) === 'ignored') return;
+			// A write replaces the link with a file; one through it would change a file outside history.
+			if (await isSymlink(folder, path)) refuse(path, 'symlink');
+			const mine = written.get(path);
+			if (mine) {
+				if ((await onDisk(folder, path)) !== mine.object)
 					refuse(path, 'changed-during');
 				return;
 			}
 			if (await isIgnored(folder, path)) {
-				ignored.add(path);
+				checked.set(path, 'ignored');
 				return;
 			}
 			const filter = await checkedGit(folder, [
@@ -191,10 +220,14 @@ export function createWriteLog(folder: string): WriteLog {
 				path,
 			]);
 			if (status.length) refuse(path, 'uncommitted');
+			// Clean, so the index holds what HEAD holds: `<mode> <object> <stage>\t<path>`, or nothing.
+			const staged = await checkedGit(folder, ['ls-files', '-s', '--', path]);
+			const [mode, base] = staged ? staged.split(' ') : [];
+			checked.set(path, { base: base ?? null, mode: mode ?? '100644' });
 		},
 		async wrote(path, bytes) {
-			if (ignored.has(path)) return;
-			writes.set(
+			if (checked.get(path) === 'ignored') return;
+			record(
 				path,
 				await checkedGit(
 					folder,
@@ -204,7 +237,7 @@ export function createWriteLog(folder: string): WriteLog {
 			);
 		},
 		async deleted(path) {
-			if (!ignored.has(path)) writes.set(path, null);
+			record(path, null);
 		},
 	};
 }
@@ -238,87 +271,94 @@ async function lockIndex(indexPath: string) {
 	}
 }
 
-/** `mode object\tpath` lines for `update-index --index-info`, keeping each path's mode at `base`. */
-async function indexLines(
-	folder: string,
-	base: string | null,
-	writes: ReadonlyMap<string, string | null>,
-) {
-	const lines: string[] = [];
-	for (const [path, object] of writes) {
-		if (object === null) {
-			lines.push(`0 ${ZERO}\t${path}`);
-			continue;
-		}
-		const tree = base
-			? await checkedGit(folder, ['ls-tree', base, '--', path])
-			: '';
-		const mode = /^(100755|120000) /.exec(tree)?.[1] ?? '100644';
-		lines.push(`${mode} ${object}\t${path}`);
+/** The blob `commit` holds at each of `paths`; a path it lacks is absent. */
+async function blobsAt(folder: string, commit: string | null, paths: string[]) {
+	const blobs = new Map<string, string>();
+	if (commit === null) return blobs;
+	const listed = await checkedGit(folder, [
+		'ls-tree',
+		'-r',
+		'-z',
+		commit,
+		'--',
+		...paths,
+	]);
+	for (const entry of listed.split('\0').filter(Boolean)) {
+		const [meta = '', path = ''] = entry.split('\t');
+		blobs.set(path, meta.split(' ')[2] ?? '');
 	}
-	return `${lines.join('\n')}\n`;
+	return blobs;
 }
 
 /**
- * Commit exactly `writes` onto HEAD, named `subject` with `body`. A path that
- * a commit made during the run also changed is left out and returned in
- * `contested`; nothing is ever merged. Returns `null` for the commit when
- * nothing of the run's remains to commit.
+ * What became of each written path, against `head`: HEAD already holding the
+ * action's bytes is `already-in-history`; HEAD still holding what the path
+ * held when the action first wrote it is the run's to commit; anything else
+ * is a commit made during the run that changed it too, which wins.
+ */
+function sortAgainst(written: [string, Written][], blobs: Map<string, string>) {
+	const mine: [string, Written][] = [];
+	const states = new Map<string, PathState>();
+	for (const [path, entry] of written) {
+		const now = blobs.get(path) ?? null;
+		if (now === entry.object) states.set(path, 'already-in-history');
+		else if (now === entry.base) {
+			mine.push([path, entry]);
+			states.set(path, 'committed');
+		} else states.set(path, 'contested');
+	}
+	return { mine, states };
+}
+
+/** `mode object\tpath` lines for `update-index --index-info`; a deletion is mode 0. */
+function indexLines(entries: [string, Written][]) {
+	return `${entries
+		.map(([path, { mode, object }]) =>
+			object === null ? `0 ${ZERO}\t${path}` : `${mode} ${object}\t${path}`,
+		)
+		.join('\n')}\n`;
+}
+
+/**
+ * Commit exactly what `written` holds onto HEAD, named `subject` with
+ * `body`, and say what became of each path (see `PathState`). Nothing is ever
+ * merged. The commit is `null` when nothing of the run's remains to commit.
  */
 export async function commitWrites(
 	folder: string,
 	{
-		startHead,
-		writes,
+		written,
 		subject,
 		body,
-	}: {
-		startHead: string | null;
-		writes: ReadonlyMap<string, string | null>;
-		subject: string;
-		body: string;
-	},
-): Promise<{ commit: Commit | null; contested: string[] }> {
-	if (writes.size === 0) return { commit: null, contested: [] };
+	}: { written: [string, Written][]; subject: string; body: string },
+): Promise<{ commit: Commit | null; states: Map<string, PathState> }> {
+	if (written.length === 0) return { commit: null, states: new Map() };
+	const paths = written.map(([path]) => path);
 	const indexPath = await gitPath(folder, 'index');
 	const lock = await lockIndex(indexPath);
 	// Once renamed over the index the lock is released, and the name may already be another Git command's lock.
 	let held = true;
 	const scratch = join(tmpdir(), `epicenter-index-${randomUUID()}`);
 	try {
-		let contested: string[] = [];
 		for (let attempt = 0; attempt < 20; attempt++) {
 			const head = await revParse(folder, 'HEAD');
-			// A commit made during the run that touches one of these paths wins; the run's version stays on disk, uncommitted.
-			if (head !== startHead && startHead !== null && head !== null)
-				contested = (
-					await checkedGit(folder, [
-						'diff',
-						'--name-only',
-						'--no-renames',
-						startHead,
-						head,
-						'--',
-						...writes.keys(),
-					])
-				)
-					.split('\n')
-					.filter(Boolean);
-			const mine = new Map(
-				[...writes].filter(([path]) => !contested.includes(path)),
+			const { mine, states } = sortAgainst(
+				written,
+				await blobsAt(folder, head, paths),
 			);
-			if (mine.size === 0) return { commit: null, contested };
+			if (mine.length === 0) {
+				await markChangedAfter(folder, head, states);
+				return { commit: null, states };
+			}
 			await rm(scratch, { force: true });
 			await withIndex(
 				folder,
 				scratch,
 				head ? ['read-tree', head] : ['read-tree', '--empty'],
 			);
-			const lines = await indexLines(folder, head, mine);
+			const lines = indexLines(mine);
 			await withIndex(folder, scratch, ['update-index', '--index-info'], lines);
 			const tree = await withIndex(folder, scratch, ['write-tree']);
-			if (head && tree === (await revParse(folder, `${head}^{tree}`)))
-				return { commit: null, contested };
 			const sha = await withIndex(
 				folder,
 				scratch,
@@ -344,9 +384,10 @@ export async function commitWrites(
 			await withIndex(folder, lock, ['update-index', '--index-info'], lines);
 			await rename(lock, indexPath);
 			held = false;
+			await markChangedAfter(folder, sha, states);
 			return {
-				commit: { sha, subject, paths: [...mine.keys()].sort() },
-				contested,
+				commit: { sha, subject, paths: mine.map(([path]) => path) },
+				states,
 			};
 		}
 		throw new Error('HEAD kept moving while epicenter committed');
@@ -356,13 +397,27 @@ export async function commitWrites(
 	}
 }
 
-/** Paths whose bytes on disk are no longer what the run wrote: someone changed them after. */
-export async function changedSince(
+/** A path in history as the action left it, whose file on disk someone has changed since, is `changed-after`. */
+async function markChangedAfter(
 	folder: string,
-	writes: ReadonlyMap<string, string | null>,
+	tip: string | null,
+	states: Map<string, PathState>,
 ) {
-	const changed: string[] = [];
-	for (const [path, object] of writes)
-		if ((await onDisk(folder, path)) !== object) changed.push(path);
-	return changed;
+	const settled = [...states]
+		.filter(
+			([, state]) => state === 'committed' || state === 'already-in-history',
+		)
+		.map(([path]) => path);
+	if (tip === null || settled.length === 0) return;
+	const changed = await checkedGit(folder, [
+		'diff',
+		'--name-only',
+		'-z',
+		'--no-renames',
+		tip,
+		'--',
+		...settled,
+	]);
+	for (const path of changed.split('\0').filter(Boolean))
+		states.set(path, 'changed-after');
 }

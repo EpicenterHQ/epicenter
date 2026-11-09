@@ -10,14 +10,14 @@ import { format } from 'node:util';
 import type { Action } from '@epicenter/app';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
-import { changedSince, commitWrites, createWriteLog } from './commit.ts';
+import { commitWrites, createWriteLog } from './commit.ts';
 import { folderOnDisk } from './disk.ts';
 import { CliError } from './errors.ts';
 import { holdingFileLock, NothingChanged } from './file-lock.ts';
 import { git, gitPath, revParse } from './git.ts';
 import type { Runnable } from './home.ts';
 import { pushToOrigin } from './push.ts';
-import type { PathState, RunReport } from './report.ts';
+import type { RunReport } from './report.ts';
 import { keychain, keychainService } from './secrets.ts';
 
 /** The longest a failure's first line may be in a commit subject before it is cut. */
@@ -111,7 +111,6 @@ export async function runAction(
 				await gitPath(folder, 'epicenter.lock'),
 				{ waitMs: 86_400_000, held: `${located.name} is busy` },
 				async (): Promise<RunReport> => {
-					const startHead = await revParse(folder, 'HEAD');
 					const log = createWriteLog(folder);
 					const outcome = await withStdoutKept(
 						async (): Promise<RunReport['action']> => {
@@ -132,47 +131,31 @@ export async function runAction(
 							: log.refused[0]?.message;
 					const subject = `${located.name} ${key}${failure === undefined ? '' : failureLabel(failure)}`;
 					const body = `${JSON.stringify(recorded(action, input))}${'threw' in outcome ? `\n\n${outcome.threw.message}` : ''}`;
-					const written = [...log.writes.keys()].sort();
+					const written = log.written();
+					const refused = [...log.refused];
 					let made: Awaited<ReturnType<typeof commitWrites>>;
 					try {
-						made = await commitWrites(folder, {
-							startHead,
-							writes: log.writes,
-							subject,
-							body,
-						});
+						made = await commitWrites(folder, { written, subject, body });
 					} catch (error) {
 						return {
 							action: outcome,
-							refused: [...log.refused],
+							refused,
 							commit: { failed: extractErrorMessage(error) },
-							paths: written.map((path) => ({
+							paths: written.map(([path]) => ({
 								path,
 								state: 'not-committed',
 							})),
 							push: null,
 						};
 					}
-					const inCommit = new Set(made.commit?.paths ?? []);
-					const changed = new Set(
-						await changedSince(
-							folder,
-							new Map([...log.writes].filter(([path]) => inCommit.has(path))),
-						),
-					);
-					const stateOf = (path: string): PathState =>
-						made.contested.includes(path)
-							? 'contested'
-							: !inCommit.has(path)
-								? 'already-in-history'
-								: changed.has(path)
-									? 'changed-after'
-									: 'committed';
 					return {
 						action: outcome,
-						refused: [...log.refused],
+						refused,
 						commit: made.commit,
-						paths: written.map((path) => ({ path, state: stateOf(path) })),
+						paths: written.map(([path]) => ({
+							path,
+							state: made.states.get(path) ?? 'not-committed',
+						})),
 						push: made.commit ? await pushToOrigin(folder) : null,
 					};
 				},

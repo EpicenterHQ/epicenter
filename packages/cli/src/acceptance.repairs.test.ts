@@ -398,8 +398,10 @@ test("F3 a commit that already holds the action's bytes is already in history; o
 	expect(code).toBe(0);
 	expect(report.paths).toEqual([
 		{ path: 'a.md', state: 'contested' },
-		{ path: 'b.md', state: 'committed' },
+		// The first run already committed these bytes.
+		{ path: 'b.md', state: 'already-in-history' },
 	]);
+	expect(report.commit).toBeNull();
 	expect(await gitIn(folder, 'show', 'HEAD:a.md')).toBe('person a');
 	expect((await f.run('notes', 'two', 'x')).code).toBe(0);
 });

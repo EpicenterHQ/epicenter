@@ -9,6 +9,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Dirent } from 'node:fs';
 import {
+	chmod,
 	lstat,
 	mkdir,
 	readdir,
@@ -47,6 +48,9 @@ export function folderOnDisk(dir: string, log?: WriteLog): Folder {
 			: join(dirname(target), `.${basename(target)}.${randomUUID()}.tmp`);
 		try {
 			await writeFile(temp, bytes);
+			// The file keeps its mode, so an executable script stays one on disk as in history.
+			const existing = await lstat(target).catch(() => undefined);
+			if (existing?.isFile()) await chmod(temp, existing.mode & 0o7777);
 			// As late as possible, so an edit saved before this point is refused rather than overwritten.
 			await log?.check(normalized);
 			await rename(temp, target);
