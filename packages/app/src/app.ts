@@ -147,8 +147,12 @@ const ACTION_KEYS = new Set([
 
 const ANNOTATION_KEYS = new Set(['title', ...Object.keys(ANNOTATION_DEFAULTS)]);
 
-/** Flags the `epicenter` command reads itself: no field is named one. */
-const GLOBAL_FLAGS = new Set(['json', 'help', 'version', 'input']);
+/**
+ * Flags the `epicenter` command reads anywhere among an action's words: no
+ * field is named one. `--version` is read only on its own, so a field may be
+ * named `version`.
+ */
+const GLOBAL_FLAGS = new Set(['json', 'help', 'input']);
 
 /** The words of the actions a collection gives: four, or `show` and `save` when its path has no placeholder. */
 export function collectionActionWords(name: string, path: string): string[] {

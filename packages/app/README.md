@@ -123,4 +123,4 @@ expect(await context.folder.read('2026.csv')).toBe('minutes,book\n30,\n');
 `epicenter` command would: a declaration that fails the schema, a reserved
 name, anything declared twice, an action whose words start another's, a
 positional that is not one of the action's fields, an annotation MCP does not
-define, a field named `json`, `help`, `version`, or `input`.
+define, a field named `json`, `help`, or `input`.

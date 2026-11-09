@@ -153,7 +153,13 @@ describe('problemsOf', () => {
 					calendar: { description: 'c', input: {}, readonly: true, run() {} },
 					'calendar show': {
 						description: 'Show',
-						input: { a: field.text(), b: field.tags(), json: field.boolean() },
+						input: {
+							a: field.text(),
+							b: field.tags(),
+							json: field.boolean(),
+							// Not reserved: `--version` is read only on its own.
+							version: field.text(),
+						},
 						positional: ['b', 'a', 'a', 'nope'],
 						annotations: { readOnlyHint: true, dangerous: true },
 						run() {},
