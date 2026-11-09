@@ -1,10 +1,10 @@
 # 0857. An app declares itself in `epicenter.json`, and its code in `epicenter.ts`
 
 - **Status:** Proposed
-- **Date:** 2026-11-08 (amended 2026-11-09: `epicenter.ts` exports its actions, typed through `epicenter:app`; and by [ADR-0863](0863-epicenter-is-one-place-and-one-app-shows-it-on-every-device-you-own.md): an optional `id` names the publisher, and `epicenter.json` runs everywhere while `epicenter.ts` runs on computers)
+- **Date:** 2026-11-08
 - **Amends:** [ADR-0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md) at the declaration: an app's description and every collection live in `epicenter.json`, and its name is its entry in `~/Epicenter` (ADR-0852); `epicenter.ts`, when present, exports actions, and `defineApp` leaves apps. At fields: JSON Schema, which the `field` helpers produce. At an action's hints, which are MCP's `annotations`, and its positional, which is its first required field. At the folder's `remove`, which is `delete`. [ADR-0845](0845-an-app-declares-collections-each-a-path-and-fields-which-the-hub-views.md) at a collection's fields, which are the JSON Schema of its front matter.
-- **Relates:** [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (programs that have the folder), [ADR-0853](0853-collections-give-four-actions-and-programs-without-the-folder-ask-over-mcp.md) (collection actions, groups, and the client), [ADR-0854](0854-an-apps-cache-is-the-files-it-gitignores.md) (`.cache/`), [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (views).
-- **Unbuilt:** `id` (2026-11-09), `name` leaving `epicenter.json` (amended 2026-11-09), `epicenter:app` and the generated `.cache/epicenter/`, `action()`, exports as actions and groups, `view` on an action, `collections` in `run`, the first required field read by position, `folder`'s `get`, `getBytes`, and `set` of bytes, asserting `format`, and publishing the schema at its URL. Built 2026-11-09 and kept: loading `epicenter.json`, the declaration's TypeBox schema and `packages/app/epicenter.schema.json`, `annotations` on actions, `@epicenter/app` supplied by `epicenter`, and `folder.delete`. Built 2026-11-09 and retired by this amendment: `defineApp(declaration, { actions })` and `positional`.
+- **Relates:** [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (programs that have the folder), [ADR-0853](0853-collections-give-four-actions-and-programs-without-the-folder-ask-over-mcp.md) (collection actions, groups, and the client), [ADR-0854](0854-an-apps-cache-is-the-files-it-gitignores.md) (`.cache/`), [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (views), [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (where `epicenter.ts` runs).
+- **Unbuilt:** `epicenter:app` and the generated `.cache/epicenter/`, `action()`, exports as actions and groups, `collections` in `run`, the first required field read by position, `folder`'s `get`, `getBytes`, and `set` (today `read`, `readBytes`, `write`, and `writeBytes`), and publishing the schema at its URL. Built and kept: loading `epicenter.json`, the declaration's TypeBox schema and `packages/app/epicenter.schema.json`, an app's name taken from its folder and never from `epicenter.json`, `format` asserted when a collection's `set` checks a value, `annotations` on actions, `@epicenter/app` supplied by `epicenter`, and `folder.delete`. Built and to be replaced: `defineApp(declaration, { actions })` and `positional`.
 
 ## Context
 
@@ -31,7 +31,6 @@ the JSON does not have.
 ```json
 {
   "$schema": "https://epicenter.so/epicenter.schema.json",
-  "id": "so.epicenter.whispering",
   "description": "Voice notes",
   "collections": {
     "recordings": {
@@ -63,14 +62,12 @@ export const summarizeWeek = action({
 });
 ```
 
-- **`id` names who publishes the app, and is optional.** It is a reverse
-  domain: `so.epicenter.notes` for Epicenter's Notes,
-  `com.bradenwong.honeycrisp` for the author's. An app needs one only to be
-  published to a catalog or updated from one (ADR-0863); its short name is its
-  folder's name in `~/Epicenter`.
-- **`epicenter.json` runs everywhere; `epicenter.ts` runs on computers.** The
-  Epicenter app on a phone runs each collection's four actions with no code
-  (ADR-0863); an action in `epicenter.ts` runs where `epicenter` runs.
+- **An app's name is its folder's name in `~/Epicenter`,** never a field of
+  `epicenter.json`.
+- **`epicenter.ts` runs where its owner trusts it.** A collection's four
+  actions need no code, so they run wherever `epicenter` opens the folder.
+  `epicenter serve` runs the `epicenter.ts` of a repository its operator trusts
+  and of no other (ADR-0864).
 - **Every collection is declared in `epicenter.json`.** `epicenter.ts` holds
   actions and nothing else of the app's shape, so a program, a screen, or an
   agent reads every shape without loading code.
@@ -110,9 +107,6 @@ action that is not read-only reads as destructive unless it says
 `destructiveHint: false`. `epicenter --json` prints all four. `epicenter` trusts
 what an author writes and checks none of it.
 
-**An action may name a view** (`view: 'practice'` for `views/practice.html`),
-which hosts that render MCP Apps show with its result (ADR-0860).
-
 **`run` receives `{ collections, folder, secrets }`.** `collections.<name>`
 offers the same `list`, `get`, `set`, and `delete` every client gets, checked
 against the collection's schema. `folder` offers the same verbs for any file,
@@ -142,7 +136,7 @@ supplies both modules when it loads `epicenter.ts`, so an app needs a
 `package.json` and `node_modules` only for dependencies of its own.
 
 **`epicenter.json` on disk is the declaration.** `epicenter` reads the app's
-`id`, description, and collections from the file, and its name from its entry in
+description and collections from the file, and its name from its entry in
 `~/Epicenter`, never from the file; the generated types carry
 them to an editor and nowhere else.
 
