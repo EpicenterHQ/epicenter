@@ -10,6 +10,7 @@ import { addCommand, newCommand } from './add.ts';
 import { REPORT_FLAG, runChild } from './child.ts';
 import { CliError } from './errors.ts';
 import { discoverAll, isFolderPath, loadFolder, loadHomeApp } from './home.ts';
+import { serveHttp } from './http.ts';
 import {
 	checkInput,
 	flagOf,
@@ -27,6 +28,7 @@ import { serveStdio } from './mcp.ts';
 import {
 	answerInto,
 	fail,
+	noteRun,
 	presentAnswer,
 	writeJson,
 	writeOut,
@@ -72,20 +74,33 @@ const HANDLERS: { [K in Command]: Handler } = {
 	},
 	sync: syncCommand,
 	async serve(words, json) {
-		if (words.join(' ') !== '--stdio')
-			return fail(
-				usage(
-					'epicenter serve over the network is not built yet',
-					'epicenter serve --stdio',
-				),
-				json,
-			);
 		if (json)
 			return fail(
 				usage('MCP uses stdout for protocol; --json does not apply'),
 				json,
 			);
-		return serveStdio();
+		if (words.length === 1 && words[0] === '--stdio') return serveStdio();
+		let port = 4747;
+		let host = '127.0.0.1';
+		const seen = new Set<string>();
+		for (let i = 0; i < words.length; i += 2) {
+			const flag = words[i];
+			const value = words[i + 1];
+			if (
+				(flag !== '--port' && flag !== '--host') ||
+				value === undefined ||
+				seen.has(flag)
+			)
+				return fail(usage('Invalid serve options', COMMANDS.serve), json);
+			seen.add(flag);
+			if (flag === '--host') host = value;
+			else {
+				port = Number(value);
+				if (!Number.isInteger(port) || port < 0 || port > 65535)
+					return fail(usage('Port must be an integer from 0 to 65535'), json);
+			}
+		}
+		return serveHttp(host, port);
 	},
 };
 
@@ -211,6 +226,8 @@ export async function runCli(argv: string[]): Promise<number> {
 		const given = inputOf(action, matched.rest);
 		if ('error' in given)
 			return fail(CliError.Usage({ message: given.error, next }).error, json);
+		if (reportArg)
+			noteRun(located.realPath, given.input[action.positional?.[0] ?? '']);
 		return presentAnswer(await runAction(located, action, given.input), json);
 	} catch (error) {
 		return fail(CliError.Internal({ cause: error }).error, json);

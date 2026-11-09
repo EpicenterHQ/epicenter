@@ -1,6 +1,6 @@
 /**
- * `epicenter serve --stdio`: your apps' actions over MCP (ADR-0849, ADR-0853),
- * and `sync` (ADR-0851).
+ * Shared MCP tools for `epicenter serve` over HTTP and stdio (ADR-0849,
+ * ADR-0853), including `sync` (ADR-0851).
  *
  * The server never imports an app. `tools/list` runs `epicenter <app> --json`
  * for each home entry and offers the actions each lists; `tools/call` decodes
@@ -11,7 +11,7 @@
  * object `--json` prints: `structuredContent` on success, and with
  * `isError` on failure. The tool `sync` runs `epicenter sync [<app>]` the
  * same way; no app's tool can be named `sync`, since every app tool holds an
- * underscore. Stdout belongs to the protocol; diagnostics go to stderr.
+ * underscore. Diagnostics go to stderr.
  */
 
 import { isName } from '@epicenter/app';
@@ -23,7 +23,7 @@ import {
 	type Tool,
 } from '@modelcontextprotocol/sdk/types.js';
 import packageJson from '../package.json' with { type: 'json' };
-import { runChild } from './child.ts';
+import { runChild, runChildRecord } from './child.ts';
 import { homeEntries } from './home.ts';
 import { renderAnswer, writeErr } from './output.ts';
 import { type Answer, exitCodeOf } from './report.ts';
@@ -54,7 +54,7 @@ const SYNC_TOOL: Tool = {
  * app that fails to import, or prints while importing, loses only its own
  * tools; why is written to stderr.
  */
-async function listTools(): Promise<Tool[]> {
+export async function listTools(): Promise<Tool[]> {
 	const listed = await Promise.all(
 		(await homeEntries()).map(async ({ entry }) => {
 			const answer = await runChild([entry, '--json'], { stdin: 'ignore' });
@@ -72,7 +72,7 @@ async function listTools(): Promise<Tool[]> {
  * `structuredContent`, and `isError` exactly when the exit code is not 0.
  * A failure's text is what a person would read on stderr.
  */
-function toolResult(answer: Answer) {
+export function toolResult(answer: Answer) {
 	const structuredContent = answer as Record<string, unknown>;
 	if (exitCodeOf(answer) === 0)
 		return {
@@ -123,39 +123,57 @@ function syncWords(args: Record<string, unknown>): string[] | Answer {
 	return app === undefined ? [] : [app];
 }
 
-/** Serve every healthy app in the home until the client ends stdin. */
-export async function serveStdio(): Promise<number> {
+/** Run an app action and retain private metadata for HTTP commit naming. */
+export async function runAppTool(name: string, args: Record<string, unknown>) {
+	// `<app>_<word>_<word>`: app names and action words hold no underscores.
+	const [app = '', ...words] = name.split('_');
+	if (!isName(app) || words.length === 0 || !words.every(isName))
+		return {
+			answer: {
+				error: { name: 'Usage', message: `Unknown tool ${name}` },
+			} as Answer,
+		};
+	return (await runChildRecord(
+		[app, ...words, '--input', JSON.stringify(args), '--json'],
+		{ stdin: 'ignore' },
+	)) as { answer: Answer; firstPositional?: unknown; folder?: string };
+}
+
+/** Run a tool through the same child process for either MCP transport. */
+export async function callTool(name: string, args: Record<string, unknown>) {
+	if (name === 'sync') {
+		const words = syncWords(args);
+		if (!Array.isArray(words)) return toolResult(words);
+		return syncResult(
+			(await runChild(['sync', ...words, '--json'], {
+				stdin: 'ignore',
+			})) as SyncAnswer | Answer,
+		);
+	}
+	return toolResult((await runAppTool(name, args)).answer);
+}
+
+/** Register the shared tool handlers on a fresh MCP server. */
+export function createMcpServer(
+	list: () => Promise<Tool[]> = listTools,
+	call: typeof callTool = callTool,
+) {
 	const server = new Server(
 		{ name: 'epicenter', version: packageJson.version },
 		{ capabilities: { tools: {} } },
 	);
 	server.setRequestHandler(ListToolsRequestSchema, async () => ({
-		tools: await listTools(),
+		tools: await list(),
 	}));
-	server.setRequestHandler(CallToolRequestSchema, async (request) => {
-		if (request.params.name === 'sync') {
-			const words = syncWords(request.params.arguments ?? {});
-			if (!Array.isArray(words)) return toolResult(words);
-			return syncResult(
-				(await runChild(['sync', ...words, '--json'], {
-					stdin: 'ignore',
-				})) as SyncAnswer | Answer,
-			);
-		}
-		// `<app>_<word>_<word>`: no app name or action word holds an underscore, so this undoes the encoding.
-		const [app = '', ...words] = request.params.name.split('_');
-		const answer = await runChild(
-			[
-				app,
-				...words,
-				'--input',
-				JSON.stringify(request.params.arguments ?? {}),
-				'--json',
-			],
-			{ stdin: 'ignore' },
-		);
-		return toolResult(answer as Answer);
-	});
+	server.setRequestHandler(CallToolRequestSchema, (request) =>
+		call(request.params.name, request.params.arguments ?? {}),
+	);
+	return server;
+}
+
+/** Serve every healthy app in the home until the client ends stdin. */
+export async function serveStdio(): Promise<number> {
+	const server = createMcpServer();
 	const transport = new StdioServerTransport();
 	const { promise: closed, resolve: closeNow } = Promise.withResolvers<void>();
 	server.onclose = closeNow;

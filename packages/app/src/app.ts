@@ -119,7 +119,7 @@ export const COMMANDS = {
 	new: 'epicenter new <name>',
 	add: 'epicenter add <folder> [<name>] | add <git url> [<name>]',
 	sync: 'epicenter sync [<app>]',
-	serve: 'epicenter serve --stdio',
+	serve: 'epicenter serve [--port <n>] [--host <address>] | serve --stdio',
 } as const;
 
 export type Command = keyof typeof COMMANDS;
