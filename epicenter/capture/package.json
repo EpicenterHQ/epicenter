@@ -13,7 +13,9 @@
 		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"
 	},
 	"dependencies": {
-		"@epicenter/app": "workspace:*"
+		"@epicenter/app": "workspace:*",
+		"markdown-it": "^14.0.0",
+		"wellcrafted": "catalog:"
 	},
 	"devDependencies": {
 		"@epicenter/ui": "workspace:*",
@@ -24,6 +26,7 @@
 		"@sveltejs/vite-plugin-svelte": "catalog:",
 		"@tailwindcss/vite": "catalog:",
 		"@types/bun": "catalog:",
+		"@types/markdown-it": "^14.0.0",
 		"mode-watcher": "catalog:",
 		"svelte": "catalog:",
 		"svelte-check": "catalog:",
