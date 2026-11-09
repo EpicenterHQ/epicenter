@@ -105,61 +105,58 @@ export async function runAction(
 			message: `Unknown action ${located.name} ${key}`,
 			next: `epicenter ${located.name}`,
 		});
+	let report: RunReport;
 	try {
-		return Ok(
-			await holdingFileLock(
-				await gitPath(folder, 'epicenter.lock'),
-				{ waitMs: 86_400_000, held: `${located.name} is busy` },
-				async (): Promise<RunReport> => {
-					const log = createWriteLog(folder);
-					const outcome = await withStdoutKept(
-						async (): Promise<RunReport['action']> => {
-							try {
-								const returned = await action.run(input, {
-									folder: folderOnDisk(folder, log),
-									secrets: keychain(keychainService(located.name)),
-								});
-								return { returned: returned ?? null };
-							} catch (error) {
-								return { threw: threwOf(error) };
-							}
-						},
-					);
-					const failure =
-						'threw' in outcome
-							? outcome.threw.message
-							: log.refused[0]?.message;
-					const subject = `${located.name} ${key}${failure === undefined ? '' : failureLabel(failure)}`;
-					const body = `${JSON.stringify(recorded(action, input))}${'threw' in outcome ? `\n\n${outcome.threw.message}` : ''}`;
-					const written = log.written();
-					const refused = [...log.refused];
-					let made: Awaited<ReturnType<typeof commitWrites>>;
-					try {
-						made = await commitWrites(folder, { written, subject, body });
-					} catch (error) {
-						return {
-							action: outcome,
-							refused,
-							commit: { failed: extractErrorMessage(error) },
-							paths: written.map(([path]) => ({
-								path,
-								state: 'not-committed',
-							})),
-							push: null,
-						};
-					}
+		report = await holdingFileLock(
+			await gitPath(folder, 'epicenter.lock'),
+			{ waitMs: 86_400_000, held: `${located.name} is busy` },
+			async (): Promise<RunReport> => {
+				const log = createWriteLog(folder);
+				const outcome = await withStdoutKept(
+					async (): Promise<RunReport['action']> => {
+						try {
+							const returned = await action.run(input, {
+								folder: folderOnDisk(folder, log),
+								secrets: keychain(keychainService(located.name)),
+							});
+							return { returned: returned ?? null };
+						} catch (error) {
+							return { threw: threwOf(error) };
+						}
+					},
+				);
+				const failure =
+					'threw' in outcome ? outcome.threw.message : log.refused[0]?.message;
+				const subject = `${located.name} ${key}${failure === undefined ? '' : failureLabel(failure)}`;
+				const body = `${JSON.stringify(recorded(action, input))}${'threw' in outcome ? `\n\n${outcome.threw.message}` : ''}`;
+				const written = log.written();
+				const refused = [...log.refused];
+				let made: Awaited<ReturnType<typeof commitWrites>>;
+				try {
+					made = await commitWrites(folder, { written, subject, body });
+				} catch (error) {
 					return {
 						action: outcome,
 						refused,
-						commit: made.commit,
+						commit: { failed: extractErrorMessage(error) },
 						paths: written.map(([path]) => ({
 							path,
-							state: made.states.get(path) ?? 'not-committed',
+							state: 'not-committed',
 						})),
-						push: made.commit ? await pushToOrigin(folder) : null,
+						push: null,
 					};
-				},
-			),
+				}
+				return {
+					action: outcome,
+					refused,
+					commit: made.commit,
+					paths: written.map(([path]) => ({
+						path,
+						state: made.states.get(path) ?? 'not-committed',
+					})),
+					push: null,
+				};
+			},
 		);
 	} catch (error) {
 		// Only a lock never taken means the action did not run; anything else is a bug and propagates.
@@ -167,4 +164,7 @@ export async function runAction(
 			return CliError.LockFailed({ cause: error });
 		throw error;
 	}
+	// After the lock, so a slow push never holds up the app's next run.
+	const pushed = report.commit && 'sha' in report.commit;
+	return Ok({ ...report, push: pushed ? await pushToOrigin(folder) : null });
 }

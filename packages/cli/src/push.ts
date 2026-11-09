@@ -1,14 +1,16 @@
 /**
  * `origin` is an app's one remote, its meeting point and its backup
  * (ADR-0851). `epicenter` never pulls and never merges: after each commit it
- * makes, it pushes fast-forward only, and only when the branch tracks a branch
- * on `origin`. When the push cannot fast-forward, the commit stays local and
+ * makes, it pushes the branch fast-forward to the branch of the same name on
+ * `origin`, and only when that is the branch it tracks. A worktree branch made
+ * from `origin/main` tracks `origin/main` but is not `main`, so its commits
+ * stay local. When the push cannot fast-forward, the commit stays local and
  * leaves with a later push; Git's unpushed commits are the only queue.
  */
 import { git } from './git.ts';
 import type { Push } from './report.ts';
 
-/** The branch HEAD is on and the branch it tracks on `origin`, or `undefined` when it tracks none there. */
+/** The branch HEAD is on, when it tracks the branch of its own name on `origin`; otherwise `undefined`. */
 async function trackedOnOrigin(folder: string) {
 	const branch = await git(folder, ['symbolic-ref', '-q', '--short', 'HEAD']);
 	if (branch.code !== 0) return undefined;
@@ -19,21 +21,20 @@ async function trackedOnOrigin(folder: string) {
 		`branch.${name}.remote`,
 	]);
 	const merge = await git(folder, ['config', '--get', `branch.${name}.merge`]);
-	if (remote.stdout.toString().trim() !== 'origin' || merge.code !== 0)
+	if (
+		remote.stdout.toString().trim() !== 'origin' ||
+		merge.stdout.toString().trim() !== `refs/heads/${name}`
+	)
 		return undefined;
-	return { branch: name, merge: merge.stdout.toString().trim() };
+	return name;
 }
 
-/** Push the commit just made, fast-forward only; `null` when the branch tracks nothing on `origin`. */
+/** Push the commit just made, fast-forward only; `null` when the branch does not track its own name on `origin`. */
 export async function pushToOrigin(folder: string): Promise<Push | null> {
-	const tracked = await trackedOnOrigin(folder);
-	if (!tracked) return null;
-	const push = await git(folder, [
-		'push',
-		'-q',
-		'origin',
-		`HEAD:${tracked.merge}`,
-	]);
+	const branch = await trackedOnOrigin(folder);
+	if (!branch) return null;
+	const ref = `refs/heads/${branch}`;
+	const push = await git(folder, ['push', '-q', 'origin', `${ref}:${ref}`]);
 	const counted = async () =>
 		(await originOf(folder)) ?? { ahead: 0, behind: 0 };
 	if (push.code === 0) return { pushed: true, ...(await counted()) };
@@ -56,7 +57,7 @@ export async function pushToOrigin(folder: string): Promise<Push | null> {
 	};
 }
 
-/** How far this copy is ahead of and behind what it knows of `origin`, or `undefined` when it tracks nothing there. */
+/** How far this copy is ahead of and behind what it knows of `origin`, or `undefined` when it does not track its own name there. */
 export async function originOf(folder: string) {
 	if (!(await trackedOnOrigin(folder))) return undefined;
 	const counted = await git(folder, [
