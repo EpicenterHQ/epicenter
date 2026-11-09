@@ -46,8 +46,8 @@ which is mostly the earlier product described at the end.
   and commits it; when the laptop is back online, Whispering syncs, and your
   Epicenter's copy has it at its next sync.
 - **Adding to someone else's folder.** You ask an agent for a weekly summary of
-  your voice notes. It adds an `epicenter.ts` to Whispering's folder with a
-  `summaries` collection and a `summarize week` action. Whispering keeps writing
+  your voice notes. It adds a `summaries` collection to Whispering's
+  `epicenter.json` and an `epicenter.ts` with a `summarizeWeek` action. Whispering keeps writing
   its own `epicenter.json` and never notices.
 
 ## The pieces
@@ -72,8 +72,9 @@ Claude Desktop, Whispering, the Epicenter app.
 vocab/
   epicenter.json          name, description, collections
   epicenter.ts            actions
-  epicenter.d.json.ts     types for epicenter.json, written by epicenter
+  tsconfig.json           one line, extending .cache/epicenter/tsconfig.json
   words/serendipity.md    data: front matter and a body
+  .cache/epicenter/       types epicenter generates from epicenter.json
   .cache/                 rebuildable files, ignored by Git
   .gitignore, .gitattributes
 ```
@@ -93,18 +94,15 @@ vocab/
 ```
 
 ```ts
-import declaration from './epicenter.json';
-import { defineApp, field } from '@epicenter/app';
+import { action, field } from 'epicenter:app';
 
-export default defineApp(declaration, {
-  define: {
-    description: "Look up a word's definition",
-    input: { stem: field.text() },
-    annotations: { readOnlyHint: true, openWorldHint: true },
-    run: async ({ stem }, { collections }) => {
-      const word = await collections.words.get({ stem });
-      // ask a dictionary, return what it says
-    },
+export const define = action({
+  description: "Look up a word's definition",
+  input: { stem: field.text() },
+  annotations: { readOnlyHint: true, openWorldHint: true },
+  run: async ({ stem }, { collections }) => {
+    const word = await collections.words.get({ stem });
+    // ask a dictionary, return what it says
   },
 });
 ```
@@ -115,16 +113,15 @@ collection action's name replaces it, and `null` removes one. On the command
 line the first required field is read by position: `epicenter vocab define
 serendipity`.
 
-```txt
-```
-
 A folder with only `epicenter.json` is a whole app that cannot run code. Every
 collection is declared in `epicenter.json`; `epicenter.ts` holds only actions.
-`run` gets `folder` (the app's files, and `folder.commit`), `secrets` (its
-sign-ins), and `collections` (the same four actions every client gets, checked
-against each collection's schema). Each collection is typed from
-`epicenter.d.json.ts`, which `epicenter` regenerates when `epicenter.json`
-changes.
+Every export of `epicenter.ts` is an action or a group of them, such as
+`export const words = { archive: action({…}), delete: null }`. `run` gets
+`folder` (the app's files, and `folder.commit`), `secrets` (its sign-ins), and
+`collections` (the same four actions every client gets, checked against each
+collection's schema). `epicenter:app` is the app's own module, which
+`epicenter` generates from `epicenter.json` into `.cache/epicenter/`, so
+`collections` and every field are typed in an editor with no `package.json`.
 
 ## How a write happens
 

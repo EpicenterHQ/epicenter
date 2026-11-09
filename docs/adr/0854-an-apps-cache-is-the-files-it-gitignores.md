@@ -4,7 +4,7 @@
 - **Date:** 2026-11-08
 - **Amends:** [ADR-0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md) at the context, which becomes `folder` and `secrets`: `cache`, its directory under `~/Library/Caches`, `clear()`, and `sqlite(name)` go. [ADR-0844](0844-one-runner-runs-anywhere-and-every-surface-is-a-view-over-it.md) at its cache root per operating system.
 - **Relates:** [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (ignored paths are written and never committed), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (the template's `.gitignore`), [ADR-0858](0858-where-a-file-lives-decides-whether-it-travels-survives-or-dies-with-its-program.md) (`.cache/` beside `.local` paths).
-- **Built:** 2026-11-09: the context is `{ folder, secrets }`; the `cache` object, its directory under `~/Library/Caches`, `EPICENTER_CACHE_HOME`, `clear()`, and `sqlite(name)` are deleted.
+- **Built:** 2026-11-09: the context is `{ folder, secrets }`; the `cache` object, its directory under `~/Library/Caches`, `EPICENTER_CACHE_HOME`, `clear()`, and `sqlite(name)` are deleted. Unbuilt: `.cache/epicenter/` (ADR-0857), and `collections` in the context.
 
 ## Context
 
@@ -23,7 +23,11 @@ holds only what can be rebuilt and may be deleted at any time; what is kept on
 one computer but cannot be rebuilt is a `.local` path (ADR-0858). An action reads
 and writes them through `folder` like any file; Git ignores them, so no commit
 includes them. A database is a file there, opened through `folder.path`.
-The context is `{ folder, secrets }`.
+The context is `{ collections, folder, secrets }` (ADR-0857).
+
+**`.cache/epicenter/` is `epicenter`'s, and the rest of `.cache/` is the
+app's.** `epicenter` writes the app's generated types and `tsconfig.json` there
+(ADR-0857); an app's own rebuildable files sit beside it (`.cache/search.db`).
 
 ## Consequences
 

@@ -4,7 +4,7 @@
 - **Date:** 2026-11-08
 - **Amends:** [ADR-0845](0845-an-app-declares-collections-each-a-path-and-fields-which-the-hub-views.md) at how a collection is used: through actions it gives the app, not a separate data view; a collection's own `save` refuses input that does not fit, while hand edits are still never refused. [ADR-0844](0844-one-runner-runs-anywhere-and-every-surface-is-a-view-over-it.md) at what the hub is: a program asking `epicenter serve` over MCP. [ADR-0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md) at Epicenter Cloud's file API, which is not built: a program without the folder asks for actions instead.
 - **Relates:** [ADR-0849](0849-your-epicenter-is-one-always-reachable-computer-that-runs-named-actions.md) (`serve`), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (who commits), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (programs that have the folder or ask), [ADR-0857](0857-an-app-declares-itself-in-epicenter-json-and-its-code-in-epicenter-ts.md) (fields and annotations), [ADR-0858](0858-where-a-file-lives-decides-whether-it-travels-survives-or-dies-with-its-program.md) (where Whispering's files and state live).
-- **Unbuilt:** all of it except MCP over stdio: the four collection actions, `collections` in `run`, `serve` over HTTP, and the typed client. They come with the first app that needs them (Vocab). Amended 2026-11-09: the verbs are `list`, `get`, `set`, `delete`; written actions lay over the collection actions; `set` and `delete` are destructive.
+- **Unbuilt:** all of it except MCP over stdio: the four collection actions, `collections` in `run`, `serve` over HTTP, and the typed client. They come with the first app that needs them (Vocab). Amended 2026-11-09: the verbs are `list`, `get`, `set`, `delete`; written actions lay over the collection actions; `set` and `delete` are destructive; the client is typed by the `App` that `epicenter:app` declares (ADR-0857).
 
 ## Context
 
@@ -60,29 +60,36 @@ terminal     epicenter vocab words archive
 MCP          vocab_words_archive
 client       epicenter.vocab.words.archive(…)
 ```
- Inside `run`, the same four
-are `collections.<name>.list`, `.get`, `.set`, `.delete`, bound to the run's
-folder.
+
+A name of more than one word is camelCase in code and kebab-case elsewhere
+(`summarizeWeek`, `summarize-week`; ADR-0857). Inside `run`, the same four are
+`collections.<name>.list`, `.get`, `.set`, `.delete`, bound to the run's folder.
 
 **`epicenter serve` speaks MCP and nothing else,** over HTTP at its address
 (MCP's Streamable HTTP transport), or over stdio with `epicenter serve --stdio`.
-Each action is one MCP tool (`vocab_words_save`) whose `inputSchema` comes from
+Each action is one MCP tool (`vocab_words_set`) whose `inputSchema` comes from
 its fields and whose `annotations` are its own. There is no file API and no data
 API beside the actions. A page asks through a typed client in
-`@epicenter/app/client`, built on `import type` of the app's `epicenter.ts`,
-with the transport passed in: MCP over HTTP to `serve`, MCP over stdio, or the
-app in memory for tests.
+`@epicenter/app/client`, typed by `App`, the app's whole tree of actions that
+`epicenter:app` declares (its collections' groups with `epicenter.ts`'s exports
+laid over them), with the transport passed in: MCP over HTTP to `serve`, MCP
+over stdio (`ssh studio epicenter serve --stdio`), or the app in memory for
+tests.
 
 ```ts
-import type Vocab from '~/Epicenter/vocab/epicenter.ts';
-const epicenter = createClient<{ vocab: typeof Vocab }>(transport);
+import type { App } from 'epicenter:app';
+import { createClient } from '@epicenter/app/client';
+
+const epicenter = createClient<{ vocab: App }>(transport);
 await epicenter.vocab.words.get({ stem: '你好' });     // the tool vocab_words_get
+await epicenter.vocab.review({ stem: '你好', grade: 'good' });
 ```
 
 The app's name is written once, as the key of the type, and checked against the
 name in its `epicenter.json`; the client turns the property path into the tool
 name, because `import type` leaves no name at run time. One client can carry
-several apps. One name has three spellings: `vocab words get` in a terminal,
+several apps. A page inside the app's folder has `epicenter:app`; how a page
+elsewhere names an app's type is left to the first such page. One name has three spellings: `vocab words get` in a terminal,
 `vocab_words_get` over MCP, `epicenter.vocab.words.get` in a client. The Epicenter app
 shows `list` and `get` as tables, and `set` and an app's actions as forms drawn
 from their input schemas.
@@ -139,5 +146,8 @@ shortcut, and pasting need the device and are never actions.
   version.** True only while every write was a commit.
 - **A written action named like a collection's is a problem.** Leaves the
   generic action callable beside the rule the written one enforces.
+- **A client typed by `typeof` the module `epicenter.ts` (this record until
+  2026-11-09).** The module's exports are only the written actions; the
+  collections' four would be missing.
 - **Collection actions spread by hand (`...collection('words')`).** The same
   rule typed in every app, and a second way to pass the declaration.

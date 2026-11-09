@@ -55,13 +55,15 @@ On your Epicenter (ADR-0849):
 ~/Epicenter/                    the only list of apps: folders, or links to them
   mail/                         its own Git repo, with one remote, origin
     epicenter.json              name, description, collections
-    epicenter.ts                defineApp(declaration, { actions })
-    package.json, tsconfig.json its own dependencies, and types in an editor
+    epicenter.ts                exported actions and groups, from epicenter:app
+    tsconfig.json               one line, extending .cache/epicenter/tsconfig.json
+    package.json                only for dependencies of its own
     .gitignore                  node_modules/, .cache/, *.local, *.local.* (ADR-0858)
     .gitattributes              binaries through LFS (ADR-0856)
     lib.ts                      shared code: functions that take a `folder`
     attachments/<id>/           files saved from a message, through LFS
     batches/*.local.md          ids to act on, reviewed, kept on this computer
+    .cache/epicenter/           generated types for epicenter:app
     .cache/                     rebuildable: mailbox copies
   reading/
     epicenter.json
@@ -74,30 +76,32 @@ epicenter serve                 the only way in: MCP, on the tailnet
 ```
 
 The contract is ADR-0841 as ADR-0853, ADR-0854, and ADR-0857 amend it.
-`epicenter.json` is `{ $schema, name, description, collections }`; `epicenter.ts`
-is `defineApp(declaration, { collections?, actions })`, with `declaration`
-imported from `./epicenter.json`. A collection is `{ path, fields }`, where
-`fields` is JSON Schema. An action is `{ description, input, positional?,
-annotations?, run(input, { folder, secrets, collections }) }`, keyed by one or
-more words (`'calendar show'`); `input` is a map of `field` helpers that becomes
-its MCP `inputSchema`, and `annotations` are MCP's. `folder` offers `read`,
-`write`, `list`, `delete`, bytes forms, and `path` on a computer;
-`collections.<name>` offers `list`, `show`, `save`, and `delete`.
+`epicenter.json` is `{ $schema, name, description, collections }`. Every export
+of `epicenter.ts` is an action (`export const review = action({…})`) or a group
+of them (`export const calendar = { show: action({…}) }`), imported from
+`epicenter:app`, the app's own module generated into `.cache/epicenter/`. A
+collection is `{ path, fields }`, where `fields` is JSON Schema, and gives a
+group of four actions that `epicenter.ts`'s exports lay over. An action is
+`{ description, input, annotations?, run(input, { collections, folder, secrets })
+}`; `input` is a map of `field` helpers that becomes its MCP `inputSchema`, its
+first required field is read by position, and `annotations` are MCP's. `folder`
+offers `list`, `get`, `getBytes`, `set` (text or bytes), `delete`, `commit`, and
+`path`; `collections.<name>` offers `list`, `get`, `set`, and `delete`.
 
 ```
 epicenter [--json]                              apps, actions, input schemas, problems
 epicenter <app> [--json]                        one app: collections, actions, folder, Keychain service
-epicenter <app> <action words> [<positional>…] [--flags] [--json]
-epicenter <path> <action words> …               a folder by path, such as a worktree
-epicenter setup | serve [--stdio] | new <name> | add <url or folder> | types | help
+epicenter <app> [<group>] <action> [<first required>] [--flags] [--json]
+epicenter <path> [<group>] <action> …           a folder by path, such as a worktree
+epicenter new <name> | add <url or folder> | sync [<app>] | serve [--stdio]
 ```
 
 ## Packages
 
 | Package | Holds | Precedent |
 | --- | --- | --- |
-| `@epicenter/app` | the declaration's TypeBox schema (the source of `epicenter.schema.json`), `defineApp`, `field`, the types, `createMemoryContext`, and the typed MCP client at `@epicenter/app/client`. No Node or Bun APIs, so a page can import it | Convex's `convex/server` and `convex/browser`, Trigger.dev's `task({ run })`, Astro's content collections (typed from declared schemas) |
-| `@epicenter/cli` | the `epicenter` binary: discovery, commands, `serve` (MCP over HTTP or stdio), `setup`, `new`, `add`, `types` | `drizzle-kit`, `vite` |
+| `@epicenter/app` | the declaration's TypeBox schema (the source of `epicenter.schema.json`), `field`, the types, `createMemoryContext`, and the typed MCP client at `@epicenter/app/client`. No Node or Bun APIs, so a page can import it | Convex's `convex/server` and `convex/browser`, Trigger.dev's `task({ run })`, Astro's content collections (typed from declared schemas) |
+| `@epicenter/cli` | the `epicenter` binary: discovery, commands, `serve` (MCP over HTTP or stdio), `new`, `add`, `sync`, and the generator and Bun plugin for `epicenter:app` | `drizzle-kit`, `vite` |
 
 The unscoped `epicenter` name on npm is not ours; everything is under the
 `@epicenter` scope. An app is shared by its Git URL, never as a package. What
@@ -261,7 +265,9 @@ build Vocab with collections only in `epicenter.json` and types from
 `epicenter.d.json.ts` (ADR-0857, K1, K2); then Mail, as ADR-0859 reshapes it.
 Done the same day: the machinery is deleted, `folder.commit` and `sync` are
 built. Next: the API of ADR-0853 and ADR-0857 as amended 2026-11-09, built with
-Vocab.
+Vocab: `epicenter:app` generated into `.cache/epicenter/`, exports as actions and
+groups, collection actions, `collections` in `run`, the folder's renamed verbs,
+the first required field as the positional, `format` asserted, and the client.
 
 **0. Tag and prune.** Done. Tagged `folder-sync-product`; `apps/epicenter`
 deleted; the frozen apps stay until each is rebuilt (ADR-0843).
@@ -413,12 +419,12 @@ the scripts' writes to tracked files moved onto `folder` and their ignored
 mirrors (`.calendar/`, `.todoist/`, `.photos/`) left as they are. Done when
 `epicenter vault calendar show …` runs from the laptop.
 
-**5. Vocab and collections** (ADR-0853). K1: a collection's `list`, `show`,
-`save`, and `delete` through the CLI and MCP, `save` refusing input that does not
-fit. K2: the same as handles in `run`, typed from the `field` helpers, with how
-`epicenter.json`'s collections are typed decided here (F10 deleted the earlier
-`epicenter.d.json.ts`). Then the typed client and the Epicenter app, which shows
-collections as tables and `save` and actions as forms; Vocab rebuilt on them. The
+**5. Vocab and collections** (ADR-0853). K1: a collection's `list`, `get`,
+`set`, and `delete` through the CLI and MCP, `set` refusing input that does not
+fit. K2: the same as `collections` in `run`, typed through `epicenter:app`
+(ADR-0857 as amended 2026-11-09; F10 deleted the earlier `epicenter.d.json.ts`).
+Then the typed client and the Epicenter app, which shows collections as tables
+and `set` and actions as forms; Vocab rebuilt on them. The
 frozen Vocab leaves when the rebuilt one runs.
 
 **6. Prune the rest.** Collection paths with two placeholders come here, with
