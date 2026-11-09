@@ -69,8 +69,8 @@ export default defineApp(declaration, {
   owns when its format changes, keeping the others; a person or agent adds a
   collection by editing the file. `epicenter` writes it only in `epicenter new`.
 - **`defineApp(declaration, actions)` takes the actions themselves.** They lay
-  over the collections' actions: the same name replaces, `null` removes
-  (ADR-0853).
+  over the collections' action groups: the same path replaces, a new one joins
+  the group, `null` removes (ADR-0853).
 - **`epicenter --json` prints the declaration**, with each action as an MCP
   tool definition.
 
@@ -93,7 +93,8 @@ action that is not read-only reads as destructive unless it says
 **`run` receives `{ collections, folder, secrets }`.** `collections.<name>`
 offers the same `list`, `get`, `set`, and `delete` every client gets, checked
 against the collection's schema. `folder` offers the same verbs for any file,
-with no schema (`get` and `set` for text, `getBytes` and `setBytes` for bytes),
+with no schema: `set(path, data)` takes a string or a `Uint8Array`, `get`
+returns text and `getBytes` returns bytes,
 and `commit` (ADR-0850). Collections stay under their own name so that a
 collection called `folder` or `secrets` collides with nothing.
 

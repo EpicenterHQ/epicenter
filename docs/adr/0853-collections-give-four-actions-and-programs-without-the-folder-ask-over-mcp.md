@@ -45,10 +45,22 @@ vocab words delete petrichor
   gone unless someone committed it.
 
 **An app's tools are its collections' actions, then `epicenter.ts`'s actions
-on top.** A written action with the same name replaces the collection's (a
-`words set` that checks a rule across files); an entry set to `null` removes one
-(`'words delete': null` for a collection nobody deletes from). An app with no
-`epicenter.ts` has exactly its collections' actions. Inside `run`, the same four
+on top.** Actions nest: an object with `run` is an action, and any other
+object is a group of them. Each collection is a group holding its four, and
+`epicenter.ts`'s object is laid over the groups one level deep. A written action
+at the same path replaces the collection's (a `words.set` that checks a rule
+across files), a new one joins the group (`words.archive`), and `null` removes
+one (`words: { delete: null }` for a collection nobody deletes from). An app with
+no `epicenter.ts` has exactly its collections' actions. The path is one name
+everywhere:
+
+```txt
+definition   words.archive
+terminal     epicenter vocab words archive
+MCP          vocab_words_archive
+client       epicenter.vocab.words.archive(…)
+```
+ Inside `run`, the same four
 are `collections.<name>.list`, `.get`, `.set`, `.delete`, bound to the run's
 folder.
 
