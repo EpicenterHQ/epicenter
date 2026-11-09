@@ -17,15 +17,28 @@ test('recent orders by the instant capturedAt names, not by its text, and cuts a
 	expect(recent).toEqual({
 		total: 3,
 		captures: [
-			{ id: 'b', capturedAt: '2026-11-10T02:00:00Z', text: 'Later', thoughts: 0 },
-			{ id: 'a', capturedAt: '2026-11-10T09:00:00+08:00', text: 'Early', thoughts: 0 },
+			{
+				id: 'b',
+				capturedAt: '2026-11-10T02:00:00Z',
+				text: 'Later',
+				thoughts: 0,
+			},
+			{
+				id: 'a',
+				capturedAt: '2026-11-10T09:00:00+08:00',
+				text: 'Early',
+				thoughts: 0,
+			},
 		],
 	});
 });
 
 test('recent lists a capture with no date last, and matching searches the whole file', async () => {
 	const context = createMemoryContext({
-		'captures/a.md': note('2026-11-10T02:00:00Z', 'Dune\n\n## Thoughts\n\n- spice\n'),
+		'captures/a.md': note(
+			'2026-11-10T02:00:00Z',
+			'Dune\n\n## Thoughts\n\n- spice\n',
+		),
 		'captures/b.md': 'Written by hand, no front matter. Spice too.\n',
 		'captures/c.md': note('2026-11-10T03:00:00Z', 'Arrakis\n'),
 	});
@@ -33,22 +46,37 @@ test('recent lists a capture with no date last, and matching searches the whole 
 	expect(all.captures.map((row) => row.id)).toEqual(['c', 'a', 'b']);
 	expect(all.captures[2]?.capturedAt).toBeUndefined();
 
-	const spice = await capture.actions.recent.run({ matching: ' SPICE ' }, context);
+	const spice = await capture.actions.recent.run(
+		{ matching: ' SPICE ' },
+		context,
+	);
 	expect(spice.total).toBe(2);
 	expect(spice.captures.map((row) => row.id)).toEqual(['a', 'b']);
 });
 
 test('add then recent shows the capture with its text', async () => {
 	const context = createMemoryContext({});
-	const { id } = await capture.actions.add.run({ text: 'Fear is the mind-killer.' }, context);
+	const { id } = await capture.actions.add.run(
+		{ text: 'Fear is the mind-killer.' },
+		context,
+	);
 	const recent = await capture.actions.recent.run({}, context);
 	expect(recent.captures).toEqual([
-		{ id, capturedAt: expect.any(String), text: 'Fear is the mind-killer.', thoughts: 0 },
+		{
+			id,
+			capturedAt: expect.any(String),
+			text: 'Fear is the mind-killer.',
+			thoughts: 0,
+		},
 	]);
 });
 
 test('preview is the text before ## Thoughts and counts the bullets under it', () => {
-	expect(preview('\nText\n\n## Thoughts\n\n- one\n  more\n- two\n\n## Later\n\n- not a thought\n')).toEqual({
+	expect(
+		preview(
+			'\nText\n\n## Thoughts\n\n- one\n  more\n- two\n\n## Later\n\n- not a thought\n',
+		),
+	).toEqual({
 		text: 'Text',
 		thoughts: 2,
 	});
