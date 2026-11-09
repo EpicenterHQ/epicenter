@@ -45,13 +45,13 @@ export function flagOf(key: string): string {
 export function fieldKind(field: TSchema): string {
 	const schema = field as {
 		type?: string;
-		pattern?: string;
+		format?: string;
 		anyOf?: { const?: unknown }[];
 	};
 	if (schema.type === 'boolean') return 'switch';
 	if (schema.type === 'array') return 'list';
 	if (schema.type === 'number' || schema.type === 'integer') return 'number';
-	if (schema.pattern === '^\\d{4}-\\d{2}-\\d{2}$') return 'date';
+	if (schema.format === 'date') return 'date';
 	const choices = schema.anyOf;
 	if (choices?.every((choice) => typeof choice.const === 'string'))
 		return choices.map((choice) => choice.const).join('|');

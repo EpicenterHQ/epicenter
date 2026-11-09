@@ -68,13 +68,10 @@ export const field = {
 	number: <const O extends MaybeOptional>(options?: O) =>
 		maybeOptional(Type.Number(schemaOptions(options)), options),
 
-	/** A day, written `2026-11-08`. */
+	/** A day, written `2026-11-08`: JSON Schema's `format: 'date'`, which TypeBox checks, so `2026-13-45` is refused. */
 	date: <const O extends MaybeOptional>(options?: O) =>
 		maybeOptional(
-			Type.String({
-				...schemaOptions(options),
-				pattern: '^\\d{4}-\\d{2}-\\d{2}$',
-			}),
+			Type.String({ ...schemaOptions(options), format: 'date' }),
 			options,
 		),
 
