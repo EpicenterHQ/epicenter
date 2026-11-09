@@ -245,14 +245,15 @@ real `~/Epicenter`, the vault, or the Keychain.
 | D1–D7 | the declaration | `acceptance.declaration.test.ts` | pass |
 | C1–C9 | the commit rule, with the race in `scripts/race.ts` | `acceptance.commit.test.ts` | pass; 1,000 runs, 0 lost, 0 misfiled |
 | W1–W6 | the folder, offline | `acceptance.folder.test.ts` | pass |
-| F1–F14 | the final review's repairs | to write | next, before the merge into `main` |
+| F1–F14 | the final review's repairs | `acceptance.repairs.test.ts` | pass; 1,000 runs, 0 lost, 0 misfiled, index whole |
 | M1–M6 | Mail | to write | after the merge, with the author present |
 | S1–S2 | `serve` over HTTP, forwarding | to write | after Mail |
 | K1–K2 | collections and their handles | to write | with Vocab |
 
-Done (2026-11-09): waves 0 and 1, and 2a, 2b, and wave 3's offline parts. Next
-is 2c, the final review's repairs; then the branch merges into `main`; then 2d,
-Mail.
+Done (2026-11-09): waves 0 and 1, and 2a, 2b, 2c, and wave 3's offline parts.
+Next, after the branch merges into `main`: a prototype of each action working in
+its own checkout, on the next app (Vocab or Zhongwen, not yet chosen); then
+Mail, as ADR-0859 reshapes it.
 
 **0. Tag and prune.** Done. Tagged `folder-sync-product`; `apps/epicenter`
 deleted; the frozen apps stay until each is rebuilt (ADR-0843).
