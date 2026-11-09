@@ -1,5 +1,12 @@
 import { afterEach, expect, test } from 'bun:test';
-import { readFile, rm, writeFile } from 'node:fs/promises';
+import {
+	closeSync,
+	openSync,
+	readFileSync,
+	renameSync,
+	writeSync,
+} from 'node:fs';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { git } from './git.ts';
 import { fixture, gitIn } from './runner.test-support.ts';
@@ -207,3 +214,65 @@ test('an action during an unfinished merge is refused before it runs', async () 
 	);
 	expect(await Bun.file(join(f.folder, 'b.md')).exists()).toBe(false);
 });
+
+test("a commit never lets go of Git's index lock while it holds it, however large the index", async () => {
+	const f = await setup(
+		`one:{description:'One',input:{id:field.text()},positional:['id'],run:async({id},{folder})=>{await folder.write('runs/'+id+'.txt',id)}}`,
+	);
+	// An index of about a megabyte, large enough that copying a file onto the lock replaced it.
+	await mkdir(join(f.folder, 'many'));
+	await Promise.all(
+		Array.from({ length: 6000 }, (_, i) =>
+			writeFile(join(f.folder, 'many', `${i}.txt`), `${i}\n`),
+		),
+	);
+	await gitIn(f.folder, 'add', 'many');
+	await gitIn(
+		f.folder,
+		'-c',
+		'user.name=t',
+		'-c',
+		'user.email=t@t',
+		'commit',
+		'-qm',
+		'many',
+	);
+	const tracked = Number(
+		(await gitIn(f.folder, 'ls-files')).split('\n').length,
+	);
+	// An agent whose `git add` takes the lock the instant it is free, writes the whole index, and renames it into place.
+	const index = join(f.folder, '.git', 'index');
+	let stolen = 0;
+	let stop = false;
+	const agent = (async () => {
+		while (!stop) {
+			for (let i = 0; i < 200; i++) {
+				// Lock first, then read, as Git does.
+				let fd: number;
+				try {
+					fd = openSync(`${index}.lock`, 'wx');
+				} catch {
+					continue;
+				}
+				writeSync(fd, readFileSync(index));
+				closeSync(fd);
+				renameSync(`${index}.lock`, index);
+				stolen++;
+			}
+			await new Promise((resolve) => setImmediate(resolve));
+		}
+	})();
+	try {
+		for (let run = 0; run < 15; run++) {
+			const result = await f.run('reading', 'one', String(run), '--json');
+			expect(result.code).toBe(0);
+		}
+	} finally {
+		stop = true;
+		await agent;
+	}
+	expect(stolen).toBeGreaterThan(0);
+	expect((await gitIn(f.folder, 'ls-files')).split('\n').length).toBe(
+		tracked + 15,
+	);
+}, 60_000);

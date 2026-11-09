@@ -22,13 +22,14 @@
  */
 import { randomUUID } from 'node:crypto';
 import {
-	copyFile,
 	lstat,
 	mkdir,
 	open,
+	readFile,
 	rename,
 	rm,
 	stat,
+	writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -384,8 +385,11 @@ export async function commitWrites(
 			]);
 			if (moved.code !== 0) continue;
 			// The index, under the same lock, now says what HEAD says for these paths, so `git status` shows only later edits.
+			// Written into the lock file, never copied onto it: Bun's `copyFile`
+			// replaces a large destination, which frees the lock for an instant
+			// in which an agent's `git add` can take it.
 			try {
-				await copyFile(indexPath, lock);
+				await writeFile(lock, await readFile(indexPath));
 			} catch (error) {
 				if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
 				await withIndex(folder, lock, ['read-tree', sha]);
