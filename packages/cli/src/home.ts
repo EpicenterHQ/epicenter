@@ -2,7 +2,8 @@
  * The app home and folders run by path (ADR-0841, ADR-0857). A folder is an
  * app when it has an `epicenter.json`; its `epicenter.ts`, when present, adds
  * code. Each entry loads on its own so a broken app is listed without stopping
- * the others. Refusals carry the next command as data (ADR-0842).
+ * the others. A name or path that finds no app is a `CliError` with the next
+ * command as data (ADR-0842).
  */
 import {
 	lstat,
@@ -22,6 +23,8 @@ import {
 	isName,
 	problemsOf,
 } from '@epicenter/app';
+import { Ok, type Result } from 'wellcrafted/result';
+import { CliError } from './errors.ts';
 
 /** Where an entry is on disk: the same for an app that runs and one with problems. */
 type Place = {
@@ -64,17 +67,6 @@ export type Located =
 
 /** An app that can run. */
 export type Runnable = Extract<Located, { ok: true }>;
-
-/** A refusal before an action starts, with the command that resolves it when known. */
-export class Refusal extends Error {
-	/** Keep the next command separate from the message so callers need not parse prose. */
-	constructor(
-		message: string,
-		readonly next?: string,
-	) {
-		super(message);
-	}
-}
 
 /** `~/Epicenter`: the only list of apps (ADR-0849). Tests move it by setting `HOME`. */
 export function homeDir(): string {
@@ -280,21 +272,27 @@ export async function discoverAll() {
 export type Discovery = Awaited<ReturnType<typeof discoverAll>>;
 
 /** Load only the requested home entry so unrelated apps cannot affect a run. */
-export async function loadHomeApp(name: string): Promise<Located> {
-	if (!isName(name)) throw new Refusal(`Unknown app "${name}"`, 'epicenter');
+export async function loadHomeApp(
+	name: string,
+): Promise<Result<Located, CliError>> {
+	const unknown = CliError.Usage({
+		message: `Unknown app "${name}"`,
+		next: 'epicenter',
+	});
+	if (!isName(name)) return unknown;
 	const found = await entryAt(join(homeDir(), name));
-	if (found) return load(found, name);
+	if (found) return Ok(await load(found, name));
 	try {
 		await stat(homeDir());
 	} catch (error) {
 		if ((error as NodeJS.ErrnoException).code === 'ENOENT')
-			throw new Refusal(
-				`Unknown app "${name}". There is no Epicenter home at ${homeDir()}. Make one with: mkdir ${homeDir()}`,
-				`mkdir ${homeDir()}`,
-			);
+			return CliError.Usage({
+				message: `Unknown app "${name}". There is no Epicenter home at ${homeDir()}. Make one with: mkdir ${homeDir()}`,
+				next: `mkdir ${homeDir()}`,
+			});
 		throw error;
 	}
-	throw new Refusal(`Unknown app "${name}"`, 'epicenter');
+	return unknown;
 }
 
 /** Recognize explicit folder spellings while leaving app names unambiguous. */
@@ -320,19 +318,21 @@ export function resolveFolder(path: string): string {
 export async function loadFolder(
 	path: string,
 	words: string[],
-): Promise<Located> {
+): Promise<Result<Located, CliError>> {
 	const folder = resolveFolder(path);
 	const found = await entryAt(folder);
 	if (!found)
-		throw new Error(`${path} must be a directory containing ${DECLARATION}`);
+		return CliError.Usage({
+			message: `${path} must be a directory containing ${DECLARATION}`,
+		});
 	for (const entry of (await entries()).entries) {
 		if (entry.realPath === found.realPath) {
 			const next = ['epicenter', entry.entry, ...words].join(' ');
-			throw new Refusal(
-				`${path} is the app ${entry.entry} in ${homeDir()}; run ${next}`,
+			return CliError.Usage({
+				message: `${path} is the app ${entry.entry} in ${homeDir()}; run ${next}`,
 				next,
-			);
+			});
 		}
 	}
-	return load(found);
+	return Ok(await load(found));
 }

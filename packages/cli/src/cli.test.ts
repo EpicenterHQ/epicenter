@@ -91,9 +91,9 @@ test('commands write disk data and return one JSON answer without diagnostics', 
 	expect(result.code).toBe(0);
 	expect(result.stderr).toBe('');
 	expect(JSON.parse(result.stdout)).toMatchObject({
-		result: { minutes: 30, book: 'Dune' },
+		action: { returned: { minutes: 30, book: 'Dune' } },
+		refused: [],
 		commit: { subject: 'reading log', paths: ['records/log.json'] },
-		uncommitted: [],
 	});
 	expect(
 		JSON.parse(
@@ -105,7 +105,9 @@ test('commands write disk data and return one JSON answer without diagnostics', 
 	expect(human.stderr).toMatch(/^committed [a-f0-9]{7} reading log\n$/);
 	expect(
 		(await f.run('vault', 'calendar', 'show', '2026-11-08', '--json')).stdout,
-	).toBe('{"result":{"day":"2026-11-08"},"commit":null,"uncommitted":[]}\n');
+	).toBe(
+		'{"action":{"returned":{"day":"2026-11-08"}},"refused":[],"commit":null,"paths":[],"push":null}\n',
+	);
 });
 
 test('negative numbers work as positional, separate flag and inline flag values', async () => {
@@ -119,7 +121,7 @@ test('negative numbers work as positional, separate flag and inline flag values'
 		expect(result.code).toBe(0);
 		expect(result.stderr).toBe('');
 		expect(JSON.parse(result.stdout)).toMatchObject({
-			result: { minutes: -3 },
+			action: { returned: { minutes: -3 } },
 			commit: index === 0 ? { subject: 'reading log' } : null,
 		});
 	}
@@ -159,7 +161,7 @@ test('usage errors return exit 2 and exactly one JSON error', async () => {
 test('lists repeat, switches default and literal positionals append to flagged values', async () => {
 	const f = await setup();
 	const answer = async (...args: string[]) =>
-		JSON.parse((await f.run(...args, '--json')).stdout).result;
+		JSON.parse((await f.run(...args, '--json')).stdout).action.returned;
 	expect(await answer('reading', 'tag')).toEqual({ tags: [], done: false });
 	expect(
 		await answer('reading', 'tag', '--tags', 'a', '--tags=b', '--done'),
@@ -177,7 +179,7 @@ test('a throwing action returns exit 3 with its message', async () => {
 	expect(await f.run('reading', 'explode', '--json')).toEqual({
 		code: 3,
 		stdout:
-			'{"error":{"message":"action exploded","commit":null,"uncommitted":[],"name":"ActionThrew"}}\n',
+			'{"action":{"threw":{"message":"action exploded"}},"refused":[],"commit":null,"paths":[],"push":null}\n',
 		stderr: '',
 	});
 });
@@ -187,7 +189,7 @@ test('path runs keep declared identity and their own .cache while home aliases a
 	const outside = await f.app('worktree', reading, f.root, 'reading');
 	const result = await f.run(outside, 'inspect', '--json');
 	expect(result.code).toBe(0);
-	const value = JSON.parse(result.stdout).result;
+	const value = JSON.parse(result.stdout).action.returned;
 	expect(value.folder).toBe(outside);
 	expect(value.token).toBe('round trip');
 	expect(value.seed).toBe('plain seed');
@@ -211,7 +213,7 @@ test('path runs keep declared identity and their own .cache while home aliases a
 	).toContain('epicenter linked');
 	const homeRun = JSON.parse(
 		(await f.run('reading', 'inspect', '--json')).stdout,
-	).result;
+	).action.returned;
 	expect(homeRun.folder).toBe(join(f.home, 'reading'));
 	expect(
 		await Bun.file(join(f.home, 'reading/.cache/index.json')).exists(),

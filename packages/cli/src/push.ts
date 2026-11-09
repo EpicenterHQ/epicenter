@@ -6,11 +6,7 @@
  * leaves with a later push; Git's unpushed commits are the only queue.
  */
 import { git } from './git.ts';
-
-/** What the push after a commit did, for the person reading stderr. */
-export type Pushed =
-	| { pushed: true }
-	| { pushed: false; reason: string; next: string };
+import type { Push } from './report.ts';
 
 /** The branch HEAD is on and the branch it tracks on `origin`, or `undefined` when it tracks none there. */
 async function trackedOnOrigin(folder: string) {
@@ -28,30 +24,32 @@ async function trackedOnOrigin(folder: string) {
 	return { branch: name, merge: merge.stdout.toString().trim() };
 }
 
-/** Push the commit just made, fast-forward only; `undefined` when the branch tracks nothing on `origin`. */
-export async function pushToOrigin(
-	folder: string,
-): Promise<Pushed | undefined> {
+/** Push the commit just made, fast-forward only; `null` when the branch tracks nothing on `origin`. */
+export async function pushToOrigin(folder: string): Promise<Push | null> {
 	const tracked = await trackedOnOrigin(folder);
-	if (!tracked) return undefined;
+	if (!tracked) return null;
 	const push = await git(folder, [
 		'push',
 		'-q',
 		'origin',
 		`HEAD:${tracked.merge}`,
 	]);
-	if (push.code === 0) return { pushed: true };
+	const counted = async () =>
+		(await originOf(folder)) ?? { ahead: 0, behind: 0 };
+	if (push.code === 0) return { pushed: true, ...(await counted()) };
 	if (/\[rejected\]|non-fast-forward|fetch first/.test(push.stderr)) {
-		// Fetching is not pulling: it only updates what this copy knows of origin, so the listing can say it is behind.
+		// Fetching is not pulling: it only updates what this copy knows of origin, so the report and the listing can say it is behind.
 		await git(folder, ['fetch', '-q', 'origin']);
 		return {
 			pushed: false,
+			...(await counted()),
 			reason: 'origin has commits this copy does not; the commit stays here',
 			next: `git -C ${folder} pull --rebase`,
 		};
 	}
 	return {
 		pushed: false,
+		...(await counted()),
 		reason:
 			push.stderr.split('\n')[0] || 'the push failed; the commit stays here',
 		next: `git -C ${folder} push`,

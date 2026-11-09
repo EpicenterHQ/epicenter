@@ -178,13 +178,18 @@ test('C1 an action that writes makes one commit named for it', async () => {
 	const json = await f.run('notes', 'two', 'Grace', '--json');
 	expect(json.code).toBe(0);
 	expect(JSON.parse(json.stdout)).toEqual({
-		result: 'Grace',
+		action: { returned: 'Grace' },
+		refused: [],
 		commit: {
 			sha: await f.head(),
 			subject: 'notes two',
 			paths: ['a.md', 'b.md'],
 		},
-		uncommitted: [],
+		paths: [
+			{ path: 'a.md', state: 'committed' },
+			{ path: 'b.md', state: 'committed' },
+		],
+		push: null,
 	});
 	expect(await gitIn(f.folder, 'status', '--porcelain')).toBe('');
 });
@@ -215,24 +220,26 @@ test('C2 an action that writes and throws exits 3, and its writes are committed 
 	expect(subject).not.toContain('second line');
 	expect(await f.message()).toContain(long);
 	expect(JSON.parse(json.stdout)).toEqual({
-		error: {
-			name: 'ActionThrew',
-			message: long,
-			commit: { sha: await f.head(), subject, paths: ['a.md'] },
-			uncommitted: [],
-		},
+		action: { threw: { message: long } },
+		refused: [],
+		commit: { sha: await f.head(), subject, paths: ['a.md'] },
+		paths: [{ path: 'a.md', state: 'committed' }],
+		push: null,
 	});
 
 	const tagged = await f.run('notes', 'tagged', '--json');
 	expect(tagged.code).toBe(3);
 	expect(JSON.parse(tagged.stdout)).toEqual({
-		error: {
-			name: 'ActionThrew',
-			message: 'Out of quota',
-			thrown: { name: 'QuotaExceeded', message: 'Out of quota', limit: 5 },
-			commit: null,
-			uncommitted: [],
+		action: {
+			threw: {
+				message: 'Out of quota',
+				thrown: { name: 'QuotaExceeded', message: 'Out of quota', limit: 5 },
+			},
 		},
+		refused: [],
+		commit: null,
+		paths: [],
+		push: null,
 	});
 
 	const client = new Client({ name: 'acceptance', version: '1' });
@@ -250,13 +257,18 @@ test('C2 an action that writes and throws exits 3, and its writes are committed 
 		});
 		expect(ok.isError).toBeFalsy();
 		expect(ok.structuredContent).toEqual({
-			result: 'Mcp',
+			action: { returned: 'Mcp' },
+			refused: [],
 			commit: {
 				sha: await f.head(),
 				subject: 'notes two',
 				paths: ['a.md', 'b.md'],
 			},
-			uncommitted: [],
+			paths: [
+				{ path: 'a.md', state: 'committed' },
+				{ path: 'b.md', state: 'committed' },
+			],
+			push: null,
 		});
 	} finally {
 		await client.close();
@@ -269,9 +281,8 @@ test('C3 a write to a path with uncommitted edits is refused before anything is 
 	const before = await f.head();
 	const result = await f.run('notes', 'two', 'Ada', '--json');
 	expect(result.code).toBe(3);
-	expect(JSON.parse(result.stdout).error).toMatchObject({
-		name: 'PathUncommitted',
-		path: 'a.md',
+	expect(JSON.parse(result.stdout)).toMatchObject({
+		refused: [{ path: 'a.md', reason: 'uncommitted' }],
 		commit: null,
 	});
 	expect(await readFile(join(f.folder, 'a.md'), 'utf8')).toBe('my edit\n');
@@ -292,7 +303,10 @@ test('C4 a path someone changes during the run stays uncommitted and named; the 
 	expect(result.code).toBe(0);
 	expect(JSON.parse(result.stdout)).toMatchObject({
 		commit: { subject: 'notes paused', paths: ['a.md', 'b.md'] },
-		uncommitted: ['a.md'],
+		paths: [
+			{ path: 'a.md', state: 'changed-after' },
+			{ path: 'b.md', state: 'committed' },
+		],
 	});
 	expect(await gitIn(f.folder, 'show', 'HEAD:a.md')).toBe('action a');
 	expect(await gitIn(f.folder, 'show', 'HEAD:b.md')).toBe('action b');
@@ -311,9 +325,8 @@ test('C4 a path someone changes during the run stays uncommitted and named; the 
 	await f.go();
 	const refused = await late;
 	expect(refused.code).toBe(3);
-	expect(JSON.parse(refused.stdout).error).toMatchObject({
-		name: 'PathUncommitted',
-		path: 'a.md',
+	expect(JSON.parse(refused.stdout)).toMatchObject({
+		refused: [{ path: 'a.md', reason: 'uncommitted' }],
 	});
 	expect(await readFile(join(f.folder, 'a.md'), 'utf8')).toBe('saved first\n');
 	expect(await f.head()).toBe(before);
@@ -345,9 +358,8 @@ test('C6 a run killed with SIGKILL leaves its writes uncommitted, and the next r
 	expect(await gitIn(f.folder, 'status', '--porcelain')).toBe('M a.md');
 	const next = await f.run('notes', 'two', 'Ada', '--json');
 	expect(next.code).toBe(3);
-	expect(JSON.parse(next.stdout).error).toMatchObject({
-		name: 'PathUncommitted',
-		path: 'a.md',
+	expect(JSON.parse(next.stdout)).toMatchObject({
+		refused: [{ path: 'a.md', reason: 'uncommitted' }],
 	});
 	expect(existsSync(join(f.folder, 'b.md'))).toBe(false);
 });
@@ -377,7 +389,9 @@ test('C8 stdout belongs to epicenter: an action that logs does not corrupt --jso
 	const f = await setup();
 	const json = await f.run('notes', 'chatty', '--json');
 	expect(json.code).toBe(0);
-	expect(JSON.parse(json.stdout)).toMatchObject({ result: 'answer' });
+	expect(JSON.parse(json.stdout)).toMatchObject({
+		action: { returned: 'answer' },
+	});
 	expect(json.stderr).toContain('hello from log');
 	expect(json.stderr).toContain('hello from info');
 	const client = new Client({ name: 'acceptance', version: '1' });
@@ -388,7 +402,9 @@ test('C8 stdout belongs to epicenter: an action that logs does not corrupt --jso
 			arguments: {},
 		});
 		expect(called.isError).toBeFalsy();
-		expect(called.structuredContent).toMatchObject({ result: 'answer' });
+		expect(called.structuredContent).toMatchObject({
+			action: { returned: 'answer' },
+		});
 		expect((await client.listTools()).tools.length).toBeGreaterThan(0);
 	} finally {
 		await client.close();

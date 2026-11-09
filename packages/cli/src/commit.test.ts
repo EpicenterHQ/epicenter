@@ -44,9 +44,9 @@ test('two writes make one commit with subject and input; staged hand edits stay 
 	const result = await f.run('reading', 'two', 'Ada', '--json');
 	expect(result.code).toBe(0);
 	expect(JSON.parse(result.stdout)).toMatchObject({
-		result: 'Ada',
+		action: { returned: 'Ada' },
+		refused: [],
 		commit: { subject: 'reading two', paths: ['a.md', 'b.md'] },
-		uncommitted: [],
 	});
 	expect(result.stderr).toBe('');
 	expect((await f.run('reading', 'two', 'Bo')).stderr).toMatch(
@@ -78,7 +78,8 @@ test('a no-op action makes no commit', async () => {
 	const before = await head(f.folder);
 	expect(await f.run('reading', 'nothing', '--json')).toEqual({
 		code: 0,
-		stdout: '{"result":42,"commit":null,"uncommitted":[]}\n',
+		stdout:
+			'{"action":{"returned":42},"refused":[],"commit":null,"paths":[],"push":null}\n',
 		stderr: '',
 	});
 	expect(await head(f.folder)).toBe(before);
@@ -117,9 +118,8 @@ test('a refused write keeps the writes before it, committed with the failure nam
 	await writeFile(join(f.folder, 'a.md'), 'person bytes\n');
 	const result = await f.run('reading', 'touch', '--json');
 	expect(result.code).toBe(3);
-	expect(JSON.parse(result.stdout).error).toMatchObject({
-		name: 'PathUncommitted',
-		path: 'a.md',
+	expect(JSON.parse(result.stdout)).toMatchObject({
+		refused: [{ path: 'a.md', reason: 'uncommitted' }],
 		commit: { paths: ['b.md'] },
 	});
 	expect(await show(f.folder, 'show', 'HEAD:b.md')).toBe('action');
@@ -169,15 +169,17 @@ test('same-app actions take turns and different apps can run together', async ()
 	const [one, two] = await Promise.all([first, second]);
 	expect(one.code).toBe(0);
 	expect(two.code).toBe(0);
-	expect(JSON.parse(two.stdout).result).toMatchObject({ sawCommit: true });
+	expect(JSON.parse(two.stdout).action.returned).toMatchObject({
+		sawCommit: true,
+	});
 	const [reading, other] = await Promise.all([
 		f.run('reading', 'slow', 'three', '--json'),
 		f.run('other', 'slow', 'four', '--json'),
 	]);
 	expect(reading.code).toBe(0);
 	expect(other.code).toBe(0);
-	const oneInterval = JSON.parse(reading.stdout).result;
-	const otherInterval = JSON.parse(other.stdout).result;
+	const oneInterval = JSON.parse(reading.stdout).action.returned;
+	const otherInterval = JSON.parse(other.stdout).action.returned;
 	expect(Math.max(oneInterval.started, otherInterval.started)).toBeLessThan(
 		Math.min(oneInterval.ended, otherInterval.ended),
 	);

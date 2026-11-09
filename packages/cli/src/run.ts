@@ -1,42 +1,27 @@
 /**
  * One action's run, for the command line and MCP (ADR-0850). The action
  * writes as it runs; whether it returns or throws, `epicenter` commits
- * exactly what it wrote, labelling a failure in the subject, and names any
- * path someone changed after the action wrote it. Nothing is undone.
+ * exactly what it wrote, labelling a failure in the subject. The run's
+ * report says what the action did, which writes were refused, what each
+ * written path became, and what the push did. Nothing is undone.
  */
 import { realpath } from 'node:fs/promises';
 import { format } from 'node:util';
 import type { Action } from '@epicenter/app';
+import { extractErrorMessage } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
-import {
-	changedSince,
-	commitWrites,
-	createWriteLog,
-	LfsUnavailable,
-	PathRefused,
-} from './commit.ts';
+import { changedSince, commitWrites, createWriteLog } from './commit.ts';
 import { folderOnDisk } from './disk.ts';
-import { CliError, type Outcome } from './errors.ts';
+import { CliError } from './errors.ts';
 import { holdingFileLock, NothingChanged } from './file-lock.ts';
 import { git, gitPath, revParse } from './git.ts';
 import type { Runnable } from './home.ts';
-import { type Pushed, pushToOrigin } from './push.ts';
+import { pushToOrigin } from './push.ts';
+import type { PathState, RunReport } from './report.ts';
 import { keychain, keychainService } from './secrets.ts';
-
-/** What a run that returned produced: its answer, and what it left behind. */
-export type Ran = Outcome & { result: unknown };
-
-/** A run's outcome, and what the push after its commit did, when there was one. */
-export type RunReport = { outcome: Result<Ran, CliError>; pushed?: Pushed };
 
 /** The longest a failure's first line may be in a commit subject before it is cut. */
 const SUBJECT_FAILURE = 60;
-
-function messageOf(cause: unknown) {
-	if (cause instanceof Error) return cause.message;
-	const message = (cause as { message?: unknown } | null)?.message;
-	return typeof message === 'string' ? message : String(cause);
-}
 
 /** `(failed: <first line>)`, the first line cut at a word to about 60 characters. */
 function failureLabel(message: string) {
@@ -56,6 +41,27 @@ function recorded(action: Action, input: Record<string, unknown>) {
 					?.writeOnly !== true,
 		),
 	);
+}
+
+/**
+ * What the action threw, as the report carries it. A thrown tagged error (a
+ * frozen `{ name, message, ...fields }`, as wellcrafted's `defineErrors`
+ * makes) is kept whole so its name and fields reach the caller.
+ */
+function threwOf(cause: unknown): {
+	message: string;
+	thrown?: Record<string, unknown>;
+} {
+	const message = extractErrorMessage(cause);
+	if (typeof cause !== 'object' || cause === null || cause instanceof Error)
+		return { message };
+	const { name } = cause as { name?: unknown };
+	if (
+		typeof name !== 'string' ||
+		typeof (cause as { message?: unknown }).message !== 'string'
+	)
+		return { message };
+	return { message, thrown: JSON.parse(JSON.stringify(cause)) };
 }
 
 /**
@@ -83,102 +89,99 @@ export async function runAction(
 	located: Runnable,
 	key: string,
 	input: Record<string, unknown>,
-): Promise<RunReport> {
+): Promise<Result<RunReport, CliError>> {
 	const folder = located.realPath;
 	const top = await git(folder, ['rev-parse', '--show-toplevel']);
 	if (
 		top.code !== 0 ||
 		(await realpath(top.stdout.toString().trim())) !== folder
 	)
-		return { outcome: CliError.NotRepository({ folder }) };
+		return CliError.NotRepository({ folder });
 	if ((await revParse(folder, 'MERGE_HEAD')) !== null)
-		return { outcome: CliError.MidMerge({ folder }) };
+		return CliError.MidMerge({ folder });
 	const action = located.actions[key];
 	if (!action)
-		return {
-			outcome: CliError.Usage({
-				message: `Unknown action ${located.name} ${key}`,
-				next: `epicenter ${located.name}`,
-			}),
-		};
+		return CliError.Usage({
+			message: `Unknown action ${located.name} ${key}`,
+			next: `epicenter ${located.name}`,
+		});
 	try {
-		return await holdingFileLock(
-			await gitPath(folder, 'epicenter.lock'),
-			{ waitMs: 86_400_000, held: `${located.name} is busy` },
-			async () => {
-				const startHead = await revParse(folder, 'HEAD');
-				const log = createWriteLog(folder);
-				let result: unknown;
-				let threw = false;
-				let cause: unknown;
-				await withStdoutKept(async () => {
+		return Ok(
+			await holdingFileLock(
+				await gitPath(folder, 'epicenter.lock'),
+				{ waitMs: 86_400_000, held: `${located.name} is busy` },
+				async (): Promise<RunReport> => {
+					const startHead = await revParse(folder, 'HEAD');
+					const log = createWriteLog(folder);
+					const outcome = await withStdoutKept(
+						async (): Promise<RunReport['action']> => {
+							try {
+								const returned = await action.run(input, {
+									folder: folderOnDisk(folder, log),
+									secrets: keychain(keychainService(located.name)),
+								});
+								return { returned: returned ?? null };
+							} catch (error) {
+								return { threw: threwOf(error) };
+							}
+						},
+					);
+					const failure =
+						'threw' in outcome
+							? outcome.threw.message
+							: log.refused[0]?.message;
+					const subject = `${located.name} ${key}${failure === undefined ? '' : failureLabel(failure)}`;
+					const body = `${JSON.stringify(recorded(action, input))}${'threw' in outcome ? `\n\n${outcome.threw.message}` : ''}`;
+					const written = [...log.writes.keys()].sort();
+					let made: Awaited<ReturnType<typeof commitWrites>>;
 					try {
-						result = await action.run(input, {
-							folder: folderOnDisk(folder, log),
-							secrets: keychain(keychainService(located.name)),
+						made = await commitWrites(folder, {
+							startHead,
+							writes: log.writes,
+							subject,
+							body,
 						});
 					} catch (error) {
-						threw = true;
-						cause = error;
+						return {
+							action: outcome,
+							refused: [...log.refused],
+							commit: { failed: extractErrorMessage(error) },
+							paths: written.map((path) => ({
+								path,
+								state: 'not-committed',
+							})),
+							push: null,
+						};
 					}
-				});
-				const subject = `${located.name} ${key}${threw ? failureLabel(messageOf(cause)) : ''}`;
-				const body = `${JSON.stringify(recorded(action, input))}${threw ? `\n\n${messageOf(cause)}` : ''}`;
-				let made: Awaited<ReturnType<typeof commitWrites>>;
-				try {
-					made = await commitWrites(folder, {
-						startHead,
-						writes: log.writes,
-						subject,
-						body,
-					});
-				} catch (error) {
+					const inCommit = new Set(made.commit?.paths ?? []);
+					const changed = new Set(
+						await changedSince(
+							folder,
+							new Map([...log.writes].filter(([path]) => inCommit.has(path))),
+						),
+					);
+					const stateOf = (path: string): PathState =>
+						made.contested.includes(path)
+							? 'contested'
+							: !inCommit.has(path)
+								? 'already-in-history'
+								: changed.has(path)
+									? 'changed-after'
+									: 'committed';
 					return {
-						outcome: CliError.CommitFailed({
-							cause: error,
-							uncommitted: [...log.writes.keys()].sort(),
-						}),
+						action: outcome,
+						refused: [...log.refused],
+						commit: made.commit,
+						paths: written.map((path) => ({ path, state: stateOf(path) })),
+						push: made.commit ? await pushToOrigin(folder) : null,
 					};
-				}
-				const committed = new Map(
-					[...log.writes].filter(([path]) => made.commit?.paths.includes(path)),
-				);
-				const uncommitted = [
-					...new Set([
-						...made.contested,
-						...(await changedSince(folder, committed)),
-					]),
-				].sort();
-				const left = { commit: made.commit, uncommitted };
-				const pushed = made.commit ? await pushToOrigin(folder) : undefined;
-				const report = (outcome: Result<Ran, CliError>): RunReport =>
-					pushed ? { outcome, pushed } : { outcome };
-				if (cause instanceof PathRefused)
-					return report(
-						CliError.PathUncommitted({
-							folder,
-							path: cause.path,
-							during: cause.during,
-							...left,
-						}),
-					);
-				if (cause instanceof LfsUnavailable)
-					return report(
-						CliError.GitLfsMissing({
-							folder,
-							path: cause.path,
-							installed: cause.installed,
-							...left,
-						}),
-					);
-				if (threw) return report(CliError.ActionThrew({ cause, ...left }));
-				return report(Ok({ result, ...left }));
-			},
+				},
+			),
 		);
 	} catch (error) {
 		// Only a lock never taken means the action did not run; anything else is a bug and propagates.
 		if (error instanceof NothingChanged)
-			return { outcome: CliError.Usage({ message: messageOf(error) }) };
+			return CliError.LockFailed({ cause: error });
 		throw error;
 	}
 }

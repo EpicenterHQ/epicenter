@@ -76,9 +76,11 @@ test('W1 the cache is .cache/ in the folder, and run receives { folder, secrets 
 	const result = await f.run('journal', 'context', '--json');
 	expect(result.code).toBe(0);
 	expect(JSON.parse(result.stdout)).toEqual({
-		result: ['folder', 'secrets'],
+		action: { returned: ['folder', 'secrets'] },
+		refused: [],
 		commit: null,
-		uncommitted: [],
+		paths: [],
+		push: null,
 	});
 	expect(existsSync(join(folder, '.cache/index.sqlite'))).toBe(true);
 	expect(await gitIn(folder, 'status', '--porcelain')).toBe('');
@@ -263,19 +265,17 @@ test('W6 a write to a path marked for LFS is refused when git-lfs is not on PATH
 		child.exited,
 	]);
 	expect(code).toBe(3);
-	expect(JSON.parse(stdout).error).toMatchObject({
-		name: 'GitLfsMissing',
-		path: 'cover.png',
-	});
+	expect(JSON.parse(stdout).refused).toMatchObject([
+		{ path: 'cover.png', reason: 'lfs-not-installed' },
+	]);
 	expect(existsSync(join(folder, 'cover.png'))).toBe(false);
 	expect(await gitIn(folder, 'rev-parse', 'HEAD')).toBe(before);
 
 	const unset = await f.run('journal', 'picture', '--json');
 	expect(unset.code).toBe(3);
-	expect(JSON.parse(unset.stdout).error).toMatchObject({
-		name: 'GitLfsMissing',
-		next: `git -C ${folder} lfs install --local`,
-	});
+	expect(JSON.parse(unset.stdout).refused).toMatchObject([
+		{ reason: 'lfs-not-set-up', next: `git -C ${folder} lfs install --local` },
+	]);
 
 	if (!Bun.which('git-lfs')) return;
 	await gitIn(folder, 'lfs', 'install', '--local');

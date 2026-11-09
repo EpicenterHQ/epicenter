@@ -18,7 +18,8 @@ import {
 	type Tool,
 } from '@modelcontextprotocol/sdk/types.js';
 import packageJson from '../package.json' with { type: 'json' };
-import { writeErr } from './output.ts';
+import { renderReport, writeErr } from './output.ts';
+import type { RunReport } from './report.ts';
 
 /** How to run this same `epicenter`: the compiled binary alone, or Bun with this entry. */
 function self(): string[] {
@@ -113,12 +114,12 @@ export async function serveStdio(): Promise<number> {
 		}
 		if (called.code === 0)
 			return { content: textOf(answer), structuredContent: answer };
-		const message = (answer.error as { message?: string } | undefined)?.message;
+		const message =
+			(answer.error as { message?: string } | undefined)?.message ??
+			renderReport(answer as RunReport).stderr.trim();
 		return {
 			isError: true,
-			content: [
-				{ type: 'text' as const, text: message ?? JSON.stringify(answer) },
-			],
+			content: [{ type: 'text' as const, text: message }],
 			structuredContent: answer,
 		};
 	});

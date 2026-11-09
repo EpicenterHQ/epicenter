@@ -1,34 +1,15 @@
 /**
- * Every way `epicenter` can fail, as one tagged union (ADR-0842, ADR-0850).
- * Variants carry fields; `message` is for the person reading stderr, and
- * `next`, when present, is the command that resolves it. One boundary
- * (`output.ts`) turns a variant into an exit code, stderr lines, the `--json`
- * object, and the MCP result.
+ * Every way an `epicenter` command can fail to run, as one tagged union
+ * (ADR-0842). A run that started never fails this way: whatever happened is
+ * in its report (`report.ts`). Variants carry fields; `message` is for the
+ * person reading stderr, and `next`, when present, is the command that
+ * resolves it.
  */
 import {
 	defineErrors,
 	extractErrorMessage,
 	type InferErrors,
 } from 'wellcrafted/error';
-
-/** The commit `epicenter` made for a run: its full sha, subject, and the paths it holds. */
-export type Commit = { sha: string; subject: string; paths: string[] };
-
-/** What a run left behind, beside its answer or its failure. */
-export type Outcome = { commit: Commit | null; uncommitted: string[] };
-
-/**
- * A thrown value that is itself a tagged error (a frozen `{ name, message,
- * ...fields }`, as wellcrafted's `defineErrors` makes), kept whole so its name
- * and fields reach the caller.
- */
-function taggedOf(cause: unknown) {
-	if (typeof cause !== 'object' || cause === null || cause instanceof Error)
-		return undefined;
-	const { name, message } = cause as { name?: unknown; message?: unknown };
-	if (typeof name !== 'string' || typeof message !== 'string') return undefined;
-	return JSON.parse(JSON.stringify(cause)) as Record<string, unknown>;
-}
 
 export const CliError = defineErrors({
 	/** The words or flags do not name something to run, or the input does not fit. */
@@ -54,90 +35,17 @@ export const CliError = defineErrors({
 		folder,
 		next: `git -C ${folder} status`,
 	}),
-	/** The action tried to write a path someone else had changed; nothing was written to it. */
-	PathUncommitted: ({
-		folder,
-		path,
-		during,
-		commit,
-		uncommitted,
-	}: Outcome & { folder: string; path: string; during: boolean }) => ({
-		message: during
-			? `${path} changed during the run, so the action did not overwrite it`
-			: `${path} has changes you have not committed, so the action did not write it`,
-		folder,
-		path,
-		next: `git -C ${folder} status -- ${path}`,
-		commit,
-		uncommitted,
+	/** The app's run lock could not be taken, so the action did not start. */
+	LockFailed: ({ cause }: { cause: unknown }) => ({
+		message: extractErrorMessage(cause),
 	}),
-	/** The action tried to write a path marked for Git LFS where LFS cannot store it; nothing was written to it. */
-	GitLfsMissing: ({
-		folder,
-		path,
-		installed,
-		commit,
-		uncommitted,
-	}: Outcome & { folder: string; path: string; installed: boolean }) => ({
-		message: installed
-			? `${path} goes through Git LFS, whose filter is not set up in ${folder}, so the action did not write it`
-			: `${path} goes through Git LFS, which is not installed, so the action did not write it`,
-		folder,
-		path,
-		next: installed
-			? `git -C ${folder} lfs install --local`
-			: 'brew install git-lfs',
-		commit,
-		uncommitted,
-	}),
-	/** The action threw; what it wrote before throwing is committed, labelled with the failure. */
-	ActionThrew: ({
-		cause,
-		commit,
-		uncommitted,
-	}: Outcome & { cause: unknown }) => {
-		const thrown = taggedOf(cause);
-		return {
-			message: extractErrorMessage(cause),
-			...(thrown ? { thrown } : {}),
-			commit,
-			uncommitted,
-		};
-	},
-	/** A Git command `epicenter` ran for itself failed. */
+	/** A Git command `new` or `add` ran failed. */
 	GitFailed: ({ cause }: { cause: unknown }) => ({
 		message: `Git failed: ${extractErrorMessage(cause)}`,
 	}),
-	/** Git refused the commit; the action's writes are on disk, uncommitted. */
-	CommitFailed: ({
-		cause,
-		uncommitted,
-	}: {
-		cause: unknown;
-		uncommitted: string[];
-	}) => ({
-		message: `Could not commit the action's writes: ${extractErrorMessage(cause)}`,
-		commit: null,
-		uncommitted,
+	/** `epicenter` itself failed unexpectedly before anything ran: a bug, or a home it cannot read. */
+	Internal: ({ cause }: { cause: unknown }) => ({
+		message: extractErrorMessage(cause),
 	}),
 });
 export type CliError = InferErrors<typeof CliError>;
-
-/** 2: it did not run. 3: it ran, and failed or threw. */
-export function exitCodeOf(error: CliError): 2 | 3 {
-	switch (error.name) {
-		case 'Usage':
-		case 'AppProblems':
-		case 'NotRepository':
-		case 'MidMerge':
-			return 2;
-		case 'PathUncommitted':
-		case 'GitLfsMissing':
-		case 'ActionThrew':
-		case 'CommitFailed':
-		case 'GitFailed':
-			return 3;
-		default:
-			return error satisfies never;
-	}
-}

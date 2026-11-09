@@ -32,46 +32,55 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import type { Commit } from './errors.ts';
 import { checkedGit, git, gitPath, revParse } from './git.ts';
+import type { Commit, Refused, RefusalReason } from './report.ts';
 
 const ZERO = '0000000000000000000000000000000000000000';
 
-/** A write was refused; nothing was written to `path`. */
-export class PathRefused extends Error {
-	constructor(
-		readonly path: string,
-		/** True when the action wrote the path earlier in this run and someone changed it since. */
-		readonly during: boolean,
-	) {
-		super(
-			during
-				? `${path} changed during the run, so the action did not overwrite it`
-				: `${path} has changes you have not committed, so the action did not write it`,
-		);
-		this.name = 'PathRefused';
+/** A refused write, with its one message and the command that resolves it. */
+function refusal(folder: string, path: string, reason: RefusalReason): Refused {
+	const status = `git -C ${folder} status -- ${path}`;
+	switch (reason) {
+		case 'uncommitted':
+			return {
+				path,
+				reason,
+				message: `${path} has changes you have not committed, so the action did not write it`,
+				next: status,
+			};
+		case 'changed-during':
+			return {
+				path,
+				reason,
+				message: `${path} changed during the run, so the action did not overwrite it`,
+				next: status,
+			};
+		case 'symlink':
+			return {
+				path,
+				reason,
+				message: `${path} is a symbolic link, so the action did not write through it`,
+			};
+		case 'lfs-not-installed':
+			return {
+				path,
+				reason,
+				message: `${path} goes through Git LFS, which is not installed, so the action did not write it`,
+				next: 'brew install git-lfs',
+			};
+		case 'lfs-not-set-up':
+			return {
+				path,
+				reason,
+				message: `${path} goes through Git LFS, whose filter is not set up in ${folder}, so the action did not write it`,
+				next: `git -C ${folder} lfs install --local`,
+			};
 	}
 }
 
-/** A path marked for Git LFS cannot be written: without the filter, Git would store the whole file in history (ADR-0856). */
-export class LfsUnavailable extends Error {
-	constructor(
-		readonly path: string,
-		/** True when `git-lfs` is on PATH but its filter is not set up for this repository. */
-		readonly installed: boolean,
-	) {
-		super(
-			installed
-				? `${path} goes through Git LFS, whose filter is not set up here, so the action did not write it`
-				: `${path} goes through Git LFS, which is not installed, so the action did not write it`,
-		);
-		this.name = 'LfsUnavailable';
-	}
-}
-
-/** Throws `LfsUnavailable` unless `git-lfs` is on PATH and its filter is configured for `folder`. */
-async function requireLfs(folder: string, path: string) {
-	if (!Bun.which('git-lfs')) throw new LfsUnavailable(path, false);
+/** Why Git cannot store `path` through LFS here, or `undefined` when it can (ADR-0856). */
+async function lfsProblem(folder: string) {
+	if (!Bun.which('git-lfs')) return 'lfs-not-installed' as const;
 	const filterProcess = await git(folder, [
 		'config',
 		'--get',
@@ -79,7 +88,8 @@ async function requireLfs(folder: string, path: string) {
 	]);
 	const clean = await git(folder, ['config', '--get', 'filter.lfs.clean']);
 	if (filterProcess.code !== 0 && clean.code !== 0)
-		throw new LfsUnavailable(path, true);
+		return 'lfs-not-set-up' as const;
+	return undefined;
 }
 
 /**
@@ -98,7 +108,11 @@ async function isIgnored(folder: string, path: string) {
 
 /** What one run wrote, as Git objects; `null` is a deletion. Ignored paths are written and never recorded. */
 export type WriteLog = {
-	/** Throws `PathRefused` unless `path` may be written now. Call immediately before the write lands. */
+	/**
+	 * Throws unless `path` may be written now, recording the refusal in
+	 * `refused` first, so an action that catches or wraps the throw cannot
+	 * hide it. Call immediately before the write lands.
+	 */
 	check(path: string): Promise<void>;
 	/** Record the bytes now at `path`, which this run just wrote. */
 	wrote(path: string, bytes: Uint8Array): Promise<void>;
@@ -113,6 +127,8 @@ export type WriteLog = {
 	tempFor(target: string): Promise<string>;
 	/** The paths recorded, in the order first written. */
 	readonly writes: ReadonlyMap<string, string | null>;
+	/** Every write refused this run, in order. */
+	readonly refused: readonly Refused[];
 };
 
 /** The object `git add` would store for the file at `path` now, or `null` when there is none. */
@@ -128,6 +144,12 @@ async function onDisk(folder: string, path: string) {
 export function createWriteLog(folder: string): WriteLog {
 	const writes = new Map<string, string | null>();
 	const ignored = new Set<string>();
+	const refused: Refused[] = [];
+	const refuse = (path: string, reason: RefusalReason) => {
+		const record = refusal(folder, path, reason);
+		refused.push(record);
+		throw new Error(record.message);
+	};
 	// Decided once per run: the Git directory, when a rename from it into the folder stays on one filesystem.
 	const staging = gitPath(folder, 'epicenter-tmp').then(async (dir) => {
 		await mkdir(dir, { recursive: true });
@@ -135,6 +157,7 @@ export function createWriteLog(folder: string): WriteLog {
 	});
 	return {
 		writes,
+		refused,
 		async tempFor(target) {
 			return join((await staging) ?? dirname(target), `.${randomUUID()}.tmp`);
 		},
@@ -142,7 +165,7 @@ export function createWriteLog(folder: string): WriteLog {
 			if (ignored.has(path)) return;
 			if (writes.has(path)) {
 				if ((await onDisk(folder, path)) !== writes.get(path))
-					throw new PathRefused(path, true);
+					refuse(path, 'changed-during');
 				return;
 			}
 			if (await isIgnored(folder, path)) {
@@ -155,7 +178,10 @@ export function createWriteLog(folder: string): WriteLog {
 				'--',
 				path,
 			]);
-			if (filter.endsWith(': lfs')) await requireLfs(folder, path);
+			if (filter.endsWith(': lfs')) {
+				const problem = await lfsProblem(folder);
+				if (problem) refuse(path, problem);
+			}
 			const status = await checkedGit(folder, [
 				'status',
 				'--porcelain=v1',
@@ -164,7 +190,7 @@ export function createWriteLog(folder: string): WriteLog {
 				'--',
 				path,
 			]);
-			if (status.length) throw new PathRefused(path, false);
+			if (status.length) refuse(path, 'uncommitted');
 		},
 		async wrote(path, bytes) {
 			if (ignored.has(path)) return;

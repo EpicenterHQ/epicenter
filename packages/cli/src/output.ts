@@ -1,14 +1,18 @@
 /**
- * The one place a run's outcome becomes what a caller sees (ADR-0842,
- * ADR-0850). stdout carries only the answer: the returned value, or one JSON
- * object with `--json`. stderr carries notes for a person: what was
- * committed, what was left uncommitted, refusals and errors, each followed by
- * a `Run: <next step>` line when there is one. MCP gets the same object.
+ * The one place an answer becomes what a caller sees (ADR-0842, ADR-0850).
+ * With `--json`, stdout is one JSON value: a run's report, a listing, or
+ * `{ error }` when nothing ran; MCP gets the same value. Without it, stdout
+ * carries only the answer a person reads, and stderr is a rendering of the
+ * same value: what was committed, left uncommitted, refused, or pushed, and a
+ * `Run: <next step>` line wherever there is one.
  */
-import type { CliError, Outcome } from './errors.ts';
-import { exitCodeOf } from './errors.ts';
-import type { Pushed } from './push.ts';
-import type { Ran } from './run.ts';
+import type { CliError } from './errors.ts';
+import {
+	exitCodeOf,
+	type PathState,
+	type RunReport,
+	type Unknown,
+} from './report.ts';
 
 /** Write one JSON answer per line so callers can read stdout directly. */
 export function writeJson(value: unknown) {
@@ -25,48 +29,94 @@ export function writeErr(text: string) {
 	process.stderr.write(text.endsWith('\n') ? text : `${text}\n`);
 }
 
-/** The notes a person reads about what a run left behind. */
-function outcomeNotes({ commit, uncommitted }: Partial<Outcome>) {
-	return [
-		...(commit
-			? [`committed ${commit.sha.slice(0, 7)} ${commit.subject}`]
-			: []),
-		...(uncommitted ?? []).map(
-			(path) => `left uncommitted: ${path} (changed during the run)`,
-		),
-	];
+/** Why a path the action wrote is not as it left it in history, for a person. */
+const LEFT: Partial<Record<PathState, string>> = {
+	'changed-after': 'changed after the action wrote it',
+	contested: 'a commit made during the run changed it too',
+	'not-committed': 'the commit failed',
+};
+
+/** A run's report as a person reads it: the returned value on stdout, everything else on stderr. */
+export function renderReport(report: RunReport): {
+	stdout: string;
+	stderr: string;
+} {
+	const lines: string[] = [];
+	const { commit } = report;
+	if (commit && 'failed' in commit)
+		lines.push(`Could not commit the action's writes: ${commit.failed}`);
+	else if (commit)
+		lines.push(`committed ${commit.sha.slice(0, 7)} ${commit.subject}`);
+	for (const { path, state } of report.paths)
+		if (LEFT[state]) lines.push(`left uncommitted: ${path} (${LEFT[state]})`);
+	for (const { message, next } of report.refused)
+		lines.push(message, ...(next ? [`Run: ${next}`] : []));
+	const { push } = report;
+	if (push?.pushed) lines.push('pushed to origin');
+	else if (push)
+		lines.push(
+			`not pushed: ${push.reason}`,
+			...(push.next ? [`Run: ${push.next}`] : []),
+		);
+	let stdout = '';
+	if ('threw' in report.action) lines.push(report.action.threw.message);
+	else {
+		const { returned } = report.action;
+		if (typeof returned === 'string')
+			stdout = returned.endsWith('\n') ? returned : `${returned}\n`;
+		else if (returned !== null)
+			stdout = `${JSON.stringify(returned, null, 2)}\n`;
+	}
+	return {
+		stdout,
+		stderr: lines.map((line) => `${line}\n`).join(''),
+	};
 }
 
-/** What the push after a commit did, in a person's words. */
-function pushNotes(pushed: Pushed | undefined) {
-	if (!pushed) return [];
-	if (pushed.pushed) return ['pushed to origin'];
-	return [`not pushed: ${pushed.reason}`, `Run: ${pushed.next}`];
+/** Present a run's report and return its exit code. */
+export function presentReport(report: RunReport, json: boolean): number {
+	if (json) writeJson(report);
+	else {
+		const { stdout, stderr } = renderReport(report);
+		process.stdout.write(stdout);
+		process.stderr.write(stderr);
+	}
+	return exitCodeOf(report);
 }
 
-/** Present a failure and return its exit code, without forcing exit. */
-export function fail(error: CliError, json: boolean, pushed?: Pushed): number {
+/** Present a run whose child ended without a report: exit 3, with the heads that say what landed. */
+export function presentUnknown(value: Unknown, json: boolean): number {
+	if (json) writeJson(value);
+	else {
+		const { message, head } = value.unknown;
+		writeErr(message);
+		writeErr(`HEAD before: ${head.before ?? '(none)'}`);
+		writeErr(`HEAD now: ${head.after ?? '(none)'}`);
+	}
+	return 3;
+}
+
+/** Present a command that did not run, exit 2. */
+export function fail(error: CliError, json: boolean): number {
 	if (json) writeJson({ error });
 	else {
-		for (const note of outcomeNotes(error as Partial<Outcome>)) writeErr(note);
-		for (const note of pushNotes(pushed)) writeErr(note);
 		writeErr(error.message);
 		const next = (error as { next?: string }).next;
 		if (next) writeErr(`Run: ${next}`);
 	}
-	return exitCodeOf(error);
+	return 2;
 }
 
-/** Present a run that returned, exit 0: its notes on stderr, its answer on stdout. */
-export function ran(value: Ran, json: boolean, pushed?: Pushed): number {
-	if (json) {
-		writeJson(value);
-		return 0;
+/** Present a command that made something: its answer on stdout, its next step on stderr. */
+export function made(
+	value: { folder: string; next: string } & Record<string, unknown>,
+	json: boolean,
+): number {
+	const { next, ...answer } = value;
+	if (json) writeJson(answer);
+	else {
+		writeOut(value.folder);
+		writeErr(`Run: ${next}`);
 	}
-	for (const note of outcomeNotes(value)) writeErr(note);
-	for (const note of pushNotes(pushed)) writeErr(note);
-	if (typeof value.result === 'string') writeOut(value.result);
-	else if (value.result !== undefined)
-		writeOut(JSON.stringify(value.result, null, 2));
 	return 0;
 }

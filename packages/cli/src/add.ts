@@ -28,7 +28,7 @@ import { nameProblem, problemsOf, SCHEMA_URL } from '@epicenter/app';
 import { CliError } from './errors.ts';
 import { checkedGit, git } from './git.ts';
 import { homeDir, resolveFolder } from './home.ts';
-import { fail, writeJson, writeOut } from './output.ts';
+import { fail, made } from './output.ts';
 
 /** Binary types the template routes through Git LFS (ADR-0856). */
 const LFS_TYPES = [
@@ -107,13 +107,10 @@ async function declaredName(
 }
 
 function done(name: string, json: boolean) {
-	const folder = join(homeDir(), name);
-	if (json) writeJson({ name, folder });
-	else {
-		writeOut(folder);
-		writeOut(`Next: epicenter ${name}`);
-	}
-	return 0;
+	return made(
+		{ name, folder: join(homeDir(), name), next: `epicenter ${name}` },
+		json,
+	);
 }
 
 /** `epicenter new <name>`: an app from the built-in template, in its own repository with one commit. */

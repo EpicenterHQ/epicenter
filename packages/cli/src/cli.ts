@@ -7,14 +7,7 @@ import type { Action } from '@epicenter/app';
 import packageJson from '../package.json' with { type: 'json' };
 import { addCommand, newCommand } from './add.ts';
 import { CliError } from './errors.ts';
-import {
-	discoverAll,
-	isFolderPath,
-	type Located,
-	loadFolder,
-	loadHomeApp,
-	Refusal,
-} from './home.ts';
+import { discoverAll, isFolderPath, loadFolder, loadHomeApp } from './home.ts';
 import {
 	checkInput,
 	flagOf,
@@ -29,7 +22,7 @@ import {
 	oneAppListing,
 } from './listing.ts';
 import { serveStdio } from './mcp.ts';
-import { fail, ran, writeJson, writeOut } from './output.ts';
+import { fail, presentReport, writeJson, writeOut } from './output.ts';
 import { runAction } from './run.ts';
 import { typesCommand } from './types.ts';
 
@@ -197,21 +190,10 @@ export async function runCli(argv: string[]): Promise<number> {
 				CliError.Usage({ message: `epicenter ${name} is not built yet` }).error,
 				json,
 			);
-		let located: Located;
-		try {
-			located = await (isFolderPath(name)
-				? loadFolder(name, words)
-				: loadHomeApp(name));
-		} catch (error) {
-			const message = error instanceof Error ? error.message : String(error);
-			return fail(
-				CliError.Usage({
-					message,
-					next: error instanceof Refusal ? error.next : undefined,
-				}).error,
-				json,
-			);
-		}
+		const { data: located, error: notFound } = await (isFolderPath(name)
+			? loadFolder(name, words)
+			: loadHomeApp(name));
+		if (notFound) return fail(notFound, json);
 		if (!located.ok)
 			return fail(
 				CliError.AppProblems({ app: name, problems: located.problems }).error,
@@ -247,19 +229,14 @@ export async function runCli(argv: string[]): Promise<number> {
 		const given = inputOf(action, matched.rest);
 		if ('error' in given)
 			return fail(CliError.Usage({ message: given.error, next }).error, json);
-		const { outcome, pushed } = await runAction(
+		const { data: report, error } = await runAction(
 			located,
 			matched.key,
 			given.input,
 		);
-		if (outcome.error !== null) return fail(outcome.error, json, pushed);
-		return ran(outcome.data, json, pushed);
+		if (error) return fail(error, json);
+		return presentReport(report, json);
 	} catch (error) {
-		return fail(
-			CliError.Usage({
-				message: error instanceof Error ? error.message : String(error),
-			}).error,
-			json,
-		);
+		return fail(CliError.Internal({ cause: error }).error, json);
 	}
 }

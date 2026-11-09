@@ -45,9 +45,11 @@ test('tools list plain schemas and annotations and return structured answers or 
 			arguments: { day: '2026-11-08' },
 		});
 		const shown = {
-			result: { day: '2026-11-08' },
+			action: { returned: { day: '2026-11-08' } },
+			refused: [],
 			commit: null,
-			uncommitted: [],
+			paths: [],
+			push: null,
 		};
 		expect(answer.structuredContent).toEqual(shown);
 		expect(answer.content).toEqual([
@@ -82,13 +84,13 @@ test('tools list plain schemas and annotations and return structured answers or 
 			arguments: { minutes: 30 },
 		});
 		expect(committed.structuredContent).toMatchObject({
-			result: { minutes: 30 },
+			action: { returned: { minutes: 30 } },
+			refused: [],
 			commit: { subject: 'reading log', paths: ['records/log.json'] },
-			uncommitted: [],
 		});
 		expect(
 			(await client.callTool({ name: 'reading_tag' })).structuredContent,
-		).toMatchObject({ result: { tags: [], done: false } });
+		).toMatchObject({ action: { returned: { tags: [], done: false } } });
 	} finally {
 		await client.close();
 		await rm(f.root, { recursive: true, force: true });
