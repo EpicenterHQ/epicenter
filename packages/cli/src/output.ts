@@ -12,15 +12,28 @@ import { type Answer, exitCodeOf } from './report.ts';
 
 /** The report file this process answers into, when it is a child (`child.ts`). */
 let reportPath: string | undefined;
+let firstPositional: unknown;
+let runFolder: string | undefined;
 
 /** Make this process a child: its one JSON answer goes to `path`, never to stdout. */
 export function answerInto(path: string) {
 	reportPath = path;
 }
 
+/** Private metadata for the HTTP server's commit subject, absent from stdout. */
+export function noteRun(folder: string, value: unknown) {
+	runFolder = folder;
+	firstPositional = value;
+}
+
 /** Write the one JSON answer: to stdout, or to the report file in a child. */
 export function writeJson(value: unknown) {
-	if (reportPath) writeReport(reportPath, { answer: value });
+	if (reportPath)
+		writeReport(reportPath, {
+			answer: value,
+			firstPositional,
+			folder: runFolder,
+		});
 	else process.stdout.write(`${JSON.stringify(value)}\n`);
 }
 

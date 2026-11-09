@@ -47,6 +47,14 @@ export async function runChild(
 	args: string[],
 	{ stdin }: { stdin: 'inherit' | 'ignore' },
 ): Promise<unknown> {
+	return (await runChildRecord(args, { stdin })).answer;
+}
+
+/** Run a child and retain private run metadata alongside its public answer. */
+export async function runChildRecord(
+	args: string[],
+	{ stdin }: { stdin: 'inherit' | 'ignore' },
+): Promise<{ answer: unknown; firstPositional?: unknown; folder?: string }> {
 	const path = join(tmpdir(), `epicenter-report-${randomUUID()}.json`);
 	const child = Bun.spawn([...self(), `${REPORT_FLAG}${path}`, ...args], {
 		stdio: [stdin, 2, 2],
@@ -54,7 +62,8 @@ export async function runChild(
 	const forward = (signal: NodeJS.Signals) => child.kill(signal);
 	process.on('SIGINT', forward);
 	process.on('SIGTERM', forward);
-	let record: { answer?: unknown } = {};
+	let record: { answer?: unknown; firstPositional?: unknown; folder?: string } =
+		{};
 	try {
 		await child.exited;
 		try {
@@ -65,12 +74,19 @@ export async function runChild(
 		process.off('SIGTERM', forward);
 		rmSync(path, { force: true });
 	}
-	if ('answer' in record) return record.answer;
+	if ('answer' in record)
+		return {
+			answer: record.answer,
+			firstPositional: record.firstPositional,
+			folder: record.folder,
+		};
 	const ended =
 		child.signalCode === null
 			? `exit code ${child.exitCode}`
 			: `signal ${child.signalCode}`;
 	return {
-		threw: { message: `The run ended without an answer (${ended})` },
+		answer: {
+			threw: { message: `The run ended without an answer (${ended})` },
+		},
 	};
 }

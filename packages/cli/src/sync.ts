@@ -1,6 +1,6 @@
 /**
- * `epicenter sync [<app>]`: the only command that touches a remote
- * (ADR-0851). For each app in the home, or the one named, from its folder:
+ * `epicenter sync [<app>]` commits, pulls, and pushes (ADR-0851). For each
+ * app in the home, or the one named, from its folder:
  * commit whatever is left (`sync: <app> (<n> files)`), then
  * `git pull --rebase --autostash`, then `git push`. Which branch it pulls and
  * pushes is Git's: the upstream and `push.default` the clone already has, so
