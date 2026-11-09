@@ -1,7 +1,9 @@
 /**
  * An app's code: what its `epicenter.ts` default-exports (ADR-0857). The
- * app's name, description, and every collection are in `epicenter.json`;
- * `epicenter.ts` holds actions and nothing else of the app's shape.
+ * app's description and every collection are in `epicenter.json`, and its name
+ * is its folder's; `epicenter.ts` holds actions and nothing else of the app's
+ * shape. Each collection gives actions of its own (`collection.ts`), and a
+ * written action with the same words replaces one (ADR-0853).
  *
  * ```ts
  * import declaration from './epicenter.json';
@@ -20,6 +22,7 @@
  * ```
  */
 import type { Static, TObject, TSchema } from 'typebox';
+import { allCollectionActions, collectionProblems } from './collection.ts';
 import type { Context } from './context.ts';
 import {
 	type Declaration,
@@ -114,7 +117,7 @@ export function defineApp<I extends Record<string, Input>, A extends Actions>(
  */
 export const COMMANDS = {
 	new: 'epicenter new <name>',
-	add: 'epicenter add <folder> | add <git url>',
+	add: 'epicenter add <folder> [<name>] | add <git url> [<name>]',
 	sync: 'epicenter sync [<app>]',
 	serve: 'epicenter serve --stdio',
 } as const;
@@ -143,14 +146,6 @@ const ANNOTATION_KEYS = new Set(['title', ...Object.keys(ANNOTATION_DEFAULTS)]);
  */
 const GLOBAL_FLAGS = new Set(['json', 'help', 'input']);
 
-/** The words of the actions a collection gives: four, or `show` and `save` when its path has no placeholder. */
-export function collectionActionWords(name: string, path: string): string[] {
-	const verbs = path.includes('{')
-		? ['list', 'show', 'save', 'delete']
-		: ['show', 'save'];
-	return verbs.map((verb) => `${name} ${verb}`);
-}
-
 /**
  * Why `name` cannot name an app, or `undefined` when it can: it must be
  * lowercase letters, digits, and dashes, starting with a letter, and not a
@@ -172,21 +167,26 @@ export function nameProblem(name: unknown): string | undefined {
 export function problemsOf(declaration: unknown, code?: unknown): string[] {
 	const problems = declarationProblems(declaration);
 	if (problems.length) return problems;
-	const { name, collections = {} } = declaration as Declaration;
-	if (isCommand(name))
-		problems.push(`its name "${name}" is an epicenter command`);
-	// The actions each collection gives, by their words, which no hand-written action may take.
-	const given = new Map<string, string>();
+	const { collections = {} } = declaration as Declaration;
 	const paths = new Map<string, string>();
-	for (const [key, { path }] of Object.entries(collections)) {
-		const other = paths.get(path);
+	for (const [key, collection] of Object.entries(collections)) {
+		const other = paths.get(collection.path);
 		if (other !== undefined)
 			problems.push(
-				`collections "${other}" and "${key}" share the path ${path}`,
+				`collections "${other}" and "${key}" share the path ${collection.path}`,
 			);
-		else paths.set(path, key);
-		for (const words of collectionActionWords(key, path)) given.set(words, key);
+		else paths.set(collection.path, key);
+		problems.push(
+			...collectionProblems(collection).map(
+				(problem) => `collection "${key}" ${problem}`,
+			),
+		);
 	}
+	const given = allCollectionActions(collections);
+	for (const [key, action] of Object.entries(given))
+		problems.push(
+			...actionProblems(action).map((problem) => `action "${key}" ${problem}`),
+		);
 	if (code === undefined) return problems;
 	const app = code as Record<string, unknown> | null;
 	if (
@@ -200,19 +200,13 @@ export function problemsOf(declaration: unknown, code?: unknown): string[] {
 			'epicenter.ts does not export defineApp(...) by default',
 		];
 	const actions = app.actions as Record<string, unknown>;
-	const keys = [...Object.keys(actions), ...given.keys()];
+	// A written action with a collection's words replaces it, so only the others can clash.
+	const keys = [...new Set([...Object.keys(actions), ...Object.keys(given)])];
 	for (const key of Object.keys(actions)) {
 		const words = key.split(' ');
 		if (!words.every(isName)) {
 			problems.push(
 				`action "${key}" is not words of lowercase letters, digits, and dashes, one space apart`,
-			);
-			continue;
-		}
-		const collection = given.get(key);
-		if (collection !== undefined) {
-			problems.push(
-				`action "${key}" is one collection "${collection}" gives; name it something else`,
 			);
 			continue;
 		}
@@ -228,6 +222,17 @@ export function problemsOf(declaration: unknown, code?: unknown): string[] {
 		);
 	}
 	return problems;
+}
+
+/** An app's actions: each collection's, with `epicenter.ts`'s laid over them by their words. */
+export function appActions(
+	declaration: Declaration,
+	code?: App,
+): Record<string, Action> {
+	return {
+		...allCollectionActions(declaration.collections),
+		...(code?.actions as Record<string, Action> | undefined),
+	};
 }
 
 function actionProblems(action: unknown): string[] {

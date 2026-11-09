@@ -7,8 +7,10 @@ import { afterEach, expect, test } from 'bun:test';
 import {
 	mkdir,
 	mkdtemp,
+	chmod,
 	readdir,
 	rm,
+	stat,
 	symlink,
 	writeFile,
 } from 'node:fs/promises';
@@ -43,6 +45,15 @@ test('writes make parents, replace whole files and leave no temporary files', as
 	await folder.delete('missing');
 	await folder.delete('bytes');
 	expect(await folder.readBytes('bytes')).toBeUndefined();
+});
+
+test('a write keeps the mode of the file it replaces', async () => {
+	const { root, folder } = await setup();
+	await folder.write('run.sh', 'echo one\n');
+	await chmod(join(root, 'run.sh'), 0o755);
+	await folder.write('run.sh', 'echo two\n');
+	expect((await stat(join(root, 'run.sh'))).mode & 0o777).toBe(0o755);
+	expect(await folder.read('run.sh')).toBe('echo two\n');
 });
 
 test('normalization refuses climbing, absolute and Git paths on every file method', async () => {

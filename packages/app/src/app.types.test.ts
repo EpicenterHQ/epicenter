@@ -11,7 +11,6 @@ const assertType = <T extends true>(): T | undefined => undefined;
 /** A declaration as TypeScript reads an imported epicenter.json: widened. */
 const widened: {
 	$schema: string;
-	name: string;
 	description: string;
 	collections: {
 		books: {
@@ -21,7 +20,6 @@ const widened: {
 	};
 } = {
 	$schema: 'https://epicenter.so/epicenter.schema.json',
-	name: 'reading',
 	description: 'How much I read each week',
 	collections: {
 		books: {
@@ -148,8 +146,8 @@ describe('type errors', () => {
 		});
 	});
 
-	test('a declaration needs a name', () => {
-		// @ts-expect-error — name is missing
-		defineApp({ description: 'Nameless' }, { actions: {} });
+	test('a declaration needs a description', () => {
+		// @ts-expect-error — description is missing
+		defineApp({ collections: {} }, { actions: {} });
 	});
 });

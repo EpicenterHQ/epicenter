@@ -62,10 +62,13 @@ const HANDLERS: { [K in Command]: Handler } = {
 		return newCommand(only, json);
 	},
 	async add(words, json) {
-		const [only] = words;
-		if (words.length !== 1 || only === undefined)
-			return fail(usage('epicenter add needs one folder or Git URL'), json);
-		return addCommand(only, json);
+		const [source, name] = words;
+		if (words.length > 2 || source === undefined)
+			return fail(
+				usage('epicenter add needs one folder or Git URL, and maybe a name'),
+				json,
+			);
+		return addCommand(source, name, json);
 	},
 	sync: syncCommand,
 	async serve(words, json) {

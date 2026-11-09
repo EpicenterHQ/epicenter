@@ -2,13 +2,14 @@
  * An action's folder on this computer's disk (ADR-0841, ADR-0850). It is a
  * convenience, not a sandbox: paths are normalized and `.git` is refused, and
  * otherwise a write is a write, recorded nowhere. Writes replace a whole file
- * at once. `commit` runs Git from the folder. Listing avoids Git,
+ * at once, keeping the mode of the file they replace. `commit` runs Git from the folder. Listing avoids Git,
  * dependencies, and directory links so those trees never become app data.
  */
 
 import { randomUUID } from 'node:crypto';
 import type { Dirent } from 'node:fs';
 import {
+	chmod,
 	lstat,
 	mkdir,
 	readdir,
@@ -41,10 +42,17 @@ export function folderOnDisk(dir: string): Folder {
 	async function writeBytes(path: string, bytes: Uint8Array) {
 		const target = pathOf(path);
 		await mkdir(dirname(target), { recursive: true });
-		// Beside the target and renamed over it, so a reader never sees half a file.
+		// Beside the target and renamed over it, so a reader never sees half a file; a file it replaces keeps its mode.
 		const temp = `${target}.${randomUUID()}.tmp`;
+		let mode: number | undefined;
 		try {
-			await writeFile(temp, bytes);
+			mode = (await stat(target)).mode & 0o7777;
+		} catch (error) {
+			if (!missing(error)) throw error;
+		}
+		try {
+			await writeFile(temp, bytes, mode === undefined ? {} : { mode });
+			if (mode !== undefined) await chmod(temp, mode);
 			await rename(temp, target);
 		} finally {
 			await rm(temp, { force: true });

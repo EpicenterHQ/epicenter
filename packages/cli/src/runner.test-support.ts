@@ -65,19 +65,13 @@ export async function fixture() {
 	}
 
 	/**
-	 * An app named `name` at `parent/entry`: an `epicenter.json` declaring it,
-	 * and an `epicenter.ts` of `source` with the declaration, `defineApp`, and
-	 * `field` imported.
+	 * An app at `parent/entry`: an `epicenter.json`, and an `epicenter.ts` of
+	 * `source` with the declaration, `defineApp`, and `field` imported.
 	 */
-	async function app(
-		entry: string,
-		source: string,
-		parent = home,
-		name = entry,
-	) {
+	async function app(entry: string, source: string, parent = home) {
 		return folder(join(parent, entry), {
 			'.gitignore': gitignore,
-			'epicenter.json': declarationOf(name),
+			'epicenter.json': declarationOf(entry),
 			'epicenter.ts': `import declaration from './epicenter.json';\nimport { defineApp, field } from '@epicenter/app';\n${source}`,
 		});
 	}
@@ -109,7 +103,6 @@ export const readingApp = {
 	'epicenter.json': `${JSON.stringify(
 		{
 			$schema: 'https://epicenter.so/epicenter.schema.json',
-			name: 'reading',
 			description: 'How much I read each week',
 			collections: {
 				books: {
@@ -166,12 +159,12 @@ export default defineApp(declaration, {
 `,
 };
 
-/** An epicenter.json with only a name and a description. */
+/** An epicenter.json with only a description that names the app. */
 export function declarationOf(
 	name: string,
 	extra: Record<string, unknown> = {},
 ) {
-	return `${JSON.stringify({ name, description: `The ${name} app`, ...extra }, null, 2)}\n`;
+	return `${JSON.stringify({ description: `The ${name} app`, ...extra }, null, 2)}\n`;
 }
 
 export const reading = `export default defineApp(declaration, { actions: {

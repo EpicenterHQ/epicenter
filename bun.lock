@@ -417,6 +417,7 @@
       "name": "@epicenter/app",
       "version": "0.0.1",
       "dependencies": {
+        "@epicenter/definition": "workspace:*",
         "typebox": "catalog:",
       },
       "devDependencies": {

@@ -7,18 +7,20 @@
  * ```json
  * {
  *   "$schema": "https://epicenter.so/epicenter.schema.json",
- *   "name": "vocab",
  *   "description": "Words I'm learning",
  *   "collections": {
  *     "words": { "path": "words/{stem}.md", "fields": { "type": "object", "properties": {} } }
  *   }
  * }
  * ```
+ *
+ * An app's name is its folder's name in `~/Epicenter`, never a field here
+ * (ADR-0864).
  */
 import { Type } from 'typebox';
 import { Value } from 'typebox/value';
 
-/** Lowercase letters, digits, and dashes, starting with a letter: an app's name, a collection's, an action's word. */
+/** Lowercase letters, digits, and dashes, starting with a letter: an app's folder name, a collection's, an action's word. */
 export const NAME = '^[a-z][a-z0-9-]*$';
 
 const NAME_PATTERN = new RegExp(NAME);
@@ -61,11 +63,6 @@ export const CollectionSchema = Type.Object(
 export const DeclarationSchema = Type.Object(
 	{
 		$schema: Type.Optional(Type.String()),
-		name: Type.String({
-			pattern: NAME,
-			description:
-				'The app, as `epicenter <name>` runs it: lowercase letters, digits, and dashes',
-		}),
 		description: Type.String({ minLength: 1 }),
 		collections: Type.Optional(
 			Type.Record(Type.String({ pattern: NAME }), CollectionSchema, {
@@ -80,10 +77,9 @@ export const DeclarationSchema = Type.Object(
 	},
 );
 
-/** A declaration as TypeScript reads an imported `epicenter.json`, widened. Only what `defineApp` needs to know is required. */
+/** A declaration as TypeScript reads an imported `epicenter.json`, widened. */
 export type Declaration = {
 	readonly $schema?: string;
-	readonly name: string;
 	readonly description: string;
 	readonly collections?: { readonly [name: string]: Collection };
 };
@@ -102,6 +98,8 @@ export function declarationProblems(value: unknown): string[] {
 			.additionalProperties;
 		if (error.keyword === 'pattern' && /^\/collections\/[^/]+\/path$/.test(at))
 			return `epicenter.json at ${at} is not a path inside the folder with at most one placeholder, such as words/{stem}.md`;
+		if (error.keyword === 'additionalProperties' && at === '/' && extra?.includes('name'))
+			return 'epicenter.json has "name", which a declaration does not take: an app\'s name is its folder\'s';
 		if (error.keyword === 'additionalProperties' && extra?.length)
 			return `epicenter.json at ${at} has ${extra.map((key) => `"${key}"`).join(', ')}, which a declaration does not take`;
 		return `epicenter.json at ${at} ${error.message}`;

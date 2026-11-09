@@ -2,10 +2,13 @@
  * `epicenter add` makes something one of your apps, by linking or cloning
  * (ADR-0852). Neither commits anything:
  *
- * - `add <folder>` links the folder into `~/Epicenter` under its declared
- *   name, whatever it is: a repository, a folder inside one, or neither.
+ * - `add <folder>` links the folder into `~/Epicenter`, whatever it is: a
+ *   repository, a folder inside one, or neither.
  * - `add <git url>` is `git clone` into `~/Epicenter`; the clone's remotes
  *   are Git's.
+ *
+ * The app's name is its entry in `~/Epicenter`: the folder's or repository's
+ * own name, as `git clone` picks one, unless a second word gives another.
  *
  * `epicenter new <name>` makes the folder from the built-in template, makes
  * it a repository, and commits the template.
@@ -21,7 +24,7 @@ import {
 	symlink,
 	writeFile,
 } from 'node:fs/promises';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { nameProblem, SCHEMA_URL } from '@epicenter/app';
 import { CliError } from './errors.ts';
 import { checkedGit } from './git.ts';
@@ -49,7 +52,7 @@ const LFS_TYPES = [
 function template(name: string) {
 	return {
 		'epicenter.json': `${JSON.stringify(
-			{ $schema: SCHEMA_URL, name, description: `Describe ${name}` },
+			{ $schema: SCHEMA_URL, description: `Describe ${name}` },
 			null,
 			2,
 		)}\n`,
@@ -126,35 +129,57 @@ function isUrl(source: string) {
 	);
 }
 
-/** `epicenter add <folder>` or `epicenter add <git url>`. */
-export async function addCommand(
-	source: string,
-	json: boolean,
-): Promise<number> {
-	return isUrl(source) ? addFromUrl(source, json) : addFolder(source, json);
+/** The name `git clone` would give `source`: its last part, without `.git`. */
+function nameOf(source: string) {
+	return basename(source.replace(/[/\\]+$/, '').replace(/^.*:/, '/')).replace(
+		/\.git$/,
+		'',
+	);
 }
 
-async function addFolder(source: string, json: boolean) {
-	let folder: string;
-	try {
-		folder = await realpath(resolveFolder(source));
-	} catch {
+/** `epicenter add <folder> [<name>]` or `epicenter add <git url> [<name>]`. */
+export async function addCommand(
+	source: string,
+	name: string | undefined,
+	json: boolean,
+): Promise<number> {
+	const url = isUrl(source);
+	let folder: string | undefined;
+	if (!url) {
+		try {
+			folder = await realpath(resolveFolder(source));
+		} catch {
+			return fail(
+				CliError.Usage({ message: `${source} is not a folder` }).error,
+				json,
+			);
+		}
+	}
+	const chosen = name ?? nameOf(folder ?? source);
+	const problem = nameProblem(chosen);
+	if (problem !== undefined)
 		return fail(
-			CliError.Usage({ message: `${source} is not a folder` }).error,
+			CliError.Usage({
+				message: `${problem}, so it cannot name an app. Name it: epicenter add ${source} <name>`,
+			}).error,
 			json,
 		);
-	}
+	if (await taken(chosen))
+		return fail(
+			CliError.Usage({ message: `${chosen} already exists in ${homeDir()}` })
+				.error,
+			json,
+		);
+	return folder === undefined
+		? addFromUrl(source, chosen, json)
+		: addFolder(folder, chosen, json);
+}
+
+async function addFolder(folder: string, name: string, json: boolean) {
 	const read = await readDeclaration(folder);
 	if ('problems' in read)
 		return fail(
 			CliError.AppProblems({ app: folder, problems: read.problems }).error,
-			json,
-		);
-	const { name } = read.declaration;
-	if (await taken(name))
-		return fail(
-			CliError.Usage({ message: `${name} already exists in ${homeDir()}` })
-				.error,
 			json,
 		);
 	await mkdir(homeDir(), { recursive: true });
@@ -162,7 +187,7 @@ async function addFolder(source: string, json: boolean) {
 	return done(name, json);
 }
 
-async function addFromUrl(url: string, json: boolean) {
+async function addFromUrl(url: string, name: string, json: boolean) {
 	await mkdir(homeDir(), { recursive: true });
 	// Clone beside the apps under a hidden name, which discovery skips, then move it into place.
 	const staging = join(homeDir(), `.adding-${randomUUID()}`);
@@ -172,13 +197,6 @@ async function addFromUrl(url: string, json: boolean) {
 		if ('problems' in read)
 			return fail(
 				CliError.AppProblems({ app: url, problems: read.problems }).error,
-				json,
-			);
-		const { name } = read.declaration;
-		if (await taken(name))
-			return fail(
-				CliError.Usage({ message: `${name} already exists in ${homeDir()}` })
-					.error,
 				json,
 			);
 		await rename(staging, join(homeDir(), name));

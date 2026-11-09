@@ -278,7 +278,6 @@ test('W4 epicenter new writes the template and runs git init', async () => {
 		JSON.parse(await readFile(join(folder, 'epicenter.json'), 'utf8')),
 	).toEqual({
 		$schema: 'https://epicenter.so/epicenter.schema.json',
-		name: 'garden',
 		description: 'Describe garden',
 	});
 	expect(await readFile(join(folder, '.gitignore'), 'utf8')).toBe(gitignore);

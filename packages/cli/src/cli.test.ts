@@ -24,10 +24,10 @@ async function setup() {
 	return f;
 }
 
-test('listing isolates broken imports, invalid apps and mismatches and shows linked apps', async () => {
+test('listing isolates broken imports, invalid apps and folders that cannot name an app, and shows linked apps', async () => {
 	const f = await setup();
 	await f.app('broken', `throw new Error('import exploded');`);
-	await f.app('copy', reading, f.home, 'reading');
+	await f.app('sync', reading);
 	await f.app('invalid', `export default {actions:{bad:{input:{}}}};`);
 	const linked = await f.app(
 		'linked',
@@ -60,22 +60,21 @@ test('listing isolates broken imports, invalid apps and mismatches and shows lin
 	expect(JSON.stringify(value.apps)).not.toContain('~kind');
 	expect(value.problems.map((app: { entry: string }) => app.entry)).toEqual([
 		'broken',
-		'copy',
 		'invalid',
+		'sync',
 	]);
-	expect(value.problems[1]).toMatchObject({
-		entry: 'copy',
-		folder: join(f.home, 'copy'),
+	expect(value.problems[2]).toMatchObject({
+		entry: 'sync',
+		folder: join(f.home, 'sync'),
 	});
-	expect(value.problems[1].problems).toEqual([
-		'declares the name "reading" but its folder is "copy"',
+	expect(value.problems[2].problems).toEqual([
+		'its folder\'s name cannot name an app: "sync" is an epicenter command',
 	]);
 	const human = await f.run();
 	expect(human.stdout).toContain('Problems:');
 	expect(human.stdout).toContain('import exploded');
 	expect(human.stdout).toContain(`-> ${linked}`);
 	expect(human.stdout).toContain('(read-only)');
-	expect((await f.run('copy', '--json')).code).toBe(2);
 });
 
 test('commands write disk data and return one JSON answer without diagnostics', async () => {
@@ -128,7 +127,7 @@ test('usage errors return exit 2 and exactly one JSON error', async () => {
 		[['reading', 'log', '3', '--book', 'a', '--book', 'b'], '--book'],
 		[['reading', 'log', '3', '--minutes', '4'], '--minutes'],
 		[['reading', 'log', '3', '--book'], 'needs a value'],
-		[['reading', 'tag', '--done=false'], 'takes no value'],
+		[['reading', 'tag', '--done=maybe'], 'takes no value, or =true or =false'],
 		[['reading', 'log', '3', '--version'], '--version'],
 		[['setup'], 'Unknown app "setup"'],
 	];
@@ -150,6 +149,8 @@ test('lists repeat, switches default and literal positionals append to flagged v
 	const answer = async (...args: string[]) =>
 		JSON.parse((await f.run(...args, '--json')).stdout).returned;
 	expect(await answer('reading', 'tag')).toEqual({ tags: [], done: false });
+	expect(await answer('reading', 'tag', '--done=true')).toEqual({ tags: [], done: true });
+	expect(await answer('reading', 'tag', '--done=false')).toEqual({ tags: [], done: false });
 	expect(
 		await answer('reading', 'tag', '--tags', 'a', '--tags=b', '--done'),
 	).toEqual({ tags: ['a', 'b'], done: true });
@@ -170,9 +171,9 @@ test('a throwing action returns exit 1 with its message', async () => {
 	});
 });
 
-test('path runs keep declared identity and their own .cache while home aliases are refused', async () => {
+test('path runs take the folder name and their own .cache while home aliases are refused', async () => {
 	const f = await setup();
-	const outside = await f.app('worktree', reading, f.root, 'reading');
+	const outside = await f.app('reading', reading, join(f.root, 'worktree'));
 	const result = await f.run(outside, 'inspect', '--json');
 	expect(result.code).toBe(0);
 	const value = JSON.parse(result.stdout).returned;
@@ -244,18 +245,14 @@ test('missing and empty homes are successful answers and missing apps suggest cr
 	expect(JSON.parse(missing.stdout).error.next).toBe(`mkdir ${f.home}`);
 });
 
-test('a name mismatch is a problem even when no other app declares that name', async () => {
+test('an app is named by its folder in the home, whatever its declaration says', async () => {
 	const f = await setup();
-	await f.app('other-name', reading, f.home, 'elsewhere');
+	await f.app('other-name', reading);
 	const listed = JSON.parse((await f.run('--json')).stdout);
-	expect(listed.problems).toContainEqual({
-		entry: 'other-name',
-		folder: join(f.home, 'other-name'),
-		problems: ['declares the name "elsewhere" but its folder is "other-name"'],
-	});
-	const result = await f.run('other-name', 'log', '30', '--json');
-	expect(result.code).toBe(2);
-	expect(JSON.parse(result.stdout).error.message).toContain(
-		'declares the name "elsewhere" but its folder is "other-name"',
+	expect(listed.apps.map((app: { name: string }) => app.name)).toContain(
+		'other-name',
 	);
+	const result = await f.run('other-name', 'log', '30', '--json');
+	expect(result.code).toBe(0);
+	expect(JSON.parse(result.stdout).returned).toEqual({ minutes: 30 });
 });

@@ -1,17 +1,11 @@
 {
 	"type": "object",
 	"required": [
-		"name",
 		"description"
 	],
 	"properties": {
 		"$schema": {
 			"type": "string"
-		},
-		"name": {
-			"type": "string",
-			"pattern": "^[a-z][a-z0-9-]*$",
-			"description": "The app, as `epicenter <name>` runs it: lowercase letters, digits, and dashes"
 		},
 		"description": {
 			"type": "string",

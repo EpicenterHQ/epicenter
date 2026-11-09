@@ -46,15 +46,16 @@ export function fieldKind(field: TSchema): string {
 	const schema = field as {
 		type?: string;
 		format?: string;
+		enum?: unknown[];
 		anyOf?: { const?: unknown }[];
 	};
 	if (schema.type === 'boolean') return 'switch';
 	if (schema.type === 'array') return 'list';
 	if (schema.type === 'number' || schema.type === 'integer') return 'number';
 	if (schema.format === 'date') return 'date';
-	const choices = schema.anyOf;
-	if (choices?.every((choice) => typeof choice.const === 'string'))
-		return choices.map((choice) => choice.const).join('|');
+	const choices = schema.enum ?? schema.anyOf?.map((choice) => choice.const);
+	if (choices?.every((choice) => typeof choice === 'string'))
+		return choices.join('|');
 	return 'text';
 }
 
@@ -106,8 +107,15 @@ export function inputFromArgs(
 					error: `Unknown flag ${flag}. Flags: ${[...flags.keys()].join(', ') || '(none)'}`,
 				};
 			const kind = fieldKind(field.schema);
-			if (kind === 'switch' && equal >= 0)
-				return { error: `${flag} takes no value` };
+			const value = equal < 0 ? undefined : token.slice(equal + 1);
+			if (kind === 'switch' && value !== undefined) {
+				if (value !== 'true' && value !== 'false')
+					return { error: `${flag} takes no value, or =true or =false` };
+				if (Object.hasOwn(input, field.key))
+					return { error: repeated(field.key) };
+				input[field.key] = value === 'true';
+				continue;
+			}
 			let raw: string | true = true;
 			if (kind !== 'switch') {
 				const next = tokens[index + 1];

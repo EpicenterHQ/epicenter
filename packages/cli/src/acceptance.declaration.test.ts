@@ -66,13 +66,13 @@ test('D1 the listing shows declared folders, ignores the rest, and names each pr
 import { defineApp, field } from '@epicenter/app';
 export default defineApp(declaration, {
 	actions: {
-		'words save': { description: 'Save a word my way', input: { stem: field.text() }, run: () => null },
+		'words set': { description: 'Save a word my way', input: { stem: field.text() }, positional: ['stem'], run: ({ stem }) => \`mine: \${stem}\` },
 	},
 });
 `,
 	});
 	await f.folder(join(f.home, 'malformed'), {
-		'epicenter.json': JSON.stringify({ name: 3, description: 'Bad' }),
+		'epicenter.json': JSON.stringify({ description: 3 }),
 		'epicenter.ts': `await Bun.write(${JSON.stringify(join(f.root, 'ran'))}, 'ran');\nexport default {};\n`,
 	});
 	await f.folder(join(f.home, 'nodefault'), {
@@ -86,6 +86,7 @@ export default defineApp(declaration, {
 	const listing = JSON.parse(result.stdout);
 	expect(listing.home).toBe(f.home);
 	expect(listing.apps.map((app: { name: string }) => app.name)).toEqual([
+		'clash',
 		'journal',
 		'reading',
 		'vocab',
@@ -99,13 +100,14 @@ export default defineApp(declaration, {
 			entry.problems.join('\n'),
 		]),
 	);
-	expect(Object.keys(problems)).toEqual(['clash', 'malformed', 'nodefault']);
+	expect(Object.keys(problems)).toEqual(['malformed', 'nodefault']);
 	expect(problems.nodefault).toContain('does not export defineApp');
 	expect(existsSync(join(f.root, 'ran'))).toBe(false);
-	expect(problems.clash).toContain('"words save"');
-	expect(problems.clash).toContain('collection "words"');
 	expect(problems.malformed).toContain('epicenter.json');
-	expect(problems.malformed).toContain('/name');
+	expect(problems.malformed).toContain('/description');
+	// A written action with a collection's words replaces the collection's.
+	const clash = await f.run('clash', 'words', 'set', 'serendipity');
+	expect(clash.stdout).toBe('mine: serendipity\n');
 	expect(JSON.stringify(listing)).not.toContain('readme-only');
 
 	const human = await f.run();
@@ -141,12 +143,16 @@ export default defineApp(declaration, { actions: {} });
 		},
 	});
 	expect(reading.actions.map((tool: { name: string }) => tool.name)).toEqual([
+		'reading_books_list',
+		'reading_books_get',
+		'reading_books_set',
+		'reading_books_delete',
 		'reading_log',
 		'reading_between',
 		'reading_week_show',
 		'reading_explode',
 	]);
-	expect(reading.actions[0]).toEqual({
+	expect(reading.actions[4]).toEqual({
 		name: 'reading_log',
 		description: 'Record minutes read today',
 		inputSchema: {
@@ -157,7 +163,7 @@ export default defineApp(declaration, { actions: {} });
 		},
 		annotations: MCP_DEFAULTS,
 	});
-	expect(reading.actions[2].annotations).toEqual({
+	expect(reading.actions[6].annotations).toEqual({
 		...MCP_DEFAULTS,
 		readOnlyHint: true,
 		openWorldHint: false,
@@ -286,4 +292,135 @@ test('D7 discovery uses $HOME/Epicenter and ignores EPICENTER_HOME', async () =>
 		'reading',
 	]);
 	expect((await f.run('--help')).stdout).not.toContain('EPICENTER_HOME');
+});
+
+/** Capture: an app that is only its epicenter.json. */
+const capture = {
+	$schema: 'https://epicenter.so/epicenter.schema.json',
+	description: 'Things I want to keep',
+	collections: {
+		items: {
+			path: 'items/{id}.md',
+			fields: {
+				type: 'object',
+				properties: {
+					kind: { type: 'string', enum: ['thought', 'link', 'quote'] },
+					url: { type: 'string', format: 'uri' },
+					added: { type: 'string', format: 'date' },
+				},
+				required: ['kind', 'added'],
+			},
+		},
+	},
+};
+
+test('D8 an app with only epicenter.json lists, reads, writes, and deletes its collection from the terminal and MCP', async () => {
+	const f = await setup();
+	const folder = await f.folder(join(f.home, 'capture'), {
+		'.gitignore': gitignore,
+		'epicenter.json': `${JSON.stringify(capture, null, 2)}\n`,
+	});
+	const json = async (...args: string[]) => {
+		const result = await f.run('capture', ...args, '--json');
+		return { code: result.code, answer: JSON.parse(result.stdout) };
+	};
+
+	const help = await f.run('capture', 'items', 'set', '--help');
+	expect(help.stdout).toContain(
+		'epicenter capture items set <id> [--kind <thought|link|quote>] [--url <text>] [--added <date>] [--body <text>]',
+	);
+
+	expect(
+		await json('items', 'set', 'dune', '--kind', 'quote', '--added', '2026-11-09', '--body', 'Fear is the mind-killer.\n'),
+	).toEqual({
+		code: 0,
+		answer: {
+			returned: {
+				kind: 'quote',
+				added: '2026-11-09',
+				id: 'dune',
+				body: 'Fear is the mind-killer.\n',
+			},
+		},
+	});
+	expect(await readFile(join(folder, 'items/dune.md'), 'utf8')).toBe(
+		'---\nkind: "quote"\nadded: "2026-11-09"\n---\nFear is the mind-killer.\n',
+	);
+
+	// Refused before anything is written: a value outside the enum, a date that is not one, a new file missing a required field.
+	const refused = [
+		[['items', 'set', 'dune', '--kind', 'poem'], 2, '--kind'],
+		[['items', 'set', 'dune', '--added', '2026-13-45'], 2, '--added'],
+		[['items', 'set', 'dune', '--url', 'not a url'], 2, '--url'],
+		[['items', 'set', 'new-one', '--kind', 'link'], 1, 'A new items/new-one.md needs added'],
+		[['items', 'set', '../escape', '--kind', 'link'], 2, '<id>'],
+	] as const;
+	for (const [args, code, message] of refused) {
+		const result = await json(...args);
+		expect(result.code).toBe(code);
+		expect(JSON.stringify(result.answer)).toContain(message);
+	}
+	expect(await readFile(join(folder, 'items/dune.md'), 'utf8')).toContain('kind: "quote"');
+
+	expect((await json('items', 'set', 'dune', '--url', 'https://example.com/dune')).code).toBe(0);
+	expect(await json('items', 'list')).toEqual({
+		code: 0,
+		answer: {
+			returned: [
+				{ kind: 'quote', added: '2026-11-09', url: 'https://example.com/dune', id: 'dune' },
+			],
+		},
+	});
+	expect((await f.run('capture', 'items', 'get', 'dune')).stdout).toContain(
+		'"body": "Fear is the mind-killer.\\n"',
+	);
+
+	const transport = new StdioClientTransport({
+		command: process.execPath,
+		args: [f.bin, 'serve', '--stdio'],
+		cwd: f.root,
+		env: f.env as Record<string, string>,
+		stderr: 'pipe',
+	});
+	const client = new Client({ name: 'acceptance', version: '1' });
+	try {
+		await client.connect(transport);
+		const { tools } = await client.listTools();
+		expect(tools.map((tool) => tool.name)).toEqual([
+			'sync',
+			'capture_items_list',
+			'capture_items_get',
+			'capture_items_set',
+			'capture_items_delete',
+		]);
+		expect(tools[3]?.annotations).toEqual({
+			readOnlyHint: false,
+			destructiveHint: true,
+			idempotentHint: true,
+			openWorldHint: false,
+		});
+		const set = await client.callTool({
+			name: 'capture_items_set',
+			arguments: { id: 'petrichor', kind: 'thought', added: '2026-11-09' },
+		});
+		expect(set.isError).toBeFalsy();
+		const bad = await client.callTool({
+			name: 'capture_items_set',
+			arguments: { id: 'petrichor', kind: 'poem' },
+		});
+		expect(bad.isError).toBe(true);
+		const deleted = await client.callTool({
+			name: 'capture_items_delete',
+			arguments: { id: 'dune' },
+		});
+		expect(deleted.structuredContent).toEqual({ returned: true });
+	} finally {
+		await client.close();
+	}
+	expect(await json('items', 'list')).toEqual({
+		code: 0,
+		answer: { returned: [{ kind: 'thought', added: '2026-11-09', id: 'petrichor' }] },
+	});
+	// Nothing commits a collection's writes (ADR-0850).
+	expect(await gitIn(folder, 'log', '--format=%s')).toBe('initial');
 });

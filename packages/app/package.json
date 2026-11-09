@@ -2,7 +2,7 @@
 	"name": "@epicenter/app",
 	"version": "0.0.1",
 	"private": true,
-	"description": "What an app's epicenter.ts imports: defineApp, the fields an action's input is made of, and the places an action receives.",
+	"description": "What an app's epicenter.ts imports, and what every app's epicenter.json gives: the declaration's schema, each collection's actions, the fields an action's input is made of, and the places an action receives.",
 	"type": "module",
 	"exports": {
 		".": "./src/index.ts",
@@ -14,6 +14,7 @@
 		"test": "bun test"
 	},
 	"dependencies": {
+		"@epicenter/definition": "workspace:*",
 		"typebox": "catalog:"
 	},
 	"devDependencies": {

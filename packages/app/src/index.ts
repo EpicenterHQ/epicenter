@@ -3,6 +3,7 @@ export {
 	ANNOTATION_DEFAULTS,
 	type Annotations,
 	type App,
+	appActions,
 	COMMANDS,
 	type Command,
 	defineApp,
@@ -11,6 +12,12 @@ export {
 	nameProblem,
 	problemsOf,
 } from './app.ts';
+export {
+	collectionActions,
+	collectionProblems,
+	fileKind,
+	pathTemplate,
+} from './collection.ts';
 export {
 	type Context,
 	type Folder,

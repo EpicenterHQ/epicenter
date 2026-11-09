@@ -10,7 +10,6 @@ import {
 } from './index.ts';
 
 const declaration = {
-	name: 'reading',
 	description: 'How much I read each week',
 	collections: {
 		books: {
@@ -84,14 +83,12 @@ describe('problemsOf', () => {
 	test('names what the declaration schema refuses, by JSON pointer', () => {
 		expect(
 			problemsOf({
-				name: 'Reading',
 				collections: { books: { path: '/abs/{a}/{b}.md', fields: {} } },
 				extra: true,
 			}),
 		).toEqual([
 			'epicenter.json at / must have required properties description',
 			'epicenter.json at / has "extra", which a declaration does not take',
-			'epicenter.json at /name must match pattern "^[a-z][a-z0-9-]*$"',
 			'epicenter.json at /collections/books/path is not a path inside the folder with at most one placeholder, such as words/{stem}.md',
 			'epicenter.json at /collections/books/fields must have required properties type',
 		]);
@@ -107,7 +104,6 @@ describe('problemsOf', () => {
 	])('refuses the collection path %p', (path) => {
 		expect(
 			problemsOf({
-				name: 'vocab',
 				description: 'Words',
 				collections: { words: { path, fields: { type: 'object' } } },
 			}),
@@ -118,7 +114,6 @@ describe('problemsOf', () => {
 
 	test('names code that is missing, and collections that share a path, without code', () => {
 		const vocab = {
-			name: 'vocab',
 			description: 'Words',
 			collections: {
 				words: { path: 'words/{stem}.md', fields: { type: 'object' } },
@@ -143,7 +138,6 @@ describe('problemsOf', () => {
 	test('names each problem in the code', () => {
 		const problems = problemsOf(
 			{
-				name: 'serve',
 				description: 'Bad',
 				collections: {
 					words: { path: 'words/{stem}.md', fields: { type: 'object' } },
@@ -166,14 +160,13 @@ describe('problemsOf', () => {
 						annotations: { readOnlyHint: true, dangerous: true },
 						run() {},
 					},
-					'words save': { description: 'Mine', input: {}, run() {} },
+					'words set': { description: 'Mine', input: {}, run() {} },
 					settings: { description: 'Settings', input: {}, run() {} },
 					'Bad Name': { description: 'b', input: {}, run() {} },
 				},
 			},
 		);
 		expect(problems).toEqual([
-			'its name "serve" is an epicenter command',
 			'action "calendar" is the start of action "calendar show", so "calendar show" could not be told apart',
 			'action "calendar" has "readonly", which an action does not take',
 			'action "calendar show" has the annotation "dangerous", which MCP does not define',
@@ -181,9 +174,43 @@ describe('problemsOf', () => {
 			'action "calendar show" has the list "b" as a positional before the last, so the ones after it could never be given',
 			'action "calendar show" lists the positional "a" twice',
 			'action "calendar show" has the positional "nope", which is not one of its fields',
-			'action "words save" is one collection "words" gives; name it something else',
-			'action "settings" is the start of action "settings show", so "settings show" could not be told apart',
+			'action "settings" is the start of action "settings get", so "settings get" could not be told apart',
 			'action "Bad Name" is not words of lowercase letters, digits, and dashes, one space apart',
+		]);
+	});
+
+	test('an old declaration with a name is told where the name went', () => {
+		expect(problemsOf({ name: 'vocab', description: 'Words' })).toEqual([
+			'epicenter.json has "name", which a declaration does not take: an app\'s name is its folder\'s',
+		]);
+	});
+
+	test('names collections whose files or fields a collection cannot hold', () => {
+		expect(
+			problemsOf({
+				description: 'Bad',
+				collections: {
+					photos: { path: 'photos/{id}.jpg', fields: { type: 'object' } },
+					words: {
+						path: 'words/{stem}.md',
+						fields: {
+							type: 'object',
+							properties: {
+								stem: { type: 'string' },
+								body: { type: 'string' },
+								json: { type: 'string' },
+								'two words': { type: 'string' },
+							},
+						},
+					},
+				},
+			}),
+		).toEqual([
+			'collection "photos" has the path photos/{id}.jpg, which is not .md or .json',
+			'collection "words" has a field "stem", which its path gives as {stem}; the file\'s name holds it',
+			'collection "words" has a field "body", which is the text after the front matter',
+			'collection "words" has a field "two words", which a front matter line cannot name',
+			'action "words set" has a field named "json", which epicenter reads itself',
 		]);
 	});
 

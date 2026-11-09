@@ -85,8 +85,10 @@ Over MCP the tool `sync` takes `{ app?: string }`, runs `epicenter sync` in a ch
 
 `epicenter add` makes something one of your apps, by linking or cloning, and commits nothing ([ADR-0852](../../docs/adr/0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md)):
 
-- `add <folder>` links a folder with an `epicenter.json` into `~/Epicenter` under its declared name, whatever it is: a repository, a folder inside one, or neither.
-- `add <git url>` is `git clone` into `~/Epicenter`; the clone's remotes are Git's.
+- `add <folder> [<name>]` links a folder with an `epicenter.json` into `~/Epicenter`, whatever it is: a repository, a folder inside one, or neither.
+- `add <git url> [<name>]` is `git clone` into `~/Epicenter`; the clone's remotes are Git's.
+
+An app's name is its entry in `~/Epicenter`. Without `<name>`, `add` takes it the way `git clone` does, from the folder or the URL's last part without `.git`.
 
 `epicenter new <name>` makes the folder from the built-in template: `epicenter.json` with its `$schema`, a `.gitignore` of exactly `node_modules/`, `.cache/`, `*.local`, and `*.local.*` ([ADR-0858](../../docs/adr/0858-where-a-file-lives-decides-whether-it-travels-survives-or-dies-with-its-program.md)), and a `.gitattributes` routing binary types through Git LFS. It runs `git init` and commits the template as `new <name>`. It does not set up Git LFS; `git lfs install` is each computer's, once.
 

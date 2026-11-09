@@ -1,18 +1,22 @@
 /**
  * The app home and folders run by path (ADR-0841, ADR-0857). A folder is an
  * app when it has an `epicenter.json`; its `epicenter.ts`, when present, adds
- * code. Each entry loads on its own so a broken app is listed without stopping
- * the others. A name or path that finds no app is a `CliError` with the next
- * command as data (ADR-0842).
+ * code. An app's name is its entry in the home, or a folder's own name when it
+ * is run by path. Each entry loads on its own so a broken app is listed
+ * without stopping the others. A name or path that finds no app is a
+ * `CliError` with the next command as data (ADR-0842).
  */
 import { lstat, readdir, readFile, realpath, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
 	type Action,
+	type App,
+	appActions,
 	type Declaration,
 	isName,
+	nameProblem,
 	problemsOf,
 } from '@epicenter/app';
 import { Ok, type Result } from 'wellcrafted/result';
@@ -39,9 +43,9 @@ export type Located =
 	| (Place & {
 			ok: true;
 			name: string;
-			/** The parsed `epicenter.json`: the one source of the app's name, description, and collections. */
+			/** The parsed `epicenter.json`: the one source of the app's description and collections. */
 			declaration: Declaration;
-			/** `epicenter.ts`'s actions; empty without code. */
+			/** Each collection's actions, with `epicenter.ts`'s laid over them. */
 			actions: Record<string, Action>;
 	  })
 	| (Place & { ok: false; problems: string[] });
@@ -156,7 +160,7 @@ async function load(
 	const read = await readDeclaration(place.realPath);
 	if ('problems' in read) return broken(read.problems);
 	const { declaration } = read;
-	const { name } = declaration;
+	const name = entry ?? basename(place.realPath);
 	let module: { default?: unknown } | undefined;
 	if (code) {
 		try {
@@ -166,18 +170,16 @@ async function load(
 		}
 	}
 	const problems = problemsOf(declaration, module && (module.default ?? null));
-	if (entry !== undefined && name !== entry)
-		problems.push(`declares the name "${name}" but its folder is "${entry}"`);
+	const named = entry === undefined ? undefined : nameProblem(entry);
+	if (named !== undefined)
+		problems.unshift(`its folder's name cannot name an app: ${named}`);
 	if (problems.length) return broken(problems);
-	const app = module?.default as
-		| { actions: Record<string, Action> }
-		| undefined;
 	return {
 		...at,
 		ok: true,
 		name,
 		declaration,
-		actions: app?.actions ?? {},
+		actions: appActions(declaration, module?.default as App | undefined),
 	};
 }
 
@@ -190,11 +192,7 @@ export async function homeEntries() {
 	return (await entries()).entries;
 }
 
-/**
- * Import every home entry independently so one broken app does not hide the
- * rest. Each entry must declare its own folder's name, so two entries can
- * never both run under one name.
- */
+/** Import every home entry independently so one broken app does not hide the rest. */
 export async function discoverAll() {
 	const found = await entries();
 	const loaded = await Promise.all(

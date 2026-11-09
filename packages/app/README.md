@@ -12,7 +12,6 @@ their agent.
 ```json
 {
   "$schema": "https://epicenter.so/epicenter.schema.json",
-  "name": "reading",
   "description": "How much I read each week"
 }
 ```
@@ -45,19 +44,22 @@ supplies `@epicenter/app` when it loads `epicenter.ts`, so the folder needs a
 
 ## The declaration
 
-`epicenter.json` is `{ $schema, name, description, collections? }`.
+`epicenter.json` is `{ $schema, description, collections? }`. An app's name
+is its folder's: `~/Epicenter/reading` is `reading`, whatever the file says.
 `DeclarationSchema` is its TypeBox schema, the check `epicenter` runs on
 loading and the source of `epicenter.schema.json` (`bun run schema` rewrites
 it). A collection is `{ path, fields }`: a path with at most one placeholder,
-such as `words/{stem}.md`, and the JSON Schema of each file's fields.
+such as `words/{stem}.md`, and the JSON Schema of each file's fields. Each
+collection gives the actions `list`, `get`, `set`, and `delete` with no code
+(`get` and `set` alone for a path with no placeholder); see `collection.ts`.
 
 Every collection is declared in `epicenter.json`; `epicenter.ts` holds
 actions and nothing else of the app's shape, so a program, a screen, or an
-agent reads every shape without loading code. Two collections with one path,
-or a hand-written action named like one a collection gives (`words save`),
-is a problem.
+agent reads every shape without loading code. Two collections with one path
+is a problem. An action in `epicenter.ts` named like one a collection gives
+(`words set`) replaces it, so an app can add its own rules to a write.
 
-The file on disk is the declaration: `epicenter` reads the name, description,
+The file on disk is the declaration: `epicenter` reads the description
 and collections from `epicenter.json`, never from `defineApp`'s first
 argument. The argument, imported from `./epicenter.json`, is taken now so that
 collection handles in `run` can be typed from it when they arrive, without
@@ -71,7 +73,7 @@ changing any app.
 | `field.number()` | `number` | `--name <number>` |
 | `field.date()` | `string`, `2026-11-08` | `--name <day>` |
 | `field.select(['a', 'b'])` | `'a' \| 'b'` | `--name a` |
-| `field.boolean()` | `boolean`, `false` unless given | `--name` |
+| `field.boolean()` | `boolean`, `false` unless given | `--name`, `--name=false` |
 | `field.tags()` | `string[]`, empty unless given | `--name a --name b` |
 
 Each field is JSON Schema, so any TypeBox schema works as a field too. A field
@@ -137,9 +139,8 @@ The memory context has no Git: `folder.commit` appends its message to
 `context.commits`, so a test can check what the action would have committed.
 
 `problemsOf(declaration, code)` lists what is wrong with an app as the
-`epicenter` command would: a declaration that fails the schema, a name that
-is one of the commands (`new`, `add`, `sync`, `serve`), two collections with
-one path, an action named like one a collection gives, an action whose words
-start another's, a
-positional that is not one of the action's fields, an annotation MCP does not
+`epicenter` command would: a declaration that fails the schema, two
+collections with one path, a collection whose path is not `.md` or `.json` or
+whose field is named like its placeholder or `body`, an action whose words
+start another's, a positional that is not one of the action's fields, an annotation MCP does not
 define, a field named `json`, `help`, or `input`.
