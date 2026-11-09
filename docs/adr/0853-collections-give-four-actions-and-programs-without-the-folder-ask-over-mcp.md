@@ -36,7 +36,9 @@ vocab words delete petrichor
   (RFC 6570).
 - `set`'s flags are the collection's fields, so every program that asks is
   refused a value that does not fit before anything is written. `--body`
-  replaces a Markdown file's body. A collection with one file and no placeholder
+  replaces a Markdown file's body. `set` merges, as Firestore's
+  `set(…, { merge: true })` does, not as `Map.set` replaces: a person changing
+  one field from a terminal keeps the others and the body. A collection with one file and no placeholder
   gives only `get` and `set`.
 - `list` and `get` are read-only. `set` and `delete` keep MCP's default,
   destructive: nothing commits them (ADR-0850), so the value they replace is
@@ -60,12 +62,16 @@ with the transport passed in: MCP over HTTP to `serve`, MCP over stdio, or the
 app in memory for tests.
 
 ```ts
-const vocab = createClient<typeof Vocab>({ app: 'vocab', transport });
-await vocab.words.get({ stem: '你好' });     // the tool vocab_words_get
+import type Vocab from '~/Epicenter/vocab/epicenter.ts';
+const epicenter = createClient<{ vocab: typeof Vocab }>(transport);
+await epicenter.vocab.words.get({ stem: '你好' });     // the tool vocab_words_get
 ```
 
-One name has three spellings: `vocab words get` in a terminal,
-`vocab_words_get` over MCP, `vocab.words.get` in a client. The Epicenter app
+The app's name is written once, as the key of the type, and checked against the
+name in its `epicenter.json`; the client turns the property path into the tool
+name, because `import type` leaves no name at run time. One client can carry
+several apps. One name has three spellings: `vocab words get` in a terminal,
+`vocab_words_get` over MCP, `epicenter.vocab.words.get` in a client. The Epicenter app
 shows `list` and `get` as tables, and `set` and an app's actions as forms drawn
 from their input schemas.
 
