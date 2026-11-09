@@ -263,10 +263,12 @@ test('D5 an epicenter.ts importing @epicenter/app loads from a folder with no no
 	const result = await f.runIn(f.root, './away/reading', 'log', '12');
 	expect(result.code).toBe(0);
 	expect(JSON.parse(result.stdout)).toEqual({ minutes: 12, book: null });
-	expect(await gitIn(folder, 'log', '-1', '--format=%s')).toBe('reading log');
+	expect(await readFile(join(folder, '2026.csv'), 'utf8')).toBe(
+		'minutes,book\n12,\n',
+	);
 });
 
-test('D6 serve --stdio answers initialize, lists the same tools as --json, and runs a call that commits', async () => {
+test('D6 serve --stdio answers initialize, lists the same tools as --json, and runs a call', async () => {
 	const f = await setup();
 	const folder = await f.folder(join(f.home, 'reading'), readingApp);
 	const listing = JSON.parse((await f.run('--json')).stdout);
@@ -290,7 +292,7 @@ test('D6 serve --stdio answers initialize, lists the same tools as --json, and r
 			arguments: { minutes: 30 },
 		});
 		expect(called.isError).toBeFalsy();
-		expect(await gitIn(folder, 'log', '-1', '--format=%s')).toBe('reading log');
+		expect(await gitIn(folder, 'log', '-1', '--format=%s')).toBe('initial');
 		expect(await readFile(join(folder, '2026.csv'), 'utf8')).toBe(
 			'minutes,book\n30,\n',
 		);

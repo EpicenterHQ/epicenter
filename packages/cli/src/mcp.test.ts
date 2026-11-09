@@ -44,13 +44,7 @@ test('tools list plain schemas and annotations and return structured answers or 
 			name: 'vault_calendar_show',
 			arguments: { day: '2026-11-08' },
 		});
-		const shown = {
-			action: { returned: { day: '2026-11-08' } },
-			refused: [],
-			commit: null,
-			paths: [],
-			push: null,
-		};
+		const shown = { returned: { day: '2026-11-08' } };
 		expect(answer.structuredContent).toEqual(shown);
 		expect(answer.content).toEqual([
 			{ type: 'text', text: JSON.stringify(shown) },
@@ -84,18 +78,14 @@ test('tools list plain schemas and annotations and return structured answers or 
 			content: [{ type: 'text', text: 'action exploded' }],
 		});
 		expect((await client.callTool({ name: 'unknown' })).isError).toBe(true);
-		const committed = await client.callTool({
+		const logged = await client.callTool({
 			name: 'reading_log',
 			arguments: { minutes: 30 },
 		});
-		expect(committed.structuredContent).toMatchObject({
-			action: { returned: { minutes: 30 } },
-			refused: [],
-			commit: { subject: 'reading log', paths: ['records/log.json'] },
-		});
+		expect(logged.structuredContent).toEqual({ returned: { minutes: 30 } });
 		expect(
 			(await client.callTool({ name: 'reading_tag' })).structuredContent,
-		).toMatchObject({ action: { returned: { tags: [], done: false } } });
+		).toEqual({ returned: { tags: [], done: false } });
 	} finally {
 		await client.close();
 		await rm(f.root, { recursive: true, force: true });

@@ -1,6 +1,7 @@
 /**
  * The folder on disk preserves relative paths and atomic writes.
  * Listing excludes dependency and Git directories and never traverses directory links.
+ * `commit` commits the folder and nothing outside it (ADR-0850).
  */
 import { afterEach, expect, test } from 'bun:test';
 import {
@@ -13,7 +14,6 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { createWriteLog } from './commit.ts';
 import { folderOnDisk } from './disk.ts';
 import { gitIn } from './runner.test-support.ts';
 
@@ -23,12 +23,12 @@ afterEach(async () => {
 		roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
 	);
 });
-/** A repository to write in, and its folder writing through a run's log. */
+/** A repository to write in, and its folder. */
 async function setup() {
 	const root = await mkdtemp(join(tmpdir(), 'epicenter-disk-'));
 	roots.push(root);
 	await gitIn(root, 'init', '-q');
-	return { root, folder: folderOnDisk(root, createWriteLog(root)) };
+	return { root, folder: folderOnDisk(root) };
 }
 
 test('writes make parents, replace whole files and leave no temporary files', async () => {

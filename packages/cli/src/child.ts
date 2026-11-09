@@ -10,10 +10,9 @@
  * The report is a file rather than a pipe because every process the child
  * starts (Git, its hooks, anything an action leaves running) inherits an open
  * descriptor, and a pipe's reader waits for all of them. The child writes
- * `{ started }` when the run begins and `{ answer }` when it ends, each by
- * renaming over the file, so the parent reads a whole record or none. A
- * child that dies after starting leaves `started`, and the answer is
- * "unknown": exit 3, with the branch head before and after.
+ * `{ answer }` when it ends, by renaming over the file, so the parent reads a
+ * whole answer or none. A child that ends without one answers that it threw
+ * (exit 1), naming its exit code or signal; whatever it wrote stays on disk.
  *
  * The child finishes the run even when its parent dies: nothing it does
  * depends on the parent being there.
@@ -22,8 +21,6 @@ import { randomUUID } from 'node:crypto';
 import { readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { revParse } from './git.ts';
-import type { Unknown } from './report.ts';
 
 /** The internal flag that makes `epicenter` a child writing its answer to a file; undocumented, and read only as the first argument, so an action's own input can never be taken for it. */
 export const REPORT_FLAG = '--report=';
@@ -42,8 +39,6 @@ export function writeReport(path: string, record: object) {
 	renameSync(temp, path);
 }
 
-type Started = { folder: string; head: string | null };
-
 /**
  * Run `epicenter <args>` as a child and return the one JSON value it
  * answered: for an action, an `Answer`; for a listing, the listing.
@@ -59,7 +54,7 @@ export async function runChild(
 	const forward = (signal: NodeJS.Signals) => child.kill(signal);
 	process.on('SIGINT', forward);
 	process.on('SIGTERM', forward);
-	let record: { started?: Started; answer?: unknown } = {};
+	let record: { answer?: unknown } = {};
 	try {
 		await child.exited;
 		try {
@@ -75,17 +70,7 @@ export async function runChild(
 		child.signalCode === null
 			? `exit code ${child.exitCode}`
 			: `signal ${child.signalCode}`;
-	const { started } = record;
-	const unknown: Unknown = {
-		unknown: {
-			message: started
-				? `The run ended without a report (${ended}); what it committed is between these heads`
-				: `epicenter ended before the run started (${ended})`,
-			head: {
-				before: started?.head ?? null,
-				after: started ? await revParse(started.folder, 'HEAD') : null,
-			},
-		},
+	return {
+		threw: { message: `The run ended without an answer (${ended})` },
 	};
-	return unknown;
 }

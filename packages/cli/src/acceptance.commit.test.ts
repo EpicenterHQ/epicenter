@@ -1,14 +1,14 @@
 /**
  * Acceptance, stage 2: the commit rule (ADR-0850). Black-box runs of the real
- * `epicenter` against a temporary HOME. An action writes as it runs; whether
- * it returns or throws, `epicenter` commits exactly the bytes it wrote, and a
- * path someone else changed is left uncommitted and named.
+ * `epicenter` against a temporary HOME. A run commits nothing on its own; an
+ * action that calls `folder.commit` commits everything changed in its folder
+ * and nothing outside it. The answer is `{ returned }`, `{ threw }`, or
+ * `{ error }`, exit 0, 1, or 2.
  */
 
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
-import { existsSync } from 'node:fs';
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import {
@@ -27,406 +27,263 @@ afterEach(async () => {
 	);
 });
 
-/** An app whose actions each exercise one part of the rule; signals pause an action at a known point. */
-const notesApp = {
-	'.gitignore': gitignore,
-	'a.md': 'base a\n',
-	'epicenter.json': declarationOf('notes'),
-	'epicenter.ts': `import declaration from './epicenter.json';
+const notesCode = `import declaration from './epicenter.json';
 import { defineApp, field } from '@epicenter/app';
-
-const until = async (path: string) => {
-	while (!(await Bun.file(path).exists())) await Bun.sleep(10);
-};
 
 export default defineApp(declaration, {
 	actions: {
-		two: {
-			description: 'Write two files',
-			input: { text: field.text() },
-			positional: ['text'],
-			run: async ({ text }, { folder }) => {
-				await folder.write('a.md', text);
-				await folder.write('b.md', text);
-				return text;
+		write: {
+			description: 'Write a page and leave it uncommitted',
+			input: { page: field.text() },
+			positional: ['page'],
+			run: async ({ page }, { folder }) => {
+				await folder.write(page + '.md', page);
+				return page;
 			},
 		},
-		explode: {
-			description: 'Write, then throw',
-			input: { text: field.text({ optional: true }) },
-			run: async ({ text }, { folder }) => {
-				await folder.write('a.md', text ?? 'partial');
-				throw new Error(text ?? 'line 4 is not a number');
+		save: {
+			description: 'Write a page and commit the folder',
+			input: { page: field.text() },
+			positional: ['page'],
+			run: async ({ page }, { folder }) => {
+				await folder.write(page + '.md', page);
+				await folder.write('.cache/seen.txt', page);
+				await folder.commit('Save ' + page);
+				return page;
+			},
+		},
+		commit: {
+			description: 'Commit the folder without writing',
+			input: {},
+			run: async (_, { folder }) => {
+				await folder.commit('Commit what is there');
+			},
+		},
+		picture: {
+			description: 'Write a binary and commit it',
+			input: {},
+			run: async (_, { folder }) => {
+				await folder.writeBytes('cover.png', new Uint8Array([137, 80, 78, 71, 1, 2, 3]));
+				await folder.commit('Add a cover');
 			},
 		},
 		tagged: {
 			description: 'Throw a tagged error',
 			input: {},
 			run: () => {
-				throw Object.freeze({ name: 'QuotaExceeded', message: 'Out of quota', limit: 5 });
+				throw Object.freeze({ name: 'NotFound', message: 'no such page', page: 'x' });
 			},
 		},
-		paused: {
-			description: 'Write, wait for a signal, write',
-			input: { signals: field.text() },
-			run: async ({ signals }, { folder }) => {
-				await folder.write('a.md', 'action a');
-				await Bun.write(signals + '/paused', '1');
-				await until(signals + '/go');
-				await folder.write('b.md', 'action b');
-			},
-		},
-		late: {
-			description: 'Wait for a signal, then write',
-			input: { signals: field.text() },
-			run: async ({ signals }, { folder }) => {
-				await Bun.write(signals + '/paused', '1');
-				await until(signals + '/go');
-				await folder.write('a.md', 'action a');
-			},
-		},
-		ignored: {
-			description: 'Write a cache file and a note',
+		exit: {
+			description: 'End the process without an answer',
 			input: {},
-			run: async (_, { folder }) => {
-				await folder.write('.cache/index.json', '{}');
-				await folder.write('out.md', 'out');
-			},
-		},
-		hang: {
-			description: 'Write, then never finish',
-			input: { signals: field.text() },
-			run: async ({ signals }, { folder }) => {
-				await folder.write('a.md', 'hung');
-				await Bun.write(signals + '/pid', String(process.pid));
-				await Bun.write(signals + '/paused', '1');
-				await new Promise(() => setInterval(() => {}, 1000));
-			},
+			run: () => process.exit(7),
 		},
 		chatty: {
-			description: 'Log while running',
+			description: 'Log to the console every way and return',
 			input: {},
-			run: async (_, { folder }) => {
+			run: () => {
 				console.log('hello from log');
 				console.info('hello from info');
-				await folder.write('a.md', 'chatty');
+				console.debug('hello from debug');
+				console.table([{ a: 1 }]);
+				process.stdout.write('raw stdout\\n');
 				return 'answer';
-			},
-		},
-		secret: {
-			description: 'Take a token that never reaches history',
-			input: { token: field.text({ writeOnly: true }), label: field.text() },
-			run: async ({ label }, { folder }) => {
-				await folder.write('a.md', label);
 			},
 		},
 	},
 });
-`,
+`;
+
+const notesApp = {
+	'.gitignore': gitignore,
+	'a.md': 'base a\n',
+	'epicenter.json': declarationOf('notes'),
+	'epicenter.ts': notesCode,
 };
 
-async function setup() {
+async function setup({ git = true }: { git?: boolean } = {}) {
 	const f = await fixture();
 	roots.push(f.root);
-	const folder = await f.folder(join(f.home, 'notes'), notesApp);
-	const signals = join(f.root, 'signals');
-	await mkdir(signals);
-	const head = () => gitIn(folder, 'rev-parse', 'HEAD');
-	const message = (rev = 'HEAD') =>
-		gitIn(folder, 'log', '-1', '--format=%B', rev);
-	const changed = async (rev = 'HEAD') =>
-		(
-			await gitIn(
-				folder,
-				'diff-tree',
-				'--no-commit-id',
-				'--name-only',
-				'-r',
-				rev,
-			)
-		).split('\n');
-	/** Wait until the action says it paused. */
-	const paused = async () => {
-		while (!existsSync(join(signals, 'paused'))) await Bun.sleep(10);
+	const folder = await f.folder(join(f.home, 'notes'), notesApp, { git });
+	const json = async (...args: string[]) => {
+		const result = await f.run(...args, '--json');
+		return { ...result, answer: JSON.parse(result.stdout) };
 	};
-	const go = () => writeFile(join(signals, 'go'), '1');
-	return { ...f, folder, signals, head, message, changed, paused, go };
+	return { ...f, dir: folder, json };
 }
 
-function mcp(f: Awaited<ReturnType<typeof setup>>) {
-	return new StdioClientTransport({
-		command: process.execPath,
-		args: [f.bin, 'serve', '--stdio'],
-		cwd: f.root,
-		env: f.env as Record<string, string>,
-		stderr: 'pipe',
-	});
-}
+const status = (folder: string) =>
+	gitIn(folder, 'status', '--porcelain', '--untracked-files=all');
+const subjects = (folder: string) => gitIn(folder, 'log', '--format=%s');
 
-test('C1 an action that writes makes one commit named for it', async () => {
+test('C1 a run commits nothing, and needs no Git repository', async () => {
 	const f = await setup();
-	const before = await f.head();
-	const human = await f.run('notes', 'two', 'Ada');
-	expect(human.code).toBe(0);
-	expect(human.stdout).toBe('Ada\n');
-	expect(human.stderr).toMatch(/^committed [a-f0-9]{7} notes two\n$/);
-	expect(await f.message()).toBe('notes two\n\n{"text":"Ada"}');
-	expect(await f.changed()).toEqual(['a.md', 'b.md']);
-	expect(await gitIn(f.folder, 'rev-list', '--count', `${before}..HEAD`)).toBe(
-		'1',
-	);
+	const ran = await f.json('notes', 'write', 'monday');
+	expect(ran.code).toBe(0);
+	expect(ran.answer).toEqual({ returned: 'monday' });
+	expect(ran.stderr).toBe('');
+	expect(await subjects(f.dir)).toBe('initial');
+	expect(await status(f.dir)).toBe('?? monday.md');
 
-	const json = await f.run('notes', 'two', 'Grace', '--json');
-	expect(json.code).toBe(0);
-	expect(JSON.parse(json.stdout)).toEqual({
-		action: { returned: 'Grace' },
-		refused: [],
-		commit: {
-			sha: await f.head(),
-			subject: 'notes two',
-			paths: ['a.md', 'b.md'],
-		},
-		paths: [
-			{ path: 'a.md', state: 'committed' },
-			{ path: 'b.md', state: 'committed' },
-		],
-		push: null,
-	});
-	expect(await gitIn(f.folder, 'status', '--porcelain')).toBe('');
+	const loose = await setup({ git: false });
+	const plain = await loose.json('notes', 'write', 'tuesday');
+	expect(plain.code).toBe(0);
+	expect(plain.answer).toEqual({ returned: 'tuesday' });
+	expect(await readFile(join(loose.dir, 'tuesday.md'), 'utf8')).toBe('tuesday');
 });
 
-test('C2 an action that writes and throws exits 3, and its writes are committed with the failure named', async () => {
+test('C2 folder.commit commits everything changed in the folder, staged or not, and never ignored files', async () => {
 	const f = await setup();
-	const human = await f.run('notes', 'explode');
-	expect(human.code).toBe(3);
+	await writeFile(join(f.dir, 'a.md'), 'edited by hand\n');
+	await writeFile(join(f.dir, 'staged.md'), 'staged\n');
+	await gitIn(f.dir, 'add', 'staged.md');
+	const saved = await f.json('notes', 'save', 'monday');
+	expect(saved.code).toBe(0);
+	expect(saved.answer).toEqual({ returned: 'monday' });
+	expect(await subjects(f.dir)).toBe('Save monday\ninitial');
+	expect(
+		(await gitIn(f.dir, 'show', '--name-only', '--format=', 'HEAD')).split(
+			'\n',
+		),
+	).toEqual(['a.md', 'monday.md', 'staged.md']);
+	expect(await status(f.dir)).toBe('');
+	expect(await gitIn(f.dir, 'ls-files', '.cache')).toBe('');
+});
+
+test('C3 folder.commit with nothing changed is a no-op', async () => {
+	const f = await setup();
+	const head = await gitIn(f.dir, 'rev-parse', 'HEAD');
+	const ran = await f.json('notes', 'commit');
+	expect(ran.code).toBe(0);
+	expect(ran.answer).toEqual({ returned: null });
+	expect(await gitIn(f.dir, 'rev-parse', 'HEAD')).toBe(head);
+});
+
+test('C4 an app inside a larger repository commits only its own folder', async () => {
+	const f = await setup({ git: false });
+	await rm(f.dir, { recursive: true });
+	const vault = await f.folder(join(f.root, 'vault'), {
+		'journal/today.md': 'today\n',
+		...Object.fromEntries(
+			Object.entries(notesApp).map(([path, text]) => [`notes/${path}`, text]),
+		),
+	});
+	const app = join(vault, 'notes');
+	await symlink(app, join(f.home, 'notes'));
+
+	await writeFile(join(vault, 'journal/today.md'), 'changed beside\n');
+	await writeFile(join(vault, 'journal/staged.md'), 'staged beside\n');
+	await gitIn(vault, 'add', 'journal/staged.md');
+	await writeFile(join(app, 'a.md'), 'edited inside\n');
+	const saved = await f.json('notes', 'save', 'monday');
+	expect(saved.code).toBe(0);
+	expect(
+		(await gitIn(vault, 'show', '--name-only', '--format=', 'HEAD')).split(
+			'\n',
+		),
+	).toEqual(['notes/a.md', 'notes/monday.md']);
+	expect(await status(vault)).toBe('A  journal/staged.md\n M journal/today.md');
+});
+
+test('C5 folder.commit outside any repository throws Git’s error, exit 1, and the write stays', async () => {
+	const f = await setup({ git: false });
+	const ran = await f.json('notes', 'save', 'monday');
+	expect(ran.code).toBe(1);
+	expect(ran.answer.threw.message).toContain('not a git repository');
+	expect(await readFile(join(f.dir, 'monday.md'), 'utf8')).toBe('monday');
+	const human = await f.run('notes', 'save', 'tuesday');
+	expect(human.code).toBe(1);
 	expect(human.stdout).toBe('');
-	expect(human.stderr).toMatch(
-		/^committed [a-f0-9]{7} notes explode \(failed: line 4 is not a number\)\nline 4 is not a number\n$/,
-	);
-	expect(await readFile(join(f.folder, 'a.md'), 'utf8')).toBe('partial');
-	expect(await f.message()).toBe(
-		'notes explode (failed: line 4 is not a number)\n\n{}\n\nline 4 is not a number',
-	);
+	expect(human.stderr).toContain('not a git repository');
+});
 
-	const long = `${'a long first line that goes on '.repeat(4)}end\nand a second line`;
-	const json = await f.run('notes', 'explode', '--text', long, '--json');
-	expect(json.code).toBe(3);
-	const subject = (await f.message()).split('\n')[0] ?? '';
-	expect(subject.startsWith('notes explode (failed: a long first line')).toBe(
-		true,
+test('C6 folder.commit refuses before staging when .gitattributes routes a path through LFS and this computer has no filter', async () => {
+	const f = await setup();
+	await writeFile(
+		join(f.dir, '.gitattributes'),
+		'*.png filter=lfs diff=lfs merge=lfs -text\n',
 	);
-	expect(subject.length).toBeLessThanOrEqual(
-		'notes explode (failed: )'.length + 61,
-	);
-	expect(subject).not.toContain('second line');
-	expect(await f.message()).toContain(long);
-	expect(JSON.parse(json.stdout)).toEqual({
-		action: { threw: { message: long } },
-		refused: [],
-		commit: { sha: await f.head(), subject, paths: ['a.md'] },
-		paths: [{ path: 'a.md', state: 'committed' }],
-		push: null,
-	});
+	const refused = await f.json('notes', 'picture');
+	expect(refused.code).toBe(1);
+	expect(refused.answer.threw.message).toContain('run: git lfs install');
+	expect(await gitIn(f.dir, 'diff', '--cached', '--name-only')).toBe('');
+	expect(await subjects(f.dir)).toBe('initial');
 
-	const tagged = await f.run('notes', 'tagged', '--json');
-	expect(tagged.code).toBe(3);
-	expect(JSON.parse(tagged.stdout)).toEqual({
-		action: {
-			threw: {
-				message: 'Out of quota',
-				thrown: { name: 'QuotaExceeded', message: 'Out of quota', limit: 5 },
-			},
+	if (!Bun.which('git-lfs')) return;
+	await gitIn(f.dir, 'lfs', 'install', '--local');
+	const stored = await f.json('notes', 'picture');
+	expect(stored.code).toBe(0);
+	expect(await gitIn(f.dir, 'show', 'HEAD:cover.png')).toStartWith(
+		'version https://git-lfs.github.com/spec/v1',
+	);
+});
+
+test('C7 folder.commit waits for a held index lock, and after about 2 seconds throws Git’s message', async () => {
+	const f = await setup();
+	const lock = join(f.dir, '.git', 'index.lock');
+	await writeFile(lock, '');
+	const waiting = f.json('notes', 'save', 'monday');
+	await Bun.sleep(1_000);
+	await rm(lock);
+	const saved = await waiting;
+	expect(saved.code).toBe(0);
+	expect(await subjects(f.dir)).toBe('Save monday\ninitial');
+
+	await writeFile(lock, '');
+	const held = await f.json('notes', 'save', 'tuesday');
+	await rm(lock);
+	expect(held.code).toBe(1);
+	expect(held.answer.threw.message).toContain('index.lock');
+});
+
+test('C8 exit codes: 0 returned, 1 threw or ended without an answer, 2 did not run', async () => {
+	const f = await setup();
+	const tagged = await f.json('notes', 'tagged');
+	expect(tagged.code).toBe(1);
+	expect(tagged.answer).toEqual({
+		threw: {
+			message: 'no such page',
+			thrown: { name: 'NotFound', message: 'no such page', page: 'x' },
 		},
-		refused: [],
-		commit: null,
-		paths: [],
-		push: null,
 	});
-
-	const client = new Client({ name: 'acceptance', version: '1' });
-	try {
-		await client.connect(mcp(f));
-		const failed = await client.callTool({
-			name: 'notes_tagged',
-			arguments: {},
-		});
-		expect(failed.isError).toBe(true);
-		expect(failed.structuredContent).toEqual(JSON.parse(tagged.stdout));
-		const ok = await client.callTool({
-			name: 'notes_two',
-			arguments: { text: 'Mcp' },
-		});
-		expect(ok.isError).toBeFalsy();
-		expect(ok.structuredContent).toEqual({
-			action: { returned: 'Mcp' },
-			refused: [],
-			commit: {
-				sha: await f.head(),
-				subject: 'notes two',
-				paths: ['a.md', 'b.md'],
-			},
-			paths: [
-				{ path: 'a.md', state: 'committed' },
-				{ path: 'b.md', state: 'committed' },
-			],
-			push: null,
-		});
-	} finally {
-		await client.close();
-	}
+	const exited = await f.json('notes', 'exit');
+	expect(exited.code).toBe(1);
+	expect(exited.answer).toEqual({
+		threw: { message: 'The run ended without an answer (exit code 7)' },
+	});
+	const unknown = await f.json('notes', 'nope');
+	expect(unknown.code).toBe(2);
+	expect(unknown.answer.error).toMatchObject({ name: 'Usage' });
+	const human = await f.run('notes', 'write', 'monday');
+	expect(human).toEqual({ code: 0, stdout: 'monday\n', stderr: '' });
 });
 
-test('C3 a write to a path with uncommitted edits is refused before anything is written', async () => {
+test('C9 stdout belongs to epicenter: an action that logs does not corrupt --json or serve --stdio', async () => {
 	const f = await setup();
-	await writeFile(join(f.folder, 'a.md'), 'my edit\n');
-	const before = await f.head();
-	const result = await f.run('notes', 'two', 'Ada', '--json');
-	expect(result.code).toBe(3);
-	expect(JSON.parse(result.stdout)).toMatchObject({
-		refused: [{ path: 'a.md', reason: 'uncommitted' }],
-		commit: null,
-	});
-	expect(await readFile(join(f.folder, 'a.md'), 'utf8')).toBe('my edit\n');
-	expect(existsSync(join(f.folder, 'b.md'))).toBe(false);
-	expect(await f.head()).toBe(before);
-	const human = await f.run('notes', 'two', 'Ada');
-	expect(human.stderr).toContain('a.md');
-	expect(human.stderr).toContain('Run: ');
-});
-
-test('C4 a path someone changes during the run stays uncommitted and named; the rest commits', async () => {
-	const f = await setup();
-	const running = f.run('notes', 'paused', '--signals', f.signals, '--json');
-	await f.paused();
-	await writeFile(join(f.folder, 'a.md'), 'editor a\n');
-	await f.go();
-	const result = await running;
-	expect(result.code).toBe(0);
-	expect(JSON.parse(result.stdout)).toMatchObject({
-		commit: { subject: 'notes paused', paths: ['a.md', 'b.md'] },
-		paths: [
-			{ path: 'a.md', state: 'changed-after' },
-			{ path: 'b.md', state: 'committed' },
-		],
-	});
-	expect(await gitIn(f.folder, 'show', 'HEAD:a.md')).toBe('action a');
-	expect(await gitIn(f.folder, 'show', 'HEAD:b.md')).toBe('action b');
-	expect(await readFile(join(f.folder, 'a.md'), 'utf8')).toBe('editor a\n');
-	expect(await gitIn(f.folder, 'status', '--porcelain')).toBe('M a.md');
-	const human = await f.run('notes', 'two', 'x');
-	expect(human.stderr).toContain('a.md');
-
-	await gitIn(f.folder, 'checkout', '--', 'a.md');
-	await rm(join(f.signals, 'paused'));
-	await rm(join(f.signals, 'go'));
-	const before = await f.head();
-	const late = f.run('notes', 'late', '--signals', f.signals, '--json');
-	await f.paused();
-	await writeFile(join(f.folder, 'a.md'), 'saved first\n');
-	await f.go();
-	const refused = await late;
-	expect(refused.code).toBe(3);
-	expect(JSON.parse(refused.stdout)).toMatchObject({
-		refused: [{ path: 'a.md', reason: 'uncommitted' }],
-	});
-	expect(await readFile(join(f.folder, 'a.md'), 'utf8')).toBe('saved first\n');
-	expect(await f.head()).toBe(before);
-});
-
-test('C5 gitignored paths are written and never committed', async () => {
-	const f = await setup();
-	const result = await f.run('notes', 'ignored', '--json');
-	expect(result.code).toBe(0);
-	expect(JSON.parse(result.stdout).commit.paths).toEqual(['out.md']);
-	expect(await readFile(join(f.folder, '.cache/index.json'), 'utf8')).toBe(
-		'{}',
-	);
-	expect(await gitIn(f.folder, 'status', '--porcelain')).toBe('');
-});
-
-test('C6 a run killed with SIGKILL leaves its writes uncommitted, and the next run that writes them is refused', async () => {
-	const f = await setup();
-	const before = await f.head();
-	const parent = Bun.spawn(
-		[process.execPath, f.bin, 'notes', 'hang', '--signals', f.signals],
-		{ cwd: f.root, env: f.env, stdout: 'pipe', stderr: 'pipe' },
-	);
-	await f.paused();
-	// The action runs in a child of the epicenter started here (F6); the run is the child.
-	process.kill(
-		Number(await readFile(join(f.signals, 'pid'), 'utf8')),
-		'SIGKILL',
-	);
-	expect(await parent.exited).toBe(3);
-	expect(await f.head()).toBe(before);
-	expect(await readFile(join(f.folder, 'a.md'), 'utf8')).toBe('hung');
-	expect(await gitIn(f.folder, 'status', '--porcelain')).toBe('M a.md');
-	const next = await f.run('notes', 'two', 'Ada', '--json');
-	expect(next.code).toBe(3);
-	expect(JSON.parse(next.stdout)).toMatchObject({
-		refused: [{ path: 'a.md', reason: 'uncommitted' }],
-	});
-	expect(existsSync(join(f.folder, 'b.md'))).toBe(false);
-});
-
-test('C7 runs racing an agent that commits and edits lose nothing and misfile nothing', async () => {
-	const script = resolve(import.meta.dir, '../scripts/race.ts');
-	const child = Bun.spawn(
-		[process.execPath, script, '--runs', '24', '--concurrency', '3'],
-		{
-			stdout: 'pipe',
-			stderr: 'pipe',
-		},
-	);
-	const [stdout, stderr, code] = await Promise.all([
-		new Response(child.stdout).text(),
-		new Response(child.stderr).text(),
-		child.exited,
-	]);
-	expect({ code, stderr: code === 0 ? '' : stderr }).toEqual({
-		code: 0,
-		stderr: '',
-	});
-	expect(JSON.parse(stdout)).toMatchObject({ runs: 24, lost: 0, misfiled: 0 });
-});
-
-test('C8 stdout belongs to epicenter: an action that logs does not corrupt --json or serve --stdio', async () => {
-	const f = await setup();
-	const json = await f.run('notes', 'chatty', '--json');
+	const json = await f.json('notes', 'chatty');
 	expect(json.code).toBe(0);
-	expect(JSON.parse(json.stdout)).toMatchObject({
-		action: { returned: 'answer' },
-	});
-	expect(json.stderr).toContain('hello from log');
-	expect(json.stderr).toContain('hello from info');
+	expect(json.answer).toEqual({ returned: 'answer' });
+	for (const line of ['hello from log', 'hello from info', 'raw stdout'])
+		expect(json.stderr).toContain(line);
 	const client = new Client({ name: 'acceptance', version: '1' });
 	try {
-		await client.connect(mcp(f));
+		await client.connect(
+			new StdioClientTransport({
+				command: process.execPath,
+				args: [f.bin, 'serve', '--stdio'],
+				cwd: f.root,
+				env: f.env as Record<string, string>,
+				stderr: 'pipe',
+			}),
+		);
 		const called = await client.callTool({
 			name: 'notes_chatty',
 			arguments: {},
 		});
 		expect(called.isError).toBeFalsy();
-		expect(called.structuredContent).toMatchObject({
-			action: { returned: 'answer' },
-		});
-		expect((await client.listTools()).tools.length).toBeGreaterThan(0);
+		expect(called.structuredContent).toEqual({ returned: 'answer' });
 	} finally {
 		await client.close();
 	}
-});
-
-test('C9 an input marked writeOnly stays out of the commit body', async () => {
-	const f = await setup();
-	const result = await f.run(
-		'notes',
-		'secret',
-		'--token',
-		'hunter2',
-		'--label',
-		'x',
-	);
-	expect(result.code).toBe(0);
-	expect(await f.message()).toBe('notes secret\n\n{"label":"x"}');
-	expect(await gitIn(f.folder, 'log', '-p', '-1')).not.toContain('hunter2');
 });

@@ -1,7 +1,8 @@
 /**
  * The epicenter command runs apps from the home or an explicit folder path
  * (ADR-0841). It parses words, shows what can run, checks input, and prints the
- * answer. Its returned exit code follows whether run started (ADR-0842).
+ * answer. Its exit code is 0 when the action returned, 1 when it threw, and 2
+ * when nothing ran (ADR-0850).
  */
 import { type Action, COMMANDS, type Command } from '@epicenter/app';
 import packageJson from '../package.json' with { type: 'json' };
@@ -29,7 +30,6 @@ import {
 	presentAnswer,
 	writeJson,
 	writeOut,
-	writeStarted,
 } from './output.ts';
 import type { Answer } from './report.ts';
 import { runAction } from './run.ts';
@@ -43,7 +43,7 @@ epicenter --version
 
 Your apps are the folders in ~/Epicenter with an epicenter.json.
 --json and --help (-h) go anywhere before --.
-Exit codes: 0 ran, 2 did not run, 3 ran and failed.
+Exit codes: 0 returned, 1 threw, 2 did not run.
 Run epicenter for your apps.`;
 const GLOBALS = new Set(['--json', '--help', '-h', '--version', '-V']);
 
@@ -211,15 +211,7 @@ export async function runCli(argv: string[]): Promise<number> {
 		const given = inputOf(action, matched.rest);
 		if ('error' in given)
 			return fail(CliError.Usage({ message: given.error, next }).error, json);
-		const { data: report, error } = await runAction(
-			located,
-			matched.key,
-			action,
-			given.input,
-			writeStarted,
-		);
-		if (error) return fail(error, json);
-		return presentAnswer(report, json);
+		return presentAnswer(await runAction(located, action, given.input), json);
 	} catch (error) {
 		return fail(CliError.Internal({ cause: error }).error, json);
 	}

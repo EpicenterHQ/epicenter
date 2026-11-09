@@ -4,12 +4,17 @@
  * folder, such as `.cache/`, written through `folder` like any file and never
  * committed. Whatever runs the action supplies the context: the `epicenter`
  * CLI on a computer, memory in a test.
+ *
+ * A run commits nothing on its own (ADR-0850). An action that knows its
+ * writes are one change calls `folder.commit`; otherwise they stay
+ * uncommitted until a person, an agent, or `epicenter sync` commits them.
  */
 
 /**
  * An app's folder as an object. Paths are relative to the folder, with `/`
  * between parts; one that is absolute, climbs out with `..`, or reaches into
- * `.git` throws.
+ * `.git` throws. It is a convenience, not a sandbox: writes are recorded
+ * nowhere, and an action may use `path` and `node:fs` directly.
  */
 export type Folder = {
 	/** The text at `path`, or `undefined` when no file is there. */
@@ -22,6 +27,15 @@ export type Folder = {
 	list(dir?: string): Promise<string[]>;
 	/** Deletes the file at `path`, if there is one. */
 	delete(path: string): Promise<void>;
+	/**
+	 * Commits everything changed in the folder, staged or not, and nothing
+	 * outside it, with `message`; does nothing when nothing changed. An app
+	 * inside a larger repository commits into that repository. Throws Git's
+	 * own error when the folder is in no repository, and throws before
+	 * staging when `.gitattributes` routes a path through Git LFS and this
+	 * computer has no LFS filter (`run: git lfs install`). It never pushes.
+	 */
+	commit(message: string): Promise<void>;
 	/** The folder on disk; only on a computer. */
 	readonly path?: string;
 };

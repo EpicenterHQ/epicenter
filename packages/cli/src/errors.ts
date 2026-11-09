@@ -1,7 +1,7 @@
 /**
  * Every way an `epicenter` command can fail to run, as one tagged union
  * (ADR-0842). A run that started never fails this way: whatever happened is
- * in its report (`report.ts`). Variants carry fields; `message` is for the
+ * in its answer (`report.ts`). Variants carry fields; `message` is for the
  * person reading stderr, and `next`, when present, is the command that
  * resolves it.
  */
@@ -22,22 +22,6 @@ export const CliError = defineErrors({
 		message: `${app}: ${problems.join('; ')}`,
 		app,
 		problems,
-	}),
-	/** An action runs only in a folder that is the top of its own repository. */
-	NotRepository: ({ folder }: { folder: string }) => ({
-		message: `${folder} must be the top level of a Git repository`,
-		folder,
-		next: `git -C ${folder} init`,
-	}),
-	/** An action's commit cannot be made in the middle of a merge, so it does not start. */
-	MidMerge: ({ folder }: { folder: string }) => ({
-		message: `${folder} is in the middle of a merge; resolve the conflicts and commit first`,
-		folder,
-		next: `git -C ${folder} status`,
-	}),
-	/** The app's run lock could not be taken, so the action did not start. */
-	LockFailed: ({ cause }: { cause: unknown }) => ({
-		message: extractErrorMessage(cause),
 	}),
 	/** A Git command `new` or `add` ran failed. */
 	GitFailed: ({ cause }: { cause: unknown }) => ({

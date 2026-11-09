@@ -1,27 +1,14 @@
 /**
- * Acceptance, stage 2c: the final review's repairs, F1 to F14. Black-box runs
- * of the real `epicenter` against a temporary HOME, except where an item is a
- * statement about the records or the source, which is read from the tree.
- *
- * A run's answer is one report:
- * `{ action: { returned } | { threw }, refused, commit, paths, push }`, and
- * stderr is a rendering of it.
+ * Acceptance, stage 2c: the final review's repairs that outlived ADR-0850's
+ * rewrite. Black-box runs of the real `epicenter` against a temporary HOME.
+ * A run's answer is `{ returned }`, `{ threw }`, or `{ error }`.
  */
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
 import { existsSync } from 'node:fs';
-import {
-	chmod,
-	mkdir,
-	readFile,
-	rm,
-	stat,
-	symlink,
-	writeFile,
-} from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { renderAnswer } from './output.ts';
 import {
 	declarationOf,
 	fixture,
@@ -61,83 +48,6 @@ export default defineApp(declaration, {
 				return text;
 			},
 		},
-		swallow: {
-			description: 'Write b.md, try a.md, and keep going when refused',
-			input: {},
-			run: async (_, { folder }) => {
-				await folder.write('b.md', 'action b');
-				try {
-					await folder.write('a.md', 'action a');
-				} catch {}
-				return 'carried on';
-			},
-		},
-		wrap: {
-			description: 'Write b.md, try a.md, and throw something else when refused',
-			input: {},
-			run: async (_, { folder }) => {
-				await folder.write('b.md', 'action b');
-				try {
-					await folder.write('a.md', 'action a');
-				} catch {
-					throw new Error('could not save the page');
-				}
-			},
-		},
-		late: {
-			description: 'Wait for a signal, then write a.md',
-			input: { signals: field.text() },
-			run: async ({ signals }, { folder }) => {
-				await Bun.write(signals + '/paused', '1');
-				await until(signals + '/go');
-				await folder.write('a.md', 'action a');
-			},
-		},
-		paused: {
-			description: 'Write a.md, wait for a signal, write b.md',
-			input: { signals: field.text() },
-			run: async ({ signals }, { folder }) => {
-				await folder.write('a.md', 'action a');
-				await Bun.write(signals + '/paused', '1');
-				await until(signals + '/go');
-				await folder.write('b.md', 'action b');
-			},
-		},
-		script: {
-			description: 'Rewrite the executable run.sh',
-			input: {},
-			run: async (_, { folder }) => {
-				await folder.write('run.sh', '#!/bin/sh\\necho new\\n');
-			},
-		},
-		glob: {
-			description: 'Write a path with glob characters',
-			input: {},
-			run: async (_, { folder }) => {
-				await folder.write('[d].md', 'bracketed');
-			},
-		},
-		noisy: {
-			description: 'Write to the console every way Bun can',
-			input: {},
-			run: async (_, { folder }) => {
-				console.debug('debug line');
-				console.table([{ a: 1 }]);
-				console.dir({ dir: true });
-				console.log('log line');
-				process.stdout.write('raw stdout\\n');
-				await folder.write('a.md', 'noisy');
-				return 'answer';
-			},
-		},
-		pid: {
-			description: 'Write a.md and leave the pid of the process running it',
-			input: { signals: field.text() },
-			run: async ({ signals }, { folder }) => {
-				await folder.write('a.md', 'committed then killed');
-				await Bun.write(signals + '/pid', String(process.pid));
-			},
-		},
 		orphan: {
 			description: 'Leave the parent pid, wait for a signal, then write a.md',
 			input: { signals: field.text() },
@@ -166,7 +76,6 @@ export default defineApp(declaration, {
 const repairsApp = {
 	'.gitignore': gitignore,
 	'a.md': 'base a\n',
-	'run.sh': '#!/bin/sh\necho old\n',
 	'epicenter.json': declarationOf('notes'),
 	'epicenter.ts': repairsCode,
 };
@@ -188,23 +97,8 @@ async function setup() {
 }
 
 /** The notes app in the home, as its own repository. */
-async function notes(f: Awaited<ReturnType<typeof setup>>) {
-	const folder = await f.folder(join(f.home, 'notes'), repairsApp);
-	await chmod(join(folder, 'run.sh'), 0o755);
-	await gitIn(folder, 'add', 'run.sh');
-	await gitIn(folder, 'commit', '-q', '-m', 'executable');
-	return folder;
-}
-
-/** The notes app cloned from a bare `origin`, so its branch tracks the same name there. */
-async function notesWithOrigin(f: Awaited<ReturnType<typeof setup>>) {
-	const seed = await f.folder(join(f.root, 'seed'), repairsApp);
-	const bare = join(f.root, 'origin.git');
-	await gitIn(f.root, 'clone', '-q', '--bare', seed, bare);
-	const folder = join(f.home, 'notes');
-	await gitIn(f.root, 'clone', '-q', bare, folder);
-	const branch = await gitIn(folder, 'rev-parse', '--abbrev-ref', 'HEAD');
-	return { folder, bare, branch };
+function notes(f: Awaited<ReturnType<typeof setup>>) {
+	return f.folder(join(f.home, 'notes'), repairsApp);
 }
 
 function serve(f: Awaited<ReturnType<typeof setup>>, execArgv: string[] = []) {
@@ -216,97 +110,6 @@ function serve(f: Awaited<ReturnType<typeof setup>>, execArgv: string[] = []) {
 		stderr: 'pipe',
 	});
 }
-
-const head = (folder: string) => gitIn(folder, 'rev-parse', 'HEAD');
-
-test('F1 a run returns one report, and its exit code is derived from it', async () => {
-	const f = await setup();
-	const folder = await notes(f);
-	const ran = await f.json('notes', 'two', 'Ada');
-	expect(ran.code).toBe(0);
-	expect(ran.report).toEqual({
-		action: { returned: 'Ada' },
-		refused: [],
-		commit: {
-			sha: await head(folder),
-			subject: 'notes two',
-			paths: ['a.md', 'b.md'],
-		},
-		paths: [
-			{ path: 'a.md', state: 'committed' },
-			{ path: 'b.md', state: 'committed' },
-		],
-		push: null,
-	});
-
-	await writeFile(join(folder, 'a.md'), 'my edit\n');
-	const refused = await f.json('notes', 'two', 'Grace');
-	expect(refused.code).toBe(3);
-	expect(refused.report).toMatchObject({
-		action: { threw: { message: expect.stringContaining('a.md') } },
-		refused: [
-			{
-				path: 'a.md',
-				reason: 'uncommitted',
-				next: `git -C ${folder} status -- a.md`,
-			},
-		],
-		commit: null,
-		paths: [],
-	});
-
-	// Did not run: one error, with exit 2.
-	const unknown = await f.json('notes', 'nope');
-	expect(unknown.code).toBe(2);
-	expect(unknown.report.error).toMatchObject({ name: 'Usage' });
-});
-
-test('F1 every stderr line is derivable from --json, and push state is in --json and MCP', async () => {
-	const f = await setup();
-	const { folder, bare, branch } = await notesWithOrigin(f);
-	f.env.GIT_AUTHOR_DATE = '2026-11-09T12:00:00Z';
-	f.env.GIT_COMMITTER_DATE = '2026-11-09T12:00:00Z';
-	const start = await head(folder);
-	/** Put the folder, origin, and what the folder knows of origin back at `start`, with a.md edited. */
-	const reset = async () => {
-		await gitIn(folder, 'reset', '-q', '--hard', start);
-		await gitIn(bare, 'update-ref', `refs/heads/${branch}`, start);
-		await gitIn(folder, 'update-ref', `refs/remotes/origin/${branch}`, start);
-		await writeFile(join(folder, 'a.md'), 'my edit\n');
-	};
-	for (const action of ['swallow', 'wrap', 'two']) {
-		await reset();
-		const args = action === 'two' ? ['two', 'Ada'] : [action];
-		if (action === 'two') await gitIn(folder, 'checkout', '--', 'a.md');
-		const json = await f.json('notes', ...args);
-		await reset();
-		if (action === 'two') await gitIn(folder, 'checkout', '--', 'a.md');
-		const human = await f.run('notes', ...args);
-		expect(human.code).toBe(json.code);
-		expect(renderAnswer(json.report)).toEqual({
-			stdout: human.stdout,
-			stderr: human.stderr,
-		});
-		expect(json.report.push).toEqual({ pushed: true, ahead: 0, behind: 0 });
-		expect(human.stderr).toContain('pushed to origin');
-	}
-
-	const client = new Client({ name: 'acceptance', version: '1' });
-	try {
-		await client.connect(serve(f));
-		const called = await client.callTool({
-			name: 'notes_two',
-			arguments: { text: 'Mcp' },
-		});
-		expect(called.isError).toBeFalsy();
-		expect(called.structuredContent).toMatchObject({
-			action: { returned: 'Mcp' },
-			push: { pushed: true, ahead: 0, behind: 0 },
-		});
-	} finally {
-		await client.close();
-	}
-});
 
 test('F1 new and add put the next step on stderr; an unexpected throw before a run is Internal, not Usage', async () => {
 	const f = await setup();
@@ -322,248 +125,9 @@ test('F1 new and add put the next step on stderr; an unexpected throw before a r
 	expect(listed.report.error.name).toBe('Internal');
 });
 
-test('F2 the run records a refusal, so an action that swallows or wraps one still exits 3 with the path', async () => {
+test('F6 the child finishes the run when its parent dies', async () => {
 	const f = await setup();
 	const folder = await notes(f);
-	await writeFile(join(folder, 'a.md'), 'my edit\n');
-
-	const swallowed = await f.json('notes', 'swallow');
-	expect(swallowed.code).toBe(3);
-	expect(swallowed.report).toMatchObject({
-		action: { returned: 'carried on' },
-		refused: [{ path: 'a.md', reason: 'uncommitted' }],
-		commit: { paths: ['b.md'] },
-		paths: [{ path: 'b.md', state: 'committed' }],
-	});
-	expect(swallowed.report.commit.subject).toStartWith(
-		'notes swallow (failed: ',
-	);
-	expect(await readFile(join(folder, 'a.md'), 'utf8')).toBe('my edit\n');
-
-	await gitIn(folder, 'reset', '-q', '--hard', 'HEAD~1');
-	await writeFile(join(folder, 'a.md'), 'my edit\n');
-	const wrapped = await f.json('notes', 'wrap');
-	expect(wrapped.code).toBe(3);
-	expect(wrapped.report).toMatchObject({
-		action: { threw: { message: 'could not save the page' } },
-		refused: [{ path: 'a.md', reason: 'uncommitted' }],
-		commit: { paths: ['b.md'] },
-	});
-	const human = await f.run('notes', 'wrap');
-	expect(human.stderr).toContain('a.md has changes you have not committed');
-	expect(human.stderr).toContain(`Run: git -C ${folder} status -- a.md`);
-});
-
-test('F3 a commit made during the run before the action wrote a path is no contest', async () => {
-	const f = await setup();
-	const folder = await notes(f);
-	const running = f.json('notes', 'late', '--signals', f.signals);
-	await f.paused();
-	await writeFile(join(folder, 'a.md'), 'person a\n');
-	await gitIn(folder, 'commit', '-q', '-am', 'person');
-	await f.go();
-	const { code, report } = await running;
-	expect(code).toBe(0);
-	expect(report.paths).toEqual([{ path: 'a.md', state: 'committed' }]);
-	expect(await gitIn(folder, 'show', 'HEAD:a.md')).toBe('action a');
-	expect(await gitIn(folder, 'log', '-1', '--format=%s', 'HEAD~1')).toBe(
-		'person',
-	);
-});
-
-test("F3 a commit that already holds the action's bytes is already in history; one with other bytes is contested", async () => {
-	const f = await setup();
-	const folder = await notes(f);
-	let running = f.json('notes', 'paused', '--signals', f.signals);
-	await f.paused();
-	await gitIn(folder, 'commit', '-q', '-m', 'swept in', '--', 'a.md');
-	await f.go();
-	let { code, report } = await running;
-	expect(code).toBe(0);
-	expect(report.paths).toEqual([
-		{ path: 'a.md', state: 'already-in-history' },
-		{ path: 'b.md', state: 'committed' },
-	]);
-	expect(report.commit.paths).toEqual(['b.md']);
-	expect(await gitIn(folder, 'status', '--porcelain')).toBe('');
-
-	await rm(join(f.signals, 'paused'));
-	await rm(join(f.signals, 'go'));
-	running = f.json('notes', 'paused', '--signals', f.signals);
-	await f.paused();
-	await writeFile(join(folder, 'a.md'), 'person a\n');
-	await gitIn(folder, 'commit', '-q', '-m', 'person', '--', 'a.md');
-	await f.go();
-	({ code, report } = await running);
-	expect(code).toBe(0);
-	expect(report.paths).toEqual([
-		{ path: 'a.md', state: 'contested' },
-		// The first run already committed these bytes.
-		{ path: 'b.md', state: 'already-in-history' },
-	]);
-	expect(report.commit).toBeNull();
-	expect(await gitIn(folder, 'show', 'HEAD:a.md')).toBe('person a');
-	expect((await f.run('notes', 'two', 'x')).code).toBe(0);
-});
-
-test('F3 a symlink target is refused, the executable bit is kept, and a first commit made during a run on an unborn branch is its parent', async () => {
-	const f = await setup();
-	const folder = await notes(f);
-	const outside = join(f.root, 'outside.md');
-	await writeFile(outside, 'outside\n');
-	await rm(join(folder, 'a.md'));
-	await symlink(outside, join(folder, 'a.md'));
-	await gitIn(folder, 'add', 'a.md');
-	await gitIn(folder, 'commit', '-q', '-m', 'link');
-	const linked = await f.json('notes', 'two', 'Ada');
-	expect(linked.code).toBe(3);
-	expect(linked.report.refused).toMatchObject([
-		{ path: 'a.md', reason: 'symlink' },
-	]);
-	expect(await readFile(outside, 'utf8')).toBe('outside\n');
-	expect(await gitIn(folder, 'ls-tree', 'HEAD', 'a.md')).toStartWith('120000 ');
-
-	const script = await f.json('notes', 'script');
-	expect(script.code).toBe(0);
-	expect(await gitIn(folder, 'ls-tree', 'HEAD', 'run.sh')).toStartWith(
-		'100755 ',
-	);
-	expect((await stat(join(folder, 'run.sh'))).mode & 0o111).not.toBe(0);
-	expect(await gitIn(folder, 'status', '--porcelain')).toBe('');
-
-	const unborn = join(f.home, 'fresh');
-	await f.folder(
-		unborn,
-		{ ...repairsApp, 'epicenter.json': declarationOf('fresh') },
-		{ git: false },
-	);
-	await gitIn(unborn, 'init', '-q');
-	await rm(join(unborn, 'a.md'));
-	const running = f.json('fresh', 'paused', '--signals', f.signals);
-	await f.paused();
-	await gitIn(unborn, 'add', 'epicenter.json', 'epicenter.ts', '.gitignore');
-	await gitIn(
-		unborn,
-		'-c',
-		'user.name=P',
-		'-c',
-		'user.email=p@example.com',
-		'commit',
-		'-q',
-		'-m',
-		'first',
-	);
-	const first = await head(unborn);
-	await f.go();
-	const { code, report } = await running;
-	expect(code).toBe(0);
-	expect(report.paths).toEqual([
-		{ path: 'a.md', state: 'committed' },
-		{ path: 'b.md', state: 'committed' },
-	]);
-	expect(await gitIn(unborn, 'rev-parse', 'HEAD~1')).toBe(first);
-	expect(await gitIn(unborn, 'show', 'HEAD:epicenter.json')).toContain('fresh');
-});
-
-test('F4 a path with glob characters is a path, not a pattern', async () => {
-	const f = await setup();
-	const folder = await notes(f);
-	await writeFile(
-		join(folder, 'd.md'),
-		'untracked, and matched by [d].md as a glob\n',
-	);
-	const { code, report } = await f.json('notes', 'glob');
-	expect(code).toBe(0);
-	expect(report.commit.paths).toEqual(['[d].md']);
-	expect(await gitIn(folder, 'show', 'HEAD:[d].md')).toBe('bracketed');
-	expect(await gitIn(folder, 'status', '--porcelain')).toBe('?? d.md');
-});
-
-test('F5 a worktree branch whose upstream is origin/main does not push there', async () => {
-	const f = await setup();
-	const { folder, bare, branch } = await notesWithOrigin(f);
-	const before = await gitIn(bare, 'rev-parse', branch);
-	const worktree = join(f.root, 'worktree');
-	await gitIn(
-		folder,
-		'worktree',
-		'add',
-		'-q',
-		'--track',
-		'-b',
-		'experiment',
-		worktree,
-		`origin/${branch}`,
-	);
-	expect(await gitIn(worktree, 'rev-parse', '--abbrev-ref', '@{u}')).toBe(
-		`origin/${branch}`,
-	);
-	const { code, report } = await f.json(worktree, 'two', 'draft');
-	expect(code).toBe(0);
-	expect(report.commit).not.toBeNull();
-	expect(report.push).toBeNull();
-	expect(await gitIn(bare, 'rev-parse', branch)).toBe(before);
-	expect(await gitIn(bare, 'branch', '--list', 'experiment')).toBe('');
-});
-
-test("F6 an action's console output, every kind, never reaches the answer of --json or serve --stdio", async () => {
-	const f = await setup();
-	await notes(f);
-	const { code, report, stderr } = await f.json('notes', 'noisy');
-	expect(code).toBe(0);
-	expect(report.action).toEqual({ returned: 'answer' });
-	for (const line of ['debug line', 'log line', 'raw stdout', 'dir'])
-		expect(stderr).toContain(line);
-
-	const client = new Client({ name: 'acceptance', version: '1' });
-	try {
-		await client.connect(serve(f));
-		const called = await client.callTool({
-			name: 'notes_noisy',
-			arguments: {},
-		});
-		expect(called.isError).toBeFalsy();
-		expect(called.structuredContent).toMatchObject({
-			action: { returned: 'answer' },
-		});
-	} finally {
-		await client.close();
-	}
-});
-
-test('F6 the child killed after its commit reports exit 3 with the heads; the child finishes when its parent dies', async () => {
-	const f = await setup();
-	const folder = await notes(f);
-	const before = await head(folder);
-	const hook = join(folder, '.git', 'hooks', 'reference-transaction');
-	await writeFile(
-		hook,
-		`#!/bin/sh\n[ "$1" = committed ] || exit 0\ntouch '${f.signals}/committed'\nwhile [ ! -e '${f.signals}/release' ]; do sleep 0.05; done\n`,
-	);
-	await chmod(hook, 0o755);
-	const running = f.json('notes', 'pid', '--signals', f.signals);
-	await f.paused('committed');
-	await f.paused('pid');
-	process.kill(
-		Number(await readFile(join(f.signals, 'pid'), 'utf8')),
-		'SIGKILL',
-	);
-	const { code, report } = await running;
-	await writeFile(join(f.signals, 'release'), '1');
-	expect(code).toBe(3);
-	const after = await head(folder);
-	expect(after).not.toBe(before);
-	expect(report).toEqual({
-		unknown: {
-			message: expect.any(String),
-			head: { before, after },
-		},
-	});
-	await rm(hook);
-	// Killed between moving HEAD and updating the index, the child leaves Git's index lock and an index that still says HEAD~1.
-	await rm(join(folder, '.git', 'index.lock'), { force: true });
-	await gitIn(folder, 'reset', '-q');
-
 	const parent = Bun.spawn(
 		[process.execPath, f.bin, 'notes', 'orphan', '--signals', f.signals],
 		{ cwd: f.root, env: f.env, stdout: 'pipe', stderr: 'pipe' },
@@ -577,11 +141,12 @@ test('F6 the child killed after its commit reports exit 3 with the heads; the ch
 	await f.go();
 	const deadline = Date.now() + 15_000;
 	while (
-		(await gitIn(folder, 'log', '-1', '--format=%s')) !== 'notes orphan' &&
+		(await readFile(join(folder, 'a.md'), 'utf8')) !==
+			'finished without a parent' &&
 		Date.now() < deadline
 	)
 		await Bun.sleep(50);
-	expect(await gitIn(folder, 'show', 'HEAD:a.md')).toBe(
+	expect(await readFile(join(folder, 'a.md'), 'utf8')).toBe(
 		'finished without a parent',
 	);
 });
@@ -615,13 +180,11 @@ export default defineApp(declaration, { actions: { hello: { description: 'Say he
 
 		const flags = await client.callTool({ name: 'notes_flags', arguments: {} });
 		expect(flags.structuredContent).toMatchObject({
-			action: { returned: expect.arrayContaining(['--no-install']) },
+			returned: expect.arrayContaining(['--no-install']),
 		});
 		const hello = await client.callTool({ name: 'loud_hello', arguments: {} });
 		expect(hello.isError).toBeFalsy();
-		expect(hello.structuredContent).toMatchObject({
-			action: { returned: 'hello' },
-		});
+		expect(hello.structuredContent).toEqual({ returned: 'hello' });
 		const unknown = await client.callTool({
 			name: 'notes_nope',
 			arguments: {},
@@ -713,7 +276,7 @@ test('F9 one table owns the vocabulary; --json goes anywhere; defaulted fields a
 
 	const leading = await f.run('--json', 'notes', 'two', 'Ada');
 	expect(leading.code).toBe(0);
-	expect(JSON.parse(leading.stdout).action).toEqual({ returned: 'Ada' });
+	expect(JSON.parse(leading.stdout)).toEqual({ returned: 'Ada' });
 	expect(JSON.parse((await f.run('--json', 'notes')).stdout).name).toBe(
 		'notes',
 	);
@@ -723,7 +286,7 @@ test('F9 one table owns the vocabulary; --json goes anywhere; defaulted fields a
 	);
 	expect(tool.inputSchema.required ?? []).not.toContain('count');
 	const ran = await f.json('notes', 'defaulted');
-	expect(ran.report.action.returned).toEqual({ count: 3 });
+	expect(ran.report.returned).toEqual({ count: 3 });
 	expect((await f.run('help', 'notes', 'defaulted')).stdout).toContain(
 		'--count: number, default 3',
 	);
@@ -748,31 +311,8 @@ export default defineApp({ name: 'not-this', description: 'Another declaration' 
 	expect(JSON.stringify((await f.json()).report)).not.toContain(
 		'epicenter.d.json.ts',
 	);
-	expect((await f.json('other', 'hi')).report.action).toEqual({
-		returned: 'hi',
-	});
+	expect((await f.json('other', 'hi')).report).toEqual({ returned: 'hi' });
 	expect(existsSync(join(repo, 'packages/cli/src/types.ts'))).toBe(false);
-});
-
-test('F11 the deletions: exit code 1, the lock queue, the test-secrets help line', async () => {
-	const f = await setup();
-	const help = (await f.run('--help')).stdout;
-	expect(help).toContain('Exit codes: 0 ran, 2 did not run, 3 ran and failed');
-	expect(help).not.toContain('finding');
-	expect(help).not.toContain('EPICENTER_TEST_SECRETS');
-	const lock = await readFile(
-		join(repo, 'packages/cli/src/file-lock.ts'),
-		'utf8',
-	);
-	for (const gone of ['const turns', 'waitMs', 'held:', 'holdingFileLock'])
-		expect(lock).not.toContain(gone);
-	const context = await readFile(
-		join(repo, 'packages/app/src/context.ts'),
-		'utf8',
-	);
-	expect(context).not.toContain('secrets?:');
-	const disk = await readFile(join(repo, 'packages/cli/src/disk.ts'), 'utf8');
-	expect(disk).not.toContain('log?:');
 });
 
 test("F12 field.date() carries format: 'date', and the CLI reads the format", async () => {
@@ -791,32 +331,4 @@ test("F12 field.date() carries format: 'date', and the CLI reads the format", as
 	const bad = await f.json('reading', 'between', '2026-13-45', '2026-11-08');
 	expect(bad.code).toBe(2);
 	expect(bad.report.error.message).toContain('<from>');
-});
-
-test('F13 the records and READMEs say what the code does', async () => {
-	const read = (path: string) => readFile(join(repo, path), 'utf8');
-	for (const readme of ['packages/cli/README.md', 'packages/app/README.md']) {
-		const text = await read(readme);
-		expect(text).not.toContain('epicenter types');
-		expect(text).not.toContain('epicenter.d.json.ts');
-		expect(text).not.toMatch(/\b1 (a )?finding|exit(s)? 1\b/);
-	}
-	const adr = async (number: string) => {
-		const glob = new Bun.Glob(`${number}-*.md`);
-		const [name] = [...glob.scanSync(join(repo, 'docs/adr'))];
-		return read(`docs/adr/${name}`);
-	};
-	expect(await adr('0850')).toContain('{ base, mode, object }');
-	expect(await adr('0850')).toContain('GIT_LITERAL_PATHSPECS');
-	expect(await adr('0851')).toContain('same name');
-	expect(await adr('0852')).toContain('clones');
-	expect(await adr('0857')).toContain('K1');
-});
-
-test("F14 file-lock.ts's header no longer mentions undo", async () => {
-	const lock = await readFile(
-		join(repo, 'packages/cli/src/file-lock.ts'),
-		'utf8',
-	);
-	expect(lock).not.toContain('undo');
 });

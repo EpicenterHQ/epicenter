@@ -8,11 +8,14 @@
  * ```
  *
  * The folder has no `path`; an action that needs one runs only on a computer.
+ * There is no Git: `folder.commit` only appends its message to `commits`, so
+ * a test can check what the action would have committed.
  */
 import { type Folder, normalizePath, type Secrets } from './context.ts';
 
 function createMemoryFolder(
 	files: Readonly<Record<string, string | Uint8Array>>,
+	commits: string[],
 ): Folder {
 	const encoder = new TextEncoder();
 	const decoder = new TextDecoder();
@@ -43,6 +46,9 @@ function createMemoryFolder(
 		async delete(path) {
 			bytes.delete(normalizePath(path));
 		},
+		async commit(message) {
+			commits.push(message);
+		},
 	};
 }
 
@@ -61,9 +67,14 @@ function createMemorySecrets(): Secrets {
 	};
 }
 
-/** A folder seeded with `files`, and empty secrets, all in memory. */
+/** A folder seeded with `files`, empty secrets, and the messages `folder.commit` was given, in order. */
 export function createMemoryContext(
 	files: Readonly<Record<string, string | Uint8Array>> = {},
-): { folder: Folder; secrets: Secrets } {
-	return { folder: createMemoryFolder(files), secrets: createMemorySecrets() };
+): { folder: Folder; secrets: Secrets; commits: string[] } {
+	const commits: string[] = [];
+	return {
+		folder: createMemoryFolder(files, commits),
+		secrets: createMemorySecrets(),
+		commits,
+	};
 }

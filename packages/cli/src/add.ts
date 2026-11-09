@@ -25,7 +25,7 @@ import {
 import { join } from 'node:path';
 import { nameProblem, SCHEMA_URL } from '@epicenter/app';
 import { CliError } from './errors.ts';
-import { checkedGit, git, isRepositoryTop } from './git.ts';
+import { checkedGit, git } from './git.ts';
 import { homeDir, readDeclaration, resolveFolder } from './home.ts';
 import { fail, made } from './output.ts';
 
@@ -59,6 +59,12 @@ function template(name: string) {
 			(kind) => `*.${kind} filter=lfs diff=lfs merge=lfs -text\n`,
 		).join(''),
 	};
+}
+
+/** Whether `folder`, a real path, is the top level of its own Git repository. */
+async function isRepositoryTop(folder: string) {
+	const top = await git(folder, ['rev-parse', '--show-toplevel']);
+	return top.code === 0 && (await realpath(top.stdout)) === folder;
 }
 
 async function exists(path: string) {
