@@ -367,6 +367,30 @@
         "vite-plugin-devtools-json": "^1.0.0",
       },
     },
+    "epicenter/capture": {
+      "name": "@epicenter/home-capture",
+      "version": "0.0.1",
+      "dependencies": {
+        "@epicenter/app": "workspace:*",
+      },
+      "devDependencies": {
+        "@epicenter/ui": "workspace:*",
+        "@epicenter/vite-config": "workspace:*",
+        "@lucide/svelte": "catalog:",
+        "@sveltejs/adapter-static": "catalog:",
+        "@sveltejs/kit": "catalog:",
+        "@sveltejs/vite-plugin-svelte": "catalog:",
+        "@tailwindcss/vite": "catalog:",
+        "@types/bun": "catalog:",
+        "mode-watcher": "catalog:",
+        "svelte": "catalog:",
+        "svelte-check": "catalog:",
+        "svelte-sonner": "catalog:",
+        "tailwindcss": "catalog:",
+        "typescript": "catalog:",
+        "vite": "catalog:",
+      },
+    },
     "ops": {
       "name": "@epicenter/ops",
       "devDependencies": {
@@ -888,6 +912,8 @@
     "@epicenter/definition": ["@epicenter/definition@workspace:packages/definition"],
 
     "@epicenter/folder": ["@epicenter/folder@workspace:packages/folder"],
+
+    "@epicenter/home-capture": ["@epicenter/home-capture@workspace:epicenter/capture"],
 
     "@epicenter/honeycrisp": ["@epicenter/honeycrisp@workspace:apps/honeycrisp"],
 

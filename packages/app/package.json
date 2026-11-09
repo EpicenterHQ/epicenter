@@ -6,6 +6,7 @@
 	"type": "module",
 	"exports": {
 		".": "./src/index.ts",
+		"./client": "./src/client.ts",
 		"./epicenter.schema.json": "./epicenter.schema.json"
 	},
 	"scripts": {

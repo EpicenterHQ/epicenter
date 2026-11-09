@@ -34,3 +34,4 @@ export {
 } from './declaration.ts';
 export { field, type TSwitch, type TTags } from './field.ts';
 export { createMemoryContext } from './memory.ts';
+export { timeId } from '@epicenter/definition/ids';

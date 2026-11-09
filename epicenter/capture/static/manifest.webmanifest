@@ -1,0 +1,10 @@
+{
+	"name": "Capture",
+	"short_name": "Capture",
+	"start_url": "./",
+	"scope": "./",
+	"display": "standalone",
+	"background_color": "#0a0a0a",
+	"theme_color": "#0a0a0a",
+	"icons": [{ "src": "icon.png", "sizes": "512x512", "type": "image/png" }]
+}

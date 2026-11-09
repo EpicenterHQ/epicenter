@@ -28,6 +28,7 @@
 	"workspaces": {
 		"packages": [
 			"apps/*",
+			"epicenter/*",
 			"apps/api/ui",
 			"apps/local-books/ui",
 			".agents/skills/consult-claude",
