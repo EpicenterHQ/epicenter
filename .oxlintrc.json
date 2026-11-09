@@ -1,0 +1,31 @@
+{
+	"$schema": "./node_modules/oxlint/configuration_schema.json",
+	"categories": { "correctness": "off" },
+	"plugins": [],
+	"jsPlugins": [
+		{ "name": "anti-slop", "specifier": "./tools/oxlint/anti-slop/index.ts" }
+	],
+	"ignorePatterns": [
+		".agents/**",
+		".claude/**",
+		".codex/**",
+		".conductor/**",
+		".opencode/**",
+		"tools/oxlint/anti-slop/**",
+		"packages/ui/upstream/**",
+		"**/node_modules/**",
+		"**/build/**",
+		"**/dist/**",
+		"**/.svelte-kit/**",
+		"**/.astro/**",
+		"**/.plasmo/**",
+		"**/bindings.gen.ts",
+		"**/worker-configuration.d.ts"
+	],
+	"rules": {
+		"anti-slop/no-chained-type-assertions": "error",
+		"anti-slop/no-known-value-widening": "error",
+		"anti-slop/no-widen-then-assert": "error",
+		"anti-slop/require-safety-comment-for-type-assertion": "warn"
+	}
+}

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { AI_MODELS, providerLabel } from '@epicenter/constants/ai-providers';
+	import { AI_MODELS, providerLabel } from '@epicenter/ai/providers';
 	import * as Table from '@epicenter/ui/table';
 
 	// The catalog is a compile-time constant, so the table never pends or

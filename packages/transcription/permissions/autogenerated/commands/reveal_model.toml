@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-reveal-model"
+description = "Enables the reveal_model command without any pre-configured scope."
+commands.allow = ["reveal_model"]
+
+[[permission]]
+identifier = "deny-reveal-model"
+description = "Denies the reveal_model command without any pre-configured scope."
+commands.deny = ["reveal_model"]

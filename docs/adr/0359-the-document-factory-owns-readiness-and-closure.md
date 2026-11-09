@@ -7,6 +7,7 @@
 
 ## Context
 
+<!-- doc-path-check: ignore-next-line -->
 Before this change, `packages/app/src/index.ts` returned getters forwarding to
 a store created after storage opened. The app and store each owned a closure
 flag. A table retained before app closure could still write until the store was
@@ -17,6 +18,7 @@ closed. Copying every store member also required facade edits for new operations
 **The factory implementing document operations owns acquisition, readiness,
 and closure of that same document.**
 
+<!-- doc-path-check: ignore-next-line -->
 `packages/app/src/data/store/store.ts` constructs its `Y.Doc`, named roots, table
 handles, and KV handle synchronously. Acquisition supplies durable storage and
 its loaded snapshot. The factory hydrates the existing document before attaching

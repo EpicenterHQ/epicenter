@@ -1,21 +1,28 @@
-// Every build is a static SPA. The browser build writes `build/`. The desktop
-// build writes `build-desktop/`, which the desktop shell bundles.
-import staticAdapter from '@sveltejs/adapter-static';
+import adapter from '@sveltejs/adapter-static';
 import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 
-const isDesktop = process.env.HONEYCRISP_DESKTOP === '1';
-const output = isDesktop ? 'build-desktop' : 'build';
+/**
+ * Where a build writes the static app, when not `build/`. `wrangler deploy`
+ * publishes `build/`, which the desktop window loads too. (`.svelte-kit/`, which `vite preview`
+ * serves, stays here: its server bundle resolves packages from this
+ * folder.)
+ */
+const out = process.env.HONEYCRISP_BUILD_DIR;
 
 /** @type {import('@sveltejs/kit').Config} */
 const config = {
 	kit: {
-		adapter: staticAdapter({
-			pages: output,
-			assets: output,
+		// A static single-page app: any host that answers unknown paths with
+		// `index.html` (for `/auth/callback`) serves it.
+		adapter: adapter({
 			fallback: 'index.html',
+			...(out && { pages: out, assets: out }),
 		}),
 	},
 	preprocess: vitePreprocess(),
+	// `@epicenter/svelte`'s Recovery, which `<WhenOpen>` shows, reads
+	// `$effect.pending()`, which async Svelte provides.
+	compilerOptions: { experimental: { async: true } },
 };
 
 export default config;

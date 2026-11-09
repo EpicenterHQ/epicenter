@@ -1,6 +1,7 @@
 # 0430. Store definitions declare data and products compose resources
 
-- **Status:** Proposed
+- **Status:** Superseded
+- **Superseded by:** [ADR-0534](0534-data-folders-are-the-only-data-model.md), which removes the Yjs store.
 - **Date:** 2026-09-23
 - **Amends:** [ADR-0405](0405-one-flat-application-declaration-opens-the-live-app.md) at declaration naming and identity: `defineStore` names a store definition, not an application composition. The flat schema and stable identity remain.
 - **Amends:** [ADR-0407](0407-app-owns-the-declaration-and-data-engine.md) at the declaration constructor's name: `defineStore` replaces `defineApp`. The inert root, single constructor, and package ownership remain.

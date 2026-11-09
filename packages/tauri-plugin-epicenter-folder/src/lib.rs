@@ -1,165 +1,114 @@
-//! One native owner per Epicenter folder, shared by every window of a shell.
+//! The desktop shell's named roots and the storage commands a page reaches
+//! them through (ADR-0725).
 //!
-//! A shell installs the plugin once and registers its folders from trusted
-//! Rust code once it knows its paths:
+//! A shell installs the plugin once, then names each root at startup, with
+//! the rule that refuses a location it must never be:
 //!
 //! ```ignore
 //! tauri::Builder::default()
 //!     .plugin(tauri_plugin_epicenter_folder::init())
 //!     .setup(|app| {
-//!         app.folders().register(ScopeConfig {
-//!             scope: "so.epicenter.todos".into(),
-//!             folder: FolderConfig::new(todos_directory, author),
-//!             windows: vec!["todos".into()],
-//!         })?;
+//!         let roots = app.roots();
+//!         roots.name(Root::AppData, app.path().app_data_dir()?, |_| None);
+//!         roots.name(Root::Data, data_folder, refuse_home_and_library);
 //!         Ok(())
 //!     })
 //! ```
 //!
-//! A page names a scope and nothing else. The root, the author, the remote,
-//! and whether saves commit automatically all come from `register`.
+//! A page names a root, never a path, and holds no absolute path but the
+//! one `open_root` answers for it to show. Opening a root opens whatever is
+//! at its path, following a link there, and makes the folder when nothing is
+//! there (ADR-0726). The page runs `@epicenter/folder`'s engine over the
+//! root, whose storage is this plugin's commands, one per storage method
+//! (ADR-0581), each taking the root and a relative path the shared path rule
+//! keeps inside it. This plugin offers file storage and runs no Git: a
+//! folder's history is its log on the server (ADR-0824).
 //!
-//! The owner of a scope is opened on its first attach and kept until the app
-//! exits or the shell calls `Folders::shutdown`, which fences new work, lets
-//! admitted saves and admitted commits finish, and releases each folder's
-//! cross-process lock. It commits nothing on its own.
+//! The shell checks each save against the version its page read right
+//! before the rename, so a save another writer overtook is answered `stale`
+//! rather than silently replaced. No lock spans the check and the rename;
+//! the folder's history on the server is the backstop for that instant
+//! (ADR-0562, ADR-0824).
+//! `Roots::shutdown` refuses new work without waiting for work already
+//! running (ADR-0542).
+//!
+//! Each open root owns one recursive native watch. Its app event tells pages
+//! which paths may differ; each page owns reading those paths.
 
 use tauri::plugin::TauriPlugin;
-use tauri::webview::PageLoadEvent;
-use tauri::{Manager, RunEvent, Runtime, WindowEvent};
+use tauri::{Manager, RunEvent, Runtime};
 
-/// Whether a directory already holds a repository: what a shell checks before
-/// offering to open a folder that must not be initialized.
-pub use epicenter_folder_core::files::has_repository;
-pub use epicenter_folder_core::git::{Author, Remote};
-pub use epicenter_folder_core::owner::FolderConfig;
-use epicenter_folder_core::registry::Registry;
-pub use epicenter_folder_core::registry::ScopeConfig;
-/// A shell's own transfers: staged first downloads, and the per-transfer
-/// relays a folder's owner can be given in [`FolderConfig::transport`].
-pub use epicenter_folder_core::{download, transport};
+pub use epicenter_folder_core::admission;
+pub use epicenter_folder_core::directory::{Directory, DirectoryError};
+pub use epicenter_folder_core::storage::{Landing, PutOutcome, StorageError};
 
 mod command_names;
 mod commands;
-mod lifecycle;
+mod records;
+mod roots;
+mod watch;
 
 pub use command_names::COMMANDS;
-pub use commands::{Attached, FolderFilesChanged, FolderSnapshotChanged, PROTOCOL};
+pub use commands::{FolderError, DATA_FOLDER_FILE};
+pub use epicenter_folder_core::identity::{identity_at, identity_key, proves, FolderIdentity};
+pub use records::FolderRecord;
+pub use roots::{
+    folder_name_problem, kept_by_git, EpicenterEntry, EpicenterListing, Outside, Root, RootError,
+    Roots, RootsExt, Unreadable,
+};
+pub use watch::{FolderChanged, FolderEvent};
 
 const PLUGIN_NAME: &str = "epicenter-folder";
 
-/// The shell's folders. Reached with `app.folders()`.
-#[derive(Default)]
-pub struct Folders {
-    registry: Registry,
-    /// Which page each session belongs to, so sessions end with their page
-    /// and their window. See `lifecycle`.
-    lifecycles: lifecycle::Lifecycles,
-}
-
-impl Folders {
-    /// Register a folder under a scope and name the windows that may use it.
-    /// A scope's configuration never changes once registered.
-    pub fn register(&self, config: ScopeConfig) -> Result<(), String> {
-        self.registry.register(config)
-    }
-
-    /// Fence new work, drain every folder, and release every lock. Returns
-    /// once that has happened. The plugin also does this when the app exits.
-    pub fn shutdown(&self) {
-        self.registry.shutdown();
-    }
-}
-
-pub trait FolderExt<R: Runtime> {
-    fn folders(&self) -> &Folders;
-}
-
-impl<R: Runtime, T: Manager<R>> FolderExt<R> for T {
-    fn folders(&self) -> &Folders {
-        self.state::<Folders>().inner()
-    }
-}
-
-/// The typed command and event contract. The TypeScript bindings in
+/// The typed command contract. The TypeScript bindings in
 /// `../folder/src/native/bindings.gen.ts` are generated from this builder.
+/// `put_folder_file` takes a raw body and `read_folder_file` returns one,
+/// which specta cannot type, so they are dispatched beside these (`init`)
+/// and left out of the bindings. `Landing`, what `put_folder_file`
+/// answers, is exported for the page.
 fn specta_builder<R: Runtime>() -> tauri_specta::Builder<R> {
     tauri_specta::Builder::<R>::new()
         .plugin_name(PLUGIN_NAME)
         .commands(tauri_specta::collect_commands![
-            commands::attach::<tauri::Wry>,
-            commands::detach::<tauri::Wry>,
-            commands::list::<tauri::Wry>,
-            commands::children::<tauri::Wry>,
-            commands::read::<tauri::Wry>,
-            commands::read_many::<tauri::Wry>,
-            commands::apply::<tauri::Wry>,
-            commands::mkdir::<tauri::Wry>,
-            commands::rmdir::<tauri::Wry>,
-            commands::status::<tauri::Wry>,
-            commands::commit::<tauri::Wry>,
-            commands::open_request::<tauri::Wry>,
-            commands::withdraw_request::<tauri::Wry>,
-            commands::push::<tauri::Wry>,
-            commands::fetch::<tauri::Wry>,
-            commands::pull_fast_forward::<tauri::Wry>,
-            commands::merge_incoming::<tauri::Wry>,
-            commands::recover_incoming::<tauri::Wry>,
-            commands::paths::<tauri::Wry>,
-            commands::diff::<tauri::Wry>,
-            commands::log::<tauri::Wry>,
+            commands::open_root::<tauri::Wry>,
+            commands::reveal_root::<tauri::Wry>,
+            commands::list_folder::<tauri::Wry>,
+            commands::list_epicenter::<tauri::Wry>,
+            commands::make_epicenter_folder::<tauri::Wry>,
+            commands::root_identity::<tauri::Wry>,
+            commands::data_record::<tauri::Wry>,
         ])
-        .events(tauri_specta::collect_events![
-            FolderSnapshotChanged,
-            FolderFilesChanged,
-        ])
-        .constant("FOLDER_PROTOCOL", commands::PROTOCOL)
+        .typ::<Landing>()
+        .typ::<FolderEvent>()
         .error_handling(tauri_specta::ErrorHandlingMode::DataError)
-        // Sizes, timestamps, and sequence numbers stay far below 2^53.
-        .dangerously_cast_bigints_to_number()
 }
 
+/// The commands outside the typed contract: `put_folder_file` and
+/// `read_folder_file`.
+fn raw_handler<R: Runtime>() -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static {
+    tauri::generate_handler![commands::put_folder_file, commands::read_folder_file]
+}
+
+/// Install once per shell, then name its roots (`Roots::name`). A window
+/// closes like any other window: nothing waits for its page.
 pub fn init<R: Runtime>() -> TauriPlugin<R> {
-    let builder = specta_builder::<R>();
+    let contract = specta_builder::<R>();
+    let typed = contract.invoke_handler();
+    let raw = raw_handler::<R>();
     tauri::plugin::Builder::new(PLUGIN_NAME)
-        .invoke_handler(builder.invoke_handler())
+        .invoke_handler(move |invoke| match invoke.message.command() {
+            "put_folder_file" | "read_folder_file" => raw(invoke),
+            _ => typed(invoke),
+        })
         .setup(move |app, _api| {
-            builder.mount_events(app);
-            app.manage(Folders::default());
-            // Webviews that exist before the plugin is installed were never
-            // announced to it.
-            for window in app.webview_windows().values() {
-                commands::adopt(window.as_ref());
-            }
+            app.manage(Roots::default());
             Ok(())
         })
-        // Each actual webview gets its own identity as Tauri announces it.
-        .on_webview_ready(|webview| commands::adopt(&webview))
-        // A webview's resources outlive its pages. When a page starts loading,
-        // the sessions the previous page attached are ended.
-        .on_page_load(|webview, payload| {
-            if payload.event() == PageLoadEvent::Started {
-                commands::end_page(webview);
-            }
-        })
         .on_event(|app, event| match event {
-            RunEvent::WindowEvent {
-                label,
-                event: WindowEvent::Destroyed,
-                ..
-            } => window_destroyed(app, label),
-            RunEvent::Exit => app.folders().shutdown(),
+            RunEvent::Exit => app.roots().shutdown(),
             _ => {}
         })
         .build()
-}
-
-/// A window was destroyed. Tauri's manager removes the window and its
-/// webviews before a plugin hears of it, so nothing here asks the manager for
-/// them: the plugin's own index says which webview instances were that
-/// window's.
-fn window_destroyed<R: Runtime>(app: &tauri::AppHandle<R>, window: &str) {
-    app.folders().lifecycles.window_destroyed(window);
 }
 
 #[cfg(test)]

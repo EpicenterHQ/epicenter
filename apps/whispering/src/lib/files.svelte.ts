@@ -1,0 +1,152 @@
+/**
+ * Whispering's files over its folder: the note lists, and each recording's
+ * audio beside them. The folder is the one `src/lib/app.ts` opened (the
+ * person's repository in a browser, the data folder in a Tauri window),
+ * which `WhisperingApp` hands in; which store it is is `home`'s choice,
+ * never this module's. A page edits a note through the folder itself
+ * (`folder.recordings.edit({ id })`).
+ *
+ * Reads are Svelte state through `reactive`: each list lists and listens
+ * only while something reactive reads it. A write answers once it has
+ * landed and never fails: while the store is out of reach the folder keeps
+ * it, and `<WhenOpen>` says so (ADR-0775).
+ */
+import type { InvalidNoteOf, NoteOf } from '@epicenter/definition/contract';
+import type { Folder, FolderNotes } from '@epicenter/folder/core';
+import { Err, Ok, type Result } from 'wellcrafted/result';
+import { audioMimeTypeOf } from './audio-format.js';
+import type { Whispering } from './contract.js';
+
+type Collections = Whispering['collections'];
+
+/**
+ * The library's note collections, by name: a note per id. `shortcuts.md` is
+ * a setting, which only the desktop root reads.
+ */
+export type NoteName = Exclude<keyof Collections, 'audio' | 'shortcuts'>;
+
+/** A note of `name` as the lists show it: its fields and body. */
+export type Listed<TName extends NoteName> = NoteOf<Collections[TName]>;
+export type RecordingNote = Listed<'recordings'>;
+export type TranscriptionNote = Listed<'transcriptions'>;
+export type TransformationNote = Listed<'transformations'>;
+export type TransformationRunNote = Listed<'transformation_runs'>;
+export type TextRunNote = Listed<'text_runs'>;
+
+/** A note at one of `name`'s paths that does not read, with its text. */
+export type InvalidNote<TName extends NoteName> = InvalidNoteOf<
+	Collections[TName]
+>;
+
+/** One audio file a recording has. */
+export type AudioFile = {
+	readonly id: string;
+	readonly ext: string;
+};
+
+/** Whether a recording's audio can be read. */
+export type RecordingAudio =
+	| { readonly kind: 'here'; readonly file: AudioFile }
+	/** No audio file has the recording's id. */
+	| { readonly kind: 'absent' }
+	/** More than one audio file shares the recording's id. */
+	| { readonly kind: 'ambiguous'; readonly exts: readonly string[] };
+
+/** A recording's audio, read. */
+export type AudioBytes = {
+	readonly bytes: Uint8Array;
+	readonly ext: string;
+	/** The file's name, `<id>.<ext>`, as a transcription request names it. */
+	readonly name: string;
+	readonly mimeType: string;
+};
+
+/** Each note collection, as the pages read it. */
+export type NoteLists = {
+	readonly [K in NoteName]: FolderNotes<Collections[K]>;
+};
+
+/** Whispering's files: the note lists, and the recordings' audio. */
+export type WhisperingFiles = NoteLists & {
+	/** Where recording `id`'s audio is, read reactively. */
+	audioOf(id: string): RecordingAudio;
+	/** Recording `id`'s audio bytes. */
+	readAudio(id: string): Promise<Result<AudioBytes, string>>;
+	/** Delete recording `id`'s audio files, as listed. */
+	deleteAudio(id: string): Promise<void>;
+};
+
+const byText = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+/** Newest first by `at`, then by id (ids sort by when they were made). */
+export const newest =
+	<T extends { id: string }>(at: (item: T) => string) =>
+	(a: T, b: T) =>
+		byText(at(b), at(a)) || byText(b.id, a.id);
+
+/** Transformations by title, as a person reads them, then by id. */
+export const byTitle = (a: TransformationNote, b: TransformationNote) =>
+	(a.title || a.id).localeCompare(b.title || b.id, undefined, {
+		sensitivity: 'base',
+	}) || byText(a.id, b.id);
+
+/** Why `audio` cannot be read, or the one file to read. */
+function readable(audio: RecordingAudio): Result<AudioFile, string> {
+	if (audio.kind === 'here') return Ok(audio.file);
+	if (audio.kind === 'ambiguous')
+		return Err(
+			`More than one audio file has this recording’s id (${audio.exts.join(', ')}). Keep one.`,
+		);
+	return Err('This recording has no audio file.');
+}
+
+/**
+ * Whispering's files as every page reads them: `files` is the folder
+ * through `reactive`, made once in `src/lib/app.ts`. A recording under way has no note yet, so nothing here names
+ * it.
+ */
+export function filesOf(files: Folder<Whispering>): WhisperingFiles {
+	const { audio } = files;
+
+	function audioOf(id: string): RecordingAudio {
+		const playable = audio
+			.items()
+			.filter(
+				(file) =>
+					file.id === id && audioMimeTypeOf(`x.${file.ext}`) !== undefined,
+			);
+		const [file, ...more] = playable;
+		if (file !== undefined && more.length === 0)
+			return { kind: 'here', file: { id, ext: file.ext } };
+		if (file !== undefined)
+			return { kind: 'ambiguous', exts: playable.map(({ ext }) => ext).sort() };
+		return { kind: 'absent' };
+	}
+
+	return {
+		recordings: files.recordings,
+		transcriptions: files.transcriptions,
+		transformations: files.transformations,
+		transformation_runs: files.transformation_runs,
+		text_runs: files.text_runs,
+		audioOf,
+		async readAudio(id) {
+			const { data: file, error } = readable(audioOf(id));
+			if (error !== null) return Err(error);
+			const read = await audio.read({ id, ext: file.ext });
+			if (read.error !== null) return Err(read.error.message);
+			if (read.data === null)
+				return Err('This recording’s audio is no longer there.');
+			return Ok({
+				bytes: read.data.bytes,
+				ext: file.ext,
+				name: `${id}.${file.ext}`,
+				mimeType:
+					audioMimeTypeOf(`x.${file.ext}`) ?? 'application/octet-stream',
+			});
+		},
+		async deleteAudio(id) {
+			for (const { ext } of audio.items().filter((file) => file.id === id))
+				await audio.delete({ id, ext });
+		},
+	};
+}

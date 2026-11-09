@@ -1,0 +1,226 @@
+{
+	"package": "@sqlite.org/sqlite-wasm@3.54.1-build1",
+	"playwright": "1.61.1",
+	"vfs": "opfs",
+	"evidence": [
+		{
+			"browser": "chromium",
+			"cases": [
+				{
+					"name": "environment",
+					"value": {
+						"userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/149.0.7827.55 Safari/537.36",
+						"isolated": true,
+						"webLocks": true
+					}
+				},
+				{
+					"name": "official-adapter",
+					"value": {
+						"version": "3.54.1",
+						"filename": "/PROTOTYPE-wipe-me-device-opfs/search.sqlite"
+					}
+				},
+				{
+					"name": "sqlite-visible-through-files",
+					"value": {
+						"names": ["search.sqlite"],
+						"size": 32768,
+						"header": "SQLite format 3\u0000"
+					}
+				},
+				{
+					"name": "file-copy-opened-by-sqlite-in-other-tab",
+					"value": [
+						{
+							"value": 0
+						}
+					]
+				},
+				{
+					"name": "two-tabs-open-same-file",
+					"value": [
+						{
+							"value": 0
+						}
+					]
+				},
+				{
+					"name": "short-contention-release-after-100ms",
+					"value": {
+						"ok": true,
+						"value": {
+							"changes": 1
+						},
+						"ms": 314.60999965667725
+					}
+				},
+				{
+					"name": "held-contention-150ms-retry-budget",
+					"value": {
+						"ok": false,
+						"name": "SQLite3Error",
+						"message": "SQLITE_BUSY: sqlite3 result code 5: database is locked",
+						"code": 5,
+						"ms": 31689.75500011444
+					}
+				},
+				{
+					"name": "query-after-contention",
+					"value": [
+						{
+							"value": 2
+						}
+					]
+				}
+			],
+			"version": "149.0.7827.55"
+		},
+		{
+			"browser": "firefox",
+			"cases": [
+				{
+					"name": "environment",
+					"value": {
+						"userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:151.0) Gecko/20100101 Firefox/151.0",
+						"isolated": true,
+						"webLocks": true
+					}
+				},
+				{
+					"name": "official-adapter",
+					"value": {
+						"version": "3.54.1",
+						"filename": "/PROTOTYPE-wipe-me-device-opfs/search.sqlite"
+					}
+				},
+				{
+					"name": "sqlite-visible-through-files",
+					"value": {
+						"names": ["search.sqlite"],
+						"size": 32768,
+						"header": "SQLite format 3\u0000"
+					}
+				},
+				{
+					"name": "file-copy-opened-by-sqlite-in-other-tab",
+					"value": [
+						{
+							"value": 0
+						}
+					]
+				},
+				{
+					"name": "two-tabs-open-same-file",
+					"value": [
+						{
+							"value": 0
+						}
+					]
+				},
+				{
+					"name": "short-contention-release-after-100ms",
+					"value": {
+						"ok": true,
+						"value": {
+							"changes": 1
+						},
+						"ms": 333.36
+					}
+				},
+				{
+					"name": "held-contention-150ms-retry-budget",
+					"value": {
+						"ok": false,
+						"name": "SQLite3Error",
+						"message": "SQLITE_BUSY: sqlite3 result code 5: database is locked",
+						"code": 5,
+						"ms": 31702.800000000003
+					}
+				},
+				{
+					"name": "query-after-contention",
+					"value": [
+						{
+							"value": 2
+						}
+					]
+				}
+			],
+			"version": "151.0"
+		},
+		{
+			"browser": "webkit",
+			"cases": [
+				{
+					"name": "environment",
+					"value": {
+						"userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.5 Safari/605.1.15",
+						"isolated": true,
+						"webLocks": true
+					}
+				},
+				{
+					"name": "official-adapter",
+					"value": {
+						"version": "3.54.1",
+						"filename": "/PROTOTYPE-wipe-me-device-opfs/search.sqlite"
+					}
+				},
+				{
+					"name": "sqlite-visible-through-files",
+					"value": {
+						"names": ["search.sqlite"],
+						"size": 32768,
+						"header": "SQLite format 3\u0000"
+					}
+				},
+				{
+					"name": "file-copy-opened-by-sqlite-in-other-tab",
+					"value": [
+						{
+							"value": 0
+						}
+					]
+				},
+				{
+					"name": "two-tabs-open-same-file",
+					"value": [
+						{
+							"value": 0
+						}
+					]
+				},
+				{
+					"name": "short-contention-release-after-100ms",
+					"value": {
+						"ok": true,
+						"value": {
+							"changes": 1
+						},
+						"ms": 316.26
+					}
+				},
+				{
+					"name": "held-contention-150ms-retry-budget",
+					"value": {
+						"ok": false,
+						"name": "SQLite3Error",
+						"message": "SQLITE_IOERR_LOCK: sqlite3 result code 3850: disk I/O error",
+						"code": 3850,
+						"ms": 4527.96
+					}
+				},
+				{
+					"name": "query-after-contention",
+					"value": [
+						{
+							"value": 2
+						}
+					]
+				}
+			],
+			"version": "26.5"
+		}
+	]
+}

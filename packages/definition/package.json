@@ -2,20 +2,27 @@
 	"name": "@epicenter/definition",
 	"version": "0.0.1",
 	"private": true,
-	"description": "Native TypeBox data declarations, annotated field helpers, durable name grammars, and shared storage validation.",
+	"description": "An app's file contract, note text, merge, ids, and the names its site derives.",
 	"type": "module",
 	"sideEffects": false,
 	"exports": {
-		".": "./src/index.ts",
-		"./field": "./src/field/index.ts"
+		"./contract": "./src/contract/index.ts",
+		"./front-matter": "./src/front-matter/index.ts",
+		"./ids": "./src/ids.ts",
+		"./merge": "./src/merge/index.ts",
+		"./note": "./src/note/index.ts",
+		"./site": "./src/site/index.ts",
+		"./site/app-data": "./src/site/app-data.ts"
 	},
 	"scripts": {
 		"typecheck": "tsc --noEmit",
 		"test": "bun test"
 	},
 	"dependencies": {
+		"nanoid": "catalog:",
 		"typebox": "catalog:",
-		"wellcrafted": "catalog:"
+		"wellcrafted": "catalog:",
+		"yaml": "catalog:"
 	},
 	"devDependencies": {
 		"@types/bun": "catalog:",

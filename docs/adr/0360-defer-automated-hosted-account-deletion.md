@@ -21,7 +21,7 @@ records the evidence and its limits. No reset is currently justified.
 
 Defer automated account deletion for the zero-user V1. Do not build a coordinator,
 scheduler, public progress UI, receipt system, or generic deletion framework now.
-Keep `DELETE /api/account` returning `503 ACCOUNT_DELETION_UNAVAILABLE` after its
+Keep `POST /auth/delete-user` returning `503 ACCOUNT_DELETION_UNAVAILABLE` after its
 fresh-session and principal-binding checks. It accepts no deletion job.
 
 Keep storage ownership explicit as allocation paths evolve. Before onboarding

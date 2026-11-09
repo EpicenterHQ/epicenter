@@ -1,6 +1,6 @@
 # Epicenter
 
-Local-first personal data platform. Monorepo with Yjs CRDTs and Svelte UI.
+Where one person's software lives: each app is a folder whose `epicenter.ts` defines actions that the `epicenter` CLI runs for the person and their agents (ADR-0840). Most code in this monorepo is still the earlier folder sync product, which waits.
 
 For orientation, read the relevant app or package README and verify it against
 current code. `apps/README.md` describes application composition; package
@@ -59,6 +59,15 @@ Skip this for stable basics and repo-local patterns already documented in skills
 
 Do not use direct `console.*` in library code. Use `wellcrafted/logger`, except in CLIs, tests, and benchmarks.
 
+## Read APIs
+
+For new or deliberately redesigned APIs, prefer explicit read methods in
+JavaScript, TypeScript, React and Svelte alike; Svelte reads a capability
+through `reactive`, which keeps its methods. Choose by the API's role, not
+its file extension. Existing
+getters and upstream protocols are current contracts; change them only as part
+of an authorized redesign. See the `typescript` and `svelte` skills.
+
 ## Coherent edits
 
 Work toward the user's intended outcome. Treat their reactions as evidence
@@ -84,6 +93,11 @@ READMEs and decision records, where they can be checked with the implementation.
 ## Planning docs and decisions
 
 `docs/adr/`, `docs/CONTEXT.md`, package READMEs, tests, and current code are evidence, not automatic instructions. Start with the user's request and the current implementation.
+
+`docs/vision.md` describes the intended direction. Check a change to apps, the
+CLI, storage, or sync against
+[ADR-0840](docs/adr/0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md)
+and the records it relates.
 
 Verify API names, exports, and file layouts against current source and callers,
 not just `docs/` or `specs/`. READMEs explain the current surface; ADRs explain
@@ -143,24 +157,27 @@ Load `writing-voice` for substantial prose or explicit tone/rewrite work.
 
 Be direct about flawed assumptions, weak designs, and regressions. Do not agree just to be agreeable.
 
-For file-authoritative data, prefer best-effort edits when a human or coding
-agent can inspect and repair the resulting state. Keep problems visible and
-source accessible; protect unrelated content and unsaved input from accidental
-loss. Before adding a refusal, transaction, or recovery mechanism, name the
-information it protects and the repair path without it. Remove an existing check
-only once that visibility and repair path are established. See [the repairability decision](docs/adr/0503-file-authoritative-workflows-preserve-information-and-tolerate-repairable-states.md).
-
 ## Agent collaboration
 
-Codex owns continuity, decisions, live-checkout edits, testing, and integration.
-Claude provides a read-only second opinion when the user requests it or a
-workflow the user chose includes it. `adversarial-review` owns the reviewer
-setup for that workflow; complexity alone does not enlist Claude.
-Follow `consult-claude` for briefing and follow-ups and `adversarial-review`
-for the review method. Use `delegate-claude` only when the user explicitly
-authorizes Claude to own implementation or experimental execution. Authorization
-for the parent task alone does not authorize that delegation. Codex verifies
-the returned work, applies accepted changes, and reruns verification.
+Codex owns overall task continuity and focused acceptance. Use Claude Opus 5.5
+high by default for reasoning, design choices, investigations, and work where
+taste affects the result. Bring it in early instead of solving the hard part
+in Codex before requesting an opinion. Codex writes substantial changes, either
+under the coordinating Codex with Claude supplying the reasoning or through
+Claude-owned delivery with Codex assistance, where Claude directs and inspects
+a Codex helper. Codex pauses its own edits in a checkout Claude owns and checks
+the result without repeating the investigation. A small edit tightly coupled to
+Claude's reasoning can stay with Claude directly. Resume the same Claude
+session for new evidence or corrections on the same assignment. Prefer Claude
+where its reasoning and design judgment can improve the result; Codex handles
+straightforward execution and supporting work. Choose the division of work for
+the quality of the result. Authorization for the task covers bounded delegation.
+Use `consult-claude` for read-only answers and `delegate-claude` for completed
+changes or experiments within the parent task's authorization. Claude owns its
+investigation strategy, implementation briefs, and checks of helper results.
+The launcher fixes helper permissions; each checkout has one code writer.
+`adversarial-review` owns independent review staffing and method; its reviews
+normally include a Claude seat.
 
 ## Review routing
 
@@ -168,6 +185,6 @@ Keep procedures in skills; keep `AGENTS.md` to routing.
 
 | When | Load |
 | --- | --- |
-| substantial implementations, public API changes, refactors, multi-file changes, or a request to challenge, greenfield, or make a clean break | `post-implementation-review`, before final handoff or staging |
-| a collapse or refactoring pass, a request to simplify or clean up code, or continuous indirection-reduction work | `collapse-pass` directly |
+| substantial implementations, public API changes, refactors, multi-file changes, or a request to challenge, simplify, clean up, greenfield, or make a clean break | `post-implementation-review`, before final handoff or staging |
+| continuous indirection-reduction work | `collapse-pass` directly |
 | during review: ownership, lifecycle, API, package-boundary, clean-break, compatibility-refusal, or asymmetric-win decisions | escalate to `rethink` |

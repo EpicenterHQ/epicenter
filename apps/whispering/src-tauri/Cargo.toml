@@ -1,45 +1,34 @@
 [package]
 name = "whispering"
 version = "7.11.1"
-description = "The Whispering desktop shell"
+description = "Whispering as a desktop window over the folder it keeps its recordings in, recorded into from the first sample"
 authors = ["Epicenter"]
 repository = "https://github.com/EpicenterHQ/epicenter"
 edition = "2021"
-
-[package.metadata]
-cargo-target-macos-version = "10.15"
-
-[lib]
-name = "whispering_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
+license = "AGPL-3.0-or-later"
+publish = false
 
 [build-dependencies]
+epicenter-transcription-build = { path = "../../../packages/epicenter-transcription-build" }
 tauri-build = { version = "2.6", features = [] }
 
-[dev-dependencies]
-# The mock runtime drives the real invoke handler to check which window and
-# origin reach the folder. Test builds only.
-tauri = { version = "2.11", features = ["test"] }
-
 [dependencies]
-getrandom = "0.3"
+epicenter-account = { path = "../../../packages/tauri-epicenter-account" }
+epicenter-standalone = { path = "../../../packages/tauri-epicenter-standalone" }
+# `generate_context!` writes the configuration's `plugins` block as
+# `serde_json` values in the app's own crate, and the tests read the
+# configuration with it.
 serde_json = "1"
-tauri = { version = "2.11", features = [] }
+tauri = { version = "2.12", features = [] }
+# tauri-build finds plugin permissions only through direct dependencies.
 tauri-plugin-epicenter-folder = { path = "../../../packages/tauri-plugin-epicenter-folder" }
+tauri-plugin-epicenter-recorder = { path = "../../../packages/tauri-plugin-epicenter-recorder" }
+tauri-plugin-epicenter-transcription = { path = "../../../packages/transcription" }
+tauri-plugin-global-shortcut = "2.3"
+# A direct dependency gives this final app's build script the
+# DEP_TRANSCRIBE_CPP_* metadata `epicenter_transcription_build` reads.
+transcribe-cpp = { version = "0.1.0", default-features = false }
 
-# The same pins as packages/tauri-plugin-epicenter-folder/Cargo.toml. A patch
-# applies only from the crate being built, so a shell that depends on the
-# plugin carries its own copy.
-[patch.crates-io]
-specta = { git = "https://github.com/specta-rs/specta", rev = "3c535739ea7bd8737ecdbff6c3aef9b7330da706" }
-specta-macros = { git = "https://github.com/specta-rs/specta", rev = "3c535739ea7bd8737ecdbff6c3aef9b7330da706" }
-specta-serde = { git = "https://github.com/specta-rs/specta", rev = "3c535739ea7bd8737ecdbff6c3aef9b7330da706" }
-specta-typescript = { git = "https://github.com/specta-rs/specta", rev = "3c535739ea7bd8737ecdbff6c3aef9b7330da706" }
-specta-util = { git = "https://github.com/specta-rs/specta", rev = "3c535739ea7bd8737ecdbff6c3aef9b7330da706" }
-
-[profile.dev]
-incremental = true
-
-[profile.release]
-panic = "abort"
-strip = true
+[dev-dependencies]
+# The mock runtime drives the real commands in tests.
+tauri = { version = "2.12", features = ["test"] }

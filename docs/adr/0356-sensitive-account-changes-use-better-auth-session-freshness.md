@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-07
-- **Implementation:** Shared freshness, principal binding, and independent issuance are implemented locally. Verification and limits are recorded below; proposal status is unchanged.
+- **Unbuilt:** the freshness gate on the authorization server's own account pages with its session cookie alone, which replaces the bearer-and-cookie gate built for client session bearers ([ADR-0549](0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md)).
 
 ## Context
 
@@ -27,8 +27,13 @@ The replacement uses one 600-second policy without making that stronger claim.
 An additional proof would require email confirmation for people without
 passkeys, provider-specific authentication-age verification, or a mandatory
 initial credential. Those mechanisms would become another product workflow,
-including delivery failures, enrollment, and recovery. They are not needed to
-replace the application's OAuth grants with session bearers.
+including delivery failures, enrollment, and recovery.
+
+Under [ADR-0549](0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md)
+no app, CLI, agent, or third-party client holds a session. They hold access
+tokens that no account-management route accepts. The authorization server's
+session cookie, `HttpOnly` and host-only on `api.epicenter.so`, works only on
+its own pages: sign-in, consent, device approval, and account management.
 
 ## Decision
 
@@ -51,8 +56,8 @@ cookie does not count as another sign-in.
 | --- | --- |
 | Explicitly add or remove a provider; register or delete a passkey | Check live session freshness and the initiating principal before authorizing the mutation or ceremony |
 | Delete the account | Check live session freshness and the invoking Account's principal before starting deletion |
-| Issue an independent app session from a hosted session | Preserve the source `createdAt`; a new row does not reset freshness |
-| Renew a session through resource traffic | Extend expiry without changing `createdAt` |
+| Approve an OAuth grant or a device code with the session | Changes nothing about the session's freshness; the grant's tokens never reach account management |
+| Renew the session | Extend expiry without changing `createdAt` |
 | Complete another actual sign-in | Establish a new freshness timestamp, including when the provider uses SSO |
 
 Freshness is separate from remembered-login duration. A session can keep
@@ -60,11 +65,11 @@ reading and syncing data after its account-management window ends.
 
 **Every account-management operation stays bound to the principal that initiated it.**
 
-An operation through `Account.fetch` uses its captured session bearer, with no
-ambient-cookie fallback. Hosted provider/passkey ceremonies may retain browser
-cookies. Those requests carry the expected principal captured from the
-initiating Account, and the server compares it with the live session principal
-before authorizing a side effect. The expected principal is an identity check,
+Account management runs on the authorization server's pages with its session
+cookie. Each request carries the expected principal captured when the page
+loaded, and the server compares it with the live session principal before
+authorizing a side effect, so a sign-in as another person in another tab
+cannot retarget the operation. The expected principal is an identity check,
 not a secret or an additional factor. Missing or mismatched identity fails.
 Protected callback state retains the original operation's principal.
 
@@ -75,10 +80,7 @@ the current provider-ownership, trusted-provider, and verified-email policy
 for that path. Do not impose an existing-session requirement that would break
 ordinary sign-in. Test implicit linking separately from explicit management.
 
-Establish the credential and principal before reading a session in freshness
-hooks. Better Auth's global before-hook runs before its bearer-plugin hook;
-caching a cookie session there can select the wrong principal. Revoked-session
-checks bypass the cookie cache. Database failure remains a server failure.
+Revoked-session checks bypass the cookie cache. Database failure remains a server failure.
 
 Social linking is authorized at initiation and completes within Better Auth's
 bounded provider-state lifetime. Sign-out does not promise to undo an operation
@@ -98,7 +100,7 @@ other sign-in method.
 
 Epicenter expects people to control their device and operating-system account.
 Browser SPAs and the dashboard require no installation, and the server cannot
-prove device ownership. Origin allowlisting approves applications, not the
+prove device ownership. Client registration approves applications, not the
 devices or people running them. This assumption never bypasses authentication,
 callback checks, or account isolation.
 
@@ -108,13 +110,11 @@ Ordinary sign-in remains sufficient for signup and account recovery through an
 existing provider. Adding the first passkey uses the same recent-session rule
 as adding another provider. There is no special initial-enrollment phase.
 
-The accepted exposure extends beyond an unlocked personal device. A stolen
-fresh client-session bearer can authorize sensitive changes remotely, including
-linking an attacker-controlled provider, registering a passkey, or deleting
-the account. In Better Auth 1.6.23 the signed session bearer also works as the
-session-cookie value. Rejecting Authorization headers or calling a route
-"cookie-only" does not isolate it from someone holding that credential.
-Origin checks constrain browsers; a native attacker can construct headers.
+The accepted exposure is the session cookie itself. A stolen fresh cookie can
+authorize sensitive changes remotely, including linking an attacker-controlled
+provider, registering a passkey, or deleting the account. A stolen access
+token, refresh token, or device code cannot: no account-management route
+accepts one, and a device grant creates no session.
 
 An attacker holding only a stale session cannot regain freshness by renewal
 or client-session issuance. Someone also controlling the provider's browser
@@ -123,42 +123,24 @@ it does not bound the second. Additional provider links create additional
 ways to regain account access. Stronger reauthentication would reduce these
 risks; [OWASP recommends it for sensitive features](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html#require-re-authentication-for-sensitive-features).
 
-The freshness decision avoids additional proof machinery. The implementation
-checks live sessions, expected principal, expiry, and age before sensitive
-handlers. The separate OAuth-provider replacement deletes grants, refresh
-rotation, registrations, discovery, and the cookie-dashboard resource client.
-It retains the protected handoff, independent revocation, captured Account
-lifetimes, and a server-enforced socket authorization bound.
+The freshness decision avoids additional proof machinery. The gate checks the
+live session, expected principal, expiry, and age before sensitive handlers.
 
 Revisit this policy if stronger account-change assurance, shared/public-device
 use, or protection against fresh-session theft becomes a product requirement.
-Untrusted or permission-limited applications would also require reconsidering
-the full-access session credential. Do not add dormant proof hooks in advance
-of that decision.
+Do not add dormant proof hooks in advance of that decision.
 
 ## Implementation and verification
 
-The global before-hook uses Better Auth's public session API with only the
-explicit bearer when one was supplied, otherwise the hosted cookie. It disables
-refresh and cookie caching for the gate, then requires the expected principal
-and an age strictly below 600 seconds. Invalid bearers cannot fall back to a
-valid unrelated cookie. Database failure returns a server failure, not an
-invalid-credential verdict.
-
-Real-route tests cover stale, fresh, boundary-age, mixed-credential,
-wrong-principal, and infrastructure-failure requests. Provider-link callbacks
-retain the authorized initiating principal; implicit same-email linking is
-tested separately. The Chromium dashboard smoke registers and renames a
-virtual passkey for the captured principal despite another person's hosted
-cookie. Its narrow browser cookie adapter preserves challenge/state cookies
-without using them to select the Account.
-
-Handoff and resource-renewal tests preserve `createdAt`. Passive hosted
-continuation cannot manufacture freshness; explicit reauthentication requests
-a new social or passkey sign-in. Live provider SSO and physical authenticators
-remain untested. See [ADR-0354](0354-hosted-applications-authenticate-with-better-auth-session-bearers.md)
-for the implementation evidence, native smoke limits, and the pre-existing
-account-deletion erasure gap. No stronger human-presence assurance is claimed.
+The gate built for client session bearers uses Better Auth's public session
+API with the explicit bearer when one was supplied, otherwise the hosted
+cookie, with refresh and cookie caching disabled, and requires the expected
+principal and an age strictly below 600 seconds. Real-route tests cover stale,
+fresh, boundary-age, mixed-credential, wrong-principal, and
+infrastructure-failure requests; implicit same-email linking is tested
+separately. Under ADR-0549 the bearer branch and the mixed-credential cases go,
+and the cookie branch remains. Live provider SSO and physical authenticators
+remain untested. Account deletion still lacks a store-authority erasure step.
 
 ## Considered alternatives
 
@@ -173,8 +155,7 @@ account-deletion erasure gap. No stronger human-presence assurance is claimed.
   if stronger assurance becomes worth those costs.
 - Verify provider authentication-age claims. Requires provider-specific
   facilities and an answer for providers without equivalent evidence.
-- Give client sessions weaker account-management authority. Introduces session
-  provenance or capability distinctions. Cookie transport alone cannot enforce
-  that distinction; it would be a separate credential-policy decision.
-- Disable freshness or reset it at handoff. Lets an old credential authorize
+- Give client sessions weaker account-management authority through session
+  provenance. [ADR-0549](0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md) removes sessions from clients instead.
+- Disable freshness or reset it at grant approval. Lets an old credential authorize
   new login methods indefinitely and defeats the remaining session-age guard.

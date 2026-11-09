@@ -56,26 +56,6 @@ function createServer(clientOrClients: Client | Client[], options?: Options) {
 
 ## Codebase Examples
 
-### Server Factory (`packages/server/src/server.ts`)
-
-```typescript
-function createServer(
-	clientOrClients: AnyWorkspaceClient | AnyWorkspaceClient[],
-	options?: ServerOptions,
-) {
-	const clients = Array.isArray(clientOrClients)
-		? clientOrClients
-		: [clientOrClients];
-
-	// All server setup logic directly here
-	const workspaces: Record<string, AnyWorkspaceClient> = {};
-	for (const client of clients) {
-		workspaces[client.id] = client;
-	}
-	// ...
-}
-```
-
 ### Service Method
 
 ```typescript

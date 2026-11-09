@@ -1,7 +1,8 @@
 # 0447. The Bun self-hosted server owns one data root
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-09-24
+- **Superseded by:** [ADR-0549](0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md): self-hosting is `apps/api`'s Bun entry on Postgres. `apps/self-host`, its data root, and the SQLite blob store are deleted; blobs use an S3-compatible endpoint again.
 - **Amends:** [ADR-0066](0066-runtime-portability-is-per-concern-injection-not-a-runtime-object.md) at its S3-only blob rule and self-hosting requirement for an S3 endpoint. Its per-concern composition rule remains.
 
 ## Context

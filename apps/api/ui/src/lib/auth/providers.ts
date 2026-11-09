@@ -6,8 +6,7 @@
  *
  * This is a static list, not a server-driven one: Epicenter's hosted cloud
  * requires the credentials for every provider shown here, and this UI only ever
- * runs in that hosted cloud (a self-hosted instance uses operator-bearer auth and
- * composes no social sign-in at all). The server is still the real guard,
+ * runs in that hosted cloud. The server is still the real guard,
  * `createAuth` registers only the providers it has secrets for, so Better Auth
  * rejects a sign-in for an unconfigured provider at the call.
  */

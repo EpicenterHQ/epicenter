@@ -1,6 +1,7 @@
 # 0029. A matter.json marks a table; matter is a declared store, not a discovered lens
 
-- **Status:** Accepted
+- **Status:** Superseded
+- **Superseded by:** [ADR-0534](0534-data-folders-are-the-only-data-model.md), which deletes Matter.
 - **Date:** 2026-06-19
 
 ## Context

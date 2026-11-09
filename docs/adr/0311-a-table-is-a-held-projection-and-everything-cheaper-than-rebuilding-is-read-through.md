@@ -14,6 +14,7 @@ something reads each attribute and builds it, and building one costs about two
 microseconds. The Svelte adapter held nothing, so every read built every row.
 
 That is affordable exactly until a list is long. Measured against the real
+<!-- doc-path-check: ignore-next-line -->
 store (`packages/app/evidence/data/bench/list-per-keystroke.ts`):
 
 | notes | rows walk | filter | sort | one derive |
@@ -151,6 +152,7 @@ and one enum are the rule saying no, not an exception to it.
   signals alone could not do. The seam ADR-0077 named for restoring per-key
   granularity is satisfied by the framework rather than by the store.
 - The projection can be wrong in exactly one way: a missed eviction serves a
+<!-- doc-path-check: ignore-next-line -->
   stale row. `packages/svelte/src/from-data.svelte.test.ts` fails on it when
   the patch is removed, which is the only reason this is safe to hold.
 - Reads must happen inside a reactive context. `createSubscriber` is a no-op

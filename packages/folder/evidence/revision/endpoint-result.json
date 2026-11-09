@@ -1,0 +1,39 @@
+{
+	"scope": "One-file, local native bare Git service probe; not Worker, Artifacts, auth, complete protocol, or browser adoption",
+	"lostReply": "reply unavailable",
+	"stableRequestPreservedDesktop": true,
+	"recreatedRequestReplayed": true,
+	"independentEditsSurvived": true,
+	"casRetries": 1,
+	"fsckStatus": 0,
+	"accepted": "b1c090ff4c99e077b0d1ac583dddeff0cb1f8a07",
+	"desktop": "f25803ba258edbdf51ac9de93c3549da0584b412",
+	"retried": {
+		"accepted": "b1c090ff4c99e077b0d1ac583dddeff0cb1f8a07",
+		"head": "f25803ba258edbdf51ac9de93c3549da0584b412",
+		"duplicate": true,
+		"text": "---\ntitle: desktop\n---\nFirst paragraph.\n\nSecond paragraph.\n"
+	},
+	"replay": {
+		"accepted": "1643ffbe55a652b3e088a8fd90e316666a220ba6",
+		"head": "4d7acb78de18d4afe77089615f345871c6b6bbbe",
+		"duplicate": false,
+		"text": "---\ntitle: phone\n---\nFirst paragraph.\n\nSecond paragraph.\n"
+	},
+	"concurrent": [
+		{
+			"accepted": "75adeab6f4d22923410974b2626a47cdb5b734c7",
+			"head": "75adeab6f4d22923410974b2626a47cdb5b734c7",
+			"duplicate": false,
+			"text": "---\ntitle: concurrent-A\n---\nFirst paragraph.\n\nSecond paragraph.\n"
+		},
+		{
+			"accepted": "e31f17858b878e03646aa7e867dfb86ebbd4aa48",
+			"head": "1843a9e7ea59d28b35afb777086760a3ede147ce",
+			"duplicate": false,
+			"text": "---\ntitle: concurrent-A\n---\nFirst paragraph.\n\nIndependent paragraph from B.\n"
+		}
+	],
+	"finalHead": "1843a9e7ea59d28b35afb777086760a3ede147ce",
+	"finalText": "---\ntitle: concurrent-A\n---\nFirst paragraph.\n\nIndependent paragraph from B.\n"
+}

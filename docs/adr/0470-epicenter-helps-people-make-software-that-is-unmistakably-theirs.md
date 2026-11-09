@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-30
-- **Relates:** [Independent applications](0449-epicenter-connects-independent-applications-through-personal-data.md), [file authority](0450-current-files-own-portable-document-data.md), [SQLite storage roles](0459-sqlite-is-a-local-capability-for-derived-or-transactional-state.md), [publisher identity](0460-vocab-and-whispering-are-braden-wongs-apps-built-on-epicenter.md), and [personal app hosting](0473-personal-app-hosting-keeps-addresses-separate-from-data-identity.md).
+- **Relates:** [Independent applications](0449-epicenter-connects-independent-applications-through-personal-data.md), [file authority](0450-current-files-own-portable-document-data.md), [SQLite storage roles](0459-sqlite-is-a-local-capability-for-derived-or-transactional-state.md), and [personal app hosting](0473-personal-app-hosting-keeps-addresses-separate-from-data-identity.md).
 - **Unbuilt:** adoption of this positioning in public materials, the file-authoritative application foundation, and access to personal data folders from independently published browser apps.
 
 ## Context

@@ -1,0 +1,244 @@
+{
+	"package": "@sqlite.org/sqlite-wasm@3.54.1-build1",
+	"playwright": "1.61.1",
+	"vfs": "opfs-wl",
+	"evidence": [
+		{
+			"browser": "chromium",
+			"cases": [
+				{
+					"name": "environment",
+					"value": {
+						"userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/149.0.7827.55 Safari/537.36",
+						"isolated": true,
+						"webLocks": true
+					}
+				},
+				{
+					"name": "official-adapter",
+					"value": {
+						"version": "3.54.1",
+						"filename": "/PROTOTYPE-wipe-me-device-opfs/search.sqlite"
+					}
+				},
+				{
+					"name": "sqlite-visible-through-files",
+					"value": {
+						"names": ["search.sqlite"],
+						"size": 32768,
+						"header": "SQLite format 3\u0000"
+					}
+				},
+				{
+					"name": "file-copy-opened-by-sqlite-in-other-tab",
+					"value": [
+						{
+							"value": 0
+						}
+					]
+				},
+				{
+					"name": "two-tabs-open-same-file",
+					"value": [
+						{
+							"value": 0
+						}
+					]
+				},
+				{
+					"name": "short-contention-release-after-100ms",
+					"value": {
+						"ok": true,
+						"value": {
+							"changes": 1
+						},
+						"ms": 267.02500009536743
+					}
+				},
+				{
+					"name": "held-contention-150ms-budget-after-3s",
+					"value": {
+						"settled": false
+					}
+				},
+				{
+					"name": "held-request-after-owner-releases",
+					"value": {
+						"ok": true,
+						"value": {
+							"changes": 1
+						},
+						"ms": 3184.460000038147
+					}
+				},
+				{
+					"name": "query-after-contention",
+					"value": [
+						{
+							"value": 3
+						}
+					]
+				}
+			],
+			"version": "149.0.7827.55"
+		},
+		{
+			"browser": "firefox",
+			"cases": [
+				{
+					"name": "environment",
+					"value": {
+						"userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:151.0) Gecko/20100101 Firefox/151.0",
+						"isolated": true,
+						"webLocks": true
+					}
+				},
+				{
+					"name": "official-adapter",
+					"value": {
+						"version": "3.54.1",
+						"filename": "/PROTOTYPE-wipe-me-device-opfs/search.sqlite"
+					}
+				},
+				{
+					"name": "sqlite-visible-through-files",
+					"value": {
+						"names": ["search.sqlite"],
+						"size": 32768,
+						"header": "SQLite format 3\u0000"
+					}
+				},
+				{
+					"name": "file-copy-opened-by-sqlite-in-other-tab",
+					"value": [
+						{
+							"value": 0
+						}
+					]
+				},
+				{
+					"name": "two-tabs-open-same-file",
+					"value": [
+						{
+							"value": 0
+						}
+					]
+				},
+				{
+					"name": "short-contention-release-after-100ms",
+					"value": {
+						"ok": true,
+						"value": {
+							"changes": 1
+						},
+						"ms": 278.2800000000001
+					}
+				},
+				{
+					"name": "held-contention-150ms-budget-after-3s",
+					"value": {
+						"settled": false
+					}
+				},
+				{
+					"name": "held-request-after-owner-releases",
+					"value": {
+						"ok": true,
+						"value": {
+							"changes": 1
+						},
+						"ms": 3197.2
+					}
+				},
+				{
+					"name": "query-after-contention",
+					"value": [
+						{
+							"value": 3
+						}
+					]
+				}
+			],
+			"version": "151.0"
+		},
+		{
+			"browser": "webkit",
+			"cases": [
+				{
+					"name": "environment",
+					"value": {
+						"userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.5 Safari/605.1.15",
+						"isolated": true,
+						"webLocks": true
+					}
+				},
+				{
+					"name": "official-adapter",
+					"value": {
+						"version": "3.54.1",
+						"filename": "/PROTOTYPE-wipe-me-device-opfs/search.sqlite"
+					}
+				},
+				{
+					"name": "sqlite-visible-through-files",
+					"value": {
+						"names": ["search.sqlite"],
+						"size": 32768,
+						"header": "SQLite format 3\u0000"
+					}
+				},
+				{
+					"name": "file-copy-opened-by-sqlite-in-other-tab",
+					"value": [
+						{
+							"value": 0
+						}
+					]
+				},
+				{
+					"name": "two-tabs-open-same-file",
+					"value": [
+						{
+							"value": 0
+						}
+					]
+				},
+				{
+					"name": "short-contention-release-after-100ms",
+					"value": {
+						"ok": true,
+						"value": {
+							"changes": 1
+						},
+						"ms": 265.26
+					}
+				},
+				{
+					"name": "held-contention-150ms-budget-after-3s",
+					"value": {
+						"settled": false
+					}
+				},
+				{
+					"name": "held-request-after-owner-releases",
+					"value": {
+						"ok": true,
+						"value": {
+							"changes": 1
+						},
+						"ms": 3162.78
+					}
+				},
+				{
+					"name": "query-after-contention",
+					"value": [
+						{
+							"value": 3
+						}
+					]
+				}
+			],
+			"version": "26.5"
+		}
+	]
+}

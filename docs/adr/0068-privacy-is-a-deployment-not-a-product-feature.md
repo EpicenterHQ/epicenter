@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-06-24
+<!-- doc-path-check: ignore-next-line -->
 - **Relates:** [ADR-0004](0004-trust-the-relay-reject-zero-knowledge.md) (privacy is a property of topology; the relay is trusted), [ADR-0035](0035-durable-storage-is-one-per-person-coordination-box.md) (the relay / anchor / store / worker roles; one coordination box per person), [ADR-0066](0066-runtime-portability-is-per-concern-injection-not-a-runtime-object.md) (the runtime port that makes self-host one Bun binary plus Postgres plus any S3); the in-flight work and gap ledger live in `specs/20260624T223835-privacy-is-a-deployment-self-host-and-relay-anchor-gradations.md`; the user-facing copy is `docs/trust-model.md`; the vocabulary is `docs/CONTEXT.md`.
 
 ## Context

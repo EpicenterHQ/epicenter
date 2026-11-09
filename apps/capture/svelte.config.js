@@ -1,18 +1,25 @@
-import staticAdapter from '@sveltejs/adapter-static';
+import adapter from '@sveltejs/adapter-static';
 import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 
-const isEpicenterHost = process.env.EPICENTER_HOST === '1';
+/**
+ * Where a build writes the static app, when not `build/`.
+ */
+const out = process.env.CAPTURE_BUILD_DIR;
 
-export default {
-	preprocess: vitePreprocess(),
+/** @type {import('@sveltejs/kit').Config} */
+const config = {
 	kit: {
-		adapter: staticAdapter({
-			...(isEpicenterHost && {
-				pages: '../epicenter/dist/capture',
-				assets: '../epicenter/dist/capture',
-			}),
+		// A static single-page app: any host that answers unknown paths with
+		// `index.html` (for `/auth/callback`) serves it.
+		adapter: adapter({
 			fallback: 'index.html',
+			...(out && { pages: out, assets: out }),
 		}),
-		...(isEpicenterHost && { paths: { base: '/apps/capture' } }),
 	},
+	preprocess: vitePreprocess(),
+	// `@epicenter/svelte`'s Recovery, which `<WhenOpen>` shows, reads
+	// `$effect.pending()`, which async Svelte provides.
+	compilerOptions: { experimental: { async: true } },
 };
+
+export default config;

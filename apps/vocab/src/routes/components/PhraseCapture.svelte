@@ -4,7 +4,7 @@
 	import { Label } from '@epicenter/ui/label';
 	import * as Popover from '@epicenter/ui/popover';
 	import { tick, untrack } from 'svelte';
-	import type { EntriesState } from '$lib/entries.svelte.js';
+	import type { Entries } from '$lib/entries.svelte.js';
 	import { capturePhrase, sourceHoldsPhrase } from '$lib/phrase-capture.js';
 
 	// Saving a phrase from one saved tutor message. The conversation binds
@@ -20,7 +20,7 @@
 		resetKey,
 	}: {
 		root: HTMLElement | null | undefined;
-		entries: EntriesState;
+		entries: Entries;
 		/** Changes when the conversation moves on; the open candidate is dropped. */
 		resetKey: unknown;
 	} = $props();
@@ -47,7 +47,7 @@
 	let open = $state(false);
 	let pending = $state(false);
 	let added = $state('');
-	// The phrase the folder answered was already a saved word.
+	// The phrase saving answered was already a saved word.
 	let already = $state('');
 	let problem = $state('');
 	let content = $state<HTMLElement | null>(null);
@@ -63,8 +63,8 @@
 			(!typed || sourceHoldsPhrase(candidate.message, phrase)),
 	);
 	// The list on screen never decides that a phrase is already saved: another
-	// tab may have removed the word since it was read. Saving asks the folder,
-	// which answers that the word is there or saves it.
+	// tab may have removed the word since it was read. Saving answers that the
+	// word is there, or saves it.
 	const blocked = $derived(!valid || pending);
 
 	function focusInside() {
@@ -120,7 +120,7 @@
 		// happened to this one when it is selected again.
 		if (current !== ticket) return;
 		if (error !== null) {
-			problem = 'This phrase was not saved. Nothing was added to your words.';
+			problem = error.message;
 			return;
 		}
 		if (outcome === 'added') added = submitted;

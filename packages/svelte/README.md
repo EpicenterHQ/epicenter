@@ -1,382 +1,152 @@
 # @epicenter/svelte
 
-Svelte utilities for synchronizing state with external systems, and the
-shared folder UI: file browser, file view, and terminal.
+This package reads Epicenter's capabilities in Svelte 5: any capability
+through one adapter, `reactive` (`@epicenter/svelte/reactive`), and the
+folder and this computer's settings through the root that renders the pages
+once they are open (`<WhenOpen>`). It also holds the folder's shared interface: Recovery, a
+note's repair as text (`<NoteRepair>`), and the status display.
 
-## Overview
+## One adapter for every capability
 
-This package provides utilities that help synchronize Svelte state with external data sources like local storage, remote APIs, or other browser APIs. These utilities handle the complexity of keeping state in sync across multiple sources while maintaining Svelte's reactive paradigm.
+Everything a capability does is one of four verbs, and each answers in its
+own form
+([ADR-0769](../../docs/adr/0769-svelte-reads-every-capability-through-one-reactive-copy.md)):
 
-## Installation
+| Verb | What it answers | Instance |
+| --- | --- | --- |
+| create | a capability with its own `subscribe`, at once | `folder.todos`, `todos.edit({ id })` |
+| read | a value, at once, the same until `subscribe` fires | `items()`, `state()`, `saving()` |
+| act | a promise (or an async iterable) | `create(value)`, `reveal()`, `ai.chat(request)` |
+| listen | the unsubscribe | `subscribe(listener)` |
 
-This package is part of the Epicenter monorepo and is used internally. To use it in your app:
+`reactive(capability)` answers a copy of the capability with its own type,
+made once from its members. A read tracks the nearest `subscribe` through
+`createSubscriber`, so a capability is followed only while something reads
+it in a template, `$derived` or an effect, and a read anywhere else is a
+snapshot. An action passes through untracked, even when an effect calls it.
+A capability it holds or makes is adapted with its own `subscribe`. What a
+read answers passes through at its own identity.
 
-```json
-{
-  "dependencies": {
-    "@epicenter/svelte": "workspace:*"
-  }
-}
-```
+The folder, an auth client, `openAi` and a conversation all go through it.
+No capability has a Svelte export of its own.
 
-## Available Utilities
+React reads the same capability with no adapter:
+`useSyncExternalStore(folder.todos.subscribe, folder.todos.items)`.
 
-### `edit-session` (`@epicenter/svelte/edit-session`)
+## An app's folder
 
-Edit sessions over `@epicenter/folder` files: the app owns the draft and the
-folder's guarded autosave writes it. `createRowSession(table, stored)` edits a
-valid row; `createTextSession(files, opened)` edits a file's text and keeps
-input well formed with `wellFormed` from `@epicenter/folder`. Both are `createEditSession` over a source
-(`rowSource`, `textSource`) that says how to save, read again, and recreate.
-
-```ts
-const session = createRowSession(folder.tables.todos, stored, { locked });
-session.edit((row) => {
-	row.fields.title = 'Oat milk';
-}); // saves at once; only the latest request waits
-session.state; // saving | saved | error, each with `file`, the last confirmed capture
-await session.keepMine(); // after Conflict: save the draft over theirs, or recreate it
-await session.reloadTheirs(); // after Conflict: show theirs in place of the draft
-await session.rename((file) => folder.tables.todos.rename(file, 'next'));
-session.release(); // the person left: no input, and a running command starts nothing more
-```
-
-A save never assigns the draft. `keepMine`, `reloadTheirs`, and `rename` run
-one at a time with input locked (`session.locked`), and `settled()` waits for
-them. `adopt()` takes a newer version of the file only while the session is
-saved and idle. `generation` advances whenever a read replaces the draft, for
-views such as a rich text editor that must remount then. Which item is open,
-leaving, and what a person is told stay with the app.
-
-### `open-item` (`@epicenter/svelte/open-item`)
-
-The one item a page has open. `createOpenItem({ load, sessionOf, holds, closed })`
-keeps what `load` built for a key and owns how it is left: opening another key
-waits for the open session's saves and releases it, or answers
-`{ kind: 'unsaved', session }` so the app can ask and open again with
-`{ discard: session }`. Opening the shown key does nothing, and a load that
-answers after a newer open is released. `keepMine` and `reloadTheirs` act
-only on the session given while it is open; Reload theirs closes a gone file
-and reopens one that cannot be shown through `load`. `removeOpen(session, remove)`
-releases, waits for the saves, and removes what the last one confirmed. What an
-item is, listings, refusals, and wording stay with the app.
-
-`createOpenItems(options)` keeps a slot per key, for a page with several
-items open at once. `slot(key)` has the same commands as `createOpenItem`,
-which is one such slot; `keys()`, `sessions()`, `holding(session)`,
-`keepMine(session)`, `reloadTheirs(session)`, `adopt()`, and `close()` act
-across slots, and `move(from, to)` follows a renamed file. A slot exists while
-it shows something or a command on it runs, so a late load is always released
-by the slot it started in.
+An app opens its folder once and adapts it once, at module scope, in
+`src/lib/app.ts`
+([ADR-0766](../../docs/adr/0766-an-apps-capabilities-are-module-values-opened-synchronously.md)).
+In development, an edit that reaches that file reloads the page
+([ADR-0768](../../docs/adr/0768-retry-belongs-to-a-failure-and-editing-app-ts-reloads-the-page.md)),
+so it holds no hot-reload lines:
 
 ```ts
-const drafts = createOpenItems<string, { path: string; as: 'row' | 'text' }, Draft, Session>({
-	load,
-	sessionOf,
-	sameKey: (a, b) => a.path === b.path && a.as === b.as,
-});
-const opened = await drafts.slot(path).open({ path, as: 'row' });
-if (opened.kind === 'unsaved') ask(opened.session); // then open again with { discard }
+// src/lib/app.ts
+export const folder = reactive(openFolder(todos, home({ site: APPS.TODOS.url })));
 ```
 
-### `admissions` (`@epicenter/svelte/admissions`)
+Each collection reads `items()`, `invalid()` (notes) and `get(args)`, the
+entry shown, and writes with `set` and `delete`, which answer once they
+land and never fail while the folder lives
+([ADR-0774](../../docs/adr/0774-one-write-makes-it-so-and-settles-a-change-the-way-sync-does.md),
+[ADR-0775](../../docs/adr/0775-a-write-never-fails-the-folder-keeps-it-until-it-lands.md));
+when the folder fails or closes, a write still waiting rejects with
+`FolderClosed`
+([ADR-0782](../../docs/adr/0782-a-waiting-write-the-folder-will-not-make-rejects.md)).
+The folder reads `state()`, `unavailable()` and `saving()`, and has
+`reveal`. The page connects to its stores once: the folder's snapshot and,
+where the app keeps any, this computer's settings (`@epicenter/local`).
+After that every read is synchronous; a read before it throws
+`FolderNotOpen`, a mistake in the code that made it
+([ADR-0778](../../docs/adr/0778-a-page-connects-once-and-then-reads-synchronously.md)).
+Code that runs outside a page calls an action, such as `list()`, which
+waits for the connection and reads the collection from the store.
 
-`createAdmissions()` counts the work a page started so closing can wait for
-it. `command(fn)` wraps a whole method so each call counts from the call,
-before its first await; `admit(fn)` counts one piece; `quiet()` waits for all
-of it; `busy` is reactive.
-
-### `SaveBar` (`@epicenter/svelte/save-bar`)
-
-The save state and conflict prompt for one edit session: Reload theirs or
-Keep mine for a change made elsewhere, Discard or Keep mine for a file deleted
-elsewhere (Discard only without `onKeepMine`), Try again or Save again for
-other failures, and what to fix for a value a row cannot hold.
-
-### `SyncReview` (`@epicenter/svelte/sync-review`)
-
-The modal review for one `folder.sync` attempt that needs choices
-(ADR-0514, ADR-0516). It shows each conflicting setting, field, body, or
-whole file with the two captured versions and a result, and holds that
-attempt's `SyncChoices` only while it is shown. `Use this` takes a side
-exactly; typing replaces, as text for text values and as JSON, once it
-parses, for any other value; `Leave out` removes. Apply calls
-`onApply(attempt, choices)` only when every conflict has a choice. Cancel
-calls `onCancel`.
+The root layout renders `<WhenOpen>` from `@epicenter/svelte/when-open`, the
+only reader of `state()`. It renders the pages once the folder and the
+settings it is given are open, so nothing that reads a store renders
+before. While they connect it shows a spinner after 150 ms, with why the
+folder cannot be reached when `unavailable()` says so; when one failed, it
+shows `Recovery` with the typed error. While the folder is open and its
+store cannot be reached, a status line says so, and whether changes are
+waiting for it. Recovery offers Retry (the failed state's `retry()`) and
+Show in Finder where `folder.reveal` is not null. Once the folder is closed
+it shows nothing. The pages sit inside one plain `<svelte:boundary>`, whose
+page error never shows the folder's Recovery.
 
 ```svelte
-{#if syncs.attempt}
-	{#key syncs.attempt.id}
-		<SyncReview
-			attempt={syncs.attempt}
-			{pending}
-			problems={syncs.problems}
-			onCancel={() => syncs.cancel()}
-			onApply={(attempt, choices) => syncs.apply(attempt, choices)}
-		/>
-	{/key}
+<WhenOpen app="Vocab" {folder} {settings}>{@render children()}</WhenOpen>
+```
+
+`<WhenOpen>` also renders the page's leave guard, `<LeaveGuard {folder} />`
+from `@epicenter/svelte/leave-guard`. While `folder.saving()`, from a
+write's call or an editor's keystroke until it lands, leaving the page
+asks "Leave site?". Writes waiting for an unreachable store live only in the
+page's memory, so this is what keeps them. A desktop window does not ask the page and closes at
+once, so a local write still out then is a small, rare loss.
+
+A component imports the folder and reads it:
+
+```svelte
+<script lang="ts">
+  import { folder } from '$lib/app.js';
+</script>
+
+{#each folder.todos.items() as todo (todo.id)}<TodoRow {todo} />{/each}
+{#each folder.todos.invalid() as file (file.path)}<pre>{file.text}</pre>{/each}
+```
+
+The view of one open note makes one editor of it, gates on `exists()`, and
+reads and binds every value through `fields`, rather than a second
+`todos.get({ id })` or a prop:
+
+```svelte
+<script lang="ts">
+  const todo = folder.todos.edit({ id }); // one editor per open note
+</script>
+
+{#if todo.exists()}
+  <Input bind:value={todo.fields.title} />
+  <Textarea bind:value={todo.fields.body} />
+  <Checkbox bind:checked={todo.fields.done} />
+{:else}
+  <p>This todo is no longer here.</p>
 {/if}
 ```
 
-Show it in place of the page while the attempt waits, keyed on
-`attempt.id`. Pass the `problems` of an `InvalidChoices` refusal back in;
-each shows beside its row until the person changes that row's choice. The
-sides read "This device" and "Remote" unless `labels` says otherwise.
+An editor holds nothing while nobody reads it and needs no teardown; typing
+into one whose component is gone still saves. A view that needs the saved
+note beside what is typed reads it with `folder.todos.get({ id })`.
 
-### Folder UI (`@epicenter/svelte/folder-ui`)
-
-The general file browser, file view, and terminal every folder app shows
-beside its own item views. They work on any folder; what an app's own items
-are, how they open, and how a change is carried out and confirmed stay with
-the app, passed in as callbacks.
-
-`FileBrowser` is the tree over a `FileListing`: folders first, `.git` hidden,
-the app's `expanded` set deciding which folders show their contents. Arrow
-keys move between rows and open or close folders, Home and End reach the
-ends, F2 renames in place, Delete asks to delete, and Shift+F10 or the
-context-menu key opens the same actions the right-click and "…" menus offer.
-The app gives `onOpen`, `onCreate`, `onRename`, and `onDelete`, an `icon`
-for its own items, what an empty folder suggests, and optionally a
-`location` line and `onReveal`. While `disabled`, creating, renaming, and
-deleting wait and a typed name stays.
+An editor of the whole note binds `todo.text`: its front matter and body as
+one text. Setting it saves it, settled with any change made since the
+typing began; a text whose front matter does not parse is saved as typed
+and the note shows in `invalid()`. `<NoteRepair>` from
+`@epicenter/svelte/note-repair` repairs such a note through it:
 
 ```svelte
-<FileBrowser
-	listing={todos.listing}
-	listingError={todos.listingError}
-	expanded={todos.expanded}
-	selected={(path) => todos.current?.path === path}
-	icon={(path) => (todos.isTodo(path) ? ListTodoIcon : undefined)}
-	emptyDescription="Add a todo, or create a file or folder above."
-	disabled={todos.departing}
-	onRefresh={() => void todos.refresh()}
-	onOpen={(path) => void openItem(todos, path, 'files')}
-	onCreate={(directory, name, type) =>
-		type === 'file' ? todos.createFile(directory, name) : todos.createFolder(directory, name)}
-	onRename={(path, name) => todos.rename(path, name)}
-	onDelete={(path) => void confirmDelete(todos, path)}
-/>
+<NoteRepair contract={todos} note={invalid} edit={folder.todos.edit({ id })} />
 ```
 
-`FileView` shows one open file: its exact text in a text session with the
-`SaveBar`, or why it does not open, then `FileNameBar` to rename or delete it.
-Mount one per open item, keyed by it. `item` is a `FileViewItem`; an app's
-own item types carry more fields and pass as they are. For a row file, `row`
-names the table and a `noun`: text that does not read as a row shows its
-issues while it is typed, and `onOpenAsRow` adds "Open as <noun>" once it
-reads. An item the view does not know, such as audio, passes `item` as
-undefined and its body as `children`; `notice` adds a line above the text.
+## Keep typed text in an edit
 
-`FileNameBar` is the name field with Rename and Delete, for an app's own item
-views too. `copyPath` copies a path and says so; `fileDetails` names a file's
-type and size.
+A note's editor shows each field the person typed until the save carrying
+it lands, then follows the collection again. Saves go through the folder's
+queue one at a time; the newest carries everything typed since the last
+that landed, so a title and a body typed together never clash with each
+other. A typed field takes this write; another writer's change to a field
+not typed stays, and a body changed elsewhere since the typing began merges
+by lines. A save never fails: while the store cannot be reached it waits,
+and the typed fields stay shown (`todo.typed()`). Code that is not typing,
+such as a list row's checkbox or a workflow, writes with
+`folder.todos.set(args, changes)`.
 
-`FolderTerminal` shows a terminal session: its `description`, the output,
-and the prompt, with Up and Down recalling earlier commands.
-`createTerminalSession({ terminal, afterRun, fenced })`, also at
-`@epicenter/svelte/terminal-session` so a state module can create one
-without loading components, keeps the output, history, typed command, and
-working directory for as long as the folder is open. `clear` empties the
-output without running; while `fenced()` is true, typing, recall, and Enter
-change nothing.
+Call `await todo.landed()` when an action needs the newest typed values
+saved, such as before sending them over a network.
 
-### `createSyncController` (`@epicenter/svelte/sync`)
+**Composition.** Files are the only durable authority. A collaboration layer (for example a Yjs document) is a session over text units only, the body, and persists through the folder's writes like any editor. Agents may write files directly; their changes reach editors through the folder's listeners.
 
-The page's state around `folder.sync`: `syncing` while a run or an Apply is
-in flight, the `attempt` whose review shows, `locked` from the start of a
-run until that attempt ends, and the `problems` of the last refused Apply.
-`run()` and `apply(attempt, choices)` call the folder between the page's
-`beforeSync` and `afterSync`; `refused` stops either before it starts, and
-no run starts while an attempt waits. `cancel()` discards the attempt;
-nothing carries to the next one.
-
-```ts
-const syncs = createSyncController({
-	folder,
-	beforeSync: async () => openItem.session?.settled(), // the checkpoint holds the open item's saves
-	afterSync: () => readEverythingAgain(),
-	refused: () => (quitting ? 'Quitting' : undefined),
-});
-const locked = () => syncs.locked || quitting; // the open item takes no input during a review
-await syncs.run(); // conflicts keep syncs.attempt
-await syncs.apply(attempt, choices); // refused choices stay as syncs.problems; anything else ends the attempt
-syncs.cancel(); // or discard it
-```
-
-`describeSync(result, describePush?)` from `@epicenter/svelte/sync-line`
-words a result for a toast or a status line. It is a plain module, so status
-helpers import it without loading runes. The rest of what a person is told
-stays with the page.
-
-### `fromData`
-
-Adapts one opened `@epicenter/app/store` handle into Svelte reactivity, mirroring
-the declaration: `tables.<name>`, `kv`, and `persistence`, with the same verbs
-and the same types. Other handle members keep their descriptors and identities.
-Reads are reactive; writes pass through unchanged. Repeated calls with the same
-raw store return the same wrapper, so route components can remount over one
-open store.
-
-Each read registers a Svelte dependency and calls the native method. The adapter
-holds no row values or diagnostics, so a read sees the same transaction writes,
-validation, and closed-store rejection as the native read (ADR-0500). One
-subscription per table wakes its readers on each table commit; it attaches on
-the first reactive reader and detaches after the last. Body text edits are not
-table commits: listen to them with the table's `watch`.
-
-Inputs must be plain-object handles with closure-bound methods. A class
-instance is rejected, because its prototype methods would not survive wrapping.
-
-```ts
-const app = fromData(data);
-const active = $derived(app.tables.notes.rows.filter((n) => !n.deletedAt));
-const note = app.tables.notes.get(id);   // wakes on any notes commit
-app.persistence.get() === 'blocked';     // this device stopped saving
-```
-
-### `fromKv`
-
-Adapts KV reads without wrapping a store's tables. Use it when a view needs
-device settings while displaying another store. Repeated calls reuse the same
-wrapper, including calls through `fromData`. Writes pass through unchanged.
-
-```ts
-const preferences = fromKv(local.kv);
-preferences.get('showDetails');
-preferences.update({ showDetails: true });
-```
-
-### `fromSubscription`
-
-One value read through a subscription, kept fresh. The four lines every
-adapter in this repo used to write by hand, written once, so the announce
-cannot be forgotten: forget it and the value stays correct and never updates
-again.
-
-```ts
-const preview = fromSubscription(
-  (update) => table.watch(body, update),
-  () => notePreview(body),
-);
-preview.current;
-```
-
-### `createPersistedState`
-
-Creates a persisted state object tied to local storage, accessible through `.value`. This utility ensures your state survives page refreshes and synchronizes across browser tabs.
-
-#### Features
-
-- **Synchronous initialization**: Immediate access to a valid value
-- **Automatic validation**: Uses the provided schema to validate stored data
-- **Cross-tab synchronization**: Syncs state across browser tabs via storage events
-- **Graceful error recovery**: Falls back to defaults via `onParseError` handler
-- **Type-safe**: Full TypeScript support with inferred types
-
-#### Usage
-
-```typescript
-import { createPersistedState } from '@epicenter/svelte';
-import { z } from 'zod';
-
-// Define your schema
-const settingsSchema = z.object({
-  theme: z.enum(['light', 'dark']),
-  notifications: z.boolean()
-});
-
-// Create persisted state
-const settings = createPersistedState({
-  key: 'app-settings',
-  schema: settingsSchema,
-  onParseError: (error) => {
-    // Handle different error types
-    if (error.type === 'storage_empty') {
-      return { theme: 'light', notifications: true }; // default value
-    }
-    console.error('Settings parse error:', error);
-    return { theme: 'light', notifications: true }; // fallback value
-  }
-});
-
-// Use in component
-$effect(() => {
-  console.log('Current theme:', settings.value.theme);
-});
-
-// Update settings
-settings.value = { theme: 'dark', notifications: false };
-```
-
-**Note:** For production use, consider wrapping the persisted state in an encapsulated pattern with controlled access methods. See [Encapsulated State Pattern](../../docs/patterns/encapsulated-state-pattern.md) for best practices.
-
-#### API
-
-```typescript
-createPersistedState<TSchema extends StandardSchemaV1>(options: {
-  key: string;
-  schema: TSchema;
-  onParseError: (error: ParseErrorReason<TSchema>) => StandardSchemaV1.InferOutput<TSchema>;
-  onUpdateSuccess?: (newValue: StandardSchemaV1.InferOutput<TSchema>) => void;
-  onUpdateError?: (error: unknown) => void;
-  onUpdateSettled?: () => void;
-})
-```
-
-#### Parameters
-
-- **`key`**: The key used to store the value in local storage
-- **`schema`**: A Standard Schema v1 compatible schema for validation
-- **`onParseError`**: Handler called when the value from storage cannot be parsed or validated. Must return a valid default value.
-- **`onUpdateSuccess`** (optional): Called when the value is successfully written to storage
-- **`onUpdateError`** (optional): Called when writing to storage fails
-- **`onUpdateSettled`** (optional): Called after update attempt completes (success or failure)
-
-#### Error Types
-
-The `onParseError` handler receives one of these error types:
-
-- **`storage_empty`**: No value found in storage for the given key
-- **`json_parse_error`**: Failed to parse the stored JSON string
-- **`schema_validation_async_during_sync`**: Schema validation returned a Promise during synchronous parsing
-- **`schema_validation_failed`**: Schema validation failed with specific issues
-
-#### Example: Persisting Table State
-
-```typescript
-// Persist table sorting state
-const sorting = createPersistedState({
-  key: 'data-table-sorting',
-  schema: z.array(z.object({
-    id: z.string(),
-    desc: z.boolean()
-  })),
-  onParseError: () => [{ id: 'created_at', desc: true }] // default sort
-});
-
-// Persist row selection
-const rowSelection = createPersistedState({
-  key: 'data-table-selection',
-  schema: z.record(z.boolean()),
-  onParseError: () => ({}) // no selection by default
-});
-```
-
-## Contributing
-
-When adding new utilities to this package:
-
-1. Add the utility file to `src/`
-2. Export it from `src/index.ts`
-3. Update this README with documentation
-4. Add type tests if applicable
-
-## Dependencies
-
-This package depends on:
-
-- `svelte`: For reactive state primitives
-- `@standard-schema/spec`: For schema validation types
-- `wellcrafted`: For error handling utilities
-- `@epicenter/folder`: For folders, edit sessions, and file-browser mechanics
-- `@epicenter/ui` and `@lucide/svelte`: For the save bar, sync review, and folder UI components
+The package also exports status display helpers, independent of file
+editing.

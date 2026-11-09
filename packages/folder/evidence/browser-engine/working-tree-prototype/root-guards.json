@@ -1,0 +1,42 @@
+{
+	"recordedAt": "2026-10-20T10:30:16.740Z",
+	"scope": "Focused correctness experiment; no timing comparison. Original measured prototype files unchanged. Bundler substitution removes revision and compares working root for file saves, all three refs for checkpoint preparation; acknowledgement still compares exact received/sending refs.",
+	"prototypeSourceSha256": "339bdddad749733194444200d55663293f3110d0ee03b9ff4cc66c2c7cf1fa01",
+	"transformedSourceSha256": "d0bcdac7b0f8339ca686351668b7084e3611339dd20dbff70bd8d5e0b966120d",
+	"transformedBundleSha256": "ca62d5d9355ebe1351d35c94c632b5158d6632649ed83b989a8d05c6639fa51d",
+	"results": [
+		{
+			"browser": "chromium",
+			"version": "151.0.7922.34",
+			"saves": 120,
+			"retries": 83,
+			"explicitCollections": 3,
+			"revisionAbsent": true,
+			"exactCheckpointsSurvived": true,
+			"ackPreservedNewerWork": true,
+			"reopenPreservedWork": true
+		},
+		{
+			"browser": "webkit",
+			"version": "26.5",
+			"saves": 120,
+			"retries": 110,
+			"explicitCollections": 3,
+			"revisionAbsent": true,
+			"exactCheckpointsSurvived": true,
+			"ackPreservedNewerWork": true,
+			"reopenPreservedWork": true
+		},
+		{
+			"browser": "firefox",
+			"version": "153.0",
+			"saves": 120,
+			"retries": 85,
+			"explicitCollections": 3,
+			"revisionAbsent": true,
+			"exactCheckpointsSurvived": true,
+			"ackPreservedNewerWork": true,
+			"reopenPreservedWork": true
+		}
+	]
+}

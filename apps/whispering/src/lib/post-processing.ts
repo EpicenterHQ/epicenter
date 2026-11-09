@@ -1,44 +1,28 @@
 /**
- * What the post-processing choice is now.
+ * What the post-processing choice can be, and how a chosen transformation is
+ * named.
  *
- * The choice is a transformation's path, held by the session. The folder is
- * the truth about that transformation: it may have been deleted, or edited
- * into something that cannot run, since it was chosen. This reads the choice
- * against the transformations as last listed and the library's one recipe
- * resolver, and says which it is. Nothing here runs a transformation.
+ * The choice is a transformation's id, held by the product, which reads it
+ * against the lists as `whispering.postProcessing`. Nothing here runs a
+ * transformation.
  */
-import type { TransformationEntry } from './library.svelte.js';
-import type { ResolvedRecipe } from './recipe.js';
+import type { TransformationNote } from './files.svelte.js';
 
-/** A transformation's title, or its file when the title cannot be read. */
-export function transformationName(entry: TransformationEntry): string {
-	return (
-		entry.row.fields.title || (entry.stem === '' ? entry.path : entry.stem)
-	);
+/** A transformation's title, or its id when it has none. */
+export function transformationName(
+	note: Pick<TransformationNote, 'id' | 'title'>,
+): string {
+	return note.title || note.id;
 }
 
 export type PostProcessingChoice =
 	| { readonly kind: 'none' }
-	| { readonly kind: 'ready'; readonly entry: TransformationEntry }
-	/** Chosen and still in the folder, but it cannot run now; `reason` says why. */
+	| { readonly kind: 'ready'; readonly entry: TransformationNote }
+	/** Chosen and still listed, but it cannot run now; `reason` says why. */
 	| {
 			readonly kind: 'repair';
-			readonly entry: TransformationEntry;
+			readonly entry: TransformationNote;
 			readonly reason: string;
 	  }
-	/** Chosen, and no longer among the transformations the folder lists. */
-	| { readonly kind: 'missing'; readonly path: string };
-
-export function resolvePostProcessing(
-	path: string | undefined,
-	transformations: readonly TransformationEntry[],
-	resolve: (recipe: TransformationEntry['row']) => ResolvedRecipe,
-): PostProcessingChoice {
-	if (path === undefined) return { kind: 'none' };
-	const entry = transformations.find((item) => item.path === path);
-	if (entry === undefined) return { kind: 'missing', path };
-	const resolved = resolve(entry.row);
-	return resolved.kind === 'ready'
-		? { kind: 'ready', entry }
-		: { kind: 'repair', entry, reason: resolved.reason };
-}
+	/** Chosen, and no longer among the transformations listed. */
+	| { readonly kind: 'missing'; readonly id: string };

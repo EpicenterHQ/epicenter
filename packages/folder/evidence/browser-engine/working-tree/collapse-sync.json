@@ -1,0 +1,100 @@
+{
+	"recordedAt": "2026-10-20T11:24:01.110Z",
+	"bundleSha256": "36e2926524d41a100b4842fd8b97bc9575400f4ce90d425e2bd67cce3c953886",
+	"scope": "Production browser engine and Git transport against local native smart HTTP. Graceful profile reopen; no forced process crash, phone, quota, or hosted-service gate.",
+	"results": [
+		{
+			"browser": "chromium",
+			"version": "151.0.7922.34",
+			"acknowledgedSaves": 54,
+			"initial": "e3ee26a6ad01bf8a47da83ba1c2d6d423c3e61f4",
+			"uncertain": "e40397a91c19c985da344c6d77585421d319c9ec",
+			"lostReply": {
+				"status": 200,
+				"bytes": 50
+			},
+			"laterNative": "5833feab9f4ebf402911c871dfedaca1cfa88f6c",
+			"final": "c32636bc25b97652ad18878ad4d9b531fb33cc93",
+			"fields": {
+				"a": 888,
+				"b": 25,
+				"extra": 999
+			},
+			"acceptedCommitOccurrences": 1,
+			"checks": [
+				"initial native fetch",
+				"two tabs saving during network sync",
+				"independent paragraphs",
+				"native readback",
+				"accepted push with lost reply",
+				"later native edit",
+				"pending and newer edit survive profile reopen",
+				"collection preserves uncertain commit and unsent work",
+				"ancestry recovery without replay",
+				"native fsck --strict"
+			]
+		},
+		{
+			"browser": "webkit",
+			"version": "26.5",
+			"acknowledgedSaves": 54,
+			"initial": "2d98095d71e32f7165f49fc95a1e700ac4795ca2",
+			"uncertain": "aa943b279e5690d08853a49ffc934fd1ea3467a5",
+			"lostReply": {
+				"status": 200,
+				"bytes": 50
+			},
+			"laterNative": "fcf4d127f3b04ba54ebf683b185153399d495883",
+			"final": "b3b6d7f86b3bb48f042d96ff4c94b38ab76c337f",
+			"fields": {
+				"a": 888,
+				"b": 25,
+				"extra": 999
+			},
+			"acceptedCommitOccurrences": 1,
+			"checks": [
+				"initial native fetch",
+				"two tabs saving during network sync",
+				"independent paragraphs",
+				"native readback",
+				"accepted push with lost reply",
+				"later native edit",
+				"pending and newer edit survive profile reopen",
+				"collection preserves uncertain commit and unsent work",
+				"ancestry recovery without replay",
+				"native fsck --strict"
+			]
+		},
+		{
+			"browser": "firefox",
+			"version": "153.0",
+			"acknowledgedSaves": 54,
+			"initial": "58236e64f1c5f16257b6b1f407565107d3373bdb",
+			"uncertain": "fc96501daa205173cb76651adb52e1a9c963580d",
+			"lostReply": {
+				"status": 200,
+				"bytes": 50
+			},
+			"laterNative": "0460c7a62cae6c939b4a5502924e01a1a8390af9",
+			"final": "7bbbddb30f667128568cb7a5e2b86503176c82b3",
+			"fields": {
+				"a": 888,
+				"b": 25,
+				"extra": 999
+			},
+			"acceptedCommitOccurrences": 1,
+			"checks": [
+				"initial native fetch",
+				"two tabs saving during network sync",
+				"independent paragraphs",
+				"native readback",
+				"accepted push with lost reply",
+				"later native edit",
+				"pending and newer edit survive profile reopen",
+				"collection preserves uncertain commit and unsent work",
+				"ancestry recovery without replay",
+				"native fsck --strict"
+			]
+		}
+	]
+}

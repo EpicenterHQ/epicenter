@@ -1,10 +1,10 @@
 /**
- * Dictation lifetime tests over the actual SDK transcription client.
+ * Dictation lifetime tests over the real transcription client and a fake endpoint.
  * Disposal releases the microphone after pending startup, drops queued and late
  * transcripts, and reports recorder release failures. Ordinary stop keeps its final phrase.
  */
 import { expect, mock, test } from 'bun:test';
-import OpenAI from 'openai';
+import { custom, openAi } from '@epicenter/ai';
 import { Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 
@@ -15,7 +15,7 @@ let start = async (_options: { onSpeechEnd(blob: Blob): void }) =>
 	Ok(undefined);
 let stop = async (): Promise<unknown> => Ok(undefined);
 let respond = async () => Response.json({ text: 'phrase' });
-mock.module('@epicenter/recorder', () => ({
+mock.module('@epicenter/recorder/browser', () => ({
 	createVadRecorder: () => ({
 		startActiveListening: (options: { onSpeechEnd(blob: Blob): void }) =>
 			start(options),
@@ -23,16 +23,17 @@ mock.module('@epicenter/recorder', () => ({
 	}),
 }));
 const { createDictation } = await import('./dictation.svelte.js');
-const client = new OpenAI({
-	apiKey: 'test',
-	baseURL: 'https://dictation.test/v1',
-	maxRetries: 0,
-	fetch: (input) =>
-		String(input) === 'data:,' ? Promise.resolve(new Response()) : respond(),
-});
+const ai = openAi([
+	custom({
+		id: 'hosted',
+		baseUrl: 'https://dictation.test/v1',
+		fetch: () => respond(),
+	}),
+]);
+const transcribe = (file: File, signal: AbortSignal) =>
+	ai.transcribe({ endpoint: 'hosted', model: 'whisper-1', file }, { signal });
 
-test('close before microphone startup prevents acquisition and transcription', async () => {
-	const clientReady = Promise.withResolvers<OpenAI>();
+test('close right after start releases the microphone, and a later start opens nothing', async () => {
 	const events: string[] = [];
 	start = async () => {
 		events.push('start');
@@ -46,16 +47,15 @@ test('close before microphone startup prevents acquisition and transcription', a
 		events.push('transcribe');
 		return Response.json({ text: 'last phrase' });
 	};
-	const dictation = createDictation(() => clientReady.promise);
+	const dictation = createDictation({ transcribe });
 	const options = { onTranscript: () => events.push('delivered') };
 	const starting = dictation.start(options);
 	const closing = dictation.close().then(() => events.push('closed'));
-	clientReady.resolve(client);
 	expectOk(await starting);
 	await closing;
-	expect(events).toEqual(['closed']);
+	expect(events).toEqual(['start', 'stop', 'closed']);
 	await dictation.start(options);
-	expect(events).toEqual(['closed']);
+	expect(events).toEqual(['start', 'stop', 'closed']);
 });
 
 test('close joins a microphone startup already in progress', async () => {
@@ -70,7 +70,7 @@ test('close joins a microphone startup already in progress', async () => {
 		events.push('stop');
 		return Ok(undefined);
 	};
-	const dictation = createDictation(() => client);
+	const dictation = createDictation({ transcribe });
 	const starting = dictation.start({ onTranscript() {} });
 	await Promise.resolve();
 	expect(events).toEqual(['start']);
@@ -85,7 +85,7 @@ test('a failed recorder release reports its error', async () => {
 	const failure = { name: 'StopFailed', message: 'microphone teardown failed' };
 	start = async () => Ok(undefined);
 	stop = async () => ({ data: null, error: failure });
-	const dictation = createDictation(() => client);
+	const dictation = createDictation({ transcribe });
 	expectOk(await dictation.start({ onTranscript() {} }));
 	await expect(dictation.close()).rejects.toEqual(failure);
 	expect(dictation.status).toBe('listening');
@@ -103,7 +103,7 @@ test('ordinary stop delivers its final phrase and rejects later model callbacks'
 		return Ok(undefined);
 	};
 	respond = async () => Response.json({ text: 'captured' });
-	const dictation = createDictation(() => client);
+	const dictation = createDictation({ transcribe });
 	expectOk(
 		await dictation.start({
 			onTranscript: (result) => delivered.push(expectOk(result)),
@@ -133,7 +133,7 @@ test('close does not wait for in-flight transcription and suppresses its result'
 		return Response.json({ text: 'late' });
 	};
 	const delivered: string[] = [];
-	const dictation = createDictation(() => client);
+	const dictation = createDictation({ transcribe });
 	expectOk(
 		await dictation.start({
 			onTranscript: (result) => delivered.push(expectOk(result)),

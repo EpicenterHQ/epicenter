@@ -34,7 +34,7 @@ This record is amended in place to the shape below.
 ## Decision
 
 **A field declaration is any native `TSchema`.**
-`FieldMap` in `packages/definition/src/declaration.ts` takes one, as an object:
+`FieldMap` in `4467140355:packages/definition/src/declaration.ts` takes one, as an object:
 TypeBox's `TSchema` is an empty interface, so a primitive is excluded by type
 and refused by `prepareData`. An
 unannotated `Type.Object`, `Type.Enum`, `Type.Any`, or `Type.Refine` is a
@@ -43,7 +43,7 @@ from JSON is admitted like any other. The schema alone decides whether a value
 conforms.
 
 **A prepared definition has the declared shape, and native schemas are public throughout.**
-`prepareData` in `packages/definition/src/prepare.ts` checks a declaration and
+`prepareData` in `4467140355:packages/definition/src/prepare.ts` checks a declaration and
 returns `{ id, title?, kv, tables }` again, with the type it was given: `kv` is
 a record of native schemas by field name, and each table is `{ fields, body? }`.
 `defineStore` and `defineFolder` return that prepared definition, and an opened
@@ -56,7 +56,7 @@ reads as `undefined`. A storage threads a table's name from its key.
 
 **`x-field` is an optional, serialized editor hint that validates nothing.**
 It holds a `kind`, and a reference additionally holds its `target` table.
-`fieldEditorOf(schema)` in `packages/definition/src/field/editor.ts` reads the
+`fieldEditorOf(schema)` in `4467140355:packages/definition/src/field/editor.ts` reads the
 editor a schema asks for: `{ kind }`, plus `options` for a select and `target`
 for a reference. It is a pure reader of keywords: it keeps no state, runs no
 validator, and takes any schema, prepared or not. It is exported because its

@@ -1,5 +1,0 @@
-# Implementation Prompt
-
-```txt
-/goal Implement the safe findings from `specs/20260519T161500-config-route-collapse-pass/reports/*.md` until stale config-route migration cleanup is either complete or explicitly deferred. First read AGENTS.md, the collapse-pass skill, the post-implementation-review skill, and all three audit reports. Build a short queue in `specs/20260519T161500-config-route-collapse-pass/reports/implementation.md`, ordered by lowest risk first. For each checkpoint, surface the collapse-pass finding before editing, make one mechanical simplification, run the targeted validation command from the report, re-grep removed symbols, and update `implementation.md` with changed files, validation output, and remaining risk. Pause before deleting public exports with plausible external consumers, changing default config semantics, changing durable strings, or touching unrelated code. Stop when the queue is empty, three consecutive findings are rejected as not worth changing, or a regression cannot be fixed in one follow-up.
-```

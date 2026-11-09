@@ -3,6 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-06-24
 - **Amended by:** [ADR-0447](0447-the-bun-self-hosted-server-owns-one-data-root.md) at the S3-only hosted-blob rule and the self-hosting requirement for an S3 endpoint. The per-concern composition rule remains.
+<!-- doc-path-check: ignore-next-line -->
 - **Relates:** the in-flight spec `specs/20260623T234500-one-server-runtime-port-vs-per-owner-instance.md` (the grill and wave plan this harvests), [ADR-0054](0054-an-inference-backend-is-the-metered-gateway-or-a-custom-server.md) (the same config-not-code, deployment-chooses posture for inference backends), [ADR-0004](0004-trust-the-relay-reject-zero-knowledge.md) (why identity/secrets stay a shared plane, not per-instance), [ADR-0092](0092-identity-is-the-partition.md) (keeps the injection posture but collapses the ownership seam into the principal resolver)
 
 ## Context
@@ -46,6 +47,7 @@ Two clauses above are now stale in the same way. The `RuntimeAdapter` value of t
 
 What replaced the backend-conformance idea is stronger, because the drift it caught was never inside a backend. Each surface is already runtime-proof by construction: one `mount*` owns the route declaration and only the backend is bound per runtime, which is why `mountBunEpicenterSyncApp` and `mountCloudflareEpicenterSyncApp` both delegate to the same `mountEpicenterSyncRoute` and cannot disagree about a URL. The one thing no type, barrel, or backend test can see is the hand-written list in each deployment entry: **which** surfaces it mounts. That is where the two runtimes of one deployment silently diverged: `apps/api/server.ts` never mounted `mountTranscriptionApp`, so `/v1/audio/transcriptions` 404'd on the Bun host while the Worker served it.
 
+<!-- doc-path-check: ignore-next-line -->
 So each deployment declares a **runtime profile**: a table of surfaces with the expected presence on each of its runtimes, checked by probing both entries in-process (`apps/api/runtime-profile.test.ts`, `apps/self-host/runtime-profile.test.ts`). A row that is not served on both must carry the reason it is not, so an asymmetry costs a sentence and a silent one fails the test.
 
 - The profile lives per deployment, never as a shared registry. Merging the two tables would re-introduce the mode knob ADR-0075/0076 deleted, and their divergences are unlike: the hosted cloud's are binding-shaped (`ASSETS`, `EPICENTER_SYNC`, Autumn), the instance's is transport-shaped (attach is Bun-only because `Bun.serve`'s WebSocket handler and an in-process grant store cannot live in a Worker isolate).

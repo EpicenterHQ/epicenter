@@ -2,8 +2,11 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-04
+- **Amended by:** [ADR-0576](0576-a-folder-has-one-write-a-merge-by-unit-where-the-writer-acting-wins.md) at the draft's save: a save no longer stops as `Conflict` for **Reload theirs** or **Keep mine**. It merges by unit with the file as it is now, the writer winning a unit both changed, and a delete beats an edit that never saw it. The rest of this record stands.
 - **Relates:** [ADR-0477](0477-file-folder-operations-tolerate-repairable-layout-disorder.md) and [ADR-0482](0482-folder-mutations-publish-one-file-at-a-time.md) establish repairable layouts and independent file operations.
 - **Unbuilt:** Applying this review criterion to application refusals and choosing simpler folder-deletion behavior in Honeycrisp.
+
+- **Current edit implementation:** [ADR-0668](0668-one-folder-owned-source-orders-file-publications.md) records the retained-source model implemented in `bd78bfb52b`. Editors and direct file/table commands share each path's publication lane; local writes are unconditional whole-file last-write-wins. Git synchronization keeps its merge rules. Earlier draft-merge and guarded-save descriptions below are historical.
 
 ## Context
 

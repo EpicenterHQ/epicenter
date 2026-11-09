@@ -58,7 +58,7 @@ Scenario 4 (a hosted competitor) is the one where the license is most load-beari
 root `LICENSE`, generated from the packages themselves.
 
 **Rationale:**
-- `apps/api` (hosted cloud: store sync, auth, AI inference, billing; serves the same-origin dashboard SPA from its `ui/`) is the infrastructure a competitor would need to clone Epicenter Cloud. AGPL section 13 means any hosted fork must publish source, including improvements, which destroys the economics of forking-and-hosting. `apps/self-host` is the self-hosted single-partition instance reference, community-supported rather than Epicenter-operated; billing is hosted-only and lives in `apps/api/worker/billing/`.
+- `apps/api` (hosted cloud: store sync, auth, AI inference, billing; serves the same-origin dashboard SPA from its `ui/`) is the infrastructure a competitor would need to clone Epicenter Cloud. AGPL section 13 means any hosted fork must publish source, including improvements, which destroys the economics of forking-and-hosting. Self-hosting runs the same app on Bun with Postgres (`apps/api/server.ts`); billing is hosted-only and lives in `apps/api/worker/billing/`.
 - Consumer apps: on a locally-run app AGPL reduces to GPL conveyance copyleft, which is what blocks a competitor forking a shipped app into a closed-source rebrand. That is real protection, not brand consistency.
 - Libraries: they compose the product. None is offered for third-party embedding today, so AGPL costs no adoption.
 
@@ -80,7 +80,7 @@ This is the same pattern Bitwarden uses for `bitwarden_license/` and Sentry uses
 
 ## The self-host story, which is settled
 
-This document once planned an `apps/sync-server` split to give homelabbers something self-hostable without the cloud platform. That is answered: one shared library (`packages/server`) and two deployables that compose it. `apps/api` is the hosted personal cloud (Better Auth principals, Postgres, billing); `apps/self-host` is the single-partition instance behind one operator bearer, composing no Better Auth and no Postgres (ADR-0075, ADR-0076). Both are AGPL, so the split was architectural rather than licensing, exactly as predicted.
+This document once planned an `apps/sync-server` split to give homelabbers something self-hostable without the cloud platform. That is answered: one shared library (`packages/server`) and one deployable, `apps/api`, that composes it on two runtimes. The Cloudflare Worker is the hosted personal cloud (Better Auth principals, Postgres, billing); the Bun entry (`apps/api/server.ts`) runs the same composition on Postgres for self-hosting, without billing. Both are AGPL, so the split was architectural rather than licensing, exactly as predicted.
 
 Nothing about that changes a license tier. It is recorded here because the trigger the old plan was waiting on has already fired.
 
@@ -191,6 +191,6 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
 
 ## Open questions and review triggers
 
-- Revisit if a meaningful external contributor lands a PR on `apps/api`, `apps/self-host`, `packages/server`, or `packages/sync`. Decide then whether to add CLA Assistant.
+- Revisit if a meaningful external contributor lands a PR on `apps/api`, `packages/server`, or `packages/sync`. Decide then whether to add CLA Assistant.
 - Revisit if a specific paying customer requires a feature that AGPL would let them self-host for free. This is the trigger to populate the proprietary tier (one feature, scoped to a subdirectory). Until that happens, the tier stays empty by design.
 - Revisit if we sell self-hosted enterprise licenses. That would be the trigger for moving to a real dual-license posture (and retroactively adding CLAs).

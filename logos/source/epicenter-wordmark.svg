@@ -1,13 +1,24 @@
 <svg viewBox="40 40 320 410" xmlns="http://www.w3.org/2000/svg">
-  <!-- Epicenter wordmark: the mark above the name. Designed for dark surfaces. -->
-  <!-- Manrope loads via @import in browsers; outline the text before -->
-  <!-- rasterizing on a machine without the font (see README). -->
-  <defs>
-    <style>
-      @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@700&amp;display=swap');
-    </style>
-  </defs>
-  <circle cx="170" cy="170" r="100" fill="#cccccc"/>
-  <circle cx="230" cy="230" r="100" fill="#ffffff"/>
-  <text x="200" y="400" font-family="Manrope, ui-sans-serif, system-ui, -apple-system, sans-serif" font-size="60" font-weight="700" text-anchor="middle" fill="#ffffff">epicenter</text>
+	<title>Epicenter</title>
+	<!-- Epicenter wordmark: the mark above the name. Designed for dark surfaces. -->
+	<!-- Manrope loads via @import in browsers; outline the text before -->
+	<!-- rasterizing on a machine without the font (see README). -->
+	<defs>
+		<style>
+			@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@700&amp;display=swap");
+		</style>
+	</defs>
+	<circle cx="170" cy="170" r="100" fill="#cccccc" />
+	<circle cx="230" cy="230" r="100" fill="#ffffff" />
+	<text
+		x="200"
+		y="400"
+		font-family="Manrope, ui-sans-serif, system-ui, -apple-system, sans-serif"
+		font-size="60"
+		font-weight="700"
+		text-anchor="middle"
+		fill="#ffffff"
+	>
+		epicenter
+	</text>
 </svg>

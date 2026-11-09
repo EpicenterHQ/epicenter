@@ -1,127 +1,114 @@
 ---
 name: services-layer
-description: Apply Whispering service-boundary patterns for UI-free capabilities, explicit inputs, Result fallibility, Live objects, lifecycle factories, and platform variants. Use when creating or refactoring services, contracts, provider dispatch, or the `$lib/services` barrel.
+description: Apply Epicenter's service-boundary patterns for UI-free capabilities, explicit inputs, Result fallibility, lifecycle factories, and a capability package that picks its browser or desktop implementation when the page runs. Use when creating or refactoring an app's services or their contract, provider or connection dispatch, or a desktop service over the shell, the credentials file, or the account.
 metadata:
   author: epicenter
-  version: '3.0'
+  version: '5.0'
 ---
 
 # Services Layer
 
-This skill was grounded in Whispering's `src/lib/services` and its
-`#platform/*` mappings. Both were removed when Whispering became a standalone
-file-folder app, so every `apps/whispering/...` path below is historical. The
-patterns still apply; ground new work in the app you are editing and its own
-`package.json`. Neighboring skills are leads, not current architecture.
+Grounded in Whispering (`apps/whispering/src/lib/app.ts` and
+`whispering.svelte.ts`) and `@epicenter/ai`'s `customEndpoints()`
+(`connection-keys.ts`). Read the app's `app.ts` and the capability package's
+entry before changing a service.
 
 ## Product Sentence
 
-The service layer owns UI-free capabilities; callers inject app policy through
-explicit inputs, fallible operations return Results, and platform selection has
-one build-time owner.
+A service owns a UI-free capability; the app passes in what it decides,
+fallible operations return Results, and the package that owns a capability
+picks its browser or desktop implementation when the page runs.
 
 ## Boundary
 
-Services may perform IO and may own service-local runtime state. They are not
-required to be pure functions. They must remain free of UI and app-owned policy:
+Services may perform I/O and own service-local state. They stay free of UI
+and app policy:
 
-- no runtime reads of Svelte stores, `settings`, `deviceConfig`, toasts, or
-  `report`;
-- accept credentials, model names, endpoints, paths, and user choices as inputs;
-- return domain data and errors, not presentation copy or UI state;
-- expose the same contract from both sides of a `#platform/*` seam.
+- no reads of Svelte state, settings notes, toasts, or reporting;
+- credentials, endpoints, models, paths, and the store come in as inputs;
+- domain data and tagged errors come out, not presentation copy;
+- a capability's browser and desktop implementations share one type.
 
-`$lib/operations` usually reads app settings, chooses providers, and composes
-services. `$lib/queries` adds shared query identity and observable lifecycle only
-when the UI needs it.
+A service never chooses or opens the store. It is made over the folder
+`src/lib/app.ts` opened: Whispering's `createMicrophoneDevice({ files:
+folder.audio, recorder })` and `createWhispering` (`whispering.svelte.ts`),
+so a recording lands in the same store the pages read.
 
-The transcription directory also holds provider registry data and the
-UI-facing `provider-ui.ts` join. Those colocated metadata modules are not
-service implementations; do not use them to weaken the service boundary.
+## Where the page runs
+
+One build serves the web and the desktop (see the `platform-seams` skill).
+The capability package picks its implementation: it decides presence with
+`isTauri()` when its module loads, and loads its desktop code with
+`import()` in its asynchronous step. The app imports one name
+(`recorder` from `@epicenter/recorder`, `customEndpoints()` from
+`@epicenter/ai`), and a capability a surface lacks is `null` there
+(`localSpeech()` in a browser). App code never checks `isTauri()`.
+
+On the desktop, a service reaches native code only through the app's shell
+and the shared crates, never through a credential in the page:
+
+- **Secrets** live in the app's `credentials.json` in AppData (mode
+  `0600`), which only `epicenter-account` reads and writes and no page
+  reaches
+  ([ADR-0740](../../../docs/adr/0740-every-credential-an-app-holds-lives-in-its-own-place.md)).
+  A connection's key is handed to the shell once (`connectionKey` in
+  `@epicenter/ai`'s `tauri.ts`, over `connection_key_set` and
+  `connection_key_move`) and read by the request that uses it;
+  `connections.md` in this computer's settings records which endpoint it
+  was entered for, never the key. Never put a key in a settings file, the
+  data folder, or WebView storage.
+- **The account** is a relay: requests go through `account.fetch`, which
+  the shell sends with `account_fetch` and a token the page never sees.
+- **Other requests** to a custom endpoint or a server on this computer
+  leave through the shell (`connection_fetch`, and `shellFetch` with no
+  key), so no endpoint needs a CORS rule for the window's origin.
+- **A root-scoped native command** (the recorder, local transcription)
+  names the data folder's root by name (`'Data'`), never by path; the shell
+  refuses a root the window did not open.
+
+Read [service organization and platform variants](references/service-organization-platforms.md)
+when adding or moving a service.
 
 ## Model Fallibility Honestly
 
-Use `Result<T, E>` for a public operation that can fail in ordinary runtime use.
-Adapt throwing platform or library calls with the `error-handling` skill.
+Use `Result<T, E>` for an operation that can fail in ordinary use. Adapt
+throwing platform or library calls with the `error-handling` skill.
 
-Do not fake a Result for an infallible in-memory action or cleanup. Current
-examples include local shortcut `register` / `unregister` returning `void` and
-listener setup returning a cleanup function.
-
-```typescript
-export type DownloadService = {
-	downloadBlob(args: {
-		name: string;
-		blob: Blob;
-	}): Promise<Result<void, DownloadError>>;
-};
-```
-
-Errors belong to the layer that understands the failure. Preserve lower-layer
-tagged errors when composing services. Define a service-local variant only for
-a failure the service itself owns. Use `error-handling` for variant shape,
-message rules, adaptation, and propagation.
+Do not fake a Result for an infallible in-memory action or a cleanup. Errors
+belong to the layer that understands the failure: pass lower-layer tagged
+errors through (`TranscriptionError`, `RecorderError`), and define a
+service-local variant only for a failure the service owns. Use
+`error-handling` for variant shape, message rules, adaptation, and
+propagation.
 
 ## Direct Object Or Factory
 
-Default to a direct `*ServiceLive` object when construction has no input or
-lifecycle. Current download, analytics, text, and transcription provider
-implementations use this shape. Download, analytics, and text check their shared
-platform contracts with `satisfies <Service>`.
+Default to a plain object when construction has no input or lifecycle. Use a
+factory when it owns real construction inputs or a lifecycle: Whispering's
+capture device (`createMicrophoneDevice`, over the folder's audio and the
+package's `recorder`) owns one recording session at a time with its stop
+and recovery. Do not add `create*` only to
+call it once at module load. See
+[service implementation patterns](references/service-implementation-pattern.md).
 
-Use a factory when it owns real construction inputs, replaceable dependencies,
-or stateful lifecycle. The browser and CPAL recorder factories earn their
-boundary because each creates recording sessions with stop, cancel, subscribe,
-and teardown behavior.
+## Runtime choices stay at the call
 
-Do not add `create*` plus `*Live` mechanically for a stateless object.
-
-Read [service implementation patterns](references/service-implementation-pattern.md)
-for the current direct-object example and the factory decision.
-
-## Platform And Runtime Selection
-
-Use `#platform/*` imports for a capability with browser and Tauri
-implementations. `package.json#imports` chooses the implementation at build
-time; shared callers import one stable name and do not inspect
-`window.__TAURI_INTERNALS__`.
-
-Use the nullable `#platform/tauri` namespace for Tauri-only capabilities.
-
-User-selected providers are runtime policy, not a platform seam. Keep the
-dispatch in the consuming operation. Whispering transcription reads the
-selected provider in `$lib/operations/transcribe.ts`; the query layer only
-observes that operation.
-
-Read [service organization and platform variants](references/service-organization-platforms.md)
-when adding or moving a platform service.
-
-## Service Barrel
-
-`$lib/services/index.ts` collects stable cross-platform capabilities:
-
-```typescript
-export const services = {
-	analytics: AnalyticsServiceLive,
-	text: TextServiceLive,
-	blobs: BlobsLive,
-	blobSources: BlobSourcesLive,
-	download: DownloadServiceLive,
-	localShortcutManager: LocalShortcutManagerLive,
-	sound: PlaySoundServiceLive,
-} as const;
-```
-
-Do not force every provider implementation into this barrel. A runtime
-operation may import its provider-specific services directly when it owns the
-dispatch table.
+Which connection or provider a request uses is run-time state, not a build
+choice. Whispering's `transcribe` and `transform` read the selected
+connection (account, custom, or local on the desktop) when the request is
+sent, and send only while it is still the connection the request was
+prepared for. Keep that dispatch inside the one service method, not spread
+across callers.
 
 ## Final Check
 
-- The service imports no UI or app-owned settings.
-- Every app choice enters as an explicit input or is selected by the caller.
-- Fallible public operations return Results; infallible operations stay plain.
-- A factory owns construction or lifecycle, not convention alone.
-- Platform choice happens through one `#platform/*` mapping.
-- Runtime provider choice happens once at the consuming operation.
-- Lower-layer errors pass through unless this service owns a new failure.
+- The service imports no UI and reads no settings; every app choice is an
+  input.
+- It is made over the folder `app.ts` opened, and opens no store.
+- Fallible operations return Results; infallible ones stay plain.
+- A factory owns construction or a lifecycle, not convention.
+- The capability package picks the implementation where the page runs,
+  with one shared type, and its desktop code loads on demand.
+- On the desktop, secrets stay in the shell's credentials file, account
+  requests go through the relay, and no token or key reaches the page's
+  storage.

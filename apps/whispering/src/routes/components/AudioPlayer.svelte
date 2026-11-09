@@ -1,77 +1,46 @@
 <script lang="ts">
-	import type { FolderFiles } from '@epicenter/folder';
-	import { onDestroy } from 'svelte';
-	import { type LoadedAudio, loadAudio } from '$lib/audio-source.js';
+	import { type AudioFile, getLibrary } from '$lib/library.svelte.js';
 
-	/**
-	 * Plays audio from the folder, or from bytes still held in this window.
-	 * Folder audio is read through the same file API as everything else, so the
-	 * desktop app and a browser tab play it the same way.
-	 *
-	 * `generation` is the folder refresh count. Each new one rereads the file
-	 * and compares content versions, so audio replaced by another program is
-	 * picked up even when its length is unchanged, and unchanged audio keeps
-	 * playing.
-	 */
-	let { source, label }: {
-		source:
-			| { readonly kind: 'file'; readonly files: FolderFiles; readonly path: string; readonly generation: number }
-			| { readonly kind: 'bytes'; readonly bytes: Uint8Array; readonly mimeType: string };
+	/** Play recording `id`'s audio, read again when it is listed under another extension. */
+	let { id, file, label }: {
+		id: string;
+		/** The audio file the recording has, as listed. */
+		file: AudioFile;
 		label: string;
 	} = $props();
+	const library = getLibrary();
 
-	let url = $state<string | undefined>();
+	let current = $state<string | undefined>();
 	let problem = $state<string | undefined>();
-	/** What `url` was made from, when it came from the folder. */
-	let loaded: LoadedAudio | undefined;
-	let held: string | undefined;
 
-	function show(blob: Blob) {
-		if (held) URL.revokeObjectURL(held);
-		held = URL.createObjectURL(blob);
-		url = held;
-		problem = undefined;
-	}
-
+	// Each read owns its URL until the file changes or this player leaves.
 	$effect(() => {
-		const current = source;
-		if (current.kind === 'bytes') {
-			loaded = undefined;
-			show(new Blob([current.bytes as Uint8Array<ArrayBuffer>], { type: current.mimeType }));
-			return;
-		}
-		// Read here so a new refresh generation reruns this effect.
-		const { files, path } = current;
-		void current.generation;
-		// Another file's audio is never shown while this one loads.
-		if (loaded !== undefined && loaded.path !== path) url = undefined;
-		let cancelled = false;
-		void (async () => {
-			const { data: audio, error: loadError } = await loadAudio(files, path, loaded);
-			if (cancelled) return;
-			if (loadError !== null) {
-				problem = loadError.message;
-				return;
-			}
-			problem = undefined;
-			if (audio === loaded) return;
-			loaded = audio;
-			show(audio.blob);
-		})();
+		void file.ext;
+		current = undefined;
+		problem = undefined;
+		let url: string | undefined;
+		let live = true;
+		void library.readAudio(id).then(({ data, error }) => {
+			if (!live) return;
+			if (error !== null) problem = error;
+			else
+				url = current = URL.createObjectURL(
+					// SAFETY: storage reads answer bytes over a plain ArrayBuffer.
+					new Blob([data.bytes as Uint8Array<ArrayBuffer>], { type: data.mimeType }),
+				);
+		});
 		return () => {
-			cancelled = true;
+			live = false;
+			if (url) URL.revokeObjectURL(url);
 		};
-	});
-
-	onDestroy(() => {
-		if (held) URL.revokeObjectURL(held);
 	});
 </script>
 
 {#if problem}
 	<p class="text-xs text-destructive" role="alert">The audio could not be loaded: {problem}</p>
-{:else if url}
-	<audio class="h-10 w-full" controls preload="metadata" src={url} aria-label={label} data-testid="audio-player"></audio>
-{:else}
+{/if}
+{#if current}
+	<audio class="h-10 w-full" controls preload="metadata" src={current} aria-label={label} data-testid="audio-player"></audio>
+{:else if !problem}
 	<p class="text-xs text-muted-foreground">Loading audio…</p>
 {/if}

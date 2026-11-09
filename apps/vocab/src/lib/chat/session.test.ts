@@ -1,45 +1,26 @@
-/**
- * Vocab chat session tests.
- * The real session, loop, and message store run over Vocab's real browser
- * folder on an in-memory OPFS stand-in, with the tutor behind an OpenAI client whose
- * requests are answered in-process and counted. What is saved is read from
- * the message files.
- *
- * Key behaviors:
- * - The draft stays until the learner message is a file, and typing that
- *   arrives meanwhile is never cleared
- * - A refused write asks the tutor nothing; saving again asks nothing either
- * - A finished answer the folder refuses stays whole and is saved again
- *   without a second tutor request
- * - A stopped, cut-off, or failed answer is never saved
- * - Stop while a message or the transcript is being saved or read prevents
- *   the late tutor start
- * - A closed or unreadable folder asks the tutor nothing
- * - A finished chat is there when the folder is opened again
- */
-import '../svelte-modules.test-support.js';
+import '../../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { expect, test } from 'bun:test';
-import type { AgentMessage } from '@epicenter/agent';
-import OpenAI from 'openai';
+import { custom, openAi } from '@epicenter/ai';
+import type { AgentMessage } from '@epicenter/ai/agent';
 import { expectOk } from 'wellcrafted/testing';
-import type { VocabFolder } from '../data.js';
-import {
-	createBrowser,
-	gatedMessages,
-	tableFiles,
-} from '../folder.test-support.js';
-import { createChatMessageStore, startChat } from './messages.js';
 
+const { openVocabFolder, until } = await import('../vocab.test-support.js');
 const { createVocabChat } = await import('./session.svelte.js');
+const { reactive } = await import('@epicenter/svelte/reactive');
+const { startChat } = await import('./chats.js');
 
 type ChatOptions = Parameters<typeof createVocabChat>[0];
-
+function sessionDouble<T extends object>(members: Partial<T>): T {
+	// SAFETY: these tests exercise only the supplied members of the session dependency.
+	return members as T;
+}
 const welcome: AgentMessage = {
 	id: 'welcome',
 	role: 'assistant',
 	createdAt: 1,
-	parts: [{ type: 'text', text: 'Welcome! Try "lucid" in a sentence.' }],
+	parts: [{ type: 'text', text: 'Welcome.' }],
 };
+
 const asked: AgentMessage = {
 	id: 'question',
 	role: 'user',
@@ -47,29 +28,44 @@ const asked: AgentMessage = {
 	parts: [{ type: 'text', text: 'Is this right?' }],
 };
 
-/** One chat over a folder that can refuse or delay, and a counted tutor. */
-async function setup() {
-	const browser = createBrowser();
-	const folder = await browser.open();
+/** The tutor's endpoint, and Epicenter's hosted one, as the chat reaches them. */
+const TUTOR = { endpoint: 'tutor', model: 'test-model' };
+const HOSTED = { endpoint: 'hosted', model: 'hosted-tutor' };
+
+async function setup({
+	saved = [welcome],
+	choices = sessionDouble<ChatOptions['choices']>({
+		get: () => TUTOR,
+		set: async () => {},
+		subscribe: () => () => {},
+		require: () => ({ data: TUTOR, error: null }),
+		problem: () => null,
+	}),
+}: {
+	/** The chat's messages saved before it opens. */
+	saved?: AgentMessage[];
+	/** The learner's model choices; by default the tutor's, already read. */
+	choices?: ChatOptions['choices'];
+} = {}) {
+	const folder = await openVocabFolder();
 	const chatId = expectOk(
-		await startChat(folder.tables.chats, [{ entryId: 'entry', text: 'lucid' }]),
+		await startChat(folder.lists.chats, [{ entryId: 'entry', text: 'lucid' }]),
 	).id;
-	const { gate, folder: gatedFolder } = gatedMessages(folder);
+	for (const { id, ...message } of saved)
+		await folder.messages.set({ chat: chatId, id }, message);
+	let requests = 0;
 	const tutor = {
-		requests: 0,
 		finishReason: 'stop',
-		/** Set to keep the answer's stream open after its first words. */
-		held: undefined as Promise<void> | undefined,
 		status: 200,
-		/** One per answer stream, settled once the tutor has sent all of it. */
+		held: undefined as Promise<void> | undefined,
 		answers: [] as Promise<void>[],
 	};
-	const client = new OpenAI({
-		apiKey: 'test',
-		baseURL: 'https://tutor.test/v1',
-		maxRetries: 0,
+	const tutorEndpoint = custom({
+		id: 'tutor',
+		baseUrl: 'https://tutor.test/v1',
+		models: ['test-model'],
 		fetch: async () => {
-			tutor.requests += 1;
+			requests++;
 			if (tutor.status !== 200)
 				return Response.json(
 					{ error: { message: 'The tutor is unavailable.' } },
@@ -77,17 +73,9 @@ async function setup() {
 				);
 			const event = (finishReason: string | null) =>
 				new TextEncoder().encode(
-					`data: ${JSON.stringify({
-						choices: [
-							{
-								index: 0,
-								delta: { content: 'Nice.' },
-								finish_reason: finishReason,
-							},
-						],
-					})}\n\n`,
+					`data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: 'Nice.' }, finish_reason: finishReason }] })}\n\n`,
 				);
-			const { held } = tutor;
+			const held = tutor.held;
 			const answered = Promise.withResolvers<void>();
 			tutor.answers.push(answered.promise);
 			return new Response(
@@ -102,7 +90,7 @@ async function setup() {
 							controller.enqueue(new TextEncoder().encode('data: [DONE]\n\n'));
 							controller.close();
 						} catch {
-							// The client stopped reading: the rest was sent to a cancelled stream.
+							// Stopping can cancel the stream before its held answer resumes.
 						} finally {
 							answered.resolve();
 						}
@@ -112,430 +100,182 @@ async function setup() {
 			);
 		},
 	});
-	const open = (target: Pick<VocabFolder, 'tables' | 'files'> = gatedFolder) =>
-		createVocabChat({
-			folder: target,
-			chatId,
-			focus: [{ text: 'lucid' }],
-			catalog: {
-				accountId: 'account',
-				ready: Promise.resolve(),
-				resolve: () => ({ source: 'account', client, model: 'test-model' }),
-			} as unknown as ChatOptions['catalog'],
-			selections: {
-				get: () => undefined,
-				set: () => {},
-				onChange: () => () => {},
-			} as unknown as ChatOptions['selections'],
-		});
+	let hostedRequests = 0;
+	const hostedEndpoint = custom({
+		id: HOSTED.endpoint,
+		baseUrl: 'https://hosted.test/v1',
+		models: [HOSTED.model],
+		fetch: async () => {
+			hostedRequests++;
+			return Response.json(
+				{ error: { message: 'The hosted tutor was asked.' } },
+				{ status: 500 },
+			);
+		},
+	});
+	const ai = reactive(openAi([tutorEndpoint, hostedEndpoint]));
+	const chat = createVocabChat({
+		messages: folder.messages,
+		chatId,
+		focus: [{ text: 'lucid' }],
+		ai,
+		choices,
+	});
 	return {
-		browser,
+		chat,
 		folder,
 		chatId,
-		gate,
 		tutor,
-		open,
-		/** Save a message file directly, as an earlier session left it. */
-		async seed(...messages: AgentMessage[]) {
-			const store = createChatMessageStore(folder, chatId);
-			for (const message of messages)
-				expectOk(await store.set(message.id, message));
+		get requests() {
+			return requests;
 		},
-		/** The roles a reload would show, from the folder opened again. */
-		async savedRoles() {
-			const store = createChatMessageStore(await browser.open(), chatId);
-			expectOk(await store.load());
-			return [...store.entries()]
-				.map(({ val }) => val)
-				.sort((a, b) => a.createdAt - b.createdAt)
-				.map((message) => message.role);
+		get hostedRequests() {
+			return hostedRequests;
 		},
-		[Symbol.asyncDispose]: () => browser[Symbol.asyncDispose](),
+		/** Wait until the tutor no longer answers and the folder's writes have landed. */
+		async settle() {
+			while (chat.isGenerating || folder.lists.saving())
+				await new Promise<void>((resolve) => setImmediate(resolve));
+		},
 	};
 }
 
-type Chat = ReturnType<typeof createVocabChat>;
-
-/** Let one event-loop turn pass, so off-thread work can report back. */
-const nextTurn = () => new Promise<void>((resolve) => setImmediate(resolve));
-
-/**
- * Wait until the chat has nothing in flight.
- *
- * The folder hashes files with `crypto.subtle`, which answers from a worker
- * thread, so how many turns a read or write takes depends on machine load.
- * There is no turn budget: a chat that never settles fails on the test timeout.
- */
-async function settle(chat: Chat) {
-	while (chat.isGenerating || chat.isSaving || chat.isReading) await nextTurn();
-}
-
-/** A mounted chat whose transcript has been read. */
-async function ready(chat: Chat) {
-	await settle(chat);
-	return chat;
-}
-
-const roles = (chat: { messages: AgentMessage[] }) =>
-	chat.messages.map((message) => message.role);
-
-test('the draft stays until the learner message is a file, then clears, and the chat is there after reopening', async () => {
-	await using context = await setup();
-	await context.seed(welcome);
-	using chat = await ready(context.open());
-
+test('a submitted draft stays until the conversation takes it, then clears', async () => {
+	const context = await setup();
+	const { chat, folder } = context;
 	chat.inputValue = 'It was a lucid talk.';
 	const sending = chat.sendMessage();
 	expect(chat.inputValue).toBe('It was a lucid talk.');
-	expect(chat.isSaving).toBe(true);
-	expect(chat.canSend).toBe(false);
-
 	await sending;
 	expect(chat.inputValue).toBe('');
-	await settle(chat);
-	expect(context.tutor.requests).toBe(1);
-	expect(roles(chat)).toEqual(['assistant', 'user', 'assistant']);
-	expect(chat.unsaved).toEqual([]);
-	expect(await context.savedRoles()).toEqual([
+	await context.settle();
+	expect(chat.messages.map((message) => message.role)).toEqual([
 		'assistant',
 		'user',
 		'assistant',
 	]);
-
-	// A reload: a new session over the folder opened again shows the same chat.
-	using reopened = await ready(context.open(await context.browser.open()));
-	expect(reopened.messages).toEqual(chat.messages);
-	expect(context.tutor.requests).toBe(1);
+	chat[Symbol.dispose]();
+	folder[Symbol.dispose]();
 });
 
-test('nothing is sent before the transcript has been read', async () => {
-	await using context = await setup();
-	await context.seed(welcome);
-	const reading = Promise.withResolvers<void>();
-	context.gate.heldList = reading.promise;
-	using chat = context.open();
-
-	chat.inputValue = 'It was a lucid talk.';
-	expect(chat.isReading).toBe(true);
-	expect(chat.canSend).toBe(false);
-	await chat.sendMessage();
-	expect(chat.inputValue).toBe('It was a lucid talk.');
-	expect(context.gate.creates).toBe(0);
-
-	reading.resolve();
-	await settle(chat);
-	expect(roles(chat)).toEqual(['assistant']);
-	expect(chat.canSend).toBe(true);
-});
-
-test('typing that arrives while the learner message is saving is not cleared', async () => {
-	await using context = await setup();
-	await context.seed(welcome);
-	using chat = await ready(context.open());
-
-	chat.inputValue = 'It was a lucid talk.';
+test('typing while a message is sent keeps the newer draft', async () => {
+	const context = await setup();
+	const { chat, folder } = context;
+	const release = folder.files.hold();
+	chat.inputValue = 'First message';
 	const sending = chat.sendMessage();
-	chat.inputValue = 'It was a lucid talk. Also,';
+	chat.inputValue = 'Next draft';
+	release();
 	await sending;
-	expect(chat.inputValue).toBe('It was a lucid talk. Also,');
-	await settle(chat);
-	expect(roles(chat)).toEqual(['assistant', 'user', 'assistant']);
+	expect(chat.inputValue).toBe('Next draft');
+	await context.settle();
+	chat[Symbol.dispose]();
+	folder[Symbol.dispose]();
 });
 
-test('a refused write keeps the draft and asks the tutor nothing, and saving again asks nothing either', async () => {
-	await using context = await setup();
-	await context.seed(welcome);
-	using chat = await ready(context.open());
-
-	context.gate.failing = true;
-	chat.inputValue = 'It was a lucid talk.';
-	await chat.sendMessage();
-	await settle(chat);
-	expect(context.tutor.requests).toBe(0);
-	expect(chat.inputValue).toBe('It was a lucid talk.');
-	expect(chat.saveError?.name).toBe('WriteFailed');
-	expect(chat.unsaved.map((message) => message.role)).toEqual(['user']);
-	expect(chat.canSend).toBe(false);
-	expect(await context.savedRoles()).toEqual(['assistant']);
-
-	// Neither a second send nor a tutor retry gets past the unsaved message.
-	await chat.sendMessage();
-	await chat.retry();
-	await chat.saveAgain();
-	expect(context.tutor.requests).toBe(0);
-	expect(await context.savedRoles()).toEqual(['assistant']);
-	expect(chat.inputValue).toBe('It was a lucid talk.');
-
-	context.gate.failing = false;
-	await chat.saveAgain();
-	expect(context.tutor.requests).toBe(0);
-	expect(chat.inputValue).toBe('');
-	expect(chat.unsaved).toEqual([]);
-	expect(chat.saveError).toBeNull();
-	expect(await context.savedRoles()).toEqual(['assistant', 'user']);
-
-	// Asking the tutor is the learner's separate step.
-	await chat.retry();
-	await settle(chat);
-	expect(context.tutor.requests).toBe(1);
-	expect(roles(chat)).toEqual(['assistant', 'user', 'assistant']);
+test('a message sent while the store is out of reach is asked once it lands, and its answer lands after it', async () => {
+	const context = await setup();
+	const back = context.folder.files.refuse('offline', { under: 'messages' });
+	context.chat.inputValue = 'Is this lucid?';
+	await context.chat.sendMessage();
+	expect(context.chat.inputValue).toBe('');
+	await until(() => context.folder.lists.unavailable() !== null);
+	// The tutor is not asked about a message that has not landed.
+	expect(context.requests).toBe(0);
+	expect(context.chat.messages.map((message) => message.role)).toEqual([
+		'assistant',
+		'user',
+	]);
+	expect(context.folder.lists.saving()).toBe(true);
+	expect(context.folder.files.paths('messages')).toHaveLength(1);
+	back();
+	await until(() => context.requests === 1);
+	await context.settle();
+	expect(context.folder.files.paths('messages')).toHaveLength(3);
+	expect(context.requests).toBe(1);
+	context.chat[Symbol.dispose]();
+	context.folder[Symbol.dispose]();
 });
 
-test('a tutor answer the folder refuses is kept whole and saved again without a second tutor request', async () => {
-	await using context = await setup();
-	await context.seed(welcome, asked);
-	using chat = await ready(context.open());
-
-	const answering = Promise.withResolvers<void>();
-	context.tutor.held = answering.promise;
-	await chat.retry();
-	// The folder stops taking writes while the tutor is answering.
-	context.gate.failing = true;
-	answering.resolve();
-	await settle(chat);
-	expect(context.tutor.requests).toBe(1);
-	expect(chat.error).toBeNull();
-	expect(chat.saveError?.name).toBe('WriteFailed');
-	const [kept] = chat.unsaved;
-	expect(kept?.role).toBe('assistant');
-	expect(roles(chat)).toEqual(['assistant', 'user', 'assistant']);
-	expect(await context.savedRoles()).toEqual(['assistant', 'user']);
-
-	chat.stop();
-	await chat.retry();
-	expect(context.tutor.requests).toBe(1);
-	expect(chat.unsaved).toEqual(kept ? [kept] : []);
-
-	context.gate.failing = false;
-	await chat.saveAgain();
-	expect(context.tutor.requests).toBe(1);
-	expect(chat.unsaved).toEqual([]);
-	expect(chat.messages.at(-1)).toEqual(kept);
-	expect(await tableFiles(context.folder, 'messages')).toHaveLength(3);
-});
-
-test('a tutor answer cut off at the output limit is a tutor failure and saves nothing', async () => {
-	await using context = await setup();
-	await context.seed(welcome, asked);
-	using chat = await ready(context.open());
-
+test('an answer cut off at the output limit saves nothing', async () => {
+	const context = await setup({ saved: [welcome, asked] });
 	context.tutor.finishReason = 'length';
-	await chat.retry();
-	await settle(chat);
-	expect(context.tutor.requests).toBe(1);
-	expect(chat.error?.code).toBe('length');
-	expect(chat.saveError).toBeNull();
-	expect(chat.unsaved).toEqual([]);
-	expect(roles(chat)).toEqual(['assistant', 'user']);
-	expect(await context.savedRoles()).toEqual(['assistant', 'user']);
+	await context.chat.retry();
+	await context.settle();
+	expect(context.requests).toBe(1);
+	expect(context.chat.error?.code).toBe('length');
+	expect(context.chat.messages.map((message) => message.role)).toEqual([
+		'assistant',
+		'user',
+	]);
+	expect(context.folder.files.paths('messages')).toHaveLength(2);
+	context.chat[Symbol.dispose]();
+	context.folder[Symbol.dispose]();
 });
 
-test('a tutor request that fails saves nothing and leaves the learner message to ask again', async () => {
-	await using context = await setup();
-	await context.seed(welcome, asked);
-	using chat = await ready(context.open());
-
+test('a failed tutor request saves nothing and can be retried', async () => {
+	const context = await setup({ saved: [welcome, asked] });
 	context.tutor.status = 500;
-	await chat.retry();
-	await settle(chat);
-	expect(context.tutor.requests).toBe(1);
-	expect(chat.error).not.toBeNull();
-	expect(chat.unsaved).toEqual([]);
-	expect(await context.savedRoles()).toEqual(['assistant', 'user']);
-	expect(chat.canAsk).toBe(true);
+	await context.chat.retry();
+	await context.settle();
+	expect(context.requests).toBe(1);
+	expect(context.chat.error).not.toBeNull();
+	expect(context.chat.canAsk).toBe(true);
+	expect(context.folder.files.paths('messages')).toHaveLength(2);
+	context.chat[Symbol.dispose]();
+	context.folder[Symbol.dispose]();
 });
 
-test('an answer stopped while it is arriving is never saved, even when the rest arrives afterward', async () => {
-	await using context = await setup();
-	await context.seed(welcome, asked);
-	using chat = await ready(context.open());
-
+test('a stopped answer is never saved after the rest arrives', async () => {
+	const context = await setup({ saved: [welcome, asked] });
 	const answering = Promise.withResolvers<void>();
 	context.tutor.held = answering.promise;
-	await chat.retry();
-	while (chat.streaming === null) await nextTurn();
-
-	chat.stop();
+	await context.chat.retry();
+	await until(() => context.chat.streaming !== null);
+	context.chat.stop();
 	answering.resolve();
 	await Promise.all(context.tutor.answers);
-	await settle(chat);
-	expect(chat.streaming).toBeNull();
-	expect(chat.unsaved).toEqual([]);
-	expect(roles(chat)).toEqual(['assistant', 'user']);
-	expect(await context.savedRoles()).toEqual(['assistant', 'user']);
-});
-
-test('stop while the learner message is being saved keeps the message and prevents the late tutor start', async () => {
-	await using context = await setup();
-	await context.seed(welcome);
-	using chat = await ready(context.open());
-
-	const saving = Promise.withResolvers<void>();
-	context.gate.heldCreate = saving.promise;
-	chat.inputValue = 'It was a lucid talk.';
-	const sending = chat.sendMessage();
-	await Bun.sleep(0);
-	chat.stop();
-	saving.resolve();
-	await sending;
-	// A turn starts in the same call that lands the message, so a late start
-	// would still be generating here.
-	await settle(chat);
-	expect(context.tutor.requests).toBe(0);
-	// The message was admitted before the stop, so it is saved and unanswered.
-	expect(await context.savedRoles()).toEqual(['assistant', 'user']);
-	expect(chat.unsaved).toEqual([]);
-	expect(chat.canAsk).toBe(true);
-});
-
-// ============================================================================
-// Tutor opening over a new chat's focus
-// ============================================================================
-
-test('opening requests that overlap while the folder is read ask the tutor once, after the read', async () => {
-	await using context = await setup();
-	const reading = Promise.withResolvers<void>();
-	context.gate.heldList = reading.promise;
-	using chat = context.open();
-
-	const first = chat.retry();
-	const second = chat.retry();
-	await Bun.sleep(0);
-	expect(context.tutor.requests).toBe(0);
-	// Asked, and stoppable, before the tutor has been reached.
-	expect(chat.isGenerating).toBe(true);
-	expect(chat.canAsk).toBe(false);
-
-	reading.resolve();
-	await Promise.all([first, second]);
-	await settle(chat);
-	expect(context.tutor.requests).toBe(1);
-	expect(roles(chat)).toEqual(['assistant']);
-	expect(await context.savedRoles()).toEqual(['assistant']);
-});
-
-test('an opening is not asked again over a chat that already has one', async () => {
-	await using context = await setup();
-	await context.seed(welcome);
-	// The view asks for an opening as it mounts, before the transcript is read.
-	using chat = context.open();
-
-	await chat.retry();
-	await settle(chat);
-	expect(context.tutor.requests).toBe(0);
-	expect(roles(chat)).toEqual(['assistant']);
-});
-
-test('stop while the folder is being read prevents the late tutor start', async () => {
-	await using context = await setup();
-	const reading = Promise.withResolvers<void>();
-	context.gate.heldList = reading.promise;
-	using chat = context.open();
-
-	const opening = chat.retry();
-	await Bun.sleep(0);
-	chat.stop();
-	expect(chat.isGenerating).toBe(false);
-	reading.resolve();
-	context.gate.heldList = undefined;
-	await opening;
-	await settle(chat);
-	expect(context.tutor.requests).toBe(0);
-	expect(chat.readError).toBeNull();
-
-	// Stopped, not broken: the learner can ask again.
-	await chat.retry();
-	await settle(chat);
-	expect(context.tutor.requests).toBe(1);
-});
-
-test('disposing the chat while the folder is being read prevents the late tutor start', async () => {
-	await using context = await setup();
-	const reading = Promise.withResolvers<void>();
-	context.gate.heldList = reading.promise;
-	const chat = context.open();
-
-	const opening = chat.retry();
-	await Bun.sleep(0);
-	chat[Symbol.dispose]();
-	reading.resolve();
-	await opening;
-	await Bun.sleep(0);
-	expect(context.tutor.requests).toBe(0);
-	await chat.retry();
-	expect(context.tutor.requests).toBe(0);
-});
-
-test('an opening over a folder that cannot be read asks nothing, reports a read failure, and reading again does not ask either', async () => {
-	await using context = await setup();
-	context.gate.failing = true;
-	using chat = context.open();
-
-	await chat.retry();
-	await settle(chat);
-	expect(context.tutor.requests).toBe(0);
-	expect(chat.readError?.name).toBe('NotRead');
-	expect(chat.error).toBeNull();
-	expect(chat.unsaved).toEqual([]);
-	expect(chat.canAsk).toBe(false);
-
-	// Asking again does not get past the failure, and a failed read keeps
-	// reporting it.
-	await chat.retry();
-	await chat.readAgain();
-	expect(context.tutor.requests).toBe(0);
-	expect(chat.readError?.name).toBe('NotRead');
-
-	context.gate.failing = false;
-	await chat.readAgain();
-	await settle(chat);
-	expect(context.tutor.requests).toBe(0);
-	expect(chat.readError).toBeNull();
-	expect(chat.canAsk).toBe(true);
-
-	await chat.retry();
-	await settle(chat);
-	expect(context.tutor.requests).toBe(1);
-	expect(roles(chat)).toEqual(['assistant']);
-});
-
-test('a closed folder asks the tutor nothing, for an opening, an answer, and a learner message', async () => {
-	await using context = await setup();
-	await context.seed(welcome, asked);
-	using chat = await ready(context.open());
-	expect(chat.canAsk).toBe(true);
-	await context.folder.close();
-
-	await chat.retry();
-	await settle(chat);
-	expect(context.tutor.requests).toBe(0);
-	expect(chat.readError?.name).toBe('NotRead');
-	// What was read before the folder closed stays on screen.
-	expect(roles(chat)).toEqual(['assistant', 'user']);
-
-	chat.inputValue = 'Another try.';
-	await chat.sendMessage();
-	await settle(chat);
-	expect(context.tutor.requests).toBe(0);
-	expect(chat.inputValue).toBe('Another try.');
-	expect(await context.savedRoles()).toEqual(['assistant', 'user']);
-});
-
-test('the tutor is asked over the transcript the folder holds now, not the one first shown', async () => {
-	await using context = await setup();
-	await context.seed(welcome);
-	using chat = await ready(context.open());
-	expect(roles(chat)).toEqual(['assistant']);
-
-	// Another tab saves the learner's question in this chat.
-	await context.seed(asked);
-	await chat.retry();
-	await settle(chat);
-	expect(context.tutor.requests).toBe(1);
-	expect(roles(chat)).toEqual(['assistant', 'user', 'assistant']);
-	expect(await context.savedRoles()).toEqual([
+	await context.settle();
+	expect(context.chat.streaming).toBeNull();
+	expect(context.chat.messages.map((message) => message.role)).toEqual([
 		'assistant',
 		'user',
+	]);
+	expect(context.folder.files.paths('messages')).toHaveLength(2);
+	context.chat[Symbol.dispose]();
+	context.folder[Symbol.dispose]();
+});
+
+test('stopping an answer to a sent message keeps the message and saves no answer', async () => {
+	const context = await setup();
+	const answering = Promise.withResolvers<void>();
+	context.tutor.held = answering.promise;
+	context.chat.inputValue = 'It was a lucid talk.';
+	await context.chat.sendMessage();
+	await until(() => context.chat.streaming !== null);
+	context.chat.stop();
+	answering.resolve();
+	await Promise.all(context.tutor.answers);
+	await context.settle();
+	expect(context.chat.messages.map((message) => message.role)).toEqual([
+		'assistant',
+		'user',
+	]);
+	expect(context.chat.canAsk).toBe(true);
+	expect(context.folder.files.paths('messages')).toHaveLength(2);
+	context.chat[Symbol.dispose]();
+	context.folder[Symbol.dispose]();
+});
+
+test('an opening is not asked twice over a chat that already has one', async () => {
+	const context = await setup();
+	await context.chat.retry();
+	await context.settle();
+	expect(context.requests).toBe(0);
+	expect(context.chat.messages.map((message) => message.role)).toEqual([
 		'assistant',
 	]);
+	context.chat[Symbol.dispose]();
+	context.folder[Symbol.dispose]();
 });
+

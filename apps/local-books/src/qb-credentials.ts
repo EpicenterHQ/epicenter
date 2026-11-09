@@ -1,9 +1,9 @@
+import type { QbEnvironment } from './config.ts';
 import {
 	type CredentialSource,
 	type ProviderCredentialSpec,
 	resolveProviderCredentials,
-} from '@epicenter/constants/provider-credentials';
-import type { QbEnvironment } from './config.ts';
+} from './provider-credentials.ts';
 
 /**
  * QuickBooks provider-credential spec (ADR-0108), app-owned. QuickBooks issues a

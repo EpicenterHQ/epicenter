@@ -42,8 +42,6 @@ grep -rn "\.then\s*\(\s*(\(\)|=> \{\}|=> undefined)" packages --include="*.ts"
 
 **Recipe**: when you see this pattern, look at where the promise is being assigned. If the consumer awaits-and-discards (typical for readiness/teardown barriers), widen the field type to `Promise<unknown>`. The tail disappears.
 
-**Example fix**: this codebase's readiness fields such as `whenReady`, `whenLoaded`, and `whenConnected` were widened from `Promise<void>` to `Promise<unknown>` exactly to eliminate this ceremony. See spec `specs/20260424T000000-self-gating-attachments.md` for the rationale.
-
 **False positive**: if the `.then(() => result)` returns a *meaningful* transformed value, leave it. The smell is specifically the "discard the value" form.
 
 ## 3. Unstructured Logging in Library Code
@@ -51,7 +49,7 @@ grep -rn "\.then\s*\(\s*(\(\)|=> \{\}|=> undefined)" packages --include="*.ts"
 **Pattern**: `console.log` / `console.error` / `console.warn` outside of CLIs, tests, and benchmarks.
 
 ```bash
-grep -rn "console\.(log|error|warn)" packages/workspace packages/sync --include="*.ts" | grep -v test
+grep -rnE "console\.(log|error|warn)" packages --include="*.ts" | grep -v test | grep -v packages/cli
 ```
 
 **Why it matters**: library code that calls `console` directly can't be redirected, silenced, or piped to a custom sink (in-memory test introspection, telemetry shipping). Every `console.log` is a hardcoded output decision the consumer can't override.
@@ -177,9 +175,7 @@ grep -rn "\.error\.name === '" packages apps --include="*.ts" | grep -v test
 Tested and rejected as not-actually-smells in this codebase:
 
 - **Dead `kind:` branches**: exhaustiveness via `never` enforces this aggressively. No dead branches survive.
-- **Dead exported types**: many exports across `packages/workspace`; spot-checks always hit consumers. Would need deeper dependency analysis to find real dead ones.
 - **Stale file names** (`*-manager.ts`, `*-handler.ts`): none found. Naming matches responsibility.
-- **Async wrappers doing no work**: Yjs is sync-friendly; the codebase doesn't fake async.
 - **Casual `@ts-expect-error` / `@ts-ignore`**: ~234 of them, but all justified (test doubles, duck-typing at system boundaries with comments).
 
 If a future audit finds patterns consistent with these categories, they should be added here. If a category proves false (zero hits across multiple sweeps), demote it.

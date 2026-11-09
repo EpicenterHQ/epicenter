@@ -24,7 +24,6 @@
  *   - `specs/` and `docs/articles/` at any depth: dated records, kept stale.
  *   - `.agents/` and `.claude/`: skill and agent prompts cite example paths
  *     like `apps/whatever/src/lib/feature.ts` as teaching stand-ins.
- *   - any `CHANGELOG.md`.
  *   - any doc carrying `<!-- doc-path-check: ignore-file -->`. Mark a historical
  *     doc this way: a living doc that merely *mentions* history stays scanned.
  *
@@ -65,8 +64,6 @@ const REPO_ROOT_DIRS = [
 ];
 
 const isExcludedDoc = (file: string) =>
-	file === 'CHANGELOG.md' ||
-	file.endsWith('/CHANGELOG.md') ||
 	EXCLUDED_DOC_DIRS.some(
 		(dir) => file.startsWith(`${dir}/`) || file.includes(`/${dir}/`),
 	);

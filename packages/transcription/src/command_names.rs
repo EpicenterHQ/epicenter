@@ -1,0 +1,15 @@
+pub const COMMANDS: &[&str] = &[
+    "list_models",
+    "download_model",
+    "remove_model",
+    "reveal_model",
+    "get_active_model",
+    "set_active_model",
+    "get_unload_policy",
+    "set_unload_policy",
+    "list_inference_models",
+    "transcribe_audio",
+    "load_model",
+    "unload_model",
+    "open_model_settings",
+];

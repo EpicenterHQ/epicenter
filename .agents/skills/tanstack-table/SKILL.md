@@ -17,7 +17,7 @@ metadata:
 
 When TanStack Table adapter APIs, row models, controlled state, sorting, filtering, pagination, or Svelte rendering helpers affect correctness, ask DeepWiki a narrow question against `TanStack/table`. Verify against the installed `@tanstack/svelte-table` and `@tanstack/table-core` versions.
 
-This skill is for UI table state. Use `yjs` for Epicenter store table storage, and `svelte` for reading rows into a component.
+This skill is for UI table state. Epicenter keeps rows as files in a folder (`@epicenter/folder`); use `svelte` for reading them into a component.
 
 ## Local API Baseline
 

@@ -1,0 +1,19 @@
+{
+	"$schema": "https://schema.tauri.app/config/2",
+	"productName": "Honeycrisp Dev",
+	"identifier": "so.epicenter.honeycrisp.dev",
+	"build": {
+		"devUrl": "http://localhost:5175",
+		"beforeDevCommand": "bun run dev"
+	},
+	"app": {
+		"security": {
+			"capabilities": ["honeycrisp"]
+		}
+	},
+	"plugins": {
+		"epicenter-standalone": {
+			"environment": "development"
+		}
+	}
+}

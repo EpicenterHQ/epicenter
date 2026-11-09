@@ -3,7 +3,7 @@ import {
 	appDataDir,
 	epicenterDataRoot,
 	partitionDir,
-} from '@epicenter/constants/app-data';
+} from '@epicenter/definition/site/app-data';
 
 /**
  * Local Books' one directory: `<epicenter-root>/apps/so.epicenter.local-books`.

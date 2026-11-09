@@ -1,0 +1,11 @@
+Fictional weekend walk
+
+This file is sample data for the Epicenter Messages demo.
+The locations and plan below are invented.
+
+Meet: Saturday at 09:00, Willow Gate
+Route: Willow Gate → Fern Pond → Orchard Lookout → Willow Gate
+Distance: about 4 km
+Bring: water, a light rain jacket, and a snack
+
+No live account, real person, or actual trip is connected to this file.

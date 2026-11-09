@@ -108,21 +108,6 @@ The download process is implemented in the [`LocalModelDownloadCard`](https://gi
 
 This approach eliminates the need for archive extraction and provides better download progress tracking. Users simply click "Download" in the settings and the model is ready to use.
 
-## TypeScript Bridge
-
-The Rust transcription happens through the generated Tauri command bindings. The TypeScript layer pushes an ambient config naming the selected model, then sends only a recording id per transcription:
-
-```typescript
-await commands.setTranscriptionConfig({
-    engine: 'parakeet',
-    modelName: 'parakeet-tdt-0.6b-v3-int8',
-    // language, initialPrompt, unloadPolicy...
-});
-const result = await commands.transcribeRecording(recordingId);
-```
-
-The `modelName` is a folder entry name, never a path. Rust resolves it under `{appDataDir}/models/parakeet/` at load time, so the native command never needs arbitrary filesystem access and a path never exists as data anywhere in the system. Users add their own models by dropping (or symlinking) a directory into that folder; it shows up in the settings list automatically.
-
 ## Why This Works
 
 **Directory-based models match ML architecture.** Modern neural networks often split into multiple components (encoder, decoder, preprocessor). Managing them as a unit makes sense.

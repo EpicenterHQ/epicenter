@@ -1,14 +1,14 @@
 /**
  * Microphone input tests
  *
- * Drives the session's microphone choice and test, and the library's
+ * Drives the session's microphone choice and test, and Whispering's
  * recorder over them, with a scripted capture device that counts what is
- * open. The folder is a real directory; no microphone is involved.
+ * open. This browser's files are a place in memory; no microphone is involved.
  *
  * Key behaviors:
  * - Opening a session reads the saved choice and opens, lists, and asks for
  *   nothing
- * - A choice is saved on this device, never in the folder, and survives a
+ * - A choice is saved on this device, never in its files, and survives a
  *   new session
  * - A recording asks for exactly the chosen microphone; one that is not
  *   there refuses, records nothing, and keeps the choice
@@ -17,35 +17,36 @@
  * - Enabling and testing share one owner: at most one is under way, and
  *   releasing, choosing, recording, and closing each end it, including a
  *   microphone that opens after the release
- * - A recording that is closed or cancelled while its microphone is opening
- *   releases it when it opens
- * - Closing releases the microphone at once, before waiting for file commands
- *   that were accepted, which still finish
- * - Saves of the choice run one at a time in the order chosen, only the
- *   latest choice reports whether it was saved, and closing waits for a save
- *   it had accepted after releasing the microphone at once
+ * - A recording that is closed while its microphone is opening releases it
+ *   when it opens
+ * - Closing releases a test's microphone at once, before file commands that
+ *   were accepted finish; a recording under way is left to the page's
+ *   departure, neither stopped nor written
+ * - Saves of the choice run one at a time in the order chosen, and only the
+ *   latest choice reports whether it was saved; closing waits for none
  * - A saved choice whose ID is not listed stays the choice: an input with the
  *   same name is not taken for it, and a recording with it refuses
- * - Fixture mode has no input: nothing is listed, tested, or asked for
  */
-import './svelte-modules.test-support.js';
-import { afterEach, expect, test } from 'bun:test';
-import { readFile, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
-import { Err, Ok, type Result } from 'wellcrafted/result';
-import {
-	type ActiveCapture,
-	type CaptureDevice,
-	CaptureError,
-	type CaptureStart,
-	type MicrophoneMeter,
-	type MicrophonePreference,
-	toneWav,
-} from './capture.js';
-import type { Workspace } from './workspace/types.js';
-import { deferred, openTestWorkspace } from './workspace.test-support.js';
+import { createTestWhispering } from './whispering.test-support.js';
 
-const { createLibrary } = await import('./library.svelte.ts');
+import '../../../../packages/svelte/src/svelte-dom.test-support.js';
+import { afterEach, expect, test } from 'bun:test';
+import {
+	type Meter,
+	RecorderError,
+	type RecordingEndedReason,
+	type RecordingInput,
+} from '@epicenter/recorder';
+import { Err, Ok, type Result } from 'wellcrafted/result';
+import { expectOk } from 'wellcrafted/testing';
+import type { Capture, CaptureDevice, CaptureStart } from './capture.js';
+
+import type { MicrophonePreferences } from './microphone-preference.js';
+import {
+	deferred,
+	eventually,
+	openTestServices,
+} from './services.test-support.js';
 
 const BUILT_IN = { deviceId: 'built-in-id', label: 'Built-in Microphone' };
 const USB = { deviceId: 'usb-id', label: 'USB Microphone' };
@@ -56,52 +57,51 @@ afterEach(async () => {
 });
 
 /** A microphone device that counts what it was asked for and what is still open. */
-function scriptedMicrophone(
-	connected: MicrophonePreference[] = [BUILT_IN, USB],
-) {
+function scriptedMicrophone(connected: RecordingInput[] = [BUILT_IN, USB]) {
 	const calls = {
 		allowSignals: [] as AbortSignal[],
 		list: 0,
 		allow: 0,
-		meter: [] as (MicrophonePreference | undefined)[],
+		meter: [] as (RecordingInput | undefined)[],
 		start: [] as CaptureStart[],
 	};
+	let meterStops = 0;
 	const open = { meters: 0, captures: 0 };
 	const changeListeners = new Set<() => void>();
+	/** Whoever hears the open meter's microphone stop on its own. */
+	const meterEndings = new Set<(reason: RecordingEndedReason) => void>();
 	/** Set to hold the next meter or start until the test lets it answer. */
 	const gate: { next?: Promise<void> } = {};
 	const state = { connected, named: true, denied: false };
 
 	async function opening(
-		input: MicrophonePreference | undefined,
+		input: RecordingInput | undefined,
 		signal: AbortSignal | undefined,
 	) {
 		const held = gate.next;
 		gate.next = undefined;
 		await held;
-		if (state.denied) return CaptureError.PermissionDenied();
+		if (state.denied) return RecorderError.PermissionDenied();
 		if (
 			input !== undefined &&
 			!state.connected.some((device) => device.deviceId === input.deviceId)
 		)
-			return CaptureError.InputUnavailable({ label: input.label });
+			return RecorderError.InputUnavailable({ label: input.label });
 		// As the real device does: a microphone that opens after the withdrawal is released, never handed over.
-		if (signal?.aborted) return CaptureError.Cancelled();
+		if (signal?.aborted) return RecorderError.Cancelled();
 		return Ok(undefined);
 	}
 
 	const device: CaptureDevice = {
-		source: 'microphone',
-		label: 'Microphone',
 		inputs: {
-			async list() {
+			async listInputs() {
 				calls.list += 1;
 				return Ok({
-					devices: state.named ? state.connected : [],
+					inputs: state.named ? state.connected : [],
 					namesWithheld: !state.named && state.connected.length > 0,
 				});
 			},
-			async allow(signal) {
+			async allow({ signal } = {}) {
 				calls.allow += 1;
 				if (signal !== undefined) calls.allowSignals.push(signal);
 				// The default microphone opens and is released at once; a withdrawn request keeps nothing.
@@ -110,63 +110,97 @@ function scriptedMicrophone(
 				state.named = true;
 				return Ok(undefined);
 			},
-			async meter(
+			async openMeter({
 				input,
 				signal,
-			): Promise<Result<MicrophoneMeter, CaptureError>> {
+			} = {}): Promise<Result<Meter, RecorderError>> {
 				calls.meter.push(input);
 				const { error: openError } = await opening(input, signal);
 				if (openError !== null) return Err(openError);
 				open.meters += 1;
 				let stopped = false;
 				return Ok({
-					label: input?.label ?? 'System default',
-					level: () => 0.5,
-					stop() {
+					microphone: input?.label ?? '',
+					onLevel(listener) {
+						listener(0.5);
+						return () => {};
+					},
+					onEnded(listener) {
+						meterEndings.add(listener);
+						return () => meterEndings.delete(listener);
+					},
+					async close() {
+						meterStops += 1;
 						if (!stopped) open.meters -= 1;
 						stopped = true;
 					},
 				});
 			},
-			onChange(listener) {
+			onInputsChange(listener) {
 				changeListeners.add(listener);
 				return () => changeListeners.delete(listener);
 			},
 		},
-		async start(options = {}): Promise<Result<ActiveCapture, CaptureError>> {
+		async start(options): Promise<Result<Capture, RecorderError>> {
 			calls.start.push(options);
 			const { error: openError } = await opening(options.input, options.signal);
 			if (openError !== null) return Err(openError);
 			open.captures += 1;
-			let settled = false;
+			let stopped = false;
 			const release = () => {
-				if (!settled) open.captures -= 1;
-				settled = true;
+				if (!stopped) open.captures -= 1;
+				stopped = true;
 			};
 			return Ok({
 				startedAt: performance.now(),
+				onEnded: () => () => {},
 				async stop() {
 					release();
-					return Ok({
-						bytes: toneWav(),
-						extension: 'wav',
-						mimeType: 'audio/wav',
-						durationMs: 1000,
-						source: 'microphone' as const,
-					});
+					return Ok({ durationMs: 1000, placed: Promise.resolve(Ok({})) });
 				},
-				cancel: release,
 			});
 		},
+		recover: async () => Ok({ whole: [], unplaced: [] }),
 	};
-	return { device, calls, open, gate, state, changeListeners };
+	return {
+		device,
+		calls,
+		open,
+		gate,
+		state,
+		changeListeners,
+		meterEndings,
+		meterStops: () => meterStops,
+	};
+}
+
+/**
+ * A microphone shaped as the desktop shell's: every input named, no `allow`,
+ * no announced changes, and access asked for by the shell when a microphone
+ * opens.
+ */
+function shellMicrophone(connected: RecordingInput[] = [BUILT_IN, USB]) {
+	const microphone = scriptedMicrophone(connected);
+	const inputs = microphone.device.inputs;
+	microphone.device = {
+		...microphone.device,
+		inputs: {
+			async listInputs() {
+				const { data, error } = await inputs.listInputs();
+				if (error !== null) return Err(error);
+				return Ok({ inputs: data.inputs });
+			},
+			openMeter: inputs.openMeter,
+		},
+	};
+	return microphone;
 }
 
 /** Preferences kept in memory, as one device would across sessions. */
-function devicePreferences(saved?: MicrophonePreference) {
+function devicePreferences(saved?: RecordingInput) {
 	const store = { saved, writes: 0 };
-	const preferences: Workspace['preferences'] = {
-		microphone: async () => store.saved,
+	const preferences: MicrophonePreferences = {
+		microphone: () => store.saved,
 		async setMicrophone(microphone) {
 			store.saved = microphone;
 			store.writes += 1;
@@ -183,18 +217,28 @@ async function open({
 	microphone?: ReturnType<typeof scriptedMicrophone>;
 	device?: ReturnType<typeof devicePreferences>;
 } = {}) {
-	const test = await openTestWorkspace();
-	const library = createLibrary({
-		...test.workspace,
-		capture: microphone.device,
-		preferences: device.preferences,
+	const test = await openTestServices();
+	const { whispering, library, close } = await createTestWhispering({
+		place: test.place,
+		services: {
+			...test.services,
+			capture: microphone.device,
+			preferences: device.preferences,
+		},
 	});
 	cleanups.push(async () => {
-		await library.close();
-		await test.remove();
+		close();
+		test.close();
 	});
-	await library.start();
-	return { library, input: library.input, microphone, device, root: test.root };
+	return {
+		whispering,
+		library,
+		close,
+		input: whispering.input,
+		microphone,
+		device,
+		test,
+	};
 }
 
 test('opening a session reads the saved choice and opens, lists, and asks for nothing', async () => {
@@ -212,22 +256,15 @@ test('opening a session reads the saved choice and opens, lists, and asks for no
 	expect(microphone.changeListeners.size).toBe(0);
 });
 
-test('a choice is saved on this device, not in the folder, and a new session starts with it', async () => {
+test('a choice is saved on this device, not in its files, and a new session starts with it', async () => {
 	const device = devicePreferences();
 	const first = await open({ device });
-	// Start with folder settings an earlier build saved, so the device choice can be checked against them.
-	await writeFile(
-		join(first.root, 'kv.json'),
-		'{"transcriptionModel": "verification-model"}\n',
-	);
 	await first.input.refresh();
 
 	await first.input.select(USB);
 
 	expect(device.store.saved).toEqual(USB);
-	expect(await readFile(join(first.root, 'kv.json'), 'utf8')).not.toContain(
-		'usb-id',
-	);
+	expect(first.test.outside.paths()).toEqual([]);
 	const second = await open({ device });
 	expect(second.input.choice).toEqual(USB);
 
@@ -236,48 +273,51 @@ test('a choice is saved on this device, not in the folder, and a new session sta
 });
 
 test('a recording asks for exactly the chosen microphone, and for the default when none is chosen', async () => {
-	const { library, input, microphone } = await open();
+	const { whispering, input, microphone } = await open();
 
-	await library.startRecording();
-	library.cancelRecording();
+	await whispering.startRecording();
+	await whispering.stopRecording();
 	await input.select(USB);
-	await library.startRecording();
+	await whispering.startRecording();
 
 	expect(microphone.calls.start.map((start) => start.input)).toEqual([
 		undefined,
 		USB,
 	]);
-	expect(library.recorder.phase).toBe('recording');
+	expect(whispering.recorder.phase).toBe('recording');
 });
 
 test('a chosen microphone that is not connected refuses the recording, records nothing, and stays chosen', async () => {
-	const { library, input, microphone, device } = await open({
+	const { whispering, library, input, microphone, device } = await open({
 		microphone: scriptedMicrophone([BUILT_IN]),
 		device: devicePreferences(USB),
 	});
 
-	await library.startRecording();
+	await whispering.startRecording();
 
-	expect(library.recorder).toEqual({ phase: 'idle' });
-	expect(library.recorderError).toContain('“USB Microphone” is not available');
+	expect(whispering.recorder).toEqual({ phase: 'idle' });
+	expect(whispering.recorderError).toContain(
+		'“USB Microphone” is not available',
+	);
 	expect(microphone.calls.start).toHaveLength(1);
 	expect(microphone.open.captures).toBe(0);
 	expect(input.choice).toEqual(USB);
 	expect(device.store.saved).toEqual(USB);
-	expect(library.pending).toEqual([]);
+	// Its note, made first, went with the refusal.
+	await eventually(() => library.entries.length === 0);
 
 	await input.refresh();
 	expect(input.choiceListed).toBe(false);
 });
 
 test('while a recording is starting, running, or finishing, the choice cannot change and nothing else opens a microphone', async () => {
-	const { library, input, microphone, device } = await open();
+	const { whispering, input, microphone, device } = await open();
 	await input.refresh();
 	const held = deferred<void>();
 	microphone.gate.next = held.promise;
 
-	const starting = library.startRecording();
-	expect(library.recorder.phase).toBe('starting');
+	const starting = whispering.startRecording();
+	expect(whispering.recorder.phase).toBe('starting');
 	await input.select(USB);
 	await input.startTest();
 	held.resolve();
@@ -294,7 +334,7 @@ test('while a recording is starting, running, or finishing, the choice cannot ch
 	expect(input.problem).toContain('A recording is using the microphone');
 
 	// The recording that started on the default microphone is the one that is saved.
-	await library.stopRecording();
+	await whispering.stopRecording();
 	expect(microphone.open.captures).toBe(0);
 	await input.select(USB);
 	expect(input.choice).toEqual(USB);
@@ -337,12 +377,12 @@ test('a test stopped while its microphone is opening releases it when it opens',
 });
 
 test('starting a recording ends a running test before the recording opens its microphone', async () => {
-	const { library, input, microphone } = await open();
+	const { whispering, input, microphone } = await open();
 	await input.startTest();
 	const held = deferred<void>();
 	microphone.gate.next = held.promise;
 
-	const starting = library.startRecording();
+	const starting = whispering.startRecording();
 	// The recording has asked for its microphone and the test's is already released.
 	expect(microphone.open).toEqual({ meters: 0, captures: 0 });
 	expect(input.test).toEqual({ phase: 'idle' });
@@ -353,12 +393,12 @@ test('starting a recording ends a running test before the recording opens its mi
 });
 
 test('a test that is still opening when a recording starts never holds a microphone beside it', async () => {
-	const { library, input, microphone } = await open();
+	const { whispering, input, microphone } = await open();
 	const heldTest = deferred<void>();
 	microphone.gate.next = heldTest.promise;
 	const testing = input.startTest();
 
-	await library.startRecording();
+	await whispering.startRecording();
 	heldTest.resolve();
 	await testing;
 
@@ -367,7 +407,7 @@ test('a test that is still opening when a recording starts never holds a microph
 });
 
 test('choosing another input and closing the session each release a running test', async () => {
-	const { library, input, microphone } = await open();
+	const { close, whispering, input, microphone } = await open();
 	await input.refresh();
 	await input.startTest();
 
@@ -377,7 +417,7 @@ test('choosing another input and closing the session each release a running test
 
 	await input.startTest();
 	expect(microphone.calls.meter).toEqual([undefined, USB]);
-	await library.close();
+	close();
 
 	expect(microphone.open.meters).toBe(0);
 	expect(microphone.changeListeners.size).toBe(0);
@@ -389,24 +429,34 @@ test('choosing another input and closing the session each release a running test
 	expect(microphone.calls.allow).toBe(0);
 });
 
-test('a recording closed or cancelled while its microphone is opening releases it when it opens', async () => {
-	for (const end of ['cancel', 'close'] as const) {
-		const { library, microphone } = await open();
-		const held = deferred<void>();
-		microphone.gate.next = held.promise;
+test('dispose releases product resources once, however often it is called', async () => {
+	const { whispering, input, microphone } = await open();
+	await input.startTest();
+	expect(microphone.open.meters).toBe(1);
 
-		const starting = library.startRecording();
-		if (end === 'cancel') library.cancelRecording();
-		const closing = end === 'close' ? library.close() : undefined;
-		held.resolve();
-		await starting;
-		await closing;
+	whispering.dispose();
+	whispering.dispose();
 
-		expect(microphone.calls.start).toHaveLength(1);
-		expect(microphone.calls.start[0]!.signal?.aborted).toBe(true);
-		expect(microphone.open.captures).toBe(0);
-		if (end === 'cancel') expect(library.recorder).toEqual({ phase: 'idle' });
-	}
+	expect(microphone.meterStops()).toBe(1);
+	expect(microphone.open.meters).toBe(0);
+	expect(microphone.changeListeners.size).toBe(0);
+});
+
+test('a recording closed while its microphone is opening releases it when it opens', async () => {
+	const { close, whispering, microphone } = await open();
+	const held = deferred<void>();
+	microphone.gate.next = held.promise;
+
+	const starting = whispering.startRecording();
+	const closing = Promise.resolve(close());
+	held.resolve();
+	await starting;
+	await closing;
+
+	expect(microphone.calls.start).toHaveLength(1);
+	expect(microphone.calls.start[0]!.signal?.aborted).toBe(true);
+	expect(microphone.open.captures).toBe(0);
+	expect(whispering.recorder).toEqual({ phase: 'idle' });
 });
 
 test('refused access is reported, and enabling lists inputs by name once it is allowed', async () => {
@@ -418,12 +468,14 @@ test('refused access is reported, and enabling lists inputs by name once it is a
 	await input.refresh();
 	expect(input.list).toEqual({
 		kind: 'listed',
-		devices: [],
+		inputs: [],
 		namesWithheld: true,
 	});
 	await input.allow();
 	expect(input.denied).toBe(true);
-	expect(input.problem).toContain('Microphone access was denied');
+	expect(input.problem).toBe(
+		'Microphone access was denied. Allow microphone access in System Settings, under Privacy and Security, or in this browser’s site settings, then try again.',
+	);
 	await input.startTest();
 	expect(input.test).toEqual({ phase: 'idle' });
 	expect(microphone.open.meters).toBe(0);
@@ -435,7 +487,7 @@ test('refused access is reported, and enabling lists inputs by name once it is a
 	expect(input.problem).toBeUndefined();
 	expect(input.list).toEqual({
 		kind: 'listed',
-		devices: [BUILT_IN, USB],
+		inputs: [BUILT_IN, USB],
 		namesWithheld: false,
 	});
 });
@@ -452,7 +504,7 @@ test('a connected or removed input is listed again without asking for access', a
 
 	expect(input.list).toEqual({
 		kind: 'listed',
-		devices: [BUILT_IN],
+		inputs: [BUILT_IN],
 		namesWithheld: false,
 	});
 	expect(input.choiceListed).toBe(false);
@@ -464,7 +516,7 @@ test('a saved choice whose ID is not listed stays as it is: an input with the sa
 	// Another microphone of the same model, or the same one under a new ID: the name cannot say which.
 	const sameName = { deviceId: 'usb-id-other', label: 'USB Microphone' };
 	const device = devicePreferences(USB);
-	const { library, input, microphone } = await open({
+	const { whispering, input, microphone } = await open({
 		microphone: scriptedMicrophone([BUILT_IN, sameName]),
 		device,
 	});
@@ -474,18 +526,18 @@ test('a saved choice whose ID is not listed stays as it is: an input with the sa
 	expect(input.choice).toEqual(USB);
 	expect(input.choiceListed).toBe(false);
 	expect(device.store).toEqual({ saved: USB, writes: 0 });
-	await library.startRecording();
+	await whispering.startRecording();
 	expect(microphone.calls.start.map((start) => start.input)).toEqual([USB]);
 	expect(microphone.open.captures).toBe(0);
-	expect(library.recorder).toEqual({ phase: 'idle' });
-	expect(library.recorderError).toContain('is not available');
+	expect(whispering.recorder).toEqual({ phase: 'idle' });
+	expect(whispering.recorderError).toContain('is not available');
 
 	// Only the person's own choice of a listed input changes it.
 	await input.select(sameName);
 	expect(device.store.saved).toEqual(sameName);
-	await library.startRecording();
+	await whispering.startRecording();
 	expect(microphone.calls.start[1]?.input).toEqual(sameName);
-	expect(library.recorder.phase).toBe('recording');
+	expect(whispering.recorder.phase).toBe('recording');
 });
 
 // ============================================================================
@@ -521,7 +573,7 @@ test('a pending enable is not repeated, opens no test beside it, and releasing i
 	expect(microphone.calls.list).toBe(1);
 	expect(input.list).toEqual({
 		kind: 'listed',
-		devices: [],
+		inputs: [],
 		namesWithheld: true,
 	});
 });
@@ -543,29 +595,30 @@ test('enabling does not open a microphone beside a test that is opening or runni
 });
 
 test('starting a recording withdraws a pending enable before the recording opens its microphone', async () => {
-	const { library, input, microphone } = await open();
+	const { whispering, input, microphone } = await open();
 	const held = deferred<void>();
 	microphone.gate.next = held.promise;
 	const enabling = input.allow();
 
-	await library.startRecording();
+	await whispering.startRecording();
 
 	expect(microphone.calls.allowSignals[0]?.aborted).toBe(true);
 	expect(input.allowing).toBe(false);
 	held.resolve();
 	await enabling;
 	expect(microphone.open).toEqual({ meters: 0, captures: 1 });
-	expect(library.recorder.phase).toBe('recording');
+	expect(whispering.recorder.phase).toBe('recording');
 	expect(microphone.calls.list).toBe(0);
 });
 
 test('closing the session withdraws a pending enable at once', async () => {
-	const { library, input, microphone } = await open();
+	const { close, whispering, input, microphone } = await open();
 	const held = deferred<void>();
 	microphone.gate.next = held.promise;
 	const enabling = input.allow();
 
-	const closing = library.close();
+	const closing = Promise.resolve(close());
+	await Promise.resolve();
 
 	expect(microphone.calls.allowSignals[0]?.aborted).toBe(true);
 	expect(input.allowing).toBe(false);
@@ -575,56 +628,43 @@ test('closing the session withdraws a pending enable at once', async () => {
 	expect(microphone.calls.list).toBe(0);
 });
 
-test('closing releases the microphone at once, while a file command that was accepted is still being written', async () => {
+test('closing releases a test’s microphone at once and leaves a recording to the page', async () => {
 	for (const holding of ['test', 'recording'] as const) {
 		const microphone = scriptedMicrophone();
-		const test = await openTestWorkspace();
-		const writing = deferred<void>();
-		const files = test.workspace.folder.files;
-		const library = createLibrary({
-			...test.workspace,
-			capture: microphone.device,
-			folder: {
-				...test.workspace.folder,
-				files: {
-					...files,
-					async create(path, content) {
-						await writing.promise;
-						return files.create(path, content);
-					},
-				},
-			} as Workspace['folder'],
+		const test = await openTestServices();
+		const { whispering, close } = await createTestWhispering({
+			place: test.place,
+			services: {
+				...test.services,
+				capture: microphone.device,
+			},
 		});
 		cleanups.push(async () => {
-			await library.close();
-			await test.remove();
+			close();
+			test.close();
 		});
-		await library.start();
-		if (holding === 'test') await library.input.startTest();
-		else await library.startRecording();
+		if (holding === 'test') await whispering.input.startTest();
+		else await whispering.startRecording();
 		expect(microphone.open).toEqual(
 			holding === 'test'
 				? { meters: 1, captures: 0 }
 				: { meters: 0, captures: 1 },
 		);
-		const created = library.createFile('', 'note.txt');
 
-		let closed = false;
-		const closing = library.close().then(() => {
-			closed = true;
-		});
+		const closing = Promise.resolve(close());
 
-		// Nothing waits for the write: the microphone is released now.
-		expect(microphone.open).toEqual({ meters: 0, captures: 0 });
-		expect(library.input.test).toEqual({ phase: 'idle' });
-		await Promise.resolve();
-		expect(closed).toBe(false);
-
-		// The accepted write still finishes before the folder is released.
-		writing.resolve();
-		expect(await created).toBeUndefined();
+		// A test's microphone is released now. A recording is neither stopped
+		// nor kept by the page; its departure ends it.
+		expect(microphone.open).toEqual(
+			holding === 'test'
+				? { meters: 0, captures: 0 }
+				: { meters: 0, captures: 1 },
+		);
+		expect(whispering.input.test).toEqual({ phase: 'idle' });
 		await closing;
-		expect(await readFile(join(test.root, 'note.txt'), 'utf8')).toBe('');
+		expect(
+			test.outside.paths('recordings').filter((path) => path.endsWith('.wav')),
+		).toEqual([]);
 	}
 });
 
@@ -635,11 +675,11 @@ test('closing releases the microphone at once, while a file command that was acc
 /** Preferences whose every save waits for the test to answer it. */
 function heldPreferences() {
 	const saves: {
-		microphone: MicrophonePreference | undefined;
+		microphone: RecordingInput | undefined;
 		answer: (problem?: string) => void;
 	}[] = [];
-	const preferences: Workspace['preferences'] = {
-		microphone: async () => undefined,
+	const preferences: MicrophonePreferences = {
+		microphone: () => undefined,
 		setMicrophone: (microphone) =>
 			new Promise((answer) => saves.push({ microphone, answer })),
 	};
@@ -692,94 +732,51 @@ test('choices are saved one at a time in the order chosen, and an older save tha
 	]);
 });
 
-test('closing while a choice is being saved releases the microphone at once and closes the workspace only after the save', async () => {
+test('closing while a choice is being saved releases the microphone at once and waits for no device save', async () => {
 	const held = heldPreferences();
 	const microphone = scriptedMicrophone();
-	const test = await openTestWorkspace();
-	const order: string[] = [];
-	const library = createLibrary({
-		...test.workspace,
-		capture: microphone.device,
-		preferences: held.preferences,
-		async close() {
-			order.push('workspace closed');
-			await test.workspace.close();
+	const test = await openTestServices();
+	const { whispering, close } = await createTestWhispering({
+		place: test.place,
+		services: {
+			...test.services,
+			capture: microphone.device,
+			preferences: held.preferences,
 		},
 	});
 	cleanups.push(async () => {
-		await library.close();
-		await test.remove();
+		close();
+		test.close();
 	});
-	await library.start();
-	const input = library.input;
+	const input = whispering.input;
 	const first = input.select(USB);
 	const second = input.select(BUILT_IN);
 	await input.startTest();
 	expect(microphone.open.meters).toBe(1);
 
-	const closing = library.close();
+	close();
 
 	expect(microphone.open.meters).toBe(0);
 	// A choice made after closing is not accepted.
 	await input.select(undefined);
 	expect(input.choice).toEqual(BUILT_IN);
-	for (let turn = 0; turn < 20; turn++) await Promise.resolve();
-	expect(order).toEqual([]);
 
-	order.push('first save answered');
+	// Saves already accepted still answer in order.
 	held.saves[0]?.answer();
 	await first;
-	expect(order).toEqual(['first save answered']);
-	order.push('latest save answered');
 	held.saves[1]?.answer();
-	await Promise.all([second, closing]);
-
-	expect(order).toEqual([
-		'first save answered',
-		'latest save answered',
-		'workspace closed',
-	]);
+	await second;
 	expect(held.saves.map((save) => save.microphone)).toEqual([USB, BUILT_IN]);
-});
-
-test('fixture mode has no input: nothing is listed, tested, enabled, or chosen', async () => {
-	const test = await openTestWorkspace();
-	const device = devicePreferences(USB);
-	const library = createLibrary({
-		...test.workspace,
-		preferences: device.preferences,
-	});
-	cleanups.push(async () => {
-		await library.close();
-		await test.remove();
-	});
-	await library.start();
-	const input = library.input;
-
-	await input.refresh();
-	await input.allow();
-	await input.startTest();
-	await input.select(BUILT_IN);
-
-	expect(input.available).toBe(false);
-	expect(input.choice).toBeUndefined();
-	expect(input.list).toEqual({ kind: 'unread' });
-	expect(input.test).toEqual({ phase: 'idle' });
-	expect(device.store.writes).toBe(0);
-	// The fixture still records, and is saved as a fixture take.
-	await library.startRecording();
-	await library.stopRecording();
-	expect(library.entries).toHaveLength(1);
 });
 
 test('an unreadable saved microphone reports the failure without opening a device or saving a default', async () => {
 	const device = devicePreferences(USB);
-	device.preferences.microphone = async () => {
-		throw new Error('Storage access refused');
+	device.preferences.microphone = () => {
+		throw new Error('microphone.json on this computer is not JSON.');
 	};
 	const { input, microphone } = await open({ device });
 	expect(input.preferenceProblem).toBe(
-		'The saved microphone could not be read: Storage access refused',
+		'The saved microphone could not be read: microphone.json on this computer is not JSON.',
 	);
 	expect(input.choice).toBeUndefined();
 	expect(device.store.saved).toEqual(USB);
@@ -791,4 +788,66 @@ test('an unreadable saved microphone reports the failure without opening a devic
 		meter: [],
 		start: [],
 	});
+});
+
+test('a test whose microphone stops on its own ends and says why', async () => {
+	const { input, microphone } = await open({ device: devicePreferences(USB) });
+	await input.startTest();
+	expect(input.test).toEqual({ phase: 'running', label: 'USB Microphone' });
+	expect(input.level).toBeGreaterThan(0);
+
+	for (const listener of microphone.meterEndings)
+		listener('deviceDisconnected');
+
+	expect(input.test).toEqual({ phase: 'idle' });
+	expect(input.problem).toContain('“USB Microphone” is not available');
+	expect(microphone.open.meters).toBe(0);
+});
+
+test('on the desktop there is no enabling, and listing never clears a denial', async () => {
+	const microphone = shellMicrophone();
+	microphone.state.denied = true;
+	const { input } = await open({ microphone });
+
+	expect(input.canAllow).toBe(false);
+	await input.startTest();
+	expect(input.denied).toBe(true);
+	await input.refresh();
+	expect(input.list).toEqual({ kind: 'listed', inputs: [BUILT_IN, USB] });
+	expect(input.denied).toBe(true);
+
+	microphone.state.denied = false;
+	await input.startTest();
+	expect(input.denied).toBe(false);
+});
+
+test('a meter that has ended before subscription ends the test at once and says why', async () => {
+	const microphone = scriptedMicrophone();
+	const inputs = microphone.device.inputs;
+	microphone.device = {
+		...microphone.device,
+		inputs: {
+			...inputs,
+			async openMeter(options) {
+				const opened = expectOk(await inputs.openMeter(options));
+				return Ok({
+					...opened,
+					onEnded(listener) {
+						listener('deviceDisconnected');
+						return () => {};
+					},
+				});
+			},
+		},
+	};
+	const { input } = await open({
+		microphone,
+		device: devicePreferences(USB),
+	});
+	await input.startTest();
+	expect(input.test.phase).toBe('idle');
+	expect(input.level).toBe(0);
+	expect(input.problem).toContain('USB Microphone');
+	expect(microphone.open.meters).toBe(0);
+	input.close();
 });

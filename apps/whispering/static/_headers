@@ -47,6 +47,6 @@
 # listed), or moving the theme script to an external .js file so 'self'
 # covers it outright (trades away the anti-FOUC inline placement).
 /*
-  Content-Security-Policy-Report-Only: default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' blob:; style-src 'self'; style-src-elem 'self'; style-src-attr 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: data: https:; frame-src 'self' https://www.youtube.com; font-src 'self' data:; worker-src 'self' blob:; connect-src 'self' https://api.epicenter.so wss://api.epicenter.so; object-src 'none'; base-uri 'self'; frame-ancestors 'none'
+  Content-Security-Policy-Report-Only: default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' blob:; style-src 'self'; style-src-elem 'self'; style-src-attr 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: data: https:; frame-src 'self' https://www.youtube.com; font-src 'self' data:; worker-src 'self' blob:; connect-src 'self' https://api.epicenter.so wss://api.epicenter.so https://git.epicenter.so; object-src 'none'; base-uri 'self'; frame-ancestors 'none'
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin

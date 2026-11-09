@@ -4,36 +4,50 @@ import WandSparklesIcon from '@lucide/svelte/icons/wand-sparkles';
 import type { Component } from 'svelte';
 import { resolve } from '$app/paths';
 
+/** Whispering's pages. */
+export type Page = 'home' | 'recordings' | 'transformations';
+
+/** Every page's path. */
+const PATHS = {
+	home: resolve('/'),
+	recordings: resolve('/recordings'),
+	transformations: resolve('/transformations'),
+} as const satisfies Record<Page, string>;
+
+/** Page `page`'s path. */
+export const pathOf = (page: Page): string => PATHS[page];
+
+/** Trailing slashes aside, whether `pathname` is `href` or below it. */
+const under = (href: string, pathname: string) =>
+	pathname === href || pathname.startsWith(`${href}/`);
+
+/** Which page `pathname` is. */
+export function pageAt(pathname: string): Page {
+	for (const page of ['recordings', 'transformations'] as const)
+		if (under(PATHS[page], pathname)) return page;
+	return 'home';
+}
+
 export type NavItem = {
 	label: string;
 	href: string;
 	icon: Component;
-	isActive: (pathname: string) => boolean;
+	page: Page;
 };
 
-/** Trailing slashes aside, whether `pathname` is `href` or below it. */
-const matchesRoute = (href: string) => (pathname: string) =>
-	pathname === href || pathname.startsWith(`${href}/`);
-
-/** The app's pages. The sidebar and the bottom bar both render this list. */
-export const NAV_ITEMS = [
-	{
-		label: 'Home',
-		href: resolve('/'),
-		icon: HomeIcon,
-		isActive: (pathname) =>
-			pathname.replace(/\/$/, '') === resolve('/').replace(/\/$/, ''),
-	},
+/** The pages, as the sidebar and the bottom bar both render them. */
+export const NAV_ITEMS: readonly NavItem[] = [
+	{ label: 'Home', href: pathOf('home'), icon: HomeIcon, page: 'home' },
 	{
 		label: 'Recordings',
-		href: resolve('/recordings'),
+		href: pathOf('recordings'),
 		icon: ListIcon,
-		isActive: matchesRoute(resolve('/recordings')),
+		page: 'recordings',
 	},
 	{
 		label: 'Transformations',
-		href: resolve('/transformations'),
+		href: pathOf('transformations'),
 		icon: WandSparklesIcon,
-		isActive: matchesRoute(resolve('/transformations')),
+		page: 'transformations',
 	},
-] as const satisfies readonly NavItem[];
+];

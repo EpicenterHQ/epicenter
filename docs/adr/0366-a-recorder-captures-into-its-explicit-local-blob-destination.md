@@ -173,7 +173,8 @@ microphone, whole-host interruption, installed WebView playback, or Windows
 durability. Native per-device admission also needs real concurrent-device
 acceptance; source compatibility is not proof.
 
-The [capture plan](../../specs/20260912T122859-concurrent-native-capture.md) owns
+<!-- doc-path-check: ignore-next-line -->
+The capture plan (`specs/20260912T122859-concurrent-native-capture.md`, deleted; recover via `git log --all --full-history`) owns
 native admission only. Its finished-file handoff and separate row-save
 instructions are superseded by this decision. The
 [blob package](../../packages/blobs/README.md) describes the implemented layout.

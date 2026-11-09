@@ -2,9 +2,7 @@
 	import { tv, type VariantProps } from 'tailwind-variants';
 
 	export const itemVariants = tv({
-		// Honeycrisp positions note controls inside the item.
-		// Keep their containing block.
-		base: '[a]:hover:bg-muted rounded-md border text-sm group/item relative focus-visible:border-ring focus-visible:ring-ring/50 flex w-full flex-wrap items-center transition-colors duration-100 outline-none focus-visible:ring-[3px] [a]:transition-colors',
+		base: '[a]:hover:bg-muted rounded-md border text-sm group/item flex w-full flex-wrap items-center transition-colors duration-100 outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 [a]:transition-colors',
 		variants: {
 			variant: {
 				default: 'border-transparent',

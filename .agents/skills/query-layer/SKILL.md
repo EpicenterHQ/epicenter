@@ -1,6 +1,6 @@
 ---
 name: query-layer
-description: 'Use when editing TanStack Query integration: createQuery, createMutation, resultQueryOptions, resultMutationOptions, defineQuery, defineMutation, defineKeys, shared cache identity, mutation lifecycle, or service-to-TanStack adapters.'
+description: 'Query boundaries with TanStack Query and Wellcrafted Results. Use when editing createQuery, createMutation, resultQueryOptions, resultMutationOptions, defineQuery, defineMutation, defineKeys, shared cache identity, mutation lifecycle, or service-to-TanStack adapters.'
 metadata:
   author: epicenter
   version: '3.0'
@@ -62,10 +62,6 @@ Mutations expose `.options` and are callable. They do not expose `.execute()`.
 
 ## Canonical Whispering Query Module Shape
 
-The Whispering query modules these examples came from were removed when
-Whispering became a standalone file-folder app with no query layer. The shape
-is still the convention for a `$lib/queries` module in an app that has one.
-
 For Whispering-style `$lib/queries` modules, keep source-of-truth declarations close to the work they describe. Factories receive the session-owned runtime explicitly:
 
 ```typescript
@@ -101,7 +97,11 @@ Rules:
 
 Use `$lib/queries` as the shared TanStack observation surface. It may wrap a direct service/state call, or a `$lib/operations` entry point when UI needs shared mutation identity: multiple consumers, cache invalidation, optimistic updates, `useIsMutating`, or a named mutation key over that operation.
 
-Keep orchestration in `$lib/operations`: delivery, sounds, analytics, clipboard writes, and multi-step workflows. A reusable operation returns its outcome; a terminal interaction controller may also report it. Do not promote a one-component operation into `$lib/queries` merely to observe local pending state. The `svelte` skill owns the component's choice between local `createMutation` and direct `await`.
+The Whispering query modules these examples came from were removed when
+Whispering became a standalone file-folder app with no query layer. The shape
+is still the convention for a `$lib/queries` module in an app that has one.
+
+Keep orchestration in `$lib/operations`: delivery, reporting, sounds, analytics, clipboard writes, and multi-step workflows. Do not promote a one-component operation into `$lib/queries` merely to observe local pending state. The `svelte` skill owns the component's choice between local `createMutation` and direct `await`.
 
 ## Dependency Direction
 
@@ -154,6 +154,19 @@ Shared query adapters expose `.options` as a static object. Svelte hooks read it
 	<AvailabilityBadge value={availability.data} />
 {/if}
 ```
+
+### Name handles for what they hold
+
+Name a query handle for its data and a mutation handle for its verb plus noun,
+as the Whispering components above do: `availability` for a query,
+`transcribeRecording` and `downloadRecording` for mutations.
+
+A query holds a value, so `availability.data` reads as the data. A mutation
+performs an action, so `downloadRecording.mutate(recording)` reads as the
+action, and the handle names the option it came from. Keep the action's verb:
+`deleteRecording` for a delete, not `remove` (`delete` alone is reserved; the
+noun makes it legal). Do not suffix handles with `Query` or `Mutation`. Give
+each action its own mutation so each control owns its pending and error state.
 
 ### Imperative Interface: Queries Choose Cache Policy, Mutations Are Callable
 

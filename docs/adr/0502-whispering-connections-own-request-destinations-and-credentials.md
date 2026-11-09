@@ -3,7 +3,8 @@
 - **Status:** Accepted
 - **Date:** 2026-10-03
 - **Relates:** [ADR-0060](0060-an-inference-connection-is-a-base-url-and-an-optional-bearer-key.md) defines the static connection primitive. This record describes ownership in the current file-based Whispering application.
-- **Implementation:** Two private operation connections, explicit setup and legacy-key adoption, one recipe resolver, and request destination confirmation. See [execution evidence](../../apps/whispering/docs/recipe-playground.md).
+- **Implementation:** Two private operation connections, explicit setup, one recipe resolver, and request destination confirmation. See [execution evidence](../../apps/whispering/docs/recipe-playground.md).
+- **Amended:** 2026-10-17. The move of an earlier build's single key into a connection, and a recipe's `endpoint` constraint, are deleted: only development builds wrote either.
 - **Unbuilt:** Cross-application recipe execution and credential storage independent of the opened folder. This decision introduces neither a shared recipe app nor a connection registry.
 
 ## Context
@@ -22,17 +23,15 @@ one storage write. Keeping a key requires the same canonical full base URL;
 a new destination requires replacing or removing the key explicitly.
 
 Portable files never choose a credential's destination. A recipe owns its
-instructions and optional model preference. An endpoint saved by an earlier
-build is a constraint the text connection must match, never a routing target.
-New recipes inherit the configured text connection.
+instructions and optional model preference. New recipes inherit the
+configured text connection.
 
 A prepared request confirms the endpoint it was prepared for. The workspace
 reads the private connection once and sends to that connection's own endpoint
 only while it matches. A configuration change cannot retarget a prepared
 request. Redirects are refused and ambient cookies omitted.
 
-An earlier ambient key remains unused until the person chooses its destination
-in Settings. A launch-provided transcription key belongs to the launch's fixed
+A launch-provided transcription key belongs to the launch's fixed
 transcription connection and is never lent to text. The desktop page receives
 connection metadata without the key. Malformed existing storage is reported
 and preserved rather than replaced during setup.

@@ -3,7 +3,7 @@
 	"version": "0.3.0",
 	"private": true,
 	"type": "module",
-	"description": "Svelte 5 bindings for Epicenter: reactive workspace state, persisted state, folder edit sessions, and the shared folder UI.",
+	"description": "Svelte 5 bindings: any capability as Svelte state (reactive), the folder's root, text editing and status.",
 	"keywords": [
 		"svelte",
 		"local-first",
@@ -13,36 +13,36 @@
 		"reactive state"
 	],
 	"exports": {
-		".": "./src/index.ts",
-		"./edit-session": "./src/edit-session.svelte.ts",
-		"./folder-ui": "./src/folder-ui/index.ts",
-		"./terminal-session": "./src/folder-ui/terminal-session.svelte.ts",
-		"./open-item": "./src/open-item.svelte.ts",
-		"./admissions": "./src/admissions.svelte.ts",
-		"./save-bar": "./src/save-bar.svelte",
-		"./sync": "./src/sync.svelte.ts",
-		"./sync-line": "./src/sync-line.ts",
-		"./sync-review": "./src/sync-review.svelte"
+		"./leave-guard": "./src/leave-guard.svelte",
+		"./note-repair": "./src/note-repair.svelte",
+		"./status-line": "./src/status-line.ts",
+		"./status-popover": "./src/status-popover.svelte",
+		"./status-row": "./src/status-row.svelte",
+		"./folder-sync": "./src/folder-sync.svelte.ts",
+		"./folder-sync-actions": "./src/folder-sync-actions.svelte",
+		"./folder-onboarding": "./src/folder-onboarding.svelte",
+		"./reactive": "./src/reactive.ts",
+		"./when-open": "./src/when-open.svelte"
 	},
 	"dependencies": {
-		"@epicenter/agent": "workspace:*",
+		"@epicenter/definition": "workspace:*",
 		"@epicenter/folder": "workspace:*",
+		"@epicenter/local": "workspace:*",
 		"@epicenter/ui": "workspace:*",
 		"@lucide/svelte": "catalog:",
-		"arktype": "catalog:",
+		"@tauri-apps/api": "catalog:",
 		"wellcrafted": "catalog:"
 	},
 	"devDependencies": {
-		"@standard-schema/spec": "catalog:",
 		"@types/bun": "catalog:",
+		"jsdom": "26.1.0",
 		"svelte": "catalog:",
 		"svelte-check": "catalog:",
 		"typescript": "catalog:"
 	},
 	"scripts": {
 		"typecheck": "svelte-check --tsconfig ./tsconfig.json",
-		"test": "bun test --isolate --conditions=browser --path-ignore-patterns='**/*.mounted.test.ts' && bun run test:mounted",
-		"test:mounted": "bun test --conditions=browser --conditions=svelte mounted.test"
+		"test": "bun test --isolate --conditions=browser --conditions=svelte --conditions=test"
 	},
 	"license": "AGPL-3.0-or-later"
 }

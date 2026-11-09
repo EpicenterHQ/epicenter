@@ -3,30 +3,28 @@
 Choose the owner by when input becomes accepted application content. These are
 the two default content-input patterns. They do not classify every rune: dialog
 visibility, selection, request outcomes and widget history have other jobs.
+Judge the information and coordination each owner carries, not the rune count.
 
 ## Immediate editing
 
-The editor owns accepted input and publication. Controls read its current value
-and send complete replacements to its setter. Do not copy that input into a
-component draft and synchronize the two with effects.
+The editor owns accepted input. The view that shows a note makes one editor
+of it (`collection.edit({ id })` on the folder's collection), which saves
+as the person types and shows each typed field until its save answers;
+controls bind its fields, reading the owner's current value and sending
+changes to it. Do not
+copy that input into a component draft and synchronize the two with effects.
 
-| Control | Read | Write |
-| --- | --- | --- |
-| Complete file text | Current editor text | `editor.setText(text)` |
-| Structured field | Current valid row fields | `editor.set({ ...editor.row, fields: { ...editor.row.fields, title } })` |
-| Markdown body | Current valid row body | `editor.set({ ...editor.row, body })` |
+Render structured controls only while the current value is valid, and show a
+reason instead of inventing empty field values. When a binding getter needs a
+narrowed value, capture it with `{@const}` in the nearest template scope, then
+narrow that local before creating the binding callbacks. Do not spread a
+render-time snapshot back into the owner or merge it with outside changes in
+the control.
 
-Render structured controls only while the current row is valid. Invalid rows
-show a reason and a Files repair action; do not invent empty field values.
-TypeScript narrowing inside a rendering branch does not automatically narrow a
-later callback. Writers read and narrow the current row when the event arrives,
-rather than spreading a render-time snapshot. These data-shape checks are not
-view permissions.
-
-Real bindings preserve file newlines and present refusal or save errors according
-to the app's policy. Accepted input whose save fails stays with its editor, above
-disposable controls. Codecs transform representations; they do not become another
-current-content owner.
+A checkbox, select, or button in that view binds the editor's field too; one
+outside it, such as a list row's toggle, writes with `set`. A save never
+fails; the folder keeps it until it lands (ADR-0775). Codecs
+transform representations; they do not become another current-content owner.
 
 ## Explicit submission
 
@@ -115,8 +113,8 @@ rg -n -g '*.svelte' -g '*.svelte.ts' '\b(draft|form|values)\.[[:alnum:]_.]+[[:sp
 # Late results that might clear or overwrite a newer draft.
 rg -n -g '*.svelte' -g '*.svelte.ts' 'await|submitted|reset\(|draft =|form =|\.then\(' apps
 
-# Binding wrappers and source/form interpretation state.
-rg -n -g '*.svelte' -g '*.svelte.ts' 'getValue|setValue|onValueChange|BoundText|SourceEditor|rawMode|preferView|shownView|showSource|editSource|Tabs\.Content' apps
+# Binding wrappers that recreate a value protocol.
+rg -n -g '*.svelte' -g '*.svelte.ts' 'getValue|setValue|onValueChange' apps
 ```
 
 For a raw mutation candidate, inspect all writes, including aliases, nested

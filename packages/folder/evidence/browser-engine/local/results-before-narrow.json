@@ -1,0 +1,93 @@
+{
+	"recordedAt": "2026-10-19T07:24:47.458Z",
+	"scope": "Production local engine. Local acknowledgement simulation, no network sync, forced process crash, or phone evidence.",
+	"results": [
+		{
+			"browser": "chromium",
+			"version": "153.0.8010.12",
+			"acknowledgedSaves": 205,
+			"failedRevisionChecks": 275,
+			"saveP95Ms": 3,
+			"maxSaveMs": 35.799999713897705,
+			"metadataProbe": {
+				"folders": 500,
+				"capturedTrees": 502,
+				"captureMs": [
+					14.300000190734863, 13.799999713897705, 14.199999809265137,
+					13.900000095367432, 13.799999713897705
+				],
+				"saveMs": 16.100000381469727
+			},
+			"final": {
+				"a": 101,
+				"b": 101
+			},
+			"nativeGit": "hash-object + fsck --strict + show",
+			"checks": [
+				"offline-first reopen",
+				"abandoned candidate",
+				"two tabs + commit publication",
+				"independent paragraphs",
+				"exact pending identity",
+				"newer edits survive acknowledgement",
+				"committed reopen"
+			]
+		},
+		{
+			"browser": "webkit",
+			"version": "26.5",
+			"acknowledgedSaves": 205,
+			"failedRevisionChecks": 352,
+			"saveP95Ms": 11,
+			"maxSaveMs": 35,
+			"metadataProbe": {
+				"folders": 500,
+				"capturedTrees": 502,
+				"captureMs": [33, 34, 35, 34, 35],
+				"saveMs": 36
+			},
+			"final": {
+				"a": 101,
+				"b": 101
+			},
+			"nativeGit": "hash-object + fsck --strict + show",
+			"checks": [
+				"offline-first reopen",
+				"abandoned candidate",
+				"two tabs + commit publication",
+				"independent paragraphs",
+				"exact pending identity",
+				"newer edits survive acknowledgement",
+				"committed reopen"
+			]
+		},
+		{
+			"browser": "firefox",
+			"version": "151.0",
+			"acknowledgedSaves": 205,
+			"failedRevisionChecks": 385,
+			"saveP95Ms": 5,
+			"maxSaveMs": 12,
+			"metadataProbe": {
+				"folders": 500,
+				"capturedTrees": 502,
+				"captureMs": [24, 26, 25, 29, 25],
+				"saveMs": 27
+			},
+			"final": {
+				"a": 101,
+				"b": 101
+			},
+			"nativeGit": "hash-object + fsck --strict + show",
+			"checks": [
+				"offline-first reopen",
+				"abandoned candidate",
+				"two tabs + commit publication",
+				"independent paragraphs",
+				"exact pending identity",
+				"newer edits survive acknowledgement",
+				"committed reopen"
+			]
+		}
+	]
+}

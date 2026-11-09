@@ -1,0 +1,179 @@
+# 0562. The CLI and the shell take turns writing a folder under one save lock
+
+- **Status:** Superseded
+- **Date:** 2026-10-16
+- **Superseded by:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md): the full desktop app platform; only a local built-app runner over chosen data repositories remains, without source installation, build approvals, or general native services.
+- **Amends:** [ADR-0541](0541-a-desktop-folder-needs-no-web-locks-and-a-commit-that-loses-a-race-retries.md) at its Bun row's "saves from separate processes do not" and "in Bun, only saves within one process wait for each other": Bun's saves and the shell's checked renames take turns under one save lock per folder, `.<name>.epicenter-save-lock`.
+- **Amended by:** [ADR-0568](0568-a-folder-takes-every-writer-in-turn-under-its-save-lock-and-refuses-none.md) at "`RootLock` stays the one-shell-per-folder lock": `RootLock` is deleted, and a second shell takes turns under the save lock like the CLI; [ADR-0702](0702-a-data-folders-unfinished-writes-wait-in-epicenter-outside-its-data.md) at the save lock and every amendment below: no writer takes a lock, `.epicenter` holds only `saves/` and `recordings/`, and a new file is placed (`storage::place`).
+- **Relates:** [ADR-0556](0556-outside-a-webview-typescript-runs-only-as-the-epicenter-cli.md) (the `epicenter` CLI writes folders the app may hold open), [ADR-0551](0551-every-write-to-a-folder-file-is-one-save-that-merges-by-the-files-kind-and-sync-settles-with-the-same-merge.md) (the merge that settles commits).
+- **Unbuilt:** a test of `epicenter sync` and a page saving one file in the same folder at once, with neither save lost.
+
+Retired source files below use their last tracked Git snapshot (`commit:path`);
+inspect one with `git show commit:path`.
+
+## Context
+
+[ADR-0541](0541-a-desktop-folder-needs-no-web-locks-and-a-commit-that-loses-a-race-retries.md)
+gave each host the referee it has. On the desktop a save is the shell's checked
+rename; in Bun a save is a check then a rename, and saves from separate
+processes did not take turns. That was safe while one program wrote a folder.
+
+[ADR-0556](0556-outside-a-webview-typescript-runs-only-as-the-epicenter-cli.md)
+makes the `epicenter` CLI, a Bun process, write folders that Epicenter may have
+open: `epicenter sync` while a page saves. The shell's `RootLock`
+(`92f32cc476:packages/tauri-plugin-epicenter-folder/core/src/lock.rs`), an exclusive SQLite
+transaction on `.<name>.epicenter-lock`, is held from a folder's first grant
+until the shell exits, so the CLI cannot take it.
+
+## Decision
+
+**Every save to a folder, from the shell or from Bun, holds the folder's save
+lock across its check and its change.**
+
+```txt
+.<name>.epicenter-lock        RootLock   one shell per folder, held while the shell has it open
+.<name>.epicenter-save-lock   SaveLock   one save at a time, held across one check and one rename or removal
+```
+
+The save lock is an exclusive SQLite transaction on
+`.<name>.epicenter-save-lock` beside the folder. The shell takes it in
+`publishing()` (`dda3b5cdaa57:packages/tauri-plugin-epicenter-folder/core/src/registry.rs`)
+around each checked rename and removal. `@epicenter/folder/bun`
+(`packages/folder/src/bun.ts`, `holdingSaveLock`) takes it around each of its
+own, so the CLI and any other Bun process do too. Each waits at most 10 seconds
+(`SAVE_LOCK_WAIT`, `SAVE_LOCK_WAIT_MS`); past that the save fails and changes
+nothing.
+
+**A check that fails under the lock stays `Conflict`.** The lock makes the
+check and the change one step; it does not merge.
+
+**`RootLock` stays the one-shell-per-folder lock.** Commits keep Git's lock
+files and `casBranch`, and ADR-0551's merges settle the rest.
+
+## Consequences
+
+- A page's save and a CLI save to one folder never interleave between check
+  and rename, so neither overwrites a version it did not read.
+- A save can wait up to 10 seconds behind another program's; a program that
+  holds the lock longer makes the other save fail, and that save changes
+  nothing.
+- Each folder has a second lock file beside it.
+
+## Considered alternatives
+
+- **The CLI takes `RootLock`.** It is held while Epicenter has the folder
+  open, so the CLI could never write a folder the app has open.
+- **No lock between processes, as ADR-0541 had for Bun.** A save from the CLI
+  could land between the shell's check and its rename and be overwritten.
+
+## Amendment, 2026-10-31: the save lock lives in the folder's `.epicenter`, and sync takes it
+
+The lock described here is deleted; [ADR-0702](0702-a-data-folders-unfinished-writes-wait-in-epicenter-outside-its-data.md) states the rule that replaced it.
+
+Commit `1e66c2134b` moved the save lock from `.<name>.epicenter-save-lock`
+beside the folder to `<root>/.epicenter/save-lock`, and the directory a save
+stages its bytes in to `<root>/.epicenter/scratch`, so saving makes nothing
+outside the folder. Both hosts make `.epicenter` and `scratch` `0700` when
+missing, refuse either, and the lock file, when it is a symbolic link or not
+the expected kind (`holdingFolderLock` and `takeFileLock` in
+`3b5ba8be2a:packages/folder/src/native/directory.ts`, `privateDirectory` in
+`directory-node.ts`; `prepare_state_directory` in the folder plugin's
+`storage.rs`, `verify` in `lock.rs`), and neither lists `.epicenter`
+(`isOwnDirectory` in `directory-store.ts`, `storage.rs`) or reports it from
+a watcher (`native/watch.ts`, the plugin's `watch.rs`). The lock is still an
+exclusive SQLite transaction, which `rusqlite` and `bun:sqlite` take alike.
+`epicenter sync` now takes it too (decision 80): `mergeRemote` in
+`packages/cli/src/sync/sync.ts` holds the save lock of every registered
+folder in the repository across `git merge origin/main`, the checkouts that
+settle it, and the merge commit, after fetching the LFS bytes the merge
+checks out, so it never holds the lock across `git fetch`, an LFS transfer,
+or `git push`. A save that read a file before the merge then finds it changed
+rather than overwriting it, and a sync that cannot take a lock within the
+save wait ends `retry` with nothing merged. `T6d` in
+`packages/cli/src/sync/sync.e2e.test.ts` shows the merge waiting for a held
+save lock. `epicenter init` writes `.gitattributes`, `.gitignore`, and the
+bytes of `git lfs pull` without it.
+
+## Amendment, 2026-11-01: the save lock is deleted
+
+[ADR-0702](0702-a-data-folders-unfinished-writes-wait-in-epicenter-outside-its-data.md) states the rule this amendment describes, and governs where they differ.
+
+The save lock described above, and the 2026-10-31 amendment's use of it by
+`epicenter sync`, are gone. No writer takes `.epicenter/save-lock`: the
+folder plugin's `lock.rs` (`SaveLock`, `Directory::publishing`, and its
+`rusqlite` dependency), Bun's `holdingSaveLock` and the locking storage built
+on it, and sync's per-folder locks around its merge were deleted.
+
+What stays is the version check. Every store still checks a save against the
+SHA-256 of what its writer read (`Expectation` in
+`3b5ba8be2a:packages/folder/src/boundary.ts`, `storage::put` in the folder plugin),
+right before the rename or removal, and answers `stale` when the file
+changed. What is given up is only the instant between that check and the
+rename: another save landing exactly then can be replaced. That race is
+accepted because the lock never covered the writers that matter most: an
+external editor, a script, or `git` itself never took it, so it protected
+Epicenter's own writers from each other at the cost of a cross-process lock
+in two languages. Git history is the backstop: a save `epicenter sync`
+committed stays in history even if a later one replaces it in the working
+tree. `.epicenter/` remains the one place for unfinished files (staged saves,
+and recordings in progress). The CLI keeps its own file lock
+(`packages/cli/src/file-lock.ts`) for sign-in refreshes and for
+serializing sync rounds of one repository.
+
+## Amendment, 2026-11-01: `.epicenter` holds only unfinished writes, in `saves/` and `recordings/`
+
+[ADR-0702](0702-a-data-folders-unfinished-writes-wait-in-epicenter-outside-its-data.md) states the rule this amendment describes, and governs where they differ.
+
+A file in `.epicenter/` is on its way somewhere: it finishes (moves to its
+real path), or the next open recovers or removes it. Each part is named for
+the operation that owns it:
+
+```
+.epicenter/
+├── saves/        a save waiting to be renamed over its target (was scratch/; OPFS's staging/)
+└── recordings/   a desktop recording until stop or recovery, at its target path (was recording/)
+```
+
+`saves/` is always safe to delete when no app runs; `recordings/` may hold
+audio until the app opens once. The directory and `saves/` stay `0700`, and
+each staged file `0600`, created exclusively with no inherited access
+control entry. Opening a folder sweeps only stale scratch names in `saves/`
+(`storage::sweep_scratch`, `sweepStaleScratch`), never `recordings/`.
+Folders written before this change are not migrated: an old `scratch/` or
+`recording/` is left as it is.
+
+One module per language owns the layout: `state.rs` in the folder core and
+`state.ts` in `@epicenter/folder`, held to
+`packages/tauri-plugin-epicenter-folder/fixtures/state-layout.json`; the OPFS
+worker's inlined copy is held to the same file. `bun run check:state-paths`
+fails when other production code spells `.epicenter`.
+
+The name-based special cases are gone. A hidden path (`isHiddenPath`, and
+`paths::is_hidden_path` in the folder core) is what is not a folder's data:
+the watchers (`native/watch.ts`, the plugin's `watch.rs`, `sync --watch`)
+drop every change under one, so a recording's header rewrite wakes nothing;
+listings show hidden files, `.epicenter`'s included, and their readers skip
+them, leaving out only `.git` at the root; and the desktop refuses a hidden
+directory, or one inside one, as a folder to sync (`check_namespace` is
+gone). `epicenter sync` excludes `.epicenter` itself
+(`:(exclude,glob)**/.epicenter/**` in `packages/cli/src/sync/sync.ts`),
+whatever `.gitignore` says. A save whose target is below a mount point
+inside the folder fails saying it cannot cross a mount point, since a rename
+from `saves/` cannot reach it, and nothing is copied instead.
+
+## Amendment, 2026-11-01: a new file is placed, never renamed over what appeared
+
+[ADR-0702](0702-a-data-folders-unfinished-writes-wait-in-epicenter-outside-its-data.md) states the rule this amendment describes, and governs where they differ.
+
+The race the save-lock deletion accepted, another save landing between the
+version check and the rename, no longer applies to a desktop save of a new
+file. A save expecting nothing at its path, and every recording the recorder
+places, goes through one function in the folder core, `storage::place`: a
+hard link to the path, which the system refuses when any entry has the name,
+then the staged name removed. Whatever appeared after the check stays, and
+the save answers `stale`. A link a cut-off move already made is the same
+file at both names and counts as placed. A path below a mount point fails
+saying it cannot cross one, as a rename does. Where the disk has no hard
+links, the file is renamed only while nothing is there, a check a racing
+writer can still beat. A save that replaces a file keeps its version check
+and its rename. The Bun host still renames a new file after its check.

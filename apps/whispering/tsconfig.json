@@ -3,9 +3,6 @@
 	"compilerOptions": {
 		"checkJs": true,
 		"types": ["bun"]
-		// Platform impls resolve via `#platform/*` (package.json "imports").
-		// Bundler resolution reads the imports field and lands on `default`
-		// (browser), so no moduleSuffixes or per-target tsconfig is needed.
 	}
 	// Path aliases are handled by https://svelte.dev/docs/kit/configuration#alias
 	// except $lib which is handled by https://svelte.dev/docs/kit/configuration#files

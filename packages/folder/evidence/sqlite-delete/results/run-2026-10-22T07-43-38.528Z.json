@@ -1,0 +1,1349 @@
+{
+	"started": "2026-10-22T07:43:38.529Z",
+	"fictionalOnly": true,
+	"native": [
+		{
+			"name": "open-refuses-admitted-delete",
+			"value": {
+				"code": "Busy",
+				"message": "Deletion admitted"
+			}
+		},
+		{
+			"name": "second-delete-refuses-admitted-delete",
+			"value": {
+				"code": "Busy",
+				"message": "Tracked opening/live/closing/delete"
+			}
+		},
+		{
+			"name": "SIGKILL-restart-retry-before-main",
+			"value": {
+				"remaining": [
+					"fictional.sqlite",
+					"fictional.sqlite-journal",
+					"fictional.sqlite-wal",
+					"fictional.sqlite-shm"
+				],
+				"neighborPreserved": true,
+				"retryIdempotent": true
+			}
+		},
+		{
+			"name": "SIGKILL-restart-retry-after-main",
+			"value": {
+				"remaining": [
+					"fictional.sqlite-journal",
+					"fictional.sqlite-wal",
+					"fictional.sqlite-shm"
+				],
+				"neighborPreserved": true,
+				"retryIdempotent": true
+			}
+		},
+		{
+			"name": "SIGKILL-restart-retry-after-journal",
+			"value": {
+				"remaining": ["fictional.sqlite-wal", "fictional.sqlite-shm"],
+				"neighborPreserved": true,
+				"retryIdempotent": true
+			}
+		},
+		{
+			"name": "SIGKILL-restart-retry-after-wal",
+			"value": {
+				"remaining": ["fictional.sqlite-shm"],
+				"neighborPreserved": true,
+				"retryIdempotent": true
+			}
+		},
+		{
+			"name": "SIGKILL-restart-retry-after-shm",
+			"value": {
+				"remaining": [],
+				"neighborPreserved": true,
+				"retryIdempotent": true
+			}
+		},
+		{
+			"name": "interrupted-retry-and-repeated-cleanup-failure",
+			"value": true
+		},
+		{
+			"name": "suffix-lookalike-preserved",
+			"value": true
+		},
+		{
+			"name": "sqlite-version",
+			"value": [
+				{
+					"version": "3.53.2"
+				}
+			]
+		},
+		{
+			"name": "atomic-batch-rollback",
+			"value": {
+				"code": "Sqlite",
+				"message": "UNIQUE constraint failed: counter.value"
+			}
+		},
+		{
+			"name": "live-connection-busy",
+			"value": {
+				"code": "Busy",
+				"message": "Tracked opening/live/closing/delete"
+			}
+		},
+		{
+			"name": "closing-connection-busy",
+			"value": {
+				"code": "Busy",
+				"message": "Tracked opening/live/closing/delete"
+			}
+		},
+		{
+			"name": "opening-connection-busy",
+			"value": {
+				"code": "Busy",
+				"message": "Tracked opening/live/closing/delete"
+			}
+		},
+		{
+			"name": "failRemove-main-retry",
+			"value": {
+				"code": "DeleteFailed",
+				"message": "DeleteFailed",
+				"failures": [
+					{
+						"error": {
+							"code": "Remove",
+							"message": "Injected unlink failure: fictional.sqlite"
+						},
+						"path": "fictional.sqlite"
+					}
+				],
+				"attempted": []
+			}
+		},
+		{
+			"name": "failRemove--journal-retry",
+			"value": {
+				"code": "DeleteFailed",
+				"message": "DeleteFailed",
+				"failures": [
+					{
+						"error": {
+							"code": "Remove",
+							"message": "Injected unlink failure: fictional.sqlite-journal"
+						},
+						"path": "fictional.sqlite-journal"
+					},
+					{
+						"error": {
+							"code": "Remaining",
+							"message": "File remains"
+						},
+						"path": "fictional.sqlite-journal"
+					}
+				],
+				"attempted": [
+					"fictional.sqlite",
+					"fictional.sqlite-wal",
+					"fictional.sqlite-shm"
+				]
+			}
+		},
+		{
+			"name": "failRemove--wal-retry",
+			"value": {
+				"code": "DeleteFailed",
+				"message": "DeleteFailed",
+				"failures": [
+					{
+						"error": {
+							"code": "Remove",
+							"message": "Injected unlink failure: fictional.sqlite-wal"
+						},
+						"path": "fictional.sqlite-wal"
+					},
+					{
+						"error": {
+							"code": "Remaining",
+							"message": "File remains"
+						},
+						"path": "fictional.sqlite-wal"
+					}
+				],
+				"attempted": [
+					"fictional.sqlite",
+					"fictional.sqlite-journal",
+					"fictional.sqlite-shm"
+				]
+			}
+		},
+		{
+			"name": "failRemove--shm-retry",
+			"value": {
+				"code": "DeleteFailed",
+				"message": "DeleteFailed",
+				"failures": [
+					{
+						"error": {
+							"code": "Remove",
+							"message": "Injected unlink failure: fictional.sqlite-shm"
+						},
+						"path": "fictional.sqlite-shm"
+					},
+					{
+						"error": {
+							"code": "Remaining",
+							"message": "File remains"
+						},
+						"path": "fictional.sqlite-shm"
+					}
+				],
+				"attempted": [
+					"fictional.sqlite",
+					"fictional.sqlite-journal",
+					"fictional.sqlite-wal"
+				]
+			}
+		},
+		{
+			"name": "failInspect-main-retry",
+			"value": {
+				"code": "DeleteFailed",
+				"message": "DeleteFailed",
+				"failures": [
+					{
+						"error": {
+							"code": "Inspect",
+							"message": "Injected inspection failure: fictional.sqlite"
+						},
+						"path": "fictional.sqlite"
+					}
+				],
+				"attempted": []
+			}
+		},
+		{
+			"name": "failInspect--journal-retry",
+			"value": {
+				"code": "DeleteFailed",
+				"message": "DeleteFailed",
+				"failures": [
+					{
+						"error": {
+							"code": "Inspect",
+							"message": "Injected inspection failure: fictional.sqlite-journal"
+						},
+						"path": "fictional.sqlite-journal"
+					},
+					{
+						"error": {
+							"code": "Inspect",
+							"message": "Injected inspection failure: fictional.sqlite-journal"
+						},
+						"path": "fictional.sqlite-journal"
+					}
+				],
+				"attempted": [
+					"fictional.sqlite",
+					"fictional.sqlite-wal",
+					"fictional.sqlite-shm"
+				]
+			}
+		},
+		{
+			"name": "failInspect--wal-retry",
+			"value": {
+				"code": "DeleteFailed",
+				"message": "DeleteFailed",
+				"failures": [
+					{
+						"error": {
+							"code": "Inspect",
+							"message": "Injected inspection failure: fictional.sqlite-wal"
+						},
+						"path": "fictional.sqlite-wal"
+					},
+					{
+						"error": {
+							"code": "Inspect",
+							"message": "Injected inspection failure: fictional.sqlite-wal"
+						},
+						"path": "fictional.sqlite-wal"
+					}
+				],
+				"attempted": [
+					"fictional.sqlite",
+					"fictional.sqlite-journal",
+					"fictional.sqlite-shm"
+				]
+			}
+		},
+		{
+			"name": "failInspect--shm-retry",
+			"value": {
+				"code": "DeleteFailed",
+				"message": "DeleteFailed",
+				"failures": [
+					{
+						"error": {
+							"code": "Inspect",
+							"message": "Injected inspection failure: fictional.sqlite-shm"
+						},
+						"path": "fictional.sqlite-shm"
+					},
+					{
+						"error": {
+							"code": "Inspect",
+							"message": "Injected inspection failure: fictional.sqlite-shm"
+						},
+						"path": "fictional.sqlite-shm"
+					}
+				],
+				"attempted": [
+					"fictional.sqlite",
+					"fictional.sqlite-journal",
+					"fictional.sqlite-wal"
+				]
+			}
+		},
+		{
+			"name": "directory-preserved-main-false",
+			"value": true
+		},
+		{
+			"name": "directory-preserved-main-true",
+			"value": true
+		},
+		{
+			"name": "directory-preserved--journal-false",
+			"value": true
+		},
+		{
+			"name": "directory-preserved--journal-true",
+			"value": true
+		},
+		{
+			"name": "directory-preserved--wal-false",
+			"value": true
+		},
+		{
+			"name": "directory-preserved--wal-true",
+			"value": true
+		},
+		{
+			"name": "directory-preserved--shm-false",
+			"value": true
+		},
+		{
+			"name": "directory-preserved--shm-true",
+			"value": true
+		},
+		{
+			"name": "real-engine-wal-SIGKILL-cleanup",
+			"value": {
+				"before": [
+					"fictional.sqlite",
+					"fictional.sqlite-shm",
+					"fictional.sqlite-wal",
+					"fictional.sqlite.neighbor"
+				]
+			}
+		},
+		{
+			"name": "real-engine-journal-SIGKILL-cleanup",
+			"value": {
+				"before": [
+					"fictional.sqlite",
+					"fictional.sqlite-journal",
+					"fictional.sqlite.neighbor"
+				]
+			}
+		},
+		{
+			"name": "corrupt-unopened-main-deletable",
+			"value": true
+		}
+	],
+	"browser": [
+		{
+			"engine": "chromium",
+			"cases": [
+				{
+					"name": "chromium:delete-admission-refuses-open-and-delete-across-device-handles",
+					"value": true
+				},
+				{
+					"name": "chromium:worker-terminate-page-restart-retry-before-main",
+					"value": {
+						"remaining": [
+							"fictional.sqlite",
+							"fictional.sqlite-journal",
+							"fictional.sqlite-wal",
+							"fictional.sqlite-shm"
+						],
+						"neighborPreserved": true
+					}
+				},
+				{
+					"name": "chromium:worker-terminate-page-restart-retry-after-main",
+					"value": {
+						"remaining": [
+							"fictional.sqlite-journal",
+							"fictional.sqlite-wal",
+							"fictional.sqlite-shm"
+						],
+						"neighborPreserved": true
+					}
+				},
+				{
+					"name": "chromium:worker-terminate-page-restart-retry-after-journal",
+					"value": {
+						"remaining": ["fictional.sqlite-wal", "fictional.sqlite-shm"],
+						"neighborPreserved": true
+					}
+				},
+				{
+					"name": "chromium:worker-terminate-page-restart-retry-after-wal",
+					"value": {
+						"remaining": ["fictional.sqlite-shm"],
+						"neighborPreserved": true
+					}
+				},
+				{
+					"name": "chromium:worker-terminate-page-restart-retry-after-shm",
+					"value": {
+						"remaining": [],
+						"neighborPreserved": true
+					}
+				},
+				{
+					"name": "chromium:interrupted-retry-and-repeated-cleanup-failure",
+					"value": true
+				},
+				{
+					"name": "chromium:suffix-lookalike-preserved",
+					"value": true
+				},
+				{
+					"name": "chromium:atomic-batch-rollback",
+					"value": [
+						{
+							"version": "3.54.1"
+						}
+					]
+				},
+				{
+					"name": "chromium:live-connection-busy-across-device-handles",
+					"value": true
+				},
+				{
+					"name": "chromium:closing-busy-and-idempotent-close",
+					"value": true
+				},
+				{
+					"name": "chromium:opening-busy",
+					"value": true
+				},
+				{
+					"name": "chromium:failRemove-main-retry",
+					"value": {
+						"code": "DeleteFailed",
+						"message": "Main removal failed",
+						"failures": [
+							{
+								"path": "fictional.sqlite",
+								"error": {
+									"code": "Remove",
+									"message": "Injected unlink failure: fictional.sqlite"
+								}
+							}
+						],
+						"attempted": []
+					}
+				},
+				{
+					"name": "chromium:failRemove--journal-retry",
+					"value": {
+						"code": "DeleteFailed",
+						"message": "Family cleanup incomplete",
+						"failures": [
+							{
+								"path": "fictional.sqlite-journal",
+								"error": {
+									"code": "Remove",
+									"message": "Injected unlink failure: fictional.sqlite-journal"
+								}
+							},
+							{
+								"path": "fictional.sqlite-journal",
+								"error": {
+									"code": "Remaining"
+								}
+							}
+						],
+						"attempted": [
+							"fictional.sqlite",
+							"fictional.sqlite-wal",
+							"fictional.sqlite-shm"
+						]
+					}
+				},
+				{
+					"name": "chromium:failRemove--wal-retry",
+					"value": {
+						"code": "DeleteFailed",
+						"message": "Family cleanup incomplete",
+						"failures": [
+							{
+								"path": "fictional.sqlite-wal",
+								"error": {
+									"code": "Remove",
+									"message": "Injected unlink failure: fictional.sqlite-wal"
+								}
+							},
+							{
+								"path": "fictional.sqlite-wal",
+								"error": {
+									"code": "Remaining"
+								}
+							}
+						],
+						"attempted": [
+							"fictional.sqlite",
+							"fictional.sqlite-journal",
+							"fictional.sqlite-shm"
+						]
+					}
+				},
+				{
+					"name": "chromium:failRemove--shm-retry",
+					"value": {
+						"code": "DeleteFailed",
+						"message": "Family cleanup incomplete",
+						"failures": [
+							{
+								"path": "fictional.sqlite-shm",
+								"error": {
+									"code": "Remove",
+									"message": "Injected unlink failure: fictional.sqlite-shm"
+								}
+							},
+							{
+								"path": "fictional.sqlite-shm",
+								"error": {
+									"code": "Remaining"
+								}
+							}
+						],
+						"attempted": [
+							"fictional.sqlite",
+							"fictional.sqlite-journal",
+							"fictional.sqlite-wal"
+						]
+					}
+				},
+				{
+					"name": "chromium:failInspect-main-retry",
+					"value": {
+						"code": "DeleteFailed",
+						"message": "Main removal failed",
+						"failures": [
+							{
+								"path": "fictional.sqlite",
+								"error": {
+									"code": "Inspect",
+									"message": "Injected inspection failure: fictional.sqlite"
+								}
+							}
+						],
+						"attempted": []
+					}
+				},
+				{
+					"name": "chromium:failInspect--journal-retry",
+					"value": {
+						"code": "DeleteFailed",
+						"message": "Family cleanup incomplete",
+						"failures": [
+							{
+								"path": "fictional.sqlite-journal",
+								"error": {
+									"code": "Inspect",
+									"message": "Injected inspection failure: fictional.sqlite-journal"
+								}
+							},
+							{
+								"path": "fictional.sqlite-journal",
+								"error": {
+									"code": "Inspect"
+								}
+							}
+						],
+						"attempted": [
+							"fictional.sqlite",
+							"fictional.sqlite-wal",
+							"fictional.sqlite-shm"
+						]
+					}
+				},
+				{
+					"name": "chromium:failInspect--wal-retry",
+					"value": {
+						"code": "DeleteFailed",
+						"message": "Family cleanup incomplete",
+						"failures": [
+							{
+								"path": "fictional.sqlite-wal",
+								"error": {
+									"code": "Inspect",
+									"message": "Injected inspection failure: fictional.sqlite-wal"
+								}
+							},
+							{
+								"path": "fictional.sqlite-wal",
+								"error": {
+									"code": "Inspect"
+								}
+							}
+						],
+						"attempted": [
+							"fictional.sqlite",
+							"fictional.sqlite-journal",
+							"fictional.sqlite-shm"
+						]
+					}
+				},
+				{
+					"name": "chromium:failInspect--shm-retry",
+					"value": {
+						"code": "DeleteFailed",
+						"message": "Family cleanup incomplete",
+						"failures": [
+							{
+								"path": "fictional.sqlite-shm",
+								"error": {
+									"code": "Inspect",
+									"message": "Injected inspection failure: fictional.sqlite-shm"
+								}
+							},
+							{
+								"path": "fictional.sqlite-shm",
+								"error": {
+									"code": "Inspect"
+								}
+							}
+						],
+						"attempted": [
+							"fictional.sqlite",
+							"fictional.sqlite-journal",
+							"fictional.sqlite-wal"
+						]
+					}
+				},
+				{
+					"name": "chromium:directory-preserved-main-false",
+					"value": true
+				},
+				{
+					"name": "chromium:directory-preserved-main-true",
+					"value": true
+				},
+				{
+					"name": "chromium:directory-preserved--journal-false",
+					"value": true
+				},
+				{
+					"name": "chromium:directory-preserved--journal-true",
+					"value": true
+				},
+				{
+					"name": "chromium:directory-preserved--wal-false",
+					"value": true
+				},
+				{
+					"name": "chromium:directory-preserved--wal-true",
+					"value": true
+				},
+				{
+					"name": "chromium:directory-preserved--shm-false",
+					"value": true
+				},
+				{
+					"name": "chromium:directory-preserved--shm-true",
+					"value": true
+				},
+				{
+					"name": "chromium:profile-reopen-and-cleanup",
+					"value": [
+						{
+							"value": "fictional restart"
+						}
+					]
+				},
+				{
+					"name": "chromium:worker-crash-retains-busy-until-page-retirement",
+					"value": true
+				}
+			],
+			"userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/149.0.7827.55 Safari/537.36"
+		},
+		{
+			"engine": "firefox",
+			"cases": [
+				{
+					"name": "firefox:delete-admission-refuses-open-and-delete-across-device-handles",
+					"value": true
+				},
+				{
+					"name": "firefox:worker-terminate-page-restart-retry-before-main",
+					"value": {
+						"remaining": [
+							"fictional.sqlite",
+							"fictional.sqlite-journal",
+							"fictional.sqlite-wal",
+							"fictional.sqlite-shm"
+						],
+						"neighborPreserved": true
+					}
+				},
+				{
+					"name": "firefox:worker-terminate-page-restart-retry-after-main",
+					"value": {
+						"remaining": [
+							"fictional.sqlite-journal",
+							"fictional.sqlite-wal",
+							"fictional.sqlite-shm"
+						],
+						"neighborPreserved": true
+					}
+				},
+				{
+					"name": "firefox:worker-terminate-page-restart-retry-after-journal",
+					"value": {
+						"remaining": ["fictional.sqlite-wal", "fictional.sqlite-shm"],
+						"neighborPreserved": true
+					}
+				},
+				{
+					"name": "firefox:worker-terminate-page-restart-retry-after-wal",
+					"value": {
+						"remaining": ["fictional.sqlite-shm"],
+						"neighborPreserved": true
+					}
+				},
+				{
+					"name": "firefox:worker-terminate-page-restart-retry-after-shm",
+					"value": {
+						"remaining": [],
+						"neighborPreserved": true
+					}
+				},
+				{
+					"name": "firefox:interrupted-retry-and-repeated-cleanup-failure",
+					"value": true
+				},
+				{
+					"name": "firefox:suffix-lookalike-preserved",
+					"value": true
+				},
+				{
+					"name": "firefox:atomic-batch-rollback",
+					"value": [
+						{
+							"version": "3.54.1"
+						}
+					]
+				},
+				{
+					"name": "firefox:live-connection-busy-across-device-handles",
+					"value": true
+				},
+				{
+					"name": "firefox:closing-busy-and-idempotent-close",
+					"value": true
+				},
+				{
+					"name": "firefox:opening-busy",
+					"value": true
+				},
+				{
+					"name": "firefox:failRemove-main-retry",
+					"value": {
+						"code": "DeleteFailed",
+						"message": "Main removal failed",
+						"failures": [
+							{
+								"path": "fictional.sqlite",
+								"error": {
+									"code": "Remove",
+									"message": "Injected unlink failure: fictional.sqlite"
+								}
+							}
+						],
+						"attempted": []
+					}
+				},
+				{
+					"name": "firefox:failRemove--journal-retry",
+					"value": {
+						"code": "DeleteFailed",
+						"message": "Family cleanup incomplete",
+						"failures": [
+							{
+								"path": "fictional.sqlite-journal",
+								"error": {
+									"code": "Remove",
+									"message": "Injected unlink failure: fictional.sqlite-journal"
+								}
+							},
+							{
+								"path": "fictional.sqlite-journal",
+								"error": {
+									"code": "Remaining"
+								}
+							}
+						],
+						"attempted": [
+							"fictional.sqlite",
+							"fictional.sqlite-wal",
+							"fictional.sqlite-shm"
+						]
+					}
+				},
+				{
+					"name": "firefox:failRemove--wal-retry",
+					"value": {
+						"code": "DeleteFailed",
+						"message": "Family cleanup incomplete",
+						"failures": [
+							{
+								"path": "fictional.sqlite-wal",
+								"error": {
+									"code": "Remove",
+									"message": "Injected unlink failure: fictional.sqlite-wal"
+								}
+							},
+							{
+								"path": "fictional.sqlite-wal",
+								"error": {
+									"code": "Remaining"
+								}
+							}
+						],
+						"attempted": [
+							"fictional.sqlite",
+							"fictional.sqlite-journal",
+							"fictional.sqlite-shm"
+						]
+					}
+				},
+				{
+					"name": "firefox:failRemove--shm-retry",
+					"value": {
+						"code": "DeleteFailed",
+						"message": "Family cleanup incomplete",
+						"failures": [
+							{
+								"path": "fictional.sqlite-shm",
+								"error": {
+									"code": "Remove",
+									"message": "Injected unlink failure: fictional.sqlite-shm"
+								}
+							},
+							{
+								"path": "fictional.sqlite-shm",
+								"error": {
+									"code": "Remaining"
+								}
+							}
+						],
+						"attempted": [
+							"fictional.sqlite",
+							"fictional.sqlite-journal",
+							"fictional.sqlite-wal"
+						]
+					}
+				},
+				{
+					"name": "firefox:failInspect-main-retry",
+					"value": {
+						"code": "DeleteFailed",
+						"message": "Main removal failed",
+						"failures": [
+							{
+								"path": "fictional.sqlite",
+								"error": {
+									"code": "Inspect",
+									"message": "Injected inspection failure: fictional.sqlite"
+								}
+							}
+						],
+						"attempted": []
+					}
+				},
+				{
+					"name": "firefox:failInspect--journal-retry",
+					"value": {
+						"code": "DeleteFailed",
+						"message": "Family cleanup incomplete",
+						"failures": [
+							{
+								"path": "fictional.sqlite-journal",
+								"error": {
+									"code": "Inspect",
+									"message": "Injected inspection failure: fictional.sqlite-journal"
+								}
+							},
+							{
+								"path": "fictional.sqlite-journal",
+								"error": {
+									"code": "Inspect"
+								}
+							}
+						],
+						"attempted": [
+							"fictional.sqlite",
+							"fictional.sqlite-wal",
+							"fictional.sqlite-shm"
+						]
+					}
+				},
+				{
+					"name": "firefox:failInspect--wal-retry",
+					"value": {
+						"code": "DeleteFailed",
+						"message": "Family cleanup incomplete",
+						"failures": [
+							{
+								"path": "fictional.sqlite-wal",
+								"error": {
+									"code": "Inspect",
+									"message": "Injected inspection failure: fictional.sqlite-wal"
+								}
+							},
+							{
+								"path": "fictional.sqlite-wal",
+								"error": {
+									"code": "Inspect"
+								}
+							}
+						],
+						"attempted": [
+							"fictional.sqlite",
+							"fictional.sqlite-journal",
+							"fictional.sqlite-shm"
+						]
+					}
+				},
+				{
+					"name": "firefox:failInspect--shm-retry",
+					"value": {
+						"code": "DeleteFailed",
+						"message": "Family cleanup incomplete",
+						"failures": [
+							{
+								"path": "fictional.sqlite-shm",
+								"error": {
+									"code": "Inspect",
+									"message": "Injected inspection failure: fictional.sqlite-shm"
+								}
+							},
+							{
+								"path": "fictional.sqlite-shm",
+								"error": {
+									"code": "Inspect"
+								}
+							}
+						],
+						"attempted": [
+							"fictional.sqlite",
+							"fictional.sqlite-journal",
+							"fictional.sqlite-wal"
+						]
+					}
+				},
+				{
+					"name": "firefox:directory-preserved-main-false",
+					"value": true
+				},
+				{
+					"name": "firefox:directory-preserved-main-true",
+					"value": true
+				},
+				{
+					"name": "firefox:directory-preserved--journal-false",
+					"value": true
+				},
+				{
+					"name": "firefox:directory-preserved--journal-true",
+					"value": true
+				},
+				{
+					"name": "firefox:directory-preserved--wal-false",
+					"value": true
+				},
+				{
+					"name": "firefox:directory-preserved--wal-true",
+					"value": true
+				},
+				{
+					"name": "firefox:directory-preserved--shm-false",
+					"value": true
+				},
+				{
+					"name": "firefox:directory-preserved--shm-true",
+					"value": true
+				},
+				{
+					"name": "firefox:profile-reopen-and-cleanup",
+					"value": [
+						{
+							"value": "fictional restart"
+						}
+					]
+				},
+				{
+					"name": "firefox:worker-crash-retains-busy-until-page-retirement",
+					"value": true
+				}
+			],
+			"userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:151.0) Gecko/20100101 Firefox/151.0"
+		},
+		{
+			"engine": "webkit",
+			"cases": [
+				{
+					"name": "webkit:delete-admission-refuses-open-and-delete-across-device-handles",
+					"value": true
+				},
+				{
+					"name": "webkit:worker-terminate-page-restart-retry-before-main",
+					"value": {
+						"remaining": [
+							"fictional.sqlite",
+							"fictional.sqlite-journal",
+							"fictional.sqlite-wal",
+							"fictional.sqlite-shm"
+						],
+						"neighborPreserved": true
+					}
+				},
+				{
+					"name": "webkit:worker-terminate-page-restart-retry-after-main",
+					"value": {
+						"remaining": [
+							"fictional.sqlite-journal",
+							"fictional.sqlite-wal",
+							"fictional.sqlite-shm"
+						],
+						"neighborPreserved": true
+					}
+				},
+				{
+					"name": "webkit:worker-terminate-page-restart-retry-after-journal",
+					"value": {
+						"remaining": ["fictional.sqlite-wal", "fictional.sqlite-shm"],
+						"neighborPreserved": true
+					}
+				},
+				{
+					"name": "webkit:worker-terminate-page-restart-retry-after-wal",
+					"value": {
+						"remaining": ["fictional.sqlite-shm"],
+						"neighborPreserved": true
+					}
+				},
+				{
+					"name": "webkit:worker-terminate-page-restart-retry-after-shm",
+					"value": {
+						"remaining": [],
+						"neighborPreserved": true
+					}
+				},
+				{
+					"name": "webkit:interrupted-retry-and-repeated-cleanup-failure",
+					"value": true
+				},
+				{
+					"name": "webkit:suffix-lookalike-preserved",
+					"value": true
+				},
+				{
+					"name": "webkit:atomic-batch-rollback",
+					"value": [
+						{
+							"version": "3.54.1"
+						}
+					]
+				},
+				{
+					"name": "webkit:live-connection-busy-across-device-handles",
+					"value": true
+				},
+				{
+					"name": "webkit:closing-busy-and-idempotent-close",
+					"value": true
+				},
+				{
+					"name": "webkit:opening-busy",
+					"value": true
+				},
+				{
+					"name": "webkit:failRemove-main-retry",
+					"value": {
+						"code": "DeleteFailed",
+						"message": "Main removal failed",
+						"failures": [
+							{
+								"path": "fictional.sqlite",
+								"error": {
+									"code": "Remove",
+									"message": "Injected unlink failure: fictional.sqlite"
+								}
+							}
+						],
+						"attempted": []
+					}
+				},
+				{
+					"name": "webkit:failRemove--journal-retry",
+					"value": {
+						"code": "DeleteFailed",
+						"message": "Family cleanup incomplete",
+						"failures": [
+							{
+								"path": "fictional.sqlite-journal",
+								"error": {
+									"code": "Remove",
+									"message": "Injected unlink failure: fictional.sqlite-journal"
+								}
+							},
+							{
+								"path": "fictional.sqlite-journal",
+								"error": {
+									"code": "Remaining"
+								}
+							}
+						],
+						"attempted": [
+							"fictional.sqlite",
+							"fictional.sqlite-wal",
+							"fictional.sqlite-shm"
+						]
+					}
+				},
+				{
+					"name": "webkit:failRemove--wal-retry",
+					"value": {
+						"code": "DeleteFailed",
+						"message": "Family cleanup incomplete",
+						"failures": [
+							{
+								"path": "fictional.sqlite-wal",
+								"error": {
+									"code": "Remove",
+									"message": "Injected unlink failure: fictional.sqlite-wal"
+								}
+							},
+							{
+								"path": "fictional.sqlite-wal",
+								"error": {
+									"code": "Remaining"
+								}
+							}
+						],
+						"attempted": [
+							"fictional.sqlite",
+							"fictional.sqlite-journal",
+							"fictional.sqlite-shm"
+						]
+					}
+				},
+				{
+					"name": "webkit:failRemove--shm-retry",
+					"value": {
+						"code": "DeleteFailed",
+						"message": "Family cleanup incomplete",
+						"failures": [
+							{
+								"path": "fictional.sqlite-shm",
+								"error": {
+									"code": "Remove",
+									"message": "Injected unlink failure: fictional.sqlite-shm"
+								}
+							},
+							{
+								"path": "fictional.sqlite-shm",
+								"error": {
+									"code": "Remaining"
+								}
+							}
+						],
+						"attempted": [
+							"fictional.sqlite",
+							"fictional.sqlite-journal",
+							"fictional.sqlite-wal"
+						]
+					}
+				},
+				{
+					"name": "webkit:failInspect-main-retry",
+					"value": {
+						"code": "DeleteFailed",
+						"message": "Main removal failed",
+						"failures": [
+							{
+								"path": "fictional.sqlite",
+								"error": {
+									"code": "Inspect",
+									"message": "Injected inspection failure: fictional.sqlite"
+								}
+							}
+						],
+						"attempted": []
+					}
+				},
+				{
+					"name": "webkit:failInspect--journal-retry",
+					"value": {
+						"code": "DeleteFailed",
+						"message": "Family cleanup incomplete",
+						"failures": [
+							{
+								"path": "fictional.sqlite-journal",
+								"error": {
+									"code": "Inspect",
+									"message": "Injected inspection failure: fictional.sqlite-journal"
+								}
+							},
+							{
+								"path": "fictional.sqlite-journal",
+								"error": {
+									"code": "Inspect"
+								}
+							}
+						],
+						"attempted": [
+							"fictional.sqlite",
+							"fictional.sqlite-wal",
+							"fictional.sqlite-shm"
+						]
+					}
+				},
+				{
+					"name": "webkit:failInspect--wal-retry",
+					"value": {
+						"code": "DeleteFailed",
+						"message": "Family cleanup incomplete",
+						"failures": [
+							{
+								"path": "fictional.sqlite-wal",
+								"error": {
+									"code": "Inspect",
+									"message": "Injected inspection failure: fictional.sqlite-wal"
+								}
+							},
+							{
+								"path": "fictional.sqlite-wal",
+								"error": {
+									"code": "Inspect"
+								}
+							}
+						],
+						"attempted": [
+							"fictional.sqlite",
+							"fictional.sqlite-journal",
+							"fictional.sqlite-shm"
+						]
+					}
+				},
+				{
+					"name": "webkit:failInspect--shm-retry",
+					"value": {
+						"code": "DeleteFailed",
+						"message": "Family cleanup incomplete",
+						"failures": [
+							{
+								"path": "fictional.sqlite-shm",
+								"error": {
+									"code": "Inspect",
+									"message": "Injected inspection failure: fictional.sqlite-shm"
+								}
+							},
+							{
+								"path": "fictional.sqlite-shm",
+								"error": {
+									"code": "Inspect"
+								}
+							}
+						],
+						"attempted": [
+							"fictional.sqlite",
+							"fictional.sqlite-journal",
+							"fictional.sqlite-wal"
+						]
+					}
+				},
+				{
+					"name": "webkit:directory-preserved-main-false",
+					"value": true
+				},
+				{
+					"name": "webkit:directory-preserved-main-true",
+					"value": true
+				},
+				{
+					"name": "webkit:directory-preserved--journal-false",
+					"value": true
+				},
+				{
+					"name": "webkit:directory-preserved--journal-true",
+					"value": true
+				},
+				{
+					"name": "webkit:directory-preserved--wal-false",
+					"value": true
+				},
+				{
+					"name": "webkit:directory-preserved--wal-true",
+					"value": true
+				},
+				{
+					"name": "webkit:directory-preserved--shm-false",
+					"value": true
+				},
+				{
+					"name": "webkit:directory-preserved--shm-true",
+					"value": true
+				},
+				{
+					"name": "webkit:profile-reopen-and-cleanup",
+					"value": [
+						{
+							"value": "fictional restart"
+						}
+					]
+				},
+				{
+					"name": "webkit:worker-crash-retains-busy-until-page-retirement",
+					"value": true
+				}
+			],
+			"userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.5 Safari/605.1.15"
+		}
+	],
+	"limitations": [
+		"Native Rust core host, not Tauri invoke/window integration.",
+		"Browser interruption is actual deletion-worker termination, then fresh page and profile reopen; not power loss.",
+		"Known ownership covers one native host or one browser tab; external clients must be quiescent.",
+		"Synthetic reserved companions are fixtures, not proof of WAL replay.",
+		"SQL harness tests rollback and handle lifetime, not the earlier full SQL guard/parity suite."
+	],
+	"passed": true,
+	"finished": "2026-10-22T07:43:58.517Z"
+}

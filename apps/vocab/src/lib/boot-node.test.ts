@@ -1,8 +1,12 @@
 /**
  * Vocab acquisition boundary tests.
- * The working page opens the folder with no sign-in in front of it; callback
- * pages and ancestor layouts open nothing; and no shipped source opens an
- * account-based or device store from `@epicenter/app`.
+ * `src/lib/app.ts` is the one place that opens the store: one folder for
+ * the page's life (`openFolder`), the learner's repository on the web and
+ * the data folder on the desktop. The `(app)` layout renders the pages over
+ * it, or the sign-in while the repository's account is signed out; the
+ * callback page and its ancestor layouts mount no app; and no source opens
+ * a store of its own. What the web's first load carries is
+ * `scripts/first-load.test.ts`'s.
  */
 import { describe, expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';
@@ -28,12 +32,14 @@ function ancestorLayouts(page: string): string[] {
 	return found;
 }
 
-/** Every shipped source file: no tests and no test support. */
+/** Every shipped source file: no tests, test support or test fixtures. */
 async function shippedSources(): Promise<{ path: string; text: string }[]> {
 	const names = await readdir(source, { recursive: true });
 	const files = names.filter(
 		(name) =>
-			/\.(ts|svelte)$/.test(name) && !/\.(test|test-support)\.ts$/.test(name),
+			/\.(ts|svelte)$/.test(name) &&
+			!/\.(test|test-support)\.ts$/.test(name) &&
+			!name.includes('fixtures/'),
 	);
 	return Promise.all(
 		files.map(async (name) => ({
@@ -43,55 +49,49 @@ async function shippedSources(): Promise<{ path: string; text: string }[]> {
 	);
 }
 
-describe('the callback opens nothing', () => {
+describe('the callback mounts no app', () => {
 	test('the callback page exists and has at least one ancestor layout', () => {
 		expect(existsSync(callback)).toBe(true);
 		expect(ancestorLayouts(callback).length).toBeGreaterThan(0);
 	});
 
-	test('callback and ancestor layouts never open the folder or mount the shell', async () => {
+	test('callback and ancestor layouts never open a store of their own or mount the app', async () => {
 		for (const file of [callback, ...ancestorLayouts(callback)]) {
 			const text = await Bun.file(file).text();
-			expect(text).not.toMatch(/openVocabFolder|openFolder\s*\(/);
 			expect(text).not.toMatch(/@epicenter\/folder/);
-			expect(text).not.toContain('VocabShell.svelte');
+			expect(text).not.toMatch(/VocabApp\.svelte|WhenOpen/);
 		}
 	});
 });
 
-describe('the working page needs no account', () => {
-	test('the page opens the folder and mounts the shell with no sign-in gate', async () => {
-		const page = await Bun.file(join(routes, '+page.svelte')).text();
-		expect(page).toContain('openVocabFolder()');
-		expect(page).toContain('<VocabShell ');
-		expect(page).not.toMatch(/AppBoot|SignInScreen|\$lib\/auth/);
+describe('app.ts opens the one store', () => {
+	test('one folder for the page, over the account connectAccount() answers', async () => {
+		const app = await Bun.file(join(source, 'lib/app.ts')).text();
+		expect(app).toMatch(/const signIn = connectAccount\(\{/);
+		expect(app).toMatch(
+			/export const folder = reactive\(\s*openFolder\(vocab, home\(\{ site: APPS\.VOCAB\.url, account: signIn \}\)\),\s*\);/,
+		);
+		expect(app).not.toMatch(/\bawait\b|import\.meta\.hot/);
 	});
 
-	test('the folder opens through the browser entry, with no account in its declaration', async () => {
-		const opener = await Bun.file(join(source, 'lib/folder.ts')).text();
-		expect(opener).toContain("from '@epicenter/folder/browser'");
-		const declaration = await Bun.file(join(source, 'lib/data.ts')).text();
-		expect(declaration).not.toMatch(/accountKey|@epicenter\/auth/);
+	test('the layout asks for a sign-in where the account is required and signed out, and otherwise renders the pages over the folder', async () => {
+		const layout = await Bun.file(join(routes, '(app)/+layout.svelte')).text();
+		expect(layout).toMatch(
+			/\{#if accountPurpose\.required && account\.state\(\)\.status === 'signed-out'\}\s*<SignIn \/>\s*\{:else\}\s*<WhenOpen app="Vocab" \{folder\} \{settings\}>\{@render children\(\)\}<\/WhenOpen>/,
+		);
+		const page = await Bun.file(join(routes, '(app)/+page.svelte')).text();
+		expect(page).toMatch(/<VocabApp \/>/);
 	});
 
-	test('connected endpoints and the chosen model are kept for the device, never for an account', async () => {
-		const files = await shippedSources();
-		expect(
-			files
-				.filter(({ text }) => /openAccountConnectionCatalog/.test(text))
-				.map(({ path }) => path),
-		).toEqual([]);
-		const shell = await Bun.file(
-			join(routes, 'components/VocabShell.svelte'),
-		).text();
-		expect(shell).toContain("createBrowserInferenceSelections('vocab')");
+	test('the contract declares no account', async () => {
+		const contract = await Bun.file(join(source, 'lib/contract.ts')).text();
+		expect(contract).not.toMatch(/accountKey|@epicenter\/auth/);
 	});
 
-	test('no shipped source opens a store: the folder is the only saved data', async () => {
-		const files = await shippedSources();
-		const openers = files
+	test('no source opens a store of its own: app.ts’s folder is the only one', async () => {
+		const openers = (await shippedSources())
 			.filter(({ text }) =>
-				/@epicenter\/app\/(open|store|memory)|\bopenLocal\b|\bopenPersonal\b|PersistenceNotice|fromData\b/.test(
+				/@epicenter\/app\/(open|store|memory)|@epicenter\/folder\/(browser|remote|tauri|memory|node)|\bopenDevice\b|\bopenRemote\b|\bopenDataFolder\b|\bfolderOf\b|desktop-startup|\bopenLocal\b|\bopenPersonal\b|PersistenceNotice|fromData\b/.test(
 					text,
 				),
 			)

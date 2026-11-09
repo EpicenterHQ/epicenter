@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-inputs"
+description = "Enables the inputs command without any pre-configured scope."
+commands.allow = ["inputs"]
+
+[[permission]]
+identifier = "deny-inputs"
+description = "Denies the inputs command without any pre-configured scope."
+commands.deny = ["inputs"]

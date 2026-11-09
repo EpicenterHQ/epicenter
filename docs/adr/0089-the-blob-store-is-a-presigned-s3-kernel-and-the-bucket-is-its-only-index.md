@@ -6,7 +6,7 @@
 
 > **2026-07-02 amendment:** Blob keys now use `principals/<principalId>/blobs/<sha256>`. The bucket-only index and presigned-S3 kernel decision are unchanged.
 
-- **Amended by:** [ADR-0426](0426-copies-create-independent-blobs-at-their-destination.md) at blob identity and physical/HTTP addresses. Local blobs use the fixed `device/no-account` path; copies return fresh BlobIds within separately authorized principal/app namespaces. Historical hash-based and row-owned addresses below do not define this target. Mandatory presigned upload and the fixed 5 GiB ceiling are also withdrawn; implementation must establish and verify its supported transport and payload limits.
+- **Amended by:** [ADR-0426](0426-copies-create-independent-blobs-at-their-destination.md) at blob identity and physical/HTTP addresses. Local blobs used the fixed `device/no-account` path, which nothing builds now because a blob is a file in its folder ([ADR-0544](0544-a-blob-is-a-file-in-its-folder-and-git-decides-how-it-travels.md)); copies return fresh BlobIds within separately authorized principal/app namespaces. Historical hash-based and row-owned addresses below do not define this target. Mandatory presigned upload and the fixed 5 GiB ceiling are also withdrawn; implementation must establish and verify its supported transport and payload limits.
 
 - **Amended by:** [ADR-0427](0427-opening-a-blob-acquires-presentation-without-retaining-a-copy.md) at media delivery: plaintext and a locator alone do not establish authenticated range playback. The mandatory presigned/redirect transport is not retained; encryption ownership is unchanged.
 
@@ -16,6 +16,7 @@ Epicenter needs a home for bytes too large for git or a Yjs doc (media, archives
 
 ## Decision
 
+<!-- doc-path-check: ignore-next-line (deleted by ADR-0577 or ADR-0578) -->
 Blobs live in one S3-compatible bucket under owner-scoped content-addressed keys, `owners/<ownerId>/blobs/<sha256>`, and the bucket is the store's only state. The server (`packages/server/src/s3-blob-store.ts`, `routes/blobs.ts`) mints a presigned single PUT with the base64 checksum and content type pinned into the signature (the client echoes them verbatim; the store rejects bytes that do not match their address), and answers reads with a 302 to a short-TTL presigned GET. There is no blob database, no queue, no confirm endpoint: the object appearing under its hash is the record of a successful upload, and listing is a signed `ListObjectsV2`. Everything is standard SigV4 (`aws4fetch`), so the same code runs against R2, MinIO, Garage, or S3 from a Worker or a Bun process.
 
 ## Consequences

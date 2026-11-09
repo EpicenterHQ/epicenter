@@ -9,15 +9,20 @@ open this website directly and keep ownership of their interrupted work.
 | `/dashboard` | Credits, purchases, plans, and payment management |
 | `/dashboard/usage` | Usage charts, model costs, and activity |
 | `/dashboard/account` | Profile and sign-in methods |
-| `/sign-in` | Hosted sign-in and explicit session issuance |
-| `/session/callback` | Complete this website's sign-in and return to its destination |
+| `/sign-in` | The authorization server's sign-in, which resumes an OAuth authorization or returns to the page that asked |
+| `/consent` | Approve an app's OAuth authorization request |
+| `/device` | Approve a device sign-in code |
 
 Hono owns API and authentication policy. SvelteKit owns browser navigation.
-The authenticated dashboard captures one Account and query cache. Sign-in
+These are the authorization server's own pages, so they hold no access token:
+every request uses its HttpOnly Better Auth session cookie on the same origin
+([ADR-0549](../../../docs/adr/0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md)).
+The authenticated dashboard captures one Account and query cache for the
+person that cookie names, and retires both when it names someone else. Sign-in
 ceremonies remain outside that gate. A page owns its dialogs and redirects;
 leaving it must suppress late effects even when the dashboard Account survives.
 
-Apps use `createAccountManagementUrl` from `@epicenter/auth` to open a destination
+Apps use `createAccountManagementUrl` from `@epicenter/account` to open a destination
 with an expected principal. The website blocks a different signed-in account
 before mounting dashboard consumers. The URL is navigation context, never a
 credential. Sign-in and checkout preserve the intended destination.
@@ -39,34 +44,24 @@ providers, and simulated billing:
 
 ```bash
 bun run --cwd apps/api/ui build
-bun packages/auth/smoke/dashboard.browser.mjs
+bun packages/account/smoke/dashboard.browser.mjs
 ```
 
 The smoke uses Chromium, in-memory Better Auth data, and local billing endpoints.
 Google, GitHub, and Microsoft open a clearly labeled local identity chooser.
-Only the upstream provider is simulated: Better Auth still checks callback state,
-creates sessions, and completes the app handoff. No real provider credentials are
-used. This also lets you sign back in after signing out of the demo.
+Only the upstream provider is simulated: Better Auth still checks callback state
+and creates the session cookie. No real provider credentials are used. This
+also lets you sign back in after signing out of the demo.
 Manage billing opens an explicitly simulated portal with a return link. It does
 not show real invoices or payment methods, and makes no provider or production
 payment calls. To inspect the fixture manually:
 
 ```bash
-DASHBOARD_FIXTURE_ONLY=1 bun packages/auth/smoke/dashboard.browser.mjs
+DASHBOARD_FIXTURE_ONLY=1 bun packages/account/smoke/dashboard.browser.mjs
 ```
 
 Open the printed login URL, then `/dashboard`, and continue as the seeded account.
 You can also choose a social provider and select a test identity in its simulator.
-To also test the shared app menu opening Account settings on a separate origin:
-
-```bash
-ACCOUNT_POPOVER_SMOKE=1 bun packages/auth/smoke/dashboard.browser.mjs
-```
-
-This mounts the real shared menu and hosted auth client with an editable draft,
-then checks sign-in, account mismatch refusal, and preservation of the draft.
-It does not start an application's data store. Add `DASHBOARD_FIXTURE_ONLY=1`
-to keep both websites open for manual inspection.
 
 The production build emits `build/fallback.html`; Hono serves that shell for
 browser routes while retaining its API endpoints.

@@ -15,7 +15,7 @@ require the application to adopt Codex's conversation storage or require every
 backend to emulate the OpenAI HTTP protocol.
 
 Epicenter already separates resource acquisition from application workflows.
-[`@epicenter/app/ai`](../../packages/app/src/ai.ts) exports
+[`@epicenter/app/ai`](../../packages/ai/src/ai.ts) exports
 `openEndpointInference`, `openEpicenterInference`, and `openRuntimeTranscriber`.
 Endpoint and hosted handles expose an OpenAI `client`, a lifetime `signal`,
 and `close()`. The runtime transcriber has its own capability contract.

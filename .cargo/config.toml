@@ -1,0 +1,11 @@
+# Cargo reads this for every build run from inside the repository.
+
+[env]
+# libopus (through `audiopus_sys`, for the recorder's encoder and the
+# transcription decoder) is built from the source the crate bundles, 1.3.1,
+# so every machine ships the same encoder: without this, `pkg-config` finds
+# whatever a package manager installed (Homebrew's, for one) and links that.
+OPUS_NO_PKG = "1"
+# The bundled libopus's CMakeLists asks for a CMake older than CMake 4
+# accepts; this lets CMake 4 configure it.
+CMAKE_POLICY_VERSION_MINIMUM = "3.5"

@@ -1,97 +1,50 @@
 # Service Organization And Platform Variants
 
-This reference covers Whispering's build-time service seam and the shared
-service barrel.
+This reference covers where an app's services live and how each surface
+gets its own implementation.
 
-## One Stable Import
+## One build, the package picks
 
-For a capability with browser and Tauri implementations, keep a shared contract
-and two implementation files:
+An app has one build (ADR-0781). It makes every capability once, in
+`src/lib/app.ts`, and passes each service what it decides. A capability
+package that owns a browser and a desktop implementation picks one when the
+page runs: presence with `isTauri()` when its module loads, the desktop code
+with `import()` when it first acts.
 
-```txt
-services/text/
-|-- types.ts
-|-- index.browser.ts
-`-- index.tauri.ts
+```ts
+// @epicenter/recorder: src/index.ts
+const shell = () => import('./tauri.js').then((module) => module.recorder);
+export const recorder: Recorder = isTauri() ? shellRecorder : pageRecorder;
 ```
 
-Map one bare specifier in `apps/whispering/package.json`:
+Each implementation exports the same declared shape, so a consumer sees one
+contract wherever the page runs. A capability only one surface has is `null`
+on the other (`localSpeech()` in a browser), and the view that uses it is a
+branch on its presence (`{#if speech}`).
 
-```jsonc
-"#platform/text": {
-  "epicenter-host": "./src/lib/services/text/index.tauri.ts",
-  "default": "./src/lib/services/text/index.browser.ts"
-}
-```
+## A capability that keeps a key
 
-Shared consumers import one name:
+`customEndpoints()` from `@epicenter/ai` keeps the endpoint list in
+`connections.md` in this computer's settings (`@epicenter/local`) on every
+surface. Where the key goes is `connection-keys.ts`'s choice: in a browser
+it is kept in `connection-keys.json` beside the list; in a Tauri window it
+is handed to the shell, which keeps it in the app's `credentials.json` under
+the connection's id and applies it only while the connection still names
+the endpoint it was saved for.
 
-```typescript
-import { TextServiceLive } from '#platform/text';
-```
+## Desktop services and the shared crates
 
-The web bundle resolves `default`; the Epicenter host build activates the
-`epicenter-host` condition. Do not add a runtime `window.__TAURI_INTERNALS__` branch or a
-second platform registry in an app service. Proposed ADR-0403 would move
-`@epicenter/app` selection inside the package; current code still uses build
-conditions.
+A standalone desktop app's shell is `epicenter-standalone` plus
+`epicenter-account`. A desktop implementation uses what they expose and
+adds nothing that holds a credential in the page:
 
-Each implementation exports the same name and checks the shared contract:
+| Need | The desktop implementation uses |
+| --- | --- |
+| A secret (API key, connection) | `connectionKey` in `@epicenter/ai`'s `tauri.ts`, kept in the shell's `credentials.json` |
+| A request with the person's account | `account.fetch` from `createTauriAuth`, relayed by `account_fetch` |
+| A request to a custom endpoint or a server on this computer | `connection_fetch` (`shellFetch` with no key) |
+| A native command over the data folder | the root's name (`'Data'`), which the shell resolves |
 
-```typescript
-export const TextServiceLive = {
-	writeToCursor,
-	simulateEnterKeystroke,
-	simulateCopyKeystroke,
-} satisfies TextService;
-```
-
-Plain clipboard text is not a Whispering service. It is the shared `clipboard`
-from `@epicenter/app/clipboard`, a device module selected by the same build
-condition inside that package. Check `package.json#imports` for the current
-seam list when adding or moving a service.
-
-## Tauri-Only Capability
-
-When no meaningful browser implementation exists, use `#platform/tauri`. It
-resolves to the capability namespace on Tauri and `null` on the browser. Narrow
-once in shared code:
-
-```typescript
-import { tauri } from '#platform/tauri';
-
-if (tauri) {
-	await tauri.mainWindow.focus();
-}
-```
-
-Inside an already gated `.tauri.ts` file, import `tauriOnly` directly from
-`$lib/tauri.tauri`.
-
-## Shared Service Barrel
-
-`apps/whispering/src/lib/services/index.ts` aggregates cross-platform
-capabilities after their platform imports resolve:
-
-```typescript
-import { AnalyticsServiceLive } from '#platform/analytics';
-import {
-	BlobsLive,
-	BlobSourcesLive,
-} from '#platform/blobs';
-import { DownloadServiceLive } from '#platform/download';
-import { TextServiceLive } from '#platform/text';
-
-export const services = {
-	analytics: AnalyticsServiceLive,
-	text: TextServiceLive,
-	blobs: BlobsLive,
-	blobSources: BlobSourcesLive,
-	download: DownloadServiceLive,
-	localShortcutManager: LocalShortcutManagerLive,
-	sound: PlaySoundServiceLive,
-} as const;
-```
-
-The barrel is not a provider registry. Runtime-selected transcription providers
-remain directly imported by the operation that owns provider dispatch.
+The browser's equivalents are this computer's settings (`localStorage`),
+browser OAuth's `account.fetch`, and `fetch` (which needs the endpoint's
+CORS rule).

@@ -50,7 +50,8 @@ The implementation must prove that enrollment authorization is consumed once and
 cannot enroll a credential for a different user. The existing Cloud schema's
 required email is not a reason to fabricate addresses for passkey users.
 
-The [execution plan](../../specs/20260909T004225-library-ownership-execution.md)
+<!-- doc-path-check: ignore-next-line -->
+The execution plan (`specs/20260909T004225-library-ownership-execution.md`, deleted; recover via `git log --all --full-history`)
 tracks Worker-first verification, subsequent Bun adapters, and access-removal
 bounds. This decision selects neither the auth database nor an operator UI.
 

@@ -1,0 +1,100 @@
+{
+	"cases": [
+		{
+			"identifier": "so.epicenter.whispering",
+			"environment": "production",
+			"host": "whispering.epicenter.so",
+			"folder": "whispering",
+			"appData": "so.epicenter.whispering"
+		},
+		{
+			"identifier": "so.epicenter.whispering.dev",
+			"environment": "development",
+			"host": "whispering.epicenter.so",
+			"folder": "whispering",
+			"appData": "so.epicenter.whispering.dev"
+		},
+		{
+			"identifier": "com.bradenwong.zhongwen",
+			"environment": "production",
+			"host": "zhongwen.bradenwong.com",
+			"folder": "bradenwong.com/zhongwen",
+			"appData": "com.bradenwong.zhongwen"
+		},
+		{
+			"identifier": "com.bradenwong.zhongwen.dev",
+			"environment": "development",
+			"host": "zhongwen.bradenwong.com",
+			"folder": "bradenwong.com/zhongwen",
+			"appData": "com.bradenwong.zhongwen.dev"
+		},
+		{
+			"identifier": "so.epicenter.app.notes",
+			"environment": "production",
+			"host": "notes.app.epicenter.so",
+			"folder": "app.epicenter.so/notes",
+			"appData": "so.epicenter.app.notes"
+		},
+		{
+			"identifier": "com.example.dev",
+			"environment": "production",
+			"host": "dev.example.com",
+			"folder": "example.com/dev",
+			"appData": "com.example.dev"
+		},
+		{
+			"identifier": "com.example.dev.dev",
+			"environment": "development",
+			"host": "dev.example.com",
+			"folder": "example.com/dev",
+			"appData": "com.example.dev.dev"
+		}
+	],
+	"refused": [
+		{
+			"identifier": "com.example",
+			"environment": "production",
+			"error": "bareDomain"
+		},
+		{
+			"identifier": "com.example.notes",
+			"environment": "development",
+			"error": "notDevelopmentIdentifier"
+		},
+		{
+			"identifier": "com..notes",
+			"environment": "production",
+			"error": "invalidIdentifier"
+		},
+		{
+			"identifier": "com.Example.notes",
+			"environment": "production",
+			"error": "invalidIdentifier"
+		},
+		{
+			"identifier": "com.example.-notes",
+			"environment": "production",
+			"error": "invalidIdentifier"
+		},
+		{
+			"identifier": "com.example.notes-",
+			"environment": "production",
+			"error": "invalidIdentifier"
+		},
+		{
+			"identifier": "com.example.con",
+			"environment": "production",
+			"error": "reservedLabel"
+		},
+		{
+			"identifier": "com.con.notes",
+			"environment": "production",
+			"error": "reservedLabel"
+		},
+		{
+			"identifier": "com.example.lpt9",
+			"environment": "production",
+			"error": "reservedLabel"
+		}
+	]
+}

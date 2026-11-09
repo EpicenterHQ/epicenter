@@ -5,9 +5,12 @@
 	"version": "0.1.1",
 	"type": "module",
 	"exports": {
-		".": "./src/index.ts"
+		".": "./src/index.ts",
+		"./app-urls": "./src/app-urls.ts",
+		"./module-graph": "./src/module-graph.ts"
 	},
 	"dependencies": {
+		"@epicenter/definition": "workspace:*",
 		"@sveltejs/kit": "catalog:",
 		"@tailwindcss/vite": "catalog:",
 		"vite": "catalog:"

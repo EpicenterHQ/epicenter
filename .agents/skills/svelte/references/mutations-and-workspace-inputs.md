@@ -1,6 +1,6 @@
 # Svelte Mutations And Workspace Inputs
 
-Detailed Svelte guidance for TanStack Query mutation placement, inline template actions, and commit-on-blur workspace field editing.
+Detailed Svelte guidance for TanStack Query mutation placement, inline template actions, and commit-on-blur field editing.
 
 # Mutation Patterns
 
@@ -66,13 +66,15 @@ For component-local operation lifecycle, wrap the function locally:
 	import { createMutation } from '@tanstack/svelte-query';
 	import { resultMutationOptions } from 'wellcrafted/query';
 	import { exportRecordingsMarkdown } from '$lib/whispering/recordings-markdown-export';
-	import { local } from '$lib/whispering/local';
+	import { getWhisperingApp } from '$lib/whispering/context';
 	import { report } from '$lib/report';
+
+	const app = getWhisperingApp();
 
 	const exportMarkdown = createMutation(() =>
 		resultMutationOptions({
 			mutationKey: ['recordings', 'exportMarkdown'],
-			mutationFn: () => exportRecordingsMarkdown(local),
+			mutationFn: () => exportRecordingsMarkdown(app),
 		}),
 	);
 </script>
@@ -133,18 +135,20 @@ observe `isPending`. Wrap the operation locally:
 	import { createMutation } from '@tanstack/svelte-query';
 	import { resultMutationOptions } from 'wellcrafted/query';
 	import { exportRecordingsMarkdown } from '$lib/whispering/recordings-markdown-export';
-	import { local } from '$lib/whispering/local';
+	import { getWhisperingApp } from '$lib/whispering/context';
+
+	const app = getWhisperingApp();
 
 	const exportRecordings = createMutation(() =>
 		resultMutationOptions({
 			mutationKey: ['recordings', 'export'],
-			mutationFn: () => exportRecordingsMarkdown(local),
+			mutationFn: () => exportRecordingsMarkdown(app),
 		}),
 	);
 </script>
 ```
 
-Whispering error presentation goes through `$lib/report` at the interaction
+Whispering error presentation goes through `$lib/report` at the UI or operation
 boundary:
 
 ```typescript
@@ -171,15 +175,9 @@ if (error !== null) {
 In `.svelte` files, direct `await` is still appropriate when the template does not read pending, success, or error state:
 
 ```svelte
-<script lang="ts">
-	import { clipboard } from '@epicenter/app/clipboard';
-	import { toastOnError } from '@epicenter/ui/sonner';
-</script>
-
 <Button
 	onclick={async () => {
-		const { error } = await clipboard.writeText(value);
-		if (error !== null) toastOnError(error, 'Could not copy');
+		await navigator.clipboard.writeText(value);
 	}}
 >
 	Copy
@@ -190,18 +188,15 @@ If the next edit adds `disabled={isCopying}`, a spinner, or loading text, promot
 
 For when a single-use handler should be inlined at its call site versus kept as a named function, see "Single-Use Functions And Aliases" in [component and UI patterns](component-ui-patterns.md).
 
-# Commit-on-Blur for Workspace String Fields
+# Commit-on-Blur for Fields Submitted on Blur
 
-This section describes existing Y.Map-backed value fields. It does not govern
-Folder row editors: their immediate setters own accepted input and publication.
+This section is for a field whose blur is its submission, such as
+Honeycrisp's folder rename (`FolderNav.svelte`, which also commits on Enter).
+It does not govern note editors: a note's `edit` saves as the person types and
+owns accepted input.
+
 An onblur commit is an explicit submission event with the DOM holding unfinished
 input. See [immediate editing and explicit submission](input-ownership.md).
-
-For plain string fields backed by a workspace table or Y.Map row (title, subtitle, name, description, license, label), **commit on `onblur`, not `oninput`**. Per-keystroke writes turn one typing session into N Yjs transactions, N IDB writes, N sync messages, and N BroadcastChannel posts. Commit-on-blur collapses that to one.
-
-The pattern has two halves: the **per-input handler** and the **app-wide safety net**. Both are required: the safety net is what makes commit-on-blur survive Cmd+W mid-edit.
-
-## The handler
 
 ```svelte
 <input
@@ -214,64 +209,20 @@ The pattern has two halves: the **per-input handler** and the **app-wide safety 
 />
 ```
 
-The compare-then-write guard avoids a no-op Yjs transaction when focus passes through an unchanged field. For factories that update many fields, extract a small `commit(field, next)` helper that does the compare internally.
+The compare-then-write guard avoids a write when focus passes through an
+unchanged field. For factories that update many fields, extract a small
+`commit(field, next)` helper that does the compare internally.
 
-## The safety net (app-wide, in `+layout.svelte`)
-
-Render `FlushEditsOnHide` from `@epicenter/svelte` once in the root layout
-(ADR-0110):
-
-```svelte
-<script lang="ts">
-  import { FlushEditsOnHide } from '@epicenter/svelte';
-</script>
-
-<FlushEditsOnHide />
-```
-
-When the page is being hidden (tab close, Cmd+W, tab switch, window minimize, iOS app-switch, bfcache), the component force-blurs the focused element; `.blur()` synchronously dispatches its blur event, which synchronously runs your commit handler, which synchronously updates the Y.Doc: all before the page tears down. One line in one place, and every `<input onblur>` in the app inherits the resilience.
-
-The guarantee is only as synchronous as the handler. A blur handler that defers its write (`requestAnimationFrame`, `setTimeout`, an `await` before the write) escapes the net: rAF callbacks never run while the document is hidden, and teardown outruns timers. If a handler needs a deferred path for a visible-page focus dance (the tree rename inputs wait one frame so a closing context menu does not cancel the edit), branch on `document.visibilityState === 'hidden'` and commit synchronously in that branch.
-
-Do not hand-roll the two listeners per app: `visibilitychange` is a document event and `pagehide` is a window event, and putting either on the wrong special element typechecks loosely and never fires. The component owns that split (see `packages/svelte/src/flush-edits-on-hide.svelte`).
-
-## The default for new apps
-
-An app ships `<FlushEditsOnHide />` in `+layout.svelte` as soon as it has its first commit-on-blur durable field; an app with none (Todos today) skips it. Once installed it is free, like `<Toaster />` or `<ModeWatcher />`: a layout-level concern with nothing to configure.
+A blur handler that defers its write (`requestAnimationFrame`, `setTimeout`,
+an `await` before the write) can miss a page that is closing: rAF callbacks
+never run while the document is hidden, and teardown outruns timers. Write
+synchronously in the handler.
 
 ## When NOT to use commit-on-blur
 
 | Field type | Pattern |
 |---|---|
-| Plain string Y.Map field (title, subtitle, name, description, license) | **commit-on-blur** |
-| Y.Text bound through y-prosemirror / y-codemirror / tiptap | per-keystroke (CRDT operates at character level) |
+| A note's fields | the note's editor (`edit`), which saves as the person types |
 | Discrete selectors (radio, checkbox, datepicker, tag pickers) | inline event handler: already one event per action |
 | Search box / filter that doesn't persist | local `$state` only, no commit |
 | Component-local form state submitted on a button click | accumulate in `$state`, commit in the click handler |
-
-For Y.Text fields you specifically want every keystroke to participate in operational transform: commit-on-blur defeats the point of the CRDT.
-
-## Defensive variant: local state + focus flag
-
-If a sibling tab editing the same row could clobber in-progress typing (rare in personal apps), reach for a local-state buffer with a focus flag: but only if the clobber actually shows up:
-
-```svelte
-<script lang="ts">
-  let localTitle = $state(entry.title);
-  let editing = $state(false);
-  $effect(() => { if (!editing) localTitle = entry.title; });
-</script>
-
-<input
-  bind:value={localTitle}
-  onfocus={() => (editing = true)}
-  onblur={() => {
-    editing = false;
-    if (localTitle !== entry.title) commit(localTitle);
-  }}
-/>
-```
-
-For true conflict-free text editing across tabs, switch the field to Y.Text + a CRDT-aware editor binding instead.
-
-See `docs/articles/commit-on-blur-survives-tab-close.md` for the full rationale, persistence-layer reliability table, and the page-lifecycle guarantees behind the safety net.

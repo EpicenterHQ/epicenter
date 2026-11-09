@@ -1,542 +1,404 @@
 # tauri-plugin-epicenter-folder
 
-One native owner per folder, shared by every window of a Tauri shell.
+The desktop shell's side of an Epicenter folder: the roots an app reaches,
+which the shell names at startup, and the app's folder storage over them,
+one command per storage method, under checks the page cannot get around. It
+runs no Git, and neither does anything else on a computer: a folder's history is
+its log on the server, which sync commits to from TypeScript
+([ADR-0804](../../docs/adr/0804-a-computer-keeps-a-plain-folder-and-every-surface-syncs-with-one-typescript-function.md)).
 
-A shell registers a directory under a scope ID and names the windows that may
-use it. The Rust owner publishes files, records Git history when the folder is
-free, and tells every attached window what changed. A page names the scope and nothing else: it
-never supplies a root, an author, a remote, or a commit policy.
+The page opens the folder itself, with `@epicenter/folder`'s engine
+([ADR-0531](../../docs/adr/0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md)).
+It names a root, such as `Data` or `AppData`, never a path, and holds no
+absolute path but the one `open_root` answers for it to show
+([ADR-0725](../../docs/adr/0725-an-app-reaches-named-roots-through-one-command-per-storage-operation.md)).
 
 ## Layout
 
 | Path | What it is |
 | --- | --- |
-| `core/` | `epicenter-folder-core`: the owner, the registry, and the cross-process lock. No Tauri; its tests need only `git` and `bun`. |
-| `src/` | The Tauri plugin: commands, events, sessions. |
-| `../folder/src/native/bindings.gen.ts` | TypeScript commands, events, and types, generated from the Rust plugin into `@epicenter/folder`, whose desktop adapter is their only user. Do not edit. |
-| `fixtures/commit-subjects.txt` | Commit subject vectors shared by the Rust port and `commitSubject` in `@epicenter/folder`. |
+| `core/` | `epicenter-folder-core`: the canonical directory value (`directory.rs`), the shared path rule and hidden-path rule (`paths.rs`), the reserved names of a write in progress and `.epicenter` (`state.rs`), what opening a folder clears (`sweep.rs`), a directory's identity (`identity.rs`), the page's storage (`storage.rs`), and which directories may be set up for sync (`admission.rs`). No Tauri. |
+| `src/` | The Tauri plugin: the named roots and their watches (`roots.rs`), and the commands over them. |
+| `../folder/src/native/bindings.gen.ts` | TypeScript commands and types, generated from the plugin into `@epicenter/folder`, whose desktop opener is their only user. `read_folder_file` and `put_folder_file` are not in them (see Storage). Do not edit. |
+| `fixtures/path-rules.json` | The paths the shared path rule refuses and allows, and which are hidden. `core/src/paths.rs` and `paths.test.ts` in `@epicenter/folder` both read it. |
+| `fixtures/reserved-names.json` | The names a write in progress takes beside its target (`.ep-<random>.save`, `.ep-<random>-<base>.recording`), names that are not reserved, how a recording's name reads back to its final path, and the legacy `.epicenter`. `core/src/state.rs` and `@epicenter/folder` both read it. |
+| `fixtures/reserved-directories.json` | Canonical paths no folder can be at, because a segment is `.git` or `.epicenter` in any case, and paths that may be folders. `core/src/admission.rs` and `admission.test.ts` in the CLI both read it. |
+| `core/src/storage_outcomes.json` | Storage calls and what each answers, which `core/src/storage_tests.rs` runs over the shell's storage. Only the shell answers these edge cases; the Bun store in `@epicenter/folder` is a plain store. |
+
+The files in `fixtures/` are the rules both languages decide by, so each is
+read by a Rust test and a TypeScript test.
 
 This crate has no JavaScript package of its own. A page reaches it through
 `@epicenter/folder` (or `@epicenter/folder/tauri`).
 
-## Registering folders in a shell
+## Naming roots
 
-Install the plugin once. Register each folder from trusted Rust code after the
-shell has resolved its paths, which is in `setup`, not before:
+Install the folder plugin once, then name each root at startup with its
+path and the rule that refuses a location it must never be:
 
 ```rust
-use tauri_plugin_epicenter_folder::{Author, FolderConfig, FolderExt, ScopeConfig};
+use tauri::Manager;
+use tauri_plugin_epicenter_folder::{Root, RootsExt};
 
 tauri::Builder::default()
     .plugin(tauri_plugin_epicenter_folder::init())
     .setup(|app| {
-        let todos = resolve_todos_directory(app)?;
-        app.folders().register(ScopeConfig {
-            scope: "so.epicenter.todos".into(),
-            folder: FolderConfig {
-                // Keep the identity and the `origin` a person already
-                // configured in this directory; `author` is the fallback.
-                use_repository_author: true,
-                use_repository_origin: true,
-                ..FolderConfig::new(
-                    todos,
-                    Author { name: "Todos".into(), email: "todos@localhost".into() },
-                )
-            },
-            windows: vec!["todos".into()],
-        })?;
+        let roots = app.roots();
+        roots.name(Root::AppData, app.path().app_data_dir()?, |_| None);
+        roots.name(Root::Data, data_folder, |location| refusal(location));
         Ok(())
     })
 ```
 
-Grant the windows the plugin's commands in a capability:
+The apps on [`epicenter-standalone`](../tauri-epicenter-standalone/README.md)
+(Capture, Honeycrisp, Todos, Vocab, Whispering) name their AppData root and
+their data folder, `<Epicenter folder>/<site-derived path>`, this way (the
+Epicenter folder is `~/Epicenter`, ADR-0816; the Rust code and its comments
+still call it the library root). Their pages open the named Data root after the
+window opens; that crate holds the one refusal (the home folder, a folder
+holding it, or the Epicenter folder itself).
+Nothing is granted: a capability lets a window call the plugin, and the
+roots are the app's, so every window of the app reaches the same ones.
 
-```json
-{ "windows": ["todos"], "permissions": ["epicenter-folder:default"] }
+The Epicenter app names no Data root: it names the Epicenter folder
+(`roots.name_epicenter(path, refusal)`, ADR-0813), and every real directory
+directly inside it is a root of its own, `Root::Folder(name)` (`{ Folder:
+name }` to a page, `Folder/<name>` in a raw request's `root` header). The
+page lists them with `list_epicenter`: the Epicenter folder's path, whether
+it is itself a Git repository (`git`), each folder (hidden names skipped)
+with its identity and whether Git keeps it (`git`: `.git` at its own root,
+one look, nothing above it; Epicenter never syncs a Git working tree), and
+each link there as `outside`, with its target (ADR-0825). It makes one with
+`make_epicenter_folder`. Opening a folder root never makes the folder and
+refuses a link at its path; its location may not be inside `.git` or
+`.epicenter`, besides the shell's own refusal.
+ Both commands are the
+`epicenter-folder:epicenter` permission set, not the default one; a shell
+that named no Epicenter folder answers `NotNamed`. The page's side is
+`epicenterRoot()` from `@epicenter/folder/tauri`.
+
+The Epicenter folder keeps its own records at its root, `.epicenter/`
+(ADR-0822): `synced/<folder-id>.json`, one per synced folder, and
+`hashes/<key>.json`, caches named by identity. That directory is
+`Root::Epicenter` (`"Epicenter"` to a page and in a raw request's `root`
+header), which exists only where the shell named the Epicenter folder; the
+page reads and writes it with the ordinary storage commands, and its first
+open makes it. It is refused only when it is a link: the rule for a
+folder's location is not asked, since it is not a folder.
+
+A directory's identity is its inode and birth time
+(`identity::FolderIdentity`, `{ inode, birthtime }`, each a decimal
+string, `birthtime` null where the file system records none), never its
+device number, which changes when a drive remounts. `birthtime` is
+nanoseconds since the Unix epoch, as Node's `birthtimeNs` reads it. Two
+identities prove one directory only with the same inode and the same real
+birth time (`identity::proves`). `root_identity(root)` answers an open
+root's identity, and `data_record()` the record in the Epicenter folder's
+`synced/` that proves the open Data root, or null; a standalone shell names
+that folder with `roots.name_library(path)`, which makes none of its
+directories roots. Both are read-only and in the default set.
+`roots.on_open(listener)` tells a shell each root that opens, which a
+standalone shell uses to remember its Data root's identity
+(`epicenter-standalone`).
+
+A shell gives its window the plugin's commands in a capability:
+`{ "windows": ["todos:*"], "permissions": ["epicenter-folder:default", "core:event:allow-listen", "core:event:allow-unlisten"] }`.
+It grants no `fs` command and names no folder.
+
+`admission::check_sync_directory`, written for the retired setup flow in which
+Epicenter set a directory up for sync (nothing in the TypeScript model calls it
+now), refuses a directory when any segment of its canonical path
+is `.git` or `.epicenter` (`state::DIRECTORY`), in any case
+(`admission::is_reserved_directory`): those belong to Git and to Epicenter's
+own records. Any other hidden directory, `~/.notes` among them,
+may be a folder. It also refuses a directory inside, equal to, or holding
+application data, and the Epicenter folder or a directory holding it.
+Containment compares canonical paths and directory identity, so a linked
+parent or another spelling of a protected directory is no route around it.
+`Directory` is the canonical directory value both use. What `.git` is, if
+anything, does not matter to storage, as it does not to the Bun host
+(`nodeStore` in `@epicenter/folder/node`): a directory with no `.git`, with a `.git` file or
+link (a linked worktree or submodule), or with a repository opens and saves
+alike, and the shell never changes `.git`. A computer runs no Git, so nothing
+here depends on it.
+
+## Opening
+
+The page's `@epicenter/folder` adapter listens for `folder-changed` before it
+calls `open_root(root)`. Whatever is at the root's path is the app's
+([ADR-0726](../../docs/adr/0726-an-apps-path-is-its-claim.md)):
+
+1. `Disconnected { folder, target }` when the path, or a folder above it,
+   is a link whose target is not there, as on a drive that is not
+   connected. Nothing is made.
+2. `Refused { folder, reason }` when the location the path resolves to is
+   one the shell's rule refuses, asked before anything is made and again
+   once the folder is there.
+3. The folder is made, with its parents, when nothing is there; a file
+   there is `Unavailable`.
+
+A link at the path is followed when the root opens, and the root works in
+the folder it reached until it opens again. Each call looks again, so Retry
+finds a folder that came back. A root the shell did not name is
+`NotNamed`, and after shutdown the answer is `ShuttingDown`. `open_root`
+answers the path the shell named the root at, as a person reads it
+(`/Users/me/Epicenter/whispering`, not where a link there leads). The page
+shows this path; storage commands still take only a root name and relative path.
+
+Opening starts one recursive watch per root. Changes are app events carrying
+`{ root, paths }`, so every page listening for that root hears them. A page
+reloads and drops its JavaScript listener. Watch setup failure is
+`Unavailable`.
+
+A window closes like any other window: nothing waits for its page. A write
+still out then is lost, a small, rare loss at the edge (ADR-0702's test for
+every protection); what landed is in the folder.
+
+Every open also clears what a stopped writer left (`sweep::sweep`). It
+walks the whole root, following no link and skipping `.git`, and removes
+each regular file named as a staged save (`.ep-<random>.save`) last changed
+more than an hour ago; a younger one may belong to a save still running in
+another process. It never touches a recording in progress, which its
+recorder recovers, nor any other hidden file. In a folder an older build
+wrote, it then clears that build's `.epicenter`: stale files in `saves/`
+go, each recording in `recordings/` over an hour old moves beside its final
+path under a recording's reserved name, empty directories there go, and
+`.epicenter` goes once it is empty. A recording, `synced.json`, and
+`hashes.json` are never deleted: the page reads the last two with
+`read_folder_file`, writes its record, and removes them with
+`put_folder_file`, and the next open removes the empty `.epicenter`.
+
+Each command clones the root's `Directory` when it arrives and works in that
+folder until it ends, so nothing that happens meanwhile redirects work
+already admitted. Several pages, or other programs, may write one folder:
+each save is checked against the version its page read right before its
+rename (see Storage), and a save another writer overtook is answered
+`stale`; the page reads again and merges. Within the app's process, puts of
+one path take turns from the check to the rename, so of two saves over one
+version exactly one lands. Across processes no lock spans the check and the
+rename; the next sync's versioned writes are the backstop
+([ADR-0702](../../docs/adr/0702-a-data-folders-unfinished-writes-wait-in-epicenter-outside-its-data.md)).
+
+## Storage
+
+A page's folder storage (`Store` in `@epicenter/folder`'s
+`device/store.ts`, four verbs, through `device/tauri-store.ts`) is these
+commands, each one IPC call
+([ADR-0581](../../docs/adr/0581-a-desktop-pages-folder-storage-is-one-shell-command-per-storage-method.md),
+[ADR-0779](../../docs/adr/0779-a-store-is-four-verbs-and-a-browser-recording-lands-whole.md)):
+
+| Method | Command | Answers |
+| --- | --- | --- |
+| `list(under)` | `list_folder(root, under)` | `{ path, version, size }[]`, every file at or below each of `under`, `.git` and an older build's `.epicenter` at the root aside, and never a reserved name; other hidden files are listed for the reader to skip |
+| `read(paths)` | `read_folder_file(root, path)`, once per path | the stamp, a zero byte, then the file bytes, raw |
+| `write(path, bytes, over)` | `put_folder_file`, raw body and headers | `{ landed: stamp }` or `"stale"` |
+| `watch(changed)` | none: the root's watch, which `open_root` started | the `folder-changed` events for the root |
+
+A storage command answers a `FolderError`: a `RootError` when its root
+cannot be used, and a `StorageError` (below) when the operation refuses or
+fails; the two never share a `name`. A root whose path, or a folder above
+it, is a link whose target is gone is `Disconnected { folder, target }`,
+whether it never opened (as after a startup that found the drive gone) or
+the drive went away after it did. A root the app has not opened is
+`NotOpen`, one the shell did not name `NotNamed`, and any command after
+shutdown `ShuttingDown`. None of them changes anything.
+
+Paths are folder-relative with `/`, and must pass the shared path rule
+(`paths::path_problem`, the same rule as `pathProblem` in
+`@epicenter/folder`). The rule refuses an alias of `.git` in any segment (any
+case, trailing dots and spaces, ignorable code points, `git~1`), `HEAD`, and
+names that do not survive every desktop file system: a trailing dot or
+space, a Windows device name, a Windows short name such as `GIT~1`, a
+reserved or control character. Leading dots are ordinary. The shell keeps no
+list of a folder's files; which data paths a folder has is the page's
+business. `.git` at the root is never listed and never named.
+
+`storage.rs` is the strict folder host. It resolves every path literally,
+as its vectors (`core/src/storage_outcomes.json`) show:
+
+- No link is followed. A path through a link, or naming one, is
+  `InvalidPath`; a listing reports a link as a file.
+- A name stored under another spelling, which a disk that ignores case or
+  Unicode normalization would reach (`plan.md` for `Plan.md`), is another
+  entry: a read finds nothing there (`NotFound`), and a put is
+  `InvalidPath`. On macOS and
+  Windows the stored spelling comes from resolving the path; elsewhere from
+  listing each parent.
+- A file where a directory should be is `NotADirectory` naming it, and a
+  directory where a file should be is `NotAFile`.
+- `credentials.json` at the top of the AppData root is the shell's own: the
+  refresh token and provider keys
+  [`epicenter-account`](../tauri-epicenter-account/README.md) keeps
+  (ADR-0740). So is `data-folder.json` there, the identity of the folder a
+  standalone shell opens as Data, which a page that wrote it could point
+  elsewhere. A listing leaves both out, and a read or a put of either is
+  `InvalidPath`. The names anywhere else are ordinary files.
+- A reserved name (`state::is_reserved`, a save or a recording in progress)
+  is never listed, and a put of one is `InvalidPath`.
+
+A storage refusal or failure is a `StorageError`: `InvalidPath`, `NotFound`,
+`NotAFile`, `NotADirectory`, or `Io` with the operation and the system's
+message. A failure the shell reports changed nothing. The page reads
+`NotFound` as no file there and any other as `Unavailable`.
+
+### A put
+
+`put_folder_file` publishes a file's bytes at a path, or removes its file,
+only while the path holds what the page expects. It takes the bytes as the
+request's raw body, so content crosses IPC as it is rather than as a JSON
+array of numbers. Its arguments are headers, each percent-encoded: `path`,
+`root` (`Data`, `AppData`, `Epicenter`, or `Folder/<name>`), `remove`
+(`true` to remove the file, when the body is ignored), and
+`expected`, the version the page read there: `absent` for a create,
+`sha256:` and the SHA-256 of the file's bytes, which the shell hashes again
+before the rename (`core/src/version.rs`, with the `sha2` crate), `stamp:`
+and a file's stamp, or `any` for the page's own cache files
+(`storage::Expectation`). A listing tags each file's version by its size,
+never its path (ADR-0824): `sha256:` and the hash of a file up to 64 KiB,
+read whole, or `stamp:` and the stamp of a larger one, which the page turns
+into its version through its stamp cache.
+There is no other unconditional put. Each case has its own spelling, so a hash is
+never read as a keyword; anything else is refused as `Io`. Removing nothing
+that expects nothing has landed. A new file must pass the shared path rule;
+an existing name only some disks hold may be replaced or removed over the
+version read, never made, so a create of one is `InvalidPath`. `HEAD` is
+never written.
+A JSON array of bytes, Tauri's `postMessage`
+fallback, is accepted too. The generated bindings cannot type a raw request,
+so the command is left out of them; the plugin dispatches it beside the
+typed commands, under the same permission, and `device/tauri-store.ts` invokes it
+by name. `read_folder_file` returns a raw `ArrayBuffer` to the page. Its stamp
+is ASCII before the first zero byte; the remaining bytes are the file. The
+stamp is formed from size, modification time in nanoseconds, and device and
+inode on Unix. Reads inspect the opened file handle so a replacement cannot
+pair old bytes with the new file's stamp. A landed put returns the stamp of
+the published file, or `null` for a removal. Stamps detect changes;
+expectations remain byte hashes.
+
+A put of bytes first makes the path's missing parent directories, then
+writes the bytes to a new file beside the path, `.ep-<random>.save`
+(`state::staged_name`; opened with `create_new`, so nothing already there is
+written through). On Unix each staged file is `0600` before its first byte,
+so the permission bits keep a save that has not landed, or one that
+stopped, from other accounts. An access control entry the folder passes on
+(`everyone allow read`) is kept: it is a grant the person made on their
+folder, and a file another program makes there inherits it too. Replacing a
+file keeps its permission bits; a new file is `0600`. The staged file is on
+its target's file system, so the rename is one step. Then the put walks
+the path again (no link, every name stored as asked), checks what the path
+holds, and only then renames the staged file over it. A removal walks,
+checks, and removes. Within the shell's process, puts of one path take turns from
+that walk to the rename or removal, so none lands between another's check
+and its change. Across processes nothing holds the path between the check
+and the change: a save another program, such as a Bun process opening the
+same directory, lands in that instant can be replaced
+([ADR-0702](../../docs/adr/0702-a-data-folders-unfinished-writes-wait-in-epicenter-outside-its-data.md)).
+A put expecting nothing at its path (`absent`) is the exception: it is
+placed (`storage::place`, which the recorder places each recording with
+too), a rename that fails when any entry has the name (`renamex_np` on
+macOS, `renameat2` on Linux, `MoveFileExW` on Windows). Whatever appeared
+there after the check stays, and the put answers `{ kind: "stale" }`. Where
+the disk refuses that rename, it is a hard link to the path, which also
+fails when the name is taken, then the staged name removed; where the disk
+has no hard links either (exFAT on macOS) it is renamed only while nothing is
+there, a check a racing writer can still beat.
+The root itself is never made. The cost is a read and hash of the destination when
+`expected` names a hash. A path that holds something else changes nothing and answers
+`{ kind: "stale" }`. On every answer but `{ kind: "landed", stamp }` the put
+leaves nothing behind: not its staged file, and not a directory it made,
+unless another writer put something in it.
+
+A folder has no repository on this computer, and saving makes none: a put
+stages beside its target, so it makes nothing in the root but the files
+saved and their directories, nothing beside the root, and nothing in `.git`
+is reachable, with or without `HEAD` (`page_files.rs`).
+
+A data file is never written in place: the rename replaces a hard link
+rather than writing through it. A recording, by
+`tauri-plugin-epicenter-recorder`, grows beside its path under a reserved
+name and is placed at its path whole
+([ADR-0543](../../docs/adr/0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md)).
+It asks `app.roots().opened(Root::Data)` for the folder the app opened,
+checks the path with `page_files::data_path` (the same rule and link check
+as a put), and creates the file with `create_new`. A directory is removed
+only when empty; nothing removes a tree whole.
+
+### Unfinished writes
+
+A folder holds only its content (ADR-0822). A write in progress waits
+beside its target under a reserved name, laid out by `state.rs` alone (and
+`@epicenter/folder`, held to `fixtures/reserved-names.json`):
+
+```
+notes/
+├── a.md
+├── .ep-0123456789abcdef.save          a save waiting to be renamed over its target
+└── .ep-k3j9x2ab-2026-11-06 take.recording
+                                       a recording of `2026-11-06 take.webm`, until stop or recovery
 ```
 
-The capability only lets a window call the plugin. Which folder it reaches is
-decided by `windows` in `ScopeConfig`. A scope's configuration cannot change
-once registered.
+A name is reserved when its last segment is `.ep-`, at least one
+character, then `.save` or `.recording`. A recording's random part is 8
+lowercase base 36 characters, so its name reads back to its final path
+(`state::recording_final`). A reserved name is hidden
+(`paths::is_hidden_path`), so no watcher reports it, and no listing
+describes it, so sync never carries it. A stale save is always safe to
+delete when no app runs, and opening the folder removes it; a recording
+may hold audio until the app opens once, and only its recorder removes it.
 
-`FolderConfig` fields:
+## Git
 
-| Field | Default | Meaning |
-| --- | --- | --- |
-| `branch` | `main` | The local branch, and the remote branch when a remote exists. |
-| `author` | required | Who commits. With `use_repository_author`, the fallback for whichever of name and email the repository does not configure. |
-| `remote` | none | Where to push and fetch. |
-| `use_repository_author` | `false` | Read `user.name` and `user.email` when the folder opens. |
-| `use_repository_origin` | `false` | Read `remote.origin.url` when the folder opens and use it as the remote. |
-| `transport` | none | Where each push and fetch gets a relay URL; see "Relayed transfers". Without one, Git is given the remote's URL. |
-| `require_existing_repository` | `false` | Refuse to open a root that is not already a repository (`has_repository`: a real `.git` with `HEAD`, `objects`, and `refs`) instead of initializing one. Checked inside the open, with the lock held. |
-| `watch_events` | `true` | Watch filesystem events for changes made outside the owner. |
-| `watch_interval` | 2 s | Also compare file sizes and times this often. |
+No Git runs on a computer (ADR-0804): this plugin offers file storage, and a
+folder's history is its log on the server, which sync commits to from
+TypeScript. The page capabilities grant no native history command.
 
-The two `use_repository_*` options select author and transfer destination
-independently. Neither enables automatic network work. Leaving
-`use_repository_origin` off means an `origin` configured in the directory is
-never read. A
-`remote` given in `FolderConfig` is used either way, and is the fallback when
-origin discovery is on and the repository has no `origin`. Both are read once,
-inside the open, after the cross-process lock is held and the Git layout is
-verified.
+## Changes outside the page
 
-## Using a folder from a page
+Each open root owns one `notify::RecommendedWatcher` over it, recursively,
+without following symbolic links. It emits a typed `folder-changed` app event
+with `root` and root-relative `paths`. Directory hints cover descendants;
+`null` means any path may differ. Rename notifications retain both paths when
+the operating system supplies them. Read/open access events and hidden paths
+(`paths::is_hidden_path`, including Git state and unfinished writes) are
+ignored. A rescan, unknown scope, or watch error emits `null`; the callback
+reads no file content.
 
-```ts
-import { openFolder } from '@epicenter/folder';
+`@epicenter/folder/tauri` starts listening before it opens the root. The page
+rereads sources held by readers or accepted input. An observation never
+acknowledges a save or initiates a write. The watch stops at shutdown, outside
+the roots' mutex. Native setup also runs outside that mutex; a candidate
+remains inactive until installed on the same open root. No resource identifier
+or filesystem permission is exposed to the page.
 
-// The scope is the folder's ID, which the page names; the definition names none.
-const opened = await openFolder({ id: 'so.epicenter.todos', definition });
-if (opened.error) return show(opened.error.message);
-const folder = opened.data;
+Delivery is best effort. Root replacement recovery is unsupported and platform
+dependent; neither original-inode retention nor reattachment is guaranteed.
+Terminal errors request reconciliation without an autonomous restart guarantee.
+No polling fallback or file-content replica is kept here.
 
-folder.location;                // { kind: 'directory', root }, for showing to a person
-await folder.tables.todos.create({ stem: 'buy-milk', fields: { title: 'Buy milk', done: false } });
-folder.git.subscribe((snapshot) => render(snapshot));
-folder.onFilesChanged((paths) => refresh(paths));
-const terminal = folder.terminal();
-await terminal.exec('git status');
-await folder.close();           // detaches this page only
-```
+## Shutdown
 
-`openFolder` returns its refusals: an unknown scope, a window the scope does
-not list, a folder another process holds, a shell without this plugin, and a
-desktop app built for another protocol version. The unreleased protocol is
-version 10: version 5 added the incoming record, `recover_incoming`, and the
-refusals a pending update causes, version 6 the optional `expectedSha256` on
-`replace`, version 7 removed the save number `apply` named and its
-`Superseded` refusal, version 8 added `merge_incoming` with unfinished
-merges, version 9 removed unfinished merges: every conflict is refused
-(see [Merging incoming history](#merging-incoming-history)), and version 10
-removed manual history: the snapshot's `commitOnEdit`, `stage`,
-`commit_staged`, `diff`'s `staged`, and the Git refusals only they made. No command
-holds the folder across calls or names a terminal lease.
-A page built for a different version is refused at attach. It never opens
-browser storage instead. `@epicenter/folder/tauri` is the same opener without the
-browser adapter in the build.
-
-## File changes
-
-A read returns `{ bytes, sha256 }`. The owner computes the hash from the bytes
-it read. `apply` takes ordered changes, each one of:
-
-| Change | Fields | Lands when |
-| --- | --- | --- |
-| `create` | `path`, `bytes` | Nothing is at the path. |
-| `replace` | `path`, `bytes`, `expectedSha256?` | A file is at the path and, when a hash is named, its bytes hash to it. It never creates a file. |
-| `overwrite` | `path`, `bytes` | Always, whether or not a file is there. |
-| `remove` | `path`, `expectedSha256?` | The file exists and, when a hash is named, its bytes match. |
-| `move` | `from`, `to`, `expectedSha256?` | The source exists, matches a named hash, and nothing is at `to`. |
-
-- No change carries the hash of its new bytes. The owner hashes what it reads
-  from the folder and never trusts a hash a page computed for new content.
-- A `replace`, `remove`, or `move` without `expectedSha256` is a deliberate
-  unguarded operation on whatever file is there, as a shell or a table caller
-  with no baseline acts. It still requires that file. Changes built from a
-  read name the hash.
-- `Conflict` is `{ path, expectedSha256, actualSha256 }`: the bytes differ from
-  the named hash. `actualSha256` is `null` when a guarded `replace` target is
-  missing.
-- `Exists` is `{ path }`: a `create` target or a `move` destination already
-  holds a file.
-- A missing unguarded `replace` target, and a missing `remove` or `move`
-  source, is `NotFound`.
-- Paths are literal. A filesystem that folds case or normalizes Unicode, as
-  APFS and NTFS do, can resolve `note.md` to an existing `Note.md`, or
-  `dir/` to an existing `Dir/`. Every change refuses such a spelling, of
-  the path or of a directory on the way, before writing anything:
-  `InvalidPath` names the existing spelling, and a `create` target or
-  `move` destination that is one is `Exists`. A read of such a spelling is
-  `NotFound`: no file has that name. Where the filesystem holds both names,
-  each is its own file.
-- Nothing orders batches by when a page asked for them. See
-  [Locking and ordering](#locking-and-ordering).
-- The steps reported in a partial batch are `write`, `remove`, and `move`:
-  they say what landed, not which kind of change asked for it.
-
-A fast-forward publishes through the same changes: `create` for an added path,
-`replace` and a guarded `remove` conditional on the committed bytes. It never
-removes or replaces a file without that guard, and refuses before writing
-anything if it cannot name one.
-
-## Merging incoming history
-
-`merge_incoming(session, allowUnrelatedHistories, versions)` merges the
-already fetched remote head. A branch that is behind fast-forwards; one that
-is ahead or equal changes nothing; a diverged one with exactly one merge base
-is merged, under the same admission, record, and recovery as a fast-forward. Root `kv.json` changed on both sides merges by key
-(`kv_merge`); every other file follows Git's rules, with `git merge-file` for
-a file both sides changed. The same paths are refused as in
-`@epicenter/folder`'s browser merge: a file whose versions are not all UTF-8
-text the browser's line merge keeps is a `binary` conflict, a link,
-executable, or submodule among a two-sided change's versions or a `merge`
-attribute other than Git's text merge is `Unmergeable`, and several merge
-bases are `UnsupportedHistory`.
-
-A conflict writes no file, index entry, ref, or merge state: `MergeError`
-`Conflicted` with one entry per reason. This folder never leaves a merge for
-a person to finish. Otherwise the merge commit's parents are the head and the
-fetched commit, and it is published like a fast-forward:
-`{ status: 'merged', from, to, fetched, changedPaths }`.
-
-The two booleans are optional and `false` when absent.
-
-- **`allowUnrelatedHistories`** merges histories with no common commit over
-  an empty base, as `git merge --allow-unrelated-histories` does: both heads
-  are the merge commit's parents, so both roots stay in history. A path both
-  sides hold with different bytes conflicts. Without it such histories are
-  `UnsupportedHistory` with `bases: 0` and nothing is written.
-- **`versions`** makes a refused `Conflicted` carry, for each conflicted path
-  that is not a `shape` conflict, `{ path, ours, theirs }`: the exact committed
-  bytes at the pinned head and the pinned fetched commit, `null` where that
-  side has no file. Otherwise `versions` is `null`. The snapshot's
-  `lastMerge` always records it as `null`, so file bytes are not sent to
-  every window with each snapshot.
-
-- **A Git merge a person began** outside Epicenter, while `MERGE_HEAD`
-  exists or the index holds unmerged stages, blocks whole-folder commits,
-  automatic commits, fast-forwards, merges, and recovery, as a rebase in
-  progress or a detached HEAD does: `CommitOutcome` `blocked`, `PullError`
-  `Blocked`, and `RecoveryRefused` for recovery, each with the reason "a Git
-  merge is in progress; finish or abort it with Git outside Epicenter".
-  Nothing is written; saves and fetches continue.
-
-## Incoming updates and their recovery
-
-A fast-forward changes files, then the index, then the branch, and a process
-can stop between any two (ADR-0474). Before it changes anything, it pins its
-before and after commits under `refs/epicenter/incoming/<operationId>/` and
-writes one record, `.git/epicenter/incoming.json`, holding exactly
-`operationId`, `branch`, `expectedHead` (`null` for an empty history), and
-`nextHead`, which for a merge is the merge commit. A record holding any
-other field, such as the `merge` an earlier build wrote for a merge it left
-unfinished, is `unreadable`. The record is written to a scratch name,
-flushed, and renamed into place. Every path, byte, and index entry is derived from the two pinned trees,
-so a later fetch that moves the tracking ref, or a garbage collection, cannot
-take the target away. Ordinary saves keep no record.
-
-- **While a record exists**, saves and fetches carry on. Commits, automatic
-  commits, and new fast-forwards are refused: `CommitOutcome` `blocked` and
-  `PullError` `IncomingPending`. The snapshot's `pendingIncoming` reports it: `recorded`
-  with the four fields, or `unreadable` with the exact reason a record could
-  not be read. Opening the folder and `status` read it and never resume it.
-- **`recover_incoming`** runs only when asked, under the file gate and the
-  Git lock, and reads everything again:
-  - nothing pending: `{ status: 'none' }`;
-  - the branch already names `nextHead`: the record and pins go, no file is
-    written, and later edits stay: `{ status: 'cleared', pending }`;
-  - otherwise each changed path must hold its before or its after state, the
-    index must hold nothing staged but the update's own entries, and the
-    branch must still name `expectedHead`. Paths still at their before state
-    are written, removals first, each conditional on the bytes it was found
-    with; every path is checked for its after state; the index is written
-    through Git's lock; the branch moves by compare-and-swap; then the record
-    goes, then its pins: `{ status: 'completed', pending, changedPaths }`,
-    where `changedPaths` are the paths this recovery wrote or removed.
-  - Recovery looks only at the paths the update changes. Files edited while
-    it was pending stay as they are, so after `cleared` or `completed` the
-    files observation is marked stale and a real status follows; nothing is
-    reported clean that was not looked at.
-- **What stops it** keeps the record and writes nothing, or reports what it
-  wrote. `RecoveryRefused { pending, paths, reason }` names third bytes, a
-  missing file, an empty file where a nonempty one is added (that is not
-  absence), a file or directory in the way, a foreign or mixed index entry,
-  an unreadable index, a moved branch, HEAD off the branch, a Git operation
-  or merge in progress, an unreadable record, or a missing pinned commit.
-  `Partial`, `IndexFailed`, `BranchMoved`, and `Unconfirmed { applied, uncertain, error }` say what landed and what is
-  unknown; the record stays, and nothing infers that a step did not happen.
-- **Files and directories trade places.** A removal goes first, so a file can
-  become a directory. Where a file must go and a directory is, the before
-  tree says which directories are Git's: those, emptied by the update's
-  removals now or by an earlier attempt, are removed deepest first. Any
-  other file or directory there, even an empty one, stops the update before
-  it writes, and no other directory is pruned.
-- A fast-forward whose first look finds a path in neither state, before it
-  writes anything, withdraws its record and pins and reports `Dirty`,
-  `Collision`, `StagedChanges`, or `BranchMoved` as before. Once it has
-  written, it stops like a recovery and keeps its record.
-- When the branch moved but could not be read back, or moved and its record
-  could not be removed, the fast-forward or recovery is reported as
-  published, because the branch did move, and the snapshot still reports
-  the record. A later recovery finds the branch at the target and clears it
-  without writing a file.
-
-## Lifetimes
-
-- **The owner** opens on a scope's first attach and stays open until the app
-  exits or the shell calls `app.folders().shutdown()`. Shutdown refuses new
-  work, lets admitted saves and commits already inside the folder finish,
-  cancels pushes and fetches, and releases the lock. It commits nothing of its
-  own: a save whose automatic request was still waiting, or which lands after
-  shutdown began, stays saved and uncommitted. A commit or fast-forward still
-  waiting for the folder when shutdown begins is refused as closed.
-- **A session** belongs to the window that attached it. Another window that
-  names it is denied. A session ends on `detach`, when its page reloads, and
-  when its window is destroyed. Ending a session never cancels a save, a
-  commit, or a push or fetch the owner already started, and never affects
-  another window. It withdraws the session's pushes and fetches that the
-  owner had not started.
-- **`folder.close()`** in a page refuses that page's new file, Git, and
-  terminal calls without invoking anything, stops waiting for its pushes and
-  fetches and withdraws them, waits for the Git calls it already sent, and
-  then detaches. It does not wait for file calls already sent: one the
-  owner admitted before the detach still lands and replies to its caller,
-  and one that arrives after it is denied and writes nothing. A save that
-  was called but not yet sent is refused as closed. A terminal command
-  running then sends no later step. Close commits nothing. A page that needs
-  its saves settled first awaits them, or flushes its row editors, before
-  closing.
-- **A terminal command** holds nothing. Each of its steps is an ordinary
-  command of its session, so other windows' saves land between its steps. A
-  rewrite of a file the command read names the hash it read and is
-  refused as a `Conflict` if the file changed since. A command that stops
-  partway leaves its earlier steps landed.
-
-Each webview keeps its own lifecycle identity in its resource table. The plugin
-holds a weak index so it can end sessions after Tauri removes a destroyed
-window from its manager. A retained handle to the old webview cannot attach to
-or end the sessions of a replacement that reuses its label. Reload cleanup
-removes only ended sessions, so an attachment from the new page survives it.
-
-## Locking and ordering
-
-- **Across processes.** The owner holds an exclusive SQLite transaction on
-  `.<directory>.epicenter-lock` beside the directory, the same file and
-  mechanism the Bun hosts use, so only one process owns a folder. The system
-  releases it when the process ends, however it ends. It is unreliable on
-  some network filesystems.
-- **The file gate** admits one publication at a time: an `apply` batch, a
-  directory change, or a fast-forward's file changes. It is held for that
-  one publication and never across commands.
-- **Saves are last landed wins.** A save can finish hashing or reading after
-  a save asked for later, can reach the plugin late, can be delivered twice
-  by Tauri's IPC fallback, and can wait for a worker before it reaches the
-  gate, which is not first come, first served. The owner does not order
-  saves by when they were asked for and does not recognize a second
-  delivery: whichever lands last on a path stays, from any page or window.
-  Each change's own condition still holds when it lands: a `create` finds
-  an occupied path, a `replace` never recreates a removed file, and a
-  guarded change is refused as `Conflict` when the bytes moved since the
-  read it names. A page that keeps one editor's saves in order runs one at
-  a time, as `@epicenter/folder`'s row editor does.
-- A save the plugin took before its session ended still lands; one that
-  arrives after the session ended is denied and writes nothing. Two scopes
-  cannot hold one root at once, since the second cannot take its lock.
-- **The Git lock** orders commits and ref updates.
-- Pushes and fetches run outside both. A transport in flight delays no save
-  and no commit.
-- A commit takes the file gate and then the Git lock. Under both it pins the
-  branch head and hard-links the folder into a snapshot. It then releases the
-  file gate and, still under the Git lock, hashes the snapshot and moves the
-  branch with a compare-and-swap. A save never waits for hashing.
-- An explicit commit, fast-forward, or status waits for the file gate. With
-  the gate held, a commit or fast-forward tries the Git lock. If it is busy it gives the gate back,
-  waits for the Git lock to be released, and starts over, so it reads the
-  folder as it is once it holds both.
-- Nothing waits for the Git lock while holding the file gate, and nothing
-  takes the file gate while holding the Git lock.
-
-## Automatic commits
-
-Every complete `apply` batch asks for an automatic commit; there is no
-setting that turns this off, and no staging or commit with a message of its
-own. The folder is a real directory with a real `.git`, so a person can still
-use their own Git there. A whole-folder commit covers the whole folder, not
-what is staged, and resets every index entry to the new head, so changes that
-were only staged do not survive it. Like any commit the owner writes, it runs
-no commit hooks and is unsigned.
-
-A batch's request is numbered under the file gate the batch published under. One
-worker thread per owner carries every request not yet answered: it waits for
-the file gate and then the Git lock as an explicit commit does, and commits
-the folder as it is once it holds both. The save returns once the worker is
-admitted and started, never waiting for the commit.
-
-- A save made while the worker waits, or while another save, commit, or
-  fast-forward holds the folder, only renumbers the pending
-  request. When the holder lets go, one commit takes the latest files without
-  another save. No copy of saved bytes is kept, and no timer exists.
-- Every whole-folder commit, explicit or automatic, answers the requests made
-  before it took both locks. A worker that then finds nothing pending records
-  nothing, so it never replaces an explicit commit's outcome.
-- A commit that is blocked or fails is recorded in `snapshot.lastCommit` and
-  is not retried; the next save asks again. A worker thread that cannot start
-  is recorded as `failed` the same way.
-- A terminal's save asks like any other save. A redirection publishes the
-  empty file and then its content; the second request is carried by the same
-  worker, so the content is committed.
-- A partial, refused, or unconfirmed batch asks for nothing.
-- Automatic commits stay local. Only an explicit push request starts outgoing
-  transport, even when a remote is configured.
-- `snapshot.activity.commit.active` is true while the worker waits or a
-  commit runs, and the files observation is stale after any save the last
-  commit did not cover.
-
-An explicit `commit` waits for the folder instead, reads it once it holds both
-locks, and replies with what it did. It never pushes; `commitAndPush` in a
-page sends the push as its own command, and only while that caller is still
-waiting.
-
-## Pushes and fetches
-
-The owner runs one push at a time and one fetch at a time. A request that
-arrives while one is running waits, and every request that arrives during
-that run shares the one that follows it. Receiving a command is not starting
-its transport: the owner starts a waiting push or fetch only when the running
-one has finished, and until that moment its callers can withdraw.
-
-A page asks in two steps. `open_request` registers a request in the page's
-session and returns its number; `push` or `fetch` then names it. Because the
-owner knows the request before any command names it, `withdraw_request` can
-never arrive too early to matter.
-
-- A page asks for nothing on behalf of a caller whose signal has already
-  aborted.
-- Withdrawing a request, or ending its session, removes that caller from the
-  waiting push or fetch. If no other caller is waiting for it, it never
-  starts. Other callers sharing it keep it, and it runs once for them.
-- A `push` or `fetch` naming a request that was withdrawn, has finished, or
-  was never opened by that session is refused and starts nothing. A request
-  serves one command; a second command naming it is refused.
-- A transport the owner has already started is the owner's. Withdrawing its
-  request, or ending its session, does not stop it, and it runs to its end.
-- A request belongs to the session that opened it. Another window cannot use
-  or withdraw it, even with the number.
-- Pushes and fetches are ordered separately. A request is withdrawn from each
-  in turn, and a waiting push or fetch is told it was withdrawn only by the
-  step that also takes it out of its own queue. It is never told so while it
-  can still start.
-- A page whose caller left is told `stoppedWaiting` at once. That says the
-  caller stopped waiting; whether the transport had started is not known to
-  the page at that moment.
-- Shutdown stops the running push and fetch and settles the waiting ones as
-  cancelled or closed without running them.
-
-### Relayed transfers
-
-A shell can give a folder a `transport` (`transport.rs`). Each push or fetch
-then asks it for a `Relay` for one service against the remote captured at
-opening: an ephemeral URL Git talks to instead of the remote, and the way to
-retire it. The remote stays the folder's canonical destination in `origin` and
-in the snapshot; the relay URL is stored nowhere. A transport that refuses
-fails that transfer before Git starts and changes nothing else.
-
-A relayed transfer runs with fixed controls: `core.hooksPath` names no
-directory, `core.fsmonitor` is off, automatic maintenance and garbage
-collection are off, proxies are cleared in configuration and environment, the
-relay URL rewrites to itself so no `insteadOf` or `pushInsteadOf` can send Git
-elsewhere, and only HTTP is allowed, in tests as in production. A cancel
-retires the relay before Git is stopped; failure and completion retire it too,
-and a failure reports what the transport saw. Retirement that reports anything
-means the transport could not confirm the transfer, so a push Git completed is
-`Unconfirmed` (it may have landed; nothing is undone or retried) and a fetch
-is an error, its tracking ref left as Git wrote it. A rewrite rule that matches the
-whole relay URL would tie with the pin and win, because repository
-configuration is read before command-line configuration; a relay URL carries a
-token minted for that transfer, so no rule written beforehand can name it.
-
-A relay URL is a capability while the relay lives. It is in Git's argument
-list and nowhere else: inherited `GIT_TRACE*` and `GIT_CURL_VERBOSE` are
-removed and trace2 is switched off, so no trace file records it; Git's output
-is redacted before anything reads it (the URL becomes the canonical remote,
-and its path or token becomes `[relay]`), so an error that echoes the relay
-keeps its diagnostic and loses the capability; and `Relay`'s `Debug` prints
-neither.
-
-Transfer tests reach a loopback `git http-backend` (`testing::GitHttp`)
-through this exact transport. Where an environment refuses listeners they
-print `SKIPPED` and return; set `EPICENTER_REQUIRE_LOOPBACK=1` to make that a
-failure. Control construction, the HTTP-only refusal, cancel ordering, and
-redaction of a real Git diagnostic need no listener.
-
-### First downloads
-
-`download::download` fetches a remote's `main` into a dot-prefixed sibling of
-an absent destination, under the destination's sibling lock, and publishes it
-with a rename that refuses anything already there. It writes each blob's exact
-bytes instead of checking out, so no filter, conversion, or hook runs; a tree
-an incoming update would refuse (links, executables, attribute conversions,
-invalid paths, case collisions) is refused here too. A repository that
-advertises no ref at all gives an unborn `main`; one with any other branch or
-tag but no `main` is refused with its refs named, and the staging folder, with
-`origin` set, is kept. This promise is narrower than the browser folder's
-download, which can start `main` beside other refs. It records `origin` before
-any transfer, lets the caller bind the staged folder, and retires the relay
-before publishing: a retirement that reports anything keeps staging and
-publishes nothing. Cancellation is checked again at the rename and just after
-it; a cancel that lands with the rename leaves the folder in place and returns
-`Interrupted`, never success. A failure after history arrived keeps the
-staging directory and names it. Publication uses `renamex_np(RENAME_EXCL)` on Apple platforms and
-`renameat2(RENAME_NOREPLACE)` on Linux; other platforms refuse before reserving
-anything.
-
-## Noticing outside changes
-
-The owner watches filesystem events and also compares sizes and times every
-`watch_interval`. An event makes the owner look at the path it names even when
-its size and time are unchanged. Events inside `.git` are ignored except
-`HEAD`, the index, and refs, which make the owner check whether history moved.
-
-An event cannot say who wrote the file, so the owner reports every announced
-path, its own writes included. A window may therefore hear `filesChanged` for
-a file it just saved, and the Git snapshot's file observation turns stale
-until the next status or commit. A report requests no scan and no commit, so
-the owner's own events do not feed themselves, and a change made outside the
-app is never committed until a save or an explicit commit includes it. The periodic
-comparison does know the owner's writes and stays quiet about them.
-
-Where the platform cannot watch the directory, the owner
-logs a warning, reports it through `FolderOwner::watch_diagnostic`, and relies
-on the periodic comparison, which cannot see an edit that restores size and
-time.
+Every put and directory change holds a clone of its root's directory while
+it runs; a read holds one too. When the app exits, or the shell calls
+`app.roots().shutdown()`, the plugin refuses new opens, reads, and work. It waits for no admitted storage operation. Watch release fences any
+notification currently emitting, without waiting for page reads or saves
+([ADR-0542](../../docs/adr/0542-quitting-is-immediate-because-unfinished-work-already-lives-in-its-folder.md)).
+Every save is an atomic rename, so a change cut off at exit leaves the old
+file or the new one. A late change is refused as `ShuttingDown` and writes nothing.
 
 ## What is best effort
 
-- A `replace` checks that a file is there and, when `expectedSha256` is named,
-  that its bytes hash to it, once before staging and again before it
-  publishes. On macOS, iOS, Linux, and Android it publishes by exchanging the
-  staged file with the file at the path (`renamex_np(RENAME_SWAP)`,
-  `renameat2(RENAME_EXCHANGE)`), which fails when the file is gone, so a
-  removal at any point is `NotFound` (or `Conflict`) and is never undone. A
-  filesystem there that cannot exchange is an `Io` failure; nothing falls
-  back to a rename. Another program's write between the second check and the
-  exchange is still displaced. The exchange is the only operation on the
-  path: a displaced entry that is not a regular file, or cannot be
-  inspected, stays in `.git/epicenter/scratch`, and the save is `Partial`
-  with its write both applied and failed and an `Io` error naming where the
-  entry is. An incoming update that stops this way reports `Partial` and
-  keeps its record. Windows, and any other target without an exchange, has
-  no replacement until a mechanism that requires the file at publication is
-  proven: a `replace` there is an `Io` failure naming the platform, the
-  staged copy is removed, and this operation does not change the destination.
-  The caller keeps its bytes; nothing retries. Creation, reads,
-  overwrites, moves, and removals are unchanged by this repair; none is
-  verified on Windows. Whether
-  this crate builds or runs on Windows has not been checked. The owner
-  orders its own windows; it does not lock files against other programs.
-- A `remove` or `move` source check is the same: another program can change
-  the source between the check and the step. A guarded `move` that reports
-  its destination landed names the hash it was guarded by, which says what
-  the source held when checked, not what `to` holds afterward.
-- A multi-file batch is ordered steps. A failure partway reports which steps
-  landed; nothing is rolled back.
-- A snapshot is exact against the owner's own writes, which replace files by
-  rename or link. A program that edits a file in place can change bytes a
-  snapshot links to while it is being hashed.
-- A fast-forward or recovery checks every path before it writes and each
-  write's own condition again, but another program can still write between
-  a check and a rename. Its record keeps a stopped update from being
-  committed as a mixed tree; it does not make the transition atomic.
-- A commit whose compare-and-swap lost to another Git process is reported as
-  `branchMoved` and is not retried. A commit whose branch update landed is
-  reported as committed even if the owner could not read the branch back
-  afterward; the observation is marked stale instead.
-- An outcome the owner or the transport could not confirm is reported as
-  `Unconfirmed` and is never retried. Look at the folder before trying again.
-- File bytes cross IPC as JSON number arrays. That is acceptable for Markdown
-  and slow for large audio saves.
+- A link another program swaps in between a check and the read or change
+  that follows is not defended against; a page cannot make one. A put
+  checks the path for links again right before its rename.
+- A compromised page can read and write anything under its own roots; the
+  path rule bounds it to them.
+- The expectation is checked right before the rename. Within the shell's
+  process, puts of one path take turns across the two; across processes no
+  lock spans them. A writer in another process that changes a path in that
+  instant is not seen, and its save can be replaced; the server's history keeps
+  what sync committed.
+- Epicenter ships for macOS only
+  ([ADR-0567](../../docs/adr/0567-epicenter-ships-for-macos-only-for-now.md)).
 
 ## Commands
 
@@ -545,20 +407,5 @@ time.
 cargo test --offline --workspace          # core and plugin, real Git, mock Tauri runtime
 FOLDER_WRITE_BINDINGS=1 cargo test --offline -p tauri-plugin-epicenter-folder bindings
                                           # rewrite ../folder/src/native/bindings.gen.ts
-
-# from packages/folder
-bun run gen:vectors                       # rewrite this crate's fixtures/commit-subjects.txt
-bun test src/git/commit-subjects.test.ts  # the fixture matches commitSubject
-bun test --isolate src/tauri.test.ts
-EPICENTER_FOLDER_BRIDGE=1 bun test --isolate src/tauri-native.test.ts
+cargo build --offline                     # regenerates permissions/ for the listed commands
 ```
-
-The last command runs the TypeScript adapter against the real Rust owner
-through Tauri's invoke handler.
-
-Fast-forward pulls refuse incoming filter and byte-normalizing attributes before
-writing files or advancing the branch. The check reads the pinned incoming
-revision, including nested `.gitattributes`, rather than the working copy. Pull
-requires Git with `check-attr --source` support; an unsupported
-option fails the pull before publication. Pointer-looking text with no declared
-filter remains an ordinary file. This does not add Git LFS support.

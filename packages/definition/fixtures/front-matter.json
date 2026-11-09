@@ -1,0 +1,525 @@
+{
+	"$comment": "The front-matter primitive (ADR-0795, ADR-0796, ADR-0797): every case with its exact output. Read by packages/definition/src/front-matter/front-matter.test.ts; a Rust twin reads the same file. `fields` is a list of [key, value] in file order, or null for a file outside the grammar. A merge's `later` names the side that wrote later.",
+	"parse": [
+		{
+			"name": "a note with three fields and a body",
+			"text": "---\ntitle: \"Call dentist\"\ndone: false\ntags: [\"health\"]\n---\nAsk about the Thursday slot.\n",
+			"fields": [
+				["title", "Call dentist"],
+				["done", false],
+				["tags", ["health"]]
+			],
+			"body": "Ask about the Thursday slot.\n"
+		},
+		{
+			"name": "an empty front matter",
+			"text": "---\n---\nJust a body.\n",
+			"fields": [],
+			"body": "Just a body.\n"
+		},
+		{
+			"name": "no opening fence: all body",
+			"text": "Just a body.\n",
+			"fields": null,
+			"body": "Just a body.\n"
+		},
+		{
+			"name": "an empty file: all body",
+			"text": "",
+			"fields": null,
+			"body": ""
+		},
+		{
+			"name": "only an opening fence: all body",
+			"text": "---",
+			"fields": null,
+			"body": "---"
+		},
+		{
+			"name": "no closing fence: all body",
+			"text": "---\ntitle: \"A\"\nBody\n",
+			"fields": null,
+			"body": "---\ntitle: \"A\"\nBody\n"
+		},
+		{
+			"name": "an unquoted string value: all body",
+			"text": "---\ntitle: Call dentist\n---\n",
+			"fields": null,
+			"body": "---\ntitle: Call dentist\n---\n"
+		},
+		{
+			"name": "a key written twice: all body",
+			"text": "---\ntitle: \"A\"\ntitle: \"B\"\n---\n",
+			"fields": null,
+			"body": "---\ntitle: \"A\"\ntitle: \"B\"\n---\n"
+		},
+		{
+			"name": "a comment line: all body",
+			"text": "---\n# a comment\ntitle: \"A\"\n---\n",
+			"fields": null,
+			"body": "---\n# a comment\ntitle: \"A\"\n---\n"
+		},
+		{
+			"name": "an indented YAML list: all body",
+			"text": "---\ntags:\n  - health\n---\n",
+			"fields": null,
+			"body": "---\ntags:\n  - health\n---\n"
+		},
+		{
+			"name": "a blank line between the fences: all body",
+			"text": "---\ntitle: \"A\"\n\n---\n",
+			"fields": null,
+			"body": "---\ntitle: \"A\"\n\n---\n"
+		},
+		{
+			"name": "a key without the space after its colon: all body",
+			"text": "---\ntitle:\"A\"\n---\n",
+			"fields": null,
+			"body": "---\ntitle:\"A\"\n---\n"
+		},
+		{
+			"name": "a key that starts with a digit: all body",
+			"text": "---\n1st: true\n---\n",
+			"fields": null,
+			"body": "---\n1st: true\n---\n"
+		},
+		{
+			"name": "a quoted key: all body",
+			"text": "---\n\"title\": \"A\"\n---\n",
+			"fields": null,
+			"body": "---\n\"title\": \"A\"\n---\n"
+		},
+		{
+			"name": "a byte-order mark before the fence: all body",
+			"text": "﻿---\ntitle: \"A\"\n---\n",
+			"fields": null,
+			"body": "﻿---\ntitle: \"A\"\n---\n"
+		},
+		{
+			"name": "a trailing comment after the value: all body",
+			"text": "---\ndone: false # later\n---\n",
+			"fields": null,
+			"body": "---\ndone: false # later\n---\n"
+		},
+		{
+			"name": "CRLF line endings",
+			"text": "---\r\ntitle: \"A\"\r\ndone: true\r\n---\r\nBody\r\n",
+			"fields": [["title", "A"], ["done", true]],
+			"body": "Body\r\n"
+		},
+		{
+			"name": "a closing fence at the end of the file",
+			"text": "---\ntitle: \"A\"\n---",
+			"fields": [["title", "A"]],
+			"body": ""
+		},
+		{
+			"name": "nested values, null, numbers, and an escaped newline",
+			"text": "---\nmeta: {\"a\": [1, 2.5, -3e2], \"b\": null}\nnote: \"line one\\nline two\"\nemoji: \"caf\\u00e9 ☕\"\n---\n",
+			"fields": [
+				[
+					"meta",
+					{
+						"a": [1, 2.5, -300],
+						"b": null
+					}
+				],
+				["note", "line one\nline two"],
+				["emoji", "café ☕"]
+			],
+			"body": ""
+		},
+		{
+			"name": "keys with underscores and dashes",
+			"text": "---\n_id: \"x\"\ncreated-at: \"2026-11-05\"\nsnake_case: 1\n---\n",
+			"fields": [["_id", "x"], ["created-at", "2026-11-05"], ["snake_case", 1]],
+			"body": ""
+		},
+		{
+			"name": "extra JSON whitespace around a value",
+			"text": "---\ncount:  3 \n---\n",
+			"fields": [["count", 3]],
+			"body": ""
+		},
+		{
+			"name": "the body keeps later fence lines",
+			"text": "---\ntitle: \"A\"\n---\nabove\n---\nbelow\n",
+			"fields": [["title", "A"]],
+			"body": "above\n---\nbelow\n"
+		}
+	],
+	"patch": [
+		{
+			"name": "set replaces one line and leaves the others as typed",
+			"text": "---\ntitle: \"Call dentist\"\ndone:   false\ntags: [\"health\",\"admin\"]\n---\nBody\n",
+			"set": {
+				"title": "Call the dentist"
+			},
+			"expected": "---\ntitle: \"Call the dentist\"\ndone:   false\ntags: [\"health\",\"admin\"]\n---\nBody\n"
+		},
+		{
+			"name": "set to the value a line already holds leaves its text",
+			"text": "---\ntags: [\"health\",\"admin\"]\n---\n",
+			"set": {
+				"tags": ["health", "admin"]
+			},
+			"expected": "---\ntags: [\"health\",\"admin\"]\n---\n"
+		},
+		{
+			"name": "set adds a new field before the closing fence",
+			"text": "---\ntitle: \"Call dentist\"\ndone: false\ntags: [\"health\"]\n---\nAsk about the Thursday slot.\n",
+			"set": {
+				"due": "2026-11-07",
+				"priority": 2
+			},
+			"expected": "---\ntitle: \"Call dentist\"\ndone: false\ntags: [\"health\"]\ndue: \"2026-11-07\"\npriority: 2\n---\nAsk about the Thursday slot.\n"
+		},
+		{
+			"name": "delete removes the field line",
+			"text": "---\ntitle: \"Call dentist\"\ndone: false\ntags: [\"health\"]\n---\nAsk about the Thursday slot.\n",
+			"delete": ["tags"],
+			"expected": "---\ntitle: \"Call dentist\"\ndone: false\n---\nAsk about the Thursday slot.\n"
+		},
+		{
+			"name": "delete of a missing field changes nothing",
+			"text": "---\ntitle: \"Call dentist\"\ndone: false\ntags: [\"health\"]\n---\nAsk about the Thursday slot.\n",
+			"delete": ["missing"],
+			"expected": "---\ntitle: \"Call dentist\"\ndone: false\ntags: [\"health\"]\n---\nAsk about the Thursday slot.\n"
+		},
+		{
+			"name": "a key in both set and delete is set",
+			"text": "---\ntitle: \"Call dentist\"\ndone: false\ntags: [\"health\"]\n---\nAsk about the Thursday slot.\n",
+			"set": {
+				"done": true
+			},
+			"delete": ["done"],
+			"expected": "---\ntitle: \"Call dentist\"\ndone: true\ntags: [\"health\"]\n---\nAsk about the Thursday slot.\n"
+		},
+		{
+			"name": "arrays and objects are written with a space after each separator",
+			"text": "---\n---\n",
+			"set": {
+				"tags": ["a", "b"],
+				"meta": {
+					"x": 1,
+					"y": [true, null]
+				},
+				"empty": []
+			},
+			"expected": "---\ntags: [\"a\", \"b\"]\nmeta: {\"x\": 1, \"y\": [true, null]}\nempty: []\n---\n"
+		},
+		{
+			"name": "a string with a newline is escaped on one line",
+			"text": "---\n---\n",
+			"set": {
+				"prompt": "line one\nline two \"quoted\""
+			},
+			"expected": "---\nprompt: \"line one\\nline two \\\"quoted\\\"\"\n---\n"
+		},
+		{
+			"name": "CRLF: a new field takes the opening fence ending",
+			"text": "---\r\ntitle: \"A\"\r\n---\r\nBody\r\n",
+			"set": {
+				"title": "B",
+				"done": true
+			},
+			"expected": "---\r\ntitle: \"B\"\r\ndone: true\r\n---\r\nBody\r\n"
+		},
+		{
+			"name": "a closing fence at the end of the file",
+			"text": "---\ntitle: \"A\"\n---",
+			"set": {
+				"done": true
+			},
+			"expected": "---\ntitle: \"A\"\ndone: true\n---"
+		},
+		{
+			"name": "a note outside the grammar answers outside",
+			"text": "---\ntitle: Call dentist\n---\n",
+			"set": {
+				"done": true
+			},
+			"expected": "outside"
+		},
+		{
+			"name": "a file with no front matter answers outside",
+			"text": "Just a body.\n",
+			"set": {
+				"done": true
+			},
+			"expected": "outside"
+		}
+	],
+	"merge": [
+		{
+			"name": "different fields changed: both land",
+			"base": "---\ntitle: \"Call dentist\"\ndone: false\ntags: [\"health\"]\n---\nAsk about the Thursday slot.\n",
+			"current": "---\ntitle: \"Call dentist\"\ndone: true\ntags: [\"health\"]\n---\nAsk about the Thursday slot.\n",
+			"incoming": "---\ntitle: \"Call the dentist\"\ndone: false\ntags: [\"health\"]\n---\nAsk about the Thursday slot.\n",
+			"later": "current",
+			"expected": "---\ntitle: \"Call the dentist\"\ndone: true\ntags: [\"health\"]\n---\nAsk about the Thursday slot.\n",
+			"conflict": false
+		},
+		{
+			"name": "one field both changed: the later write wins (current)",
+			"base": "---\ntitle: \"Call dentist\"\ndone: false\ntags: [\"health\"]\n---\nAsk about the Thursday slot.\n",
+			"current": "---\ntitle: \"Mine\"\ndone: false\ntags: [\"health\"]\n---\nAsk about the Thursday slot.\n",
+			"incoming": "---\ntitle: \"Theirs\"\ndone: false\ntags: [\"health\"]\n---\nAsk about the Thursday slot.\n",
+			"later": "current",
+			"expected": "---\ntitle: \"Mine\"\ndone: false\ntags: [\"health\"]\n---\nAsk about the Thursday slot.\n",
+			"conflict": false
+		},
+		{
+			"name": "one field both changed: the later write wins (incoming)",
+			"base": "---\ntitle: \"Call dentist\"\ndone: false\ntags: [\"health\"]\n---\nAsk about the Thursday slot.\n",
+			"current": "---\ntitle: \"Mine\"\ndone: false\ntags: [\"health\"]\n---\nAsk about the Thursday slot.\n",
+			"incoming": "---\ntitle: \"Theirs\"\ndone: false\ntags: [\"health\"]\n---\nAsk about the Thursday slot.\n",
+			"later": "incoming",
+			"expected": "---\ntitle: \"Theirs\"\ndone: false\ntags: [\"health\"]\n---\nAsk about the Thursday slot.\n",
+			"conflict": false
+		},
+		{
+			"name": "a re-spaced value is no change, so the real edit wins",
+			"base": "---\ntags: [\"a\", \"b\"]\n---\n",
+			"current": "---\ntags: [\"a\",\"b\"]\n---\n",
+			"incoming": "---\ntags: [\"a\", \"b\", \"c\"]\n---\n",
+			"later": "current",
+			"expected": "---\ntags: [\"a\", \"b\", \"c\"]\n---\n",
+			"conflict": false
+		},
+		{
+			"name": "the same value written two ways: the later write's text",
+			"base": "---\nn: 1\n---\n",
+			"current": "---\nn: 2\n---\n",
+			"incoming": "---\nn: 2.0\n---\n",
+			"later": "incoming",
+			"expected": "---\nn: 2.0\n---\n",
+			"conflict": false
+		},
+		{
+			"name": "a field changed against a field deleted: the change",
+			"base": "---\ntitle: \"Call dentist\"\ndone: false\ntags: [\"health\"]\n---\nAsk about the Thursday slot.\n",
+			"current": "---\ntitle: \"Call dentist\"\ndone: true\ntags: [\"health\"]\n---\nAsk about the Thursday slot.\n",
+			"incoming": "---\ntitle: \"Call dentist\"\ntags: [\"health\"]\n---\nAsk about the Thursday slot.\n",
+			"later": "incoming",
+			"expected": "---\ntitle: \"Call dentist\"\ndone: true\ntags: [\"health\"]\n---\nAsk about the Thursday slot.\n",
+			"conflict": false
+		},
+		{
+			"name": "a field deleted on one side and untouched on the other: deleted",
+			"base": "---\ntitle: \"Call dentist\"\ndone: false\ntags: [\"health\"]\n---\nAsk about the Thursday slot.\n",
+			"current": "---\ntitle: \"Call dentist\"\ndone: false\n---\nAsk about the Thursday slot.\n",
+			"incoming": "---\ntitle: \"Call dentist\"\ndone: false\ntags: [\"health\"]\n---\nAsk about the Friday slot.\n",
+			"later": "current",
+			"expected": "---\ntitle: \"Call dentist\"\ndone: false\n---\nAsk about the Friday slot.\n",
+			"conflict": false
+		},
+		{
+			"name": "fields added: current's, incoming's, then both sides' in name order",
+			"base": "---\ntitle: \"A\"\n---\n",
+			"current": "---\ntitle: \"A\"\nzeta: 1\nmine: true\nalpha: \"c\"\n---\n",
+			"incoming": "---\ntitle: \"A\"\nalpha: \"i\"\ntheirs: true\nzeta: 1\n---\n",
+			"later": "current",
+			"expected": "---\ntitle: \"A\"\nmine: true\ntheirs: true\nalpha: \"c\"\nzeta: 1\n---\n",
+			"conflict": false
+		},
+		{
+			"name": "body edits at different spots both land",
+			"base": "---\ntitle: \"A\"\n---\none\ntwo\nthree\nfour\nfive\n",
+			"current": "---\ntitle: \"A\"\n---\nONE\ntwo\nthree\nfour\nfive\n",
+			"incoming": "---\ntitle: \"A\"\n---\none\ntwo\nthree\nfour\nFIVE\n",
+			"later": "current",
+			"expected": "---\ntitle: \"A\"\n---\nONE\ntwo\nthree\nfour\nFIVE\n",
+			"conflict": false
+		},
+		{
+			"name": "body edits at one spot: Git's conflict block",
+			"base": "---\ntitle: \"A\"\n---\none\ntwo\nthree\n",
+			"current": "---\ntitle: \"A\"\n---\none\nMINE\nthree\n",
+			"incoming": "---\ntitle: \"A\"\n---\none\nTHEIRS\nthree\n",
+			"later": "current",
+			"expected": "---\ntitle: \"A\"\n---\none\n<<<<<<< current\nMINE\n=======\nTHEIRS\n>>>>>>> incoming\nthree\n",
+			"conflict": true
+		},
+		{
+			"name": "body edits on adjacent lines conflict, as in Git",
+			"base": "---\n---\none\ntwo\nthree\n",
+			"current": "---\n---\nONE\ntwo\nthree\n",
+			"incoming": "---\n---\none\nTWO\nthree\n",
+			"later": "current",
+			"expected": "---\n---\n<<<<<<< current\nONE\ntwo\n=======\none\nTWO\n>>>>>>> incoming\nthree\n",
+			"conflict": true
+		},
+		{
+			"name": "the same body edit on both sides is no conflict",
+			"base": "---\n---\none\ntwo\n",
+			"current": "---\ndone: true\n---\none\n2\n",
+			"incoming": "---\n---\none\n2\n",
+			"later": "current",
+			"expected": "---\ndone: true\n---\none\n2\n",
+			"conflict": false
+		},
+		{
+			"name": "fields and a body conflict merge together",
+			"base": "---\ntitle: \"Call dentist\"\ndone: false\ntags: [\"health\"]\n---\nAsk about the Thursday slot.\n",
+			"current": "---\ntitle: \"Call dentist\"\ndone: true\ntags: [\"health\"]\n---\nAsk about the Friday slot.\n",
+			"incoming": "---\ntitle: \"Dentist\"\ndone: false\ntags: [\"health\"]\n---\nAsk about the Monday slot.\n",
+			"later": "current",
+			"expected": "---\ntitle: \"Dentist\"\ndone: true\ntags: [\"health\"]\n---\n<<<<<<< current\nAsk about the Friday slot.\n=======\nAsk about the Monday slot.\n>>>>>>> incoming\n",
+			"conflict": true
+		},
+		{
+			"name": "a conflict narrows to the lines the sides do not share",
+			"base": "---\n---\na\nb\nc\n",
+			"current": "---\n---\na\nX\nc\nY\n",
+			"incoming": "---\n---\na\nX\nc\nZ\n",
+			"later": "current",
+			"expected": "---\n---\na\nX\nc\n<<<<<<< current\nY\n=======\nZ\n>>>>>>> incoming\n",
+			"conflict": true
+		},
+		{
+			"name": "two clashes three lines apart are one block",
+			"base": "---\n---\na\n1\n2\n3\nb\n",
+			"current": "---\n---\nA\n1\n2\n3\nB\n",
+			"incoming": "---\n---\na!\n1\n2\n3\nb!\n",
+			"later": "current",
+			"expected": "---\n---\n<<<<<<< current\nA\n1\n2\n3\nB\n=======\na!\n1\n2\n3\nb!\n>>>>>>> incoming\n",
+			"conflict": true
+		},
+		{
+			"name": "two clashes four lines apart stay two blocks",
+			"base": "---\n---\na\n1\n2\n3\n4\nb\n",
+			"current": "---\n---\nA\n1\n2\n3\n4\nB\n",
+			"incoming": "---\n---\na!\n1\n2\n3\n4\nb!\n",
+			"later": "current",
+			"expected": "---\n---\n<<<<<<< current\nA\n=======\na!\n>>>>>>> incoming\n1\n2\n3\n4\n<<<<<<< current\nB\n=======\nb!\n>>>>>>> incoming\n",
+			"conflict": true
+		},
+		{
+			"name": "clashes apart by four blank lines stay two blocks (git merge-file would join them)",
+			"base": "---\n---\na\n\n\n\n\nb\n",
+			"current": "---\n---\nA\n\n\n\n\nB\n",
+			"incoming": "---\n---\na!\n\n\n\n\nb!\n",
+			"later": "current",
+			"expected": "---\n---\n<<<<<<< current\nA\n=======\na!\n>>>>>>> incoming\n\n\n\n\n<<<<<<< current\nB\n=======\nb!\n>>>>>>> incoming\n",
+			"conflict": true
+		},
+		{
+			"name": "a side without a final newline gets one inside the block",
+			"base": "---\n---\none\ntwo",
+			"current": "---\n---\none\nmine",
+			"incoming": "---\n---\none\ntheirs",
+			"later": "current",
+			"expected": "---\n---\none\n<<<<<<< current\nmine\n=======\ntheirs\n>>>>>>> incoming\n",
+			"conflict": true
+		},
+		{
+			"name": "CRLF bodies write CRLF markers",
+			"base": "---\r\ntitle: \"A\"\r\n---\r\none\r\ntwo\r\n",
+			"current": "---\r\ntitle: \"A\"\r\n---\r\none\r\nmine\r\n",
+			"incoming": "---\r\ntitle: \"A\"\r\n---\r\none\r\ntheirs\r\n",
+			"later": "current",
+			"expected": "---\r\ntitle: \"A\"\r\n---\r\none\r\n<<<<<<< current\r\nmine\r\n=======\r\ntheirs\r\n>>>>>>> incoming\r\n",
+			"conflict": true
+		},
+		{
+			"name": "an edit beats a delete (current deleted)",
+			"base": "---\ntitle: \"Call dentist\"\ndone: false\ntags: [\"health\"]\n---\nAsk about the Thursday slot.\n",
+			"current": null,
+			"incoming": "---\ntitle: \"Call dentist\"\ndone: false\ntags: [\"health\"]\n---\nAsk about the Friday slot.\n",
+			"later": "current",
+			"expected": "---\ntitle: \"Call dentist\"\ndone: false\ntags: [\"health\"]\n---\nAsk about the Friday slot.\n",
+			"conflict": false
+		},
+		{
+			"name": "an edit beats a delete (incoming deleted)",
+			"base": "---\ntitle: \"Call dentist\"\ndone: false\ntags: [\"health\"]\n---\nAsk about the Thursday slot.\n",
+			"current": "---\ntitle: \"Call dentist\"\ndone: false\ntags: [\"health\"]\n---\nAsk about the Friday slot.\n",
+			"incoming": null,
+			"later": "current",
+			"expected": "---\ntitle: \"Call dentist\"\ndone: false\ntags: [\"health\"]\n---\nAsk about the Friday slot.\n",
+			"conflict": false
+		},
+		{
+			"name": "a delete against no change deletes",
+			"base": "---\ntitle: \"Call dentist\"\ndone: false\ntags: [\"health\"]\n---\nAsk about the Thursday slot.\n",
+			"current": null,
+			"incoming": "---\ntitle: \"Call dentist\"\ndone: false\ntags: [\"health\"]\n---\nAsk about the Thursday slot.\n",
+			"later": "current",
+			"expected": null,
+			"conflict": false
+		},
+		{
+			"name": "both deleted",
+			"base": "---\ntitle: \"Call dentist\"\ndone: false\ntags: [\"health\"]\n---\nAsk about the Thursday slot.\n",
+			"current": null,
+			"incoming": null,
+			"later": "current",
+			"expected": null,
+			"conflict": false
+		},
+		{
+			"name": "two creates: fields by key against none, bodies against an empty base",
+			"base": null,
+			"current": "---\ntitle: \"Mine\"\ndone: false\n---\nfrom current\n",
+			"incoming": "---\ntitle: \"Theirs\"\ntags: []\n---\nfrom incoming\n",
+			"later": "current",
+			"expected": "---\ndone: false\ntags: []\ntitle: \"Mine\"\n---\n<<<<<<< current\nfrom current\n=======\nfrom incoming\n>>>>>>> incoming\n",
+			"conflict": true
+		},
+		{
+			"name": "two identical creates are one",
+			"base": null,
+			"current": "---\ntitle: \"Call dentist\"\ndone: false\ntags: [\"health\"]\n---\nAsk about the Thursday slot.\n",
+			"incoming": "---\ntitle: \"Call dentist\"\ndone: false\ntags: [\"health\"]\n---\nAsk about the Thursday slot.\n",
+			"later": "current",
+			"expected": "---\ntitle: \"Call dentist\"\ndone: false\ntags: [\"health\"]\n---\nAsk about the Thursday slot.\n",
+			"conflict": false
+		},
+		{
+			"name": "two creates with one body: no conflict",
+			"base": null,
+			"current": "---\na: 1\n---\nsame\n",
+			"incoming": "---\nb: 2\n---\nsame\n",
+			"later": "incoming",
+			"expected": "---\na: 1\nb: 2\n---\nsame\n",
+			"conflict": false
+		},
+		{
+			"name": "a side outside the grammar merges the whole text by lines",
+			"base": "---\ntitle: \"Call dentist\"\ndone: false\ntags: [\"health\"]\n---\nAsk about the Thursday slot.\n",
+			"current": "---\ntitle: \"Call dentist\"\ndone: false\ntags: [\"health\"]\n---\nAsk about the Friday slot.\n",
+			"incoming": "---\ntitle: Call dentist\ndone: false\ntags: [\"health\"]\n---\nAsk about the Thursday slot.\n",
+			"later": "current",
+			"expected": "---\ntitle: Call dentist\ndone: false\ntags: [\"health\"]\n---\nAsk about the Friday slot.\n",
+			"conflict": false
+		},
+		{
+			"name": "a base outside the grammar merges the whole text by lines",
+			"base": "---\ntitle: Call dentist\n---\nBody\n",
+			"current": "---\ntitle: \"Call dentist\"\n---\nBody\n",
+			"incoming": "---\ntitle: Call dentist\n---\nBody, edited\n",
+			"later": "current",
+			"expected": "---\ntitle: \"Call dentist\"\n---\nBody, edited\n",
+			"conflict": false
+		},
+		{
+			"name": "notes with no front matter merge as body",
+			"base": "one\ntwo\nthree\n",
+			"current": "ONE\ntwo\nthree\n",
+			"incoming": "one\ntwo\nTHREE\n",
+			"later": "current",
+			"expected": "ONE\ntwo\nTHREE\n",
+			"conflict": false
+		},
+		{
+			"name": "a closing fence at the end of the file gains its newline before a merged body",
+			"base": "---\ntitle: \"A\"\n---",
+			"current": "---\ntitle: \"B\"\n---",
+			"incoming": "---\ntitle: \"A\"\n---\nnew body\n",
+			"later": "current",
+			"expected": "---\ntitle: \"B\"\n---\nnew body\n",
+			"conflict": false
+		}
+	]
+}

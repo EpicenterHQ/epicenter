@@ -1,6 +1,7 @@
 # 0101. Native typed-row projection views are earned serially; board is first
 
-- **Status:** Accepted
+- **Status:** Superseded
+- **Superseded by:** [ADR-0534](0534-data-folders-are-the-only-data-model.md), which deletes Matter.
 - **Date:** 2026-07-02
 
 ## Context

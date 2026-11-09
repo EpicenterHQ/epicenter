@@ -18,13 +18,16 @@ Calling it the home of "application work" would give ordinary settings and
 records a reason to leave data folders without identifying a requirement. Calling
 every SQLite database disposable would lose pending user work.
 
+<!-- doc-path-check: ignore-next-line -->
 Local Mail demonstrates both uses. `apps/local-mail/src/storage.ts` separates
 the downloaded `mail-<sub>` database from the durable `local` database.
 Gmail owns the current mailbox facts. The local outbox owns changes Gmail has
+<!-- doc-path-check: ignore-next-line -->
 not yet confirmed. `apps/local-mail/src/intent-store.ts` reserves revisions and
 saves assertions in one transaction, then retires only the revision a delivery
 confirmed.
 
+<!-- doc-path-check: ignore-next-line -->
 The current `packages/app/src/open-store.ts` still opens Yjs-backed stores with
 borrowed `store.sqlite` access. The file-first application store remains unbuilt.
 
@@ -75,9 +78,7 @@ transactions internally without becoming authoritative.
 
 Account scoping selects local ownership; it does not synchronize the database.
 Private database files and their WAL/journal companions do not enter data folder sync.
-[ADR-0496](0496-native-app-runtime-storage-is-independent-of-the-shell.md)
-proposes one native app/account address shared by standalone and hosted shells,
-with cross-process admission. [ADR-0497](0497-browser-folders-use-scoped-opfs-directories.md)
+[ADR-0497](0497-browser-folders-use-scoped-opfs-directories.md)
 stores browser authored folders in scoped OPFS directories, copied once from
 their earlier IndexedDB databases, and keeps private OPFS SQL in a separate
 namespace with captured channel and account addresses. Native address changes

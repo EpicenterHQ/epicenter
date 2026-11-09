@@ -12,35 +12,36 @@ When a schema, builder, or configuration is only used once in a test, inline it 
 ### Bad Pattern (Extracted Variables)
 
 ```typescript
-test('declares an app', () => {
-	const definition = defineStore({
-		id: 'test.app',
-		kv: { theme: field.string() },
-		tables: {
-			posts: defineTable({
-				title: field.string(),
-				content: plainText(),
-			}),
-		},
-	});
+test('compiles a contract', () => {
+	const notes = {
+		path: 'notes/{id}.md',
+		fields: { title: { type: 'string' } },
+	} as const;
 
-	expect(definition.id).toBe('test.app');
+	const contract = defineContract({ name: 'test', collections: { notes } });
+
+	expect(compileContract(contract).error).toBeNull();
 });
 ```
 
 ### Good Pattern (Inlined)
 
 ```typescript
-test('declares an app', () => {
-	expect(defineStore({
-		id: 'test.app', kv: {}, tables: {},
-	}).id).toBe('test.app');
+test('compiles a contract', () => {
+	const contract = defineContract({
+		name: 'test',
+		collections: {
+			notes: { path: 'notes/{id}.md', fields: { title: { type: 'string' } } },
+		},
+	});
+
+	expect(compileContract(contract).error).toBeNull();
 });
 ```
 
 ### Why Inlining is Better
 
-1. **All context in one place**: No scrolling to understand what `posts` or `theme` are
+1. **All context in one place**: No scrolling to understand what `notes` is
 2. **Reduces naming overhead**: No need to invent variable names for single-use values
 3. **Matches mental model**: The definition IS the usage - they're one conceptual unit
 4. **Easier to copy/modify**: Self-contained test setup is easier to duplicate and tweak
@@ -56,7 +57,7 @@ Extract to a variable when:
 
 ### Applies To
 
-- `defineStore()`, `defineTable()`, `createDisposableCache()` builders
+- `defineContract()` collections and other declaration builders
 - Schema definitions (TypeBox `field.*` / `Type.*`, arktype, zod, etc.)
 - Configuration objects passed to factories
 - Mock functions used only once

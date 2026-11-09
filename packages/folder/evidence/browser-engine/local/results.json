@@ -1,0 +1,111 @@
+{
+	"recordedAt": "2026-10-19T07:43:07.764Z",
+	"scope": "Production local engine. Local acknowledgement simulation, no network sync, forced process crash, or phone evidence.",
+	"results": [
+		{
+			"browser": "chromium",
+			"version": "153.0.8010.12",
+			"acknowledgedSaves": 205,
+			"failedRevisionChecks": 269,
+			"saveP95Ms": 2.5,
+			"maxSaveMs": 75.19999980926514,
+			"metadataProbe": {
+				"folders": 500,
+				"capturedTrees": 3,
+				"captureMs": [
+					1.5999999046325684, 1.1000003814697266, 0.7999997138977051, 1,
+					0.7999997138977051
+				],
+				"saveMs": 2.5,
+				"backlog": {
+					"edits": 500,
+					"utf8Bytes": 2050890,
+					"capturedTrees": 502,
+					"captureMs": 19.09999990463257
+				}
+			},
+			"final": {
+				"a": 101,
+				"b": 101
+			},
+			"nativeGit": "hash-object + fsck --strict + show",
+			"checks": [
+				"offline-first reopen",
+				"abandoned candidate",
+				"two tabs + commit publication",
+				"independent paragraphs",
+				"exact pending identity",
+				"newer edits survive acknowledgement",
+				"committed reopen"
+			]
+		},
+		{
+			"browser": "webkit",
+			"version": "26.5",
+			"acknowledgedSaves": 205,
+			"failedRevisionChecks": 328,
+			"saveP95Ms": 5,
+			"maxSaveMs": 115,
+			"metadataProbe": {
+				"folders": 500,
+				"capturedTrees": 3,
+				"captureMs": [3, 2, 1, 2, 1],
+				"saveMs": 3,
+				"backlog": {
+					"edits": 500,
+					"utf8Bytes": 2050890,
+					"capturedTrees": 502,
+					"captureMs": 38
+				}
+			},
+			"final": {
+				"a": 101,
+				"b": 101
+			},
+			"nativeGit": "hash-object + fsck --strict + show",
+			"checks": [
+				"offline-first reopen",
+				"abandoned candidate",
+				"two tabs + commit publication",
+				"independent paragraphs",
+				"exact pending identity",
+				"newer edits survive acknowledgement",
+				"committed reopen"
+			]
+		},
+		{
+			"browser": "firefox",
+			"version": "151.0",
+			"acknowledgedSaves": 205,
+			"failedRevisionChecks": 325,
+			"saveP95Ms": 4,
+			"maxSaveMs": 80,
+			"metadataProbe": {
+				"folders": 500,
+				"capturedTrees": 3,
+				"captureMs": [2, 2, 1, 1, 1],
+				"saveMs": 2,
+				"backlog": {
+					"edits": 500,
+					"utf8Bytes": 2050890,
+					"capturedTrees": 502,
+					"captureMs": 25
+				}
+			},
+			"final": {
+				"a": 101,
+				"b": 101
+			},
+			"nativeGit": "hash-object + fsck --strict + show",
+			"checks": [
+				"offline-first reopen",
+				"abandoned candidate",
+				"two tabs + commit publication",
+				"independent paragraphs",
+				"exact pending identity",
+				"newer edits survive acknowledgement",
+				"committed reopen"
+			]
+		}
+	]
+}

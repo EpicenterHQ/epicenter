@@ -1,6 +1,7 @@
 # 0026. The Matter vault's SQLite mirror is a read-only projection, never a verdict source
 
-- **Status:** Accepted
+- **Status:** Superseded
+- **Superseded by:** [ADR-0534](0534-data-folders-are-the-only-data-model.md), which deletes Matter.
 - **Date:** 2026-06-18
 
 ## Context

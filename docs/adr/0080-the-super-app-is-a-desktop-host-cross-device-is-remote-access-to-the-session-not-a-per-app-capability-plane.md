@@ -2,6 +2,7 @@
 
 - **Status:** Accepted (the desktop-host decision is settled; the [Trigger to revisit](#trigger-to-revisit) is resolved by [ADR-0115](0115-super-chat-remote-attach-rides-an-endpoint-addressed-trusted-relay.md): Epicenter operates an endpoint-addressed trusted AttachRelay)
 - **Date:** 2026-06-30
+- **Amended by:** [ADR-0556](0556-outside-a-webview-typescript-runs-only-as-the-epicenter-cli.md) at the host session a remote device attaches to: no TypeScript host runs, so no session exists, and agents reach folders through `git`, the `epicenter` CLI, and the MCP server (ADR-0550).
 - **Relates:** [ADR-0079](0079-cross-device-is-two-planes-epicenter-syncs-the-crdt-the-box-is-reached-directly.md) (this refines its capability plane: the super app does not consume it), [ADR-0047](0047-the-agent-loop-runs-in-the-client-and-tools-are-dispatched-actions.md) (the agent loop runs in the client), [ADR-0021](0021-actions-are-the-only-surface-that-crosses-a-process-boundary.md) (actions cross process boundaries), [ADR-0072](0072-local-books-ships-as-a-standalone-cli-the-daemon-surface-is-deferred.md) (Local Books is off the mesh, a local MCP verb facade), [ADR-0073](0073-tools-speak-mcp-natively-epicenter-owns-only-the-transport-mcp-lacks.md) (tools speak MCP), [ADR-0078](0078-inference-is-a-url-addressed-connection-the-relay-floor-carries-only-tools.md) (inference is a URL connection), [ADR-0004](0004-trust-the-relay-reject-zero-knowledge.md) (the relay reads plaintext)
 
 ## Context

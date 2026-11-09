@@ -4,37 +4,23 @@
 	"version": "7.11.1",
 	"identifier": "so.epicenter.whispering",
 	"build": {
-		"beforeDevCommand": {
-			"script": "bun run build && bun run build:sidecar",
-			"wait": true
-		},
-		"beforeBuildCommand": "bun run build && bun run build:sidecar",
-		"frontendDist": "shell"
+		"frontendDist": "../build",
+		"beforeBuildCommand": "bun run build"
 	},
 	"app": {
 		"windows": [],
 		"security": {
-			"capabilities": [],
-			"csp": "default-src 'none'; style-src 'unsafe-inline'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+			"capabilities": ["whispering"],
+			"csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost; img-src 'self' data: blob:; media-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
 		}
 	},
 	"bundle": {
 		"active": true,
-		"targets": ["app"],
-		"category": "Productivity",
-		"publisher": "Epicenter",
-		"copyright": "Copyright © 2026 Epicenter",
-		"shortDescription": "Record, transcribe, and keep it all as files",
-		"externalBin": ["binaries/whispering-host"],
-		"resources": {
-			"../build": "ui"
-		},
-		"icon": ["icons/icon.png", "icons/icon.icns"],
+		"icon": ["icons/icon.png"],
 		"macOS": {
 			"entitlements": "entitlements.plist",
 			"hardenedRuntime": true,
-			"minimumSystemVersion": "10.15",
-			"signingIdentity": "-"
+			"minimumSystemVersion": "10.15"
 		}
 	}
 }

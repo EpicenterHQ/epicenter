@@ -1,9 +1,8 @@
 # Why the Workspace API Uses YKeyValue, Not Y.Map
 
 > Historical: this article describes the retired YKeyValue-backed workspace
-> table implementation. Current scalar rows use server-ordered top-level field
-> patches over SQLite JSON. See the
-> [`@epicenter/data` modeling guide](../../packages/data/README.md).
+> table implementation. Current local rows are Markdown file views through
+> [`@epicenter/folder`](../../packages/folder/README.md).
 
 The Static Workspace API stores every table row through YKeyValueLww, a key-value store built on Y.Array. Not Y.Map. This is the obvious question: Y.Map is Yjs's native key-value type. Why build a custom one on top of Y.Array?
 
@@ -108,5 +107,5 @@ The result: a workspace that's been used for months takes roughly the same stora
 - [YKeyValue: A Space-Efficient Key-Value Store](./ykeyvalue-space-efficient-kv-store.md): How the data structure works
 - [YKeyValueLww Tombstones Are Practically Free](./ykeyvalue-lww-tombstones-are-free.md): Delete/reinsert cycle benchmarks
 - [YKeyValue vs Y.Map: Quick Decision Guide](./ykeyvalue-vs-ymap-decision-guide.md): When Y.Map wins (GC off)
-- [`@epicenter/data` modeling guide](../../packages/data/README.md): The current replacement-boundary choices
+- [`@epicenter/folder`](../../packages/folder/README.md): The current local file and table contract
 - [Yjs Storage Efficiency: Only 30% Overhead](./yjs-storage-efficiency/README.md): YJS vs SQLite size comparison

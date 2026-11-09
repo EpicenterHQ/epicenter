@@ -57,17 +57,32 @@ For a task that no longer needs attention, account for every remaining outcome:
 - If a wanted outcome is already durable, name its destination and propose
   archive. Check that it actually preserves the remaining outcome. A related
   ADR, partial commit, or backlog item is not enough by association.
-- If a wanted outcome exists nowhere durable, propose the smallest useful
-  [backlog item](../../../BACKLOG.md#conventions), then archive after its
+- If a wanted outcome exists nowhere durable, propose the smallest useful item
+  in the repository-root [backlog](../../../BACKLOG.md), then archive after its
   preservation is confirmed. The backlog can hold a change, investigation, or
   decision, including future work on skills or documentation. Do not extract
   transcripts, agent plans, implementation guesses, or superseded ideas. If an
   independently authorized edit has already completed the outcome, count that
-  as completion instead of creating a backlog item.
+  as completion instead of creating a backlog item. Do not use `specs/` as a
+  backlog; specs are active design scaffolding with their own lifecycle.
 - If intent is unclear, explain the specific outcome and the evidence for and
   against preserving it. Recommend a path and ask a focused question. The
   answer determines whether to keep active, preserve then archive, or archive.
   Continue independent clear cases while this one remains unresolved.
+
+A new backlog item follows the shape of the existing entries:
+
+```markdown
+## <Outcome>
+
+- Desired result: <one concrete sentence>
+- Grounding: <ADR, issue, commit, file, or archived task link when useful>
+- Revisit when: <specific trigger, dependency, or product moment>
+```
+
+Omit fields that add no information, and keep the backlog short enough to scan.
+When someone takes an item, remove it and give the work an active task, issue,
+or Draft spec as the repository workflow requires.
 
 A blocked task can close when its wanted outcome has a destination and the user
 does not need to resume that task. Pinning, historical importance, and valuable

@@ -1,3 +1,8 @@
+<!--
+	Every page of Todos: the chrome. The app is the `(app)` group, whose
+	layout decides the store and asks before a page with a save out is left;
+	the sign-in callback is outside it.
+-->
 <script lang="ts">
 	import { ConfirmationDialog } from '@epicenter/ui/confirmation-dialog';
 	import { Toaster } from '@epicenter/ui/sonner';

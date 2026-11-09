@@ -25,6 +25,7 @@ corpus. Local Mail's unlink runs while `status` and `query` may hold read-only
 handles that the sync lock deliberately does not cover
 <!-- doc-path-check: ignore-next-line -->
 (`apps/local-mail/src/lock.ts`). The repository already refuses this shape
+<!-- doc-path-check: ignore-next-line -->
 elsewhere: `packages/sqlite/src/index.ts` defines `StorageUpgradeRequiredError`
 precisely so that a generic SQLite adapter never repairs or recreates a file
 implicitly.

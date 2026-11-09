@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-09-01
 - **Relates:** [ADR-0329](0329-frontmatter-round-trips-and-the-body-only-renders-out.md) (the surface an agent edits through), [ADR-0026](0026-matter-vault-sqlite-is-a-projection-never-a-verdict-source.md) and [ADR-0065](0065-matter-is-a-standalone-disk-as-truth-tool-its-sqlite-is-a-read-only-query-surface.md) (the read-only query surface this adopts), [ADR-0073](0073-tools-speak-mcp-natively-epicenter-owns-only-the-transport-mcp-lacks.md) (where MCP belongs)
-- **Unbuilt:** the read surface exists for Matter only (`query_mirror`), and the edit surface waits on ADR-0329. Nothing named here is new; what is unbuilt is Epicenter having them.
+- **Unbuilt:** the edit surface waits on ADR-0329. Matter's `query_mirror` was the one built read surface, and it was deleted with Matter (ADR-0534). Nothing named here is new; what is unbuilt is Epicenter having them.
 
 ## Context
 

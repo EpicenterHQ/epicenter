@@ -5,13 +5,5 @@
 		"jsxImportSource": "hono/jsx",
 		"types": ["bun", "./worker-configuration.d.ts"]
 	},
-	"include": [
-		"worker",
-		"scripts",
-		"server.ts",
-		"server.dev.ts",
-		"dev-auth.ts",
-		"dev-auth.test.ts",
-		"api-public-origin.d.ts"
-	]
+	"include": ["worker", "scripts", "server.ts", "api-public-origin.d.ts"]
 }

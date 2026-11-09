@@ -21,7 +21,7 @@ declare const counter: Counter;
 counter.current();
 ```
 
-Prefer a documented method or getter in the return object when that is the clearest definition of the public API. A method used only through the public object can live there directly:
+Prefer a documented method in the return object when that is the clearest definition of the public API. Svelte reactive adapters may expose tracked getters, following the [read API convention](../../typescript/SKILL.md#core-rules). A method used only through the public object can live there directly:
 
 ```ts
 function createCounter() {
@@ -48,7 +48,13 @@ Use `this.current()` from a method shorthand member when calling through the ret
 An epoch counter shows the complete public-method shape. Both documented operations belong on the returned object; `bumpEpoch` calls `getEpoch` through that object:
 
 ```ts
-function createEpochCounter(epochs: Map<string, number>, clientId: string) {
+function createEpochCounter({
+	epochs,
+	clientId,
+}: {
+	epochs: Map<string, number>;
+	clientId: string;
+}) {
 	return {
 		/** Return the highest proposed epoch, or zero if there are none. */
 		getEpoch(): number {

@@ -31,7 +31,8 @@
 		"build:binary": "bun build --compile --outfile dist/local-books src/bin.ts"
 	},
 	"dependencies": {
-		"@epicenter/constants": "workspace:*",
+		"@epicenter/definition": "workspace:*",
+		"@epicenter/server": "workspace:*",
 		"@hono/standard-validator": "catalog:",
 		"@modelcontextprotocol/sdk": "catalog:",
 		"arktype": "catalog:",

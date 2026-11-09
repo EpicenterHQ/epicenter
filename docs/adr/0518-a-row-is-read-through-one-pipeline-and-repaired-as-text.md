@@ -3,7 +3,9 @@
 - **Status:** Accepted
 - **Date:** 2026-10-11
 - **Relates:** [ADR-0515](0515-snapshot-saves-serialize-writes-and-retain-only-the-latest-pending-text.md) (editing sessions), [ADR-0519](0519-row-frontmatter-is-yaml-every-common-reader-reads-identically.md) (the row text format), [ADR-0464](0464-file-table-updates-conditionally-replace-the-captured-whole-file.md) (conditional replacement without retry)
-- **Unbuilt:** the same single pipeline for `kv.json`.
+
+Retired source files below use their last tracked Git snapshot (`commit:path`);
+inspect one with `git show commit:path`.
 
 ## Context
 
@@ -88,7 +90,11 @@ save.
 
 ## Verification
 
-`packages/folder/src/row-text.test.ts` and `table.test.ts` cover every failure
+Current row interpretation and parser coverage live in
+[shared/row.test.ts](../../packages/folder/src/shared/row.test.ts). The tests
+cited below record verification at decision time.
+
+`2c2cd06e3125:packages/folder/src/row-text.test.ts` and `table.test.ts` cover every failure
 category with its line, never-empty issues, unknown keys kept, mutable and
 independent values, the listing pipeline, canonical writes reading back,
 synchronous capture, refusal before storage, and stale and missing captures as `Conflict`.

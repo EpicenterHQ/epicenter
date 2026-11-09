@@ -1,44 +1,61 @@
 /**
  * Tutor opening tests.
- * Real conversations over Vocab's real browser folder add a transient opening
- * prompt without saving a learner turn, do not repeat on remount, and discard
- * a stopped partial opening before retry.
+ * Real conversations over Vocab's notes in a folder in memory add a
+ * transient opening prompt without saving a learner turn, do not repeat on
+ * remount, and discard a stopped partial opening before retry.
  */
+import '../../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { expect, test } from 'bun:test';
-import { type AgentEngineRequest, createConversation } from '@epicenter/agent';
-import { expectOk } from 'wellcrafted/testing';
-import type { VocabFolder } from '../data.js';
-import { createBrowser, settle, tableFiles } from '../folder.test-support.js';
-import { createChatMessageStore } from './messages.js';
-import { withTutorOpening } from './opening.js';
+import { AiError, type ChatRequest, custom, openAi } from '@epicenter/ai';
+import { createConversation } from '@epicenter/ai/agent';
+import { tutorOpening } from './opening.js';
+
+const { openVocabFolder, settle } = await import('../vocab.test-support.js');
+
+type Folder = Awaited<ReturnType<typeof openVocabFolder>>;
+
+/** One streamed answer of `text`, finished. */
+const answer = (text: string) =>
+	new Response(
+		`data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: text }, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`,
+		{ headers: { 'content-type': 'text/event-stream' } },
+	);
 
 /** A conversation over the chat's saved transcript, as a mounted view has it. */
-async function open(
-	folder: VocabFolder,
-	engine: Parameters<typeof withTutorOpening>[0],
+function open(
+	folder: Folder,
+	respond: (
+		request: ChatRequest,
+		signal: AbortSignal | undefined,
+	) => Response | Promise<Response>,
 ) {
-	const store = createChatMessageStore(folder, 'chat-a');
-	expectOk(await store.load());
+	const ai = openAi([
+		custom({
+			id: 'tutor',
+			baseUrl: 'https://tutor.test/v1',
+			fetch: async (_url, init) =>
+				respond(JSON.parse(String(init?.body)), init?.signal ?? undefined),
+		}),
+	]);
 	return createConversation({
-		store,
-		engine: withTutorOpening(engine),
-		generateId: () => crypto.randomUUID(),
+		messages: folder.messages,
+		chat: 'chat-a',
+		ai,
+		model: () => ({ endpoint: 'tutor', model: 'model' }),
+		prepare: tutorOpening,
 	});
 }
 
 test('empty tutor opening supplies model content without storing a learner message or restarting on remount', async () => {
-	await using browser = createBrowser();
-	const folder = await browser.open();
-	const requests: AgentEngineRequest[] = [];
-	const engine: Parameters<typeof withTutorOpening>[0] = async function* (
-		request,
-	) {
+	using folder = await openVocabFolder();
+	const requests: ChatRequest[] = [];
+	const respond = (request: ChatRequest) => {
 		requests.push(request);
-		yield { type: 'text-delta', delta: 'Welcome!' };
+		return answer('Welcome!');
 	};
-	const chat = await open(folder, engine);
+	const chat = open(folder, respond);
 	chat.retry();
-	await settle(chat);
+	await settle(chat, folder.lists);
 	expect(requests).toHaveLength(1);
 	expect(requests[0]?.messages).toEqual([
 		{ role: 'user', content: 'Begin our conversation.' },
@@ -46,10 +63,9 @@ test('empty tutor opening supplies model content without storing a learner messa
 	expect(chat.snapshot().messages.map((message) => message.role)).toEqual([
 		'assistant',
 	]);
-	expect(await tableFiles(folder, 'messages')).toHaveLength(1);
+	expect(folder.files.paths('messages')).toHaveLength(1);
 	chat[Symbol.dispose]();
-	const reopened = await open(folder, engine);
-	await settle(reopened);
+	const reopened = open(folder, respond);
 	expect(requests).toHaveLength(1);
 	expect(reopened.snapshot().messages.map((message) => message.role)).toEqual([
 		'assistant',
@@ -58,37 +74,39 @@ test('empty tutor opening supplies model content without storing a learner messa
 });
 
 test('stopped opening saves no partial answer and retries from empty history', async () => {
-	await using browser = createBrowser();
-	const folder = await browser.open();
-	let release!: () => void;
-	const blocked = new Promise<void>((resolve) => {
-		release = resolve;
-	});
+	using folder = await openVocabFolder();
 	let calls = 0;
-	const engine: Parameters<typeof withTutorOpening>[0] = async function* (
-		_request,
-		signal,
-	) {
+	const respond = (_request: ChatRequest, signal: AbortSignal | undefined) => {
 		calls++;
-		if (calls === 1) {
-			yield { type: 'text-delta', delta: 'Partial' };
-			await blocked;
-			if (signal.aborted) return;
-		} else {
-			yield { type: 'text-delta', delta: 'Welcome!' };
-		}
+		if (calls > 1) return answer('Welcome!');
+		// A partial answer that never finishes until the person stops it.
+		const encoder = new TextEncoder();
+		return new Response(
+			new ReadableStream<Uint8Array>({
+				start(controller) {
+					controller.enqueue(
+						encoder.encode(
+							`data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: 'Partial' } }] })}\n\n`,
+						),
+					);
+					signal?.addEventListener('abort', () =>
+						controller.error(AiError.Cancelled().error),
+					);
+				},
+			}),
+			{ headers: { 'content-type': 'text/event-stream' } },
+		);
 	};
-	const first = await open(folder, engine);
+	const first = open(folder, respond);
 	first.retry();
-	await Bun.sleep(0);
+	while (first.snapshot().streaming === null) await Bun.sleep(1);
 	first.stop();
-	release();
-	await settle(first);
-	expect(await tableFiles(folder, 'messages')).toEqual([]);
+	await settle(first, folder.lists);
+	expect(folder.files.paths('messages')).toEqual([]);
 	first[Symbol.dispose]();
-	const reopened = await open(folder, engine);
+	const reopened = open(folder, respond);
 	reopened.retry();
-	await settle(reopened);
+	await settle(reopened, folder.lists);
 	expect(calls).toBe(2);
 	expect(reopened.snapshot().messages.map((message) => message.role)).toEqual([
 		'assistant',

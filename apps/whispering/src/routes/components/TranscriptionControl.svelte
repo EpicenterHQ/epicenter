@@ -3,26 +3,26 @@
 	import * as Popover from '@epicenter/ui/popover';
 	import * as Tooltip from '@epicenter/ui/tooltip';
 	import AudioLinesIcon from '@lucide/svelte/icons/audio-lines';
-	import { getSession } from '$lib/session.svelte.js';
+	import { getWhispering } from '$lib/whispering.svelte.js';
 	import { returnFocusToTrigger } from './option-popover-focus.js';
 	import SettingsForm from './SettingsForm.svelte';
 
 	/**
-	 * The transcription connection in use, beside the recorder. It opens the
-	 * transcription part of the header's settings, over the same draft. The
-	 * model is typed, not picked from a list: an endpoint is never asked what
-	 * it serves. The recorder owns which option popover is open.
+	 * The transcription model in use, beside the recorder. It opens the
+	 * transcription part of the header's settings, the same choice. The
+	 * recorder owns which option popover is open.
 	 */
 	let { open = $bindable(false) }: { open?: boolean } = $props();
 	let trigger = $state<HTMLElement | null>(null);
 	let content = $state<HTMLElement | null>(null);
 
-	const { library } = getSession();
-	const connection = $derived(library.connections?.transcription);
+	const whispering = getWhispering();
+	const chosen = $derived(whispering.chosen('transcription'));
+	const ready = $derived(chosen.kind === 'ready');
 	const summary = $derived(
-		connection
-			? `Transcription model: ${connection.model}, at ${connection.baseUrl}`
-			: 'Transcription is not set up. Set up its connection to transcribe.',
+		chosen.kind === 'ready'
+			? `Transcription model: ${chosen.target.model}, at ${chosen.target.name}`
+			: 'No transcription model is chosen. Choose one to transcribe.',
 	);
 	let hinting = $state(false);
 </script>
@@ -42,7 +42,7 @@
 							aria-label={summary}
 							data-testid="transcription-control"
 						>
-							<AudioLinesIcon class={connection ? 'text-success brightness-75 dark:brightness-100' : 'text-warning'} />
+							<AudioLinesIcon class={ready ? 'text-success brightness-75 dark:brightness-100' : 'text-warning'} />
 						</Button>
 					{/snippet}
 				</Popover.Trigger>

@@ -16,6 +16,7 @@ a full-trust app could reach the network anyway.
 Two facts discovered since pull in opposite directions, and both are verified in
 this repository.
 
+<!-- doc-path-check: ignore-next-line (deleted with the Bun host in wave 3) -->
 Direct browser egress from an app window is already closed. `apps/epicenter/src/server.ts`
 sets a Content-Security-Policy on every response whose `connect-src` is
 `'self' ipc: http://ipc.localhost`, which covers `fetch`, `XMLHttpRequest`,

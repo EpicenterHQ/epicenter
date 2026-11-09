@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-account-fetch-cancel"
+description = "Enables the account_fetch_cancel command without any pre-configured scope."
+commands.allow = ["account_fetch_cancel"]
+
+[[permission]]
+identifier = "deny-account-fetch-cancel"
+description = "Denies the account_fetch_cancel command without any pre-configured scope."
+commands.deny = ["account_fetch_cancel"]

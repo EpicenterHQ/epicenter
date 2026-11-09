@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-01
+- **Amended by:** [ADR-0531](0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md), which deletes the desktop folder owner and its bridge suite; the desktop runs the same TypeScript operations as the browser and Bun
 - **Relates:** [ADR-0480](0480-file-tables-own-only-their-markdown-row-files.md) defines row-only operations without inferred attachments; [ADR-0457](0457-a-row-filename-is-its-exact-id-and-a-title-is-a-field.md), [ADR-0464](0464-file-table-updates-conditionally-replace-the-captured-whole-file.md), [ADR-0467](0467-file-workflows-report-each-operations-outcome.md), and [ADR-0474](0474-incoming-git-adoption-retains-a-recoverable-plan.md) state the per-operation rules this layout promise bounds.
 
 <!-- doc-path-check: ignore-file (Accepted record; its Decision names paths as they were when it was accepted) -->

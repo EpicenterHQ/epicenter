@@ -1,0 +1,181 @@
+/**
+ * The authorization server's registrations for this deployment (ADR-0549):
+ * its token audiences and its first-party clients. They name Epicenter's own
+ * origins and app ids, so they live in `apps/api`, beside the trusted origins,
+ * not in the shared library.
+ *
+ * The deployment names the authority (ADR-0326). Its audiences come from
+ * `resolveOAuthAudiences` in `@epicenter/definition/site`, which the
+ * `epicenter` CLI reads too.
+ */
+import {
+	APPS,
+	localUrl,
+	resolveOAuthAudiences,
+} from '@epicenter/definition/site';
+import type { FirstPartyClient } from '@epicenter/server';
+import { isLocalDeployment } from './trusted-origins.js';
+
+/** Each browser build signs in as its own app id; these are those ids. */
+const BROWSER_APPS = [
+	{ clientId: 'so.epicenter.todos', name: 'Todos', app: APPS.TODOS },
+	{
+		clientId: APPS.WHISPERING.id,
+		name: 'Whispering',
+		app: APPS.WHISPERING,
+	},
+	{
+		clientId: 'so.epicenter.honeycrisp',
+		name: 'Honeycrisp',
+		app: APPS.HONEYCRISP,
+	},
+	{ clientId: 'so.epicenter.capture', name: 'Capture', app: APPS.CAPTURE },
+	{ clientId: APPS.VOCAB.id, name: 'Vocab', app: APPS.VOCAB },
+	{ clientId: APPS.ZHONGWEN.id, name: 'Zhongwen', app: APPS.ZHONGWEN },
+] as const;
+
+/**
+ * A browser build's client: consent skipped, target `*`, signing in back to
+ * `/auth/callback` on each of `appOrigins`. It may ask for `offline_access`
+ * only so one sign-in can mint an access token per audience: the callback
+ * exchanges the code for one audience and refreshes once for each other, then
+ * keeps the access tokens and no refresh token. The grant stays bound to the
+ * authorization server's session (`offlineDetach` skips web clients).
+ */
+function browserClient(
+	{
+		clientId,
+		name,
+		resources,
+	}: { clientId: string; name: string; resources: string[] },
+	appOrigins: string[],
+): FirstPartyClient {
+	return {
+		clientId,
+		name,
+		redirectUris: appOrigins.map((appOrigin) => `${appOrigin}/auth/callback`),
+		grantTypes: ['authorization_code', 'refresh_token'],
+		scopes: [
+			'openid',
+			'offline_access',
+			'profile',
+			'email',
+			'ai',
+			'folders:read',
+			'folders:write',
+		],
+		resources,
+		skipConsent: true,
+		applicationType: 'web',
+	};
+}
+
+/**
+ * The standalone desktop apps that sign in, each as its own native client,
+ * `so.epicenter.<app>.native` (decision 84), the same id its `src-tauri`
+ * names in `epicenter-account`'s `AccountApp`. A native client covers the
+ * desktop app and a mobile one to come; each redirect kind the app uses is
+ * one entry of `redirectUris`.
+ */
+const NATIVE_APPS = [
+	{ clientId: 'so.epicenter.whispering.native', name: 'Whispering' },
+	{ clientId: 'so.epicenter.vocab.native', name: 'Vocab' },
+] as const;
+
+/**
+ * A desktop app's client (`epicenter-account`): the system browser returns to
+ * a loopback listener on any port (RFC 8252; the registered port is ignored),
+ * with PKCE. It signs in only for hosted models: its data are files in a
+ * folder Epicenter syncs, so it asks for the API audience alone and no
+ * folders scope. Its refresh token stays in that computer's keychain.
+ */
+function nativeClient(
+	{
+		clientId,
+		name,
+	}: {
+		clientId: string;
+		name: string;
+	},
+	apiAudience: string,
+): FirstPartyClient {
+	return {
+		clientId,
+		name,
+		redirectUris: ['http://127.0.0.1/callback'],
+		grantTypes: ['authorization_code', 'refresh_token'],
+		scopes: ['openid', 'offline_access', 'profile', 'email', 'ai'],
+		resources: [apiAudience],
+		skipConsent: true,
+		applicationType: 'native',
+	};
+}
+
+/**
+ * Every first-party client this deployment registers. The dashboard is not
+ * one: it is the authorization server's own page and uses its session cookie.
+ */
+export function buildFirstPartyClients(origin: string): FirstPartyClient[] {
+	const audiences = resolveOAuthAudiences(origin);
+	const local = isLocalDeployment(origin);
+	const firstPartyResources = [audiences.api, audiences.folders];
+	return [
+		...BROWSER_APPS.map(({ clientId, name, app }) =>
+			browserClient({ clientId, name, resources: firstPartyResources }, [
+				app.url,
+				...(local ? [localUrl(app)] : []),
+			]),
+		),
+		...NATIVE_APPS.map((app) => nativeClient(app, audiences.api)),
+		// The Epicenter app signs in through a loopback redirect on any port
+		// (RFC 8252), its shell keeping the refresh token (`epicenter-account`).
+		// It is the platform: it reaches every folder its person holds
+		// (`folders:all`), where an app reaches the folders attached to it, and
+		// shows who it is signed in as (`email`).
+		{
+			clientId: 'so.epicenter',
+			name: 'Epicenter',
+			redirectUris: ['http://127.0.0.1/callback'],
+			grantTypes: ['authorization_code', 'refresh_token'],
+			scopes: [
+				'openid',
+				'offline_access',
+				'profile',
+				'email',
+				'ai',
+				'folders:read',
+				'folders:write',
+				'folders:all',
+			],
+			resources: firstPartyResources,
+			skipConsent: true,
+			applicationType: 'native',
+		},
+		// The CLI and the agents on the person's machine: the device grant
+		// only, approved on the device approval page every time.
+		{
+			clientId: 'so.epicenter.cli',
+			name: 'Epicenter CLI',
+			redirectUris: [],
+			grantTypes: [
+				'urn:ietf:params:oauth:grant-type:device_code',
+				'refresh_token',
+			],
+			// `openid` lets `epicenter auth status` read who approved the grant
+			// from userinfo; the client still gets no ID token, being public.
+			// Like the Epicenter app, it reaches every folder (`folders:all`).
+			scopes: [
+				'openid',
+				'offline_access',
+				'profile',
+				'ai',
+				'folders:read',
+				'folders:write',
+				'folders:all',
+			],
+			resources: firstPartyResources,
+			skipConsent: false,
+			applicationType: 'native',
+		},
+	];
+}

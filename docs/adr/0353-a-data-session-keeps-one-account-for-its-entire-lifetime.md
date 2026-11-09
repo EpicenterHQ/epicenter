@@ -46,13 +46,11 @@ use that value, including while sign-in persists a replacement before relaunch.
 The host forwards protocol bytes and does not acquire a replica or reconnect
 independently. A window that closes its data session closes its sync connection.
 
-The dashboard now holds an independent signed session and uses Account under
-the same contract, as proposed in
-[ADR-0354](0354-hosted-applications-authenticate-with-better-auth-session-bearers.md).
-Its keyed child owns its captured management/billing clients and query cache.
-The former cookie-only client and AuthControls exception are removed. Browser
-cookies remain part of hosted sign-in and provider/passkey ceremonies, not
-dashboard resource selection.
+The dashboard holds no Account. Under
+[ADR-0549](0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md)
+it is the authorization server's own account pages and uses that server's
+session cookie, with the expected principal it captured when the page loaded
+([ADR-0356](0356-sensitive-account-changes-use-better-auth-session-freshness.md)).
 
 ## Consequences
 

@@ -1,9 +1,0 @@
-{
-	"definitionSha256": "ebf4cb74e522c1fedd35508a38eade4460964b0d315ede582f5cf13b5fb35405",
-	"kvSha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
-	"head": "4d1023f62044dd7d829e5ba332541044df1dfcd4",
-	"status": "",
-	"log": "4d1023f62044dd7d829e5ba332541044df1dfcd4 Add kv.json\n91fbb1ae3aa6948ca98b2508fd1e06368fb44222 Add definition.json\n",
-	"publicationBirthTime": 1791342699.1092057,
-	"publicationModifiedTime": 1791342699.1092725
-}

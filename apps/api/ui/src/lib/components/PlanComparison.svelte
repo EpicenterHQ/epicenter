@@ -41,19 +41,19 @@
 			: null,
 	);
 
-	const previewMutation = createMutation(
+	const previewPlanChange = createMutation(
 		() => billing.previewPlanChange.options,
 	);
-	const checkoutMutation = createMutation(() => billing.checkoutPlan.options);
+	const checkoutPlan = createMutation(() => billing.checkoutPlan.options);
 
 	const previewSummary = $derived(
-		previewMutation.data?.displayedSummary ?? null,
+		previewPlanChange.data?.displayedSummary ?? null,
 	);
 
 	function handleUpgradeClick(card: BillingPlanCard) {
 		confirmDialog = { card };
-		previewMutation.reset();
-		previewMutation.mutate({ planId: card.id });
+		previewPlanChange.reset();
+		previewPlanChange.mutate({ planId: card.id });
 	}
 </script>
 
@@ -168,9 +168,9 @@
 					: ''}
 			</Dialog.Title>
 			<Dialog.Description>
-				{#if previewMutation.isPending}
+				{#if previewPlanChange.isPending}
 					Calculating cost...
-				{:else if previewMutation.isError}
+				{:else if previewPlanChange.isError}
 					Could not preview this plan change.
 				{:else if previewSummary}
 					{previewSummary}
@@ -179,9 +179,9 @@
 				{/if}
 			</Dialog.Description>
 		</Dialog.Header>
-		{#if previewMutation.isError}
-			<p role="alert" class="text-sm text-destructive">{extractErrorMessage(previewMutation.error)}</p>
-			<Button variant="outline" onclick={() => { if (confirmDialog) previewMutation.mutate({ planId: confirmDialog.card.id }); }}>Retry preview</Button>
+		{#if previewPlanChange.isError}
+			<p role="alert" class="text-sm text-destructive">{extractErrorMessage(previewPlanChange.error)}</p>
+			<Button variant="outline" onclick={() => { if (confirmDialog) previewPlanChange.mutate({ planId: confirmDialog.card.id }); }}>Retry preview</Button>
 		{/if}
 		<Dialog.Footer>
 			<Button variant="outline" onclick={() => (confirmDialog = null)}>
@@ -189,8 +189,8 @@
 			</Button>
 			<Button
 				onclick={() => {
-					if (!confirmDialog || !previewMutation.isSuccess || previewMutation.variables?.planId !== confirmDialog.card.id || disposed || signal.aborted) return;
-					checkoutMutation.mutate(
+					if (!confirmDialog || !previewPlanChange.isSuccess || previewPlanChange.variables?.planId !== confirmDialog.card.id || disposed || signal.aborted) return;
+					checkoutPlan.mutate(
 						{
 							planId: confirmDialog.card.id,
 							successUrl: window.location.href,
@@ -213,9 +213,9 @@
 						},
 					);
 				}}
-				disabled={checkoutMutation.isPending || !previewMutation.isSuccess || previewMutation.variables?.planId !== confirmDialog?.card.id}
+				disabled={checkoutPlan.isPending || !previewPlanChange.isSuccess || previewPlanChange.variables?.planId !== confirmDialog?.card.id}
 			>
-				{#if checkoutMutation.isPending}
+				{#if checkoutPlan.isPending}
 					<Spinner class="size-3.5" /> Updating plan…
 				{:else}
 					Confirm

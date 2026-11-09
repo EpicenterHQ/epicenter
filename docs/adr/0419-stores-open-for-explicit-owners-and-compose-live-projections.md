@@ -17,6 +17,7 @@ chosen by whether someone is signed in.
 
 At proposal time, `afb79fc0d1:packages/app/src/open.ts` opened an App with device and personal
 stores sharing one definition and lifetime. Device storage was account-partitioned.
+<!-- doc-path-check: ignore-next-line -->
 `packages/app/src/platform/documents.ts` persists documents in IndexedDB in both
 the browser and desktop WebView. Native SQLite and blob capabilities already
 exist separately. This record changes that model; it does not describe a shipped

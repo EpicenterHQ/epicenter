@@ -1,324 +1,254 @@
 # Context: shared vocabulary
 
-The words Epicenter uses for its own concepts, so humans and agents name the same
-thing the same way. Keep entries to one or two lines. When a design pass coins or
-sharpens a term, update it here in the same change. For the decisions behind these
-shapes, see `docs/adr/`.
+Epicenter is your folders, and apps are lenses on them
+([ADR-0813](adr/0813-epicenter-is-your-folders-and-apps-are-lenses.md)). A
+folder is plain files in `~/Epicenter`. It syncs with an Epicenter server,
+whose ledger orders its changes and keeps every version, and it is shared with
+people; Git is how history enters and leaves ([ADR-0835](adr/0835-records-from-0802-to-0834-agree-on-files-a-ledger-and-git-at-the-edges.md)). An app, the Epicenter app, the CLI, or an
+agent shows and changes the part of a folder it understands. A desktop app
+opens its folder before sign-in; a web app opens a folder on the server once
+the person signs in. Apps are separate programs; Epicenter does not host them
+([ADR-0701](adr/0701-apps-run-as-separate-programs.md)).
 
-## Platform and topology
+Use these names for the current API and the named remaining work. Source names
+in the implementation table remain exact. Package READMEs describe the available
+entry points; ADRs retain the decisions and their amendment history. An entry
+marked **Direction** names a decided shape that is not built yet; ADR-0835's
+Built column and [the architecture map](architecture.md) say what is missing,
+and [the vision](vision.md) says what Epicenter is.
+Where a record decided a word the code has not adopted, this file uses the
+decided word for the concept and the code's identifier when it names code; the
+[retired terms](#retired-terms) table lists each.
+<!-- vocab-check: ignore-next-line (historical ADR filename) -->
+The vocabulary decisions are in [ADR-0584](adr/0584-each-concept-has-one-noun-in-code-on-the-wire-and-in-prose.md),
+[ADR-0802](adr/0802-people-share-spaces-an-app-works-in-one-at-a-time-and-a-folder-carries-its-contract.md),
+[ADR-0813](adr/0813-epicenter-is-your-folders-and-apps-are-lenses.md),
+[ADR-0816](adr/0816-the-epicenter-app-is-where-a-person-sees-and-manages-every-folder.md),
+[ADR-0818](adr/0818-an-app-is-a-view-a-window-and-its-capabilities-and-everything-is-repairable-by-hand.md),
+[ADR-0828](adr/0828-names-say-folders-and-changes-and-history-is-package-functions-the-epicenter-app-shows.md), and [ADR-0835](adr/0835-records-from-0802-to-0834-agree-on-files-a-ledger-and-git-at-the-edges.md), which lists every decision in force.
 
-- **Deployment**: one reachable Epicenter installation, hosted or self-hosted,
-  with a canonical base URL and its own auth, storage, sync, and billing policy.
-- **Connection**: the authenticated transport a client uses to reach one
-  deployment. It carries credentials, cookies, or bearer behavior, but is not the
-  data identity.
-- **Principal**: the authenticated identity Epicenter uses as the partition key
-  (ADR-0092). Cloud resolves many principals from Better Auth users; a
-  self-hosted instance resolves every valid operator bearer to the literal
-  `instance` principal. Durable keys use `principals/<principalId>/...`.
-  Billing is hosted-only and lives in `apps/api/worker/billing/`.
-- **Account**: one resolved principal inside one deployment. Credentials may
-  rotate, but deployment identity plus `principalId` is the stable identity of
-  the person's synchronized Epicenter.
-- **Epicenter**: one person's logical body of application data. Each store
-  holds one document with its tables and settings. Applications compose stores
-  and bind a store definition to each opening.
-- **The Ark**: the public home of an Epicenter. It makes selected authored work
-  publicly inhabitable as living pages whose text, audio, and video are
-  alternate expressions of the same idea (ADR-0291).
-- **Replica**: one complete local or server copy of an Epicenter. A native
-  installation, browser origin, OS profile, or server actor may impose its own
-  physical replica, but that adapter boundary is not a product data owner.
-- **Epicenter store**: the storage backing one replica: the durable ledger a
-  crash cannot reconstruct, which is the update log, with the outbox and the
-  cursor read off it. One IndexedDB object store in the browser, with no worker
-  and no OPFS (ADR-0238, ADR-0241).
-- **Generation**: the authority's identity for the current Personal data baseline.
-  App startup downloads or reopens the current Personal data; its generation lives in
-  the cache header, not in the page URL. The numbered-cache client APIs of
-  ADR-0292/0293 are retired by ADR-0407. Historical bytes remain, and the server
-  refuses fresh Personal initialization over admitted history with HTTP 409.
-- **Sync attachment**: a connection held by one Personal store for its
-  lifetime. A store captures one account and never retargets its existing local
-  state to another principal.
-- **Epicenter Home**: an application beside the other typed surfaces, not a shell
-  above them (ADR-0209, amended by ADR-0226). It owns the launchable list,
-  assistant sessions, commands and approvals. The applications are the crafted
-  views over their own data, the OS is the launcher and switcher, and closing
-  Home leaves them running.
-- **Host**: the Bun process that serves an application's bundle and brokers
-  credentials for it. It owns no application data and constructs no database
-  (ADR-0226), so every build opens its own store and there is no platform seam
-  where one build reaches somewhere else.
-- **Third-party installed apps**: refused for now (ADR-0227). The admission
-  model ADR-0186 through ADR-0211 built, and the app catalog vocabulary that
-  went with it, waits for a second party to build one. The Epicenter-authored
-  applications are served directly.
-- **Star**: the one runnable program that holds your data, composing anchor,
-  store, sync, and identity/auth into a deployment (ADR-0069). The star is the
-  unit of self-host and the entire privacy question: Epicenter runs it (hosted)
-  or you run it (self-host). Distinct from a **service you call** (inference,
-  blob URLs): a service is addressed by `{baseUrl, token?}`, sees only the one
-  payload you hand it, and is never part of the star's topology. "Single-user /
-  sovereign" is a preset over the star's credential source and principal
-  resolver, not a mode (ADR-0070, amended by ADR-0092).
-- **Anchor**: the always-on node that holds synchronized state so a sleeping
-  device can catch up. Who runs the anchor is the whole privacy question (ADR-0068):
-  user-run gives topology privacy, Epicenter-run is trusted plaintext. Privacy moves
-  by relocating the anchor, never by a setting in the app.
-- **Relay**: moves bytes between a person's devices when they cannot reach each
-  other directly, then forgets. Blind to content in principle. _Fused with the anchor
-  today_: the hosted relay is one Cloudflare Durable Object that also holds and reads
-  your plaintext (ADR-0035); separating the relay role from the anchor (ADR-0035) would
-  let a blind relay route to an anchor you hold.
-- **Store**: the anchor's app-blind sibling for big binaries (audio, images),
-  `put` / `get` / `has` by reference; the doc carries the reference, never the bytes
-  (ADR-0035). Any S3-compatible endpoint (versitygw for dev, Garage for self-host).
-- **Trusted relay**: the server reads Epicenter plaintext. Zero-knowledge was
-  evaluated and rejected; the encryption layer was removed (ADR-0004).
-- **Node roles**: four distinct roles, separable even when one machine plays
-  several (ADR-0049): _client_ runs the agent loop and binds the others;
-  _inference server_ turns a prompt into tokens; _daemon_ holds data and runs
-  dispatched tools but never infers; _relay/anchor_ is content-blind coordination
-  and never infers.
-- **Inference server**: the only node role that infers (ADR-0049). One stateless
-  turn per request: given a prompt plus a tool catalog it streams tokens, returns
-  the model's tool calls, and stops, leaving the client loop to execute them
-  (ADR-0047). It sees the prompt and tools as accepted egress to the model
-  (ADR-0033), so it is _not_ content-blind, unlike the relay, but it owns no loop,
-  tool, or transcript. The wire is OpenAI-compatible (ADR-0050), so the box is
-  swappable by base URL: Epicenter's metered gateway (house key, billed; it never
-  accepts a provider key), a self-hosted gateway (your key or a local model), or
-  any third-party OpenAI-compatible endpoint. A BYOK key is handed to a custom
-  inference server (self-hosted or local), never to the Epicenter gateway or a
-  daemon (ADR-0054).
-- **Deployable vs shared package**: one package, `packages/server`, consumed by two
-  deployables: `apps/api` (hosted personal cloud) and `apps/self-host` (the
-  community single-partition instance reference, not Epicenter-operated; ADR-0075).
-- **Cross-device planes**: cross-device work splits by responsibility. _Inference_ (the
-  chat brain) streams tokens from an OpenAI-compatible endpoint (ADR-0050),
-  over the inference seam. _Store sync_ carries one application's whole
-  document through its authority as opaque bytes, over one socket, and covers
-  nodes and rows alike; there is no separate document plane and no awareness or
-  presence. _Invoke_ (the agent's hands) is local to the host that owns the tool process, unless a future product
-  re-earns a direct URL-addressed box surface.
-- **Infisical project**: the owner and access-control boundary. Each secret-using
-  runnable surface owns its own `.infisical.json`: `apps/api` and `ops` point
-  at Epicenter's hosted/operator project, and personal local apps use ignored
-  app-local configs that point at the operator's personal project. The ignored
-  configs are per-person bring-your-own provider setup; the committed configs
-  are shared Epicenter infrastructure. A single-provider local app may instead
-  cache its BYO client credentials to a machine-tier 0600 file after first
-  connect (Local Mail's <data-dir>/provider.json), so it reads no per-worktree
-  Infisical config on the run path; Infisical then only ever populates the
-  environment for that first connect.
-- **Infisical environment**: a value-stakes tier inside a project, not an
-  owner. In the Epicenter project, `dev` holds substitute values that can hurt
-  nothing (the local `wrangler dev` bindings) and `prod` holds hosted
-  production/operator credentials. In a personal local-app project, `prod`
-  holds the real provider credentials for the person running the tool. The path
-  groups by app or surface (`/api`, `/ci`, `/ops`, `/apps/<app>`). The provider
-  target rides in the qualified secret name (ADR-0108), never in the
-  environment. The monorepo root has no Infisical config, so local apps cannot
-  silently inherit Epicenter's hosted/operator project.
+## Folders and places
 
-## Data API
+| Name | Meaning |
+| --- | --- |
+| Epicenter | The product: a person's folders, the apps that are lenses on them, the Epicenter app, the CLI, and the optional hosted services. It does not name one person's body of data. |
+| Folder | A real directory directly inside the Epicenter folder; a link there is a folder kept outside, never synced ([ADR-0825](adr/0825-the-epicenter-folder-contains-its-folders.md)). It holds a person's things, syncs, keeps history in the ledger, and is shared. Its identity is the id the server gives it at its first sync; its directory's name is that computer's own label, and its title is a field of `epicenter.json` ([ADR-0811](adr/0811-folders-are-shared-directly-and-an-app-reaches-the-folders-attached-to-it.md), [ADR-0813](adr/0813-epicenter-is-your-folders-and-apps-are-lenses.md)). Nothing registers a folder: discovery lists the directory (`epicenterRoot` in `@epicenter/folder/node`). |
+| Epicenter folder | `~/Epicenter` (`~/Epicenter Dev` in development). Code and Rust comments still call it the library root ([ADR-0816](adr/0816-the-epicenter-app-is-where-a-person-sees-and-manages-every-folder.md)). |
+| Ledger | The server's append-only log of a folder: its changes in the order they land, numbered `seq`, each with its author, time, and the program that made it, every version kept, and its marks. The server orders, remembers, and admits; nothing is edited there, and it never merges. The code says log (`appendChange`, `readLog` in `@epicenter/server`) ([ADR-0824](adr/0824-a-folders-history-is-a-log-of-versions-and-git-is-how-it-leaves.md), ADR-0835). |
+| Directory | A physical filesystem location. In ordinary explanations, folder can name a disk directory. |
+| Contract | A folder's `epicenter.json`, which is optional: `$schema`, `title`, and `collections`. The folder's people own it, and no app writes an `$id` into it ([ADR-0805](adr/0805-a-folder-is-recognized-by-epicenter-json-which-is-its-contract.md), [ADR-0812](adr/0812-an-apps-schema-is-a-view-that-must-fit-a-folders-contract.md)). A folder with none is complete: every visible file syncs and keeps history, and a contract adds checking, tables, tools, and merging by field. `epicenter init` proposes one from the files. Today an app also compiles its contract with `defineContract`, and `epicenter check` takes one as a URL or file path. |
+| Collection | A name in a contract and a path pattern: `todos/{name}.md` holds items with fields, any other pattern holds files. A file collection is a pattern with no fields. |
+| Item | One file of a collection, with its attachments: files that share its directory and name are one item. Its name is its file name, and there is no identity beyond it: a rename is a `set` at the new name and a `delete` of the old ([ADR-0776](adr/0776-a-notes-name-is-its-file-name-and-a-rename-is-a-set-and-a-delete.md), [ADR-0818](adr/0818-an-app-is-a-view-a-window-and-its-capabilities-and-everything-is-repairable-by-hand.md)). The code says note (`NoteOf`, `FolderNotes`, `invalid()`), and `{id}` for the name in path patterns; the decided word is `{name}`. The rename is pending. "Note" names Honeycrisp's notes. |
+| Attachment | Any other file an item owns, such as a recording's audio. Its version is the SHA-256 of its bytes, as every file's is, and bytes over 16 KiB are fetched at `blobs/<sha256>` ([ADR-0824](adr/0824-a-folders-history-is-a-log-of-versions-and-git-is-how-it-leaves.md)). |
+| Field, value, body | A front matter key, its complete value, and the Markdown text after front matter. Front matter is the machine's; the body is the person's and the app's, and Epicenter reads nothing in it but conflict markers. **Direction:** a field Epicenter writes is one line, `key: <JSON>`, and a write patches only the lines of the fields it changes ([ADR-0796](adr/0796-a-field-is-a-line-its-value-is-json-and-a-write-patches-only-the-fields-it-changes.md)). |
+| Front matter grammar | YAML restricted to `key: <JSON>`: a `---` first line, a later `---`, and between them one key, a colon, a space, and a JSON value per line, each key once. A file outside the grammar has no front matter: it is all body, shows in `invalid()`, and merges by lines ([ADR-0797](adr/0797-front-matter-is-a-strict-grammar-and-anything-else-is-body.md)). `@epicenter/definition/front-matter` reads, patches, and merges it, and sync uses it; a folder's writes still format the whole note as block YAML in the contract's key order (`packages/definition/src/note/canonical.ts`). |
+| Normalize | **Direction:** rewriting another tool's YAML header into the grammar, only when nothing is lost. It runs when a write touches the item, or when a person asks from the repair editor, the Epicenter app, or `epicenter normalize`; never on a read ([ADR-0797](adr/0797-front-matter-is-a-strict-grammar-and-anything-else-is-body.md)). |
+| File, path, root | Source bytes, their address relative to opened data, and that address's boundary. |
+| Hidden path | A path with a segment starting with `.`. It is not a folder's data: no contract claims it, no watcher reports a change to it, sync never carries it, and listings show hidden files for their readers to skip ([ADR-0804](adr/0804-a-computer-keeps-a-plain-folder-and-every-surface-syncs-with-one-typescript-function.md)). |
+| Record | What a computer remembers it synced, at the Epicenter folder's root: `~/Epicenter/.epicenter/synced/<folder-id>.json`, `{ folder, name, inode, birthtime, cursor, files }`. Only Epicenter's programs write one, always over the version read. Its agreed state is trusted only for the directory proven the one that agreed it (Identity); losing it costs one question and a merge without a base ([ADR-0821](adr/0821-a-computer-remembers-what-it-synced-and-a-shell-limits-each-window-to-its-folder.md), [ADR-0822](adr/0822-only-epicenter-syncs-on-a-computer-and-a-folder-holds-only-its-content.md)). A sync's manifest, `{ cursor, files }`, is the record's agreed state (`recordsIn` in `@epicenter/folder/platform`). |
+| Identity | A directory's inode and birth time, never its device. Across the Epicenter folder a directory is the folder a record names when its inode and a real birth time match; a copy is a new folder, and a moved or renamed directory is the same one ([ADR-0832](adr/0832-a-folder-is-the-directory-epicenter-last-synced-or-epicenter-asks.md)). The code still also accepts, for a record no directory matched, the recorded name and exactly the recorded files when the server says the person is the only member (`identify`); ADR-0832 removes that second proof ([ADR-0822](adr/0822-only-epicenter-syncs-on-a-computer-and-a-folder-holds-only-its-content.md)). Every other directory is unbound. |
+| Unbound folder, question | A folder no record proves. It stays local until an app makes it or the person syncs it; then a question (`questionOf`) offers the folders the person holds that are not bound here, matched by name or title, with members. Today one held alone that is the only match joins without asking; ADR-0832 decides one question that lists every unbound folder and no join by name. Every binding not proven starts from first contact, which never deletes ([ADR-0822](adr/0822-only-epicenter-syncs-on-a-computer-and-a-folder-holds-only-its-content.md), [ADR-0832](adr/0832-a-folder-is-the-directory-epicenter-last-synced-or-epicenter-asks.md)). |
+| Reserved name | A hidden file Epicenter keeps beside its target: a staged save, `.ep-<random>.save`, and a recording in progress, `.ep-<random>-<name>.recording`. No listing, watcher, or sync describes one; a sweep removes stale saves, never a recording. A folder holds no `.epicenter/` of its own ([ADR-0822](adr/0822-only-epicenter-syncs-on-a-computer-and-a-folder-holds-only-its-content.md)). |
+| Deletion guard | A sync that would delete 20 or more files on the server, or 5 or more that are half the folder, stops before it writes anything until a person says to delete them there or bring them back ([ADR-0821](adr/0821-a-computer-remembers-what-it-synced-and-a-shell-limits-each-window-to-its-folder.md)). |
+| Reference | A value interpreted by its app's format, or a literal Markdown link. Automatic cross-folder navigation is deferred. |
 
-- **Data folder** (ADR-0517): a directory containing `epicenter.json`, which
-  declares the `<table>/<stem>.md` directories and `kv.json` beside it. It may
-  sit at any depth in any Git repository; apps open and sync only one at a
-  repository root.
-- **Owned attachment** (ADR-0456): zero or one `<id>.<extension>` sibling of
-  `<table>/<id>.md`, created and deleted with its row; links do not acquire ownership.
-- **Query projection** (ADR-0494): an in-memory SQLite database built from a
-  data folder's current files for one query or session; nothing persists it.
+**Places and stores.** An app opens its folder at a place, a value
+`openFolder(contract, place)` opens: the app's `home`, a `directory` in Bun or
+Node, `served(url)`, or `memory()` in a test. A place opens to a store: bytes
+at paths, with four verbs, `list`, `read`, `watch`, and `put(path, bytes | null,
+expect)`, which lands only over the version expected and otherwise fails with
+`Moved` (`packages/folder/src/device/store.ts`,
+[ADR-0779](adr/0779-a-store-is-four-verbs-and-a-browser-recording-lands-whole.md),
+[ADR-0824](adr/0824-a-folders-history-is-a-log-of-versions-and-git-is-how-it-leaves.md)).
+Memory, a Bun directory, the desktop shell's root, a served directory, and the
+folder on the server each answer them, held to one conformance suite. A store
+knows nothing of contracts or items. A file's version is the SHA-256 of its
+bytes on every store, and no app holds one. **Direction:** a local store also has
+`patch(path, { set, delete })`, and a change is JSON discriminated by `op`
+([ADR-0798](adr/0798-a-store-patches-fields-and-writes-text-and-a-change-is-data.md));
+the server has no single-file routes and no `patch`, and only sync talks to
+it ([ADR-0807](adr/0807-an-app-writes-only-to-a-local-store-and-only-sync-talks-to-a-server.md)).
 
-- **Store**: one replica with tables, KV, and a blob namespace. Opening acquires
-  documents and blobs before returning the handle. Row and KV access is
-  synchronous; persistence and blob operations remain asynchronous.
-- **Local store**: `await openLocal(definition)` opens device data under the
-  definition's fixed `no-account` namespace. Signing in does not change its
-  address or move its data.
-- **Personal store**: `await openPersonal(definition, { account })` captures the
-  account's authority, principal, and transport. The handle keeps account
-  identity private and never retargets. Applications retain Account separately
-  when their workflows need it.
-- **Resource composition**: an application opens the stores, SQL, secrets,
-  recording, and inference it needs. Each resource owns its lifetime; there is
-  no aggregate App handle. Store definitions can differ within one application.
-- **Blob namespace** (ADR-0426): a store owns the blob namespace selected by its
-  definition ID and storage owner. A BlobId identifies an object there; it does
-  not include the namespace or account. Local paths retain `device/no-account`.
-- **Blob reference** (ADR-0427, ADR-0428): a BlobId plus any placement scope not
-  supplied by context. `copyFrom` preserves bytes and creates a fresh destination
-  ID. A locator is not an access grant; a playback URL is temporary. Rows do not
-  own byte lifetime, and row synchronization does not copy bytes.
-- **Saved capture** (ADR-0366): Stop publishes completed audio into the app-local
-  blob store and returns its key. The workflow then creates its recording row
-  in the destination retained before capture. Failed row creation leaves the
-  blob available. Unfinished capture may be lost on reload or termination.
-- **Cross-store copy** (optional application workflow, ADR-0399): an app
-  composes reads and ordinary destination creation. New rows get new IDs.
-  Copying blob references alone does not upload bytes or transfer remote ownership.
-  Sign-in does not move Local data.
-- **Materialization** (ADR-0394): readable row Markdown, settings, and checkout
-  metadata. Blob keys and URLs remain references; Pull copies no audio and
-  downloads no remote objects. Local rows remain Local.
-- **Saved folder** (ADR-0394): a copy or ZIP of the materialization as it stands,
-  including unpushed edits. It contains no blob payloads or exact-state recovery
-  guarantee. Server backup retention and a dedicated restore UI are deferred.
-- **Content recovery** (ADR-0395): Pull a current working copy, preserve its
-  manifest, bring selected old content into its files, and preview ordinary
-  Push. Deleted rows return as newly admitted rows. File deletion permanently
-  deletes the row; an application's Trash field is a normal frontmatter value.
-- **Data definition**: the schema exposed by an inert `defineStore` declaration,
-  compiled by `compileData` without opening storage.
-  It is release-local: a newer release ships a newer declaration over the same
-  durable data. Definitions have no defaults; initialization and recovery are
-  application decisions.
-- **Opened data**: the synchronous typed surface (`tables`, `kv`, `documents`,
-  `store`, and `transact`) an opened store holds over one data definition.
-  Born with the store; nothing rebinds a live store.
-- **Database document**: the one Yjs document a database is (ADR-0295),
-  persisted under the log name `app`. Its top-level roots are the bare named
-  root `kv` and one `tables:<name>` root per declared table (ADR-0257). A row is
-  nested under its table, and a row's node is nested under the row.
-  There is no second document and no address that reaches one.
-- **Table root**: the `tables:<name>` root holding one table's rows. Every
-  top-level root says what kind of thing it is, so a table genuinely named `kv`
-  lands at `tables:kv` and cannot reach the settings root.
-- **Row**: a nested `Y.Node` held as an attribute on its table root. Holding it
-  is what existing means, and there is no second fact that can disagree. Its id
-  is minted and never reused.
-- **Field**: one JSON attribute on a row node, declared with `field.*` helpers.
-  Writes replace a field value whole. Concurrent edits to different attributes
-  merge independently. `body`, `content`, and `!`-prefixed names are ordinary
-  fields; only structural `id` is reserved. Row reads return value snapshots.
-- **Whole-value replacement**: an array or object field is one value, so a
-  concurrent write replaces all of it and one addition is lost (ADR-0228). This
-  is chosen, not missing. A collection several devices append to concurrently
-  wants to be a table.
-- **Body node**: the sole sequence child of every row, a stable `Y.Node`
-  created together with its parent. `table.body(id)` reads it without creating
-  or repairing anything, independently of metadata conformance. Editors bind
-  to this child. Index zero is the storage convention; the child has its own
-  CRDT identity. Deletion removes the entire row subtree.
-- **Body codec**: the optional `body: { encode, decode, rewrite }` a table
-  declares. `encode` takes the node and returns the text below the fence;
-  `decode` takes that text and returns a fresh node; `rewrite` edits the existing
-  body in place. The platform owns the file, writing values as frontmatter
-  under their own field names, so no
-  row shape ever reaches a codec author. There is no default: a node carries a
-  sequence and attributes at once, so rendering one as text round-trips a keyed
-  log into one literal string that prints identically. `plainText()` is a codec
-  a table opts into.
-- **Deletion**: removing the row's attribute from its table root. The whole
-  subtree goes with it, the body node included, so there is one removal in one
-  document and no second address to retire. No tombstone and no revive path
-  (ADR-0219).
-- **Nonconforming row**: a row this release's declaration cannot read. A view, not
-  damage. `rows` and `nonconforming` are separate reads, and each failure carries
-  its `address`, machine-readable `issues`, the `conforming` survivors, and the
-  unmodified `raw`.
-- **Healing**: repairing a nonconforming row with an ordinary `update`, because
-  a patch validates only the values it supplies. Prevention is not on the table:
-  a declaration is release-local and rows arrive from newer releases, so nothing this
-  release ships stops a future one retyping a field.
-- **Unknown field**: a field this release's declaration does not declare. Ignored on
-  read and preserved on write, which is what makes a mixed-version fleet safe.
-- **`kv`**: the bare named root holding one application's settings, as a single
-  value with `get`, `update` and `subscribe`. It is `kv`, not `!kv`, and there is
-  no top-level `tables` container; its subscriber takes no ids because kv is one
-  value.
-- **SQL projection**: a composed follower, never a store verb (ADR-0241). It
-  rebuilds at the next read after a change, from the held table rather than the
-  document (ADR-0307, ADR-0311), so it never serves rows the document has moved
-  past. The package shipped one and no application ever
-  composed it; it was deleted, and inspecting data outside the app is reading
-  the export (ADR-0268, ADR-0269).
-- **`subscribe`**: a table's change notification, carrying the row ids a commit
-  touched and firing after every `onCommitted` listener has run (ADR-0221,
-  ADR-0241). Not a query and not a diff.
-- **Pressure**: structs the engine holds over rows the declaration can see. The one
-  number worth watching, because a deleted row leaves a small permanent cost that
-  only a rebuild reclaims.
-- **Store authority**: one Durable Object per principal, application, and
-  generation, named `principals/<id>/data/<dataId>/generations/<generation>`
-  (ADR-0292, ADR-0298). It appends opaque bytes and reads nothing about their
-  meaning.
-- **`dial`**: the one thing a host supplies to the transport, a function that
-  makes a socket. The sync connection owns the cursor, attach and detach,
-  reconnection, and the unacknowledged-submission watchdog (ADR-0222).
-- **Blob**: immutable bytes with their own identity and lifetime. Local objects
-  belong to the app on this device and use extension-bearing BlobIds (ADR-0349).
-  Explicit remote uploads create independent account-owned objects and return
-  URLs (ADR-0372). Neither row synchronization nor row deletion transfers or
-  deletes bytes.
-- **Worker**: running behavior that observes Epicenter state and writes results
-  back. Workers may be local (every node runs them) or agent-bound (one
-  configured agent answers). A conversation is answered by the client agent loop
-  in the open tab, for every agent (ADR-0047).
-- **Agent**: the durable address a row or conversation binds to (an immutable
-  id). An agent names who should answer; the peer that answers as it is the
-  client tab or a daemon, set by the agent's **trust location** (ADR-0030/0043).
-- **Trust location**: where an agent's data and tools live, and therefore where
-  its side effects run (ADR-0030, ADR-0047). The reasoning loop always runs in
-  the client, which drives an inference server (ADR-0049); what varies is the
-  agent's capability. A **capability-free** agent (Vocab) has no tools. A
-  **local-data** agent (Local Books) keeps its data and action handlers on the
-  user's own always-on daemon, which the client loop reaches by dispatching
-  actions; data leaves the daemon only as a tool result. The relay is
-  content-blind; the inference server is a stateless turn that sees the prompt as
-  accepted egress (not content-blind). Trust is per-agent, not global.
-- **Conversation loop**: the client-side loop that answers every conversation,
-  streams the live turn into a snapshot the UI renders, and persists finished
-  messages as rows (ADR-0047). It replaced the older doc-observing _answerer_,
-  which ADR-0047 removed.
-- **Working-copy materialization**: Markdown documents, settings, and a checkout
-  manifest. Pull writes app data to the folder; Push applies approved folder
-  edits against the saved baseline. Blob IDs and URLs remain references: neither
-  operation copies, fetches, or deletes blob bytes (ADR-0394, ADR-0395).
-- **`attach*` vs `create*`**: `attach*` are side-effectful primitives that register
-  listeners at call time; `create*` are pure construction.
+A desktop app opens its folder on the computer and works with no account. A
+web app opens the folder attached to its app on the server, online only, after
+the person signs in ([ADR-0786](adr/0786-every-web-app-is-online-and-browser-storage-leaves-the-platform.md)).
+**Direction:** the web's local store is memory seeded from the server and
+synced ([ADR-0807](adr/0807-an-app-writes-only-to-a-local-store-and-only-sync-talks-to-a-server.md)).
+One build serves both ([ADR-0781](adr/0781-apps-branch-on-what-a-capability-offers-and-one-build-serves-every-surface.md)).
 
-## App composition
+Only an app's `src/lib/app.ts` chooses its place: `openFolder(contract,
+home({ site, account }))` from `@epicenter/folder`, whose `home` the package
+chooses when the page runs. A desktop shell on `epicenter-standalone` names
+Data and AppData. In a Tauri window `home` is Data, which the shell names from
+the host of the app's site under the Epicenter folder; what a capability keeps
+on one computer goes to AppData through `settings` from `@epicenter/local`. The
+shell makes the folder when nothing is at that path. A root that cannot open
+shows a recovery screen with Retry and a file-manager action; the app does not
+ask a first-run question ([ADR-0701](adr/0701-apps-run-as-separate-programs.md)).
+In a browser, `home` is the folder the account's app is attached to.
+**Direction:** a window shows the folder it was opened on, `openFolder(view)`,
+and `home` goes ([ADR-0814](adr/0814-one-window-shows-one-folder.md),
+[ADR-0815](adr/0815-the-platform-gives-a-window-its-folder-and-every-app-the-same-home.md)).
 
-- **Store definition**: `defineStore({ id, title, kv, tables })` from
-  `@epicenter/app` validates a platform-free schema. The same value feeds store
-  opening, memory tests, caller-owned SQLite data, and artifact operations. Its
-  ID names the store definition and need not equal the host application's ID.
-- **Store lifetime**: `openLocal` and `openPersonal` from `@epicenter/app/open`
-  resolve to ready handles. Each store owns document and blob acquisition.
-  `store.close()` fences new operations, drains admitted work, and releases
-  resources. Failed opening publishes no handle; unsafe cleanup retains
-  admission until context teardown. Reload does not prove edits survived.
-  `StoreRuntime` supplies document storage, local blobs, and store admission.
-- **Memory store runtime**: `createMemoryStoreRuntime()` from
-  `@epicenter/app/testing` isolates document/blob IndexedDB storage. Store close
-  releases ownership while runtime-owned storage survives reopening.
-  `runtime.dispose()` refuses held admission, then releases storage. It supplies
-  no simulated SQL, recording, credentials, or inference.
-- **Data document**: `openData(definition, sqlite)` from `@epicenter/app/data`
-  opens over caller-owned SQLite. Disposing the document leaves the connection
-  open. `openMemory` is Bun test support and can borrow a reusable memory record.
-- **Page bootstrap**: a mounted AppBoot captures auth once, invokes product
-  resource acquisition, and renders its resolved value. The shell borrows stores
-  through `fromData`. Departure signals stop producers before full navigation.
-  AppBoot does not close returned roots; document destruction ends those
-  resources. Callbacks and auxiliary routes open no primary store.
-- **Capability**: the operation surface a consumer borrows from its owner,
-  such as `store.blobs`. Borrowing operations does not transfer readiness or
-  shutdown ownership. A recorder borrows Local blobs from its store.
-- **Device settings vs synced settings**: per-device settings (global shortcuts,
-  microphone, inference selection) belong to Local; synced settings belong to
-  Personal. This follows the collision and OS ownership distinction in ADR-0007.
-  Inference catalogs and gateway clients open independently of either store.
-- **Vault**: the designated, not-yet-built home for the one encryption that
-  survives ADR-0004: an explicitly encrypted store for the values a person
-  brings that name no durable local state, such as a provider API key. The key
-  source is server-derived, not a passphrase (ADR-0074), and accounts and
-  third-party OAuth grants are outside its scope: those belong to the app whose
-  directory they name (ADR-0202). Its primitives were removed with the
-  encryption layer, and `@epicenter/encryption` itself is now deleted; a secrets
-  path rebuilds from scratch. Distinct from the Matter vault (a folder of
-  Markdown).
+## Apps and lenses
+
+| Name | Meaning |
+| --- | --- |
+| Lens | An app, the Epicenter app, the CLI, or an agent seen as showing and changing the part of a folder it understands. Lenses come and go; the folder stays ([ADR-0813](adr/0813-epicenter-is-your-folders-and-apps-are-lenses.md)). It no longer names a schema's expectations. |
+| App | A program that is a view, a window over one folder, and its capabilities ([ADR-0818](adr/0818-an-app-is-a-view-a-window-and-its-capabilities-and-everything-is-repairable-by-hand.md)). Qualify a web app or desktop app when runtime or native capabilities matter. |
+| View | What an app understands in a folder: the collections and fields it reads and writes, published at its site. It fits a folder when each of its collections is in the contract at the same path and each field it uses is there with a type the app accepts; attaching an app proposes what is missing, and an app never removes or retypes what is there ([ADR-0812](adr/0812-an-apps-schema-is-a-view-that-must-fit-a-folders-contract.md)). Selecting another view changes interpretation, not saved files or edit ownership. **Direction:** `defineView` ([ADR-0818](adr/0818-an-app-is-a-view-a-window-and-its-capabilities-and-everything-is-repairable-by-hand.md)); today an app compiles a `defineContract`. |
+| Window | An app's interface over one folder, for the window's whole life. Another folder opens in another window ([ADR-0814](adr/0814-one-window-shows-one-folder.md)). |
+| Platform | What every app inherits about folders: finding them, the home, New and Open, sync and its marks, history, sharing, conflicts and repair, the fit check, and signing in to sync. An app places the platform's pieces and replaces none ([ADR-0817](adr/0817-the-cli-exposes-every-platform-operation-and-an-app-inherits-everything-about-folders.md)). Each operation is a function in `@epicenter/folder/platform`. |
+| Home | **Direction:** the screen every app starts on, which the platform gives: the folders the app can open, their state, and New, Open, and Share ([ADR-0815](adr/0815-the-platform-gives-a-window-its-folder-and-every-app-the-same-home.md)). `listHome` in `@epicenter/folder/platform` is its data. |
+| Capability | A value an app's `app.ts` makes synchronously and hands to its pages: the folder, the account, settings, AI. Its package decides at run time, with `isTauri()`, whether the page runs in a Tauri window, and loads its desktop implementation when it connects or first acts; an app branches on what a capability offers, never on the platform, and a capability a surface cannot give is `null` there ([ADR-0781](adr/0781-apps-branch-on-what-a-capability-offers-and-one-build-serves-every-surface.md)). It exposes no ready promise ([ADR-0777](adr/0777-a-capability-has-no-ready-promise.md)). |
+| Epicenter app | The app in `apps/epicenter`, where a person sees and manages every folder: each folder's title, members, and state (never synced, synced, or shared); a folder as tables of its collections or as its files; sync, sharing, accepting, and repair; views across folders; and "Connect your agents". It keeps every folder in sync while it runs. It knows an app only as data, hosts no app, and runs no MCP server ([ADR-0816](adr/0816-the-epicenter-app-is-where-a-person-sees-and-manages-every-folder.md), [ADR-0819](adr/0819-every-program-keeps-the-folders-it-has-open-in-sync-and-the-epicenter-app-has-them-all-open.md)). Today it has Settings and a Folders window, which composes `@epicenter/folder/platform`: every folder with its mark and state, sync, sharing, History with restore and marks, and "Import from Git…". It syncs every folder from login, at start and on a timer. "Connect your agents" and views across folders are not built; see its README. |
+| CLI | The `epicenter` executable: the platform without windows, a command for every platform operation. The Epicenter app and every app compose the same package functions, and none calls the CLI ([ADR-0817](adr/0817-the-cli-exposes-every-platform-operation-and-an-app-inherits-everything-about-folders.md)). Its entry points and commands are documented by the CLI package. **Direction:** its own install for agents and terminals, signing in as its own OAuth client with its own credentials file ([ADR-0793](adr/0793-programs-only-compose-typescript-holds-what-epicenter-means-and-rust-holds-the-os-git-and-secrets.md)). |
+| Agent or person | A direct file writer. Its changes reach editors through a client's listeners; a folder's next write to that file reads it first and keeps their change. An agent reaches every operation and typed tools over each folder's collections through `epicenter mcp`, and with `--all` every folder, because it acts as the person
+ ([ADR-0799](adr/0799-a-folders-contract-is-also-an-mcp-server.md), [ADR-0819](adr/0819-every-program-keeps-the-folders-it-has-open-in-sync-and-the-epicenter-app-has-them-all-open.md)). |
+| Reading or writing program | The part an app, CLI, or agent plays in one operation on files, not another product or data owner. A folder's roles, member and reader, are separate (below). |
+| Issue or diagnostic | A specific parsing or schema problem, with its source. A schema disagreement is distinct from unparseable source or a storage failure. |
+| Query projection | Derived query data, such as an in-memory SQLite table built from files and a contract. It is not another durable data owner. **Direction:** `epicenter query` attaches each folder as a SQLite schema with a table per collection (a column per field, plus `name` and `body`) and an `invalid` table, rebuilt on every run and never stored ([ADR-0790](adr/0790-the-epicenter-app-is-a-library-over-every-folder-and-the-cli-answers-its-queries.md)). |
+| Runtime or shell | The environment executing an app or providing native mechanisms. Qualify a Git host or inference host separately. |
+
+A contract's schemas grant no access and choose no merge policy. They execute
+no code and fetch no external references. Without a contract, a reader can
+inspect stored values but gives no app-specific validity verdict. A schema's
+selection is independent of storage, identity, and credentials.
+
+## Changes and sync
+
+| Name | Meaning |
+| --- | --- |
+| Edit or unsaved input | Text an editor holds after the person typed it and until its save lands. The folder shows only what landed; the editor shows each typed field until its save lands. |
+| Save | Acknowledged local persistence of an edit. It does not promise a sync or a change on the server. |
+| Write | A file or storage operation. An app writes with `set` and `delete`, which never fail: the folder keeps each write, in order, until it lands, and rejects the ones still waiting with `FolderClosed` only when the folder fails or closes ([ADR-0775](adr/0775-a-write-never-fails-the-folder-keeps-it-until-it-lands.md), [ADR-0782](adr/0782-a-waiting-write-the-folder-will-not-make-rejects.md)). |
+| Put over a version | A store's write lands only while the path still holds `expect`, the version its writer read (`null`: nothing there), and fails with `Moved { now }` otherwise. A `Moved` whose `now` is the version the put meant to land counts as landed. No app holds a version ([ADR-0774](adr/0774-one-write-makes-it-so-and-settles-a-change-the-way-sync-does.md), [ADR-0824](adr/0824-a-folders-history-is-a-log-of-versions-and-git-is-how-it-leaves.md)). |
+| Patch | **Direction:** a local store's `patch(path, { set, delete })`: field lines replaced, added, or removed on the file as it is, so a patch sent twice writes the same file and is never stale. It never creates a file and never normalizes ([ADR-0798](adr/0798-a-store-patches-fields-and-writes-text-and-a-change-is-data.md), [ADR-0807](adr/0807-an-app-writes-only-to-a-local-store-and-only-sync-talks-to-a-server.md)). |
+| Write record | **Direction:** one write or patch as JSON discriminated by `op`, the vocabulary every local transport, queue, and conformance test carries. ADR-0798 calls it a change, before ADR-0828 gave that word to the ledger's change ([ADR-0798](adr/0798-a-store-patches-fields-and-writes-text-and-a-change-is-data.md)). |
+| Sync | One exchange of a folder with its log on the server: `sync({ local, remote, manifest })` in `@epicenter/folder/sync`, one TypeScript function every surface runs. It copies what changed on one side to the other and merges what both changed, writing the local side first, each file over the version listed, then appending to the server. `epicenter sync` runs it for a folder on this computer. No Git runs on a computer ([ADR-0803](adr/0803-clients-sync-only-with-epicenter-servers-and-sync-is-a-function-of-two-stores.md), [ADR-0804](adr/0804-a-computer-keeps-a-plain-folder-and-every-surface-syncs-with-one-typescript-function.md)). The older word for one sync was round. |
+| Moments | When Epicenter syncs: the Epicenter app keeps every folder in sync while it runs (at start, after a burst of a folder's changes, on a timer, and on request, `keepEverySynced`), and `epicenter sync` syncs the folders named. ADR-0830 decides a change sent at once and a check of every folder's head every 30 seconds, with no notifier and no live session; the code waits 3 seconds after the last change in a burst and checks every 3 seconds. On a computer only Epicenter syncs; on the web the folder on the server is the app's store, and nothing syncs ([ADR-0819](adr/0819-every-program-keeps-the-folders-it-has-open-in-sync-and-the-epicenter-app-has-them-all-open.md), [ADR-0822](adr/0822-only-epicenter-syncs-on-a-computer-and-a-folder-holds-only-its-content.md), [ADR-0823](adr/0823-on-the-web-the-folder-on-the-server-is-the-apps-store.md)). |
+| Make, join | `POST <folders> { create: true }` makes a folder and never joins one; `{ join: <app> }` joins the one folder attached to that app, as a web app's first open does. A copy is an unbound folder: it carries no claim to sync ([ADR-0822](adr/0822-only-epicenter-syncs-on-a-computer-and-a-folder-holds-only-its-content.md)). |
+| Merge | Combine base, current, and incoming. In sync, `merge3` (`@epicenter/definition/front-matter`) does it: Git's three-way line merge for a body (a port of `git merge-file`), a key rule for front matter comparing JSON values, the later write for any other file, and an edit beating a delete. Sync takes this computer's side as the later write. A folder's own write over a note that changed under it still settles with `settle` (`@epicenter/definition/merge`), which merges a body by line and then by word, though ADR-0830 withdrew merging by word, and which goes with the whole-note formatter ([ADR-0795](adr/0795-git-merges-a-notes-body-and-epicenter-merges-its-front-matter-by-key.md), [ADR-0796](adr/0796-a-field-is-a-line-its-value-is-json-and-a-write-patches-only-the-fields-it-changes.md)). Schemas do not choose merge behavior. The server never merges. |
+| Conflict block | What a merge leaves when both sides changed the same spot of an item's body: one block of whole lines between Git's markers, ordinary file content. A binary file never gets one: the later write wins, and the version it replaced stays in history. Today each marker's label names a device and a time in `settle`'s blocks. **Direction:** the labels are fixed, `current` and `incoming`, so two computers merging one clash write the same text ([ADR-0795](adr/0795-git-merges-a-notes-body-and-epicenter-merges-its-front-matter-by-key.md)). |
+| Sync marks | What a person sees of sync, never Git's steps: synced (✓), waiting (◌), conflict (⚠) when a body holds a conflict block or deletions wait for an answer, and refused (✗) with the server's reason (`FolderMark` in `@epicenter/folder/platform`). Resolving a conflict in a repair editor is **Direction** ([ADR-0788](adr/0788-everything-in-a-folder-syncs-and-a-recordings-audio-is-kept-in-one-of-three-places.md), [ADR-0789](adr/0789-a-conflict-is-a-mark-on-its-note-resolved-in-the-repair-editor.md), [ADR-0807](adr/0807-an-app-writes-only-to-a-local-store-and-only-sync-talks-to-a-server.md)). |
+| Change | The one thing that moves between devices, the ledger, and Git: a set of files, each naming the version it replaces and the version it becomes (null for a deletion). In the ledger it is numbered `seq`, densely and in the order changes land, with its author, time, and the program that made it. `POST <folders>/<id>/changes` appends one, and a stale write is refused, never applied. A cursor `<epoch>.<seq>` names a point in the ledger ([ADR-0824](adr/0824-a-folders-history-is-a-log-of-versions-and-git-is-how-it-leaves.md), [ADR-0828](adr/0828-names-say-folders-and-changes-and-history-is-package-functions-the-epicenter-app-shows.md)). Retired for it: commit. |
+| Version | The SHA-256 of a file's bytes, the same on every store and in every record. Bytes up to 16 KiB are kept inline in Postgres, larger ones in the blob store, by size; a purged version keeps its rows ([ADR-0824](adr/0824-a-folders-history-is-a-log-of-versions-and-git-is-how-it-leaves.md)). ADR-0833 decides 2 KiB inline and each folder's older changes in its own archive, which is unbuilt ([ADR-0833](adr/0833-a-folders-present-lives-in-one-shared-database-and-its-past-in-its-own-archive.md)). |
+| History | A folder's changes in the ledger, reached with `epicenter log`, `history`, `show`, `at`, `diff`, and `restore` (a forward change naming old versions), and in the Epicenter app's History. A moment is a change's number, a mark, or a time. It leaves as Git with `epicenter export --git`, notes and `epicenter.json` as plain blobs and other files as Git LFS objects named by their versions (projection v2), and enters with `epicenter import --git`, which resumes when it stops midway ([ADR-0826](adr/0826-history-enters-and-leaves-epicenter-as-git.md), [ADR-0827](adr/0827-the-cli-and-mcp-render-one-table-of-operations.md)). **Direction:** `epicenter git land` turns a branch into one change ([ADR-0831](adr/0831-a-git-branch-lands-in-a-folder-as-one-change-through-the-cli.md)), and every folder is a Git remote ([ADR-0834](adr/0834-every-folder-is-also-a-git-remote.md)). A restore that never deletes on a device is also **Direction** ([ADR-0829](adr/0829-a-restore-never-deletes-on-a-device-and-historys-chain-covers-what-changed-not-who.md)): today the next sync deletes there the files the restore removed. |
+| Mark | A name a person gives one change (`epicenter mark`), written as a Git tag by the export ([ADR-0826](adr/0826-history-enters-and-leaves-epicenter-as-git.md)). Not a sync mark. |
+| Head, base | The ledger's last change, and the agreed version a merge reads. |
+| Cache | Data rebuilt without losing saved work, such as an attachment's hash stamps in the Epicenter folder's `.epicenter/hashes/`. Unlanded edits are not caches; a record is not one either, since losing it costs a question. |
+| Replica | The page's copy of one folder: the text of each contract note, and the path, version, and size of every other file, fed by the paths that changed ([ADR-0778](adr/0778-a-page-connects-once-and-then-reads-synchronously.md)). It is not an extra product component. |
+
+A folder's write (`set`, `delete`, an editor's save) reads the file just
+before writing it and puts over exactly what it read; when the file moved in
+between, it reads and applies the change again. The fields a write names take
+it, and a body changed since the folder showed the item merges by lines with
+`settle` ([ADR-0774](adr/0774-one-write-makes-it-so-and-settles-a-change-the-way-sync-does.md)).
+A write never fails: the folder keeps it, in order, until it lands, and
+`folder.unavailable()` says why it waits
+([ADR-0775](adr/0775-a-write-never-fails-the-folder-keeps-it-until-it-lands.md)).
+
+A Svelte view binds its controls to the open item's editor (`notes.edit`),
+which shows each typed field until its save lands, then follows the folder
+again. Writes waiting for the store live in the page's memory and do not
+survive a crash; the leave guard asks before the page closes. See [the folder package](../packages/folder/README.md)
+and [the Svelte adapter](../packages/svelte/README.md).
+
+During a sync, an item both sides changed merges against the version both last
+agreed on, read from the server by its version. The server merges nothing: it
+refuses a change over a version a path no longer holds, and the sync reads
+what is there and runs again
+([ADR-0773](adr/0773-a-folder-opens-at-a-place-every-place-is-a-store-and-the-server-never-merges.md)).
+Two syncs of one folder may run at once: every write, the manifest's
+included, is over the version read, so neither loses an edit
+([ADR-0805](adr/0805-a-folder-is-recognized-by-epicenter-json-which-is-its-contract.md)).
+A sync never silently loses an edit: a rename beside an edit leaves both
+items, and a deleted item edited elsewhere returns
+([ADR-0806](adr/0806-an-open-app-checks-for-changes-and-a-sync-never-silently-loses-an-edit.md)).
+`epicenter sync` stops, with exit code 1 when a person must run it again or a
+copy asks, and 2 when it could not sync.
+
+## Sharing and access
+
+| Name | Meaning |
+| --- | --- |
+| Member, reader | A person who accepted a folder, and what they may do: a member changes files, shares, unshares, and changes roles; a reader syncs without pushing and manages nothing. Members are equal, no member owns a folder, and a folder lives while any member remains ([ADR-0820](adr/0820-a-share-is-an-invitation-to-an-email-and-reaching-every-folder-is-a-permission.md)). The roles in code are `member` and `reader` (`FolderRole`, `src/folder-roles.ts`). |
+| Share, invitation | A share names an email and waits as an invitation until a person with that email accepts it; it grants nothing before, and the server answers the same whether or not the email has an account. `epicenter share`, `unshare`, and `accept`. An invitation to an email with no account waits and shows in `pending` once someone signs in with it, since the match is made when it is read. |
+| Attach | Recording that an app reaches a folder: made when an app's first sync creates the folder, or when a person chooses "Use this folder with" an app (`epicenter attach`). `$id` or contract content authorizes nothing ([ADR-0811](adr/0811-folders-are-shared-directly-and-an-app-reaches-the-folders-attached-to-it.md)). |
+| Reach, `folders:all` | A web app's token reaches the folders attached to it. A token with the scope `folders:all` (the CLI and the Epicenter app, Epicenter's programs) reaches every folder its person holds, and only such a program attaches a folder to an app. A desktop app's token holds only `ai`. The other folder scopes are `folders:read` and `folders:write` ([ADR-0820](adr/0820-a-share-is-an-invitation-to-an-email-and-reaching-every-folder-is-a-permission.md), [ADR-0822](adr/0822-only-epicenter-syncs-on-a-computer-and-a-folder-holds-only-its-content.md)). **Direction:** consent shows `folders:all`. |
+| Folders audience | The OAuth resource at `<api origin>/folders` on every deployment, the hosted cloud included: the ledger's routes at `<folders>/<id>/…` and `GET <folders>`, which answers the head of every folder a token reaches. `/api/folders` takes the same audience. The other audience, `api`, is the origin itself and takes `ai` ([ADR-0828](adr/0828-names-say-folders-and-changes-and-history-is-package-functions-the-epicenter-app-shows.md)). |
+| Grant, consent, scope, audience | Permission, its approval, allowed operations, and the service accepting a token. Qualify folder grants, account grants, and inference authorization. |
+| Credential, token, provider key | Authentication material, retained outside synchronized data. It does not identify a folder. **Direction:** on the desktop each app keeps its secrets in its own credentials file in AppData, read by the request that uses it and never by the page ([ADR-0783](adr/0783-a-secret-lives-in-the-apps-credentials-file-and-is-read-by-the-request-that-uses-it.md)). |
+| Account or principal | The person's service account, or the precise authenticated identity where technical code uses principal. A desktop app's folder needs neither; a web app needs the account. Each capability handed the account says what it needs (`folders`, `ai`, or `profile`), and sign-in asks for exactly those ([ADR-0792](adr/0792-an-account-asks-for-what-the-capabilities-that-take-it-need.md)). |
+| Web origin | The web app's settings storage and OAuth client boundary. It is distinct from Git's remote named `origin`. |
+| Deployment | A hosted or self-hosted service installation. A folder syncs only with an Epicenter deployment. Hosted-only billing stays in `apps/api/worker/billing/`. |
+| Inference provider | The service or local model used for AI work. Its configuration is independent of a folder and its sharing. |
+| Inference or transcription | AI processing of selected inputs; transcription produces text from audio. It does not imply attachment synchronization. |
+| Allowance, usage, credits, billing | Hosted service entitlement and accounting, independent of folder saves. |
+| Authority | The source that controls accepted state where an implementation uses this precise term. |
+
+Avoid unqualified connection and host when their roles affect behavior. Name the
+sync destination, inference provider, runtime, or grant involved. Reserve generic
+browser for no product: say web browser for the runtime and Epicenter app for
+the native product.
+
+Host is a qualified technical role: a runtime can host an app, a Git service
+hosts repositories, and a deployment hosts services. Shell names runtime
+integration when that mechanism matters.
+
+Record can explain an item to a person; it does not introduce a second stored
+object. Workspace should not become an alias for a folder or local selection.
+Name the actual object unless a separate grouping feature exists. Whispering's
+`Workspace` supplies platform capabilities beside the opened folder: capture,
+inference, connections, preferences, and recording recovery. It holds no
+folder or closing lifetime.
+
+## Current implementation names
+
+These names distinguish the public app API from internal storage. Historical
+terms in accepted ADRs do not create additional current APIs.
+
+| Source | Names and current behavior |
+| --- | --- |
+| `@epicenter/folder` places | `openFolder(contract, place)` from `@epicenter/folder`, over a contract from `@epicenter/definition/contract`, at `home({ site, account })` (chosen when the page runs: the desktop's Data root in a Tauri window, the folder attached to the app on the server in a browser), `directory(path)` from `/node`, `served(url)` from `/served`, or `memory()` from `/memory` in a test. |
+| `@epicenter/folder` platform | From `@epicenter/folder/platform`: `listHome`, `identify`, `questionOf`, `initFolder`, `syncFolder`, `cloneIntoHome`, `acceptIntoHome`, `syncEvery`, `keepEverySynced`, the history functions (`folderLog`, `fileHistory`, `fileAt`, `folderAt`, `folderDiff`, `restoreFolder`, `markFolder`, `folderMarks`), `importGit`, and the server's folders: `listFolders`, `getFolder`, `folderHeads`, `shareFolder`, `unshareFolder`, `acceptShare`, `attachFolder`. `exportGit` is `@epicenter/folder/node`'s. |
+| `@epicenter/folder` sync | `sync({ local, remote, manifest })`, `folderRepository(account, folder)`, `makeFolder`, `joinApp`, `memoryRepository`, and `storeManifest`, from `@epicenter/folder/sync`. The code says `Repository` for the folder on the server as a sync sees it, and `RepositoryChrome` in apps; the decided words are folder and ledger. |
+| CLI | Built: every platform operation (`check`, `format`, `status`, `init`, `sync`, `clone`, `log`, `history`, `show`, `at`, `mark`, `diff`, `restore`, `export`, `import`, `share`, `unshare`, `accept`, `attach`, `detach`), each one description in `packages/cli/src/operations.ts` with an input and an output schema, rendered as a command and, by `epicenter mcp`, as an MCP tool; and its own `mcp`, `auth`, and `messages` ([ADR-0827](adr/0827-the-cli-and-mcp-render-one-table-of-operations.md)). **Direction:** `query`, `set`, `edit`, `delete`, and `normalize` arrive on the command line, and `format` goes ([ADR-0790](adr/0790-the-epicenter-app-is-a-library-over-every-folder-and-the-cli-answers-its-queries.md), [ADR-0797](adr/0797-front-matter-is-a-strict-grammar-and-anything-else-is-body.md)). |
+| Server | A folder's ledger at `<api origin>/folders/<id>` and the person's folders at `/api/folders`, in `packages/server` (`mountFolders`, `mountFolderApi`; `appendChange`, `changesSince`, `filesAt`, `readLog`) ([ADR-0811](adr/0811-folders-are-shared-directly-and-an-app-reaches-the-folders-attached-to-it.md), [ADR-0828](adr/0828-names-say-folders-and-changes-and-history-is-package-functions-the-epicenter-app-shows.md)). |
+| Merge, contract | `merge3` and `mergeLines` (`@epicenter/definition/front-matter`) for sync, `settle` (`@epicenter/definition/merge`) for a folder's own write, `defineContract` and `checkContract` (`@epicenter/definition/contract`). |
+| `AGENTS.md` | A person's own file, if they keep one: Epicenter writes none and reads none. A folder's contract is its `epicenter.json` ([ADR-0805](adr/0805-a-folder-is-recognized-by-epicenter-json-which-is-its-contract.md), [ADR-0827](adr/0827-the-cli-and-mcp-render-one-table-of-operations.md)). |
+| Stored records | Existing fields such as `recordingId` retain their names and values. A noun cleanup is not a data-format migration. |
+
+## Retired terms
+
+A retired term may still appear in code, in accepted records, and in Rust
+comments. Do not use it for the current concept.
+
+| Retired | Use | Retired by |
+| --- | --- | --- |
+| space (ADR-0802's unit of sharing), space switcher, `contract.json` | folder; sharing is per folder, a folder picker went too, and the contract is `epicenter.json` | [ADR-0811](adr/0811-folders-are-shared-directly-and-an-app-reaches-the-folders-attached-to-it.md), [ADR-0805](adr/0805-a-folder-is-recognized-by-epicenter-json-which-is-its-contract.md) |
+| team, namespace, repository grant | member of a folder, with a role | [ADR-0811](adr/0811-folders-are-shared-directly-and-an-app-reaches-the-folders-attached-to-it.md) |
+| group (of people that folders are shared with) | sharing managed by person | [ADR-0811](adr/0811-folders-are-shared-directly-and-an-app-reaches-the-folders-attached-to-it.md) |
+| owner, writer (folder roles) | member, reader; no member owns a folder | [ADR-0820](adr/0820-a-share-is-an-invitation-to-an-email-and-reaching-every-folder-is-a-permission.md) |
+| stamp, an id or `.epicenter/` inside a folder | the record at the Epicenter folder's root, and the directory's identity. A file's stamp (size, modification time, file identity) is a different thing: the key of a hash cache | [ADR-0822](adr/0822-only-epicenter-syncs-on-a-computer-and-a-folder-holds-only-its-content.md), [ADR-0832](adr/0832-a-folder-is-the-directory-epicenter-last-synced-or-epicenter-asks.md) |
+| copy detection, device number, "use this folder with" after a copy, `--new` and `--same` | a copy is a new folder: only the directory with the recorded inode and birth time is the folder, and anything else asks once | [ADR-0821](adr/0821-a-computer-remembers-what-it-synced-and-a-shell-limits-each-window-to-its-folder.md), [ADR-0832](adr/0832-a-folder-is-the-directory-epicenter-last-synced-or-epicenter-asks.md) |
+| repository, commit (for a folder on the server and its write) | folder, change. Code still says `Repository`, `folderRepository`, and `RepositoryChrome`; Git's own repositories and commits keep the words | [ADR-0828](adr/0828-names-say-folders-and-changes-and-history-is-package-functions-the-epicenter-app-shows.md) |
+| Git as storage: history kept as Git on a computer or the server, hosted Git, Cloudflare Artifacts, a file's Git blob id or LFS pointer as its version | the ledger; a version is the SHA-256 of a file's bytes; Git is how history leaves and enters | [ADR-0824](adr/0824-a-folders-history-is-a-log-of-versions-and-git-is-how-it-leaves.md), [ADR-0826](adr/0826-history-enters-and-leaves-epicenter-as-git.md) |
+| a per-folder database on Durable Objects | one ledger in Postgres, with larger bytes in R2 | [ADR-0824](adr/0824-a-folders-history-is-a-log-of-versions-and-git-is-how-it-leaves.md), [ADR-0830](adr/0830-epicenter-sends-a-change-the-moment-it-happens-and-checks-for-others-every-thirty-seconds.md) |
+| a notifier (the bell that tells devices a folder changed) | a change sent at once and a check every 30 seconds; a notifier can be added later without changing anything else | [ADR-0830](adr/0830-epicenter-sends-a-change-the-moment-it-happens-and-checks-for-others-every-thirty-seconds.md) |
+| live session, live editing, keystroke co-editing, CRDT, Yjs store | none: a line is the unit of merge, and the ledger's order decides ties. An app that needs keystroke co-editing reopens ADR-0771 | [ADR-0771](adr/0771-plain-files-let-epicenter-refuse-renames-attachment-conflict-copies-and-a-second-store.md), [ADR-0830](adr/0830-epicenter-sends-a-change-the-moment-it-happens-and-checks-for-others-every-thirty-seconds.md) |
+| merge by word | merge by line; both versions shown when both sides changed one paragraph | [ADR-0830](adr/0830-epicenter-sends-a-change-the-moment-it-happens-and-checks-for-others-every-thirty-seconds.md) |
+| `git.epicenter.so`, `<origin>/git`, the `git` audience, `POST …/commits` | the folders audience at `<api origin>/folders`; a write is `POST …/changes` | [ADR-0828](adr/0828-names-say-folders-and-changes-and-history-is-package-functions-the-epicenter-app-shows.md) |
+| `folders:all` for a desktop app, a desktop app syncing its own folder | a desktop app's token holds only `ai`; only Epicenter's programs sync on a computer | [ADR-0822](adr/0822-only-epicenter-syncs-on-a-computer-and-a-folder-holds-only-its-content.md) |
+| library, library root | Epicenter app, Epicenter folder | [ADR-0816](adr/0816-the-epicenter-app-is-where-a-person-sees-and-manages-every-folder.md) |
+| the app as an owner of a folder or its contract, `$id` | an app is a view that must fit | [ADR-0812](adr/0812-an-apps-schema-is-a-view-that-must-fit-a-folders-contract.md) |
+| table, row, row id, row directory | collection, item, item name; files sharing a name are one item | [ADR-0818](adr/0818-an-app-is-a-view-a-window-and-its-capabilities-and-everything-is-repairable-by-hand.md), [ADR-0802](adr/0802-people-share-spaces-an-app-works-in-one-at-a-time-and-a-folder-carries-its-contract.md) |
+| round | sync | [ADR-0802](adr/0802-people-share-spaces-an-app-works-in-one-at-a-time-and-a-folder-carries-its-contract.md) |
+| note, for an entry of a collection | item (the code still says note) | [ADR-0802](adr/0802-people-share-spaces-an-app-works-in-one-at-a-time-and-a-folder-carries-its-contract.md) |
+| `{id}` in a path pattern | `{name}` (the code still says `{id}`) | [ADR-0818](adr/0818-an-app-is-a-view-a-window-and-its-capabilities-and-everything-is-repairable-by-hand.md) |
+| sync core, libgit2, the Node-API addon, the merge driver, a folder's `.git`, a sync lock | `sync` over stores and a manifest | [ADR-0804](adr/0804-a-computer-keeps-a-plain-folder-and-every-surface-syncs-with-one-typescript-function.md), [ADR-0805](adr/0805-a-folder-is-recognized-by-epicenter-json-which-is-its-contract.md) |
+| a Git remote or `origin` as the sync destination, GitHub and GitLab sync | the Epicenter server; Git is an export and an import | [ADR-0803](adr/0803-clients-sync-only-with-epicenter-servers-and-sync-is-a-function-of-two-stores.md) |
+| folder declaration, `epicenter.synced` | a folder's `epicenter.json`; every directory in the Epicenter folder is a folder | [ADR-0805](adr/0805-a-folder-is-recognized-by-epicenter-json-which-is-its-contract.md), [ADR-0813](adr/0813-epicenter-is-your-folders-and-apps-are-lenses.md) |
+
+For the full dated inventory and the review's accepted and rejected collapses,
+see the [October vocabulary audit](vocabulary-audit-2026-10-19.md).

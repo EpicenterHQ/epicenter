@@ -10,17 +10,10 @@ metadata:
 
 Every package here is **source-only `.ts`**: `exports` point at `./src/*.ts`,
 there is no build step, and consumers (Bun, Vite, Tauri, the Cloudflare Worker)
-operate on raw `.ts`. That single fact decides the whole config.
-
-**The exceptions are the audience, not the package.** `packages/workspace` and
-`packages/field` are published for toolchains we do not control, so shipping
-source would subject them to a stranger's compiler settings. They emit `.js` and
-`.d.ts`, and their `exports` point at `./dist`. Each leaf `tsconfig.json` is an
-ordinary tier from the table below; the emit lives in a **sibling
-`tsconfig.build.json`** that extends the leaf and turns on exactly what emitting
-needs (`noEmit: false`, `outDir`, `rootDir`, `declaration`, `types: []`). Do not
-add `outDir`, `declaration`, or `noEmit: false` to any leaf. If another package
-earns a build, copy that split.
+operate on raw `.ts`. That single fact decides the whole config. No package
+emits; do not add `outDir`, `declaration`, or `noEmit: false` to any leaf. A
+package that someday must emit puts those in a sibling `tsconfig.build.json`
+that extends its leaf.
 
 ## The one rule
 
@@ -41,8 +34,7 @@ tsconfig.dom.json    extends base; its ONLY job is lib [ESNext, DOM, DOM.Iterabl
 
 There is no `tsconfig.base.lib.json` and no project `references`. Source-only
 packages never emit, so `composite`/`declaration`/`outDir` have no place in a
-leaf. The two published packages that do emit put them in their own
-`tsconfig.build.json` (see above), never in the leaf or a base.
+leaf or a base.
 
 ## Module strategy: one, repo-wide
 
@@ -71,7 +63,7 @@ its `lib`/`module` win where they must. Never hand-edit a generated config.
 The two canonical library shapes in full:
 
 ```jsonc
-// Bun library: packages/sqlite, packages/sync, packages/principal, ...
+// bun library: packages/definition
 {
 	"extends": "../../tsconfig.base.json",
 	"compilerOptions": {
@@ -81,7 +73,8 @@ The two canonical library shapes in full:
 	}
 }
 
-// svelte library: packages/ui, packages/svelte
+// svelte library: packages/ui, packages/svelte, and the packages pages import
+// (account, ai, folder, recorder)
 {
 	"extends": "../../tsconfig.dom.json",
 	"compilerOptions": {
@@ -133,4 +126,5 @@ without `@types/bun` installed would then fail with `Cannot find type definition
 ## Background
 
 The full rationale, the migration that established this layout, and the baseline
-typecheck state are in `specs/20260522T190000-modernize-monorepo-tsconfig.md`.
+typecheck state were in a spec, now deleted; recover it with
+`git log --all --full-history -- specs/20260522T190000-modernize-monorepo-tsconfig.md`.

@@ -1,45 +1,16 @@
-import { fileURLToPath } from 'node:url';
-import { APPS } from '@epicenter/constants/apps';
+import { APPS } from '@epicenter/definition/site';
 import { workspaceAppViteConfig } from '@epicenter/vite-config';
-import { defaultClientConditions, defineConfig, mergeConfig } from 'vite';
-
-/** The desktop page: bundled into the shell, reaching the directory it owns. */
-const isDesktop = process.env.HONEYCRISP_DESKTOP === '1';
+import { defineConfig, mergeConfig } from 'vite';
 
 export default defineConfig(
 	mergeConfig(workspaceAppViteConfig(APPS.HONEYCRISP), {
-		resolve: {
-			// Build-time selection over `#platform/notes-host` in package.json
-			// "imports". The spread is load-bearing: custom conditions REPLACE
-			// Vite's defaults.
-			...(isDesktop && {
-				conditions: ['tauri', ...defaultClientConditions],
-			}),
-			alias: [
-				// Shared code imports the folder contract from the bare specifier.
-				// Each build resolves that exact specifier to its one adapter, so
-				// the desktop page carries no browser storage or Git, and the
-				// browser page no desktop adapter. Subpaths are left alone.
-				{
-					find: /^@epicenter\/folder$/,
-					replacement: isDesktop
-						? '@epicenter/folder/tauri'
-						: '@epicenter/folder/browser',
-				},
-				// isomorphic-git and its SHA-1 dependency expect Node's Buffer.
-				{
-					find: /^buffer$/,
-					replacement: fileURLToPath(import.meta.resolve('buffer/')),
-				},
-				// just-bash's browser bundle imports gzip helpers the terminal never enables.
-				{
-					find: /^node:zlib$/,
-					replacement: fileURLToPath(
-						new URL('./src/lib/shims/zlib.ts', import.meta.url),
-					),
-				},
-			],
+		// localhost, not 127.0.0.1: the API registers Honeycrisp's sign-in
+		// callback at `http://localhost:5175`.
+		server: { host: 'localhost' },
+		preview: {
+			port: APPS.HONEYCRISP.port,
+			strictPort: true,
+			host: 'localhost',
 		},
-		optimizeDeps: { include: ['buffer'] },
 	}),
 );

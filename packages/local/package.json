@@ -1,0 +1,28 @@
+{
+	"name": "@epicenter/local",
+	"version": "0.0.1",
+	"private": true,
+	"description": "This computer's settings for an app, as one store the page connects to once: AppData through the shell in a Tauri window, this browser's storage in a browser.",
+	"type": "module",
+	"exports": {
+		".": {
+			"test": "./src/memory.ts",
+			"default": "./src/index.ts"
+		},
+		"./memory": "./src/memory.ts",
+		"./settings": "./src/settings.ts"
+	},
+	"scripts": {
+		"typecheck": "tsc --noEmit -p tsconfig.json",
+		"test": "bun test --isolate"
+	},
+	"dependencies": {
+		"@tauri-apps/api": "catalog:",
+		"wellcrafted": "catalog:"
+	},
+	"devDependencies": {
+		"@types/bun": "catalog:",
+		"typescript": "catalog:"
+	},
+	"license": "AGPL-3.0-or-later"
+}

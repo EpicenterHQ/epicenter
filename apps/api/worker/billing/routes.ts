@@ -23,8 +23,9 @@ const BILLING_PREFIX = '/api/billing';
 /**
  * Mount the cloud billing data plane on the server app.
  *
- * Bundles session-bearer auth and the route mount into one
- * call. Lives in apps/api, not @epicenter/server, because Autumn is
+ * Bundles the dashboard's session-cookie guard and the route mount into
+ * one call: billing is account management on the authorization server's own
+ * page, which no access token reaches (ADR-0549). Lives in apps/api, not @epicenter/server, because Autumn is
  * cloud-only deployment policy.
  */
 export function mountBillingApi(

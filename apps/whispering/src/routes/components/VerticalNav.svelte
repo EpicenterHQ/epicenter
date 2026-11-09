@@ -3,7 +3,7 @@
 	import { useSidebar } from '@epicenter/ui/sidebar';
 	import { page } from '$app/state';
 	import studioMicrophone from '$lib/assets/studio-microphone.png';
-	import { NAV_ITEMS } from './nav-items.js';
+	import { NAV_ITEMS, pageAt } from './nav-items.js';
 
 	const sidebar = useSidebar();
 </script>
@@ -30,7 +30,7 @@
 			<Sidebar.GroupContent>
 				<Sidebar.Menu aria-label="Pages">
 					{#each NAV_ITEMS as item (item.href)}
-						{@const active = item.isActive(page.url.pathname)}
+						{@const active = item.page === pageAt(page.url.pathname)}
 						<Sidebar.MenuItem>
 							<Sidebar.MenuButton isActive={active} tooltipContent={item.label}>
 								{#snippet child({ props })}

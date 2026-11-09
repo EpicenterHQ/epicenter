@@ -167,6 +167,24 @@ export async function set(key, val) { return (await dbPromise).put('keyval', val
 
 Use `whenReady` when your client has sync methods that depend on initialized state. Use await-in-every-method when every method is async anyway (like database access). See the [idb await-in-every-method article](/docs/articles/idb-await-every-method-pattern.md) for a deeper comparison.
 
+## Epicenter capabilities
+
+An Epicenter capability that takes time to open, such as `openFolder(contract, place)`
+or this computer's `settings` from `@epicenter/local`, takes neither shape
+whole
+([ADR-0767](../../../../docs/adr/0767-an-async-lifecycle-is-modeled-as-synchronous-state-actions-wait-on-their-own.md),
+[ADR-0777](../../../../docs/adr/0777-a-capability-has-no-ready-promise.md),
+[ADR-0778](../../../../docs/adr/0778-a-page-connects-once-and-then-reads-synchronously.md)).
+It has no public ready promise and no `loading()`. Its lifecycle is
+synchronous state (`state()` and `subscribe`, with `retry()` on the failed
+state), and its async methods wait for the connection, as in idb. Its reads
+of stored data are synchronous once the page has connected and throw
+(`FolderNotOpen`, `SettingsNotOpen`) before, so they never answer a
+stand-in. The page connects to every store once, and the one root gate,
+`<WhenOpen>`, reads `state()` and renders nothing that reads a store before.
+A `whenReady` property fits only something with no actions to wait, as
+`document.fonts.ready` does.
+
 ## Related Patterns
 
 - [Lazy Singleton](../../../../docs/articles/lazy-singleton-pattern.md) : when you need race-condition-safe lazy initialization

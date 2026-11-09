@@ -62,7 +62,7 @@ that runtime.
 **Resolution requires the exact saved destination and the model saved with it.**
 
 The saved pair is the resolver's whole input. `resolveInferenceTarget` in
-`packages/app-shell/src/inference-target.ts` returns `{ client, model, source }`
+`packages/ai/src/target.ts` returns `{ client, model, source }`
 or null for a missing destination or blank model. The catalog observes connection
 changes and delegates to that resolver. Chat applies its synced-model comparison
 before resolution; Whispering reads its pair directly. Discovery supplies no
@@ -126,7 +126,7 @@ ongoing legacy observer.
 
 ## Implementation
 
-`packages/app-shell/src/inference-target.ts` owns exact resolution.
+`packages/ai/src/target.ts` owns exact resolution.
 `inference-picker/catalog.svelte.ts` observes connections and discovers models.
 Whispering reads and writes declared device KV fields; agent-chat owns local
 conversation targets and their comparison with synced model metadata.

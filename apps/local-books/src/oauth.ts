@@ -14,7 +14,7 @@ import {
 } from './tokens.ts';
 
 /**
- * QuickBooks OAuth2 built on `oauth4webapi` (the same client `@epicenter/auth`
+ * QuickBooks OAuth2 built on `oauth4webapi` (the same client `@epicenter/account`
  * uses) plus `Bun.serve` for the localhost callback. The library owns the wire:
  * HTTP Basic client auth, the authorization-code and refresh-token grant
  * requests, and spec validation of the responses. We own only the QuickBooks

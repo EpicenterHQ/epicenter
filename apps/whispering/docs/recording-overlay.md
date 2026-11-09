@@ -1,8 +1,11 @@
 # Recording overlay
 
-> Historical. This describes the recording overlay of the earlier Whispering that
-> ran inside the Epicenter desktop host. The standalone app in this directory has
-> no overlay window; see [README.md](../README.md) for what it supports.
+> Historical. This describes the recording overlay of an earlier Whispering
+> desktop build. Whispering now runs only as a browser build with no overlay
+> window, and Epicenter no longer hosts it
+> ([ADR-0701](../../../docs/adr/0701-apps-run-as-separate-programs.md); archived
+> at the tag `archive/app-hosting`). See [README.md](../README.md) for what it
+> supports.
 
 A small floating pill that appears while Whispering is capturing audio, inspired
 by Handy's recording overlay. It shows that Whispering is listening and lets the
@@ -92,7 +95,7 @@ That is suppression, not positioning, and it stays. All of this is dev-only.
 These are tracked here as follow-ups.
 
 1. **Settings.** There is no `show recording overlay` toggle or top/bottom
-   position setting yet. Whispering settings are workspace KV entries with their
-   own schema evolution rules, which is heavier than this slice warranted, so the
+   position setting yet. Whispering keeps no folder settings; a toggle would be
+   a field of a `settings` table row, which this slice did not warrant, so the
    overlay is on by default in the Tauri build. Add the toggle when touching the
    settings schema is otherwise justified.

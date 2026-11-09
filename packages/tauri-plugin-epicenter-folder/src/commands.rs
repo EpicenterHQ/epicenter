@@ -1,225 +1,38 @@
-//! The IPC surface: one thin command per owner operation.
+//! The IPC surface: opening a named root, and one command per method of the
+//! page's folder storage (`storage`, ADR-0581).
 //!
-//! Every command but `attach` names a session by resource ID. The ID is looked
-//! up in the invoking webview's own resource table, and the session is then
-//! checked against the invoking window's label, so a page can only use a
-//! session it attached itself. No command accepts a root, an author, a remote,
-//! or a history policy.
-//!
-//! Owner calls block on files and `git`, so each runs on the blocking pool,
-//! never on the thread that drives the windows.
+//! A page names a root (`Root::Data`, `Root::AppData`, and in the Epicenter
+//! app `Root::Folder` and `Root::Epicenter`) and a relative path in it, never
+//! an absolute path; the shared path rule keeps the path inside the root. `open_root` answers its display path for the page to show.
+//! A storage command works in the folder its root reached when the app
+//! opened it (`Roots::opened`), cloned when the command is admitted, so
+//! nothing that happens meanwhile redirects it. A root it cannot use is a
+//! `RootError` (`Disconnected` for a link whose target is gone), and a
+//! storage refusal or failure a `StorageError` (`FolderError`). The shell's
+//! own files at the top of the AppData root (`SHELL_FILES`: its credentials,
+//! ADR-0740, and its record of its data folder) are never listed, read, or
+//! written by a page: `InvalidPath`. Every command that touches
+//! the disk runs on the blocking pool, never on the thread that drives the
+//! windows. No Git runs here: a folder's history is its log on the
+//! server (ADR-0824).
 
-use std::collections::BTreeMap;
-use std::sync::mpsc;
-use std::sync::{Arc, Mutex};
+use std::ffi::OsString;
+use std::path::Path;
+use std::process::Command;
 
-use epicenter_folder_core::files::{
-    ApplyError, Children, FileChange, FileError, FileListing, FileRead,
-};
-use epicenter_folder_core::git::{CommitSummary, PathStatus};
-use epicenter_folder_core::history::{
-    CommitOutcome, FetchOutcome, FilesObservation, GitError, GitSnapshot, MergeError, MergeOutcome,
-    MergePolicy, OwnerEvent, PullError, PullOutcome, PushOutcome, RecoverOutcome, Settled,
-};
-use epicenter_folder_core::owner::{Caller, FolderOwner};
-use epicenter_folder_core::registry::AttachError;
+use epicenter_folder_core::identity::{identity_at, FolderIdentity};
+use epicenter_folder_core::state;
+use epicenter_folder_core::storage::{self, Landing, ListedFile, StorageError};
+use epicenter_folder_core::sweep;
 use serde::Serialize;
 use specta::Type;
-use tauri::{Manager, Resource, ResourceId, Runtime, Webview};
-use tauri_specta::Event;
+use tauri::{Emitter, Manager, Runtime, Webview};
 
-use crate::lifecycle::{Instance, Live, SessionState};
-use crate::Folders;
+use crate::records::{self, FolderRecord};
+use crate::roots::{EpicenterEntry, EpicenterListing};
+use crate::{Directory, FolderEvent, Root, RootError, Roots};
 
-/// The shared Git snapshot of a scope changed.
-#[derive(Debug, Clone, Serialize, Type, Event)]
-#[serde(rename_all = "camelCase")]
-pub struct FolderSnapshotChanged {
-    pub scope: String,
-    /// Only grows; an event numbered at or below the last one seen is stale.
-    pub sequence: u64,
-    pub snapshot: GitSnapshot,
-}
-
-/// Files of a scope changed, through any window or outside the app.
-#[derive(Debug, Clone, Serialize, Type, Event)]
-#[serde(rename_all = "camelCase")]
-pub struct FolderFilesChanged {
-    pub scope: String,
-    pub revision: u64,
-    pub paths: Vec<String>,
-}
-
-/// The version of this command contract. A page built against another
-/// version is refused at attach, before it can change anything.
-///
-/// Version 9 is the unreleased command contract. Push and fetch name a
-/// session-owned request that can withdraw before transport admission. No
-/// command holds the folder across calls or names a terminal lease. A read
-/// returns its bytes and their SHA-256, and a file change is one of create,
-/// replace, overwrite, remove, or move. Replace, remove, and move take an
-/// optional `expectedSha256` guard; a replacement without one still requires
-/// an existing file.
-///
-/// Version 5 added the incoming record: the snapshot's `pendingIncoming`,
-/// `recover_incoming`, and the refusals a pending update causes. Version 6
-/// made `replace`'s `expectedSha256` optional: a version 5 page would read a
-/// missing unguarded target as `Conflict`, not `NotFound`. Version 7 removed
-/// the number `apply` named and the `Superseded` refusal: saves are no longer
-/// ordered by the page, and the last to land wins. Version 8 added
-/// `merge_incoming`, with a `conflicts` mode that could leave a merge
-/// unfinished, and the snapshot's `merging`, `lastMerge`, and merge
-/// activity. Within version 8, `merge_incoming` also gained optional
-/// `allowUnrelatedHistories` and `versions`.
-///
-/// Version 9 removed unfinished merges: `merge_incoming` takes no
-/// `conflicts` and refuses every conflict, its outcome has no `conflicted`
-/// status, and the snapshot's `merging`, a recorded incoming update's
-/// `merge`, the `Unmerged` refusal, and a staged commit's `incoming` and
-/// `mergeStateWarning` are gone. A Git merge a person began outside
-/// Epicenter blocks commits and incoming updates instead. A version 8 page
-/// asking to leave conflicts would get a refusal, and would read the missing
-/// `merging` as no merge in progress.
-///
-/// Version 10 removed manual history: every save commits. The snapshot's
-/// `commitOnEdit`, the `stage` and `commit_staged` commands, `diff`'s
-/// `staged`, and the `InvalidMessage`, `NothingToCommit`, `AutomaticHistory`,
-/// `BranchMoved`, and `IncomingPending` Git refusals are gone. A version 9
-/// page would read the missing `commitOnEdit` as manual history and call
-/// commands that no longer exist. Any other version is refused at attach.
-pub const PROTOCOL: u32 = 10;
-
-/// What a window receives when it attaches to a scope.
-#[derive(Debug, Clone, Serialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct Attached {
-    /// Names this window's session in every later call.
-    pub session: u32,
-    /// The canonical directory the owner holds, for showing to a person.
-    pub root: String,
-    /// The snapshot at attach; events numbered above `sequence` follow it.
-    pub sequence: u64,
-    pub snapshot: GitSnapshot,
-}
-
-/// One window's session as the webview's resource table holds it, so a
-/// command can find it by resource ID. The session itself is `SessionState`,
-/// which the plugin's lifecycle state also reaches, weakly, to end it when
-/// the page or the window goes away. `detach` closes the resource; a
-/// destroyed window's table cannot be reached, so its sessions are ended
-/// through the lifecycle instead. The owner and every other session carry on.
-struct SessionResource(Arc<SessionState>);
-
-const SESSION_RESOURCE: &str = "epicenter-folder-session";
-
-impl Resource for SessionResource {
-    fn name(&self) -> std::borrow::Cow<'_, str> {
-        SESSION_RESOURCE.into()
-    }
-
-    fn close(self: Arc<Self>) {
-        self.0.end();
-    }
-}
-
-/// The identity of one actual webview, kept in that webview's own resource
-/// table. Clones of a `Webview` share its table; a new webview created under
-/// the same label has its own. See `lifecycle`.
-struct InstanceResource(Arc<Instance>);
-
-const INSTANCE_RESOURCE: &str = "epicenter-folder-webview";
-
-impl Resource for InstanceResource {
-    fn name(&self) -> std::borrow::Cow<'_, str> {
-        INSTANCE_RESOURCE.into()
-    }
-}
-
-/// Give a webview Tauri just announced its instance. A webview that already
-/// has one keeps it.
-pub(crate) fn adopt<R: Runtime>(webview: &Webview<R>) {
-    if instance(webview).is_some() {
-        return;
-    }
-    let created = webview
-        .state::<Folders>()
-        .lifecycles
-        .created(webview.window().label());
-    webview.resources_table().add(InstanceResource(created));
-}
-
-/// The instance of exactly this webview, read from its own table.
-fn instance<R: Runtime>(webview: &Webview<R>) -> Option<Arc<Instance>> {
-    let table = webview.resources_table();
-    let rid = table
-        .names()
-        .find(|(_, name)| name == INSTANCE_RESOURCE)
-        .map(|(rid, _)| rid)?;
-    table
-        .get::<InstanceResource>(rid)
-        .ok()
-        .map(|resource| Arc::clone(&resource.0))
-}
-
-/// A page is going away: a reload or a navigation. A webview's resource table
-/// outlives its pages, so the sessions the old page attached are ended here,
-/// which stops its events and withdraws its unstarted pushes and fetches,
-/// and an attach still in flight for the old page is fenced. Only this plugin's resources are
-/// touched. The owner, what it already admitted, and every other window
-/// carry on.
-pub(crate) fn end_page<R: Runtime>(webview: &Webview<R>) {
-    // This webview's own instance: a handle to a destroyed webview that
-    // shares a label with a live one ends nothing of the live one's.
-    if let Some(instance) = instance(webview) {
-        instance.page_started();
-    }
-    #[cfg(test)]
-    crate::tests::page_advanced(webview.label());
-    // The ended sessions are inert; drop their table entries as well. Only
-    // those: the new page may already have attached, and its session sits in
-    // this same table. Which sessions the old page's were is decided by the
-    // instance, above; here an entry goes only if its session has ended. The
-    // table lock is held while each session is asked, and a session's own
-    // lock is the innermost one, so this takes nothing `register` holds.
-    let mut table = webview.resources_table();
-    let ended: Vec<ResourceId> = table
-        .names()
-        .filter(|(_, name)| name == SESSION_RESOURCE)
-        .map(|(rid, _)| rid)
-        .filter(|rid| {
-            table
-                .get::<SessionResource>(*rid)
-                .is_ok_and(|resource| resource.0.ended())
-        })
-        .collect();
-    for rid in ended {
-        let _ = table.close(rid);
-    }
-}
-
-const NO_SESSION: &str = "this window has no such folder session; attach first";
-
-fn session<R: Runtime>(webview: &Webview<R>, rid: ResourceId) -> Result<Arc<SessionState>, String> {
-    let resource = webview
-        .resources_table()
-        .get::<SessionResource>(rid)
-        .map_err(|_| NO_SESSION.to_string())?;
-    Ok(Arc::clone(&resource.0))
-}
-
-fn owner<R: Runtime>(webview: &Webview<R>, rid: ResourceId) -> Result<FolderOwner, String> {
-    session(webview, rid)?.owner(webview.label())
-}
-
-fn file_denied(reason: String) -> FileError {
-    FileError::Denied { reason }
-}
-
-fn git_denied(reason: String) -> GitError {
-    GitError::Denied { reason }
-}
-
-/// Run blocking owner work off the window thread.
+/// Run blocking work off the window thread.
 async fn blocking<T: Send + 'static>(
     work: impl FnOnce() -> T + Send + 'static,
     lost: impl FnOnce(String) -> T,
@@ -230,475 +43,441 @@ async fn blocking<T: Send + 'static>(
     }
 }
 
-/// A read whose worker was lost changed nothing: an ordinary failure.
-fn file_lost<T>(operation: &'static str) -> impl FnOnce(String) -> Result<T, FileError> {
-    move |cause| {
-        Err(FileError::Io {
-            path: String::new(),
-            operation: operation.to_string(),
-            cause,
-        })
+/// Why a storage command answered no: the root it named cannot be used
+/// (`RootError`, such as `Disconnected` with the link's folder and target),
+/// or the storage operation refused or failed (`StorageError`). The two never
+/// share a `name`, so the page tells them apart by it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+#[serde(untagged)]
+pub enum FolderError {
+    Root(RootError),
+    Storage(StorageError),
+}
+
+impl From<RootError> for FolderError {
+    fn from(error: RootError) -> Self {
+        Self::Root(error)
     }
 }
 
-/// A publication whose worker was lost may have reached the folder.
-fn file_unconfirmed(operation: &'static str, path: String) -> impl FnOnce(String) -> FileError {
-    move |cause| FileError::Unconfirmed {
-        path,
+impl From<StorageError> for FolderError {
+    fn from(error: StorageError) -> Self {
+        Self::Storage(error)
+    }
+}
+
+/// Where a standalone shell remembers its Data root's identity, at the top
+/// of the AppData root (`epicenter-standalone`, ADR-0822).
+pub const DATA_FOLDER_FILE: &str = "data-folder.json";
+
+/// The shell's own files at the top of the AppData root, which no page
+/// reaches, each with why: the refresh token and the provider keys
+/// `epicenter-account` keeps (ADR-0740), and the identity of the folder the
+/// shell opens as Data, which a page that wrote it could point at another.
+const SHELL_FILES: [(&str, &str); 2] = [
+    ("credentials.json", "it is the shell's own credentials"),
+    (DATA_FOLDER_FILE, "it is the shell's own record of its data folder"),
+];
+
+/// Why `path` in `root` is the shell's own, or `None` when it is not.
+fn shell_file(root: &Root, path: &str) -> Option<&'static str> {
+    if *root != Root::AppData {
+        return None;
+    }
+    SHELL_FILES
+        .iter()
+        .find(|(name, _)| *name == path)
+        .map(|(_, reason)| *reason)
+}
+
+/// Refuse the shell's own files to a page.
+fn refuse_shell_file(root: &Root, path: &str) -> Result<(), StorageError> {
+    match shell_file(root, path) {
+        None => Ok(()),
+        Some(reason) => Err(StorageError::InvalidPath {
+            path: path.to_string(),
+            reason: reason.to_string(),
+        }),
+    }
+}
+
+fn failed(path: &str, operation: &str, message: String) -> StorageError {
+    StorageError::Io {
+        path: path.to_string(),
         operation: operation.to_string(),
-        cause,
+        message,
     }
 }
 
-fn git_lost<T>(operation: &'static str) -> impl FnOnce(String) -> Result<T, GitError> {
-    move |cause| Err(GitError::failed(operation, cause))
-}
-
-/// A Git change whose worker was lost may have reached history.
-fn git_unconfirmed(operation: &'static str) -> impl FnOnce(String) -> GitError {
-    move |cause| GitError::Unconfirmed {
-        operation: operation.to_string(),
-        cause,
-    }
-}
-
-// ============================================================================
-// Sessions
-// ============================================================================
-
-/// Attach this window to a scope the shell registered for it. The folder is
-/// locked and opened on its first attach and stays open afterward.
+/// Open `root` and watch it. Whatever is at the root's path opens, through a
+/// link if one is there, and a missing folder is made (ADR-0726); a link
+/// whose target is gone is `Disconnected`, and nothing is made. Each call
+/// looks again, so Retry finds a folder that came back. The root's one watch
+/// sends its changes as an app event. The page listens before opening. Opening
+/// removes the saves a stopped writer left more than an hour ago, anywhere in
+/// the folder, and clears what an older build kept in its `.epicenter`
+/// (`sweep::sweep_now`).
 #[tauri::command]
 #[specta::specta]
-pub async fn attach<R: Runtime>(
-    webview: Webview<R>,
-    scope: String,
-    protocol: u32,
-) -> Result<Attached, AttachError> {
-    if protocol != PROTOCOL {
-        return Err(AttachError::Incompatible {
-            host: PROTOCOL,
-            page: protocol,
-        });
-    }
-    let label = webview.label().to_string();
-    // The instance and page this attach belongs to: those of exactly this
-    // webview, read from its own table. This handle can outlive its window,
-    // and another window can take its label meanwhile; the label says nothing
-    // about which webview this is.
-    let gone = || AttachError::Unavailable {
-        message: "the page that was attaching is gone".to_string(),
-    };
-    let instance = instance(&webview).ok_or_else(gone)?;
-    let attaching_page = instance.page().ok_or_else(gone)?;
+pub async fn open_root<R: Runtime>(webview: Webview<R>, root: Root) -> Result<String, RootError> {
     let app = webview.app_handle().clone();
-    let attaching = (scope.clone(), label.clone());
-    let session = blocking(
-        move || {
-            let session = app
-                .state::<Folders>()
-                .registry
-                .attach(&attaching.0, &attaching.1);
-            #[cfg(test)]
-            crate::tests::attach_opened(&attaching.1);
-            session
-        },
-        |message| Err(AttachError::Unavailable { message }),
-    )
-    .await?;
-    let owner = session
-        .authorize(&label)
-        .map_err(|message| AttachError::Unavailable { message })?
-        .clone();
-
-    // The owner calls listeners while it holds its snapshot lock, so the
-    // listener only queues; a thread of this session does the emitting.
-    let (queue, events) = mpsc::channel::<OwnerEvent>();
-    let queue = Mutex::new(queue);
-    let subscription = owner.subscribe(move |event| {
-        let _ = queue
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .send(event.clone());
-    });
-    let target = webview.app_handle().clone();
-    let (event_scope, event_label) = (scope, label.clone());
-    std::thread::Builder::new()
-        .name("folder-events".to_string())
-        .spawn(move || {
-            // Ends when the subscription, and so the sender, is dropped.
-            for event in events {
-                let _ = match event {
-                    OwnerEvent::Snapshot { sequence, snapshot } => FolderSnapshotChanged {
-                        scope: event_scope.clone(),
-                        sequence,
-                        snapshot,
-                    }
-                    .emit_to(&target, event_label.as_str()),
-                    OwnerEvent::FilesChanged { revision, paths } => FolderFilesChanged {
-                        scope: event_scope.clone(),
-                        revision,
-                        paths,
-                    }
-                    .emit_to(&target, event_label.as_str()),
-                };
-            }
-        })
-        .map_err(|cause| AttachError::Unavailable {
-            message: format!("the folder event thread could not start: {cause}"),
-        })?;
-
-    let (sequence, snapshot) = owner.sequenced_snapshot();
-    let state = SessionState::new(
-        &instance,
-        Live {
-            session,
-            requests: BTreeMap::new(),
-            _subscription: subscription,
-        },
-    );
-    // Registered only if the page that asked is still this webview's current
-    // page. Its window may have been destroyed, or the page reloaded, while
-    // the folder was being opened; the session would belong to nobody.
-    let registered = instance.register(attaching_page, &state, || {
-        webview
-            .resources_table()
-            .add(SessionResource(Arc::clone(&state)))
-    });
-    let Some(rid) = registered else {
-        state.end();
-        return Err(gone());
-    };
-    Ok(Attached {
-        session: rid,
-        root: owner.root().display().to_string(),
-        sequence,
-        snapshot: (*snapshot).clone(),
-    })
-}
-
-/// End this window's session. Saves it already made still land, a commit the
-/// owner already admitted still finishes, and every other window is
-/// unaffected.
-#[tauri::command]
-#[specta::specta]
-pub fn detach<R: Runtime>(webview: Webview<R>, session: u32) {
-    let _ = webview.resources_table().close(session);
-}
-
-// ============================================================================
-// Files
-// ============================================================================
-
-#[tauri::command]
-#[specta::specta]
-pub async fn list<R: Runtime>(webview: Webview<R>, session: u32) -> Result<FileListing, FileError> {
-    let owner = owner(&webview, session).map_err(file_denied)?;
-    blocking(move || owner.list(), file_lost("enumerate")).await
-}
-
-#[tauri::command]
-#[specta::specta]
-pub async fn children<R: Runtime>(
-    webview: Webview<R>,
-    session: u32,
-    directory: String,
-) -> Result<Children, FileError> {
-    let owner = owner(&webview, session).map_err(file_denied)?;
-    blocking(move || owner.children(&directory), file_lost("list")).await
-}
-
-#[tauri::command]
-#[specta::specta]
-pub async fn read<R: Runtime>(
-    webview: Webview<R>,
-    session: u32,
-    path: String,
-) -> Result<FileRead, FileError> {
-    let owner = owner(&webview, session).map_err(file_denied)?;
-    blocking(move || owner.read(&path), file_lost("read")).await
-}
-
-/// One result per requested path, in the order given.
-#[tauri::command]
-#[specta::specta]
-pub async fn read_many<R: Runtime>(
-    webview: Webview<R>,
-    session: u32,
-    paths: Vec<String>,
-) -> Result<Vec<Settled<FileRead, FileError>>, FileError> {
-    let owner = owner(&webview, session).map_err(file_denied)?;
+    let folder = webview.state::<Roots>().path(&root)?.display().to_string();
+    let lost_folder = folder.clone();
     blocking(
         move || {
-            Ok(owner
-                .read_many(&paths)?
-                .into_iter()
-                .map(Settled::from)
-                .collect())
+            let roots = app.state::<Roots>();
+            let directory = roots.open(&root)?;
+            sweep::sweep_now(directory.root());
+            let events = app.clone();
+            let event_root = root.clone();
+            roots.watch(&root, &directory, move |change| {
+                if let Err(error) = events.emit(
+                    "folder-changed",
+                    FolderEvent {
+                        root: event_root.clone(),
+                        paths: change.paths,
+                    },
+                ) {
+                    log::warn!("The folder observation could not be delivered: {error}");
+                }
+            })?;
+            Ok(folder)
         },
-        file_lost("read"),
-    )
-    .await
-}
-
-/// Publish ordered changes. Where the folder commits on edit, a complete
-/// batch requests an automatic local commit. While the folder is busy,
-/// requests coalesce and wait for its protection.
-///
-/// Saves are published in the order they reach the folder, not the order a
-/// page asked for them. The last to land on a path wins, from any window, and
-/// a delivery that arrives late or twice lands like any other. A change that
-/// must not overwrite bytes its caller did not review carries
-/// `expectedSha256`.
-#[tauri::command]
-#[specta::specta]
-pub async fn apply<R: Runtime>(
-    webview: Webview<R>,
-    session: u32,
-    changes: Vec<FileChange>,
-) -> Result<(), ApplyError> {
-    let owner = owner(&webview, session).map_err(|reason| ApplyError::Refused {
-        error: file_denied(reason),
-    })?;
-    let path = changes
-        .first()
-        .map(|change| change.step().paths()[0].to_string())
-        .unwrap_or_default();
-    #[cfg(test)]
-    let label = webview.label().to_string();
-    blocking(
-        move || {
-            #[cfg(test)]
-            crate::tests::apply_admitted(&label);
-            owner.apply(&changes)
-        },
-        // Not a refusal: some of the batch may have landed.
-        |cause| {
-            Err(ApplyError::Unconfirmed {
-                path,
-                operation: "publishing to".to_string(),
-                cause,
+        |message| {
+            Err(RootError::Unavailable {
+                folder: lost_folder,
+                message,
             })
         },
     )
     .await
 }
 
+/// Reveal the shell's named path for `root`. This also works before the root
+/// opens: a dangling link is selected as a link, not followed to its target.
 #[tauri::command]
 #[specta::specta]
-pub async fn mkdir<R: Runtime>(
-    webview: Webview<R>,
-    session: u32,
-    path: String,
-) -> Result<(), FileError> {
-    let owner = owner(&webview, session).map_err(file_denied)?;
-    let lost = file_unconfirmed("creating", path.clone());
-    blocking(move || owner.mkdir(&path), |cause| Err(lost(cause))).await
-}
-
-#[tauri::command]
-#[specta::specta]
-pub async fn rmdir<R: Runtime>(
-    webview: Webview<R>,
-    session: u32,
-    path: String,
-) -> Result<(), FileError> {
-    let owner = owner(&webview, session).map_err(file_denied)?;
-    let lost = file_unconfirmed("removing", path.clone());
-    blocking(move || owner.rmdir(&path), |cause| Err(lost(cause))).await
-}
-
-// ============================================================================
-// Git
-// ============================================================================
-
-#[tauri::command]
-#[specta::specta]
-pub async fn status<R: Runtime>(
-    webview: Webview<R>,
-    session: u32,
-) -> Result<FilesObservation, GitError> {
-    let owner = owner(&webview, session).map_err(git_denied)?;
-    blocking(move || owner.status(), git_lost("status")).await
-}
-
-/// Commit the folder's current files. This waits for the folder and settles
-/// as an outcome, never as an error, once the session is accepted.
-#[tauri::command]
-#[specta::specta]
-pub async fn commit<R: Runtime>(
-    webview: Webview<R>,
-    session: u32,
-) -> Result<CommitOutcome, GitError> {
-    let owner = owner(&webview, session).map_err(git_denied)?;
-    Ok(blocking(
-        move || owner.commit(),
-        |error| CommitOutcome::Unconfirmed { error },
+pub async fn reveal_root<R: Runtime>(webview: Webview<R>, root: Root) -> Result<(), RootError> {
+    let path = webview.state::<Roots>().path(&root)?;
+    let folder = path.display().to_string();
+    let lost_folder = folder.clone();
+    blocking(
+        move || {
+            let location = reveal_location(&path);
+            let (program, arguments) = reveal_command(location);
+            let opened = if cfg!(target_os = "windows") {
+                Command::new(program).args(&arguments).spawn().map(|_| ())
+            } else {
+                Command::new(program)
+                    .args(&arguments)
+                    .status()
+                    .and_then(|status| {
+                        if status.success() {
+                            Ok(())
+                        } else {
+                            Err(std::io::Error::other(format!(
+                                "{program} exited with {status}"
+                            )))
+                        }
+                    })
+            };
+            opened.map_err(|cause| RootError::Unavailable {
+                folder,
+                message: cause.to_string(),
+            })
+        },
+        |message| {
+            Err(RootError::Unavailable {
+                folder: lost_folder,
+                message,
+            })
+        },
     )
-    .await)
+    .await
 }
 
-/// Announce a push or fetch this window is about to ask for, and get the
-/// number that names it. The request is this session's: only this session can
-/// use it or withdraw it, and it ends with the session.
-#[tauri::command]
-#[specta::specta]
-pub fn open_request<R: Runtime>(webview: Webview<R>, session: u32) -> Result<u64, GitError> {
-    let resource = self::session(&webview, session).map_err(git_denied)?;
-    let owner = owner(&webview, session).map_err(git_denied)?;
-    resource.open_request(owner.request()).map_err(git_denied)
-}
+#[cfg(test)]
+mod reveal_tests {
+    use super::*;
 
-/// Withdraw a request this session opened. A push or fetch for it that the
-/// owner has not started never starts, and one that names it later is
-/// refused. A transport the owner already started runs to its end.
-/// Withdrawing a request that is gone does nothing.
-#[tauri::command]
-#[specta::specta]
-pub fn withdraw_request<R: Runtime>(webview: Webview<R>, session: u32, request: u64) {
-    if let Ok(resource) = self::session(&webview, session) {
-        resource.close_request(request);
+    #[test]
+    fn reveal_arguments_keep_the_location_as_one_argument() {
+        let path = Path::new("/tmp/notes with spaces");
+        let (program, arguments) = reveal_command(path);
+        #[cfg(target_os = "macos")]
+        assert_eq!(
+            (program, arguments),
+            ("open", vec![OsString::from("-R"), path.as_os_str().into()])
+        );
+        #[cfg(target_os = "windows")]
+        assert_eq!(
+            (program, arguments),
+            (
+                "explorer",
+                vec![OsString::from("/select,"), path.as_os_str().into()]
+            )
+        );
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        assert_eq!(
+            (program, arguments),
+            ("xdg-open", vec![path.parent().unwrap().as_os_str().into()])
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_dangling_link_is_the_revealed_entry_even_above_the_root() {
+        use std::os::unix::fs::symlink;
+
+        let temp = tempfile::tempdir().unwrap();
+        let link = temp.path().join("Epicenter");
+        symlink(temp.path().join("missing"), &link).unwrap();
+        assert_eq!(reveal_location(&link), link);
+        assert_eq!(reveal_location(&link.join("capture")), link);
     }
 }
 
-/// The owner and the caller's way to withdraw, for the one push or fetch that
-/// `request` was opened for.
-fn requested<R: Runtime>(
-    webview: &Webview<R>,
-    rid: ResourceId,
-    request: u64,
-) -> Result<(Arc<SessionState>, FolderOwner, Caller), String> {
-    let session = session(webview, rid)?;
-    let owner = session.owner(webview.label())?;
-    let caller = session.use_request(request)?;
-    Ok((session, owner, caller))
+/// The file manager request, with the location as one unparsed argument.
+fn reveal_command(path: &Path) -> (&'static str, Vec<OsString>) {
+    #[cfg(target_os = "macos")]
+    return ("open", vec!["-R".into(), path.as_os_str().into()]);
+    #[cfg(target_os = "windows")]
+    return ("explorer", vec!["/select,".into(), path.as_os_str().into()]);
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    return (
+        "xdg-open",
+        vec![path.parent().unwrap_or(path).as_os_str().into()],
+    );
 }
 
-/// Push for a request this session opened. It waits behind a running push and
-/// can be withdrawn until the owner starts its transport.
-#[tauri::command]
-#[specta::specta]
-pub async fn push<R: Runtime>(
-    webview: Webview<R>,
-    session: u32,
-    request: u64,
-) -> Result<PushOutcome, GitError> {
-    let (resource, owner, caller) = requested(&webview, session, request).map_err(git_denied)?;
-    let outcome = blocking(
-        move || owner.push(Some(&caller)),
-        |error| PushOutcome::Unconfirmed { error },
-    )
-    .await;
-    resource.close_request(request);
-    Ok(outcome)
+/// The named entry, or the closest entry that exists without following links.
+fn reveal_location(path: &Path) -> &Path {
+    path.ancestors()
+        .find(|ancestor| std::fs::symlink_metadata(ancestor).is_ok())
+        .unwrap_or(path)
 }
 
-/// Fetch for a request this session opened, like `push`.
-#[tauri::command]
-#[specta::specta]
-pub async fn fetch<R: Runtime>(
-    webview: Webview<R>,
-    session: u32,
-    request: u64,
-) -> Result<FetchOutcome, GitError> {
-    let (resource, owner, caller) = requested(&webview, session, request).map_err(git_denied)?;
-    let outcome = blocking(
-        move || owner.fetch(Some(&caller)),
-        |cause| Err(git_unconfirmed("fetch")(cause)),
-    )
-    .await;
-    resource.close_request(request);
-    outcome
+/// The folder `root` reached when the app opened it, for one command
+/// (`Roots::opened`).
+fn opened<R: Runtime>(webview: &Webview<R>, root: &Root) -> Result<Directory, FolderError> {
+    Ok(webview.state::<Roots>().opened(root)?)
 }
 
+/// Every regular file in `root` at or below each of `under` (a directory or
+/// a file path; empty is the whole root), `.git` aside, hidden ones
+/// included but never a save or recording in progress, none of them
+/// followed, each with its version and size (`storage::list`). The shell's
+/// own files are left out.
 #[tauri::command]
 #[specta::specta]
-pub async fn pull_fast_forward<R: Runtime>(
+pub async fn list_folder<R: Runtime>(
     webview: Webview<R>,
-    session: u32,
-) -> Result<PullOutcome, PullError> {
-    let owner = owner(&webview, session).map_err(|reason| PullError::from(git_denied(reason)))?;
+    root: Root,
+    under: Vec<String>,
+) -> Result<Vec<ListedFile>, FolderError> {
+    let directory = opened(&webview, &root)?;
     blocking(
-        move || owner.pull_fast_forward(),
-        |cause| Err(git_unconfirmed("pull")(cause).into()),
+        move || {
+            let mut listing = storage::list(directory.root(), &under)?;
+            listing.retain(|file| shell_file(&root, &file.path).is_none());
+            Ok(listing)
+        },
+        |message| Err(failed("", "list", message).into()),
     )
     .await
 }
 
-/// Merge the fetched remote head: a fast-forward when the branch is behind,
-/// otherwise a two-parent merge. A conflict is refused and writes nothing.
-/// Never fetches.
+/// Read a file in `root` (`storage::read`). The ASCII stamp, a zero byte,
+/// then the file bytes return in one raw `ArrayBuffer`, rather than as a JSON
+/// array of numbers. tauri-specta cannot type a raw response, so the
+/// generated bindings leave this command out and `device/tauri-store.ts`
+/// invokes it by name; `init` dispatches it beside the typed commands. The
+/// shell's own files are refused.
+#[tauri::command]
+pub async fn read_folder_file<R: Runtime>(
+    webview: Webview<R>,
+    path: String,
+    root: Root,
+) -> Result<tauri::ipc::Response, FolderError> {
+    refuse_shell_file(&root, &path)?;
+    let directory = opened(&webview, &root)?;
+    let at = path.clone();
+    blocking(
+        move || storage::read(directory.root(), &path).map_err(FolderError::from),
+        |message| Err(failed(&at, "read", message).into()),
+    )
+    .await
+    .map(|read| {
+        let mut response = read.stamp.into_bytes();
+        response.push(0);
+        response.extend_from_slice(&read.bytes);
+        tauri::ipc::Response::new(response)
+    })
+}
+
+/// Publish a file's bytes in a root, or remove it, only while the path holds
+/// what the page expects (`storage::put_landing`): `{ landed }` with the stamp of the file that landed,
+/// or `stale` when it did not hold that and nothing changed.
 ///
-/// `allowUnrelatedHistories` merges histories that share no commit over an
-/// empty base; `versions` asks a refused conflict for each conflicted file's
-/// committed bytes on both sides. Both are `false` when absent or `null`.
+/// The bytes are the request's raw body, so file content crosses IPC as it
+/// is rather than as a JSON array of numbers. Percent-encoded headers carry
+/// the rest: `path`, `root` (`Data`, `AppData`, `Epicenter`, or
+/// `Folder/<name>`: `Root::header`), `remove` (`true` to
+/// remove the file, when the body is ignored), and `expected`, the version
+/// the page read there (`absent` for a create, or `sha256:` and the file's version,
+/// which the shell hashes again: `storage::Expectation`). A JSON array of bytes is accepted
+/// as well: Tauri sends one when its custom-protocol IPC failed and it fell
+/// back to `postMessage`. Any other body is refused.
+///
+/// The check runs right before the change; within this process, puts of one
+/// path take turns from the check to the change (`storage::put`).
+/// tauri-specta cannot type a raw request, so the generated bindings leave
+/// this command out and `device/tauri-store.ts` invokes it by name; `init`
+/// dispatches it beside the typed commands. The shell's own files are
+/// refused.
 #[tauri::command]
-#[specta::specta]
-pub async fn merge_incoming<R: Runtime>(
+pub async fn put_folder_file<R: Runtime>(
     webview: Webview<R>,
-    session: u32,
-    allow_unrelated_histories: Option<bool>,
-    versions: Option<bool>,
-) -> Result<MergeOutcome, MergeError> {
-    let owner = owner(&webview, session).map_err(|reason| MergeError::from(git_denied(reason)))?;
-    let policy = MergePolicy {
-        allow_unrelated_histories: allow_unrelated_histories.unwrap_or(false),
-        versions: versions.unwrap_or(false),
+    request: tauri::ipc::Request<'_>,
+) -> Result<Landing, FolderError> {
+    let header = |name: &str| -> Result<Option<String>, String> {
+        let Some(value) = request.headers().get(name) else {
+            return Ok(None);
+        };
+        percent_encoding::percent_decode(value.as_bytes())
+            .decode_utf8()
+            .map(|decoded| Some(decoded.into_owned()))
+            .map_err(|_| format!("the {name} header is not percent-encoded UTF-8"))
     };
+    let required = |name: &str| {
+        header(name)?.ok_or_else(|| format!("put_folder_file needs the {name} header"))
+    };
+    let path = header("path").ok().flatten().unwrap_or_default();
+    let refused = |message: String| failed(&path, "write", message);
+    required("path").map_err(refused)?;
+    let named = required("root").map_err(|_| RootError::Invalid {
+        root: String::new(),
+    })?;
+    let root: Root = named
+        .parse()
+        .map_err(|_| RootError::Invalid { root: named })?;
+    let remove = match required("remove").map_err(refused)?.as_str() {
+        "true" => true,
+        "false" => false,
+        other => return Err(refused(format!("remove is {other:?}, not true or false")).into()),
+    };
+    let expected =
+        storage::Expectation::parse(&required("expected").map_err(refused)?).map_err(refused)?;
+    // The blocking pool needs the bytes to outlive the request.
+    let bytes: Option<Vec<u8>> = match (remove, request.body()) {
+        (true, _) => None,
+        (false, tauri::ipc::InvokeBody::Raw(bytes)) => Some(bytes.clone()),
+        (false, tauri::ipc::InvokeBody::Json(value)) => {
+            Some(serde_json::from_value(value.clone()).map_err(|_| {
+                refused("put_folder_file takes its bytes as a raw body".to_string())
+            })?)
+        }
+    };
+    refuse_shell_file(&root, &path)?;
+    let operation = if remove { "remove" } else { "write" };
+    let directory = opened(&webview, &root)?;
+    let at = path.clone();
     blocking(
-        move || owner.merge_incoming(policy),
-        |cause| Err(git_unconfirmed("merge")(cause).into()),
+        move || {
+            storage::put_landing(directory.root(), &path, bytes.as_deref(), &expected)
+                .map_err(FolderError::from)
+        },
+        |message| Err(failed(&at, operation, message).into()),
     )
     .await
 }
 
-/// Finish or clear this folder's pending incoming update, only because the
-/// page asked. Opening and status report a pending update and never resume
-/// it. Recovery writes only paths still at the update's before state; a path,
-/// the index, or the branch in neither state stops it, keeping the record,
-/// and names what to resolve.
+/// The identity of the folder an open `root` reached, its link followed
+/// (`identity::identity_of`): its inode and birth time. Null where the
+/// system has none. A page names a cache of the folder's hashes by it.
 #[tauri::command]
 #[specta::specta]
-pub async fn recover_incoming<R: Runtime>(
+pub async fn root_identity<R: Runtime>(
     webview: Webview<R>,
-    session: u32,
-) -> Result<RecoverOutcome, PullError> {
-    let owner = owner(&webview, session).map_err(|reason| PullError::from(git_denied(reason)))?;
+    root: Root,
+) -> Result<Option<FolderIdentity>, FolderError> {
+    let directory = opened(&webview, &root)?;
     blocking(
-        move || owner.recover_incoming(),
-        |cause| Err(git_unconfirmed("recover")(cause).into()),
+        move || {
+            identity_at(directory.root())
+                .map_err(|cause| failed("", "identity", cause.to_string()).into())
+        },
+        |message| Err(failed("", "identity", message).into()),
     )
     .await
 }
 
+/// The record Epicenter keeps for the open Data root, read from the
+/// Epicenter folder's `.epicenter/synced/` (`records::proving`): the one
+/// whose inode and birth time prove the folder's, when both have a real
+/// birth time. Null when there is none, as for a folder Epicenter does not
+/// sync. Nothing is written.
 #[tauri::command]
 #[specta::specta]
-pub async fn paths<R: Runtime>(
+pub async fn data_record<R: Runtime>(
     webview: Webview<R>,
-    session: u32,
-) -> Result<Vec<PathStatus>, GitError> {
-    let owner = owner(&webview, session).map_err(git_denied)?;
-    blocking(move || owner.paths(), git_lost("status")).await
+) -> Result<Option<FolderRecord>, FolderError> {
+    let directory = opened(&webview, &Root::Data)?;
+    let library = webview.state::<Roots>().library()?;
+    blocking(
+        move || {
+            let identity = identity_at(directory.root())
+                .map_err(|cause| failed("", "record", cause.to_string()))?;
+            Ok(identity.and_then(|identity| records::proving(&state::records(&library), &identity)))
+        },
+        |message| Err(failed("", "record", message).into()),
+    )
+    .await
 }
+
+/// The Epicenter folder's listing (ADR-0813, ADR-0825): where it is and
+/// whether it is itself a Git repository, every real directory directly
+/// inside it, hidden names skipped, each with its name (its root is
+/// `Root::Folder(name)`), its identity, and whether Git keeps it, the links
+/// in it, shown as outside it, and what is there but cannot be a folder,
+/// with why. The folder is made when it is missing.
 
 #[tauri::command]
 #[specta::specta]
-pub async fn diff<R: Runtime>(
+pub async fn list_epicenter<R: Runtime>(
     webview: Webview<R>,
-    session: u32,
-    paths: Vec<String>,
-) -> Result<String, GitError> {
-    let owner = owner(&webview, session).map_err(git_denied)?;
-    blocking(move || owner.diff(&paths), git_lost("diff")).await
+) -> Result<EpicenterListing, RootError> {
+    let app = webview.app_handle().clone();
+    blocking(
+        move || app.state::<Roots>().list_epicenter(),
+        |message| {
+            Err(RootError::Unavailable {
+                folder: String::new(),
+                message,
+            })
+        },
+    )
+    .await
 }
 
+/// Make the directory `name` in the Epicenter folder, for a folder cloned or
+/// accepted into it: refused when anything has that name, or the name is not
+/// one every disk keeps. It opens as `Root::Folder(name)`.
 #[tauri::command]
 #[specta::specta]
-pub async fn log<R: Runtime>(
+pub async fn make_epicenter_folder<R: Runtime>(
     webview: Webview<R>,
-    session: u32,
-    depth: u32,
-) -> Result<Vec<CommitSummary>, GitError> {
-    let owner = owner(&webview, session).map_err(git_denied)?;
-    blocking(move || owner.log(depth), git_lost("log")).await
+    name: String,
+) -> Result<EpicenterEntry, RootError> {
+    let app = webview.app_handle().clone();
+    blocking(
+        move || app.state::<Roots>().make_epicenter_folder(&name),
+        |message| {
+            Err(RootError::Unavailable {
+                folder: String::new(),
+                message,
+            })
+        },
+    )
+    .await
 }

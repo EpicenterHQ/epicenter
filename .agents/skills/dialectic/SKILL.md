@@ -1,127 +1,139 @@
 ---
 name: dialectic
-description: Work out an unsettled idea together through concrete attempts to articulate and express it. Use when the user asks for a dialectic, wants to explore what a skill or workflow should do, is finding a direction for writing, wants to judge a proposed change, wants to think through an uncertain model or decision, or needs help articulating a thought they cannot quite express. Do not use for routine execution of a settled request, a standalone explanation of settled material, or a code review.
+description: Work out an unsettled idea together through its intent, proposed form, and consequences in practice. Use when the user explicitly requests standalone dialectic, or another active skill invokes it within its task.
 ---
 
 # Dialectic
 
-Put an object of judgment in front of the person: the smallest faithful
-instance of the proposed experience, relationship, design, or passage. Show it
-in a form they can inspect as they would encounter it, including the consequence
-that could change their judgment. Mark assumptions and open edges instead of
-drawing them as settled facts. Do not make the person reconstruct the proposal
-from an inventory of evidence and questions.
+Dialectic develops a shared understanding of what the user is reaching
+for and how it could take shape.
 
-Explain the choice the attempt exposes. Ask when an answer would change the
-next move; when a direction has settled, revise the expression or carry out
-the authorized work. Combine forms when each reveals something the other
-cannot. No one form is required for every dialectic.
+Clarify the intent together, develop a compelling vision of what would
+fulfill it, and work backward from that vision to give it concrete form.
+Exercise greenfield thinking throughout: reconsider the framing, imagine
+what could best fulfill the intent, and derive the form from that
+understanding, informed by evidence and real constraints.
 
-Arrange the thought so the person can find the claim and choice they must
-weigh. Cut repetition and premature elaboration. Show alternatives when their
-differences help resolve something still open.
+The user can often recognize what is right or missing before they can
+articulate it themselves; seeing something specific gives them a way to
+recognize, correct, or extend the emerging thought. Contribute substantive
+proposals that help both participants discover and develop what the user
+is reaching for.
 
-Use the person’s reaction to develop both the idea and its expression. Carry
-forward what they recognize, reconsider what their correction reveals, and
-make the next coherent attempt.
+Standalone dialectic begins with the user's explicit request. Within an
+existing task, another active skill may invoke this method when its guidance
+calls for it. Keep that use within the task the user requested; its purpose,
+artifacts, and authorization remain in place. Standalone exploration can end
+with shared understanding, without requiring an implementation or destination
+artifact.
 
-Use this method within the ongoing task; its purpose, artifacts, and
-authorization remain in place as our understanding develops. Standalone
-exploration needs no destination artifact.
+Begin with an explicit articulation of the intent: what the user wants to
+accomplish and what a successful result would make possible. Draw on their
+words and available context to offer one clear reading in a blockquote, with
+enough reasoning to make your interpretation open to examination, and invite
+correction. Keep the first exchange focused on settling it, and wait for the
+user to recognize it as right before proposing visions, candidate solutions,
+or implementation plans. This gives the user a chance to change the question
+before the proposals narrow its answers.
 
-For design exploration, use [rethink](../rethink/SKILL.md) to pursue the strongest
-greenfield vision. Independent investigations and experiments can reveal better
-possibilities as well as test a proposal. Bring their findings back as one
-coherent next attempt, preserving accepted choices and exposing discoveries
-that change the bargain. Own technical follow-through; bring consequential
-preferences and requirement changes to the person. Routine agent coordination
-belongs in progress updates rather than replacing the concrete proposal.
+Carry forward intent already explicitly agreed in the conversation: briefly
+state it and proceed from that agreement. A request to use dialectic starts
+this process; it does not itself confirm the agent's interpretation of the
+intent. Reopen the intent when a correction changes what success means.
 
-## Make the model and its consequences judgeable
+At each stage, offer a distinct proposal the user can examine, starting
+with the first attempt. Once intent is agreed, show what the user needs to
+examine next: a vision when the direction needs judgment, proposed work when
+its form needs judgment, or an example of its use when the consequences need
+to become visible. Connect these contributions when that helps. Put
+articulations of intent and vision in blockquotes, with explanation and
+questions outside them, and show other work in the form that lets the user
+judge it directly. Give enough context for each proposal to be understood on
+its own, and bold the parts that need particular attention.
 
-Offer your best current understanding and a concrete attempt without requiring
-the user to diagnose everything first. They may arrive with an idea, an
-existing expression, or a result that raises a new question. Show the proposed
-thing, or the consequential part of it, as directly as the medium permits.
-Explain what it leaves unclear. A settled edit needs no new explanation. Give
-the person enough context, consequence, and recommendation to answer a question
-without opening another artifact.
+Develop each proposal through attempts and responses. Keep the proposal and the invitation to respond visibly separate. Offer a few short, open invitations: what feels right or wrong, how the user would express it in their own words, and what else comes to mind. Numbering can make these easier to respond to. Follow whichever part they take up; use focused questions when a specific uncertainty needs resolving.
 
-When several people, views, resources, or moments interact, make that
-relationship visible before summarizing its machinery. A focused question
-must not assume a solution the conversation has yet to establish.
+Re-articulating the thought can help the user discover what they mean. Accumulate the phrases, distinctions, examples, and corrections they contribute, letting these shape the next proposal and invitation. Carry recognized parts forward so the user need not identify them again, preserve selected wording exactly, and compose the next attempt yourself. Recognition of one part settles that part.
 
-Check facts you can establish yourself and distinguish evidence from proposals.
-Before showing an exact proposed diff, read the current code and affected
-callers. Identify the file and scope, and include enough context to judge the
-behavior that changes. Label hypothetical code as a sketch.
-Ask when missing information would make the attempt misleading or unhelpful.
-Recommend a direction when you have grounds for one, explaining consequential
-choices. A hypothetical conversation or caller sketch proposes a result; it
-does not establish that an implementation produces it.
+Wait for the user to explicitly recognize the proposal as right before
+advancing to work that depends on it. Establish that shared understanding
+between the major stages and when developing substantial pieces within
+them. Recognition settles what the user actually examined. Return to an
+earlier understanding when later discoveries change its premise.
 
-Present the concrete expression as close as practical to its intended final
-form. For a blog, render the proposed writing in the actual site and show
-screenshots; for an API, show realistic caller code; for an agent skill,
-compare conversations it could produce before deriving instructions from the
-person's reaction. Use a simpler representation when it is
-sufficient for the question being judged. Prepare previews within the task's
-authorization; showing a proposed result does not require publishing it.
+## Clarify the intent
 
-Follow the concrete example far enough to show the consequence being judged.
-If resource lifetimes matter, show sharing and cleanup. If a skill's response
-to uncertainty matters, show that later turn. If a passage's movement or ending
-matters, let the user read it. Complete enough means enough for the live
-question, not an entire application or a rewrite of settled work. Economical
-commentary does not require a short expression.
+Reconsider the framing itself as you form that reading. When the user
+brings a proposed solution, explore what they want it to accomplish. Use
+their examples and reactions to examine assumptions about the purpose,
+scope, or problem being addressed.
 
-A correction may clarify what to avoid while leaving meaningful directions
-open. Preserve what the user has recognized and make those remaining
-differences concrete. Explain each direction enough to judge it on its own,
-using headings when they help the comparison. Recommend a direction when you
-have grounds, and leave room to combine, reject, or redirect the possibilities.
-A settled selection or a straightforward correction needs no new comparison.
+Treat a felt mismatch as a substantive starting point. The user may
+recognize that something feels wrong while struggling to explain why.
+Use the concrete situation to propose the expectation, relationship,
+or assumption that might account for their reaction. Develop the model
+together through their responses; an initial explanation remains a
+proposal to examine.
 
-When comparing revisions, show the relevant original and alternatives together
-so the user need not reconstruct earlier versions from memory. Keep unrelated
-conditions comparable while allowing each change to show its consequences.
+When drawing lessons from an experience, distinguish what happened from
+your explanation of why it helped. Examine the evidence for that explanation
+before turning it into a general rule.
 
-## Learn from the response
+An example or exploratory proposal may help reveal what the user means.
+The conversation may clarify a thought the user already held or discover
+one neither participant had fully formed. Aim for a shared articulation
+strong enough to guide the vision.
 
-Treat the user's response as evidence about what you understood and what the
-attempt reveals. They may recognize the model but dislike a choice in its
-expression, or the expression may expose something the model missed. Locate
-that difference through the conversation rather than asking the user to
-classify their reaction. Revise at the scope it illuminates; a reaction to one
-passage does not establish a universal preference.
+## Develop the vision
 
-Carry what you learn into the next coherent attempt. If the user recognizes
-parts of different versions, do the synthesis rather than making them assemble
-fragments. If their response changes the premise, reconsider the relevant
-whole as if that understanding had been known from the beginning. Discovery
-may produce an idea neither participant had fully formed beforehand.
+Starting from the shared intent, imagine the strongest coherent way to
+fulfill it. Reconsider the relevant whole as if that intent had been
+understood from the beginning, and explore what becomes possible when
+existing forms, boundaries, and assumptions are open to change.
 
-Leave the user's reaction open, including rejection of your framing. Judge
-against their intent, evidence, constraints, and consequences; stay willing
-to disagree and explain why. Ask a focused question when it helps resolve
-something, not to solicit approval after every attempt. In a sample exchange,
-label invented replies as samples; in the live conversation, leave the user's
-next reply to them.
+Make that vision tangible enough for the user to judge. Show what they
+would experience, understand, or be able to do through a concrete
+expression or example of its use. Choose the form that reveals what
+matters: a passage, conversation, interface, diagram, or rendered
+preview. Develop it far enough to expose the consequences under
+discussion.
 
-“That’s right” names recognition of the model and its concrete expression,
-not a required phrase. Let recognition settle the question it addresses and
-continue authorized work from there. A later discovery may reopen that
-question. Recognition alone supplies no authorization for side effects.
+Compare distinct possibilities when their differences help resolve the
+direction. Recommend one when you have grounds, and explain the judgment
+behind it. Aim for a coherent vision specific enough to guide the
+structure and details.
+
+## Work backward into concrete form
+
+Work backward from the shared vision to the structure, decisions, and
+details needed to realize it. Examine which existing parts support that
+direction and which need to change.
+
+Develop the work in coherent pieces the user can judge. Choose the
+scope of each attempt around a consequential question or decision.
+Show the actual wording, design, interface, or code, with enough context
+to reveal how it works. When revising, show the current and proposed
+versions together so the user can examine
+what changes. Let the vision guide the whole while reviewing pieces at
+the user's pace.
+
+Carry settled choices into the authorized work. Check facts and behavior
+you can establish, distinguish illustrative proposals from actual
+results, and show rendered work when appearance or movement matters.
+Read or examine the assembled whole against the intent and vision;
+individual pieces may reveal a problem when brought together.
 
 ## References
 
-Read [the examples](references/conversations.md) when choosing how to show an
-unsettled experience or design, or when developing writing, an API, a skill, or
-a website. They show different objects of judgment and how a later correction
-can change the model; they do not prescribe a format or turn count.
+Read [the example conversations](references/conversations.md) when
+calibrating the progression or how to make a proposal judgeable. The
+complete example shows intent, vision, and concrete form developing
+through corrections and explicit recognition. Focused excerpts show
+particular judgments within a stage; their introductions establish
+the shared understanding they build on. All invented exchanges are
+illustrations, not measured results or records of the user's preferences.
 
-For substantial prose work, use [writing-voice](../writing-voice/SKILL.md) for
-language, rhythm, and fidelity to the author's words and particulars. Trying
-new wording can help the author discover what they mean; it does not permit
-inventing personal events, motives, or beliefs. Page and journal workflows
-retain their authorship and artifact requirements.
+For prose drafting and revisions, use [writing-voice](../writing-voice/SKILL.md)
+for developing recognizable expression and presenting revisions in context.
+Page and journal workflows retain their authorship and artifact requirements,
+including the boundary against inventing personal events, motives, or beliefs.

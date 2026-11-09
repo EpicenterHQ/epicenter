@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { API_ROUTES } from '@epicenter/constants/api-routes';
+import { API_ROUTES } from '@epicenter/server/api-routes';
 import { sValidator } from '@hono/standard-validator';
 import { type } from 'arktype';
 import { Hono } from 'hono';

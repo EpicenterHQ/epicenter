@@ -116,7 +116,7 @@ type EntitySource = Omit<EntityDef, 'name' | 'table'> & { table: string };
  * reference. Grouped by role for reading; the key order has no runtime meaning.
  * Extend or trim via `config.json` `entities`.
  */
-export const ENTITY_DEFS: Record<string, EntitySource> = {
+export const ENTITY_DEFS = {
 	// ── Name lists: what transactions reference by id. ──
 	Account: {
 		table: 'accounts',
@@ -289,22 +289,22 @@ export const ENTITY_DEFS: Record<string, EntitySource> = {
 			col('to_account', 'TEXT', 'ToAccountRef', 'name'),
 		],
 	},
-};
+} satisfies Record<string, EntitySource>;
 
 /** The default entities mirrored when config does not narrow the set. */
 export const DEFAULT_ENTITIES: string[] = Object.keys(ENTITY_DEFS);
 
-export function isKnownEntity(name: string): boolean {
-	return name in ENTITY_DEFS;
+export function isKnownEntity(name: string): name is keyof typeof ENTITY_DEFS {
+	return Object.hasOwn(ENTITY_DEFS, name);
 }
 
 export function entityDef(name: string): EntityDef {
-	const source = ENTITY_DEFS[name];
-	if (!source) {
+	if (!isKnownEntity(name)) {
 		throw new Error(
 			`Unknown QuickBooks entity "${name}". Known entities: ${DEFAULT_ENTITIES.join(', ')}.`,
 		);
 	}
+	const source = ENTITY_DEFS[name];
 	return { name, table: sqlIdent(source.table), columns: source.columns };
 }
 

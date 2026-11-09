@@ -1,6 +1,7 @@
 # 0293. A generation is created by importing a folder and the ledger row is its existence
 
-- **Status:** Accepted
+- **Status:** Superseded
+- **Superseded by:** [ADR-0534](0534-data-folders-are-the-only-data-model.md), which removes the Yjs store.
 - **Date:** 2026-08-29
 - **Amended by:** [ADR-0407](0407-app-owns-the-declaration-and-data-engine.md) at the public client listing/import/erasure helpers, which are removed. Existing historical bytes and the server refusal of fresh current Personal initialization over admitted history remain. The implementation account below records the earlier protocol, not a current client API.
 - **Amended by:** [ADR-0336](0336-an-authority-mints-every-generation-so-every-store-has-an-account.md) at the no-account branch: "the device assigns `n` by reading its own addresses" is withdrawn. A client never chooses the number.

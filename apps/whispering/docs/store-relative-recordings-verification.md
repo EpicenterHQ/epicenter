@@ -1,8 +1,9 @@
 # Store-relative recording implementation evidence
 
 > Historical. This records evidence for the earlier Yjs-store Whispering. The
-> standalone app keeps recordings as files in a Git-versioned folder and none of
-> the modules named below exist; see [ARCHITECTURE.md](../ARCHITECTURE.md).
+> app now keeps recordings as files under its contract, in the browser and the
+> person's repository, and none of the modules named below exist; see
+> [ARCHITECTURE.md](../ARCHITECTURE.md).
 
 Historical evidence: the Personal audio copy path and its browser harness were
 removed during the hosted blob authority cutover. The results below describe the
@@ -96,6 +97,7 @@ The final cumulative suite passed 161 tests with 553 assertions across 25 files.
 Both Whispering typecheck targets passed with zero errors/warnings; the app package
 typecheck and browser production build passed. `git diff --check` passed.
 Changed TypeScript/script lint reports one existing `noAssignInExpressions` error
+<!-- doc-path-check: ignore-next-line -->
 in `packages/app/src/open-store.ts` at `closeBlobs`; the identical expression was
 verified at the task baseline. No new lint errors remain. This is not a claim of
 a clean repository-wide lint run.

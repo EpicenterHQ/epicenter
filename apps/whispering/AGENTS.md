@@ -1,123 +1,117 @@
 # Whispering App
 
-Shared UI and workflows for standalone desktop, Epicenter desktop, and browser
-deployments. Recordings, transcripts, and settings are files in one
-Git-versioned folder; those files are the data. Read `README.md` for current
-behavior and delivery status, and `ARCHITECTURE.md` for structure.
+Whispering has two variants (decision 77), the same pages from one build
+over the `whispering` contract's files (`src/lib/contract.ts`): in a browser
+the signed-in person's `whispering` repository, which the page keeps none
+of
+([ADR-0786](../../docs/adr/0786-every-web-app-is-online-and-browser-storage-leaves-the-platform.md)),
+and in the desktop app (`src-tauri/`) a data folder on the computer that
+Epicenter may sync. Whispering itself moves nothing between stores
+([ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)).
+On the web the sign-in holds the recordings; in the desktop app it is
+optional and adds Epicenter's models. Read `README.md` for behavior and
+`ARCHITECTURE.md` for structure.
 
 ## Constraints
 
-- **The workspace owns native acquisition.** Nothing under `src/`
-  imports a Node or Bun module or `@epicenter/folder/bun`. The page names the
-  folder contract through `@epicenter/folder` and reaches a folder only
-  through `src/lib/workspace/`: `@epicenter/folder/browser` is imported by the
-  browser workspace alone, and `@epicenter/folder/tauri` by the desktop
-  workspace alone. Other native services use shared typed invoke bindings
-  imported only by the desktop workspace. The only direct Tauri import is
-  `isTauri` in the workspace opener. `src/lib/page-boundary.test.ts` enforces
-  these boundaries; keep it passing without granting native reach to components.
-- **One folder, one owner.** On the desktop the data folder is owned by the
-  shell's `tauri-plugin-epicenter-folder` and by nothing else. The page
-  attaches to it and names only the folder's ID. Do not open the folder from
-  the Bun host, do not add a second path by which the page reads or writes
-  folder files, and do not copy the plugin's bindings into this app.
-- **A folder that cannot be opened is reported, not replaced.** Opening
-  returns a `Result`. Inside a desktop app, a missing or unreachable native
-  service and an owner that refuses are each shown as that refusal; browser
-  storage is never opened there. Whether the page is inside a desktop app is
-  asked of the runtime, never inferred from the host's token.
-- **One session per mounted layout.** `src/routes/+layout.svelte` holds the
-  one opening (`mountSession`) and `AppShell` puts its session in context. A page or component takes it with
-  `getSession()`; it never opens a workspace, builds a library, or keeps
-  product state in a module-level variable. State that must survive a page
-  change belongs to the session. Only leaving the app is guarded, never a
-  navigation between routes. `src/lib/page-boundary.test.ts` enforces the
-  ownership.
-- **Native services are shared by both desktop shells.** New native services
-  use reusable Rust implementations compiled by standalone Whispering and
-  Epicenter, exposed through the workspace with a browser implementation or
-  an explicit `undefined`. Migrate existing `native/` operations as their
-  replacements become usable, and remove the replaced routes and consumers.
-  Neither those services nor the remaining Bun host may open the folder, take
-  its lock, initialize Git, or become a second implementation of folder writes.
-  The terminal runs explicit user commands as an outside program.
-- **Only the shell decides where the folder is and who reaches it.** Neither
-  the page nor the host supplies or chooses a path. Load the `tauri` skill
-  before changing commands, capabilities, or `src-tauri/`. Grant only the
-  named service commands to the intended window and served origin. Validate
-  inputs and protocol compatibility in Rust; a failed desktop acquisition is
-  visible and never selects browser storage. `ARCHITECTURE.md` describes the
-  current startup order; ADR-0493 records the shared-service migration.
-- **The shell never closes on its own judgement.** Every window close and exit
-  request goes through the close handshake (`ARCHITECTURE.md`, "Closing"). Do
-  not add a path that exits without the page's answer, a timeout that approves,
-  or a reliance on the browser's leave warning in the desktop app. A close is
-  answered without looking only after an opening has failed and everything it
-  opened is closed; never while an opening is under way or a session exists.
-  The close guard is created only after the session's first read and credential
-  check have settled: do not make it listen earlier. On macOS a system quit
-  reaches the handshake only through `src-tauri/src/quit.rs`, which always
-  cancels AppKit's quit and asks for an ordinary exit: do not answer
-  `NSTerminateNow` or `NSTerminateLater` from it, or mirror the handshake's
-  state there.
-- **A lost reply is not a refusal.** When a native service does not answer, the page
-  does not know whether the endpoint was called. Report it as unknown, never
-  as "not sent", and never send a provider request again without the person
-  asking. A stopped Bun host does not stop saving: do not tell the person it does.
-- **Files are authoritative.** Do not add a cache, mirror, or second store of
-  recordings. Do not add Yjs, the `@epicenter/app` store, accounts, or sync to
-  this workflow.
-- **A recording's audio is the file its row names.** `audioPath` is the only
-  link. Do not infer audio from a file that shares the row's stem, do not
-  fill in a missing `audioPath`, and do not delete audio because its row was
-  deleted: a table owns one Markdown file per row.
-- **A save is never reported by its commit.** Keep saved-file state and history
-  state separate in code and in copy.
-- **Recovery writes only what is missing.** A recording is published as two
-  saves: `files.create` the audio, then the row's `create`. There is no batch
-  and no transaction between them. To finish one whose audio landed without
-  its row, read the audio, confirm it is exactly the pending bytes, and create
-  the row. Do not rewrite matching audio to manufacture a condition. Never use
-  `overwrite`, never replace audio or a row that is not this capture's, never
-  serialize a row by hand, and never describe the two saves as one.
-- **A receipt proves publication; it is not an observation.** A confirmed row
-  creation, with the audio confirmed by its own creation or read as exactly
-  the pending bytes, means the recording was saved. Never report that as
-  unsaved, and never build an entry or draft from it: opening the recording
-  afterward is its own read. Do not publish again, recreate, or repair after a
-  confirmed receipt. A failed or `Unconfirmed` save and a refusal before
-  publication are not confirmed: they stay unsaved and keep the close guard.
-- **Fixture audio and failure injection are debug-only.** They are enabled by
-  the shell's build, never by an environment variable alone, and the UI says so
-  while they are active. An injected publication failure obstructs the real
-  save so the folder fails it; it never answers for the folder, and the
-  folder's own saves stay the only thing that publishes.
-- **A transformation never writes its transcript.** A result has its own file
-  with a stem fixed before the request is sent. Saving a received result again
-  must not call the endpoint or create a second file. A result on pasted text
-  names no recording and must never participate in recording deletion.
-- **The desktop API key stays in native code.** It is never returned over IPC,
-  logged, or written to the folder, including inside an error message.
-- **Nothing is sent or seeded on its own.** No request leaves at launch or
-  after a recording without the person asking, and no file is created in the
-  folder that they did not create. Missing settings stay in memory until an
-  explicit settings save.
-- Do not rename a recording's or a transformation's files from the app: other
-  rows refer to the stem.
+- **One store, chosen in one place.** `src/lib/app.ts` opens it,
+  `openFolder(whispering, home({ site, account }))`, whose place `home`
+  picks where the page runs (the account's repository in a browser, the
+  data folder in a Tauri window, memory under `test`),
+  and `src/routes/(app)/+layout.svelte` renders the app over it and this
+  computer's settings with `<WhenOpen>`, or `SignIn` over a signed-out
+  repository, so every read inside is
+  synchronous; do not add a ready, loading, or start gate. Components read
+  through the library (`getLibrary`) and edit
+  a note through the folder (`folder.recordings.edit({ id })`), never a
+  store of their own.
+- **Branch on what a capability offers, never on the platform**
+  ([ADR-0781](../../docs/adr/0781-apps-branch-on-what-a-capability-offers-and-one-build-serves-every-surface.md)).
+  One build serves the browser and the Tauri window. A capability a
+  surface cannot give is `null` there (`speech`, `shortcut`), and a view
+  shows it only where it is (`{#if shortcut}`); where the store matters, a
+  view reads `folder.reveal` (`FolderChrome` or `RepositoryChrome`,
+  `FolderSettings`). Only `src/lib/shortcut.ts` calls `isTauri()` or
+  imports Tauri, and it loads the shell's event code when it listens; a
+  static import of a desktop module from shared code puts it in the web's
+  first load, which `scripts/first-load.test.ts` refuses.
+- **The browser keeps nothing.** No service worker, no browser store of
+  notes or audio, no uploader of its own, and no cache of uploaded audio: a
+  take goes to the repository through the folder at Stop. Sign-in and
+  sign-out never touch the files. `src/lib/page-boundary.test.ts` enforces
+  the page's boundaries; keep it passing.
+- **The folder keeps writes until they land; Whispering holds none.** A
+  write (`set`, `delete`, an editor's save) answers once it has landed and
+  never fails while the folder lives (ADR-0775): while the store is out of
+  reach the folder keeps it, in order, and `<WhenOpen>` says so; when the
+  folder fails or closes it rejects with `FolderClosed`. Await a write where order
+  matters (a recording's audio, then its note). Do not add an outbox, a
+  failed-write state, or anything else that keeps a note, an answer, or a
+  recording in the page to save again.
+- **No migration or compatibility code** (decision 72). Nothing reads an
+  earlier build's IndexedDB folder or Yjs store. Do not add a second store
+  or a cache of notes.
+- **Capabilities come from their packages.** The recorder, the models on
+  this computer and the sign-in come from `@epicenter/recorder`,
+  `@epicenter/ai`, `@epicenter/transcription` and `@epicenter/account`,
+  each of which decides where the page runs, and `app.ts` alone makes the
+  capabilities from them. Nothing under `src/` imports Node or Bun.
+- **Capabilities are module values; product state is the app's own.**
+  `src/lib/app.ts` exports the capabilities (`folder`, `account`, `ai`,
+  `choices`, `settings`, `speech`, `recorder`, `shortcut`) as module values opened once
+  per page, with no `await` and no hot-reload lines, and code imports them
+  rather than receiving them through context
+  ([ADR-0766](../../docs/adr/0766-an-apps-capabilities-are-module-values-opened-synchronously.md)).
+  Product state lives in Whispering's own objects, created
+  once: `WhisperingApp` makes Whispering and its library over those
+  capabilities, and route changes and sign-in keep them. Keep other product state out of module-level
+  variables. `dispose` refuses new work and late replies and waits for
+  nothing; a recording under way ends with the page.
+- **A recording's note is written once, after Stop, when its audio is at
+  its path** (on the desktop, once the shell has encoded it), so a note
+  never names audio that is not there and the library never lists a take in
+  progress. A browser keeps a take in memory until Stop, so a crash or a
+  closed tab loses it; do not add streaming writes, locks, or recovery in
+  a browser (ADR-0779, ADR-0780). On the desktop, audio a quit or a crash left
+  without a note gets one on the next launch, in the background
+  (`finishCutOffRecordings` in `folder-recordings.ts`); do not add another
+  path that writes a recording's note. Its note holds facts only:
+  never add a status, pending, or interrupted field. Store no audio path in
+  a note: the audio is `recordings/<id>.<ext>`; refuse ambiguous matches.
+- **A result is written when its answer arrives,** under an id fixed when
+  the run starts, so its write never calls the endpoint again or makes a
+  second note. A transformation never writes its transcript. A result on
+  pasted text names no recording and never takes part in deleting one.
+- **A lost reply is not a refusal.** When an answer never arrives, report the
+  outcome as unknown, never as "not sent", and never send a provider request
+  again without the person asking.
+- **Provider requests are explicit.** Nothing is sent at launch or after a
+  recording without the person asking; post-processing is a button.
+- **A key never reaches the files.** The model choices, connections and
+  microphone are this computer's settings (`@epicenter/local`: AppData on
+  the desktop, `localStorage` on the web). A key is never in
+  `connections.md`: on the web it is in `connection-keys.json`, on the
+  desktop in the app's `credentials.json`, which only the shell reads. A key is never logged
+  or written, including inside an error message. A request goes only to the
+  endpoint it was prepared for, and only while it is still at the address it
+  had then; nothing falls back to another.
+- **Recordings keep their names.** A note's name is its file name
+  (ADR-0776), and Whispering names every note by a `timeId()` stem (the
+  `id` placeholder). Results point at a recording by that name, so never
+  rename a recording's files; change its title.
+- **Every recording is a microphone take.** Tests fake the microphone in
+  their own support code (the e2e suite's `fakeMicrophone`, the unit tests'
+  fixture device); the product has no stand-in for it.
 - Use wellcrafted `Result` types instead of try-catch for expected failures.
 
 ## Checks
 
-From `apps/whispering`: `bun run typecheck`, `bun run test` (which runs the
-mounted views under the browser runtime after the rest), `bun run build`. For
-shell changes also
-`cargo test --manifest-path src-tauri/Cargo.toml`. After a change to the shell's
-exit handling, or an upgrade of macOS, Tauri, or Tao, also run the probe and
-the three `bun run test:quit` scenarios in `evidence/native-quit/README.md`.
-Tests establish logic and
-what reaches disk. The TypeScript tests script the shell's replies or open the
-directory with the Bun opener; they never run the Rust owner. Only running
-`bun dev:whispering` establishes that the desktop app works.
-
-`src/lib/tauri/bindings.gen.ts` is written by the Epicenter host's build and
-read by its Rust tests. Do not edit, import, or delete it from here.
+From `apps/whispering`: `bun run typecheck`,
+`bun run test` (Svelte's browser runtime; the lists notify nothing on the
+server runtime), `bun run build`, `cargo test -p whispering` (after
+`bun run build`). `bun run test:postgres` checks the sign-in
+against a real authorization server. Unit tests run under the `test`
+condition, where `app.ts`'s folder and this computer's settings are memory;
+Whispering's own tests open a place in memory (`memory()` from
+`@epicenter/folder/memory`) and a folder and library over it. Only using
+the app establishes that it works in a browser.

@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-put-folder-file"
+description = "Enables the put_folder_file command without any pre-configured scope."
+commands.allow = ["put_folder_file"]
+
+[[permission]]
+identifier = "deny-put-folder-file"
+description = "Denies the put_folder_file command without any pre-configured scope."
+commands.deny = ["put_folder_file"]

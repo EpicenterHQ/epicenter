@@ -85,6 +85,7 @@ moment is always safe.
 
 - The browser needs no worker, no OPFS, and no WASM asset for this. `:memory:`
   sqlite-wasm on the main thread is measured and working
+<!-- doc-path-check: ignore-next-line -->
   (`packages/app/evidence/data/browser/sync-access-handle.ts`).
 - The cost is one full rebuild after a burst of edits, paid by the first reader.
   **Measured** (`evidence/bench/index-rebuild.ts`, 28 samples per cell, Apple

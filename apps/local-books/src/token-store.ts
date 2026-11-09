@@ -28,8 +28,7 @@ export type TokenStore = {
  * no sidecar index: one would be a second copy of the same list that could
  * disagree with the first, and the partition directories are a weaker answer
  * still, since a company authenticated and never synced has no directory and is
- * connected all the same (ADR-0201). Same shape as `apps/local-mail`'s
- * `resolveAccount`.
+ * connected all the same (ADR-0201).
  *
  * An override is taken at its word rather than checked against the store: the
  * read verbs work without a token, so `query --realm` over a mirror belonging to

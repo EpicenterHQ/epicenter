@@ -5,8 +5,6 @@ const dashboardPaths = new Set([
 	'/dashboard/account',
 ]);
 
-export const dashboardReturnKey = 'epicenter.dashboard.return-to';
-
 /** A link names an expected account but never authenticates that account. */
 export function readDashboardTarget(url: URL) {
 	const principals = url.searchParams.getAll('expectedPrincipal');

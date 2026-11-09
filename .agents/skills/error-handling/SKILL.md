@@ -1,6 +1,6 @@
 ---
 name: error-handling
-description: 'Use when a task mentions error handling, Wellcrafted Results, result types, defineErrors, trySync, tryAsync, unwrap, thrown exceptions, or deciding whether to propagate, recover from, or present a failure. For recording diagnostics, use logging; for cache lifecycle, use query-layer.'
+description: 'Define tagged errors and apply Wellcrafted Result patterns from fallible operation to final presentation. Use when a task involves error handling in TypeScript, defining defineErrors variants, replacing try/catch, adding trySync or tryAsync, choosing whether to propagate, recover from, or present a failure, or consuming Results with unwrap. For recording diagnostics, use logging; for cache lifecycle, use query-layer.'
 metadata:
   author: epicenter
   version: '3.1'

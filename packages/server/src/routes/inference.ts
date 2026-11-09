@@ -1,9 +1,9 @@
 /**
  * `/v1/chat/completions`: the OpenAI-compatible inference gateway (ADR-0049,
  * ADR-0050). One swappable inference server speaking the OpenAI Chat Completions
- * wire. The client agent loop ({@link createOpenAiAgentEngine}) points at this by
- * base URL; pointing it elsewhere (Ollama, OpenRouter, a self-hosted gateway) is
- * configuration, not code.
+ * wire. The client agent loop (`createConversation` from `@epicenter/ai/agent`, over
+ * the `hosted` endpoint) points at this by base URL; pointing it elsewhere (Ollama,
+ * OpenRouter, a self-hosted gateway) is another endpoint, not code.
  *
  * It is a pure passthrough proxy: resolve the provider from the model catalog,
  * inject the deployment's house key, forward the body to the provider's
@@ -16,7 +16,7 @@
  *
  * This is library-side and billing-agnostic. Auth and any credit
  * policy are supplied by the deployment through {@link mountInferenceApp}:
- * apps/api passes its Autumn metering policy, a self-hosted instance passes none.
+ * apps/api passes its Autumn metering policy on the Worker and none on Bun.
  * The gateway is house-key-only: it accepts no provider
  * key in the body, so it provably never receives a user's key (ADR-0054). BYOK is
  * a custom client backend (your own URL and key), never the Epicenter gateway.
@@ -39,8 +39,8 @@ import {
 	type AiProvider,
 	MODELS_BY_ID,
 	type ServableModel,
-} from '@epicenter/constants/ai-providers';
-import { API_ROUTES } from '@epicenter/constants/api-routes';
+} from '@epicenter/ai/providers';
+import { API_ROUTES } from '@epicenter/server/api-routes';
 import type { Context, Hono, MiddlewareHandler } from 'hono';
 import { every } from 'hono/combine';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
@@ -87,8 +87,8 @@ function clampStatus(status: number): ContentfulStatusCode {
  * Mount the OpenAI-compatible inference gateway on a deployment's server app.
  *
  * Like the other mount primitives, it bundles the deployment's auth and any
- * deployment policies (apps/api passes its Autumn metering policy; a self-hosted
- * instance passes none). The library stays billing-agnostic; policies are opaque
+ * deployment policies (apps/api passes its Autumn metering policy on the Worker
+ * and none on Bun). The library stays billing-agnostic; policies are opaque
  * middleware that run after auth and may short-circuit (e.g. 402) before the
  * gateway streams.
  */

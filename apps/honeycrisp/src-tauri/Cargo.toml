@@ -1,49 +1,26 @@
 [package]
 name = "honeycrisp"
-version = "0.0.1"
-description = "Honeycrisp desktop shell"
+version = "0.0.2"
+description = "Honeycrisp as a desktop window over the folder it keeps its notes in"
 authors = ["Epicenter"]
 repository = "https://github.com/EpicenterHQ/epicenter"
 edition = "2021"
-
-[lib]
-name = "honeycrisp_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
+license = "AGPL-3.0-or-later"
+publish = false
 
 [build-dependencies]
-tauri-build = { version = "2", features = [] }
+tauri-build = { version = "2.6", features = [] }
 
 [dependencies]
-# The folder's path rules and root resolution, shared with the owner.
-epicenter-folder-core = { path = "../../../packages/tauri-plugin-epicenter-folder/core" }
-serde = { version = "1", features = ["derive"] }
-tauri = { version = "2.11", features = [] }
+epicenter-standalone = { path = "../../../packages/tauri-epicenter-standalone" }
+tauri = { version = "2.12", features = [] }
+# tauri-build finds plugin permissions only through direct dependencies.
 tauri-plugin-epicenter-folder = { path = "../../../packages/tauri-plugin-epicenter-folder" }
+# `generate_context!` writes the configuration's `plugins` block as
+# `serde_json` values in the app's own crate, and the tests read the
+# configuration with it.
+serde_json = "1"
 
 [dev-dependencies]
-serde_json = "1"
-# The mock runtime drives the real invoke handler in tests. Test builds only.
-tauri = { version = "2.11", features = ["test"] }
-
-# The same pins as packages/tauri-plugin-epicenter-folder/Cargo.toml; a shell
-# that depends on the plugin carries its own copy.
-[patch.crates-io]
-specta = { git = "https://github.com/specta-rs/specta", rev = "3c535739ea7bd8737ecdbff6c3aef9b7330da706" }
-specta-macros = { git = "https://github.com/specta-rs/specta", rev = "3c535739ea7bd8737ecdbff6c3aef9b7330da706" }
-specta-serde = { git = "https://github.com/specta-rs/specta", rev = "3c535739ea7bd8737ecdbff6c3aef9b7330da706" }
-specta-typescript = { git = "https://github.com/specta-rs/specta", rev = "3c535739ea7bd8737ecdbff6c3aef9b7330da706" }
-specta-util = { git = "https://github.com/specta-rs/specta", rev = "3c535739ea7bd8737ecdbff6c3aef9b7330da706" }
-
-# Drives the close gate from the page client's tests. Not part of the app.
-[[example]]
-name = "harness"
-
-# Quits the real app through AppKit's terminate: on a fixture page, in a fresh
-# folder. macOS only; opens a window. Not part of the app.
-[[example]]
-name = "quit"
-path = "examples/quit/main.rs"
-
-[profile.release]
-panic = "abort"
-strip = true
+# The mock runtime drives the real commands in tests.
+tauri = { version = "2.12", features = ["test"] }

@@ -1,7 +1,0 @@
-{
-	// Dev-only harness sources. Typecheck them with the app's config but drop the
-	// parent's `exclude`, which names this very directory.
-	"extends": "../tsconfig.json",
-	"include": ["**/*.ts"],
-	"exclude": []
-}

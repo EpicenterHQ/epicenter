@@ -113,7 +113,25 @@ Svelte's deep proxy can break handles whose methods rely on `this` being the ori
 
 ## Project-specific application
 
-In this codebase, the rule applies to any component calling `*Docs.open()` (Yjs doc handles from `createDisposableCache`). Search: `$state<ReturnType<typeof .*\.open>`. Every hit is a candidate for the rule above.
+For contract apps, `src/lib/app.ts` exports the capabilities as module
+values ([ADR-0766](../../../../docs/adr/0766-an-apps-capabilities-are-module-values-opened-synchronously.md)).
+`openFolder(contract, home({ site, account }))` returns at once; where it is in its life is
+`folder.state()` (opening, open, failed with a typed error and the failure's
+`retry()`, or closed), and the root layout renders `<WhenOpen {folder}
+{settings}>`, which waits for the folder and this computer's settings
+(`@epicenter/local`). Editing `app.ts`, or anything it imports, reloads the
+page in development, so it closes nothing by hand. Any code imports
+`folder`; none passes it through context. Only `<WhenOpen>` and Recovery read
+`state()`. The page connects once, and nothing that reads a store renders
+before: inside `<WhenOpen>` every read is synchronous and answers what is
+stored; a read before the connection throws `FolderNotOpen` (or
+`SettingsNotOpen`), a bug in the code that made it
+([ADR-0778](../../../../docs/adr/0778-a-page-connects-once-and-then-reads-synchronously.md)).
+Code outside a page calls an action, such as `list()`, which waits. No
+capability exposes `ready` or `loading()`, so no code checks or awaits
+readiness. Every app is on this shape; do not add a `Startup` root, a
+per-collection context, or a gate of its own. Key editors by note identity so each mounted editor owns one edit. See
+[Contract reads and editing](#contract-reads-and-editing).
 
 ## Imperative Widgets: Own The Whole Runtime Boundary
 
@@ -146,16 +164,46 @@ and mount lifetime.
 
 ## Related
 
-- The sync-construction / async-ready-property / UI-render-gate pattern (see `factory-function-composition`, `references/sync-construction-render-gate.md`) covers the service-layer equivalent for clients with async-ready properties.
+- The sync-construction / UI-render-gate pattern (see `factory-function-composition`, `references/sync-construction-render-gate.md`) covers the service-layer equivalent: synchronous construction, one render gate, actions that wait.
 - `docs/articles/svelte-5-createsubscriber-pattern.md` covers `createSubscriber` for wrapping external event sources into reactive values: a different job than component-scoped handles.
 - `docs/articles/20260420T160000-state-handle-null-is-the-component-lifecycle-in-disguise.md` walks through why this rule exists and when Pattern B is still correct.
 
-# Shallow Template Aliases: Inline Direct Reads
+# Template locals: narrow reactive values before use
 
-Svelte template expressions already track reactive property reads. Do not add a `$derived` or `{@const}` whose only job is to rename a shallow property read for markup.
+Svelte template expressions already track reactive property reads. Introduce
+`{@const}` or `$derived` when a repeated optional property access loses its
+narrowing inside a deferred callback, or when a useful computation needs a
+name. An already-narrowed local needs no extra alias. A reactive local is not
+a second draft or a mount-time snapshot.
+
+Place `{@const}` in the nearest supported template scope containing the controls that
+need it. Capture the optional value, narrow that local, then create the binding
+callbacks. Several controls in that scope share one local; nested property
+access alone does not justify another alias.
 
 ```svelte
-<!-- Bad: the alias does not compute anything -->
+{#each items as item (item.id)}
+	{@const details = item.details}
+	{#if details}
+		<Input bind:value={() => details.title, (title) => item.update({ title })} />
+		<Textarea bind:value={() => details.notes, (notes) => item.update({ notes })} />
+	{/if}
+{/each}
+```
+
+Read the value once, then check its presence with the source's actual sentinel.
+The [function binding guidance](component-ui-patterns.md#function-bindings-for-transformed-values)
+explains event-time composition through the current owner.
+
+Use `const details = $derived(item.details)` if script code also needs it or no
+existing template scope supports `{@const}` before the guard. Do not add a
+block solely to host the local. Do not replace either reactive form with a
+component-level `const details = item.details`: that captures only the initial
+value. A simple display that needs no shared narrowing may read
+`session.current` directly:
+
+```svelte
+<!-- Bad: the alias does not compute or narrow anything -->
 <script lang="ts">
 	const current = $derived(session.current);
 </script>
@@ -172,48 +220,18 @@ Svelte template expressions already track reactive property reads. Do not add a 
 {/if}
 ```
 
-The same rule applies to block-local `{@const}` passthroughs:
+Do not add an alias just to rename a read, and do not remove a useful local
+merely because its initializer is a shallow property read. Other reasons to
+keep a local include a computed predicate, an expensive projection shared by
+several consumers, a change filter that skips downstream work when its value
+stays identical, or a dynamic component such as `{@const Icon = item.icon}`.
+Inspect the consumers before inlining.
 
-```svelte
-<!-- Bad -->
-{#await session.whenReady}
-	<Loading />
-{:then _}
-	{@const current = session.current}
-	{#if current}
-		<SignedInApp principal={current.principal} />
-	{/if}
-{/await}
-```
+An operation-local snapshot can keep a read-modify-write operation coherent.
+Capture it when the handler runs, and re-read or check the operation's
+validity after an `await` before writing.
 
-```svelte
-<!-- Good -->
-{#await session.whenReady}
-	<Loading />
-{:then _}
-	{#if session.current}
-		<SignedInApp principal={session.current.principal} />
-	{/if}
-{/await}
-```
-
-Keep the alias when it owns real work:
-
-- Computed predicates or values: `const isSelected = $derived(selectedId === item.id)`.
-- A named computation or selection shared by script logic, effects, or other derived values; those consumers can also read shallow properties directly.
-- Expensive or noisy computations that should run once per block.
-- A change filter for downstream effects: `$derived` skips downstream updates when its value remains referentially identical, even if the source notifies more broadly. Check effect behavior before replacing a derived read with a direct getter read. See [Svelte update propagation](https://svelte.dev/docs/svelte/$derived#Update-propagation).
-- Dynamic component binding: `{@const Icon = item.icon}` before `<Icon />`.
-- Discriminated union payloads inside an `{#each}` branch when the alias improves narrowing and readability: `{@const bookmark = item.bookmark}`.
-
-Repeating a shallow read does not require an alias. Prefer `editor.row` at each
-use when seeing the owner helps the reader. Do not replace a reactive alias with
-a component-level `const row = editor.row`: that captures an initial value.
-An operation-local snapshot can earn its place when it keeps narrowing and a
-read-modify-write operation coherent. Capture it when the handler runs, and
-re-read or check the operation's validity after an `await` before writing.
-
-Searches:
+Searches for candidate passthroughs:
 
 ```bash
 rg -n '\$derived\([^)]*\.[A-Za-z_$][A-Za-z0-9_$]*\)' --glob '*.svelte'
@@ -239,7 +257,7 @@ the source owner is fixed for the component instance:
 	let { session } = $props();
 </script>
 
-<p>{session.draft.fields.title}</p>
+<p>{session.draft.title}</p>
 ```
 
 The session's getters are reactive, so changes to the draft or save state need
@@ -290,7 +308,7 @@ When a `$derived` expression maps a finite union to output values, use a `satisf
 
 <!-- Good: $derived with satisfies Record -->
 <script lang="ts">
-	import type { SyncStatus } from '@epicenter/sync-client';
+	type SyncStatus = 'connected' | 'connecting' | 'offline';
 
 	const tooltip = $derived(
 		({
@@ -327,7 +345,8 @@ value with `set(id, next)`.
 
 | Data Shape | Use | Example |
 |---|---|---|
-| Epicenter store table rows | `fromData` reactive tables | notes, folders |
+| Contract listings | `files.notes.items`, `files.notes.invalid` | notes and notes that do not read |
+| An open note | `notes.edit({ id })` | `todo.fields` (typed until saved), `todo.exists`, and inline save feedback |
 | Browser API keyed data | `new SvelteMap()` + listeners | media devices, windows |
 | Primitive value | `$state(value)` | `$state(false)`, `$state('')`, `$state(0)` |
 | Replace-only sequential data without IDs | `$state.raw<T[]>([])` | terminal history, command history |
@@ -339,57 +358,63 @@ sorting inside a getter returns a fresh array on every access, which sends
 TanStack Table into an infinite loop. See
 `docs/articles/sveltemap-over-state-for-keyed-collections.md`.
 
-# Reactive Table State Pattern
+# Contract reads and editing
 
-Store reads are synchronous and return plain JSON, so the source of truth is a
-re-read, not a long-lived reactive collection. `fromData` from
-`@epicenter/svelte` packages that re-read once: it mirrors an opened
-workspace's declared `tables`/`kv` and makes every read verb reactive
-(`rows`, `nonconforming`, `list`, `get`, `ids`, `document`), while `create`,
-`update`, and `delete` pass through unchanged. The signal it rides names the
-rows a commit touched (ADR-0221) and fires for a local write and for bytes that
-arrived from another device alike. Text typed inside a row's content node is
-not a table commit; `watch(node, listener)` is its signal.
+A folder read through `reactive` gives each collection tracking reads:
+`items()`, `invalid()` (notes) and `get(args)` (ADR-0769), each answering at
+once inside `<WhenOpen>` (ADR-0778).
+Collections come straight off the module-level `folder` in
+`src/lib/app.ts` (ADR-0766):
 
-```typescript
-// Adapt the supplied store; repeated calls reuse its projection.
-const app = fromData(data);
-const table = app.tables.notes;
+```ts
+// src/lib/app.ts
+export const folder = reactive(openFolder(todos, home({ site, account })));
 
-// Derived views: filtering and sorting are cached here, not in the getter.
-const all = $derived(table.rows.filter((note) => note.deletedAt === null));
-
-return {
-	get all() {
-		return all;
-	},
-	get(id: NoteId) {
-		return table.rows.find((note) => note.id === id);
-	},
-};
+// any component
+import { folder } from '$lib/app.js';
+const { todos } = folder;
 ```
 
-There is no `refresh`, no generation counter, no `await` on a read, and no
-`Symbol.dispose`. A table is HELD: `fromData` seeds a `SvelteMap` projection
-keyed by row id on the first call for a raw store, patches it with the ids each commit names,
-and never tears it down, so the projection and its subscription die with the
-document. Repeated calls with the same raw store return that same projection
-without adding subscriptions. The cache keys by object identity, so another
-opened store receives its own projection. That is not ref-counting, and the difference matters: a projection
-detached from its source stays alive and stops being true. `kv` and
-`persistence` are read-through on `createSubscriber` instead, because ten keys
-and one enum are not worth holding.
+The component that shows a note makes one editor of it during setup. The
+editor is that view's read of the note too: `todo.fields` holds one accessor
+per declared field and `body`, each showing typed input until its save
+answers and the note as shown after, and `todo.exists()` says whether a note
+that reads is listed at its path (false while missing, deleted or not
+reading):
 
-A read inside `$derived` or a template tracks; a read in an event handler is
-fresh and untracked. Do not hand-roll `db.<table>.subscribe(listener)` feeding
-`$state.raw` for table reads; that pattern is what the adapter replaced. For
-one value off a source that is not a table, use `fromSubscription(subscribe,
-read)`.
+```svelte
+<script lang="ts">
+  import { folder } from '$lib/app.js';
 
-Adapter: `packages/svelte/src/from-data.svelte.ts`. Full app exemplar:
-`apps/honeycrisp/src/lib/app.svelte.ts`.
+  const { todos } = folder;
+  const todo = todos.edit({ id });
+  const open = $derived(todos.items().filter((todo) => !todo.done));
+</script>
 
-See the `typescript` skill for iterator helpers (`.toArray()`, `.filter()`, `.find()` on `IteratorObject`).
+{#if todo.exists()}
+  <Input bind:value={todo.fields.title} />
+  <Textarea bind:value={todo.fields.body} />
+  <Checkbox bind:checked={todo.fields.done} />
+{:else}
+  <p>This todo is no longer here.</p>
+{/if}
+```
+
+Do not read the open note a second time with `todos.get({ id })` or take it
+as a prop; `get` is for lists, code that is not the note's view, and the
+rare view that needs the saved note beside what is typed (Capture's export
+waits for the save, then reads the file's text from `get`). `fields` stays
+live, so `const { fields } = todo` is fine. Keep
+derived filters in `$derived`. The editor's saves go through the folder's
+queue one at a time; the newest carries everything typed since the last that
+landed. A typed field takes this write, another writer's change to a field
+not typed stays, and a body changed elsewhere since the typing began merges
+by lines. A save never fails: while the store cannot be reached it waits,
+the typing stays shown, and `<WhenOpen>` says the store is out of reach
+(`folder.unavailable()`), so a view shows no save error of its own. Code
+that is not typing, such as a list row's toggle, writes with
+`set(args, changes)`, which answers once it has landed. Keep an app-level context only for state that is not a collection
+(selection, a recorder), named for what it holds.
 
 ### Template Props
 
@@ -424,18 +449,20 @@ State modules use a factory function that returns a flat object with getters and
 function createBookmarkState(db: AppData) {
 	let rows = $state.raw<Bookmark[]>([]);
 	function read() {
-		rows = db.tables.bookmarks.rows;
+		const { data, error } = db.bookmarks.list();
+		if (error !== null) return reportBackgroundError(error);
+		rows = data.rows;
 	}
 	read();
-	const stop = db.tables.bookmarks.subscribe(read);
+	const stop = db.bookmarks.subscribe(read);
 
 	const bookmarks = $derived(rows.filter((b) => b.deletedAt === null));
 
 	return {
 		[Symbol.dispose]: stop,
 		get bookmarks() { return bookmarks; },
-		add(fields: BookmarkFields) { db.tables.bookmarks.create(fields); },
-		remove(id: BookmarkId) { db.tables.bookmarks.delete(id); },
+		add(fields: BookmarkFields) { /* ... */ },
+		remove(id: BookmarkId) { /* ... */ },
 	};
 }
 
@@ -461,33 +488,3 @@ Use the `State` suffix when the export name would collide with a key property (`
 | **Keyed lookup** | `.get(key)` | `toolTrustState.get(name)`, `deviceConfig.get(key)` |
 
 The `.current` convention comes from [runed](https://github.com/svecosystem/runed) (the standard Svelte 5 utility library). All 34+ runed utilities use `.current`. Never use `.value` (Vue convention).
-
-## Persisted State Utilities
-
-For localStorage/sessionStorage persistence, use `createPersistedState` (single value) or `createPersistedMap` (typed multi-key config) from `@epicenter/svelte`.
-
-```typescript
-// Single value: .current accessor
-import { createPersistedState } from '@epicenter/svelte';
-const theme = createPersistedState({
-	key: 'app-theme',
-	schema: type("'light' | 'dark'"),
-	defaultValue: 'dark',
-});
-theme.current; // read
-theme.current = 'light'; // write + persist
-
-// Multi-key config: .get()/.set() with SvelteMap (per-key reactivity)
-import { createPersistedMap, defineEntry } from '@epicenter/svelte';
-const config = createPersistedMap({
-	prefix: 'myapp.config.',
-	definitions: {
-		'theme': defineEntry(type("'light' | 'dark'"), 'dark'),
-		'fontSize': defineEntry(type('number'), 14),
-	},
-});
-config.get('theme'); // typed read
-config.set('theme', 'light'); // typed write + persist
-```
-
-Both accept `storage?: Storage` (defaults to `window.localStorage`) for dependency injection.

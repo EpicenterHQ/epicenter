@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-09-24
 - **Relates:** [ADR-0441](0441-whispering-keeps-speech-evidence-local-and-syncs-only-its-speech-profile.md) (recording and transcript ownership), [ADR-0054](0054-an-inference-backend-is-the-metered-gateway-or-a-custom-server.md) (hosted and custom inference connections), [ADR-0100](0100-ai-credits-are-product-units-and-the-charge-shape-follows-when-cost-is-known.md) (current hosted billing)
-- **Unbuilt:** The subscriber-facing offer and launch presentation. A change from the current per-minute credit wallet to an unlimited standard transcription entitlement is not decided by this record.
+- **Unbuilt:** The subscriber-facing offer and launch presentation, and the separate hosted AI project that would offer hosted transcription ([ADR-0618](0618-epicenter-hosts-no-ai-service.md)); its price and allowance are not decided by this record.
 
 ## Context
 
@@ -48,9 +48,9 @@ be used to justify a Whispering subscription at launch.
 This record decides what is free and what the subscription buys, not the
 price, included models, usage allowance, or abuse controls. In particular,
 "unlimited standard hosted transcription" is a candidate offer rather than a
-shipped entitlement. The accepted per-minute credit decision in ADR-0100 and
-the current billing catalog govern until a separate decision explicitly
-amends them.
+shipped entitlement. Epicenter's data layer hosts no AI service and bills no
+AI credits ([ADR-0618](0618-epicenter-hosts-no-ai-service.md)), so hosted
+transcription is offered, if at all, by a separate hosted AI project.
 
 ## Consequences
 

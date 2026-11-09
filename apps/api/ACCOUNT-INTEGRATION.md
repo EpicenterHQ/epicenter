@@ -2,7 +2,7 @@
 
 Run the normal Worker and dashboard against a disposable Postgres cluster,
 real development OAuth credentials, and Autumn sandbox. The browser simulator
-in `packages/auth/smoke/` remains useful for deterministic regressions; it does
+in `packages/account/smoke/` remains useful for deterministic regressions; it does
 not verify provider configuration or payment processing.
 
 ## Start isolated Postgres
@@ -51,8 +51,7 @@ http://localhost:5178/auth/callback/google
 ```
 
 Use `/auth/callback/github` or `/auth/callback/microsoft` for those providers.
-The application handoff at `/session/callback` is a separate step; do not use it
-as the provider callback. Keep credentials in Infisical's `dev` environment at
+Keep credentials in Infisical's `dev` environment at
 `/api`. Do not substitute production credentials or disable origin/state checks.
 
 ## Align Autumn sandbox

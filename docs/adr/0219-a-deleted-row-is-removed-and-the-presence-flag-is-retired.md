@@ -15,7 +15,9 @@
   at workspace replacement: a rebuild copies live rows into a fresh document
   and retires the old document. It is distinct from snapshot folding within
   the current document.
+<!-- doc-path-check: ignore-next-line -->
 - Evidence: `packages/app/evidence/data/bench/tombstones.ts`,
+<!-- doc-path-check: ignore-next-line -->
   `packages/app/evidence/data/deletion-model.test.ts`.
 
 ## Context

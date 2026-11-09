@@ -9,8 +9,11 @@
   (one document, rows nested on a table root),
   [ADR-0213](0213-a-lens-is-arktype-json-and-an-application-queries-only-its-own-projection.md)
   (the projection `db.query` reads).
+<!-- doc-path-check: ignore-next-line -->
 - Evidence: `packages/app/evidence/data/delta-names-the-row.test.ts`,
+<!-- doc-path-check: ignore-next-line -->
   `packages/app/evidence/data/bench/subscription.ts`,
+<!-- doc-path-check: ignore-next-line -->
   `packages/app/src/data/store/store.test.ts`.
 
 - **Amended in the shape it delivers.** The ids are what stands: `subscribe`

@@ -1,5 +1,4 @@
-import { fileURLToPath } from 'node:url';
-import { APPS } from '@epicenter/constants/apps';
+import { APPS } from '@epicenter/definition/site';
 // VAD fetches these files from `/vad/*` at runtime (they are not bundled). The
 // recorder package owns the VAD capability and resolves the asset source paths
 // from its own pinned dependency tree; we just copy them into the served `/vad/`
@@ -33,23 +32,10 @@ export default defineConfig(
 		// CommonJS entry to ESM for browser dev mode.
 		optimizeDeps: {
 			exclude: ['onnxruntime-web', 'onnxruntime-web/wasm'],
-			include: ['buffer'],
 		},
-		resolve: {
-			alias: [
-				// Vocab is a browser app: its folder is this browser's storage. The
-				// exact bare specifier follows the browser entry the opener imports,
-				// so no desktop adapter is emitted. Subpaths are untouched.
-				{
-					find: /^@epicenter\/folder$/,
-					replacement: '@epicenter/folder/browser',
-				},
-				// isomorphic-git and its SHA-1 dependency expect Node's Buffer.
-				{
-					find: /^buffer$/,
-					replacement: fileURLToPath(import.meta.resolve('buffer/')),
-				},
-			],
-		},
+		// localhost, not 127.0.0.1: the API registers Vocab's sign-in callback
+		// at `http://localhost:8888`.
+		server: { host: 'localhost' },
+		preview: { port: APPS.VOCAB.port, strictPort: true, host: 'localhost' },
 	}),
 );

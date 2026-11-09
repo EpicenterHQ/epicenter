@@ -1,295 +1,220 @@
 ---
 name: adversarial-review
-description: Independently pursue the strongest greenfield design, challenge the underlying model, and find concrete deletion prizes. Use when asking for an adversarial review, an independent architecture review, or an adversarial checkpoint on a plan or cumulative implementation. Do not use for routine final code inspection, which belongs to post-implementation-review.
+description: Independently form and test models of what a system should do, challenge the design against them, and work as a review group toward an agreed direction. Use when asking for an adversarial review, an independent architecture review, or an adversarial checkpoint on a plan or cumulative implementation. Do not use for routine final code inspection, which belongs to post-implementation-review.
 ---
 
 # Adversarial review
 
-Independently pursue the strongest greenfield design from the desired outcome
-and actual users and callers. Hold that outcome steady while questioning the
-organizing idea, boundaries, ownership, lifecycle, representation, and inherited
-promises. Reconstruct the system as evidence about the problem, not the boundary
-of the solution. Develop a concrete vision of what you would build if the current
-abstraction did not exist, even when no bugs are apparent.
+Independently develop an account of what the system should do from the desired
+experience and actual use. Treat the design under review as one explanation of
+the problem. Form a grounded judgment about the organizing idea before settling
+for improvements within its existing concepts and boundaries.
 
-Make the deletion prize concrete: what machinery, obligations, or planned work
-becomes unnecessary, and what stronger guarantee replaces it? The strongest
-design may introduce an abstraction that earns its place. Judge the whole
-bargain; fewer parts alone do not establish improvement. Keep migration cost
-visible without letting it define the destination before exploring that design.
+Give that account concrete expression and compare it with the proposed or
+implemented design. Ask which work is necessary and which problems arise from
+the arrangement itself. A review can reveal a stronger model, establish why the
+current one earns its place, or identify the fact that decides between them.
+Passing tests, plausible abstractions, and reviewer agreement cannot establish
+that the right system is being built.
 
-Success is a better-supported next decision. Count complexity introduced as
-well as removed, including work transferred to the user. Keeping the design is
-valid after testing the alternative. Passing tests and individually defensible
-abstractions do not settle whether the model deserves to survive; forced
-disagreement and deletion at any cost do not establish improvement either.
+Success is a better-supported next direction that every participating reviewer
+can explicitly support. Judge the desired experience, coherence, guarantees,
+total complexity, and consequences together. Make deletion prizes concrete where
+they arise; a new abstraction or a retained guarantee may also be essential to
+the better design.
 
 ## Establish independence
 
-If you are already the delegated reviewer, perform the review yourself and
-launch no child agents. The following setup belongs to the coordinating agent.
+If you are a reviewer in the group, perform the review yourself and launch no
+child agents; staffing belongs to the coordinator. Exchange findings and
+objections with the other reviewers directly where your tooling supports it,
+and otherwise through the coordinator. The following setup belongs to the
+coordinating agent.
 
-The coordinating agent starts with one fresh read-only `gpt-6.1-sol` subagent with
-`fork_turns: "none"` and `reasoning_effort: "high"`, and one read-only Claude
-Opus reviewer through [consult-claude](../consult-claude/SKILL.md). Explicit
-user choices override this default. Ordinary final checks remain local under
-post-implementation-review.
+The coordinator normally staffs three read-only seats. Two are fresh Codex
+subagents using the runtime's available GPT-6 model, each with
+`fork_turns: "none"` and `reasoning_effort: "high"`. The third is a fresh,
+read-only Claude Opus reviewer through
+[consult-claude](../consult-claude/SKILL.md). Explicit user choices override
+this staffing. If a reviewer is unavailable, report the limitation and continue
+with the available seats. If none is available, perform the review locally and
+state that it was not independent. Ordinary final checks remain local under
+post-implementation-review; a routine edit does not earn this review.
 
-Give both reviewers the same evidence and complementary starting questions.
-Run them in parallel when possible, and withhold each reviewer's findings from
-the other until both initial verdicts arrive. Assign the starting questions
-without assuming either model is better at simplification or guarantee tracing.
-If either reviewer is unavailable, report that limitation and continue with the
-available review. If neither is available, perform the pass locally and state
-that it was not independent.
+Give every reviewer the same raw evidence and a different starting question.
+Run them in parallel when possible. Withhold each reviewer's conclusions from
+the others until all initial accounts arrive; the exchange that follows builds
+on independent thought rather than replacing it.
 
-Reviewer one starts with:
+Codex reviewer one starts with:
 
-> Starting from the desired outcome and actual users and callers, what is the
-> strongest greenfield design? Reconsider the organizing idea, ownership,
-> lifecycle, representation, and promises. Show concrete use, the deletion prize,
-> the replacement guarantees, and the complexity introduced.
+> From the desired experience and actual use, what should this system be? Develop
+> your own account of its natural operations and responsibilities, then compare
+> it with the design under review. Which problems disappear under that account,
+> and what work, guarantees, or costs remain?
 
-Reviewer two starts with:
+Codex reviewer two starts with:
 
-> Independently develop the strongest greenfield design. What must it preserve
-> to be worth adopting? Trace concrete callers and lifecycle sequences to find
-> the guarantees the current complexity provides. Which matter to the user,
-> and which are inherited assumptions? Show where an alternative would break
-> a necessary guarantee or move the burden onto someone else.
+> Follow actual or intended users through the work this system must support.
+> Read existing callers as evidence of need rather than of the right operations.
+> Develop your own account of what belongs together and what its operations
+> mean. Test that account and the design under review against consequential
+> sequences. Which requirements reflect necessary outcomes, and which reflect
+> an assumed solution? Show the bargain behind your recommendation.
 
-These are starting questions, not assigned conclusions or separate file lanes.
-Reviewer two explores alternatives without waiting for reviewer one's proposal.
-Both can discover a better design or conclude that the current boundaries earn
-their place.
+The Claude reviewer starts with:
 
-When reviewing a design before implementation, first give each reviewer the
-desired outcome, explicit requirements, actual callers, and existing system,
-without the implementer's proposed design or rationale. Ask each to sketch the
-strongest greenfield design and name what it deletes and introduces. Preserve
-their independent initial answers. Then provide the full proposal and reasoning
-to each reviewer for a challenge against those answers. This ordering tests
-whether the proposal anchored the search. For implemented work, the current
-checkout may already expose the proposal; do not claim that the first pass was
-blind. Start from the outcome, actual callers, and task-start baseline when
-available. Explore the
-destination before narrowing to critique of the cumulative diff.
+> Find the premises the design under review shares with its obvious
+> alternatives: about ownership, lifetime, representation, or what is promised
+> to people. Which premise accounts for the most machinery, and what would you
+> build if it were false? Develop your own account and test it against the
+> strongest case for the current design. If the evidence points to a better
+> question, pursue that instead.
 
-Give each reviewer raw artifacts, concrete proposals, engineering reasoning, and
-open questions in the full-proposal pass. Distinguish facts, hypotheses,
-preferences, and accepted constraints; the implementer's reasoning is
-contestable evidence, not the answer:
+These are starting questions, not assigned conclusions. Any reviewer can
+originate a different model, challenge the framing it was given, or establish
+that the current one is strongest.
 
-- The accepted outcome, explicit constraints, and decision to be examined.
-- The plan and remaining work, including newly discovered facts.
-- For implementation, the task-start baseline and cumulative diff, including
-  task-owned uncommitted and untracked files. Distinguish unrelated work.
-- Relevant entrypoints, consumers, tests, and verification results. A summary
-  alone is not sufficient evidence.
+Provide the desired outcome, explicit requirements, actual or intended callers,
+relevant entrypoints, and existing system. Include the task-start baseline and cumulative
+diff for implementation reviews, distinguishing task-owned uncommitted and
+untracked files from unrelated work. Supply verification results, remaining
+plans, and open questions. Distinguish observations, hypotheses, preferences,
+and accepted constraints. A summary alone is insufficient evidence.
 
-Include actual and proposed code, representative callsites, and an ASCII diagram
-when it clarifies the design. Ask what the reviewer would build from the desired
-outcome and actual callers if the current abstraction did not exist. All
-reviewers apply this review method themselves without launching more reviewers.
-They may propose follow-up investigations; the coordinator commissions them.
-Codex owns verification and can assign bounded experiments through
-[delegate-claude](../delegate-claude/SKILL.md) when the user explicitly
-authorizes Claude execution.
+When anchoring on a proposal is a consequential risk, first supply the outcome,
+requirements, callers, and existing system without the proposed API or rationale.
+Preserve each independent account, then supply the proposal for comparison.
+For implemented work, the checkout may already reveal the proposal; describe
+that limitation honestly. Independence concerns the reasoning as well as access
+to evidence. Reviewers should investigate rather than adopt the implementer's
+explanation as their frame.
 
-For a proposal without implementation, supply the proposal and any existing
-system it would replace. Distinguish observed behavior from design assumptions;
-name what a prototype or caller would need to establish.
+The Claude reviewer may use host-provided read-only Codex evidence assistance
+while retaining the judgment and checking deciding sources. This helper gathers
+evidence; it is not another independent reviewer. Codex owns requested experiments.
 
-Hold the reviewed surface stable until the available reviewers return. Use that
-interval for verification preparation or an independent question outside the surface.
-Do not begin work whose shape depends on the verdict.
+Hold the reviewed surface stable until the review closes. Use that interval for
+verification preparation or independent work whose shape does not depend on
+the verdict. Reviewers do not edit the live checkout.
 
-Reviewers do not edit the live checkout.
+## Form and test the model
 
-## Manage the search
+Understand the relevant workflow through actual or intended use, entrypoints,
+ownership, information, and lifetimes. Include relevant unchanged consumers and
+earlier implementation waves. Expand far enough to establish consequences; the review's
+decision determines its scope.
 
-Be willing to add reviewers for independent exploration, a different starting
-angle, or a focused sequential challenge. A known defect or suspected shared
-assumption is not required. Name the opportunity another perspective could
-explore and how its answer could affect the decision. Scale the search to the
-breadth and consequence of the design; available capacity alone is not a purpose.
-For broad decisions, two reviewers of each model can explore both starting
-questions. Model symmetry and a fixed panel size are not requirements.
+Articulate what the system enables and show natural use. Derive the concepts and
+boundaries that account for that work. Read the current arrangement as evidence:
+mentally inline helpers, wrappers, components, and forwarding layers to expose
+what consumers actually do. Trace important information through creation, change,
+persistence, failure, and cleanup. Follow findings to deciding sources.
 
-Use parallel reviewers to broaden the search and sequential reviewers to
-challenge emerging alternatives, shared assumptions, or the coordinator's
-synthesis. Later reviewers receive raw evidence alongside preserved findings;
-their passes are informed challenges rather than blind discovery. A fresh
-reviewer can reopen the destination:
-
-> The current recommendation is evidence to examine, not your destination.
-> Independently consider whether a different organizing idea would better
-> achieve the desired outcome. Develop it far enough to compare actual use,
-> guarantees, total complexity, and the deletion prize. Keeping the
-> recommendation is valid if it survives that comparison.
-
-Actively manage assignments. Clarify questions, supply new evidence, correct
-factual misunderstandings, and redirect duplicated or low-value work. Share
-material facts with affected reviewers while withholding competing conclusions
-until their independent initial answers are preserved. Steer toward the
-uncertainty that matters without prescribing the conclusion. Preserve useful
-findings and state the new question when redirecting. If a reviewer stops at
-local cleanup, ask what makes the model necessary and what different organizing
-idea would eliminate it. Intervene when evidence or the investigation's trajectory
-warrants it, rather than repeatedly requesting status. Choose natural assignment
-boundaries when evidence could change substantial work. Use mid-run messages only
-when supported; consult-claude owns Claude's completed-turn follow-ups.
-
-As the destination earns support, focus effort on claims that could change the
-decision or establish how to realize it. Prefer a concrete counterexample,
-caller trace, or executable check when it can settle the question. Reopen the
-destination when evidence reveals a better organizing idea or changes the
-bargain; difficulty alone does not justify lowering the ambition. Close when a
-concrete destination has survived serious alternatives and its consequential
-claims have sufficient evidence. Further reviewers need an opportunity to improve
-that decision, not a demand for unanimity or proof that no better design exists.
-
-## Reconstruct before judging
-
-Trace the affected design through its entrypoints, callers, owners, lifecycle,
-and invariants. Include earlier implementation waves and relevant unchanged
-consumers. Expand only far enough to establish the owner and consequences;
-this is not a repository-wide audit.
-
-List every file read as an ASCII tree before analysis. Mentally inline helpers,
-wrappers, components, props, compartments, and file boundaries into their call
-sites. Read the resulting behavior as if encountering it for the first time.
-
-For implemented code, apply
+For implemented code, use
 [post-implementation-review](../post-implementation-review/SKILL.md)'s inspection
-passes in review-only mode: first read, mental inlining, ownership, smells,
-invariants, API shape, naming, and file organization. This supplies the code
-inspection; it does not initiate another independent review.
+passes in review-only mode. This supplies code inspection without initiating
+another independent review. Keep correctness blockers visible separately from
+the architectural judgment, and attribute verification failures using the
+agreed baseline. Claims that a failure predates the work need evidence.
 
-## Find the deletion prize
+Examine whether the current model explains necessary work or creates problems
+that its machinery then solves. Reconsider ownership, lifecycle, representation,
+operations, and guarantees together when their relationships reveal a different
+organizing idea. Use [rethink](../rethink/SKILL.md)'s design reasoning to develop
+that idea far enough to judge. Execution belongs to the coordinator.
 
-Ask what the local complexity is compensating for. Would moving an invariant
-to construction, giving one object the lifecycle, or removing a stale promise
-make a family of adapters, flags, callbacks, checks, or future tasks disappear?
-Challenge new abstractions as readily as inherited ones.
+Give a promising alternative concrete expression through caller code, an
+interaction, or a data flow. Follow the consequences far enough to expose work
+hidden behind an attractive entrypoint. Compare what someone must understand
+and do, how information is preserved or lost, and where coordination moves.
+Name the machinery and planned work that disappear and any abstractions or
+obligations introduced. Hiding the same work behind fewer names proves little.
 
-Make the prize concrete: name the methods, types, modules, states, tests, docs
-branches, or planned work that becomes unnecessary. Explain the replacement
-guarantee. Fewer files alone proves little if callers inherit the same work or
-lose a useful boundary. Preserve tests for behavior that must survive.
+Explicit requirements continue to govern execution. An alternative that changes
+one remains a proposal: state the conflict and the resulting experience. Trace
+guarantees to the outcomes they serve so the human can judge the bargain. A
+counterexample establishes a consequence; judge whether that consequence defeats
+the alternative under its proposed contract. Tests and existing decisions carry
+evidence about the current contract, not proof that it is the best destination.
 
-A compact implementation can still implement a bloated model. Challenge the
-promise that requires the machinery, including previously accepted architecture
-and product assumptions. Bring consequential tradeoffs to the human even when
-they go beyond the current implementation plan; the reviewer proposes them
-without treating them as authorized changes.
+Use [radical options](../rethink/references/radical-options.md) when apparent
+alternatives share a limiting premise. Use
+[asymmetric-wins](../asymmetric-wins/SKILL.md) when refusing a particular promise
+is the central bargain. Read [deletion prizes](references/deletion-prizes.md)
+for examples where changing a lifetime or operating rule removes coordination.
+These are ways to investigate, not a requirement to remove a guarantee or find
+a smaller design in every review.
 
-Distinguish a guarantee the software enforces from an obligation the user must
-fulfill. For a proposed obligation, name the steps, what happens if they are
-missed, and which guarantee the product can no longer claim. Moving work to a
-person may be an excellent bargain, but that work remains part of the cost.
-When exploring lifecycle resets or user-owned operations that eliminate
-coordination, read [references/deletion-prizes.md](references/deletion-prizes.md).
+## Work toward an agreed direction
 
-Use focused skills for deeper decisions, without copying their procedures:
+Once the initial accounts arrive, the reviewers work as one group. Share every
+account with every reviewer. Reviewers exchange findings, question one
+another's claims, answer objections, and revise a single concrete proposed
+direction: retain the design, change it in a stated way, or combine elements of
+competing accounts. Name the claim, model, or product judgment behind each
+consequential disagreement. When the reviewers share a premise responsible for
+substantial machinery, examine its support and what an alternative account
+would make possible.
 
-- [Repairability](../rethink/references/repairability.md) when file-authoritative
-  workflows coordinate to prevent inconsistencies. Identify what information
-  the machinery protects and show the proposed repair path. Verification is
-  required before removing protections.
-- [Rethink's radical-options reference](../rethink/references/radical-options.md)
-  when local fixes preserve a bad abstraction and the better design may sit one
-  level above it.
-- [asymmetric-wins](../asymmetric-wins/SKILL.md) when refusing a small promise
-  could delete a disproportionate code family. Name who loses what.
-- [rethink](../rethink/SKILL.md) when the finding
-  changes ownership, lifecycle, public contracts, or package boundaries. Use
-  its design reasoning here; execution belongs to the coordinating agent.
+Reviewers may message one another directly where the available tooling supports
+it. Otherwise the coordinator relays substantive messages: findings, questions,
+evidence, objections, and replies, attributed to their author and passed on
+without summarizing away the reasoning. A Claude reviewer receives them at
+completed-turn boundaries by resuming its session; it has no mid-turn channel.
+Communication does not let a reviewer launch another; the coordinator alone
+adds reviewers.
 
-Recommend a [collapse-pass](../collapse-pass/SKILL.md) when the evidence calls
-for sustained removal of unearned indirection. The reviewer identifies the
-opportunity; it does not begin that skill's editing or commit loop.
+Verify deciding claims against actual artifacts. Prefer a focused caller trace,
+counterexample, or experiment when it can settle a disputed claim directly, and
+return the result to every reviewer. Keep adding reviewers as unresolved
+questions, competing models, or needed expertise demand. Three seats is a
+starting point, not a cap. Give each added reviewer the shared evidence and the
+question it joins to answer. When anchoring is a consequential risk, let it form
+its own account before it reads the group's current direction and open
+objections. Exchanges should test claims rather than repeat broad reviews.
 
-Product changes remain proposals for user judgment. Explicit user constraints
-bound execution; surface a conflicting opportunity as a tradeoff rather than
-silently dropping required behavior or data guarantees.
+The review closes when every participating reviewer explicitly supports the
+same concrete next direction, its deciding claims have been checked, and
+meaningful objections are resolved. Reviewers need not share identical
+reasoning, and the direction may revise or combine earlier alternatives. The
+coordinator does not substitute its own synthesis or a majority for that
+agreement. Never press a reviewer to assent or to drop a real objection; a
+standing objection keeps the review open. Agreement marks completion, not
+correctness, so the deciding claims still need evidence. A direction can carry
+an explicit condition, such as a check that must pass first.
 
-## Return a decision
+When agreement depends on a product judgment only the human can make, or on
+evidence the group cannot reach, bring that specific blocker to the user with
+the alternatives and their consequences. Do not report the review as complete
+or describe a direction as agreed until every reviewer supports it.
 
-Lead with the recommended path, whether it changes the current design or keeps
-it. Show the mechanism and why it wins. Name the deletion prize when there is
-one: the machinery or planned work that would disappear, and the replacement
-guarantee. Explain the cost as a concrete consequence, such as losing unsaved
-work, and what complexity a mitigation would retain or introduce. When keeping
-the design, show the strongest deletion prize considered and why its cost makes
-retention worthwhile.
+## Return a decision and continue
 
-Give each serious alternative enough shape to judge on its own. A compact ASCII
-diagram can expose ownership or lifecycle; a code block can show an API; bullets
-or a small table can distinguish multiple options. Use bold text to expose a
-recommendation or requirement warning when it helps scanning. Do not force a
-fixed number of options or headings. If one path clearly wins, explain it and
-include only alternatives that illuminate the decision. Label any option that
-conflicts with an explicit user requirement as a proposed requirement change,
-and include the strongest compliant path when one is viable.
+Lead with the group's agreed direction: retain the design, change it, or resolve
+a consequential tradeoff. Show the concrete behavior and evidence that make that
+decision matter. When the choice depends on a product preference the evidence
+cannot establish, present the alternatives and their consequences for the human
+to judge. Carry what that judgment reveals through the affected design. Explain
+what becomes simpler or more capable, what disappears, and what costs or
+obligations remain. Give the human enough to assess the bargain without
+reconstructing reviewer reports. Name required changes to remaining plans.
+Record which findings the group accepted, rejected, or deferred, and why.
 
-State downsides, remaining uncertainty, and the next discriminating check where
-they affect the judgment. Give the current best estimate instead of listing
-unknowns without analysis. Codex owns checks it can perform; do not hand the
-user homework. Ask the user only about a product choice that evidence cannot
-settle. Keep precise design terms and make their consequences understandable.
+Support the recommendation with deciding caller or implementation evidence,
+verification performed, and the next discriminating check for consequential
+uncertainty. Report actual results separately from sketches or proposed checks.
+Use diagrams, file trees, or comparisons where they expose the design. Read
+[the example workflow](references/example-workflow.md) for how a group reaches
+agreement and how retaining the current design can win.
 
-Read [the example workflow](references/example-workflow.md) when calibrating
-how independent findings become a recommendation the user can judge. It shows
-both a proposed simplification and a decision to retain the current design,
-with the intended phrasing and progression rather than a required transcript.
+Explain accepted findings before editing. Carry repairs within existing
+authorization through implementation and verification; bring changes to the
+accepted outcome or unresolved product choices to the user. After repairs, use
+[post-implementation-review](../post-implementation-review/SKILL.md#output-shape)'s
+local post-edit checks on every repaired file. Rewrite remaining work around the
+resulting design and delete obsolete tasks.
 
-Support that judgment with:
-
-- Current and proposed shape, with both file trees when organization changes.
-- Concrete file or caller evidence, the stronger invariant and its owner,
-  and behavior that must survive.
-- The concrete greenfield alternative, deletion prize, complexity introduced,
-  and any user loss or obligation. Explain why the alternative wins or loses.
-- Which remaining tasks should change or disappear, if a plan exists.
-- Verification that would distinguish improvement from displaced complexity,
-  including assumptions that remain unproven.
-
-Report correctness blockers separately so an attractive collapse cannot hide
-a regression. Attribute verification failures using the agreed review baseline;
-the code inspection skill owns that procedure. Do not call a failure pre-existing
-without evidence.
-
-## Adjudicate and continue
-
-The coordinating agent reconciles the available reviews into one recommendation,
-preserving consequential disagreement. Verify findings against current artifacts
-and accept, reject, or defer them with reasons; agreement is not a correctness
-test. State the decisive claim behind a consequential recommendation, including
-one synthesized from multiple reviews. If no reviewer tested that specific
-alternative against the guarantee it must preserve, ask the reviewer best placed
-to challenge it for a focused counterexample or the caller evidence that rules
-one out. Verify the deciding fact directly; if it remains unproven, keep the
-recommendation conditional. Do not start another full review to answer a
-focused question.
-
-Present the strongest opportunity, deletion prize, costs, and judgment
-together so the user can assess the bargain. Keep reviewer inventories and
-deliberation in the supporting evidence; the user should not have to reconstruct
-the recommendation from separate reports. An unresolved condition belongs beside
-the recommendation, without making a promising direction sound settled.
-Explain accepted findings before editing.
-Implement and verify repairs within existing authorization; bring changes to
-the accepted outcome or unresolved product judgment to the user.
-
-After repairs, apply [post-implementation-review](../post-implementation-review/SKILL.md#output-shape)'s
-local post-edit checks to every repaired file before closing the review.
-
-When executing a plan, rewrite remaining work around the resulting design and
-delete obsolete tasks. Record consequential findings and decisions in the active
-plan or working notes. The assignment sets any intermediate review checkpoints.
-
-Request a focused follow-up when repairs materially change reviewed ownership
-or expose an unresolved risk. Close the review when grounded findings are
-resolved and the next step has a defensible shape, then resume any remaining
-assigned work. Do not repeat reviews to obtain a collapse or unanimous approval.
+Return to the group when repairs materially change reviewed ownership or expose
+unresolved risk. Once the agreed direction is carried through and its
+consequential findings are resolved, resume remaining assigned work.

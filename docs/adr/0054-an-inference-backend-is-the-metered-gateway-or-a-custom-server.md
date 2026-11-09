@@ -1,10 +1,11 @@
 # 0054. An inference backend is either the metered Epicenter gateway or a custom OpenAI-compatible server
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-06-22
 - **Amended by:** [ADR-0396](0396-transcription-operations-preserve-destinations-and-results.md) at model fallback: `connection.transcribe` sends a saved model as saved, the server refuses one it cannot serve, and nothing substitutes that backend's default. The hosted-or-custom split and the per-turn snapshot stand.
 <!-- doc-path-check: ignore-next-line (the superseded spec is deleted by this decision) -->
 - **Supersedes:** the unbuilt spec `specs/20260223T160300-byok-api-key-settings.md` (a tab-manager body-`apiKey` BYOK plan, never implemented), deleted by this decision; git keeps the body recoverable.
+- **Superseded by:** [ADR-0618](0618-epicenter-hosts-no-ai-service.md), Epicenter's inference: Epicenter runs no inference or transcription gateway, bills no AI credits, and keeps no local model, and an AI connection survives only as the CLI's bring-your-own-key keychain entry.
 - **Relates:** [ADR-0053](0053-the-epicenter-bearer-is-an-audience-scoped-credential.md) (the audience-scoped bearer that makes a user-chosen backend safe), [ADR-0050](0050-the-inference-contract-is-openai-compatible.md) (the OpenAI-compatible wire whose base URL this makes user-chosen; amended below), [ADR-0049](0049-inference-is-its-own-box-the-daemon-never-infers.md) (the swappable inference server; amended below), [ADR-0030](0030-agents-are-immutable-capability-bundles.md) (the model is in the capability bundle; the backend is transport, not capability), [ADR-0033](0033-a-conversation-has-one-transport-and-two-triggers.md) (the inference stream is the pluggable axis, distinct from the conversation's sync transport), [ADR-0004](0004-trust-the-relay-reject-zero-knowledge.md) (secrets stay off the synced plaintext path), [ADR-0051](0051-one-agent-loop-its-store-seam-chooses-persistence.md) (the one loop these engines drive)
 
 ## Context
@@ -17,6 +18,7 @@ A chat app's inference backend is a user setting with two modes, resolved per tu
 
 - **Hosted (default).** The Epicenter gateway. `auth.fetch` carries the bearer (scoped to Epicenter by [ADR-0053](0053-the-epicenter-bearer-is-an-audience-scoped-credential.md)), credits are metered, and the model is the curated Fast/Best catalog. The gateway is house-key-only: it never accepts a provider key in the request body.
 - **Custom.** A user base URL with a plain fetch and an optional `Authorization: Bearer <key>`, never the Epicenter bearer, no Epicenter metering, and a free-text model id. This is where "bring your own key" lives: your key on your box (a local Ollama, a self-hosted gateway, OpenRouter), never handed to Epicenter.
+<!-- doc-path-check: ignore-next-line -->
 - **Config and secret are split**, the way Zed and VS Code split provider config from the keychain. The custom base URL, model, and key are device-local in every app (`chrome.storage.local` in the extension, `localStorage` in the web apps), never the synced workspace. A `localhost` URL and an API key are device-scoped: a synced one is a secret on the plaintext relay ([ADR-0004](0004-trust-the-relay-reject-zero-knowledge.md)) and a URL that means nothing on another device. This follows the precedent in `specs/20260612T091000-whispering-custom-backend-profiles.md` (identity may sync, keys stay device-local). A synced "global" preference layer is a clean later addition; the key stays device-local regardless.
 - **The model travels with the backend.** The per-turn resolver returns the backend and a model valid for it. A stored model the active backend cannot serve falls back to that backend's default rather than being sent and rejected, so switching to Ollama never ships `gpt-5.5` and switching back never poisons a thread with an unknown id. A backend change takes effect on the next turn: the turn snapshots its backend once, and the picker is disabled while a turn generates, so a transcript never spans backends mid-tool-round.
 

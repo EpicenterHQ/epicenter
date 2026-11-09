@@ -2,6 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-05
+- **Relates:** [ADR-0544](0544-a-blob-is-a-file-in-its-folder-and-git-decides-how-it-travels.md): nothing builds the `device/no-account/blobs` addresses below; a blob is a file in its folder.
 - **Unbuilt:** Store-owned blob acquisition and identity-preserving `copyFrom`; private remote presentation is tracked separately in ADR-0427.
 - **Unverified:** Native Windows execution and abrupt-power-loss durability; installed desktop playback and physical microphone acceptance.
 

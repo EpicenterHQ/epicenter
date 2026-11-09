@@ -1,4 +1,4 @@
-import type { Account } from '@epicenter/auth';
+import type { Account } from '@epicenter/account';
 import { QueryClient } from '@tanstack/svelte-query';
 import { createQueryFactories } from 'wellcrafted/query';
 import { createAccountQueries } from '../account/queries.js';

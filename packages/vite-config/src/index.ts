@@ -1,6 +1,11 @@
 import { sveltekit } from '@sveltejs/kit/vite';
 import tailwindcss from '@tailwindcss/vite';
-import { searchForWorkspaceRoot, type UserConfig } from 'vite';
+import {
+	type EnvironmentModuleNode,
+	type Plugin,
+	searchForWorkspaceRoot,
+	type UserConfig,
+} from 'vite';
 
 /**
  * Base Vite config for SvelteKit workspace apps whose package contract and
@@ -17,24 +22,8 @@ import { searchForWorkspaceRoot, type UserConfig } from 'vite';
  * `new URL('./x.worker.ts', import.meta.url)` resolves to a `/@fs/` URL under
  * the monorepo root, which SvelteKit's list answers 403 to.
  *
- * **The last three are what `@epicenter/device`'s browser leaf costs.**
- * Only `apps/local-mail/ui` composes it, so they belong in that app's config
- * rather than here; they stay until that move is made. Its SQLite owner is a
- * dedicated worker over `@sqlite.org/sqlite-wasm`, because OPFS synchronous
- * access handles exist only in a worker context, so:
- *
- * - `optimizeDeps.exclude` keeps the package unbundled. It resolves
- *   `sqlite3.wasm` relative to its own module URL, and pre-bundling rewrites
- *   that URL into `.vite/deps/`, where no `.wasm` was copied. The fetch then
- *   falls through to the SPA fallback and the module aborts on a `text/html`
- *   response.
- * - `worker.format` makes the worker chunk ES output, which it has to be to
- *   carry that package at all.
- * - `build.target` admits the syntax that chunk uses, top-level `await`
- *   included.
- *
- * An app that needs more exclusions adds them; `mergeConfig` concatenates the
- * arrays rather than replacing them.
+ * An app that needs more settings adds them with `mergeConfig`, which
+ * concatenates arrays rather than replacing them.
  */
 export function workspaceAppViteConfig(app: { port: number }): UserConfig {
 	return {
@@ -42,21 +31,50 @@ export function workspaceAppViteConfig(app: { port: number }): UserConfig {
 		// vs `+<hashB>`), which makes identical `Plugin` types compare unequal
 		// across app configs. Keep the cast here, the one place every workspace
 		// app's plugins come from, instead of leaking the workaround into each app.
-		plugins: [sveltekit(), tailwindcss()] as UserConfig['plugins'],
+		// SAFETY: both values are Vite plugins; only their peer-variant types differ.
+		plugins: [
+			sveltekit(),
+			tailwindcss(),
+			reloadWhenAppChanges(),
+		] as UserConfig['plugins'],
 		// No `resolve.dedupe` here. It named `yjs` for a long time, which no
 		// workspace member depends on since the store moved to `@y/y`, so it was
-		// inert. Retargeting it at `@y/y` is worse than inert: `dedupe` resolves
-		// from the app root, and an app that reaches the CRDT only through
-		// `@epicenter/app/store` does not declare it, so Rollup fails the production
-		// build with an unresolved import. One install is what actually keeps
-		// CRDT identity, and the lockfile is where that is enforced.
+		// inert. One install is what keeps a package's identity, and the lockfile
+		// is where that is enforced.
 		server: {
 			port: app.port,
 			strictPort: true,
 			fs: { allow: [searchForWorkspaceRoot(process.cwd())] },
 		},
-		optimizeDeps: { exclude: ['@sqlite.org/sqlite-wasm'] },
-		worker: { format: 'es' },
-		build: { target: 'esnext' },
+	};
+}
+
+/** Every app's capabilities, opened once for the page's life (ADR-0766). */
+const APP_MODULE = '/src/lib/app.ts';
+
+/**
+ * Editing what an app is made of reloads the page (ADR-0768): a change that
+ * reaches `src/lib/app.ts`, the file itself or anything it imports, is a new
+ * world for the page, and a reload frees the old one whole (its folder, its
+ * Worker, every listener) with nothing for the app to close. An edit that
+ * reaches only components still updates in place.
+ */
+function reloadWhenAppChanges(): Plugin {
+	return {
+		name: 'epicenter:reload-when-app-changes',
+		apply: 'serve',
+		hotUpdate({ modules }) {
+			if (this.environment.name !== 'client') return;
+			const seen = new Set<EnvironmentModuleNode>();
+			const reachesApp = (node: EnvironmentModuleNode): boolean => {
+				if (seen.has(node)) return false;
+				seen.add(node);
+				if (node.file?.endsWith(APP_MODULE)) return true;
+				return [...node.importers].some(reachesApp);
+			};
+			if (!modules.some(reachesApp)) return;
+			this.environment.hot.send({ type: 'full-reload' });
+			return [];
+		},
 	};
 }

@@ -1,29 +1,28 @@
-// A client-only SPA. The desktop app serves `build/` from its folder host and
-// the same build runs in a browser tab over a logical folder. The Epicenter
-// build writes into that host's packaged asset tree under its route.
-// See: https://v2.tauri.app/start/frontend/sveltekit/ for more info
 import staticAdapter from '@sveltejs/adapter-static';
 import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 
-const isEpicenterHost = process.env.EPICENTER_HOST === '1';
+/**
+ * Where a build writes the static app, when not `build/`: the end-to-end
+ * stack builds against a test server into a scratch directory.
+ * (`.svelte-kit/`, which `vite preview` serves, stays here: its server
+ * bundle resolves packages from this folder.)
+ */
+const out = process.env.WHISPERING_BUILD_DIR;
 
 /** @type {import('@sveltejs/kit').Config} */
 const config = {
 	kit: {
 		adapter: staticAdapter({
-			...(isEpicenterHost && {
-				pages: '../epicenter/dist/whispering',
-				assets: '../epicenter/dist/whispering',
-			}),
-			fallback: 'index.html', // SPA fallback for dynamic routes
+			fallback: 'index.html',
+			...(out && { pages: out, assets: out }),
 		}),
-		...(isEpicenterHost && { paths: { base: '/apps/whispering' } }),
 		// No `csp` block: adapter-static only emits an enforcing meta tag. The
-		// desktop folder host sends the policy as a header (native/host.ts), and
-		// the web deploy uses `static/_headers`.
+		// web deploy sends the policy as a header from `static/_headers`.
 	},
-
 	preprocess: vitePreprocess(),
+	// `@epicenter/svelte`'s Recovery, which `<WhenOpen>` shows, reads
+	// `$effect.pending()`, which async Svelte provides.
+	compilerOptions: { experimental: { async: true } },
 };
 
 export default config;

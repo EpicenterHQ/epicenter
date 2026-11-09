@@ -1,0 +1,129 @@
+/**
+ * Whispering's contract: what its files are, as plain data any program can
+ * check (`epicenter check <dir> --contract <url>/contract.json`).
+ *
+ * - A recording is a note at `recordings/{id}.md` (its title, when it was
+ *   recorded, and how long it is; notes in the body) beside its audio at `recordings/{id}.{ext}`: `m4a` or `webm` from a
+ *   browser, `webm` from the desktop (`wav` when it could not encode one).
+ * - A transcription is a note naming its recording, the transcript as body.
+ * - A transformation is a reusable title and instructions (the body), with an
+ *   optional model of its own (`null` uses the text model chosen in Settings).
+ * - Applying one writes a result: on a transcript in `transformation_runs/`,
+ *   on pasted text in `text_runs/`. Each keeps the prompt and input it sent,
+ *   with the answer as its body, so it reads the same after anything it came
+ *   from changes or goes.
+ *
+ * A file's id is its identity: renaming a recording changes its title, never
+ * its path, so a result's `recordingId` never breaks.
+ *
+ * - `shortcuts.md` is the one settings note: `toggleRecording`, the desktop
+ *   app's global shortcut in the global-shortcut plugin's spelling
+ *   (`CommandOrControl+Shift+;`). It travels with the files, and a
+ *   computer may override it in its own `shortcuts.md`
+ *   (`platform/shortcut.tauri.svelte.ts`); the web app has no global
+ *   shortcut and leaves it.
+ *
+ * The models it uses, its connections (where requests go, and their keys)
+ * and the chosen microphone belong to a device, so they stay out of its
+ * files.
+ *
+ * The app's site names its repository `~/whispering` for a
+ * folder Epicenter syncs, such as the desktop app's, built later; the web
+ * build keeps its files in the browser and has none. It is published,
+ * unchanged, as `static/contract.json` (`bun run contract` writes it).
+ */
+import { defineContract } from '@epicenter/definition/contract';
+
+/** An instant in UTC, to the millisecond, as `Date.prototype.toISOString` writes it. */
+const instant = {
+	type: 'string',
+	format: 'date-time',
+	pattern: '^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$',
+} as const;
+
+export const whispering = defineContract({
+	description:
+		'Voice notes: a note per recording beside its audio, its transcripts, reusable recipes, the results of applying them, and the desktop shortcut.',
+	collections: {
+		recordings: {
+			path: 'recordings/{id}.md',
+			fields: {
+				title: { type: 'string' },
+				recordedAt: instant,
+				durationMs: { type: 'number', minimum: 0 },
+			},
+			required: ['title', 'recordedAt'],
+		},
+		audio: { path: 'recordings/{id}.{ext}' },
+		transcriptions: {
+			path: 'transcriptions/{id}.md',
+			fields: {
+				recordingId: { type: 'string' },
+				createdAt: instant,
+				model: { type: 'string' },
+				endpoint: { type: 'string' },
+			},
+			required: ['recordingId', 'createdAt', 'model', 'endpoint'],
+		},
+		transformations: {
+			path: 'transformations/{id}.md',
+			fields: {
+				title: { type: 'string' },
+				model: { anyOf: [{ type: 'string' }, { type: 'null' }] },
+			},
+			required: ['title', 'model'],
+		},
+		transformation_runs: {
+			path: 'transformation_runs/{id}.md',
+			fields: {
+				recordingId: { type: 'string' },
+				transcriptionId: { type: 'string' },
+				transformationId: { type: 'string' },
+				transformationTitle: { type: 'string' },
+				createdAt: instant,
+				model: { type: 'string' },
+				endpoint: { type: 'string' },
+				prompt: { type: 'string' },
+				input: { type: 'string' },
+			},
+			required: [
+				'recordingId',
+				'transcriptionId',
+				'transformationId',
+				'transformationTitle',
+				'createdAt',
+				'model',
+				'endpoint',
+				'prompt',
+				'input',
+			],
+		},
+		text_runs: {
+			path: 'text_runs/{id}.md',
+			fields: {
+				transformationId: { type: 'string' },
+				transformationTitle: { type: 'string' },
+				createdAt: instant,
+				model: { type: 'string' },
+				endpoint: { type: 'string' },
+				prompt: { type: 'string' },
+				input: { type: 'string' },
+			},
+			required: [
+				'transformationId',
+				'transformationTitle',
+				'createdAt',
+				'model',
+				'endpoint',
+				'prompt',
+				'input',
+			],
+		},
+		shortcuts: {
+			path: 'shortcuts.md',
+			fields: { toggleRecording: { type: 'string' } },
+		},
+	},
+});
+
+export type Whispering = typeof whispering;

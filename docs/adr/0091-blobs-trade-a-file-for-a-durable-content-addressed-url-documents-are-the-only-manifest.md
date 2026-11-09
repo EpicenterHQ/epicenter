@@ -6,7 +6,7 @@
 
 > **2026-07-02 amendment:** The durable read URL is now `<origin>/api/blobs/<sha256>`. Auth resolves the principal, so the URL no longer echoes the owner or principal id.
 
-- **Amended by:** [ADR-0426](0426-copies-create-independent-blobs-at-their-destination.md) at blob identity and physical/HTTP addresses. Local blobs use the fixed `device/no-account` path; copies return fresh BlobIds within separately authorized principal/app namespaces. Historical hash-based and row-owned addresses below do not define this target.
+- **Amended by:** [ADR-0426](0426-copies-create-independent-blobs-at-their-destination.md) at blob identity and physical/HTTP addresses. Local blobs used the fixed `device/no-account` path, which nothing builds now because a blob is a file in its folder ([ADR-0544](0544-a-blob-is-a-file-in-its-folder-and-git-decides-how-it-travels.md)); copies return fresh BlobIds within separately authorized principal/app namespaces. Historical hash-based and row-owned addresses below do not define this target.
 
 ## Context
 

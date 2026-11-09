@@ -1,69 +1,77 @@
 # Epicenter API (Hosted Personal Cloud)
 
-Epicenter Cloud Worker. Handles authentication, real-time sync, AI inference, and billing for the hosted personal cloud product. Cloud composes `@epicenter/server` by resolving Better Auth users as principals.
+Epicenter Cloud Worker. Handles authentication, folders, AI inference, and billing for the hosted personal cloud product. Cloud composes `@epicenter/server` by resolving Better Auth users as principals.
 
-This folder is a single Cloudflare Worker deployment: `worker/` (Hono code) and `ui/` (SvelteKit dashboard SPA) ship together. The self-hosted single-partition instance lives in the sibling `apps/self-host`; it resolves one operator bearer to the literal `instance` principal, has no billing surface, and (because it composes no Better Auth) no Postgres either (ADR-0075, ADR-0076).
+This folder is a single Cloudflare Worker deployment: `worker/` (Hono code) and `ui/` (SvelteKit dashboard SPA) ship together. The same app also runs on Bun with Postgres (`server.ts`), which is how you self-host it.
 
-Part of the [Epicenter](https://github.com/EpicenterHQ/epicenter) monorepo. AGPL-3.0 licensed. If you host a modified version, you share your changes. See `apps/self-host` for the self-hosted reference and the trust model below.
+Part of the [Epicenter](https://github.com/EpicenterHQ/epicenter) monorepo. AGPL-3.0 licensed. If you host a modified version, you share your changes. See [Stack and priorities](#stack-and-priorities) for self-hosting and the trust model below.
 
-Runs on Cloudflare Workers with Durable Objects. Store sync is one WebSocket
-route, `/api/store/v1/sync`, mounted by `mountStoreSyncApp`
-(`packages/server/src/store-sync/`). It resolves one Durable Object per
-(principal, application id, generation), named
-`principals/<principalId>/data/<dataId>/generations/<generation>`, holding an
-opaque positional log (ADR-0292, ADR-0298).
+Runs on Cloudflare Workers. This Worker is Epicenter's hosted server for
+folders (ADR-0811): it mounts `mountFolders` from `@epicenter/server`,
+where each folder's ledger, the log of its changes, is in Postgres at
+`api.epicenter.so/folders/<id>`, with its larger bytes in R2 (ADR-0824). The
+server orders, remembers, and admits; nothing is edited on it (ADR-0835). See
+[Folders](#folders).
 
-The principal is stamped from the resolved bearer and the Durable Object is
-addressed by it, so a client supplies a workspace id and a cursor and nothing
-else. There is no catalog, grant table, or authorization lookup, and no value a
-client can put in the query that reaches another partition: the isolation is
-structural rather than checked. **Being signed in on two devices is the whole of
-the sharing model.** Both devices resolve to one principal, address one
-authority, and converge; nothing is paired, invited, or approved.
-
-The authority reads nothing it stores (ADR-0298). It holds opaque bytes, hands
-them back in order, and imports neither Yjs nor a workspace.
+The Yjs store sync this Worker used to serve is removed (ADR-0534), and so is
+the GitHub connector that relayed a browser's Git to GitHub. Their Durable
+Object classes (`StoreAuthority`, `GenerationsLedger`, `GitHubConnection`) are
+not migrated away: the Worker carries no migration history, and the next
+deploy starts by deleting the existing `api` Worker, which removes every object
+those classes stored, then deploys this configuration as a new Worker.
 
 ## Why a hub exists
 
 Local-first doesn't mean no server. It means your data lives on your machine and you aren't dependent on a cloud service to function. But some operations genuinely need a single authority: user identity, API key storage, AI proxying. Trying to make every device a peer for these operations led to three failed attempts at distributed key management before we split into hub (central authority) and local (device-side execution).
 
-The hub handles auth, sync relay, and AI. Local servers handle filesystem access, offline editing, and low-latency operations. Neither tries to do the other's job. See [Why Epicenter Split Into Hub and Local Servers](/docs/articles/why-epicenter-split-into-hub-and-local-servers.md) for the full story.
+The hub is a ledger: it signs people in, orders each folder's changes and keeps every version, admits the people a folder is shared with, and proxies AI. The work happens on devices, in plain files, which Epicenter's programs sync with the hub ([vision](../../docs/vision.md), [ADR-0835](../../docs/adr/0835-records-from-0802-to-0834-agree-on-files-a-ledger-and-git-at-the-edges.md)).
 
 ## Stack and priorities
 
 Hono handles HTTP routing. We originally wanted Elysia: it's faster, the API is more ergonomic, and it runs natively on Bun. But Elysia depends on Bun-specific APIs that don't exist in the Cloudflare Workers runtime, and Workers compatibility was non-negotiable. Hono runs on Cloudflare Workers, Node.js, Deno, Bun, and AWS Lambda, so when the server moved to a second runtime (ADR-0066), the route layer came along for free.
 
-Cloudflare Durable Objects are the hosted deployment target. Three things make them a natural fit for a store authority:
+Cloudflare Workers are the hosted deployment target. Routes, auth, AI, folders, and validation are plain runtime-portable Hono; the Worker holds no Durable Objects, and folders' larger bytes live in R2.
 
-- **Single-threaded per object.** Each authority runs in its own isolate. No mutex, no race conditions on the log. The runtime guarantees it.
-- **Built-in SQLite.** The update log lives inside the Durable Object's storage. No external database for sync state, no connection pooling, no cold-start latency from network hops.
-- **WebSocket Hibernation.** Idle connections don't consume compute. A user can leave a tab open for hours and the object sleeps until the next message arrives. Costs stay proportional to actual sync traffic, not connection count. A woken object rebuilds each socket's position from the attachment the socket carries.
+Self-hosting is this app's Bun entry, `apps/api/server.ts`, running against
+Postgres, with no Cloudflare account. It builds the same `createServerApp` and the same Better Auth
+`createAuth` as the Worker, so a self-hosted server has the same sign-in,
+sessions, and routes; set `API_PUBLIC_ORIGIN` to its public origin and see
+`.env.example` for the rest. It serves the sign-in, consent, and device
+pages from the built UI, so build it first with `bun run --cwd apps/api/ui
+build` (or point `API_UI_DIR` at a build). The merge gate boots this entry
+against Postgres on every pull request (`oauth-server.postgres.test.ts`). ADR-0549 records how auth will work
+there. The surfaces that need Worker-only bindings are absent on Bun: the dashboard shell comes from `ASSETS`, account
+deletion is a hosted resource sweep, and billing needs the Autumn secret and the
+after-response drain. Folders are mounted there too, their larger bytes on
+disk under `BLOB_STORE_ROOT`. `runtime-profile.test.ts` is where that
+divergence is declared and checked against both entries.
 
-`StoreAuthority` (`packages/server/src/store-sync/authority.ts`) is a thin
-adapter and nothing more. Every rule about who has been sent what lives in
-`@epicenter/app/sync`, so what is deployed here and what the transport's tests
-drive are the same object rather than two that agree today. Routes, auth, AI,
-and validation are plain runtime-portable Hono.
-
-`apps/self-host` is the sibling deployable: the single-partition instance, a Bun
-binary or a Cloudflare Worker that composes no Better Auth and no Postgres
-(ADR-0075, ADR-0076), so the whole box is one bearer token. It is
-community-supported, not Epicenter-operated, and it does not mount store sync
-today. `apps/api/server.ts` here is this hosted cloud on Bun (local dev and the
-runtime-parity smoke), booting the same composition against plain Postgres and
-any S3 endpoint with no Cloudflare account. The surfaces that need Worker-only
-bindings are absent there: store sync and attach ride Durable Objects, the
-dashboard shell comes from `ASSETS`, and billing needs the Autumn secret and the
-after-response drain. `runtime-profile.test.ts` is where that divergence is
-declared and checked against both entries.
+Billing is hosted-only and stays in `apps/api/worker/billing/`; do not extract
+it into a shared package or the self-hosted deployment.
 
 Better Auth owns identity and sessions. Hosted Epicenter configures Google,
 GitHub, Microsoft, and Apple social sign-in, with optional passkeys and no
-email/password flow. Browser apps, the dashboard, and the Bun desktop host
-receive independent signed sessions through a PKCE/state handoff. Resources
-validate those session bearers against live session rows. Epicenter no longer
-issues OAuth access/refresh grants to its applications.
+email/password flow. The session cookie is the authorization server's own:
+sign-in, consent, device approval, and the dashboard's account management
+(billing, sign-in methods, account deletion) on this origin.
+
+This Worker is the OAuth 2.1 authorization server of
+[ADR-0549](../../docs/adr/0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md),
+and every resource it serves accepts only its opaque access tokens: `/v1/*`
+takes the API audience and `ai`, a folder's routes the folders audience with
+`folders:read` or `folders:write`, the caller's role in the folder, and
+either `folders:all` or the folder's attachment to the app, and
+`/api/folders` the folders audience with `folders:read` (listing) or
+`folders:write` (sharing, accepting, attaching). Epicenter hosts no MCP server
+([ADR-0578](../../docs/adr/0578-epicenter-hosts-no-mcp-server.md)). A
+folder's bytes over 16 KiB are in R2, by their SHA-256 (ADR-0824). An app reads who signed in from Better Auth's
+`/auth/oauth2/userinfo`, which needs `openid`, and answers the email only
+with `email`. Browser
+apps get a token by authorization code with PKCE as their own client. The
+Epicenter app signs in as `so.epicenter` through its shell, and the CLI as
+`so.epicenter.cli` by device grant; both carry `folders:all`. A standalone
+desktop app that signs in holds only `ai` (ADR-0822). See
+[Authorization server](#authorization-server).
 
 ## Trust model
 
@@ -79,12 +87,9 @@ That confidentiality covers content, not the wire, and it does not erase three
 things a self-hoster should weigh. The operator still sees the metadata around
 the bytes (principal id, application id, message timing, size, and IP);
 that operator is Epicenter when hosted and you when self-hosted, and even a
-future blind server keeps seeing this envelope. Blobs land wherever
-`BLOBS_S3_ENDPOINT` points, so renting Epicenter's blob service puts your media
-in Epicenter's R2 even on a self-hosted instance; point the store at your own S3
-to keep media local. And hosted sign-in leans on social OAuth (email/password is
-disabled in `base-config.ts`); a self-hosted instance uses one operator-supplied
-bearer instead and registers no OAuth app at all (ADR-0071, ADR-0075). The full
+future blind server keeps seeing this envelope. And hosted sign-in leans on social OAuth (email/password is
+disabled in `base-config.ts`); a self-hosted server registers its own OAuth apps
+for the providers it offers. The full
 ledger, with the reasoning, is in [docs/trust-model.md](/docs/trust-model.md).
 
 ### Why not zero-knowledge?
@@ -106,20 +111,23 @@ For the full argument:
 ```
 Cloudflare Workers
 ├── Hono app (worker/index.ts)
-│   ├── /auth/*                Better Auth (social login, sessions, handoff, passkeys)
+│   ├── /auth/*                Better Auth (social login, sessions, passkeys,
+│   │                          OAuth 2.1 authorize, token, revoke, device grant)
 │   ├── /sign-in               hosted browser sign-in
-│   ├── /session/callback      dashboard handoff completion
-│   ├── /api/session           the principal projection
+│   ├── /consent               OAuth consent
+│   ├── /device                device code entry; approval is the consent page
+│   ├── /.well-known/*         authorization server and protected resource metadata
+│   ├── /api/folders           the caller's folders and invitations; invite, accept, attach
+│   ├── /folders               the folders audience: make or join a folder (POST), every folder's head (GET)
+│   ├── /folders/:id/*         a folder's log: changes read and appended, files, history, marks, bytes
 │   ├── /v1/*                  OpenAI-compatible chat and STT gateways
-│   ├── /api/blobs/personal/:principalId/:visibility owner-pinned hosted blobs (S3-compatible backend)
-│   ├── /api/billing/*         Autumn (hosted-only, worker/billing/)
-│   └── /api/store/v1/sync     store sync upgrade (mountStoreSyncApp)
+│   └── /api/billing/*         Autumn (hosted-only, worker/billing/)
 │
-├── StoreAuthority (Durable Object, SQLite-backed)
-│   └── One opaque log per (principal, application id, generation)
+├── Hyperdrive (HYPERDRIVE): Postgres, which holds accounts and every folder's log
+└── R2 (BLOBS): folders' bytes over 16 KiB, at folders/<id>/blobs/<sha256>
 ```
 
-API keys for AI providers are environment secrets (`wrangler secret put`). They never leave the hub. The client sends a session token, the hub validates it and swaps in the real key before forwarding to the provider.
+API keys for AI providers come from Infisical's production `/api` secret sync to this Worker. Clients never receive provider keys. The client sends an OAuth access token, the hub validates it and swaps in the real key before forwarding to the provider.
 
 ## Development
 
@@ -131,6 +139,13 @@ Prerequisites: Bun, local PostgreSQL, and Infisical CLI authentication
 environment into Wrangler via `process.env`, so Postgres alone is not enough.
 This package owns the hosted API `.infisical.json`; account-wide operator
 commands live in `ops`. The monorepo root intentionally has no Infisical config.
+
+`bun dev:api` runs the Worker locally for sign-in, sessions, the dashboard,
+AI requests, and billing integration. Wrangler serves local assets and connects
+directly to local Postgres. Infisical's `dev /api` supplies provider credentials;
+OAuth, AI, and billing still call their external services. For billing tests,
+use the Autumn sandbox described in [Local account integration](./ACCOUNT-INTEGRATION.md).
+Folders work locally too: Wrangler simulates the R2 blob bucket.
 
 The launcher rebuilds the hosted UI at startup. After editing that UI while
 Wrangler is running, restart the root dev command or run
@@ -158,8 +173,19 @@ bun run db:push:local
 Production uses Supabase Postgres in Frankfurt (`eu-central-1`). Better Auth
 continues to own Epicenter sign-in; Supabase supplies the database. The runtime
 Hyperdrive connection uses the `epicenter_api` role with read and write access
-to Epicenter's six tables. Query caching is disabled so session and permission
-checks read current data.
+to Epicenter's tables. Migration `0002` adds the OAuth tables and `0009` the
+folder tables, so that role needs `SELECT`, `INSERT`, `UPDATE`, and `DELETE`
+on them before a deploy that serves them: the `folder_member_left` trigger
+from `0009` deletes and updates folder rows as the role that removes a
+member.
+
+Query caching must stay disabled on that Hyperdrive configuration. This Worker
+is the OAuth authorization server, and every resource checks access tokens in
+this database on each request; Hyperdrive's default cache (60 seconds, plus 15
+of stale reads) would keep a revoked token or a removed member working. A new
+configuration is created with `--caching-disabled`, and an existing one is
+corrected with `wrangler hyperdrive update <id> --caching-disabled`, which is
+a production operation.
 
 The production `/ops` `DATABASE_URL` uses Supabase's session pooler for IPv4
 admin access. `drizzle.config.ts` loads the public `supabase-ca.crt` certificate
@@ -181,44 +207,115 @@ There are three layers, each with a different URL source:
 
 ```bash
 bun dev              # Local dev server (uses local Postgres)
-bun run smoke:local  # Runtime-parity smoke with dev auth and fake local env
 bun deploy           # Deploy to Cloudflare Workers
 bun run typecheck    # Type check
-bun test             # Run tests
+bun run test         # Run tests, each file isolated
 ```
 
-`smoke:local` is the no-Infisical verification path. It starts `server.dev.ts`,
-runs `apps/api/scripts/smoke.ts`, keeps its server log and data directory under a
-temporary directory, and skips the blob leg unless `BLOBS_S3_*` points at a
-local S3-compatible store.
+`bun run test` is also the no-Infisical verification path: with initdb and
+pg_ctl on `PATH`, `oauth-server.postgres.test.ts` boots both entries against
+disposable Postgres clusters and drives them with real access tokens.
 
-### Local blob storage
+### Authorization server
 
-Blob storage is optional: omit `BLOBS_S3_*` and the blob routes answer 503
-while everything else runs. To exercise blobs locally, run
-a real S3-compatible store alongside the server. `compose.yaml` starts
-[versitygw](https://github.com/versity/versitygw) (an S3 API over a plain folder)
-and creates the `epicenter-blobs` bucket:
+`@epicenter/server` composes Better Auth's OAuth provider (ADR-0549) on the
+`/auth/*` routes only; see `packages/server/README.md` for the policy. This app
+names what is deployment-specific:
 
-```bash
-docker compose up -d
+- **Audiences**, from `resolveOAuthAudiences` in `@epicenter/definition/site`,
+  which the `epicenter` CLI reads too. Every deployment serves both from
+  its own origin: `<origin>` and `<origin>/folders` (ADR-0326, ADR-0828),
+  hosted `https://api.epicenter.so` and `https://api.epicenter.so/folders`. No client registers itself or identifies itself
+  by a metadata document: every client is one of these first-party rows.
+- **First-party clients**, in `worker/oauth-registrations.ts`. Each browser build is its app id, a public PKCE
+  client with its exact `/auth/callback`, consent skipped, reaching the
+  folders attached to it (ADR-0811). It may
+  ask for `offline_access` only to mint one access token per audience in one
+  sign-in, keeps no refresh token, and its grant stays bound to the session
+  (`offlineDetach` skips web clients). The
+  desktop app is `so.epicenter`, with a loopback redirect on any port,
+  `offline_access`, and `folders:all`, which reaches every folder its person
+  holds. Each standalone desktop app that signs in is its own
+  native client, `so.epicenter.<app>.native` (`NATIVE_APPS`: Whispering and
+  Vocab), with a loopback redirect on any port, PKCE, `offline_access`, and
+  the API audience only; its refresh token stays in that computer's
+  keychain. The CLI is `so.epicenter.cli`, with the device grant only,
+  `folders:all`, and `openid`, so `epicenter auth login` can read who
+  approved it from userinfo.
+
+Both entries write the registrations for the origin they serve with
+`registerFirstPartyClients`, so no migration seeds a client: the Bun entry at
+boot, and the Worker, local `wrangler dev` included, once per isolate before
+its first `/auth/*` request. The write is idempotent without a transaction, so
+isolates that start together converge; `oauth-server.postgres.test.ts` runs
+concurrent writers against a fresh database.
+
+Better Auth runs unpatched, at an exact 1.8 beta in the root catalog. The
+device page sends a code to `/auth/oauth2/authorize?user_code=<code>`, and the
+consent page approves it. Migration
+`0005_better_auth_1_8` adds the 1.8 columns. `api` and `folders` allow every
+first-party scope, so a refresh never narrows the grant (ADR-0565).
+
+`oauth-server.postgres.test.ts` runs the spike's checks (refresh family,
+consent, silent re-authorization, and the end-to-end flows) against both
+entries as separate processes on a disposable Postgres cluster: `bun
+server.ts`, and the Worker under `wrangler dev --local` with Hyperdrive's
+local connection string. `bun run test` runs each test file isolated
+(`--isolate`), because `runtime-profile.test.ts` replaces `pg` with a probe.
+
+### Folders
+
+`mountFolders` serves every folder ([ADR-0811](../../docs/adr/0811-folders-are-shared-directly-and-an-app-reaches-the-folders-attached-to-it.md),
+[ADR-0824](../../docs/adr/0824-a-folders-history-is-a-log-of-versions-and-git-is-how-it-leaves.md)):
+its ledger at `<folders>/<id>` (`<api origin>/folders/<id>`), and `/api/folders` for listing,
+sharing, accepting, and attaching it to an app. A folder exists from the
+request that makes it. The route authorizes each request from the access
+token, the person's role in the folder, and the token's reach;
+`packages/server`'s README has the routes, the log's tables, and the
+refusals. Tables `folder`, `folder_member`, `folder_invitation`, and
+`folder_app` (migrations `0009_folders` and `0010_invitations`) hold
+folders, their members, the emails invited to them, and the apps they are
+attached to; `change`, `change_file`, `file`, `blob`, and `mark`
+(`0011_history_log`) hold each folder's history. A share is an invitation
+to an email that answers the same whether or not anyone signs in with it,
+and waits for the account whose verified email it names, at sign-up or
+later (ADR-0820).
+
+Each folder's log is in Postgres, through Hyperdrive on the Worker:
+appending a change is one statement, and so is every read. Bytes over 16 KiB live in R2
+(`BLOBS`, the bucket `epicenter-lfs`, at `folders/<id>/blobs/<sha256>`),
+read and written over the binding alone, with no key pair and no presigned
+URL; Wrangler simulates the bucket in `bun dev:api`. The Bun entry keeps
+them on disk under `BLOB_STORE_ROOT`; without it, a self-hosted server
+keeps bytes up to 16 KiB in Postgres and answers 503 to an upload of more:
+
+```sh
+# with DATABASE_URL and the variables in .env.example set
+BLOB_STORE_ROOT=/tmp/epicenter/blobs bun run dev:bun
 ```
 
-Then set the `BLOBS_S3_*` values from `.env.example` (endpoint
-`http://localhost:7070`). Your blobs land as ordinary files under
-`.data/blobs/epicenter-blobs/`.
+The deployment schedules `sweepPendingBlobs` (uploads no change named
+within a day) and, when an operator purges history, `purgeBlobs`, which
+keeps every row and by default the versions of the last 90 days. Folders
+are unmetered.
 
-Clients publish and read through the API authority. Its server-side S3 client
-signs exact-key PUT, GET, HEAD, and DELETE requests; object-store URLs and
-credentials never reach application rows or browsers. The API limits each
-publication to 25 MiB. Browser CORS applies to the API origin, not the bucket.
+**Git storage is gone, as a clean break.** Folders were Git repositories
+in Cloudflare Artifacts (hosted) or bare repositories under
+`GIT_STORE_ROOT` (self-hosted), with attachments in Git LFS. Nothing
+carries them over: hosted Git answered 503 until an R2 key pair that was
+never set, so no hosted folder held history, and a self-hosted server's
+repositories are dropped with the Artifacts binding, the R2 presigner, and
+the `git` binary the Bun entry needed. To keep a self-hosted folder's
+history, clone it before upgrading, then bring it in by hand:
 
-The server runs the same portable S3 client against versitygw, Garage, AWS S3, or
-R2; the store is endpoint-as-config, so swapping it is a config change, never a
-code change. There is no filesystem blob backend in the codebase by design: the
-self-host story is "run the server next to an S3-compatible service," exactly as
-the hosted Worker runs next to R2. `apps/api/scripts/smoke.ts` exercises the full
-blob round-trip against whichever store the server points at.
+```sh
+git clone <old origin>/git/folders/<id>.git notes && (cd notes && git lfs pull)
+epicenter import --git notes --replace-original
+```
+
+Its history then leaves as Git with `epicenter export --git <dir>`. Every
+folder as a Git remote, where a clone reads history and a push lands as a
+change, is decided and not built (ADR-0834).
 
 ### Database commands
 
@@ -231,8 +328,12 @@ bun run db:studio:local  # Open Drizzle Studio (local)
 bun run db:studio:remote # Open Drizzle Studio (remote, via Infisical)
 ```
 
-See `wrangler.jsonc` for Durable Object bindings and Hyperdrive (Postgres connection pool) configuration.
+See `wrangler.jsonc` for the R2 blob bucket, why the Worker has no Durable Objects, and Hyperdrive (Postgres connection pool) configuration.
+
+`auth:generate:remote` writes every Better Auth model into
+`packages/server/src/db/schema/auth.ts`; move the OAuth provider's models into
+`oauth.ts` beside it before generating a migration.
 
 ## License
 
-[AGPL-3.0](../../licenses/LICENSE-AGPL-3.0). The apps, the shared server library, and internal glue are AGPL so that anyone hosting a modified version shares their changes. The embeddable toolkit (`data`, `workspace`, `field`, `sqlite`, `sync`, `ui`, `identity`, `chat`, `agent`, `agent-protocol`) is MIT. This follows the same pattern as Yjs (MIT core, AGPL y-redis), Liveblocks (Apache clients, AGPL server), and Bitwarden (GPL clients, AGPL server).
+[AGPL-3.0](../../licenses/LICENSE-AGPL-3.0). The apps, the shared server library, and internal glue are AGPL so that anyone hosting a modified version shares their changes. Every package is AGPL; see `docs/licensing/licensing-strategy.md`.

@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-07-17
+<!-- doc-path-check: ignore-next-line -->
 - **Superseded by:** [ADR-0212](0212-a-row-is-a-yjs-type-and-its-prose-is-a-lazily-loaded-document.md) (`Proposed`). Withdrawn: the three-way bootstrap, history-gap, and lineage-mismatch recovery taxonomy, which is unnecessary as separate mechanisms because merge is idempotent. The lineage question itself survives in a different form, as the authority's store lifetime. Note that `captureRecovery`, `startFresh`, `recovery-required`, and `history-expired` have zero references in `packages/` or `apps/`, so this record is unbuilt in source despite `specs/20260717T212450-two-plane-row-document-runtime.md:381` claiming otherwise.
 - **Supersedes:** [ADR-0136](0136-replica-baseline-acquisition-uses-a-disposable-anchored-live-scan.md)
 

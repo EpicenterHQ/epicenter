@@ -34,6 +34,7 @@ Three measurements settle it. All are re-runnable: `bun run evidence/bench/valid
 - The fold stays a hydrating operation, so an authority that never woke a document still must wake one to fold it. That is not a cost to remove; it is where garbage collection happens.
 - The 128 MB figure's ambiguity in Cloudflare's documentation, between per-isolate-with-co-location and per-object allocation, does not need resolving. Both readings land per-document: a private budget makes it stronger, a shared one makes confinement the point.
 - Wire chunking is probably deletable and should be measured before it is ported. `frames.ts` chunks at `DO_SQLITE_VALUE_CAP`, which is the 2 MB *storage* value cap; the WebSocket limit is 32 MiB. Storage chunking survives and moves into the authority when `frames.ts` is deleted.
+<!-- doc-path-check: ignore-next-line -->
 - A live defect, independent of this record and worth fixing on its own: `packages/server/src/store-sync/authority.ts` handles `webSocketClose` without calling `ws.close()`. At this compatibility date the auto-reply flag is off, so peers observe a 1006 abnormal closure instead of a clean handshake.
 
 ## Considered alternatives

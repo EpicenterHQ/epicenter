@@ -1,29 +1,23 @@
 "$schema" = "schemas/schema.json"
 
-# Granting this to a window lets it call the plugin. It does not choose a
-# folder: a window reaches only the scopes the shell registered for its label.
+# Granting this to a window lets it call the plugin. It names no folder: a
+# page reaches the roots the shell named at startup, by name.
 [default]
-description = "Attach to the folders the shell registered for this window, then read, publish, and record history through them."
+description = "Open and reveal the roots the shell named, show their paths, read and change their files through the shell, read an open root's identity, and read the record Epicenter keeps for the Data root."
 permissions = [
-  "allow-attach",
-  "allow-detach",
-  "allow-list",
-  "allow-children",
-  "allow-read",
-  "allow-read-many",
-  "allow-apply",
-  "allow-mkdir",
-  "allow-rmdir",
-  "allow-status",
-  "allow-commit",
-  "allow-open-request",
-  "allow-withdraw-request",
-  "allow-push",
-  "allow-fetch",
-  "allow-pull-fast-forward",
-  "allow-merge-incoming",
-  "allow-recover-incoming",
-  "allow-paths",
-  "allow-diff",
-  "allow-log",
+  "allow-open-root",
+  "allow-reveal-root",
+  "allow-list-folder",
+  "allow-read-folder-file",
+  "allow-put-folder-file",
+  "allow-root-identity",
+  "allow-data-record",
 ]
+
+# The Epicenter app's own: list the Epicenter folder, whose directories open
+# as `Folder` roots, and make a directory in it. A shell that names no
+# Epicenter folder answers both `NotNamed`.
+[[set]]
+identifier = "epicenter"
+description = "List the Epicenter folder the shell named, and make a folder in it."
+permissions = ["allow-list-epicenter", "allow-make-epicenter-folder"]

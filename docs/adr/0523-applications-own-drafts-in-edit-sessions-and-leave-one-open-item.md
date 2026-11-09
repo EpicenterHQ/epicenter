@@ -1,6 +1,7 @@
 # 0523. Applications own drafts in edit sessions and leave one open item
 
-- **Status:** Accepted
+- **Status:** Superseded
+- **Superseded by:** [ADR-0528](0528-applications-edit-files-through-the-query-cache.md)
 - **Date:** 2026-10-11
 - **Supersedes:** [ADR-0483](0483-honeycrisp-shares-one-canonical-editor-per-open-row.md) (one retained canonical editor per open row)
 - **Relates:** [ADR-0515](0515-snapshot-saves-serialize-writes-and-retain-only-the-latest-pending-text.md) (the autosave each session runs), [ADR-0518](0518-a-row-is-read-through-one-pipeline-and-repaired-as-text.md) (what a session reads and repairs)

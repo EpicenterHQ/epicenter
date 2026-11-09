@@ -1,5 +1,165 @@
+//! Whispering's desktop app (`epicenter-standalone`, decisions 88 to 97): one
+//! window whose page opens Whispering's two roots by name: its AppData root
+//! and its data folder, `~/Epicenter/whispering`, which its bundle identifier
+//! names (`home()` from `@epicenter/folder`). It records into
+//! that folder from the first sample (`tauri-plugin-epicenter-recorder`),
+//! transcribes on this computer
+//! (`tauri-plugin-epicenter-transcription`), through the signed-in Epicenter
+//! account (`epicenter-account`, whose token the page never holds), or at an
+//! endpoint the person connected, whose key the shell adds
+//! (`connection_fetch`), and starts and stops a recording from a
+//! global shortcut, the one the page resolves from `shortcuts.md` and asks
+//! for (`set_shortcut`). Only Epicenter syncs the folder (ADR-0822); the app
+//! never does.
+
+// Keeps a console window from opening beside the app in a Windows release build.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod shortcut;
+
+use epicenter_account::{AccountApp, Relays};
+use epicenter_standalone::StandaloneApp;
+
+include!("command_names.rs");
+
+/// Wide: the recordings and the open one side by side.
+const WHISPERING: StandaloneApp = StandaloneApp {
+    page: "whispering",
+    title: "Whispering",
+    size: (1100.0, 760.0),
+};
+
+/// Signs in only for Epicenter's hosted transcription and AI, and its page
+/// sends nothing else on the account (ADR-0822).
+const ACCOUNT: AccountApp = AccountApp {
+    client_id: "so.epicenter.whispering.native",
+    name: "Whispering",
+    scope: AccountApp::HOSTED_MODELS,
+    audiences: AccountApp::API,
+    relays: Relays::Inference,
+};
+
 fn main() {
-    whispering_lib::run();
+    let context = tauri::generate_context!();
+    let builder = epicenter_standalone::builder(WHISPERING)
+        .plugin(tauri_plugin_epicenter_recorder::init())
+        .plugin(tauri_plugin_epicenter_transcription::init())
+        .plugin(shortcut::listener());
+    let app = epicenter_account::manage(builder, ACCOUNT)
+        .invoke_handler(tauri::generate_handler![
+            epicenter_account::account::account_sign_in,
+            epicenter_account::account::account_sign_out,
+            epicenter_account::account::account_fetch,
+            epicenter_account::account::account_fetch_cancel,
+            epicenter_account::connection::connection_key_set,
+            epicenter_account::connection::connection_key_move,
+            epicenter_account::connection::connection_fetch,
+            epicenter_account::connection::connection_fetch_cancel,
+            shortcut::set_shortcut,
+        ])
+        .build(context)
+        .expect("Whispering could not start");
+    // Exits without C++ static finalizers on macOS, which can race a
+    // resident model (the transcription plugin's README).
+    tauri_plugin_epicenter_transcription::run(app, |_, _| {});
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::{json, Value};
+
+    use super::*;
+
+    fn read(text: &str) -> Value {
+        serde_json::from_str(text).unwrap()
+    }
+
+    /// Whispering is its own native client, `so.epicenter.<app>.native`
+    /// (decision 84), the id `apps/api/worker/oauth-registrations.ts`
+    /// registers. It signs in only for hosted models, on the API audience,
+    /// and its page sends only hosted inference on the account (ADR-0822).
+    #[test]
+    fn whispering_signs_in_as_its_own_native_client_for_hosted_models_only() {
+        assert_eq!(ACCOUNT.client_id, "so.epicenter.whispering.native");
+        assert_eq!(ACCOUNT.name, "Whispering");
+        assert_eq!(ACCOUNT.scope, "openid offline_access profile email ai");
+        assert_eq!(ACCOUNT.audiences, [epicenter_account::Audience::Api]);
+        assert_eq!(ACCOUNT.relays, Relays::Inference);
+    }
+
+    /// The build script declares every account and connection command and
+    /// `set_shortcut`, and nothing else: requests leave through the
+    /// connections' one shell fetch.
+    #[test]
+    fn the_declared_commands_are_the_accounts_connections_and_set_shortcut() {
+        let mut expected = [
+            epicenter_account::COMMANDS,
+            epicenter_account::CONNECTION_COMMANDS,
+        ]
+        .concat();
+        expected.push("set_shortcut");
+        assert_eq!(COMMANDS, expected.as_slice());
+    }
+
+    /// The bundle is `so.epicenter.whispering`, which names its folder,
+    /// `~/Epicenter/whispering`, and it loads the one build the web serves
+    /// (ADR-0781). The development configuration states its environment, so its
+    /// folder is `~/Epicenter Dev/whispering`, and its identifier is the
+    /// production one with `.dev`, so it has its own AppData.
+    #[test]
+    fn whispering_is_its_own_app_with_a_folder_named_for_it() {
+        let config = read(include_str!("../tauri.conf.json"));
+        assert_eq!(config["identifier"], "so.epicenter.whispering");
+        assert_eq!(config["productName"], WHISPERING.title);
+        assert_eq!(config["build"]["frontendDist"], "../build");
+        let dev = read(include_str!("../tauri.dev.conf.json"));
+        assert_eq!(dev["identifier"], "so.epicenter.whispering.dev");
+        // The environment is stated, never read from the identifier.
+        assert_eq!(
+            dev["plugins"]["epicenter-standalone"]["environment"],
+            "development"
+        );
+        assert!(config["plugins"]["epicenter-standalone"].is_null());
+        assert_eq!(dev["productName"], "Whispering Dev");
+        for configuration in [&config, &dev] {
+            assert_eq!(
+                configuration["app"]["security"]["capabilities"],
+                json!(["whispering"])
+            );
+        }
+    }
+
+    /// The window reaches its roots and the record Epicenter keeps for its
+    /// folder through the folder plugin, by name, records, transcribes
+    /// uploaded audio and administers local models, hears the global
+    /// shortcut, and calls exactly the commands the build script declares.
+    /// No capability names a folder.
+    #[test]
+    fn the_capability_grants_plugins_and_the_declared_commands_and_no_folder() {
+        let capability = read(include_str!("../capabilities/whispering.json"));
+        assert_eq!(capability["windows"], json!(["whispering:*"]));
+        assert_eq!(capability["local"], true);
+        let mut expected: Vec<String> = [
+            "epicenter-folder:default",
+            "core:event:allow-listen",
+            "core:event:allow-unlisten",
+            "epicenter-recorder:default",
+            "epicenter-transcription:allow-list-inference-models",
+            "epicenter-transcription:allow-transcribe-audio",
+            "epicenter-transcription:allow-list-models",
+            "epicenter-transcription:allow-download-model",
+            "epicenter-transcription:allow-reveal-model",
+            "epicenter-transcription:allow-remove-model",
+            "epicenter-transcription:allow-get-unload-policy",
+            "epicenter-transcription:allow-set-unload-policy",
+        ]
+        .map(String::from)
+        .to_vec();
+        expected.extend(
+            COMMANDS
+                .iter()
+                .map(|command| format!("allow-{}", command.replace('_', "-"))),
+        );
+        assert_eq!(capability["permissions"], json!(expected));
+    }
 }

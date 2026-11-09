@@ -13,43 +13,27 @@
  * secret fails fast with a descriptive error instead of a downstream surprise.
  *
  * What is deliberately ABSENT, and why:
- * - Object / namespace bindings (`STORE_AUTHORITY`, `HYPERDRIVE`) are not strings
- *   and cannot be validated from
- *   `process.env`. They live on the deployment's own `Cloudflare.Env` and are
- *   read by deployment resolvers at the `apps/*` edge, never by library code
- *   reaching for a binding shape. With the assets route retired into the
- *   portable blob store, the library now names NO Cloudflare object binding,
- *   by value or by type.
+ * - Object bindings (`HYPERDRIVE`, `ARTIFACTS`) are not strings and cannot be
+ *   validated from `process.env`. They live on the deployment's own
+ *   `Cloudflare.Env` and are read by deployment resolvers at the `apps/*`
+ *   edge, never by library code reaching for a binding shape. The library names
+ *   NO Cloudflare object binding, by value or by type.
  * - The relational-auth secrets (`BETTER_AUTH_SECRET` and the OAuth provider
- *   credentials) are NOT here: the relational-auth substrate is a Cloud-only
- *   layer, so its env is `CloudAuthBindings` (beside `createAuth`), supplied
- *   by the cloud at its own edge and passed directly to `createAuth`. Keeping
- *   them out of the portable contract is what makes it truly portable: the
- *   single-partition instance's env never inherits a secret it does not read
- *   (ADR-0076).
+ *   credentials) are NOT here: their env is `CloudAuthBindings` (beside
+ *   `createAuth`), supplied by each apps/api entry and passed directly to
+ *   `createAuth`, so the route library never reads an auth secret.
  * - The deployment's public origin and any other cloud-only secrets (Autumn,
  *   admin IDs) are deployment config, supplied through `resolveOrigin` /
  *   policies.
  *
  * Each deployment's real env is a superset assignable to this: apps/api asserts
- * `satisfies ServerBindings` on its generated `Cloudflare.Env`, apps/self-host
- * declares `extends ServerBindings`, and the Bun host's validated `process.env`
- * is exactly this shape.
+ * `satisfies ServerBindings` on its generated `Cloudflare.Env`, and its Bun
+ * entry validates `process.env` against this schema merged with its own.
  */
 
 import { type } from 'arktype';
 
 export const ServerBindings = type({
-	// Portable S3 client over aws4fetch. Worker uses it for R2; Bun selects it
-	// only when its deployment explicitly sets BLOBS_BACKEND=s3. All fields are
-	// optional here; the Bun entry validates the selected backend at startup.
-	// `BLOBS_S3_BUCKET` defaults to `epicenter-blobs` and `BLOBS_S3_REGION` to
-	// `auto` (R2's region) when unset.
-	'BLOBS_S3_ENDPOINT?': 'string',
-	'BLOBS_S3_ACCESS_KEY_ID?': 'string',
-	'BLOBS_S3_SECRET_ACCESS_KEY?': 'string',
-	'BLOBS_S3_BUCKET?': 'string',
-	'BLOBS_S3_REGION?': 'string',
 	// AI provider house keys are optional: set one to serve that provider
 	// through the gateway (routes/inference.ts, routes/transcription.ts), or omit
 	// it and a request for that provider gets 503 ProviderNotConfigured.

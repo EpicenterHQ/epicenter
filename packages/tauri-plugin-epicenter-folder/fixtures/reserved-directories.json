@@ -1,0 +1,26 @@
+{
+	"description": "Where a data folder can never be: inside a directory named in `reserved`, in any ASCII case. Each path is canonical, as `admission::resolved` (core/src/admission.rs) and `canonicalPath` (packages/cli/src/sync/admission.ts) leave it; `admission::is_reserved_directory` and `isReservedDirectory` both refuse the `refused` paths and allow the `allowed` ones. Both test suites read this file.",
+	"reserved": [".git", ".epicenter"],
+	"refused": [
+		"/x/.git",
+		"/x/.git/y",
+		"/x/.GIT/objects",
+		"/x/.Git/y",
+		"/x/.epicenter",
+		"/x/.epicenter/recordings/y",
+		"/x/.EPICENTER/y",
+		"/x/.Epicenter/saves",
+		"/home/notes/.git/hooks"
+	],
+	"allowed": [
+		"/home/.notes",
+		"/home/.notes/inbox",
+		"/home/.config/notes",
+		"/x/.github/y",
+		"/x/.gitignore.d",
+		"/x/.epicenter-old/y",
+		"/x/git/epicenter",
+		"/x/y.git",
+		"/x/notes.epicenter"
+	]
+}

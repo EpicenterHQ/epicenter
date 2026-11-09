@@ -1,6 +1,7 @@
 <svg viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
-  <!-- Epicenter mark on a black squircle. Mirrors logos/source/epicenter-icon-squircle.svg. -->
-  <rect width="400" height="400" rx="89.5" ry="89.5" fill="#000000"/>
-  <circle cx="170" cy="170" r="100" fill="#cccccc"/>
-  <circle cx="230" cy="230" r="100" fill="#ffffff"/>
+	<title>Epicenter</title>
+	<!-- Epicenter mark on a black squircle. Mirrors logos/source/epicenter-icon-squircle.svg. -->
+	<rect width="400" height="400" rx="89.5" ry="89.5" fill="#000000" />
+	<circle cx="170" cy="170" r="100" fill="#cccccc" />
+	<circle cx="230" cy="230" r="100" fill="#ffffff" />
 </svg>

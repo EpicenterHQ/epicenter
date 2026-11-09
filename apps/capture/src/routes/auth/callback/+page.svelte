@@ -1,25 +1,32 @@
+<!--
+	The end of sign-in: finish it, then load the page it started from, so the
+	app always starts with one account for the page's whole life.
+-->
 <script lang="ts">
-	import { isCallbackAuthClient } from '@epicenter/auth';
-	import { Loading } from '@epicenter/ui/loading';
-	import { auth } from '#platform/auth';
+	import { isCallbackAuthClient } from '@epicenter/account';
 	import { resolve } from '$app/paths';
+	import { Loading } from '@epicenter/ui/loading';
+	import { account } from '$lib/app.js';
 
-	// Sign-in exists only for exporting old captures, so it returns there.
 	let errorMessage = $state<string | null>(null);
+
 	$effect(() => {
-		void (async () => {
-			if (!isCallbackAuthClient(auth)) {
-				errorMessage = 'This build does not use browser sign-in.';
-				return;
-			}
-			const { error } = await auth.completeSignIn();
-			if (error) {
-				errorMessage = error.message;
-				return;
-			}
-			window.location.replace(`${resolve('/')}?recover`);
-		})();
+		// Only a browser's sign-in ends here; a Tauri window's ends in the shell.
+		if (!isCallbackAuthClient(account)) return;
+		void account
+			.completeSignIn()
+			.then(({ data, error }) => {
+				if (error !== null) errorMessage = error.message;
+				else window.location.replace(data.returnTo ?? resolve('/'));
+			});
 	});
 </script>
 
-{#if errorMessage}<p role="alert">{errorMessage}</p>{:else}<Loading class="h-dvh" label="Signing in…" />{/if}
+{#if errorMessage}
+	<div class="flex h-dvh flex-col items-center justify-center gap-2 px-6 text-center text-sm">
+		<p class="text-destructive">Sign-in failed: {errorMessage}</p>
+		<a class="underline" href={resolve('/')}>Back to Capture</a>
+	</div>
+{:else}
+	<Loading class="h-dvh" label="Signing in…" />
+{/if}

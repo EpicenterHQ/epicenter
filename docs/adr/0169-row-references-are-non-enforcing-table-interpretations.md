@@ -2,11 +2,10 @@
 
 - **Status:** Proposed
 - **Date:** 2026-07-20
-- **Relates:** [ADR-0026](0026-matter-vault-sqlite-is-a-projection-never-a-verdict-source.md)
 
 ## Context
 
-Applications, Epicenter Home, agents, and Matter benefit from knowing that one
+Applications, Epicenter Home, and agents benefit from knowing that one
 stored row field intends to name a row in another table. The current
 `field.reference()` encodes that relationship inside a scalar JSON Schema, but
 a field schema should describe which values may be stored. Whether another row
@@ -23,7 +22,7 @@ deletion, a transaction, or referential integrity.
 
 The shared field vocabulary describes scalar values only. The clean-break
 destination has no `field.reference()` kind and no reference marker inside a
-field's JSON Schema. A future Lens or Matter table contract may declare
+field's JSON Schema. A future table contract may declare
 references separately from `fields`, but this ADR does not freeze the JSON or
 TypeScript authoring shape.
 
@@ -49,55 +48,31 @@ remain inspectable.
 Consumers may use reference metadata according to their honest observation
 boundary:
 
-- Matter may assess one loaded vault and report resolved, dangling, or missing
-  targets. These are diagnostics over current disk state, not write
-  enforcement.
 - Epicenter Home may provide navigation, local resolution status, SQL join
   assistance, and agent context over the currently visible Epicenter.
 - Typed application code may use branded IDs and direct table point reads. This
   decision does not introduce an ORM traversal API or promise that a target
   Lens is statically available.
 
-If Matter gains namespaces, one Matter vault contains all of them. When that
-vault is versioned with Git, one repository contains the complete vault rather
-than assigning one repository to each namespace. The vault and repository are
-the assessment, query, sharing, and privacy boundary; a namespace remains only
-an address coordinate inside it. Data that needs a different public or private
-boundary belongs in another vault and repository, and generic references do not
-cross that boundary.
-
-The exact Matter namespace layout remains open. A Matter vault currently
-supplies the enclosing address scope for its tables, while an Epicenter row
-address includes an explicit namespace coordinate.
-
 ## Transition
 
-Epicenter code and new Lens JSON do not adopt `field.reference()`. Matter may
-continue using the current `x-ref` field marker temporarily because its grid,
-integrity panel, CLI check, and the Vault's artifact-to-page diagnostics already
-depend on that behavior.
-
-The reference implementation wave first replaces Matter's marker with the
-chosen table-level contract, proves the existing Matter verdicts against that
-contract, and then deletes `field.reference()`, `x-ref`, and the shared
-reference field kind in the same dependency-ordered change. The legacy marker
-earns no compatibility reader after that clean break.
+Matter, which read the `x-ref` marker for its grid, integrity panel, and CLI
+check, is deleted (ADR-0534). The reference implementation wave chooses the
+table-level contract and then deletes `field.reference()`, `x-ref`, and the
+shared reference field kind in the same dependency-ordered change. The legacy
+marker earns no compatibility reader after that clean break.
 
 ## Consequences
 
 - Scalar validation stays independent from cross-row interpretation.
-- Matter and Epicenter can share the concept of a reference without pretending
-  they can make the same integrity promise.
 - Forward resolution is always nullable, and applications continue to handle
   absent targets explicitly.
 - Home and agents may explain useful joins without turning those joins into
   synchronization or deletion invariants.
-- Matter retains its current reference diagnostics during the transition, while
-  Epicenter gains no new dependency on the legacy field kind.
-- The shared reference kind disappears when Matter moves to the table-level
-  contract, not in a separate behavior-deleting change.
-- The eventual table metadata shape, typed reference-navigation ergonomics,
-  and Matter namespace model remain open implementation and product decisions.
+- The shared reference kind disappears when the table-level contract lands,
+  not in a separate behavior-deleting change.
+- The eventual table metadata shape and typed reference-navigation ergonomics
+  remain open implementation and product decisions.
 
 ## Considered alternatives
 
@@ -111,10 +86,3 @@ earns no compatibility reader after that clean break.
   because one stored target ID already determines the useful forward and
   reverse query multiplicities; stronger cardinality requires enforcement the
   platform does not provide.
-- **Use one Git repository per Matter namespace.** Rejected because it turns an
-  address coordinate into installation, privacy, and lifecycle, makes a vault
-  incomplete after one clone, and requires cross-repository discovery before
-  assessment or SQL can be complete.
-- **Never add namespaces to Matter.** Deferred because namespaces may still
-  earn their place as address grouping inside one complete vault. Symmetry
-  alone does not justify the layout.

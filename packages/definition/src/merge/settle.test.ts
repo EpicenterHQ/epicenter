@@ -1,0 +1,214 @@
+/**
+ * Settle Tests
+ *
+ * `settle` is the one producer of what happened to a path where two
+ * histories meet, so every conflict block it reports must be in the text.
+ *
+ * Key behaviors:
+ * - a change against an unchanged base lands as is; a repeat lands as nothing
+ * - a delete loses to an edit it had not seen; an edit brings a deleted note back
+ * - a field both sides set takes the later write's value (incoming, arriving now, over main's), with no block
+ * - a path created twice keeps current and appends incoming whole (D3), unless both are one note in house style; a recreated note merges by content
+ * - an identical block is never written twice
+ *
+ * Ported from `claude/repository-v2` `core/settle.test.ts` at `c32dd466`;
+ * v2's key patcher is replaced by the texts it wrote.
+ */
+import { describe, expect, test } from 'bun:test';
+import { findConflicts } from './conflict.js';
+import { settle, settlePointer } from './settle.js';
+
+const parties = {
+	current: { author: 'main', time: 't1' },
+	incoming: { author: 'alice/laptop', time: 't2' },
+};
+const note = (title: string, body = 'body\n') =>
+	`---\ntitle: ${title}\n---\n${body}`;
+
+describe('settle', () => {
+	test('a change on an unchanged base lands, and a repeat changes nothing', () => {
+		expect(settle('a\n', 'a\n', 'b\n', { parties })).toEqual({
+			text: 'b\n',
+			blocks: false,
+		});
+		expect(settle('a\n', 'b\n', 'b\n', { parties })).toEqual({
+			text: 'b\n',
+			blocks: false,
+		});
+		expect(settle('a\n', 'b\n', 'a\n', { parties })).toEqual({
+			text: 'b\n',
+			blocks: false,
+		});
+	});
+
+	test('a delete loses to an edit; an edit restores a deleted note', () => {
+		expect(settle('a\n', 'edited\n', null, { parties })).toEqual({
+			text: 'edited\n',
+			blocks: false,
+		});
+		expect(settle('a\n', null, 'edited\n', { parties })).toEqual({
+			text: 'edited\n',
+			blocks: false,
+		});
+	});
+
+	test("a field both sides set takes the later write's value, incoming's over main's, with no block", () => {
+		expect(
+			settle(note('Base'), note('Mine'), note('Theirs'), { parties }),
+		).toEqual({ text: note('Theirs'), blocks: false });
+	});
+
+	test("a block in the body is body: a field's later write leaves it as it was", () => {
+		const held =
+			'<<<<<<< current main - 44bb5a0 typed\nmood: A\n||||||| base ea98c42\n=======\nmood: B\n>>>>>>> incoming alice/laptop t0 8bb3865\n';
+		const fields = (mood: string) => `---\nmood: ${mood}\n---\n${held}`;
+		expect(
+			settle(fields('A'), fields('Mine'), fields('Theirs'), { parties }),
+		).toEqual({ text: fields('Theirs'), blocks: false });
+	});
+
+	test("two patches of one key at once on a note whose header does not parse: the later write's value, no block, never a duplicate key", () => {
+		const broken = '---\na: [\n---\nbody\n';
+		const settled = settle(
+			broken,
+			'---\na: [\ndone: true\n---\nbody\n',
+			'---\na: [\ndone: false\n---\nbody\n',
+			{ parties },
+		);
+		expect(settled).toEqual({
+			text: '---\na: [\ndone: false\n---\nbody\n',
+			blocks: false,
+		});
+	});
+
+	test('a path created twice holds another note (D3); one deleted and created again merges by content', () => {
+		const twice = settle(null, note('One'), note('Two'), { parties });
+		expect(twice.blocks).toBe(true);
+		expect(twice.text?.startsWith(note('One'))).toBe(true);
+		expect(findConflicts(twice.text ?? '')).toMatchObject([
+			{
+				line: 5,
+				current: '',
+				incoming: note('Two'),
+				sides: { incoming: { author: 'alice/laptop', time: 't2' } },
+			},
+		]);
+		// The same note created twice, in another formatting, is one note: a resend lands as nothing.
+		const stored = `---\ntitle: One\nat: "2026-10-31"\n---\nbody\n`;
+		const resent = `---\nat: '2026-10-31'\ntitle: One\n---\nbody\n`;
+		expect(settle(null, stored, resent, { parties })).toEqual({
+			text: stored,
+			blocks: false,
+		});
+		// Nothing tells a note made again from the one a base names: it merges as an edit of it (the accepted oddity).
+		const reused = settle(note('Old'), note('New'), note('Old', 'edit\n'), {
+			parties,
+		});
+		expect(reused).toEqual({ text: note('New', 'edit\n'), blocks: false });
+	});
+
+	test('an identical block is written once, whoever its labels name', () => {
+		const once = settle(null, note('One'), note('Two'), { parties }).text ?? '';
+		const again =
+			settle(null, once, note('Two'), {
+				parties: {
+					current: parties.current,
+					incoming: { author: 'bob/phone', time: 't3' },
+				},
+			}).text ?? '';
+		expect(again).toBe(once);
+	});
+});
+
+describe('decision 15: two different insertions at one spot are one clash, as in diff3', () => {
+	test('two words added at the end of one line are one whole-line block, never "now later"', () => {
+		const settled = settle(
+			'Pay Alice\n',
+			'Pay Alice now\n',
+			'Pay Alice later\n',
+			{
+				parties,
+			},
+		);
+		expect(settled.blocks).toBe(true);
+		expect(settled.text).not.toContain('now later');
+		const [conflict, ...more] = findConflicts(settled.text ?? '');
+		expect(more).toEqual([]);
+		expect(conflict).toMatchObject({
+			current: 'Pay Alice now\n',
+			base: 'Pay Alice\n',
+			incoming: 'Pay Alice later\n',
+		});
+		// With no final newline, the same.
+		const bare = settle('Pay Alice', 'Pay Alice now', 'Pay Alice later', {
+			parties,
+		});
+		expect(bare.blocks).toBe(true);
+		expect(findConflicts(bare.text ?? '')).toHaveLength(1);
+	});
+
+	test('two different lines appended after one line are one block', () => {
+		const settled = settle('a\n', 'a\nb\n', 'a\nc\n', { parties });
+		expect(settled.blocks).toBe(true);
+		const [conflict, ...more] = findConflicts(settled.text ?? '');
+		expect(more).toEqual([]);
+		expect(conflict).toMatchObject({
+			current: 'b\n',
+			base: '',
+			incoming: 'c\n',
+		});
+		expect(settled.text?.startsWith('a\n<<<<<<< ')).toBe(true);
+	});
+
+	test('identical insertions merge as one', () => {
+		expect(settle('a\n', 'a\nb\n', 'a\nb\n', { parties })).toEqual({
+			text: 'a\nb\n',
+			blocks: false,
+		});
+		expect(
+			settle('Pay Alice\n', 'Pay Alice now\n', 'Pay Alice now\n', { parties }),
+		).toEqual({ text: 'Pay Alice now\n', blocks: false });
+	});
+
+	test('edits of different, non-adjacent words on one line still merge with no block', () => {
+		expect(
+			settle(
+				'Pay Alice ten dollars today\n',
+				'Pay Bob ten dollars today\n',
+				'Pay Alice ten dollars tomorrow\n',
+				{
+					parties,
+				},
+			),
+		).toEqual({ text: 'Pay Bob ten dollars tomorrow\n', blocks: false });
+	});
+});
+
+describe('settlePointer: the later blob write wins, and an edit beats a delete', () => {
+	const [a, b, c] = ['pointer a', 'pointer b', 'pointer c'];
+	test('create, replace and delete land where nothing moved', () => {
+		expect(settlePointer(null, null, a)).toBe(a);
+		expect(settlePointer(a, a, b)).toBe(b);
+		expect(settlePointer(a, a, null)).toBe(null);
+	});
+	test('a create over a file added elsewhere wins (ADR-0771)', () => {
+		expect(settlePointer(null, b, a)).toBe(a);
+		expect(settlePointer(null, a, a)).toBe(a);
+	});
+	test('a replace over a file that changed wins (ADR-0771)', () => {
+		expect(settlePointer(a, b, c)).toBe(c);
+	});
+	test('a replace over a file that went brings it back: an edit beats a delete (decision 15)', () => {
+		expect(settlePointer(a, null, c)).toBe(c);
+	});
+	test('a delete of a file changed since leaves the file, with no refusal', () => {
+		expect(settlePointer(a, b, null)).toBe(b);
+	});
+	test('a delete then a create at one path are two writes that each pass', () => {
+		expect(settlePointer(a, a, null)).toBe(null);
+		expect(settlePointer(null, null, b)).toBe(b);
+	});
+	test('a path the writer did not change keeps what is there', () => {
+		expect(settlePointer(a, b, a)).toBe(b);
+	});
+});

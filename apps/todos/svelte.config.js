@@ -1,25 +1,28 @@
-// Every build is a client-only static SPA. The browser build writes `build/`
-// and keeps its folder in OPFS. Epicenter's build writes into the host's
-// packaged asset tree, below the route the host serves it from, and reaches a
-// real directory through the host.
-import staticAdapter from '@sveltejs/adapter-static';
+import adapter from '@sveltejs/adapter-static';
 import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 
-const isEpicenterHost = process.env.EPICENTER_HOST === '1';
+/**
+ * Where a build writes the static app, when not `build/`. The desktop window
+ * loads `build/`.
+ * (`.svelte-kit/`, which `vite preview` serves, stays here: its server
+ * bundle resolves packages from this folder.)
+ */
+const out = process.env.TODOS_BUILD_DIR;
 
 /** @type {import('@sveltejs/kit').Config} */
 const config = {
 	kit: {
-		adapter: staticAdapter({
-			...(isEpicenterHost && {
-				pages: '../epicenter/dist/todos',
-				assets: '../epicenter/dist/todos',
-			}),
+		// A static single-page app: any host that answers unknown paths with
+		// `index.html` (for `/auth/callback`) serves it.
+		adapter: adapter({
 			fallback: 'index.html',
+			...(out && { pages: out, assets: out }),
 		}),
-		...(isEpicenterHost && { paths: { base: '/apps/todos' } }),
 	},
 	preprocess: vitePreprocess(),
+	// `@epicenter/svelte`'s Recovery, which `<WhenOpen>` shows, reads
+	// `$effect.pending()`, which async Svelte provides.
+	compilerOptions: { experimental: { async: true } },
 };
 
 export default config;

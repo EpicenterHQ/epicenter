@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-10-11
 - **Amends:** [ADR-0491](0491-field-helpers-build-native-typebox-schemas-with-ui-metadata.md) at native callbacks in fields: `Type.Refine`, `~guard`, and codecs are refused, the frozen-copy protection for callbacks is removed, and a prepared field is a JSON copy rather than a `Memory.Clone` snapshot. Its editor hints, helpers, prepared shape, and JSON-safety check stand.
-- **Relates:** [ADR-0517](0517-a-data-folder-can-live-inside-any-repository.md) (`epicenter.json` holds these fields), [ADR-0508](0508-folder-opening-overwrites-root-definition-json.md) (opening publishes them), [ADR-0526](0526-a-field-is-required-unless-declared-optional.md) (optionality)
+- **Relates:** [ADR-0517](0517-a-data-folder-can-live-inside-any-repository.md) (`epicenter.json` holds these fields), [ADR-0526](0526-a-field-is-required-unless-declared-optional.md) (optionality)
 
 ## Context
 
@@ -24,7 +24,7 @@ custom format. `Format.Set` appeared only in `export.test.ts`.
 ## Decision
 
 **A field is a schema that JSON can hold, and `prepareSchema` refuses any
-other.** `schemaProblem` in `packages/definition/src/prepare.ts` walks each
+other.** `schemaProblem` in `4467140355:packages/definition/src/prepare.ts` walks each
 declared field and refuses:
 
 - a function anywhere, and the keys `~guard`, `~refine`, and `~codec`;
@@ -57,7 +57,7 @@ not inside one. App binds it to its Yjs store; Folder refuses one.
 
 **`exportSchema` is deleted.** Nothing needs an exporter that can refuse,
 because every prepared field is already JSON. `formatDeclaration` in
-`packages/folder/src/declaration.ts` writes `epicenter.json` (ADR-0517), and
+`4467140355:packages/folder/src/declaration.ts` writes `epicenter.json` (ADR-0517), and
 `hasSchemaCallbacks` and `isPreparedSchema` are gone with it.
 
 ## Consequences

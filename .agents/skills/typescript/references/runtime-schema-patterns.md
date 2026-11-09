@@ -44,24 +44,14 @@ Both behave similarly in TypeScript, but only the `?` syntax converts correctly 
 
 # Branded Types Pattern
 
-Two shapes coexist in the codebase, picked by what owns the brand at runtime:
+Arktype-validated IDs (auth user IDs, persisted-state schemas, HTTP route
+inputs) use type-first + validator + `as*` helper. The branded type and the
+arktype `Type` share one PascalCase name.
 
-- **Branded table field values**: `field.string<Id>()` carries a capability's branded string type through the TypeBox schema. The store owns row IDs.
-- **Arktype-validated IDs** (auth user IDs, persisted-state schemas, HTTP route inputs): type-first + validator + `as*` helper. The branded type and the arktype `Type` share one PascalCase name.
-
-## Branded values in table fields
-
-The store mints row IDs. Do not declare a reserved `id` field or provide a row-ID generator. For references to another capability's identifiers, import its type and carry the brand through `field.string<T>()`.
-
-```typescript
-import { defineTable, field } from '@epicenter/app';
-import type { BlobId } from '@epicenter/blobs';
-
-const recordings = defineTable({
-	title: field.string(),
-	blobId: field.nullable(field.string<BlobId>()),
-});
-```
+A file contract carries no brands: `defineContract` from
+`@epicenter/definition/contract` declares each collection's fields as plain
+JSON Schema, and a file's identity is its path (`recordings/{id}.md`), not a
+branded field value.
 
 ## Arktype-Validated IDs: Type First, Validator Annotated, Optional `as*` Helper
 
@@ -135,7 +125,7 @@ const userId = c.var.user.id as UserId;
 
 `asUserId(value: string)` is a typed cast in one place: the input is constrained to `string` at compile time, the body is the only `as UserId` in the codebase, and it's grep-friendly when auditing brand boundaries.
 
-For genuinely untyped boundaries (parsing `unknown` JSON, network input) use the validator's `.assert(value)` or schema-level validation (e.g., `PersistedAuth.assert(...)`). That throws on shape mismatch; the `as*` helper trusts the compiler.
+For genuinely untyped boundaries (parsing `unknown` JSON, network input) use the validator's `.assert(value)` or schema-level validation (e.g., `UserId.assert(...)`). That throws on shape mismatch; the `as*` helper trusts the compiler.
 
 `as*` never validates. The prefix borrows Rust's `as_` convention: free, unchecked, the same bytes viewed at a higher abstraction. The day a helper needs a runtime check it stops being `as*` and becomes a validator or a parse.
 
@@ -143,7 +133,6 @@ For genuinely untyped boundaries (parsing `unknown` JSON, network input) use the
 
 | Origin of the value                         | Parts                                            |
 | ------------------------------------------- | ------------------------------------------------ |
-| Minted fresh into a workspace table         | Type alias + `generate*` (no validator)          |
 | Received as a typed string (auth, URL, DB)  | Type + Validator + `as*` helper                  |
 | Received as `unknown` at a network boundary | Type + Validator (validate via arktype schema)   |
 | Set from an external source, never minted   | Type + Validator (with `as*` helper if branded)  |

@@ -2,6 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-04
+<!-- doc-path-check: ignore-next-line -->
 - **Unbuilt:** nothing. Built in `packages/sync/src/transport.ts`, `packages/sync/src/store-route.ts`, `packages/app/src/data/sync/attach.ts`, `packages/auth`, and `packages/server/src/store-sync/browser-dial.test.ts`.
 - **Relates:** [ADR-0095](0095-websocket-room-auth-uses-route-owned-subprotocol-bearers.md) (why the bearer is a subprotocol at all), [ADR-0222](0222-a-host-owns-how-to-make-a-socket-and-the-library-owns-everything-done-with-one.md) (the host supplies the dial, the library owns what is done with the socket), [ADR-0340](0340-an-opened-store-knows-its-own-address-and-its-own-connection.md) (where `dataId`, `generation`, and `baseURL` are read from), [ADR-0092](0092-identity-is-the-partition.md) (why no partition ever reaches the query string)
 
@@ -13,6 +14,7 @@ The client-side dial was two values that had to agree, built in two places.
 `[MAIN_SUBPROTOCOL, 'bearer.<token>']`. `AuthClient.openWebSocket(url, protocols?)`
 took both as parameters and appended the bearer itself.
 
+<!-- doc-path-check: ignore-next-line -->
 `packages/app/src/data/sync/attach.ts` then declared its own structural port,
 `StoreSocketTransport { openWebSocket(url: string | URL): Promise<WebSocket> }`,
 with one parameter. It called that port with the URL alone. `strict` was on,
@@ -22,17 +24,21 @@ narrower type and the second parameter disappeared with no error anywhere. The
 parameter was optional in syntax and required in meaning, and no compiler
 setting tells those apart.
 
+<!-- doc-path-check: ignore-next-line -->
 Honeycrisp signed in and never synced. `packages/server/src/store-sync/mount.ts`
 refuses an upgrade that offers subprotocols but does not include `epicenter`,
 with a 400. The browser offered `bearer.<token>` and nothing else, so every
 socket the app opened was refused before it reached the authority.
 
 `subprotocols(bearer)` had exactly one caller, the workerd test replica in
+<!-- doc-path-check: ignore-next-line -->
 `packages/server/workers/replica.ts`. The function whose job was to build the
 offered list was never on the browser path at all.
 
 The tests could not have caught this, because none of them ran the code that
+<!-- doc-path-check: ignore-next-line -->
 builds the boundary. `packages/server/workers/e2e.test.ts` hand-wrote the
+<!-- doc-path-check: ignore-next-line -->
 `Sec-WebSocket-Protocol` header string. `packages/app/src/data/sync/attach.test.ts`
 faked the transport with a function that ignored protocols. Both constructed a
 correct handshake instead of observing the one the app produces.
@@ -45,6 +51,7 @@ assembly step that dropped a value.
 ## Decision
 
 **`@epicenter/sync` owns the client transport contract, and no consumer
+<!-- doc-path-check: ignore-next-line -->
 redeclares it.** It lives in `packages/sync/src/transport.ts`, exported at the
 subpath `@epicenter/sync/transport`:
 
@@ -79,6 +86,7 @@ name; it has no token to put beside it.
 **Auth completes the address.** `openWebSocket(address)` opens
 `new WebSocket(address.url, [...address.protocols, bearerSubprotocol(token)])`.
 `bearerSubprotocol(token)` and `formatSubprotocols(list)`, the inverse of
+<!-- doc-path-check: ignore-next-line -->
 `parseSubprotocols`, live in `packages/sync/src/auth-subprotocol.ts` beside the
 constants the server parses with.
 
@@ -93,6 +101,7 @@ from both halves importing the type rather than writing it, and the object
 makes the remaining mistake loud instead of silent.
 
 **A test of this seam dials it rather than describes it.**
+<!-- doc-path-check: ignore-next-line -->
 `packages/server/src/store-sync/browser-dial.test.ts` runs a real `AuthClient`
 through `attachStoreSync`, records the list the constructor was offered, and
 feeds that list to the real `mountStoreSyncApp` gate. The workerd two-device

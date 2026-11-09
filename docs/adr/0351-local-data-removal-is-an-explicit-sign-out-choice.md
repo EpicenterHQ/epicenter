@@ -8,18 +8,22 @@
 
 ## Context
 
+<!-- doc-path-check: ignore-next-line -->
 `AccountPopover` in `packages/app-shell/src/account-popover/account-popover.svelte`
 calls `auth.signOut()` directly. Its separate `onForgetDevice` callback erases
 local data and reloads without signing out. Honeycrisp and Vocab supply that
 callback; Whispering withholds it because its audio has no principal-scoped
 removal path.
 
+<!-- doc-path-check: ignore-next-line -->
 `eraseReplica` in `packages/app/src/index.ts` closes the store and reopens on
+<!-- doc-path-check: ignore-next-line -->
 failure. `eraseGenerations` in `packages/app/src/data/store/browser.ts` deletes
 databases sequentially. A failure can therefore follow a successful deletion.
 Reopening is not rollback and can download data the person was removing.
 
 Local persistence and network authorization already have separate owners.
+<!-- doc-path-check: ignore-next-line -->
 `packages/app/src/data/store/persistence.ts` records saved updates and authority
 acknowledgments. Credential refusal does not invalidate that local document.
 

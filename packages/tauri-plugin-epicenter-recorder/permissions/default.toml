@@ -1,0 +1,14 @@
+"$schema" = "schemas/schema.json"
+
+# Granting this to a window lets it record into the Data root that the page
+# opened through the folder plugin.
+[default]
+description = "List the microphones and read one's level, record into the Data root opened through the folder plugin, stop that recording, and repair recordings a quit cut off."
+permissions = [
+  "allow-inputs",
+  "allow-open-meter",
+  "allow-close-meter",
+  "allow-start",
+  "allow-stop",
+  "allow-recover",
+]

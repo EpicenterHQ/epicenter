@@ -1,0 +1,23 @@
+{
+	"accepted": true,
+	"coordinator_rerun": "/private/tmp/epicenter-sqlite-delete-prototype-20261022/experiments/sqlite-delete/results/2026-10-22T07-43-38.528Z/evidence.json",
+	"checks": {
+		"native": 33,
+		"chromium": 30,
+		"firefox": 30,
+		"webkit": 30
+	},
+	"static_typescript": "pass",
+	"rust_format": "pass",
+	"review": "Inspected native admission/removal, browser worker acknowledgment and refusal, both facades, fault/cutpoint runner, and README limits. Concurrent-close admission release and unexpected browser-worker termination release corrected before final rerun. No remaining blocking finding in the bounded deletion prototype.",
+	"not_verified": [
+		"Tauri IPC/window integration",
+		"whole-browser process crash",
+		"power-loss ordering",
+		"parent device retirement",
+		"full SQL authorizer/value parity",
+		"cross-process/cross-tab maintenance exclusion"
+	],
+	"live_data_access": false,
+	"production_promotion": false
+}

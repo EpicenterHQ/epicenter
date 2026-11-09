@@ -1,217 +1,97 @@
 ---
 name: auth
-description: 'Epicenter auth packages: `@epicenter/auth` and the Svelte adapter at `@epicenter/auth/svelte`, direct sessions, identity state, account-bound fetch/WebSocket, and fixed library page bootstrap and deliberate departure. Use when editing Epicenter auth clients, session state, hosted sign-in, or how a route boots from auth.'
+description: 'Epicenter account package: `@epicenter/account`, the auth client Svelte reads through `reactive`, OAuth sign-in for browser and desktop apps, the Account lifetime, account-bound fetch, and hosted resource authorization. Use when editing Epicenter auth clients, session state, hosted sign-in, or how a route boots from auth.'
 metadata:
   author: epicenter
-  version: '10.0'
+  version: '11.0'
 ---
 
 # Epicenter auth
 
-Better Auth owns hosted sessions and social-provider login. Epicenter clients
-hold signed session bearers behind stable Accounts. Self-hosted instances issue named-user sessions after passkey sign-in.
+Better Auth is the deployment's OAuth 2.1 authorization server (ADR-0549).
+Every app is an OAuth client of it, and a hosted resource accepts only an
+opaque access token for its audience. A self-hosted server is `apps/api` on
+Bun with Postgres and issues the same tokens.
 
-Read `packages/auth/README.md` and `packages/auth/src/auth-contract.ts`
-before changing client API shape. The README owns the explanation; the contract
-owns the signatures. Do not reconstruct OAuth grants, refresh-token rotation,
-client registrations, or a cookie-only dashboard client.
+Read `packages/account/README.md` and `packages/account/src/auth-contract.ts`
+before changing client API shape. The README owns the explanation; the
+contract owns the signatures. Do not restate either here or in code comments.
 
 ## Ground external behavior
 
 When correctness depends on Better Auth sessions, cookies, plugins, freshness,
 or provider linking, ask DeepWiki a narrow question against
 `better-auth/better-auth`, then verify decisive details against the installed
-source, types, tests, or official docs. Online examples may target another version.
-
-Useful installed source landmarks are the bearer plugin, API session routes,
-API dispatch, internal adapter, and social callback routes. Epicenter's
-`packages/server/src/auth/session-handoff.ts` is a small issuance plugin,
-not a replacement session engine.
+source, types, tests, or official docs. Online examples may target another
+version.
 
 Global before-hooks run before plugin before-hooks. A management gate cannot
 assume bearer normalization has happened: use the public session API with
 explicit headers and test a real header-only request. Distinguish a rejected
-credential from a database failure; a transient fault must not retire good identity.
+credential from a database failure; a transient fault must not retire good
+identity.
 
 ## Client composition
 
-Browser apps use `createBrowserRedirectAuth({ appId, server })` with one
-build-configured `AuthServer`; the dashboard uses `createHostedBrowserRedirectAuth`.
-Never restore a server destination from saved preferences. Credentials must
-match the configured origin before publishing identity or making requests.
-The framework-independent `createSessionAuth` composes a launcher and
-persisted storage. It owns credential verification, ordered persistence,
-cancellation, and Account retirement in one runtime.
+| Program | Client |
+| --- | --- |
+| A browser app | `createBrowserOAuth` from `@epicenter/account`, with one build-configured `AuthServer` |
+| A standalone desktop app | `createTauriAuth()` from `@epicenter/account/tauri`, over the `epicenter-account` crate |
+| The Epicenter app | the `epicenter` CLI's desktop grant (`epicenter auth login --desktop`); no page holds a token |
+| The account dashboard | `createCookieSessionAuth` in `apps/api/ui`, over the authorization server's own session cookie |
 
-Desktop WebViews use `createDesktopBrokerAuth`. Bun holds the remote session
-and captures its boot Account. A failed relaunch must not give old windows the
-replacement Account. The host owns no application store or sync engine.
-
-The Svelte adapter `fromAuth` makes state reads track through
-`createSubscriber`. Keep issuer, storage, and launcher conventions outside it.
-Retain the callback-capable concrete type where a callback route needs it.
+Never restore a server destination from saved preferences. An auth
+client has the shape every capability has (ADR-0769): it reads `state()`,
+its actions answer promises, and `subscribe` hears a change. A Svelte app
+adapts it once with `reactive` from `@epicenter/svelte/reactive`, and
+`auth.state()` tracks in a template, `$derived` or effect. A capability that
+takes the live account (`hosted(account)` from `@epicenter/ai`,
+`home({ site, account })` from `@epicenter/folder`) takes the plain client and reads
+`state()` and `subscribe` itself.
+Retain the callback-capable type where a callback route needs it
+(`isCallbackAuthClient`).
 
 ## Account lifetime
 
-An application session keeps one person and one server for its entire lifetime.
+An application session keeps one person and one server for its entire
+lifetime. Preserve these guarantees:
 
-`AuthClient` selects `getState().account`; it exposes sign-in, sign-out, profile,
-and state. Application HTTP and sockets use the captured Account.
-`AuthIdentityState` is the serializable principal projection for desktop
-bootstrap, with no credential or transport functions.
+- Token renewal and same-person reauthentication keep the same Account
+  object. A browser navigation creates a new runtime.
+- Sign-out or account replacement permanently retires the old Account. Later
+  sign-in creates a new Account even for the same principal.
+- Retirement aborts HTTP requests and response streams. Pending work checks
+  the captured Account after each await.
+- An Account refuses foreign origins before attaching credentials and does
+  not follow redirects. `account.fetch` uses `credentials: 'omit'`.
+- Retry and inference work uses the captured Account, never a new read of
+  mutable auth state.
 
-Preserve these guarantees:
+`startSignIn` begins a flow and `completeSignIn` consumes a callback; do not
+make one verb infer the other from a query string. The callback route leaves
+with `location.replace(returnTo)` and opens no store.
+`startSignIn({ reauthenticate: true })` asks for a completed sign-in without
+signing out first, so the Account survives.
 
-- Disconnection and uninterrupted same-person reauthentication keep the same
-  Account object. Navigation and host relaunch create new runtimes.
-- Sign-out or account replacement permanently retires the old Account.
-  Later sign-in creates a new Account even for the same principal.
-- Retirement aborts HTTP and response streams and closes sockets. Pending
-  authorization and retries check the captured lifetime after awaits.
-- Caller cancellation stops that request without cancelling shared verification.
-- An Account rejects foreign origins before attaching credentials and does not
-  follow redirects. Ambient cookies cannot choose another principal.
-- Retry, erase, blob, and inference work uses the captured Account, never a new
-  read of mutable auth state.
+An online root captures the Account once and opens its store over it, keyed
+on the Account (`{#key auth.state.account}`), so a new Account opens a new
+store.
+Imports and preloads acquire no resources.
 
-Use `packages/auth/src/account-lifetime.test.ts` for lifetime schedules and
-`apps/epicenter/src/account-transport.test.ts` for real loopback HTTP and sockets.
-Retain delayed blob and stream regressions when replacing credential fixtures.
+## Hosted resources and sessions
 
-## Persisted identity and network access
+Hosted resource routes take only an opaque OAuth access token for their
+audience and scope: `requireAccessToken` runs `authorizeAccountRequest`, and
+a namespace route runs `authorizeResourceRequest`. A Better Auth session
+never reaches a resource. The profile is Better Auth's
+`/auth/oauth2/userinfo`. Unknown, expired, or revoked tokens are 401;
+database and infrastructure failures are retryable 503.
 
-`PersistedAuth` is exactly `{ token, principalId }`. The session token
-authorizes online access; the cached principal selects the local data partition.
-It is not an offline decryption key. Profile data is fetched on demand.
-
-`PersistedAuthStorage` has a synchronous `initial` snapshot and
-`set(value | null)`. The runtime reads initial once and serializes writes.
-Browser storage and preloaded native serialized storage adapt that port.
-Do not add old-format readers or suppress write failures.
-
-A cached principal can boot local data without network access. Before first
-resource use, `/api/session` must confirm that the credential belongs to it.
-A rejection preserves local identity and publishes `reauth-required`.
-An unavailable server refuses traffic without deleting identity. A verified
-different principal retires and clears the old attachment.
-
-`account.fetch` uses `credentials: 'omit'`. A 401 pauses that credential;
-retry once only if same-Account reauthentication installed another credential
-while the request was in flight. Preserve replayable bodies and check retirement
-before either dispatch. There is no automatic refresh exchange.
-
-Sign-out retires locally immediately, clears persistence, and awaits a
-best-effort revocation attempt bounded to five seconds. Success does not confirm
-remote revocation. Replacement awaits old-token cleanup outside the storage
-queue so sign-out can still clear storage promptly. Native relaunch awaits the
-auth operation; do not turn revocation into fire-and-forget before process exit.
-
-## Sign-in and handoff
-
-`startSignIn` begins a flow. `completeSignIn` consumes a callback; do not
-make one verb infer the other from a query string. Only callback-capable clients
-expose completion, narrowed with `isCallbackAuthClient`.
-
-A launcher returns `{ status: 'launched' }` for browser navigation or
-`{ status: 'completed', token }` for in-process native completion.
-The runtime verifies the token, persists it, and publishes the Account.
-Repeated same-kind calls share one in-flight operation.
-
-Success from completion means the identity is installed and published. The
-callback route must still leave with `window.location.replace(...)`,
-including same-principal completion where no identity event fires.
-Do not open an application store inside the departing callback document.
-
-`startSignIn({ reauthenticate: true })` bypasses passive hosted Continue
-and asks for a completed provider/passkey sign-in. It must not sign out first,
-because uninterrupted same-person reauthentication preserves the Account.
-
-The hosted handoff has exact approved callbacks, state, S256 PKCE, atomic
-single-use consumption, and short code expiry. URLs carry code and state, never
-a session token. Redemption creates an independent revocable session and
-inherits the source authentication age. Preserve shared transaction versions
-and local cancellation generations: old responses cannot overwrite new choices,
-even after the newer transaction completes. Revoke orphaned results where possible.
-
-Native callback waiting must exist before opening the browser. Cancellation,
-timeout, disposal, and opener failure must clear waiters and queued callbacks.
-The remote session remains in Bun, never a WebView bootstrap.
-
-## Dashboard and management
-
-The dashboard uses the same captured Account composition as browser apps.
-Key its mounted child and query cache on the Account object, not principal alone.
-Late profile, billing, or mutation results must stay with the old attachment,
-including sign-out followed by same-person sign-in.
-
-The management client sends its captured Account bearer and expected principal.
-Hosted cookie auth belongs to the sign-in page. Preserve provider and passkey
-ceremonies without ambient-cookie fallback in dashboard operations.
-
-Only the browser adapter enables challenge/state cookies for the exact
-same-origin `/auth/link-social`, `/auth/passkey/generate-register-options`, and
-`/auth/passkey/verify-registration` routes, with captured bearer and expected
-principal headers already attached. Their guard must resolve the explicit
-bearer before library cookie reads. Keep all other Account traffic cookie-free.
-
-Sensitive changes require a live session younger than 600 seconds and the
-matching principal. Renewal and passive handoff do not reset authentication age.
-Ordinary social sign-in, including provider SSO, may create fresh permission;
-do not describe this as human-presence verification. A stolen fresh bearer has
-the same authority when presented as the signed session cookie.
-
-Provider linking binds the principal at authorized initiation. Later sign-out
-cannot undo an already-authorized linking operation. Test callback binding and
+Better Auth sessions back only the authorization server's own pages
+(`packages/server/src/auth/session-policy.ts`): a 30-day sliding expiry
+updated after one day of use, and sensitive changes such as
+`/auth/link-social` need a session younger than `freshAge` (600 seconds) for
+the page's named account. Renewal does not reset authentication age.
+Ordinary social sign-in may create fresh permission; do not describe it as
+human-presence verification. Test provider-link callback binding and
 implicit same-email linking separately; they have different policy gates.
-
-## Resource validation and socket bounds
-
-Hosted resource routes use `requireBearerPrincipal` with
-`resolveRequestSessionPrincipal`. The resolver calls Better Auth with only
-the explicit bearer and live session lookup. No cookie fallback or JWT verifier
-remains. `/api/session` is the resource identity projection, not another session engine.
-
-Unknown, expired, or revoked credentials are 401. Database and infrastructure
-failures are retryable 503. The self-host deployment supplies its static-token
-resolver to the same resource guard and resolves valid tokens to
-`INSTANCE_PRINCIPAL_ID`.
-
-Hosted sessions have a 30-day sliding expiry, updated after one day of use.
-Verify renewal through resource traffic, not only a direct helper call.
-Deployments need isolated session stores and secrets; client origin checks do
-not replace server-side deployment isolation.
-
-A store socket is authenticated at admission and receives a server-computed
-600-second deadline. Preserve deadline attachment across hibernation and cursor
-updates, check all input/output paths, and sweep idle sockets with an alarm.
-Revocation rejects the next admission; it is not immediate closure of all
-admitted sockets. Percent-encode signed tokens in bearer subprotocols because
-signature padding is illegal in raw WebSocket protocol names.
-
-## Boot selection
-
-The mounted working owner reads the plain client's `getState()` once and
-passes the captured Account to product resource opening. Imports and preloads
-acquire no resources. Keep reactive `.state` reads in UI modules adapted with
-`fromAuth`. Callback and sign-out documents acquire no primary stores. Browser
-sign-in may start from a working page because the callback installs the next
-Account in a fresh document.
-
-Honeycrisp supports signed-out local startup. Whispering has no accounts. Vocab requires an
-Account. Honeycrisp's Local and Personal routes select independently opened
-stores. One warning before explicit account changes authorizes interruption of
-active recordings and unsaved drafts, including work started while sign-in is
-pending. Desktop acceptance disposes the boot auth owner, serializes next-boot
-credentials behind its queued writes, awaits bounded token revocation, and
-restarts. Cancellation before acceptance leaves working windows open. The
-process never installs a successor Account; failed writes or restart keep old
-access fenced, and new pages show restart-required UI.
-
-Browser departures make the UI inert and replace the document without waiting
-for producer or persistence drains. Deliberate sign-out retires the working
-document before credential clearing: its retirement notification must not race
-the bounded auth operation. Unexpected retirement enters a resource-free
-recovery destination. Recovery opens no resources until explicitly requested.
-A cancelled navigation or history restoration must not reactivate retired
-resources. Preserve component disposal, acquisition rollback, account fences,
-and independent source-library transfer lifetimes.

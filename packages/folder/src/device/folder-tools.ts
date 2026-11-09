@@ -1,0 +1,114 @@
+/**
+ * What `epicenter check` and `epicenter format` run over a device's files,
+ * for a contract that may have arrived as JSON: whether each file fits it,
+ * and every note it claims rewritten in house style.
+ */
+import {
+	CONTRACT_PATH,
+	checkContract,
+	compileContract,
+	type FileIssue,
+	isHiddenPath,
+} from '@epicenter/definition/contract';
+import { formatNote } from '@epicenter/definition/note';
+import { Ok } from 'wellcrafted/result';
+import { decodeNote } from '../note-codec.js';
+import type { Store } from './store.js';
+
+/**
+ * Every contract file of `store` checked against `contract`: one issue per
+ * problem, in path order. Hidden paths, the root AGENTS.md, and the folder's
+ * own `epicenter.json` are excluded.
+ * A contract that is not well formed is the error.
+ */
+export async function checkStore(contract: unknown, store: Store) {
+	const compiled = compileContract(contract);
+	if (compiled.error !== null) return compiled;
+	const { data: listed, error } = await store.list(['']);
+	if (error !== null) return { data: null, error };
+	const files: { path: string; text?: string }[] = [];
+	const unreadable: FileIssue[] = [];
+	const paths = listed
+		.map(({ path }) => path)
+		.filter(
+			(path) =>
+				!isHiddenPath(path) && path !== 'AGENTS.md' && path !== CONTRACT_PATH,
+		)
+		.sort();
+	for (const path of paths) {
+		if (!path.endsWith('.md')) {
+			files.push({ path });
+			continue;
+		}
+		const read = await store.read([path]);
+		if (read.error !== null) return read;
+		const [file] = read.data;
+		if (file === undefined || 'gone' in file) continue;
+		const text = decodeNote(file.bytes);
+		if (text.error !== null) unreadable.push({ path, message: text.error });
+		else files.push({ path, text: text.data });
+	}
+	const checked = checkContract(contract, files);
+	if (checked.error !== null) return checked;
+	return Ok({
+		files: paths.length,
+		issues: [...unreadable, ...checked.data].sort((a, b) =>
+			a.path < b.path ? -1 : a.path > b.path ? 1 : 0,
+		),
+	});
+}
+
+/**
+ * Rewrite every note a collection of `contract` claims in house style, each
+ * only while it still holds the bytes read. A note whose front matter does
+ * not parse is left as it is and named in `refused`, as is one that changed
+ * while this ran. Files no collection claims are not touched.
+ */
+export async function formatStore(contract: unknown, store: Store) {
+	const compiled = compileContract(contract);
+	if (compiled.error !== null) return compiled;
+	const { data: listed, error } = await store.list(['']);
+	if (error !== null) return { data: null, error };
+	const formatted: string[] = [];
+	const refused: { path: string; reason: string }[] = [];
+	let unchanged = 0;
+	const encoder = new TextEncoder();
+	for (const { path } of listed.sort((a, b) => (a.path < b.path ? -1 : 1))) {
+		const claim = compiled.data.claim(path);
+		if (claim?.collection.kind !== 'note') continue;
+		const read = await store.read([path]);
+		if (read.error !== null) return read;
+		const [file] = read.data;
+		if (file === undefined || 'gone' in file) continue;
+		const text = decodeNote(file.bytes);
+		if (text.error !== null) {
+			refused.push({ path, reason: text.error });
+			continue;
+		}
+		const styled = formatNote(text.data, claim.collection.keys);
+		if (styled.error !== null) {
+			refused.push({
+				path,
+				reason:
+					styled.error.line === undefined
+						? styled.error.reason
+						: `line ${styled.error.line}: ${styled.error.reason}`,
+			});
+			continue;
+		}
+		if (styled.data === text.data) {
+			unchanged++;
+			continue;
+		}
+		const written = await store.put(
+			path,
+			encoder.encode(styled.data),
+			file.version,
+		);
+		if (written.error?.name === 'Moved')
+			refused.push({ path, reason: 'It changed while it was being formatted' });
+		else if (written.error !== null) return written;
+		else formatted.push(path);
+	}
+	return Ok({ formatted, unchanged, refused });
+}

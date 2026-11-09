@@ -37,7 +37,8 @@ code can serve another issuer without importing its product policy.
 
 This decision does not implement self-hosted admission, credentials, sessions,
 or server installation configuration. Those remain in the
-[library ownership execution plan](../../specs/20260909T004225-library-ownership-execution.md).
+<!-- doc-path-check: ignore-next-line -->
+library ownership execution plan (`specs/20260909T004225-library-ownership-execution.md`, deleted; recover via `git log --all --full-history`).
 
 ## Considered alternatives
 

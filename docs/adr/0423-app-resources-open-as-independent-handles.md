@@ -1,9 +1,11 @@
 # 0423. Stores own data, Local blobs, and SQLite while services open independently
 
-- **Status:** Proposed
+- **Status:** Superseded
+- **Superseded by:** [ADR-0534](0534-data-folders-are-the-only-data-model.md), which removes the Yjs store.
 - **Date:** 2026-09-22
 - **Unbuilt:** Complete application outcome propagation, Shared resource opening, and live SQLite projections. Page-root composition, direct runtime transcription, and store-owned blob acquisition are implemented in the current product paths; the generic composition surface remains incomplete.
 - **Amends:** [ADR-0388](0388-the-app-owns-what-a-library-scopes-and-the-package-s-modules-supply-what-the-device-supplies.md) and [ADR-0390](0390-the-app-is-the-unit-of-ownership-and-a-capability-is-the-unit-of-sharing.md) at resource ownership; [ADR-0389](0389-the-open-call-decides-the-app-s-type-and-a-local-app-has-no-account-members.md) at aggregate App return types; [ADR-0404](0404-the-opened-account-owns-application-local-storage.md) at account-partitioned local resources; [ADR-0407](0407-app-owns-the-declaration-and-data-engine.md) and [ADR-0408](0408-one-app-opener-uses-a-complete-runtime.md) at aggregate opening and runtime injection; [ADR-0410](0410-an-app-is-returned-ready-and-page-teardown-owns-recovery.md), [ADR-0411](0411-honeycrisp-displays-data-from-one-app.md), [ADR-0412](0412-app-data-addresses-name-scopes-not-libraries.md), and [ADR-0413](0413-app-boot-owns-the-working-page-lifetime.md) at App-wide lifecycle and nested capability access.
+<!-- doc-path-check: ignore-next-line -->
 - **Implementation note (2026-09-23):** Local stores own `.blobs` acquisition and cleanup. Personal stores own data and SQL; an Account-bound client owns hosted access under [ADR-0438](0438-hosted-blobs-have-stable-authority-urls.md). Whispering opens Local, optional Personal, recorder, and inference resources from its page root. See `packages/app/README.md` for the current public API.
 
 ## Context
@@ -56,6 +58,7 @@ Shorter-lived operations still release their temporary resources.
 **Each resource constructor captures its required inputs and owns its handle.**
 
 The acquisition boundaries are listed here. Verify current signatures
+<!-- doc-path-check: ignore-next-line -->
 against the resource subpaths and `packages/app/README.md`.
 
 | Import | Constructor | Captured input |

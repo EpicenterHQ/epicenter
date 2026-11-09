@@ -41,7 +41,7 @@
 	} from '$lib/auth/providers';
 	import ProviderButton from '$lib/auth/ProviderButton.svelte';
 	import UserIdentity from '$lib/auth/UserIdentity.svelte';
-	import { startDashboardSignIn } from '$lib/platform/auth';
+	import { auth } from '$lib/platform/auth';
 	import { getDashboard } from '$lib/dashboard/context';
 	const { accountQueries, management: authClient, queryClient, signal } = getDashboard();
 	// Leaving account settings does not retire the shared dashboard Account.
@@ -120,7 +120,7 @@
 				label: 'Sign in',
 				onClick: async () => {
 					if (pageDisposed || signal.aborted) return;
-					await startDashboardSignIn({ reauthenticate: true });
+					await auth.startSignIn({ reauthenticate: true });
 				},
 			},
 		});
@@ -180,9 +180,9 @@
 			confirm: { text: 'Disconnect', variant: 'destructive' },
 			onConfirm: async () => {
 				if (pageDisposed || signal.aborted) return;
+				// Better Auth 1.7 names the account row, not the provider identity.
 				const { error } = await authClient.unlinkAccount({
-					providerId: linkedAccount.providerId,
-					accountId: linkedAccount.accountId,
+					accountId: linkedAccount.id,
 				});
 				if (pageDisposed || signal.aborted) return;
 				if (error) {

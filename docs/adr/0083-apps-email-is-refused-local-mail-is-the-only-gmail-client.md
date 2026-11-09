@@ -4,6 +4,7 @@
 - **Date:** 2026-06-30
 - **Amended:** 2026-09-01. The retirement below went unexecuted, and in the gap
   Local Mail was wired to the very client this ADR refused to reuse:
+<!-- doc-path-check: ignore-next-line -->
   `apps/local-mail/ui/vite.config.ts` mapped `GOOGLE_MAIL_CLIENT_ID` and
   `GOOGLE_MAIL_CLIENT_SECRET` onto the `VITE_`-prefixed names it reads. Google's
   inactivity sweep then deleted both clients, dev and prod, and every

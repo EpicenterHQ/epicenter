@@ -1,134 +1,202 @@
 # Apps
 
-An application composes the stores and services its workflows need. Each store
-owns its tables, KV, and cleanup; Local also owns its blobs. Hosted blobs,
-recording, inference, SQL, and secrets have their own constructors and lifetimes.
+The apps below are frozen on the folder sync product, which waits
+([ADR-0840](../docs/adr/0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md)).
+Each still runs over its local folder, and nothing syncs it. In its turn each
+is rebuilt as an app whose `epicenter.ts` defines its actions
+([ADR-0841](../docs/adr/0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md)),
+with its pages on top, and the frozen copy leaves when the rebuilt one runs
+([ADR-0843](../docs/adr/0843-new-code-imports-nothing-from-the-waiting-product-which-leaves-by-deletion.md)).
+The rest of this page describes them as they were built.
 
-Epicenter's desktop applications run as SPAs in Tauri WebViews. The Tauri host
-launches a Bun sidecar that serves bundles, HTTP, WebSockets, and the Home
-session; Rust owns native mechanisms. The host brokers credentials and device
-resources without opening an application's synchronized store. Browser builds
-open stores through the same API.
+An app is a lens on a person's folders: a view of what it understands in a
+folder, a window over one folder, and its capabilities
+([ADR-0813](../docs/adr/0813-epicenter-is-your-folders-and-apps-are-lenses.md),
+[ADR-0818](../docs/adr/0818-an-app-is-a-view-a-window-and-its-capabilities-and-everything-is-repairable-by-hand.md)).
+Today an app describes that view as a contract (`defineContract` from
+`@epicenter/definition/contract`) and opens its folder through
+`@epicenter/folder`, which gives it each of the contract's collections, read
+with `items`, `get` and `list` and written with `set` and `delete`, which
+never fail: the folder keeps a write until it lands
+([ADR-0775](../docs/adr/0775-a-write-never-fails-the-folder-keeps-it-until-it-lands.md)).
+Any program that writes the layout is a valid writer. The decided shape is
+`openFolder(view)` over the folder a window was opened on, with the home,
+sync, history, and sharing supplied by the platform
+([ADR-0815](../docs/adr/0815-the-platform-gives-a-window-its-folder-and-every-app-the-same-home.md));
+`defineView` and `@epicenter/app` are not built.
 
-This directory also contains server deployables (`api` and `self-host`), the
-public `landing` site, the `local-books` accounting CLI, and the `sync-lab`
-harness. Local Mail has a Svelte UI in `local-mail/ui` and Gmail cache and triage
-operations in `local-mail/src`.
+On a computer an app reads and writes files and does not sync: only
+Epicenter's programs (the Epicenter app, the CLI, `epicenter mcp`) do
+([ADR-0822](../docs/adr/0822-only-epicenter-syncs-on-a-computer-and-a-folder-holds-only-its-content.md)),
+and no Git runs there
+([ADR-0804](../docs/adr/0804-a-computer-keeps-a-plain-folder-and-every-surface-syncs-with-one-typescript-function.md)).
+A folder's history is its ledger on the server, at
+`<api origin>/folders/<id>`. A web app has no disk, so its folder is the
+folder on the server and each save is a change
+([ADR-0823](../docs/adr/0823-on-the-web-the-folder-on-the-server-is-the-apps-store.md)).
+The code still says note and `{id}` where the records
+decided item and `{name}`; the rename is pending
+([ADR-0802](../docs/adr/0802-people-share-spaces-an-app-works-in-one-at-a-time-and-a-folder-carries-its-contract.md)).
 
-## Declare data, then acquire resources
+## Variants
 
-`defineStore` declares a stable store ID and schema. The declaration is inert:
-importing it opens no storage and captures no Account. Applications can reuse a
-definition across Local and Personal or use different definitions by workflow.
-The definition ID names its data and Local blob namespace; host application
-identity remains separate even when the two use the same string.
+An app has one build, which serves the web and its desktop window
+([ADR-0781](../docs/adr/0781-apps-branch-on-what-a-capability-offers-and-one-build-serves-every-surface.md));
+each surface has one store for the page's life. Every web app is online
+and keeps nothing in the browser
+([ADR-0786](../docs/adr/0786-every-web-app-is-online-and-browser-storage-leaves-the-platform.md)).
+
+Every surface opens its folder the same way, `openFolder(contract,
+home({ site, account }))` from `@epicenter/folder`, and `home` picks its
+store where the page runs:
+
+| Surface | Store | The account |
+| --- | --- | --- |
+| Desktop (a Tauri window) | a folder on the computer, which Epicenter (the app, the CLI) syncs, never the app | only for hosted features: its token holds only `ai`, and its shell relays only inference ([ADR-0822](../docs/adr/0822-only-epicenter-syncs-on-a-computer-and-a-folder-holds-only-its-content.md)) |
+| Web | the folder attached to the app, on the server, behind sign-in | required |
+
+| App | Surfaces |
+| --- | --- |
+| Capture, Honeycrisp, Todos, Vocab, Whispering | web, desktop |
+| Messages | local (a program on the computer where Beeper Desktop runs) |
+
+The surfaces need not promise the same things
+([ADR-0780](../docs/adr/0780-a-surface-uses-what-its-platform-gives-and-parity-is-not-a-goal.md)).
+A guarantee that needs a process outliving the page is the desktop's:
+keeping a recording through a crash or a closed window, recording in the
+background, a global shortcut, and working on a folder offline, which Epicenter
+syncs when it can. Each app's
+README says what its web build does not promise.
+
+Each desktop app is a Tauri program of its own
+([ADR-0701](../docs/adr/0701-apps-run-as-separate-programs.md)) that loads
+the same build the web serves. Capture, Honeycrisp, Todos, Vocab and
+Whispering share the
+[`epicenter-standalone`](../packages/tauri-epicenter-standalone/README.md)
+crate, which also describes how a web app gains a desktop window.
+
+## Svelte app root
+
+Every app opens its capabilities once, in `src/lib/app.ts`, and adapts each
+for Svelte there with `reactive`
+([ADR-0766](../docs/adr/0766-an-apps-capabilities-are-module-values-opened-synchronously.md),
+[ADR-0769](../docs/adr/0769-svelte-reads-every-capability-through-one-reactive-copy.md)).
+Nothing in it awaits, and an edit to it reloads the page
+([ADR-0768](../docs/adr/0768-retry-belongs-to-a-failure-and-editing-app-ts-reloads-the-page.md)):
 
 ```ts
-import { defineStore, defineTable, field } from '@epicenter/app';
+// apps/todos/src/lib/app.ts
+const signIn = connectAccount({ clientId: 'so.epicenter.todos', api: APP_URLS.API, selfHosted: SELF_HOST_ORIGIN });
 
-export const notesDefinition = defineStore({
-  id: 'com.example.notes',
-  title: 'Notes',
-  kv: {},
-  tables: { notes: defineTable({ fields: { title: field.string() } }) },
-});
+export const account = reactive(signIn);
+export const folder = reactive(
+  openFolder(todos, home({ site: APPS.TODOS.url, account: signIn })),
+);
 ```
 
-The mounted product acquires the resources it needs. A store opener resolves
-with a usable handle after required acquisition and hydration:
+The page connects once to its stores: the folder and, where the app keeps
+any, this computer's settings (`settings` from `@epicenter/local`), passed
+to `<WhenOpen>` from `@epicenter/svelte` beside the folder
+([ADR-0778](../docs/adr/0778-a-page-connects-once-and-then-reads-synchronously.md)).
+`<WhenOpen>` shows a spinner after 150 ms while they connect, Recovery with
+Retry when one cannot, the pages once both have, and the leave guard while
+a write is out. Every read inside it is synchronous.
+Where the folder is on the server, a signed-out person is asked to sign in
+first; a folder on this computer (`folder.reveal`) needs no sign-in:
 
-```ts
-import { openLocal, openPersonal } from '@epicenter/app/open';
-
-const local = await openLocal(notesDefinition);
-local.tables.notes.create({ title: 'On this device' });
-
-// A workflow requiring synchronized data supplies its captured Account.
-const personal = await openPersonal(notesDefinition, { account });
-personal.tables.notes.create({ title: 'Personal notes' });
+```svelte
+<!-- apps/todos/src/routes/(app)/+layout.svelte -->
+{#if folder.reveal === null && account.state().status === 'signed-out'}
+  <SignIn {account} />
+{:else}
+  <WhenOpen app="Todos" {folder}>{@render children()}</WhenOpen>
+{/if}
 ```
 
-Local and Personal hold separate datasets. Local retains its namespace across
-sign-in and account changes. Personal captures its account identity and transport
-when opening and never retargets. Signing in does not move Local data to Personal.
-Each workflow names its destination; products decide which features require
-sign-in and which acquisitions may proceed independently.
+One build serves every surface
+([ADR-0781](../docs/adr/0781-apps-branch-on-what-a-capability-offers-and-one-build-serves-every-surface.md)):
+each capability package decides where the page runs, and a view branches
+on what a capability offers, such as the header's `FolderChrome` where
+`folder.reveal` is there and `RepositoryChrome` otherwise. (`FolderChrome`
+says whether Epicenter syncs the folder, from the record Epicenter keeps,
+and where to get Epicenter until it does: a desktop app never syncs,
+ADR-0822.) Components import `folder` from `$lib/app.js`.
 
-Recording borrows an opened Local store's blobs through
-`createRecorder({ localBlobs: local.blobs })`. Stores expose local SQL through `store.sqlite`; secrets take their own
-namespace IDs. Inference takes the account, runtime, or endpoint it uses. Schema
-consumers, tests, and artifact tools import the same definition without opening
-these resources.
+UI components read a collection off `folder`, sort with the app's own
+order, and read and write through it: `items()`, `invalid()` (notes that
+do not read, with their text), and `set` and `delete`, which settle a change
+another writer made since the way sync does. The component that shows a
+note makes one editor of it (`todos.edit({ id })`), gates on `exists()`,
+and binds its `fields`. See [Todos](todos/README.md),
+[Capture](capture/README.md) and the
+[Svelte package](../packages/svelte/README.md).
 
-See the [resource contract](../packages/app/README.md) for acquisition and cleanup,
-and the [data contract](../packages/app/src/data/README.md) for schema and store
-behavior. [ADR-0423](../docs/adr/0423-app-resources-open-as-independent-handles.md)
-records resource composition; [ADR-0430](../docs/adr/0430-define-store-declares-data-and-products-compose-resources.md)
-records the declaration name.
+## Running an app
 
-## Product ownership
+The root `bun dev:<app>` scripts start each app's required development
+processes. `bun dev:<app>:desktop` and `bun build:<app>:desktop` start and
+build a desktop app (`capture`, `honeycrisp`, `todos`, `vocab`,
+`whispering`) over the app's dev server or its `build/`; they need a Rust
+toolchain. Each app README names its route
+and test commands.
 
-Keep the inert declaration separate from live acquisition. Vocab uses
-`src/lib/data.ts` and `src/lib/folder.ts` for one account-independent browser
-folder through `@epicenter/folder/browser`. Mounted routes start acquisition.
-Importing those modules or preloading a route must not acquire root resources.
+## Where each app's files live
 
-Whispering is a standalone desktop app whose
-data is a Git-versioned folder of files (`@epicenter/folder`). Its declaration
-is `src/lib/definition.ts`, and its mounted page opens a workspace from
-`src/lib/workspace/`. See its [README](whispering/README.md).
+A desktop app on `epicenter-standalone` opens the folder its shell derives
+from its site: `~/Epicenter/<label>` for Epicenter apps and
+`~/Epicenter/<owner>/<label>` for other apps. Development builds use
+`~/Epicenter Dev` as the root. The folder is made when missing for now.
+A failed open shows `<WhenOpen>`'s recovery screen with Retry. The decided
+shape is a folder directly inside the Epicenter folder that the app's first
+run offers to make or to pick, and that the app remembers by its id
+([ADR-0813](../docs/adr/0813-epicenter-is-your-folders-and-apps-are-lenses.md)).
+The Epicenter app and the CLI commands that synced and shared these folders
+are deleted; the `folder-sync-product` tag keeps them.
 
-Pass the store or capability a consumer needs. Product composition functions
-express startup dependencies and feature availability; they do not create a
-mandatory SDK App handle or one readiness barrier for unrelated services.
+| App | Surfaces | Desktop folder | Contract |
+| --- | --- | --- | --- |
+| [Todos](todos/README.md) | web; desktop | `~/Epicenter/todos` | `todos`: `todos` |
+| [Capture](capture/README.md) | web; desktop | `~/Epicenter/capture` | `capture`: `captures` |
+| [Honeycrisp](honeycrisp/README.md) | web; desktop | `~/Epicenter/honeycrisp` | `honeycrisp`: `notes`, `folders` |
+| [Vocab](vocab/README.md) | web; desktop | `~/Epicenter/vocab` | `vocab`: `entries`, `chats`, `messages` |
+| [Whispering](whispering/README.md) | web; desktop | `~/Epicenter/whispering` | `whispering`: `recordings`, `audio`, `transcriptions`, `transformations`, `transformation_runs`, `text_runs`, `shortcuts` |
+| [Messages](messages/README.md) | local program (`bun run --cwd apps/messages start`) | none: `<AppData>/apps/so.epicenter.messages`, which its program owns | `messages`: `drafts`, `attempts` |
 
-Root handles normally last for the browser/WebView lifetime. Product departure
-fences new work and active capture even while navigation is pending. Full document
-replacement or desktop restart ends the session. Explicit resource `close()` is
-terminal and awaitable; it settles admitted work and leaves sibling resources
-usable. Temporary owners close their own handles. Navigation itself does not
-prove that pending work was saved.
+A web app keeps none of its files in the browser. The Epicenter app keeps no
+data of its own; the Epicenter folder, `~/Epicenter` (`~/Epicenter Dev` for a
+development build, whose `tauri.dev.conf.json` states
+`"environment": "development"`), holds the standalone apps' folders and every
+other folder a person has. The Rust comments still call it the library root
+([ADR-0816](../docs/adr/0816-the-epicenter-app-is-where-a-person-sees-and-manages-every-folder.md)). A
+standalone app reaches its folder and its AppData by name, never by path
+([ADR-0725](../docs/adr/0725-an-app-reaches-named-roots-through-one-command-per-storage-operation.md)),
+and whatever is at its folder's path is its own
+([ADR-0726](../docs/adr/0726-an-apps-path-is-its-claim.md)).
 
-Application-specific platform differences use `#platform/*` subpath imports.
-Honeycrisp's `#platform/auth` selects its host or browser binding at build time.
-`@epicenter/app` selects its default browser or host resource implementations
-through `isTauri()`. Store tests inject `createMemoryStoreRuntime()` from
-`@epicenter/app/testing` into the store opener. Other resource tests supply the
-bindings that resource needs.
+Local Books keeps its QuickBooks replica in SQLite under
+`<AppData>/apps/so.epicenter.local-books`, outside the Epicenter folder. `api`,
+`landing`, and `posthog-reverse-proxy` are infrastructure and open no folder.
 
-## Adding an app
+## Product root names
 
-1. Declare `defineStore({ id, title, kv, tables })` in
-   `apps/<app>/src/lib/data.ts`. Preserve existing durable IDs, table names, and
-   field names. Applications own fallback values; schema fields have no defaults.
-2. Add a product opening function beside the declaration. Open the required
-   stores and services, capturing an Account only where needed. Keep optional
-   feature acquisition from blocking unrelated workflows.
-3. Start opening from the mounted primary route. Callback and auxiliary routes
-   must not acquire a second primary persistence owner. Pass usable stores and
-   capabilities to services and UI.
-4. Connect product work to page departure and account retirement. Do not retarget
-   retained handles when credentials change.
-5. If the app needs the hosted API in development, add a `dev:<app>` script at
-   the repo root.
+Name each product root `<Product>App`: `TodosApp`, `CaptureApp`,
+`HoneycrispApp`, `VocabApp`, `WhisperingApp`, and `MessagesApp`. This
+component composes the product's state and interface over the folder
+`src/lib/app.ts` opened; nothing under it chooses a store.
 
-[Todos](todos/README.md) keeps a file-first folder (`@epicenter/folder`)
-rather than a Yjs store. Inside Epicenter it is a compiled application over an
-ordinary directory, `so.epicenter.todos` under the host's working-copy
-directory. The shared Rust Folder plugin owns that directory,
-and the window reaches it through typed Tauri invoke commands; `#platform/folder`
-selects that at build time. `bun dev:todos` starts the browser demo instead,
-with the folder in the browser's origin private file system (OPFS) and a
-loopback Git backend. Neither needs the hosted API.
+Use `Shell` for surrounding layout and `View` for a screen or representation.
+Keep a specific tool name such as `FolderEditor` for a window within a larger
+application. For the naming rationale, see
+[product root component names](../docs/adr/0655-product-root-components-use-the-app-name-and-app-suffix.md).
 
-A browser folder is one OPFS directory holding its files and `.git`. Opening
-uses only OPFS; it does not read or migrate earlier IndexedDB databases
-([ADR-0497](../docs/adr/0497-browser-folders-use-scoped-opfs-directories.md)).
-Capture, Honeycrisp, Todos, Vocab, and Whispering open release Local browser
-folders; none selects a development or account scope yet.
+## Messages and Beeper
 
-Honeycrisp's [README](honeycrisp/README.md) explains its standalone Tauri shell,
-native Markdown folder, and local editing drafts. It needs neither the Epicenter
-host nor an account. [Local Mail's README](local-mail/README.md) explains its
-saved queries and Gmail cache. Epicenter owns the desktop host and Home session
-for applications that use that host.
+[Messages](messages/README.md) keeps its drafts and send attempts as notes of
+its own contract in a directory its program owns on this computer, outside
+the Epicenter folder. Conversation history stays in Beeper and is read into
+memory.
+Messages runs as a local program on the computer where Beeper Desktop runs
+(`bun run --cwd apps/messages start`): its server answers the page's
+requests of its drafts' directory, and its Beeper requests through the
+Epicenter CLI, which keeps the token in the device keychain. It starts with
+fictional demo chats, and `bun dev:messages` shows only those.

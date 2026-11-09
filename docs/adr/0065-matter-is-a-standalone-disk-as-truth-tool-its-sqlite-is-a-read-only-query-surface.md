@@ -1,6 +1,7 @@
 # 0065. Matter is a standalone disk-as-truth tool; its SQLite mirror is a first-class read-only query surface under `epicenter matter`
 
-- **Status:** Accepted
+- **Status:** Superseded
+- **Superseded by:** [ADR-0534](0534-data-folders-are-the-only-data-model.md), which deletes Matter.
 - **Date:** 2026-06-25
 - **Relates:** [ADR-0026](0026-matter-vault-sqlite-is-a-projection-never-a-verdict-source.md) (the mirror is a read-only projection, never a verdict source; this ADR promotes that same mirror to the headline query surface without changing its read-only contract)
 

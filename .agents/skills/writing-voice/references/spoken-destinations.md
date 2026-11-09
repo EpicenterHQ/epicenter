@@ -33,7 +33,10 @@ it; do not force another argument into the short merely because it is related.
 
 Notice when repeated explanation, length, or sentence load makes the performance
 feel padded. Report a duration concern in relation to its intended outlet,
-without imposing a universal word count or a two-second sentence. Do not add
+without imposing a universal word count or a two-second sentence. Listening
+attention or a short-form destination does not by itself authorize compression
+of the canonical page. Apply an explicitly requested shortening within its
+scope; otherwise, a useful cut remains a proposal. Do not add
 clickbait, an unearned moral, or a platform-specific hook. Timing and delivery
 can reveal a wording problem, but should not conceal one.
 

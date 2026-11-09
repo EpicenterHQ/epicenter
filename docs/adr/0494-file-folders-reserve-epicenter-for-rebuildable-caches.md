@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-03
-- **Relates:** [ADR-0436](0436-stores-own-local-sqlite-namespaces.md) defines current store-owned SQL; [ADR-0459](0459-sqlite-is-a-local-capability-for-derived-or-transactional-state.md) separates authored files from application SQL; [ADR-0463](0463-queryable-exports-contain-completed-sqlite-snapshots.md) records the deferred query export proposal. [ADR-0517](0517-a-data-folder-can-live-inside-any-repository.md) supplies the first caller: queries over a data folder inside a host repository.
+- **Relates:** [ADR-0702](0702-a-data-folders-unfinished-writes-wait-in-epicenter-outside-its-data.md) reserves `.epicenter/` for a folder's unfinished writes, which a query never makes; [ADR-0436](0436-stores-own-local-sqlite-namespaces.md) defines current store-owned SQL; [ADR-0459](0459-sqlite-is-a-local-capability-for-derived-or-transactional-state.md) separates authored files from application SQL; [ADR-0463](0463-queryable-exports-contain-completed-sqlite-snapshots.md) records the deferred query export proposal. [ADR-0517](0517-a-data-folder-can-live-inside-any-repository.md) supplies the first caller: queries over a data folder inside a host repository.
 - **Unbuilt:** browser folder query sessions, the capture contract, managed-folder ignore initialization and file-first Mail resource composition. Persistent folder caches and their locations are deferred, not implementation tasks.
 
 ## Context
@@ -28,6 +28,9 @@ meaning or execution behavior. ADR-0501 records the removal.
 ## Decision
 
 **Folder queries start with transient in-memory projections. No new `.epicenter/` directory, reserved subtree, or live database filename is part of this design.**
+
+`.epicenter/` holds only a folder's unfinished writes, and one layout module
+per language owns it (ADR-0702). A query writes nothing there.
 
 A query captures selected source and its definition interpretation, builds an
 in-memory SQLite projection, executes, and releases its resources. An explicit
@@ -166,9 +169,9 @@ queries can reuse a captured projection, and fresh sessions pay capture and
 projection costs. Large collections may later justify persistence; that benefit
 has not been established for actual file-folder queries.
 
-Authored folders require no new `.epicenter/` subtree. Their current files remain
-readable and portable. SQLite query export is deferred; there is no external
-SQL file contract.
+Queries add no `.epicenter/` subtree; `.epicenter/` holds only unfinished
+writes (ADR-0702). Authored files remain readable and portable. SQLite query
+export is deferred; there is no external SQL file contract.
 
 A Mail source-folder copy does not back up its offline mailbox or pending triage.
 Those databases need separate backup and safe activation after restore. Mirror
