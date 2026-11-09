@@ -93,14 +93,13 @@ const HANDLERS: { [K in Exclude<Command, 'help'>]: Handler } = {
  * JSON object as MCP and scripts pass it, or else from flags and positionals.
  */
 function inputOf(action: Action, rest: string[]) {
-	if (rest[0] !== '--input')
-		return (() => {
-			const parsed = inputFromArgs(action, rest);
-			if ('error' in parsed) return parsed;
-			return checkInput(action, parsed.input, (key) =>
-				action.positional?.includes(key) ? `<${key}>` : `--${flagOf(key)}`,
-			);
-		})();
+	if (rest[0] !== '--input') {
+		const parsed = inputFromArgs(action, rest);
+		if ('error' in parsed) return parsed;
+		return checkInput(action, parsed.input, (key) =>
+			action.positional?.includes(key) ? `<${key}>` : `--${flagOf(key)}`,
+		);
+	}
 	if (rest.length !== 2)
 		return { error: '--input takes one JSON object and nothing else' };
 	let raw: unknown;
@@ -159,7 +158,7 @@ export async function runCli(argv: string[]): Promise<number> {
 			return 0;
 		}
 		const [name, ...words] = tokens as [string, ...string[]];
-		if (name !== 'help' && Object.hasOwn(HANDLERS, name)) {
+		if (Object.hasOwn(HANDLERS, name)) {
 			const command = name as keyof typeof HANDLERS;
 			if (help) {
 				print(COMMANDS[command]);
