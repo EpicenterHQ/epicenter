@@ -210,7 +210,7 @@ test('F9 one table owns the vocabulary; --json goes anywhere; defaulted fields a
 		expect(result.code).toBe(2);
 		expect(result.report.error.message).toContain(`Unknown app "${word}"`);
 	}
-	for (const word of ['new', 'add', 'sync', 'serve'])
+	for (const word of ['new', 'install', 'link', 'sync', 'serve'])
 		expect((await f.json('new', word)).code).toBe(2);
 	const help = (await f.run('--help')).stdout;
 	expect(help).toContain('epicenter sync [<app>]');

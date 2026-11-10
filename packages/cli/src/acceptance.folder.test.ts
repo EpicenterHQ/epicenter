@@ -294,16 +294,16 @@ test('W4 epicenter new writes the template and runs git init', async () => {
 	]);
 });
 
-test('W5 epicenter add links a folder of any kind and clones a Git URL, committing nothing', async () => {
+test('W5 epicenter link joins a folder of any kind where it lives, committing and moving nothing', async () => {
 	const f = await setup();
 	const loose = await f.folder(
 		join(f.root, 'Code', 'loose'),
 		{ 'epicenter.json': declarationOf('loose'), 'notes/a.md': 'a\n' },
 		{ git: false },
 	);
-	const added = await f.run('add', loose, '--json');
-	expect(added.code).toBe(0);
-	expect(JSON.parse(added.stdout)).toEqual({
+	const linked = await f.run('link', loose, '--json');
+	expect(linked.code).toBe(0);
+	expect(JSON.parse(linked.stdout)).toEqual({
 		name: 'loose',
 		folder: join(f.home, 'loose'),
 	});
@@ -318,33 +318,25 @@ test('W5 epicenter add links a folder of any kind and clones a Git URL, committi
 	});
 	const head = await gitIn(vault, 'rev-parse', 'HEAD');
 	await writeFile(join(vault, 'recipes', 'soup.md'), 'soup\n');
-	expect((await f.run('add', join(vault, 'recipes'))).code).toBe(0);
+	expect((await f.run('link', join(vault, 'recipes'))).code).toBe(0);
 	expect(await readlink(join(f.home, 'recipes'))).toBe(join(vault, 'recipes'));
 	expect(await gitIn(vault, 'rev-parse', 'HEAD')).toBe(head);
 	expect(await gitIn(vault, 'status', '--porcelain')).toBe(
 		'?? recipes/soup.md',
 	);
 
-	const source = await f.folder(join(f.root, 'shared', 'garden'), {
-		'.gitignore': gitignore,
-		'epicenter.json': declarationOf('garden'),
-		'beds.md': 'beds\n',
-	});
-	const sha = await gitIn(source, 'rev-parse', 'HEAD');
-	const url = `file://${source}`;
-	const cloned = await f.run('add', url, '--json');
-	expect(cloned.code).toBe(0);
-	const folder = join(f.home, 'garden');
-	expect(JSON.parse(cloned.stdout)).toEqual({ name: 'garden', folder });
-	expect(await readFile(join(folder, 'beds.md'), 'utf8')).toBe('beds\n');
-	expect(await gitIn(folder, 'rev-parse', 'HEAD')).toBe(sha);
-	expect(await gitIn(folder, 'remote')).toBe('origin');
-	expect(await gitIn(folder, 'remote', 'get-url', 'origin')).toBe(url);
-
-	expect((await f.run('add', loose, '--init', '--json')).code).toBe(2);
+	const bare = await f.folder(
+		join(f.root, 'Code', 'bare'),
+		{ 'a.md': 'a\n' },
+		{ git: false },
+	);
+	expect((await f.run('link', bare, '--json')).code).toBe(2);
+	expect((await f.run('link', loose, 'other', 'extra', '--json')).code).toBe(2);
+	expect(
+		(await f.run('link', 'https://example.com/garden.git', '--json')).code,
+	).toBe(2);
 	const listed = JSON.parse((await f.run('--json')).stdout);
 	expect(listed.apps.map((app: { name: string }) => app.name)).toEqual([
-		'garden',
 		'loose',
 		'recipes',
 	]);

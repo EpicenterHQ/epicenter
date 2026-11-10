@@ -6,7 +6,6 @@
  */
 import { type Action, COMMANDS, type Command } from '@epicenter/app';
 import packageJson from '../package.json' with { type: 'json' };
-import { addCommand, newCommand } from './add.ts';
 import { REPORT_FLAG, runChild } from './child.ts';
 import { CliError } from './errors.ts';
 import { discoverAll, isFolderPath, loadFolder, loadHomeApp } from './home.ts';
@@ -26,6 +25,7 @@ import {
 	oneAppListing,
 } from './listing.ts';
 import { serveStdio } from './mcp.ts';
+import { linkCommand, newCommand } from './new.ts';
 import {
 	answerInto,
 	fail,
@@ -64,14 +64,14 @@ const HANDLERS: { [K in Command]: Handler } = {
 			return fail(usage('epicenter new needs one name'), json);
 		return newCommand(only, json);
 	},
-	async add(words, json) {
-		const [source, name] = words;
-		if (words.length > 2 || source === undefined)
+	async link(words, json) {
+		const [folder, name] = words;
+		if (words.length > 2 || folder === undefined)
 			return fail(
-				usage('epicenter add needs one folder or Git URL, and maybe a name'),
+				usage('epicenter link needs one folder, and maybe a name'),
 				json,
 			);
-		return addCommand(source, name, json);
+		return linkCommand(folder, name, json);
 	},
 	async install(words, json) {
 		const [source, name] = words;

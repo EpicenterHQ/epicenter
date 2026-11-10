@@ -10,8 +10,8 @@ epicenter reading log 30 --json
 epicenter ./worktree log 30
 epicenter reading log --help
 epicenter new notes
-epicenter add ~/Code/vault
-epicenter add https://github.com/someone/recipes
+epicenter link ~/Code/vault
+epicenter install https://github.com/someone/recipes
 epicenter sync
 epicenter sync reading
 epicenter serve
@@ -88,12 +88,11 @@ Over MCP the tool `sync` takes `{ app?: string }`, runs `epicenter sync` in a ch
 
 ## Adding apps
 
-`epicenter add` makes something one of your apps, by linking or cloning, and commits nothing ([ADR-0852](../../docs/adr/0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md)):
+An app becomes one of yours in one of three ways, and its name is its entry in `~/Epicenter`:
 
-- `add <folder> [<name>]` links a folder with an `epicenter.json` into `~/Epicenter`, whatever it is: a repository, a folder inside one, or neither.
-- `add <git url> [<name>]` is `git clone` into `~/Epicenter`; the clone's remotes are Git's.
-
-An app's name is its entry in `~/Epicenter`. Without `<name>`, `add` takes it the way `git clone` does, from the folder or the URL's last part without `.git`.
+- `epicenter new <name>` makes it there from the built-in template.
+- `epicenter link <folder> [<name>]` links a folder with an `epicenter.json` into `~/Epicenter` where it lives, whatever it is: a repository, a folder inside one, or neither. It commits and moves nothing ([ADR-0852](../../docs/adr/0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md)). Without `<name>` it takes the folder's own name.
+- `epicenter install <source>` puts an app's code there from a source kept apart from its data (below).
 
 `epicenter new <name>` makes the folder from the built-in template: `epicenter.json` with its `$schema`, a `.gitignore` of exactly `node_modules/`, `.cache/`, `*.local`, and `*.local.*` ([ADR-0858](../../docs/adr/0858-where-a-file-lives-decides-whether-it-travels-survives-or-dies-with-its-program.md)), and a `.gitattributes` routing binary types through Git LFS. It runs `git init` and commits the template as `new <name>`. It does not set up Git LFS; `git lfs install` is each computer's, once.
 

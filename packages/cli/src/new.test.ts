@@ -15,14 +15,14 @@ test('new refuses duplicate names without regard to case and reserved words', as
 	const f = await fixture();
 	roots.push(f.root);
 	await mkdir(join(f.home, 'Reading'));
-	for (const name of ['reading', 'serve', 'Bad_Name']) {
+	for (const name of ['reading', 'serve', 'install', 'link', 'Bad_Name']) {
 		const result = await f.run('new', name, '--json');
 		expect(result.code).toBe(2);
 		expect(JSON.parse(result.stdout).error.name).toBe('Usage');
 	}
 });
 
-test('new commits its template, and add commits nothing in a repository it links', async () => {
+test('new commits its template, and link commits nothing in a repository it links', async () => {
 	const f = await fixture();
 	roots.push(f.root);
 	expect((await f.run('new', 'garden')).code).toBe(0);
@@ -57,8 +57,8 @@ test('new commits its template, and add commits nothing in a repository it links
 		'-qm',
 		'start',
 	);
-	const added = await f.run('add', folder, '--json');
-	expect(added.code).toBe(0);
+	const linked = await f.run('link', folder, '--json');
+	expect(linked.code).toBe(0);
 	expect(existsSync(join(folder, '.gitignore'))).toBe(false);
 	expect(await gitIn(folder, 'log', '--format=%s')).toBe('start');
 });

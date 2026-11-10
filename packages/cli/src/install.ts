@@ -25,15 +25,30 @@
  */
 import { cp, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { isName, nameProblem } from '@epicenter/app';
-import { isUrl, makeApp, nameOf } from './add.ts';
 import { CliError } from './errors.ts';
 import { checkedGit, git } from './git.ts';
 import { homeDir, readDeclaration, resolveFolder } from './home.ts';
+import { makeApp } from './new.ts';
 import { fail, made } from './output.ts';
 
 const VIEW = 'view';
+
+/** A Git URL rather than a folder path: a scheme, or `user@host:path`. */
+function isUrl(source: string) {
+	return (
+		/^[a-z][a-z0-9+.-]*:\/\//i.test(source) || /^[\w.-]+@[\w.-]+:/.test(source)
+	);
+}
+
+/** The name `git clone` would give `source`: its last part, without `.git`. */
+function nameOf(source: string) {
+	return basename(source.replace(/[/\\]+$/, '').replace(/^.*:/, '/')).replace(
+		/\.git$/,
+		'',
+	);
+}
 
 async function exists(path: string) {
 	try {

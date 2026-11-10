@@ -1,29 +1,20 @@
 /**
- * `epicenter add` makes something one of your apps, by linking or cloning
- * (ADR-0852). Neither commits anything:
+ * `epicenter new` and `epicenter link`: the two ways a folder becomes one of
+ * your apps in `~/Epicenter` without installing code from a source.
  *
- * - `add <folder>` links the folder into `~/Epicenter`, whatever it is: a
- *   repository, a folder inside one, or neither.
- * - `add <git url>` is `git clone` into `~/Epicenter`; the clone's remotes
- *   are Git's.
+ * - `new <name>` makes the folder from the built-in template, makes it a
+ *   repository, and commits the template.
+ * - `link <folder> [<name>]` links a folder that already has an
+ *   `epicenter.json` into `~/Epicenter`, wherever it lives and whatever it
+ *   is: a repository, a folder inside one, or neither. It commits nothing
+ *   and moves nothing, so the folder's path, scripts, and remotes keep
+ *   working (ADR-0852).
  *
- * The app's name is its entry in `~/Epicenter`: the folder's or repository's
- * own name, as `git clone` picks one, unless a second word gives another.
- *
- * `epicenter new <name>` makes the folder from the built-in template, makes
- * it a repository, and commits the template.
+ * The app's name is its entry in `~/Epicenter`: the folder's own name unless
+ * a second word gives another. `install` (install.ts) is the third way, for
+ * code that comes from a source kept apart from the data.
  */
-import { randomUUID } from 'node:crypto';
-import {
-	mkdir,
-	readdir,
-	realpath,
-	rename,
-	rm,
-	stat,
-	symlink,
-	writeFile,
-} from 'node:fs/promises';
+import { mkdir, readdir, realpath, symlink, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { nameProblem, SCHEMA_URL } from '@epicenter/app';
 import { CliError } from './errors.ts';
@@ -61,15 +52,6 @@ function template(name: string) {
 			(kind) => `*.${kind} filter=lfs diff=lfs merge=lfs -text\n`,
 		).join(''),
 	};
-}
-
-async function exists(path: string) {
-	try {
-		await stat(path);
-		return true;
-	} catch {
-		return false;
-	}
 }
 
 /** Whether `name` is free in the home, ignoring case, as macOS does. */
@@ -132,45 +114,27 @@ export async function makeApp(name: string): Promise<string> {
 	return folder;
 }
 
-/** A Git URL rather than a folder path: a scheme, or `user@host:path`. */
-export function isUrl(source: string) {
-	return (
-		/^[a-z][a-z0-9+.-]*:\/\//i.test(source) || /^[\w.-]+@[\w.-]+:/.test(source)
-	);
-}
-
-/** The name `git clone` would give `source`: its last part, without `.git`. */
-export function nameOf(source: string) {
-	return basename(source.replace(/[/\\]+$/, '').replace(/^.*:/, '/')).replace(
-		/\.git$/,
-		'',
-	);
-}
-
-/** `epicenter add <folder> [<name>]` or `epicenter add <git url> [<name>]`. */
-export async function addCommand(
+/** `epicenter link <folder> [<name>]`. */
+export async function linkCommand(
 	source: string,
 	name: string | undefined,
 	json: boolean,
 ): Promise<number> {
-	const url = isUrl(source);
-	let folder: string | undefined;
-	if (!url) {
-		try {
-			folder = await realpath(resolveFolder(source));
-		} catch {
-			return fail(
-				CliError.Usage({ message: `${source} is not a folder` }).error,
-				json,
-			);
-		}
+	let folder: string;
+	try {
+		folder = await realpath(resolveFolder(source));
+	} catch {
+		return fail(
+			CliError.Usage({ message: `${source} is not a folder` }).error,
+			json,
+		);
 	}
-	const chosen = name ?? nameOf(folder ?? source);
+	const chosen = name ?? basename(folder);
 	const problem = nameProblem(chosen);
 	if (problem !== undefined)
 		return fail(
 			CliError.Usage({
-				message: `${problem}, so it cannot name an app. Name it: epicenter add ${source} <name>`,
+				message: `${problem}, so it cannot name an app. Name it: epicenter link ${source} <name>`,
 			}).error,
 			json,
 		);
@@ -180,12 +144,6 @@ export async function addCommand(
 				.error,
 			json,
 		);
-	return folder === undefined
-		? addFromUrl(source, chosen, json)
-		: addFolder(folder, chosen, json);
-}
-
-async function addFolder(folder: string, name: string, json: boolean) {
 	const read = await readDeclaration(folder);
 	if ('problems' in read)
 		return fail(
@@ -193,28 +151,6 @@ async function addFolder(folder: string, name: string, json: boolean) {
 			json,
 		);
 	await mkdir(homeDir(), { recursive: true });
-	await symlink(folder, join(homeDir(), name));
-	return done(name, json);
-}
-
-async function addFromUrl(url: string, name: string, json: boolean) {
-	await mkdir(homeDir(), { recursive: true });
-	// Clone beside the apps under a hidden name, which discovery skips, then move it into place.
-	const staging = join(homeDir(), `.adding-${randomUUID()}`);
-	try {
-		await checkedGit(homeDir(), ['clone', '-q', url, staging]);
-		const read = await readDeclaration(staging);
-		if ('problems' in read)
-			return fail(
-				CliError.AppProblems({ app: url, problems: read.problems }).error,
-				json,
-			);
-		await rename(staging, join(homeDir(), name));
-		return done(name, json);
-	} catch (error) {
-		return fail(CliError.GitFailed({ cause: error }).error, json);
-	} finally {
-		if (await exists(staging))
-			await rm(staging, { recursive: true, force: true });
-	}
+	await symlink(folder, join(homeDir(), chosen));
+	return done(chosen, json);
 }
