@@ -5,15 +5,17 @@
  * request origin handling. `http.test.ts` drives the backup clock's tick.
  */
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
-import { mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import {
+	chmod,
+	mkdir,
+	readFile,
+	rm,
+	symlink,
+	writeFile,
+} from 'node:fs/promises';
 import { join } from 'node:path';
 import { ActionError, connect } from '@epicenter/app/client';
-import {
-	bareApp,
-	fixture,
-	gitIn,
-	readingApp,
-} from './runner.test-support.ts';
+import { fixture, gitIn, readingApp } from './runner.test-support.ts';
 
 /** Reading's actions as its UI calls them, for `connect`. */
 type Reading = {
@@ -34,15 +36,21 @@ afterEach(async () => {
 	for (const cleanup of cleanups.splice(0)) await cleanup();
 });
 
-async function setup(agents?: string) {
+type Fixture = Awaited<ReturnType<typeof fixture>>;
+
+/**
+ * Serve a new Epicenter once `prepare` has made and committed its apps. serve
+ * backs up once when it starts, so a test makes its apps first, and nothing
+ * is pending for that backup to take; a call waits for it, or it skips an app
+ * with a call running.
+ */
+async function setup<T = undefined>(
+	prepare?: (f: Fixture) => Promise<T>,
+	agents?: string,
+) {
 	const f = await fixture();
 	if (agents !== undefined) await writeFile(join(f.home, 'AGENTS.md'), agents);
-	// serve backs up once when it starts, after it says it is serving. An entry
-	// that is no repository makes that backup say when it is done, and is gone
-	// before the test makes its own apps.
-	const probe = join(f.home, 'probe');
-	await mkdir(probe);
-	await writeFile(join(probe, 'epicenter.ts'), bareApp('probe'));
+	const made = (await prepare?.(f)) as T;
 	const child = Bun.spawn([process.execPath, f.bin, 'serve', '--port', '0'], {
 		cwd: f.root,
 		env: f.env,
@@ -60,8 +68,7 @@ async function setup(agents?: string) {
 			const port = /Serving your apps at http:\/\/127\.0\.0\.1:(\d+)\./.exec(
 				output,
 			)?.[1];
-			if (port && /^probe: /m.test(output))
-				ready.resolve(`http://127.0.0.1:${port}`);
+			if (port) ready.resolve(`http://127.0.0.1:${port}`);
 		}
 		ready.reject(new Error(output || 'serve exited before listening'));
 	})();
@@ -76,13 +83,12 @@ async function setup(agents?: string) {
 			throw new Error('serve did not listen');
 		}),
 	]);
-	await rm(probe, { recursive: true });
 	/** Stop serve as a person would, and wait for its last backup and exit. */
 	const stop = async () => {
 		child.kill('SIGTERM');
 		return child.exited;
 	};
-	return { ...f, base, stderr: () => output, stop };
+	return { ...f, made, base, stderr: () => output, stop };
 }
 
 function mcp(base: string, method: string, params: object = {}) {
@@ -97,7 +103,7 @@ function mcp(base: string, method: string, params: object = {}) {
 }
 
 test('HTTP initialize includes the Epicenter AGENTS.md', async () => {
-	const f = await setup('Use these apps through their actions.\n');
+	const f = await setup(undefined, 'Use these apps through their actions.\n');
 	const response = await mcp(f.base, 'initialize', {
 		protocolVersion: '2025-06-18',
 		capabilities: {},
@@ -111,8 +117,7 @@ test('HTTP initialize includes the Epicenter AGENTS.md', async () => {
 });
 
 test('HTTP tools/list offers app actions', async () => {
-	const f = await setup();
-	await f.folder(join(f.home, 'reading'), readingApp);
+	const f = await setup((f) => f.folder(join(f.home, 'reading'), readingApp));
 	const response = await mcp(f.base, 'tools/list');
 	expect(response.status).toBe(200);
 	const body = (await response.json()) as {
@@ -133,12 +138,14 @@ test('HTTP tools/list offers app actions', async () => {
 });
 
 test('a crafted tool name cannot run an app outside the home', async () => {
-	const f = await setup();
-	const outside = await f.app(
-		'outside',
-		`export default defineApp({ description: 'Outside', collections: {}, actions: { run: defineAction({ description: 'Run', input: {}, run: async () => { await folder.write('ran.txt', 'yes'); return true; } }) } });`,
-		f.root,
+	const f = await setup((f) =>
+		f.app(
+			'outside',
+			`export default defineApp({ description: 'Outside', collections: {}, actions: { run: defineAction({ description: 'Run', input: {}, run: async () => { await folder.write('ran.txt', 'yes'); return true; } }) } });`,
+			f.root,
+		),
 	);
+	const outside = f.made;
 	const response = await mcp(f.base, 'tools/call', {
 		name: `${outside}_run`,
 		arguments: {},
@@ -149,8 +156,8 @@ test('a crafted tool name cannot run an app outside the home', async () => {
 });
 
 test('the browser client calls a tool without initialize and a write makes one named commit', async () => {
-	const f = await setup();
-	const folder = await f.folder(join(f.home, 'reading'), readingApp);
+	const f = await setup((f) => f.folder(join(f.home, 'reading'), readingApp));
+	const folder = f.made;
 	const client = connect<Reading>('reading', {
 		url: `${f.base}/`,
 	});
@@ -168,9 +175,11 @@ test('the browser client calls a tool without initialize and a write makes one n
 });
 
 test('a read-only action makes no commit, and one that throws after writing commits its paths as the call that threw', async () => {
-	const f = await setup();
-	const folder = await f.folder(join(f.home, 'reading'), readingApp);
+	const f = await setup((f) => f.folder(join(f.home, 'reading'), readingApp));
+	const folder = f.made;
 	const client = connect<Reading>('reading', { url: `${f.base}/` });
+	// After a call, the backup serve started with has passed this app.
+	expect(await client.week.show()).toBe(210);
 	await writeFile(join(folder, 'notes.md'), 'by hand\n');
 	expect(await client.week.show()).toBe(210);
 	expect(await gitIn(folder, 'rev-list', '--count', 'HEAD')).toBe('1');
@@ -187,12 +196,15 @@ test('a read-only action makes no commit, and one that throws after writing comm
 });
 
 test('a call whose snapshot fails still resolves, and the app says why', async () => {
-	const f = await setup();
-	const folder = await f.folder(join(f.home, 'reading'), readingApp);
-	await writeFile(
-		join(folder, '.gitattributes'),
-		'*.csv filter=lfs diff=lfs merge=lfs -text\n',
-	);
+	const f = await setup(async (f) => {
+		const folder = await f.folder(join(f.home, 'reading'), readingApp);
+		await writeFile(
+			join(folder, '.gitattributes'),
+			'*.csv filter=lfs diff=lfs merge=lfs -text\n',
+		);
+		return folder;
+	});
+	const folder = f.made;
 	const client = connect<Reading>('reading', { url: `${f.base}/` });
 	expect(await client.log({ minutes: 5 })).toEqual({ minutes: 5, book: null });
 	expect(await gitIn(folder, 'rev-list', '--count', 'HEAD')).toBe('1');
@@ -202,8 +214,8 @@ test('a call whose snapshot fails still resolves, and the app says why', async (
 });
 
 test('concurrent writes through update both land, and both are in history', async () => {
-	const f = await setup();
-	const folder = await f.folder(join(f.home, 'reading'), readingApp);
+	const f = await setup((f) => f.folder(join(f.home, 'reading'), readingApp));
+	const folder = f.made;
 	const client = connect<Reading>('reading', { url: `${f.base}/` });
 	await Promise.all([client.log({ minutes: 10 }), client.log({ minutes: 20 })]);
 	expect(await readFile(join(folder, '2026.csv'), 'utf8')).toMatch(
@@ -216,18 +228,22 @@ test('concurrent writes through update both land, and both are in history', asyn
 });
 
 test('two calls at once on different files each commit only their own file', async () => {
-	const f = await setup();
-	const folder = await f.app(
-		'notes',
-		`export default defineApp({ description: 'Notes', collections: {}, actions: {
+	const f = await setup((f) =>
+		f.app(
+			'notes',
+			`export default defineApp({ description: 'Notes', collections: {}, actions: {
 		write: defineAction({ description: 'Write a page', input: { page: field.text() }, positional: ['page'],
 			run: async ({ page }) => { await folder.write(page + '.md', page); return page; } }),
 	} });`,
+		),
 	);
-	await writeFile(join(folder, 'by-hand.md'), 'by hand\n');
+	const folder = f.made;
 	const client = connect<{
 		actions: { write: (input: { page: string }) => string };
 	}>('notes', { url: `${f.base}/` });
+	// After a call, the backup serve started with has passed this app.
+	await client.write({ page: 'sunday' });
+	await writeFile(join(folder, 'by-hand.md'), 'by hand\n');
 	await Promise.all([
 		client.write({ page: 'monday' }),
 		client.write({ page: 'tuesday' }),
@@ -246,13 +262,55 @@ test('two calls at once on different files each commit only their own file', asy
 	expect(await gitIn(folder, 'status', '--porcelain')).toBe('?? by-hand.md');
 });
 
-test('serve reports a refused backup push and leaves both histories intact', async () => {
-	const f = await setup();
+test("a backup that runs during a call leaves the call's writes to the call's one commit", async () => {
+	// The backup serve starts with commits an app that sorts first, slowly,
+	// and reaches notes while the call to notes is between its two writes.
+	const f = await setup(async (f) => {
+		const slow = await f.app(
+			'aaa',
+			"export default defineApp({ description: 'Slow to commit', collections: {}, actions: {} });\n",
+		);
+		await writeFile(join(slow, 'pending.md'), 'pending\n');
+		const hook = join(slow, '.git', 'hooks', 'pre-commit');
+		await writeFile(hook, '#!/bin/sh\nsleep 2\n');
+		await chmod(hook, 0o755);
+		return f.app(
+			'notes',
+			`export default defineApp({ description: 'Notes', collections: {}, actions: {
+		pair: defineAction({ description: 'Write two pages, apart', input: {},
+			run: async () => { await folder.write('a.md', 'a'); await Bun.sleep(3000); await folder.write('b.md', 'b'); return true; } }),
+	} });`,
+		);
+	});
+	const folder = f.made;
+	await connect<{ actions: { pair: () => boolean } }>('notes', {
+		url: `${f.base}/`,
+	}).pair();
+	expect(await gitIn(folder, 'log', '--format=%s')).toBe(
+		'notes: pair\ninitial',
+	);
+	expect(await gitIn(folder, 'show', '--name-only', '--format=', 'HEAD')).toBe(
+		'a.md\nb.md',
+	);
+	expect(await gitIn(folder, 'status', '--porcelain')).toBe('');
+	expect(await gitIn(join(f.home, 'aaa'), 'log', '-1', '--format=%s')).toBe(
+		'aaa: changed outside epicenter',
+	);
+});
+
+/** Reading, backed up to a bare `origin` it has pushed to. */
+async function backedUpReading(f: Fixture) {
 	const folder = await f.folder(join(f.home, 'reading'), readingApp);
 	const remote = join(f.root, 'remote.git');
 	await gitIn(f.root, 'init', '--bare', '-q', remote);
 	await gitIn(folder, 'remote', 'add', 'origin', remote);
 	await gitIn(folder, 'push', '-q', '-u', 'origin', 'HEAD');
+	return { folder, remote };
+}
+
+test('serve reports a refused backup push and leaves both histories intact', async () => {
+	const f = await setup(backedUpReading);
+	const { folder, remote } = f.made;
 	const peer = join(f.root, 'peer');
 	await gitIn(f.root, 'clone', '-q', remote, peer);
 	await writeFile(join(peer, 'peer.md'), 'from peer\n');
@@ -275,12 +333,8 @@ test('serve reports a refused backup push and leaves both histories intact', asy
 });
 
 test('a write call is pushed by the backup clock, not by the call; serve backs up once more when it stops', async () => {
-	const f = await setup();
-	const folder = await f.folder(join(f.home, 'reading'), readingApp);
-	const remote = join(f.root, 'remote.git');
-	await gitIn(f.root, 'init', '--bare', '-q', remote);
-	await gitIn(folder, 'remote', 'add', 'origin', remote);
-	await gitIn(folder, 'push', '-q', '-u', 'origin', 'HEAD');
+	const f = await setup(backedUpReading);
+	const { folder, remote } = f.made;
 	await connect<Reading>('reading', {
 		url: `${f.base}/`,
 	}).log({ minutes: 42 });
@@ -297,14 +351,16 @@ test('a write call is pushed by the backup clock, not by the call; serve backs u
 });
 
 test('commit subjects use the first positional value on one line, capped at 60 characters', async () => {
-	const f = await setup();
-	const folder = await f.app(
-		'notes',
-		`export default defineApp({ description: 'The notes app', collections: {}, actions: {
+	const f = await setup((f) =>
+		f.app(
+			'notes',
+			`export default defineApp({ description: 'The notes app', collections: {}, actions: {
 		add: defineAction({ description: 'Add a note', input: { text: field.text() }, positional: ['text'],
 			run: async ({ text }) => { await folder.write('note.txt', text); return text; } }),
 	} });`,
+		),
 	);
+	const folder = f.made;
 	const text = `Fear is the mind-killer ${'x'.repeat(80)}\nsecond line`;
 	await connect<{ actions: { add: (input: { text: string }) => string } }>(
 		'notes',
@@ -318,8 +374,14 @@ test('commit subjects use the first positional value on one line, capped at 60 c
 });
 
 test('a built UI serves files and refuses traversal and symlinks outside it', async () => {
-	const f = await setup();
-	const folder = await f.folder(join(f.home, 'reading'), readingApp);
+	const f = await setup(async (f) => ({
+		folder: await f.folder(join(f.home, 'reading'), readingApp),
+		linked: await f.app(
+			'linked',
+			`export default defineApp({ description: 'Linked UI', collections: {}, actions: {} });\n`,
+		),
+	}));
+	const { folder, linked } = f.made;
 	await mkdir(join(folder, '.cache', 'ui', '_app', 'immutable'), {
 		recursive: true,
 	});
@@ -334,10 +396,6 @@ test('a built UI serves files and refuses traversal and symlinks outside it', as
 	await symlink(
 		join(folder, 'epicenter.ts'),
 		join(folder, '.cache', 'ui', 'outside.ts'),
-	);
-	const linked = await f.app(
-		'linked',
-		`export default defineApp({ description: 'Linked UI', collections: {}, actions: {} });\n`,
 	);
 	const outsideUi = join(f.root, 'outside-ui');
 	await mkdir(outsideUi);
@@ -376,11 +434,13 @@ test('a built UI serves files and refuses traversal and symlinks outside it', as
 });
 
 test('only the built UI in .cache/ui/ is served, never the ui/ source', async () => {
-	const f = await setup();
-	const folder = await f.folder(join(f.home, 'reading'), {
-		...readingApp,
-		'ui/index.html': 'source',
-	});
+	const f = await setup((f) =>
+		f.folder(join(f.home, 'reading'), {
+			...readingApp,
+			'ui/index.html': 'source',
+		}),
+	);
+	const folder = f.made;
 	expect((await fetch(`${f.base}/reading/`)).status).toBe(404);
 	await mkdir(join(folder, '.cache', 'ui'), { recursive: true });
 	await writeFile(join(folder, '.cache', 'ui', 'index.html'), 'built');

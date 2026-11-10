@@ -60,10 +60,16 @@ export async function syncOne(
 			...(failure.next ? { next: failure.next } : {}),
 		},
 	});
+	// Queued before anything is awaited, so a call `serve` receives meanwhile
+	// waits for it rather than run while it takes what is pending (mcp.ts).
+	const taking = snapshot(app, folder, { message });
 	const insideArgs = ['rev-parse', '--is-inside-work-tree'];
 	const inside = await git(folder, insideArgs);
-	if (inside.code !== 0) return stop({ message: gitMessage(insideArgs, inside) });
-	const taken = await snapshot(app, folder, { message });
+	if (inside.code !== 0) {
+		await taking;
+		return stop({ message: gitMessage(insideArgs, inside) });
+	}
+	const taken = await taking;
 	if ('failed' in taken) return stop(taken.failed);
 	synced.committed = taken.committed;
 	const origin = await originOf(folder);
@@ -76,9 +82,7 @@ export async function syncOne(
 	const pushed = await git(folder, args);
 	if (pushed.code === 0)
 		return { ...synced, pushed: true, origin: await aheadOf(folder) };
-	if (
-		/non-fast-forward|\[rejected\].*fetch first/i.test(pushed.stderr)
-	)
+	if (/non-fast-forward|\[rejected\].*fetch first/i.test(pushed.stderr))
 		return stop({
 			message:
 				'the backup at origin has changes this computer does not; nothing was overwritten',

@@ -264,6 +264,11 @@ async function take(
 /** The commit running or waiting for each folder, so this process makes one at a time per app. */
 const queued = new Map<string, Promise<Snapshot>>();
 
+/** Settles once the commits running or waiting for `folder` in this process have finished. */
+export function snapshotsSettled(folder: string): Promise<unknown> {
+	return queued.get(folder) ?? Promise.resolve();
+}
+
 /**
  * Commit in the app's folder (ADR-0850): with `{ wrote }`, exactly the
  * call's changed paths, named for the call (`<call> (threw)` when it threw),

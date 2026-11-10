@@ -86,8 +86,11 @@ touches nothing else in it.
 stops (waiting at most 10 seconds), `serve` does for each app what
 `epicenter sync <app>` does: a snapshot of what is pending, then a push to
 `origin`, only when the branch is ahead of its `origin` tracking ref or there
-is none yet. A call's commit waits for the next tick to be pushed. A failure
-is logged on stderr once until it changes. `sync` from the command line
+is none yet. A call's commit waits for the next tick to be pushed. A tick
+skips an app while a call to it runs, and a call waits for the app's snapshot
+already running before its run starts, so a snapshot never takes part of what
+a call writes under another name. A failure is logged on stderr once until it
+changes. `sync` from the command line
 pushes at once by the same rule, and no other command pushes (ADR-0851).
 
 **The app's `.gitignore` owns what never leaves this computer.** The template

@@ -17,7 +17,8 @@
  * `epicenter sync <app>` does, snapshotting what is pending as changed
  * outside epicenter and pushing to `origin` when there is something to push.
  * The clock's interval is how old an unbacked change can get, not a guess at
- * when an edit is done.
+ * when an edit is done. It skips an app while a call to it runs, and a call
+ * waits for the app's snapshot already running, so a call's commit is whole.
  */
 import { realpath, stat } from 'node:fs/promises';
 import { basename, isAbsolute, join, sep } from 'node:path';
@@ -26,7 +27,7 @@ import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/
 import { extractErrorMessage } from 'wellcrafted/error';
 import { runChild } from './child.ts';
 import { chooseApps, homeEntries } from './home.ts';
-import { createMcpServer } from './mcp.ts';
+import { callInFlight, createMcpServer } from './mcp.ts';
 import { writeErr } from './output.ts';
 import { epicenterDir, rootInstructions } from './root.ts';
 import { type Synced, syncOne } from './sync.ts';
@@ -98,6 +99,8 @@ export function startHttpServer(
 	const backUpAll = async () => {
 		const backedUp: Synced[] = [];
 		for (const { entry, realPath } of await homeEntries()) {
+			// Its call's commit, or the next tick, takes what it wrote.
+			if (callInFlight(entry)) continue;
 			const synced = await syncOne(entry, realPath);
 			backedUp.push(synced);
 			const failure =
@@ -220,9 +223,8 @@ export function startHttpServer(
 					(await homeEntries()).map(async (entry) => {
 						if (!(await uiFile(entry.entry, 'index.html')).ok) return undefined;
 						// Read in a child, as tools/list is: serve never imports an app.
-						const listed = (
-							await runChild([entry.entry, '--json'], 'ignore')
-						).answer as { description?: unknown };
+						const listed = (await runChild([entry.entry, '--json'], 'ignore'))
+							.answer as { description?: unknown };
 						return {
 							name: entry.entry,
 							description:
