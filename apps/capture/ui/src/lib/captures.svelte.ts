@@ -145,7 +145,7 @@ function createCaptures() {
 		},
 		/** Deletes the capture `id`; throws when the server did not. */
 		async delete(id: string) {
-			await writing(() => capture.call('captures delete', { id }));
+			await writing(() => capture.call('delete', { id }));
 			if (rows.some((row) => row.id === id)) total -= 1;
 			rows = rows.filter((row) => row.id !== id);
 		},

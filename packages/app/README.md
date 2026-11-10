@@ -52,12 +52,16 @@ it). A collection is `{ path, fields }`: a path with at most one placeholder,
 such as `words/{stem}.md`, and the JSON Schema of each file's fields. Each
 collection gives the actions `list`, `get`, `set`, and `delete` with no code
 (`get` and `set` alone for a path with no placeholder); see `collection.ts`.
+An app with one collection has those verbs as its own (`tasks set`); with
+several, each keeps its collection's name (`mail messages list`), so adding a
+second collection renames the first's actions.
 
 Every collection is declared in `epicenter.json`; `epicenter.ts` holds
 actions and nothing else of the app's shape, so a program, a screen, or an
 agent reads every shape without loading code. Two collections with one path
 is a problem. An action in `epicenter.ts` named like one a collection gives
-(`words set`) replaces it, so an app can add its own rules to a write.
+(`set`, or `words set` beside other collections) replaces it, so an app can
+add its own rules to a write.
 
 The file on disk is the declaration: `epicenter` reads the description
 and collections from `epicenter.json`, never from `defineApp`'s first

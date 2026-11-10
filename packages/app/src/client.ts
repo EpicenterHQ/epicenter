@@ -8,7 +8,7 @@
  * import { connect } from '@epicenter/app/client';
  *
  * const capture = connect('capture');
- * const rows = await capture.call<CaptureRow[]>('captures list');
+ * const rows = await capture.call<CaptureRow[]>('list');
  * await capture.call('add', { text: 'Fear is the mind-killer.' });
  * ```
  *
@@ -31,7 +31,7 @@ export class ActionError extends Error {
 	}
 }
 
-/** An app's actions, asked of the server by their words (`captures list`). */
+/** An app's actions, asked of the server by their words (`list`, `mail messages list`). */
 export type AppClient = {
 	readonly app: string;
 	call<T = unknown>(words: string, input?: Record<string, unknown>): Promise<T>;

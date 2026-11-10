@@ -58,7 +58,7 @@
 		vocab.refreshes();
 		if (untrack(() => isDirty && saved?.word === word)) return;
 		if (untrack(() => saved?.word !== word)) saved = undefined;
-		vocab.call<Word>('words get', { word }).then(
+		vocab.call<Word>('get', { word }).then(
 			(found) => {
 				if (word === key) show(found);
 			},
@@ -92,7 +92,7 @@
 		if (Object.keys(changes).length === 0) return;
 		saving = true;
 		try {
-			show(await vocab.call<Word>('words set', { word: saved.word, ...changes }));
+			show(await vocab.call<Word>('set', { word: saved.word, ...changes }));
 			toast.success('Saved');
 			void vocab.refresh();
 		} catch (error) {
@@ -110,7 +110,7 @@
 			description: 'Its meaning, examples, and review schedule are deleted. Your Epicenter’s history keeps a copy.',
 			confirm: { text: 'Delete', variant: 'destructive' },
 			onConfirm: async () => {
-				await vocab.call('words delete', { word });
+				await vocab.call('delete', { word });
 				void vocab.refresh();
 				await goto(resolve('/words'));
 			},

@@ -1,13 +1,16 @@
 /**
  * The four actions every collection gives its app (ADR-0853), with no code.
- * For a collection `items` at `items/{id}.md`:
+ * For Capture, whose one collection is `items/{id}.md`:
  *
  * ```txt
- * epicenter capture items list                         every file: its key and fields
- * epicenter capture items get dune                      one file: its key, fields, and body
- * epicenter capture items set dune --kind quote         changes the fields given, keeps the rest and the body
- * epicenter capture items delete dune                   true when a file was there
+ * epicenter capture list                         every file: its key and fields
+ * epicenter capture get dune                      one file: its key, fields, and body
+ * epicenter capture set dune --kind quote         changes the fields given, keeps the rest and the body
+ * epicenter capture delete dune                   true when a file was there
  * ```
+ *
+ * An app with several collections names each before its verb
+ * (`epicenter mail messages list`); see `allCollectionActions`.
  *
  * They are ordinary actions over the run's `folder`, so the command line, MCP,
  * and a test in memory run the same code. A path with no placeholder (a single
@@ -361,14 +364,28 @@ export async function misfits(
 	return found;
 }
 
-/** Every collection's actions in a declaration, keyed by their words. */
+/**
+ * Every collection's actions in a declaration, keyed by their words. An app
+ * with one collection is that collection, so its verbs are the app's own
+ * (`tasks set`, not `tasks tasks set`); with several, each verb keeps its
+ * collection's name (`mail messages list`). A second collection is a
+ * redesign of the app, and renames the first's actions where everyone sees.
+ */
 export function allCollectionActions(
 	collections: Readonly<Record<string, Collection>> = {},
 ): Record<string, Action> {
+	const entries = Object.entries(collections);
+	const only = entries.length === 1 ? entries[0] : undefined;
+	if (only) {
+		const [name, collection] = only;
+		return Object.fromEntries(
+			Object.entries(collectionActions(name, collection)).map(
+				([key, action]) => [key.slice(name.length + 1), action],
+			),
+		);
+	}
 	return Object.assign(
 		{},
-		...Object.entries(collections).map(([name, collection]) =>
-			collectionActions(name, collection),
-		),
+		...entries.map(([name, collection]) => collectionActions(name, collection)),
 	);
 }

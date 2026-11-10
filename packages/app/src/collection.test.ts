@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { allCollectionActions } from './collection.ts';
 import { collectionActions, createMemoryContext } from './index.ts';
 
 const items = collectionActions('items', {
@@ -220,5 +221,33 @@ describe('a collection of one file', () => {
 			theme: 'dark',
 			body: '',
 		});
+	});
+});
+
+describe("an app's collections", () => {
+	const notes = { path: 'notes/{id}.md', fields: { type: 'object' } } as const;
+	test('one collection gives its verbs to the app itself', () => {
+		expect(Object.keys(allCollectionActions({ notes }))).toEqual([
+			'list',
+			'get',
+			'set',
+			'delete',
+		]);
+	});
+	test('several keep each verb under its collection', () => {
+		const links = {
+			path: 'links/{id}.md',
+			fields: { type: 'object' },
+		} as const;
+		expect(Object.keys(allCollectionActions({ notes, links }))).toEqual([
+			'notes list',
+			'notes get',
+			'notes set',
+			'notes delete',
+			'links list',
+			'links get',
+			'links set',
+			'links delete',
+		]);
 	});
 });

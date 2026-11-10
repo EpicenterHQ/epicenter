@@ -181,7 +181,7 @@ server, and for Whispering.
 action.** That is true for Claude Desktop, an agent on another computer,
 claude.ai, ChatGPT, and a UI.
 
-**A write is one commit, named for the call** (`capture: captures set dune`),
+**A write is one commit, named for the call** (`capture: set dune`),
 however it arrives, and `epicenter serve` pushes it to the app's GitHub
 backup. Writes to one app take turns, so two at once never lose a change. Exit codes
 tell an agent what happened: 0 returned, 1 threw, 2 did not run, 3 returned but

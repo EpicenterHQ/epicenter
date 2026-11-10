@@ -10,7 +10,7 @@ import declaration from './epicenter.json';
 export const GRADES = ['again', 'hard', 'good', 'easy'] as const;
 export type Grade = (typeof GRADES)[number];
 
-/** A row of `words list`: a word's fields; `word` is the file's name. */
+/** A row of `vocab list`: a word's fields; `word` is the file's name. */
 export type WordRow = {
 	word: string;
 	meaning?: string;
@@ -23,7 +23,7 @@ export type WordRow = {
 	reps?: number;
 };
 
-/** A word as `words get` reads it: its fields and its body, which holds examples and notes. */
+/** A word as `vocab get` reads it: its fields and its body, which holds examples and notes. */
 export type Word = WordRow & { body: string };
 
 /** What a review leaves in the word's scheduling fields. */

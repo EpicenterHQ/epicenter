@@ -32,7 +32,7 @@ function createTaskList() {
 	async function refresh() {
 		const before = writes;
 		try {
-			const next = await app.call<Task[]>('tasks list');
+			const next = await app.call<Task[]>('list');
 			if (before !== writes) return;
 			rows = next;
 			problem = undefined;
@@ -72,7 +72,7 @@ function createTaskList() {
 			writes++;
 			pending = new Map(pending).set(id, done);
 			try {
-				const file = await app.call<TaskFile>('tasks set', { id, done });
+				const file = await app.call<TaskFile>('set', { id, done });
 				replace(id, (task) => ({ ...task, done: file.done }));
 			} finally {
 				const next = new Map(pending);
@@ -92,7 +92,7 @@ function createTaskList() {
 		async remove(id: string) {
 			writes++;
 			replace(id, () => undefined);
-			await app.call<boolean>('tasks delete', { id });
+			await app.call<boolean>('delete', { id });
 		},
 
 		/**

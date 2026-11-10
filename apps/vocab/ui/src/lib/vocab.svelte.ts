@@ -21,7 +21,7 @@ function createVocab() {
 	async function refresh() {
 		try {
 			const [allWords, dueWords] = await Promise.all([
-				app.call<WordRow[]>('words list'),
+				app.call<WordRow[]>('list'),
 				app.call<DueWord[]>('due'),
 			]);
 			words = allWords;

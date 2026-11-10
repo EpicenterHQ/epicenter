@@ -66,7 +66,7 @@ test('D1 the listing shows declared folders, ignores the rest, and names each pr
 import { defineApp, field } from '@epicenter/app';
 export default defineApp(declaration, {
 	actions: {
-		'words set': { description: 'Save a word my way', input: { stem: field.text() }, positional: ['stem'], run: ({ stem }) => \`mine: \${stem}\` },
+		set: { description: 'Save a word my way', input: { stem: field.text() }, positional: ['stem'], run: ({ stem }) => \`mine: \${stem}\` },
 	},
 });
 `,
@@ -105,8 +105,8 @@ export default defineApp(declaration, {
 	expect(existsSync(join(f.root, 'ran'))).toBe(false);
 	expect(problems.malformed).toContain('epicenter.json');
 	expect(problems.malformed).toContain('/description');
-	// A written action with a collection's words replaces the collection's.
-	const clash = await f.run('clash', 'words', 'set', 'serendipity');
+	// A written action with a collection's words replaces the collection's: an app with one collection has its verbs as its own.
+	const clash = await f.run('clash', 'set', 'serendipity');
 	expect(clash.stdout).toBe('mine: serendipity\n');
 	expect(JSON.stringify(listing)).not.toContain('readme-only');
 
@@ -143,10 +143,10 @@ export default defineApp(declaration, { actions: {} });
 		},
 	});
 	expect(reading.actions.map((tool: { name: string }) => tool.name)).toEqual([
-		'reading_books_list',
-		'reading_books_get',
-		'reading_books_set',
-		'reading_books_delete',
+		'reading_list',
+		'reading_get',
+		'reading_set',
+		'reading_delete',
 		'reading_log',
 		'reading_between',
 		'reading_week_show',
@@ -326,14 +326,13 @@ test('D8 an app with only epicenter.json lists, reads, writes, and deletes its c
 		return { code: result.code, answer: JSON.parse(result.stdout) };
 	};
 
-	const help = await f.run('capture', 'items', 'set', '--help');
+	const help = await f.run('capture', 'set', '--help');
 	expect(help.stdout).toContain(
-		'epicenter capture items set <id> [--kind <thought|link|quote>] [--url <text>] [--added <date>] [--body <text>]',
+		'epicenter capture set <id> [--kind <thought|link|quote>] [--url <text>] [--added <date>] [--body <text>]',
 	);
 
 	expect(
 		await json(
-			'items',
 			'set',
 			'dune',
 			'--kind',
@@ -361,25 +360,21 @@ test('D8 an app with only epicenter.json lists, reads, writes, and deletes its c
 
 	// Refused before anything is written: a value outside the enum, a date that is not one, a new file missing a required field, a required field given as null.
 	const refused = [
-		[['items', 'set', 'dune', '--kind', 'poem'], 2, '--kind'],
+		[['set', 'dune', '--kind', 'poem'], 2, '--kind'],
 		[
-			['items', 'set', 'dune', '--added', '2026-13-45'],
+			['set', 'dune', '--added', '2026-13-45'],
 			2,
 			'--added needs a day, as 2026-11-12',
 		],
-		[['items', 'set', 'dune', '--url', 'not a url'], 2, '--url needs a URL'],
+		[['set', 'dune', '--url', 'not a url'], 2, '--url needs a URL'],
 		[
-			['items', 'set', 'new-one', '--kind', 'link'],
+			['set', 'new-one', '--kind', 'link'],
 			1,
 			'A new items/new-one.md needs added',
 		],
-		[['items', 'set', '../escape', '--kind', 'link'], 2, '<id>'],
-		[
-			['items', 'set', 'dune', '--kind', 'null'],
-			2,
-			'--kind does not take null',
-		],
-		[['items', 'set', '--input', '{"id":"dune","added":null}'], 2, 'added'],
+		[['set', '../escape', '--kind', 'link'], 2, '<id>'],
+		[['set', 'dune', '--kind', 'null'], 2, '--kind does not take null'],
+		[['set', '--input', '{"id":"dune","added":null}'], 2, 'added'],
 	] as const;
 	for (const [args, code, message] of refused) {
 		const result = await json(...args);
@@ -391,10 +386,9 @@ test('D8 an app with only epicenter.json lists, reads, writes, and deletes its c
 	);
 
 	expect(
-		(await json('items', 'set', 'dune', '--url', 'https://example.com/dune'))
-			.code,
+		(await json('set', 'dune', '--url', 'https://example.com/dune')).code,
 	).toBe(0);
-	expect(await json('items', 'list')).toEqual({
+	expect(await json('list')).toEqual({
 		code: 0,
 		answer: {
 			returned: [
@@ -407,7 +401,7 @@ test('D8 an app with only epicenter.json lists, reads, writes, and deletes its c
 			],
 		},
 	});
-	expect((await f.run('capture', 'items', 'get', 'dune')).stdout).toContain(
+	expect((await f.run('capture', 'get', 'dune')).stdout).toContain(
 		'"body": "Fear is the mind-killer.\\n"',
 	);
 
@@ -423,10 +417,10 @@ test('D8 an app with only epicenter.json lists, reads, writes, and deletes its c
 		await client.connect(transport);
 		const { tools } = await client.listTools();
 		expect(tools.map((tool) => tool.name)).toEqual([
-			'capture_items_list',
-			'capture_items_get',
-			'capture_items_set',
-			'capture_items_delete',
+			'capture_list',
+			'capture_get',
+			'capture_set',
+			'capture_delete',
 		]);
 		expect(tools[3]?.annotations).toEqual({
 			readOnlyHint: false,
@@ -435,17 +429,17 @@ test('D8 an app with only epicenter.json lists, reads, writes, and deletes its c
 			openWorldHint: false,
 		});
 		const set = await client.callTool({
-			name: 'capture_items_set',
+			name: 'capture_set',
 			arguments: { id: 'petrichor', kind: 'thought', added: '2026-11-09' },
 		});
 		expect(set.isError).toBeFalsy();
 		const bad = await client.callTool({
-			name: 'capture_items_set',
+			name: 'capture_set',
 			arguments: { id: 'petrichor', kind: 'poem' },
 		});
 		expect(bad.isError).toBe(true);
 		const deleted = await client.callTool({
-			name: 'capture_items_delete',
+			name: 'capture_delete',
 			arguments: { id: 'dune' },
 		});
 		expect(deleted.structuredContent).toEqual({
@@ -455,7 +449,7 @@ test('D8 an app with only epicenter.json lists, reads, writes, and deletes its c
 	} finally {
 		await client.close();
 	}
-	expect(await json('items', 'list')).toEqual({
+	expect(await json('list')).toEqual({
 		code: 0,
 		answer: {
 			returned: [{ kind: 'thought', added: '2026-11-09', id: 'petrichor' }],
@@ -464,10 +458,10 @@ test('D8 an app with only epicenter.json lists, reads, writes, and deletes its c
 	// Every write is its own commit, named for the call, from the terminal and MCP alike.
 	expect(await gitIn(folder, 'log', '--format=%s')).toBe(
 		[
-			'capture: items delete dune',
-			'capture: items set petrichor',
-			'capture: items set dune',
-			'capture: items set dune',
+			'capture: delete dune',
+			'capture: set petrichor',
+			'capture: set dune',
+			'capture: set dune',
 			'initial',
 		].join('\n'),
 	);

@@ -89,9 +89,9 @@ test('new --from clones a starter as upstream, tracking nothing, and builds its 
 test('update merges the starter, lists files that no longer fit, and builds', async () => {
 	const f = await starterFixture();
 	expect((await f.run('new', 'vocab', '--from', f.starter)).code).toBe(0);
-	expect(
-		(await f.run('vocab', 'words', 'set', 'neko', '--meaning', 'cat')).code,
-	).toBe(0);
+	expect((await f.run('vocab', 'set', 'neko', '--meaning', 'cat')).code).toBe(
+		0,
+	);
 
 	const quiet = JSON.parse((await f.run('update', 'vocab', '--json')).stdout);
 	expect(quiet.apps[0]).toMatchObject({
@@ -179,9 +179,9 @@ test('sync pushes to origin, never to the starter', async () => {
 	const backup = join(f.root, 'backup.git');
 	await gitIn(f.root, 'init', '-q', '--bare', backup);
 	await gitIn(f.app, 'remote', 'add', 'origin', backup);
-	expect(
-		(await f.run('vocab', 'words', 'set', 'neko', '--meaning', 'cat')).code,
-	).toBe(0);
+	expect((await f.run('vocab', 'set', 'neko', '--meaning', 'cat')).code).toBe(
+		0,
+	);
 	const synced = await f.run('sync', 'vocab', '--json');
 	expect(synced.code).toBe(0);
 	expect(JSON.parse(synced.stdout).apps[0]).toMatchObject({

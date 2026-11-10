@@ -1,6 +1,6 @@
 <!--
 	One capture: its text and its thoughts, read from the file's body with the
-	body codec, and each change saved through `captures set` with the whole
+	body codec, and each change saved through `set` with the whole
 	new body.
 
 	Every change is shown at once, then made in order against the file as the
@@ -37,7 +37,7 @@
 	let { id }: { id: string } = $props();
 	const args = untrack(() => ({ id }));
 
-	/** A capture file as `captures get` and `captures set` return it. */
+	/** A capture file as `get` and `set` return it. */
 	type File = { id: string; capturedAt?: string; body: string };
 
 	let file = $state.raw<File>();
@@ -60,7 +60,7 @@
 
 	async function load() {
 		try {
-			file = await capture.call<File>('captures get', args);
+			file = await capture.call<File>('get', args);
 			status = 'ready';
 			problem = undefined;
 		} catch (error) {
@@ -101,7 +101,7 @@
 		const run = queue.then(async () => {
 			let latest: File | undefined;
 			try {
-				latest = await capture.call<File>('captures get', args);
+				latest = await capture.call<File>('get', args);
 				const read = captureBody.decode(latest.body);
 				const value = read.error ? read.error.message : next(read.data);
 				if (typeof value === 'string') {
@@ -115,7 +115,7 @@
 					toast.error(`${what} not saved`, { description: encoded.error.message });
 					return false;
 				}
-				file = await capture.call<File>('captures set', { ...args, body: encoded.data });
+				file = await capture.call<File>('set', { ...args, body: encoded.data });
 				captures.saved(args.id, value.text.trim(), value.thoughts.length);
 				return true;
 			} catch (error) {
@@ -185,7 +185,7 @@
 		changes += 1;
 		const run = queue.then(async () => {
 			try {
-				const latest = await capture.call<File>('captures get', args);
+				const latest = await capture.call<File>('get', args);
 				if (latest.body !== base) {
 					file = latest;
 					toast.error('Not saved', {
@@ -193,7 +193,7 @@
 					});
 					return;
 				}
-				file = await capture.call<File>('captures set', { ...args, body: typed });
+				file = await capture.call<File>('set', { ...args, body: typed });
 				const read = captureBody.decode(file.body);
 				if (read.data) captures.saved(args.id, read.data.text.trim(), read.data.thoughts.length);
 				if (markdown === typed) markdown = undefined;

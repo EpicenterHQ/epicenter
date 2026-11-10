@@ -73,10 +73,10 @@ test('HTTP tools/list offers app actions', async () => {
 		result: { tools: { name: string }[] };
 	};
 	expect(body.result.tools.map((tool) => tool.name)).toEqual([
-		'reading_books_list',
-		'reading_books_get',
-		'reading_books_set',
-		'reading_books_delete',
+		'reading_list',
+		'reading_get',
+		'reading_set',
+		'reading_delete',
 		'reading_log',
 		'reading_between',
 		'reading_week_show',

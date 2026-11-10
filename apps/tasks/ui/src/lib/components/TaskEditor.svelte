@@ -37,7 +37,7 @@
 	async function load() {
 		phase = 'loading';
 		try {
-			const file = await app.call<TaskFile>('tasks get', { id });
+			const file = await app.call<TaskFile>('get', { id });
 			title = file.title ?? '';
 			done = file.done ?? false;
 			due = file.due ?? '';
@@ -68,7 +68,7 @@
 		queued = {};
 		saving++;
 		try {
-			tasks.changed(await app.call<TaskFile>('tasks set', { id, ...sent }));
+			tasks.changed(await app.call<TaskFile>('set', { id, ...sent }));
 			unsaved = Object.keys(queued).length > 0;
 			saved = true;
 		} catch (error) {
