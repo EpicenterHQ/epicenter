@@ -6,7 +6,7 @@
  * the paths the run wrote, named for the call (ADR-0850); a commit that fails
  * changes neither the answer nor the exit code; the paths remain pending.
  */
-import type { Action } from '@epicenter/app';
+import { isName } from '@epicenter/app';
 import packageJson from '../package.json' with { type: 'json' };
 import { buildCommand } from './build.ts';
 import { REPORT_FLAG, runCall } from './child.ts';
@@ -23,7 +23,7 @@ import { historyCommand, undoCommand } from './history.ts';
 import { discoverAll, loadHomeApp } from './home.ts';
 import { serveHttp } from './http.ts';
 import { initCommand } from './init.ts';
-import { matchAction, nearestActions, readInput, usageLine } from './input.ts';
+import { matchAction, readInput, usageLine } from './input.ts';
 import {
 	actionHelp,
 	actionTool,
@@ -177,24 +177,17 @@ export async function runCli(argv: string[]): Promise<number> {
 		const matched = matchAction(located.actions, words);
 		const action = matched && located.actions[matched.key];
 		if (!matched || !action) {
-			const { asked, keys: near } = nearestActions(
-				Object.keys(located.actions),
-				words,
-			);
-			const shown = near.length ? near : Object.keys(located.actions);
+			// The words that could name an action: those before the first value or flag.
+			const end = words.findIndex((word) => !isName(word));
+			const asked = words.slice(0, end < 0 ? undefined : end).join(' ');
 			return fail(
 				CliError.Usage({
-					message: `${name} has no action ${JSON.stringify(asked)}. ${near.length ? 'Did you mean' : 'Its actions'}:\n${shown
-						.map((key) =>
-							usageLine(name, key, located.actions[key] as Action, {
-								short: true,
-							}),
-						)
+					message: `${name} has no action ${JSON.stringify(asked || words[0])}. Its actions:\n${Object.entries(
+						located.actions,
+					)
+						.map(([key, each]) => usageLine(name, key, each, { short: true }))
 						.join('\n')}`,
-					next:
-						near.length === 1
-							? `epicenter ${name} ${near[0]} --help`
-							: `epicenter ${name}`,
+					next: `epicenter ${name}`,
 				}).error,
 				json,
 			);

@@ -143,7 +143,7 @@ test('usage errors return exit 2 and exactly one JSON error', async () => {
 		[['reading', 'nope'], 'reading has no action "nope". Its actions:'],
 		[
 			['reading', 'lgo', '3'],
-			'reading has no action "lgo". Did you mean:\nepicenter reading log',
+			'reading has no action "lgo". Its actions:\nepicenter reading log <minutes> [--flags]\nepicenter reading week summary\n',
 		],
 		[['reading', 'log', '3', '--nope'], '--nope'],
 		[['reading', 'log'], '<minutes> is needed'],
