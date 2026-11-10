@@ -126,6 +126,17 @@ function readRoot(folder: string): EpicenterRoot {
 			throw new RootUsageError(
 				`${marker} has invalid public: use an https URL`,
 			);
+		// MCP is at `/` and the sign-in at `/.sign-in`, so the address is an origin.
+		if (
+			url.pathname !== '/' ||
+			url.search !== '' ||
+			url.hash !== '' ||
+			url.username !== '' ||
+			url.password !== ''
+		)
+			throw new RootUsageError(
+				`${marker} has invalid public: use an https origin with no path, such as https://host:10000/`,
+			);
 		if (!validPort(publicPort))
 			throw new RootUsageError(`${marker} has invalid publicPort`);
 		if (publicPort === port)

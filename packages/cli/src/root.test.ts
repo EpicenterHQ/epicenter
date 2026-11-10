@@ -80,6 +80,14 @@ test('marker front matter accepts the public listener and refuses invalid fields
 			'---\npublic: http://studio.example.com\npublicPort: 10000\n---\n',
 			'public',
 		],
+		[
+			'---\npublic: https://studio.example.com/epicenter/\npublicPort: 10000\n---\n',
+			'public',
+		],
+		[
+			'---\npublic: https://studio.example.com/?a=1\npublicPort: 10000\n---\n',
+			'public',
+		],
 		['---\npublic: https://studio.example.com\n---\n', 'publicPort'],
 		[
 			'---\nport: 4747\npublic: https://studio.example.com\npublicPort: 4747\n---\n',
