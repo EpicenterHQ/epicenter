@@ -1,0 +1,17 @@
+{
+	"name": "@epicenter/mail",
+	"description": "Mail over a synthetic Gmail mailbox",
+	"private": true,
+	"version": "0.0.1",
+	"type": "module",
+	"scripts": {
+		"test": "bun test",
+		"typecheck": "tsc -p tsconfig.json"
+	},
+	"devDependencies": {
+		"@epicenter/app": "workspace:*",
+		"@types/bun": "catalog:",
+		"typescript": "catalog:"
+	},
+	"license": "AGPL-3.0-or-later"
+}

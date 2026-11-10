@@ -1,0 +1,17 @@
+{
+	"compilerOptions": {
+		"types": ["bun"],
+		"strict": true,
+		"noUnusedLocals": true,
+		"noUnusedParameters": true,
+		"allowImportingTsExtensions": true,
+		"resolveJsonModule": true,
+		"moduleResolution": "bundler",
+		"module": "esnext",
+		"target": "esnext",
+		"verbatimModuleSyntax": true,
+		"skipLibCheck": true,
+		"noEmit": true
+	},
+	"include": ["epicenter.ts", "lib/**/*.ts", "*.test.ts", "lib/**/*.test.ts"]
+}
