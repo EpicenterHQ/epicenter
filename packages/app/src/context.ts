@@ -1,17 +1,17 @@
 /**
- * The context a run has (ADR-0841, ADR-0854): its folder.
- * Whatever runs an action opens the run, as
- * `inRun(context, () => action(input))`: the `epicenter` CLI on a computer,
- * memory in a test. For the length of that run, the app's collections
- * and `folder` reach it, however deep the call, and an action that
- * calls another stays in the same run; outside any run they throw. What an
- * app can rebuild lives in files it gitignores inside the folder, such as
- * `.cache/`, and is never committed.
+ * The context a run has (ADR-0841, ADR-0870): its folder. Whatever runs an
+ * action opens the run, as `inRun(context, () => action(input))`: the
+ * `epicenter` CLI on a computer, memory in a test. For the length of that run,
+ * the app's collections and `folder` reach it, however deep the call, and an
+ * action that calls another stays in the same run; outside any run they throw.
+ * What an app can rebuild lives in files it gitignores, such as `ui/dist/`
+ * (ADR-0854), and a `.local` file stays on this computer; neither is ever
+ * committed.
  *
  * An action changes files and never commits: whatever runs it takes snapshots
  * of the folder into its history (ADR-0850). A change that depends on what it
  * read goes through a collection's `update`, or `folder.update` for any other
- * file. A read-only run may change local-only files through `folder`.
+ * file. A read-only run may change only `.local` files, through `folder`.
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { isLocalPath } from './local.ts';
@@ -61,8 +61,8 @@ export type Context = {
 	folder: Folder;
 	/**
 	 * The run is of a read-only action (`readOnlyHint: true`), named `action`:
-	 * writes outside `.local` paths throw before doing anything. A raw `node:fs` write
-	 * or an outside service is the action's own promise.
+	 * writes outside `.local` paths throw before doing anything. A raw `node:fs`
+	 * write or an outside service is the action's own promise.
 	 */
 	readOnly?: { action: string };
 };

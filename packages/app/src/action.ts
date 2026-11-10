@@ -102,8 +102,7 @@ export type ActionDef<
  * Define an action from its fields and its `run`, typing `run`'s input by
  * the fields. Calling it fills each field's default before `run`, as a call
  * through the CLI or MCP does. Inside `run`, the app's collections and `folder`
- * reach the folder of the run that called it,
- * however deep. Throws when the definition is wrong in a way its types
+ * reach the folder of the run that called it, however deep. Throws when the definition is wrong in a way its types
  * cannot say.
  */
 export function defineAction<
