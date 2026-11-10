@@ -222,7 +222,7 @@ test('sync pushes to origin, never to the starter', async () => {
 	expect(synced.code).toBe(0);
 	expect(JSON.parse(synced.stdout).apps[0]).toMatchObject({
 		pushed: true,
-		origin: { ahead: 0, behind: 0 },
+		origin: { ahead: 0 },
 	});
 	const branch = await gitIn(f.app, 'symbolic-ref', '--short', 'HEAD');
 	expect(await gitIn(backup, 'rev-parse', branch)).toBe(

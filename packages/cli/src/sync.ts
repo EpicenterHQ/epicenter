@@ -1,14 +1,14 @@
 /**
  * `epicenter sync [<app> [-m <message>]]` snapshots and pushes to `origin`,
  * the home's optional backup (ADR-0851). One app's failure never stops the
- * others. `serve`'s backup clock runs the same `syncOne` for each app.
+ * others. `serve`'s backup clock runs the same `syncOne` for each app, and
+ * no other command touches a remote.
  */
 import { COMMANDS } from './commands.ts';
 import { CliError } from './errors.ts';
-import { git, gitMessage } from './git.ts';
+import { git, gitMessage, originOf } from './git.ts';
 import { homeEntries } from './home.ts';
 import { fail, writeJson } from './output.ts';
-import { pushOrigin } from './push.ts';
 import { snapshot } from './snapshot.ts';
 
 /** What sync did for one app. */
@@ -18,8 +18,8 @@ export type Synced = {
 	/** The snapshot sync took of what was pending, or `null` when nothing was. */
 	committed: { subject: string; files: number } | null;
 	pushed: boolean;
-	/** How far the branch is from the locally known `origin` tracking ref; `null` when there is none. */
-	origin: { ahead: number; behind: number } | null;
+	/** How many commits the branch is ahead of its locally known `origin` tracking ref; `null` when there is none. */
+	origin: { ahead: number } | null;
 	/** Why this app did not finish syncing, and the command that resolves it. */
 	error?: { message: string; next?: string };
 };
@@ -27,40 +27,24 @@ export type Synced = {
 /** What `epicenter sync` answers: one report per app, in name order. */
 type SyncAnswer = { apps: Synced[] };
 
-/** The branch checked out, as `origin` would name it; empty on a detached HEAD. */
-async function branchOf(folder: string) {
-	return (await git(folder, ['symbolic-ref', '-q', '--short', 'HEAD'])).stdout;
-}
-
-/** Ahead and behind `origin`'s copy of the branch, or `null` when it has none. */
-async function originOf(folder: string) {
-	const branch = await branchOf(folder);
-	if (branch === '') return null;
-	const counted = await git(folder, [
-		'rev-list',
-		'--left-right',
-		'--count',
-		`HEAD...refs/remotes/origin/${branch}`,
-	]);
-	if (counted.code !== 0) return null;
-	const [ahead = 0, behind = 0] = counted.stdout.split(/\s+/).map(Number);
-	return { ahead, behind };
+/** How far the branch is ahead of `origin`, as `Synced` reports it. */
+async function aheadOf(folder: string) {
+	const ahead = (await originOf(folder))?.ahead;
+	return ahead === undefined ? null : { ahead };
 }
 
 /**
  * Snapshot what is pending in one app, as `<app>: <message>` or `<app>:
- * changed outside epicenter`, then push to `origin` when it exists. With
- * `onlyWhenAhead`, as `serve`'s clock runs it, it pushes only when the
- * snapshot committed, the branch is ahead of its `origin` tracking ref, or
- * there is no tracking ref yet.
+ * changed outside epicenter`, then, when it has `origin`, push the branch
+ * there by name if it is ahead of its tracking ref or has none yet. It never
+ * fetches, merges, or force pushes, and never pushes to `upstream`
+ * (ADR-0851). `epicenter sync` and `serve`'s clock both run it; nothing else
+ * touches a remote.
  */
 export async function syncOne(
 	app: string,
 	folder: string,
-	{
-		message,
-		onlyWhenAhead = false,
-	}: { message?: string; onlyWhenAhead?: boolean } = {},
+	message?: string,
 ): Promise<Synced> {
 	const synced: Synced = {
 		app,
@@ -69,27 +53,45 @@ export async function syncOne(
 		pushed: false,
 		origin: null,
 	};
-	const stop = async (message: string, next?: string): Promise<Synced> => ({
+	const stop = async (failure: {
+		message: string;
+		next?: string;
+	}): Promise<Synced> => ({
 		...synced,
-		origin: await originOf(folder),
-		error: { message: `${app}: ${message}`, ...(next ? { next } : {}) },
+		origin: await aheadOf(folder),
+		error: {
+			message: `${app}: ${failure.message}`,
+			...(failure.next ? { next: failure.next } : {}),
+		},
 	});
 	const insideArgs = ['rev-parse', '--is-inside-work-tree'];
 	const inside = await git(folder, insideArgs);
-	if (inside.code !== 0) return stop(gitMessage(insideArgs, inside));
+	if (inside.code !== 0) return stop({ message: gitMessage(insideArgs, inside) });
 	const taken = await snapshot(app, folder, { message });
-	if ('failed' in taken) return stop(taken.failed.message, taken.failed.next);
+	if ('failed' in taken) return stop(taken.failed);
 	synced.committed = taken.committed;
-	if (onlyWhenAhead && !taken.committed) {
-		const origin = await originOf(folder);
-		if (origin?.ahead === 0) return { ...synced, origin };
-	}
-	const pushedNow = await pushOrigin(folder);
-	if ('noOrigin' in pushedNow) return synced;
-	if ('error' in pushedNow)
-		return stop(pushedNow.error.message, pushedNow.error.next);
-	synced.pushed = pushedNow.pushed;
-	return { ...synced, origin: await originOf(folder) };
+	const origin = await originOf(folder);
+	if (!origin) return synced;
+	const { branch, ahead } = origin;
+	if (branch === '')
+		return stop({ message: 'is not on a branch, so nothing was pushed' });
+	if (ahead === 0) return { ...synced, origin: { ahead } };
+	const args = ['push', 'origin', `HEAD:${branch}`];
+	const pushed = await git(folder, args);
+	if (pushed.code === 0)
+		return { ...synced, pushed: true, origin: await aheadOf(folder) };
+	if (
+		/non-fast-forward|\[rejected\].*fetch first/i.test(pushed.stderr)
+	)
+		return stop({
+			message:
+				'the backup at origin has changes this computer does not; nothing was overwritten',
+			next: `git -C ${folder} fetch origin && git -C ${folder} log HEAD..origin/${branch}`,
+		});
+	return stop({
+		message: `not pushed: ${gitMessage(args, pushed)}`,
+		next: `git -C ${folder} push origin HEAD:${branch}`,
+	});
 }
 
 /** Sync every app in the Epicenter, or only `name`, one after another. */
@@ -111,7 +113,7 @@ async function syncApps(
 		};
 	const apps: Synced[] = [];
 	for (const { entry, realPath } of chosen)
-		apps.push(await syncOne(entry, realPath, { message }));
+		apps.push(await syncOne(entry, realPath, message));
 	return { apps };
 }
 
@@ -130,9 +132,7 @@ function renderSync(answer: SyncAnswer) {
 				? `committed ${app.committed.subject}`
 				: 'nothing to commit',
 			...(app.pushed ? ['pushed'] : []),
-			app.origin
-				? `${app.origin.ahead} ahead of origin, ${app.origin.behind} behind`
-				: 'no origin',
+			app.origin ? `${app.origin.ahead} ahead of origin` : 'no origin',
 		];
 		stdout.push(`${app.app}: ${parts.join('; ')}`);
 		if (app.error)

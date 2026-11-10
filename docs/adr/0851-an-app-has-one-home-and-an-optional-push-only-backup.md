@@ -5,7 +5,7 @@
 - **Supersedes:** [ADR-0862](0862-notes-merge-field-by-field-and-every-conflict-is-listed-for-repair.md): one home makes merging notes between computers unnecessary.
 - **Amends:** [ADR-0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md) at `epicenter sync`: it snapshots pending changes and pushes, without pulling or rebasing.
 - **Relates:** [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) (reaching the home), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (snapshots), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (`origin`), [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (one copy).
-- **Built:** `epicenter sync` (`packages/cli/src/sync.ts`, `packages/cli/src/push.ts`) and `serve`'s backup clock (`packages/cli/src/http.ts`).
+- **Built:** `epicenter sync` (`packages/cli/src/sync.ts`) and `serve`'s backup clock (`packages/cli/src/http.ts`).
 - **Unbuilt:** an app's status saying it has no backup, and `epicenter new` saying so; access to home actions from programs on other devices, such as Whispering.
 
 ## Context
@@ -28,11 +28,13 @@ Each app's optional `origin` is a backup that the home pushes to. It can be
 GitHub, GitLab, another Git host, SSH, or a disk. Normal use never pulls from
 it. An app without a remote still runs and keeps local snapshots.
 
-`epicenter sync [<app>]` snapshots pending changes, then pushes to `origin`
-with `git push origin HEAD:<branch>` when the app has that remote. It does not
+`epicenter sync [<app>]` snapshots pending changes, then, when the app has
+that remote, pushes to `origin` with `git push origin HEAD:<branch>` if the
+branch is ahead of its `origin` tracking ref or has none yet. It does not
 fetch, pull, rebase, or autostash, and it never force pushes. `epicenter serve`
-does the same for every app when it starts, every 5 minutes, and when it
-stops, pushing only when there is something to push (ADR-0850).
+does the same for every app when it starts, every 5 minutes, and when it stops
+(ADR-0850). No other command touches `origin`: `epicenter undo` commits, and
+the next sync pushes it.
 `epicenter update` still fetches `upstream`, the
 starter; `upstream` is separate from the backup and receives no pushes.
 

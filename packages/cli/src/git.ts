@@ -55,3 +55,27 @@ export async function checkedGit(folder: string, args: string[]) {
 	if (result.code !== 0) throw new Error(gitMessage(args, result));
 	return result.stdout;
 }
+
+/**
+ * The app's backup: `null` when it has no `origin` remote; otherwise the
+ * branch checked out (empty on a detached HEAD) and how many commits it is
+ * ahead of its `origin` tracking ref, absent when there is no tracking ref
+ * yet. It reads only what is local; nothing here fetches.
+ */
+export async function originOf(
+	folder: string,
+): Promise<{ branch: string; ahead?: number } | null> {
+	if ((await git(folder, ['remote', 'get-url', 'origin'])).code !== 0)
+		return null;
+	const branch = (await git(folder, ['symbolic-ref', '-q', '--short', 'HEAD']))
+		.stdout;
+	if (branch === '') return { branch };
+	const counted = await git(folder, [
+		'rev-list',
+		'--count',
+		`refs/remotes/origin/${branch}..HEAD`,
+	]);
+	return counted.code === 0
+		? { branch, ahead: Number(counted.stdout) }
+		: { branch };
+}

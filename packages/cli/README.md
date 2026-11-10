@@ -43,7 +43,7 @@ Both HTTP and `serve --stdio` offer every app action as a tool and send the Epic
 
 After each call that is not read-only, either transport commits the paths the call wrote before it answers, one commit at a time per app. A commit failure goes to stderr; the paths remain visible in status.
 
-The HTTP server backs up on a clock: when it starts, every 5 minutes, and when it receives SIGINT or SIGTERM, it does for each app what `epicenter sync <app>` does. It snapshots what is pending as `<app>: changed outside epicenter` and pushes the branch to `origin` by name when the snapshot committed, the branch is ahead of its `origin` tracking ref, or there is no tracking ref yet; it never pushes to `upstream`. So a call's commit reaches the backup within 5 minutes, not at once. A failure goes to stderr, once until it changes, and leaves the commits local. `serve` says it is serving once its first backup is done, or after 10 seconds, and on a signal it waits at most 10 seconds for its last backup before it exits.
+The HTTP server backs up on a clock: when it starts, every 5 minutes, and when it receives SIGINT or SIGTERM, it does for each app what `epicenter sync <app>` does. It snapshots what is pending as `<app>: changed outside epicenter` and pushes the branch to `origin` by name when the branch is ahead of its `origin` tracking ref or there is no tracking ref yet; it never pushes to `upstream`. So a call's commit reaches the backup within 5 minutes, not at once. A failure goes to stderr, once until it changes, and leaves the commits local. `serve` says it is serving as soon as it listens, while its first backup runs, and on a signal it waits at most 10 seconds for its last backup before it exits.
 
 ## Runs never commit; each writer commits its own boundary
 
@@ -55,7 +55,7 @@ A run changes files and commits nothing ([ADR-0850](../../docs/adr/0850-an-actio
 
 A snapshot with no call runs `git add -A` and `git commit` from the app's folder with the pathspec `.`, so it takes everything changed in the folder that Git does not ignore, staged or not, and nothing outside it. Its body is `Changed:` and one path per line; a path containing a newline is JSON-quoted on its line. An app inside a larger repository commits into that repository and leaves the rest of it alone.
 
-Each app's `.gitignore` keeps `*.local` and `*.local.*` on this computer, as the template and starters write it. Before staging, a commit that would take such a file refuses with `<path> would be committed; add *.local and *.local.* to <app>/.gitignore`. Nothing changed makes no commit. Before staging, when the folder's `.gitattributes` mentions `filter=lfs` and `git config filter.lfs.process` is empty, it stops with `git lfs install` as the next step ([ADR-0856](../../docs/adr/0856-binary-files-go-through-git-lfs.md)), and while a merge, rebase, revert, or cherry-pick is underway it stops with `git -C <folder> status`. When another Git process holds `index.lock`, it retries for about 2 seconds. A failed commit is `{ message, next? }`. It changes no answer or exit code: after a call, stderr reads `<app>: not yet in history: <message>` and `Run: <next>`, or `Run: epicenter sync <app>` when the failure names no next step. The pending paths remain visible in status. A commit never pushes; `sync`, `undo`, and `serve`'s clock do.
+Each app's `.gitignore` keeps `*.local` and `*.local.*` on this computer, as the template and starters write it. Before staging, a commit that would take such a file refuses with `<path> would be committed; add *.local and *.local.* to <app>/.gitignore`. Nothing changed makes no commit. Before staging, when the folder's `.gitattributes` mentions `filter=lfs` and `git config filter.lfs.process` is empty, it stops with `git lfs install` as the next step ([ADR-0856](../../docs/adr/0856-binary-files-go-through-git-lfs.md)), and while a merge, rebase, revert, or cherry-pick is underway it stops with `git -C <folder> status`. When another Git process holds `index.lock`, it retries for about 2 seconds. A failed commit is `{ message, next? }`. It changes no answer or exit code: after a call, stderr reads `<app>: not yet in history: <message>` and `Run: <next>`, or `Run: epicenter sync <app>` when the failure names no next step. The pending paths remain visible in status. A commit never pushes; only `sync` and `serve`'s clock do.
 
 There is no lock: writes to one app run at once. Git's `index.lock` keeps commits apart, and `folder.update` keeps changes to one file apart: it writes only over the text its change read, so every collection write lands. `folder.write` is last-write-wins.
 
@@ -94,7 +94,7 @@ A placeholder such as `time` prints as a field: the command reads only the answe
 
 ## Syncing
 
-`epicenter sync [<app> [-m <message>]]` takes a snapshot and pushes to `origin`, the home's optional backup ([ADR-0851](../../docs/adr/0851-an-app-has-one-home-and-an-optional-push-only-backup.md)). For each app in the Epicenter, or the one named, one after another, it commits pending changes and then runs `git push origin HEAD:<branch>` when `origin` exists. The snapshot reads `<app>: changed outside epicenter`, or with `-m` (`--message`), which needs an app, `<app>: <message>`; a message must be one line of text. It never fetches, pulls, rebases, stashes, or force pushes. An app without `origin` gets a local snapshot. Nothing goes to `upstream`, the starter an app came from, or to whatever the branch tracks.
+`epicenter sync [<app> [-m <message>]]` takes a snapshot and pushes to `origin`, the home's optional backup ([ADR-0851](../../docs/adr/0851-an-app-has-one-home-and-an-optional-push-only-backup.md)). For each app in the Epicenter, or the one named, one after another, it commits pending changes and then, when `origin` exists, runs `git push origin HEAD:<branch>` if the branch is ahead of its `origin` tracking ref or has none yet; `serve`'s clock follows the same rule. The snapshot reads `<app>: changed outside epicenter`, or with `-m` (`--message`), which needs an app, `<app>: <message>`; a message must be one line of text. It never fetches, pulls, rebases, stashes, or force pushes. An app without `origin` gets a local snapshot. Nothing goes to `upstream`, the starter an app came from, or to whatever the branch tracks.
 
 A refused non-fast-forward push leaves both histories as they were. Sync says the backup at origin has changes this computer does not and nothing was overwritten. It suggests `git -C <folder> fetch origin && git -C <folder> log HEAD..origin/<branch>` to inspect those commits. The unpushed count remains in status; no push error file is stored. Other push failures leave the commit local. One app's failure never stops the others. An app inside a larger repository snapshots only its folder and pushes the whole repository's history.
 
@@ -106,13 +106,13 @@ A refused non-fast-forward push leaves both histories as they were. Sync says th
       "folder": "/Users/you/Epicenter/reading",
       "committed": { "subject": "reading: changed outside epicenter", "files": 2 },
       "pushed": true,
-      "origin": { "ahead": 0, "behind": 0 }
+      "origin": { "ahead": 0 }
     }
   ]
 }
 ```
 
-`committed` is the snapshot's subject and file count, or `null` when nothing was pending; `origin` is how far the branch is from its locally known `origin` tracking ref, or `null` when there is none. Sync does not fetch, so this distance can be stale after a refused push. `error` is `{ message, next? }` when the app did not finish syncing. Without `--json`, stdout has one line per app, such as `reading: committed reading: changed outside epicenter; pushed; 0 ahead of origin, 0 behind`, and stderr has each error with its `Run:` line. Exit 0 when every app synced, 1 when any did not, 2 when the app named is not in the Epicenter.
+`committed` is the snapshot's subject and file count, or `null` when nothing was pending; `origin` is how many commits the branch is ahead of its locally known `origin` tracking ref, or `null` when there is none. Sync does not fetch, so it cannot say how far the backup is ahead. `error` is `{ message, next? }` when the app did not finish syncing. Without `--json`, stdout has one line per app, such as `reading: committed reading: changed outside epicenter; pushed; 0 ahead of origin`, and stderr has each error with its `Run:` line. Exit 0 when every app synced, 1 when any did not, 2 when the app named is not in the Epicenter.
 
 ## History and undo
 
@@ -133,8 +133,7 @@ With `--json` it answers an array of `{ commit, date, subject, changed, undid? }
 
 1. It takes a snapshot of whatever is pending, so an edit not yet in history is kept there. Without `<commit>`, that snapshot is the one undone.
 2. Without `<commit>`, it walks back from HEAD to the newest commit that is not an undo and has not been undone. An undo is a commit whose body has Git's line `This reverts commit <sha>.`; an undo that is itself undone no longer hides the commit it reverted. So `undo` again goes further back, and `undo <undo commit>` brings back what that undo removed.
-3. It runs `git revert --no-commit` and commits as `<app>: undid <subject>`, keeping Git's `This reverts commit <sha>.` line.
-4. When the app has an `origin`, it pushes the branch with `git push origin HEAD:<branch>`, as `sync` does. A push that fails prints what `sync` would (a backup with changes this computer lacks is never overwritten) and its next step on stderr; the undo stays, and the exit code is 0.
+3. It runs `git revert --no-commit` and commits as `<app>: undid <subject>`, keeping Git's `This reverts commit <sha>.` line. It never pushes; `sync` or `serve`'s clock backs the undo up.
 
 It refuses, exit 2 with `{ "error": { "name": "Refused", "message", "next"? } }`, and leaves the folder's files as they were: a merge, a commit not in the app's history, a commit already undone (the next step undoes its undo), a newest commit that is not a snapshot, since its subject does not start with `<app>: ` (the first commit, or one made with Git directly, which can still be named), a revert that conflicts (it is aborted, naming the conflicting files), a revert that changes nothing, an app in the middle of a merge, rebase, revert, or cherry-pick, and a snapshot that fails. A named commit is checked before the snapshot, so its refusal adds nothing to history. Without `--json`, stdout says what was undone, as `undid tasks: add Water the plants`; with it, `{ "undid": <commit>, "commit": <the undo's commit> }`.
 

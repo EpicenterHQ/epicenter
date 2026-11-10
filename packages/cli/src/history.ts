@@ -22,8 +22,7 @@ import { COMMANDS } from './commands.ts';
 import { CliError } from './errors.ts';
 import { git, gitMessage } from './git.ts';
 import { homeEntries } from './home.ts';
-import { fail, writeErr, writeJson, writeOut } from './output.ts';
-import { pushOrigin } from './push.ts';
+import { fail, writeJson, writeOut } from './output.ts';
 import { CHANGED, snapshot, underway } from './snapshot.ts';
 
 /** Git's own line in a revert's body, naming the commit it reverts. */
@@ -488,10 +487,5 @@ export async function undoCommand(
 	if ('error' in done) return fail(done.error, json);
 	if (json) writeJson({ undid: done.undid, commit: done.commit });
 	else writeOut(`undid ${done.subject}`);
-	const pushed = await pushOrigin(found.folder);
-	if ('error' in pushed)
-		writeErr(
-			`${name}: ${pushed.error.message}${pushed.error.next ? `\nRun: ${pushed.error.next}` : ''}`,
-		);
 	return 0;
 }

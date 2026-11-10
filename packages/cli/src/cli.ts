@@ -70,7 +70,7 @@ changes, undoes a merge that stops on a conflict, lists each file that no
 longer fits its collection's fields, and builds the UI, keeping the last one that built.`,
 	build: `Builds the UI of every app, or one app, keeping each last good build.`,
 	sync: `Takes a snapshot of what is pending in each app, or one app, then pushes
-to origin when it exists. It never pushes to upstream. The snapshot reads
+to origin when it exists and the branch is ahead of it. It never pushes to upstream. The snapshot reads
 "<app>: changed outside epicenter", or with -m (--message), "<app>: <message>":
 an agent that edited an app's files itself names what it did this way.`,
 	history: `Lists the app's snapshots, newest first (20 by default; --limit takes 1 to 1000): each
@@ -79,7 +79,7 @@ one's commit, local time, and what it took. An undo reads as "undid <subject>".`
 not an undo and is not undone, or the commit named, as "<app>: undid <subject>".
 Run it again to go further back; undo an undo to bring it back. It refuses a
 merge, a commit not in the app's history, and a revert that conflicts, leaving
-the folder as it was, and then pushes to origin as sync does.`,
+the folder as it was. It never pushes; sync does.`,
 	serve: `Offers every app's actions over MCP at / and each app's UI at /<app>/, on
 127.0.0.1 and the Epicenter's port (default 4747) unless --port or --host says otherwise. With --stdio, it speaks
 MCP on stdin and stdout instead. Over HTTP it backs up every app as sync does when it

@@ -35,7 +35,7 @@ import { BUILT_UI } from './ui.ts';
 /** How often `serve` backs up every app. */
 const BACKUP_EVERY_MS = 5 * 60_000;
 
-/** How long `serve` waits for the backup it runs when it starts and when it stops. */
+/** How long `serve` waits for the backup it runs when it stops. */
 const BACKUP_WAIT_MS = 10_000;
 
 /** Whether `work` finished within `ms`; it runs on after `false`. */
@@ -83,10 +83,10 @@ p{color:var(--muted)}
 }
 
 /**
- * Start the server and its backup clock, which backs up once now (`started`)
- * and every 5 minutes after. The caller owns its lifetime and ends it with
- * `stop`. Port 0 asks Bun for a free port. `tick` runs one backup now, after
- * any already running, and answers what it did per app.
+ * Start the server and its backup clock, which backs up once now and every 5
+ * minutes after. The caller owns its lifetime and ends it with `stop`. Port 0
+ * asks Bun for a free port. `tick` runs one backup now, after any already
+ * running, and answers what it did per app.
  */
 export function startHttpServer(
 	host: string,
@@ -98,7 +98,7 @@ export function startHttpServer(
 	const backUpAll = async () => {
 		const backedUp: Synced[] = [];
 		for (const { entry, realPath } of await homeEntries()) {
-			const synced = await syncOne(entry, realPath, { onlyWhenAhead: true });
+			const synced = await syncOne(entry, realPath);
 			backedUp.push(synced);
 			const failure =
 				synced.error &&
@@ -130,7 +130,7 @@ export function startHttpServer(
 		}, BACKUP_EVERY_MS);
 		clock.unref();
 	};
-	const started = tickLogged().finally(schedule);
+	void tickLogged().finally(schedule);
 	const notFound = () => new Response('Not found', { status: 404 });
 	const uiFile = async (app: string, path: string) => {
 		if (!isName(app)) return notFound();
@@ -266,7 +266,6 @@ export function startHttpServer(
 	});
 	return {
 		port: server.port as number,
-		started,
 		tick,
 		/**
 		 * Stop listening and the clock, then run the last backup, waiting for
@@ -281,14 +280,9 @@ export function startHttpServer(
 	};
 }
 
-/**
- * Serve until the process receives SIGINT or SIGTERM, then back up once more.
- * It says it is serving once the backup it starts with is done, or after 10
- * seconds; it listens from the start.
- */
+/** Serve until the process receives SIGINT or SIGTERM, then back up once more. */
 export async function serveHttp(host: string, port: number): Promise<number> {
 	const server = startHttpServer(host, port, await rootInstructions());
-	await within(BACKUP_WAIT_MS, server.started);
 	writeErr(`Serving your apps at http://${host}:${server.port}.`);
 	await new Promise<void>((resolve) => {
 		process.once('SIGINT', resolve);

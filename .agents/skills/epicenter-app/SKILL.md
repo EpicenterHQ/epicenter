@@ -242,9 +242,9 @@ Only when the person asks, on the computer that runs `epicenter serve`:
 - `epicenter update [<app>]` merges the starter's changes, lists files that no
   longer fit, and builds. It refuses an app with uncommitted changes and undoes
   a merge that conflicts, naming the command that resolves it.
-- Backups go to `origin`: add the remote, and `epicenter sync` and `undo`
-  push there by name at once, and `serve` every 5 minutes, never to
-  `upstream`.
+- Backups go to `origin`: add the remote, and `epicenter sync` pushes there
+  by name at once, and `serve` every 5 minutes, never to `upstream`. Nothing
+  else pushes, `undo` included.
 - `epicenter build [<app>]` rebuilds a UI after a local edit, keeping the last
   one that built; the UI project's own `bun run build` empties `.cache/ui/`
   first, so a page served meanwhile is missing.

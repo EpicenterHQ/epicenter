@@ -8,7 +8,12 @@ import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
 import { mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ActionError, connect } from '@epicenter/app/client';
-import { fixture, gitIn, readingApp } from './runner.test-support.ts';
+import {
+	bareApp,
+	fixture,
+	gitIn,
+	readingApp,
+} from './runner.test-support.ts';
 
 /** Reading's actions as its UI calls them, for `connect`. */
 type Reading = {
@@ -32,6 +37,12 @@ afterEach(async () => {
 async function setup(agents?: string) {
 	const f = await fixture();
 	if (agents !== undefined) await writeFile(join(f.home, 'AGENTS.md'), agents);
+	// serve backs up once when it starts, after it says it is serving. An entry
+	// that is no repository makes that backup say when it is done, and is gone
+	// before the test makes its own apps.
+	const probe = join(f.home, 'probe');
+	await mkdir(probe);
+	await writeFile(join(probe, 'epicenter.ts'), bareApp('probe'));
 	const child = Bun.spawn([process.execPath, f.bin, 'serve', '--port', '0'], {
 		cwd: f.root,
 		env: f.env,
@@ -49,7 +60,8 @@ async function setup(agents?: string) {
 			const port = /Serving your apps at http:\/\/127\.0\.0\.1:(\d+)\./.exec(
 				output,
 			)?.[1];
-			if (port) ready.resolve(`http://127.0.0.1:${port}`);
+			if (port && /^probe: /m.test(output))
+				ready.resolve(`http://127.0.0.1:${port}`);
 		}
 		ready.reject(new Error(output || 'serve exited before listening'));
 	})();
@@ -64,6 +76,7 @@ async function setup(agents?: string) {
 			throw new Error('serve did not listen');
 		}),
 	]);
+	await rm(probe, { recursive: true });
 	/** Stop serve as a person would, and wait for its last backup and exit. */
 	const stop = async () => {
 		child.kill('SIGTERM');

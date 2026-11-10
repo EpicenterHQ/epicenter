@@ -84,10 +84,10 @@ else in it.
 **`serve` backs up on a clock.** When it starts, every 5 minutes, and when it
 stops (waiting at most 10 seconds), `serve` does for each app what
 `epicenter sync <app>` does: a snapshot of what is pending, then a push to
-`origin`, only when the snapshot committed, the branch is ahead of its
-`origin` tracking ref, or there is none yet. A call's commit waits for the next
-tick to be pushed. A failure is logged on stderr once until it changes.
-`sync` and `undo` from the command line push at once (ADR-0851).
+`origin`, only when the branch is ahead of its `origin` tracking ref or there
+is none yet. A call's commit waits for the next tick to be pushed. A failure
+is logged on stderr once until it changes. `sync` from the command line
+pushes at once by the same rule, and no other command pushes (ADR-0851).
 
 **The app's `.gitignore` owns what never leaves this computer.** The template
 and every starter ignore `*.local` and `*.local.*` (ADR-0858). Before staging,
@@ -165,7 +165,7 @@ answer.
 - The clock: edits with no boundary would otherwise never reach history or the
   backup. Its interval is how old an unbacked change can get, not a guess at
   what an edit means.
-- A push-only backup, on the clock and from `sync` and `undo`: a copy off this
+- A push-only backup, on the clock and from `sync`: a copy off this
   computer that never fetches, merges, or force pushes, so it never changes the
   home (ADR-0851).
 - Derived status: the pending and unpushed counts come from Git each time, so

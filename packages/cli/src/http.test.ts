@@ -1,7 +1,8 @@
 /**
  * `serve`'s backup clock, in process: each tick does what `epicenter sync`
  * does for every app, pushing only when there is something to push. Tests
- * drive `tick()` directly; none waits on the clock's 5 minutes.
+ * drive `tick()` directly, which runs after any backup already running; none
+ * waits on the clock's 5 minutes.
  */
 import { afterAll, afterEach, expect, setDefaultTimeout, test } from 'bun:test';
 import { rm, writeFile } from 'node:fs/promises';
@@ -59,7 +60,9 @@ test('serve backs up once when it starts: outside edits are snapshotted and push
 	const { folder, remote } = await reading();
 	await writeFile(join(folder, 'notes.md'), 'by hand\n');
 	const server = serve();
-	await server.started;
+	// A tick waits for the backup serve started with, which left it nothing to do.
+	const [after] = await server.tick();
+	expect(after).toMatchObject({ committed: null, pushed: false });
 	expect(await gitIn(remote, 'log', '-1', '--format=%B')).toBe(
 		'reading: changed outside epicenter\n\nChanged:\nnotes.md',
 	);
@@ -69,7 +72,7 @@ test('serve backs up once when it starts: outside edits are snapshotted and push
 test('a tick commits outside edits and pushes them, and pushes only when something is unpushed', async () => {
 	const { folder, remote } = await reading();
 	const server = serve();
-	await server.started;
+	await server.tick();
 
 	await writeFile(join(folder, 'notes.md'), 'by hand\n');
 	const [pushed] = await server.tick();
@@ -77,7 +80,7 @@ test('a tick commits outside edits and pushes them, and pushes only when somethi
 		app: 'reading',
 		committed: { subject: 'reading: changed outside epicenter', files: 1 },
 		pushed: true,
-		origin: { ahead: 0, behind: 0 },
+		origin: { ahead: 0 },
 	});
 	expect(await gitIn(remote, 'rev-parse', 'HEAD')).toBe(
 		await gitIn(folder, 'rev-parse', 'HEAD'),
@@ -104,7 +107,7 @@ test('a tick commits outside edits and pushes them, and pushes only when somethi
 test('a tick logs an unchanged failure once, and again when it changes', async () => {
 	const { folder } = await reading();
 	const server = serve();
-	await server.started;
+	await server.tick();
 	await writeFile(join(folder, '.gitignore'), '.cache/\n');
 	await writeFile(join(folder, 'token.local'), 'secret\n');
 	const logged = await stderrOf(async () => {

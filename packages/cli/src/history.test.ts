@@ -336,26 +336,22 @@ test('returned objects show every key and lists show rows, while --json is uncha
 	).toEqual({ returned: [] });
 });
 
-test('undo pushes to origin as sync does; a push that fails is said, not undone', async () => {
+test('undo never pushes; sync backs up the undo', async () => {
 	const f = await setup();
 	const backup = join(f.root, 'backup.git');
 	await gitIn(f.root, 'init', '-q', '--bare', backup);
 	await gitIn(f.app, 'remote', 'add', 'origin', backup);
 	const branch = await gitIn(f.app, 'symbolic-ref', '--short', 'HEAD');
 	expect((await f.run('notes', 'put', 'one')).code).toBe(0);
-	expect((await f.run('notes', 'put', 'two')).code).toBe(0);
+	expect((await f.run('sync', 'notes')).code).toBe(0);
+	const pushed = await gitIn(backup, 'rev-parse', branch);
 
-	const pushed = await f.run('undo', 'notes');
-	expect(pushed).toMatchObject({ code: 0, stderr: '' });
-	expect(await gitIn(backup, 'rev-parse', branch)).toBe(await f.head());
+	const undone = await f.run('undo', 'notes');
+	expect(undone).toMatchObject({ code: 0, stderr: '' });
+	expect(await gitIn(backup, 'rev-parse', branch)).toBe(pushed);
 
-	await gitIn(f.app, 'remote', 'set-url', 'origin', join(f.root, 'gone.git'));
-	const unpushed = await f.run('undo', 'notes');
-	expect(unpushed.code).toBe(0);
-	expect(unpushed.stdout).toBe('undid notes: put one\n');
-	expect(unpushed.stderr).toContain('notes: not pushed: ');
-	expect(unpushed.stderr).toEndWith(
-		`Run: git -C ${f.app} push origin HEAD:${branch}\n`,
+	expect((await f.run('sync', 'notes')).stdout).toBe(
+		'notes: nothing to commit; pushed; 0 ahead of origin\n',
 	);
-	expect(await f.log()).toBeUndefined();
+	expect(await gitIn(backup, 'rev-parse', branch)).toBe(await f.head());
 });

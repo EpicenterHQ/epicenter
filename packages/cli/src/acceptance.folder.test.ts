@@ -131,7 +131,7 @@ test('W2 epicenter sync snapshots and pushes to a bare origin without fetching',
 				folder: journal.folder,
 				committed: { subject: 'journal: changed outside epicenter', files: 2 },
 				pushed: true,
-				origin: { ahead: 0, behind: 0 },
+				origin: { ahead: 0 },
 			},
 			{
 				app: 'notes',
@@ -150,7 +150,7 @@ test('W2 epicenter sync snapshots and pushes to a bare origin without fetching',
 	const again = await f.run('sync', 'journal');
 	expect(again.code).toBe(0);
 	expect(again.stdout).toBe(
-		'journal: nothing to commit; pushed; 0 ahead of origin, 0 behind\n',
+		'journal: nothing to commit; 0 ahead of origin\n',
 	);
 	expect(again.stderr).toBe('');
 	expect((await f.run('sync', 'nope', '--json')).code).toBe(2);
@@ -194,7 +194,7 @@ test('W3 a refused push leaves both sides unchanged and other apps still sync', 
 	expect(apps.clash).toMatchObject({
 		committed: { subject: 'clash: changed outside epicenter' },
 		pushed: false,
-		origin: { ahead: 1, behind: 0 },
+		origin: { ahead: 1 },
 		error: {
 			message: expect.stringContaining('nothing was overwritten'),
 			next: `git -C ${clash.folder} fetch origin && git -C ${clash.folder} log HEAD..origin/main`,
@@ -229,7 +229,7 @@ test('W3 a refused push leaves both sides unchanged and other apps still sync', 
 	});
 	expect(apps.fine).toMatchObject({
 		pushed: true,
-		origin: { ahead: 0, behind: 0 },
+		origin: { ahead: 0 },
 	});
 	await writeFile(join(clash.folder, 'still-pending.md'), 'pending\n');
 	const status = JSON.parse((await f.run('clash', '--json')).stdout);

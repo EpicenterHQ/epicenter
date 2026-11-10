@@ -15,7 +15,7 @@ import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { isLocalPath } from '@epicenter/app';
 import { extractErrorMessage } from 'wellcrafted/error';
-import { git, gitMessage } from './git.ts';
+import { git, gitMessage, originOf } from './git.ts';
 
 /** The write run that led to a commit: its call, the paths it wrote through `folder`, and whether it threw. */
 export type Wrote = { call: string; paths: string[]; threw?: true };
@@ -121,27 +121,17 @@ async function refuseLocal(app: string, folder: string, paths: string[]) {
 }
 
 /**
- * What Git says is pending and not yet backed up. A missing origin tracking
- * branch gives no unpushed count because its distance cannot be known.
+ * What Git says is pending and, when the branch has an `origin` tracking ref,
+ * how many commits are not yet backed up; `undefined` for a folder in no
+ * repository.
  */
 export async function statusOf(folder: string) {
 	const status = await git(folder, statusArgs(TAKEN), true);
 	if (status.code !== 0) return undefined;
-	const hasOrigin =
-		(await git(folder, ['remote', 'get-url', 'origin'])).code === 0;
-	const branch = hasOrigin
-		? (await git(folder, ['symbolic-ref', '-q', '--short', 'HEAD'])).stdout
-		: '';
-	const counted = branch
-		? await git(folder, [
-				'rev-list',
-				'--count',
-				`refs/remotes/origin/${branch}..HEAD`,
-			])
-		: undefined;
+	const unpushed = (await originOf(folder))?.ahead;
 	return {
 		pending: statusPaths(status.stdout).length,
-		...(counted?.code === 0 ? { unpushed: Number(counted.stdout) } : {}),
+		...(unpushed === undefined ? {} : { unpushed }),
 	};
 }
 
