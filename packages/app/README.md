@@ -204,7 +204,7 @@ the path it was asked for, while `list` gives the name on disk.
 `defineCollection` refuses:
 
 - a path that is not a relative `.md` template, has an empty part or one
-  starting with `.` (such as `.cache/`), has a placeholder twice, or a brace
+  starting with `.`, has a placeholder twice, or a brace
   that is not a placeholder;
 - a path whose first part is a placeholder (`{day}.md` would hold
   `README.md`), is `ui` or `node_modules`, or starts with `epicenter.`: start
@@ -328,8 +328,8 @@ may set `port` (0 to 65535, default 4747). A public listener needs both
 `public` (an HTTPS URL) and `publicPort` (a local port different from `port`).
 
 `folder` is a convenience, not a sandbox: an action may also write through
-`folder.path` with `node:fs`. What the app can rebuild lives in files it
-gitignores inside its folder, such as `.cache/`; they are never committed.
+`folder.path` with `node:fs`. An app can ignore files it can rebuild, such as
+`ui/build/`; Git does not commit them.
 Paths are relative to the folder with `/` between parts, and `read` gives
 `undefined` for a missing file.
 

@@ -180,6 +180,7 @@ test('a call whose snapshot fails still resolves, and the app says why', async (
 	expect(await gitIn(folder, 'rev-list', '--count', 'HEAD')).toBe('1');
 	expect(JSON.parse((await f.run('reading', '--json')).stdout).status).toEqual({
 		pending: 2,
+		backup: 'none',
 	});
 });
 
@@ -335,20 +336,20 @@ test('commit subjects use the first positional value on one line, capped at 60 c
 test('a built UI serves files and refuses traversal and symlinks outside it', async () => {
 	const f = await setup();
 	const folder = await f.folder(join(f.home, 'reading'), readingApp);
-	await mkdir(join(folder, '.cache', 'ui', '_app', 'immutable'), {
+	await mkdir(join(folder, 'ui', 'build', '_app', 'immutable'), {
 		recursive: true,
 	});
 	await writeFile(
-		join(folder, '.cache', 'ui', 'index.html'),
+		join(folder, 'ui', 'build', 'index.html'),
 		'<h1>Reading</h1>',
 	);
 	await writeFile(
-		join(folder, '.cache', 'ui', '_app', 'immutable', 'asset.js'),
+		join(folder, 'ui', 'build', '_app', 'immutable', 'asset.js'),
 		'export {};',
 	);
 	await symlink(
 		join(folder, 'epicenter.ts'),
-		join(folder, '.cache', 'ui', 'outside.ts'),
+		join(folder, 'ui', 'build', 'outside.ts'),
 	);
 	const linked = await f.app(
 		'linked',
@@ -357,8 +358,8 @@ test('a built UI serves files and refuses traversal and symlinks outside it', as
 	const outsideUi = join(f.root, 'outside-ui');
 	await mkdir(outsideUi);
 	await writeFile(join(outsideUi, 'index.html'), 'outside');
-	await mkdir(join(linked, '.cache'));
-	await symlink(outsideUi, join(linked, '.cache', 'ui'));
+	await mkdir(join(linked, 'ui'));
+	await symlink(outsideUi, join(linked, 'ui', 'build'));
 	expect(await (await fetch(`${f.base}/`)).text()).toContain(
 		'href="/reading/"',
 	);
@@ -390,15 +391,15 @@ test('a built UI serves files and refuses traversal and symlinks outside it', as
 	expect((await fetch(`${f.base}/linked/`)).status).toBe(404);
 });
 
-test('only the built UI in .cache/ui/ is served, never the ui/ source', async () => {
+test('only the built UI in ui/build/ is served, never the ui/ source', async () => {
 	const f = await setup();
 	const folder = await f.folder(join(f.home, 'reading'), {
 		...readingApp,
 		'ui/index.html': 'source',
 	});
 	expect((await fetch(`${f.base}/reading/`)).status).toBe(404);
-	await mkdir(join(folder, '.cache', 'ui'), { recursive: true });
-	await writeFile(join(folder, '.cache', 'ui', 'index.html'), 'built');
+	await mkdir(join(folder, 'ui', 'build'), { recursive: true });
+	await writeFile(join(folder, 'ui', 'build', 'index.html'), 'built');
 	expect(await (await fetch(`${f.base}/reading/`)).text()).toBe('built');
 });
 

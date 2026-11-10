@@ -140,7 +140,7 @@ export default defineApp({ description: 'The misplaced app', collections: {}, ac
 	expect(JSON.stringify(listing)).not.toContain('json-only');
 
 	const human = await f.run();
-	expect(human.stdout).toMatch(/^vocab +The vocab app$/m);
+	expect(human.stdout).toMatch(/^vocab +The vocab app \(not backed up\)$/m);
 	expect(human.stdout).toContain(`-> ${linked}`);
 	expect(human.stdout).toContain('Problems:');
 	expect(human.stdout).toContain(

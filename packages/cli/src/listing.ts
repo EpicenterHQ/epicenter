@@ -18,19 +18,21 @@ import {
 } from './input.ts';
 import type { statusOf } from './snapshot.ts';
 
-/** Git's pending and unpushed counts; `undefined` for a folder in no repository. */
+/** Git's pending and backup status; `undefined` for a folder in no repository. */
 type Status = Awaited<ReturnType<typeof statusOf>>;
 
 /**
  * Git-derived status as `--json` gives it: pending paths and commits not
- * backed up; absent when both counts are zero.
+ * backed up; absent when both counts are zero and the backup exists.
  */
 function listingStatus(status: Status) {
-	if (!status || (status.pending === 0 && !status.unpushed)) return {};
+	if (!status || (status.pending === 0 && !status.unpushed && !status.backup))
+		return {};
 	return {
 		status: {
 			pending: status.pending,
 			...(status.unpushed !== undefined ? { unpushed: status.unpushed } : {}),
+			...(status.backup ? { backup: status.backup } : {}),
 		},
 	};
 }
@@ -48,8 +50,18 @@ function historyMark(status: Status) {
 					`${status.unpushed} ${status.unpushed === 1 ? 'snapshot' : 'snapshots'} not backed up`,
 				]
 			: []),
+		...(status?.backup
+			? [status.backup === 'none' ? 'not backed up' : 'never backed up']
+			: []),
 	];
 	return marks.length ? ` (${marks.join('; ')})` : '';
+}
+
+function backupStep(name: string, folder: string, status: Status) {
+	if (status?.backup === 'none')
+		return `Run: git -C ${folder} remote add origin <url>, then epicenter sync ${name}`;
+	if (status?.backup === 'never') return `Run: epicenter sync ${name}`;
+	return undefined;
 }
 
 /** MCP's defaults for each hint an action does not give. */
@@ -139,9 +151,13 @@ export function homeListing(
 	);
 	if (!found.apps.length) lines.push('No apps yet. Run: epicenter new <name>');
 	else lines.push('', 'Run: epicenter <app>');
-	for (const app of found.apps)
-		if (histories.get(app.name)?.pending || histories.get(app.name)?.unpushed)
+	for (const app of found.apps) {
+		const status = histories.get(app.name);
+		const step = backupStep(app.name, app.folder, status);
+		if (step) lines.push(step);
+		else if (status?.pending || status?.unpushed)
 			lines.push(`Run: epicenter sync ${app.name}`);
+	}
 	lines.unshift(`Epicenter: ${basename(found.epicenter)} (${found.epicenter})`);
 	if (found.problems.length) {
 		lines.push('', 'Problems:');
@@ -161,6 +177,7 @@ export function oneAppListing(
 	json: boolean,
 	history: Status,
 ): unknown {
+	const step = backupStep(located.name, located.folder, history);
 	if (json) return appListing(located, history);
 	return [
 		`${located.name}  ${located.app.description}`,
@@ -176,9 +193,14 @@ export function oneAppListing(
 					`${history.unpushed} ${history.unpushed === 1 ? 'snapshot' : 'snapshots'} not backed up`,
 				]
 			: []),
-		...(history?.pending || history?.unpushed
-			? [`Run: epicenter sync ${located.name}`]
+		...(history?.backup
+			? [history.backup === 'none' ? 'not backed up' : 'never backed up']
 			: []),
+		...(step
+			? [step]
+			: history?.pending || history?.unpushed
+				? [`Run: epicenter sync ${located.name}`]
+				: []),
 		'',
 		...actionLines(located),
 		'',

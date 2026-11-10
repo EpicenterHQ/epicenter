@@ -167,7 +167,8 @@ test('build reports each app and keeps the last good UI after failure', async ()
 			private: true,
 			scripts: { build: 'bun build.ts' },
 		}),
-		'ui/build.ts': `await Bun.write('../.cache/ui/index.html', 'good');\n`,
+		'ui/.gitignore': 'build/\nbuild.last/\nnode_modules/\n',
+		'ui/build.ts': `await Bun.write('build/index.html', 'good');\n`,
 	});
 	const first = await f.run('build', '--json');
 	expect(first.code).toBe(0);
@@ -179,7 +180,7 @@ test('build reports each app and keeps the last good UI after failure', async ()
 		['capture', false],
 		['tasks', true],
 	]);
-	expect(await readFile(join(tasks, '.cache/ui/index.html'), 'utf8')).toBe(
+	expect(await readFile(join(tasks, 'ui/build/index.html'), 'utf8')).toBe(
 		'good',
 	);
 	await writeFile(
@@ -191,7 +192,7 @@ test('build reports each app and keeps the last good UI after failure', async ()
 	expect(JSON.parse(failed.stdout).apps[0].error.message).toContain(
 		'build broke',
 	);
-	expect(await readFile(join(tasks, '.cache/ui/index.html'), 'utf8')).toBe(
+	expect(await readFile(join(tasks, 'ui/build/index.html'), 'utf8')).toBe(
 		'good',
 	);
 	expect((await f.run('build', 'capture')).stdout).toBe('capture: no ui/\n');

@@ -288,7 +288,7 @@ describe('defineCollection', () => {
 			'epicenter.md',
 			'epicenter.md starts with "epicenter.", which names epicenter\'s own files',
 		],
-		['.cache/{id}.md', '.cache/{id}.md has a part that starts with "."'],
+		['.hidden/{id}.md', '.hidden/{id}.md has a part that starts with "."'],
 		[
 			'words/{a.md',
 			'words/{a.md has a brace that is not a placeholder such as {word}',

@@ -84,13 +84,13 @@ test('a run that returns commits nothing; the snapshot after it is named for the
 	expect(run.answer).toEqual({ returned: 'monday' });
 	expect(await f.head()).toBe(before);
 	expect(await gitIn(f.dir, 'status', '--porcelain')).toBe('?? monday.md');
-	expect(await statusOf(f.dir)).toEqual({ pending: 1 });
+	expect(await statusOf(f.dir)).toEqual({ pending: 1, backup: 'none' });
 	expect(await snapshot('notes', f.dir, run.wrote)).toEqual({
 		committed: { subject: 'notes: write monday', files: 1 },
 	});
 	expect(await f.message()).toBe('notes: write monday');
 	expect(await snapshot('notes', f.dir)).toEqual({ committed: null });
-	expect(await statusOf(f.dir)).toEqual({ pending: 0 });
+	expect(await statusOf(f.dir)).toEqual({ pending: 0, backup: 'none' });
 });
 
 test('a snapshot leaves local files and local directories out of history', async () => {
@@ -174,4 +174,15 @@ test('concurrent snapshots of one folder in one process take turns', async () =>
 		committed: { subject: 'notes: write monday', files: 1 },
 	});
 	expect(second).toEqual({ committed: null });
+});
+
+test('status names an origin that has never received the branch, then clears after push', async () => {
+	const f = await setup();
+	const backup = join(f.dir, '.git', 'backup.git');
+	await gitIn(f.dir, 'init', '-q', '--bare', backup);
+	await gitIn(f.dir, 'remote', 'add', 'origin', backup);
+	expect(await statusOf(f.dir)).toEqual({ pending: 0, backup: 'never' });
+	const branch = await gitIn(f.dir, 'symbolic-ref', '--short', 'HEAD');
+	await gitIn(f.dir, 'push', '-q', 'origin', `HEAD:${branch}`);
+	expect(await statusOf(f.dir)).toEqual({ pending: 0, unpushed: 0 });
 });

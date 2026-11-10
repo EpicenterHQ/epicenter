@@ -1,6 +1,6 @@
 {
 	"name": "@epicenter/capture-ui",
-	"description": "Capture's UI, built into the app's .cache/ui/ and served by epicenter serve at /capture/",
+	"description": "Capture's UI, built into the app's ui/build/ and served by epicenter serve at /capture/",
 	"private": true,
 	"version": "0.0.1",
 	"type": "module",

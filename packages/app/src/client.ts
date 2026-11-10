@@ -1,6 +1,6 @@
 /**
  * How an app's UI asks `epicenter serve` to run its actions (ADR-0860,
- * ADR-0866). A UI is a web page built from an app's `ui/` into `.cache/ui/`
+ * ADR-0866). A UI is a web page built from an app's `ui/` into `ui/build/`
  * and served at `/<app>/`; it asks over MCP like any agent, at the same
  * origin's `/`.
  *
