@@ -1,7 +1,8 @@
 /**
  * Find the Epicenter for this process and read its marker, `EPICENTER.md`
  * (ADR-0868): a note for people whose optional front matter says the port
- * `serve` listens on.
+ * `serve` listens on and, with `public` and `publicPort`, the public address
+ * a tunnel reaches and the port it targets (ADR-0871).
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
@@ -16,6 +17,12 @@ export type EpicenterRoot = {
 	folder: string;
 	/** The port `serve` listens on: the marker's, else 4747. */
 	port: number;
+	/**
+	 * The public address, an https origin, and the port on `127.0.0.1` a
+	 * tunnel to it targets; absent for an Epicenter reached only on the
+	 * tailnet (ADR-0871).
+	 */
+	public?: { url: string; port: number };
 };
 
 export class RootUsageError extends Error {
@@ -63,19 +70,60 @@ export function ancestorWithMarker(start: string): string | undefined {
 	}
 }
 
+function isPort(value: unknown): value is number {
+	return (
+		typeof value === 'number' &&
+		Number.isInteger(value) &&
+		value >= 0 &&
+		value <= 65535
+	);
+}
+
+/**
+ * Whether `value` is an https origin and nothing more: MCP is at `/` and the
+ * sign-in at `/.sign-in`, so a path, query, or credentials would never be
+ * reached (ADR-0871).
+ */
+function isPublicOrigin(value: unknown): value is string {
+	if (typeof value !== 'string' || !URL.canParse(value)) return false;
+	const url = new URL(value);
+	return (
+		url.protocol === 'https:' &&
+		url.pathname === '/' &&
+		url.search === '' &&
+		url.hash === '' &&
+		url.username === '' &&
+		url.password === ''
+	);
+}
+
 /** What is wrong with the marker's front matter, one line each, quoting each value. */
 function markerProblems(fields: Record<string, unknown>): string[] {
-	const { port, ...rest } = fields;
-	const problems = Object.keys(rest).map(
-		(key) => `${key} is not a field; the only field is port`,
-	);
-	const fits =
-		port === undefined ||
-		(Number.isInteger(port) && (port as number) >= 0 && (port as number) <= 65535);
-	if (!fits)
-		problems.unshift(
+	const { port, public: publicUrl, publicPort, ...rest } = fields;
+	const problems: string[] = [];
+	if (port !== undefined && !isPort(port))
+		problems.push(
 			`port: ${JSON.stringify(port)} is not a whole number from 0 to 65535`,
 		);
+	if (publicUrl !== undefined && !isPublicOrigin(publicUrl))
+		problems.push(
+			`public: ${JSON.stringify(publicUrl)} is not an https origin with no path, such as https://host:10000`,
+		);
+	if (publicPort !== undefined && !isPort(publicPort))
+		problems.push(
+			`publicPort: ${JSON.stringify(publicPort)} is not a whole number from 0 to 65535`,
+		);
+	else if (publicPort !== undefined && publicPort === (port ?? DEFAULT_PORT))
+		problems.push(
+			`publicPort: ${publicPort} is also the port; the public listener needs a port of its own`,
+		);
+	if ((publicUrl === undefined) !== (publicPort === undefined))
+		problems.push('public and publicPort come together: give both or neither');
+	problems.push(
+		...Object.keys(rest).map(
+			(key) => `${key} is not a field; the fields are port, public, and publicPort`,
+		),
+	);
 	return problems;
 }
 
@@ -95,9 +143,17 @@ function readRoot(folder: string): EpicenterRoot {
 		throw new RootUsageError(
 			problems.map((problem) => `${marker}: ${problem}`).join('\n'),
 		);
+	const { port, public: publicUrl, publicPort } = read.fields as {
+		port?: number;
+		public?: string;
+		publicPort?: number;
+	};
 	return {
 		folder,
-		port: (read.fields.port as number | undefined) ?? DEFAULT_PORT,
+		port: port ?? DEFAULT_PORT,
+		...(publicUrl !== undefined && publicPort !== undefined
+			? { public: { url: new URL(publicUrl).origin, port: publicPort } }
+			: {}),
 	};
 }
 

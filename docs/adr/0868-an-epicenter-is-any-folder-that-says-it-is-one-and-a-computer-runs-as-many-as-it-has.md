@@ -55,11 +55,13 @@ naming `epicenter init <folder>`. Epicenters do not nest.
 **The marker is `EPICENTER.md`, a note for people with optional front
 matter.** Its name sits beside `AGENTS.md` and `README.md` as a file to read
 first, and its case keeps it apart from an app's `epicenter.ts`. The front
-matter has one optional field, `port` (4747 when absent; `--port`
-overrides it); ADR-0871's `public` and `owners`, which make the Epicenter
-public and say who may approve a client there, join it when that sign-in is
-built. An empty file is a valid marker. A value that does not fit, or any other field, is refused with a line
-naming the field, so a misspelled `port` is never served on 4747 unnoticed.
+matter has three optional fields: `port` (4747 when absent; `--port`
+overrides it), and `public` and `publicPort`, which come together: the
+Epicenter's public https origin, and the port on `127.0.0.1`, other than
+`port`, that a tunnel to it targets (ADR-0871). An empty file is a valid
+marker. A value that does not fit, or any other field, is refused with a
+line naming the field, so a misspelled `port` is never served on 4747
+unnoticed.
 The display name is the folder's name. `epicenter init` writes:
 
 ```md

@@ -128,12 +128,59 @@ test('the marker is found from inside an app, and its front matter is checked fi
 	expect(refused.code).toBe(2);
 	expect(JSON.parse(refused.stdout).error.message.split('\n')).toEqual([
 		`${marker}: port: 70000 is not a whole number from 0 to 65535`,
-		`${marker}: prot is not a field; the only field is port`,
+		`${marker}: prot is not a field; the fields are port, public, and publicPort`,
 	]);
 	await writeFile(marker, '---\nport: [unclosed\n---\n');
 	expect(JSON.parse((await listed()).stdout).error.message).toBe(
 		`${marker}: its front matter is neither key: <JSON> lines nor YAML`,
 	);
+});
+
+test('the marker takes public and publicPort together, an https origin and a port of its own', async () => {
+	const f = await setup();
+	const marker = join(f.home, 'EPICENTER.md');
+	await writeFile(
+		marker,
+		'---\nport: 4747\npublic: https://studio.example.com:10000\npublicPort: 10000\n---\n',
+	);
+	expect((await f.run('--json')).code).toBe(0);
+	for (const [contents, problem] of [
+		[
+			'---\npublic: http://studio.example.com\npublicPort: 10000\n---\n',
+			'public: "http://studio.example.com" is not an https origin with no path, such as https://host:10000',
+		],
+		[
+			'---\npublic: https://studio.example.com/epicenter/\npublicPort: 10000\n---\n',
+			'public: "https://studio.example.com/epicenter/" is not an https origin with no path, such as https://host:10000',
+		],
+		[
+			'---\npublic: https://studio.example.com/?a=1\npublicPort: 10000\n---\n',
+			'public: "https://studio.example.com/?a=1" is not an https origin with no path, such as https://host:10000',
+		],
+		[
+			'---\npublic: https://studio.example.com\n---\n',
+			'public and publicPort come together: give both or neither',
+		],
+		[
+			'---\npublicPort: 10000\n---\n',
+			'public and publicPort come together: give both or neither',
+		],
+		[
+			'---\npublic: https://studio.example.com\npublicPort: 4747\n---\n',
+			'publicPort: 4747 is also the port; the public listener needs a port of its own',
+		],
+		[
+			'---\npublic: https://studio.example.com\npublicPort: 1.5\n---\n',
+			'publicPort: 1.5 is not a whole number from 0 to 65535',
+		],
+	] as const) {
+		await writeFile(marker, contents);
+		const result = await f.run('--json');
+		expect(result.code).toBe(2);
+		expect(JSON.parse(result.stdout).error.message).toBe(
+			`${marker}: ${problem}`,
+		);
+	}
 });
 
 test('the marker is matched by its exact name, and a byte order mark before its front matter is ignored', async () => {
@@ -161,7 +208,7 @@ test('the marker is matched by its exact name, and a byte order mark before its 
 	const marker = join(f.home, 'EPICENTER.md');
 	await writeFile(marker, '\uFEFF---\nprot: 4748\n---\n');
 	expect(JSON.parse((await f.run('--json')).stdout).error.message).toBe(
-		`${marker}: prot is not a field; the only field is port`,
+		`${marker}: prot is not a field; the fields are port, public, and publicPort`,
 	);
 	await writeFile(marker, '\uFEFF---\nport: 4800\n---\n');
 	expect((await f.run('--json')).code).toBe(0);
