@@ -1,9 +1,10 @@
 /**
- * The home, app, and action views (ADR-0841, ADR-0857). `--json` prints the
+ * The Epicenter, app, and action views (ADR-0841, ADR-0857). `--json` prints the
  * declaration with each action as the MCP tool `serve` offers, so a listing
  * and `tools/list` agree; the human views come from the same actions.
  */
 import { type Action, ANNOTATION_DEFAULTS } from '@epicenter/app';
+import { basename } from 'node:path';
 import type { TSchemaOptions } from 'typebox';
 import type { Discovery, Runnable } from './home.ts';
 import {
@@ -14,6 +15,7 @@ import {
 	usageLine,
 } from './input.ts';
 import { keychainService } from './secrets.ts';
+import { epicenterRoot } from './root.ts';
 
 /** An action as an MCP tool definition: its name, input schema, and all four hints, explicit. */
 export function actionTool(app: string, key: string, action: Action) {
@@ -62,24 +64,22 @@ function actionLines(located: Runnable) {
 export function homeListing(found: Discovery, json: boolean): unknown {
 	if (json)
 		return {
-			home: found.home,
+			epicenter: found.epicenter,
 			apps: found.apps.map(appListing),
 			problems: found.problems.map(({ entry, folder, problems }) => ({
 				entry,
 				folder,
 				problems,
 			})),
-			...(found.missing ? { missing: true } : {}),
 		};
-	if (found.missing)
-		return `There is no Epicenter home at ${found.home}. Make one with: mkdir ${found.home}`;
 	const width = Math.max(0, ...found.apps.map(({ name }) => name.length));
 	const lines = found.apps.map(
 		(located) =>
 			`${located.name.padEnd(width)}  ${located.declaration.description}${located.link ? ` -> ${located.link}` : ''}`,
 	);
-	if (!found.apps.length) lines.push('There are no apps yet.');
+	if (!found.apps.length) lines.push('No apps yet. Run: epicenter new <name>');
 	else lines.push('', 'Run: epicenter <app>');
+	lines.unshift(`Epicenter: ${basename(found.epicenter)} (${found.epicenter})`);
 	if (found.problems.length) {
 		lines.push('', 'Problems:');
 		for (const app of found.problems)
@@ -97,7 +97,7 @@ export function oneAppListing(located: Runnable, json: boolean): unknown {
 	if (json)
 		return {
 			...appListing(located),
-			keychain: keychainService(located.name),
+			keychain: keychainService(epicenterRoot().id, located.name),
 		};
 	return [
 		`${located.name}  ${located.declaration.description}`,

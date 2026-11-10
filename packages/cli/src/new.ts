@@ -1,6 +1,5 @@
 /**
- * `epicenter new` and `epicenter link`: the ways a folder becomes one of your
- * apps in `~/Epicenter`.
+ * `epicenter new` makes an app in the selected Epicenter.
  *
  * - `new <name> --from <git url|path>` clones a starter, a repository with no
  *   data, keeps it as the app's `upstream` remote with the branch tracking
@@ -8,29 +7,16 @@
  *   the starter's changes.
  * - `new <name>` makes the folder from the built-in template, makes it a
  *   repository, and commits the template.
- * - `link <folder> [<name>]` links a folder that already has an
- *   `epicenter.json` into `~/Epicenter`, wherever it lives and whatever it
- *   is: a repository, a folder inside one, or neither. It commits nothing
- *   and moves nothing, so the folder's path, scripts, and remotes keep
- *   working (ADR-0852).
- *
- * The app's name is its entry in `~/Epicenter`: for `link`, the folder's own
- * name unless a second word gives another.
+ * The app's name is its child entry in the Epicenter.
  */
-import {
-	mkdir,
-	readdir,
-	realpath,
-	rm,
-	symlink,
-	writeFile,
-} from 'node:fs/promises';
+import { mkdir, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { basename, join } from 'node:path';
+import { join } from 'node:path';
 import { nameProblem, SCHEMA_URL } from '@epicenter/app';
 import { CliError } from './errors.ts';
 import { checkedGit, git } from './git.ts';
-import { homeDir, readDeclaration, resolveFolder } from './home.ts';
+import { readDeclaration } from './home.ts';
+import { epicenterDir, folderPath } from './root.ts';
 import { fail, made, presentAnswer } from './output.ts';
 import { buildUi } from './ui.ts';
 
@@ -57,20 +43,21 @@ function template(name: string) {
 	};
 }
 
-/** Whether `name` is free in the home, ignoring case, as macOS does. */
+/** Whether `name` is free in the Epicenter, ignoring case, as macOS does. */
 export async function taken(name: string) {
 	try {
-		return (await readdir(homeDir())).some(
+		return (await readdir(epicenterDir())).some(
 			(entry) => entry.toLowerCase() === name.toLowerCase(),
 		);
-	} catch {
-		return false;
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+		throw error;
 	}
 }
 
 function done(name: string, json: boolean) {
 	return made(
-		{ name, folder: join(homeDir(), name), next: `epicenter ${name}` },
+		{ name, folder: join(epicenterDir(), name), next: `epicenter ${name}` },
 		json,
 	);
 }
@@ -92,7 +79,7 @@ export async function newCommand(
 		);
 	if (await taken(name))
 		return fail(
-			CliError.Usage({ message: `${name} already exists in ${homeDir()}` })
+			CliError.Usage({ message: `${name} already exists in ${epicenterDir()}` })
 				.error,
 			json,
 		);
@@ -104,7 +91,7 @@ export async function newCommand(
 		}
 		return done(name, json);
 	}
-	const folder = join(homeDir(), name);
+	const folder = join(epicenterDir(), name);
 	const cloned = await cloneStarter(from, folder);
 	if ('error' in cloned) {
 		await rm(folder, { recursive: true, force: true });
@@ -136,7 +123,7 @@ async function cloneStarter(
 ): Promise<{ ok: true } | { error: CliError }> {
 	let source = from;
 	if (!isUrl(from)) {
-		source = resolveFolder(from);
+		source = folderPath(from);
 		const top = await git(source, ['rev-parse', '--show-toplevel']);
 		if (
 			top.code !== 0 ||
@@ -149,7 +136,7 @@ async function cloneStarter(
 			};
 	}
 	try {
-		await mkdir(homeDir(), { recursive: true });
+		await mkdir(epicenterDir(), { recursive: true });
 		await checkedGit(tmpdir(), ['clone', '-q', source, folder]);
 		await checkedGit(folder, ['remote', 'rename', 'origin', 'upstream']);
 		await checkedGit(folder, ['branch', '--unset-upstream']);
@@ -165,12 +152,12 @@ async function cloneStarter(
 }
 
 /**
- * Make `~/Epicenter/<name>` from the built-in template, in its own repository
+ * Make `<Epicenter>/<name>` from the built-in template, in its own repository
  * whose first commit is the template, and return its path. The caller has
  * checked the name. Throws Git's message when Git fails.
  */
 export async function makeApp(name: string): Promise<string> {
-	const folder = join(homeDir(), name);
+	const folder = join(epicenterDir(), name);
 	await mkdir(folder, { recursive: true });
 	for (const [path, text] of Object.entries(template(name)))
 		await writeFile(join(folder, path), text);
@@ -178,45 +165,4 @@ export async function makeApp(name: string): Promise<string> {
 	await checkedGit(folder, ['add', '-A']);
 	await checkedGit(folder, ['commit', '-q', '-m', `new ${name}`]);
 	return folder;
-}
-
-/** `epicenter link <folder> [<name>]`. */
-export async function linkCommand(
-	source: string,
-	name: string | undefined,
-	json: boolean,
-): Promise<number> {
-	let folder: string;
-	try {
-		folder = await realpath(resolveFolder(source));
-	} catch {
-		return fail(
-			CliError.Usage({ message: `${source} is not a folder` }).error,
-			json,
-		);
-	}
-	const chosen = name ?? basename(folder);
-	const problem = nameProblem(chosen);
-	if (problem !== undefined)
-		return fail(
-			CliError.Usage({
-				message: `${problem}, so it cannot name an app. Name it: epicenter link ${source} <name>`,
-			}).error,
-			json,
-		);
-	if (await taken(chosen))
-		return fail(
-			CliError.Usage({ message: `${chosen} already exists in ${homeDir()}` })
-				.error,
-			json,
-		);
-	const read = await readDeclaration(folder);
-	if ('problems' in read)
-		return fail(
-			CliError.AppProblems({ app: folder, problems: read.problems }).error,
-			json,
-		);
-	await mkdir(homeDir(), { recursive: true });
-	await symlink(folder, join(homeDir(), chosen));
-	return done(chosen, json);
 }

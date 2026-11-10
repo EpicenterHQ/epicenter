@@ -292,19 +292,14 @@ test('W4 epicenter new writes the template and runs git init', async () => {
 	]);
 });
 
-test('W5 epicenter link joins a folder of any kind where it lives, committing and moving nothing', async () => {
+test('W5 a symlinked entry loads an app where it lives', async () => {
 	const f = await setup();
 	const loose = await f.folder(
 		join(f.root, 'Code', 'loose'),
 		{ 'epicenter.json': declarationOf('loose'), 'notes/a.md': 'a\n' },
 		{ git: false },
 	);
-	const linked = await f.run('link', loose, '--json');
-	expect(linked.code).toBe(0);
-	expect(JSON.parse(linked.stdout)).toEqual({
-		name: 'loose',
-		folder: join(f.home, 'loose'),
-	});
+	await symlink(loose, join(f.home, 'loose'));
 	expect((await lstat(join(f.home, 'loose'))).isSymbolicLink()).toBe(true);
 	expect(await readlink(join(f.home, 'loose'))).toBe(loose);
 	expect(existsSync(join(loose, '.git'))).toBe(false);
@@ -316,28 +311,19 @@ test('W5 epicenter link joins a folder of any kind where it lives, committing an
 	});
 	const head = await gitIn(vault, 'rev-parse', 'HEAD');
 	await writeFile(join(vault, 'recipes', 'soup.md'), 'soup\n');
-	expect((await f.run('link', join(vault, 'recipes'))).code).toBe(0);
+	await symlink(join(vault, 'recipes'), join(f.home, 'recipes'));
 	expect(await readlink(join(f.home, 'recipes'))).toBe(join(vault, 'recipes'));
 	expect(await gitIn(vault, 'rev-parse', 'HEAD')).toBe(head);
 	expect(await gitIn(vault, 'status', '--porcelain')).toBe(
 		'?? recipes/soup.md',
 	);
 
-	const bare = await f.folder(
-		join(f.root, 'Code', 'bare'),
-		{ 'a.md': 'a\n' },
-		{ git: false },
-	);
-	expect((await f.run('link', bare, '--json')).code).toBe(2);
-	expect((await f.run('link', loose, 'other', 'extra', '--json')).code).toBe(2);
-	expect(
-		(await f.run('link', 'https://example.com/garden.git', '--json')).code,
-	).toBe(2);
 	const listed = JSON.parse((await f.run('--json')).stdout);
 	expect(listed.apps.map((app: { name: string }) => app.name)).toEqual([
 		'loose',
 		'recipes',
 	]);
+	expect((await f.run('loose', '--json')).code).toBe(0);
 });
 
 test('W3 sync says so when changes beside the app cannot be put back after pulling', async () => {

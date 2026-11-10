@@ -1,7 +1,10 @@
 /**
- * Each app reaches this computer's Keychain under epicenter.<name> (ADR-0841).
+ * Each app reaches this computer's Keychain under epicenter.<root id>.<name>.
+ * Secrets belong to an app in one Epicenter. Moving an app to another
+ * Epicenter means entering them again. Deleting epicenter.root.json orphans
+ * the secrets for that root.
  * EPICENTER_TEST_SECRETS supplies process-local stores instead: a JSON object
- * shaped as { "epicenter.reading": { "token": "plain value" } }. Values stay
+ * shaped as { "epicenter.root-id.reading": { "token": "plain value" } }. Values stay
  * as strings. Each run is its own process and binds its app's store once, so
  * a store lives as long as the run.
  */
@@ -14,9 +17,9 @@ function unavailable(message: string): Secrets {
 	return { get: refuse, set: refuse, delete: refuse };
 }
 
-/** Name the service shared by every local copy of an app. */
-export function keychainService(name: string): string {
-	return `epicenter.${name}`;
+/** Name the service for one app in one Epicenter. */
+export function keychainService(rootId: string, name: string): string {
+	return `epicenter.${rootId}.${name}`;
 }
 
 /** Bind this computer's keychain to one app, or a process-local seeded store in tests. */

@@ -6,13 +6,16 @@ test('test services retain values and bad JSON refuses every method', async () =
 	const previous = process.env.EPICENTER_TEST_SECRETS;
 	try {
 		process.env.EPICENTER_TEST_SECRETS =
-			'{"epicenter.secret-test":{"seed":"plain"}}';
-		const service = keychainService('secret-test');
+			'{"epicenter.test-root.secret-test":{"seed":"plain"}}';
+		const service = keychainService('test-root', 'secret-test');
 		const store = keychain(service);
 		expect(await store.get('seed')).toBe('plain');
 		await store.set('token', 'value');
 		expect(await store.get('token')).toBe('value');
-		expect(await keychain('epicenter.separate').get('token')).toBeUndefined();
+		expect(
+			await keychain('epicenter.test-root.separate').get('token'),
+		).toBeUndefined();
+		expect(keychainService('another-root', 'secret-test')).not.toBe(service);
 		await store.delete('token');
 		expect(await store.get('token')).toBeUndefined();
 		process.env.EPICENTER_TEST_SECRETS = 'bad json';

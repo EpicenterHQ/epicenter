@@ -3,7 +3,7 @@
  * ADR-0853): every app's actions, and nothing else.
  *
  * The server never imports an app. `tools/list` runs `epicenter <app> --json`
- * for each home entry and offers the actions each lists; `tools/call` decodes
+ * for each app entry and offers the actions each lists; `tools/call` decodes
  * the tool name and runs `epicenter <app> <words> --input <json>` in a fresh
  * process, which checks the app, the action, and the input. So the
  * code and declaration on disk when a call arrives are what runs, an edit
@@ -25,9 +25,10 @@ import { runChild } from './child.ts';
 import { homeEntries } from './home.ts';
 import { renderAnswer, writeErr } from './output.ts';
 import { type Answer, exitCodeOf } from './report.ts';
+import { rootInstructions } from './root.ts';
 
 /**
- * The tools the home offers now. Each entry is listed by its own child, so an
+ * The tools the Epicenter offers now. Each entry is listed by its own child, so an
  * app that fails to import, or prints while importing, loses only its own
  * tools; why is written to stderr.
  */
@@ -88,12 +89,16 @@ export async function callTool(name: string, args: Record<string, unknown>) {
 
 /** Register the shared tool handlers on a fresh MCP server. */
 export function createMcpServer(
+	instructions?: string,
 	list: () => Promise<Tool[]> = listTools,
 	call: typeof callTool = callTool,
 ) {
 	const server = new Server(
 		{ name: 'epicenter', version: packageJson.version },
-		{ capabilities: { tools: {} } },
+		{
+			capabilities: { tools: {} },
+			...(instructions === undefined ? {} : { instructions }),
+		},
 	);
 	server.setRequestHandler(ListToolsRequestSchema, async () => ({
 		tools: await list(),
@@ -104,9 +109,9 @@ export function createMcpServer(
 	return server;
 }
 
-/** Serve every healthy app in the home until the client ends stdin. */
+/** Serve every healthy app in the Epicenter until the client ends stdin. */
 export async function serveStdio(): Promise<number> {
-	const server = createMcpServer();
+	const server = createMcpServer(await rootInstructions());
 	const transport = new StdioServerTransport();
 	const { promise: closed, resolve: closeNow } = Promise.withResolvers<void>();
 	server.onclose = closeNow;

@@ -3,7 +3,8 @@
  * Each test runs the real `epicenter serve --stdio` against a temporary HOME.
  */
 import { expect, setDefaultTimeout, test } from 'bun:test';
-import { rm } from 'node:fs/promises';
+import { rm, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { fixture, reading, vault } from './runner.test-support.ts';
@@ -17,6 +18,7 @@ test('tools list plain schemas and annotations and return structured answers or 
 	try {
 		await f.app('reading', reading);
 		await f.app('vault', vault);
+		await writeFile(join(f.home, 'AGENTS.md'), 'Use the app actions.\n');
 		await client.connect(
 			new StdioClientTransport({
 				command: process.execPath,
@@ -26,6 +28,7 @@ test('tools list plain schemas and annotations and return structured answers or 
 				stderr: 'pipe',
 			}),
 		);
+		expect(client.getInstructions()).toBe('Use the app actions.\n');
 		const listed = await client.listTools();
 		const show = listed.tools.find(
 			(tool) => tool.name === 'vault_calendar_show',

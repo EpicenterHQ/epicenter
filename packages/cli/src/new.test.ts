@@ -1,8 +1,7 @@
 import { afterEach, expect, test } from 'bun:test';
-import { existsSync } from 'node:fs';
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
-import { declarationOf, fixture, gitIn } from './runner.test-support.ts';
+import { fixture, gitIn } from './runner.test-support.ts';
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -15,14 +14,21 @@ test('new refuses duplicate names without regard to case and reserved words', as
 	const f = await fixture();
 	roots.push(f.root);
 	await mkdir(join(f.home, 'Reading'));
-	for (const name of ['reading', 'serve', 'update', 'link', 'Bad_Name']) {
+	for (const name of [
+		'reading',
+		'serve',
+		'update',
+		'init',
+		'build',
+		'Bad_Name',
+	]) {
 		const result = await f.run('new', name, '--json');
 		expect(result.code).toBe(2);
 		expect(JSON.parse(result.stdout).error.name).toBe('Usage');
 	}
 });
 
-test('new commits its template, and link commits nothing in a repository it links', async () => {
+test('new commits its template and link is a valid app name', async () => {
 	const f = await fixture();
 	roots.push(f.root);
 	expect((await f.run('new', 'garden')).code).toBe(0);
@@ -31,23 +37,8 @@ test('new commits its template, and link commits nothing in a repository it link
 	expect(await gitIn(garden, 'ls-files')).toBe('.gitignore\nepicenter.json');
 	expect(await gitIn(garden, 'status', '--porcelain')).toBe('');
 
-	const folder = join(f.root, 'kept');
-	await mkdir(folder);
-	await writeFile(join(folder, 'epicenter.json'), declarationOf('kept'));
-	await gitIn(folder, 'init', '-q');
-	await gitIn(folder, 'add', 'epicenter.json');
-	await gitIn(
-		folder,
-		'-c',
-		'user.name=t',
-		'-c',
-		'user.email=t@t',
-		'commit',
-		'-qm',
-		'start',
+	expect((await f.run('new', 'link')).code).toBe(0);
+	expect(await gitIn(join(f.home, 'link'), 'log', '--format=%s')).toBe(
+		'new link',
 	);
-	const linked = await f.run('link', folder, '--json');
-	expect(linked.code).toBe(0);
-	expect(existsSync(join(folder, '.gitignore'))).toBe(false);
-	expect(await gitIn(folder, 'log', '--format=%s')).toBe('start');
 });

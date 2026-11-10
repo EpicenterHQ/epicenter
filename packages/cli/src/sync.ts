@@ -1,6 +1,6 @@
 /**
  * `epicenter sync [<app>]` commits, pulls, and pushes to `origin`, the app's
- * backup or its server (ADR-0851, ADR-0866). For each app in the home, or the
+ * backup or its server (ADR-0851, ADR-0866). For each app in the Epicenter, or the
  * one named, from its folder: commit whatever is left
  * (`sync: <app> (<n> files)`); then, when the app has an `origin`, fetch it,
  * rebase onto `origin`'s copy of the branch when there is one, and push the
@@ -122,7 +122,7 @@ async function syncOne(app: string, folder: string): Promise<Synced> {
 	return { ...synced, origin: await originOf(folder) };
 }
 
-/** Sync every app in the home, or only `name`, one after another. */
+/** Sync every app in the Epicenter, or only `name`, one after another. */
 async function syncApps(
 	name?: string,
 ): Promise<{ error: CliError } | SyncAnswer> {

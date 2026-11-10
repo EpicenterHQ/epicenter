@@ -84,7 +84,7 @@ export default defineApp(declaration, {
 	const result = await f.run('--json');
 	expect(result.code).toBe(0);
 	const listing = JSON.parse(result.stdout);
-	expect(listing.home).toBe(f.home);
+	expect(listing.epicenter).toBe(f.home);
 	expect(listing.apps.map((app: { name: string }) => app.name)).toEqual([
 		'clash',
 		'journal',
@@ -176,7 +176,7 @@ export default defineApp(declaration, { actions: {} });
 	const one = JSON.parse((await f.run('reading', '--json')).stdout);
 	expect(one).toMatchObject({
 		name: 'reading',
-		keychain: 'epicenter.reading',
+		keychain: 'epicenter.test-epicenter.reading',
 	});
 	expect(one.actions).toEqual(reading.actions);
 });
@@ -233,9 +233,9 @@ test("D3 positionals come from the action's ordered list; flags always work", as
 
 test('D5 an epicenter.ts importing @epicenter/app loads from a folder with no node_modules', async () => {
 	const f = await setup();
-	const folder = await f.folder(join(f.root, 'away', 'reading'), readingApp);
+	const folder = await f.folder(join(f.home, 'reading'), readingApp);
 	expect(existsSync(join(folder, 'node_modules'))).toBe(false);
-	const result = await f.runIn(f.root, './away/reading', 'log', '12');
+	const result = await f.runIn(folder, 'reading', 'log', '12');
 	expect(result.code).toBe(0);
 	expect(JSON.parse(result.stdout)).toEqual({ minutes: 12, book: null });
 	expect(await readFile(join(folder, '2026.csv'), 'utf8')).toBe(
@@ -279,7 +279,7 @@ test('D6 serve --stdio answers initialize, lists the same tools as --json, and r
 	expect((await f.run('mcp')).code).toBe(2);
 });
 
-test('D7 discovery uses $HOME/Epicenter and ignores EPICENTER_HOME', async () => {
+test('D7 discovery defaults to $HOME/Epicenter and ignores EPICENTER_HOME', async () => {
 	const f = await setup();
 	await f.folder(join(f.home, 'reading'), readingApp);
 	const decoy = join(f.root, 'decoy-home');
@@ -288,7 +288,7 @@ test('D7 discovery uses $HOME/Epicenter and ignores EPICENTER_HOME', async () =>
 	});
 	f.env.EPICENTER_HOME = decoy;
 	const listing = JSON.parse((await f.run('--json')).stdout);
-	expect(listing.home).toBe(join(f.root, 'Epicenter'));
+	expect(listing.epicenter).toBe(join(f.root, 'Epicenter'));
 	expect(listing.apps.map((app: { name: string }) => app.name)).toEqual([
 		'reading',
 	]);

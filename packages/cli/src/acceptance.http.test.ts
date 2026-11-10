@@ -16,8 +16,9 @@ afterEach(async () => {
 	for (const cleanup of cleanups.splice(0)) await cleanup();
 });
 
-async function setup() {
+async function setup(agents?: string) {
 	const f = await fixture();
+	if (agents !== undefined) await writeFile(join(f.home, 'AGENTS.md'), agents);
 	const child = Bun.spawn([process.execPath, f.bin, 'serve', '--port', '0'], {
 		cwd: f.root,
 		env: f.env,
@@ -63,6 +64,20 @@ function mcp(base: string, method: string, params: object = {}) {
 		body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
 	});
 }
+
+test('HTTP initialize includes the Epicenter AGENTS.md', async () => {
+	const f = await setup('Use these apps through their actions.\n');
+	const response = await mcp(f.base, 'initialize', {
+		protocolVersion: '2025-06-18',
+		capabilities: {},
+		clientInfo: { name: 'test', version: '1' },
+	});
+	expect(response.status).toBe(200);
+	const body = (await response.json()) as { result: { instructions?: string } };
+	expect(body.result.instructions).toBe(
+		'Use these apps through their actions.\n',
+	);
+});
 
 test('HTTP tools/list offers app actions', async () => {
 	const f = await setup();

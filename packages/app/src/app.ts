@@ -116,9 +116,10 @@ export function defineApp<I extends Record<string, Input>, A extends Actions>(
  * named one of its words.
  */
 export const COMMANDS = {
+	init: 'epicenter init [<folder>] [--port <n>]',
 	new: 'epicenter new <name> [--from <git url|path>]',
 	update: 'epicenter update [<app>]',
-	link: 'epicenter link <folder> [<name>]',
+	build: 'epicenter build [<app>]',
 	sync: 'epicenter sync [<app>]',
 	serve: 'epicenter serve [--port <n>] [--host <address>] [--stdio]',
 } as const;

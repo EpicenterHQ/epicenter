@@ -12,13 +12,14 @@
  * so no name is reserved for the server.
  */
 import { realpath, stat } from 'node:fs/promises';
-import { isAbsolute, join, sep } from 'node:path';
+import { basename, isAbsolute, join, sep } from 'node:path';
 import { isName } from '@epicenter/app';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { git, gitMessage } from './git.ts';
 import { homeEntries, readDeclaration } from './home.ts';
 import { callTool, createMcpServer, listTools } from './mcp.ts';
 import { writeErr } from './output.ts';
+import { epicenterDir, rootInstructions } from './root.ts';
 import { BUILT_UI } from './ui.ts';
 
 /** An app's background push: the one running, and whether another is wanted after it. */
@@ -35,6 +36,7 @@ const escapeHtml = (text: string) =>
 
 /** The page at `/`: each app with a UI, its icon, name, and description, linking to `/<app>/`. */
 function launcherPage(
+	name: string,
 	apps: { name: string; description: string; icon: boolean }[],
 ) {
 	const items = apps
@@ -46,7 +48,7 @@ function launcherPage(
 			return `<li><a href="${href}">${image}<span><strong>${escapeHtml(name)}</strong><small>${escapeHtml(description)}</small></span></a></li>`;
 		})
 		.join('');
-	return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><meta name="color-scheme" content="light dark"><title>Epicenter</title><style>
+	return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><meta name="color-scheme" content="light dark"><title>${escapeHtml(name)}</title><style>
 :root{--bg:#fafafa;--fg:#0a0a0a;--muted:#6b6b6b;--card:#fff;--line:#e5e5e5}
 @media (prefers-color-scheme:dark){:root{--bg:#141414;--fg:#f5f5f5;--muted:#a0a0a0;--card:#1e1e1e;--line:#2c2c2c}}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:max(24px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(24px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))}
@@ -57,11 +59,15 @@ a:active{transform:scale(.99)}img,.blank{width:56px;height:56px;border-radius:13
 .blank{display:grid;place-items:center;background:var(--line);font-weight:600;font-size:22px}
 strong{display:block;font-size:17px;text-transform:capitalize}small{display:block;color:var(--muted);font-size:14px}
 p{color:var(--muted)}
-</style></head><body><main><h1>Epicenter</h1>${items ? `<ul>${items}</ul>` : '<p>No app here has a UI yet.</p>'}</main></body></html>`;
+</style></head><body><main><h1>${escapeHtml(name)}</h1>${items ? `<ul>${items}</ul>` : '<p>No app here has a UI yet.</p>'}</main></body></html>`;
 }
 
 /** Start the server. The caller owns its lifetime. Port 0 asks Bun for a free port. */
-export function startHttpServer(host: string, port: number) {
+export function startHttpServer(
+	host: string,
+	port: number,
+	instructions?: string,
+) {
 	const pushes = new Map<string, Push>();
 	/**
 	 * Push the app's branch to `origin` by name in the background, if it has
@@ -176,7 +182,7 @@ export function startHttpServer(host: string, port: number) {
 			const { pathname } = new URL(request.url);
 			if (pathname === '/') {
 				if (request.method === 'POST') {
-					const server = createMcpServer(listTools, call);
+					const server = createMcpServer(instructions, listTools, call);
 					const transport = new WebStandardStreamableHTTPServerTransport({
 						enableJsonResponse: true,
 					});
@@ -212,7 +218,10 @@ export function startHttpServer(host: string, port: number) {
 					}),
 				);
 				return new Response(
-					launcherPage(apps.filter((app) => app !== undefined)),
+					launcherPage(
+						basename(epicenterDir()),
+						apps.filter((app) => app !== undefined),
+					),
 					{
 						headers: {
 							'content-type': 'text/html; charset=utf-8',
@@ -243,7 +252,7 @@ export function startHttpServer(host: string, port: number) {
 
 /** Keep the command alive until its process receives a signal. */
 export async function serveHttp(host: string, port: number): Promise<number> {
-	const server = startHttpServer(host, port);
+	const server = startHttpServer(host, port, await rootInstructions());
 	writeErr(`Serving your apps at http://${host}:${server.port}.`);
 	await new Promise<void>((resolve) => {
 		process.once('SIGINT', resolve);

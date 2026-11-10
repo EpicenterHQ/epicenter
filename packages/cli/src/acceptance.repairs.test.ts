@@ -110,7 +110,7 @@ function serve(f: Awaited<ReturnType<typeof setup>>, execArgv: string[] = []) {
 	});
 }
 
-test('F1 new and add put the next step on stderr; an unexpected throw before a run is Internal, not Usage', async () => {
+test('F1 new puts the next step on stderr; a broken root is a usage error', async () => {
 	const f = await setup();
 	const made = await f.run('new', 'garden');
 	expect(made.code).toBe(0);
@@ -121,7 +121,7 @@ test('F1 new and add put the next step on stderr; an unexpected throw before a r
 	await writeFile(f.home, 'not a folder');
 	const listed = await f.json();
 	expect(listed.code).toBe(2);
-	expect(listed.report.error.name).toBe('Internal');
+	expect(listed.report.error.name).toBe('Usage');
 });
 
 test('F6 the child finishes the run when its parent dies', async () => {
@@ -210,8 +210,9 @@ test('F9 one table owns the vocabulary; --json goes anywhere; defaulted fields a
 		expect(result.code).toBe(2);
 		expect(result.report.error.message).toContain(`Unknown app "${word}"`);
 	}
-	for (const word of ['new', 'update', 'link', 'sync', 'serve'])
+	for (const word of ['new', 'update', 'sync', 'serve', 'init', 'build'])
 		expect((await f.json('new', word)).code).toBe(2);
+	expect((await f.json('new', 'link')).code).toBe(0);
 	const help = (await f.run('--help')).stdout;
 	expect(help).toContain('epicenter sync [<app>]');
 	expect(help).toContain(

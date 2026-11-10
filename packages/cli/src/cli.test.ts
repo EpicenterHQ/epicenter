@@ -40,8 +40,7 @@ test('listing isolates broken imports, invalid apps and folders that cannot name
 	expect(result.code).toBe(0);
 	expect(result.stderr).toBe('');
 	const value = JSON.parse(result.stdout);
-	expect(value.home).toBe(f.home);
-	expect(value.missing).toBeUndefined();
+	expect(value.epicenter).toBe(f.home);
 	expect(value.apps.map((app: { name: string }) => app.name)).toEqual([
 		'linked',
 		'reading',
@@ -183,33 +182,32 @@ test('a throwing action returns exit 1 with its message', async () => {
 	});
 });
 
-test('path runs take the folder name and their own .cache while home aliases are refused', async () => {
+test('runs use the selected Epicenter and their own .cache', async () => {
 	const f = await setup();
-	const outside = await f.app('reading', reading, join(f.root, 'worktree'));
-	const result = await f.run(outside, 'inspect', '--json');
+	const result = await f.runIn(
+		join(f.home, 'reading'),
+		'reading',
+		'inspect',
+		'--json',
+	);
 	expect(result.code).toBe(0);
 	const value = JSON.parse(result.stdout).returned;
-	expect(value.folder).toBe(outside);
+	expect(value.folder).toBe(join(f.home, 'reading'));
 	expect(value.token).toBe('round trip');
 	expect(value.seed).toBe('plain seed');
 	expect(value.foreign).toBeNull();
-	expect(await Bun.file(join(outside, '.cache/index.json')).exists()).toBe(
-		true,
-	);
-	const refused = await f.run(join(f.home, 'reading'), 'log', '30', '--json');
-	expect(refused.code).toBe(2);
-	expect(JSON.parse(refused.stdout).error.next).toBe(
-		'epicenter reading log 30',
-	);
+	expect(
+		await Bun.file(join(f.home, 'reading', '.cache/index.json')).exists(),
+	).toBe(true);
 	const target = await f.app(
 		'linked',
 		`export default defineApp(declaration, {actions:{}});`,
 		f.root,
 	);
 	await symlink(target, join(f.home, 'linked'));
-	expect(
-		JSON.parse((await f.run(target, '--json')).stdout).error.message,
-	).toContain('epicenter linked');
+	expect(JSON.parse((await f.run('linked', '--json')).stdout).link).toBe(
+		target,
+	);
 	const homeRun = JSON.parse(
 		(await f.run('reading', 'inspect', '--json')).stdout,
 	).returned;
@@ -224,7 +222,7 @@ test('app and action views include locations, schemas, field help and version', 
 	const view = JSON.parse((await f.run('reading', '--json')).stdout);
 	expect(view).toMatchObject({
 		name: 'reading',
-		keychain: 'epicenter.reading',
+		keychain: 'epicenter.test-epicenter.reading',
 	});
 	expect((await f.run('reading')).stdout).toContain('folder:');
 	expect((await f.run('reading', 'log', '-h')).stdout).toContain(
@@ -240,22 +238,23 @@ test('app and action views include locations, schemas, field help and version', 
 	expect((await f.run('--help')).stdout).toContain('Exit codes:');
 });
 
-test('missing and empty homes are successful answers and missing apps suggest creating the home', async () => {
+test('an empty Epicenter lists its next step and a missing marker suggests init', async () => {
 	const f = await fixture();
 	roots.push(f.root);
-	expect((await f.run()).stdout).toContain('There are no apps yet');
+	expect((await f.run()).stdout).toContain(
+		'No apps yet. Run: epicenter new <name>',
+	);
 	await rm(f.home, { recursive: true });
-	expect(JSON.parse((await f.run('--json')).stdout)).toEqual({
-		home: f.home,
-		apps: [],
-		problems: [],
-		missing: true,
-	});
-	expect((await f.run()).stdout).toContain(`mkdir ${f.home}`);
+	expect((await f.run('--json')).code).toBe(2);
+	expect((await f.run()).stderr).toContain(`epicenter init ${f.home}`);
 	const missing = await f.run('reading', '--json');
 	expect(missing.code).toBe(2);
-	expect(JSON.parse(missing.stdout).error.message).toContain('mkdir');
-	expect(JSON.parse(missing.stdout).error.next).toBe(`mkdir ${f.home}`);
+	expect(JSON.parse(missing.stdout).error.message).toContain(
+		'epicenter.root.json',
+	);
+	expect(JSON.parse(missing.stdout).error.next).toBe(
+		`epicenter init ${f.home}`,
+	);
 });
 
 test('an app is named by its folder in the home, whatever its declaration says', async () => {

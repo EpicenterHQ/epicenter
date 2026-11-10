@@ -1,5 +1,5 @@
 /**
- * The epicenter command runs apps from the home or an explicit folder path
+ * The epicenter command runs apps from the selected Epicenter
  * (ADR-0841). It parses words, shows what can run, checks input, and prints the
  * answer. Its exit code is 0 when the action returned, 1 when it threw, 2 when
  * nothing ran, and 3 when it returned but its writes were not committed
@@ -7,9 +7,11 @@
  */
 import { type Action, COMMANDS, type Command, isName } from '@epicenter/app';
 import packageJson from '../package.json' with { type: 'json' };
+import { buildCommand } from './build.ts';
 import { REPORT_FLAG, runChild } from './child.ts';
 import { CliError } from './errors.ts';
-import { discoverAll, isFolderPath, loadFolder, loadHomeApp } from './home.ts';
+import { discoverAll, loadHomeApp } from './home.ts';
+import { initCommand } from './init.ts';
 import { serveHttp } from './http.ts';
 import {
 	checkInput,
@@ -25,7 +27,7 @@ import {
 	oneAppListing,
 } from './listing.ts';
 import { serveStdio } from './mcp.ts';
-import { linkCommand, newCommand } from './new.ts';
+import { newCommand } from './new.ts';
 import {
 	answerInto,
 	fail,
@@ -35,17 +37,18 @@ import {
 } from './output.ts';
 import type { Answer } from './report.ts';
 import { runAction } from './run.ts';
+import { epicenterRoot, RootUsageError } from './root.ts';
 import { syncCommand } from './sync.ts';
 import { updateCommand } from './update.ts';
 
 const HELP = `epicenter                              your apps
 epicenter <app>                        what an app can do
 epicenter <app> <action> [<positionals>] [--flags]
-epicenter <path> <action> ...          the same, for an app's folder by path
 ${Object.values(COMMANDS).join('\n')}
 epicenter --version
 
-Your apps are the folders in ~/Epicenter with an epicenter.json.
+Uses the nearest Epicenter above the current folder, then EPICENTER_ROOT,
+then ~/Epicenter. An Epicenter has epicenter.root.json.
 A flag's value is read as its field's type; null removes a field that takes it.
 --input <json> gives an action's whole input as one JSON object; - reads it from stdin.
 --json prints one JSON answer, and --help (-h) explains anything; both go anywhere before --.
@@ -59,23 +62,25 @@ const usage = (message: string, next?: string) =>
 
 /** What each command does, as `epicenter <command> --help` prints it under its usage. */
 const COMMAND_HELP: { [K in Command]: string } = {
-	new: `Makes ~/Epicenter/<name>, a Git repository. With --from, it clones a starter (a
+	init: `Makes a folder an Epicenter and writes epicenter.root.json and starter AGENTS.md.
+The folder defaults to the current directory. Epicenters cannot nest.`,
+	new: `Makes <Epicenter>/<name>, a Git repository. With --from, it clones a starter (a
 repository with no data), keeps it as the app's upstream remote, and builds its
 UI; without it, it starts from an epicenter.json and a .gitignore.`,
 	update: `Merges each app's upstream, or one app's: it refuses an app with uncommitted
 changes, undoes a merge that stops on a conflict, lists each file that no
 longer fits epicenter.json, and builds the UI, keeping the last one that built.`,
-	link: `Joins a folder that is already an app, where it lives: it checks its
-epicenter.json and a free name, and links it into ~/Epicenter.`,
+	build: `Builds the UI of every app, or one app, keeping each last good build.`,
 	sync: `Commits what is left in each app, or one app, then pulls from origin and pushes
 to it. It never pushes to upstream.`,
 	serve: `Offers every app's actions over MCP at / and each app's UI at /<app>/, on
-127.0.0.1:4747 unless --port or --host says otherwise. With --stdio, it speaks
+127.0.0.1 and the Epicenter's port (default 4747) unless --port or --host says otherwise. With --stdio, it speaks
 MCP on stdin and stdout instead.`,
 };
 
 /** What each command in `COMMANDS` does. */
 const HANDLERS: { [K in Command]: Handler } = {
+	init: initCommand,
 	async new(words, json) {
 		const [name, ...rest] = words;
 		const fromAt = rest.findIndex(
@@ -105,15 +110,7 @@ const HANDLERS: { [K in Command]: Handler } = {
 		return newCommand(name, from, json);
 	},
 	update: updateCommand,
-	async link(words, json) {
-		const [folder, name] = words;
-		if (words.length > 2 || folder === undefined)
-			return fail(
-				usage('epicenter link needs one folder, and maybe a name'),
-				json,
-			);
-		return linkCommand(folder, name, json);
-	},
+	build: buildCommand,
 	sync: syncCommand,
 	async serve(words, json) {
 		if (json)
@@ -122,7 +119,7 @@ const HANDLERS: { [K in Command]: Handler } = {
 				json,
 			);
 		if (words.length === 1 && words[0] === '--stdio') return serveStdio();
-		let port = 4747;
+		let port = epicenterRoot().port;
 		let host = '127.0.0.1';
 		const seen = new Set<string>();
 		for (let i = 0; i < words.length; i += 2) {
@@ -229,17 +226,17 @@ export async function runCli(argv: string[]): Promise<number> {
 				print(`${COMMANDS[command]}\n${COMMAND_HELP[command]}`);
 				return 0;
 			}
+			if (command !== 'init') epicenterRoot();
 			return HANDLERS[command](words, json);
 		}
+		epicenterRoot();
 		// Running an action is two processes; the child owns the whole run.
 		if (!reportArg && words.length > 0 && !help)
 			return presentAnswer(
 				(await runChild(relayed, { stdin: 'inherit' })) as Answer,
 				json,
 			);
-		const { data: located, error: notFound } = await (isFolderPath(name)
-			? loadFolder(name, words)
-			: loadHomeApp(name));
+		const { data: located, error: notFound } = await loadHomeApp(name);
 		if (notFound) return fail(notFound, json);
 		if (!located.ok)
 			return fail(
@@ -292,6 +289,11 @@ export async function runCli(argv: string[]): Promise<number> {
 			json,
 		);
 	} catch (error) {
+		if (error instanceof RootUsageError)
+			return fail(
+				CliError.Usage({ message: error.message, next: error.next }).error,
+				json,
+			);
 		return fail(CliError.Internal({ cause: error }).error, json);
 	}
 }

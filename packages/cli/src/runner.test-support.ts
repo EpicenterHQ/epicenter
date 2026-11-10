@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
 const bin = resolve(import.meta.dir, 'bin.ts');
+export const TEST_ROOT_ID = 'test-epicenter';
 
 /** Run git in `dir`, throwing with its stderr when it fails. */
 export async function gitIn(dir: string, ...args: string[]) {
@@ -30,16 +31,21 @@ export async function fixture() {
 	);
 	const home = join(root, 'Epicenter');
 	await mkdir(home);
+	await writeFile(
+		join(home, 'epicenter.root.json'),
+		`${JSON.stringify({ id: TEST_ROOT_ID })}\n`,
+	);
 	const env: Record<string, string | undefined> = {
 		...process.env,
 		HOME: root,
+		EPICENTER_ROOT: undefined,
 		GIT_AUTHOR_NAME: 'Epicenter Test',
 		GIT_AUTHOR_EMAIL: 'epicenter-test@example.com',
 		GIT_COMMITTER_NAME: 'Epicenter Test',
 		GIT_COMMITTER_EMAIL: 'epicenter-test@example.com',
 		EPICENTER_TEST_SECRETS: JSON.stringify({
-			'epicenter.reading': { seed: 'plain seed' },
-			'epicenter.other': { foreign: 'hidden' },
+			[`epicenter.${TEST_ROOT_ID}.reading`]: { seed: 'plain seed' },
+			[`epicenter.${TEST_ROOT_ID}.other`]: { foreign: 'hidden' },
 		}),
 	};
 

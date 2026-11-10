@@ -14,7 +14,7 @@
  * }
  * ```
  *
- * An app's name is its folder's name in `~/Epicenter`, never a field here
+ * An app's name is its entry in an Epicenter, never a field here
  * (ADR-0864).
  */
 import { Type } from 'typebox';

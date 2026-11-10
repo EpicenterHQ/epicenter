@@ -17,7 +17,7 @@ their agent.
 ```
 
 ```ts
-// ~/Epicenter/reading/epicenter.ts
+// <Epicenter>/reading/epicenter.ts
 import declaration from './epicenter.json';
 import { defineApp, field } from '@epicenter/app';
 
@@ -45,7 +45,7 @@ supplies `@epicenter/app` when it loads `epicenter.ts`, so the folder needs a
 ## The declaration
 
 `epicenter.json` is `{ $schema, description, collections? }`. An app's name
-is its folder's: `~/Epicenter/reading` is `reading`, whatever the file says.
+is its folder's: `<Epicenter>/reading` is `reading`, whatever the file says.
 `DeclarationSchema` is its TypeBox schema, the check `epicenter` runs on
 loading and the source of `epicenter.schema.json` (`bun run schema` rewrites
 it). A collection is `{ path, fields }`: a path with at most one placeholder,

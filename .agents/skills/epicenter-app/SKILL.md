@@ -1,12 +1,17 @@
 ---
 name: epicenter-app
-description: Make or change an app that lives in ~/Epicenter, or the starter it comes from: its collections, its actions, and its UI. Use when asked to build a new personal app (a tracker, a log, a list), add a field or action to Capture, Tasks, or Vocab, change an app's UI, or make or update an app from a starter on the computer that runs epicenter serve.
+description: Make or change an app that lives in an Epicenter (such as ~/Epicenter), or the starter it comes from: its collections, its actions, and its UI. Use when asked to build a new personal app (a tracker, a log, a list), add a field or action to Capture, Tasks, or Vocab, change an app's UI, set up an Epicenter, or make or update an app from a starter on the computer that runs epicenter serve.
 ---
 
 # Epicenter apps
 
-An app is a Git repository of files in `~/Epicenter/<app>` (ADR-0864).
-`epicenter serve` offers its actions over MCP at `/` and its UI at `/<app>/`.
+An Epicenter is a folder holding `epicenter.root.json`; its apps are the
+folders directly inside it with an `epicenter.json`, each a Git repository of
+its own (ADR-0868). `epicenter` works on the Epicenter you stand in (walking
+up from the current folder), else `EPICENTER_ROOT`, else `~/Epicenter`; a
+computer may hold several, such as one per person. `epicenter serve` offers
+one Epicenter's actions over MCP at `/` and each app's UI at `/<app>/`, on the
+port in its `epicenter.root.json`.
 An app can start from a starter, a repository with no data, which it keeps as
 its `upstream` remote; `epicenter update` merges the starter's later changes
 and builds the UI (ADR-0866). Capture, Tasks, and Vocab are starters' source
@@ -15,7 +20,7 @@ in `apps/<app>/`; `apps/tasks` is the smallest whole example. Read
 starting.
 
 Change an app where the change belongs. A change for one person's app is
-made in `~/Epicenter/<app>` and committed there; Git merges it with the
+made in the app's folder in its Epicenter and committed there; Git merges it with the
 starter's on the next update. A change for every app made from a starter is
 made in the starter.
 
@@ -34,7 +39,11 @@ made in the starter.
 The files outlive every UI and agent, so their shape is the decision that
 matters most. Declare each collection in `epicenter.json`: a path with one
 placeholder and the JSON Schema of each file's fields. A collection gives
-`<name> list|get|set|delete` with no code (`packages/app/src/collection.ts`).
+`list|get|set|delete` with no code (`packages/app/src/collection.ts`): as the
+app's own verbs when it is the app's only collection (`epicenter tasks set`,
+MCP `tasks_set`), and under its name when there are several (`epicenter mail
+messages list`). Adding a second collection renames the first's actions, so
+prefer one collection per app.
 A path may not start with `ui/`, `.cache/`, or `epicenter.`.
 
 - Choose the key by how people and agents will name a file. A time id
@@ -44,8 +53,8 @@ A path may not start with `ui/`, `.cache/`, or `epicenter.`.
 - `list` returns fields without bodies. Put what a list or an agent needs at a
   glance in a field (a task's `title`); put prose in the body.
 - Keep fields few. `set` merges as JSON Merge Patch does: `null` removes a
-  field, so a field that may be absent needs no `null` in its type. A `set`
-  with no field and no body throws.
+  field, so a field that may be absent needs no `null` in its type; a
+  required field takes no `null`. A `set` with no field and no body throws.
 - The declaration is the contract between a starter and the data. A starter
   that renames or tightens a field changes existing files itself: Git merges
   code and does not migrate data, and `epicenter update` lists each file that
@@ -72,8 +81,9 @@ Copy an existing app's `ui/`: SvelteKit with the hash router (routes are
 `#/t/<id>`), `@epicenter/ui` and its `app.css`, a manifest and icons in
 `static/`, and its `svelte.config.js`, which builds into `../.cache/ui/` with
 the app's folder name as the base. Ask for everything with
-`connect('<app>').call('<words>', input)` from `@epicenter/app/client`; the
-UI keeps nothing of its own.
+`connect('<app>').call('<words>', input)` from `@epicenter/app/client`
+(`call('set', …)` in an app with one collection); the UI keeps nothing of its
+own.
 
 - It is a phone Home Screen app first: safe-area insets, 44 px targets, 16 px
   inputs so iOS does not zoom, light and dark from the system.
@@ -96,8 +106,9 @@ its own, since `epicenter` commits every write into the app's repository:
 ```sh
 bun test ./epicenter.test.ts               # in apps/<app>: actions over createMemoryContext
 (cd apps/<app>/ui && bun run build)        # writes apps/<app>/.cache/ui/
-T=$(mktemp -d); mkdir -p $T/Epicenter
+T=$(mktemp -d)
 printf '[user]\n\tname = Test\n\temail = test@example.com\n' > $T/.gitconfig
+HOME=$T bun packages/cli/src/bin.ts init $T/Epicenter   # writes epicenter.root.json
 rsync -a --exclude node_modules --exclude .svelte-kit apps/<app>/ $T/Epicenter/<app>/
 git -C $T/Epicenter/<app> init -q && git -C $T/Epicenter/<app> add -A && git -C $T/Epicenter/<app> commit -qm start
 HOME=$T bun packages/cli/src/bin.ts <app> <words> ...
@@ -121,6 +132,11 @@ Only when the person asks, on the computer that runs `epicenter serve`:
   a merge that conflicts, naming the command that resolves it.
 - Backups go to `origin`: add the remote, and `epicenter sync` and `serve`
   push there by name, never to `upstream`.
+- `epicenter build [<app>]` rebuilds a UI after a local edit, keeping the last
+  one that built; the UI project's own `bun run build` empties `.cache/ui/`
+  first, so a page served meanwhile is missing.
+- Run these from inside the Epicenter the app belongs to; another person's
+  Epicenter on the same computer is another folder with its own port.
 
 A running `epicenter serve` sees a change on the next request: it lists tools
 and reads `.cache/ui/` from disk each time.

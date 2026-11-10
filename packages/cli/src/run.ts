@@ -17,6 +17,7 @@ import { commitFolder, git } from './git.ts';
 import type { Runnable } from './home.ts';
 import type { Answer } from './report.ts';
 import { keychain, keychainService } from './secrets.ts';
+import { epicenterRoot } from './root.ts';
 
 /**
  * What the action threw, as the answer carries it. A thrown tagged error (a
@@ -72,7 +73,9 @@ function alive(pid: number) {
  * lock is a file in the temporary folder named for the app's path, holding
  * the holder's pid; a lock whose process has died is taken over.
  */
-export async function holdWriteLock(folder: string): Promise<() => Promise<void>> {
+export async function holdWriteLock(
+	folder: string,
+): Promise<() => Promise<void>> {
 	const dir = join(tmpdir(), 'epicenter-writes');
 	await mkdir(dir, { recursive: true });
 	const path = join(
@@ -137,7 +140,7 @@ async function runAndCommit(
 		returned =
 			(await action.run(input, {
 				folder: folderOnDisk(located.realPath),
-				secrets: keychain(keychainService(located.name)),
+				secrets: keychain(keychainService(epicenterRoot().id, located.name)),
 			})) ?? null;
 	} catch (error) {
 		return { threw: threwOf(error) };

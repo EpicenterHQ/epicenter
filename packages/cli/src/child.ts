@@ -21,6 +21,7 @@ import { randomUUID } from 'node:crypto';
 import { readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { epicenterDir } from './root.ts';
 
 /** The internal flag that makes `epicenter` a child writing its answer to a file; undocumented, and read only as the first argument, so an action's own input can never be taken for it. */
 export const REPORT_FLAG = '--report=';
@@ -49,6 +50,7 @@ export async function runChild(
 ): Promise<unknown> {
 	const path = join(tmpdir(), `epicenter-report-${randomUUID()}.json`);
 	const child = Bun.spawn([...self(), `${REPORT_FLAG}${path}`, ...args], {
+		cwd: epicenterDir(),
 		stdio: [stdin, 2, 2],
 	});
 	const forward = (signal: NodeJS.Signals) => child.kill(signal);

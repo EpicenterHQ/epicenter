@@ -1,14 +1,12 @@
 /**
- * The app home and folders run by path (ADR-0841, ADR-0857). A folder is an
+ * The apps in the selected Epicenter (ADR-0841, ADR-0857). A folder is an
  * app when it has an `epicenter.json`; its `epicenter.ts`, when present, adds
- * code. An app's name is its entry in the home, or a folder's own name when it
- * is run by path. Each entry loads on its own so a broken app is listed
- * without stopping the others. A name or path that finds no app is a
+ * code. An app's name is its entry in the Epicenter. Each entry loads on its
+ * own so a broken app is listed without stopping the others. A name that finds no app is a
  * `CliError` with the next command as data (ADR-0842).
  */
 import { lstat, readdir, readFile, realpath, stat } from 'node:fs/promises';
-import { homedir } from 'node:os';
-import { basename, join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
 	type Action,
@@ -21,12 +19,13 @@ import {
 } from '@epicenter/app';
 import { Ok, type Result } from 'wellcrafted/result';
 import { CliError } from './errors.ts';
+import { epicenterDir, epicenterRoot } from './root.ts';
 
 /** Where an entry is on disk: the same for an app that runs and one with problems. */
 type Place = {
-	/** The folder or link name in the home; absent for a folder run by path. */
-	entry?: string;
-	/** The home entry's path, or the explicit folder path, before resolving links. */
+	/** The folder or link name in the Epicenter. */
+	entry: string;
+	/** The Epicenter entry's path before resolving links. */
 	folder: string;
 	/** The real directory whose declaration, code, and data the runner uses. */
 	realPath: string;
@@ -35,7 +34,7 @@ type Place = {
 };
 
 /**
- * A home entry or folder as `epicenter` found it: an app that can run, with
+ * An Epicenter entry as `epicenter` found it: an app that can run, with
  * its `epicenter.json` as read from disk and its code's actions, or an entry
  * with the problems that keep it from running.
  */
@@ -52,11 +51,6 @@ export type Located =
 
 /** An app that can run. */
 export type Runnable = Extract<Located, { ok: true }>;
-
-/** `~/Epicenter`: the only list of apps (ADR-0849). Tests move it by setting `HOME`. */
-export function homeDir(): string {
-	return join(homedir(), 'Epicenter');
-}
 
 const DECLARATION = 'epicenter.json';
 const CODE = 'epicenter.ts';
@@ -102,26 +96,17 @@ async function entryAt(folder: string) {
 }
 
 async function entries() {
-	try {
-		const names = (await readdir(homeDir()))
-			.filter((name) => !name.startsWith('.'))
-			.sort();
-		return {
-			missing: false,
-			entries: (
-				await Promise.all(
-					names.map(async (entry) => {
-						const found = await entryAt(join(homeDir(), entry));
-						return found && { ...found, entry };
-					}),
-				)
-			).filter((entry) => entry !== undefined),
-		};
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code === 'ENOENT')
-			return { missing: true, entries: [] };
-		throw error;
-	}
+	const names = (await readdir(epicenterDir()))
+		.filter((name) => !name.startsWith('.'))
+		.sort();
+	return (
+		await Promise.all(
+			names.map(async (entry) => {
+				const found = await entryAt(join(epicenterDir(), entry));
+				return found && { ...found, entry };
+			}),
+		)
+	).filter((entry) => entry !== undefined);
 }
 
 /** `folder`'s `epicenter.json`, parsed and checked, or what is wrong with it. Imports no code. */
@@ -148,7 +133,7 @@ export async function readDeclaration(
 
 async function load(
 	{ code, ...place }: NonNullable<Awaited<ReturnType<typeof entryAt>>>,
-	entry?: string,
+	entry: string,
 ): Promise<Located> {
 	const at = { ...place, entry };
 	const broken = (problems: string[]): Located => ({
@@ -160,7 +145,7 @@ async function load(
 	const read = await readDeclaration(place.realPath);
 	if ('problems' in read) return broken(read.problems);
 	const { declaration } = read;
-	const name = entry ?? basename(place.realPath);
+	const name = entry;
 	let module: { default?: unknown } | undefined;
 	if (code) {
 		try {
@@ -170,7 +155,7 @@ async function load(
 		}
 	}
 	const problems = problemsOf(declaration, module && (module.default ?? null));
-	const named = entry === undefined ? undefined : nameProblem(entry);
+	const named = nameProblem(entry);
 	if (named !== undefined)
 		problems.unshift(`its folder's name cannot name an app: ${named}`);
 	if (problems.length) return broken(problems);
@@ -187,29 +172,28 @@ function message(error: unknown) {
 	return error instanceof Error ? error.message : String(error);
 }
 
-/** The home's entries that look like apps, sorted by name, without importing any of them. */
+/** The Epicenter's entries that look like apps, sorted by name, without importing any of them. */
 export async function homeEntries() {
-	return (await entries()).entries;
+	return entries();
 }
 
-/** Import every home entry independently so one broken app does not hide the rest. */
+/** Import every app entry independently so one broken app does not hide the rest. */
 export async function discoverAll() {
 	const found = await entries();
 	const loaded = await Promise.all(
-		found.entries.map((entry) => load(entry, entry.entry)),
+		found.map((entry) => load(entry, entry.entry)),
 	);
 	return {
-		home: homeDir(),
-		missing: found.missing,
+		epicenter: epicenterRoot().folder,
 		apps: loaded.filter((located) => located.ok),
 		problems: loaded.filter((located) => !located.ok),
 	};
 }
 
-/** The home listing keeps runnable apps separate from entries with problems. */
+/** The listing keeps runnable apps separate from entries with problems. */
 export type Discovery = Awaited<ReturnType<typeof discoverAll>>;
 
-/** Load only the requested home entry so unrelated apps cannot affect a run. */
+/** Load only the requested app entry so unrelated apps cannot affect a run. */
 export async function loadHomeApp(
 	name: string,
 ): Promise<Result<Located, CliError>> {
@@ -218,59 +202,7 @@ export async function loadHomeApp(
 		next: 'epicenter',
 	});
 	if (!isName(name)) return unknown;
-	const found = await entryAt(join(homeDir(), name));
+	const found = await entryAt(join(epicenterDir(), name));
 	if (found) return Ok(await load(found, name));
-	try {
-		await stat(homeDir());
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code === 'ENOENT')
-			return CliError.Usage({
-				message: `Unknown app "${name}". There is no Epicenter home at ${homeDir()}. Make one with: mkdir ${homeDir()}`,
-				next: `mkdir ${homeDir()}`,
-			});
-		throw error;
-	}
 	return unknown;
-}
-
-/** Recognize explicit folder spellings while leaving app names unambiguous. */
-export function isFolderPath(value: string): boolean {
-	return (
-		['.', '..', '~'].includes(value) ||
-		['/', './', '../', '~/'].some((prefix) => value.startsWith(prefix))
-	);
-}
-
-/** A folder path as a person typed it, with `~` expanded, as an absolute path. */
-export function resolveFolder(path: string): string {
-	return resolve(
-		path === '~'
-			? homedir()
-			: path.startsWith('~/')
-				? join(homedir(), path.slice(2))
-				: path,
-	);
-}
-
-/** Load a folder outside the home, refusing alternate spellings of home apps. */
-export async function loadFolder(
-	path: string,
-	words: string[],
-): Promise<Result<Located, CliError>> {
-	const folder = resolveFolder(path);
-	const found = await entryAt(folder);
-	if (!found)
-		return CliError.Usage({
-			message: `${path} must be a directory containing ${DECLARATION}`,
-		});
-	for (const entry of (await entries()).entries) {
-		if (entry.realPath === found.realPath) {
-			const next = ['epicenter', entry.entry, ...words].join(' ');
-			return CliError.Usage({
-				message: `${path} is the app ${entry.entry} in ${homeDir()}; run ${next}`,
-				next,
-			});
-		}
-	}
-	return Ok(await load(found));
 }
