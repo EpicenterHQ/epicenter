@@ -51,7 +51,7 @@ computer that runs Mail's actions.
 
 Agents make apps: you start Claude Code on your server, ask for an app, and it
 writes the folder. In the Epicenter repository an app's source is
-`epicenter/<app>/`, and `bun epicenter/install.ts <app>` installs it into
+`apps/<app>/`, and `bun apps/install.ts <app>` installs it into
 `~/Epicenter/<app>`.
 
 ## What it is like

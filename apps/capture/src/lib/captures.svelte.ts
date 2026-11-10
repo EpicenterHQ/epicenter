@@ -1,192 +1,162 @@
 /**
- * What Capture does with the list it is given: the timeline, which capture
- * is open and how, Add, and deletion.
+ * The captures this view shows: the newest `limit` by capturedAt, from the
+ * app's `recent` action, narrowed by a search the server runs over every
+ * file. One object for the page, made once, so going to a capture and back
+ * keeps what was shown.
  *
- * The page gives it the folder's captures (`folder.captures` from
- * `$lib/app`), one store's for the page's whole life: the person's
- * `capture` repository (ADR-0700), or the desktop window's folder. Add
- * writes a capture to that store, where it is a change. The timeline shows
- * the list newest first. A write never fails: while the store cannot be
- * reached the folder keeps it, and `<WhenOpen>` says so (ADR-0775).
+ * Nothing is kept on the device. `refresh` asks again; the list page calls
+ * it on a timer and when the page becomes visible. A refresh that started
+ * before a write finished is dropped, so an answer never undoes a write the
+ * person just made.
  */
+import { connect } from '@epicenter/app/client';
+import { toast } from '@epicenter/ui/sonner';
+import type { Recent } from '../../epicenter.js';
 
-import { describeIssues } from '@epicenter/definition/contract';
-import { timeId } from '@epicenter/definition/ids';
-import type { FolderNotes } from '@epicenter/folder/core';
-import type { TextRange } from './capture-actions.svelte.js';
-import {
-	type CaptureNote,
-	type CaptureNotes,
-	captureBody,
-	capturePath,
-	composeBody,
-	excerpt,
-	type InvalidCapture,
-} from './model/index.js';
+/** The app's actions, asked of `epicenter serve`. */
+export const capture = connect('capture');
 
-/**
- * The captures a page reads and edits: a folder's, read through `reactive`
- * so its reads track (`folder.captures` from `$lib/app`).
- */
-export type CaptureList = FolderNotes<CaptureNotes>;
-export type Captures = ReturnType<typeof createCaptures>;
-export type Mode = 'capture' | 'text';
-export type Focus = 'new-thought' | TextRange;
-export type Opened = {
-	readonly id: string;
-	readonly mode: Mode;
-	readonly focus?: Focus;
-};
-export type TimelineRow = {
-	readonly id: string;
-	readonly capturedAt: Date | undefined;
-	readonly preview: string;
-	readonly thoughtCount: number;
-};
-/** A capture's file that opens as text: it does not read, or its Thoughts are ambiguous. */
-export type Repair = {
-	readonly id: string;
-	readonly path: string;
-	readonly problem: string;
-};
-/** A file at a capture's path that is not text: listed, never opened. */
-export type NotText = { readonly id: string; readonly path: string };
-export type Deletion = { readonly id: string; readonly title: string };
+/** One capture as listed; `pending` while its `add` has not answered. */
+export type Row = Recent['captures'][number] & { pending?: true };
 
-export function instantOf(value: unknown): Date | undefined {
-	if (typeof value !== 'string') return undefined;
-	const time = new Date(value);
-	return Number.isNaN(time.getTime()) ? undefined : time;
+const PAGE = 50;
+
+/** What a failed call says, for a toast. */
+export function messageOf(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
 }
 
-/** Newest first by the instant captured, then by id: an offset time sorts by when it was, not its text. */
-export function newestFirst(
-	left: Pick<CaptureNote, 'id' | 'capturedAt'>,
-	right: Pick<CaptureNote, 'id' | 'capturedAt'>,
-) {
-	const a = instantOf(left.capturedAt)?.getTime();
-	const b = instantOf(right.capturedAt)?.getTime();
-	if (a !== b) {
-		if (a === undefined) return 1;
-		if (b === undefined) return -1;
-		return b - a;
-	}
-	return left.id < right.id ? -1 : left.id > right.id ? 1 : 0;
-}
+function createCaptures() {
+	let rows = $state.raw<Row[]>([]);
+	let total = $state(0);
+	let limit = $state(PAGE);
+	/** The search typed, trimmed. */
+	let matching = $state('');
+	/** The search `rows` answer, once any answer has come. */
+	let answered = $state<string>();
+	let problem = $state<string>();
+	let adding = $state.raw<Row[]>([]);
 
-/** The text and thoughts of a capture's body, or why its Thoughts are ambiguous. */
-export const readCaptureBody = (note: Pick<CaptureNote, 'body'>) =>
-	captureBody.decode(note.body);
+	/** Bumped as each write starts and ends; an answer asked under an older one is stale. */
+	let writes = 0;
+	let inFlight = 0;
+	let asked = 0;
+	let nextPending = 0;
 
-/**
- * What the timeline shows: captures newest first, files that open as text
- * to repair, and files that are not text.
- */
-export function timelineOf(
-	items: readonly CaptureNote[],
-	invalid: readonly InvalidCapture[],
-) {
-	const rows: TimelineRow[] = [];
-	const repairs: Repair[] = [];
-	const notText: NotText[] = [];
-	for (const note of items.toSorted(newestFirst)) {
-		const reading = readCaptureBody(note);
-		if (reading.error !== null) {
-			repairs.push({
-				id: note.id,
-				path: capturePath(note.id),
-				problem: reading.error.message,
+	async function refresh() {
+		const request = ++asked;
+		const before = writes;
+		const query = matching;
+		try {
+			const answer = await capture.call<Recent>('recent', {
+				limit,
+				...(query ? { matching: query } : {}),
 			});
-			continue;
+			if (request !== asked || before !== writes || inFlight > 0) return;
+			rows = answer.captures;
+			total = answer.total;
+			answered = query;
+			problem = undefined;
+		} catch (error) {
+			if (request === asked) problem = messageOf(error);
 		}
-		rows.push({
-			id: note.id,
-			capturedAt: instantOf(note.capturedAt),
-			preview: excerpt(reading.data.text),
-			thoughtCount: reading.data.thoughts.length,
-		});
 	}
-	for (const file of invalid) {
-		if (file.text === null) notText.push({ id: file.id, path: file.path });
-		else
-			repairs.push({
-				id: file.id,
-				path: file.path,
-				problem: describeIssues(file.issues),
-			});
-	}
-	const byPath = (a: { path: string }, b: { path: string }) =>
-		a.path < b.path ? -1 : a.path > b.path ? 1 : 0;
-	return { rows, repairs: repairs.sort(byPath), notText };
-}
 
-/** What the page does with `list`, its store's captures. */
-export function createCaptures(list: CaptureList) {
-	let opened = $state.raw<Opened | undefined>();
-	let navigation = 0;
-	const timeline = $derived(timelineOf(list.items(), list.invalid()));
-
-	/** Open `id` as asked, unless a later navigation came first; a capture that does not read opens as text. */
-	function go(requested: number, id: string, mode: Mode, focus?: Focus) {
-		if (requested !== navigation) return;
-		if (mode === 'capture') {
-			const note = list.get({ id });
-			if (note === undefined || readCaptureBody(note).error !== null) {
-				mode = 'text';
-				focus = undefined;
-			}
+	/** Runs `write`, holding back refreshes until it lands, then refreshes. */
+	async function writing<T>(write: () => Promise<T>): Promise<T> {
+		writes++;
+		inFlight++;
+		try {
+			return await write();
+		} finally {
+			writes++;
+			inFlight--;
+			void refresh();
 		}
-		if (focus !== undefined || opened?.id !== id || opened.mode !== mode)
-			opened = { id, mode, focus };
 	}
 
 	return {
-		get timeline() {
-			return timeline;
+		/** What to list: captures being added, then the newest, narrowed here by the search until the server answers it. */
+		rows() {
+			const listed =
+				answered === matching
+					? rows
+					: rows.filter((row) =>
+							row.text.toLowerCase().includes(matching.toLowerCase()),
+						);
+			return [...adding, ...listed];
 		},
-		get opened() {
-			return opened;
+		/** Whether the first answer has come. */
+		isLoaded() {
+			return answered !== undefined;
 		},
-		open(id: string, mode: Mode, focus?: Focus) {
-			go(++navigation, id, mode, focus);
+		/** How many captures there are beyond those listed, for the current search. */
+		more() {
+			return answered === matching ? Math.max(0, total - rows.length) : 0;
 		},
-		leave() {
-			++navigation;
-			opened = undefined;
+		/** Why the last refresh failed, until one succeeds. */
+		problem() {
+			return problem;
+		},
+		/** The search, trimmed. */
+		matching() {
+			return matching;
+		},
+		refresh,
+		search(text: string) {
+			if (text.trim() === matching) return;
+			matching = text.trim();
+			limit = PAGE;
+			void refresh();
+		},
+		showMore() {
+			limit += PAGE;
+			void refresh();
 		},
 		/**
-		 * Add `text` as a new capture, then, once it has landed, open it at Add
-		 * a thought; answers its id. Blank text writes nothing and answers
-		 * undefined.
+		 * Adds `text` as a capture, listed at once. Resolves false, after a
+		 * toast saying why, when it was not written.
 		 */
-		async create(text: string): Promise<string | undefined> {
-			if (text.trim() === '') return undefined;
-			const requested = ++navigation;
-			const now = new Date();
-			const id = timeId(now);
-			await list.set(
-				{ id },
-				{ capturedAt: now.toISOString(), body: composeBody(text).body },
-			);
-			go(requested, id, 'capture', 'new-thought');
-			return id;
-		},
-		deletionFor(id: string): Deletion {
-			const note = list.get({ id });
-			const reading = note && readCaptureBody(note).data;
-			return { id, title: reading?.text.trim().slice(0, 60) ?? '' };
-		},
-		/**
-		 * Close the capture if it is open, and delete it as shown, answering
-		 * once the delete has landed. One changed elsewhere since it was shown
-		 * is kept with that change, as sync keeps it.
-		 */
-		delete(deletion: Deletion): Promise<void> {
-			if (opened?.id === deletion.id) {
-				++navigation;
-				opened = undefined;
+		async add(text: string): Promise<boolean> {
+			const shown: Row = {
+				id: `pending-${++nextPending}`,
+				capturedAt: new Date().toISOString(),
+				text: text.trim(),
+				thoughts: 0,
+				pending: true,
+			};
+			adding = [shown, ...adding];
+			try {
+				const { id, capturedAt } = await writing(() =>
+					capture.call<{ id: string; capturedAt: string }>('add', { text }),
+				);
+				rows = [
+					{ id, capturedAt, text: shown.text, thoughts: 0 },
+					...rows.filter((row) => row.id !== id),
+				];
+				total += 1;
+				return true;
+			} catch (error) {
+				toast.error('Not captured', { description: messageOf(error) });
+				return false;
+			} finally {
+				adding = adding.filter((row) => row !== shown);
 			}
-			return list.delete({ id: deletion.id });
+		},
+		/** Deletes the capture `id`; throws when the server did not. */
+		async delete(id: string) {
+			await writing(() => capture.call('captures delete', { id }));
+			if (rows.some((row) => row.id === id)) total -= 1;
+			rows = rows.filter((row) => row.id !== id);
+		},
+		/** Shows a capture's new text and thought count after its page saved it. */
+		saved(id: string, text: string, thoughts: number) {
+			rows = rows.map((row) =>
+				row.id === id ? { ...row, text, thoughts } : row,
+			);
+			writes++;
 		},
 	};
 }
+
+export const captures = createCaptures();

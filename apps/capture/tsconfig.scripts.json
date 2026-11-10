@@ -1,9 +1,0 @@
-{
-	// Bun entrypoints: publishing the contract.
-	"extends": "../../tsconfig.dom.json",
-	"compilerOptions": {
-		"types": ["bun"],
-		"noEmit": true
-	},
-	"include": ["scripts/**/*.ts"]
-}

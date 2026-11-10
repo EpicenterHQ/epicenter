@@ -1,16 +1,16 @@
 ---
 name: epicenter-app
-description: Make or change an app that lives in ~/Epicenter, from its source in the monorepo's epicenter/<app>: its collections, its actions, and its view. Use when asked to build a new personal app (a tracker, a log, a list), add a field or action to Capture, Tasks, or Vocab, change an app's view, or install an app onto the computer that runs epicenter serve.
+description: Make or change an app that lives in ~/Epicenter, from its source in the monorepo's apps/<app>: its collections, its actions, and its view. Use when asked to build a new personal app (a tracker, a log, a list), add a field or action to Capture, Tasks, or Vocab, change an app's view, or install an app onto the computer that runs epicenter serve.
 ---
 
 # Epicenter apps
 
 An app is a Git repository of files in `~/Epicenter/<app>` (ADR-0864). Its
-source lives in this monorepo at `epicenter/<app>/`, and
-`bun epicenter/install.ts <app>` puts it there. `epicenter serve` offers its
+source lives in this monorepo at `apps/<app>/`, and
+`bun apps/install.ts <app>` puts it there. `epicenter serve` offers its
 actions over MCP at `/mcp` and its view at `/<app>/`. Read
-`epicenter/README.md`, `packages/app/README.md`, and one existing app before
-starting; `epicenter/tasks` is the smallest whole example.
+`apps/README.md`, `packages/app/README.md`, and one existing app before
+starting; `apps/tasks` is the smallest whole example.
 
 ## Decide the files first
 
@@ -66,9 +66,9 @@ Never run anything against the real `~/Epicenter` until the person asks to
 install. `HOME` decides `~`, so:
 
 ```sh
-bun test                                   # in epicenter/<app>: actions over createMemoryContext
+bun test                                   # in apps/<app>: actions over createMemoryContext
 T=$(mktemp -d); HOME=$T git lfs install
-HOME=$T bun epicenter/install.ts <app>
+HOME=$T bun apps/install.ts <app>
 HOME=$T bun packages/cli/src/bin.ts <app> <words> ...
 HOME=$T bun packages/cli/src/bin.ts serve --port 4799   # then drive http://localhost:4799/<app>/
 ```
@@ -78,7 +78,7 @@ package at a time.
 
 ## Install
 
-`bun epicenter/install.ts <app>` makes the app with `epicenter new` the first
+`bun apps/install.ts <app>` makes the app with `epicenter new` the first
 time, commits `epicenter.json` and `epicenter.ts` as `install <app>`, and
 builds the view into the app's gitignored `views/`. It never touches data. A
 running `epicenter serve` sees the change on the next request: it lists tools

@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-11-09
 - **Relates:** [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) (your server, and reach from vendors' clouds), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (programs that have the folder or ask), [ADR-0853](0853-collections-give-four-actions-and-programs-without-the-folder-ask-over-mcp.md) (MCP, the view client), [ADR-0857](0857-an-app-declares-itself-in-epicenter-json-and-its-code-in-epicenter-ts.md) (actions in `epicenter.ts`), [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (one copy, and `serve` at `/<app>/` and `/mcp`).
-- **Unbuilt:** `epicenter serve` serving `views/` at `/<app>/` and MCP at `/mcp` over HTTPS. Built: the view client `connect` (`packages/app/src/client.ts`), Capture's view in `epicenter/capture/`, and `bun epicenter/install.ts`, which builds a view into the app's `views/`.
+- **Unbuilt:** `epicenter serve` serving `views/` at `/<app>/` and MCP at `/mcp` over HTTPS. Built: the view client `connect` (`packages/app/src/client.ts`), Capture's view in `apps/capture/`, and `bun apps/install.ts`, which builds a view into the app's `views/`.
 
 ## Context
 
@@ -32,15 +32,15 @@ a view.
   views/              the built view, served at /capture/
   captures/<id>.md
 
-epicenter/capture/    in the Epicenter repository: the source
+apps/capture/        in the Epicenter repository: the source
   epicenter.json
   epicenter.ts
   src/, static/       the view: SvelteKit, Svelte 5, and @epicenter/ui
 ```
 
 **A view is built from source and never committed to the app.** In the
-Epicenter repository an app's source is `epicenter/<app>/`, and
-`bun epicenter/install.ts <app>` builds its view into `~/Epicenter/<app>/views/`,
+Epicenter repository an app's source is `apps/<app>/`, and
+`bun apps/install.ts <app>` builds its view into `~/Epicenter/<app>/views/`,
 which the app's `.gitignore` keeps out of its history (ADR-0864). Any build
 that produces static files works; SvelteKit with Epicenter's components is the
 default, not a requirement.

@@ -1,41 +1,15 @@
-import { APPS } from '@epicenter/definition/site';
-// VAD fetches these files from `/vad/*` at runtime (they are not bundled). The
-// recorder package owns the VAD capability and resolves the asset source paths
-// from its own pinned dependency tree; we just copy them into the served `/vad/`
-// directory at build time (see @epicenter/recorder/vad-assets).
-import {
-	VAD_ASSET_DEST,
-	vadAssetSources,
-} from '@epicenter/recorder/vad-assets';
-import { workspaceAppViteConfig } from '@epicenter/vite-config';
-import { defineConfig, mergeConfig } from 'vite';
-import { viteStaticCopy } from 'vite-plugin-static-copy';
+import { sveltekit } from '@sveltejs/kit/vite';
+import tailwindcss from '@tailwindcss/vite';
+import { defineConfig, searchForWorkspaceRoot } from 'vite';
 
-export default defineConfig(
-	mergeConfig(workspaceAppViteConfig(APPS.VOCAB), {
-		plugins: [
-			viteStaticCopy({
-				// `stripBase` drops the source's directory segments so each file
-				// lands directly at /vad/<name> (the plugin otherwise mirrors the
-				// full absolute source path under dest).
-				targets: vadAssetSources.map((src) => ({
-					src,
-					dest: VAD_ASSET_DEST,
-					rename: { stripBase: true },
-				})),
-			}),
-		],
-		// onnxruntime-web (pulled in by @ricky0123/vad-web) ships a WASM glue
-		// .mjs that Vite's dep optimizer can't pre-bundle (it 404s on
-		// .vite/deps/ort-wasm-simd-threaded.mjs). Keep that package and its wasm
-		// subpath native, but still prebundle vad-web so Vite converts its
-		// CommonJS entry to ESM for browser dev mode.
-		optimizeDeps: {
-			exclude: ['onnxruntime-web', 'onnxruntime-web/wasm'],
-		},
-		// localhost, not 127.0.0.1: the API registers Vocab's sign-in callback
-		// at `http://localhost:8888`.
-		server: { host: 'localhost' },
-		preview: { port: APPS.VOCAB.port, strictPort: true, host: 'localhost' },
-	}),
-);
+/**
+ * In development, `/mcp` goes to a running `epicenter serve`
+ * (EPICENTER_URL, default http://127.0.0.1:4747).
+ */
+export default defineConfig({
+	plugins: [sveltekit(), tailwindcss()],
+	server: {
+		fs: { allow: [searchForWorkspaceRoot(process.cwd())] },
+		proxy: { '/mcp': process.env.EPICENTER_URL ?? 'http://127.0.0.1:4747' },
+	},
+});

@@ -444,17 +444,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "capture"
-version = "0.0.1"
-dependencies = [
- "epicenter-standalone",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-epicenter-folder",
-]
-
-[[package]]
 name = "cargo-platform"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5306,17 +5295,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fd3ca314f692efd6c868f8408f53fe444634a845f96c028b97d35f6a1f79f0ee"
 
 [[package]]
-name = "todos"
-version = "0.0.1"
-dependencies = [
- "epicenter-standalone",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-epicenter-folder",
-]
-
-[[package]]
 name = "tokio"
 version = "1.54.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5772,18 +5750,6 @@ name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
-
-[[package]]
-name = "vocab"
-version = "0.0.2"
-dependencies = [
- "epicenter-account",
- "epicenter-standalone",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-epicenter-folder",
-]
 
 [[package]]
 name = "vswhom"

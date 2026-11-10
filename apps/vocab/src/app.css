@@ -1,8 +1,16 @@
-@import "@epicenter/ui/app.css";
+@import '@epicenter/ui/app.css';
 
-/* Finished Markdown and arriving text use the same reading size. */
-.vocab-reply {
-	font-size: 1rem;
-	line-height: 1.75;
-	overflow-wrap: anywhere;
+/*
+ * A word in Chinese, Japanese, or Korean is tagged with its `lang`, so it is
+ * drawn with that language's glyphs (Han characters differ between them)
+ * rather than Geist's fallback.
+ */
+:lang(zh) {
+	font-family: 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Microsoft YaHei', system-ui, sans-serif;
+}
+:lang(ja) {
+	font-family: 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Noto Sans CJK JP', 'Yu Gothic', system-ui, sans-serif;
+}
+:lang(ko) {
+	font-family: 'Apple SD Gothic Neo', 'Noto Sans CJK KR', 'Malgun Gothic', system-ui, sans-serif;
 }

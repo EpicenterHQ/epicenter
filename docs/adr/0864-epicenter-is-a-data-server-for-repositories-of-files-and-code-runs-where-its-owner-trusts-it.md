@@ -98,8 +98,8 @@ Another person's Epicenter is the same program on their own computer.
   Objects.
 - A view is a web client: served from a repository's `views/` or from anywhere,
   it asks over MCP like an agent, and the browser sandboxes it.
-- An app made in the Epicenter repository has its source in `epicenter/<app>/`
-  there. `bun epicenter/install.ts <app>` copies its `epicenter.json` and
+- An app made in the Epicenter repository has its source in `apps/<app>/`
+  there. `bun apps/install.ts <app>` copies its `epicenter.json` and
   `epicenter.ts` into `~/Epicenter/<app>` and commits them, and builds its view
   into `views/`, which the app's `.gitignore` keeps out of its history: the
   view is rebuilt from source, and only the computer that serves it needs it.

@@ -1,5 +1,46 @@
 # Apps
 
+Two kinds of app live here: Epicenter's own apps for `~/Epicenter`, and the
+apps frozen on the folder sync product, which waits.
+
+## Apps for ~/Epicenter
+
+Capture, Tasks, and Vocab are the source of apps in `~/Epicenter`
+([ADR-0864](../docs/adr/0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md)).
+Each folder is one app: `apps/capture` is what `bun apps/install.ts capture`
+puts into `~/Epicenter/capture`.
+
+```txt
+apps/capture/
+  epicenter.json        the app's declaration: its collections
+  epicenter.ts          its actions beyond each collection's four
+  src/, static/         its view: SvelteKit, Svelte 5, and @epicenter/ui
+```
+
+`bun apps/install.ts <app>` makes `~/Epicenter/<app>` with `epicenter new`
+the first time, copies `epicenter.json` and `epicenter.ts` and commits them
+alone as `install <app>`, and builds the view into the app's `views/`, which
+the app's `.gitignore` keeps out of its history. It never touches the app's
+data. `HOME` decides `~`, so a test installs into a temporary folder.
+
+`epicenter serve` serves an app's `views/` at `/<app>/` and MCP at `/mcp`. A
+view asks for everything through `connect('<app>')` from
+`@epicenter/app/client`, and keeps nothing of its own. In development,
+`bun run dev` in an app's folder proxies `/mcp` to a running
+`epicenter serve` (`EPICENTER_URL`, default `http://127.0.0.1:4747`).
+
+A view is a static SvelteKit build with hash routes (`#/c/<id>`), so the
+server serves files and routes nothing. Install builds it with
+`VIEW_BASE=/<app>`, the path `epicenter serve` mounts it at.
+
+| App | Collections | Its own actions |
+| --- | --- | --- |
+| [Capture](capture) | `captures` | `add`, `recent` |
+| [Tasks](tasks/README.md) | `tasks` | `add` |
+| [Vocab](vocab) | `words` | `add`, `review`, `due` |
+
+## Apps frozen on the folder sync product
+
 The apps below are frozen on the folder sync product, which waits
 ([ADR-0840](../docs/adr/0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md)).
 Each still runs over its local folder, and nothing syncs it. In its turn each
@@ -57,7 +98,7 @@ store where the page runs:
 
 | App | Surfaces |
 | --- | --- |
-| Capture, Honeycrisp, Todos, Vocab, Whispering | web, desktop |
+| Honeycrisp, Whispering | web, desktop |
 | Messages | local (a program on the computer where Beeper Desktop runs) |
 
 The surfaces need not promise the same things
@@ -70,8 +111,7 @@ README says what its web build does not promise.
 
 Each desktop app is a Tauri program of its own
 ([ADR-0701](../docs/adr/0701-apps-run-as-separate-programs.md)) that loads
-the same build the web serves. Capture, Honeycrisp, Todos, Vocab and
-Whispering share the
+the same build the web serves. Honeycrisp and Whispering share the
 [`epicenter-standalone`](../packages/tauri-epicenter-standalone/README.md)
 crate, which also describes how a web app gains a desktop window.
 
@@ -85,12 +125,12 @@ Nothing in it awaits, and an edit to it reloads the page
 ([ADR-0768](../docs/adr/0768-retry-belongs-to-a-failure-and-editing-app-ts-reloads-the-page.md)):
 
 ```ts
-// apps/todos/src/lib/app.ts
-const signIn = connectAccount({ clientId: 'so.epicenter.todos', api: APP_URLS.API, selfHosted: SELF_HOST_ORIGIN });
+// apps/honeycrisp/src/lib/app.ts
+const signIn = connectAccount({ clientId: 'so.epicenter.honeycrisp', api: APP_URLS.API, selfHosted: SELF_HOST_ORIGIN });
 
 export const account = reactive(signIn);
 export const folder = reactive(
-  openFolder(todos, home({ site: APPS.TODOS.url, account: signIn })),
+  openFolder(honeycrisp, home({ site: APPS.HONEYCRISP.url, account: signIn })),
 );
 ```
 
@@ -105,11 +145,11 @@ Where the folder is on the server, a signed-out person is asked to sign in
 first; a folder on this computer (`folder.reveal`) needs no sign-in:
 
 ```svelte
-<!-- apps/todos/src/routes/(app)/+layout.svelte -->
+<!-- apps/honeycrisp/src/routes/(app)/+layout.svelte -->
 {#if folder.reveal === null && account.state().status === 'signed-out'}
   <SignIn {account} />
 {:else}
-  <WhenOpen app="Todos" {folder}>{@render children()}</WhenOpen>
+  <WhenOpen app="Honeycrisp" {folder}>{@render children()}</WhenOpen>
 {/if}
 ```
 
@@ -126,17 +166,15 @@ UI components read a collection off `folder`, sort with the app's own
 order, and read and write through it: `items()`, `invalid()` (notes that
 do not read, with their text), and `set` and `delete`, which settle a change
 another writer made since the way sync does. The component that shows a
-note makes one editor of it (`todos.edit({ id })`), gates on `exists()`,
-and binds its `fields`. See [Todos](todos/README.md),
-[Capture](capture/README.md) and the
+note makes one editor of it (`notes.edit({ id })`), gates on `exists()`,
+and binds its `fields`. See [Honeycrisp](honeycrisp/README.md) and the
 [Svelte package](../packages/svelte/README.md).
 
 ## Running an app
 
 The root `bun dev:<app>` scripts start each app's required development
 processes. `bun dev:<app>:desktop` and `bun build:<app>:desktop` start and
-build a desktop app (`capture`, `honeycrisp`, `todos`, `vocab`,
-`whispering`) over the app's dev server or its `build/`; they need a Rust
+build a desktop app (`honeycrisp`, `whispering`) over the app's dev server or its `build/`; they need a Rust
 toolchain. Each app README names its route
 and test commands.
 
@@ -155,10 +193,7 @@ are deleted; the `folder-sync-product` tag keeps them.
 
 | App | Surfaces | Desktop folder | Contract |
 | --- | --- | --- | --- |
-| [Todos](todos/README.md) | web; desktop | `~/Epicenter/todos` | `todos`: `todos` |
-| [Capture](capture/README.md) | web; desktop | `~/Epicenter/capture` | `capture`: `captures` |
 | [Honeycrisp](honeycrisp/README.md) | web; desktop | `~/Epicenter/honeycrisp` | `honeycrisp`: `notes`, `folders` |
-| [Vocab](vocab/README.md) | web; desktop | `~/Epicenter/vocab` | `vocab`: `entries`, `chats`, `messages` |
 | [Whispering](whispering/README.md) | web; desktop | `~/Epicenter/whispering` | `whispering`: `recordings`, `audio`, `transcriptions`, `transformations`, `transformation_runs`, `text_runs`, `shortcuts` |
 | [Messages](messages/README.md) | local program (`bun run --cwd apps/messages start`) | none: `<AppData>/apps/so.epicenter.messages`, which its program owns | `messages`: `drafts`, `attempts` |
 
@@ -179,8 +214,8 @@ Local Books keeps its QuickBooks replica in SQLite under
 
 ## Product root names
 
-Name each product root `<Product>App`: `TodosApp`, `CaptureApp`,
-`HoneycrispApp`, `VocabApp`, `WhisperingApp`, and `MessagesApp`. This
+Name each product root `<Product>App`: `HoneycrispApp`, `WhisperingApp`,
+and `MessagesApp`. This
 component composes the product's state and interface over the folder
 `src/lib/app.ts` opened; nothing under it chooses a store.
 

@@ -2,24 +2,18 @@ import adapter from '@sveltejs/adapter-static';
 import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 
 /**
- * Where a build writes the static app, when not `build/`.
+ * A static single-page view with hash routes (`index.html#/c/<id>`), so
+ * `epicenter serve` serves `build/` as files with no routing of its own. It
+ * mounts an app's view at `/<app>/`, which install passes as VIEW_BASE.
+ *
+ * @type {import('@sveltejs/kit').Config}
  */
-const out = process.env.CAPTURE_BUILD_DIR;
-
-/** @type {import('@sveltejs/kit').Config} */
-const config = {
+export default {
 	kit: {
-		// A static single-page app: any host that answers unknown paths with
-		// `index.html` (for `/auth/callback`) serves it.
-		adapter: adapter({
-			fallback: 'index.html',
-			...(out && { pages: out, assets: out }),
-		}),
+		adapter: adapter(),
+		router: { type: 'hash' },
+		paths: { base: process.env.VIEW_BASE ?? '' },
 	},
 	preprocess: vitePreprocess(),
-	// `@epicenter/svelte`'s Recovery, which `<WhenOpen>` shows, reads
-	// `$effect.pending()`, which async Svelte provides.
 	compilerOptions: { experimental: { async: true } },
 };
-
-export default config;
