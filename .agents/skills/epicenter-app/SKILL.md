@@ -132,16 +132,24 @@ should take what they type: Vocab's `review` could take `{ word, grade }` and
 call `words.pathOf({ word })`, giving `epicenter vocab review 你好 good`.
 
 Annotate honestly. An action never commits; after a run that is not
-`readOnlyHint: true`, `epicenter` takes a snapshot of the app's folder, named
-for the call (`<app>: <words> <first positional>`), so a read marked as a
-write may take someone else's pending edits into history. A read-only run is
-never snapshotted, and its writes through `folder` and `secrets` throw, so an
-action that writes a file or refreshes a token with `secrets.set` is not
-read-only.
+`readOnlyHint: true`, `epicenter` commits exactly the files it wrote through
+`folder`, named for the call (`<app>: <words> <first positional>`, with
+` (threw)` when it threw). A read-only run never commits, and its writes
+through `folder` and `secrets` throw, so an action that writes a file or
+refreshes a token with `secrets.set` is not read-only.
+
+When you edit an app's files yourself rather than through its actions, commit
+your own edits when you finish, saying what you did:
+`epicenter sync <app> -m "<what you did>"` commits everything pending in the
+app under that message and backs it up. A plain `git commit` in the app's
+folder is safe too, since the app's `.gitignore` keeps `*.local` and
+`*.local.*` out; never add one with `git add -f`. Edits nobody commits are
+committed by `epicenter serve` within 5 minutes as
+`<app>: changed outside epicenter`.
 
 An agent can read and reverse that history. `epicenter history <app>` lists
-the snapshots, newest first, each with its commit, local time, and subject
-(`--json` gives `{ commit, date, subject, also, undid? }`). `epicenter undo
+the commits, newest first, each with its commit, local time, and subject
+(`--json` gives `{ commit, date, subject, changed, undid? }`). `epicenter undo
 <app>` snapshots what is pending, then reverts the newest snapshot that is not
 an undo and not undone, as `<app>: undid <subject>`; run it again to go further
 back, `epicenter undo <app> <commit>` to undo that commit, and undo an undo to
@@ -187,7 +195,7 @@ name as the base. Ask for everything through
 - Update optimistically and say a failed write in a toast. Refresh on
   visibility and every 15 s while visible, and drop a refresh that began
   before a write, so it cannot undo what the screen shows.
-- Every write is a snapshot in the app's history. Save on blur, on a pause,
+- Every write is a commit in the app's history. Save on blur, on a pause,
   or on an explicit action, never on each keystroke.
 
 ## Verify without touching the person's data
@@ -195,7 +203,7 @@ name as the base. Ask for everything through
 Never run anything against the real `~/Epicenter` until the person asks.
 `HOME` decides `~`, so try an app in a temporary home. In the monorepo, build
 the UI in place, then copy the app into the temporary home as a repository of
-its own, since `epicenter` snapshots every write into the app's repository:
+its own, since `epicenter` commits every write into the app's repository:
 
 ```sh
 bun test ./epicenter.test.ts               # in apps/<app>: actions over createMemoryContext
@@ -224,8 +232,9 @@ Only when the person asks, on the computer that runs `epicenter serve`:
 - `epicenter update [<app>]` merges the starter's changes, lists files that no
   longer fit, and builds. It refuses an app with uncommitted changes and undoes
   a merge that conflicts, naming the command that resolves it.
-- Backups go to `origin`: add the remote, and `epicenter sync` and `serve`
-  push there by name, never to `upstream`.
+- Backups go to `origin`: add the remote, and `epicenter sync` and `undo`
+  push there by name at once, and `serve` every 5 minutes, never to
+  `upstream`.
 - `epicenter build [<app>]` rebuilds a UI after a local edit, keeping the last
   one that built; the UI project's own `bun run build` empties `.cache/ui/`
   first, so a page served meanwhile is missing.

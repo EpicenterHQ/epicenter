@@ -19,6 +19,7 @@ epicenter update
 epicenter build
 epicenter sync
 epicenter sync reading
+epicenter sync reading -m "Tidy the book notes"
 epicenter history reading
 epicenter undo reading
 epicenter serve
@@ -34,25 +35,33 @@ A flag's value is read as its field's type ([ADR-0867](../../docs/adr/0867-the-c
 
 ## Each run is its own process
 
-The `epicenter` you start only relays. It runs the action in a child `epicenter` whose stdout and stderr both go to your stderr, forwards SIGINT and SIGTERM, and reads the child's answer from a report file once the child exits. So nothing an action prints, through any `console` method or `process.stdout`, reaches the answer. A child that ends without an answer, killed or calling `process.exit`, answers that it threw, naming its exit code or signal; what it wrote stays pending for the next snapshot, which lists it as changed outside epicenter. After a run that is not read-only, the child's report names the app, call, and paths written through `folder`, and the parent, the `epicenter` you started or `serve`, takes the snapshot. A child whose parent dies finishes the run.
+The `epicenter` you start only relays. It runs the action in a child `epicenter` whose stdout and stderr both go to your stderr, forwards SIGINT and SIGTERM, and reads the child's answer from a report file once the child exits. So nothing an action prints, through any `console` method or `process.stdout`, reaches the answer. A child that ends without an answer, killed or calling `process.exit`, answers that it threw, naming its exit code or signal; what it wrote stays pending for the next snapshot, which lists it as changed outside epicenter. After a run that is not read-only, the child's report names the app, the call, the paths written through `folder`, and whether it threw, and the parent, the `epicenter` you started or `serve`, commits those paths. A child whose parent dies finishes the run.
 
 `epicenter serve` starts an HTTP server on `127.0.0.1` at the port in `epicenter.root.json`, or 4747 when the marker has none. `--host <address>` and `--port <n>` override those settings. It serves MCP at `POST /`, the launcher at `GET /`, and each app's UI at `/<app>/`: its built `.cache/ui/` ([ADR-0866](../../docs/adr/0866-an-app-starts-from-a-starter-kept-as-its-upstream-and-update-merges-the-starters-changes.md)). The launcher links to apps with a UI; a `GET /` asking for an event stream gets 405, since the server keeps no MCP session. Any later path of the server's own starts with `.`, which no app name can. An Origin must match the request Host; requests without Origin are accepted. A reverse proxy such as `tailscale serve` can provide HTTPS.
 
 Both HTTP and `serve --stdio` offer every app action as a tool and send the Epicenter's `AGENTS.md`, when present, as MCP server instructions. The server never imports an app. `tools/list` runs `epicenter <app> --json` for each app entry in its own child, so an app that fails to load loses only its own tools and says why on stderr. Each `tools/call` runs `epicenter <app> <words> --input <json>` in a fresh child from the Epicenter folder, so an edit between calls is seen by the next. `serve --stdio` uses stdin and stdout for MCP.
 
-After each call that is not read-only, either transport takes a snapshot of the app before it answers, one at a time per app. Every 60 seconds the HTTP server checks each app's pending paths, sizes, and modification times, and snapshots an app when those values are unchanged since the previous check. `EPICENTER_QUIET_CHECK_MS` is a test hook for this interval; values must be integers of at least 100 milliseconds. When a snapshot commits, the HTTP server pushes that app's branch to `origin` by name in the background, if the app has an `origin`; it never pushes to `upstream`. Push failures go to stderr and leave the commit local. A snapshot failure goes to stderr; the pending paths remain visible in status.
+After each call that is not read-only, either transport commits the paths the call wrote before it answers, one commit at a time per app. A commit failure goes to stderr; the paths remain visible in status.
 
-## Runs never commit; history is snapshots
+The HTTP server backs up on a clock: when it starts, every 5 minutes, and when it receives SIGINT or SIGTERM, it does for each app what `epicenter sync <app>` does. It snapshots what is pending as `<app>: changed outside epicenter` and pushes the branch to `origin` by name when the snapshot committed, the branch is ahead of its `origin` tracking ref, or there is no tracking ref yet; it never pushes to `upstream`. So a call's commit reaches the backup within 5 minutes, not at once. A failure goes to stderr, once until it changes, and leaves the commits local. `serve` says it is serving once its first backup is done, or after 10 seconds, and on a signal it waits at most 10 seconds for its last backup before it exits.
 
-A run changes files and commits nothing ([ADR-0850](../../docs/adr/0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md)). A write run reports its call as `<app>: <action words> [first positional value]` (one line, cut at 60 characters) and the paths it wrote through `folder`, whether it returned or threw. The parent passes that report to `snapshot`. Running an action needs nothing from Git; a folder outside a repository is never snapshotted.
+## Runs never commit; each writer commits its own boundary
 
-A snapshot commits everything pending in the app's folder (`src/snapshot.ts`). The command line takes one after each write run it ran itself, `serve` after each write call and for quiet outside edits, and `epicenter sync` before it pushes. It runs `git add -A` and `git commit` from the app's folder with the pathspec `.`, never `*.local` or `*.local.*`, so it takes everything changed in the folder, staged or not, and nothing outside it. With a call, the subject is that call; any other pending paths follow an `Also changed:` header, one per line. Without a call, the subject is `<app>: changed outside epicenter` and the paths follow `Changed:`. A path containing a newline is JSON-quoted on its line. Nothing pending makes no commit. An app inside a larger repository commits into that repository and leaves the rest of it alone. Before staging, when the folder's `.gitattributes` mentions `filter=lfs` and `git config filter.lfs.process` is empty, it stops with a message ending `run: git lfs install` ([ADR-0856](../../docs/adr/0856-binary-files-go-through-git-lfs.md)). When another Git process holds `index.lock`, it retries for about 2 seconds. A snapshot failure changes no answer or exit code: the caller prints why and `Run: epicenter sync <app>` on stderr. The pending paths remain visible in status. A snapshot never pushes.
+A run changes files and commits nothing ([ADR-0850](../../docs/adr/0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md)). A write run reports its call as `<app>: <action words> [first positional value]` (one line, cut at 60 characters), the paths it wrote through `folder`, and whether it threw. Running an action needs nothing from Git; a folder outside a repository is never committed. Three kinds of writer commit, each with the boundary it knows (`src/snapshot.ts`):
+
+- A call: the command line after a write run it ran itself, and `serve` after each write call, commit exactly the paths the run wrote that changed. One `git status` of those paths, each given literally, drops what is unchanged, ignored, or created and then deleted; `git add -A` and `git commit` of what is left leave every other pending or staged change as it was. The subject is the call, or `<call> (threw)`, with no body.
+- An agent that edits an app's files itself: `epicenter sync <app> -m "<what it did>"` snapshots what is pending as `<app>: <what it did>` and backs it up. A plain `git commit` in the app's folder works too.
+- Anything else, such as an editor: `epicenter sync`, the first step of `epicenter undo`, and `serve`'s clock snapshot what is pending as `<app>: changed outside epicenter`.
+
+A snapshot with no call runs `git add -A` and `git commit` from the app's folder with the pathspec `.`, so it takes everything changed in the folder that Git does not ignore, staged or not, and nothing outside it. Its body is `Changed:` and one path per line; a path containing a newline is JSON-quoted on its line. An app inside a larger repository commits into that repository and leaves the rest of it alone.
+
+Each app's `.gitignore` keeps `*.local` and `*.local.*` on this computer, as the template and starters write it. Before staging, a commit that would take such a file refuses with `<path> would be committed; add *.local and *.local.* to <app>/.gitignore`. Nothing changed makes no commit. Before staging, when the folder's `.gitattributes` mentions `filter=lfs` and `git config filter.lfs.process` is empty, it stops with a message ending `run: git lfs install` ([ADR-0856](../../docs/adr/0856-binary-files-go-through-git-lfs.md)), and it refuses while a merge, rebase, revert, or cherry-pick is underway. When another Git process holds `index.lock`, it retries for about 2 seconds. A commit failure changes no answer or exit code: the caller prints why and `Run: epicenter sync <app>` on stderr. The pending paths remain visible in status. A commit never pushes; `sync`, `undo`, and `serve`'s clock do.
 
 There is no lock: writes to one app run at once. Git's `index.lock` keeps commits apart, and `folder.update` keeps changes to one file apart: it writes only over the text its change read, so every collection write lands. `folder.write` is last-write-wins.
 
-A read-only run, of an action with `readOnlyHint: true`, is never snapshotted. In it, `folder.write`, `folder.writeBytes`, `folder.update`, `folder.delete`, `secrets.set`, and `secrets.delete` throw before doing anything, naming the action: `The action "<words>" is read-only, so it cannot write <path>`. A raw `node:fs` write is not caught.
+A read-only run, of an action with `readOnlyHint: true`, never commits. In it, `folder.write`, `folder.writeBytes`, `folder.update`, `folder.delete`, `secrets.set`, and `secrets.delete` throw before doing anything, naming the action: `The action "<words>" is read-only, so it cannot write <path>`. A raw `node:fs` write is not caught.
 
-`folder` is a convenience, not a sandbox. Paths are normalized and `.git` is refused; writes replace a whole file at once, through a file beside it named `*.local` so a snapshot never takes it. `folder.path` is the folder, and an action may use `node:fs` too; what it writes that way is a change from outside epicenter.
+`folder` is a convenience, not a sandbox. Paths are normalized and `.git` is refused; writes replace a whole file at once, through a file beside it named `*.local`, which the app's `.gitignore` keeps out of every commit. `folder.path` is the folder, and an action may use `node:fs` too; what it writes that way is a change from outside epicenter.
 
 ## What a run answers
 
@@ -85,7 +94,7 @@ A placeholder such as `time` prints as a field: the command reads only the answe
 
 ## Syncing
 
-`epicenter sync [<app>]` takes a snapshot and pushes to `origin`, the home's optional backup ([ADR-0851](../../docs/adr/0851-an-app-has-one-home-and-an-optional-push-only-backup.md)). For each app in the Epicenter, or the one named, one after another, it commits pending changes and then runs `git push origin HEAD:<branch>` when `origin` exists. It never fetches, pulls, rebases, stashes, or force pushes. An app without `origin` gets a local snapshot. Nothing goes to `upstream`, the starter an app came from, or to whatever the branch tracks.
+`epicenter sync [<app> [-m <message>]]` takes a snapshot and pushes to `origin`, the home's optional backup ([ADR-0851](../../docs/adr/0851-an-app-has-one-home-and-an-optional-push-only-backup.md)). For each app in the Epicenter, or the one named, one after another, it commits pending changes and then runs `git push origin HEAD:<branch>` when `origin` exists. The snapshot reads `<app>: changed outside epicenter`, or with `-m` (`--message`), which needs an app, `<app>: <message>`; a message must be one line of text. It never fetches, pulls, rebases, stashes, or force pushes. An app without `origin` gets a local snapshot. Nothing goes to `upstream`, the starter an app came from, or to whatever the branch tracks.
 
 A refused non-fast-forward push leaves both histories as they were. Sync says the backup at origin has changes this computer does not and nothing was overwritten. It suggests `git -C <folder> fetch origin && git -C <folder> log HEAD..origin/<branch>` to inspect those commits. The unpushed count remains in status; no push error file is stored. Other push failures leave the commit local. One app's failure never stops the others. An app inside a larger repository snapshots only its folder and pushes the whole repository's history.
 
@@ -113,14 +122,12 @@ A refused non-fast-forward push leaves both histories as they were. Sync says th
 $ epicenter history tasks
 9c1e2f4  2026-11-11 09:41  undid tasks: add Water the plants
 5b7a0d3  2026-11-11 09:30  tasks: add Water the plants
-                           Also changed:
-                           notes.md
 e02c9a1  2026-11-11 09:12  tasks: changed outside epicenter
                            Changed:
                            tasks/2026-11-10T09-30-00-000Z-k3x9a2f8.md
 ```
 
-With `--json` it answers an array of `{ commit, date, subject, also, undid? }`: `date` is the author date in ISO 8601, `also` the paths beneath an `Also changed:` or `Changed:` body header, and `undid` the commit an undo reverts.
+With `--json` it answers an array of `{ commit, date, subject, changed, undid? }`: `date` is the author date in ISO 8601, `changed` the paths beneath a `Changed:` body header (empty for a call's commit, whose subject names the call), and `undid` the commit an undo reverts.
 
 `epicenter undo <app> [<commit>]` reverts one commit as a new one, so nothing is lost:
 

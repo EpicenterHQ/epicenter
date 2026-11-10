@@ -271,16 +271,16 @@ stays in the same run
 | `folder` | the app's data, in its folder | `read`, `readBytes`, `write`, `writeBytes`, `update`, `list`, `delete`; `path` on a computer |
 | `secrets` | sign-ins, on this computer | `get`, `set`, `delete`; only on a computer |
 
-A run changes files and never commits. The app's history is snapshots,
-which whatever ran the action takes after it: the `epicenter` command after a
-write it ran, and `epicenter serve` after each write call
+A run changes files and never commits. Whatever ran the action commits
+after it: the `epicenter` command after a write it ran, and `epicenter serve`
+after each write call
 ([ADR-0850](../../docs/adr/0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md)).
-A snapshot takes everything pending in the app's folder and is named for the
-call reported by that run; other pending paths appear under `Also changed:`.
-A snapshot without a call uses `<app>: changed outside epicenter` and lists
-its paths under `Changed:`. What an action wrote before it throws is pending
-like any change; whether a failed action should be rolled back instead is
-undecided
+The commit holds exactly the files the run wrote through `folder` that
+changed, named for the call; other pending files stay pending until
+`epicenter sync` or `serve`'s 5-minute clock snapshots them as
+`<app>: changed outside epicenter`, listing them under `Changed:`. What an
+action wrote before it throws is committed as `<call> (threw)`; whether a
+failed action should be rolled back instead is undecided
 ([ADR-0857](../../docs/adr/0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md)).
 
 Writes to one app run at once, from the command line, an agent, and a UI.

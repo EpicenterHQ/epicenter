@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-11-10
 - **Relates:** [ADR-0840](0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md) (one person's software), [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) (your server), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (who commits), [ADR-0851](0851-an-app-has-one-home-and-an-optional-push-only-backup.md) (the remote), [ADR-0853](0853-collections-give-five-actions-and-programs-without-the-folder-ask-over-mcp.md) (the collection verbs, MCP), [ADR-0857](0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md) (`epicenter.ts`), [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (views), [ADR-0861](0861-whats-yours-is-everywhere-and-everything-else-is-used-where-it-is.md), [ADR-0862](0862-notes-merge-field-by-field-and-every-conflict-is-listed-for-repair.md) (the merge).
-- **Unbuilt:** HTTPS and sign-in for `epicenter serve`, the typed client `open()`, Whispering's Git sync, and the `push-to-checkout` hook. Built: each collection's `list`, `get`, `add`, `set`, `edit`, and `delete` from the command line and over MCP (`packages/app/src/collection.ts`); `epicenter serve` over HTTP, serving MCP at `/` and views at `/<app>/`, with one commit per successful write and a background push to `origin` (`packages/cli/src/http.ts`).
+- **Unbuilt:** HTTPS and sign-in for `epicenter serve`, the typed client `open()`, Whispering's Git sync, and the `push-to-checkout` hook. Built: each collection's `list`, `get`, `add`, `set`, `edit`, and `delete` from the command line and over MCP (`packages/app/src/collection.ts`); `epicenter serve` over HTTP, serving MCP at `/` and views at `/<app>/`, with one commit per write call and a push to `origin` every 5 minutes (`packages/cli/src/http.ts`).
 
 ## Context
 
@@ -51,9 +51,10 @@ must go on offline keeps a copy and syncs it with Git.**
 | Git over SSH | `studio:Epicenter/whispering` as the copy's remote | a program that keeps a copy: Whispering |
 
 - Capture, Tasks, Vocab, agents, and views keep nothing on a device and always
-  see the current files. A write through `epicenter serve` is snapshotted,
-  named for the call (`capture: add A line from Dune`), and each snapshot is
-  pushed to the repository's GitHub mirror, which is the backup (ADR-0850).
+  see the current files. A write through `epicenter serve` is committed,
+  named for the call (`capture: add A line from Dune`), and `serve` pushes to
+  the repository's GitHub mirror, which is the backup, within 5 minutes
+  (ADR-0850).
 - Whispering keeps a copy on each Mac it runs on, commits what it writes, and on
   a Mac other than the Studio pulls from and pushes to the Studio over SSH when
   it can. It is not always up to date, and an occasional conflict is resolved on
@@ -64,8 +65,9 @@ must go on offline keeps a copy and syncs it with Git.**
   lands unless it touches a file with uncommitted changes. The server's copy
   never merges.
 - Whoever edits the Studio's files directly (Claude Code over SSH, an editor)
-  commits as in any repository; `epicenter sync` commits what is left and
-  pushes to the mirror. Nothing runs on a timer.
+  commits as in any repository, or names the edits with
+  `epicenter sync <app> -m`; `serve` commits what is left every 5 minutes, as
+  changed outside epicenter, and pushes to the mirror (ADR-0850).
 - Who may ask is `epicenter serve`'s sign-in; who may pull and push is SSH's
   `authorized_keys`.
 - `epicenter serve` serves an app's built UI, `.cache/ui/`, at `/<app>/` and MCP at `/`, one
