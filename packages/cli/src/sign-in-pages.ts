@@ -6,7 +6,8 @@
  * `/.sign-in` signs a person in with a passkey, registers one from an invite
  * (`?invite=`), and continues a connector's authorization when Better Auth
  * sent the browser here with its signed query. `/.allow` names the connector
- * by its metadata document's name and the host it is served from, and grants
+ * first by the host its client_id is served from, which no one else can
+ * claim, then by the name its metadata document gives itself, and grants
  * reading, or reading and changing.
  *
  * Each page allows only its own script and style, cannot be framed, and sends
@@ -16,6 +17,7 @@ import { randomBytes } from 'node:crypto';
 import { basename } from 'node:path';
 import {
 	type AuthorizationServer,
+	cleanText,
 	SIGN_IN_PATH,
 } from './authorization-server.ts';
 import { escapeHtml } from './http.ts';
@@ -155,9 +157,13 @@ export async function signInPage(
 
 /**
  * `GET /.allow`: approve a connector. Better Auth sends the browser here, with
- * a signed query, when a signed-in person has not yet allowed the scopes a
- * connector asks for. Without a session it goes to `/.sign-in` with the same
- * query, which comes back here after a passkey.
+ * a signed query, on every authorization, after a passkey. Without a session
+ * it goes to `/.sign-in` with the same query, which comes back here after a
+ * passkey.
+ *
+ * The page leads with the host serving the client_id, the one name a
+ * connector cannot choose, and shows the whole client_id; the name from its
+ * metadata document comes after, as what it calls itself.
  */
 export async function allowPage(
 	authorization: AuthorizationServer,
@@ -180,7 +186,7 @@ export async function allowPage(
 		.get(clientId);
 	let host: string | undefined;
 	try {
-		host = new URL(clientId).host;
+		host = cleanText(new URL(clientId).host);
 	} catch {}
 	if (!client || !host)
 		return page(
@@ -192,12 +198,13 @@ export async function allowPage(
 		);
 	const asked = new Set((searchParams.get('scope') ?? '').split(' '));
 	// A grant may only narrow what was asked; offline_access is what lets the
-	// connector refresh instead of asking again every 15 minutes.
+	// connector refresh instead of asking again every 15 minutes, and every
+	// approval keeps it.
 	const grant = (scopes: string[]) =>
 		scopes.filter((scope) => asked.has(scope)).join(' ');
 	const reading = grant(['read', 'offline_access']);
 	const changing = grant(['read', 'write', 'offline_access']);
-	const label = client.name ?? host;
+	const calledItself = cleanText(client.name ?? '');
 	const name = basename(authorization.folder);
 	const buttons = [
 		asked.has('write')
@@ -209,8 +216,8 @@ export async function allowPage(
 		`<button id="deny">Don't allow</button>`,
 	].join('');
 	return page(
-		`Allow ${label}?`,
-		`<h1>Allow ${escapeHtml(label)} to use your apps?</h1><p><strong>${escapeHtml(label)}</strong> (${escapeHtml(host)}) is asking to use the apps in ${escapeHtml(name)}. Reading runs only actions that change nothing.</p>${buttons}<p>You can remove it later with <code>epicenter access revoke</code> on your computer.</p>`,
+		`Allow ${host}?`,
+		`<h1>Allow ${escapeHtml(host)} to use your apps?</h1><p>A connector from <strong>${escapeHtml(host)}</strong> is asking to use the apps in ${escapeHtml(name)}${calledItself ? `. It calls itself <strong>${escapeHtml(calledItself)}</strong>` : ''}.</p><p><code>${escapeHtml(cleanText(clientId))}</code></p><p>Allow it only if you just started connecting it yourself. Reading runs the actions each app marks as read-only.</p>${buttons}<p>You can remove it later with <code>epicenter access revoke</code> on your computer.</p>`,
 		{},
 		ALLOW_SCRIPT,
 	);

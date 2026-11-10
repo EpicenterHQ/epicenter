@@ -10,9 +10,28 @@
  *
  * A person exists once a passkey is registered from an invite, and the
  * passkey is the account: each invite makes one person, with a placeholder
- * email Better Auth requires. A connector is a CIMD client that a person
- * approved; its consent and refresh tokens are what `revoke` deletes, since
- * the refresh grant never reads consent.
+ * email Better Auth requires. A grant is one connector (a CIMD client) as
+ * one person approved it: their consent, and the refresh families its code
+ * exchanges started.
+ *
+ * A grant has generations, and only the current one works. Better Auth's
+ * refresh grant never reads consent and its access tokens are JWTs, so
+ * deleting rows alone leaves races: a code exchange or a rotation that read
+ * its row before a revoke writes a new family after it. SQL triggers on
+ * Better Auth's own tables close them in the database, whichever process
+ * writes:
+ *
+ * ```txt
+ * codeIssued          each authorization code, when SQLite's clock issued it
+ * grantRevocation     each revoke of a (client, person), when SQLite's clock ended it
+ * verification        a code inserts only under a live consent
+ * oauthRefreshToken   a row inserts only under a consent, from a code issued after the last revoke
+ * oauthConsent        approving narrower scopes deletes the families that hold more
+ * ```
+ *
+ * Every MCP call then checks its access token against the same tables
+ * (`isGrantLive`), so a revoke ends a token at once rather than when it
+ * expires.
  */
 import { Database } from 'bun:sqlite';
 import { createHash, randomBytes } from 'node:crypto';
@@ -64,6 +83,91 @@ export function publicNames(url: string) {
 	};
 }
 
+/** What the refresh-family trigger raises; the token endpoint answers it as `invalid_grant`. */
+const REVOKED_GRANT = 'epicenter: this grant was revoked';
+
+/** SQLite's clock in milliseconds, so a code and a revoke compare on one clock. */
+const NOW_MS = `cast(unixepoch('subsec') * 1000 as integer)`;
+
+/**
+ * A field of a `verification` row's JSON value, or null. Better Auth's DPoP
+ * replay store writes values there that are not JSON, and `json_extract` on
+ * one raises an error that would abort that insert, or a revoke; SQLite does
+ * not promise that `and` stops early, so every extraction carries the guard.
+ */
+const codeField = (row: 'new' | 'verification', path: string) =>
+	`(case when json_valid(${row}.value) then json_extract(${row}.value, '${path}') end)`;
+
+/** An authorization code row in `verification`. */
+const IS_CODE = (row: 'new' | 'verification') =>
+	`${codeField(row, '$.type')} = 'authorization_code'`;
+
+/**
+ * The generation tables and triggers, created after Better Auth's migrations
+ * on every start; each statement is idempotent. Neither table is pruned: a
+ * family's `codeIssued` row is needed for as long as the family rotates.
+ */
+const GENERATIONS = `
+create table if not exists grantRevocation (
+	clientId text not null,
+	userId text not null,
+	revokedAt integer not null
+);
+create index if not exists grantRevocationByGrant on grantRevocation (clientId, userId, revokedAt);
+create table if not exists codeIssued (
+	identifier text primary key,
+	clientId text,
+	userId text,
+	issuedAt integer not null
+);
+create trigger if not exists epicenterCodeNeedsConsent
+before insert on verification
+when ${IS_CODE('new')}
+	and not exists (
+		select 1 from oauthConsent k
+		 where k.clientId = ${codeField('new', '$.query.client_id')}
+		   and k.userId = ${codeField('new', '$.userId')})
+begin
+	select raise(abort, 'epicenter: no consent for this authorization code');
+end;
+create trigger if not exists epicenterCodeIssued
+after insert on verification
+when ${IS_CODE('new')}
+begin
+	insert or ignore into codeIssued (identifier, clientId, userId, issuedAt)
+	values (
+		new.identifier,
+		${codeField('new', '$.query.client_id')},
+		${codeField('new', '$.userId')},
+		${NOW_MS});
+end;
+create trigger if not exists epicenterRefreshCurrentGeneration
+before insert on oauthRefreshToken
+when not exists (
+		select 1 from oauthConsent k
+		 where k.clientId = new.clientId and k.userId = new.userId)
+	or not exists (
+		select 1 from codeIssued c
+		 where c.identifier = new.authorizationCodeId
+		   and c.clientId = new.clientId
+		   and c.userId = new.userId
+		   and c.issuedAt > coalesce(
+		       (select max(g.revokedAt) from grantRevocation g
+		         where g.clientId = new.clientId and g.userId = new.userId), -1))
+begin
+	select raise(abort, '${REVOKED_GRANT}');
+end;
+create trigger if not exists epicenterNarrowedConsent
+after update of scopes on oauthConsent
+begin
+	delete from oauthRefreshToken
+	 where clientId = new.clientId and userId = new.userId
+	   and exists (
+	       select 1 from json_each(oauthRefreshToken.scopes) s
+	        where s.value not in (select value from json_each(new.scopes)));
+end;
+`;
+
 /** Read the secret, or create it once, readable only by this user. */
 function readOrCreateSecret(path: string) {
 	try {
@@ -109,6 +213,9 @@ function authOptions(
 			level: 'error',
 			log: (_level, message) => writeErr(`Sign-in: ${message}`),
 		},
+		// Better Auth still answers its own API errors; any other error an
+		// endpoint throws leaves `auth.handler`, for `handle` to answer.
+		onAPIError: { throw: true },
 		rateLimit: { enabled: true, storage: 'memory' },
 		session: { expiresIn: SESSION_SECONDS, disableSessionRefresh: true },
 		advanced: {
@@ -225,11 +332,24 @@ export async function openAuthorizationServer(
 	const options = authOptions(folder, url, db, fetchMetadata);
 	// Tables first: Better Auth checks the schema as soon as it is created.
 	await (await getMigrations(options)).runMigrations();
+	// The generation triggers name Better Auth's tables, so they come after.
+	db.exec(GENERATIONS);
 	const auth = betterAuth(options);
 	// Better Auth finishes starting in the background; wait, so a caller that
 	// closes the database at once does not cut that work off.
 	const context = await auth.$context;
 	await (context as { checkSchema?: () => Promise<unknown> }).checkSchema?.();
+	const liveGrants = db.query<
+		{ scopes: string; hasPasskey: number; revokedAt: number | null },
+		[string, string]
+	>(
+		`select k.scopes,
+		        exists (select 1 from passkey p where p.userId = k.userId) as hasPasskey,
+		        (select max(g.revokedAt) from grantRevocation g
+		          where g.clientId = k.clientId and g.userId = k.userId) as revokedAt
+		   from oauthConsent k
+		  where k.clientId = ?1 and k.userId = ?2`,
+	);
 	return {
 		/** The Epicenter's folder; its name is what the sign-in pages call it. */
 		folder,
@@ -241,6 +361,60 @@ export async function openAuthorizationServer(
 		 * kept in memory would miss a key another process created first.
 		 */
 		jwks: () => auth.api.getJwks(),
+		/**
+		 * Better Auth's handler. A refresh family the generation trigger refused
+		 * returns no token either way; this answers it as RFC 6749's
+		 * `invalid_grant`, which tells the connector to authorize again, where
+		 * Better Auth would answer 500. Any other error is logged and is a 500.
+		 */
+		async handle(request: Request) {
+			try {
+				return await auth.handler(request);
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				if (message.includes(REVOKED_GRANT))
+					return Response.json(
+						{
+							error: 'invalid_grant',
+							error_description: 'This connection was revoked',
+						},
+						{ status: 400, headers: { 'cache-control': 'no-store' } },
+					);
+				writeErr(`Sign-in: ${message}`);
+				return new Response(null, { status: 500 });
+			}
+		},
+		/**
+		 * Whether a verified access token's grant is still the one that issued
+		 * it: a consent for (`azp`, `sub`) covering its scopes, a passkey for
+		 * `sub`, and issued in a later second than the grant's last revoke. A
+		 * token issued in the revoke's own second is refused; the connector
+		 * authorizes again and gets a later one.
+		 */
+		isGrantLive(claims: {
+			azp?: unknown;
+			sub?: unknown;
+			scope?: unknown;
+			iat?: unknown;
+		}) {
+			const { azp, sub, scope, iat } = claims;
+			if (
+				typeof azp !== 'string' ||
+				typeof sub !== 'string' ||
+				typeof iat !== 'number'
+			)
+				return false;
+			const scopes =
+				typeof scope === 'string' ? scope.split(' ').filter(Boolean) : [];
+			return liveGrants.all(azp, sub).some((grant) => {
+				const consented = new Set(parseScopes(grant.scopes));
+				return (
+					grant.hasPasskey === 1 &&
+					scopes.every((each) => consented.has(each)) &&
+					(grant.revokedAt === null || iat > Math.floor(grant.revokedAt / 1000))
+				);
+			});
+		},
 		/** A one-time link that registers a passkey as a new person named `name`. */
 		async invite(name: string) {
 			const token = randomBytes(32).toString('base64url');
@@ -258,25 +432,51 @@ export async function openAuthorizationServer(
 	};
 }
 
-/** A person: one passkey, named when its invite was made. */
+/** C0 and C1 controls, which a terminal reads as escapes, and bidirectional controls, which reorder text. */
+const CONTROLS =
+	// biome-ignore lint/suspicious/noControlCharactersInRegex: finding them is the point.
+	/[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/gu;
+
+/** Text a connector's metadata document supplied, safe to print or render. */
+export const cleanText = (text: string) => text.replace(CONTROLS, '');
+
+/** A person: the passkey an invite registered, and the name it was given. */
 export type Person = {
 	kind: 'person';
+	/** Better Auth's user id. */
 	id: string;
 	name: string;
 	approved: string;
 	lastUsed?: string;
 };
 
-/** A connector a person approved: its CIMD name and host, and the scope it holds. */
-export type Connector = {
-	kind: 'connector';
-	id: string;
-	name: string;
+/**
+ * A grant: one connector as one person approved it. Each code exchange
+ * starts a refresh family, so `families` above one means the connector holds
+ * more than one connection under this approval.
+ */
+export type Grant = {
+	kind: 'grant';
+	/** The connector's client_id, the URL of its metadata document. */
+	clientId: string;
+	/** The host serving that document: who the connector is. */
 	host: string;
+	/** What the document calls the connector, cleaned; any connector can claim any name. */
+	name: string;
+	userId: string;
+	person: string;
 	scope: string;
+	/** When the person last approved it. */
 	approved: string;
-	lastUsed?: string;
+	lastRefresh?: string;
+	families: number;
 };
+
+/** What `revokeAccess` ends: a person, one grant, or every grant of a connector. */
+export type AccessTarget =
+	| Pick<Person, 'kind' | 'id'>
+	| Pick<Grant, 'kind' | 'clientId' | 'userId'>
+	| { kind: 'connector'; clientId: string };
 
 const hostOf = (clientId: string) => {
 	try {
@@ -295,17 +495,18 @@ const parseScopes = (text: string | null) => {
 	}
 };
 
-/** Everyone and everything that can reach the public address now. */
-export function listAccess(db: Database): (Person | Connector)[] {
+/** Everyone who can sign in, and every grant a person made. */
+export function listAccess(db: Database): (Person | Grant)[] {
 	const people = db
 		.query<
 			{ id: string; name: string; approved: string; lastUsed: string | null },
 			[]
 		>(
-			`select p.id, coalesce(p.name, u.name) as name, p.createdAt as approved,
-			        (select max(s.createdAt) from session s where s.userId = p.userId) as lastUsed
-			   from passkey p join user u on u.id = p.userId
-			  order by p.createdAt`,
+			`select u.id, u.name,
+			        coalesce((select min(p.createdAt) from passkey p where p.userId = u.id), u.createdAt) as approved,
+			        (select max(s.createdAt) from session s where s.userId = u.id) as lastUsed
+			   from user u
+			  order by approved`,
 		)
 		.all()
 		.map(
@@ -315,76 +516,106 @@ export function listAccess(db: Database): (Person | Connector)[] {
 				...(lastUsed ? { lastUsed } : {}),
 			}),
 		);
-	// Each person who approves a connector gives it a consent of its own; the
-	// connector is one entry, approved at its first, holding every scope given.
-	const connectors = new Map<string, Connector>();
-	const consents = db
+	const grants = db
 		.query<
 			{
 				clientId: string;
 				name: string | null;
+				userId: string;
+				person: string | null;
 				scopes: string | null;
 				approved: string;
-				lastUsed: string | null;
+				lastRefresh: string | null;
+				families: number;
 			},
-			[]
+			[string]
 		>(
-			`select c.clientId, c.name, k.scopes, k.createdAt as approved,
-			        (select max(r.createdAt) from oauthRefreshToken r where r.clientId = c.clientId) as lastUsed
-			   from oauthClient c join oauthConsent k on k.clientId = c.clientId
+			`select k.clientId, c.name, k.userId, u.name as person, k.scopes,
+			        k.updatedAt as approved,
+			        (select max(r.createdAt) from oauthRefreshToken r
+			          where r.clientId = k.clientId and r.userId = k.userId) as lastRefresh,
+			        (select count(distinct r.authorizationCodeId) from oauthRefreshToken r
+			          where r.clientId = k.clientId and r.userId = k.userId
+			            and r.revoked is null and r.expiresAt > ?1) as families
+			   from oauthConsent k
+			   left join oauthClient c on c.clientId = k.clientId
+			   left join user u on u.id = k.userId
+			  where k.userId is not null
 			  order by k.createdAt`,
 		)
-		.all();
-	for (const { clientId, name, scopes, approved, lastUsed } of consents) {
-		const seen = connectors.get(clientId);
-		const scope = new Set([
-			...(seen?.scope.split(' ') ?? []),
-			...parseScopes(scopes),
-		]);
-		connectors.set(clientId, {
-			kind: 'connector',
-			id: clientId,
-			name: name ?? hostOf(clientId),
-			host: hostOf(clientId),
-			scope: [...SCOPES].filter((known) => scope.has(known)).join(' '),
-			approved: seen?.approved ?? approved,
-			...(lastUsed ? { lastUsed } : {}),
+		.all(new Date().toISOString())
+		.map(({ clientId, name, person, scopes, lastRefresh, ...grant }): Grant => {
+			const held = new Set(parseScopes(scopes));
+			const host = cleanText(hostOf(clientId));
+			return {
+				kind: 'grant',
+				clientId: cleanText(clientId),
+				host,
+				name: cleanText(name ?? '') || host,
+				person: person ?? grant.userId,
+				scope: SCOPES.filter((known) => held.has(known)).join(' '),
+				...grant,
+				...(lastRefresh ? { lastRefresh } : {}),
+			};
 		});
-	}
-	return [...people, ...connectors.values()];
+	return [...people, ...grants];
 }
 
 /**
- * End `target`'s access in one transaction. A connector loses its consent,
- * its refresh tokens, and any authorization code not yet exchanged, so it
- * cannot get another access token; one it holds works until it expires. A
- * person loses the passkey and every session it signed in.
+ * End `target`'s access in one transaction. Each grant it ends gets a
+ * `grantRevocation` row, so no code or refresh family from before it works
+ * again and an access token issued before it fails its next call. Its
+ * consent, refresh tokens, access-token rows, and pending codes are deleted
+ * as cleanup; correctness rests on the revocation row, so a row missed here
+ * fails closed. A person also loses their passkeys, sessions, any pending
+ * code, and their user row.
  */
-export function revokeAccess(db: Database, target: Person | Connector) {
+export function revokeAccess(db: Database, target: AccessTarget) {
+	const grantsOf = (sql: string, id: string) =>
+		db.query<{ clientId: string; userId: string }, [string]>(sql).all(id);
 	db.transaction(() => {
-		if (target.kind === 'connector') {
-			db.query('delete from oauthConsent where clientId = ?').run(target.id);
-			db.query('delete from oauthRefreshToken where clientId = ?').run(
-				target.id,
-			);
-			db.query('delete from oauthAccessToken where clientId = ?').run(
-				target.id,
-			);
+		const grants =
+			target.kind === 'grant'
+				? [{ clientId: target.clientId, userId: target.userId }]
+				: target.kind === 'connector'
+					? grantsOf(
+							`select clientId, userId from oauthConsent where clientId = ?1 and userId is not null
+							  union select clientId, userId from oauthRefreshToken where clientId = ?1`,
+							target.clientId,
+						)
+					: grantsOf(
+							`select clientId, userId from oauthConsent where userId = ?1
+							  union select clientId, userId from oauthRefreshToken where userId = ?1`,
+							target.id,
+						);
+		for (const { clientId, userId } of grants) {
+			db.query(
+				`insert into grantRevocation (clientId, userId, revokedAt) values (?, ?, ${NOW_MS})`,
+			).run(clientId, userId);
+			for (const table of [
+				'oauthConsent',
+				'oauthRefreshToken',
+				'oauthAccessToken',
+			])
+				db.query(`delete from ${table} where clientId = ? and userId = ?`).run(
+					clientId,
+					userId,
+				);
 			db.query(
 				`delete from verification
-				  where json_valid(value)
-				    and json_extract(value, '$.type') = 'authorization_code'
-				    and json_extract(value, '$.query.client_id') = ?`,
-			).run(target.id);
-			return;
+				  where ${IS_CODE('verification')}
+				    and ${codeField('verification', '$.query.client_id')} = ?
+				    and ${codeField('verification', '$.userId')} = ?`,
+			).run(clientId, userId);
 		}
-		const row = db
-			.query<{ userId: string }, [string]>(
-				'select userId from passkey where id = ?',
-			)
-			.get(target.id);
-		if (!row) return;
-		db.query('delete from session where userId = ?').run(row.userId);
-		db.query('delete from passkey where id = ?').run(target.id);
+		if (target.kind !== 'person') return;
+		db.query(
+			`delete from verification
+			  where ${IS_CODE('verification')}
+			    and ${codeField('verification', '$.userId')} = ?`,
+		).run(target.id);
+		for (const table of ['session', 'passkey'])
+			db.query(`delete from ${table} where userId = ?`).run(target.id);
+		db.query('delete from user where id = ?').run(target.id);
 	})();
 }

@@ -167,7 +167,6 @@ export async function softwarePasskey(origin: string) {
 	};
 }
 
-
 export type Passkey = Awaited<ReturnType<typeof softwarePasskey>>;
 export type Send = (request: Request) => Promise<Response>;
 
@@ -194,7 +193,8 @@ export function browser(origin: string, send: Send) {
 			const [pair = ''] = line.split(';');
 			const at = pair.indexOf('=');
 			const value = pair.slice(at + 1);
-			if (value === '' || /max-age=0/i.test(line)) jar.delete(pair.slice(0, at));
+			if (value === '' || /max-age=0/i.test(line))
+				jar.delete(pair.slice(0, at));
 			else jar.set(pair.slice(0, at), value);
 		}
 		return response;
@@ -255,15 +255,22 @@ const CLAUDE_DOC = {
 	token_endpoint_auth_method: 'none',
 };
 
-/** The CIMD fetch, with no network: Claude's document, and 404 for any other. */
-export function claudeOnly(fetched: string[] = []) {
+/**
+ * The CIMD fetch, with no network: Claude's document, and 404 for any other.
+ * `changes` replaces fields of Claude's document, as a forged one would.
+ */
+export function claudeOnly(
+	fetched: string[] = [],
+	changes: Partial<typeof CLAUDE_DOC> = {},
+) {
 	return async (input: RequestInfo | URL) => {
 		const url = new Request(input).url;
 		fetched.push(url);
 		return url === CLAUDE_ID
-			? Response.json(CLAUDE_DOC, {
-					headers: { 'cache-control': 'max-age=3600' },
-				})
+			? Response.json(
+					{ ...CLAUDE_DOC, ...changes },
+					{ headers: { 'cache-control': 'max-age=3600' } },
+				)
 			: new Response('Not found', { status: 404 });
 	};
 }
@@ -308,25 +315,26 @@ export async function tokenRequest(
 			body: new URLSearchParams(form),
 		}),
 	);
-	return {
-		status: response.status,
-		body: (await response.json()) as Record<string, string>,
-	};
+	const text = await response.text();
+	let body: Record<string, string> = {};
+	try {
+		body = JSON.parse(text);
+	} catch {}
+	return { status: response.status, body };
 }
 
+type Device = { browser: Browser; passkey: Passkey };
+
 /**
- * Connect Claude from `device` and grant `grant`: authorize, sign in with
- * the passkey when there is no session, allow on `/.allow`, and exchange the
- * code. Returns the token response.
+ * Start an authorization from `device` and sign in with its passkey, as
+ * every authorization asks: the `/.allow` address Better Auth then sends the
+ * browser to. Throws when it goes anywhere else.
  */
-export async function connectClaude(
+export async function reachAllow(
 	origin: string,
-	send: Send,
-	device: { browser: Browser; passkey: Passkey },
-	grant: string,
+	device: Device,
+	query: URLSearchParams,
 ) {
-	const resource = `${origin}/`;
-	const { query, verifier } = await authorizeQuery(resource);
 	const authorized = await device.browser.get(
 		`/.auth/oauth2/authorize?${query}`,
 		NAVIGATE,
@@ -340,36 +348,81 @@ export async function connectClaude(
 			location.search.slice(1),
 		);
 		if (!signedIn.ok) throw new Error(`sign-in answered ${signedIn.status}`);
-		const body = (await signedIn.json()) as { redirect?: boolean; url?: string };
+		const body = (await signedIn.json()) as {
+			redirect?: boolean;
+			url?: string;
+		};
 		if (!body.redirect || !body.url)
 			throw new Error('sign-in did not continue the authorization');
 		location = new URL(body.url, origin);
 	}
 	if (location.pathname !== '/.allow')
-		throw new Error(`expected /.allow, got ${location.pathname}`);
-	const page = await device.browser.get(`${location.pathname}${location.search}`);
+		throw new Error(`expected /.allow, got ${location.href}`);
+	return location;
+}
+
+/** Allow `grant` on the `/.allow` page at `allow`: the code Claude's callback receives. */
+export async function approve(device: Device, allow: URL, grant: string) {
+	const page = await device.browser.get(`${allow.pathname}${allow.search}`);
 	const html = await page.text();
-	if (!page.ok || !html.includes('Claude') || !html.includes('claude.ai'))
+	if (!page.ok || !html.includes('claude.ai'))
 		throw new Error(`/.allow answered ${page.status}`);
 	const consent = await device.browser.post('/.auth/oauth2/consent', {
 		accept: true,
 		scope: grant,
-		oauth_query: location.search.slice(1),
+		oauth_query: allow.search.slice(1),
 	});
 	if (!consent.ok) throw new Error(`consent answered ${consent.status}`);
 	const callback = new URL(((await consent.json()) as { url: string }).url);
 	if (`${callback.origin}${callback.pathname}` !== REDIRECT_URI)
 		throw new Error(`consent sent the browser to ${callback.href}`);
-	const tokens = await tokenRequest(origin, send, {
+	return callback.searchParams.get('code') ?? '';
+}
+
+/** Claude exchanging `code` for tokens, with the PKCE `verifier` it began with. */
+export const exchangeCode = (
+	origin: string,
+	send: Send,
+	code: string,
+	verifier: string,
+) =>
+	tokenRequest(origin, send, {
 		grant_type: 'authorization_code',
-		code: callback.searchParams.get('code') ?? '',
+		code,
 		redirect_uri: REDIRECT_URI,
 		client_id: CLAUDE_ID,
 		code_verifier: verifier,
-		resource,
+		resource: `${origin}/`,
 	});
+
+/** Claude refreshing with `refreshToken`. */
+export const refresh = (origin: string, send: Send, refreshToken = '') =>
+	tokenRequest(origin, send, {
+		grant_type: 'refresh_token',
+		refresh_token: refreshToken,
+		client_id: CLAUDE_ID,
+		resource: `${origin}/`,
+	});
+
+/**
+ * Connect Claude from `device` and grant `grant`: authorize, sign in with
+ * the passkey, allow on `/.allow`, and exchange the code. Returns the token
+ * response.
+ */
+export async function connectClaude(
+	origin: string,
+	send: Send,
+	device: Device,
+	grant: string,
+) {
+	const { query, verifier } = await authorizeQuery(`${origin}/`);
+	const allow = await reachAllow(origin, device, query);
+	const code = await approve(device, allow, grant);
+	const tokens = await exchangeCode(origin, send, code, verifier);
 	if (tokens.status !== 200)
-		throw new Error(`token answered ${tokens.status}: ${JSON.stringify(tokens.body)}`);
+		throw new Error(
+			`token answered ${tokens.status}: ${JSON.stringify(tokens.body)}`,
+		);
 	return tokens.body;
 }
 

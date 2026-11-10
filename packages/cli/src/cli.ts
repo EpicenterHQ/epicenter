@@ -85,12 +85,19 @@ the folder as it was, and then pushes to origin as sync does.`,
 MCP on stdin and stdout instead. When EPICENTER.md has public and publicPort, it
 also offers them on 127.0.0.1:<publicPort> to a person signed in with a passkey and
 to a connector such as Claude signed in with OAuth; an HTTPS tunnel from public
-to that port is yours to run.`,
-	access: `Lists the people (passkeys) and connectors that can reach the public address.
-invite makes a link that registers a passkey on one device, once, within 15
-minutes; revoke ends a connector's refresh tokens and approval, or a person's
-passkey and sessions. It works while serve runs.`,
+to that port is yours to run. Then --host must be a loopback address, and serve
+checks every 5 minutes that public reaches that port, never this one.`,
+	access: `Lists the people (passkeys) who can reach the public address, and each grant:
+a connector one person approved. invite makes a link that registers a passkey
+on one device, once, within 15 minutes. revoke ends a person (their passkey,
+sessions, and grants), a connector (all its grants), or a connector and a
+person (that grant); the next call it makes is refused. It works while serve
+runs.`,
 };
+
+/** Whether `host` is a loopback address or name, reachable only from this computer. */
+const isLoopbackHost = (host: string) =>
+	host === 'localhost' || host === '::1' || /^127(\.\d{1,3}){3}$/.test(host);
 
 /** What each command in `COMMANDS` does. */
 const HANDLERS: { [K in Command]: Handler } = {
@@ -136,7 +143,8 @@ const HANDLERS: { [K in Command]: Handler } = {
 				json,
 			);
 		if (words.length === 1 && words[0] === '--stdio') return serveStdio();
-		let port = epicenterRoot().port;
+		const root = epicenterRoot();
+		let port = root.port;
 		let host = '127.0.0.1';
 		const seen = new Set<string>();
 		for (let i = 0; i < words.length; i += 2) {
@@ -156,6 +164,16 @@ const HANDLERS: { [K in Command]: Handler } = {
 					return fail(usage('Port must be an integer from 0 to 65535'), json);
 			}
 		}
+		// With a public address, the tailnet reaches the private listener only
+		// through a proxy on this computer, such as tailscale serve.
+		if (root.public && !isLoopbackHost(host))
+			return fail(
+				usage(
+					`With a public address, serve listens only on a loopback address, not ${host}`,
+					COMMANDS.serve,
+				),
+				json,
+			);
 		return serveHttp(host, port);
 	},
 };
