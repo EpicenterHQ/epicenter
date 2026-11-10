@@ -1,4 +1,5 @@
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
+import { existsSync } from 'node:fs';
 import { mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { bareApp, fixture } from './runner.test-support.ts';
@@ -145,6 +146,37 @@ test('the marker is found from inside an app, and its front matter is checked fi
 	);
 });
 
+test('the marker is matched by its exact name, and a byte order mark before its front matter is ignored', async () => {
+	const f = await setup();
+	// A note above the Epicenter whose name differs from the marker's by case alone.
+	await writeFile(join(f.root, 'Epicenter.md'), 'A note about Epicenter.\n');
+	const insensitive = existsSync(join(f.root, 'EPICENTER.md'));
+	const elsewhere = join(f.root, 'elsewhere');
+	await mkdir(elsewhere);
+	expect(
+		JSON.parse((await f.runIn(elsewhere, '--json')).stdout).epicenter,
+	).toBe(f.home);
+	expect((await f.run('init', join(f.root, 'beside'), '--json')).code).toBe(0);
+	const over = await f.run('init', f.root, '--json');
+	if (insensitive) {
+		expect(over.code).toBe(2);
+		expect(JSON.parse(over.stdout).error.message).toBe(
+			`${f.root} holds Epicenter.md, which this disk does not tell apart from EPICENTER.md; rename it, then run init again`,
+		);
+		expect(await readFile(join(f.root, 'Epicenter.md'), 'utf8')).toBe(
+			'A note about Epicenter.\n',
+		);
+	} else expect(over.code).toBe(0);
+
+	const marker = join(f.home, 'EPICENTER.md');
+	await writeFile(marker, '\uFEFF---\nprot: 4748\n---\n');
+	expect(JSON.parse((await f.run('--json')).stdout).error.message).toBe(
+		`${marker}: prot is not a field; the fields are port, owners, and public`,
+	);
+	await writeFile(marker, '\uFEFF---\nport: 4800\n---\n');
+	expect((await f.run('--json')).code).toBe(0);
+});
+
 test('a folder marked only by epicenter.root.json is refused with the step that replaces it', async () => {
 	const f = await setup();
 	await rm(join(f.home, 'EPICENTER.md'));
@@ -164,7 +196,12 @@ test('a folder marked only by epicenter.root.json is refused with the step that 
 			message: step,
 		});
 	}
-	expect((await f.run('init', f.home, '--json')).code).toBe(2);
+	expect(
+		JSON.parse((await f.run('init', f.home, '--json')).stdout).error,
+	).toEqual({
+		name: 'Usage',
+		message: step,
+	});
 	await writeFile(join(f.home, 'EPICENTER.md'), '---\nport: 4748\n---\n');
 	expect((await f.runIn(app, '--json')).code).toBe(0);
 });

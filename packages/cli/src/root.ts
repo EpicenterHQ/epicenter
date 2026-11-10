@@ -3,7 +3,7 @@
  * (ADR-0868): a note for people whose optional front matter says the port
  * `serve` listens on, and who may approve a client at a public address.
  */
-import { existsSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -47,11 +47,25 @@ export function folderPath(path: string): string {
 	);
 }
 
+/**
+ * The marker `folder` holds, by its exact name: `EPICENTER.md`, else the
+ * marker before it, else `undefined`, also for a folder that cannot be
+ * listed. A case-insensitive disk opens `Epicenter.md` as `EPICENTER.md`, so
+ * the name is looked up in the folder's listing rather than opened.
+ */
+function markerIn(folder: string): string | undefined {
+	let names: string[];
+	try {
+		names = readdirSync(folder);
+	} catch {
+		return undefined;
+	}
+	return [MARKER, OLD_MARKER].find((name) => names.includes(name));
+}
+
 /** Whether `folder` is marked as an Epicenter, by `EPICENTER.md` or the marker before it. */
 export function isMarked(folder: string): boolean {
-	return (
-		existsSync(join(folder, MARKER)) || existsSync(join(folder, OLD_MARKER))
-	);
+	return markerIn(folder) !== undefined;
 }
 
 /** The nearest folder at or above `start` that is marked as an Epicenter. */
@@ -114,25 +128,29 @@ function markerProblems(fields: Record<string, unknown>): string[] {
 	return problems;
 }
 
+/** The refusal for a folder marked only by the marker before `EPICENTER.md`, its step in the message. */
+export function oldMarkerRefusal(folder: string) {
+	return `${folder} is marked by ${OLD_MARKER}, which epicenter no longer reads; write ${MARKER} with port: ${oldPort(folder)}, then delete ${OLD_MARKER}`;
+}
+
+/** Whether `folder` is marked by the marker before `EPICENTER.md` alone. */
+export function isMarkedOnlyByOld(folder: string): boolean {
+	return markerIn(folder) === OLD_MARKER;
+}
+
 function readRoot(folder: string): EpicenterRoot {
-	const marker = join(folder, MARKER);
-	let text: string;
-	try {
-		text = readFileSync(marker, 'utf8');
-	} catch (error) {
-		// A folder that is not a directory holds no marker either.
-		const { code } = error as NodeJS.ErrnoException;
-		if (code !== 'ENOENT' && code !== 'ENOTDIR') throw error;
-		if (existsSync(join(folder, OLD_MARKER)))
-			throw new RootUsageError(
-				`${folder} is marked by ${OLD_MARKER}, which epicenter no longer reads; write ${MARKER} with port: ${oldPort(folder)}, then delete ${OLD_MARKER}`,
-			);
+	const found = markerIn(folder);
+	if (found === OLD_MARKER) throw new RootUsageError(oldMarkerRefusal(folder));
+	if (found === undefined)
 		throw new RootUsageError(
 			`There is no ${MARKER} in ${folder}`,
 			`epicenter init ${folder}`,
 		);
-	}
-	const read = readMarkdown(text);
+	const marker = join(folder, MARKER);
+	// A byte order mark an editor saved before the front matter is not part of it.
+	const read = readMarkdown(
+		readFileSync(marker, 'utf8').replace(/^\uFEFF/, ''),
+	);
 	const problems = read.writable
 		? markerProblems(read.fields)
 		: ['its front matter is neither key: <JSON> lines nor YAML'];

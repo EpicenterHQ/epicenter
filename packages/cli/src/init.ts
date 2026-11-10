@@ -10,7 +10,9 @@ import {
 	DEFAULT_PORT,
 	folderPath,
 	isMarked,
+	isMarkedOnlyByOld,
 	MARKER,
+	oldMarkerRefusal,
 } from './root.ts';
 
 /** The marker for an Epicenter served on `port`: a note for people, its port in the front matter. */
@@ -59,11 +61,14 @@ export async function initCommand(
 	if (!given) return fail(misuse('init'), json);
 	const [path] = given.positionals;
 	const port =
-		given.values.port === undefined
-			? DEFAULT_PORT
-			: portOf(given.values.port);
+		given.values.port === undefined ? DEFAULT_PORT : portOf(given.values.port);
 	if (port === undefined) return fail(misuse('init', BAD_PORT), json);
 	const folder = actualFolder(folderPath(path ?? '.'));
+	if (isMarkedOnlyByOld(folder))
+		return fail(
+			CliError.Usage({ message: oldMarkerRefusal(folder) }).error,
+			json,
+		);
 	if (isMarked(folder))
 		return fail(
 			CliError.Usage({ message: `${folder} is already an Epicenter` }).error,
@@ -78,9 +83,21 @@ export async function initCommand(
 			json,
 		);
 	await mkdir(folder, { recursive: true });
-	await writeFile(join(folder, MARKER), marker(port), {
-		flag: 'wx',
-	});
+	try {
+		await writeFile(join(folder, MARKER), marker(port), { flag: 'wx' });
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+		// The folder is not marked, so a case-insensitive disk found another name.
+		const taken = (await readdir(folder)).find(
+			(name) => name.toLowerCase() === MARKER.toLowerCase(),
+		);
+		return fail(
+			CliError.Usage({
+				message: `${folder} holds ${taken ?? MARKER}, which this disk does not tell apart from ${MARKER}; rename it, then run init again`,
+			}).error,
+			json,
+		);
+	}
 	if (!existsSync(join(folder, 'AGENTS.md')))
 		await writeFile(join(folder, 'AGENTS.md'), STARTER_AGENTS, { flag: 'wx' });
 	if (json) writeJson({ folder, port });
