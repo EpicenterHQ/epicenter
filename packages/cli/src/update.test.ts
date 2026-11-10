@@ -1,6 +1,6 @@
 /**
- * Starter update tests: cloning, merging, collection problem reporting, and
- * UI builds. Sync coverage checks that an origin receives only home pushes.
+ * Starter update tests: cloning, merging, and UI builds. Sync coverage
+ * checks that an origin receives only home pushes.
  */
 import { afterEach, expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';
@@ -100,7 +100,7 @@ test('new --from refuses a starter whose epicenter.ts does not load, and leaves 
 	expect(existsSync(f.app)).toBe(false);
 });
 
-test('update merges the starter, lists files that no longer fit, and builds', async () => {
+test('update merges the starter and builds; a file that no longer fits says so when read', async () => {
 	const f = await starterFixture();
 	expect((await f.run('new', 'vocab', '--from', f.starter)).code).toBe(0);
 	expect(
@@ -112,7 +112,6 @@ test('update merges the starter, lists files that no longer fit, and builds', as
 		upstream: true,
 		merged: null,
 		built: true,
-		misfits: [],
 	});
 
 	await writeFile(
@@ -123,9 +122,7 @@ test('update merges the starter, lists files that no longer fit, and builds', as
 	await commitAll(f.starter, 'require a reading');
 	const updated = await f.run('update');
 	expect(updated.code).toBe(0);
-	expect(updated.stdout).toMatch(
-		/^vocab: merged [0-9a-f]+; UI built; 1 file does not fit its fields\n {2}words\/neko\.md: reading is missing$/m,
-	);
+	expect(updated.stdout).toMatch(/^vocab: merged [0-9a-f]+; UI built\n$/);
 	expect(await gitIn(f.app, 'log', '-1', '--format=%s')).toBe(
 		'vocab: update from upstream',
 	);
@@ -133,39 +130,26 @@ test('update merges the starter, lists files that no longer fit, and builds', as
 		await readFile(join(f.app, '.cache', 'ui', 'index.html'), 'utf8'),
 	).toBe('two\n');
 	expect(await gitIn(f.app, 'status', '--porcelain')).toBe('');
-});
-
-test('update reports problems from a one-file collection get', async () => {
-	const f = await fixture();
-	roots.push(f.root);
-	const starter = await f.folder(join(f.root, 'single-starter'), {
-		'.gitignore': gitignore,
-		'epicenter.ts': `${header}const settings = defineCollection({ path: 'settings.md', fields: { mode: field.text({ optional: true }) } });
-export default defineApp({ description: 'Settings', collections: { settings }, actions: {} });\n`,
-	});
-	expect((await f.run('new', 'settings', '--from', starter)).code).toBe(0);
-	const app = join(f.home, 'settings');
-	await writeFile(join(app, 'settings.md'), '---\nmode: 42\n---\n');
-	await commitAll(app, 'invalid setting');
-	const updated = await f.run('update', 'settings', '--json');
-	expect(updated.code).toBe(0);
-	expect(JSON.parse(updated.stdout).apps[0].misfits).toEqual([
-		'settings.md: mode: 42 is not text',
+	const read = await f.run('vocab', 'words', 'get', 'words/neko.md', '--json');
+	expect(JSON.parse(read.stdout).returned.problems).toEqual([
+		'reading is missing',
 	]);
 });
 
-test('update refuses an app with changes, and undoes a merge that conflicts', async () => {
+test('update snapshots pending changes before it merges, and undoes a merge that conflicts', async () => {
 	const f = await starterFixture();
 	expect((await f.run('new', 'vocab', '--from', f.starter)).code).toBe(0);
 
 	await writeFile(join(f.app, 'notes.md'), 'unsaved\n');
-	const dirty = await f.run('update', 'vocab', '--json');
-	expect(dirty.code).toBe(1);
-	expect(JSON.parse(dirty.stdout).apps[0].error).toEqual({
-		message: expect.stringContaining('uncommitted changes'),
-		next: 'epicenter sync vocab',
-	});
-	await rm(join(f.app, 'notes.md'));
+	await writeFile(join(f.starter, 'README.md'), 'about vocab\n');
+	await commitAll(f.starter, 'add a readme');
+	const pending = await f.run('update', 'vocab');
+	expect(pending.code).toBe(0);
+	expect(
+		await gitIn(f.app, 'log', '--first-parent', '-2', '--format=%s'),
+	).toBe('vocab: update from upstream\nvocab: changed outside epicenter');
+	expect(await readFile(join(f.app, 'notes.md'), 'utf8')).toBe('unsaved\n');
+	expect(await gitIn(f.app, 'status', '--porcelain')).toBe('');
 
 	await writeFile(join(f.app, 'ui', 'package.json'), builds('mine'));
 	await commitAll(f.app, 'my own UI');

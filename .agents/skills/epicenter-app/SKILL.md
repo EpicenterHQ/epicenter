@@ -88,8 +88,8 @@ starting with `epicenter.`. A field or placeholder may not be named `path`,
   A fresh clone has none, so the person signs in again.
 - The collections are the contract between a starter and the data. A starter
   that renames or tightens a field changes existing files itself: Git merges
-  code and does not migrate data, and `epicenter update` lists each file that
-  no longer fits.
+  code and does not migrate data, and a file that no longer fits says so in
+  the `problems` of every read.
 
 ## Write actions only for what the verbs cannot do
 
@@ -240,9 +240,9 @@ Only when the person asks, on the computer that runs `epicenter serve`:
   `upstream`, and builds the UI. The path must be a repository's root, so a
   folder inside the monorepo is not a starter; Capture, Tasks, and Vocab
   become starters when each moves to a repository of its own.
-- `epicenter update [<app>]` merges the starter's changes, lists files that no
-  longer fit, and builds. It refuses an app with uncommitted changes and undoes
-  a merge that conflicts, naming the command that resolves it.
+- `epicenter update [<app>]` snapshots what is pending, merges the starter's
+  changes, and builds. It undoes a merge that conflicts, naming the command
+  that resolves it.
 - Backups go to `origin`: add the remote, and `epicenter sync` pushes there
   by name at once, and `serve` every 5 minutes, never to `upstream`. Nothing
   else pushes, `undo` included.

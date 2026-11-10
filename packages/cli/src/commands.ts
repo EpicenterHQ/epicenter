@@ -23,9 +23,9 @@ UI; without it, it starts from an epicenter.ts and a .gitignore.`,
 	},
 	update: {
 		usage: 'epicenter update [<app>]',
-		help: `Merges each app's upstream, or one app's: it refuses an app with uncommitted
-changes, undoes a merge that stops on a conflict, lists each file that no
-longer fits its collection's fields, and builds the UI, keeping the last one that built.`,
+		help: `Merges each app's upstream, or one app's: it snapshots what is pending first,
+undoes a merge that stops on a conflict, and builds the UI, keeping the last one
+that built.`,
 	},
 	build: {
 		usage: 'epicenter build [<app>]',

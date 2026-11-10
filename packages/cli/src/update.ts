@@ -3,28 +3,25 @@
  * from it (ADR-0866). For each app with an `upstream` remote, or the one
  * named:
  *
- * 1. refuse an app with uncommitted changes, which the merge could mix in;
+ * 1. snapshot what is pending, as `undo` does, so the merge never mixes
+ *    with it;
  * 2. `git fetch upstream` and merge the branch `upstream/HEAD` names, as
  *    `<app>: update from upstream`; a conflict aborts the merge, leaving the
  *    app as it was, and names the command that resolves it;
- * 3. list each file that no longer fits its collection's fields, for whoever
- *    repairs it: Git merges code, and does not migrate data;
+ * 3. check that the merged `epicenter.ts` loads;
  * 4. build the UI, keeping the last one that built if this build fails.
  *
- * An app without `upstream` is reported and left alone. One app's failure
- * never stops the others.
+ * Git merges code and does not migrate data: a file that no longer fits its
+ * collection's fields says so in the `problems` of every read. An app
+ * without `upstream` is reported and left alone. One app's failure never
+ * stops the others.
  */
-import {
-	type CollectionDef,
-	inRun,
-	type ManyHandle,
-	type SingleHandle,
-} from '@epicenter/app';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { misuse, parseWords } from './commands.ts';
 import { git, gitMessage } from './git.ts';
 import { chooseApps, loadHomeApp } from './home.ts';
 import { fail, writeJson } from './output.ts';
+import { snapshot } from './snapshot.ts';
 import { buildUi } from './ui.ts';
 
 /** What update did for one app. */
@@ -37,8 +34,6 @@ type Updated = {
 	merged: string | null;
 	/** Whether a UI was built; `false` for an app with no `ui/`. */
 	built: boolean;
-	/** Each file that does not fit its collection's fields, as `<path>: <what is wrong>`. */
-	misfits: string[];
 	/** Why this app did not finish updating, and the command that resolves it. */
 	error?: { message: string; next?: string };
 };
@@ -50,7 +45,6 @@ async function updateOne(app: string, folder: string): Promise<Updated> {
 		upstream: false,
 		merged: null,
 		built: false,
-		misfits: [],
 	};
 	if ((await git(folder, ['remote', 'get-url', 'upstream'])).code !== 0)
 		return updated;
@@ -59,11 +53,11 @@ async function updateOne(app: string, folder: string): Promise<Updated> {
 		...updated,
 		error: { message: `${app}: ${message}`, ...(next ? { next } : {}) },
 	});
-	const status = await git(folder, ['status', '--porcelain']);
-	if (status.stdout !== '')
+	const taken = await snapshot(app, folder);
+	if ('failed' in taken)
 		return stop(
-			'has uncommitted changes, which a merge could mix in; commit them first',
-			`epicenter sync ${app}`,
+			`nothing was merged, since what is pending could not be snapshotted first: ${taken.failed.message}`,
+			taken.failed.next ?? `epicenter sync ${app}`,
 		);
 	const fetchArgs = ['fetch', '-q', 'upstream'];
 	const fetched = await git(folder, fetchArgs);
@@ -103,19 +97,6 @@ async function updateOne(app: string, folder: string): Promise<Updated> {
 	const { data: located, error } = await loadHomeApp(app);
 	if (error) return stop(error.message);
 	if (!located.ok) return stop(located.problems.join('; '));
-	updated.misfits = await inRun(located.context, async () => {
-		const found: string[] = [];
-		for (const collection of Object.values(located.app.collections)) {
-			const readable = collection as typeof collection &
-				(ManyHandle<CollectionDef> | SingleHandle<CollectionDef>);
-			const rows =
-				'list' in readable ? await readable.list() : [await readable.get()];
-			for (const row of rows)
-				if (row?.problems?.length)
-					found.push(`${row.path}: ${row.problems.join('; ')}`);
-		}
-		return found;
-	});
 	try {
 		updated.built = await buildUi(folder);
 	} catch (error) {
@@ -139,16 +120,8 @@ function render(apps: Updated[]) {
 			`${app.app}: ${[
 				app.merged ? `merged ${app.merged}` : 'already up to date',
 				...(app.built ? ['UI built'] : []),
-				...(app.misfits.length
-					? [
-							app.misfits.length === 1
-								? '1 file does not fit its fields'
-								: `${app.misfits.length} files do not fit their fields`,
-						]
-					: []),
 			].join('; ')}`,
 		);
-		for (const misfit of app.misfits) stdout.push(`  ${misfit}`);
 		if (app.error)
 			stderr.push(
 				app.error.message,

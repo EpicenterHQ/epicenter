@@ -108,7 +108,7 @@ epicenter <app>                            what the app does
 epicenter <app> <verb> [<positionals>] [--field value | --field null] [--input <json>|-] [--json]
 epicenter init [<folder>] [--port <n>]     make a folder an Epicenter: EPICENTER.md and AGENTS.md
 epicenter new <app> [--from <git url|path>]
-epicenter update [<app>]                   merge the starter, list files that no longer fit, build
+epicenter update [<app>]                   snapshot, merge the starter, build
 epicenter build [<app>]                    build the UI, keeping the last one that built
 epicenter sync [<app>]                     snapshot what is pending, push to origin (ADR-0851)
 epicenter serve [--port <n>] [--host <address>] [--stdio]

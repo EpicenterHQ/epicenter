@@ -155,9 +155,10 @@ runs, so the folder needs no install.
 
 A starter is an app with no data: `epicenter new vocab --from <git url>` clones
 one and keeps it as the app's `upstream`, and `epicenter update` merges its
-later changes, rebuilds the UI, and lists any file that no longer fits its
-collection's fields. The collections are the contract between the two: a
-starter that changes a field owns the change to files already written.
+later changes and rebuilds the UI; a file that no longer fits its
+collection's fields says so whenever it is read. The collections are the
+contract between the two: a starter that changes a field owns the change to
+files already written.
 
 ## How a write happens
 

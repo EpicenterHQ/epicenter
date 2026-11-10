@@ -2,6 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-11-10
+- **Amended:** 2026-11-11: `update` snapshots what is pending before it merges, as `undo` does, instead of refusing an app with uncommitted changes, and no longer lists files that do not fit their collection's fields, since every read of such a file says so in its `problems`.
 - **Relates:** [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (one copy; the install rules this replaces), [ADR-0851](0851-an-app-has-one-home-and-an-optional-push-only-backup.md) (`origin`), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (`new`, `link`), [ADR-0854](0854-an-apps-cache-is-the-files-it-gitignores.md) (`.cache/`), [ADR-0857](0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md) (`epicenter.ts`), [ADR-0858](0858-where-a-file-lives-decides-whether-it-travels-survives-or-dies-with-its-program.md) (`*.local`), [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (the UI).
 - **Unbuilt:** starters in repositories of their own: Capture, Tasks, and Vocab have the layout in `apps/<app>/`, and move out once `@epicenter/app` and `@epicenter/ui` are published. Refusing a collection path under `ui/` or named `epicenter.*`: a path part that starts with `.`, as `.cache/` does, is refused already.
 
@@ -53,13 +54,13 @@ is the decision to trust it, as cloning and running any repository is.
 `epicenter new <name>` without `--from` uses the built-in starter, as now.
 
 **`epicenter update [<app>]` brings in the starter's changes.** For each app
-with an `upstream` and no uncommitted changes, it:
+with an `upstream`, it:
 
-1. runs `git fetch upstream` and merges `upstream`'s branch; on a conflict it
+1. snapshots what is pending as `<app>: changed outside epicenter`, so the
+   merge never mixes with an edit not yet in history;
+2. runs `git fetch upstream` and merges `upstream`'s branch; on a conflict it
    aborts the merge, leaves the app as it was, and prints
    `git -C ~/Epicenter/vocab merge upstream/main` for whoever resolves it;
-2. checks every file of every collection against the collection's fields and
-   lists each file that does not fit them;
 3. builds the UI, keeping the last `.cache/ui/` that built if this build
    fails. The build installs from the starter's committed `ui/bun.lock`, or
    writes no lockfile when it has none, so it never leaves the app with
@@ -73,9 +74,9 @@ change made in an app reaches its starter as any fork's does: a cherry-pick or
 a pull request in the starter's repository.
 
 **The collections are the contract between a starter and the data.** A starter
-that renames or tightens a field owns the change to existing files: the check
-after `update` lists them, and an agent on the computer repairs them, or the
-starter ships an action that does. Git merges code; it does not migrate data.
+that renames or tightens a field owns the change to existing files: every
+read of a file that no longer fits says so in its `problems`, and an agent on
+the computer repairs them, or the starter ships an action that does. Git merges code; it does not migrate data.
 
 ## Consequences
 
