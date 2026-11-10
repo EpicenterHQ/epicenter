@@ -1,7 +1,7 @@
 /**
  * HTTP serve acceptance tests.
  * Runs the real CLI against a temporary HOME and checks MCP calls, Git commits,
- * view confinement, and request origin handling.
+ * UI confinement, and request origin handling.
  */
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
 import { mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
@@ -180,26 +180,32 @@ test('commit subjects use the first positional value on one line, capped at 60 c
 	);
 });
 
-test('views serve files and refuse traversal and symlinks outside views', async () => {
+test('a built UI serves files and refuses traversal and symlinks outside it', async () => {
 	const f = await setup();
 	const folder = await f.folder(join(f.home, 'reading'), readingApp);
-	await mkdir(join(folder, 'view', '_app', 'immutable'), { recursive: true });
-	await writeFile(join(folder, 'view', 'index.html'), '<h1>Reading</h1>');
+	await mkdir(join(folder, '.cache', 'ui', '_app', 'immutable'), {
+		recursive: true,
+	});
 	await writeFile(
-		join(folder, 'view', '_app', 'immutable', 'asset.js'),
+		join(folder, '.cache', 'ui', 'index.html'),
+		'<h1>Reading</h1>',
+	);
+	await writeFile(
+		join(folder, '.cache', 'ui', '_app', 'immutable', 'asset.js'),
 		'export {};',
 	);
 	await symlink(
 		join(folder, 'epicenter.json'),
-		join(folder, 'view', 'outside.json'),
+		join(folder, '.cache', 'ui', 'outside.json'),
 	);
 	const linked = await f.folder(join(f.home, 'linked'), {
-		'epicenter.json': JSON.stringify({ description: 'Linked view' }),
+		'epicenter.json': JSON.stringify({ description: 'Linked UI' }),
 	});
-	const outsideViews = join(f.root, 'outside-views');
-	await mkdir(outsideViews);
-	await writeFile(join(outsideViews, 'index.html'), 'outside');
-	await symlink(outsideViews, join(linked, 'view'));
+	const outsideUi = join(f.root, 'outside-ui');
+	await mkdir(outsideUi);
+	await writeFile(join(outsideUi, 'index.html'), 'outside');
+	await mkdir(join(linked, '.cache'));
+	await symlink(outsideUi, join(linked, '.cache', 'ui'));
 	expect(await (await fetch(`${f.base}/`)).text()).toContain(
 		'href="/reading/"',
 	);
@@ -231,19 +237,16 @@ test('views serve files and refuse traversal and symlinks outside views', async 
 	expect((await fetch(`${f.base}/linked/`)).status).toBe(404);
 });
 
-test('a built view in .cache/view/ is served in place of the committed view/', async () => {
+test('only the built UI in .cache/ui/ is served, never the ui/ source', async () => {
 	const f = await setup();
 	const folder = await f.folder(join(f.home, 'reading'), {
 		...readingApp,
-		'view/index.html': 'committed',
-		'view/only.txt': 'only committed',
+		'ui/index.html': 'source',
 	});
-	expect(await (await fetch(`${f.base}/reading/`)).text()).toBe('committed');
-	await mkdir(join(folder, '.cache', 'view'), { recursive: true });
-	await writeFile(join(folder, '.cache', 'view', 'index.html'), 'built');
+	expect((await fetch(`${f.base}/reading/`)).status).toBe(404);
+	await mkdir(join(folder, '.cache', 'ui'), { recursive: true });
+	await writeFile(join(folder, '.cache', 'ui', 'index.html'), 'built');
 	expect(await (await fetch(`${f.base}/reading/`)).text()).toBe('built');
-	// One view or the other, never a mix of the two.
-	expect((await fetch(`${f.base}/reading/only.txt`)).status).toBe(404);
 });
 
 test('mismatched Origin is forbidden, and / refuses an event stream and other methods', async () => {

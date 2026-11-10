@@ -23,13 +23,13 @@ export const CliError = defineErrors({
 		app,
 		problems,
 	}),
-	/** A Git command `new`, `add`, or `install` ran failed. */
+	/** A Git command `new` ran failed. */
 	GitFailed: ({ cause }: { cause: unknown }) => ({
 		message: `Git failed: ${extractErrorMessage(cause)}`,
 	}),
-	/** `install` could not build an app's view: its `build` script failed. */
+	/** An app's UI did not build: its `ui/` build failed (ADR-0866). */
 	BuildFailed: ({ app, cause }: { app: string; cause: unknown }) => ({
-		message: `${app}: the view did not build: ${extractErrorMessage(cause)}`,
+		message: `${app}: the UI did not build: ${extractErrorMessage(cause)}`,
 		app,
 	}),
 	/** `epicenter` itself failed unexpectedly before anything ran: a bug, or a home it cannot read. */

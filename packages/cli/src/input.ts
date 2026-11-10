@@ -49,27 +49,53 @@ type Described = {
 	const?: unknown;
 };
 
-/**
- * Describe the CLI value a schema accepts for usage and field help. `X | null`
- * is described as `X`: a collection's `set` takes `null` to remove a field,
- * which only `--input` can say.
- */
-export function fieldKind(field: TSchema): string {
-	let schema = field as Described;
+/** Whether a field takes `null`, which a collection's `set` reads as "remove it" (ADR-0867). */
+export function takesNull(field: TSchema): boolean {
+	const schema = field as Described;
+	return (
+		schema.type === 'null' ||
+		(schema.anyOf?.some((choice) => choice.type === 'null') ?? false)
+	);
+}
+
+/** The schema a field takes besides `null`: `X | null` is `X`. */
+function withoutNull(field: TSchema): Described {
+	const schema = field as Described;
 	const nonNull = schema.anyOf?.filter((choice) => choice.type !== 'null');
 	if (nonNull?.length === 1 && nonNull[0] && schema.anyOf?.length === 2)
-		schema = nonNull[0];
+		return nonNull[0];
+	return schema;
+}
+
+/** The values a field may take when it is one of a few strings, as `field.select` or `enum` writes it. */
+export function choicesOf(field: TSchema): string[] | undefined {
+	const schema = withoutNull(field);
+	const choices = schema.enum ?? schema.anyOf?.map((choice) => choice.const);
+	return choices?.every((choice) => typeof choice === 'string')
+		? (choices as string[])
+		: undefined;
+}
+
+/**
+ * Describe the CLI value a schema accepts for usage and field help. `X | null`
+ * is described as `X`; `null` is a value any such field takes.
+ */
+export function fieldKind(field: TSchema): string {
+	const schema = withoutNull(field);
 	if (schema.type === 'boolean') return 'switch';
 	if (schema.type === 'array') return 'list';
 	if (schema.type === 'number' || schema.type === 'integer') return 'number';
-	if (schema.format === 'date') return 'date';
-	const choices = schema.enum ?? schema.anyOf?.map((choice) => choice.const);
-	if (choices?.every((choice) => typeof choice === 'string'))
-		return choices.join('|');
-	return 'text';
+	if (schema.format === 'date' || schema.format === 'date-time')
+		return schema.format;
+	return choicesOf(field)?.join('|') ?? 'text';
 }
 
-/** Parse flags and positionals, in the action's order, before validating values against its schema. */
+/**
+ * Parse flags and positionals, in the action's order, before validating values
+ * against its schema. A value is read as its field's type: a number for a
+ * number, `true` or `false` for a switch, every value of a repeated flag for a
+ * list, and `null` for the word `null` when the field takes `null` (ADR-0867).
+ */
 export function inputFromArgs(
 	action: Action,
 	tokens: string[],
@@ -90,6 +116,11 @@ export function inputFromArgs(
 	): string | undefined {
 		const kind = fieldKind(schema);
 		if (kind !== 'list' && Object.hasOwn(input, key)) return repeated(key);
+		if (raw === 'null' && takesNull(schema)) {
+			if (Object.hasOwn(input, key)) return repeated(key);
+			input[key] = null;
+			return;
+		}
 		let value: unknown = raw;
 		if (kind === 'number') {
 			value = Number(raw);
@@ -112,18 +143,35 @@ export function inputFromArgs(
 			const equal = token.indexOf('=');
 			const flag = equal < 0 ? token : token.slice(0, equal);
 			const field = flags.get(flag);
-			if (!field)
+			if (!field) {
+				const negated = flags.get(`--${flag.slice('--no-'.length)}`);
+				if (
+					flag.startsWith('--no-') &&
+					negated &&
+					fieldKind(negated.schema) === 'switch'
+				)
+					return {
+						error: `Unknown flag ${flag}; to make it false: --${flagOf(negated.key)}=false`,
+					};
 				return {
 					error: `Unknown flag ${flag}. Flags: ${[...flags.keys()].join(', ') || '(none)'}`,
 				};
+			}
 			const kind = fieldKind(field.schema);
 			const value = equal < 0 ? undefined : token.slice(equal + 1);
 			if (kind === 'switch' && value !== undefined) {
-				if (value !== 'true' && value !== 'false')
-					return { error: `${flag} takes no value, or =true or =false` };
+				const nullable = takesNull(field.schema);
+				if (
+					value !== 'true' &&
+					value !== 'false' &&
+					!(nullable && value === 'null')
+				)
+					return {
+						error: `${flag} takes no value, or ${nullable ? '=true, =false, or =null' : '=true or =false'}`,
+					};
 				if (Object.hasOwn(input, field.key))
 					return { error: repeated(field.key) };
-				input[field.key] = value === 'true';
+				input[field.key] = value === 'null' ? null : value === 'true';
 				continue;
 			}
 			let raw: string | true = true;
@@ -181,22 +229,25 @@ export function checkInput(
 		first?.instancePath.split('/')[1] ||
 		params?.requiredProperties?.[0] ||
 		(Array.isArray(additional) ? additional[0] : additional);
-	const name = key
-		? nameOf(key.replace(/~1/g, '/').replace(/~0/g, '~'))
-		: 'input';
-	return {
-		error:
-			first?.keyword === 'required'
-				? `${name} is needed`
-				: `${name}: ${first?.message ?? 'is not accepted'}`,
-	};
+	const field = key?.replace(/~1/g, '/').replace(/~0/g, '~');
+	const name = field ? nameOf(field) : 'input';
+	if (first?.keyword === 'required') return { error: `${name} is needed` };
+	const choices = field ? choicesOf(action.input[field] as TSchema) : undefined;
+	if (choices)
+		return { error: `${name} must be one of: ${choices.join(', ')}` };
+	return { error: `${name}: ${first?.message ?? 'is not accepted'}` };
 }
 
-/** Render an action's positionals in their order, then its flags in the order its fields declare them. */
+/**
+ * Render an action's positionals in their order, then its flags in the order
+ * its fields declare them. `short` keeps the required flags and folds the rest
+ * into `[--flags]`, for listings.
+ */
 export function usageLine(
 	appName: string,
 	key: string,
 	action: Action,
+	{ short = false }: { short?: boolean } = {},
 ): string {
 	const required = requiredKeys(action.input);
 	const positional = new Set<string>(action.positional ?? []);
@@ -211,9 +262,14 @@ export function usageLine(
 					: `[<${name}>]`,
 		);
 	}
+	let folded = false;
 	for (const [name, field] of Object.entries(action.input)) {
 		if (positional.has(name)) continue;
 		const kind = fieldKind(field);
+		if (short && (kind === 'switch' || !required.has(name))) {
+			folded = true;
+			continue;
+		}
 		const flag = `--${flagOf(name)}`;
 		const arg =
 			kind === 'switch'
@@ -227,6 +283,7 @@ export function usageLine(
 				: arg,
 		);
 	}
+	if (folded) args.push('[--flags]');
 	return [`epicenter ${appName} ${key}`, ...args].join(' ');
 }
 

@@ -46,12 +46,15 @@ export async function listTools(): Promise<Tool[]> {
 
 /**
  * A child's answer as an MCP result: the same value `--json` prints, as
- * `structuredContent`, and `isError` exactly when the exit code is not 0.
- * A failure's text is what a person would read on stderr.
+ * `structuredContent`, and `isError` exactly when the action threw or did not
+ * run. An action that returned but was not committed is no error: it ran, and
+ * a client that retried it would run it twice. A failure's text is what a
+ * person would read on stderr.
  */
 export function toolResult(answer: Answer) {
 	const structuredContent = answer as Record<string, unknown>;
-	if (exitCodeOf(answer) === 0)
+	const code = exitCodeOf(answer);
+	if (code === 0 || code === 3)
 		return {
 			content: [{ type: 'text' as const, text: JSON.stringify(answer) }],
 			structuredContent,

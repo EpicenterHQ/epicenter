@@ -133,14 +133,14 @@ test('W2 epicenter sync commits what is left, pulls with --rebase, pushes, and r
 				folder: journal.folder,
 				committed: { subject: 'sync: journal (2 files)', files: 2 },
 				pushed: true,
-				upstream: { ahead: 0, behind: 0 },
+				origin: { ahead: 0, behind: 0 },
 			},
 			{
 				app: 'notes',
 				folder: join(f.home, 'notes'),
 				committed: { subject: 'sync: notes (1 file)', files: 1 },
 				pushed: false,
-				upstream: null,
+				origin: null,
 			},
 		],
 	});
@@ -155,7 +155,7 @@ test('W2 epicenter sync commits what is left, pulls with --rebase, pushes, and r
 	const again = await f.run('sync', 'journal');
 	expect(again.code).toBe(0);
 	expect(again.stdout).toBe(
-		'journal: nothing to commit; pushed; 0 ahead, 0 behind\n',
+		'journal: nothing to commit; pushed; 0 ahead of origin, 0 behind\n',
 	);
 	expect(again.stderr).toBe('');
 	expect((await f.run('sync', 'nope', '--json')).code).toBe(2);
@@ -199,10 +199,10 @@ test('W3 sync stops one app on a conflict, a failed push, or no repository, and 
 	expect(apps.clash).toMatchObject({
 		committed: { subject: 'sync: clash (1 file)' },
 		pushed: false,
-		upstream: { ahead: 1, behind: 1 },
+		origin: { ahead: 1, behind: 1 },
 		error: {
 			message: expect.stringContaining('conflict'),
-			next: `git -C ${clash.folder} pull --rebase`,
+			next: `git -C ${clash.folder} pull --rebase origin main`,
 		},
 	});
 	expect(await readFile(join(clash.folder, 'page.md'), 'utf8')).toBe(
@@ -214,23 +214,25 @@ test('W3 sync stops one app on a conflict, a failed push, or no repository, and 
 		pushed: false,
 		error: {
 			message: expect.stringContaining('not pushed'),
-			next: `git -C ${offline.folder} push`,
+			next: `git -C ${offline.folder} push origin main`,
 		},
 	});
 	expect(apps.loose).toMatchObject({
 		committed: null,
 		pushed: false,
-		upstream: null,
+		origin: null,
 		error: { message: expect.stringContaining('not a git repository') },
 	});
 	expect(apps.fine).toMatchObject({
 		pushed: true,
-		upstream: { ahead: 0, behind: 0 },
+		origin: { ahead: 0, behind: 0 },
 	});
 
 	const human = await f.run('sync');
 	expect(human.code).toBe(1);
-	expect(human.stderr).toContain(`Run: git -C ${clash.folder} pull --rebase`);
+	expect(human.stderr).toContain(
+		`Run: git -C ${clash.folder} pull --rebase origin main`,
+	);
 });
 
 test('W3 sync of an app inside a larger repository commits only its folder and sets the rest aside while it pulls', async () => {

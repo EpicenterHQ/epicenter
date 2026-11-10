@@ -111,7 +111,7 @@ export default defineApp(declaration, {
 	expect(JSON.stringify(listing)).not.toContain('readme-only');
 
 	const human = await f.run();
-	expect(human.stdout).toContain('vocab  The vocab app');
+	expect(human.stdout).toMatch(/^vocab +The vocab app$/m);
 	expect(human.stdout).toContain(`-> ${linked}`);
 	expect(human.stdout).toContain('Problems:');
 });

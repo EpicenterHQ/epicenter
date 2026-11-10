@@ -1,12 +1,13 @@
 /**
- * `epicenter sync [<app>]` commits, pulls, and pushes (ADR-0851). For each
- * app in the home, or the one named, from its folder:
- * commit whatever is left (`sync: <app> (<n> files)`), then
- * `git pull --rebase --autostash`, then `git push`. Which branch it pulls and
- * pushes is Git's: the upstream and `push.default` the clone already has, so
- * a branch that tracks nothing is committed and not pushed.
+ * `epicenter sync [<app>]` commits, pulls, and pushes to `origin`, the app's
+ * backup or its server (ADR-0851, ADR-0866). For each app in the home, or the
+ * one named, from its folder: commit whatever is left
+ * (`sync: <app> (<n> files)`); then, when the app has an `origin`, fetch it,
+ * rebase onto `origin`'s copy of the branch when there is one, and push the
+ * branch to `origin` by name. It never pushes to `upstream`, the starter an
+ * app came from, nor to whatever the branch tracks.
  *
- * A pull that stops on a conflict is aborted, so the folder is never left
+ * A rebase that stops on a conflict is aborted, so the folder is never left
  * mid-rebase; the commits stay local and the app's report names the next
  * step. One app's failure never stops the others. Sync reads no app's code.
  */
@@ -22,8 +23,8 @@ type Synced = {
 	/** The commit sync made of what was left, or `null` when nothing was. */
 	committed: { subject: string; files: number } | null;
 	pushed: boolean;
-	/** How far the branch is from its upstream afterwards; `null` when it tracks none. */
-	upstream: { ahead: number; behind: number } | null;
+	/** How far the branch is from `origin`'s copy of it afterwards; `null` when there is none. */
+	origin: { ahead: number; behind: number } | null;
 	/** Why this app did not finish syncing, and the command that resolves it. */
 	error?: { message: string; next?: string };
 };
@@ -31,13 +32,20 @@ type Synced = {
 /** What `epicenter sync` answers: one report per app, in name order. */
 type SyncAnswer = { apps: Synced[] };
 
-/** Ahead and behind the upstream, or `null` when the branch tracks none. */
-async function upstreamOf(folder: string) {
+/** The branch checked out, as `origin` would name it; empty on a detached HEAD. */
+async function branchOf(folder: string) {
+	return (await git(folder, ['symbolic-ref', '-q', '--short', 'HEAD'])).stdout;
+}
+
+/** Ahead and behind `origin`'s copy of the branch, or `null` when it has none. */
+async function originOf(folder: string) {
+	const branch = await branchOf(folder);
+	if (branch === '') return null;
 	const counted = await git(folder, [
 		'rev-list',
 		'--left-right',
 		'--count',
-		'HEAD...@{upstream}',
+		`HEAD...refs/remotes/origin/${branch}`,
 	]);
 	if (counted.code !== 0) return null;
 	const [ahead = 0, behind = 0] = counted.stdout.split(/\s+/).map(Number);
@@ -50,11 +58,11 @@ async function syncOne(app: string, folder: string): Promise<Synced> {
 		folder,
 		committed: null,
 		pushed: false,
-		upstream: null,
+		origin: null,
 	};
 	const stop = async (message: string, next?: string): Promise<Synced> => ({
 		...synced,
-		upstream: await upstreamOf(folder),
+		origin: await originOf(folder),
 		error: { message: `${app}: ${message}`, ...(next ? { next } : {}) },
 	});
 	try {
@@ -69,26 +77,40 @@ async function syncOne(app: string, folder: string): Promise<Synced> {
 			message.endsWith('run: git lfs install') ? 'git lfs install' : undefined,
 		);
 	}
-	if ((await upstreamOf(folder)) === null) return synced;
-	const pullArgs = ['pull', '-q', '--rebase', '--autostash'];
-	const pulled = await git(folder, pullArgs);
-	if (pulled.code !== 0) {
-		// A pull that stopped on a conflict leaves a rebase to abort; any other failure leaves none.
-		const conflicted = (await git(folder, ['rebase', '--abort'])).code === 0;
+	if ((await git(folder, ['remote', 'get-url', 'origin'])).code !== 0)
+		return synced;
+	const branch = await branchOf(folder);
+	if (branch === '') return stop('is not on a branch, so nothing was pushed');
+	const fetchArgs = ['fetch', '-q', 'origin'];
+	const fetched = await git(folder, fetchArgs);
+	if (fetched.code !== 0)
 		return stop(
-			conflicted
-				? 'pulling stopped on a conflict, so the pull was undone; your commits stay here and were not pushed'
-				: `could not pull, so nothing was pushed: ${gitMessage(pullArgs, pulled)}`,
-			`git -C ${folder} pull --rebase`,
+			`could not fetch, so nothing was pushed: ${gitMessage(fetchArgs, fetched)}`,
+			`git -C ${folder} fetch origin`,
 		);
+	let output = '';
+	const remote = `refs/remotes/origin/${branch}`;
+	if ((await git(folder, ['rev-parse', '-q', '--verify', remote])).code === 0) {
+		const rebaseArgs = ['rebase', '-q', '--autostash', remote];
+		const rebased = await git(folder, rebaseArgs);
+		if (rebased.code !== 0) {
+			// A rebase that stopped on a conflict is left to abort; any other failure leaves none.
+			const conflicted = (await git(folder, ['rebase', '--abort'])).code === 0;
+			return stop(
+				conflicted
+					? 'pulling stopped on a conflict, so the pull was undone; your commits stay here and were not pushed'
+					: `could not pull, so nothing was pushed: ${gitMessage(rebaseArgs, rebased)}`,
+				`git -C ${folder} pull --rebase origin ${branch}`,
+			);
+		}
+		output = `${rebased.stdout}\n${rebased.stderr}`;
 	}
-	const output = `${pulled.stdout}\n${pulled.stderr}`;
-	const pushArgs = ['push', '-q'];
+	const pushArgs = ['push', '-q', 'origin', `HEAD:refs/heads/${branch}`];
 	const pushedNow = await git(folder, pushArgs);
 	if (pushedNow.code !== 0)
 		return stop(
 			`not pushed: ${gitMessage(pushArgs, pushedNow)}`,
-			`git -C ${folder} push`,
+			`git -C ${folder} push origin ${branch}`,
 		);
 	synced.pushed = true;
 	// `--autostash` says so when it cannot put changes back; Git keeps them in its stash.
@@ -97,7 +119,7 @@ async function syncOne(app: string, folder: string): Promise<Synced> {
 			'uncommitted changes elsewhere in its repository could not be put back after pulling; Git kept them in its stash',
 			`git -C ${folder} stash list`,
 		);
-	return { ...synced, upstream: await upstreamOf(folder) };
+	return { ...synced, origin: await originOf(folder) };
 }
 
 /** Sync every app in the home, or only `name`, one after another. */
@@ -137,9 +159,9 @@ function renderSync(answer: SyncAnswer) {
 				? `committed ${app.committed.subject}`
 				: 'nothing to commit',
 			...(app.pushed ? ['pushed'] : []),
-			app.upstream
-				? `${app.upstream.ahead} ahead, ${app.upstream.behind} behind`
-				: 'no upstream',
+			app.origin
+				? `${app.origin.ahead} ahead of origin, ${app.origin.behind} behind`
+				: 'no origin',
 		];
 		stdout.push(`${app.app}: ${parts.join('; ')}`);
 		if (app.error)

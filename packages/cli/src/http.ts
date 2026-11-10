@@ -4,7 +4,7 @@
  * ```txt
  * POST /             MCP, stateless JSON
  * GET  /             the launcher; 405 when asked for an event stream (MCP)
- * GET  /<app>/...    the app's .cache/view/ (built), else view/, as static files
+ * GET  /<app>/...    the app's built UI, .cache/ui/, as static files
  * GET  /<app>        308 to /<app>/
  * ```
  *
@@ -19,6 +19,7 @@ import { git, gitMessage } from './git.ts';
 import { homeEntries, readDeclaration } from './home.ts';
 import { callTool, createMcpServer, listTools } from './mcp.ts';
 import { writeErr } from './output.ts';
+import { BUILT_UI } from './ui.ts';
 
 /** An app's background push: the one running, and whether another is wanted after it. */
 type Push = { running?: Promise<void>; again: boolean };
@@ -32,7 +33,7 @@ const escapeHtml = (text: string) =>
 			] as string,
 	);
 
-/** The page at `/`: each app with a view, its icon, name, and description, linking to `/<app>/`. */
+/** The page at `/`: each app with a UI, its icon, name, and description, linking to `/<app>/`. */
 function launcherPage(
 	apps: { name: string; description: string; icon: boolean }[],
 ) {
@@ -56,16 +57,17 @@ a:active{transform:scale(.99)}img,.blank{width:56px;height:56px;border-radius:13
 .blank{display:grid;place-items:center;background:var(--line);font-weight:600;font-size:22px}
 strong{display:block;font-size:17px;text-transform:capitalize}small{display:block;color:var(--muted);font-size:14px}
 p{color:var(--muted)}
-</style></head><body><main><h1>Epicenter</h1>${items ? `<ul>${items}</ul>` : '<p>No app here has a view yet.</p>'}</main></body></html>`;
+</style></head><body><main><h1>Epicenter</h1>${items ? `<ul>${items}</ul>` : '<p>No app here has a UI yet.</p>'}</main></body></html>`;
 }
 
 /** Start the server. The caller owns its lifetime. Port 0 asks Bun for a free port. */
 export function startHttpServer(host: string, port: number) {
 	const pushes = new Map<string, Push>();
 	/**
-	 * Push the app's repository to its upstream in the background, if it has
-	 * one. A push asked for while one runs makes one more after it, so every
-	 * commit goes out and pushes never overlap.
+	 * Push the app's branch to `origin` by name in the background, if it has
+	 * one: never to `upstream`, the starter it came from (ADR-0866). A push
+	 * asked for while one runs makes one more after it, so every commit goes
+	 * out and pushes never overlap.
 	 */
 	const push = (app: string, folder: string) => {
 		let current = pushes.get(app);
@@ -81,14 +83,13 @@ export function startHttpServer(host: string, port: number) {
 		state.running = (async () => {
 			do {
 				state.again = false;
-				const upstream = await git(folder, [
-					'rev-parse',
-					'--abbrev-ref',
-					'--symbolic-full-name',
-					'@{upstream}',
-				]);
-				if (upstream.code !== 0) return;
-				const args = ['push', '-q'];
+				if ((await git(folder, ['remote', 'get-url', 'origin'])).code !== 0)
+					return;
+				const branch = (
+					await git(folder, ['symbolic-ref', '-q', '--short', 'HEAD'])
+				).stdout;
+				if (branch === '') return;
+				const args = ['push', '-q', 'origin', `HEAD:refs/heads/${branch}`];
 				const result = await git(folder, args);
 				if (result.code !== 0)
 					writeErr(`${app}: push failed: ${gitMessage(args, result)}`);
@@ -114,12 +115,7 @@ export function startHttpServer(host: string, port: number) {
 		return result;
 	};
 	const notFound = () => new Response('Not found', { status: 404 });
-	const exists = (path: string) =>
-		stat(path).then(
-			() => true,
-			() => false,
-		);
-	const viewFile = async (app: string, path: string) => {
+	const uiFile = async (app: string, path: string) => {
 		if (!isName(app)) return notFound();
 		const entry = (await homeEntries()).find((item) => item.entry === app);
 		if (!entry) return notFound();
@@ -136,11 +132,8 @@ export function startHttpServer(host: string, port: number) {
 		)
 			return notFound();
 		try {
-			// A built view, rebuildable and ignored, wins over a committed one.
-			const built = join(entry.realPath, '.cache', 'view');
-			const root = await realpath(
-				(await exists(built)) ? built : join(entry.realPath, 'view'),
-			);
+			// The built UI, rebuildable and ignored, is the only thing served (ADR-0866).
+			const root = await realpath(join(entry.realPath, BUILT_UI));
 			if (!root.startsWith(`${entry.realPath}${sep}`)) return notFound();
 			const candidate = join(root, decoded || 'index.html');
 			const file = await realpath(
@@ -208,14 +201,13 @@ export function startHttpServer(host: string, port: number) {
 					});
 				const apps = await Promise.all(
 					(await homeEntries()).map(async (entry) => {
-						if (!(await viewFile(entry.entry, 'index.html')).ok)
-							return undefined;
+						if (!(await uiFile(entry.entry, 'index.html')).ok) return undefined;
 						const read = await readDeclaration(entry.realPath);
 						return {
 							name: entry.entry,
 							description:
 								'declaration' in read ? read.declaration.description : '',
-							icon: (await viewFile(entry.entry, 'icon.png')).ok,
+							icon: (await uiFile(entry.entry, 'icon.png')).ok,
 						};
 					}),
 				);
@@ -244,7 +236,7 @@ export function startHttpServer(host: string, port: number) {
 					headers: { location: `/${encodeURIComponent(app)}/` },
 				});
 			}
-			return viewFile(app, match[2]);
+			return uiFile(app, match[2]);
 		},
 	});
 }

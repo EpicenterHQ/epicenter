@@ -185,7 +185,7 @@ test('C5 the commit refuses before staging when .gitattributes routes a path thr
 	);
 	// The write returned, so it keeps its answer and says why it is uncommitted.
 	const kept = await f.json('notes', 'picture');
-	expect(kept.code).toBe(0);
+	expect(kept.code).toBe(3);
 	expect(kept.answer.returned).toBe(null);
 	expect(kept.answer.uncommitted.message).toContain('run: git lfs install');
 	expect(kept.answer.uncommitted.next).toBe('epicenter sync notes');
@@ -216,7 +216,7 @@ test('C6 the commit waits for a held index lock, and after about 2 seconds leave
 	await writeFile(lock, '');
 	const held = await f.json('notes', 'write', 'tuesday');
 	await rm(lock);
-	expect(held.code).toBe(0);
+	expect(held.code).toBe(3);
 	expect(held.answer.uncommitted.message).toContain('index.lock');
 	expect(await readFile(join(f.dir, 'tuesday.md'), 'utf8')).toBe('tuesday');
 });

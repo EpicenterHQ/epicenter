@@ -43,19 +43,18 @@ function appListing(located: Runnable) {
 	};
 }
 
-function hints(action: Action) {
-	const { readOnlyHint, destructiveHint } = {
-		...ANNOTATION_DEFAULTS,
-		...action.annotations,
-	};
-	if (readOnlyHint) return ' (read-only)';
-	return destructiveHint ? '' : ' (not destructive)';
+/** " (read-only)" for an action that changes nothing; the other hints are for MCP clients. */
+function readOnly(action: Action) {
+	return { ...ANNOTATION_DEFAULTS, ...action.annotations }.readOnlyHint
+		? ' (read-only)'
+		: '';
 }
 
+/** Each action as one short usage line and its description; `--help` on an action gives every flag. */
 function actionLines(located: Runnable) {
 	return Object.entries(located.actions).flatMap(([key, action]) => [
-		`  ${usageLine(located.name, key, action)}`,
-		`    ${action.description}${hints(action)}`,
+		`  ${usageLine(located.name, key, action, { short: true })}`,
+		`    ${action.description}${readOnly(action)}`,
 	]);
 }
 
@@ -74,11 +73,13 @@ export function homeListing(found: Discovery, json: boolean): unknown {
 		};
 	if (found.missing)
 		return `There is no Epicenter home at ${found.home}. Make one with: mkdir ${found.home}`;
-	const lines = found.apps.flatMap((located) => [
-		`${located.name}  ${located.declaration.description}${located.link ? ` -> ${located.link}` : ''}`,
-		...actionLines(located),
-	]);
+	const width = Math.max(0, ...found.apps.map(({ name }) => name.length));
+	const lines = found.apps.map(
+		(located) =>
+			`${located.name.padEnd(width)}  ${located.declaration.description}${located.link ? ` -> ${located.link}` : ''}`,
+	);
 	if (!found.apps.length) lines.push('There are no apps yet.');
+	else lines.push('', 'Run: epicenter <app>');
 	if (found.problems.length) {
 		lines.push('', 'Problems:');
 		for (const app of found.problems)
@@ -91,7 +92,7 @@ export function homeListing(found: Discovery, json: boolean): unknown {
 	return lines.join('\n');
 }
 
-/** Render the app's disk and keychain locations beside its actions for inspection. */
+/** Render an app's actions and its folder; `--json` adds its keychain service. */
 export function oneAppListing(located: Runnable, json: boolean): unknown {
 	if (json)
 		return {
@@ -99,30 +100,44 @@ export function oneAppListing(located: Runnable, json: boolean): unknown {
 			keychain: keychainService(located.name),
 		};
 	return [
-		located.name,
-		located.declaration.description,
+		`${located.name}  ${located.declaration.description}`,
 		`folder: ${located.folder}`,
 		...(located.link ? [`link: ${located.link}`] : []),
-		`keychain: ${keychainService(located.name)}`,
+		'',
 		...actionLines(located),
+		'',
+		`Run: epicenter ${located.name} <action> --help`,
 	].join('\n');
 }
 
-/** Explain each action field, including defaults and its positional spelling. */
+/**
+ * Explain each field: how it is spelled, whether it is needed, and its
+ * description. A positional field may also be given as its flag.
+ */
 export function actionHelp(name: string, key: string, action: Action): string {
 	const positional = new Set<string>(action.positional ?? []);
 	const required = requiredKeys(action.input);
+	const rows = Object.entries(action.input).map(([key, field]) => {
+		const schema = field as TSchemaOptions;
+		const kind = fieldKind(schema);
+		const flag = `--${flagOf(key)}`;
+		const asFlag = kind === 'switch' ? flag : `${flag} <${kind}>`;
+		const spelling = positional.has(key) ? `<${key}>, ${asFlag}` : asFlag;
+		const status = Object.hasOwn(schema, 'default')
+			? `default ${JSON.stringify(schema.default)}`
+			: required.has(key)
+				? 'required'
+				: 'optional';
+		return [
+			spelling,
+			`${status}.${schema.description ? ` ${schema.description}` : ''}`,
+		] as const;
+	});
+	const width = Math.max(0, ...rows.map(([spelling]) => spelling.length));
 	return [
 		usageLine(name, key, action),
 		action.description,
-		...Object.entries(action.input).map(([key, field]) => {
-			const schema = field as TSchemaOptions;
-			const status = Object.hasOwn(schema, 'default')
-				? `default ${JSON.stringify(schema.default)}`
-				: required.has(key)
-					? 'required'
-					: 'optional';
-			return `  --${flagOf(key)}${positional.has(key) ? ` (<${key}>)` : ''}: ${fieldKind(schema)}, ${status}${schema.description ? `, ${schema.description}` : ''}`;
-		}),
+		'',
+		...rows.map(([spelling, text]) => `  ${spelling.padEnd(width)}  ${text}`),
 	].join('\n');
 }

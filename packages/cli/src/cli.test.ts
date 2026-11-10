@@ -74,7 +74,8 @@ test('listing isolates broken imports, invalid apps and folders that cannot name
 	expect(human.stdout).toContain('Problems:');
 	expect(human.stdout).toContain('import exploded');
 	expect(human.stdout).toContain(`-> ${linked}`);
-	expect(human.stdout).toContain('(read-only)');
+	expect(human.stdout).not.toContain('epicenter reading');
+	expect((await f.run('reading')).stdout).toContain('(read-only)');
 });
 
 test('commands write disk data and return one JSON answer without diagnostics', async () => {
@@ -223,8 +224,9 @@ test('app and action views include locations, schemas, field help and version', 
 	});
 	expect((await f.run('reading')).stdout).toContain('folder:');
 	expect((await f.run('reading', 'log', '-h')).stdout).toContain(
-		'--minutes (<minutes>): number, required',
+		'<minutes>, --minutes <number>  required.',
 	);
+	expect((await f.run('reading')).stdout).not.toContain('keychain:');
 	expect(
 		JSON.parse((await f.run('reading', 'log', '--help', '--json')).stdout),
 	).toMatchObject({ name: 'reading_log', inputSchema: { type: 'object' } });

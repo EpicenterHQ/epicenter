@@ -1,7 +1,11 @@
 /**
- * `epicenter new` and `epicenter link`: the two ways a folder becomes one of
- * your apps in `~/Epicenter` without installing code from a source.
+ * `epicenter new` and `epicenter link`: the ways a folder becomes one of your
+ * apps in `~/Epicenter`.
  *
+ * - `new <name> --from <git url|path>` clones a starter, a repository with no
+ *   data, keeps it as the app's `upstream` remote with the branch tracking
+ *   nothing, and builds its UI (ADR-0866). `epicenter update` later merges
+ *   the starter's changes.
  * - `new <name>` makes the folder from the built-in template, makes it a
  *   repository, and commits the template.
  * - `link <folder> [<name>]` links a folder that already has an
@@ -10,17 +14,32 @@
  *   and moves nothing, so the folder's path, scripts, and remotes keep
  *   working (ADR-0852).
  *
- * The app's name is its entry in `~/Epicenter`: the folder's own name unless
- * a second word gives another. `install` (install.ts) is the third way, for
- * code that comes from a source kept apart from the data.
+ * The app's name is its entry in `~/Epicenter`: for `link`, the folder's own
+ * name unless a second word gives another.
  */
-import { mkdir, readdir, realpath, symlink, writeFile } from 'node:fs/promises';
+import {
+	mkdir,
+	readdir,
+	realpath,
+	rm,
+	symlink,
+	writeFile,
+} from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { nameProblem, SCHEMA_URL } from '@epicenter/app';
 import { CliError } from './errors.ts';
-import { checkedGit } from './git.ts';
+import { checkedGit, git } from './git.ts';
 import { homeDir, readDeclaration, resolveFolder } from './home.ts';
-import { fail, made } from './output.ts';
+import { fail, made, writeErr } from './output.ts';
+import { buildUi } from './ui.ts';
+
+/** A Git URL rather than a folder path: a scheme, or `user@host:path`. */
+function isUrl(source: string) {
+	return (
+		/^[a-z][a-z0-9+.-]*:\/\//i.test(source) || /^[\w.-]+@[\w.-]+:/.test(source)
+	);
+}
 
 /**
  * The built-in template: a declaration and what Git ignores. It routes
@@ -57,10 +76,14 @@ function done(name: string, json: boolean) {
 }
 
 /**
- * `epicenter new <name>`: an app from the built-in template, in its own
- * repository whose first commit is the template.
+ * `epicenter new <name> [--from <git url|path>]`: an app from a starter kept
+ * as its `upstream`, or from the built-in template.
  */
-export async function newCommand(name: string, json: boolean): Promise<number> {
+export async function newCommand(
+	name: string,
+	from: string | undefined,
+	json: boolean,
+): Promise<number> {
 	const problem = nameProblem(name);
 	if (problem !== undefined)
 		return fail(
@@ -73,12 +96,69 @@ export async function newCommand(name: string, json: boolean): Promise<number> {
 				.error,
 			json,
 		);
+	if (from === undefined) {
+		try {
+			await makeApp(name);
+		} catch (error) {
+			return fail(CliError.GitFailed({ cause: error }).error, json);
+		}
+		return done(name, json);
+	}
+	const folder = join(homeDir(), name);
+	const cloned = await cloneStarter(from, folder);
+	if ('error' in cloned) {
+		await rm(folder, { recursive: true, force: true });
+		return fail(cloned.error, json);
+	}
 	try {
-		await makeApp(name);
+		await buildUi(folder);
 	} catch (error) {
-		return fail(CliError.GitFailed({ cause: error }).error, json);
+		// The app is made; only its UI is missing, and update builds it again.
+		writeErr(CliError.BuildFailed({ app: name, cause: error }).error.message);
+		writeErr(`Run: epicenter update ${name}`);
+		return 1;
 	}
 	return done(name, json);
+}
+
+/**
+ * Clone the starter `from` into `folder`, rename its remote to `upstream`,
+ * and leave the branch tracking nothing, so no push ever reaches the starter.
+ * A path must be a repository's root, since Git clones only whole
+ * repositories; the clone must hold a valid `epicenter.json`.
+ */
+async function cloneStarter(
+	from: string,
+	folder: string,
+): Promise<{ ok: true } | { error: CliError }> {
+	let source = from;
+	if (!isUrl(from)) {
+		source = resolveFolder(from);
+		const top = await git(source, ['rev-parse', '--show-toplevel']);
+		if (
+			top.code !== 0 ||
+			(await realpath(top.stdout)) !== (await realpath(source))
+		)
+			return {
+				error: CliError.Usage({
+					message: `${from} is not a repository's root; a starter is a repository of its own`,
+				}).error,
+			};
+	}
+	try {
+		await mkdir(homeDir(), { recursive: true });
+		await checkedGit(tmpdir(), ['clone', '-q', source, folder]);
+		await checkedGit(folder, ['remote', 'rename', 'origin', 'upstream']);
+		await checkedGit(folder, ['branch', '--unset-upstream']);
+	} catch (error) {
+		return { error: CliError.GitFailed({ cause: error }).error };
+	}
+	const read = await readDeclaration(folder);
+	if ('problems' in read)
+		return {
+			error: CliError.AppProblems({ app: from, problems: read.problems }).error,
+		};
+	return { ok: true };
 }
 
 /**

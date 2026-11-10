@@ -72,7 +72,7 @@ function alive(pid: number) {
  * lock is a file in the temporary folder named for the app's path, holding
  * the holder's pid; a lock whose process has died is taken over.
  */
-async function holdWriteLock(folder: string): Promise<() => Promise<void>> {
+export async function holdWriteLock(folder: string): Promise<() => Promise<void>> {
 	const dir = join(tmpdir(), 'epicenter-writes');
 	await mkdir(dir, { recursive: true });
 	const path = join(

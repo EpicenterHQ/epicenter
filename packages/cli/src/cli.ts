@@ -1,8 +1,9 @@
 /**
  * The epicenter command runs apps from the home or an explicit folder path
  * (ADR-0841). It parses words, shows what can run, checks input, and prints the
- * answer. Its exit code is 0 when the action returned, 1 when it threw, and 2
- * when nothing ran (ADR-0850).
+ * answer. Its exit code is 0 when the action returned, 1 when it threw, 2 when
+ * nothing ran, and 3 when it returned but its writes were not committed
+ * (ADR-0867).
  */
 import { type Action, COMMANDS, type Command } from '@epicenter/app';
 import packageJson from '../package.json' with { type: 'json' };
@@ -17,7 +18,6 @@ import {
 	matchAction,
 	usageLine,
 } from './input.ts';
-import { installCommand } from './install.ts';
 import {
 	actionHelp,
 	actionTool,
@@ -36,18 +36,20 @@ import {
 import type { Answer } from './report.ts';
 import { runAction } from './run.ts';
 import { syncCommand } from './sync.ts';
+import { updateCommand } from './update.ts';
 
-const HELP = `epicenter [--json]
-epicenter <app> [--json]
-epicenter <app> <action words> [<positionals>] [--flags] [--json]
-epicenter <path> <action words> [<positionals>] [--flags] [--json]
+const HELP = `epicenter                              your apps
+epicenter <app>                        what an app can do
+epicenter <app> <action> [<positionals>] [--flags]
+epicenter <path> <action> ...          the same, for an app's folder by path
 ${Object.values(COMMANDS).join('\n')}
 epicenter --version
 
 Your apps are the folders in ~/Epicenter with an epicenter.json.
---json and --help (-h) go anywhere before --.
-Exit codes: 0 done, 1 the action threw or an app did not sync, 2 did not run.
-Run epicenter for your apps.`;
+A flag's value is read as its field's type; null removes a field that takes it.
+--input <json> gives an action's whole input as one JSON object; - reads it from stdin.
+--json prints one JSON answer, and --help (-h) explains anything; both go anywhere before --.
+Exit codes: 0 done, 1 threw or an app did not sync, 2 did not run, 3 ran but not committed.`;
 const GLOBALS = new Set(['--json', '--help', '-h', '--version', '-V']);
 
 type Handler = (words: string[], json: boolean) => Promise<number>;
@@ -55,14 +57,54 @@ type Handler = (words: string[], json: boolean) => Promise<number>;
 const usage = (message: string, next?: string) =>
 	CliError.Usage({ message, ...(next ? { next } : {}) }).error;
 
+/** What each command does, as `epicenter <command> --help` prints it under its usage. */
+const COMMAND_HELP: { [K in Command]: string } = {
+	new: `Makes ~/Epicenter/<name>, a Git repository. With --from, it clones a starter (a
+repository with no data), keeps it as the app's upstream remote, and builds its
+UI; without it, it starts from an epicenter.json and a .gitignore.`,
+	update: `Merges each app's upstream, or one app's: it refuses an app with uncommitted
+changes, undoes a merge that stops on a conflict, lists each file that no
+longer fits epicenter.json, and builds the UI, keeping the last one that built.`,
+	link: `Joins a folder that is already an app, where it lives: it checks its
+epicenter.json and a free name, and links it into ~/Epicenter.`,
+	sync: `Commits what is left in each app, or one app, then pulls from origin and pushes
+to it. It never pushes to upstream.`,
+	serve: `Offers every app's actions over MCP at / and each app's UI at /<app>/, on
+127.0.0.1:4747 unless --port or --host says otherwise. With --stdio, it speaks
+MCP on stdin and stdout instead.`,
+};
+
 /** What each command in `COMMANDS` does. */
 const HANDLERS: { [K in Command]: Handler } = {
 	async new(words, json) {
-		const [only] = words;
-		if (words.length !== 1 || only === undefined)
-			return fail(usage('epicenter new needs one name'), json);
-		return newCommand(only, json);
+		const [name, ...rest] = words;
+		const fromAt = rest.findIndex(
+			(word) => word === '--from' || word.startsWith('--from='),
+		);
+		const fromWord = fromAt < 0 ? undefined : rest[fromAt];
+		const from =
+			fromWord === undefined
+				? undefined
+				: fromWord.startsWith('--from=')
+					? fromWord.slice('--from='.length)
+					: rest[fromAt + 1];
+		const used = fromAt < 0 ? 0 : fromWord === '--from' ? 2 : 1;
+		if (
+			name === undefined ||
+			name.startsWith('-') ||
+			rest.length !== used ||
+			(fromAt >= 0 && !from)
+		)
+			return fail(
+				usage(
+					'epicenter new needs one name, and maybe --from <git url|path>',
+					COMMANDS.new,
+				),
+				json,
+			);
+		return newCommand(name, from, json);
 	},
+	update: updateCommand,
 	async link(words, json) {
 		const [folder, name] = words;
 		if (words.length > 2 || folder === undefined)
@@ -71,17 +113,6 @@ const HANDLERS: { [K in Command]: Handler } = {
 				json,
 			);
 		return linkCommand(folder, name, json);
-	},
-	async install(words, json) {
-		const [source, name] = words;
-		if (words.length > 2 || source === undefined)
-			return fail(
-				usage(
-					'epicenter install needs a source (a path or Git URL) and maybe a name, or an installed app',
-				),
-				json,
-			);
-		return installCommand(source, name, json);
 	},
 	sync: syncCommand,
 	async serve(words, json) {
@@ -117,21 +148,29 @@ const HANDLERS: { [K in Command]: Handler } = {
 
 /**
  * The action's input, checked against its fields: from `--input <json>`, one
- * JSON object as MCP and scripts pass it, or else from flags and positionals.
+ * JSON object as MCP and scripts pass it (`-` reads it from stdin), or else
+ * from flags and positionals. `--input` stands alone: the object holds every
+ * field, positional ones included (ADR-0867).
  */
-function inputOf(action: Action, rest: string[]) {
-	if (rest[0] !== '--input') {
+async function inputOf(action: Action, rest: string[]) {
+	const end = rest.indexOf('--');
+	const at = rest.indexOf('--input');
+	if (at < 0 || (end >= 0 && at > end)) {
 		const parsed = inputFromArgs(action, rest);
 		if ('error' in parsed) return parsed;
 		return checkInput(action, parsed.input, (key) =>
 			action.positional?.includes(key) ? `<${key}>` : `--${flagOf(key)}`,
 		);
 	}
-	if (rest.length !== 2)
-		return { error: '--input takes one JSON object and nothing else' };
+	const given = rest[at + 1];
+	if (rest.length !== 2 || given === undefined)
+		return {
+			error:
+				'--input takes the whole input as one JSON object, with nothing beside it; put positional fields in the object',
+		};
 	let raw: unknown;
 	try {
-		raw = JSON.parse(rest[1] as string);
+		raw = JSON.parse(given === '-' ? await Bun.stdin.text() : given);
 	} catch {
 		return { error: '--input is not JSON' };
 	}
@@ -187,7 +226,7 @@ export async function runCli(argv: string[]): Promise<number> {
 		if (Object.hasOwn(HANDLERS, name)) {
 			const command = name as keyof typeof HANDLERS;
 			if (help) {
-				print(COMMANDS[command]);
+				print(`${COMMANDS[command]}\n${COMMAND_HELP[command]}`);
 				return 0;
 			}
 			return HANDLERS[command](words, json);
@@ -219,7 +258,9 @@ export async function runCli(argv: string[]): Promise<number> {
 					message: `Unknown action ${words.join(' ')}.\n${Object.entries(
 						located.actions,
 					)
-						.map(([key, action]) => usageLine(name, key, action))
+						.map(([key, action]) =>
+							usageLine(name, key, action, { short: true }),
+						)
 						.join('\n')}`,
 					next: `epicenter ${name}`,
 				}).error,
@@ -234,7 +275,7 @@ export async function runCli(argv: string[]): Promise<number> {
 			return 0;
 		}
 		const next = `epicenter ${name} ${matched.key} --help`;
-		const given = inputOf(action, matched.rest);
+		const given = await inputOf(action, matched.rest);
 		if ('error' in given)
 			return fail(CliError.Usage({ message: given.error, next }).error, json);
 		return presentAnswer(

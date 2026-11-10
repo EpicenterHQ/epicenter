@@ -205,19 +205,19 @@ export default defineApp(declaration, { actions: { hello: { description: 'Say he
 test('F9 one table owns the vocabulary; --json goes anywhere; defaulted fields are not required', async () => {
 	const f = await setup();
 	await notes(f);
-	for (const word of ['update', 'open', 'types', 'setup', 'help']) {
+	for (const word of ['install', 'open', 'types', 'setup', 'help']) {
 		const result = await f.json(word);
 		expect(result.code).toBe(2);
 		expect(result.report.error.message).toContain(`Unknown app "${word}"`);
 	}
-	for (const word of ['new', 'install', 'link', 'sync', 'serve'])
+	for (const word of ['new', 'update', 'link', 'sync', 'serve'])
 		expect((await f.json('new', word)).code).toBe(2);
 	const help = (await f.run('--help')).stdout;
 	expect(help).toContain('epicenter sync [<app>]');
 	expect(help).toContain(
-		'Exit codes: 0 done, 1 the action threw or an app did not sync, 2 did not run.',
+		'Exit codes: 0 done, 1 threw or an app did not sync, 2 did not run, 3 ran but not committed.',
 	);
-	for (const gone of ['update', 'epicenter types', 'setup', 'epicenter help'])
+	for (const gone of ['install', 'epicenter types', 'setup', 'epicenter help'])
 		expect(help).not.toContain(gone);
 
 	const leading = await f.run('--json', 'notes', 'two', 'Ada');
@@ -237,7 +237,7 @@ test('F9 one table owns the vocabulary; --json goes anywhere; defaulted fields a
 	const ran = await f.json('notes', 'defaulted');
 	expect(ran.report.returned).toEqual({ count: 3 });
 	expect((await f.run('notes', 'defaulted', '--help')).stdout).toContain(
-		'--count: number, default 3',
+		'--count <number>  default 3.',
 	);
 });
 
@@ -275,7 +275,7 @@ test("F12 field.date() carries format: 'date', and the CLI reads the format", as
 		format: 'date',
 	});
 	expect((await f.run('reading', 'between', '-h')).stdout).toContain(
-		'--from (<from>): date, required',
+		'<from>, --from <date>  required.',
 	);
 	const bad = await f.json('reading', 'between', '2026-13-45', '2026-11-08');
 	expect(bad.code).toBe(2);

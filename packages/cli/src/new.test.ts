@@ -15,7 +15,7 @@ test('new refuses duplicate names without regard to case and reserved words', as
 	const f = await fixture();
 	roots.push(f.root);
 	await mkdir(join(f.home, 'Reading'));
-	for (const name of ['reading', 'serve', 'install', 'link', 'Bad_Name']) {
+	for (const name of ['reading', 'serve', 'update', 'link', 'Bad_Name']) {
 		const result = await f.run('new', name, '--json');
 		expect(result.code).toBe(2);
 		expect(JSON.parse(result.stdout).error.name).toBe('Usage');

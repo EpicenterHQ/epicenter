@@ -23,8 +23,14 @@ export type Answer =
 	/** Nothing ran: the words, the input, or the app was wrong. */
 	| { error: { name: string; message: string; next?: string } };
 
-/** 0: it returned. 1: it threw, or ended without an answer. 2: it did not run. */
-export function exitCodeOf(answer: Answer): 0 | 1 | 2 {
+/**
+ * 0: it returned, and its writes are committed or there were none. 1: it
+ * threw, or ended without an answer. 2: it did not run. 3: it returned, and
+ * its writes are not committed, so running it again would repeat them
+ * (ADR-0867).
+ */
+export function exitCodeOf(answer: Answer): 0 | 1 | 2 | 3 {
 	if ('error' in answer) return 2;
-	return 'threw' in answer ? 1 : 0;
+	if ('threw' in answer) return 1;
+	return answer.uncommitted ? 3 : 0;
 }
