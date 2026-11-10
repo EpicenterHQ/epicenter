@@ -54,7 +54,7 @@ async function setup() {
 }
 
 function mcp(base: string, method: string, params: object = {}) {
-	return fetch(`${base}/mcp`, {
+	return fetch(`${base}/`, {
 		method: 'POST',
 		headers: {
 			'content-type': 'application/json',
@@ -103,7 +103,7 @@ export default defineApp({}, { actions: { run: { description: 'Run', input: {}, 
 test('the browser client calls a tool without initialize and a write makes one named commit', async () => {
 	const f = await setup();
 	const folder = await f.folder(join(f.home, 'reading'), readingApp);
-	const client = connect('reading', { url: `${f.base}/mcp` });
+	const client = connect('reading', { url: `${f.base}/` });
 	expect(
 		await client.call<{ minutes: number; book: null }>('log', { minutes: 30 }),
 	).toEqual({ minutes: 30, book: null });
@@ -119,7 +119,7 @@ test('the browser client calls a tool without initialize and a write makes one n
 test('read-only and thrown actions make no commit', async () => {
 	const f = await setup();
 	const folder = await f.folder(join(f.home, 'reading'), readingApp);
-	const client = connect('reading', { url: `${f.base}/mcp` });
+	const client = connect('reading', { url: `${f.base}/` });
 	expect(await client.call<number>('week show')).toBe(210);
 	expect(await gitIn(folder, 'rev-list', '--count', 'HEAD')).toBe('1');
 	await expect(client.call('explode')).rejects.toThrow(
@@ -131,7 +131,7 @@ test('read-only and thrown actions make no commit', async () => {
 test('concurrent writes run one at a time and make one commit each', async () => {
 	const f = await setup();
 	const folder = await f.folder(join(f.home, 'reading'), readingApp);
-	const client = connect('reading', { url: `${f.base}/mcp` });
+	const client = connect('reading', { url: `${f.base}/` });
 	await Promise.all([
 		client.call('log', { minutes: 10 }),
 		client.call('log', { minutes: 20 }),
@@ -152,7 +152,7 @@ test('a successful write pushes to an upstream in the background', async () => {
 	await gitIn(f.root, 'init', '--bare', '-q', remote);
 	await gitIn(folder, 'remote', 'add', 'origin', remote);
 	await gitIn(folder, 'push', '-q', '-u', 'origin', 'HEAD');
-	await connect('reading', { url: `${f.base}/mcp` }).call('log', {
+	await connect('reading', { url: `${f.base}/` }).call('log', {
 		minutes: 42,
 	});
 	let subject = '';
@@ -174,7 +174,7 @@ test('commit subjects use the first positional value on one line, capped at 60 c
 	} });`,
 	);
 	const text = `Fear is the mind-killer ${'x'.repeat(80)}\nsecond line`;
-	await connect('notes', { url: `${f.base}/mcp` }).call('add', { text });
+	await connect('notes', { url: `${f.base}/` }).call('add', { text });
 	expect(await gitIn(folder, 'log', '-1', '--format=%B')).toBe(
 		`notes: add ${text.replace(/\s+/g, ' ').slice(0, 60)}`,
 	);
@@ -231,14 +231,34 @@ test('views serve files and refuse traversal and symlinks outside views', async 
 	expect((await fetch(`${f.base}/linked/`)).status).toBe(404);
 });
 
-test('mismatched Origin is forbidden and GET /mcp is not allowed', async () => {
+test('/.client.js is connect() as plain JavaScript, and other dot paths are not apps', async () => {
 	const f = await setup();
-	expect((await fetch(`${f.base}/mcp`, { method: 'GET' })).status).toBe(405);
-	expect((await fetch(`${f.base}/mcp`, { method: 'DELETE' })).status).toBe(405);
+	const script = await fetch(`${f.base}/.client.js`);
+	expect(script.status).toBe(200);
+	expect(script.headers.get('content-type')).toBe(
+		'text/javascript; charset=utf-8',
+	);
+	const text = await script.text();
+	expect(text).toContain('export function connect(');
+	expect(text).not.toContain(': string');
+	expect((await fetch(`${f.base}/.well-known/x`)).status).toBe(404);
+});
+
+test('mismatched Origin is forbidden, and / refuses an event stream and other methods', async () => {
+	const f = await setup();
+	expect(
+		(
+			await fetch(`${f.base}/`, {
+				headers: { accept: 'text/event-stream' },
+			})
+		).status,
+	).toBe(405);
+	expect((await fetch(`${f.base}/`, { method: 'DELETE' })).status).toBe(405);
+	expect((await fetch(`${f.base}/mcp`)).status).toBe(404);
 	expect((await mcp(f.base, 'tools/list', {})).status).toBe(200);
 	expect(
 		(
-			await fetch(`${f.base}/mcp`, {
+			await fetch(`${f.base}/`, {
 				method: 'POST',
 				headers: {
 					origin: f.base,
@@ -251,7 +271,7 @@ test('mismatched Origin is forbidden and GET /mcp is not allowed', async () => {
 	).toBe(200);
 	expect(
 		(
-			await fetch(`${f.base}/mcp`, {
+			await fetch(`${f.base}/`, {
 				method: 'POST',
 				headers: { origin: 'http://evil.example' },
 			})

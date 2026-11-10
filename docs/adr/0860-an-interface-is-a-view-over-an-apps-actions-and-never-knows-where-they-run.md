@@ -2,8 +2,8 @@
 
 - **Status:** Proposed
 - **Date:** 2026-11-09
-- **Relates:** [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) (your server, and reach from vendors' clouds), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (programs that have the folder or ask), [ADR-0853](0853-collections-give-four-actions-and-programs-without-the-folder-ask-over-mcp.md) (MCP, the view client), [ADR-0857](0857-an-app-declares-itself-in-epicenter-json-and-its-code-in-epicenter-ts.md) (actions in `epicenter.ts`), [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (one copy, and `serve` at `/<app>/` and `/mcp`).
-- **Unbuilt:** `epicenter serve` serving `view/` at `/<app>/` and MCP at `/mcp` over HTTPS. Built: the view client `connect` (`packages/app/src/client.ts`), Capture's view in `apps/capture/`, and `epicenter install`, which builds a view into the app's `view/`.
+- **Relates:** [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) (your server, and reach from vendors' clouds), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (programs that have the folder or ask), [ADR-0853](0853-collections-give-four-actions-and-programs-without-the-folder-ask-over-mcp.md) (MCP, the view client), [ADR-0857](0857-an-app-declares-itself-in-epicenter-json-and-its-code-in-epicenter-ts.md) (actions in `epicenter.ts`), [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (one copy, and `serve` at `/<app>/` and `/`).
+- **Unbuilt:** HTTPS for `epicenter serve`. Built: `epicenter serve` serving `view/` at `/<app>/`, MCP at `/`, and `connect` as plain JavaScript at `/.client.js` (`packages/cli/src/http.ts`); the view client `connect` (`packages/app/src/client.ts`), Capture's view in `apps/capture/`, and `epicenter install`, which builds a view into the app's `view/`.
 
 ## Context
 
@@ -11,7 +11,7 @@ The author wants interfaces made for one app (a list of captures, a Vocab
 practice card) as well as Claude and the terminal, without a second system
 beside actions. The Vocab in this repository is local-first: its own store,
 sign-in, model picker, tutor chat, and dictation, most of which Claude already
-has. `epicenter serve` holds the one copy of each app and answers MCP at `/mcp`
+has. `epicenter serve` holds the one copy of each app and answers MCP at `/`
 (ADR-0864), so any page that can reach that address can ask for the app's
 actions as an agent does.
 
@@ -20,9 +20,14 @@ actions as an agent does.
 **An app's interfaces are views, and a view is a web client of its app's
 actions.** A view is static files with hash routes (`#/c/<id>`) in the app's
 `view/`, and `epicenter serve` serves them at `/<app>/` on the same origin as
-`/mcp`. It reads and changes the app only by calling the app's actions through
-`connect('<app>')` (ADR-0853). The server routes nothing and runs nothing for
-a view.
+MCP at `/`. It reads and changes the app only by calling the app's actions
+through `connect('<app>')` (ADR-0853). The server routes nothing and runs
+nothing for a view.
+
+**A view needs no build step.** `epicenter serve` offers `connect` as plain
+JavaScript at `/.client.js`, so a committed `view/index.html` that imports it
+is a whole view. A view big enough to want components is built from source,
+as Capture's is, and calls the same `connect` from `@epicenter/app/client`.
 
 ```txt
 ~/Epicenter/capture/
@@ -68,8 +73,8 @@ default, not a requirement.
 **A view never knows where actions run.** It calls an action by its words, and
 `epicenter serve` runs it: a collection's four with no code, or the
 `epicenter.ts` of a repository the server's operator trusts (ADR-0864). A view
-served from somewhere other than the server passes the server's `/mcp` address
-to `connect`.
+served from somewhere other than the server passes the server's address to
+`connect`.
 
 ## Consequences
 

@@ -26,10 +26,10 @@ the recorded source. The source can be any folder or repository, so an app
 made outside this monorepo installs the same way. `HOME` decides `~`, so a
 test installs into a temporary folder.
 
-`epicenter serve` serves an app's `view/` at `/<app>/` and MCP at `/mcp`. A
+`epicenter serve` serves an app's `view/` at `/<app>/` and MCP at `/`. A
 view asks for everything through `connect('<app>')` from
 `@epicenter/app/client`, and keeps nothing of its own. In development,
-`bun run dev` in an app's folder proxies `/mcp` to a running
+`bun run dev` in an app's folder sends a POST to `/` (MCP) to a running
 `epicenter serve` (`EPICENTER_URL`, default `http://127.0.0.1:4747`).
 
 A view is a static SvelteKit build with hash routes (`#/c/<id>`), so the

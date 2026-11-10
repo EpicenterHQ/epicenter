@@ -66,15 +66,16 @@ A name of more than one word is camelCase in code and kebab-case elsewhere
 (`summarizeWeek`, `summarize-week`; ADR-0857). Inside `run`, the same four are
 `collections.<name>.list`, `.get`, `.set`, `.delete`, bound to the run's folder.
 
-**`epicenter serve` speaks MCP,** over HTTPS at `/mcp` (MCP's Streamable HTTP
+**`epicenter serve` speaks MCP,** over HTTPS at `/` (MCP's Streamable HTTP
 transport), or over stdio with `epicenter serve --stdio`. Each action is one
 MCP tool (`vocab_words_set`) whose `inputSchema` comes from its fields and
 whose `annotations` are its own. There is no file API and no data API beside
-the actions. Beside MCP, `serve` answers only its own sign-in and each app's
-`view/` as static files at `/<app>/` (ADR-0864).
+the actions. Beside MCP, `serve` answers only its own paths, which start with
+`.` (the view client at `/.client.js`, and sign-in), and each app's `view/` as
+static files at `/<app>/` (ADR-0864).
 
 **A view asks through `connect` in `@epicenter/app/client`,** which posts
-MCP's `tools/call` to the same origin's `/mcp` and names the action by its
+MCP's `tools/call` to the same origin's `/` and names the action by its
 words (ADR-0860):
 
 ```ts
@@ -157,4 +158,4 @@ device and are never actions.
 - **A view's client with the transport passed in: `postMessage` through a host
   that shows the view, MCP over HTTP, or stdio.** A view is a page at
   `/<app>/` on the server's own origin (ADR-0864), so one transport, `fetch` to
-  `/mcp`, is all it needs.
+  `/`, is all it needs.

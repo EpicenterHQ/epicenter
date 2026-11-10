@@ -8,7 +8,7 @@ description: Make or change an app that lives in ~/Epicenter, from its source in
 An app is a Git repository of files in `~/Epicenter/<app>` (ADR-0864). Its
 source lives in this monorepo at `apps/<app>/` (or in a repository of its
 own), and `bun epicenter install apps/<app>` puts it there. `epicenter serve` offers its
-actions over MCP at `/mcp` and its view at `/<app>/`. Read
+actions over MCP at `/` and its view at `/<app>/`. Read
 `apps/README.md`, `packages/app/README.md`, and one existing app before
 starting; `apps/tasks` is the smallest whole example.
 

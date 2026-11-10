@@ -1,12 +1,32 @@
-/** HTTP MCP and static app views for `epicenter serve` (ADR-0864). */
+/**
+ * `epicenter serve` over HTTP (ADR-0864): one address for people and agents.
+ *
+ * ```txt
+ * POST /             MCP, stateless JSON
+ * GET  /             the launcher; 405 when asked for an event stream (MCP)
+ * GET  /.client.js   connect(), for a view with no build step
+ * GET  /<app>/...    the app's view/ as static files
+ * GET  /<app>        308 to /<app>/
+ * ```
+ *
+ * The server's own paths start with `.`, which no app name can, so no name is
+ * reserved for the server.
+ */
 import { realpath, stat } from 'node:fs/promises';
 import { isAbsolute, join, sep } from 'node:path';
 import { isName } from '@epicenter/app';
+// @ts-expect-error TypeScript types the module; Bun imports its source as text.
+import clientSource from '@epicenter/app/client' with { type: 'text' };
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { git, gitMessage } from './git.ts';
 import { homeEntries, readDeclaration } from './home.ts';
 import { callTool, createMcpServer, listTools } from './mcp.ts';
 import { writeErr } from './output.ts';
+
+/** `connect()` as plain JavaScript, served at `/.client.js`. */
+const clientScript = new Bun.Transpiler({ loader: 'ts' }).transformSync(
+	clientSource,
+);
 
 /** An app's background push: the one running, and whether another is wanted after it. */
 type Push = { running?: Promise<void>; again: boolean };
@@ -160,23 +180,31 @@ export function startHttpServer(host: string, port: number) {
 					return new Response('Forbidden', { status: 403 });
 			}
 			const { pathname } = new URL(request.url);
-			if (pathname === '/mcp') {
-				if (request.method !== 'POST')
-					return new Response('Method not allowed', { status: 405 });
-				const server = createMcpServer(listTools, call);
-				const transport = new WebStandardStreamableHTTPServerTransport({
-					enableJsonResponse: true,
-				});
-				try {
-					await server.connect(transport);
-					return await transport.handleRequest(request);
-				} finally {
-					await server.close();
-				}
-			}
-			if (request.method !== 'GET' && request.method !== 'HEAD')
-				return notFound();
 			if (pathname === '/') {
+				if (request.method === 'POST') {
+					const server = createMcpServer(listTools, call);
+					const transport = new WebStandardStreamableHTTPServerTransport({
+						enableJsonResponse: true,
+					});
+					try {
+						await server.connect(transport);
+						return await transport.handleRequest(request);
+					} finally {
+						await server.close();
+					}
+				}
+				// MCP's GET for a server-sent stream: stateless, so there is none.
+				const wantsStream = request.headers
+					.get('accept')
+					?.includes('text/event-stream');
+				if (
+					(request.method !== 'GET' && request.method !== 'HEAD') ||
+					wantsStream
+				)
+					return new Response('Method not allowed', {
+						status: 405,
+						headers: { allow: 'GET, HEAD, POST' },
+					});
 				const apps = await Promise.all(
 					(await homeEntries()).map(async (entry) => {
 						if (!(await viewFile(entry.entry, 'index.html')).ok)
@@ -200,6 +228,15 @@ export function startHttpServer(host: string, port: number) {
 					},
 				);
 			}
+			if (request.method !== 'GET' && request.method !== 'HEAD')
+				return notFound();
+			if (pathname === '/.client.js')
+				return new Response(clientScript, {
+					headers: {
+						'content-type': 'text/javascript; charset=utf-8',
+						'cache-control': 'no-cache',
+					},
+				});
 			const match = /^\/([^/]+)(?:\/(.*))?$/.exec(pathname);
 			if (!match) return notFound();
 			const app = match[1];

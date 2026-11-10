@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-11-10
 - **Relates:** [ADR-0840](0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md) (one person's software), [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) (your server), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (who commits), [ADR-0851](0851-an-app-with-history-has-one-git-remote-its-meeting-point-and-backup.md) (the remote), [ADR-0853](0853-collections-give-four-actions-and-programs-without-the-folder-ask-over-mcp.md) (the four verbs, MCP), [ADR-0857](0857-an-app-declares-itself-in-epicenter-json-and-its-code-in-epicenter-ts.md) (`epicenter.json`, `epicenter.ts`), [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (views), [ADR-0861](0861-whats-yours-is-everywhere-and-everything-else-is-used-where-it-is.md), [ADR-0862](0862-notes-merge-field-by-field-and-every-conflict-is-listed-for-repair.md) (the merge).
-- **Unbuilt:** HTTPS and sign-in for `epicenter serve`, the typed client `open()`, the list of trusted repositories, Whispering's Git sync, and the `push-to-checkout` hook. Built: each collection's `list`, `get`, `set`, and `delete` from the command line and over MCP (`packages/app/src/collection.ts`); `epicenter serve` over HTTP, serving MCP at `/mcp` and views at `/<app>/`, with one commit per successful write and a background push to its upstream (`packages/cli/src/http.ts`).
+- **Unbuilt:** HTTPS and sign-in for `epicenter serve`, the typed client `open()`, the list of trusted repositories, Whispering's Git sync, and the `push-to-checkout` hook. Built: each collection's `list`, `get`, `set`, and `delete` from the command line and over MCP (`packages/app/src/collection.ts`); `epicenter serve` over HTTP, serving MCP at `/` and views at `/<app>/`, with one commit per successful write and a background push to its upstream (`packages/cli/src/http.ts`).
 
 ## Context
 
@@ -68,10 +68,13 @@ must go on offline keeps a copy and syncs it with Git.**
   pushes to the mirror. Nothing runs on a timer.
 - Who may ask is `epicenter serve`'s sign-in; who may pull and push is SSH's
   `authorized_keys`.
-- `epicenter serve` serves an app's `view/` at `/<app>/` and MCP at `/mcp`,
-  one origin, so a view asks with no sign-in of its own beyond the server's. A
+- `epicenter serve` serves an app's `view/` at `/<app>/` and MCP at `/`, one
+  origin and one address for people and agents, so a view asks with no sign-in
+  of its own beyond the server's. A `GET /` from a browser is the launcher. A
   view is static files with hash routes (`#/c/<id>`); the server routes
-  nothing.
+  nothing. The server's own paths start with `.` (`/.client.js`, and
+  `/.well-known/` for sign-in), which no app name can, so no app name is
+  reserved for it.
 
 **3. Code runs where its owner trusts it.** `epicenter serve` runs the
 `epicenter.ts` of each repository its operator trusts, and offers its actions as

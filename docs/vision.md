@@ -39,7 +39,7 @@ each app, and every client asks it ([ADR-0864]).
 | Way in | What it is | Who uses it |
 | --- | --- | --- |
 | `epicenter <app> <collection> <verb>` | the command, opening the folder directly | you, agents with a shell |
-| `epicenter serve` | MCP over HTTPS at `/mcp`, and each app's `view/` at `/<app>/` | Claude, ChatGPT, any agent; views in a browser |
+| `epicenter serve` | MCP over HTTPS at `/`, the launcher there for a browser, and each app's `view/` at `/<app>/` | Claude, ChatGPT, any agent; views in a browser |
 | Git over SSH | `studio:Epicenter/whispering` as a copy's remote | a program that keeps a copy: Whispering |
 
 Capture, Vocab, agents, and views keep nothing on a device and always see the
@@ -198,7 +198,7 @@ except your agents' permission rules.
 
 An app's interfaces are views ([ADR-0860]): a web page in the app's `view/`,
 built from source and served at `/<app>/`, that reads and changes the app only
-by calling its actions over MCP at `/mcp`. A view never knows where the actions
+by calling its actions over MCP at `/`. A view never knows where the actions
 run, works in any browser that reaches your server, and keeps nothing of its
 own.
 
