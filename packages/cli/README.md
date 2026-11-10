@@ -51,7 +51,7 @@ A run changes files and commits nothing ([ADR-0850](../../docs/adr/0850-an-actio
 
 - A call: the command line after a write run it ran itself, and `serve` after each write call, commit exactly the paths the run wrote that changed. One `git status` of those paths, each given literally, drops what is unchanged, ignored, or created and then deleted; `git add -A` and `git commit` of what is left leave every other pending or staged change as it was. The subject is the call, or `<call> (threw)`, with no body.
 - An agent that edits an app's files itself: `epicenter sync <app> -m "<what it did>"` snapshots what is pending as `<app>: <what it did>` and backs it up. A plain `git commit` in the app's folder works too.
-- Anything else, such as an editor: `epicenter sync`, the first step of `epicenter undo`, and `serve`'s clock snapshot what is pending as `<app>: changed outside epicenter`.
+- Anything else, such as an editor: `epicenter sync`, the first step of `epicenter undo` and of `epicenter update`, and `serve`'s clock snapshot what is pending as `<app>: changed outside epicenter`.
 
 A snapshot with no call runs `git add -A` and `git commit` from the app's folder with the pathspec `.`, so it takes everything changed in the folder that Git does not ignore, staged or not, and nothing outside it. Its message is the subject alone; `epicenter history` reads its paths from Git. An app inside a larger repository commits into that repository and leaves the rest of it alone.
 

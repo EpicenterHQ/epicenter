@@ -7,8 +7,8 @@
  * line commits after a write run it ran itself, and `serve` after each write
  * call. A snapshot with no call commits everything pending in the folder:
  * `epicenter sync` before it pushes (with `--message`, for an agent naming
- * its own edits), `epicenter undo` before it reverts, and `serve`'s backup
- * clock.
+ * its own edits), `epicenter undo` before it reverts, `epicenter update`
+ * before it merges, and `serve`'s backup clock.
  */
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
