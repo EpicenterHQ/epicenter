@@ -209,16 +209,21 @@ export function collectionActions(
 	const keyOf = (input: Record<string, unknown>) =>
 		keyName ? { [keyName]: input[keyName] as string } : {};
 
-	// Every field is optional to `set`, which merges, and `null` removes it; a default would overwrite the file's value, so it applies only to a new file.
+	// Every field is optional to `set`, which merges. `null` removes a field a file may go without, and only those: a required one has no null to take. A default would overwrite the file's value, so it applies only to a new file.
+	const required = new Set(
+		(collection.fields as { required?: string[] }).required ?? [],
+	);
 	const setInput: Input = { ...keyInput };
 	for (const [key, property] of Object.entries(properties)) {
 		const { default: _, ...rest } = property;
 		setInput[key] = Type.Optional(
-			Type.Union([rest as TSchema, Type.Null()], {
-				description: rest.description
-					? `${rest.description}; null removes it`
-					: 'null removes it',
-			}),
+			required.has(key)
+				? (rest as TSchema)
+				: Type.Union([rest as TSchema, Type.Null()], {
+						description: rest.description
+							? `${rest.description}; null removes it`
+							: 'null removes it',
+					}),
 		);
 	}
 	setInput.body = Type.Optional(
@@ -242,7 +247,7 @@ export function collectionActions(
 	};
 
 	const set: Action = {
-		description: `Change the fields given in one ${name} file, keeping the rest and the body; a field given as null is removed; makes the file when there is none`,
+		description: `Change the fields given in one ${name} file, keeping the rest and the body; a field that may be absent is removed when given as null; makes the file when there is none`,
 		input: setInput,
 		positional,
 		annotations: { idempotentHint: true, openWorldHint: false },

@@ -109,6 +109,11 @@ export function inputFromArgs(
 		(key) => [key, action.input[key] as TSchema] as const,
 	);
 	const repeated = (key: string) => `--${flagOf(key)} was given more than once`;
+	// `null` for a field that does not take it (one `set` may not remove) is refused, not read as the text "null".
+	const noNull = (flag: string, kind: string) =>
+		kind === 'switch'
+			? `${flag} does not take null: give ${flag}, or ${flag}=false`
+			: `${flag} does not take null. For the text "null", give it in --input`;
 	function put(
 		key: string,
 		schema: TSchema,
@@ -174,6 +179,15 @@ export function inputFromArgs(
 				input[field.key] = value === 'null' ? null : value === 'true';
 				continue;
 			}
+			// A switch reads a following `null` the way every other field does.
+			if (kind === 'switch' && tokens[index + 1] === 'null') {
+				if (!takesNull(field.schema)) return { error: noNull(flag, kind) };
+				if (Object.hasOwn(input, field.key))
+					return { error: repeated(field.key) };
+				input[field.key] = null;
+				index++;
+				continue;
+			}
 			let raw: string | true = true;
 			if (kind !== 'switch') {
 				const next = tokens[index + 1];
@@ -189,6 +203,8 @@ export function inputFromArgs(
 					index++;
 				}
 			}
+			if (raw === 'null' && !takesNull(field.schema))
+				return { error: noNull(flag, kind) };
 			const error = put(field.key, field.schema, raw);
 			if (error) return { error };
 		} else {

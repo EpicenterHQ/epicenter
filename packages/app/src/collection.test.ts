@@ -101,6 +101,19 @@ describe('a Markdown collection', () => {
 		);
 	});
 
+	test('set takes null only for a field a file may go without', () => {
+		const input = items['items set']?.input as Record<
+			string,
+			{ type?: string; anyOf?: { type?: string }[] }
+		>;
+		const takesNull = (key: string) =>
+			input[key]?.anyOf?.some((choice) => choice.type === 'null') ?? false;
+		expect(takesNull('url')).toBe(true);
+		expect(takesNull('done')).toBe(true);
+		expect(takesNull('kind')).toBe(false);
+		expect(takesNull('added')).toBe(false);
+	});
+
 	test('set rewrites YAML front matter as key: <JSON> lines and keeps the body', async () => {
 		const context = createMemoryContext({
 			'items/a.md':
