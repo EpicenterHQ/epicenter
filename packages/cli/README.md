@@ -69,7 +69,7 @@ An action that returns nothing answers `{ "returned": null }`. An action that th
 
 ## Syncing
 
-`epicenter sync [<app>]` commits what is left, pulls from `origin`, and pushes to it ([ADR-0851](../../docs/adr/0851-an-app-with-history-has-one-git-remote-its-meeting-point-and-backup.md)). For each app in the Epicenter, or the one named, one after another, from its folder:
+`epicenter sync [<app>]` commits what is left, pulls from `origin`, and pushes to it ([ADR-0851](../../docs/adr/0851-an-app-has-one-home-and-an-optional-push-only-backup.md)). For each app in the Epicenter, or the one named, one after another, from its folder:
 
 1. `git add -A -- .`, and when anything changed, a commit `sync: <app> (<n> files)` of the folder only, with the same LFS check as a write's commit.
 2. When the app has an `origin`: `git fetch origin`, a rebase onto `origin`'s copy of the branch when there is one (with `--autostash`), then `git push origin HEAD:<branch>`. An app without `origin` is committed and not pushed. Nothing goes to `upstream`, the starter an app came from, or to whatever the branch tracks.

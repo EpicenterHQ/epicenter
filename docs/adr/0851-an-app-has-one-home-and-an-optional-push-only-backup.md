@@ -1,0 +1,85 @@
+# 0851. An app has one home and an optional push-only backup
+
+- **Status:** Proposed
+- **Date:** 2026-11-08 (revised 2026-11-11: one home replaces copies meeting at `origin`)
+- **Supersedes:** [ADR-0862](0862-notes-merge-field-by-field-and-every-conflict-is-listed-for-repair.md): one home makes merging notes between computers unnecessary.
+- **Amends:** [ADR-0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md) at `epicenter sync`: it snapshots pending changes and pushes, without pulling or rebasing.
+- **Relates:** [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) (reaching the home), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (snapshots), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (`origin`), [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (one copy).
+- **Unbuilt:** The one-home sync behavior, refused-push status, and access to home actions from other devices. Built: the current `epicenter sync` (`packages/cli/src/sync.ts`), which still needs to change.
+
+## Context
+
+Earlier designs let two computers edit copies of one app when they could not
+reach each other. Each copy pulled from a meeting point and merged changes.
+That design required network fetches, could change files under an open editor,
+and needed a way to merge notes. An Epicenter now lives on one home computer.
+Other devices reach its apps through actions. The home keeps Git history as
+snapshots of pending changes; runs do not commit (ADR-0850).
+
+## Decision
+
+**An Epicenter lives on one home computer.** Its app folders and their Git
+history live there. A phone, browser, agent, another computer, or a program
+such as Whispering on another device calls the home's actions to read or
+change them. A program on the home may write the folder directly.
+
+Each app's optional `origin` is a backup that the home pushes to. It can be
+GitHub, GitLab, another Git host, SSH, or a disk. Normal use never pulls from
+it. An app without a remote still runs and keeps local snapshots.
+
+`epicenter sync [<app>]` snapshots pending changes, then pushes to `origin`
+with `git push origin HEAD:<branch>` when the app has that remote. It does not
+fetch, pull, rebase, or autostash, and it never force pushes. `epicenter serve`
+also pushes after a snapshot. `epicenter update` still fetches `upstream`, the
+starter; `upstream` is separate from the backup and receives no pushes.
+
+If the backup has commits the home lacks, a non-fast-forward push leaves the
+backup untouched and the home's snapshot intact. The app's status says that
+the backup at `origin` has changes this computer does not and was not
+overwritten. It gives a next step: fetch
+and inspect those commits, for example with `git -C <app> fetch origin` and
+`git -C <app> log HEAD..origin/<branch>`. A background push from `serve`
+reports the same failure and logs it on stderr. A snapshot failure is also
+reported in status.
+
+To restore an app, clone its backup onto a computer and make that computer
+the home. A program on another device sends its data to the home through an
+action; this path for Whispering is not built yet. Binary files the app tracks
+use Git LFS. Epicenter adds no encryption; anyone with access to the backup
+can read its history.
+
+## Consequences
+
+- The home owns the only working copy used in normal operation. A refused
+  push does not merge remote commits into that copy or overwrite the backup.
+- A remote is optional. Without one, `sync` makes a local snapshot and status
+  may say there is no backup.
+- A device that cannot reach the home cannot change its apps through actions.
+  A possible later offline outbox would queue action calls and replay them
+  when the home is reachable.
+
+## Considered alternatives
+
+- **A Git remote where copies meet.** The earlier design gave the server's
+  app a GitHub backup and let a program such as Whispering keep a copy whose
+  `origin` pointed to the server over SSH. `sync` committed pending changes,
+  pulled with `--rebase --autostash` on the copy, and pushed. A
+  `push-to-checkout` hook updated the server's working tree. That served
+  editing one Epicenter on two computers that could not reach each other.
+  One home removes that need and avoids unattended changes to its working
+  tree. The proposed field merge in ADR-0862 is unnecessary for the same
+  reason.
+- **Pull before every run.** A remote fetch delays each action and can merge
+  into the folder a person is editing on the home.
+- **GitHub as a meeting point that the home pulls from.** A timer or webhook
+  would delay when the home sees a push, and the home would merge unattended.
+- **Cloudflare Artifacts as every copy's meeting point.** That needs a copy
+  on every device.
+- **An end-to-end encrypted remote.** It needs key management or re-uploads
+  history, and it rules out hosted runs.
+- **Push after every commit the runner makes.** Runs no longer commit; a
+  slow push also should not delay an action's answer.
+- **Git and editors without `epicenter sync`.** The home needs one command
+  to snapshot edits made outside an action and push the backup.
+- **`sync` as an MCP tool.** `serve` snapshots and pushes after writes, while
+  the terminal command handles pending edits made directly in the folder.

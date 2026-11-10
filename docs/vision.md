@@ -20,7 +20,7 @@ which is mostly the earlier product described at the end.
 
 1. **What's yours is everywhere.** What you and your agents make is files in an
    app's folder on your server, the one copy, and every device reaches it
-   there. `*.local` and `.cache/` stay where they are.
+   there. `*.local` and `.cache/` stay on the home.
 2. **Everything else is used where it is.** A sign-in, a machine's hardware, a
    service that exists on one machine. An action runs where what it uses is.
 3. **Everything you see or ask is an interface to actions.** The terminal and
@@ -40,11 +40,10 @@ each app, and every client asks it ([ADR-0864]).
 | --- | --- | --- |
 | `epicenter <app> <action>` | the command, opening the folder directly | you, agents with a shell |
 | `epicenter serve` | MCP over HTTPS at `/`, the launcher there for a browser, and each app's UI at `/<app>/` | Claude, ChatGPT, any agent; UIs in a browser |
-| Git over SSH | `studio:Epicenter/whispering` as a copy's remote | a program that keeps a copy: Whispering |
 
-Capture, Vocab, agents, and UIs keep nothing on a device and always see the
-current files. Whispering keeps a copy on each Mac it runs on, because it must
-record with no network, and pushes to your server when it can. `epicenter serve`
+Capture, Vocab, agents, and UIs keep nothing on a device and see the current
+files when they reach the home. Whispering on another device sends recordings
+to the home through an action when it can reach it. `epicenter serve`
 runs the `epicenter.ts` of each app you trust, and Epicenter holds no
 third-party credentials: Mail's Google sign-in is in the Keychain of the
 computer that runs Mail's actions.
@@ -75,11 +74,11 @@ made from one once it moves to a repository of its own.
   code.
 - **A capture from the phone.** You open Capture's UI in your phone's browser,
   served by your server at `/capture/`, and save a quote. The UI asks
-  `capture_add` over MCP; your server writes `captures/<time>.md` and commits it.
-- **A recording on a plane.** Whispering records, transcribes, and pastes, with no
-  network and no `epicenter`. It writes each recording into its copy of
-  `~/Epicenter/whispering` and commits it; when the laptop is back online,
-  Whispering pushes to your server.
+  `capture_add` over MCP; your server writes `captures/<time>.md` and snapshots it.
+- **A recording on a plane.** Whispering on the home laptop records,
+  transcribes, and pastes with no network. It writes each recording into
+  `~/Epicenter/whispering`. Whispering on another device sends recordings to
+  the home through an action when it can reach it.
 - **Adding to someone else's folder.** You ask an agent for a weekly summary of
   your voice notes. It writes an `epicenter.ts` in Whispering's folder with a
   `summaries` collection and a `summarize-week` action that reads the
@@ -98,11 +97,10 @@ made from one once it moves to a repository of its own.
 | `epicenter` | the program that runs an action in a folder, and `epicenter serve`, which offers every app over MCP |
 | a device program | an app's own program, when it needs the device: Whispering |
 | your server | the computer that runs `epicenter serve`, from a terminal or as the Epicenter Mac app ([ADR-0865]); it holds the one copy of each app and runs its actions, and every device reaches it while it is on |
-| Git | history, `origin` (your server's GitHub backup, or your server for a copy), LFS for binaries |
+| Git | snapshots on the home, optional `origin` backup, `upstream` for a starter, LFS for binaries |
 
-Everything else is a program that either has the folder or asks for actions:
-your editor and Claude Code on your server, and Whispering with its copy, have
-it; Claude Desktop, claude.ai, ChatGPT, and a UI in a browser ask.
+Programs on the home, including your editor and Claude Code, have the folder.
+Programs on other devices ask for actions.
 
 ## An app
 
@@ -162,19 +160,18 @@ starter that changes a field owns the change to files already written.
 
 ## How a write happens
 
-**If you have the folder, write the files and commit them when you know what the
-change was.** That is true for you in your editor, for Claude Code on your
-server, and for Whispering.
+**If you have the folder, write the files directly.** The home snapshots pending
+changes into Git history. That is true for you in your editor, for Claude Code
+on the home, and for Whispering there.
 
 **If you do not, or the write needs a sign-in or an app's rule, ask for an
 action.** That is true for Claude Desktop, an agent on another computer,
 claude.ai, ChatGPT, and a UI.
 
-**A write is one commit, named for the call** (`tasks: add Call the bank`),
-however it arrives, and `epicenter serve` pushes it to the app's GitHub
-backup. Writes to one app take turns, so two at once never lose a change. Exit codes
-tell an agent what happened: 0 returned, 1 threw, 2 did not run, 3 returned but
-not committed ([ADR-0867]).
+**History is snapshots of pending changes, named for the calls known to the
+home.** A run does not commit. `epicenter serve` snapshots after a write and
+pushes to the app's optional backup. A snapshot failure leaves the changes
+pending and appears in the app's status.
 
 ## Where code runs, and how to reach it
 
@@ -190,7 +187,7 @@ epicenter serve, through Tailscale Funnel    claude.ai and ChatGPT, signed in wi
 ```
 
 A command always means the computer it is typed on. `serve` speaks MCP and
-serves UIs, and runs each call in a fresh process, so code you just pulled is
+serves UIs, and runs each call in a fresh process, so code you just changed is
 what runs. Adding claude.ai or ChatGPT as a connector opens a page on your
 server where you approve it with a passkey, and the client receives a token you
 can revoke. Nothing guards your sign-ins from another program running as you
@@ -208,20 +205,18 @@ own.
 | --- | --- | --- |
 | 1 | the terminal, Claude, Claude Code, ChatGPT | you want to see or tap, not type |
 | 2 | a UI, in a browser | it needs the device in a way a browser does not give |
-| 3 | a program of its own with a copy, such as Whispering | never |
+| 3 | a program of its own, such as Whispering | never |
 
 ## How data moves
 
-Your server's copy is the one copy. Each app with history pushes to one Git
-remote, `origin`: on your server, the app's GitHub repository, its backup; for
-a program's copy on another Mac, your server over SSH. An app made from a
-starter also has `upstream`, which only `epicenter update` reads, and nothing
-pushes to. `epicenter serve` pushes each write to `origin`; `epicenter sync`
-commits what is left and pushes; on a copy it pulls with `--rebase` first.
-Nothing runs on a timer. A push from a copy lands in your server's working tree unless it
-touches a file with uncommitted changes there. Binary files a folder tracks go
-through Git LFS: text is history, binaries are content. `.cache/` and sign-ins
-never leave a computer.
+The home holds each app's only working copy. Other devices call its actions.
+The home keeps snapshots in Git. `epicenter sync` snapshots pending changes
+and pushes to the optional `origin` backup, without pulling or rebasing. A
+refused push leaves the backup untouched and appears in the app's status
+([ADR-0851]). `epicenter serve` also pushes after snapshots. An app made from
+a starter has `upstream`, which only `epicenter update` fetches; nothing pushes
+to it. Binary files a folder tracks go through Git LFS: text is history,
+binaries are content. `.cache/` and sign-ins stay on the home.
 
 ## One ladder
 
@@ -230,7 +225,7 @@ Every app climbs the same ladder, and each rung is optional.
 | Rung | You add | Every app gains |
 | --- | --- | --- |
 | 1. Files | nothing | any program reads and writes it |
-| 2. History | Git, `git-lfs`, an `origin` | backup and history |
+| 2. History | Git, `git-lfs`, optional `origin` | local snapshots, optional backup |
 | 3. Actions | `epicenter` | its actions in the terminal and for Claude Code |
 | 4. Everywhere | `epicenter serve` on your server | every device, claude.ai, and ChatGPT reach it; its UIs open in a browser |
 
@@ -249,7 +244,7 @@ on your server; its files reach every rung.
 | Describe a field | JSON Schema | never |
 | Change data | edit a file | it needs a rule, a sign-in, or reach |
 | An action | a collection's verbs | it needs logic |
-| Record what ran | its own files, and a commit by whoever knows the intent | never |
+| Record what ran | snapshots named for the calls known to the home | never |
 | Share data between programs | the folder | never |
 | Move data | Git | never |
 | Big files | `.gitattributes` | never |
@@ -264,10 +259,9 @@ Epicenter holding third-party credentials, a folder kept in a browser, a
 browser that runs actions, and running other people's code in isolates or
 Durable Objects.
 
-**Later, each when something needs it:** the field merge, if Whispering's
-conflicts prove frequent;
-reminders as an ordinary app; a hosted Epicenter, for people who cannot keep a
-computer on; moving the vault into `~/Epicenter`, and its history into LFS.
+**Later, each when something needs it:** reminders as an ordinary app; a
+hosted Epicenter, for people who cannot keep a computer on; moving the vault
+into `~/Epicenter`, and its history into LFS.
 
 ## What came before
 
@@ -286,6 +280,7 @@ fields are written one `key: <JSON>` line each.
 [ADR-0839]: adr/0839-a-save-is-one-numbered-write-a-reset-deletes-nothing-and-epicenter-owns-the-pages-every-app-links-to.md
 [ADR-0840]: adr/0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md
 [ADR-0849]: adr/0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md
+[ADR-0851]: adr/0851-an-app-has-one-home-and-an-optional-push-only-backup.md
 [ADR-0857]: adr/0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md
 [ADR-0860]: adr/0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md
 [ADR-0861]: adr/0861-whats-yours-is-everywhere-and-everything-else-is-used-where-it-is.md

@@ -1,8 +1,9 @@
 # 0862. Notes merge field by field, and every conflict is listed for repair
 
-- **Status:** Proposed
+- **Status:** Superseded
 - **Date:** 2026-11-09
-- **Relates:** [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (who commits), [ADR-0851](0851-an-app-with-history-has-one-git-remote-its-meeting-point-and-backup.md) (`sync`, edited), [ADR-0856](0856-binary-files-go-through-git-lfs.md) (binary files), [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (only Whispering keeps a copy, and its conflicts use Git's line merge first).
+- **Superseded by:** [ADR-0851](0851-an-app-has-one-home-and-an-optional-push-only-backup.md): its one home makes merging notes between computers unnecessary.
+- **Relates:** [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (snapshots), [ADR-0856](0856-binary-files-go-through-git-lfs.md) (binary files), [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (one copy).
 - **Unbuilt:** the merge function and its Git driver, conflicted copies, and the problems list's files, values, conflicts, and missing sign-ins. Built: the `key: <JSON>` writer in a collection's `set` (`packages/app/src/collection.ts`).
 
 ## Context
@@ -18,6 +19,8 @@ handed it both sides' commits: `HEAD` for the remote's, and
 note's fields one `key: <JSON>` per line in the folder sync product.
 
 ## Decision
+
+The following design was superseded. It does not govern `sync` or note writes.
 
 **The field merge waits until conflicts prove frequent.** Only a program's copy
 on another Mac, Whispering's, ever merges (ADR-0864). Until its conflicts prove
