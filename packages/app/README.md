@@ -2,95 +2,137 @@
 
 What an app's `epicenter.ts` imports
 ([ADR-0841](../../docs/adr/0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md),
-[ADR-0857](../../docs/adr/0857-an-app-declares-itself-in-epicenter-json-and-its-code-in-epicenter-ts.md)).
-An app is a folder. Its `epicenter.json` says what the app is and what its
-files are; its `epicenter.ts`, if present, default-exports
-`defineApp(declaration, { actions })`, and the `epicenter`
-command turns each action into a command for the person and an MCP tool for
-their agent.
-
-```json
-{
-  "$schema": "https://epicenter.so/epicenter.schema.json",
-  "description": "How much I read each week"
-}
-```
+[ADR-0857](../../docs/adr/0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md)).
+An app is a folder whose `epicenter.ts` default-exports `defineApp(...)`. The
+`epicenter` command turns each of its actions into a command for the person
+and an MCP tool for their agent, and its UI calls the same actions.
 
 ```ts
 // <Epicenter>/reading/epicenter.ts
-import declaration from './epicenter.json';
-import { defineApp, field } from '@epicenter/app';
+import { defineAction, defineApp, defineCollection, field, folder } from '@epicenter/app';
 
-export default defineApp(declaration, {
-  actions: {
-    log: {
-      description: 'Record minutes read today',
-      input: { minutes: field.number(), book: field.text({ optional: true }) },
-      positional: ['minutes'],
-      annotations: { destructiveHint: false },
-      run: async ({ minutes, book }, { folder }) => {
-        const before = (await folder.read('2026.csv')) ?? 'minutes,book\n';
-        await folder.write('2026.csv', `${before}${minutes},${book ?? ''}\n`);
-        return { minutes };
-      },
-    },
+const books = defineCollection({
+  path: 'books/{slug}.md',
+  description: 'book I am reading',
+  fields: { title: field.text(), finished: field.date({ optional: true }) },
+});
+
+const log = defineAction({
+  description: 'Record minutes read today',
+  input: { minutes: field.number(), book: field.text({ optional: true }) },
+  positional: ['minutes'],
+  annotations: { destructiveHint: false },
+  run: async ({ minutes, book }) => {
+    const before = (await folder.read('2026.csv')) ?? 'minutes,book\n';
+    await folder.write('2026.csv', `${before}${minutes},${book ?? ''}\n`);
+    return { minutes };
   },
+});
+
+export default defineApp({
+  description: 'How much I read each week',
+  collections: { books },
+  actions: { books: books.actions(), log },
 });
 ```
 
-`epicenter reading log 30 --book Dune` runs it. The `epicenter` command
-supplies `@epicenter/app` when it loads `epicenter.ts`, so the folder needs a
-`package.json` only for its own dependencies and for types in an editor.
+`epicenter reading log 30 --book Dune` runs `log`;
+`epicenter reading books set books/dune.md --finished 2026-11-10` runs a verb
+the collection gives. The `epicenter` command supplies `@epicenter/app` when it
+loads `epicenter.ts`, so the folder needs a `package.json` only for its own
+dependencies and for types in an editor. An app's name is its folder's.
 
-## The declaration
+## Three values, composed
 
-`epicenter.json` is `{ $schema, description, collections? }`. An app's name
-is its folder's: `<Epicenter>/reading` is `reading`, whatever the file says.
-`DeclarationSchema` is its TypeBox schema, the check `epicenter` runs on
-loading and the source of `epicenter.schema.json` (`bun run schema` rewrites
-it). A collection is `{ path, fields }`: a path with at most one placeholder,
-such as `words/{stem}.md`, and the JSON Schema of each file's fields. Each
-collection gives the actions `list`, `get`, `set`, `edit`, and `delete` with no
-code (`get`, `set`, and `edit` alone for a path with no placeholder); see
-`collection.ts`. `set` merges the fields given and gives a body only to a new
-file; `edit` replaces one passage of an existing body, quoted exactly as `get`
-returned it and refused unless it appears once (an empty `old` fills an empty
-body). The quote is its own check: a passage someone changed since it was read
-is never overwritten, so no revision is needed. Two callers setting the same
-field from stale screens: the last write wins.
-An app with one collection has those verbs as its own (`tasks set`); with
-several, each keeps its collection's name (`mail messages list`), so adding a
-second collection renames the first's actions.
+`defineCollection`, `defineAction`, and `defineApp` each check what they are
+given and throw, one problem a line, when it is wrong in a way the types
+cannot say. `epicenter` lists an app whose `epicenter.ts` throws while loading
+with those lines as its problems, and does not run it.
 
-Every collection is declared in `epicenter.json`; `epicenter.ts` holds
-actions and nothing else of the app's shape, so a program, a screen, or an
-agent reads every shape without loading code. Two collections with one path
-is a problem. An action in `epicenter.ts` named like one a collection gives
-(`set`, or `words set` beside other collections) replaces it, so an app can
-add its own rules to a write.
+- `defineCollection` returns what it was given, plus methods an action calls
+  (`books.get(path)`) and `actions()`, which gives its verbs to expose.
+- `defineAction` returns the action as a function of its input, carrying its
+  description, input, `positional`, and `annotations`. It exists to type
+  `run`'s input from `input`: an action written inline in `defineApp` would
+  have an untyped input.
+- `defineApp` returns what it was given. Each collection's name is its key in
+  `collections`; each action's words are its keys in `actions`, so
+  `{ books: books.actions(), log }` gives `books list` through `books delete`
+  and `log`. `app.actions.books.add(...)` in code, `epicenter reading books add`
+  on the command line, and `reading_books_add` over MCP are one action.
 
-The file on disk is the declaration: `epicenter` reads the description
-and collections from `epicenter.json`, never from `defineApp`'s first
-argument. The argument, imported from `./epicenter.json`, is taken now so that
-collection handles in `run` can be typed from it when they arrive, without
-changing any app.
+An app with one collection usually spreads its verbs at the top, so they are
+the app's own: `actions: { ...tasks.actions(), add }` reads `epicenter tasks
+add`, not `epicenter tasks tasks add`. An app with several collections nests
+each under its name, as `reading` does.
+
+A later key replaces an earlier one, as in any object:
+`{ ...words.actions(), add: learn }` gives every verb with `add` replaced.
+Name verbs to give fewer: `settings.actions('get', 'set')`. An action is a
+function, so `{ ...learn, description: 'x' }` drops its call; `defineApp`
+refuses it and says to use `defineAction`.
+
+## Collections
+
+A collection is a typed set of Markdown files. Its `path` is a template that
+says which files belong, a record's address, and where `add` writes:
+
+| `path` | Files | `add` takes |
+| --- | --- | --- |
+| `words/{word}.md` | every `.md` file in `words/` | `word` |
+| `captures/{time}.md` | the same, named by the time | nothing; `{time}` is made |
+| `notes/{year}/{time}.md` | one folder per year | `year` |
+| `settings.md` | that one file | (no `add`) |
+| `['entries/{time}.md', 'entries/archive/{slug}.md']` | both places | what the first takes |
+
+A placeholder matches one path segment, and two in one segment are refused.
+A record's address is its path inside the app: `words/你好.md`.
+
+Each file's fields are its front matter, as `key: <JSON>` lines, and its body
+is the text after it. YAML front matter is read too, and rewritten as
+`key: <JSON>` lines on the first write that changes a field; a file whose front
+matter is neither is all body and never rewritten.
+
+| Verb | Many files | One file |
+| --- | --- | --- |
+| `list` | every file's path and fields | |
+| `get` | one file's fields and body | its fields and body, or its defaults while there is none |
+| `add` | makes a file; refused when one is at its path | |
+| `set` | changes the fields given; `null` removes an optional one | the same, making the file when there is none |
+| `edit` | replaces one passage of the body, quoted exactly as `get` returned it | the same |
+| `delete` | deletes the file; `true` when there was one | |
+
+`edit`'s quote is its own check: a passage someone changed since it was read
+is never overwritten, and the refusal is `{ name: 'Changed' }`. Two callers
+setting the same field from stale screens: the last write wins.
+
+A field marked `readOnly` is written only by the app's own actions, through
+the collection's methods; the exposed `add` and `set` leave it out, and
+refuse it from a caller. Vocab's schedule fields are `readOnly`, so only
+`review` changes them.
+
+A collection's methods read and write the folder of the run they are called
+in, so an action reaches them however deep its code goes. Outside a run they
+throw, so loading an app never touches its files. `words.holds(path)` says
+whether a path is one of its files; `words.misfits()`, inside a run, lists
+each file whose fields no longer fit, as `epicenter update` reports them.
 
 ## Fields
 
 | Field | Value | On the command line |
 | --- | --- | --- |
 | `field.text()` | `string` | `--name <text>` |
-| `field.number()` | `number` | `--name <number>` |
+| `field.number({ min })`, `field.integer({ min })` | `number` | `--name <number>` |
 | `field.date()` | `string`, `2026-11-08` | `--name <day>` |
+| `field.datetime()` | `string`, RFC 3339 | `--name <date and time>` |
 | `field.select(['a', 'b'])` | `'a' \| 'b'` | `--name a` |
 | `field.boolean()` | `boolean`, `false` unless given | `--name`, `--name=false` |
 | `field.tags()` | `string[]`, empty unless given | `--name a --name b` |
 
 Each field is JSON Schema, so any TypeBox schema works as a field too. A field
-is required unless it says `optional: true`. `writeOnly: true` is JSON
-Schema's keyword and means only what JSON Schema says; nothing in `epicenter`
-reads it. `run`'s input is typed from the fields, and its return value stays
-typed for whatever calls the action.
+is required unless it says `optional: true`; `readOnly: true` is described
+above. A field may not be named `json`, `help`, or `input`, which `epicenter`
+reads itself.
 
 An action's `positional` lists, in order, the fields the command line also
 reads by position: `positional: ['from', 'to']` reads
@@ -99,18 +141,21 @@ and takes every word left. Flags always work.
 
 An action's `annotations` are MCP's tool annotations, verbatim:
 `readOnlyHint`, `destructiveHint`, `idempotentHint`, and `openWorldHint`, with
-MCP's defaults (`ANNOTATION_DEFAULTS`). An action that does not say otherwise
-reads as one that may destroy.
+MCP's defaults. An action that does not say otherwise reads as one that may
+destroy.
 
-## Context
+## Runs
 
-`run` receives its input and a context, `{ folder, secrets }`
-([ADR-0854](../../docs/adr/0854-an-apps-cache-is-the-files-it-gitignores.md)):
+Whatever runs an action opens a run with the app's folder and secrets:
+`inRun({ folder, secrets }, () => action(input))`. For its length, the app's
+collections, `folder`, and `secrets` reach them; an action that calls another
+stays in the same run
+([ADR-0854](../../docs/adr/0854-an-apps-cache-is-the-files-it-gitignores.md)).
 
-| Store | Holds | Methods |
+| Import | Holds | Methods |
 | --- | --- | --- |
 | `folder` | the app's data, in its folder | `read`, `readBytes`, `write`, `writeBytes`, `list`, `delete`; `path` on a computer |
-| `secrets` | sign-ins, in this computer's Keychain | `get`, `set`, `delete`; only on a computer |
+| `secrets` | sign-ins, on this computer | `get`, `set`, `delete`; only on a computer |
 
 A write that returns is one commit, named for the call, and writes to one
 app take turns
@@ -119,31 +164,38 @@ The `epicenter` command makes that commit; an action never commits.
 
 `folder` is a convenience, not a sandbox: an action may also write through
 `folder.path` with `node:fs`. What the app can rebuild lives in files it
-gitignores inside its folder, such as `.cache/`, which the template ignores;
-they are written like any file and never committed. A database is a file
-there, opened through `folder.path`.
-
-Paths are relative to the folder with `/` between parts. `read` gives
-`undefined` for a missing file. The `epicenter` command supplies the context on
-a computer; this package has no Node or Bun runtime code, so a page can import
-an app's types.
+gitignores inside its folder, such as `.cache/`; they are never committed.
+Paths are relative to the folder with `/` between parts, and `read` gives
+`undefined` for a missing file.
 
 ## Testing an action
 
 ```ts
-import { createMemoryContext } from '@epicenter/app';
+import { createMemoryContext, inRun } from '@epicenter/app';
 import reading from './epicenter.ts';
 
 const context = createMemoryContext({ '2026.csv': 'minutes,book\n' });
-await reading.actions.log.run({ minutes: 30 }, context);
+await inRun(context, () => reading.actions.log({ minutes: 30 }));
 expect(await context.folder.read('2026.csv')).toBe('minutes,book\n30,\n');
 ```
 
 The memory context has no Git, so a test checks the files an action wrote.
 
-`problemsOf(declaration, code)` lists what is wrong with an app as the
-`epicenter` command would: a declaration that fails the schema, two
-collections with one path, a collection whose path is not `.md` or
-whose field is named like its placeholder or `body`, an action whose words
-start another's, a positional that is not one of the action's fields, an annotation MCP does not
-define, a field named `json`, `help`, or `input`.
+## A UI
+
+An app's UI calls its actions through `epicenter serve`, under the same words,
+typed by the app. It imports the app as a type, so its bundle carries no app
+code:
+
+```ts
+import { connect } from '@epicenter/app/client';
+import type reading from '../../epicenter.ts';
+
+const app = connect<typeof reading>('reading');
+const books = await app.books.list();
+await app.books.set({ path: books[0].path, finished: '2026-11-10' });
+```
+
+A call resolves to what the action returned, and rejects with an
+`ActionError` when it threw or did not run; `changedElsewhere(error)` says an
+`edit` was refused because its passage changed.

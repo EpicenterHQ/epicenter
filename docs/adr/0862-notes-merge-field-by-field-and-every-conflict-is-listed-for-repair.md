@@ -63,7 +63,7 @@ in each repository before it pulls.
 the other keeps the edited file. A binary file
 changed on both sides keeps both: the remote's at its path and this computer's
 beside it as `<name> (conflict <computer> <date>).<ext>`. Any other text file,
-`epicenter.json` and `epicenter.ts` among them, gets Git's text merge, which can
+`epicenter.ts` among them, gets Git's text merge, which can
 stop `sync` for a person or an agent to resolve. A computer without the driver,
 such as one with only Whispering, uses Git's text merge.
 

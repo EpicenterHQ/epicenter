@@ -2,8 +2,8 @@
 
 - **Status:** Proposed
 - **Date:** 2026-11-10
-- **Relates:** [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (one copy; the install rules this replaces), [ADR-0851](0851-an-app-with-history-has-one-git-remote-its-meeting-point-and-backup.md) (`origin`), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (`new`, `link`), [ADR-0854](0854-an-apps-cache-is-the-files-it-gitignores.md) (`.cache/`), [ADR-0857](0857-an-app-declares-itself-in-epicenter-json-and-its-code-in-epicenter-ts.md) (the declaration), [ADR-0858](0858-where-a-file-lives-decides-whether-it-travels-survives-or-dies-with-its-program.md) (`*.local`), [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (the UI).
-- **Unbuilt:** starters in repositories of their own: Capture, Tasks, and Vocab have the layout in `apps/<app>/`, and move out once `@epicenter/app` and `@epicenter/ui` are published.
+- **Relates:** [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (one copy; the install rules this replaces), [ADR-0851](0851-an-app-with-history-has-one-git-remote-its-meeting-point-and-backup.md) (`origin`), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (`new`, `link`), [ADR-0854](0854-an-apps-cache-is-the-files-it-gitignores.md) (`.cache/`), [ADR-0857](0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md) (`epicenter.ts`), [ADR-0858](0858-where-a-file-lives-decides-whether-it-travels-survives-or-dies-with-its-program.md) (`*.local`), [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (the UI).
+- **Unbuilt:** starters in repositories of their own: Capture, Tasks, and Vocab have the layout in `apps/<app>/`, and move out once `@epicenter/app` and `@epicenter/ui` are published. Refusing a collection path under `ui/` or named `epicenter.*`: a path part that starts with `.`, as `.cache/` does, is refused already.
 
 ## Context
 
@@ -24,8 +24,7 @@ someone else's changes with one's own: a fork and its upstream.
 
 ```txt
 ~/Epicenter/vocab/
-  epicenter.json   the declaration: what the files are        from upstream; yours to extend
-  epicenter.ts     actions                                     from upstream; yours to change
+  epicenter.ts     the app: its collections and actions       from upstream; yours to change
   package.json     what the actions' types and tests need      from upstream
   ui/              the UI's source, a project of its own       from upstream; yours to change
   README.md        what the app is, for people and agents      from upstream
@@ -59,8 +58,8 @@ with an `upstream` and no uncommitted changes, it:
 1. runs `git fetch upstream` and merges `upstream`'s branch; on a conflict it
    aborts the merge, leaves the app as it was, and prints
    `git -C ~/Epicenter/vocab merge upstream/main` for whoever resolves it;
-2. checks every file of every collection against the declaration and lists
-   each file that does not fit it;
+2. checks every file of every collection against the collection's fields and
+   lists each file that does not fit them;
 3. builds the UI, keeping the last `.cache/ui/` that built if this build
    fails. The build installs from the starter's committed `ui/bun.lock`, or
    writes no lockfile when it has none, so it never leaves the app with
@@ -73,7 +72,7 @@ The merge commit records what came in; nothing writes trailers.
 change made in an app reaches its starter as any fork's does: a cherry-pick or
 a pull request in the starter's repository.
 
-**The declaration is the contract between a starter and the data.** A starter
+**The collections are the contract between a starter and the data.** A starter
 that renames or tightens a field owns the change to existing files: the check
 after `update` lists them, and an agent on the computer repairs them, or the
 starter ships an action that does. Git merges code; it does not migrate data.

@@ -2,8 +2,8 @@
 
 - **Status:** Proposed
 - **Date:** 2026-11-09
-- **Relates:** [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) (your server, and reach from vendors' clouds), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (programs that have the folder or ask), [ADR-0853](0853-collections-give-five-actions-and-programs-without-the-folder-ask-over-mcp.md) (MCP, the view client), [ADR-0857](0857-an-app-declares-itself-in-epicenter-json-and-its-code-in-epicenter-ts.md) (actions in `epicenter.ts`), [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (one copy, and `serve` at `/<app>/` and `/`).
-- **Unbuilt:** HTTPS for `epicenter serve`. Built: `epicenter serve` serving the view at `/<app>/` and MCP at `/` (`packages/cli/src/http.ts`); the view client `connect` (`packages/app/src/client.ts`), Capture's view in `apps/capture/`, and `epicenter install`, which builds a view into the app's `.cache/view/`. Unbuilt: the view's source as the app's `ui/`, built into `.cache/ui/` (ADR-0866).
+- **Relates:** [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) (your server, and reach from vendors' clouds), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (programs that have the folder or ask), [ADR-0853](0853-collections-give-five-actions-and-programs-without-the-folder-ask-over-mcp.md) (MCP, the view client), [ADR-0857](0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md) (`epicenter.ts`, and the client typed by it), [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (one copy, and `serve` at `/<app>/` and `/`).
+- **Unbuilt:** HTTPS for `epicenter serve`. Built: `epicenter serve` serving the view at `/<app>/` and MCP at `/` (`packages/cli/src/http.ts`); the view client `connect`, typed by the app (`packages/app/src/client.ts`); Capture's, Tasks', and Vocab's views in `apps/<app>/ui/`, which `epicenter new --from`, `update`, and `build` build into `.cache/ui/` (ADR-0866).
 
 ## Context
 
@@ -21,16 +21,15 @@ actions as an agent does.
 actions.** A view is static files with hash routes (`#/c/<id>`) built into the
 app's `.cache/ui/`, and `epicenter serve` serves them at `/<app>/` on the same origin as
 MCP at `/`. It reads and changes the app only by calling the app's actions
-through `connect('<app>')` (ADR-0853). The server routes nothing and runs
+through `connect<typeof app>('<app>')` (ADR-0853). The server routes nothing and runs
 nothing for a view.
 
 ```txt
 ~/Epicenter/capture/
-  epicenter.json
-  epicenter.ts
+  epicenter.ts        its collections and actions
   ui/                 the view's source: SvelteKit, Svelte 5, and @epicenter/ui
   .cache/ui/          the built view, served at /capture/, ignored by Git
-  captures/<id>.md
+  captures/<time>.md
 ```
 
 **A built view is never committed to the app.** The app's `ui/` is the view's
@@ -61,7 +60,7 @@ SvelteKit with Epicenter's components is the default, not a requirement.
 | 3 | a program of its own with a copy of the folder (Whispering), which writes files and commits | never |
 
 **A view never knows where actions run.** It calls an action by its words, and
-`epicenter serve` runs it: a collection's four with no code, or the
+`epicenter serve` runs it: a collection's verb or a written action, from the
 `epicenter.ts` of a repository the server's operator trusts (ADR-0864). A view
 served from somewhere other than the server passes the server's address to
 `connect`.

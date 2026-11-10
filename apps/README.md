@@ -13,8 +13,7 @@ Each folder is laid out as the app is:
 
 ```txt
 apps/vocab/
-  epicenter.json        the declaration: its collections
-  epicenter.ts          its actions beyond each collection's five
+  epicenter.ts          the app: its collections and actions, composed by defineApp
   epicenter.test.ts     the actions' tests, in memory
   package.json          what the actions' types and tests need
   ui/                   the UI, a SvelteKit project of its own
@@ -32,8 +31,9 @@ repository of its own, which waits on publishing `@epicenter/app` and
 the app's root `package.json` is only for whoever edits the actions. `ui/`
 has its own `package.json`, whose `build` writes `../.cache/ui/`.
 `epicenter serve` serves `.cache/ui/` at `/<app>/`, and MCP at `/`. A UI asks
-for everything through `connect('<app>')` from `@epicenter/app/client`, and
-keeps nothing of its own.
+for everything through `connect<typeof app>('<app>')` from
+`@epicenter/app/client`, typed by the app it imports as a type, and keeps
+nothing of its own.
 
 A UI is a static SvelteKit build with hash routes (`#/c/<id>`), so the server
 serves files and routes nothing. Its base is `/<the app's folder name>`, the

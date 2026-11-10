@@ -96,7 +96,7 @@ A folder syncs only with an Epicenter server, which can read its files in plaint
 | [Local Books](apps/local-books) | Runs, separately | Headless CLI mirror that pulls QuickBooks into local SQLite. |
 | [API](apps/api) | Hosted infrastructure | Personal cloud Worker. Owns sign-in, each folder's ledger, the AI gateways, hosted-only billing, and the dashboard. Self-host it on Bun with Postgres (`apps/api/server.ts`). |
 | [Whispering](apps/whispering) | Runs, development milestone | Voice recorder in a browser tab. Recordings, transcripts, and settings are files in a folder. |
-| [Capture](apps/capture), [Tasks](apps/tasks), [Vocab](apps/vocab) | Runs, on `epicenter serve` | Apps in `~/Epicenter`: collections in `epicenter.json`, actions in `epicenter.ts`, and a UI served at `/<app>/`. |
+| [Capture](apps/capture), [Tasks](apps/tasks), [Vocab](apps/vocab) | Runs, on `epicenter serve` | Apps in `~/Epicenter`: collections and actions in one `epicenter.ts`, and a UI served at `/<app>/`. |
 | Other app folders | Research and prototypes | Useful history and experiments, not the current product lineup. |
 
 ### Packages

@@ -2,8 +2,8 @@
 
 - **Status:** Proposed
 - **Date:** 2026-11-10
-- **Relates:** [ADR-0840](0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md) (one person's software), [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) (your server), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (who commits), [ADR-0851](0851-an-app-with-history-has-one-git-remote-its-meeting-point-and-backup.md) (the remote), [ADR-0853](0853-collections-give-five-actions-and-programs-without-the-folder-ask-over-mcp.md) (the four verbs, MCP), [ADR-0857](0857-an-app-declares-itself-in-epicenter-json-and-its-code-in-epicenter-ts.md) (`epicenter.json`, `epicenter.ts`), [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (views), [ADR-0861](0861-whats-yours-is-everywhere-and-everything-else-is-used-where-it-is.md), [ADR-0862](0862-notes-merge-field-by-field-and-every-conflict-is-listed-for-repair.md) (the merge).
-- **Unbuilt:** HTTPS and sign-in for `epicenter serve`, the typed client `open()`, Whispering's Git sync, and the `push-to-checkout` hook. Built: each collection's `list`, `get`, `set`, and `delete` from the command line and over MCP (`packages/app/src/collection.ts`); `epicenter serve` over HTTP, serving MCP at `/` and views at `/<app>/`, with one commit per successful write and a background push to its upstream (`packages/cli/src/http.ts`).
+- **Relates:** [ADR-0840](0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md) (one person's software), [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) (your server), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (who commits), [ADR-0851](0851-an-app-with-history-has-one-git-remote-its-meeting-point-and-backup.md) (the remote), [ADR-0853](0853-collections-give-five-actions-and-programs-without-the-folder-ask-over-mcp.md) (the collection verbs, MCP), [ADR-0857](0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md) (`epicenter.ts`), [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (views), [ADR-0861](0861-whats-yours-is-everywhere-and-everything-else-is-used-where-it-is.md), [ADR-0862](0862-notes-merge-field-by-field-and-every-conflict-is-listed-for-repair.md) (the merge).
+- **Unbuilt:** HTTPS and sign-in for `epicenter serve`, the typed client `open()`, Whispering's Git sync, and the `push-to-checkout` hook. Built: each collection's `list`, `get`, `add`, `set`, `edit`, and `delete` from the command line and over MCP (`packages/app/src/collection.ts`); `epicenter serve` over HTTP, serving MCP at `/` and views at `/<app>/`, with one commit per successful write and a background push to `origin` (`packages/cli/src/http.ts`).
 
 ## Context
 
@@ -27,16 +27,16 @@ separate programs that read and write it.
 ## Decision
 
 **1. Your data is repositories of files with declared shapes.** An app is a Git
-repository, `~/Epicenter/<app>/`, whose `epicenter.json` declares its
+repository, `~/Epicenter/<app>/`, whose `epicenter.ts` defines its
 collections (ADR-0857). A collection's files are Markdown with `key: <JSON>`
 front matter. Any tool can read the files with no Epicenter running.
 
 ```txt
 ~/Epicenter/
-  capture/      epicenter.json  captures/<id>.md
-  vocab/        epicenter.json  epicenter.ts  view/  words/<word>.md
-  whispering/   epicenter.json  recordings/<id>.md  recordings/<id>.local.webm
-  mail/         epicenter.json  epicenter.ts  receipts/<id>.md
+  capture/      epicenter.ts  ui/  captures/<time>.md
+  vocab/        epicenter.ts  ui/  words/<word>.md
+  whispering/   recordings/<id>.md  recordings/<id>.local.webm
+  mail/         epicenter.ts  receipts/<id>.md
 ```
 
 **2. Epicenter opens repositories for any client, directly or as a server.
@@ -45,14 +45,14 @@ must go on offline keeps a copy and syncs it with Git.**
 
 | Way in | What it is | Who uses it |
 | --- | --- | --- |
-| `epicenter <app> <collection> <verb>` | the command, opening the folder directly | you, agents with a shell |
+| `epicenter <app> <action>` | the command, opening the folder directly | you, agents with a shell |
 | `open('~/Epicenter/vocab')` | the same, as a typed library | your scripts, tests |
-| `epicenter serve` | MCP over HTTPS: `vocab_words_list`, `capture_captures_set`, each trusted action; and `view/` as web pages | Claude, ChatGPT, any agent; views in a browser |
+| `epicenter serve` | MCP over HTTPS: `vocab_list`, `capture_set`, each trusted action; and each app's built `ui/` as web pages | Claude, ChatGPT, any agent; views in a browser |
 | Git over SSH | `studio:Epicenter/whispering` as the copy's remote | a program that keeps a copy: Whispering |
 
 - Capture, Tasks, Vocab, agents, and views keep nothing on a device and always
   see the current files. A write through `epicenter serve` is one commit, named
-  for the call (`capture: captures set dune`), and each commit is pushed to the
+  for the call (`capture: add A line from Dune`), and each commit is pushed to the
   repository's GitHub mirror, which is the backup.
 - Whispering keeps a copy on each Mac it runs on, commits what it writes, and on
   a Mac other than the Studio pulls from and pushes to the Studio over SSH when
@@ -68,7 +68,7 @@ must go on offline keeps a copy and syncs it with Git.**
   pushes to the mirror. Nothing runs on a timer.
 - Who may ask is `epicenter serve`'s sign-in; who may pull and push is SSH's
   `authorized_keys`.
-- `epicenter serve` serves an app's `view/` at `/<app>/` and MCP at `/`, one
+- `epicenter serve` serves an app's built UI, `.cache/ui/`, at `/<app>/` and MCP at `/`, one
   origin and one address for people and agents, so a view asks with no sign-in
   of its own beyond the server's. A `GET /` from a browser is the launcher. A
   view is static files with hash routes (`#/c/<id>`); the server routes

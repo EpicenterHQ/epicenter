@@ -26,8 +26,8 @@ which is mostly the earlier product described at the end.
 3. **Everything you see or ask is an interface to actions.** The terminal and
    MCP come from an app's actions; UIs and prompts are written.
 
-An app is a folder: `epicenter.json` (what its files are), `epicenter.ts` (what
-you can do), `ui/` (for people), and `prompts/` (for agents). Getting the
+An app is a folder: `epicenter.ts` (what its files are and what you can do),
+`ui/` (for people), and `prompts/` (for agents). Getting the
 folder installs it ([ADR-0861]).
 
 ## One copy, and clients that ask
@@ -38,7 +38,7 @@ each app, and every client asks it ([ADR-0864]).
 
 | Way in | What it is | Who uses it |
 | --- | --- | --- |
-| `epicenter <app> <collection> <verb>` | the command, opening the folder directly | you, agents with a shell |
+| `epicenter <app> <action>` | the command, opening the folder directly | you, agents with a shell |
 | `epicenter serve` | MCP over HTTPS at `/`, the launcher there for a browser, and each app's UI at `/<app>/` | Claude, ChatGPT, any agent; UIs in a browser |
 | Git over SSH | `studio:Epicenter/whispering` as a copy's remote | a program that keeps a copy: Whispering |
 
@@ -75,25 +75,25 @@ made from one once it moves to a repository of its own.
   code.
 - **A capture from the phone.** You open Capture's UI in your phone's browser,
   served by your server at `/capture/`, and save a quote. The UI asks
-  `capture_add` over MCP; your server writes `captures/<id>.md` and commits it.
+  `capture_add` over MCP; your server writes `captures/<time>.md` and commits it.
 - **A recording on a plane.** Whispering records, transcribes, and pastes, with no
   network and no `epicenter`. It writes each recording into its copy of
   `~/Epicenter/whispering` and commits it; when the laptop is back online,
   Whispering pushes to your server.
 - **Adding to someone else's folder.** You ask an agent for a weekly summary of
-  your voice notes. It adds a `summaries` collection to Whispering's
-  `epicenter.json` and an `epicenter.ts` with a `summarizeWeek` action. Whispering keeps writing
-  its own `epicenter.json` and never notices.
+  your voice notes. It writes an `epicenter.ts` in Whispering's folder with a
+  `summaries` collection and a `summarize-week` action that reads the
+  recordings. Whispering keeps writing its recordings and never notices.
 
 ## The pieces
 
 | Noun | What it is |
 | --- | --- |
 | the place | `~/Epicenter` on your server: a folder per app, and nothing else |
-| an app | a folder whose `epicenter.json` declares its collections; an `epicenter.ts` beside it adds actions; its name is the folder's |
-| a collection | a kind of file in the app, by path (`words/{stem}.md`) and fields; it gives `list`, `get`, `set`, and `delete` |
-| a field | JSON Schema for one value; in TypeScript, written with helpers such as `field.text()` |
-| an action | something you can ask an app to do: a collection's five, or one the author writes with a `run` function |
+| an app | a folder whose `epicenter.ts` default-exports `defineApp`: its description, collections, and actions; its name is the folder's |
+| a collection | a kind of file in the app, by a path template (`words/{word}.md`) and fields; it gives `list`, `get`, `add`, `set`, `edit`, and `delete` |
+| a field | JSON Schema for one value, written with helpers such as `field.text()` |
+| an action | something you can ask an app to do: a collection's verb, or one the author writes with `defineAction` |
 | a UI | a web page built from the app's `ui/` into `.cache/ui/`, served at `/<app>/`, that shows its data and calls its actions over MCP |
 | `epicenter` | the program that runs an action in a folder, and `epicenter serve`, which offers every app over MCP |
 | a device program | an app's own program, when it needs the device: Whispering |
@@ -111,8 +111,7 @@ An app is a Git repository of three kinds of file, each with one author
 
 ```txt
 vocab/
-  epicenter.json    the declaration: what the files are          from its starter; yours to extend
-  epicenter.ts      actions                                       from its starter; yours to change
+  epicenter.ts      the app: its collections and actions          from its starter; yours to change
   ui/               the UI's source, built into .cache/ui/        from its starter; yours to change
   README.md         what the app is, for people and agents        from its starter
   words/你好.md      data: front matter and a body                yours alone
@@ -120,56 +119,46 @@ vocab/
   .gitignore        .gitattributes too, once it holds binaries
 ```
 
-```json
-{
-  "$schema": "https://epicenter.so/epicenter.schema.json",
-  "description": "Things I mean to do",
-  "collections": {
-    "tasks": {
-      "path": "tasks/{id}.md",
-      "fields": {
-        "type": "object",
-        "properties": { "title": { "type": "string" }, "done": { "type": "boolean", "default": false } },
-        "required": ["title", "done"]
-      }
-    }
-  }
-}
-```
-
 ```ts
-import { defineApp, field, timeId } from '@epicenter/app';
-import declaration from './epicenter.json';
+import { defineAction, defineApp, defineCollection, field } from '@epicenter/app';
 
-export default defineApp(declaration, {
-  actions: {
-    add: {
-      description: 'Add a task to do',
-      input: { title: field.text({ description: 'What to do' }) },
-      positional: ['title'],
-      async run({ title }, { folder }) {
-        const id = timeId();
-        await folder.write(`tasks/${id}.md`, `---\ntitle: ${JSON.stringify(title)}\ndone: false\n---\n`);
-        return { id, title };
-      },
-    },
-  },
+const tasks = defineCollection({
+  path: 'tasks/{time}.md',
+  description: 'task',
+  fields: { title: field.text(), done: field.boolean() },
+});
+
+const add = defineAction({
+  description: 'Add a task to do',
+  input: { title: field.text({ description: 'What to do' }) },
+  positional: ['title'],
+  annotations: { destructiveHint: false },
+  run: ({ title }) => tasks.add({ title }),
+});
+
+export default defineApp({
+  description: 'Things I mean to do',
+  collections: { tasks },
+  actions: { ...tasks.actions(), add },
 });
 ```
 
-Tasks' tools are `tasks list`, `tasks get`, `tasks set`, `tasks delete` from
-`epicenter.json`, and `add` from `epicenter.ts`. On the command line an
-action's `positional` fields are read by position: `epicenter tasks add 'Call
-the bank'`. A folder with only `epicenter.json` is a whole app that cannot run
-code. `run` gets `folder` (the app's files) and `secrets` (its sign-ins), and
-`epicenter.ts` imports only `@epicenter/app`, which `epicenter` supplies when
-it runs.
+Tasks' tools are the collection's verbs, `tasks list`, `get`, `add`, `set`,
+`edit`, and `delete`, spread at the top so they are the app's own, with `add`
+replaced by the one written here. A file's address is its path:
+`epicenter tasks set tasks/2026-11-10T09-30-00-000Z-k3x9a2f8.md --done`. On
+the command line an action's `positional` fields are read by position:
+`epicenter tasks add 'Call the bank'`. An action reads and writes through its
+collections (`tasks.add`), or through the `folder` (the app's files) and
+`secrets` (its sign-ins) it imports; whatever runs it supplies both.
+`epicenter.ts` imports `@epicenter/app`, which `epicenter` supplies when it
+runs, so the folder needs no install.
 
 A starter is an app with no data: `epicenter new vocab --from <git url>` clones
 one and keeps it as the app's `upstream`, and `epicenter update` merges its
-later changes, rebuilds the UI, and lists any file that no longer fits the
-declaration. The declaration is the contract between the two: a starter that
-changes a field owns the change to files already written.
+later changes, rebuilds the UI, and lists any file that no longer fits its
+collection's fields. The collections are the contract between the two: a
+starter that changes a field owns the change to files already written.
 
 ## How a write happens
 
@@ -181,7 +170,7 @@ server, and for Whispering.
 action.** That is true for Claude Desktop, an agent on another computer,
 claude.ai, ChatGPT, and a UI.
 
-**A write is one commit, named for the call** (`capture: set dune`),
+**A write is one commit, named for the call** (`tasks: add Call the bank`),
 however it arrives, and `epicenter serve` pushes it to the app's GitHub
 backup. Writes to one app take turns, so two at once never lose a change. Exit codes
 tell an agent what happened: 0 returned, 1 threw, 2 did not run, 3 returned but
@@ -256,10 +245,10 @@ on your server; its files reach every rung.
 
 | Job | Least powerful form | Steps up only when |
 | --- | --- | --- |
-| Declare an app | `epicenter.json` | it has code: `epicenter.ts` |
+| Declare an app | collections in `epicenter.ts`, each a path and fields | it needs a rule: an action |
 | Describe a field | JSON Schema | never |
 | Change data | edit a file | it needs a rule, a sign-in, or reach |
-| An action | a collection's five | it needs logic |
+| An action | a collection's verbs | it needs logic |
 | Record what ran | its own files, and a commit by whoever knows the intent | never |
 | Share data between programs | the folder | never |
 | Move data | Git | never |
@@ -275,8 +264,8 @@ Epicenter holding third-party credentials, a folder kept in a browser, a
 browser that runs actions, and running other people's code in isolates or
 Durable Objects.
 
-**Later, each when something needs it:** `collections` in `run` and the typed
-client, with Vocab; the field merge, if Whispering's conflicts prove frequent;
+**Later, each when something needs it:** the field merge, if Whispering's
+conflicts prove frequent;
 reminders as an ordinary app; a hosted Epicenter, for people who cannot keep a
 computer on; moving the vault into `~/Epicenter`, and its history into LFS.
 
@@ -297,7 +286,7 @@ fields are written one `key: <JSON>` line each.
 [ADR-0839]: adr/0839-a-save-is-one-numbered-write-a-reset-deletes-nothing-and-epicenter-owns-the-pages-every-app-links-to.md
 [ADR-0840]: adr/0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md
 [ADR-0849]: adr/0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md
-[ADR-0857]: adr/0857-an-app-declares-itself-in-epicenter-json-and-its-code-in-epicenter-ts.md
+[ADR-0857]: adr/0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md
 [ADR-0860]: adr/0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md
 [ADR-0861]: adr/0861-whats-yours-is-everywhere-and-everything-else-is-used-where-it-is.md
 [ADR-0864]: adr/0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md

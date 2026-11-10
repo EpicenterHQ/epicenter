@@ -4,7 +4,7 @@
 - **Date:** 2026-11-07
 - **Relates:** [ADR-0840](0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md) (the direction), [ADR-0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md) (commits, exit codes, sync), [ADR-0827](0827-the-cli-and-mcp-render-one-table-of-operations.md) (one table, rendered twice).
 - **Spec:** [specs/20261107T222922-epicenter-is-where-personal-software-lives.md](../../specs/20261107T222922-epicenter-is-where-personal-software-lives.md)
-- **Amended by:** [ADR-0845](0845-an-app-declares-collections-each-a-path-and-fields-which-the-hub-views.md): `defineApp` also takes `collections`, each a path and fields. [ADR-0844](0844-one-runner-runs-anywhere-and-every-surface-is-a-view-over-it.md) at where the context comes from: each host supplies it.
+- **Amended by:** [ADR-0845](0845-an-app-declares-collections-each-a-path-and-fields-which-the-hub-views.md): `defineApp` also takes `collections`, each a path and fields. [ADR-0844](0844-one-runner-runs-anywhere-and-every-surface-is-a-view-over-it.md) at where the context comes from: each host supplies it. [ADR-0857](0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md): `defineApp` composes collections and actions defined on their own, actions nest under their words, and a run reaches `folder` and `secrets` without a context argument.
 - **Amended:** 2026-11-08, `add` takes any source (below).
 - **Unbuilt:** `epicenter add`.
 

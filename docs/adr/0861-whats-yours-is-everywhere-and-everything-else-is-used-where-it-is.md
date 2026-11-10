@@ -34,12 +34,11 @@ the Mac Studio, is always on and holds the one copy of each app (ADR-0864).
    MCP are generated from an app's actions; views (ADR-0860) and prompts are
    written.
 
-**An app is a folder of four parts, and there is one kind of folder.**
+**An app is a folder of three parts, and there is one kind of folder.**
 
 ```txt
 vocab/
-  epicenter.json    collections: what the files are, readable by any language
-  epicenter.ts      actions: what you can do
+  epicenter.ts      collections and actions: what the files are and what you can do (ADR-0857)
   ui/               for people: a web client's source, built into .cache/ui/ and served at /vocab/
   prompts/          for agents: each prompt is a Markdown file, offered as an MCP prompt
   entries/  conversations/  settings.md

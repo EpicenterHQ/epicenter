@@ -3,8 +3,8 @@
 - **Status:** Proposed
 - **Date:** 2026-11-08
 - **Amends:** [ADR-0844](0844-one-runner-runs-anywhere-and-every-surface-is-a-view-over-it.md) at Epicenter Cloud, which hosts a remote and a computer rather than being a separate product. [ADR-0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md) at `epicenter add`, which also links a folder, at `epicenter new`, which becomes `add` from a built-in template, and at the `{ from, sha }` record, which the `upstream` branch already holds.
-- **Relates:** [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) (your server), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (the commit rule), [ADR-0851](0851-an-app-with-history-has-one-git-remote-its-meeting-point-and-backup.md) (`origin`), [ADR-0853](0853-collections-give-five-actions-and-programs-without-the-folder-ask-over-mcp.md) (MCP), [ADR-0856](0856-binary-files-go-through-git-lfs.md) (binary files), [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (views), [ADR-0857](0857-an-app-declares-itself-in-epicenter-json-and-its-code-in-epicenter-ts.md) (the declaration), [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (one copy, no catalog). [docs/vision.md](../vision.md) explains the whole.
-- **Built:** `new` as the built-in template; `epicenter link <folder> [<name>]` (`packages/cli/src/new.ts`); `epicenter install` for code from a source, which replaced `add <git url>` and gives way to `new --from` and `update` (ADR-0866).
+- **Relates:** [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) (your server), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (the commit rule), [ADR-0851](0851-an-app-with-history-has-one-git-remote-its-meeting-point-and-backup.md) (`origin`), [ADR-0853](0853-collections-give-five-actions-and-programs-without-the-folder-ask-over-mcp.md) (MCP), [ADR-0856](0856-binary-files-go-through-git-lfs.md) (binary files), [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (views), [ADR-0857](0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md) (`epicenter.ts`), [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (one copy, no catalog). [docs/vision.md](../vision.md) explains the whole.
+- **Built:** `new` as the built-in template (`packages/cli/src/new.ts`); `epicenter install` for code from a source, which replaced `add <git url>` and gave way to `new --from` and `update` (ADR-0866). `epicenter link` was built and is gone (ADR-0868); a symlink in the Epicenter still joins a folder where it lives.
 
 ## Context
 
@@ -24,10 +24,10 @@ same job.
 
 | Job | Least powerful form | Steps up only when |
 | --- | --- | --- |
-| Declare an app | `epicenter.json`, data that cannot run (ADR-0857) | it has code: `epicenter.ts` |
+| Declare an app | collections in `epicenter.ts`, each a path and fields (ADR-0857) | it needs a rule: an action |
 | Describe a field | JSON Schema, an existing standard (ADR-0857) | never: no schema language of Epicenter's own |
 | Change data | edit a file and commit it | it needs a rule, a sign-in, or reach: an action |
-| An action | a collection's `list`, `get`, `set`, `delete` (ADR-0853) | it needs logic: one the author writes |
+| An action | a collection's `list`, `get`, `add`, `set`, `edit`, `delete` (ADR-0853) | it needs logic: one the author writes |
 | Record what an action did | its own files, and a commit by whoever knows the intent (ADR-0850) | never: no transactions or run log |
 | Two programs sharing data | share the folder | never: programs do not call each other |
 | Move data between computers | Git, with no merging by Epicenter (ADR-0851) | never: no sync engine |
@@ -39,18 +39,19 @@ same job.
 One step up is deliberate: your server is a computer that is always on,
 because a phone and Claude anywhere need something to answer them.
 
-**An app is a folder with a declared shape.** Its `epicenter.json` describes it
-and declares the collections programs and people write; its `epicenter.ts`, when
-present, holds its actions (ADR-0857). An app belongs to Epicenter by that
-declaration, not by its runtime: a folder with only `epicenter.json` needs no
-program at all to be an app.
+**An app is a folder with a declared shape.** Its `epicenter.ts` describes it,
+defines the collections programs and people write, and composes its actions
+(ADR-0857). An app belongs to Epicenter by that file, not by its runtime: a
+program that writes the app's files needs nothing of Epicenter's, and
+`epicenter.ts` runs only where `epicenter` does.
 
 **Code goes where what it needs is.** Code that needs the device (a microphone,
 a global shortcut, pasting into another program) lives in a program on that
 device. Code that needs the person's sign-ins, or must be reachable from
 anywhere, is an action run on your server. Every app has the same shape with
 different parts filled in: Mail has actions and no program of its own;
-Whispering has a program and, until someone adds some, no actions.
+Whispering has a program and, until someone writes its `epicenter.ts`, no
+actions.
 
 **A program has the folder or asks.** With the folder, it writes files and
 commits them when it knows the intent, or leaves them to `epicenter sync`
@@ -62,14 +63,13 @@ writes because another program is installed.
 **An app is one of yours when its folder is in `~/Epicenter`:** cloned there,
 linked there, or made there by a program or by `epicenter new`. Its name is
 its entry there. `~/Epicenter` holds nothing else of Epicenter's: no list of
-apps, no settings. `epicenter link ~/Code/vault` joins a folder where it lives,
-so its path, scripts, and remotes keep working: it checks the folder's
-`epicenter.json` and a free name, then makes the symlink, and commits and moves
-nothing. `epicenter new <name> --from <git url|path>` makes an app from a
+apps, no settings. A symlink in the Epicenter joins a folder where it lives,
+so its path, scripts, and remotes keep working; nothing is committed or moved
+(ADR-0868). `epicenter new <name> --from <git url|path>` makes an app from a
 starter, a repository with no data, and keeps it as the app's `upstream`
 remote, whose changes `epicenter update` merges (ADR-0866).
 `epicenter new <name>` alone makes the folder from a built-in template:
-`epicenter.json` with its `$schema` and a `.gitignore` with `node_modules/`,
+an `epicenter.ts` with no collections or actions yet, and a `.gitignore` with `node_modules/`,
 `.cache/`, `*.local`, and `*.local.*` (ADR-0858); it makes the folder a
 repository and commits the template. An app that comes to hold binary files
 adds its own `.gitattributes`, and Git LFS's filter is set up once per

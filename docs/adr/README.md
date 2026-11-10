@@ -1063,7 +1063,7 @@ When you add an ADR, add its row here.
 | [0853](0853-collections-give-five-actions-and-programs-without-the-folder-ask-over-mcp.md) | Collections give five actions, and programs without the folder ask over MCP | Proposed |
 | [0854](0854-an-apps-cache-is-the-files-it-gitignores.md) | An app's cache is the files it gitignores | Proposed |
 | [0856](0856-binary-files-go-through-git-lfs.md) | Binary files go through Git LFS | Proposed |
-| [0857](0857-an-app-declares-itself-in-epicenter-json-and-its-code-in-epicenter-ts.md) | An app declares itself in `epicenter.json`, and its code in `epicenter.ts` | Proposed |
+| [0857](0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md) | An app is one `epicenter.ts` that composes collections and actions | Proposed |
 | [0858](0858-where-a-file-lives-decides-whether-it-travels-survives-or-dies-with-its-program.md) | Where a file lives decides whether it travels, survives, or dies with its program | Accepted |
 | [0859](0859-an-action-changes-the-folder-or-the-world-and-a-world-verb-is-safe-to-repeat.md) | An action changes the folder or the world, and a world verb is safe to repeat on the targets it is given | Proposed |
 | [0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) | An interface is a view over an app's actions, and never knows where they run | Proposed |

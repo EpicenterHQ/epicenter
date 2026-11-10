@@ -3,6 +3,7 @@
 - **Status:** Accepted (2026-11-08)
 - **Date:** 2026-11-08
 - **Amends:** [ADR-0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md): `defineApp` takes `collections` beside `actions`.
+- **Amended by:** [ADR-0857](0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md): a collection's path is a template with placeholders, and its fields are the `field` helpers' JSON Schema.
 - **Relates:** [ADR-0844](0844-one-runner-runs-anywhere-and-every-surface-is-a-view-over-it.md) (the hub's data view).
 - **Unbuilt:** all of it: `collections` in `@epicenter/app`, the conformance check, and the hub that shows them.
 
