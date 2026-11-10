@@ -90,7 +90,7 @@ export const summarizeWeek = action({
   tool definition.
 
 **Fields are JSON Schema.** A collection's `fields` is the JSON Schema of its
-files' front matter (or a JSON file's contents); an action's `input` is a map of
+files' front matter; an action's `input` is a map of
 fields that becomes its MCP `inputSchema`. In TypeScript the `field` helpers write
 the same JSON Schema concisely: `field.text({ optional: true })` leaves the name
 out of `required`, `field.date()` is `{ type: 'string', format: 'date', pattern }`,

@@ -133,7 +133,7 @@ The memory context has no Git, so a test checks the files an action wrote.
 
 `problemsOf(declaration, code)` lists what is wrong with an app as the
 `epicenter` command would: a declaration that fails the schema, two
-collections with one path, a collection whose path is not `.md` or `.json` or
+collections with one path, a collection whose path is not `.md` or
 whose field is named like its placeholder or `body`, an action whose words
 start another's, a positional that is not one of the action's fields, an annotation MCP does not
 define, a field named `json`, `help`, or `input`.

@@ -32,7 +32,7 @@ export function isName(value: unknown): value is string {
 
 /**
  * A relative path with at most one level-1 URI Template placeholder (RFC
- * 6570), such as `words/{stem}.md`, or none, such as `settings.json`. It stays
+ * 6570), such as `words/{stem}.md`, or none, such as `settings.md`. It stays
  * inside the folder: no `.` or `..` part, no empty part, no trailing `/`.
  */
 export const COLLECTION_PATH =
@@ -52,8 +52,7 @@ export const CollectionSchema = Type.Object(
 			{ type: Type.Literal('object') },
 			{
 				additionalProperties: true,
-				description:
-					"JSON Schema of each file's fields: its front matter, or a JSON file's contents",
+				description: "JSON Schema of each file's fields: its front matter",
 			},
 		),
 	},

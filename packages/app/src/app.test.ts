@@ -133,7 +133,7 @@ describe('problemsOf', () => {
 				description: 'Bad',
 				collections: {
 					words: { path: 'words/{stem}.md', fields: { type: 'object' } },
-					settings: { path: 'settings.json', fields: { type: 'object' } },
+					settings: { path: 'settings.md', fields: { type: 'object' } },
 				},
 			},
 			{
@@ -198,7 +198,7 @@ describe('problemsOf', () => {
 				},
 			}),
 		).toEqual([
-			'collection "photos" has the path photos/{id}.jpg, which is not .md or .json',
+			'collection "photos" has the path photos/{id}.jpg, which is not .md',
 			'collection "words" has a field "stem", which its path gives as {stem}; the file\'s name holds it',
 			'collection "words" has a field "body", which is the text after the front matter',
 			'collection "words" has a field "two words", which a front matter line cannot name',

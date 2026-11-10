@@ -175,10 +175,10 @@ describe('a Markdown collection', () => {
 	});
 });
 
-describe('a JSON collection', () => {
-	test('one file with no placeholder gives get and set, merging its fields', async () => {
+describe('a collection of one file', () => {
+	test('a path with no placeholder gives get and set, merging its fields', async () => {
 		const settings = collectionActions('settings', {
-			path: 'settings.json',
+			path: 'settings.md',
 			fields: {
 				type: 'object',
 				properties: { theme: { type: 'string' }, size: { type: 'number' } },
@@ -186,41 +186,17 @@ describe('a JSON collection', () => {
 		});
 		expect(Object.keys(settings)).toEqual(['settings get', 'settings set']);
 		const context = createMemoryContext({
-			'settings.json': '{ "size": 12, "other": true }',
+			'settings.md': '---\nsize: 12\nother: true\n---\n',
 		});
 		await settings['settings set']?.run({ theme: 'dark' } as never, context);
-		expect(await context.folder.read('settings.json')).toBe(
-			'{\n  "size": 12,\n  "other": true,\n  "theme": "dark"\n}\n',
+		expect(await context.folder.read('settings.md')).toBe(
+			'---\nsize: 12\nother: true\ntheme: "dark"\n---\n',
 		);
 		expect(await settings['settings get']?.run({} as never, context)).toEqual({
 			size: 12,
 			other: true,
 			theme: 'dark',
+			body: '',
 		});
-	});
-
-	test('set removes a JSON field given as null', async () => {
-		const settings = collectionActions('settings', {
-			path: 'settings.json',
-			fields: { type: 'object', properties: { theme: { type: 'string' } } },
-		});
-		const context = createMemoryContext({
-			'settings.json': '{ "theme": "dark", "size": 12 }',
-		});
-		await settings['settings set']?.run({ theme: null } as never, context);
-		expect(await context.folder.read('settings.json')).toBe(
-			'{\n  "size": 12\n}\n',
-		);
-	});
-
-	test('set refuses a file that is not a JSON object', async () => {
-		const settings = collectionActions('settings', {
-			path: 'settings.json',
-			fields: { type: 'object' },
-		});
-		const context = createMemoryContext({ 'settings.json': '[1, 2]' });
-		expect(settings['settings set']?.run({} as never, context)).rejects.toThrow(
-			'settings.json is not a JSON object; fix it by hand first',
-		);
 	});
 });

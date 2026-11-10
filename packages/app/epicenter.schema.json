@@ -38,7 +38,7 @@
 								}
 							},
 							"additionalProperties": true,
-							"description": "JSON Schema of each file's fields: its front matter, or a JSON file's contents"
+							"description": "JSON Schema of each file's fields: its front matter"
 						}
 					},
 					"additionalProperties": false

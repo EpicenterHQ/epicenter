@@ -11,10 +11,10 @@
  *
  * They are ordinary actions over the run's `folder`, so the command line, MCP,
  * and a test in memory run the same code. A path with no placeholder (a single
- * `settings.json`) gives only `get` and `set`.
+ * `settings.md`) gives only `get` and `set`.
  *
- * A Markdown file's fields are its front matter; a JSON file's fields are its
- * contents. Front matter is read as Epicenter's `key: <JSON>` lines, or else as
+ * A collection's files are Markdown, and a file's fields are its front matter.
+ * Front matter is read as Epicenter's `key: <JSON>` lines, or else as
  * YAML, and `set` writes `key: <JSON>` lines: it changes only the lines of the
  * fields it sets in a file already written that way, and rewrites YAML front
  * matter as `key: <JSON>`, keeping the body. A file whose front matter is
@@ -64,13 +64,6 @@ export function pathTemplate(path: string) {
 	};
 }
 
-/** How a collection's files hold fields, by the path's extension; `undefined` for any other. */
-export function fileKind(path: string): 'markdown' | 'json' | undefined {
-	if (path.endsWith('.md')) return 'markdown';
-	if (path.endsWith('.json')) return 'json';
-	return undefined;
-}
-
 type Properties = Record<string, Record<string, unknown>>;
 
 function propertiesOf(collection: Collection): Properties {
@@ -85,16 +78,15 @@ function propertiesOf(collection: Collection): Properties {
  */
 export function collectionProblems(collection: Collection): string[] {
 	const problems: string[] = [];
-	const kind = fileKind(collection.path);
-	if (kind === undefined)
-		problems.push(`has the path ${collection.path}, which is not .md or .json`);
+	if (!collection.path.endsWith('.md'))
+		problems.push(`has the path ${collection.path}, which is not .md`);
 	const template = pathTemplate(collection.path);
 	for (const key of Object.keys(propertiesOf(collection))) {
 		if (key === template?.key)
 			problems.push(
 				`has a field "${key}", which its path gives as {${key}}; the file's name holds it`,
 			);
-		if (kind === 'markdown' && key === 'body')
+		if (key === 'body')
 			problems.push(
 				'has a field "body", which is the text after the front matter',
 			);
@@ -133,14 +125,6 @@ function readMarkdown(text: string): Read {
 	return { fields: {}, body: text, writable: false };
 }
 
-function readJson(text: string): Read {
-	try {
-		const value = JSON.parse(text);
-		if (isRecord(value)) return { fields: value, body: '', writable: true };
-	} catch {}
-	return { fields: {}, body: '', writable: false };
-}
-
 /** A Markdown file of `fields` as `key: <JSON>` lines, then `body`. */
 function markdownOf(fields: Fields, body: string): string {
 	const lines = Object.entries(fields).map(
@@ -158,15 +142,12 @@ function without(fields: Fields, removed: string[]): Fields {
 
 /** `text` with `given` set, `removed` gone, and, when `body` is given, its body replaced. */
 function written(
-	kind: 'markdown' | 'json',
 	text: string | undefined,
 	read: Read,
 	given: Fields,
 	removed: string[],
 	body: string | undefined,
 ): string {
-	if (kind === 'json')
-		return `${JSON.stringify(without({ ...read.fields, ...given }, removed), null, 2)}\n`;
 	const newBody = body ?? read.body;
 	if (text !== undefined) {
 		const patched = patchFrontMatter(text, { set: given, delete: removed });
@@ -210,7 +191,6 @@ export function collectionActions(
 	name: string,
 	collection: Collection,
 ): Record<string, Action> {
-	const kind = fileKind(collection.path) ?? 'markdown';
 	const template = pathTemplate(collection.path);
 	const properties = propertiesOf(collection);
 	const schema = collection.fields as TSchema;
@@ -228,8 +208,6 @@ export function collectionActions(
 		template ? template.pathOf(input[template.key] as string) : collection.path;
 	const keyOf = (input: Record<string, unknown>) =>
 		keyName ? { [keyName]: input[keyName] as string } : {};
-	const read = (text: string) =>
-		kind === 'json' ? readJson(text) : readMarkdown(text);
 
 	// Every field is optional to `set`, which merges, and `null` removes it; a default would overwrite the file's value, so it applies only to a new file.
 	const setInput: Input = { ...keyInput };
@@ -243,15 +221,14 @@ export function collectionActions(
 			}),
 		);
 	}
-	if (kind === 'markdown')
-		setInput.body = Type.Optional(
-			Type.String({
-				description: 'The text after the front matter; replaces it',
-			}),
-		);
+	setInput.body = Type.Optional(
+		Type.String({
+			description: 'The text after the front matter; replaces it',
+		}),
+	);
 
 	const get: Action = {
-		description: `Read one ${name} file: its fields${kind === 'markdown' ? ' and body' : ''}`,
+		description: `Read one ${name} file: its fields and body`,
 		input: keyInput,
 		positional,
 		annotations: { readOnlyHint: true, openWorldHint: false },
@@ -259,17 +236,13 @@ export function collectionActions(
 			const path = pathOf(input);
 			const text = await folder.read(path);
 			if (text === undefined) throw new Error(`There is no ${path}`);
-			const { fields, body } = read(text);
-			return {
-				...fields,
-				...keyOf(input),
-				...(kind === 'markdown' ? { body } : {}),
-			};
+			const { fields, body } = readMarkdown(text);
+			return { ...fields, ...keyOf(input), body };
 		},
 	};
 
 	const set: Action = {
-		description: `Change the fields given in one ${name} file, keeping the rest${kind === 'markdown' ? ' and the body' : ''}; a field given as null is removed; makes the file when there is none`,
+		description: `Change the fields given in one ${name} file, keeping the rest and the body; a field given as null is removed; makes the file when there is none`,
 		input: setInput,
 		positional,
 		annotations: { idempotentHint: true, openWorldHint: false },
@@ -291,17 +264,14 @@ export function collectionActions(
 			const before =
 				text === undefined
 					? { fields: {}, body: '', writable: true }
-					: read(text);
+					: readMarkdown(text);
 			if (!before.writable)
 				throw new Error(
-					kind === 'json'
-						? `${path} is not a JSON object; fix it by hand first`
-						: `${path} has front matter that is neither key: <JSON> lines nor YAML; fix it by hand first`,
+					`${path} has front matter that is neither key: <JSON> lines nor YAML; fix it by hand first`,
 				);
 			await folder.write(
 				path,
 				written(
-					kind,
 					text,
 					before,
 					inDeclaredOrder(given, properties),
@@ -327,7 +297,7 @@ export function collectionActions(
 				if (key === undefined || !KEY_PATTERN.test(key)) continue;
 				const text = await folder.read(path);
 				if (text !== undefined)
-					rows.push({ ...read(text).fields, [listKey]: key });
+					rows.push({ ...readMarkdown(text).fields, [listKey]: key });
 			}
 			return rows;
 		},

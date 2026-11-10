@@ -15,7 +15,6 @@ export {
 export {
 	collectionActions,
 	collectionProblems,
-	fileKind,
 	pathTemplate,
 } from './collection.ts';
 export {
