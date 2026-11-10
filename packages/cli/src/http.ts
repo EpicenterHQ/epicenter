@@ -11,6 +11,20 @@
  * Any later path of the server's own starts with `.`, which no app name can,
  * so no name is reserved for the server.
  *
+ * This listener is on 127.0.0.1 (or `--host`) and trusts every request it
+ * answers: only this computer and the tailnet reach it. It answers only a
+ * `Host` that is a loopback name, an IP literal, or a `*.ts.net` name, which
+ * a DNS rebinding name is not, and refuses a request a Tailscale Funnel or
+ * Cloudflare Tunnel delivered. When `EPICENTER.md` has a `public` address, a
+ * second listener on 127.0.0.1 and `publicPort` offers the same site to the
+ * internet through a tunnel, behind a sign-in (`public.ts`, ADR-0871); then
+ * `--host` must be a loopback address.
+ *
+ * Host rules cannot see a tunnel that rewrites `Host`, so every response
+ * here names this listener in a header, and `serve` fetches its own public
+ * address at start and every 5 minutes. If the public address reaches this
+ * listener, it stops answering until `serve` restarts.
+ *
  * A write call commits the paths it wrote before it answers (`run.ts`).
  * Everything else reaches history and the backup on the server's clock: when
  * it starts, every 5 minutes, and when it stops, it does for each app what
@@ -22,15 +36,18 @@
  * takes what the call wrote.
  */
 import { realpath, stat } from 'node:fs/promises';
+import { isIP } from 'node:net';
 import { basename, isAbsolute, join, sep } from 'node:path';
 import { isName } from '@epicenter/app';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { extractErrorMessage } from 'wellcrafted/error';
+import { openAuthorizationServer } from './authorization-server.ts';
 import { runChild } from './child.ts';
 import { chooseApps, homeEntries } from './home.ts';
 import { createMcpServer } from './mcp.ts';
 import { writeErr } from './output.ts';
-import { epicenterDir, rootInstructions } from './root.ts';
+import { startPublicServer } from './public.ts';
+import { epicenterDir, epicenterRoot, rootInstructions } from './root.ts';
 import { type Synced, syncOne } from './sync.ts';
 import { VIEW } from './ui.ts';
 
@@ -40,6 +57,15 @@ const BACKUP_EVERY_MS = 5 * 60_000;
 /** How long `serve` waits for the backup it runs when it stops. */
 const BACKUP_WAIT_MS = 10_000;
 
+/** How often `serve` checks what its public address reaches. */
+const PUBLIC_CHECK_MS = 5 * 60_000;
+
+/** The header on every private-listener response, so `serve` can see its public address reach it. */
+export const LISTENER_HEADER = 'epicenter-listener';
+
+/** Headers a tunnel adds: Tailscale Funnel's, and Cloudflare Tunnel's. */
+const TUNNEL_HEADERS = ['tailscale-funnel-request', 'cf-connecting-ip'];
+
 /** Whether `work` finished within `ms`; it runs on after `false`. */
 function within(ms: number, work: Promise<unknown>) {
 	const { promise: late, resolve } = Promise.withResolvers<false>();
@@ -47,7 +73,7 @@ function within(ms: number, work: Promise<unknown>) {
 	return Promise.race([work.then(() => true as const), late]);
 }
 
-const escapeHtml = (text: string) =>
+export const escapeHtml = (text: string) =>
 	text.replace(
 		/[&<>"']/g,
 		(char) =>
@@ -84,11 +110,167 @@ p{color:var(--muted)}
 </style></head><body><main><h1>${escapeHtml(name)}</h1>${items ? `<ul>${items}</ul>` : '<p>No app here has a UI yet.</p>'}</main></body></html>`;
 }
 
+/** What both listeners offer; each decides who may reach it. */
+export type Site = {
+	/** Answer an MCP request. With `readOnly`, list and run only read-only actions. */
+	mcp(request: Request, readOnly?: boolean): Promise<Response>;
+	/** The launcher at `GET /`, or 405 when MCP asks for an event stream. */
+	launcher(request: Request): Promise<Response>;
+	/** `GET /<app>` and `/<app>/<path>`: the app's view, or 404. */
+	view(request: Request): Promise<Response>;
+};
+
+const notFound = () => new Response('Not found', { status: 404 });
+
+/** The site both listeners serve: MCP, the launcher, and each app's view. */
+function createSite(instructions: string | undefined): Site {
+	const uiFile = async (app: string, path: string) => {
+		if (!isName(app)) return notFound();
+		const [entry] = (await chooseApps(app)).data ?? [];
+		if (!entry) return notFound();
+		let decoded: string;
+		try {
+			decoded = decodeURIComponent(path);
+		} catch {
+			return notFound();
+		}
+		if (
+			decoded.includes('\\') ||
+			isAbsolute(decoded) ||
+			decoded.split('/').some((part) => part === '.' || part === '..')
+		)
+			return notFound();
+		try {
+			// The view in ui/dist/ is the only thing served (ADR-0860).
+			const root = await realpath(join(entry.realPath, VIEW));
+			if (!root.startsWith(`${entry.realPath}${sep}`)) return notFound();
+			const candidate = join(root, decoded || 'index.html');
+			const file = await realpath(
+				(await stat(candidate)).isDirectory()
+					? join(candidate, 'index.html')
+					: candidate,
+			);
+			if (!file.startsWith(`${root}${sep}`) || !(await stat(file)).isFile())
+				return notFound();
+			return new Response(Bun.file(file), {
+				headers: {
+					'cache-control': decoded.startsWith('_app/immutable/')
+						? 'public, max-age=31536000, immutable'
+						: 'no-cache',
+				},
+			});
+		} catch {
+			return notFound();
+		}
+	};
+	return {
+		async mcp(request, readOnly = false) {
+			const server = createMcpServer(instructions, { readOnly });
+			const transport = new WebStandardStreamableHTTPServerTransport({
+				enableJsonResponse: true,
+			});
+			try {
+				await server.connect(transport);
+				return await transport.handleRequest(request);
+			} finally {
+				await server.close();
+			}
+		},
+		async launcher(request) {
+			// MCP's GET for a server-sent stream: stateless, so there is none.
+			const wantsStream = request.headers
+				.get('accept')
+				?.includes('text/event-stream');
+			if (
+				(request.method !== 'GET' && request.method !== 'HEAD') ||
+				wantsStream
+			)
+				return new Response('Method not allowed', {
+					status: 405,
+					headers: { allow: 'GET, HEAD, POST' },
+				});
+			const apps = await Promise.all(
+				(await homeEntries()).map(async (entry) => {
+					if (!(await uiFile(entry.entry, 'index.html')).ok) return undefined;
+					// Read in a child, as tools/list is: serve never imports an app.
+					const listed = (await runChild(
+						[entry.entry, '--json'],
+						'ignore',
+					)) as {
+						description?: unknown;
+					};
+					return {
+						name: entry.entry,
+						description:
+							typeof listed.description === 'string' ? listed.description : '',
+						icon: (await uiFile(entry.entry, 'icon.png')).ok,
+					};
+				}),
+			);
+			return new Response(
+				launcherPage(
+					basename(epicenterDir()),
+					apps.filter((app) => app !== undefined),
+				),
+				{
+					headers: {
+						'content-type': 'text/html; charset=utf-8',
+						'cache-control': 'no-cache',
+					},
+				},
+			);
+		},
+		async view(request) {
+			if (request.method !== 'GET' && request.method !== 'HEAD')
+				return notFound();
+			const match = /^\/([^/]+)(?:\/(.*))?$/.exec(
+				new URL(request.url).pathname,
+			);
+			if (!match) return notFound();
+			const app = match[1];
+			if (!isName(app)) return notFound();
+			if (match[2] === undefined) {
+				if ((await chooseApps(app)).error) return notFound();
+				// Relative, so a proxy in front (tailscale serve) keeps its own host and scheme.
+				return new Response(null, {
+					status: 308,
+					headers: { location: `/${encodeURIComponent(app)}/` },
+				});
+			}
+			return uiFile(app, match[2]);
+		},
+	};
+}
+
 /**
- * Start the server and its backup clock, which backs up once now and every 5
- * minutes after. The caller owns its lifetime and ends it with `stop`. Port 0
- * asks Bun for a free port. `tick` runs one backup now, after any already
- * running, and answers what it did per app.
+ * Whether a `Host` header names this computer or the tailnet: a loopback
+ * name, an IP literal, or a `*.ts.net` name, whose DNS Tailscale controls.
+ */
+function isPrivateHost(host: string | null) {
+	if (!host) return false;
+	let hostname: string;
+	try {
+		hostname = new URL(`http://${host}`).hostname.toLowerCase();
+	} catch {
+		return false;
+	}
+	return (
+		hostname === 'localhost' ||
+		hostname.endsWith('.localhost') ||
+		hostname.endsWith('.ts.net') ||
+		isIP(hostname.replace(/^\[|\]$/g, '')) !== 0
+	);
+}
+
+const forbidden = () => new Response('Forbidden', { status: 403 });
+
+/**
+ * Start the private listener and its backup clock, which backs up once now
+ * and every 5 minutes after. The listener answers everything for a request
+ * from this computer or the tailnet whose `Origin`, if any, is its own host.
+ * The caller owns its lifetime and ends it with `stop`. Port 0 asks Bun for a
+ * free port. `tick` runs one backup now, after any already running, and
+ * answers what it did per app; `site` is what a public listener offers too.
  */
 export function startHttpServer(
 	host: string,
@@ -135,142 +317,57 @@ export function startHttpServer(
 		clock.unref();
 	};
 	void tickLogged().finally(schedule);
-	const notFound = () => new Response('Not found', { status: 404 });
-	const uiFile = async (app: string, path: string) => {
-		if (!isName(app)) return notFound();
-		const [entry] = (await chooseApps(app)).data ?? [];
-		if (!entry) return notFound();
-		let decoded: string;
-		try {
-			decoded = decodeURIComponent(path);
-		} catch {
-			return notFound();
-		}
-		if (
-			decoded.includes('\\') ||
-			isAbsolute(decoded) ||
-			decoded.split('/').some((part) => part === '.' || part === '..')
-		)
-			return notFound();
-		try {
-			// The view in ui/dist/ is the only thing served (ADR-0860).
-			const root = await realpath(join(entry.realPath, VIEW));
-			if (!root.startsWith(`${entry.realPath}${sep}`)) return notFound();
-			const candidate = join(root, decoded || 'index.html');
-			const file = await realpath(
-				(await stat(candidate)).isDirectory()
-					? join(candidate, 'index.html')
-					: candidate,
+	const site = createSite(instructions);
+	/** Set once the public address reached this listener; it holds until serve restarts. */
+	let reachedFromPublic = false;
+	const answer = async (request: Request) => {
+		if (reachedFromPublic)
+			return new Response(
+				'This listener stopped because the public address reaches it. Restart epicenter serve.',
+				{ status: 503 },
 			);
-			if (!file.startsWith(`${root}${sep}`) || !(await stat(file)).isFile())
-				return notFound();
-			return new Response(Bun.file(file), {
-				headers: {
-					'cache-control': decoded.startsWith('_app/immutable/')
-						? 'public, max-age=31536000, immutable'
-						: 'no-cache',
-				},
-			});
-		} catch {
-			return notFound();
+		if (TUNNEL_HEADERS.some((name) => request.headers.has(name)))
+			return forbidden();
+		if (!isPrivateHost(request.headers.get('host'))) return forbidden();
+		const origin = request.headers.get('origin');
+		if (origin !== null) {
+			let originHost: string;
+			try {
+				originHost = new URL(origin).host;
+			} catch {
+				return forbidden();
+			}
+			if (
+				originHost.toLowerCase() !== request.headers.get('host')?.toLowerCase()
+			)
+				return forbidden();
 		}
+		const { pathname } = new URL(request.url);
+		if (pathname === '/')
+			return request.method === 'POST'
+				? site.mcp(request)
+				: site.launcher(request);
+		return site.view(request);
 	};
 	const server = Bun.serve({
 		hostname: host,
 		port,
 		idleTimeout: 0,
 		async fetch(request) {
-			const origin = request.headers.get('origin');
-			if (origin !== null) {
-				let originHost: string;
-				try {
-					originHost = new URL(origin).host;
-				} catch {
-					return new Response('Forbidden', { status: 403 });
-				}
-				if (
-					originHost.toLowerCase() !==
-					request.headers.get('host')?.toLowerCase()
-				)
-					return new Response('Forbidden', { status: 403 });
-			}
-			const { pathname } = new URL(request.url);
-			if (pathname === '/') {
-				if (request.method === 'POST') {
-					const server = createMcpServer(instructions);
-					const transport = new WebStandardStreamableHTTPServerTransport({
-						enableJsonResponse: true,
-					});
-					try {
-						await server.connect(transport);
-						return await transport.handleRequest(request);
-					} finally {
-						await server.close();
-					}
-				}
-				// MCP's GET for a server-sent stream: stateless, so there is none.
-				const wantsStream = request.headers
-					.get('accept')
-					?.includes('text/event-stream');
-				if (
-					(request.method !== 'GET' && request.method !== 'HEAD') ||
-					wantsStream
-				)
-					return new Response('Method not allowed', {
-						status: 405,
-						headers: { allow: 'GET, HEAD, POST' },
-					});
-				const apps = await Promise.all(
-					(await homeEntries()).map(async (entry) => {
-						if (!(await uiFile(entry.entry, 'index.html')).ok) return undefined;
-						// Read in a child, as tools/list is: serve never imports an app.
-						const listed = (await runChild(
-							[entry.entry, '--json'],
-							'ignore',
-						)) as { description?: unknown };
-						return {
-							name: entry.entry,
-							description:
-								typeof listed.description === 'string'
-									? listed.description
-									: '',
-							icon: (await uiFile(entry.entry, 'icon.png')).ok,
-						};
-					}),
-				);
-				return new Response(
-					launcherPage(
-						basename(epicenterDir()),
-						apps.filter((app) => app !== undefined),
-					),
-					{
-						headers: {
-							'content-type': 'text/html; charset=utf-8',
-							'cache-control': 'no-cache',
-						},
-					},
-				);
-			}
-			if (request.method !== 'GET' && request.method !== 'HEAD')
-				return notFound();
-			const match = /^\/([^/]+)(?:\/(.*))?$/.exec(pathname);
-			if (!match) return notFound();
-			const app = match[1];
-			if (!isName(app)) return notFound();
-			if (match[2] === undefined) {
-				if ((await chooseApps(app)).error) return notFound();
-				// Relative, so a proxy in front (tailscale serve) keeps its own host and scheme.
-				return new Response(null, {
-					status: 308,
-					headers: { location: `/${encodeURIComponent(app)}/` },
-				});
-			}
-			return uiFile(app, match[2]);
+			const response = await answer(request);
+			const named = new Response(response.body, response);
+			named.headers.set(LISTENER_HEADER, 'private');
+			return named;
 		},
 	});
 	return {
 		port: server.port as number,
+		site,
 		tick,
+		/** Refuse everything from now on: the public address reaches this listener. */
+		stopAnswering() {
+			reachedFromPublic = true;
+		},
 		/**
 		 * Stop listening and the clock, then run the last backup, waiting for
 		 * it at most 10 seconds; `false` when it gave up waiting.
@@ -284,15 +381,102 @@ export function startHttpServer(
 	};
 }
 
-/** Serve until the process receives SIGINT or SIGTERM, then back up once more. */
+/**
+ * What `resource`, the public address, reaches: this serve's public
+ * listener, its private listener, something else, or nothing.
+ */
+async function publicReach(resource: string) {
+	let response: Response;
+	try {
+		response = await fetch(
+			new URL('/.well-known/oauth-protected-resource', resource),
+			{ redirect: 'manual', signal: AbortSignal.timeout(15_000) },
+		);
+	} catch {
+		return 'nothing';
+	}
+	if (response.headers.get(LISTENER_HEADER) === 'private') return 'private';
+	const document = (await response.json().catch(() => undefined)) as
+		| { resource?: unknown }
+		| undefined;
+	return response.ok && document?.resource === resource ? 'public' : 'other';
+}
+
+/**
+ * Check what the public address reaches now and every `PUBLIC_CHECK_MS`,
+ * saying so whenever it changes. Reaching the private listener stops it.
+ */
+function watchPublicAddress(
+	resource: string,
+	publicPort: number,
+	privateListener: { stopAnswering(): void },
+) {
+	const forward = `an HTTPS tunnel from that address must forward to 127.0.0.1:${publicPort}`;
+	let last: Awaited<ReturnType<typeof publicReach>> = 'public';
+	const check = async () => {
+		const reach = await publicReach(resource);
+		if (reach === last) return;
+		last = reach;
+		switch (reach) {
+			case 'private':
+				privateListener.stopAnswering();
+				writeErr(
+					`${resource} reaches this computer's private listener, which asks no one to sign in, so it now refuses every request. Point the tunnel at 127.0.0.1:${publicPort} and restart epicenter serve.`,
+				);
+				return;
+			case 'nothing':
+				writeErr(`${resource} does not answer: ${forward}.`);
+				return;
+			case 'other':
+				writeErr(
+					`${resource} answers with something other than this serve: ${forward}.`,
+				);
+				return;
+			case 'public':
+				writeErr(`${resource} reaches this serve's sign-in again.`);
+				return;
+			default:
+				reach satisfies never;
+		}
+	};
+	const schedule = () => {
+		setTimeout(() => {
+			void check().finally(schedule);
+		}, PUBLIC_CHECK_MS).unref();
+	};
+	void check().finally(schedule);
+}
+
+/**
+ * Serve until the process receives SIGINT or SIGTERM, then back up once
+ * more. With a public address, the sign-in opens before either listener, so
+ * one that cannot start stops serve.
+ */
 export async function serveHttp(host: string, port: number): Promise<number> {
+	const root = epicenterRoot();
+	const authorization = root.public
+		? await openAuthorizationServer(root.folder, root.public.url)
+		: undefined;
 	const server = startHttpServer(host, port, await rootInstructions());
 	writeErr(`Serving your apps at http://${host}:${server.port}.`);
+	const publicServer =
+		authorization && root.public
+			? startPublicServer(authorization, root.public.port, server.site)
+			: undefined;
+	if (authorization && publicServer) {
+		writeErr(
+			`Serving ${authorization.resource} at http://127.0.0.1:${publicServer.port}: an HTTPS tunnel from that address must forward to this port.`,
+		);
+		watchPublicAddress(authorization.resource, publicServer.port ?? 0, server);
+	}
 	await new Promise<void>((resolve) => {
 		process.once('SIGINT', resolve);
 		process.once('SIGTERM', resolve);
 	});
-	if (!(await server.stop())) {
+	void publicServer?.stop();
+	const finished = await server.stop();
+	authorization?.close();
+	if (!finished) {
 		// A push still waiting on the network would keep the process alive.
 		writeErr('Stopped without waiting longer for the last backup.');
 		process.exit(0);

@@ -28,6 +28,14 @@ import { epicenterDir } from './root.ts';
 /** The internal flag that makes `epicenter` a child writing its answer to a file; undocumented, and read only as the first argument, so an action's own input can never be taken for it. */
 export const REPORT_FLAG = '--report=';
 
+/**
+ * The internal flag, read only right after the report flag, that lets the
+ * child run a read-only action and nothing else: a connector with only the
+ * `read` scope calls through it, so the check sits where the action is found
+ * (ADR-0871).
+ */
+export const READ_ONLY_FLAG = '--read-only-call';
+
 /** Whether this `epicenter` is the compiled binary, which is Bun itself under `BUN_BE_BUN=1`. */
 export const COMPILED = Bun.main.startsWith('/$bunfs/');
 
@@ -52,14 +60,20 @@ export function writeReport(path: string, record: Report) {
  * Run `epicenter <args>` as a child and return the one JSON value it
  * answered: for a call, an `Answer`, after the child has committed what it
  * wrote; for a listing, the listing. The command line and both MCP
- * transports run every call this way.
+ * transports run every call this way. With `readOnly`, the child runs an
+ * action only when it is read-only, and no command at all.
  */
 export async function runChild(
 	args: string[],
 	stdin: 'inherit' | 'ignore',
+	{ readOnly = false }: { readOnly?: boolean } = {},
 ): Promise<unknown> {
 	const path = join(tmpdir(), `epicenter-report-${randomUUID()}.json`);
-	const child = Bun.spawn([...self(), `${REPORT_FLAG}${path}`, ...args], {
+	const flags = [
+		`${REPORT_FLAG}${path}`,
+		...(readOnly ? [READ_ONLY_FLAG] : []),
+	];
+	const child = Bun.spawn([...self(), ...flags, ...args], {
 		cwd: epicenterDir(),
 		stdio: [stdin, 2, 2],
 	});
