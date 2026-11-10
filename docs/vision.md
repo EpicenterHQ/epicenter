@@ -170,11 +170,13 @@ server, and for Whispering.
 action.** That is true for Claude Desktop, an agent on another computer,
 claude.ai, ChatGPT, and a UI.
 
-**A write is one commit, named for the call** (`tasks: add Call the bank`),
-however it arrives, and `epicenter serve` pushes it to the app's GitHub
-backup. Writes to one app take turns, so two at once never lose a change. Exit codes
-tell an agent what happened: 0 returned, 1 threw, 2 did not run, 3 returned but
-not committed ([ADR-0867]).
+**History is snapshots, named for the calls** (`tasks: add Call the bank`):
+after each write, however it arrives, `epicenter` commits what is pending in
+the app's folder, and `epicenter serve` pushes it to the app's GitHub backup
+(ADR-0850). Writes to one app run at once; a change that depends on what it
+read goes through `folder.update`, so two at once never lose a change. Exit
+codes tell an agent what happened: 0 returned, 1 threw, 2 did not run
+([ADR-0867]).
 
 ## Where code runs, and how to reach it
 

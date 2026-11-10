@@ -98,16 +98,34 @@ collection's methods (`words.get({ path })`, `words.set({ path, ...fields })`,
 through the imported `folder` for any other file. Build a path with
 `words.pathOf({ word })`, never by hand.
 
+Writes to one app run at once: a phone, an agent, and the command line can
+all call the app at the same moment, and an agent may edit its files
+directly. So change a file you read with `folder.update(path, change)`, never
+`folder.read` then `folder.write`. `update` calls `change` with the file's
+text (`undefined` when there is none) and writes what it returns only over
+that same text; when the file changed meanwhile, it calls `change` again on
+what is there now. Keep `change` a pure function of the text, since it may
+run more than once; throw in it to refuse, and nothing is written.
+
+```ts
+await folder.update('2026.csv', (text = 'day,minutes\n') => `${text}${day},${minutes}\n`);
+```
+
+The collection methods already go through `update`. `folder.write` is for a
+file whose whole content the action decides, and the last write wins.
+
 The generated verbs address a record by its path, the one address every
 collection has. An action you write chooses its own input, and one people type
 should take what they type: Vocab's `review` could take `{ word, grade }` and
 call `words.pathOf({ word })`, giving `epicenter vocab review 你好 good`.
 
-Annotate honestly. A run that is not `readOnlyHint: true` commits what it
-wrote, one commit per call named `<app>: <words> <first positional>`, so a
-read marked as a write leaves empty work. A read-only run makes no commit,
-and its writes through `folder` and `secrets` throw, so an action that writes
-a file or refreshes a token with `secrets.set` is not read-only.
+Annotate honestly. An action never commits; after a run that is not
+`readOnlyHint: true`, `epicenter` takes a snapshot of the app's folder, named
+for the call (`<app>: <words> <first positional>`), so a read marked as a
+write may take someone else's pending edits into history. A read-only run is
+never snapshotted, and its writes through `folder` and `secrets` throw, so an
+action that writes a file or refreshes a token with `secrets.set` is not
+read-only.
 
 ## Build the UI as a client
 
@@ -115,7 +133,7 @@ Copy an existing app's `ui/`: SvelteKit with the hash router, `@epicenter/ui`
 and its `app.css`, a manifest and icons in `static/`, and its
 `svelte.config.js`, which builds into `../.cache/ui/` with the app's folder
 name as the base. Ask for everything through
-`connect<typeof app>('<app>', { onUncommitted })` from
+`connect<typeof app>('<app>')` from
 `@epicenter/app/client`, importing the app as a type
 (`import type app from '../../../epicenter.js'`): `app.set({ path, done: true
 })` calls the action under the same words, typed by the app. Name types with
@@ -129,9 +147,6 @@ name as the base. Ask for everything through
   record's name from its read (`row.word`). SvelteKit decodes the hash once
   when the page loads, so a name holding `?`, `#`, or `%` survives a link
   inside the UI but not a reload.
-- `onUncommitted` is required. Tell the person, in the UI's own notice, that
-  the change was saved to the file but not recorded in history, and give the
-  `sync` command it receives.
 - Show a record's `problems` quietly where the record is shown, and never
   crash on a field that is absent.
 
@@ -149,15 +164,15 @@ name as the base. Ask for everything through
 - Update optimistically and say a failed write in a toast. Refresh on
   visibility and every 15 s while visible, and drop a refresh that began
   before a write, so it cannot undo what the screen shows.
-- Every write is a commit. Save on blur, on a pause, or on an explicit
-  action, never on each keystroke.
+- Every write is a snapshot in the app's history. Save on blur, on a pause,
+  or on an explicit action, never on each keystroke.
 
 ## Verify without touching the person's data
 
 Never run anything against the real `~/Epicenter` until the person asks.
 `HOME` decides `~`, so try an app in a temporary home. In the monorepo, build
 the UI in place, then copy the app into the temporary home as a repository of
-its own, since `epicenter` commits every write into the app's repository:
+its own, since `epicenter` snapshots every write into the app's repository:
 
 ```sh
 bun test ./epicenter.test.ts               # in apps/<app>: actions over createMemoryContext

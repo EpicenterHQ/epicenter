@@ -23,8 +23,7 @@ const log = defineAction({
   positional: ['minutes'],
   annotations: { destructiveHint: false },
   run: async ({ minutes, book }) => {
-    const before = (await folder.read('2026.csv')) ?? 'minutes,book\n';
-    await folder.write('2026.csv', `${before}${minutes},${book ?? ''}\n`);
+    await folder.update('2026.csv', (before = 'minutes,book\n') => `${before}${minutes},${book ?? ''}\n`);
     return { minutes };
   },
 });
@@ -250,23 +249,38 @@ stays in the same run
 
 | Import | Holds | Methods |
 | --- | --- | --- |
-| `folder` | the app's data, in its folder | `read`, `readBytes`, `write`, `writeBytes`, `list`, `delete`; `path` on a computer |
+| `folder` | the app's data, in its folder | `read`, `readBytes`, `write`, `writeBytes`, `update`, `list`, `delete`; `path` on a computer |
 | `secrets` | sign-ins, on this computer | `get`, `set`, `delete`; only on a computer |
 
-A write is one commit, named for the call, and writes to one app take turns
+A run changes files and never commits. The app's history is snapshots,
+which whatever ran the action takes after it: the `epicenter` command after a
+write it ran, and `epicenter serve` after each write call
 ([ADR-0850](../../docs/adr/0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md)).
-The `epicenter` command makes that commit; an action never commits. The
-commit takes everything changed in the app's folder, so a hand edit left
-there is committed with the next write, under that write's name. An action
-that throws after writing has its writes committed too, under its call's
-subject marked `(threw)`; whether a failed action should be rolled back
-instead is undecided
+A snapshot takes everything pending in the app's folder and is named for the
+calls that wrote since the last one; a hand edit pending there is listed as
+changed outside epicenter. What an action wrote before it throws is pending
+like any change; whether a failed action should be rolled back instead is
+undecided
 ([ADR-0857](../../docs/adr/0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md)).
 
-A run of an action marked `readOnlyHint: true` takes no lock and makes no
-commit. Its context carries `readOnly: { action }`, and in it `folder.write`,
-`folder.writeBytes`, `folder.delete`, `secrets.set`, and `secrets.delete`
-throw before doing anything: `The action "<words>" is read-only, so it cannot
+Writes to one app run at once, from the command line, an agent, and a UI.
+`folder.write` replaces the file, and the last write wins. A change that
+depends on what it read goes through `folder.update(path, change)`: it reads
+the file, calls `change` with its text (`undefined` when there is none), and
+writes what `change` returns only if the file is still what `change` saw;
+otherwise it calls `change` again on what is there now, and after 10 tries it
+throws `{ name: 'Changed' }`. A `change` that throws writes nothing. It returns
+the text written. Every collection write (`add`, `set`, `edit`) goes through
+it, so two `set`s of different fields of one file both land.
+
+```ts
+await folder.update('2026.csv', (before = 'minutes,book\n') => `${before}${minutes},\n`);
+```
+
+A run of an action marked `readOnlyHint: true` is never snapshotted. Its
+context carries `readOnly: { action }`, and in it `folder.write`,
+`folder.writeBytes`, `folder.update`, `folder.delete`, `secrets.set`, and
+`secrets.delete` throw before doing anything: `The action "<words>" is read-only, so it cannot
 write <path>`. A raw `node:fs` write, or a change made through an outside
 service, is the action's own promise. So an action that refreshes a sign-in
 token with `secrets.set` cannot be read-only.
@@ -300,9 +314,7 @@ code:
 import { type ActionOutput, connect } from '@epicenter/app/client';
 import type reading from '../../epicenter.ts';
 
-const app = connect<typeof reading>('reading', {
-  onUncommitted: ({ sync }) => toast.warning(`Saved, but not in history. Run ${sync}`),
-});
+const app = connect<typeof reading>('reading');
 type Book = ActionOutput<typeof reading.actions.books.get>;
 
 const [first] = await app.books.list();
@@ -311,12 +323,10 @@ if (first) await app.books.set({ path: first.path, finished: '2026-11-10' });
 
 A call resolves to what the action returned, in its JSON form, and rejects
 with an `ActionError` when it threw or did not run; `changedElsewhere(error)`
-says an `edit` was refused because its passage changed. A call whose action
-returned but whose changes could not be committed still resolves, and first
-calls `onUncommitted` with `{ action, returned, reason, sync }`: the action's
-words one space apart, what it returned, why the commit failed, and
-`epicenter sync <app>`. `onUncommitted` is required, so a UI decides what the
-person is told rather than reporting the change as recorded.
+says a call was refused with `{ name: 'Changed' }`: an `edit` whose passage
+changed, or an `update` of a file that kept changing. Whatever becomes of the
+snapshot after a call, the call resolves; the app's status on the computer
+that serves it says when one failed.
 
 `ActionInput<A>` and `ActionOutput<A>` name what action `A` takes from a
 caller and returns to a client: `ActionInput<typeof app.actions.set>`. A field

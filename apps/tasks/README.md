@@ -55,7 +55,6 @@ notes, and deletes the task after asking. A change saves after a short pause,
 when its field loses focus, and when the page is left; the notes save with
 `edit`, quoting them as loaded, so notes an agent changed meanwhile are not
 overwritten without asking. A task whose file does not fit shows a small mark
-in the list, and its page quotes the problems. A change saved to the file but
-not recorded in history says so, with the `epicenter sync tasks` command that
-records it. The list asks again every 15 seconds while the page is visible and
-whenever it is shown, so tasks an agent adds appear.
+in the list, and its page quotes the problems. The list asks again every 15
+seconds while the page is visible and whenever it is shown, so tasks an agent
+adds appear.

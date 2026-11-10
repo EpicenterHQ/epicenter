@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-11-08; rewritten 2026-11-10
-- **Amended:** 2026-11-10, after an adversarial review: a read is checked by projection and says what does not fit in `problems`; collection methods take their verbs' object shapes, and many-file collections have `pathOf`; definitions check more; `defineApp` needs `collections` and `actions`; a read-only run refuses writes through `folder` and `secrets`; a thrown action's writes are committed; a UI's client must handle an uncommitted change.
+- **Amended:** 2026-11-10, after an adversarial review: a read is checked by projection and says what does not fit in `problems`; collection methods take their verbs' object shapes, and many-file collections have `pathOf`; definitions check more; `defineApp` needs `collections` and `actions`; a read-only run refuses writes through `folder` and `secrets`; a thrown action's writes are committed; a UI's client must handle an uncommitted change. 2026-11-11, with ADR-0850: runs never commit, so a thrown action's writes are pending like any, collection writes go through `folder.update`, and the client has no uncommitted change to handle.
 - **Amends:** [ADR-0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md) at `defineApp`'s shape: an app composes collections and actions defined on their own, its actions nest under their words, and a run's folder reaches them without a context argument. [ADR-0845](0845-an-app-declares-collections-each-a-path-and-fields-which-the-hub-views.md) at a collection's path, which is a template with any number of placeholders, and its fields, which are the `field` helpers' JSON Schema.
 - **Relates:** [ADR-0853](0853-collections-give-five-actions-and-programs-without-the-folder-ask-over-mcp.md) (collection verbs and the client), [ADR-0854](0854-an-apps-cache-is-the-files-it-gitignores.md) (`.cache/`), [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (views), [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (where `epicenter.ts` runs), [ADR-0869](0869-a-body-is-changed-by-quoting-the-passage-it-replaces.md) (`edit`).
 - **Unbuilt:** `sync` naming a file that two collections hold.
@@ -124,19 +124,17 @@ throws while loading, or whose export `defineApp` refuses, with those lines as
 its problems, and does not run it.
 
 **A read-only action cannot write through `folder` or `secrets`.** Its run,
-marked `readOnly`, takes no lock and makes no commit, and `folder.write`,
-`writeBytes`, `delete`, `secrets.set`, and `secrets.delete` throw in it before
-doing anything. A raw `node:fs` write or an outside service remains the
+marked `readOnly`, is never logged or snapshotted, and `folder.write`,
+`writeBytes`, `update`, `delete`, `secrets.set`, and `secrets.delete` throw in
+it before doing anything. A raw `node:fs` write or an outside service remains the
 author's promise.
 
-**A UI calls the same tree.** `connect<typeof app>('vocab', { onUncommitted })`
-gives `vocab.add({ word })` and `vocab.review({ path, grade })`, typed by the
-app, which the UI imports as a type only, with returns in their JSON form.
-`onUncommitted` is required: a call whose action returned but whose changes
-were not committed still resolves to what it returned, and the handler hears
-`{ action, returned, reason, sync }` first, so a UI never reports such a
-change as recorded. `ActionInput<A>` and `ActionOutput<A>` name an action's
-input and output for a UI.
+**A UI calls the same tree.** `connect<typeof app>('vocab')` gives
+`vocab.add({ word })` and `vocab.review({ path, grade })`, typed by the app,
+which the UI imports as a type only, with returns in their JSON form. A call
+resolves to what the action returned, whatever became of the snapshot after it
+(ADR-0850). `ActionInput<A>` and `ActionOutput<A>` name an action's input and
+output for a UI.
 
 ## Consequences
 
@@ -163,16 +161,14 @@ input and output for a UI.
   declaration says required.
 - Projection keeps one record shape for `list` and `get`, so a file that does
   not fit is still listed, edited, and fixed through the same verbs.
-- An action that throws after writing has its writes committed under its
-  call's subject marked `(threw)`, under the lock it already holds, so they
-  are never left for a later call to claim. Whether a failed action should be
-  rolled back instead is open: ADR-0850 removed tracked writes, and raw
+- What an action wrote before it threw is pending like any change, and the
+  snapshot after the call names it (ADR-0850). Whether a failed action should
+  be rolled back instead is open: ADR-0850 removed tracked writes, and raw
   `node:fs` writes bypass `folder`.
+- A hand edit pending in the folder is taken by the next snapshot and listed
+  as changed outside epicenter, not claimed by a call; a child killed before
+  reporting leaves its writes for the next snapshot the same way (ADR-0850).
 - Risks this record leaves open:
-  - The commit stages the whole folder, so a hand edit pending there is
-    committed under the next call's subject (ADR-0850).
-  - A child killed before reporting leaves its writes uncommitted until the
-    next write or `epicenter sync`.
   - On a disk that ignores case, such as APFS, `words/Hello.md` and
     `words/hello.md` name one file under two addresses.
   - An action that refreshes a token with `secrets.set` cannot be read-only.
@@ -209,8 +205,11 @@ input and output for a UI.
 - **Locking every action, read-only ones included.** Serializes reads behind
   writes for a guarantee the read-only run's refusals already give for writes
   through `folder` and `secrets`.
-- **Rejecting the client's promise on an uncommitted change.** The action ran,
-  and a UI that retried a rejected call would run it twice.
+- **Rejecting the client's promise on an uncommitted change, or an
+  `onUncommitted` handler every UI must give (this record until 2026-11-11).**
+  The action ran, and a UI that retried a rejected call would run it twice;
+  once a call never commits, the snapshot after it is the server's concern,
+  and the app's status says when one failed.
 - **Dropping undeclared front matter keys, with no `other`.** Hides what a
   person or another program wrote, which every write keeps.
 - **Addressing by placeholder in the generated verbs (`get({ word })`).** A

@@ -51,9 +51,9 @@ must go on offline keeps a copy and syncs it with Git.**
 | Git over SSH | `studio:Epicenter/whispering` as the copy's remote | a program that keeps a copy: Whispering |
 
 - Capture, Tasks, Vocab, agents, and views keep nothing on a device and always
-  see the current files. A write through `epicenter serve` is one commit, named
-  for the call (`capture: add A line from Dune`), and each commit is pushed to the
-  repository's GitHub mirror, which is the backup.
+  see the current files. A write through `epicenter serve` is snapshotted,
+  named for the call (`capture: add A line from Dune`), and each snapshot is
+  pushed to the repository's GitHub mirror, which is the backup (ADR-0850).
 - Whispering keeps a copy on each Mac it runs on, commits what it writes, and on
   a Mac other than the Studio pulls from and pushes to the Studio over SSH when
   it can. It is not always up to date, and an occasional conflict is resolved on

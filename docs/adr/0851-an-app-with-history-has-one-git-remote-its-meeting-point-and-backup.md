@@ -28,8 +28,8 @@ each app, and only a program that must work offline keeps another (ADR-0864).
 An app with no history yet (ADR-0852's first rung) has no remote.
 
 - **`epicenter sync [<app>]` is the only command that touches a remote.** For
-  each app, or the one named, from its folder: `git add -A -- .` and a commit
-  `sync: <app> (<n> files)` when anything changed, then on a copy
+  each app, or the one named, from its folder: a snapshot of whatever is
+  pending, named for the calls logged since the last one (ADR-0850), then on a copy
   `git pull --rebase --autostash`, then `git push`. On your server it does not
   pull, so the server's copy never merges (ADR-0864). An app inside a larger
   repository commits only its own folder but pulls and pushes that whole
@@ -91,6 +91,7 @@ An app with no history yet (ADR-0852's first rung) has no remote.
 - **No `epicenter sync`, Git and editors only.** Edits made by hand or by an
   editor would have no one command that commits, pulls, and pushes them.
 - **`sync` as an MCP tool.** It was one while a caller without a shell, such
-  as Claude Desktop or a view, had no other way to commit or push. Every write
-  now commits itself and `epicenter serve` pushes after it (ADR-0850), so the
-  tool only committed what someone left by hand, which is the terminal's job.
+  as Claude Desktop or a view, had no other way to commit or push. `epicenter
+  serve` now snapshots after every write and pushes after it, and snapshots
+  outside edits once they go quiet (ADR-0850), so the tool only committed what
+  someone left by hand, which the server and the terminal already do.

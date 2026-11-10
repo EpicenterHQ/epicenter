@@ -2,7 +2,8 @@
 
 - **Status:** Proposed
 - **Date:** 2026-11-10
-- **Relates:** [ADR-0853](0853-collections-give-five-actions-and-programs-without-the-folder-ask-over-mcp.md) (the four verbs, MCP), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (a write is one commit), [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (`serve` runs actions through the command line).
+- **Amended:** 2026-11-11, with ADR-0850: a run never commits, so exit 3 is gone; a snapshot that fails after an action returned leaves the answer and exit 0, and the app's status says why.
+- **Relates:** [ADR-0853](0853-collections-give-five-actions-and-programs-without-the-folder-ask-over-mcp.md) (the four verbs, MCP), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (snapshots), [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (`serve` runs actions through the command line).
 
 ## Context
 
@@ -54,19 +55,18 @@ MCP; the command line does not check it a second time.
 
 | Code | Meaning |
 | --- | --- |
-| 0 | the action returned, and its writes are committed or there were none |
+| 0 | the action returned |
 | 1 | the action threw, or an app did not sync |
 | 2 | the action did not run: a usage error |
-| 3 | the action returned, and its writes are not committed |
 
 ## Consequences
 
 - Removing a field is the same act on every surface, and no flag or verb exists
   only for it.
 - A field cannot be set to the text `null` with a flag.
-- An agent that gets exit 3 knows the action ran and must not run it again; the
-  answer under `--json` still carries what it returned and why the commit
-  failed.
+- An agent that gets exit 0 knows the action ran and must not run it again,
+  whatever became of the snapshot after it; `epicenter <app>` says when one
+  failed (ADR-0850).
 
 ## Considered alternatives
 
@@ -83,3 +83,6 @@ MCP; the command line does not check it a second time.
 - **`--no-<switch>`.** A second spelling of false.
 - **Exit 1 for an uncommitted write.** It reads as "the action threw", and an
   agent would retry an `add` that already ran.
+- **Exit 3 for an action that returned but whose commit failed (this record
+  until 2026-11-11).** A run no longer commits, so there is no commit of its
+  own to fail.
