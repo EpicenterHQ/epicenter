@@ -272,15 +272,13 @@ export type CollectionActions<D extends CollectionDef, V extends Verb> = {
 export type AnyCollection = CollectionDef & {
 	/** Whether the file at `path` is one of this collection's. */
 	holds(path: string): boolean;
-	/** Each of its files that does not fit its fields, as `<path>: <problems>`, one line each; inside a run. */
-	misfits(): Promise<string[]>;
 	actions(...verbs: never[]): Record<string, Action>;
 };
 
 /** A collection: what it was defined with, its methods, and its actions. */
 export type Collection<D extends CollectionDef = CollectionDef> = Readonly<D> &
 	Handle<D> &
-	Pick<AnyCollection, 'holds' | 'misfits'> & {
+	Pick<AnyCollection, 'holds'> & {
 		/** Its actions, each under its verb: every verb that fits it, or the ones named. */
 		actions<V extends VerbOf<D> = VerbOf<D>>(
 			...verbs: V[]
@@ -342,7 +340,6 @@ export function defineCollection<const D extends CollectionDef>(
 		...methods,
 		...(single ? {} : { pathOf: files.pathOf }),
 		holds: (path: string) => templates.some((t) => t.match(path)),
-		misfits: files.misfits,
 		actions: (...verbs: Verb[]) => {
 			for (const verb of verbs) {
 				if (fit.includes(verb)) continue;
@@ -769,16 +766,6 @@ function createFiles(templates: readonly Template[], fields: Fields) {
 		},
 		pathOf: (values: Record<string, unknown>) =>
 			fill(values, first.placeholders),
-		async misfits() {
-			const found: string[] = [];
-			for (const path of single ? [first.text] : await paths()) {
-				const text = await folder.read(path);
-				if (text === undefined) continue;
-				const { problems } = project(path, readMarkdown(text));
-				if (problems.length) found.push(`${path}: ${problems.join('; ')}`);
-			}
-			return found;
-		},
 	};
 }
 

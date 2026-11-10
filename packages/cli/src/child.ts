@@ -12,7 +12,7 @@
  * descriptor, and a pipe's reader waits for all of them. The child writes
  * `{ answer }` when it ends, by renaming over the file, so the parent reads a
  * whole answer or none; after a run that is not read-only it adds `wrote`,
- * the app whose folder the parent then snapshots. A child that ends without
+ * the app, call, and paths the parent then snapshots. A child that ends without
  * a report answers that it threw (exit 1), naming its exit code or signal;
  * whatever it wrote stays on disk, pending.
  *
@@ -38,7 +38,7 @@ function self(): string[] {
 /** What a child reports: its answer, and after a run that is not read-only, the app it ran. */
 export type Report = {
 	answer: unknown;
-	wrote?: { app: string; folder: string };
+	wrote?: { app: string; folder: string; call: string; paths: string[] };
 };
 
 /** Write `record` to the report file in one rename, so a reader never sees half of it. */

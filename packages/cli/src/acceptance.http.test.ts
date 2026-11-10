@@ -39,8 +39,8 @@ async function setup(agents?: string, env: Record<string, string> = {}) {
 		stderr: 'pipe',
 	});
 	const ready = Promise.withResolvers<string>();
+	let output = '';
 	void (async () => {
-		let output = '';
 		const reader = child.stderr.getReader();
 		for (;;) {
 			const { value: chunk, done } = await reader.read();
@@ -64,7 +64,7 @@ async function setup(agents?: string, env: Record<string, string> = {}) {
 			throw new Error('serve did not listen');
 		}),
 	]);
-	return { ...f, base };
+	return { ...f, base, stderr: () => output };
 }
 
 function mcp(base: string, method: string, params: object = {}) {
@@ -163,7 +163,7 @@ test('a read-only action makes no commit, and one that throws after writing is s
 		threw: { message: 'line 4 is not a number' },
 	});
 	expect(await gitIn(folder, 'log', '-1', '--format=%B')).toBe(
-		'reading: explode\n\nChanged outside epicenter: notes.md',
+		'reading: explode\n\nAlso changed: notes.md',
 	);
 	expect(await gitIn(folder, 'status', '--porcelain')).toBe('');
 });
@@ -179,13 +179,7 @@ test('a call whose snapshot fails still resolves, and the app says why', async (
 	expect(await client.log({ minutes: 5 })).toEqual({ minutes: 5, book: null });
 	expect(await gitIn(folder, 'rev-list', '--count', 'HEAD')).toBe('1');
 	expect(JSON.parse((await f.run('reading', '--json')).stdout).history).toEqual(
-		{
-			pending: 2,
-			failed: {
-				message: expect.stringContaining('git lfs install'),
-				next: 'epicenter sync reading',
-			},
-		},
+		{ pending: 2 },
 	);
 });
 
@@ -198,9 +192,9 @@ test('concurrent writes through update both land, and both are in history', asyn
 		/^minutes,book\n(?:10,\n20,|20,\n10,)\n$/,
 	);
 	expect(await gitIn(folder, 'status', '--porcelain')).toBe('');
-	const history = await gitIn(folder, 'log', '--format=%B');
-	expect(history).toContain('reading: log 10');
-	expect(history).toContain('reading: log 20');
+	const history = await gitIn(folder, 'log', '--format=%s');
+	expect(history).toMatch(/reading: log (10|20)/);
+	expect(await gitIn(folder, 'rev-list', '--count', 'HEAD')).toMatch(/^[23]$/);
 });
 
 test('outside edits that have gone quiet are snapshotted and pushed within two checks', async () => {
@@ -219,11 +213,44 @@ test('outside edits that have gone quiet are snapshotted and pushed within two c
 		await Bun.sleep(50);
 	}
 	expect(message).toBe(
-		'reading: 1 change\n\nChanged outside epicenter: notes.md',
+		'reading: changed outside epicenter\n\nChanged: notes.md',
 	);
 	// Two checks, 300 ms apart, and the snapshot and push after them.
 	expect(Date.now() - wrote).toBeLessThan(2_000);
 	expect(await gitIn(folder, 'status', '--porcelain')).toBe('');
+});
+
+test('serve reports a refused backup push and leaves both histories intact', async () => {
+	const f = await setup();
+	const folder = await f.folder(join(f.home, 'reading'), readingApp);
+	const remote = join(f.root, 'remote.git');
+	await gitIn(f.root, 'init', '--bare', '-q', remote);
+	await gitIn(folder, 'remote', 'add', 'origin', remote);
+	await gitIn(folder, 'push', '-q', '-u', 'origin', 'HEAD');
+	const peer = join(f.root, 'peer');
+	await gitIn(f.root, 'clone', '-q', remote, peer);
+	await writeFile(join(peer, 'peer.md'), 'from peer\n');
+	await gitIn(peer, 'add', 'peer.md');
+	await gitIn(peer, 'commit', '-q', '-m', 'peer');
+	await gitIn(peer, 'push', '-q');
+	await connect<Reading>('reading', { url: `${f.base}/` }).log({ minutes: 42 });
+	for (
+		let attempt = 0;
+		attempt < 100 && !f.stderr().includes('nothing was overwritten');
+		attempt++
+	)
+		await Bun.sleep(50);
+	expect(f.stderr()).toContain(
+		'The backup at origin has changes this computer does not; nothing was overwritten',
+	);
+	const branch = await gitIn(folder, 'symbolic-ref', '--short', 'HEAD');
+	expect(f.stderr()).toContain(
+		`git -C ${folder} fetch origin && git -C ${folder} log HEAD..origin/${branch}`,
+	);
+	expect(await gitIn(remote, 'log', '-1', '--format=%s')).toBe('peer');
+	expect(await gitIn(folder, 'log', '-1', '--format=%s')).toBe(
+		'reading: log 42',
+	);
 });
 
 test('a successful write pushes to an upstream in the background', async () => {

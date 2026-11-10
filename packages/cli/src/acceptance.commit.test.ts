@@ -159,7 +159,7 @@ test('C2 a snapshot takes everything pending in the folder, staged or not, never
 	const ran = await f.json('notes', 'write', 'monday');
 	expect(ran.code).toBe(0);
 	expect(await gitIn(f.dir, 'log', '-1', '--format=%B')).toBe(
-		'notes: write monday\n\nChanged outside epicenter: a.md, staged.md',
+		'notes: write monday\n\nAlso changed: a.md, staged.md',
 	);
 	expect(
 		(await gitIn(f.dir, 'show', '--name-only', '--format=', 'HEAD')).split(
@@ -198,7 +198,7 @@ test('C3 a write that changes nothing makes no commit', async () => {
 	await writeFile(join(f.dir, 'b.md'), 'by hand\n');
 	expect((await f.run('sync', 'notes')).code).toBe(0);
 	expect(await gitIn(f.dir, 'log', '-1', '--format=%B')).toBe(
-		'notes: 1 change\n\nChanged outside epicenter: b.md',
+		'notes: changed outside epicenter\n\nChanged: b.md',
 	);
 });
 
@@ -226,12 +226,12 @@ test('C4 an app inside a larger repository commits only its own folder', async (
 		),
 	).toEqual(['notes/a.md', 'notes/monday.md']);
 	expect(await gitIn(vault, 'log', '-1', '--format=%B')).toBe(
-		'notes: write monday\n\nChanged outside epicenter: a.md',
+		'notes: write monday\n\nAlso changed: a.md',
 	);
 	expect(await status(vault)).toBe('A  journal/staged.md\n M journal/today.md');
 });
 
-test('C5 a snapshot that fails leaves the answer and exit code alone; the status says why until a later snapshot succeeds', async () => {
+test('C5 a snapshot failure leaves the answer and pending paths for sync', async () => {
 	const f = await setup();
 	await writeFile(
 		join(f.dir, '.gitattributes'),
@@ -250,27 +250,20 @@ test('C5 a snapshot that fails leaves the answer and exit code alone; the status
 	expect(await subjects(f.dir)).toBe('initial');
 
 	const listed = JSON.parse((await f.run('notes', '--json')).stdout);
-	expect(listed.history).toEqual({
-		pending: 3,
-		failed: {
-			message: expect.stringContaining('run: git lfs install'),
-			next: 'epicenter sync notes',
-		},
-	});
+	expect(listed.history).toEqual({ pending: 3 });
 	const human = (await f.run('notes')).stdout;
 	expect(human).toContain('3 changes not yet in history');
-	expect(human).toContain('The last snapshot failed: .gitattributes routes');
 	expect(human).toContain('Run: epicenter sync notes');
 	expect((await f.run()).stdout).toContain(
-		'The notes app (3 changes not in history; last snapshot failed)',
+		'The notes app (3 changes not in history)',
 	);
 
-	// The calls stay logged, so the snapshot that succeeds names them.
+	// Sync's snapshot has no call, so it names the pending paths.
 	await rm(join(f.dir, '.gitattributes'));
 	const synced = await f.json('sync', 'notes');
 	expect(synced.code).toBe(0);
 	expect(await gitIn(f.dir, 'log', '-1', '--format=%B')).toBe(
-		'notes: 2 changes\n\nnotes: picture\nnotes: half friday',
+		'notes: changed outside epicenter\n\nChanged: cover.png, friday.md',
 	);
 	expect(
 		JSON.parse((await f.run('notes', '--json')).stdout),
@@ -310,9 +303,9 @@ test('C6 a snapshot waits for a held index lock, and after about 2 seconds leave
 	expect(held.answer).toEqual({ returned: 'tuesday' });
 	expect(held.stderr).toContain('index.lock');
 	expect(await readFile(join(f.dir, 'tuesday.md'), 'utf8')).toBe('tuesday');
-	expect(
-		JSON.parse((await f.run('notes', '--json')).stdout).history.failed.message,
-	).toContain('index.lock');
+	expect(JSON.parse((await f.run('notes', '--json')).stdout).history).toEqual({
+		pending: 1,
+	});
 });
 
 test('C7 exit codes: 0 returned, 1 threw or ended without an answer, 2 did not run', async () => {

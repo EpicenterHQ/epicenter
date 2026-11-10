@@ -88,8 +88,8 @@ async function runAppTool(
 /**
  * Run a tool through the same child process for either MCP transport, and
  * after a write, snapshot its app. `committed` hears of each snapshot that
- * made a commit; a failed one is written to stderr and kept for the app's
- * status, and the call's answer stands.
+ * made a commit; a failed one is written to stderr, its paths stay pending,
+ * and the call's answer stands.
  */
 export async function callTool(
 	name: string,
@@ -98,7 +98,7 @@ export async function callTool(
 ) {
 	const { answer, wrote } = await runAppTool(name, args);
 	if (wrote) {
-		const taken = await snapshot(wrote.app, wrote.folder);
+		const taken = await snapshot(wrote.app, wrote.folder, wrote);
 		if ('failed' in taken)
 			writeErr(`${wrote.app}: not yet in history: ${taken.failed}`);
 		else if (taken.committed) committed?.(wrote.app, wrote.folder);

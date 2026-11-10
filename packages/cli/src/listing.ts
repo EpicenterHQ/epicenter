@@ -18,37 +18,38 @@ import {
 } from './input.ts';
 import { epicenterRoot } from './root.ts';
 import { keychainService } from './secrets.ts';
-import type { historyOf } from './snapshot.ts';
+import type { statusOf } from './snapshot.ts';
 
-/** What of an app is not yet in its history, as `historyOf` reads it; `undefined` for a folder in no repository. */
-type History = Awaited<ReturnType<typeof historyOf>>;
+/** Git's pending and unpushed counts; `undefined` for a folder in no repository. */
+type Status = Awaited<ReturnType<typeof statusOf>>;
 
 /**
- * An app's history status as `--json` gives it: how many paths are pending,
- * and why the last snapshot failed with the command that retries it; absent
- * when there is neither.
+ * Git-derived status as `--json` gives it: pending paths and commits not
+ * backed up; absent when both counts are zero.
  */
-function historyStatus(app: string, history: History) {
-	if (!history || (history.pending === 0 && !history.failed)) return {};
+function historyStatus(status: Status) {
+	if (!status || (status.pending === 0 && !status.unpushed)) return {};
 	return {
 		history: {
-			pending: history.pending,
-			...(history.failed
-				? { failed: { message: history.failed, next: `epicenter sync ${app}` } }
-				: {}),
+			pending: status.pending,
+			...(status.unpushed !== undefined ? { unpushed: status.unpushed } : {}),
 		},
 	};
 }
 
 /** An app's history status in a few words for the Epicenter listing, or nothing. */
-function historyMark(history: History) {
+function historyMark(status: Status) {
 	const marks = [
-		...(history?.pending
+		...(status?.pending
 			? [
-					`${history.pending} ${history.pending === 1 ? 'change' : 'changes'} not in history`,
+					`${status.pending} ${status.pending === 1 ? 'change' : 'changes'} not in history`,
 				]
 			: []),
-		...(history?.failed ? ['last snapshot failed'] : []),
+		...(status?.unpushed
+			? [
+					`${status.unpushed} ${status.unpushed === 1 ? 'snapshot' : 'snapshots'} not backed up`,
+				]
+			: []),
 	];
 	return marks.length ? ` (${marks.join('; ')})` : '';
 }
@@ -76,7 +77,7 @@ export function actionTool(app: string, key: string, action: Action) {
  * fields as JSON Schema, its actions as tools, and what is not yet in its
  * history, which the caller reads from Git.
  */
-function appListing(located: Runnable, history: History) {
+function appListing(located: Runnable, history: Status) {
 	const { app } = located;
 	return {
 		name: located.name,
@@ -98,7 +99,7 @@ function appListing(located: Runnable, history: History) {
 		actions: Object.entries(located.actions).map(([key, action]) =>
 			actionTool(located.name, key, action),
 		),
-		...historyStatus(located.name, history),
+		...historyStatus(history),
 	};
 }
 
@@ -121,7 +122,7 @@ function actionLines(located: Runnable) {
 export function homeListing(
 	found: Discovery,
 	json: boolean,
-	histories: ReadonlyMap<string, History>,
+	histories: ReadonlyMap<string, Status>,
 ): unknown {
 	if (json)
 		return {
@@ -140,6 +141,9 @@ export function homeListing(
 	);
 	if (!found.apps.length) lines.push('No apps yet. Run: epicenter new <name>');
 	else lines.push('', 'Run: epicenter <app>');
+	for (const app of found.apps)
+		if (histories.get(app.name)?.pending || histories.get(app.name)?.unpushed)
+			lines.push(`Run: epicenter sync ${app.name}`);
 	lines.unshift(`Epicenter: ${basename(found.epicenter)} (${found.epicenter})`);
 	if (found.problems.length) {
 		lines.push('', 'Problems:');
@@ -157,7 +161,7 @@ export function homeListing(
 export function oneAppListing(
 	located: Runnable,
 	json: boolean,
-	history: History,
+	history: Status,
 ): unknown {
 	if (json)
 		return {
@@ -173,11 +177,13 @@ export function oneAppListing(
 					`${history.pending} ${history.pending === 1 ? 'change' : 'changes'} not yet in history`,
 				]
 			: []),
-		...(history?.failed
+		...(history?.unpushed
 			? [
-					`The last snapshot failed: ${history.failed}`,
-					`Run: epicenter sync ${located.name}`,
+					`${history.unpushed} ${history.unpushed === 1 ? 'snapshot' : 'snapshots'} not backed up`,
 				]
+			: []),
+		...(history?.pending || history?.unpushed
+			? [`Run: epicenter sync ${located.name}`]
 			: []),
 		'',
 		...actionLines(located),

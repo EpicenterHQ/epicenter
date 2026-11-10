@@ -1,38 +1,28 @@
 /**
  * An app's history is snapshots (ADR-0850). A run never commits; a snapshot
- * commits everything pending in the app's folder, named by what is known:
- * the calls that wrote since the last snapshot, from the app's call log, and
- * the paths no logged call wrote, as changed outside epicenter.
- *
- * Both files live in the repository's Git directory, never in the folder:
- *
- * - `epicenter-calls`: one JSON line per write run, `{ call, paths }`,
- *   appended when the run ends. A snapshot renames it aside before reading
- *   it, so a run that ends meanwhile starts a new log for the next snapshot.
- * - `epicenter-snapshot-error`: why the last snapshot failed; removed by the
- *   next one that succeeds.
+ * commits everything pending in the app's folder. A write run reports its
+ * call and paths to the parent, which gives them to the snapshot.
  *
  * Who takes a snapshot: the command line after a write run it ran itself,
  * `serve` after each write call and for outside edits that have gone quiet,
- * and `epicenter sync` before it pulls.
+ * and `epicenter sync` before it pushes.
  */
-import { randomUUID } from 'node:crypto';
-import { appendFile, readFile, rename, rm, writeFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { git, gitMessage } from './git.ts';
 
-/** One line of the call log: a write run's name and the paths it wrote. */
-type Call = { call: string; paths: string[] };
+/** The write run that led to this snapshot. */
+export type Wrote = { call: string; paths: string[] };
+
+export const ALSO_CHANGED = 'Also changed: ';
+export const CHANGED = 'Changed: ';
 
 /** What a snapshot did: the commit it made, nothing (nothing was pending, or the folder is in no repository), or why it failed. */
 export type Snapshot =
 	| { committed: { subject: string; files: number } }
 	| { committed: null }
 	| { failed: string };
-
-const CALLS = 'epicenter-calls';
-const FAILED = 'epicenter-snapshot-error';
 
 /**
  * What a snapshot takes: everything in the folder except `*.local` and
@@ -47,29 +37,6 @@ const LFS_MISSING =
 
 /** How long a commit waits for someone else's hold on Git's index lock before giving up. */
 const INDEX_LOCK_WAIT_MS = 2_000;
-
-/** Where the call log and the last failure are, in the Git directory of the repository `folder` is in; `undefined` when it is in none. */
-async function filesOf(folder: string) {
-	const found = await git(folder, [
-		'rev-parse',
-		'--is-inside-work-tree',
-		'--git-path',
-		CALLS,
-		'--git-path',
-		FAILED,
-	]);
-	const [inside, calls, failed] = found.stdout.split('\n');
-	if (found.code !== 0 || inside !== 'true' || !calls || !failed)
-		return undefined;
-	return { calls: resolve(folder, calls), failed: resolve(folder, failed) };
-}
-
-/** Note in the app's call log that `call` wrote `paths`. A folder in no repository keeps no log. */
-export async function logCall(folder: string, call: string, paths: string[]) {
-	const files = await filesOf(folder);
-	if (files)
-		await appendFile(files.calls, `${JSON.stringify({ call, paths })}\n`);
-}
 
 /**
  * Git with the snapshot's own `:(exclude)` pathspec, retried while another
@@ -108,46 +75,44 @@ export async function pendingStatus(folder: string) {
 }
 
 /**
- * What is in `folder` and not yet in its history: how many paths are pending,
- * and why the last snapshot failed, when it did. `undefined` when the folder
- * is in no repository.
+ * What Git says is pending and not yet backed up. A missing origin tracking
+ * branch gives no unpushed count because its distance cannot be known.
  */
-export async function historyOf(folder: string) {
+export async function statusOf(folder: string) {
 	const status = await pendingStatus(folder);
 	if (status === undefined) return undefined;
-	const files = await filesOf(folder);
-	const failed = files
-		? (await readFile(files.failed, 'utf8').catch(() => '')).trim()
+	const hasOrigin =
+		(await git(folder, ['remote', 'get-url', 'origin'])).code === 0;
+	const branch = hasOrigin
+		? (await git(folder, ['symbolic-ref', '-q', '--short', 'HEAD'])).stdout
 		: '';
+	const counted = branch
+		? await git(folder, [
+				'rev-list',
+				'--count',
+				`refs/remotes/origin/${branch}..HEAD`,
+			])
+		: undefined;
 	return {
 		pending: status.split('\0').filter(Boolean).length,
-		...(failed ? { failed } : {}),
+		...(counted?.code === 0 ? { unpushed: Number(counted.stdout) } : {}),
 	};
 }
 
-/** The commit message for `paths` and the `calls` logged since the last snapshot. */
-function messageOf(app: string, calls: Call[], paths: string[]) {
-	const pending = new Set(paths);
-	// A call whose changes are already in history, or were undone, names nothing here.
-	const named = calls.filter((call) => call.paths.some((p) => pending.has(p)));
-	const logged = new Set(named.flatMap((call) => call.paths));
-	const outside = paths.filter((path) => !logged.has(path));
-	const [only] = named;
-	const subject =
-		named.length === 1 && only
-			? only.call
-			: `${app}: ${paths.length} ${paths.length === 1 ? 'change' : 'changes'}`;
-	const body = [
-		...(named.length > 1 ? named.map((call) => call.call) : []),
-		...(outside.length
-			? [`Changed outside epicenter: ${outside.join(', ')}`]
-			: []),
-	];
-	return body.length ? `${subject}\n\n${body.join('\n')}` : subject;
+/** A call names its snapshot; all other pending paths get one body line. */
+function messageOf(app: string, wrote: Wrote | undefined, paths: string[]) {
+	const subject = wrote?.call ?? `${app}: changed outside epicenter`;
+	const other = wrote
+		? paths.filter((path) => !wrote.paths.includes(path))
+		: paths;
+	const body = other.length
+		? `${wrote ? ALSO_CHANGED : CHANGED}${other.join(', ')}`
+		: '';
+	return body ? `${subject}\n\n${body}` : subject;
 }
 
-/** Stage and commit everything pending, named for `calls`; `null` when nothing was. */
-async function commitPending(app: string, folder: string, calls: Call[]) {
+/** Stage and commit everything pending; `null` when nothing was. */
+async function commitPending(app: string, folder: string, wrote?: Wrote) {
 	const attributes = await readFile(
 		join(folder, '.gitattributes'),
 		'utf8',
@@ -171,7 +136,7 @@ async function commitPending(app: string, folder: string, calls: Call[]) {
 		]);
 		const paths = staged.split('\0').filter(Boolean);
 		if (paths.length === 0) return null;
-		const message = messageOf(app, calls, paths);
+		const message = messageOf(app, wrote, paths);
 		try {
 			await gitWaitingForIndex(folder, [
 				'commit',
@@ -189,36 +154,20 @@ async function commitPending(app: string, folder: string, calls: Call[]) {
 	}
 }
 
-async function take(app: string, folder: string): Promise<Snapshot> {
-	const files = await filesOf(folder);
-	if (!files) return { committed: null };
-	const { calls: log, failed: failure } = files;
-	const aside = `${log}.${randomUUID()}`;
-	let logged = '';
+async function take(
+	app: string,
+	folder: string,
+	wrote?: Wrote,
+): Promise<Snapshot> {
+	if (
+		(await git(folder, ['rev-parse', '--is-inside-work-tree'])).stdout !==
+		'true'
+	)
+		return { committed: null };
 	try {
-		try {
-			await rename(log, aside);
-			logged = await readFile(aside, 'utf8');
-		} catch (error) {
-			if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-		}
-		const calls = logged
-			.split('\n')
-			.filter(Boolean)
-			.map((line) => JSON.parse(line) as Call);
-		const committed = await commitPending(app, folder, calls);
-		await rm(aside, { force: true });
-		await rm(failure, { force: true });
-		return { committed };
+		return { committed: await commitPending(app, folder, wrote) };
 	} catch (error) {
-		const reason = extractErrorMessage(error);
-		try {
-			// The calls stay logged for the snapshot that takes their changes.
-			if (logged) await appendFile(log, logged);
-			await rm(aside, { force: true });
-			await writeFile(failure, `${reason}\n`);
-		} catch {}
-		return { failed: reason };
+		return { failed: extractErrorMessage(error) };
 	}
 }
 
@@ -229,15 +178,17 @@ const queued = new Map<string, Promise<Snapshot>>();
  * Commit everything pending in the app's folder as one snapshot (ADR-0850):
  * `git add -A` and `git commit`, never `*.local` or `*.local.*`, refused
  * before staging when `.gitattributes` routes files through LFS and this
- * computer has no filter. The subject is the one call logged since the last
- * snapshot, else `<app>: <n> changes`; the body lists the calls when there
- * are several, then the paths no logged call wrote. Nothing pending makes no
- * commit. A failure is never thrown: it leaves everything pending, keeps the
- * calls logged, and is kept for the app's status until a snapshot succeeds.
+ * computer has no filter. The subject is the reported call, or
+ * `<app>: changed outside epicenter`. The body names other pending paths, or
+ * all pending paths when there is no call. A failure is returned to the caller.
  */
-export function snapshot(app: string, folder: string): Promise<Snapshot> {
+export function snapshot(
+	app: string,
+	folder: string,
+	wrote?: Wrote,
+): Promise<Snapshot> {
 	const next = (queued.get(folder) ?? Promise.resolve())
-		.then(() => take(app, folder))
+		.then(() => take(app, folder, wrote))
 		.catch((error): Snapshot => ({ failed: extractErrorMessage(error) }));
 	queued.set(folder, next);
 	void next.then(() => {

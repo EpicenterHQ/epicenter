@@ -1,20 +1,12 @@
 /**
- * `epicenter sync [<app>]` snapshots, pulls, and pushes to `origin`, the
- * app's backup or its server (ADR-0851, ADR-0866). For each app in the
- * Epicenter, or the one named, from its folder: take a snapshot of whatever
- * is pending (`snapshot.ts`); then, when the app has an `origin`, fetch it,
- * rebase onto `origin`'s copy of the branch when there is one, and push the
- * branch to `origin` by name. It never pushes to `upstream`, the starter an
- * app came from, nor to whatever the branch tracks.
- *
- * A rebase that stops on a conflict is aborted, so the folder is never left
- * mid-rebase; the commits stay local and the app's report names the next
- * step. One app's failure never stops the others. Sync reads no app's code.
+ * `epicenter sync [<app>]` snapshots and pushes to `origin`, the home's
+ * optional backup (ADR-0851). One app's failure never stops the others.
  */
 import { CliError } from './errors.ts';
 import { git, gitMessage } from './git.ts';
 import { homeEntries } from './home.ts';
 import { fail, writeJson } from './output.ts';
+import { pushOrigin } from './push.ts';
 import { snapshot } from './snapshot.ts';
 
 /** What sync did for one app. */
@@ -24,7 +16,7 @@ type Synced = {
 	/** The snapshot sync took of what was pending, or `null` when nothing was. */
 	committed: { subject: string; files: number } | null;
 	pushed: boolean;
-	/** How far the branch is from `origin`'s copy of it afterwards; `null` when there is none. */
+	/** How far the branch is from the locally known `origin` tracking ref; `null` when there is none. */
 	origin: { ahead: number; behind: number } | null;
 	/** Why this app did not finish syncing, and the command that resolves it. */
 	error?: { message: string; next?: string };
@@ -78,48 +70,11 @@ async function syncOne(app: string, folder: string): Promise<Synced> {
 				: undefined,
 		);
 	synced.committed = taken.committed;
-	if ((await git(folder, ['remote', 'get-url', 'origin'])).code !== 0)
-		return synced;
-	const branch = await branchOf(folder);
-	if (branch === '') return stop('is not on a branch, so nothing was pushed');
-	const fetchArgs = ['fetch', '-q', 'origin'];
-	const fetched = await git(folder, fetchArgs);
-	if (fetched.code !== 0)
-		return stop(
-			`could not fetch, so nothing was pushed: ${gitMessage(fetchArgs, fetched)}`,
-			`git -C ${folder} fetch origin`,
-		);
-	let output = '';
-	const remote = `refs/remotes/origin/${branch}`;
-	if ((await git(folder, ['rev-parse', '-q', '--verify', remote])).code === 0) {
-		const rebaseArgs = ['rebase', '-q', '--autostash', remote];
-		const rebased = await git(folder, rebaseArgs);
-		if (rebased.code !== 0) {
-			// A rebase that stopped on a conflict is left to abort; any other failure leaves none.
-			const conflicted = (await git(folder, ['rebase', '--abort'])).code === 0;
-			return stop(
-				conflicted
-					? 'pulling stopped on a conflict, so the pull was undone; your commits stay here and were not pushed'
-					: `could not pull, so nothing was pushed: ${gitMessage(rebaseArgs, rebased)}`,
-				`git -C ${folder} pull --rebase origin ${branch}`,
-			);
-		}
-		output = `${rebased.stdout}\n${rebased.stderr}`;
-	}
-	const pushArgs = ['push', '-q', 'origin', `HEAD:refs/heads/${branch}`];
-	const pushedNow = await git(folder, pushArgs);
-	if (pushedNow.code !== 0)
-		return stop(
-			`not pushed: ${gitMessage(pushArgs, pushedNow)}`,
-			`git -C ${folder} push origin ${branch}`,
-		);
-	synced.pushed = true;
-	// `--autostash` says so when it cannot put changes back; Git keeps them in its stash.
-	if (/safe in the stash/i.test(output))
-		return stop(
-			'uncommitted changes elsewhere in its repository could not be put back after pulling; Git kept them in its stash',
-			`git -C ${folder} stash list`,
-		);
+	const pushedNow = await pushOrigin(folder);
+	if ('noOrigin' in pushedNow) return synced;
+	if ('error' in pushedNow)
+		return stop(pushedNow.error.message, pushedNow.error.next);
+	synced.pushed = pushedNow.pushed;
 	return { ...synced, origin: await originOf(folder) };
 }
 

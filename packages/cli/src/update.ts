@@ -100,8 +100,20 @@ async function updateOne(app: string, folder: string): Promise<Updated> {
 	if (!located.ok) return stop(located.problems.join('; '));
 	updated.misfits = await inRun(located.context, async () => {
 		const found: string[] = [];
-		for (const collection of Object.values(located.app.collections))
-			found.push(...(await collection.misfits()));
+		for (const collection of Object.values(located.app.collections)) {
+			const readable = collection as typeof collection & {
+				list?: () => Promise<{ path: string; problems?: string[] }[]>;
+				get?: () => Promise<{ path: string; problems?: string[] }>;
+			};
+			const rows = readable.list
+				? await readable.list()
+				: readable.get
+					? [await readable.get()]
+					: [];
+			for (const row of rows)
+				if (row?.problems?.length)
+					found.push(`${row.path}: ${row.problems.join('; ')}`);
+		}
 		return found;
 	});
 	try {

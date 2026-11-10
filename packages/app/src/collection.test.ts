@@ -440,9 +440,9 @@ describe('a read', () => {
 		expect(await inRun(context, () => items.list())).toEqual([
 			{ path: 'items/a.md', id: 'a', done: false, problems },
 		]);
-		expect(await inRun(context, () => items.misfits())).toEqual([
-			`items/a.md: ${problems.join('; ')}`,
-		]);
+		expect(
+			(await inRun(context, () => items.list())).filter((row) => row.problems),
+		).toEqual([{ path: 'items/a.md', id: 'a', done: false, problems }]);
 		await inRun(context, () =>
 			items.set({ path: 'items/a.md', kind: 'quote' }),
 		);
@@ -522,16 +522,30 @@ describe('a collection of one file', () => {
 	});
 });
 
-describe('misfits', () => {
-	test('names each file whose fields do not fit, by path', async () => {
+describe('problem rows', () => {
+	test('list names each file whose fields do not fit, by path', async () => {
 		const context = createMemoryContext({
 			'items/a.md': '---\nkind: "thought"\nadded: "2026-11-01"\n---\n',
 			'items/b.md': '---\nkind: "song"\nadded: "2026-11-01"\n---\n',
 			'items/c.md': '---\nkind: "thought"\n---\n',
 		});
-		expect(await inRun(context, () => items.misfits())).toEqual([
-			'items/b.md: kind: "song" is not one of "thought", "link", "quote"',
-			'items/c.md: added is missing',
+		expect(
+			(await inRun(context, () => items.list())).filter((row) => row.problems),
+		).toEqual([
+			{
+				path: 'items/b.md',
+				id: 'b',
+				done: false,
+				added: '2026-11-01',
+				problems: ['kind: "song" is not one of "thought", "link", "quote"'],
+			},
+			{
+				path: 'items/c.md',
+				id: 'c',
+				done: false,
+				kind: 'thought',
+				problems: ['added is missing'],
+			},
 		]);
 	});
 });

@@ -22,10 +22,10 @@ import { basename, isAbsolute, join, sep } from 'node:path';
 import { isName } from '@epicenter/app';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { runChild } from './child.ts';
-import { git, gitMessage } from './git.ts';
 import { homeEntries } from './home.ts';
 import { callTool, createMcpServer, listTools } from './mcp.ts';
 import { writeErr } from './output.ts';
+import { pushOrigin } from './push.ts';
 import { epicenterDir, rootInstructions } from './root.ts';
 import { pendingStatus, snapshot } from './snapshot.ts';
 import { BUILT_UI } from './ui.ts';
@@ -104,16 +104,11 @@ export function startHttpServer(
 		state.running = (async () => {
 			do {
 				state.again = false;
-				if ((await git(folder, ['remote', 'get-url', 'origin'])).code !== 0)
-					return;
-				const branch = (
-					await git(folder, ['symbolic-ref', '-q', '--short', 'HEAD'])
-				).stdout;
-				if (branch === '') return;
-				const args = ['push', '-q', 'origin', `HEAD:refs/heads/${branch}`];
-				const result = await git(folder, args);
-				if (result.code !== 0)
-					writeErr(`${app}: push failed: ${gitMessage(args, result)}`);
+				const result = await pushOrigin(folder);
+				if ('error' in result)
+					writeErr(
+						`${app}: ${result.error.message}${result.error.next ? `\nRun: ${result.error.next}` : ''}`,
+					);
 			} while (state.again);
 		})()
 			.catch((error) => {

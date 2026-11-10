@@ -1,3 +1,7 @@
+/**
+ * Starter update tests: cloning, merging, collection problem reporting, and
+ * UI builds. Sync coverage checks that an origin receives only home pushes.
+ */
 import { afterEach, expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';
 import { readFile, rm, writeFile } from 'node:fs/promises';
@@ -131,6 +135,25 @@ test('update merges the starter, lists files that no longer fit, and builds', as
 	expect(await gitIn(f.app, 'status', '--porcelain')).toBe('');
 });
 
+test('update reports problems from a one-file collection get', async () => {
+	const f = await fixture();
+	roots.push(f.root);
+	const starter = await f.folder(join(f.root, 'single-starter'), {
+		'.gitignore': gitignore,
+		'epicenter.ts': `${header}const settings = defineCollection({ path: 'settings.md', fields: { mode: field.text({ optional: true }) } });
+export default defineApp({ description: 'Settings', collections: { settings }, actions: {} });\n`,
+	});
+	expect((await f.run('new', 'settings', '--from', starter)).code).toBe(0);
+	const app = join(f.home, 'settings');
+	await writeFile(join(app, 'settings.md'), '---\nmode: 42\n---\n');
+	await commitAll(app, 'invalid setting');
+	const updated = await f.run('update', 'settings', '--json');
+	expect(updated.code).toBe(0);
+	expect(JSON.parse(updated.stdout).apps[0].misfits).toEqual([
+		'settings.md: mode: 42 is not text',
+	]);
+});
+
 test('update refuses an app with changes, and undoes a merge that conflicts', async () => {
 	const f = await starterFixture();
 	expect((await f.run('new', 'vocab', '--from', f.starter)).code).toBe(0);
@@ -192,6 +215,9 @@ test('sync pushes to origin, never to the starter', async () => {
 	expect(
 		(await f.run('vocab', 'words', 'add', 'neko', '--meaning', 'cat')).code,
 	).toBe(0);
+	expect(
+		JSON.parse((await f.run('vocab', '--json')).stdout),
+	).not.toHaveProperty('history');
 	const synced = await f.run('sync', 'vocab', '--json');
 	expect(synced.code).toBe(0);
 	expect(JSON.parse(synced.stdout).apps[0]).toMatchObject({

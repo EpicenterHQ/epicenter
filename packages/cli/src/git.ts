@@ -1,15 +1,14 @@
 /**
  * The one way `epicenter` runs Git (ADR-0850). It runs Git's porcelain from
  * an app's folder and passes on Git's messages; it keeps no Git objects,
- * index, or lock of its own, and its only files in the Git directory are the
- * snapshot's call log and last failure (`snapshot.ts`). Paths stay
+ * index, lock, or status file of its own. Paths stay
  * arguments, never shell text, and every call shares one environment:
  *
  * - `GIT_LITERAL_PATHSPECS=1`: a path is that path, never a pattern.
  * - `GIT_OPTIONAL_LOCKS=0`: a read such as `git status` never takes the index
  *   lock to refresh it, so a person's `git commit` is not refused because
  *   `epicenter` happened to be looking. Writes take their locks regardless.
- * - `GIT_TERMINAL_PROMPT=0`: a pull or push never waits on a credential
+ * - `GIT_TERMINAL_PROMPT=0`: a push never waits on a credential
  *   prompt no one can see; it fails, and Git's message says why.
  */
 const ENVIRONMENT = {
