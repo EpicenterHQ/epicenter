@@ -446,6 +446,7 @@ type Described = {
 	pattern?: string;
 	description?: string;
 	minimum?: number;
+	maximum?: number;
 	items?: Described;
 	anyOf?: { const?: unknown }[];
 	enum?: unknown[];
@@ -482,8 +483,12 @@ function wanted(field: TSchema): string | undefined {
 	if (schema.type === 'array' && schema.items?.type === 'string')
 		return 'a list of text';
 	const kind = schema.type === undefined ? undefined : TYPES[schema.type];
-	if (kind && schema.minimum !== undefined)
-		return `${kind} of at least ${schema.minimum}`;
+	if (!kind) return kind;
+	const { minimum: min, maximum: max } = schema;
+	if (min !== undefined && max !== undefined)
+		return `${kind} from ${min} to ${max}`;
+	if (min !== undefined) return `${kind} of at least ${min}`;
+	if (max !== undefined) return `${kind} of at most ${max}`;
 	return kind;
 }
 
@@ -496,6 +501,7 @@ const SAID = new Set([
 	'enum',
 	'pattern',
 	'minimum',
+	'maximum',
 ]);
 
 /** Why `value` does not fit `schema`, quoting it: `due: "next week" is not a day`. */

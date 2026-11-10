@@ -46,6 +46,8 @@ export function flagOf(key: string): string {
 type Described = {
 	type?: string;
 	format?: string;
+	minimum?: number;
+	maximum?: number;
 	enum?: unknown[];
 	anyOf?: Described[];
 	const?: unknown;
@@ -276,11 +278,14 @@ const WANTED: Record<string, string> = {
 
 function wantedOf(field: TSchema): string | undefined {
 	const schema = withoutNull(field);
-	return (
-		(schema.format && WANTED[schema.format]) ||
-		(schema.type && WANTED[schema.type]) ||
-		undefined
-	);
+	if (schema.format && WANTED[schema.format]) return WANTED[schema.format];
+	const kind = schema.type && WANTED[schema.type];
+	if (!kind) return undefined;
+	const { minimum: min, maximum: max } = schema;
+	if (min !== undefined && max !== undefined) return `${kind} from ${min} to ${max}`;
+	if (min !== undefined) return `${kind} of at least ${min}`;
+	if (max !== undefined) return `${kind} of at most ${max}`;
+	return kind;
 }
 
 /**

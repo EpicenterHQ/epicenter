@@ -64,6 +64,16 @@ function schemaOptions(options: Options | undefined) {
 	};
 }
 
+type Bounds = { min?: number; max?: number };
+
+/** JSON Schema's `minimum` and `maximum` for the bounds given. */
+function bounds(options: Bounds | undefined) {
+	return {
+		...(options?.min === undefined ? {} : { minimum: options.min }),
+		...(options?.max === undefined ? {} : { maximum: options.max }),
+	};
+}
+
 export const field = {
 	/**
 	 * Text. `pattern` is a regular expression the whole value must match; give
@@ -79,22 +89,17 @@ export const field = {
 			options,
 		),
 
-	number: <const O extends MaybeOptional & { min?: number }>(options?: O) =>
+	/** A number, at least `min` and at most `max` when they are given. */
+	number: <const O extends MaybeOptional & Bounds>(options?: O) =>
 		maybeOptional(
-			Type.Number({
-				...schemaOptions(options),
-				...(options?.min === undefined ? {} : { minimum: options.min }),
-			}),
+			Type.Number({ ...schemaOptions(options), ...bounds(options) }),
 			options,
 		),
 
-	/** A whole number. */
-	integer: <const O extends MaybeOptional & { min?: number }>(options?: O) =>
+	/** A whole number, at least `min` and at most `max` when they are given. */
+	integer: <const O extends MaybeOptional & Bounds>(options?: O) =>
 		maybeOptional(
-			Type.Integer({
-				...schemaOptions(options),
-				...(options?.min === undefined ? {} : { minimum: options.min }),
-			}),
+			Type.Integer({ ...schemaOptions(options), ...bounds(options) }),
 			options,
 		),
 

@@ -230,7 +230,7 @@ takes `{ path, grade }`; it could take `{ word, grade }` and call
 | Field | Value | On the command line |
 | --- | --- | --- |
 | `field.text()` | `string` | `--name <text>` |
-| `field.number({ min })`, `field.integer({ min })` | `number` | `--name <number>` |
+| `field.number({ min, max })`, `field.integer({ min, max })` | `number` | `--name <number>` |
 | `field.date()` | `string`, `2026-11-08` | `--name <day>` |
 | `field.datetime()` | `string`, RFC 3339 | `--name <date and time>` |
 | `field.select(['a', 'b'])` | `'a' \| 'b'` | `--name a` |
