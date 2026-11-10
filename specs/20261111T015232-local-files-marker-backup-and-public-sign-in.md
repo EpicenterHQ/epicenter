@@ -33,7 +33,7 @@ listener that signs people in with passkeys and connectors in with OAuth.
 | 1 `.local` secrets and marker | `claude/w1-local-secrets-and-marker` | Codex | merged (`a044ba3f5d`) |
 | 2 UI build path and backup status | `claude/w2-ui-build-and-backup` | Codex | merged (`1300d2b3eb`) |
 | 3 `ui/dist` | integration branch | Claude | done (`558c068ef4`); all tests pass, file by file |
-| 4 sign-in | `claude/w4-public-sign-in` | Opus | running |
+| 4 sign-in | `claude/public-sign-in`, then `claude/public-sign-in-fix` | Opus | merged; adversarial review closed (three seats); see below |
 | 5 live Epicenter | `~/Epicenter` | the person approves each step | last |
 
 Before each merge: read the branch diff against its brief, search for
@@ -127,31 +127,23 @@ temp folder is not kept.
 
 ## Wave 4: the public sign-in (ADR-0871)
 
-- `packages/cli/package.json`: `better-auth`, `@better-auth/mcp`,
-  `@better-auth/cimd`, `@better-auth/passkey` from the catalog.
-- `packages/cli/src/access.ts` (or a better name found while building): the
-  `betterAuth` setup in ADR-0871, migrations on start, WAL, the secret, the
-  invite (`verification` row, 15 minutes, one use), and the CIMD fetch.
-- `packages/cli/src/http.ts`: a second `Bun.serve` on `publicPort` when
-  `public` is set, with the ADR-0871 path table. `POST /` takes a bearer token
-  through `createMcpProtectedRequestHandler`, or a session with the public
-  origin as `Origin`. With only `read`, `tools/list` shows `readOnlyHint`
-  actions and other calls throw `createInsufficientScopeError(['write'])`.
-  The private listener is unchanged.
-- `/.sign-in` and `/.allow`: server-rendered HTML with a small inline script
-  and no framework.
-- `epicenter access`, `access invite`, `access revoke <name>`; add `access` to
-  `COMMANDS`.
-- Tests, no network and no tunnel:
-  - the path table: each path with no credential, a session, a token;
-  - the OAuth flow in process, with a stubbed CIMD fetch and a session created
-    the way a passkey sign-in ends;
-  - a `read` token cannot call or list a write action;
-  - a revoke ends refresh; the invite works once and expires;
-  - a cookie-authenticated `POST /` with a foreign `Origin` is refused;
-  - the private listener needs nothing.
-- Docs: `packages/cli/README.md` (serve, access), the `epicenter-app` skill
-  (connecting Claude and ChatGPT).
+Built and merged. ADR-0871 describes the result. Code: `packages/cli/src/`
+`authorization-server.ts` (Better Auth, the generation tables and triggers,
+`listAccess`, `revokeAccess`), `public.ts` (the router), `sign-in-pages.ts`,
+`access.ts`, `http.ts` (both listeners and the public address check). Tests:
+`public.test.ts` and `acceptance.public.test.ts`, which hold the review's
+attacks as regressions (silent re-authorization, revoke across an in-flight
+code exchange or rotation, tunnel headers, Host rebinding, the self-check).
+
+The adversarial review (two Codex seats, one Opus seat) changed the first build:
+grants are per (connector, person); a revoke ends a grant at once through
+generation triggers; every authorization needs a passkey and `/.allow`; the
+private listener allowlists `Host`, refuses tunnel headers, and is checked from
+`public`; revoke is routed and introspection unadvertised; CIMD text is
+cleaned. Its accepted risks are listed in ADR-0871.
+
+Unverified until Wave 5: WebAuthn in a real browser, what claude.ai and
+ChatGPT send, and the headers Funnel and Cloudflare add.
 
 ## Wave 5: the live Epicenter
 
@@ -181,8 +173,8 @@ The person runs these, or approves each.
 - An app with no `origin` says `not backed up` in the listing and after
   `epicenter new`.
 - Claude and ChatGPT each list and call actions at the public address; a `read`
-  approval cannot write; `epicenter access revoke` stops a connector within 15
-  minutes; the UIs open at the public address after a passkey.
+  approval cannot write; `epicenter access revoke` stops a connector on its next
+  call; the UIs open at the public address after a passkey.
 - Each wave passed review; the adversarial security review of wave 4 closed.
   Decisions that changed in the work are edited into their records. This spec
   is deleted.

@@ -1,9 +1,9 @@
 # 0871. A public address signs people in with a passkey and connectors in with OAuth
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-11
 - **Relates:** [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (one public address, with OAuth), [ADR-0868](0868-an-epicenter-is-any-folder-that-says-it-is-one-and-a-computer-runs-as-many-as-it-has.md) (`EPICENTER.md`, a port per Epicenter), [ADR-0870](0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md) (`.local` files), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (`readOnlyHint`, which the `read` scope follows), [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (views at `/<app>/`).
-- **Unbuilt:** all of it. Today `epicenter serve` listens on `127.0.0.1` only, signs no one in, and is reached through `tailscale serve` on the tailnet (`packages/cli/src/http.ts`).
+- **Unbuilt:** nothing in code (`packages/cli/src/authorization-server.ts`, `public.ts`, `sign-in-pages.ts`, `access.ts`, `http.ts`). Not yet run live: WebAuthn in a real browser, a claude.ai or ChatGPT connection, and whether Funnel and Cloudflare send the headers the private listener refuses and the forwarded address rate limits key on.
 
 ## Context
 
@@ -53,14 +53,27 @@ publicPort: 4757
 
 | Listener | Reached by | Trusts |
 | --- | --- | --- |
-| `127.0.0.1:<port>` | this computer; the tailnet through `tailscale serve` | everything, as today |
+| `127.0.0.1:<port>` | this computer; the tailnet through `tailscale serve` | every request whose `Host` is a loopback name, an IP literal, or a `*.ts.net` name, and that carries no tunnel header |
 | `127.0.0.1:<publicPort>` | the internet, through a tunnel to `public` | a person's session, or a connector's bearer token |
 
 The boundary is the socket a request arrives on, not a header on it. `serve`
-never reads Tailscale headers and never changes a tunnel's settings: any HTTPS
-tunnel that forwards `public` to `127.0.0.1:<publicPort>` works, such as
-Tailscale Funnel or Cloudflare Tunnel. When `public` is set, `serve` prints the
-public address and the port the tunnel must target.
+never changes a tunnel's settings. The supported tunnels are Tailscale Funnel
+and Cloudflare Tunnel, forwarding `public` to `127.0.0.1:<publicPort>`; any
+other must target `publicPort` too. When `public` is set, `serve` prints the
+public address and the port the tunnel must target, and refuses a non-loopback
+`--host`.
+
+**The private listener refuses what it can recognize as not private.** A
+tunnel aimed at the wrong port, or a DNS rebinding page, would otherwise reach
+a listener that trusts everything. So it answers only a `Host` that is a
+loopback name, an IP literal, or a `*.ts.net` name (Tailscale controls that
+DNS), and refuses any request carrying `Tailscale-Funnel-Request` or
+`Cf-Connecting-IP`. Host rules cannot stop a tunnel that rewrites `Host`, so
+every private-listener response carries `Epicenter-Listener: private`, and
+`serve` fetches `<public>/.well-known/oauth-protected-resource` at start and
+every 5 minutes. If that answer carries the private header, the private
+listener answers only 503 until `serve` restarts, and `serve` says to point the
+tunnel at `publicPort`.
 
 **On the public listener:**
 
@@ -68,7 +81,7 @@ public address and the port the tunnel must target.
 | --- | --- |
 | `GET /.well-known/oauth-protected-resource` | nothing: RFC 9728 metadata |
 | `GET /.well-known/oauth-authorization-server/.auth` | nothing: RFC 8414 metadata |
-| `/.auth/*` | Better Auth: authorize, token, consent, JWKS, passkey; nothing else is enabled |
+| `/.auth/*` | Better Auth: authorize, token, consent, revoke, JWKS, passkey; nothing else is enabled |
 | `GET /.sign-in` | nothing: a page that signs a person in with a passkey, or registers one from an invite |
 | `GET /.allow` | a session: a page that approves a connector |
 | `POST /` | a bearer token, or a session with this address as `Origin`; MCP |
@@ -105,7 +118,8 @@ betterAuth({
 beside `EPICENTER.md`. They are `.local`, so nothing commits them (ADR-0870),
 and the computer's own backup keeps them. `POST /` checks a token with
 `createMcpProtectedRequestHandler`, with the resource as its audience and the
-signing keys read from the database, so a check never leaves the computer.
+signing keys read from the database, so a check never leaves the computer. The
+authorization server metadata names no introspection endpoint.
 
 **People sign in with passkeys, starting from an invite.** `epicenter access
 invite` prints a link to `/.sign-in?invite=<token>` that works once, within 15
@@ -118,32 +132,68 @@ everything, on every device, until the session ends after 7 days.
 
 1. In claude.ai: Settings, Connectors, "Add custom connector", and paste
    `public`. In ChatGPT: the same, under developer mode.
-2. The browser opens `/.sign-in`, which asks for a passkey unless a session is
-   live.
-3. `/.allow` shows the connector's name and host from its CIMD document
-   ("Claude, claude.ai") and two buttons: "Allow reading and changing" and
-   "Allow reading only".
+2. The browser opens `/.sign-in`, which asks for a passkey every time.
+3. `/.allow` leads with the host serving the connector's client_id
+   (`claude.ai`), shows the whole client_id, then the name its CIMD document
+   gives itself, and says to allow it only for a connection the person just
+   started. Its buttons are "Allow reading and changing" and "Allow reading
+   only". Text from the document is shown without control or bidirectional
+   characters.
 4. The connector receives a 15-minute access token and a refresh token.
+
+Every authorization asks for a passkey and shows `/.allow`, whatever the
+connector asked: the router sets `prompt=login consent`. Better Auth otherwise
+finishes an authorization silently when a consent is stored, so a page the
+owner visits could start one for an attacker's own claude.ai account and land
+a grant there.
 
 **Two scopes, plus `offline_access`.** `read` lists and calls only actions with
 `readOnlyHint: true`; a call to any other answers 403 with an
 `insufficient_scope` challenge naming `write`. `write` allows every action.
-Without `offline_access` Better Auth issues no refresh token, and a connector
-would ask the person again every 15 minutes, so `/.allow` grants
-`read offline_access` or `read write offline_access`. A token's scope is fixed
-at approval; asking for `write` later shows `/.allow` again.
+The router adds `offline_access` to every authorization and refuses an
+approval without it, so every code exchange starts a refresh family, which the
+generation rule below can check. Better Auth lets any connector allowed the
+authorization code grant refresh, whatever its document lists. A token's scope
+is fixed at approval. Approving a grant again with narrower scopes deletes its
+refresh families that hold more.
 
 **Access is listed and revoked from the command line:**
 
 ```txt
-epicenter access                      people (passkeys) and connectors: name, host, scope, approved, last used
-epicenter access invite               a one-time link that registers a passkey
-epicenter access revoke <name>        a connector: its consent and refresh tokens; a passkey: it and its sessions
+epicenter access                                people and grants
+epicenter access invite [<name>]                a link that registers one passkey, once, within 15 minutes
+epicenter access revoke <person>                their passkeys, sessions, user, and every grant they made
+epicenter access revoke <connector>             every grant of that connector
+epicenter access revoke <connector> <person>    that one grant
 ```
 
-Revoking a connector deletes its refresh tokens, not only its consent: the
-refresh grant does not check consent. An access token it already holds works
-until it expires, within 15 minutes.
+**A grant is a connector one person approved.** A client_id does not identify
+who holds a grant: one connector serves many accounts. So access is listed and
+revoked per (connector, person), and each grant shows its live refresh
+families, so a second connection under one approval is visible.
+
+**A revoke ends a grant at once, including what is in flight.** Deleting rows
+is not enough: Better Auth's refresh does not check consent, and a code
+exchange or rotation paused across a revoke would write a new refresh row
+after it. Epicenter keeps two tables of its own in `access.local.sqlite`:
+`grantRevocation` (a row per grant a revoke ends) and `codeIssued` (each
+authorization code with its issue time from SQLite's clock, in milliseconds).
+SQL triggers on Better Auth's tables, recreated after its migrations on every
+start, enforce:
+
+- an authorization code inserts only while its grant has a consent;
+- a refresh token inserts only while its grant has a consent and only from a
+  code issued after the grant's last revoke; otherwise the token endpoint
+  answers 400 `invalid_grant` with no token;
+- after a JWT verifies, every MCP call needs a consent covering its scopes, a
+  passkey for its person, and an issue second later than the grant's last
+  revoke; otherwise 401 `invalid_token`.
+
+A revoke also deletes the grant's consent, refresh tokens, access token
+records, and pending codes, but correctness rests on the triggers, so a missed
+row fails closed. Neither table is pruned: a family's `codeIssued` row is
+needed for as long as it rotates. `POST /.auth/oauth2/revoke` is a connector's
+own disconnect: it revokes the refresh token presented, not the grant.
 
 ## Consequences
 
@@ -156,7 +206,8 @@ until it expires, within 15 minutes.
   means registering again from a new invite, and reapproving connectors.
 - Browsers send cookies by hostname, not port, so the session cookie from
   `:10000` also goes to other services on the same hostname (`:443` on the
-  Studio). They are the owner's own.
+  Studio). They are the owner's own, tailnet-only routes; a dedicated hostname
+  is the fix if that changes.
 - `serve` ships its own CIMD fetch. Upstream `@better-auth/cimd/node` connects
   to the first DNS answer only; Bun lists IPv6 first, so fetching Claude's
   document fails on a network without IPv6. `serve`'s fetch keeps the upstream
@@ -165,7 +216,20 @@ until it expires, within 15 minutes.
 - Better Auth requires an email on a user; `serve` gives each person a
   placeholder at `epicenter.invalid`.
 - Every request through a tunnel comes from `127.0.0.1`, so rate limits key on
-  the tunnel's forwarded-address header.
+  the tunnel's forwarded-address header. Tailscale overwrites it; Cloudflare's
+  is checked during live setup.
+- Accepted after an adversarial review by three independent reviewers, and
+  not closed:
+  - a revoke and a passkey re-approval of the same grant both landing between
+    two awaited database writes of one in-flight request (milliseconds);
+  - a second tunnel, at an address other than `public`, aimed at the private
+    port and rewriting `Host` to a loopback name without tunnel headers; the
+    private port is never tunneled;
+  - `read` relies on each action's honest `readOnlyHint`;
+  - invites are not listed or cancellable before they expire;
+  - Better Auth's 30-second refresh reuse window;
+  - views share the public origin with no content security policy, to revisit
+    when a view renders data that a connector or agent can write.
 - Anyone who learns the address reaches the sign-in and metadata paths. Nothing
   past them works without a passkey that an invite from this computer created.
 - If ChatGPT cannot complete CIMD, the fix is enabling
