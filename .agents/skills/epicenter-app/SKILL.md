@@ -5,13 +5,13 @@ description: Make or change an app that lives in an Epicenter (such as ~/Epicent
 
 # Epicenter apps
 
-An Epicenter is a folder holding `epicenter.root.json`; its apps are the
+An Epicenter is a folder holding `EPICENTER.md`; its apps are the
 folders directly inside it with an `epicenter.ts`, each a Git repository of
 its own (ADR-0868). `epicenter` works on the Epicenter you stand in (walking
 up from the current folder), else `EPICENTER_ROOT`, else `~/Epicenter`; a
 computer may hold several, such as one per person. `epicenter serve` offers
 one Epicenter's actions over MCP at `/` and each app's UI at `/<app>/`, on the
-port in its `epicenter.root.json`.
+port in its `EPICENTER.md`.
 An app can start from a starter, a repository with no data, which it keeps as
 its `upstream` remote; `epicenter update` merges the starter's later changes
 and builds the UI (ADR-0866). Capture, Tasks, and Vocab are starters' source
@@ -82,6 +82,28 @@ starting with `epicenter.`. A field or placeholder may not be named `path`,
   code and does not migrate data, and `epicenter update` lists each file that
   no longer fits.
 
+A sign-in is a one-file `.local.md` collection:
+
+```ts
+const google = defineCollection({
+  path: 'google.local.md',
+  description: "this computer's Google sign-in",
+  fields: {
+    account: field.text({ optional: true }),
+    refreshToken: field.text({ optional: true }),
+  },
+});
+
+const { refreshToken } = await google.get();
+```
+
+Its file stays on this computer and is created with mode `0600`. Do not call
+`google.actions()`: local collections offer no generated actions.
+
+The Epicenter's `EPICENTER.md` may declare `port` (0 to 65535, default
+4747), plus `public` (an HTTPS URL) and `publicPort` (a different local
+port). The public fields must appear together.
+
 ## Write actions only for what the verbs cannot do
 
 `epicenter.ts` default-exports `defineApp({ description, collections,
@@ -135,9 +157,9 @@ Annotate honestly. An action never commits; after a run that is not
 `readOnlyHint: true`, `epicenter` takes a snapshot of the app's folder, named
 for the call (`<app>: <words> <first positional>`), so a read marked as a
 write may take someone else's pending edits into history. A read-only run is
-never snapshotted, and its writes through `folder` and `secrets` throw, so an
-action that writes a file or refreshes a token with `secrets.set` is not
-read-only.
+never snapshotted. It may refresh a token in a `.local.md` collection,
+because local files never enter app history. Writes to other paths through
+`folder` throw.
 
 An agent can read and reverse that history. `epicenter history <app>` lists
 the snapshots, newest first, each with its commit, local time, and subject
@@ -202,7 +224,7 @@ bun test ./epicenter.test.ts               # in apps/<app>: actions over createM
 (cd apps/<app>/ui && bun run build)        # writes apps/<app>/.cache/ui/
 T=$(mktemp -d)
 printf '[user]\n\tname = Test\n\temail = test@example.com\n' > $T/.gitconfig
-HOME=$T bun packages/cli/src/bin.ts init $T/Epicenter   # writes epicenter.root.json
+HOME=$T bun packages/cli/src/bin.ts init $T/Epicenter   # writes EPICENTER.md
 rsync -a --exclude node_modules --exclude .svelte-kit apps/<app>/ $T/Epicenter/<app>/
 git -C $T/Epicenter/<app> init -q && git -C $T/Epicenter/<app> add -A && git -C $T/Epicenter/<app> commit -qm start
 HOME=$T bun packages/cli/src/bin.ts <app> <words> ...

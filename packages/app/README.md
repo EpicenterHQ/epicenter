@@ -260,16 +260,15 @@ destroy.
 
 ## Runs
 
-Whatever runs an action opens a run with the app's folder and secrets:
-`inRun({ folder, secrets }, () => action(input))`. For its length, the app's
-collections, `folder`, and `secrets` reach them; an action that calls another
+Whatever runs an action opens a run with the app's folder:
+`inRun({ folder }, () => action(input))`. For its length, the app's
+collections and `folder` reach it; an action that calls another
 stays in the same run
 ([ADR-0854](../../docs/adr/0854-an-apps-cache-is-the-files-it-gitignores.md)).
 
 | Import | Holds | Methods |
 | --- | --- | --- |
 | `folder` | the app's data, in its folder | `read`, `readBytes`, `write`, `writeBytes`, `update`, `list`, `delete`; `path` on a computer |
-| `secrets` | sign-ins, on this computer | `get`, `set`, `delete`; only on a computer |
 
 A run changes files and never commits. The app's history is snapshots,
 which whatever ran the action takes after it: the `epicenter` command after a
@@ -298,13 +297,35 @@ two `update`s of one field each see the other's.
 await folder.update('2026.csv', (before = 'minutes,book\n') => `${before}${minutes},\n`);
 ```
 
-A run of an action marked `readOnlyHint: true` is never snapshotted. Its
-context carries `readOnly: { action }`, and in it `folder.write`,
-`folder.writeBytes`, `folder.update`, `folder.delete`, `secrets.set`, and
-`secrets.delete` throw before doing anything: `The action "<words>" is read-only, so it cannot
-write <path>`. A raw `node:fs` write, or a change made through an outside
-service, is the action's own promise. So an action that refreshes a sign-in
-token with `secrets.set` cannot be read-only.
+A run of an action marked `readOnlyHint: true` is never snapshotted. It may
+write and delete paths with a segment named `*.local` or `*.local.*` through
+`folder`. Other writes through `folder` throw before changing a file:
+`The action "<words>" is read-only, so it cannot write <path>`. A raw
+`node:fs` write, or a change made through an outside service, is the action's
+own promise.
+
+An app's sign-in can be a one-file collection at a `.local.md` path. Its
+fields are checked like any collection, and the file stays on this computer.
+A new local file created through `folder` has mode `0600`. Calling
+`actions()` on the collection throws, so its generated verbs cannot expose
+the token. An app's own action may use the collection's methods:
+
+```ts
+const google = defineCollection({
+  path: 'google.local.md',
+  description: "this computer's Google sign-in",
+  fields: {
+    account: field.text({ optional: true }),
+    refreshToken: field.text({ optional: true }),
+  },
+});
+
+const { refreshToken } = await google.get();
+```
+
+The app runs inside an Epicenter marked by `EPICENTER.md`. Its front matter
+may set `port` (0 to 65535, default 4747). A public listener needs both
+`public` (an HTTPS URL) and `publicPort` (a local port different from `port`).
 
 `folder` is a convenience, not a sandbox: an action may also write through
 `folder.path` with `node:fs`. What the app can rebuild lives in files it
