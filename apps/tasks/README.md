@@ -48,8 +48,10 @@ blank one, as `add` does.
 
 ## The UI
 
-`ui/`: the list (`#/`) with a quick add, open tasks grouped as Overdue, Today,
-Upcoming, and No date, and the done ones folded under Completed. A task's page
+`ui/` is a SvelteKit project whose build writes `ui/build/`, ignored by
+`ui/.gitignore` and served at `/tasks/`. It shows the list (`#/`) with a quick
+add, open tasks grouped as Overdue, Today, Upcoming, and No date, and the done
+ones folded under Completed. A task's page
 is at its path (`#/tasks/<time>.md`): it edits the title, done, due day, and
 notes, and deletes the task after asking. A change saves after a short pause,
 when its field loses focus, and when the page is left; the notes save with

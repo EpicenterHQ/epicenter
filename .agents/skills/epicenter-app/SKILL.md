@@ -29,7 +29,7 @@ made in the starter.
   epicenter.ts     the app: its collections and actions, composed by defineApp
   epicenter.test.ts, package.json   the actions' tests and what they need
   ui/              the UI, a SvelteKit project of its own
-  .cache/ui/       the built UI, ignored by Git
+  ui/build/       the built UI, ignored by ui/.gitignore
   <data>           files the collections' paths match; never in a starter
 ```
 
@@ -46,7 +46,7 @@ each under its name (`epicenter mail messages list`). A record's address is
 its path: `tasks/2026-11-10T09-30-00-000Z-k3x9a2f8.md`.
 A path is a relative `.md` template that starts with a folder of its own
 (`days/{day}.md`, not `{day}.md`); `defineCollection` refuses a part starting
-with `.` (such as `.cache/`), a first part of `ui` or `node_modules`, and one
+with `.`, a first part of `ui` or `node_modules`, and one
 starting with `epicenter.`. A field or placeholder may not be named `path`,
 `body`, `problems`, `other`, `json`, `help`, or `input`.
 
@@ -154,7 +154,7 @@ happened.
 
 Copy an existing app's `ui/`: SvelteKit with the hash router, `@epicenter/ui`
 and its `app.css`, a manifest and icons in `static/`, and its
-`svelte.config.js`, which builds into `../.cache/ui/` with the app's folder
+`svelte.config.js`, which builds into `ui/build/` with the app's folder
 name as the base. Ask for everything through
 `connect<typeof app>('<app>')` from
 `@epicenter/app/client`, importing the app as a type
@@ -199,7 +199,7 @@ its own, since `epicenter` snapshots every write into the app's repository:
 
 ```sh
 bun test ./epicenter.test.ts               # in apps/<app>: actions over createMemoryContext
-(cd apps/<app>/ui && bun run build)        # writes apps/<app>/.cache/ui/
+(cd apps/<app>/ui && bun run build)        # writes apps/<app>/ui/build/
 T=$(mktemp -d)
 printf '[user]\n\tname = Test\n\temail = test@example.com\n' > $T/.gitconfig
 HOME=$T bun packages/cli/src/bin.ts init $T/Epicenter   # writes epicenter.root.json
@@ -227,10 +227,10 @@ Only when the person asks, on the computer that runs `epicenter serve`:
 - Backups go to `origin`: add the remote, and `epicenter sync` and `serve`
   push there by name, never to `upstream`.
 - `epicenter build [<app>]` rebuilds a UI after a local edit, keeping the last
-  one that built; the UI project's own `bun run build` empties `.cache/ui/`
+  one that built; the UI project's own `bun run build` empties `ui/build/`
   first, so a page served meanwhile is missing.
 - Run these from inside the Epicenter the app belongs to; another person's
   Epicenter on the same computer is another folder with its own port.
 
 A running `epicenter serve` sees a change on the next request: it lists tools
-and reads `.cache/ui/` from disk each time.
+and reads `ui/build/` from disk each time.
