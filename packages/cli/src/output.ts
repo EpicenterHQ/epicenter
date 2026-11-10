@@ -82,12 +82,17 @@ type Fields = Record<string, unknown>;
 const isFields = (value: unknown): value is Fields =>
 	typeof value === 'object' && value !== null && !Array.isArray(value);
 
+/**
+ * A string as it reads after `key: `: plain, unless it could be read as
+ * something else, such as JSON (`"true"`, `"12"`, `"null"`), an empty or
+ * padded string, or one that starts as a quote or a block would.
+ */
 function stringValue(value: string): string {
 	if (
 		value === '' ||
 		value.trim() !== value ||
 		/^["'|]/.test(value) ||
-		(!/^[\p{L}_][\p{L}\p{N}_-]*$/u.test(value) && looksLikeJson(value))
+		looksLikeJson(value)
 	)
 		return JSON.stringify(value);
 	return value;
@@ -102,18 +107,55 @@ function looksLikeJson(value: string): boolean {
 	}
 }
 
+/** A non-empty list whose every item is an object. */
+const isRows = (value: unknown): value is Fields[] =>
+	Array.isArray(value) && value.length > 0 && value.every(isFields);
+
+/** `text` moved two spaces right, leaving blank lines blank. */
+const indent = (text: string) =>
+	text
+		.split('\n')
+		.map((line) => (line ? `  ${line}` : line))
+		.join('\n');
+
+/**
+ * Each defined field as `key: value`. A string of several lines is a block
+ * under `key: |`; an object with a field, or a non-empty list of objects,
+ * renders as a returned one would, two spaces in under `key:`. Anything else
+ * is compact JSON.
+ */
 function fieldLines(fields: Fields): string[] {
 	return Object.entries(fields)
 		.filter(([, value]) => value !== undefined)
 		.map(([key, value]) => {
-			if (typeof value === 'string' && value.includes('\n'))
-				return `${key}: |\n${value
-					.replace(/\n$/, '')
-					.split('\n')
-					.map((line) => `  ${line}`)
-					.join('\n')}`;
-			return `${key}: ${typeof value === 'string' ? stringValue(value) : JSON.stringify(value)}`;
+			if (typeof value === 'string')
+				return value.includes('\n')
+					? `${key}: |\n${indent(value.replace(/\n$/, ''))}`
+					: `${key}: ${stringValue(value)}`;
+			const nested = isFields(value)
+				? fieldLines(value).join('\n')
+				: isRows(value)
+					? rows(value)
+					: '';
+			return nested
+				? `${key}:\n${indent(nested)}`
+				: `${key}: ${JSON.stringify(value)}`;
 		});
+}
+
+/**
+ * A list of objects, one row each with its fields side by side, unless a
+ * field takes more than one line: then each is a block of field lines, the
+ * blocks apart by a blank line.
+ */
+function rows(items: Fields[]): string {
+	const each = items.map(fieldLines);
+	const blocks = each.some((lines) =>
+		lines.some((line) => line.includes('\n')),
+	);
+	return each
+		.map((lines) => lines.join(blocks ? '\n' : '  '))
+		.join(blocks ? '\n\n' : '\n');
 }
 
 /** Render the returned value without assuming what its keys mean. */
@@ -126,21 +168,7 @@ function readable(value: unknown): { stdout: string; stderr: string } {
 		const fields = fieldLines(value);
 		return { stdout: fields.length ? line(fields.join('\n')) : '', stderr: '' };
 	}
-	if (Array.isArray(value) && value.every(isFields)) {
-		const blocks = value.some((item) =>
-			Object.values(item).some(
-				(field) => typeof field === 'string' && field.includes('\n'),
-			),
-		);
-		return {
-			stdout: line(
-				value
-					.map((item) => fieldLines(item).join(blocks ? '\n' : '  '))
-					.join(blocks ? '\n\n' : '\n'),
-			),
-			stderr: '',
-		};
-	}
+	if (isRows(value)) return { stdout: line(rows(value)), stderr: '' };
 	return { stdout: line(JSON.stringify(value)), stderr: '' };
 }
 
