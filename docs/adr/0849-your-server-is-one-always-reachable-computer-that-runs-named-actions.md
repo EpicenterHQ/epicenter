@@ -44,9 +44,10 @@ ago is what runs.
 **`epicenter serve` over HTTPS is the way in for everything without a shell.**
 Your own devices reach it over your tailnet. Claude.ai and ChatGPT connect from
 their vendors' servers, so `serve` also has one public HTTPS address, through
-Tailscale Funnel, and signs a client in with OAuth, as MCP requires: adding the
-connector opens a page on your server where you approve it from a device on
-your tailnet, and the client receives a token you can revoke (ADR-0871).
+any HTTPS tunnel such as Tailscale Funnel, and signs a client in with OAuth, as
+MCP requires: adding the connector opens a page on your server where you
+approve it with a passkey, and the client receives a token you can revoke
+(ADR-0871).
 
 **A command means this computer.** `epicenter vocab define serendipity` runs
 the Vocab folder on the computer it is typed on, and never forwards.

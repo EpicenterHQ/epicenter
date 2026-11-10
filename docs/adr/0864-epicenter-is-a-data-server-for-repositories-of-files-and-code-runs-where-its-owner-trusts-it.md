@@ -87,10 +87,9 @@ that runs Mail's actions (ADR-0870), and Epicenter holds only its own sign-in.
 **Your Epicenter is the Studio running `epicenter serve`.** Your own devices
 reach it over your tailnet. Claude.ai and ChatGPT connect from their companies'
 servers, so `epicenter serve` also has one public HTTPS address, through
-Tailscale Funnel, and signs a client in with
-OAuth, as MCP requires: adding the connector opens a page on the Studio where
-you approve it from a device on your tailnet, and the client receives a token
-you can revoke (ADR-0871).
+any HTTPS tunnel such as Tailscale Funnel, and signs a client in with OAuth, as
+MCP requires: adding the connector opens a page on the Studio where you approve
+it with a passkey, and the client receives a token you can revoke (ADR-0871).
 Another person's Epicenter is the same program on their own computer; without a
 terminal, it is the Epicenter Mac app, which runs `epicenter serve` (ADR-0865).
 

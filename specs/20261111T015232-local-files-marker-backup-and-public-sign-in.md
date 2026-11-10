@@ -1,173 +1,188 @@
-# Local secrets, the `EPICENTER.md` marker, backup status, and a public sign-in
+# Local secrets, the `EPICENTER.md` marker, `ui/dist`, backup status, and a public sign-in
 
 **Date**: 2026-11-11
-**Status**: Draft
+**Status**: In Progress
 **Owner**: Braden
-**Branch**: `claude/local-files-and-sign-in` (records); code waves branch from `claude/collections` once its review fixes land
-**Supersedes**: none. Decisions: [ADR-0870](../docs/adr/0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md), [ADR-0868](../docs/adr/0868-an-epicenter-is-any-folder-that-says-it-is-one-and-a-computer-runs-as-many-as-it-has.md) (marker), [ADR-0851](../docs/adr/0851-an-app-has-one-home-and-an-optional-push-only-backup.md) (backup status), [ADR-0871](../docs/adr/0871-a-public-address-signs-clients-in-with-better-auths-mcp-plugin-and-the-owner-approves-from-the-tailnet.md) (sign-in)
+**Branch**: `claude/local-files-and-sign-in` (integration); waves branch from `3e6f1fca38`
+**Decisions**: [ADR-0870](../docs/adr/0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md) (`.local` secrets), [ADR-0868](../docs/adr/0868-an-epicenter-is-any-folder-that-says-it-is-one-and-a-computer-runs-as-many-as-it-has.md) (marker), [ADR-0854](../docs/adr/0854-an-apps-cache-is-the-files-it-gitignores.md) and [ADR-0860](../docs/adr/0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (`ui/dist`, no `.cache/`), [ADR-0851](../docs/adr/0851-an-app-has-one-home-and-an-optional-push-only-backup.md) (backup status), [ADR-0871](../docs/adr/0871-a-public-address-signs-people-in-with-a-passkey-and-connectors-in-with-oauth.md) (sign-in)
 
 ## One sentence
 
 Replace the Keychain with `.local` collections, mark an Epicenter with
-`EPICENTER.md`, make a missing backup visible, and let claude.ai and ChatGPT
-reach `epicenter serve` through Funnel with Better Auth's MCP plugin and
-approval from the tailnet.
+`EPICENTER.md`, serve a view from `ui/dist/`, make a missing backup visible,
+and let claude.ai and ChatGPT reach `epicenter serve` through a public
+listener that signs people in with passkeys and connectors in with OAuth.
 
 ## Current and target
 
-| | Now (`claude/collections`) | Target |
+| | Before (`3e6f1fca38`) | Target |
 | --- | --- | --- |
 | Secrets | `secrets` in the run, `Bun.secrets` under `epicenter.<id>.<app>` | a one-file collection at `<name>.local.md`; no `secrets` |
 | `.local` | never committed | also: no generated verbs, writable in a read-only run, created `0600` |
-| Marker | `epicenter.root.json` `{ id, port }` | `EPICENTER.md`, front matter `port`, `owners`, `public` |
+| Marker | `epicenter.root.json` `{ id, port }` | `EPICENTER.md`, front matter `port`, `public`, `publicPort` |
+| UI | built into `.cache/ui/`; template ignores `.cache/` | `ui/dist/`, built or hand-written; template ignores `node_modules/`, `*.local`, `*.local.*` |
 | Backup | unpushed count only when `origin/<branch>` exists | `not backed up` / `never backed up` in status, and after `epicenter new` |
-| Public access | none; tailnet only, no sign-in | Funnel port from `public`; OAuth through `@better-auth/mcp` + `@better-auth/cimd`; `epicenter connections` |
+| Public access | none; tailnet only, no sign-in | a second listener at `publicPort`; passkeys for people, OAuth for connectors; `epicenter access` |
 
-## Order and dependencies
+## Waves and state
 
-Wave 1 edits `packages/app/src/context.ts` and `collection.ts`, which the
-review fixes on `claude/collections` also edit (collection `update`, BOM,
-claims). Start code after those commits land, from the new tip. Waves 1 to 3
-are independent of each other; wave 4 needs wave 2 (`EPICENTER.md` fields).
+| Wave | Branch | Owner | State |
+| --- | --- | --- | --- |
+| 0a spike | none (`$TMPDIR/epicenter-spike`) | Opus | done; results below |
+| 0b Better Auth 1.8.0-beta.7 | `claude/w0b-better-auth-beta7` | Codex | merged (`36dfc26720`) |
+| 1 `.local` secrets and marker | `claude/w1-local-secrets-and-marker` | Codex | running |
+| 2 UI build path and backup status | `claude/w2-ui-build-and-backup` | Codex | running; built to `ui/build`, renamed in wave 3 |
+| 3 `ui/dist` | integration branch | Claude | after 1 and 2 merge |
+| 4 sign-in | from the integration tip | Opus | after 3, review, and green tests |
+| 5 live Epicenter | `~/Epicenter` | the person approves each step | last |
 
-## Wave 0: checks before code
+Before each merge: read the branch diff against its brief, search for
+leftovers (`secrets`, `keychain`, `EPICENTER_TEST_SECRETS`,
+`epicenter.root.json`, `.cache`), and confirm the commit exists on the branch.
+After merging 1 to 3: typecheck `packages/app` and `packages/cli`, run every
+test file one at a time with its own `TMPDIR`, build the three UIs, and run
+`post-implementation-review` on the combined change.
 
-Each settles a fact the records lean on; write the result into this spec.
+## Wave 3: a view is what is in `ui/dist/` (ADR-0860)
 
-1. Better Auth 1.8.0-beta.7 with a `bun:sqlite` `Database` as `database`, and
-   its migrations run from code (`getMigrations`) with no CLI step. If not, use
-   Kysely's Bun SQLite dialect.
-2. `fetchClientMetadataResource` from `@better-auth/cimd/node` works under Bun
-   (it pins DNS answers and sets TLS SNI by hand).
-3. Bump the catalog's Better Auth packages from 1.8.0-beta.0 to 1.8.0-beta.7:
-   typecheck and test `packages/server` and `apps/api` alone, in its own
-   commit.
-4. Whether oauth-provider's consent endpoint accepts a narrower `scope` than
-   requested, for "Allow reading only". If not, `/.allow` re-issues the
-   authorization request with `scope=read` before consenting.
-5. Whether `@modelcontextprotocol/sdk`, as `serve` uses it, answers the
-   protocol versions claude.ai and ChatGPT send. Test it with the SDK's client
-   locally. The `@better-auth/mcp` README pairs with `@modelcontextprotocol/server`
-   v2 `createMcpHandler({ legacy: 'reject' })`, but `requireMcpAuth` wraps any
-   `(Request) => Response`, so moving is optional.
+- `packages/cli/src/ui.ts`, `http.ts`, and every caller: the served folder is
+  `ui/dist/`. `serve` looks nowhere else.
+- With a `build` script in `ui/package.json`, `epicenter build`, `new --from`,
+  and `update` run it and keep the last `ui/dist/` that built. Without one,
+  there is nothing to build: `ui/dist/` holds hand-written files.
+- `apps/{capture,tasks,vocab}/ui/svelte.config.js`:
+  `adapter({ pages: 'dist', assets: 'dist' })`; each `ui/.gitignore` lists
+  `dist/`.
+- Tests: a built UI is served; a hand-written `ui/dist/index.html` with no
+  `package.json` is served; a project with a build script and no `dist/` has
+  no view.
 
-## Wave 1: `.local` files replace the Keychain (ADR-0870)
+## Wave 0a results (the spike, 2026-11-11)
 
-- `packages/app/src/context.ts`: `Context` is `{ folder }`; delete `secrets`,
-  `Secrets`, and their `writableRun` branches. A read-only run lets
-  `write`, `writeBytes`, `update`, and `delete` through when the path matches
-  `*.local` or `*.local.*`.
-- `packages/app/src/collection.ts`: `actions()` throws
-  `<path> never leaves this computer, so it offers no actions` when `path`
-  matches `*.local` or `*.local.*`. Check that `path.ts` accepts `google.local.md`
-  as a one-file template.
-- `packages/cli/src/disk.ts` and `packages/app/src/memory.ts`: a new file at a
-  `.local` path is created `0600` (the temp file is `chmod`ed before the
-  rename, as a replaced file's mode already is).
-- Delete `packages/cli/src/secrets.ts`, its uses in `home.ts`, the `keychain`
-  field in `listing.ts`, `createMemorySecrets`, and `EPICENTER_TEST_SECRETS`.
-- Tests:
-  - a read-only action writes `x.local.md` and is refused writing `x.md`;
-  - `actions()` on a `.local` collection throws;
-  - a `.local` file is `0600`;
-  - a snapshot never takes it (existing test);
-  - a run's context has no `secrets`.
-- Docs: `packages/app/README.md`, `packages/cli/README.md`, and the
-  `epicenter-app` skill teach a secret as a `.local.md` collection.
+`$TMPDIR/epicenter-spike/example.ts` runs the whole flow in 43 printed steps
+(`run.log`); `access.ts` lists and revokes from a second process;
+`cimd-transport.ts` is the IPv4-first CIMD fetch. Copy what wave 4 needs; the
+temp folder is not kept.
 
-## Wave 2: `EPICENTER.md` (ADR-0868)
-
-- `packages/cli/src/root.ts`: walk up for `EPICENTER.md`. Read its front
-  matter with `@epicenter/app`'s front-matter reader: `port` (integer 0 to
-  65535), `owners` (list of strings), and `public` (443, 8443, or 10000).
-  Anything else is a problem naming the field. `EpicenterRoot` loses `id`.
-- A folder with `epicenter.root.json` and no `EPICENTER.md` is refused with
-  the step `write EPICENTER.md with port: <n>, then delete epicenter.root.json`.
-- `packages/cli/src/init.ts` writes the `EPICENTER.md` shown in ADR-0868.
-- Tests: discovery from inside an app; front-matter problems; the old marker's
-  refusal; `init`'s file.
-- Docs: `packages/cli/README.md`, the `epicenter-app` skill (setup and test
-  sections).
-
-## Wave 3: a missing backup is visible (ADR-0851)
-
-- `packages/cli/src/snapshot.ts` `statusOf`: add `backup: 'none'` when there
-  is no `origin`, and `'never'` when there is one but no `origin/<branch>`.
-- `listing.ts`: `not backed up` / `never backed up` in the app line and above
-  its actions, with the next step from ADR-0851.
-- `new.ts`: the same line at the end of stderr.
-- Tests: an app with no origin, one with an origin never pushed, one pushed.
-- Use whichever name the status JSON field has after the review fixes land
-  (`history` is being renamed to `status`).
+- **Database.** `new Database(path)` from `bun:sqlite` works as `database`.
+  `getMigrations(auth.options).runMigrations()` from `better-auth/db/migration`
+  creates all tables at start and is a no-op the second time. Set
+  `PRAGMA journal_mode=WAL` and a `busy_timeout`; the CLI opens the same file.
+- **Discovery.** The issuer is `<publicOrigin>/.auth`. `auth.handler` answers
+  `/.well-known/oauth-protected-resource` and
+  `/.well-known/oauth-authorization-server/.auth` (path insertion, which the MCP
+  SDK fetches). The bare root `/.well-known/oauth-authorization-server` needs
+  `oauthProviderAuthServerMetadata(auth)` from `@better-auth/oauth-provider`.
+  Metadata has `client_id_metadata_document_supported: true` and no
+  `registration_endpoint`. Set `grantTypes` to drop `client_credentials`
+  (untested).
+- **Scopes.** Include `offline_access`, or no refresh token is issued. The mcp
+  plugin keeps it out of the protected-resource metadata. Leave
+  `challengeScopes` unset: a scope in the 401 overrides `scopes_supported`.
+- **Resource.** `https://host:port/` with the trailing slash; Better Auth
+  matches it exactly, and old SDKs add the slash.
+- **Token checks.** Use `createMcpProtectedRequestHandler({ audience: resource,
+  jwksUrl })`, not `requireMcpAuth`, whose default audience is `baseURL`
+  (`…/.auth`) and which fetches the JWKS from the public URL. Pass a memoized
+  `() => auth.api.getJwks()` (needs a cast; the type says `string`) or
+  `http://127.0.0.1:<publicPort>/.auth/jwks`.
+- **Sign-in continuation.** After a session is created, POST to the sign-in
+  endpoint with `{ oauth_query }` in the JSON body; it returns
+  `{ redirect: true, url: '/.allow?…' }`. The passkey `verify-authentication`
+  endpoint ends the same way (inferred).
+- **Consent narrowing works.** `scope: 'read offline_access'` on consent issues
+  a narrower code; an unrequested scope is 400. `/oauth2/public-client` gives
+  `client_name` and `client_uri` for `/.allow`.
+- **Tokens.** `expires_in: 900`, EdDSA JWTs with `aud` = resource and `azp` =
+  the CIMD URL; access tokens are not stored. Refresh rotates. Asking for
+  `write` after a `read` approval returns to `/.allow`.
+- **Revocation.** The refresh grant never checks consent, and a rotated token
+  replays for 30 seconds. Revoke deletes the consent and the client's
+  refresh-token rows in one transaction.
+- **Passkey.** Endpoints under `/.auth/passkey/`. Invite flow:
+  `registration: { requireSession: false, resolveUser, afterVerification }`;
+  `generate-register-options?context=<invite>` resolves the invite from the
+  `verification` table, `afterVerification` deletes it, and
+  `verify-registration` with `createSession: true` signs the person in.
+  Verified to the options (200 with the invite, 401 without); the WebAuthn
+  ceremony itself was not run.
+- **Pages.** Better Auth accepts JSON POSTs with a trusted `Origin` only, so
+  `/.sign-in` and `/.allow` use a little script (WebAuthn needs it anyway).
+- **Cookies.** `Secure` and `__Secure-` follow the https `baseURL`; requests at
+  `http://127.0.0.1` with the https `Origin` work unchanged. DPoP checks
+  `request.url`, so rewrite it to the public origin before the MCP handler.
+- **Users.** Email is required and unique: use `<id>@epicenter.invalid`.
+  `createUser` takes a provisioning source as a second argument.
+- **Secret.** Persist `secret` in `access.local.key`.
+- **CIMD fetch under Bun.** Upstream `@better-auth/cimd/node` connects to the
+  first DNS answer; Bun lists IPv6 first, so claude.ai fails without IPv6.
+  `cimd-transport.ts` keeps the checks (public addresses only, certificate
+  checked against the name) and tries IPv4 first. Claude's and Claude Code's
+  documents validate under `mcp-2026-07-28`. ChatGPT's CIMD URL is unknown.
+- **MCP SDK.** `packages/cli` has `@modelcontextprotocol/sdk` 1.29.0 (latest
+  protocol `2025-11-25`). `@modelcontextprotocol/server` 2.x is on npm; the
+  2.3.1 client adds `offline_access` itself. Moving is optional.
+- **Not verified:** what claude.ai's and ChatGPT's clients send; `disabledPaths`;
+  rate limiting behind a tunnel (every request is from `127.0.0.1`).
 
 ## Wave 4: the public sign-in (ADR-0871)
 
 - `packages/cli/package.json`: `better-auth`, `@better-auth/mcp`,
-  `@better-auth/cimd` from the catalog.
-- New `packages/cli/src/auth.ts`:
-  - the `betterAuth` call from ADR-0871, with `basePath: '/.auth'` and
-    `connections.local.sqlite` in the Epicenter's folder;
-  - migrations on start;
-  - an access token lifetime of 15 minutes;
-  - `tailnetSignIn`, a plugin with one endpoint that checks the owner's
-    `Tailscale-User-Login`, refuses `Tailscale-Funnel-Request`, finds or
-    creates the user by login, and calls `internalAdapter.createSession`.
-- `packages/cli/src/http.ts`:
-  - classify each request by the ADR-0871 table (`Tailscale-Funnel-Request`,
-    `Tailscale-User-Login` against `owners`, neither);
-  - over Funnel, serve only the listed paths; mount Better Auth at `/.auth/*`
-    and its metadata at the two `/.well-known` paths;
-  - wrap `POST /` in `requireMcpAuth`;
-  - with only `read`, filter `tools/list` to `readOnlyHint` actions and answer
-    other calls with `createInsufficientScopeError`.
-- `/.sign-in` and `/.allow`: two server-rendered HTML pages in `http.ts`, plain
-  forms, no framework. The `/.allow` copy is in ADR-0871.
-- Startup: with `public` set, read `tailscale status --json` for the name,
-  owner, and Funnel routes. If Funnel does not route `public` to this port,
-  print the `tailscale funnel` command and keep serving the tailnet.
-- New `packages/cli/src/connections.ts`: `epicenter connections` and
-  `epicenter connections revoke <client>`, reading the same SQLite file. Add
-  `connections` to `COMMANDS`.
-- Tests: no network, no Tailscale.
-  - Classification: each table row by headers.
-  - Funnel path filter.
-  - The whole OAuth flow in process: metadata, then authorize, then
-    `/.sign-in` with an owner header, then `/.allow`, then token, then
-    `POST /` with the token. Inject a `fetchClientMetadataResource` that
-    returns a fixed client document, since the real one refuses non-public
-    DNS.
-  - A `read` token cannot call a write action.
-  - A revoke ends the refresh.
-  - A request with another login gets 403.
-- Docs: `packages/cli/README.md` (serve, connections), `docs/vision.md` check,
-  the `epicenter-app` skill (how a person connects Claude and ChatGPT).
+  `@better-auth/cimd`, `@better-auth/passkey` from the catalog.
+- `packages/cli/src/access.ts` (or a better name found while building): the
+  `betterAuth` setup in ADR-0871, migrations on start, WAL, the secret, the
+  invite (`verification` row, 15 minutes, one use), and the CIMD fetch.
+- `packages/cli/src/http.ts`: a second `Bun.serve` on `publicPort` when
+  `public` is set, with the ADR-0871 path table. `POST /` takes a bearer token
+  through `createMcpProtectedRequestHandler`, or a session with the public
+  origin as `Origin`. With only `read`, `tools/list` shows `readOnlyHint`
+  actions and other calls throw `createInsufficientScopeError(['write'])`.
+  The private listener is unchanged.
+- `/.sign-in` and `/.allow`: server-rendered HTML with a small inline script
+  and no framework.
+- `epicenter access`, `access invite`, `access revoke <name>`; add `access` to
+  `COMMANDS`.
+- Tests, no network and no tunnel:
+  - the path table: each path with no credential, a session, a token;
+  - the OAuth flow in process, with a stubbed CIMD fetch and a session created
+    the way a passkey sign-in ends;
+  - a `read` token cannot call or list a write action;
+  - a revoke ends refresh; the invite works once and expires;
+  - a cookie-authenticated `POST /` with a foreign `Origin` is refused;
+  - the private listener needs nothing.
+- Docs: `packages/cli/README.md` (serve, access), the `epicenter-app` skill
+  (connecting Claude and ChatGPT).
 
 ## Wave 5: the live Epicenter
 
 The person runs these, or approves each.
 
-1. `~/Epicenter`: write `EPICENTER.md` (`port: 4747`, `public: 10000`), delete
-   `epicenter.root.json`.
+1. `~/Epicenter`: write `EPICENTER.md` (`port: 4747`,
+   `public: https://studio.tail0f84e1.ts.net:10000/`, `publicPort: 4757`),
+   delete `epicenter.root.json`.
 2. Remove `.gitattributes` from `~/Epicenter/tasks` and `~/Epicenter/vocab`
-   (no binaries; ADR-0856), snapshot, push.
-3. Restart `serve` from the final commit. Then run
-   `tailscale funnel --bg --https=10000 http://127.0.0.1:4747`. That publishes
+   (no binaries; ADR-0856); replace each app's `.gitignore`; copy each `ui/`
+   source in and build to `ui/dist/`; snapshot; push.
+3. Restart `serve` from the final commit. `epicenter access invite`, open the
+   link, register a passkey.
+4. `tailscale funnel --bg --https=10000 http://127.0.0.1:4757`. That publishes
    an address, so it needs the person's go.
-4. Connect claude.ai and ChatGPT. Record in ADR-0871 whether ChatGPT completed
-   CIMD or needed dynamic registration.
+5. Connect claude.ai and ChatGPT. Record in ADR-0871 what each client sent and
+   whether ChatGPT completed CIMD.
 
 ## Done when
 
-- Mail-style secret: a `.local.md` collection read in a read-only action that
-  refreshes its token. No `secrets`, `Bun.secrets`, or `keychain` remains
+- A mail-style secret is a `.local.md` collection read in a read-only action
+  that refreshes its token. No `secrets`, `Bun.secrets`, or `keychain` remains
   outside `docs/`.
 - `epicenter` in a folder with only `EPICENTER.md` works; the old marker is
   refused with its step.
+- A view is served from `ui/dist/`, built or hand-written; no `.cache` remains.
 - An app with no `origin` says `not backed up` in the listing and after
   `epicenter new`.
-- Claude and ChatGPT each list and call actions over the Funnel address. A
-  `read` approval cannot write. `epicenter connections revoke` stops a client
-  within 15 minutes.
-- Each wave passed `post-implementation-review`; decisions that changed in
-  the work are edited into ADR-0868, 0870, 0871, and 0851. This spec is
-  deleted.
+- Claude and ChatGPT each list and call actions at the public address; a `read`
+  approval cannot write; `epicenter access revoke` stops a connector within 15
+  minutes; the UIs open at the public address after a passkey.
+- Each wave passed review; the adversarial security review of wave 4 closed.
+  Decisions that changed in the work are edited into their records. This spec
+  is deleted.
