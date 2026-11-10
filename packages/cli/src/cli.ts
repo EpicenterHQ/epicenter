@@ -9,7 +9,7 @@
 import type { Action } from '@epicenter/app';
 import packageJson from '../package.json' with { type: 'json' };
 import { buildCommand } from './build.ts';
-import { REPORT_FLAG, runChild } from './child.ts';
+import { READ_ONLY_FLAG, REPORT_FLAG, runChild } from './child.ts';
 import { COMMANDS, type Command } from './commands.ts';
 import { CliError } from './errors.ts';
 import { historyCommand, undoCommand } from './history.ts';
@@ -159,6 +159,9 @@ export async function runCli(argv: string[]): Promise<number> {
 		answerInto(reportArg.slice(REPORT_FLAG.length));
 		argv = argv.slice(1);
 	}
+	// A child may be limited to read-only actions (child.ts).
+	const onlyReadOnly = reportArg !== undefined && argv[0] === READ_ONLY_FLAG;
+	if (onlyReadOnly) argv = argv.slice(1);
 	const relayed = argv;
 	// --version is read only on its own, so an action's --version stays its own flag.
 	const onlyGlobals = argv.every((token) => GLOBALS.has(token));
@@ -206,6 +209,13 @@ export async function runCli(argv: string[]): Promise<number> {
 		}
 		const [name, ...words] = tokens as [string, ...string[]];
 		if (Object.hasOwn(HANDLERS, name)) {
+			if (onlyReadOnly)
+				return fail(
+					CliError.Refused({
+						message: `epicenter ${name} is not an action, and this call may only read`,
+					}).error,
+					json,
+				);
 			const command = name as keyof typeof HANDLERS;
 			if (help) {
 				print(`${COMMANDS[command]}\n${COMMAND_HELP[command]}`);
@@ -264,6 +274,13 @@ export async function runCli(argv: string[]): Promise<number> {
 				json,
 			);
 		}
+		if (onlyReadOnly && action.annotations?.readOnlyHint !== true)
+			return fail(
+				CliError.Refused({
+					message: `${name} ${matched.key} changes files, and this call may only read`,
+				}).error,
+				json,
+			);
 		if (help) {
 			print(
 				json
