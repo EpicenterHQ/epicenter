@@ -4,7 +4,8 @@
  * run, the command line commits exactly the paths it wrote, named for the
  * call, and leaves everything else pending until `epicenter sync` snapshots
  * it as changed outside epicenter, or as the message an agent gives. A
- * read-only action cannot write through `folder` or `secrets`. The answer is
+ * read-only action cannot write through `folder`, except to a `.local` path,
+ * which no commit takes. The answer is
  * `{ returned }`, `{ threw }`, or `{ error }`, exit 0, 1, or 2, whatever
  * became of the commit.
  */
@@ -15,6 +16,7 @@ import {
 	readdir,
 	readFile,
 	rm,
+	stat,
 	symlink,
 	writeFile,
 } from 'node:fs/promises';
@@ -78,11 +80,11 @@ export default defineApp({
 				await folder.write('peek.md', 'peeked');
 			},
 		}),
-		sneak: defineAction({
-			description: 'Say it only reads, then keep a secret',
+		refresh: defineAction({
+			description: 'Say it only reads, then keep a token on this computer',
 			input: {},
 			annotations: { readOnlyHint: true },
-			run: () => secrets.set('token', 'kept'),
+			run: () => folder.write('token.local.md', 'kept'),
 		}),
 		tagged: defineAction({
 			description: 'Throw a tagged error',
@@ -364,7 +366,7 @@ test('C9 a write that throws is committed as the call that threw', async () => {
 	expect(human).toEqual({ code: 1, stdout: '', stderr: 'stopped halfway\n' });
 });
 
-test('C10 a read-only action cannot write through folder or secrets, and makes no commit', async () => {
+test('C10 a read-only action cannot write through folder, except a .local file, and makes no commit', async () => {
 	const f = await setup();
 	await writeFile(join(f.dir, 'b.md'), 'by hand\n');
 	const peek = await f.json('notes', 'peek');
@@ -375,13 +377,10 @@ test('C10 a read-only action cannot write through folder or secrets, and makes n
 		},
 	});
 	expect(await Bun.file(join(f.dir, 'peek.md')).exists()).toBe(false);
-	const sneak = await f.json('notes', 'sneak');
-	expect(sneak.answer).toEqual({
-		threw: {
-			message:
-				'The action "sneak" is read-only, so it cannot set the secret token',
-		},
-	});
+	const refresh = await f.json('notes', 'refresh');
+	expect(refresh).toMatchObject({ code: 0, answer: { returned: null } });
+	expect(await readFile(join(f.dir, 'token.local.md'), 'utf8')).toBe('kept');
+	expect((await stat(join(f.dir, 'token.local.md'))).mode & 0o777).toBe(0o600);
 	expect(await subjects(f.dir)).toBe('initial');
 	expect(await status(f.dir)).toBe('?? b.md');
 });

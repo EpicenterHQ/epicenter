@@ -8,9 +8,11 @@
  * ```
  *
  * The folder has no `path`; an action that needs one runs only on a computer.
- * There is no Git: a test checks the folder's files, not commits.
+ * There is no Git: a test checks the folder's files, not commits. A secret is
+ * a `.local` file, so a test seeds one as it seeds any other (ADR-0870). Files
+ * have no modes here, so a `.local` file's `0600` is the disk's alone.
  */
-import { type Folder, normalizePath, type Secrets } from './context.ts';
+import { type Context, type Folder, normalizePath } from './context.ts';
 
 function createMemoryFolder(
 	files: Readonly<Record<string, string | Uint8Array>>,
@@ -56,27 +58,9 @@ function createMemoryFolder(
 	};
 }
 
-function createMemorySecrets(): Secrets {
-	const values = new Map<string, string>();
-	return {
-		async get(name) {
-			return values.get(name);
-		},
-		async set(name, value) {
-			values.set(name, value);
-		},
-		async delete(name) {
-			values.delete(name);
-		},
-	};
-}
-
-/** A folder seeded with `files`, and empty secrets. */
+/** A context whose folder is seeded with `files`. */
 export function createMemoryContext(
 	files: Readonly<Record<string, string | Uint8Array>> = {},
-): { folder: Folder; secrets: Secrets } {
-	return {
-		folder: createMemoryFolder(files),
-		secrets: createMemorySecrets(),
-	};
+): Context {
+	return { folder: createMemoryFolder(files) };
 }

@@ -212,9 +212,6 @@ test('runs use the selected Epicenter and their own .cache', async () => {
 	expect(result.code).toBe(0);
 	const value = JSON.parse(result.stdout).returned;
 	expect(value.folder).toBe(join(f.home, 'reading'));
-	expect(value.token).toBe('round trip');
-	expect(value.seed).toBe('plain seed');
-	expect(value.foreign).toBeNull();
 	expect(
 		await Bun.file(join(f.home, 'reading', '.cache/index.json')).exists(),
 	).toBe(true);
@@ -239,15 +236,12 @@ test('runs use the selected Epicenter and their own .cache', async () => {
 test('app and action views include locations, schemas, field help and version', async () => {
 	const f = await setup();
 	const view = JSON.parse((await f.run('reading', '--json')).stdout);
-	expect(view).toMatchObject({
-		name: 'reading',
-		keychain: 'epicenter.test-epicenter.reading',
-	});
+	expect(view.name).toBe('reading');
+	expect(view).not.toHaveProperty('keychain');
 	expect((await f.run('reading')).stdout).toContain('folder:');
 	expect((await f.run('reading', 'log', '-h')).stdout).toContain(
 		'<minutes>, --minutes <number>  required.',
 	);
-	expect((await f.run('reading')).stdout).not.toContain('keychain:');
 	expect(
 		JSON.parse((await f.run('reading', 'log', '--help', '--json')).stdout),
 	).toMatchObject({ name: 'reading_log', inputSchema: { type: 'object' } });

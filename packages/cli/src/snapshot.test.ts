@@ -10,7 +10,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
 	type Action,
-	createMemoryContext,
 	defineAction,
 	defineApp,
 	field,
@@ -81,10 +80,7 @@ async function setup() {
 		realPath: dir,
 		app: defineApp({ description: 'Notes', collections: {}, actions }),
 		actions: actions as Record<string, Action>,
-		context: {
-			folder: folderOnDisk(dir),
-			secrets: createMemoryContext().secrets,
-		},
+		context: { folder: folderOnDisk(dir) },
 	} as Runnable;
 	const run = (key: keyof typeof actions, page: string) =>
 		runAction(located, key, actions[key] as Action, { page });

@@ -96,9 +96,6 @@ test('walk-up wins over EPICENTER_ROOT, which wins over the default', async () =
 	expect(
 		await Bun.file(join(f.home, 'from-cwd', 'epicenter.ts')).exists(),
 	).toBe(true);
-	expect(
-		JSON.parse((await f.runIn(f.home, 'reading', '--json')).stdout).keychain,
-	).toBe(`epicenter.${TEST_ROOT_ID}.reading`);
 	f.env.EPICENTER_ROOT = join(f.root, 'uninitialized');
 	const missing = await f.run('--json');
 	expect(missing.code).toBe(2);

@@ -2,7 +2,8 @@
  * An action's folder on this computer's disk (ADR-0841, ADR-0850). It is a
  * convenience, not a sandbox: paths are normalized and `.git` is refused, and
  * otherwise a write is a write. Writes replace a whole file at once, keeping
- * the mode of the file they replace; `update` replaces it only when it is
+ * the mode of the file they replace; a new `.local` file is `0600`, readable
+ * by its owner alone (ADR-0870). `update` replaces it only when it is
  * still what its change read, so concurrent updates of one file, from any
  * process, each land. Listing avoids Git, dependencies, and directory links
  * so those trees never become app data.
@@ -24,7 +25,7 @@ import {
 	writeFile,
 } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { type Folder, normalizePath } from '@epicenter/app';
+import { type Folder, isLocalPath, normalizePath } from '@epicenter/app';
 
 /** How many times `update` reads and changes a file that keeps changing before it gives up. */
 const UPDATE_TRIES = 10;
@@ -146,7 +147,8 @@ export function folderOnDisk(dir: string): Folder {
 	}
 	/**
 	 * Write `bytes` beside the file at `path` and rename it over, so a reader
-	 * never sees half a file; a file it replaces keeps its mode. The files
+	 * never sees half a file; a file it replaces keeps its mode, and a new
+	 * `.local` file is `0600` from before it has a name there. The files
 	 * beside it are named `*.local`, so a snapshot taken meanwhile never
 	 * commits them.
 	 *
@@ -171,7 +173,7 @@ export function folderOnDisk(dir: string): Folder {
 		const temp = `${target}.${randomUUID()}.tmp.local`;
 		let renamed = false;
 		try {
-			let mode: number | undefined;
+			let mode = isLocalPath(normalizePath(path)) ? 0o600 : undefined;
 			try {
 				mode = (await stat(target)).mode & 0o7777;
 			} catch (error) {

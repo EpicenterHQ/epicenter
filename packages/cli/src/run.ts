@@ -4,7 +4,8 @@
  * nothing: whoever started it commits afterwards (`snapshot.ts`). A run that
  * is not read-only reports the call, the paths it wrote through `folder`, and
  * whether it threw, so the parent commits exactly those paths under the
- * call's name. A read-only run's writes through `folder` and `secrets` throw.
+ * call's name. A read-only run's writes through `folder` throw, except to a
+ * `.local` path.
  * The answer is what the action returned or threw.
  */
 

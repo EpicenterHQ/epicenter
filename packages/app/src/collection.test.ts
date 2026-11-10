@@ -624,6 +624,30 @@ describe('a collection of one file', () => {
 	});
 });
 
+describe('a .local collection', () => {
+	const google = defineCollection({
+		path: 'google.local.md',
+		fields: { refreshToken: field.text({ optional: true }) },
+	});
+
+	test('reads and writes through its methods', async () => {
+		const context = createMemoryContext();
+		await inRun(context, () => google.set({ refreshToken: 'abc' }));
+		expect(await inRun(context, () => google.get())).toEqual({
+			path: 'google.local.md',
+			refreshToken: 'abc',
+			body: '',
+		});
+	});
+
+	test('offers no actions, so no generated verb hands out its values', () => {
+		expect(() => google.actions()).toThrow(
+			'google.local.md never leaves this computer, so it offers no actions',
+		);
+		expect(() => google.actions('get')).toThrow('never leaves this computer');
+	});
+});
+
 describe('problem rows', () => {
 	test('list names each file whose fields do not fit, by path', async () => {
 		const context = createMemoryContext({
@@ -655,7 +679,7 @@ describe('problem rows', () => {
 describe('outside a run', () => {
 	test('a collection throws rather than touch any folder', () => {
 		expect(items.list()).rejects.toThrow(
-			"An app's collections, folder, and secrets are read only inside an action's run",
+			"An app's collections and folder are read only inside an action's run",
 		);
 	});
 });

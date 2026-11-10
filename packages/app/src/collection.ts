@@ -34,6 +34,11 @@
  * the app's own actions write it, through the methods. When such a field is
  * required and has no default, the collection exposes no `add` at all.
  *
+ * A collection whose path is `.local` (`google.local.md`) holds what stays on
+ * this computer, such as a sign-in (ADR-0870). Its methods work as any
+ * collection's, and a read-only action may write it; `actions()` throws, so
+ * no generated verb hands its values to a caller.
+ *
  * A collection does not know its name: an app names it by its key in
  * `collections`, and everything a collection says names its path instead.
  */
@@ -46,7 +51,7 @@ import {
 } from 'typebox';
 import { Value } from 'typebox/value';
 import { type Action, type ActionMeta, RESERVED_FIELDS } from './action.ts';
-import { folder } from './context.ts';
+import { folder, isLocalPath } from './context.ts';
 import {
 	type FieldValues,
 	isFieldKey,
@@ -372,6 +377,11 @@ export function defineCollection<const D extends CollectionDef>(
 		...(single ? {} : { pathOf: files.pathOf }),
 		holds: (path: string) => templates.some((t) => t.match(path)),
 		actions: (...verbs: Verb[]) => {
+			const local = templates.find((t) => isLocalPath(t.text));
+			if (local)
+				throw new Error(
+					`${local.text} never leaves this computer, so it offers no actions`,
+				);
 			for (const verb of verbs) {
 				if (fit.includes(verb)) continue;
 				if (verb === 'add' && !single)

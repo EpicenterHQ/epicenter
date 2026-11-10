@@ -13,6 +13,7 @@
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
+import { isLocalPath } from '@epicenter/app';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { git, gitMessage } from './git.ts';
 
@@ -53,14 +54,6 @@ export type Snapshot =
 
 /** What a snapshot with no call takes: everything in the folder that Git does not ignore. */
 const TAKEN = ['.'];
-
-/**
- * A basename matching `*.local` or `*.local.*`: a file that stays on this
- * computer (a token, a device's settings, a write's temporary file). The
- * app's `.gitignore` keeps it out of every Git tool's commits; a commit here
- * only checks, and refuses to take one the ignore file let through.
- */
-const LOCAL = /\.local(\..*)?$/;
 
 /** Refused before staging when committing would store whole files that `.gitattributes` routes through LFS (ADR-0856). */
 const LFS_MISSING =
@@ -106,11 +99,14 @@ const statusPaths = (status: string) =>
 
 /**
  * Throws, before anything is staged, when `paths` (relative to the
- * repository's top) hold a `*.local` or `*.local.*` file, naming the first
- * as a path in the app's folder.
+ * repository's top) hold a `.local` path, one that stays on this computer (a
+ * token, a device's settings, a write's temporary file), naming the first as
+ * a path in the app's folder. The app's `.gitignore` keeps them out of every
+ * Git tool's commits; a commit here only checks, and refuses to take one the
+ * ignore file let through.
  */
 async function refuseLocal(app: string, folder: string, paths: string[]) {
-	const local = paths.find((path) => LOCAL.test(path.split('/').pop() ?? ''));
+	const local = paths.find(isLocalPath);
 	if (local === undefined) return;
 	const prefix = (await git(folder, ['rev-parse', '--show-prefix'])).stdout;
 	const inFolder = local.startsWith(prefix)

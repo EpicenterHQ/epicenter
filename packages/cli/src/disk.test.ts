@@ -21,12 +21,7 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import {
-	createMemoryContext,
-	defineCollection,
-	field,
-	inRun,
-} from '@epicenter/app';
+import { defineCollection, field, inRun } from '@epicenter/app';
 import { folderOnDisk } from './disk.ts';
 import { gitIn } from './runner.test-support.ts';
 
@@ -65,6 +60,22 @@ test('a write keeps the mode of the file it replaces', async () => {
 	await folder.write('run.sh', 'echo two\n');
 	expect((await stat(join(root, 'run.sh'))).mode & 0o777).toBe(0o755);
 	expect(await folder.read('run.sh')).toBe('echo two\n');
+});
+
+test('a new .local file is readable by its owner alone, made by write or update', async () => {
+	const { root, folder } = await setup();
+	const mode = async (path: string) =>
+		(await stat(join(root, path))).mode & 0o777;
+	await folder.write('google.local.md', '---\nrefreshToken: "a"\n---\n');
+	await folder.update('tokens.local/mail.md', () => 'b');
+	await folder.write('notes.md', 'shared');
+	expect(await mode('google.local.md')).toBe(0o600);
+	expect(await mode('tokens.local/mail.md')).toBe(0o600);
+	expect(await mode('notes.md')).not.toBe(0o600);
+	// A .local file whose owner widened it keeps what they chose.
+	await chmod(join(root, 'google.local.md'), 0o640);
+	await folder.write('google.local.md', 'again');
+	expect(await mode('google.local.md')).toBe(0o640);
 });
 
 test('normalization refuses climbing, absolute and Git paths on every file method', async () => {
@@ -171,7 +182,7 @@ test('concurrent updates of one collection file each land, each computed from th
 		fields: { n: field.integer({ optional: true }) },
 	});
 	await folder.write('counters/a.md', '---\nn: 0\n---\n');
-	const context = { folder, secrets: createMemoryContext().secrets };
+	const context = { folder };
 	const at = { path: 'counters/a.md' };
 	await Promise.all(
 		Array.from({ length: 5 }, () =>

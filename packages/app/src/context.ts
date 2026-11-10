@@ -1,18 +1,17 @@
 /**
- * The context a run has (ADR-0841, ADR-0854): its folder and its secrets.
- * Whatever runs an action opens the run, as
- * `inRun(context, () => action(input))`: the `epicenter` CLI on a computer,
- * memory in a test. For the length of that run, the app's collections,
- * `folder`, and `secrets` reach it, however deep the call, and an action that
- * calls another stays in the same run; outside any run they throw. What an
- * app can rebuild lives in files it gitignores inside the folder, such as
- * `.cache/`, and is never committed.
+ * The context a run has (ADR-0841, ADR-0854): its folder. Whatever runs an
+ * action opens the run, as `inRun(context, () => action(input))`: the
+ * `epicenter` CLI on a computer, memory in a test. For the length of that
+ * run, the app's collections and `folder` reach it, however deep the call,
+ * and an action that calls another stays in the same run; outside any run
+ * they throw. What an app can rebuild lives in files it gitignores inside the
+ * folder, such as `.cache/`, and is never committed.
  *
  * An action changes files and never commits: whatever runs it takes snapshots
  * of the folder into its history (ADR-0850). A change that depends on what it
  * read goes through a collection's `update`, or `folder.update` for any other
- * file. A run of a read-only action refuses every write through `folder` and
- * `secrets`.
+ * file. A run of a read-only action refuses every write through `folder`,
+ * except to a `.local` path (ADR-0870).
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
 
@@ -56,22 +55,17 @@ export type Folder = {
 	readonly path?: string;
 };
 
-/** An app's sign-ins: never returned to a caller, and never in its files. */
-export type Secrets = {
-	get(name: string): Promise<string | undefined>;
-	set(name: string, value: string): Promise<void>;
-	delete(name: string): Promise<void>;
-};
-
 /** What whatever runs an action opens its run with. */
 export type Context = {
 	folder: Folder;
-	secrets: Secrets;
 	/**
 	 * The run is of a read-only action (`readOnlyHint: true`), named `action`:
-	 * `folder.write`, `writeBytes`, `update`, `delete`, `secrets.set`, and
-	 * `secrets.delete` throw in it before doing anything. A raw `node:fs` write
-	 * or an outside service is the action's own promise.
+	 * `folder.write`, `writeBytes`, `update`, and `delete` throw in it before
+	 * doing anything, unless the path is `.local`. A `.local` file is never in
+	 * the app's history, so writing one changes nothing a read-only action
+	 * promised to keep, and an action that only reads may still refresh a
+	 * token. A raw `node:fs` write or an outside service is the action's own
+	 * promise.
 	 */
 	readOnly?: { action: string };
 };
@@ -79,8 +73,8 @@ export type Context = {
 const runs = new AsyncLocalStorage<Context>();
 
 /**
- * Run `work` with `context` as its run's, so collections, `folder`, and
- * `secrets` reach it. Only a runner opens a run; an action never does.
+ * Run `work` with `context` as its run's, so collections and `folder` reach
+ * it. Only a runner opens a run; an action never does.
  */
 export function inRun<T>(context: Context, work: () => T): T {
 	return runs.run(context, work);
@@ -91,46 +85,52 @@ function currentRun(): Context {
 	const context = runs.getStore();
 	if (!context)
 		throw new Error(
-			"An app's collections, folder, and secrets are read only inside an action's run",
+			"An app's collections and folder are read only inside an action's run",
 		);
 	return context;
 }
 
-/** The context of the run this code is in, which `doing` changes; throws in a read-only run. */
-function writableRun(doing: string): Context {
+/**
+ * The folder of the run this code is in, to write or delete `path` in; throws
+ * in a read-only run unless `path` is `.local`.
+ */
+function writableFolder(verb: 'write' | 'delete', path: string): Folder {
 	const context = currentRun();
-	if (context.readOnly)
+	if (context.readOnly && !isLocalPath(path))
 		throw new Error(
-			`The action "${context.readOnly.action}" is read-only, so it cannot ${doing}`,
+			`The action "${context.readOnly.action}" is read-only, so it cannot ${verb} ${path}`,
 		);
-	return context;
+	return context.folder;
 }
 
 /** The folder of the run this code is in. */
 export const folder: Folder = {
 	read: (path) => currentRun().folder.read(path),
 	readBytes: (path) => currentRun().folder.readBytes(path),
-	write: async (path, text) =>
-		writableRun(`write ${path}`).folder.write(path, text),
+	write: async (path, text) => writableFolder('write', path).write(path, text),
 	writeBytes: async (path, bytes) =>
-		writableRun(`write ${path}`).folder.writeBytes(path, bytes),
+		writableFolder('write', path).writeBytes(path, bytes),
 	update: async (path, change) =>
-		writableRun(`write ${path}`).folder.update(path, change),
+		writableFolder('write', path).update(path, change),
 	list: (dir) => currentRun().folder.list(dir),
-	delete: async (path) => writableRun(`delete ${path}`).folder.delete(path),
+	delete: async (path) => writableFolder('delete', path).delete(path),
 	get path() {
 		return currentRun().folder.path;
 	},
 };
 
-/** The secrets of the run this code is in: the app's own sign-ins. */
-export const secrets: Secrets = {
-	get: (name) => currentRun().secrets.get(name),
-	set: async (name, value) =>
-		writableRun(`set the secret ${name}`).secrets.set(name, value),
-	delete: async (name) =>
-		writableRun(`delete the secret ${name}`).secrets.delete(name),
-};
+/** A file or folder name matching `*.local` or `*.local.*`. */
+const LOCAL = /\.local(\.|$)/;
+
+/**
+ * Whether `path` stays on this computer: one of its parts matches `*.local`
+ * or `*.local.*`, as an app's `.gitignore` names them (ADR-0870). Such a file
+ * is never committed, a read-only run may write it, and a new one is made
+ * readable by its owner alone.
+ */
+export function isLocalPath(path: string): boolean {
+	return path.split('/').some((part) => LOCAL.test(part));
+}
 
 /**
  * `path` as a folder takes it: `./a//b.md` is `a/b.md`. Throws for an empty,

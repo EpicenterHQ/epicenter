@@ -33,9 +33,8 @@ export {
 	type Folder,
 	folder,
 	inRun,
+	isLocalPath,
 	normalizePath,
-	type Secrets,
-	secrets,
 } from './context.ts';
 export { field, type TSwitch, type TTags } from './field.ts';
 export { createMemoryContext } from './memory.ts';

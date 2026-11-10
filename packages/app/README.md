@@ -260,16 +260,13 @@ destroy.
 
 ## Runs
 
-Whatever runs an action opens a run with the app's folder and secrets:
-`inRun({ folder, secrets }, () => action(input))`. For its length, the app's
-collections, `folder`, and `secrets` reach them; an action that calls another
-stays in the same run
+Whatever runs an action opens a run with the app's folder:
+`inRun({ folder }, () => action(input))`. For its length, the app's
+collections and `folder` reach it; an action that calls another stays in the
+same run
 ([ADR-0854](../../docs/adr/0854-an-apps-cache-is-the-files-it-gitignores.md)).
-
-| Import | Holds | Methods |
-| --- | --- | --- |
-| `folder` | the app's data, in its folder | `read`, `readBytes`, `write`, `writeBytes`, `update`, `list`, `delete`; `path` on a computer |
-| `secrets` | sign-ins, on this computer | `get`, `set`, `delete`; only on a computer |
+`folder` has `read`, `readBytes`, `write`, `writeBytes`, `update`, `list`, and
+`delete`, and `path` on a computer.
 
 A run changes files and never commits. Whatever ran the action commits
 after it: the `epicenter` command after a write it ran, and `epicenter serve`
@@ -300,17 +297,53 @@ await folder.update('2026.csv', (before = 'minutes,book\n') => `${before}${minut
 
 A run of an action marked `readOnlyHint: true` is never snapshotted. Its
 context carries `readOnly: { action }`, and in it `folder.write`,
-`folder.writeBytes`, `folder.update`, `folder.delete`, `secrets.set`, and
-`secrets.delete` throw before doing anything: `The action "<words>" is read-only, so it cannot
-write <path>`. A raw `node:fs` write, or a change made through an outside
-service, is the action's own promise. So an action that refreshes a sign-in
-token with `secrets.set` cannot be read-only.
+`folder.writeBytes`, `folder.update`, and `folder.delete` throw before doing
+anything, unless the path is `.local`: `The action "<words>" is read-only, so
+it cannot write <path>`. A raw `node:fs` write, or a change made through an
+outside service, is the action's own promise.
 
 `folder` is a convenience, not a sandbox: an action may also write through
 `folder.path` with `node:fs`. What the app can rebuild lives in files it
 gitignores inside its folder, such as `.cache/`; they are never committed.
 Paths are relative to the folder with `/` between parts, and `read` gives
 `undefined` for a missing file.
+
+## Secrets are `.local` files
+
+A path with a part matching `*.local` or `*.local.*` stays on the computer
+that runs the app
+([ADR-0870](../../docs/adr/0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md)).
+`isLocalPath(path)` says whether a path is one. Such a file:
+
+- is never committed: the app's `.gitignore` leaves it out, and a snapshot
+  refuses one it lets through;
+- may be written and deleted in a read-only run, since it is never in the
+  app's history, so an action that only reads may still refresh a token;
+- is made `0600`, readable by its owner alone, when `folder` creates it on a
+  computer.
+
+An app's secret is a one-file collection at a `.local.md` path, with its
+fields declared like any other:
+
+```ts
+const google = defineCollection({
+  path: 'google.local.md',
+  description: "this computer's Google sign-in",
+  fields: {
+    account: field.text({ optional: true }),
+    refreshToken: field.text({ optional: true }),
+  },
+});
+
+// in an action
+const { refreshToken } = await google.get();
+await google.set({ refreshToken: fresh });
+```
+
+Its `actions()` throws `google.local.md never leaves this computer, so it
+offers no actions`, so no generated verb hands a token to an MCP client. An
+action the app writes may still return what it reads. A fresh clone of the
+app has no `.local` files: the person signs in again.
 
 ## Testing an action
 
@@ -323,7 +356,9 @@ await inRun(context, () => reading.actions.log({ minutes: 30 }));
 expect(await context.folder.read('2026.csv')).toBe('minutes,book\n30,\n');
 ```
 
-The memory context has no Git, so a test checks the files an action wrote.
+The memory context has no Git, so a test checks the files an action wrote. A
+test seeds a secret as it seeds any file:
+`createMemoryContext({ 'google.local.md': '---\nrefreshToken: "t"\n---\n' })`.
 
 ## A UI
 

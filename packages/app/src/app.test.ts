@@ -7,8 +7,8 @@ import {
 	field,
 	folder,
 	inRun,
+	isLocalPath,
 	normalizePath,
-	secrets,
 } from './index.ts';
 
 const books = defineCollection({
@@ -53,18 +53,17 @@ describe('createMemoryContext', () => {
 
 	test('the ambient folder is read only inside a run', () => {
 		expect(() => folder.read('2026.csv')).toThrow(
-			"An app's collections, folder, and secrets are read only inside an action's run",
+			"An app's collections and folder are read only inside an action's run",
 		);
 	});
 });
 
 describe('a read-only run', () => {
-	test('refuses every write through folder, secrets, and collections before it happens, and still reads', async () => {
+	test('refuses every write through folder and collections before it happens, and still reads', async () => {
 		const memory = createMemoryContext({
 			'2026.csv': 'minutes\n',
 			'books/dune.md': '---\ntitle: "Dune"\n---\n',
 		});
-		await memory.secrets.set('token', 'kept');
 		const context = { ...memory, readOnly: { action: 'week show' } };
 		const refused = (doing: string) =>
 			`The action "week show" is read-only, so it cannot ${doing}`;
@@ -79,8 +78,6 @@ describe('a read-only run', () => {
 				refused('write 2026.csv'),
 			],
 			[() => folder.delete('2026.csv'), refused('delete 2026.csv')],
-			[() => secrets.set('token', 'x'), refused('set the secret token')],
-			[() => secrets.delete('token'), refused('delete the secret token')],
 			[
 				() => books.set({ path: 'books/dune.md', title: 'Other' }),
 				refused('write books/dune.md'),
@@ -94,12 +91,54 @@ describe('a read-only run', () => {
 			await expect(inRun(context, attempt)).rejects.toThrow(message);
 		expect(await context.folder.list()).toEqual(['2026.csv', 'books/dune.md']);
 		expect(await context.folder.read('2026.csv')).toBe('minutes\n');
-		expect(await memory.secrets.get('token')).toBe('kept');
 		expect(
 			await inRun(context, () => books.get({ path: 'books/dune.md' })),
 		).toMatchObject({ title: 'Dune' });
-		expect(await inRun(context, () => secrets.get('token'))).toBe('kept');
 	});
+
+	test('writes and deletes a .local file, as a token refresh does', async () => {
+		const google = defineCollection({
+			path: 'google.local.md',
+			fields: { refreshToken: field.text({ optional: true }) },
+		});
+		const context = {
+			...createMemoryContext({
+				'google.local.md': '---\nrefreshToken: "old"\n---\n',
+			}),
+			readOnly: { action: 'mail list' },
+		};
+		await inRun(context, async () => {
+			await google.set({ refreshToken: 'new' });
+			await folder.write('cache.local', 'x');
+			await folder.delete('cache.local');
+		});
+		expect(await context.folder.read('google.local.md')).toBe(
+			'---\nrefreshToken: "new"\n---\n',
+		);
+		expect(await context.folder.list()).toEqual(['google.local.md']);
+	});
+
+	test('a run reaches its folder and nothing else', () => {
+		expect(Object.keys(createMemoryContext())).toEqual(['folder']);
+	});
+});
+
+describe('isLocalPath', () => {
+	test.each([
+		'google.local.md',
+		'x.local',
+		'tokens.local/google.md',
+		'a/b.local.json',
+	])('%p stays on this computer', (path) => {
+		expect(isLocalPath(path)).toBe(true);
+	});
+
+	test.each(['google.md', 'x.localhost.md', 'local.md', 'locals/x.md'])(
+		'%p does not',
+		(path) => {
+			expect(isLocalPath(path)).toBe(false);
+		},
+	);
 });
 
 describe('normalizePath', () => {
