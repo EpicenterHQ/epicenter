@@ -5,7 +5,7 @@
 - **Supersedes:** [ADR-0862](0862-notes-merge-field-by-field-and-every-conflict-is-listed-for-repair.md): one home makes merging notes between computers unnecessary.
 - **Amends:** [ADR-0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md) at `epicenter sync`: it snapshots pending changes and pushes, without pulling or rebasing.
 - **Relates:** [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) (reaching the home), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (snapshots), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (`origin`), [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (one copy).
-- **Unbuilt:** The one-home sync behavior, refused-push status, and access to home actions from other devices. Built: the current `epicenter sync` (`packages/cli/src/sync.ts`), which still needs to change.
+- **Built:** `epicenter sync` (`packages/cli/src/sync.ts`, `packages/cli/src/push.ts`) and `serve`'s push after a snapshot. **Unbuilt:** access to home actions from programs on other devices, such as Whispering.
 
 ## Context
 
@@ -34,13 +34,16 @@ also pushes after a snapshot. `epicenter update` still fetches `upstream`, the
 starter; `upstream` is separate from the backup and receives no pushes.
 
 If the backup has commits the home lacks, a non-fast-forward push leaves the
-backup untouched and the home's snapshot intact. The app's status says that
-the backup at `origin` has changes this computer does not and was not
-overwritten. It gives a next step: fetch
-and inspect those commits, for example with `git -C <app> fetch origin` and
-`git -C <app> log HEAD..origin/<branch>`. A background push from `serve`
-reports the same failure and logs it on stderr. A snapshot failure is also
-reported in status.
+backup untouched and the home's snapshot intact. `sync` says that the backup
+at `origin` has changes this computer does not and was not overwritten, gives
+a next step (fetch and inspect those commits, for example with
+`git -C <app> fetch origin` and `git -C <app> log HEAD..origin/<branch>`), and
+exits 1 for that app; other apps continue. A background push from `serve` logs
+the same message on stderr. Nothing stores the failure: the app's status
+derives what is pending from `git status` and how many snapshots the backup
+lacks from `origin/<branch>..HEAD`, so it stays true however the problem is
+fixed. That count reads the last fetched `origin/<branch>`, which `sync` does
+not refresh.
 
 To restore an app, clone its backup onto a computer and make that computer
 the home. A program on another device sends its data to the home through an
@@ -52,8 +55,7 @@ can read its history.
 
 - The home owns the only working copy used in normal operation. A refused
   push does not merge remote commits into that copy or overwrite the backup.
-- A remote is optional. Without one, `sync` makes a local snapshot and status
-  may say there is no backup.
+- A remote is optional. Without one, `sync` makes a local snapshot.
 - A device that cannot reach the home cannot change its apps through actions.
   A possible later offline outbox would queue action calls and replay them
   when the home is reachable.

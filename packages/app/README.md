@@ -158,9 +158,9 @@ them: `words/你好.md` reads as `{ path: 'words/你好.md', word: '你好', ...
 A file that does not fit has `problems`, one line per problem, quoting the
 value it dropped as JSON: `due: "next week" is not a day`, `title is missing`,
 or `its front matter is neither key: <JSON> lines nor YAML`. A file that fits
-has no `problems` key. `words.misfits()`, inside a run, lists exactly the
-files with problems, one line each as `<path>: <problem>; <problem>`, which
-is what `epicenter update` reports.
+has no `problems` key. `words.list()` returns rows with `problems`; for a one-file collection,
+`get()` returns the file with `problems`. `epicenter update` reports those
+rows as `<path>: <problem>; <problem>`.
 
 `get`, and the file `add`, `set`, and `edit` return, also have `other`: the
 front matter that is not a field's fitting value, keyed by name. It holds
@@ -257,8 +257,9 @@ which whatever ran the action takes after it: the `epicenter` command after a
 write it ran, and `epicenter serve` after each write call
 ([ADR-0850](../../docs/adr/0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md)).
 A snapshot takes everything pending in the app's folder and is named for the
-calls that wrote since the last one; a hand edit pending there is listed as
-changed outside epicenter. What an action wrote before it throws is pending
+call reported by that run; other pending paths appear under `Also changed:`.
+A snapshot without a call uses `<app>: changed outside epicenter` and lists
+its paths under `Changed:`. What an action wrote before it throws is pending
 like any change; whether a failed action should be rolled back instead is
 undecided
 ([ADR-0857](../../docs/adr/0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md)).

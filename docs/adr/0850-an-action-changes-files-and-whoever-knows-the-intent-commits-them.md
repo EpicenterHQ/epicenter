@@ -6,7 +6,7 @@
 - **Amends:** [ADR-0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md) at "an action is a commit": a run makes no commit of its own, nothing is undone, exit codes are 0, 1, and 2, and a refusal to run is `{ error: { name, message, next? } }` without `code`.
 - **Relates:** [ADR-0851](0851-an-app-has-one-home-and-an-optional-push-only-backup.md) (`epicenter sync`), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (programs that write a folder), [ADR-0856](0856-binary-files-go-through-git-lfs.md) (LFS), [ADR-0858](0858-where-a-file-lives-decides-whether-it-travels-survives-or-dies-with-its-program.md) (what each path becomes), [ADR-0859](0859-an-action-changes-the-folder-or-the-world-and-a-world-verb-is-safe-to-repeat.md) (the folder and the world), [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (the snapshots `serve` takes).
 - **Amended:** 2026-11-10: a write commits itself, named for the call, however it arrives, and writes to one app take turns; `folder.commit` is removed. 2026-11-11: runs never commit, history is snapshots, a change that depends on what it read says so with `folder.update`, and the write lock is deleted. The commit per call held a lock for the whole run, so a slow action blocked every other write to its app, and it still swept a hand edit pending in the folder into the call's commit under the call's name.
-- **Built:** `folder.update` (`packages/cli/src/disk.ts`, `packages/app/src/memory.ts`), the snapshot and its call log (`packages/cli/src/snapshot.ts`), the runs that log their writes (`run.ts`), the snapshots after a write from the command line and `serve`, of quiet outside edits in `serve`, and in `sync`, the app's status, and the answer as `{ returned }`, `{ threw }`, or `{ error }` with exit codes 0, 1, and 2. The first draft is recoverable at `9943c668db`; the commit per call and its lock at `965f4873c4`.
+- **Built:** `folder.update` (`packages/cli/src/disk.ts`, `packages/app/src/memory.ts`), the snapshot (`packages/cli/src/snapshot.ts`), the runs that report their writes (`run.ts`), the snapshots after a write from the command line and `serve`, of quiet outside edits in `serve`, and in `sync`, the app's status, and the answer as `{ returned }`, `{ threw }`, or `{ error }` with exit codes 0, 1, and 2. The first draft is recoverable at `9943c668db`; the commit per call and its lock at `965f4873c4`.
 
 ## Context
 
@@ -40,8 +40,7 @@ annotations promise. Each has its own owner.
 
 **The folder's history is snapshots, named by what is known.** A run never
 commits. The runner and `serve` take snapshots: a snapshot commits everything
-pending in the app's folder and names it by the calls that wrote since the last
-one.
+pending in the app's folder and names it from the write run's report when there is one.
 
 ```txt
 the command line   after a write run it ran itself
@@ -49,17 +48,15 @@ epicenter serve    after each write call, one at a time per app; over HTTP,
                    also every minute for an app whose pending changes are the
                    same as a minute ago (outside edits gone quiet), and a push
                    after each snapshot that commits
-epicenter sync     before it pulls and pushes (ADR-0851)
+epicenter sync     before it pushes (ADR-0851)
 an agent           git commit -m '…', for a sequence it understands
 ```
 
-Each run that is not read-only appends one line to the app's call log
-(`git rev-parse --git-path epicenter-calls`) naming the call
-(`tasks: add Water the plants`) and the paths it wrote through `folder`. A
-snapshot renames the log aside before reading it, so a run that ends meanwhile
-starts a new log. The one call whose writes are pending names the snapshot;
-otherwise it is `<app>: <n> changes`, and its body lists the calls. Pending
-paths no logged call wrote are listed as `Changed outside epicenter: <paths>`.
+Each run that is not read-only reports its call (`tasks: add Water the plants`)
+and the paths it wrote through `folder` to its parent. The parent passes them to
+the snapshot. The call names the snapshot; other pending paths appear in one
+body line as `Also changed: <paths>`. Without a call, the subject is
+`<app>: changed outside epicenter` and the body is `Changed: <paths>`.
 
 A snapshot takes everything pending in the app's folder and nothing outside it:
 `git add -A` and `git commit` with the pathspec `.`, never `*.local` or
@@ -69,10 +66,10 @@ in it. Before staging it checks that this computer has Git LFS's filter
 (`git config filter.lfs.process`) when `.gitattributes` routes a path through
 it, and otherwise stops with `run: git lfs install` (ADR-0856). When Git's
 `index.lock` is held, it retries for up to 2 seconds. Nothing pending makes no
-commit. A snapshot that fails changes no answer: it writes why to
-`git rev-parse --git-path epicenter-snapshot-error`, leaves everything pending
-and the calls logged, and `epicenter <app>` shows the pending count and that
-reason with `epicenter sync <app>` until a snapshot succeeds.
+commit. A snapshot failure changes no action answer: its caller reports why
+and suggests `epicenter sync <app>`. Status derives the pending path count from
+`git status` and the unpushed commit count from `origin/<branch>..HEAD` when
+that tracking ref exists. No call log or failure file is stored.
 
 **A change that depends on what it read uses `folder.update`.**
 `folder.update(path, change)` reads the file, calls `change` with its text
@@ -91,12 +88,11 @@ the last one wins.
 
 **Annotations describe a tool to its clients; the runner enforces only
 `readOnlyHint`.** A read-only run's writes through `folder` and `secrets` throw
-before doing anything, and it is never logged or snapshotted.
+before doing anything, and it is never snapshotted.
 `destructiveHint`, `idempotentHint`, and `openWorldHint` are for MCP clients.
 
 **Running an action needs nothing from Git.** An app need not be a repository,
-or the top of one; a folder in no repository is never snapshotted and keeps no
-call log. `epicenter new` makes a repository.
+or the top of one; a folder in no repository is never snapshotted. `epicenter new` makes a repository.
 
 **`epicenter` does nothing Git already does.** It runs Git's porcelain and
 passes on Git's messages: no Git objects of its own, no temporary index, no
@@ -138,7 +134,7 @@ answer.
 - A test run of a write in an agent's worktree commits there; run tests in a
   temporary `HOME`.
 - A run killed before it answers leaves its writes pending, and its call
-  unlogged, so the next snapshot lists them as changed outside epicenter.
+  unreported, so the next snapshot lists them as changed outside epicenter.
 
 ## Considered alternatives
 
