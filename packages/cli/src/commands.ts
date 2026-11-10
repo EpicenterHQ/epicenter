@@ -11,6 +11,8 @@ export const COMMANDS = {
 	update: 'epicenter update [<app>]',
 	build: 'epicenter build [<app>]',
 	sync: 'epicenter sync [<app>]',
+	history: 'epicenter history <app> [--limit <n>]',
+	undo: 'epicenter undo <app> [<commit>]',
 	serve: 'epicenter serve [--port <n>] [--host <address>] [--stdio]',
 } as const;
 

@@ -484,8 +484,8 @@ test("D8 an app of one collection's verbs adds, reads, changes, and deletes its 
 			],
 		},
 	});
-	expect((await f.run('capture', 'get', 'items/dune.md')).stdout).toContain(
-		'"body": "Fear is the little-death.\\n"',
+	expect((await f.run('capture', 'get', 'items/dune.md')).stdout).toBe(
+		'---\nid: "dune"\nkind: "quote"\nurl: "https://example.com/dune"\nadded: "2026-11-09"\n---\nFear is the little-death.\n',
 	);
 
 	const transport = new StdioClientTransport({

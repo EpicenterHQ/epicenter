@@ -127,6 +127,17 @@ never snapshotted, and its writes through `folder` and `secrets` throw, so an
 action that writes a file or refreshes a token with `secrets.set` is not
 read-only.
 
+An agent can read and reverse that history. `epicenter history <app>` lists
+the snapshots, newest first, each with its commit, local time, and subject
+(`--json` gives `{ commit, date, subject, also, undid? }`). `epicenter undo
+<app>` snapshots what is pending, then reverts the newest snapshot that is not
+an undo and not undone, as `<app>: undid <subject>`; run it again to go further
+back, `epicenter undo <app> <commit>` to undo that commit, and undo an undo to
+bring it back. It refuses a merge, a commit not in the app's history, and a
+revert that conflicts, leaving the folder as it was. After a write that went
+wrong, undo it rather than rewriting the file by hand, so history says what
+happened.
+
 ## Build the UI as a client
 
 Copy an existing app's `ui/`: SvelteKit with the hash router, `@epicenter/ui`

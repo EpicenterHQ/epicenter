@@ -19,12 +19,14 @@ epicenter update
 epicenter build
 epicenter sync
 epicenter sync reading
+epicenter history reading
+epicenter undo reading
 epicenter serve
 epicenter serve --stdio
 epicenter --version
 ```
 
-The commands are `init`, `new`, `update`, `build`, `sync`, and `serve`; any other first word names an app. `--json` and `--help` (`-h`) go anywhere before `--`; `--version` is read only on its own. `epicenter` lists the Epicenter folder, its apps, and problems in individual apps; an app with changes not yet in its history is marked, as `(3 changes not in history; last snapshot failed)`. Its JSON listing has an `epicenter` folder string. An empty Epicenter says `No apps yet. Run: epicenter new <name>`. `epicenter <app>` lists its actions, each with a short usage line, and `epicenter <app> <action> --help` explains every field. Above its actions, it says how many changes are not yet in the app's history and, when the last snapshot failed, why, with `Run: epicenter sync <app>`.
+The commands are `init`, `new`, `update`, `build`, `sync`, `history`, `undo`, and `serve`; any other first word names an app. `--json` and `--help` (`-h`) go anywhere before `--`; `--version` is read only on its own. `epicenter` lists the Epicenter folder, its apps, and problems in individual apps; an app with changes not yet in its history is marked, as `(3 changes not in history; last snapshot failed)`. Its JSON listing has an `epicenter` folder string. An empty Epicenter says `No apps yet. Run: epicenter new <name>`. `epicenter <app>` lists its actions, each with a short usage line, and `epicenter <app> <action> --help` explains every field. Above its actions, it says how many changes are not yet in the app's history and, when the last snapshot failed, why, with `Run: epicenter sync <app>`.
 
 A flag's value is read as its field's type ([ADR-0867](../../docs/adr/0867-the-command-line-spells-an-actions-json-input-and-null-removes-a-field-there-as-everywhere.md)): a number for a number, `--done` or `--done=false` for a switch, every value of a repeated flag for a list, one of its choices for a choice (an error names them), and `null` for a field that takes `null`, which a collection's `set` reads as "remove it". `--no-done` is refused with `--done=false` as the way to say false. `--input <json>` gives the whole input as one JSON object instead, with positional fields inside it and nothing beside it; `--input -` reads it from stdin. The text `null` for a field that takes `null` is given this way. `epicenter --json` prints each app's name, description, folder, each collection's path and fields as JSON Schema, and each action as the MCP tool `serve` offers, with all four annotations explicit; `epicenter <app> --json` prints the same for one app, with its Keychain service. Each app's JSON adds `history` when anything is not yet in it: `{ "pending": <n>, "failed"?: { "message", "next": "epicenter sync <app>" } }`, from `git status` and the last snapshot's failure. A folder without `epicenter.ts` is not an app and is not listed.
 
@@ -62,7 +64,24 @@ With `--json`, stdout is one JSON object, and MCP returns the same object as `st
 { "error": { "name", "message", "next"? } }  exit 2, nothing ran
 ```
 
-An action that returns nothing answers `{ "returned": null }`. An action that throws a tagged error (`{ name, message, …fields }`) reports it whole as `thrown`. Without `--json`, stdout carries only the returned value (a string as is, anything else as JSON), and stderr carries what the action threw, or why nothing ran followed by `Run: <next step>` when there is one. MCP's text for a thrown action is the same stderr.
+An action that returns nothing answers `{ "returned": null }`. An action that throws a tagged error (`{ name, message, …fields }`) reports it whole as `thrown`. Without `--json`, stdout carries only the returned value, as a person reads it, and stderr carries what the action threw, or why nothing ran followed by `Run: <next step>` when there is one. MCP's text for a thrown action is the same stderr. The returned value reads this way (`src/output.ts`):
+
+- A file, an object with `path` and `body` strings as a collection's `get` gives it, prints as the Markdown file it is: `---`, each field but `path` as `key: <JSON>` in its order, then each key of `other` as `# other: key: <JSON>`, then `---` and the body. Each of its `problems` goes to stderr as `! <problem>`.
+- Rows, an array of objects each with a `path` string as `list` gives them, print one line each: the path, then each other field as `key: <JSON>`, two spaces apart.
+- Nothing (`null`) and an empty array print nothing; a string prints as it is; anything else prints as JSON.
+
+```txt
+$ epicenter tasks get tasks/2026-11-10T09-30-00-000Z-k3x9a2f8.md
+---
+time: "2026-11-10T09-30-00-000Z-k3x9a2f8"
+title: "Email Sam the slides"
+done: false
+due: "2026-11-12"
+---
+The deck is in Drive.
+```
+
+A placeholder such as `time` prints as a field: the command reads only the answer, which does not say which keys came from the path.
 
 ## Syncing
 
@@ -88,6 +107,30 @@ An app inside a larger repository commits only its own folder but pulls and push
 ```
 
 `committed` is the snapshot's subject and file count, or `null` when nothing was pending; `origin` is how far the branch is from `origin`'s copy of it afterwards, or `null` when there is none; `error` is `{ message, next? }` when the app did not finish syncing. Without `--json`, stdout has one line per app, such as `reading: committed reading: 2 changes; pushed; 0 ahead of origin, 0 behind`, and stderr has each error with its `Run:` line. Exit 0 when every app synced, 1 when any did not, 2 when the app named is not in the Epicenter.
+
+## History and undo
+
+`epicenter history <app> [--limit <n>]` lists the app's commits, newest first, 20 unless `--limit` says otherwise (`src/history.ts`). It reads `git log --first-parent` of the app's own repository, so an update's merge is one entry; an app whose folder is not the root of its own repository is refused. Each line is the short commit, the local time, and the subject, with the body's lines beneath; an undo reads as `undid <subject>`.
+
+```txt
+$ epicenter history tasks
+9c1e2f4  2026-11-11 09:41  undid tasks: add Water the plants
+5b7a0d3  2026-11-11 09:30  tasks: add Water the plants
+                           Also changed: notes.md
+e02c9a1  2026-11-11 09:12  tasks: changed outside epicenter
+                           Changed: tasks/2026-11-10T09-30-00-000Z-k3x9a2f8.md
+```
+
+With `--json` it answers an array of `{ commit, date, subject, also, undid? }`: `date` is the author date in ISO 8601, `also` the paths an `Also changed:` or `Changed:` body line names, and `undid` the commit an undo reverts.
+
+`epicenter undo <app> [<commit>]` reverts one commit as a new one, so nothing is lost:
+
+1. It takes a snapshot of whatever is pending, so an edit not yet in history is kept there. Without `<commit>`, that snapshot is the one undone.
+2. Without `<commit>`, it walks back from HEAD to the newest commit that is not an undo and has not been undone. An undo is a commit whose body has Git's line `This reverts commit <sha>.`; an undo that is itself undone no longer hides the commit it reverted. So `undo` again goes further back, and `undo <undo commit>` brings back what that undo removed.
+3. It runs `git revert --no-commit` and commits as `<app>: undid <subject>`, keeping Git's `This reverts commit <sha>.` line.
+4. When the app has an `origin`, it pushes the branch with `git push origin HEAD:<branch>`, as `sync` does. A push that fails prints why and `Run: epicenter sync <app>` on stderr; the undo stays, and the exit code is 0.
+
+It refuses, exit 2 with `{ "error": { "name": "Refused", "message", "next"? } }`, and leaves the folder's files as they were: a merge, a commit not in the app's history, a commit already undone (the next step undoes its undo), a newest commit that is not a snapshot, since its subject does not start with `<app>: ` (the first commit, or one made with Git directly, which can still be named), a revert that conflicts (it is aborted, naming the conflicting files), a revert that changes nothing, an app in the middle of a merge, rebase, revert, or cherry-pick, and a snapshot that fails. A named commit is checked before the snapshot, so its refusal adds nothing to history. Without `--json`, stdout says what was undone, as `undid tasks: add Water the plants`; with it, `{ "undid": <commit>, "commit": <the undo's commit> }`.
 
 ## Adding apps
 
