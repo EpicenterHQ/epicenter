@@ -16,9 +16,13 @@
  * A record's address is its path inside the app. `add` makes a file and
  * refuses one already there; `set` changes fields of a file that exists,
  * merging as JSON Merge Patch does (a field given as `null` is removed); `edit`
- * replaces one quoted passage of the body. A one-file collection (`settings.md`)
- * has `get`, `set`, and `edit`: an absent file reads as its defaults, and its
- * first `set` makes it, so each of its fields is optional or has a default.
+ * replaces one quoted passage of the body. The method `update` changes a file
+ * by what is in it: it gives the record to a function and writes the patch the
+ * function returns over that same record, as `folder.update` does for text, so
+ * a value computed from the record is never written over a change made since.
+ * A one-file collection (`settings.md`) has `get`, `set`, `edit`, and
+ * `update`: an absent file reads as its defaults, and its first write makes
+ * it, so each of its fields is optional or has a default.
  *
  * A read never trusts the file: each field is its value when it fits, else its
  * default, else absent, and a file that does not fit says why in `problems`.
@@ -191,6 +195,14 @@ type PathIn = { path: string };
 
 type Change = { old: string; new: string };
 
+/** What an `update` function returns: the fields to change, as `set` takes them, and a new body if it changes. */
+type Revision<F extends Fields> = Simplify<Patch<F> & { body?: string }>;
+
+/** The function `update` calls with the record as it is, returning what to change in it. */
+type Revise<D extends CollectionDef> = (
+	record: FileOf<D>,
+) => Revision<D['fields']>;
+
 /** A collection of many files, as an action uses it. */
 export type ManyHandle<D extends CollectionDef> = {
 	/** Every file, with its path, placeholders, and fields, sorted by path. */
@@ -199,10 +211,24 @@ export type ManyHandle<D extends CollectionDef> = {
 	get(at: PathIn): Promise<FileOf<D> | undefined>;
 	/** Make a file; throws when one is already at its path. */
 	add(input: AddInput<D, keyof D['fields']>): Promise<FileOf<D>>;
-	/** Change the fields given; `null` removes one a file may go without. */
+	/** Change the fields given; `null` removes one a file may go without. The last write wins: to write what you computed from the file, use `update`. */
 	set(input: Simplify<PathIn & Patch<D['fields']>>): Promise<FileOf<D>>;
 	/** Replace the one place `old` appears in the body with `new`. */
 	edit(input: Simplify<PathIn & Change>): Promise<FileOf<D>>;
+	/**
+	 * Change the file at `path` by what is in it. `revise` gets the record as
+	 * `get` gives it and returns what `set` takes, without `path` and with
+	 * `body` if the body changes; that is written only over the record it
+	 * was given. When the file changed meanwhile, `revise` runs again on what
+	 * is there now, so keep it a pure function of the record; after 10 tries
+	 * it throws `{ name: 'Changed' }`. A `revise` that throws writes nothing.
+	 * Throws when there is no file at `path`. Returns the record written.
+	 *
+	 * ```ts
+	 * await words.update({ path }, (word) => ({ reps: (word.reps ?? 0) + 1 }));
+	 * ```
+	 */
+	update(at: PathIn, revise: Revise<D>): Promise<FileOf<D>>;
 	/** Delete the file; `true` when there was one. */
 	delete(at: PathIn): Promise<boolean>;
 	/** The path `add` would write for these placeholder values: `pathOf({ word: '你好' })` is `words/你好.md`. */
@@ -217,9 +243,11 @@ export type ManyHandle<D extends CollectionDef> = {
 export type SingleHandle<D extends CollectionDef> = {
 	/** The file, or its defaults while there is none. */
 	get(): Promise<FileOf<D>>;
-	/** Change the fields given, making the file when there is none. */
+	/** Change the fields given, making the file when there is none. The last write wins: to write what you computed from the file, use `update`. */
 	set(fields: Patch<D['fields']>): Promise<FileOf<D>>;
 	edit(change: Change): Promise<FileOf<D>>;
+	/** Change the file by what is in it, as a many-file collection's `update` does, making the file when there is none. */
+	update(revise: Revise<D>): Promise<FileOf<D>>;
 };
 
 /** A collection as an action uses it. */
@@ -315,6 +343,8 @@ export function defineCollection<const D extends CollectionDef>(
 				set: (fields: Record<string, unknown>) =>
 					files.set({ ...fields, path: first.text }),
 				edit: (change: Change) => files.edit({ ...change, path: first.text }),
+				update: (revise: AnyRevise) =>
+					files.update({ path: first.text }, revise),
 			}
 		: {
 				list: files.list,
@@ -322,6 +352,7 @@ export function defineCollection<const D extends CollectionDef>(
 				add: files.add,
 				set: files.set,
 				edit: files.edit,
+				update: files.update,
 				delete: files.delete,
 			};
 	const unaddable = Object.entries(definition.fields)
@@ -516,10 +547,19 @@ type Methods = Record<string, (...args: never[]) => Promise<unknown>>;
 /** A read's front matter: its fields, its body, and whether the front matter could be read. */
 type Found = { fields: FieldValues; body: string; writable: boolean };
 
+/** What an absent one-file collection's file reads as. */
+const NONE: Found = { fields: {}, body: '', writable: true };
+
+/** An `update` function before its types are laid over. */
+type AnyRevise = (record: Record<string, unknown>) => Record<string, unknown>;
+
+/** What a write changes: the fields to set or remove, as `set` takes them, and a new body if it changes. */
+type Write = { fields: Record<string, unknown>; body?: unknown };
+
 /**
  * A collection's files, each addressed by its path, read and written through
  * the folder of the run they are called in. A one-file collection makes its
- * file on its first `set` or `edit`.
+ * file on its first write.
  */
 function createFiles(templates: readonly Template[], fields: Fields) {
 	const first = templates[0] as Template;
@@ -608,7 +648,7 @@ function createFiles(templates: readonly Template[], fields: Fields) {
 	async function getFile(path: string) {
 		const found = await read(path);
 		if (found) return file(path, found);
-		if (single) return file(path, { fields: {}, body: '', writable: true });
+		if (single) return file(path, NONE);
 		return undefined;
 	}
 
@@ -640,8 +680,6 @@ function createFiles(templates: readonly Template[], fields: Fields) {
 				removed.push(key);
 			} else set[key] = value as JsonValue;
 		}
-		if (removed.length === 0 && Object.keys(set).length === 0)
-			throw new Error(`Nothing to set in ${path}: give a field`);
 		refuse(path, set, false);
 		return { set: inDeclaredOrder(set, fields), removed };
 	}
@@ -660,10 +698,8 @@ function createFiles(templates: readonly Template[], fields: Fields) {
 		return markdownOf(inDeclaredOrder(values, fields), body);
 	}
 
-	/** `text` with the passage `change.old` of its body replaced by `change.new`; throws "Changed" when the body no longer has it. */
-	function edited(path: string, text: string, change: Change) {
-		const { body } = readMarkdown(text);
-		const head = text.slice(0, text.length - body.length);
+	/** `body` with the passage `change.old` replaced by `change.new`; throws "Changed" when the body no longer has it. */
+	function edited(path: string, body: string, change: Change) {
 		const { old } = change;
 		const at = body.indexOf(old);
 		if (old === '' ? body !== '' : at < 0)
@@ -676,12 +712,47 @@ function createFiles(templates: readonly Template[], fields: Fields) {
 			throw new Error(
 				`${path}'s body has that text more than once; quote more around it`,
 			);
-		return (
-			head +
-			(old === ''
-				? change.new
-				: body.slice(0, at) + change.new + body.slice(at + old.length))
-		);
+		return old === ''
+			? change.new
+			: body.slice(0, at) + change.new + body.slice(at + old.length);
+	}
+
+	/**
+	 * Change the file at `path` to what `revise` makes of the record there,
+	 * through `folder.update`, so it is written only over the record `revise`
+	 * was given. A file that is not there is refused, or, for a one-file
+	 * collection, made. Each of `set`, `edit`, and `update` writes through it.
+	 */
+	async function rewrite(
+		path: string,
+		revise: (record: ReturnType<typeof file>) => Write,
+	) {
+		const text = await folder.update(path, (before) => {
+			const found = before === undefined ? undefined : readMarkdown(before);
+			if (!found && !single) throw new Error(`There is no ${path}`);
+			const { fields: given, body } = revise(file(path, found ?? NONE));
+			if (body !== undefined && typeof body !== 'string')
+				throw new Error(`${path}: body must be text`);
+			const patch = patchOf(path, given);
+			const changesFields =
+				patch.removed.length > 0 || Object.keys(patch.set).length > 0;
+			if (!changesFields && body === undefined)
+				throw new Error(`Nothing to set in ${path}: give a field`);
+			if (before === undefined || !found)
+				return made(path, patch.set, body ?? '');
+			if (changesFields && !found.writable)
+				throw new Error(
+					`${path} has front matter that is neither key: <JSON> lines nor YAML; fix it by hand first`,
+				);
+			const fielded = changesFields
+				? withFields(before, found, patch.set, patch.removed)
+				: before;
+			// Every write keeps the body as the end of the text, so the front matter is what comes before it.
+			return body === undefined
+				? fielded
+				: fielded.slice(0, fielded.length - found.body.length) + body;
+		});
+		return file(path, readMarkdown(text));
 	}
 
 	async function paths() {
@@ -724,39 +795,27 @@ function createFiles(templates: readonly Template[], fields: Fields) {
 			const given = Object.fromEntries(
 				Object.entries(rest).filter(([, value]) => value !== undefined),
 			) as FieldValues;
-			await folder.update(path, (text) => {
-				if (text !== undefined) throw new Error(`${path} is already there`);
+			const text = await folder.update(path, (before) => {
+				if (before !== undefined) throw new Error(`${path} is already there`);
 				return made(path, given, typeof body === 'string' ? body : '');
 			});
-			return getFile(path);
+			return file(path, readMarkdown(text));
 		},
 		async set({ path, ...given }: PathIn & Record<string, unknown>) {
-			const at = own(path);
-			const patch = patchOf(at, given);
-			await folder.update(at, (text) => {
-				if (text === undefined) {
-					if (!single) throw new Error(`There is no ${at}`);
-					return made(at, patch.set, '');
-				}
-				const found = readMarkdown(text);
-				if (!found.writable)
-					throw new Error(
-						`${at} has front matter that is neither key: <JSON> lines nor YAML; fix it by hand first`,
-					);
-				return withFields(text, found, patch.set, patch.removed);
-			});
-			return getFile(at);
+			return rewrite(own(path), () => ({ fields: given }));
 		},
-		async edit({ path, ...change }: PathIn & Change) {
+		async edit({ path, ...quoted }: PathIn & Change) {
 			const at = own(path);
-			await folder.update(at, (text) => {
-				if (text === undefined) {
-					if (!single) throw new Error(`There is no ${at}`);
-					return edited(at, made(at, {}, ''), change);
-				}
-				return edited(at, text, change);
+			return rewrite(at, (record) => ({
+				fields: {},
+				body: edited(at, record.body, quoted),
+			}));
+		},
+		async update({ path }: PathIn, revise: AnyRevise) {
+			return rewrite(own(path), (record) => {
+				const { body, ...fields } = revise(record);
+				return { fields, body };
 			});
-			return getFile(at);
 		},
 		async delete({ path }: PathIn) {
 			const at = own(path);

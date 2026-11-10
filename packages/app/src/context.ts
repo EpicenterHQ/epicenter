@@ -10,8 +10,9 @@
  *
  * An action changes files and never commits: whatever runs it takes snapshots
  * of the folder into its history (ADR-0850). A change that depends on what it
- * read goes through `folder.update`. A run of a read-only action refuses every
- * write through `folder` and `secrets`.
+ * read goes through a collection's `update`, or `folder.update` for any other
+ * file. A run of a read-only action refuses every write through `folder` and
+ * `secrets`.
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
 

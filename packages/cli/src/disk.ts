@@ -9,11 +9,12 @@
  */
 
 import { createHash, randomUUID } from 'node:crypto';
-import { type Dirent, readFileSync, renameSync } from 'node:fs';
+import { type Dirent, readFileSync, renameSync, unlinkSync } from 'node:fs';
 import {
 	chmod,
 	lstat,
 	mkdir,
+	open,
 	readdir,
 	readFile,
 	rename,
@@ -28,28 +29,108 @@ import { type Folder, normalizePath } from '@epicenter/app';
 /** How many times `update` reads and changes a file that keeps changing before it gives up. */
 const UPDATE_TRIES = 10;
 
-/** How old another update's file beside the target is before it is taken for one a crash left. */
+/** How old another update's claim is before it is taken for one a crash left. */
 const ABANDONED_MS = 30_000;
 
 function missing(error: unknown) {
 	return (error as NodeJS.ErrnoException).code === 'ENOENT';
 }
 
-/** A short name for `text`, or for no file, that two updates of the same text share. */
-function textTag(text: string | undefined) {
-	return text === undefined
+/** A short name for `bytes`, or for no file, that two updates of the same file share. */
+function bytesTag(bytes: Uint8Array | undefined) {
+	return bytes === undefined
 		? 'none'
-		: createHash('sha256').update(text).digest('hex').slice(0, 16);
+		: createHash('sha256').update(bytes).digest('hex').slice(0, 16);
 }
 
-/** The text at `target` now, read without yielding. */
+/** The bytes at `target` now, read without yielding. */
 function readNow(target: string) {
 	try {
-		return readFileSync(target, 'utf8');
+		return readFileSync(target);
 	} catch (error) {
 		if (missing(error)) return undefined;
 		throw error;
 	}
+}
+
+/** Whether two reads found the same file: the same bytes, or no file both times. */
+function sameBytes(a: Buffer | undefined, b: Uint8Array | undefined) {
+	return a === undefined || b === undefined ? a === b : a.equals(b);
+}
+
+/** An update's claim on replacing one file's bytes: the file it made, and the token it wrote there. */
+type Claim = { path: string; token: string };
+
+/** Whether `claim`'s file still holds its token, read without yielding. */
+function holds(claim: Claim) {
+	try {
+		return readFileSync(claim.path, 'utf8') === claim.token;
+	} catch (error) {
+		if (missing(error)) return false;
+		throw error;
+	}
+}
+
+/**
+ * Remove `claim`'s file if it is still this update's. A failure leaves it to
+ * be taken as abandoned once it is old, and never fails a write that landed.
+ */
+function release(claim: Claim) {
+	try {
+		if (holds(claim)) unlinkSync(claim.path);
+	} catch {}
+}
+
+/**
+ * Make the claim file at `path`, holding a token no other update has, or
+ * answer `undefined` when another update holds it. A claim older than
+ * `ABANDONED_MS` is one a crash left, and is cleared before trying once more.
+ */
+async function claim(path: string): Promise<Claim | undefined> {
+	for (let cleared = false; ; cleared = true) {
+		let handle: Awaited<ReturnType<typeof open>>;
+		try {
+			handle = await open(path, 'wx');
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+			if (cleared || !(await clearAbandoned(path))) return undefined;
+			continue;
+		}
+		const token = randomUUID();
+		try {
+			await handle.writeFile(token);
+			await handle.close();
+		} catch (error) {
+			// This update made the file, so it removes it rather than leave it to block others.
+			await handle.close().catch(() => {});
+			await rm(path, { force: true });
+			throw error;
+		}
+		return { path, token };
+	}
+}
+
+/**
+ * Clear the claim at `path` when a crash left it, answering whether it did.
+ * It renames the claim to a name of its own rather than removing it by name,
+ * so two updates that found it never remove each other's fresh claim, and
+ * takes it for abandoned only when the file it renamed is still that old.
+ */
+async function clearAbandoned(path: string) {
+	const left = await stat(path).catch(() => undefined);
+	if (!left || Date.now() - left.mtimeMs <= ABANDONED_MS) return false;
+	const taken = `${path}.${randomUUID()}.stale.local`;
+	try {
+		await rename(path, taken);
+	} catch (error) {
+		if (missing(error)) return false;
+		throw error;
+	}
+	// Another update may have cleared the old claim and made its own since the
+	// stat. Its maker finds its token gone and tries again, so removing it is safe.
+	const renamed = await stat(taken).catch(() => undefined);
+	await rm(taken, { force: true });
+	return renamed !== undefined && Date.now() - renamed.mtimeMs > ABANDONED_MS;
 }
 
 /** The app's folder at `dir`, its methods reading and writing the disk. */
@@ -65,66 +146,61 @@ export function folderOnDisk(dir: string): Folder {
 	}
 	/**
 	 * Write `bytes` beside the file at `path` and rename it over, so a reader
-	 * never sees half a file; a file it replaces keeps its mode. The file
-	 * beside it is named `*.local`, so a snapshot taken meanwhile never
-	 * commits it.
+	 * never sees half a file; a file it replaces keeps its mode. The files
+	 * beside it are named `*.local`, so a snapshot taken meanwhile never
+	 * commits them.
 	 *
-	 * Given `replacing`, the text the bytes were made from, it writes only
-	 * over that text, and answers whether it did. Its file beside is named
-	 * for that text and made only when no other is there, so two updates of
-	 * the same text never both write; and just before the rename it reads the
-	 * file again and leaves it as it is when the text has changed.
+	 * Given `replacing`, the bytes the new ones were made from (`undefined`
+	 * for no file), it writes only over those bytes, and answers whether it
+	 * did. It first claims them with a file named for them that only one
+	 * update can make, so two updates of the same bytes never both write; and
+	 * just before the rename it checks that the claim is still its own and the
+	 * file still those bytes, leaving the file as it is otherwise.
 	 */
 	async function replace(
 		path: string,
 		bytes: Uint8Array,
-		replacing?: { text: string | undefined },
+		replacing?: { bytes: Uint8Array | undefined },
 	) {
 		const target = pathOf(path);
 		await mkdir(dirname(target), { recursive: true });
-		const temp = `${target}.${replacing ? textTag(replacing.text) : randomUUID()}.tmp.local`;
-		let mode: number | undefined;
-		try {
-			mode = (await stat(target)).mode & 0o7777;
-		} catch (error) {
-			if (!missing(error)) throw error;
-		}
-		try {
-			await writeFile(temp, bytes, {
-				flag: replacing ? 'wx' : 'w',
-				...(mode === undefined ? {} : { mode }),
-			});
-		} catch (error) {
-			if (!replacing || (error as NodeJS.ErrnoException).code !== 'EEXIST')
-				throw error;
-			// Another update of the same text is writing; one a crash left behind is cleared.
-			const left = await stat(temp).catch(() => undefined);
-			if (left && Date.now() - left.mtimeMs > ABANDONED_MS)
-				await rm(temp, { force: true });
-			return false;
-		}
+		const claimed = replacing
+			? await claim(`${target}.${bytesTag(replacing.bytes)}.claim.local`)
+			: undefined;
+		if (replacing && !claimed) return false;
+		const temp = `${target}.${randomUUID()}.tmp.local`;
 		let renamed = false;
 		try {
+			let mode: number | undefined;
+			try {
+				mode = (await stat(target)).mode & 0o7777;
+			} catch (error) {
+				if (!missing(error)) throw error;
+			}
+			await writeFile(temp, bytes, mode === undefined ? {} : { mode });
 			if (mode !== undefined) await chmod(temp, mode);
 			if (!replacing) await rename(temp, target);
-			// Read and rename without yielding, so nothing in this process runs between them.
-			else if (readNow(target) === replacing.text) renameSync(temp, target);
+			// Check and rename without yielding, so nothing in this process runs between them.
+			else if (
+				claimed &&
+				holds(claimed) &&
+				sameBytes(readNow(target), replacing.bytes)
+			)
+				renameSync(temp, target);
 			else return false;
 			renamed = true;
 			return true;
 		} finally {
-			// Once renamed, the name may already be another update's.
 			if (!renamed) await rm(temp, { force: true });
+			if (claimed) release(claimed);
 		}
 	}
-	async function read(path: string) {
-		const bytes = await readBytes(path);
-		return bytes === undefined ? undefined : new TextDecoder().decode(bytes);
-	}
+	const decode = (bytes: Uint8Array | undefined) =>
+		bytes === undefined ? undefined : new TextDecoder().decode(bytes);
 	return {
 		path: dir,
 		readBytes,
-		read,
+		read: async (path) => decode(await readBytes(path)),
 		async writeBytes(path, bytes) {
 			await replace(path, bytes);
 		},
@@ -133,10 +209,11 @@ export function folderOnDisk(dir: string): Folder {
 		},
 		async update(path, change) {
 			for (let tries = 1; ; tries++) {
-				const text = await read(path);
-				const changed = change(text);
+				// Compared as bytes: decoding drops a byte order mark the file still has.
+				const before = await readBytes(path);
+				const changed = change(decode(before));
 				const bytes = new TextEncoder().encode(changed);
-				if (await replace(path, bytes, { text })) return changed;
+				if (await replace(path, bytes, { bytes: before })) return changed;
 				if (tries === UPDATE_TRIES)
 					throw Object.freeze({
 						name: 'Changed',

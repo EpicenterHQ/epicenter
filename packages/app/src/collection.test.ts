@@ -466,6 +466,108 @@ describe('a read', () => {
 	});
 });
 
+describe('update', () => {
+	const counters = defineCollection({
+		path: 'counters/{id}.md',
+		fields: { n: field.integer({ optional: true }), note: field.text() },
+	});
+	const at = { path: 'counters/a.md' };
+	const seeded = () =>
+		createMemoryContext({ 'counters/a.md': '---\nnote: "kept"\n---\nBody.\n' });
+
+	test('writes the patch computed from the record, fields and body together, and returns the record written', async () => {
+		const context = seeded();
+		const written = await inRun(context, () =>
+			counters.update(at, (record) => ({
+				n: (record.n ?? 0) + 1,
+				body: `${record.body}More.\n`,
+			})),
+		);
+		expect(written).toEqual({
+			path: 'counters/a.md',
+			id: 'a',
+			n: 1,
+			note: 'kept',
+			body: 'Body.\nMore.\n',
+		});
+		expect(await context.folder.read('counters/a.md')).toBe(
+			'---\nnote: "kept"\nn: 1\n---\nBody.\nMore.\n',
+		);
+		await inRun(context, () => counters.update(at, () => ({ n: null })));
+		expect(await context.folder.read('counters/a.md')).toBe(
+			'---\nnote: "kept"\n---\nBody.\nMore.\n',
+		);
+	});
+
+	test('concurrent updates of one file both land, where a get then a set loses one', async () => {
+		const context = seeded();
+		const increment = () =>
+			inRun(context, () =>
+				counters.update(at, (record) => ({ n: (record.n ?? 0) + 1 })),
+			);
+		await Promise.all([increment(), increment()]);
+		expect((await inRun(context, () => counters.get(at)))?.n).toBe(2);
+
+		const getThenSet = () =>
+			inRun(context, async () => {
+				const record = await counters.get(at);
+				await counters.set({ ...at, n: (record?.n ?? 0) + 1 });
+			});
+		await Promise.all([getThenSet(), getThenSet()]);
+		expect((await inRun(context, () => counters.get(at)))?.n).toBe(3);
+	});
+
+	test('a revise that throws, or gives what set refuses, writes nothing; a file that is not there is refused', async () => {
+		const context = seeded();
+		const before = await context.folder.read('counters/a.md');
+		await expect(
+			inRun(context, () =>
+				counters.update(at, () => {
+					throw new Error('not now');
+				}),
+			),
+		).rejects.toThrow('not now');
+		await expect(
+			inRun(context, () =>
+				counters.update(at, () => ({ note: null }) as never),
+			),
+		).rejects.toThrow('note is required, so it cannot be removed');
+		await expect(
+			inRun(context, () => counters.update(at, () => ({}))),
+		).rejects.toThrow('Nothing to set in counters/a.md: give a field');
+		expect(await context.folder.read('counters/a.md')).toBe(before);
+		await expect(
+			inRun(context, () =>
+				counters.update({ path: 'counters/b.md' }, () => ({ n: 1 })),
+			),
+		).rejects.toThrow('There is no counters/b.md');
+		expect(await context.folder.list()).toEqual(['counters/a.md']);
+	});
+
+	test('a one-file collection gives its defaults to the first update, which makes the file', async () => {
+		const context = createMemoryContext();
+		const written = await inRun(context, () =>
+			settings.update((file) => ({
+				dailyGoal: (file.dailyGoal ?? 10) + 5,
+				body: `${file.voice}\n`,
+			})),
+		);
+		expect(written).toEqual({
+			path: 'settings.md',
+			dailyGoal: 15,
+			voice: 'female',
+			body: 'female\n',
+		});
+		expect(await context.folder.read('settings.md')).toBe(
+			'---\ndailyGoal: 15\nvoice: "female"\n---\nfemale\n',
+		);
+	});
+
+	test('is a method, not a verb', () => {
+		expect(Object.keys(counters.actions())).not.toContain('update');
+	});
+});
+
 describe('pathOf', () => {
 	test('fills the first template as add does, refusing a value that cannot name a file', () => {
 		expect(items.pathOf({ id: 'dune' })).toBe('items/dune.md');

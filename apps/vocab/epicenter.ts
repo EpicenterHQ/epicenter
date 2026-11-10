@@ -226,11 +226,14 @@ const review = defineAction({
 	positional: ['path', 'grade'],
 	annotations: { destructiveHint: false, openWorldHint: false },
 	run: async ({ path, grade }) => {
-		const word = await words.get({ path });
-		if (!word) throw new Error(`There is no ${path}`);
 		const now = new Date();
-		const scheduled = schedule(word, grade, now);
-		await words.set({ path, ...scheduled });
+		// `update` calls this again when the word changed since it was read, so two
+		// reviews at once both count; `scheduled` is the schedule it wrote.
+		let scheduled!: Schedule;
+		await words.update({ path }, (word) => {
+			scheduled = schedule(word, grade, now);
+			return scheduled;
+		});
 		return { path, grade, ...scheduled, next: nextFor(scheduled, now) };
 	},
 });

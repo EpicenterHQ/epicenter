@@ -94,25 +94,37 @@ a rule across fields (Vocab's `review` scheduling), or a read shaped for a
 screen (Capture's `recent`). Replace a verb by key, as in any object:
 `{ ...words.actions(), add: learn }`. Inside `run`, read and write through the
 collection's methods (`words.get({ path })`, `words.set({ path, ...fields })`,
-`words.edit({ path, old, new })`) instead of parsing front matter again, and
-through the imported `folder` for any other file. Build a path with
-`words.pathOf({ word })`, never by hand.
+`words.edit({ path, old, new })`, `words.update({ path }, change)`) instead of
+parsing front matter again, and through the imported `folder` for any other
+file. Build a path with `words.pathOf({ word })`, never by hand.
 
 Writes to one app run at once: a phone, an agent, and the command line can
 all call the app at the same moment, and an agent may edit its files
-directly. So change a file you read with `folder.update(path, change)`, never
-`folder.read` then `folder.write`. `update` calls `change` with the file's
-text (`undefined` when there is none) and writes what it returns only over
-that same text; when the file changed meanwhile, it calls `change` again on
-what is there now. Keep `change` a pure function of the text, since it may
-run more than once; throw in it to refuse, and nothing is written.
+directly. A value computed from `get` and written with `set` is last write
+wins: a change made between them is lost. Compute it inside the collection's
+`update` instead, which calls `change` with the record as `get` gives it and
+writes the patch it returns (what `set` takes, without `path`, plus `body`
+when the body changes) only over that same record; when the file changed
+meanwhile, it calls `change` again on what is there now. Vocab's `review`
+schedules a word this way, so two reviews at once both count.
+
+```ts
+await words.update({ path }, (word) => ({ reps: (word.reps ?? 0) + 1 }));
+```
+
+For any other file, use `folder.update(path, change)`, never `folder.read`
+then `folder.write`. It does the same with the file's text (`undefined` when
+there is none). Either way, keep `change` a pure function of what it is
+given, since it may run more than once; throw in it to refuse, and nothing is
+written.
 
 ```ts
 await folder.update('2026.csv', (text = 'day,minutes\n') => `${text}${day},${minutes}\n`);
 ```
 
-The collection methods already go through `update`. `folder.write` is for a
-file whose whole content the action decides, and the last write wins.
+Every collection write goes through `folder.update`. `set` writes the values
+it is given, and `folder.write` is for a file whose whole content the action
+decides: for both, the last write wins.
 
 The generated verbs address a record by its path, the one address every
 collection has. An action you write chooses its own input, and one people type

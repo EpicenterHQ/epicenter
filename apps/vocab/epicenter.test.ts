@@ -193,6 +193,19 @@ describe('actions', () => {
 		expect(words[2]?.problems).toEqual(['createdAt is missing']);
 	});
 
+	test('two reviews of one word at once both count', async () => {
+		const context = createMemoryContext({});
+		await inRun(context, () => add({ word: '谢谢' }));
+		const at = { path: 'words/谢谢.md', grade: 'good' } as const;
+		await Promise.all([
+			inRun(context, () => grade(at)),
+			inRun(context, () => grade(at)),
+		]);
+		const text = await context.folder.read('words/谢谢.md');
+		expect(text).toContain('reps: 2\n');
+		expect(text).toContain('interval: 6\n');
+	});
+
 	test('review of a word that is not there throws', async () => {
 		await expect(
 			inRun(createMemoryContext({}), () =>
