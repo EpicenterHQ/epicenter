@@ -14,7 +14,7 @@
 	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
 	import { untrack } from 'svelte';
 	import type { Word } from '../../../../epicenter.js';
-	import { langOf, markTones, untilLabel } from '$lib/text.js';
+	import { langOf, untilLabel } from '$lib/text.js';
 	import { vocab } from '$lib/vocab.svelte.js';
 
 	type Stage = NonNullable<Word['stage']>;
@@ -77,7 +77,7 @@
 			show(
 				await vocab.call<Word>('words set', {
 					word: saved.word,
-					reading: markTones(draft.reading.trim()),
+					reading: draft.reading.trim(),
 					meaning: draft.meaning.trim(),
 					body: draft.body.trim() === '' ? '' : `${draft.body.trim()}\n`,
 					...(draft.stage ? { stage: draft.stage } : {}),
@@ -130,7 +130,6 @@
 					<Input
 						id="reading"
 						bind:value={draft.reading}
-				onblur={() => (draft.reading = markTones(draft.reading))}
 						autocomplete="off"
 						autocapitalize="off"
 						spellcheck="false"

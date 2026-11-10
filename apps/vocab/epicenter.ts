@@ -27,7 +27,12 @@ export type WordRow = {
 export type Word = WordRow & { body: string };
 
 /** What a review leaves in the word's scheduling fields. */
-export type Schedule = { due: string; interval: number; ease: number; reps: number };
+export type Schedule = {
+	due: string;
+	interval: number;
+	ease: number;
+	reps: number;
+};
 
 /** A word due now, with when each grade would make it due next. */
 export type DueWord = Word & { next: Record<Grade, string> };
@@ -65,7 +70,11 @@ export function schedule(
 			reps: 0,
 		};
 	const good =
-		reps === 0 ? 1 : reps === 1 ? 6 : Math.max(interval + 1, Math.round(interval * ease));
+		reps === 0
+			? 1
+			: reps === 1
+				? 6
+				: Math.max(interval + 1, Math.round(interval * ease));
 	const days = {
 		hard: reps === 0 ? 1 : Math.max(interval + 1, Math.round(interval * 1.2)),
 		good,
@@ -100,7 +109,9 @@ function localTime(at: Date): string {
 	const offset = -at.getTimezoneOffset();
 	const sign = offset >= 0 ? '+' : '-';
 	const pad = (n: number) => String(Math.trunc(Math.abs(n))).padStart(2, '0');
-	const local = new Date(at.getTime() + offset * 60_000).toISOString().slice(0, 19);
+	const local = new Date(at.getTime() + offset * 60_000)
+		.toISOString()
+		.slice(0, 19);
 	return `${local}${sign}${pad(offset / 60)}:${pad(offset % 60)}`;
 }
 
@@ -109,7 +120,9 @@ function fileWord(text: string): string {
 	const word = text.normalize('NFC').trim().replace(/\s+/g, ' ');
 	if (word === '') throw new Error('A word is needed');
 	if (/[/\\]/.test(word) || word.startsWith('.'))
-		throw new Error(`"${word}" cannot name a file: it has / or \\, or starts with .`);
+		throw new Error(
+			`"${word}" cannot name a file: it has / or \\, or starts with .`,
+		);
 	if (new TextEncoder().encode(word).length > 200)
 		throw new Error(`"${word}" is too long to name a file`);
 	return word;
@@ -131,11 +144,14 @@ export default defineApp(declaration, {
 			description:
 				'Add a word to learn, due for review now: words/<word>.md with its meaning, reading, and examples. A word already saved is returned unchanged, with added false',
 			input: {
-				word: field.text({ description: 'The word or phrase, as written: 你好' }),
+				word: field.text({
+					description: 'The word or phrase, as written: 你好',
+				}),
 				meaning: field.text({ optional: true, description: 'What it means' }),
 				reading: field.text({
 					optional: true,
-					description: 'How it is read: pinyin with tone marks, nǐ hǎo',
+					description:
+						'How it is read or pronounced, such as pinyin, kana, or IPA',
 				}),
 				body: field.text({
 					optional: true,
@@ -143,7 +159,11 @@ export default defineApp(declaration, {
 				}),
 			},
 			positional: ['word', 'meaning'],
-			annotations: { destructiveHint: false, idempotentHint: true, openWorldHint: false },
+			annotations: {
+				destructiveHint: false,
+				idempotentHint: true,
+				openWorldHint: false,
+			},
 			async run({ word: text, meaning, reading, body }, context) {
 				const word = fileWord(text);
 				if ((await context.folder.read(`words/${word}.md`)) !== undefined)
@@ -164,7 +184,8 @@ export default defineApp(declaration, {
 			input: {
 				word: field.text({ description: 'The word, as its file is named' }),
 				grade: field.select(GRADES, {
-					description: 'again: forgot it; hard: barely; good: remembered; easy: instantly',
+					description:
+						'again: forgot it; hard: barely; good: remembered; easy: instantly',
 				}),
 			},
 			positional: ['word', 'grade'],

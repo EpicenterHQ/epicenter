@@ -31,7 +31,7 @@
 			<p class="text-sm text-muted-foreground tabular-nums">{vocab.words().length}</p>
 		{/if}
 	</div>
-	<Input type="search" aria-label="Search words" placeholder="Search by word, pinyin, or meaning" bind:value={search} />
+	<Input type="search" aria-label="Search words" placeholder="Search by word, reading, or meaning" bind:value={search} />
 
 	{#if !vocab.loaded()}
 		<Loading class="flex-1" />

@@ -7,7 +7,7 @@
 	import { toast } from '@epicenter/ui/sonner';
 	import { Textarea } from '@epicenter/ui/textarea';
 	import type vocabApp from '../../../epicenter.js';
-	import { langOf, markTones } from '$lib/text.js';
+	import { langOf } from '$lib/text.js';
 	import { vocab } from '$lib/vocab.svelte.js';
 
 	type Added = Awaited<ReturnType<typeof vocabApp.actions.add.run>>;
@@ -21,7 +21,7 @@
 		if (saving || !draft.word.trim()) return;
 		saving = true;
 		try {
-			const added = await vocab.call<Added>('add', { ...draft, reading: markTones(draft.reading) });
+			const added = await vocab.call<Added>('add', draft);
 			const open = {
 				label: 'Open',
 				onClick: () => goto(resolve('/words/[word]', { word: added.word })),
@@ -70,8 +70,7 @@
 			<Input
 				id="reading"
 				bind:value={draft.reading}
-				onblur={() => (draft.reading = markTones(draft.reading))}
-				placeholder="ni3 hao3 becomes nǐ hǎo"
+				placeholder="How it is read"
 				autocomplete="off"
 				autocapitalize="off"
 				spellcheck="false"

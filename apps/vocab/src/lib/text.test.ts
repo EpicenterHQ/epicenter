@@ -1,27 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { langOf, markTones, matches, untilLabel } from './text.js';
-
-describe('markTones', () => {
-	test('marks the a or e, the o of ou, or else the last vowel', () => {
-		expect(markTones('ni3 hao3')).toBe('nǐ hǎo');
-		expect(markTones('xie4xie5')).toBe('xièxie');
-		expect(markTones('dou1')).toBe('dōu');
-		expect(markTones('gui4')).toBe('guì');
-		expect(markTones('liu2')).toBe('liú');
-		expect(markTones('Zhong1guo2')).toBe('Zhōngguó');
-	});
-
-	test('reads v and u: as ü', () => {
-		expect(markTones('nv3')).toBe('nǚ');
-		expect(markTones('lu:4')).toBe('lǜ');
-		expect(markTones('lv')).toBe('lv');
-	});
-
-	test('leaves text without tone numbers alone', () => {
-		expect(markTones('nǐ hǎo')).toBe('nǐ hǎo');
-		expect(markTones('room 101')).toBe('room 101');
-	});
-});
+import { langOf, matches, untilLabel } from './text.js';
 
 describe('matches', () => {
 	const word = { word: '你好', reading: 'nǐ hǎo', meaning: 'Hello' };

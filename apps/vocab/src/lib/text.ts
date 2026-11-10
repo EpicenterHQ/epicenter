@@ -1,47 +1,10 @@
 /**
- * What the view does with a word's text: tone marks for pinyin typed with
- * numbers, search that ignores tones, the language to tag a word with so the
- * browser picks the right CJK glyphs, and short times until a review.
+ * What the view does with a word's text: search that ignores case, accents,
+ * and spaces, the language to tag a word with so the browser picks the right
+ * CJK glyphs, and short times until a review.
  */
 
-const MARKS: Record<string, string> = {
-	a: 'āáǎà',
-	e: 'ēéěè',
-	i: 'īíǐì',
-	o: 'ōóǒò',
-	u: 'ūúǔù',
-	ü: 'ǖǘǚǜ',
-};
-
-/** The index of the vowel that takes a syllable's tone mark: a or e, else the o of ou, else the last vowel. */
-function markedVowel(syllable: string): number {
-	const lower = syllable.toLowerCase();
-	const ae = lower.search(/[ae]/);
-	if (ae >= 0) return ae;
-	const ou = lower.indexOf('ou');
-	if (ou >= 0) return ou;
-	return Math.max(...[...'iouü'].map((vowel) => lower.lastIndexOf(vowel)));
-}
-
-/**
- * Pinyin typed with tone numbers, with tone marks: `ni3 hao3` is `nǐ hǎo`,
- * `nv3` and `nu:3` are `nǚ`, and a 5 or 0 (the neutral tone) is dropped.
- * Text without tone numbers comes back unchanged.
- */
-export function markTones(text: string): string {
-	return text.replace(/([a-zü:]+)([0-5])/gi, (whole, letters: string, tone: string) => {
-		const syllable = letters.replace(/u:|v/g, 'ü').replace(/U:|V/g, 'Ü');
-		if (!/[aeiouü]/i.test(syllable)) return whole;
-		if (tone === '5' || tone === '0') return syllable;
-		const at = markedVowel(syllable);
-		const vowel = syllable[at] ?? '';
-		const marked = MARKS[vowel.toLowerCase()]?.[Number(tone) - 1] ?? vowel;
-		const cased = vowel === vowel.toLowerCase() ? marked : marked.toUpperCase();
-		return syllable.slice(0, at) + cased + syllable.slice(at + 1);
-	});
-}
-
-/** Text as search compares it: lowercase, no tone marks, numbers, or spaces, so `nihao` finds `nǐ hǎo`. */
+/** Text as search compares it: lowercase, no accents or tone marks, numbers, or spaces, so `nihao` finds `nǐ hǎo`. */
 export function searchable(text: string): string {
 	return text
 		.normalize('NFD')
@@ -50,7 +13,7 @@ export function searchable(text: string): string {
 		.replace(/[\s\d'’-]/g, '');
 }
 
-/** Whether a word's text, reading, or meaning holds `query`, ignoring case, tones, and spaces. */
+/** Whether a word's text, reading, or meaning holds `query`, ignoring case, accents, and spaces. */
 export function matches(
 	word: { word: string; reading?: string; meaning?: string },
 	query: string,

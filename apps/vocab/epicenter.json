@@ -13,7 +13,7 @@
 					},
 					"reading": {
 						"type": "string",
-						"description": "How it is read: pinyin with tone marks (nǐ hǎo), kana, or a pronunciation"
+						"description": "How it is read or pronounced, such as pinyin, kana, or IPA"
 					},
 					"stage": {
 						"enum": ["new", "recognized", "understood", "usable"],
