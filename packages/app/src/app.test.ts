@@ -363,20 +363,16 @@ describe('defineCollection', () => {
 		expect(
 			problems(() =>
 				defineCollection({
-					path: [
-						'notes/{body}.md',
-						'notes/{path}/{problems}.md',
-						'old/{other}/{input}.md',
-					],
+					path: 'notes/{body}/{path}/{problems}/{other}/{input}.md',
 					fields: {},
 				}),
 			),
 		).toEqual([
-			"The collection at notes/{body}.md and notes/{path}/{problems}.md and old/{other}/{input}.md has the placeholder {body}, which is the file's text after its front matter",
-			"The collection at notes/{body}.md and notes/{path}/{problems}.md and old/{other}/{input}.md has the placeholder {path}, which is the file's address",
-			'The collection at notes/{body}.md and notes/{path}/{problems}.md and old/{other}/{input}.md has the placeholder {problems}, which a read uses to say what does not fit',
-			'The collection at notes/{body}.md and notes/{path}/{problems}.md and old/{other}/{input}.md has the placeholder {other}, which a read uses for front matter that is not a field',
-			'The collection at notes/{body}.md and notes/{path}/{problems}.md and old/{other}/{input}.md has the placeholder {input}, which epicenter reads itself',
+			"The collection at notes/{body}/{path}/{problems}/{other}/{input}.md has the placeholder {body}, which is the file's text after its front matter",
+			"The collection at notes/{body}/{path}/{problems}/{other}/{input}.md has the placeholder {path}, which is the file's address",
+			'The collection at notes/{body}/{path}/{problems}/{other}/{input}.md has the placeholder {problems}, which a read uses to say what does not fit',
+			'The collection at notes/{body}/{path}/{problems}/{other}/{input}.md has the placeholder {other}, which a read uses for front matter that is not a field',
+			'The collection at notes/{body}/{path}/{problems}/{other}/{input}.md has the placeholder {input}, which epicenter reads itself',
 		]);
 	});
 
@@ -397,13 +393,14 @@ describe('defineCollection', () => {
 		]);
 	});
 
-	test('a collection in several places lists no one-file path', () => {
+	test('a collection has one path, and a list is refused', () => {
+		const path = ['entries/{time}.md', 'entries/archive/{slug}.md'];
 		expect(
 			problems(() =>
-				defineCollection({ path: ['notes/{time}.md', 'inbox.md'], fields: {} }),
+				defineCollection({ path: path as unknown as string, fields: {} }),
 			),
 		).toEqual([
-			'The collection at notes/{time}.md and inbox.md lists a path with no placeholder; a one-file collection has its path alone',
+			'A collection has one path, not a list ("entries/{time}.md", "entries/archive/{slug}.md"); declare a second collection for a second layout',
 		]);
 	});
 });

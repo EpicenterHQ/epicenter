@@ -149,10 +149,7 @@ function appProblems(app: unknown): string[] {
  * collections hold.
  */
 function clash(a: AnyCollection, b: AnyCollection): string | undefined {
-	const theirs = [b.path].flat();
-	return [a.path]
-		.flat()
-		.find(
-			(text) => theirs.includes(text) || (!text.includes('{') && b.holds(text)),
-		);
+	if (a.path === b.path || (!a.path.includes('{') && b.holds(a.path)))
+		return a.path;
+	return undefined;
 }

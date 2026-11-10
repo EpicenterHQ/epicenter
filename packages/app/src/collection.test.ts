@@ -355,22 +355,22 @@ describe('a collection of many files', () => {
 		]);
 	});
 
-	test('a collection in several places lists them all and adds to the first', async () => {
+	test('holds and lists only the files its path matches, and adds there', async () => {
 		const entries = defineCollection({
-			path: ['entries/{time}.md', 'entries/archive/{slug}.md'],
+			path: 'entries/{time}.md',
 			fields: { text: field.text({ optional: true }) },
 		});
 		const context = createMemoryContext({
 			'entries/0lnc4n46f9.md': '---\ntext: "a"\n---\n',
 			'entries/archive/old.md': '---\ntext: "b"\n---\n',
+			'entries/notes.txt': 'not markdown',
 		});
 		const rows = await inRun(context, () => entries.list());
 		expect(rows).toEqual([
 			{ path: 'entries/0lnc4n46f9.md', time: '0lnc4n46f9', text: 'a' },
-			{ path: 'entries/archive/old.md', slug: 'old', text: 'b' },
 		]);
-		expect(entries.holds('entries/archive/old.md')).toBe(true);
-		expect(entries.holds('entries/archive/deeper/old.md')).toBe(false);
+		expect(entries.holds('entries/0lnc4n46f9.md')).toBe(true);
+		expect(entries.holds('entries/archive/old.md')).toBe(false);
 		const { add } = entries.actions('add');
 		const made = await inRun(context, () => add({ text: 'c' }));
 		expect(made.path).toStartWith('entries/2');
@@ -569,7 +569,7 @@ describe('update', () => {
 });
 
 describe('pathOf', () => {
-	test('fills the first template as add does, refusing a value that cannot name a file', () => {
+	test('fills the template as add does, refusing a value that cannot name a file', () => {
 		expect(items.pathOf({ id: 'dune' })).toBe('items/dune.md');
 		for (const id of ['../x', 'a/b', 'a\\b', '.hidden', ''])
 			expect(() => items.pathOf({ id })).toThrow('cannot name a file');

@@ -61,11 +61,9 @@ import {
 	withFields,
 } from './front-matter.ts';
 import {
-	type CreatedAt,
 	type IsSingle,
 	type Placeholders,
 	type Template,
-	type TemplatesOf,
 	TIME,
 	template,
 	templateProblem,
@@ -76,8 +74,8 @@ export type Fields = Record<string, TSchema>;
 
 /** What `defineCollection` takes. */
 export type CollectionDef = {
-	/** Its files: `words/{word}.md`, `settings.md`, or a list whose first is where `add` writes. */
-	readonly path: string | readonly string[];
+	/** Its files, as one template: `words/{word}.md`, or `settings.md` for one file. */
+	readonly path: string;
 	/** What one file is, for the descriptions of its actions: "a word I'm learning". */
 	readonly description?: string;
 	readonly fields: Fields;
@@ -135,26 +133,8 @@ type ReadValues<F extends Fields> = {
 	>;
 };
 
-/** The templates of `T` that lack `{K}`. */
-type Lacking<
-	T extends string,
-	K extends string,
-> = T extends `${string}{${K}}${string}` ? never : T;
-
-/** The placeholder values a read gives: each one every template has is there, and the rest may be absent. */
-type PlaceholderValues<P> = {
-	[K in Placeholders<TemplatesOf<P>> as [Lacking<TemplatesOf<P>, K>] extends [
-		never,
-	]
-		? K
-		: never]: string;
-} & {
-	[K in Placeholders<TemplatesOf<P>> as [Lacking<TemplatesOf<P>, K>] extends [
-		never,
-	]
-		? never
-		: K]?: string;
-};
+/** The placeholder values a read gives, from the file's path: `word` for `words/{word}.md`. */
+type PlaceholderValues<P extends string> = { [K in Placeholders<P>]: string };
 
 /** What a read says about a file that does not fit its fields: one line per problem, quoting each value it dropped. */
 type Problems = { problems?: string[] };
@@ -178,9 +158,9 @@ export type FileOf<D extends CollectionDef> = Simplify<
 		}
 >;
 
-/** The placeholders a caller fills when adding: every one in the first template but `{time}`. */
+/** The placeholders a caller fills when adding: every one but `{time}`. */
 type AddKeys<D extends CollectionDef> = Exclude<
-	Placeholders<CreatedAt<D['path']>>,
+	Placeholders<D['path']>,
 	typeof TIME
 >;
 
@@ -239,7 +219,7 @@ export type ManyHandle<D extends CollectionDef> = {
 	/** The path `add` would write for these placeholder values: `pathOf({ word: '你好' })` is `words/你好.md`. */
 	pathOf(
 		placeholders: {
-			[P in Placeholders<CreatedAt<D['path']>>]: string;
+			[P in Placeholders<D['path']>]: string;
 		},
 	): string;
 };
@@ -338,18 +318,17 @@ export function defineCollection<const D extends CollectionDef>(
 ): Collection<D> {
 	const problems = collectionProblems(definition);
 	if (problems.length) throw new Error(problems.join('\n'));
-	const templates = [definition.path].flat().map(template);
-	const first = templates[0] as Template;
-	const single = isSingle(templates);
-	const files = createFiles(templates, definition.fields);
+	const layout = template(definition.path);
+	const single = layout.placeholders.length === 0;
+	const files = createFiles(layout, definition.fields);
 	const methods: Methods = single
 		? {
-				get: () => files.get({ path: first.text }),
+				get: () => files.get({ path: layout.text }),
 				set: (fields: Record<string, unknown>) =>
-					files.set({ ...fields, path: first.text }),
-				edit: (change: Change) => files.edit({ ...change, path: first.text }),
+					files.set({ ...fields, path: layout.text }),
+				edit: (change: Change) => files.edit({ ...change, path: layout.text }),
 				update: (revise: AnyRevise) =>
-					files.update({ path: first.text }, revise),
+					files.update({ path: layout.text }, revise),
 			}
 		: {
 				list: files.list,
@@ -375,24 +354,23 @@ export function defineCollection<const D extends CollectionDef>(
 		...definition,
 		...methods,
 		...(single ? {} : { pathOf: files.pathOf }),
-		holds: (path: string) => templates.some((t) => t.match(path)),
+		holds: (path: string) => layout.match(path) !== undefined,
 		actions: (...verbs: Verb[]) => {
-			const local = templates.find((t) => isLocalPath(t.text));
-			if (local)
+			if (isLocalPath(layout.text))
 				throw new Error(
-					`${local.text} never leaves this computer, so it offers no actions`,
+					`${layout.text} never leaves this computer, so it offers no actions`,
 				);
 			for (const verb of verbs) {
 				if (fit.includes(verb)) continue;
 				if (verb === 'add' && !single)
 					throw new Error(
-						`${first.text} has no "add": ${unaddable.join(', ')} ${unaddable.length === 1 ? 'is' : 'are'} written only by the app's own actions, required, and without a default, so an exposed add could never be given ${unaddable.length === 1 ? 'it' : 'them'}; write the app's own add with defineAction`,
+						`${layout.text} has no "add": ${unaddable.join(', ')} ${unaddable.length === 1 ? 'is' : 'are'} written only by the app's own actions, required, and without a default, so an exposed add could never be given ${unaddable.length === 1 ? 'it' : 'them'}; write the app's own add with defineAction`,
 					);
 				throw new Error(
-					`${first.text} is one file, so it has no "${verb}"; it has ${fit.join(', ')}`,
+					`${layout.text} is one file, so it has no "${verb}"; it has ${fit.join(', ')}`,
 				);
 			}
-			const all = verbActions(definition, templates, methods);
+			const all = verbActions(definition, layout, methods);
 			return Object.fromEntries(
 				(verbs.length ? verbs : fit).map((verb) => [verb, all[verb]]),
 			);
@@ -418,32 +396,25 @@ const RESERVED: ReadonlyMap<string, string> = new Map([
 	),
 ]);
 
-const isSingle = (templates: readonly Template[]) =>
-	templates.every((t) => t.placeholders.length === 0);
-
 /** What is wrong with `def` beyond its types, one sentence each. */
 function collectionProblems(def: CollectionDef): string[] {
-	const texts = [def.path].flat();
-	if (texts.length === 0) return ['A collection needs a path'];
-	const wrong = texts.flatMap((text) => {
-		const problem = templateProblem(text);
-		return problem ? [`The collection path ${problem}`] : [];
-	});
-	if (wrong.length) return wrong;
-	const read = texts.map(template);
-	const at = `The collection at ${texts.join(' and ')}`;
+	const path: unknown = def.path;
+	if (Array.isArray(path))
+		return [
+			`A collection has one path, not a list (${path.map((text) => JSON.stringify(text)).join(', ')}); declare a second collection for a second layout`,
+		];
+	if (typeof path !== 'string') return ['A collection needs a path'];
+	const wrong = templateProblem(path);
+	if (wrong) return [`The collection path ${wrong}`];
+	const keys = new Set(template(path).placeholders);
+	const at = `The collection at ${path}`;
 	const problems: string[] = [];
-	if (read.length > 1 && read.some((t) => t.placeholders.length === 0))
-		problems.push(
-			`${at} lists a path with no placeholder; a one-file collection has its path alone`,
-		);
-	const keys = new Set(read.flatMap((t) => t.placeholders));
 	for (const key of keys) {
 		const reserved = RESERVED.get(key);
 		if (reserved)
 			problems.push(`${at} has the placeholder {${key}}, ${reserved}`);
 	}
-	const single = isSingle(read);
+	const single = keys.size === 0;
 	for (const [key, schema] of Object.entries(def.fields ?? {})) {
 		if (keys.has(key))
 			problems.push(
@@ -571,17 +542,15 @@ type Write = { fields: Record<string, unknown>; body?: unknown };
  * the folder of the run they are called in. A one-file collection makes its
  * file on its first write.
  */
-function createFiles(templates: readonly Template[], fields: Fields) {
-	const first = templates[0] as Template;
-	const single = isSingle(templates);
-	const kind = templates.map((t) => t.text).join(' or ');
+function createFiles(layout: Template, fields: Fields) {
+	const single = layout.placeholders.length === 0;
 
 	function own(path: unknown): string {
 		if (typeof path !== 'string')
-			throw new Error(`Which ${kind} file? Give its path`);
+			throw new Error(`Which ${layout.text} file? Give its path`);
 		const normal = path.replace(/^\.\//, '');
-		if (templates.some((t) => t.match(normal))) return normal;
-		throw new Error(`${normal} is not a file at ${kind}`);
+		if (layout.match(normal)) return normal;
+		throw new Error(`${normal} is not a file at ${layout.text}`);
 	}
 
 	function known(path: string, key: string) {
@@ -621,8 +590,7 @@ function createFiles(templates: readonly Template[], fields: Fields) {
 		const other = Object.fromEntries(
 			Object.entries(found.fields).filter(([key]) => !fitting.has(key)),
 		);
-		const placeholders =
-			templates.map((t) => t.match(path)).find((match) => match) ?? {};
+		const placeholders = layout.match(path) ?? {};
 		return {
 			path,
 			...placeholders,
@@ -766,23 +734,23 @@ function createFiles(templates: readonly Template[], fields: Fields) {
 	}
 
 	async function paths() {
-		const found = new Set<string>();
-		for (const t of templates)
-			for (const path of await folder.list(t.dir || undefined))
-				if (t.match(path)) found.add(path);
-		return [...found].sort();
+		return (await folder.list(layout.dir || undefined)).filter(
+			(path) => layout.match(path) !== undefined,
+		);
 	}
 
-	/** Fill the first template with `values`, refusing one that cannot name a file. */
+	/** Fill the template with `values`, refusing one that cannot name a file. */
 	function fill(values: Record<string, unknown>, made: readonly string[]) {
 		const filled: Record<string, string> = {};
 		for (const key of made) {
 			const value = values[key];
 			if (typeof value !== 'string')
-				throw new Error(`A ${first.text} file is named by its ${key}; give it`);
+				throw new Error(
+					`A ${layout.text} file is named by its ${key}; give it`,
+				);
 			filled[key] = value;
 		}
-		return first.fill(filled);
+		return layout.fill(filled);
 	}
 
 	return {
@@ -799,7 +767,7 @@ function createFiles(templates: readonly Template[], fields: Fields) {
 		},
 		async add(input: Record<string, unknown>) {
 			const { body, ...rest } = input;
-			const named = first.placeholders.filter((key) => key !== TIME);
+			const named = layout.placeholders.filter((key) => key !== TIME);
 			const path = fill(rest, named);
 			for (const key of named) delete rest[key];
 			const given = Object.fromEntries(
@@ -834,26 +802,24 @@ function createFiles(templates: readonly Template[], fields: Fields) {
 			return existed;
 		},
 		pathOf: (values: Record<string, unknown>) =>
-			fill(values, first.placeholders),
+			fill(values, layout.placeholders),
 	};
 }
 
 /** Each verb as an action to expose, described by the collection's path. */
 function verbActions(
 	def: CollectionDef,
-	templates: readonly Template[],
+	layout: Template,
 	methods: Methods,
 ): Record<Verb, Action> {
 	const call = methods as Record<string, (input?: unknown) => Promise<unknown>>;
-	const first = templates[0] as Template;
-	const single = isSingle(templates);
-	const kind = templates.map((t) => t.text).join(' or ');
-	const what = def.description ?? `${kind} file`;
+	const single = layout.placeholders.length === 0;
+	const what = def.description ?? `${layout.text} file`;
 	const writable = Object.fromEntries(
 		Object.entries(def.fields).filter(([, schema]) => !isReadOnly(schema)),
 	);
 	const pathIn = {
-		path: Type.String({ description: `Which file: ${kind}` }) as TString,
+		path: Type.String({ description: `Which file: ${layout.text}` }) as TString,
 	};
 	const patchIn: Record<string, TSchema> = {};
 	for (const [key, schema] of Object.entries(writable)) {
@@ -869,13 +835,13 @@ function verbActions(
 				: (rest as TSchema),
 		);
 	}
-	const addKeys = first.placeholders.filter((key) => key !== TIME);
+	const addKeys = layout.placeholders.filter((key) => key !== TIME);
 	const addIn: Record<string, TSchema> = {
 		...Object.fromEntries(
 			addKeys.map((key) => [
 				key,
 				Type.String({
-					description: `a file's name for {${key}} in ${first.text}: no / or \\, and not starting with .`,
+					description: `a file's name for {${key}} in ${layout.text}: no / or \\, and not starting with .`,
 					pattern: '^[^./\\\\][^/\\\\]*$',
 				}),
 			]),
@@ -921,7 +887,7 @@ function verbActions(
 			},
 			{
 				description: single
-					? `Read ${first.text}: its fields and body, or its defaults while there is none`
+					? `Read ${layout.text}: its fields and body, or its defaults while there is none`
 					: `Read one ${what}: its fields and body`,
 				input: single ? {} : pathIn,
 				positional: single ? [] : ['path'],
@@ -929,21 +895,21 @@ function verbActions(
 			},
 		),
 		add: action((input) => call.add?.(outside(input)), {
-			description: `Make a new ${what}${first.placeholders.includes(TIME) ? ', named by the time' : ''}; refused when one is already at its path`,
+			description: `Make a new ${what}${layout.placeholders.includes(TIME) ? ', named by the time' : ''}; refused when one is already at its path`,
 			input: addIn,
 			positional: addKeys,
 			annotations: { destructiveHint: false, ...local },
 		}),
 		set: action((input) => call.set?.(outside(input)), {
 			description: single
-				? `Change the fields given in ${first.text}, keeping the rest and the body; null removes a field that may be absent; makes the file when there is none`
+				? `Change the fields given in ${layout.text}, keeping the rest and the body; null removes a field that may be absent; makes the file when there is none`
 				: `Change the fields given in one ${what}, keeping the rest and the body; null removes a field that may be absent`,
 			input: single ? patchIn : { ...pathIn, ...patchIn },
 			positional: single ? [] : ['path'],
 			annotations: { idempotentHint: true, ...local },
 		}),
 		edit: action((input) => call.edit?.(input), {
-			description: `Replace one passage of ${single ? first.text : `a ${what}`}'s body: old must appear in it exactly once, or be empty for an empty body; refused otherwise, so a passage changed since it was read is never overwritten`,
+			description: `Replace one passage of ${single ? layout.text : `a ${what}`}'s body: old must appear in it exactly once, or be empty for an empty body; refused otherwise, so a passage changed since it was read is never overwritten`,
 			input: single ? quote : { ...pathIn, ...quote },
 			positional: single ? [] : ['path'],
 			annotations: local,

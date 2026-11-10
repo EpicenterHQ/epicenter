@@ -8,8 +8,9 @@
  * - where `add` writes: each placeholder is a value `add` takes, except
  *   `{time}`, which `add` makes from the time.
  *
- * A template with no placeholder is one file (`settings.md`). A collection in
- * several places gives a list of templates, and `add` writes to the first.
+ * A template with no placeholder is one file (`settings.md`). A collection has
+ * one template, so each of the three has one answer; files in a second layout
+ * are a second collection.
  */
 import { customAlphabet } from 'nanoid';
 
@@ -19,26 +20,9 @@ export type Placeholders<P extends string> =
 		? Name | Placeholders<Rest>
 		: never;
 
-/** Every template of a collection's `path`, as one union. */
-export type TemplatesOf<P> = P extends readonly (infer T extends string)[]
-	? T
-	: P extends string
-		? P
-		: never;
-
-/** The template `add` writes to: the path itself, or the first of a list. */
-export type CreatedAt<P> = P extends readonly [
-	infer First extends string,
-	...unknown[],
-]
-	? First
-	: P extends string
-		? P
-		: string;
-
 /** Whether a collection is one file: its `path` has no placeholder. */
-export type IsSingle<P> = [Placeholders<TemplatesOf<P>>] extends [never]
-	? string extends TemplatesOf<P>
+export type IsSingle<P extends string> = [Placeholders<P>] extends [never]
+	? string extends P
 		? false
 		: true
 	: false;

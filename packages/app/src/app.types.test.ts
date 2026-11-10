@@ -130,9 +130,9 @@ describe('an app author', () => {
 		assertType<Equal<typeof settings.holds, (path: string) => boolean>>();
 	});
 
-	test('a read has a defaulted field always, every other field maybe, and placeholders every path has', () => {
+	test('a read has a defaulted field always, every other field maybe, and every placeholder', () => {
 		const tasks = defineCollection({
-			path: ['tasks/{id}.md', 'tasks/done/{id}.md', 'tasks/{year}/{id}.md'],
+			path: 'tasks/{year}/{id}.md',
 			fields: {
 				title: field.text(),
 				done: field.boolean(),
@@ -145,8 +145,8 @@ describe('an app author', () => {
 				Read,
 				{
 					path: string;
+					year: string;
 					id: string;
-					year?: string;
 					title?: string;
 					done: boolean;
 					tags: string[];
@@ -154,7 +154,9 @@ describe('an app author', () => {
 				}
 			>
 		>();
-		assertType<Equal<Parameters<typeof tasks.pathOf>[0], { id: string }>>();
+		assertType<
+			Equal<Parameters<typeof tasks.pathOf>[0], { year: string; id: string }>
+		>();
 		assertType<Equal<Parameters<typeof words.pathOf>[0], { word: string }>>();
 	});
 
@@ -253,13 +255,14 @@ describe('an app author', () => {
 		assertType<Equal<AddIn, { year: string; title: string; body?: string }>>();
 	});
 
-	test('a collection in several places adds to the first', () => {
-		const entries = defineCollection({
-			path: ['entries/{time}.md', 'entries/archive/{slug}.md'],
-			fields: { text: field.text() },
-		});
-		type AddIn = In<ReturnType<typeof entries.actions<'add'>>['add']>;
-		assertType<Equal<AddIn, { text: string; body?: string }>>();
+	test('a collection has one path, not a list', () => {
+		// Never called: the definition would throw; only its type is checked.
+		() =>
+			defineCollection({
+				// @ts-expect-error a second layout is a second collection
+				path: ['entries/{time}.md', 'entries/archive/{slug}.md'],
+				fields: {},
+			});
 	});
 
 	test('raw TypeBox sits beside fields', () => {

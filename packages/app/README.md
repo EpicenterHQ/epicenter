@@ -81,8 +81,8 @@ refuses it and says to use `defineAction`.
 
 ## Collections
 
-A collection is a typed set of Markdown files. Its `path` is a template that
-says which files belong, a record's address, and where `add` writes:
+A collection is a typed set of Markdown files. Its `path` is one template
+that says which files belong, a record's address, and where `add` writes:
 
 | `path` | Files | `add` takes |
 | --- | --- | --- |
@@ -90,10 +90,12 @@ says which files belong, a record's address, and where `add` writes:
 | `captures/{time}.md` | the same, named by the time | nothing; `{time}` is made |
 | `notes/{year}/{time}.md` | one folder per year | `year` |
 | `settings.md` | that one file | (no `add`) |
-| `['entries/{time}.md', 'entries/archive/{slug}.md']` | both places | what the first takes |
 
 A placeholder matches one path segment, and two in one segment are refused.
-A record's address is its path inside the app: `words/你好.md`.
+A record's address is its path inside the app: `words/你好.md`. Files in a
+second layout, such as `entries/archive/{slug}.md` beside `entries/{time}.md`,
+are a second collection, so membership, reading, making, and addressing each
+have one answer.
 
 Each file's fields are its front matter, as `key: <JSON>` lines, and its body
 is the text after it. YAML front matter is read too, and rewritten as
@@ -118,7 +120,7 @@ gives the same operations as verbs to expose, each taking the same object:
 | `pathOf({ ...placeholders })`: the path `add` would write | |
 
 The exposed `get` throws `There is no <path>` where the method answers
-`undefined`. `pathOf` fills the first template, `{time}` included, and throws
+`undefined`. `pathOf` fills the template, `{time}` included, and throws
 for a value `add` would refuse: empty, holding `/` or `\`, or starting with
 `.`. So an action never writes `words/${word}.md` itself:
 
@@ -170,9 +172,8 @@ A read never trusts the file. `list`, `get`, and the file `add`, `set`, and
 - else the field's default, when it has one;
 - else absent.
 
-`path`, each placeholder's value from the template that matched, and `body`
-come from the file itself, after the fields, so front matter never replaces
-them: `words/你好.md` reads as `{ path: 'words/你好.md', word: '你好', ... }`.
+`path`, each placeholder's value from the path, and `body` come from the
+file itself, after the fields, so front matter never replaces them: `words/你好.md` reads as `{ path: 'words/你好.md', word: '你好', ... }`.
 
 A file that does not fit has `problems`, one line per problem, quoting the
 value it dropped as JSON: `due: "next week" is not a day`, `title is missing`,
@@ -190,10 +191,9 @@ quoted in `problems`, and raw in `other`.
 
 The types say the same. A field with a default is always there; every other
 field is optional, a required one included, since a file written by hand may
-lack it. A placeholder is there when every template of the collection has it,
-and optional otherwise. Rows and files have `problems?: string[]`; files have
-`other?: Record<string, JsonValue>`. Read code handles an absent field rather
-than trusting the declaration.
+lack it. Every placeholder is there, since the path holds it. Rows and files
+have `problems?: string[]`; files have `other?: Record<string, JsonValue>`.
+Read code handles an absent field rather than trusting the declaration.
 
 A path's case is its own: on a disk that ignores case, such as macOS's,
 `words/Hello.md` and `words/hello.md` name one file, and `get` answers under
@@ -209,7 +209,7 @@ the path it was asked for, while `list` gives the name on disk.
 - a path whose first part is a placeholder (`{day}.md` would hold
   `README.md`), is `ui` or `node_modules`, or starts with `epicenter.`: start
   it with a folder of its own, as `days/{day}.md`;
-- a list of paths that includes one with no placeholder;
+- a list of paths: a second layout is a second collection;
 - a field or placeholder named `path`, `body`, `problems`, or `other`, which
   a read gives itself, or `json`, `help`, or `input`, which `epicenter` reads
   itself; a field named as a placeholder, which the file's name holds; a
