@@ -31,7 +31,7 @@ import {
 	parseFrontMatter,
 	patchFrontMatter,
 	stringifyValue,
-} from '@epicenter/definition/front-matter';
+} from './front-matter.ts';
 import { type TSchema, Type } from 'typebox';
 import { Value } from 'typebox/value';
 import type { Action, Input } from './app.ts';

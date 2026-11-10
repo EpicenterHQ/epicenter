@@ -15,7 +15,7 @@
 		"test": "bun test"
 	},
 	"dependencies": {
-		"@epicenter/definition": "workspace:*",
+		"nanoid": "catalog:",
 		"typebox": "catalog:"
 	},
 	"devDependencies": {
