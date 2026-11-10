@@ -204,6 +204,39 @@ describe('an app author', () => {
 		});
 	});
 
+	test('update gives the record as get does and takes what set takes, without path and with body', () => {
+		type Revise = Parameters<typeof words.update>[1];
+		type Given = Parameters<Revise>[0];
+		type Found = NonNullable<Awaited<ReturnType<typeof words.get>>>;
+		assertType<Equal<Given, Found>>();
+		assertType<
+			Equal<
+				ReturnType<Revise>,
+				{
+					meaning?: string | null;
+					createdAt?: string;
+					due?: string | null;
+					body?: string;
+				}
+			>
+		>();
+		assertType<Equal<ReturnType<typeof words.update>, Promise<Found>>>();
+		() =>
+			words.update({ path: 'words/a.md' }, (word) => ({
+				due: word.due ?? null,
+				body: `${word.body}more\n`,
+			}));
+		// @ts-expect-error createdAt is required, so it cannot be removed
+		() => words.update({ path: 'words/a.md' }, () => ({ createdAt: null }));
+		// @ts-expect-error a path is not a field
+		() => words.update({ path: 'words/a.md' }, () => ({ path: 'b' }));
+		// @ts-expect-error a collection of many files updates one path
+		() => words.update(() => ({ meaning: 'x' }));
+		() => settings.update((file) => ({ dailyGoal: (file.dailyGoal ?? 0) + 1 }));
+		// @ts-expect-error update is a method, not a verb
+		() => settings.actions('update');
+	});
+
 	test('a one-file collection has no list, add, or delete', () => {
 		// @ts-expect-error settings.md is one file
 		() => settings.actions('list');

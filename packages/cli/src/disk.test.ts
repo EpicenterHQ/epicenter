@@ -1,22 +1,32 @@
 /**
  * The folder on disk preserves relative paths and atomic writes.
  * Listing excludes dependency and Git directories and never traverses directory links.
- * `update` changes what is there when it writes, never what was there when it read.
+ * `update` changes what is there when it writes, never what was there when it read,
+ * and concurrent updates, through it or a collection's `update`, each land.
  */
 import { afterEach, expect, test } from 'bun:test';
+import { createHash } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
 import {
 	chmod,
 	mkdir,
 	mkdtemp,
 	readdir,
+	readFile,
 	rm,
 	stat,
 	symlink,
+	utimes,
 	writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import {
+	createMemoryContext,
+	defineCollection,
+	field,
+	inRun,
+} from '@epicenter/app';
 import { folderOnDisk } from './disk.ts';
 import { gitIn } from './runner.test-support.ts';
 
@@ -132,6 +142,81 @@ test('update gives up on a file that keeps changing, throwing Changed, and write
 	});
 	expect(await folder.read('busy.txt')).toBe('10');
 	expect((await readdir(root)).sort()).toEqual(['.git', 'busy.txt']);
+});
+
+test('update changes a file that starts with a byte order mark, comparing what is there as bytes', async () => {
+	const { root, folder } = await setup();
+	await writeFile(join(root, 'bom.txt'), '﻿a\n');
+	expect(await folder.update('bom.txt', (text) => `${text}b\n`)).toBe('a\nb\n');
+	expect(await folder.read('bom.txt')).toBe('a\nb\n');
+});
+
+test('concurrent updates of one file each land, and leave nothing beside it', async () => {
+	const { root, folder } = await setup();
+	await folder.write('log.txt', '');
+	await Promise.all(
+		Array.from({ length: 8 }, (_, n) =>
+			folder.update('log.txt', (text = '') => `${text}${n}\n`),
+		),
+	);
+	const lines = (await folder.read('log.txt'))?.trimEnd().split('\n');
+	expect(lines?.sort()).toEqual(['0', '1', '2', '3', '4', '5', '6', '7']);
+	expect((await readdir(root)).sort()).toEqual(['.git', 'log.txt']);
+});
+
+test('concurrent updates of one collection file each land, each computed from the record it replaces', async () => {
+	const { root, folder } = await setup();
+	const counters = defineCollection({
+		path: 'counters/{id}.md',
+		fields: { n: field.integer({ optional: true }) },
+	});
+	await folder.write('counters/a.md', '---\nn: 0\n---\n');
+	const context = { folder, secrets: createMemoryContext().secrets };
+	const at = { path: 'counters/a.md' };
+	await Promise.all(
+		Array.from({ length: 5 }, () =>
+			inRun(context, () =>
+				counters.update(at, (record) => ({ n: (record.n ?? 0) + 1 })),
+			),
+		),
+	);
+	expect(await folder.read('counters/a.md')).toBe('---\nn: 5\n---\n');
+	expect((await readdir(join(root, 'counters'))).sort()).toEqual(['a.md']);
+});
+
+/** The claim an update of `path` makes while it holds `text`. */
+function claimOf(root: string, path: string, text: string) {
+	const tag = createHash('sha256').update(text).digest('hex').slice(0, 16);
+	return join(root, `${path}.${tag}.claim.local`);
+}
+
+test('update clears a claim a crash left, and lands, even when two updates find it', async () => {
+	const { root, folder } = await setup();
+	await folder.write('list.txt', 'a\n');
+	const left = claimOf(root, 'list.txt', 'a\n');
+	await writeFile(left, 'crashed');
+	const old = new Date(Date.now() - 60_000);
+	await utimes(left, old, old);
+	await Promise.all([
+		folder.update('list.txt', (text) => `${text}b\n`),
+		folder.update('list.txt', (text) => `${text}c\n`),
+	]);
+	const lines = (await folder.read('list.txt'))?.trimEnd().split('\n');
+	expect(lines?.sort()).toEqual(['a', 'b', 'c']);
+	expect((await readdir(root)).sort()).toEqual(['.git', 'list.txt']);
+});
+
+test('update waits on a fresh claim, which another update holds, and gives up with Changed', async () => {
+	const { root, folder } = await setup();
+	await folder.write('held.txt', 'a\n');
+	const held = claimOf(root, 'held.txt', 'a\n');
+	await writeFile(held, 'another update');
+	const error = await folder
+		.update('held.txt', (text) => `${text}b\n`)
+		.catch((thrown: unknown) => thrown);
+	expect(error).toMatchObject({ name: 'Changed' });
+	expect(await folder.read('held.txt')).toBe('a\n');
+	expect(await readFile(held, 'utf8')).toBe('another update');
 });
 
 test('update whose change throws writes nothing', async () => {

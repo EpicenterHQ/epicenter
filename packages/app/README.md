@@ -113,6 +113,7 @@ gives the same operations as verbs to expose, each taking the same object:
 | `add({ ...placeholders, ...fields, body? })`: makes a file; throws when one is at its path | |
 | `set({ path, ...fields })`: changes the fields given; `null` removes an optional one | `set(fields)`: the same, making the file when there is none |
 | `edit({ path, old, new })`: replaces one passage of the body, quoted exactly as `get` returned it | `edit({ old, new })` |
+| `update({ path }, (record) => patch)`: writes what the function computes from the file; a method only | `update((record) => patch)` |
 | `delete({ path })`: deletes the file; `true` when there was one | |
 | `pathOf({ ...placeholders })`: the path `add` would write | |
 
@@ -126,8 +127,26 @@ const found = await words.get({ path: words.pathOf({ word }) });
 ```
 
 `edit`'s quote is its own check: a passage someone changed since it was read
-is never overwritten, and the refusal is `{ name: 'Changed' }`. Two callers
-setting the same field from stale screens: the last write wins.
+is never overwritten, and the refusal is `{ name: 'Changed' }`. `set` writes
+the values it is given, so two callers setting the same field from stale
+screens: the last write wins.
+
+The same goes for a value an action computes from `get` and writes with
+`set`: a change made between them is lost. Compute it inside `update`
+instead. Its function gets the record as `get` gives it, `problems`, `other`,
+and `body` included, and returns what `set` takes, without `path` and with
+`body` when the body changes. `update` writes that only over the record the
+function was given; when the file changed meanwhile, it calls the function
+again on what is there now, so keep the function pure. A function that
+throws writes nothing. Like `set`, it refuses a file that is not there, and a
+one-file collection's first `update` makes the file. It returns the record
+written. `update` is not a verb, since a caller cannot send a function.
+Vocab's `review` schedules a word this way, so two reviews at once both
+count:
+
+```ts
+await words.update({ path }, (word) => schedule(word, grade, now));
+```
 
 A field marked `readOnly` is written only by the app's own actions, through
 the collection's methods; the exposed `add` and `set` leave it out, and
@@ -271,8 +290,9 @@ the file, calls `change` with its text (`undefined` when there is none), and
 writes what `change` returns only if the file is still what `change` saw;
 otherwise it calls `change` again on what is there now, and after 10 tries it
 throws `{ name: 'Changed' }`. A `change` that throws writes nothing. It returns
-the text written. Every collection write (`add`, `set`, `edit`) goes through
-it, so two `set`s of different fields of one file both land.
+the text written. Every collection write (`add`, `set`, `edit`, `update`)
+goes through it, so two `set`s of different fields of one file both land, and
+two `update`s of one field each see the other's.
 
 ```ts
 await folder.update('2026.csv', (before = 'minutes,book\n') => `${before}${minutes},\n`);
