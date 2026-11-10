@@ -1,11 +1,11 @@
 import { describe, expect, test } from 'bun:test';
-import { createMemoryContext, inRun } from '@epicenter/app';
+import { createMemoryContext, inRun, localTime } from '@epicenter/app';
 import vocab, { type Grade, isDue, schedule } from './epicenter.ts';
 
 /** 9pm local time on 10 November 2026; a day's interval is due at 4am local time. */
 const evening = new Date(2026, 10, 10, 21, 0, 0);
 const morningAfter = (days: number) =>
-	new Date(2026, 10, 10 + days, 4).toISOString();
+	localTime(new Date(2026, 10, 10 + days, 4));
 
 function review(grades: Grade[]) {
 	let word: Parameters<typeof schedule>[0] = {};
@@ -44,7 +44,7 @@ describe('schedule', () => {
 	test('again starts the word over, due in ten minutes, and lowers its ease', () => {
 		const forgotten = schedule(review(['good', 'good']), 'again', evening);
 		expect(forgotten).toEqual({
-			due: new Date(evening.getTime() + 10 * 60_000).toISOString(),
+			due: localTime(new Date(evening.getTime() + 10 * 60_000)),
 			interval: 0,
 			ease: 2.3,
 			reps: 0,

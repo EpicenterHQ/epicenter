@@ -103,7 +103,7 @@ export function schedule(
 	const interval = word.interval ?? 0;
 	if (grade === 'again')
 		return {
-			due: new Date(now.getTime() + AGAIN_MINUTES * 60_000).toISOString(),
+			due: localTime(new Date(now.getTime() + AGAIN_MINUTES * 60_000)),
 			interval: 0,
 			ease: round2(Math.max(MIN_EASE, ease - 0.2)),
 			reps: 0,
@@ -124,7 +124,7 @@ export function schedule(
 	due.setHours(DAY_STARTS_AT, 0, 0, 0);
 	due.setDate(due.getDate() + days);
 	return {
-		due: due.toISOString(),
+		due: localTime(due),
 		interval: days,
 		ease: round2(Math.max(MIN_EASE, ease + change)),
 		reps: reps + 1,
