@@ -4,19 +4,18 @@
  * otherwise a write is a write. Writes replace a whole file at once, keeping
  * the mode of the file they replace; a new `.local` file is `0600`, readable
  * by its owner alone, and a new directory on a `.local` path is `0700`
- * (ADR-0870). `update` holds the app's lock while it reads, changes, and
- * replaces a file, so concurrent updates of one file, from any process, each
- * land. Listing avoids Git, dependencies, and directory links so those trees
- * never become app data.
+ * (ADR-0870). `update` reads, changes, and replaces a file without yielding,
+ * so updates in one process never interleave; another process's call waits
+ * for the app's lock, which a call holds from its first write (`run.ts`).
+ * Listing avoids Git, dependencies, and directory links so those trees never
+ * become app data.
  */
 
 import { randomUUID } from 'node:crypto';
 import {
 	chmodSync,
-	closeSync,
 	type Dirent,
 	mkdirSync,
-	openSync,
 	readFileSync,
 	renameSync,
 	rmSync,
@@ -31,9 +30,8 @@ import {
 	normalizePath,
 	WriteError,
 } from '@epicenter/app';
-import { lockBlocking } from './lock.ts';
 
-/** How many times `update` tries a file that a writer taking no lock keeps changing before it gives up. */
+/** How many times `update` tries a file that a writer outside epicenter (an editor) keeps changing before it gives up. */
 const UPDATE_TRIES = 10;
 
 function missing(error: unknown) {
@@ -55,22 +53,6 @@ function sameBytes(a: Uint8Array | undefined, b: Uint8Array | undefined) {
 	return a === undefined || b === undefined
 		? a === b
 		: Buffer.from(a).equals(b);
-}
-
-/**
- * Run `work` holding the kernel's lock on directory `dir` (`lock.ts`),
- * waiting while another process holds it. `work` never yields, so nothing
- * else in this process runs while it holds, and the wait blocks only this
- * process, which runs one action (`child.ts`).
- */
-function locked<T>(dir: string, work: () => T): T {
-	const fd = openSync(dir, 'r');
-	try {
-		lockBlocking(fd, dir, 'exclusive');
-		return work();
-	} finally {
-		closeSync(fd);
-	}
 }
 
 /** The app's folder at `dir`, its methods reading and writing the disk. */
@@ -145,31 +127,30 @@ export function folderOnDisk(dir: string): Folder {
 			put(path, new TextEncoder().encode(text));
 		},
 		/**
-		 * Holding the app's lock, read the file, change it, and replace it only
-		 * if it is still what was read, since a writer that takes no lock
-		 * (`folder.write`, an editor) may have changed it meanwhile; then read
-		 * and change it again. A change that changes nothing writes nothing.
+		 * Read the file, change it, and replace it only if it is still what was
+		 * read, since a writer outside epicenter (an editor) may have changed it
+		 * meanwhile; then read and change it again. Nothing here yields, so no
+		 * other update in this process runs between the read and the replace.
+		 * A change that changes nothing writes nothing.
 		 */
 		async update(path, change) {
 			const target = pathOf(path);
-			return locked(dir, () => {
-				for (let tries = 1; ; tries++) {
-					const before = readNow(target);
-					const changed = change(decode(before));
-					const bytes = new TextEncoder().encode(changed);
-					// Compared as bytes: decoding drops a byte order mark the file still has.
-					if (sameBytes(before, bytes)) return changed;
-					const { temp } = stage(path, bytes);
-					if (sameBytes(readNow(target), before)) {
-						renameSync(temp, target);
-						return changed;
-					}
-					rmSync(temp, { force: true });
-					if (tries === UPDATE_TRIES)
-						throw WriteError.Changed({ path: normalizePath(path), why: 'kept' })
-							.error;
+			for (let tries = 1; ; tries++) {
+				const before = readNow(target);
+				const changed = change(decode(before));
+				const bytes = new TextEncoder().encode(changed);
+				// Compared as bytes: decoding drops a byte order mark the file still has.
+				if (sameBytes(before, bytes)) return changed;
+				const { temp } = stage(path, bytes);
+				if (sameBytes(readNow(target), before)) {
+					renameSync(temp, target);
+					return changed;
 				}
-			});
+				rmSync(temp, { force: true });
+				if (tries === UPDATE_TRIES)
+					throw WriteError.Changed({ path: normalizePath(path), why: 'kept' })
+						.error;
+			}
 		},
 		async delete(path) {
 			try {

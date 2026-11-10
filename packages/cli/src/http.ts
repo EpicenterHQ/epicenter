@@ -11,15 +11,15 @@
  * Any later path of the server's own starts with `.`, which no app name can,
  * so no name is reserved for the server.
  *
- * A write call commits the paths it wrote before it answers (`mcp.ts`).
+ * A write call commits the paths it wrote before it answers (`run.ts`).
  * Everything else reaches history and the backup on the server's clock: when
  * it starts, every 5 minutes, and when it stops, it does for each app what
  * `epicenter sync <app>` does, snapshotting what is pending as changed
  * outside epicenter and pushing to `origin` when there is something to push.
  * The clock's interval is how old an unbacked change can get, not a guess at
  * when an edit is done. A tick never waits for a call: it skips an app whose
- * call lock a call holds (`snapshot.ts`), and the call's commit, or the next
- * tick, takes what the call wrote.
+ * lock a call holds (`lock.ts`), and the call's commit, or the next tick,
+ * takes what the call wrote.
  */
 import { realpath, stat } from 'node:fs/promises';
 import { basename, isAbsolute, join, sep } from 'node:path';
@@ -224,8 +224,10 @@ export function startHttpServer(
 					(await homeEntries()).map(async (entry) => {
 						if (!(await uiFile(entry.entry, 'index.html')).ok) return undefined;
 						// Read in a child, as tools/list is: serve never imports an app.
-						const listed = (await runChild([entry.entry, '--json'], 'ignore'))
-							.answer as { description?: unknown };
+						const listed = (await runChild(
+							[entry.entry, '--json'],
+							'ignore',
+						)) as { description?: unknown };
 						return {
 							name: entry.entry,
 							description:

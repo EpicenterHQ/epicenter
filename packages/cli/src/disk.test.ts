@@ -2,7 +2,8 @@
  * The folder on disk preserves relative paths and atomic writes.
  * Listing excludes dependency and Git directories and never traverses directory links.
  * `update` changes what is there when it writes, never what was there when it read,
- * and concurrent updates, through it or a collection's `update`, each land.
+ * and concurrent updates in one process, through it or a collection's `update`,
+ * each land. Across processes a call's lock keeps writers apart (`snapshot.test.ts`).
  */
 import { afterEach, expect, test } from 'bun:test';
 import { writeFileSync } from 'node:fs';
@@ -185,58 +186,6 @@ test('concurrent updates of one collection file each land, each computed from th
 	);
 	expect(await folder.read('counters/a.md')).toBe('---\nn: 5\n---\n');
 	expect((await readdir(join(root, 'counters'))).sort()).toEqual(['a.md']);
-});
-
-/**
- * Another process holding the app's lock on `root`, as another epicenter's
- * update would: it says when it holds the lock, then holds it for `ms`, or
- * until it is killed when `ms` is `undefined`.
- */
-async function holdLock(root: string, ms?: number) {
-	const script = join(root, '..', `${root.split('/').pop()}-hold.ts`);
-	await writeFile(
-		script,
-		`import { dlopen, FFIType } from 'bun:ffi';
-import { openSync } from 'node:fs';
-const { symbols } = dlopen(process.platform === 'darwin' ? 'libc.dylib' : 'libc.so.6', {
-	flock: { args: [FFIType.i32, FFIType.i32], returns: FFIType.i32 },
-});
-if (symbols.flock(openSync(process.argv[2], 'r'), 2) !== 0) process.exit(3);
-console.log('held');
-const ms = Number(process.argv[3]);
-await Bun.sleep(Number.isNaN(ms) ? 3_600_000 : ms);
-`,
-	);
-	const held = Bun.spawn(
-		[process.execPath, script, root, ...(ms === undefined ? [] : [String(ms)])],
-		{ stdout: 'pipe' },
-	);
-	const reader = held.stdout.getReader();
-	const { value } = await reader.read();
-	expect(new TextDecoder().decode(value)).toBe('held\n');
-	return held;
-}
-
-test('a process killed while holding the lock leaves nothing held and nothing beside the file', async () => {
-	const { root, folder } = await setup();
-	await folder.write('list.txt', 'a\n');
-	const held = await holdLock(root);
-	held.kill('SIGKILL');
-	await held.exited;
-	const started = Date.now();
-	expect(await folder.update('list.txt', (text) => `${text}b\n`)).toBe('a\nb\n');
-	expect(Date.now() - started).toBeLessThan(1_000);
-	expect((await readdir(root)).sort()).toEqual(['.git', 'list.txt']);
-});
-
-test('update waits while another process holds the lock, and lands once it lets go', async () => {
-	const { root, folder } = await setup();
-	await folder.write('held.txt', 'a\n');
-	const started = Date.now();
-	await holdLock(root, 300);
-	expect(await folder.update('held.txt', (text) => `${text}b\n`)).toBe('a\nb\n');
-	expect(Date.now() - started).toBeGreaterThanOrEqual(250);
-	expect((await readdir(root)).sort()).toEqual(['.git', 'held.txt']);
 });
 
 test('an update that changes nothing leaves the file untouched', async () => {

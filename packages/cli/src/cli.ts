@@ -2,14 +2,15 @@
  * The epicenter command runs apps from the selected Epicenter
  * (ADR-0841). It parses words, shows what can run, checks input, and prints the
  * answer. Its exit code is 0 when the action returned, 1 when it threw, and 2
- * when nothing ran (ADR-0867). After a run that is not read-only, it commits
- * the paths the run wrote, named for the call (ADR-0850); a commit that fails
- * changes neither the answer nor the exit code; the paths remain pending.
+ * when nothing ran (ADR-0867). A call that wrote commits the paths it wrote,
+ * named for the call (ADR-0850); a commit that fails changes neither the
+ * answer nor the exit code: why, and its next step, go to stderr, and the
+ * paths stay pending.
  */
 import { isName } from '@epicenter/app';
 import packageJson from '../package.json' with { type: 'json' };
 import { buildCommand } from './build.ts';
-import { REPORT_FLAG, runCall } from './child.ts';
+import { REPORT_FLAG, runChild } from './child.ts';
 import {
 	BAD_PORT,
 	COMMANDS,
@@ -37,6 +38,7 @@ import {
 	answerInto,
 	fail,
 	presentAnswer,
+	writeErr,
 	writeJson,
 	writeOut,
 } from './output.ts';
@@ -160,12 +162,9 @@ export async function runCli(argv: string[]): Promise<number> {
 			return HANDLERS[command](words, json);
 		}
 		epicenterRoot();
-		// Running an action is two processes; the child owns the whole run, and this one its commit.
+		// Running an action is two processes: the child owns the whole call, commit and all, and this one relays its answer.
 		if (!reportArg && words.length > 0 && !help)
-			return presentAnswer(
-				(await runCall(name, argv, 'inherit')) as Answer,
-				json,
-			);
+			return presentAnswer((await runChild(argv, 'inherit')) as Answer, json);
 		const { data: located, error: notFound } = await loadHomeApp(name);
 		if (notFound) return fail(notFound, json);
 		if (!located.ok)
@@ -207,19 +206,17 @@ export async function runCli(argv: string[]): Promise<number> {
 		const given = await readInput(action, matched.rest);
 		if ('error' in given)
 			return fail(CliError.Usage({ message: given.error, next }).error, json);
-		const { answer, wrote } = await runAction(
+		const { answer, committed } = await runAction(
 			located,
 			matched.key,
 			action,
 			given.input,
 		);
-		return presentAnswer(
-			answer,
-			json,
-			wrote
-				? { app: located.name, folder: located.realPath, ...wrote }
-				: undefined,
-		);
+		if (committed && 'failed' in committed)
+			writeErr(
+				`${name}: not yet in history: ${committed.failed.message}\nRun: ${committed.failed.next ?? `epicenter sync ${name}`}`,
+			);
+		return presentAnswer(answer, json);
 	} catch (error) {
 		if (error instanceof RootUsageError)
 			return fail(

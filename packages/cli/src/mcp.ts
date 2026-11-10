@@ -9,10 +9,9 @@
  * code and declaration on disk when a call arrives are what runs, an edit
  * between two calls is seen by the second, and a call's result is the same
  * object `--json` prints: `structuredContent` on success, and with
- * `isError` on failure. After a call that is not read-only, the server
- * commits the paths the call wrote, named for it, before it answers
- * (ADR-0850); the call's lock keeps every snapshot with no call, from any
- * process, out of that commit (`snapshot.ts`). Diagnostics go to stderr.
+ * `isError` on failure. The call's process commits the paths it wrote,
+ * named for it, before it answers (ADR-0850, `run.ts`). Diagnostics go to
+ * stderr.
  */
 
 import { isName } from '@epicenter/app';
@@ -24,7 +23,7 @@ import {
 	type Tool,
 } from '@modelcontextprotocol/sdk/types.js';
 import packageJson from '../package.json' with { type: 'json' };
-import { runCall, runChild } from './child.ts';
+import { runChild } from './child.ts';
 import { homeEntries } from './home.ts';
 import { type Answer, renderAnswer, writeErr } from './output.ts';
 import { rootInstructions } from './root.ts';
@@ -37,7 +36,7 @@ import { rootInstructions } from './root.ts';
 async function listTools(): Promise<Tool[]> {
 	const listed = await Promise.all(
 		(await homeEntries()).map(async ({ entry }) => {
-			const { answer } = await runChild([entry, '--json'], 'ignore');
+			const answer = await runChild([entry, '--json'], 'ignore');
 			const value = answer as { actions?: Tool[]; error?: { message: string } };
 			if (value.actions) return value.actions;
 			writeErr(`${entry}: ${value.error?.message ?? JSON.stringify(answer)}`);
@@ -69,7 +68,7 @@ function toolResult(answer: Answer) {
 
 /**
  * Run the action `<app>_<word>_<word>` names in a child, as the command line
- * does, committing what it wrote. App names and action words hold no
+ * does; the child commits what it wrote. App names and action words hold no
  * underscores.
  */
 async function callTool(name: string, args: Record<string, unknown>) {
@@ -79,8 +78,7 @@ async function callTool(name: string, args: Record<string, unknown>) {
 			error: { name: 'Usage', message: `Unknown tool ${name}` },
 		});
 	return toolResult(
-		(await runCall(
-			app,
+		(await runChild(
 			[app, ...words, '--input', JSON.stringify(args), '--json'],
 			'ignore',
 		)) as Answer,

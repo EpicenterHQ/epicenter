@@ -5,7 +5,7 @@
  * Without it, stdout renders the returned value by its structure. Stderr
  * carries what went wrong, with a `Run: <next step>` line where there is one.
  */
-import { type Report, writeReport } from './child.ts';
+import { writeReport } from './child.ts';
 import type { CliError } from './errors.ts';
 
 /**
@@ -33,13 +33,9 @@ export function answerInto(path: string) {
 	reportPath = path;
 }
 
-/**
- * Write the one JSON answer: to stdout, or to the report file in a child,
- * with the app a write run wrote, for the parent to snapshot.
- */
-export function writeJson(value: unknown, wrote?: Report['wrote']) {
-	if (reportPath)
-		writeReport(reportPath, { answer: value, ...(wrote ? { wrote } : {}) });
+/** Write the one JSON answer: to stdout, or to the report file in a child. */
+export function writeJson(value: unknown) {
+	if (reportPath) writeReport(reportPath, { answer: value });
 	else process.stdout.write(`${JSON.stringify(value)}\n`);
 }
 
@@ -173,13 +169,9 @@ function readable(value: unknown): { stdout: string; stderr: string } {
 }
 
 /** Present an answer, as one JSON value or for a person, and return its exit code. */
-export function presentAnswer(
-	answer: Answer,
-	json: boolean,
-	wrote?: Report['wrote'],
-): number {
+export function presentAnswer(answer: Answer, json: boolean): number {
 	const { stdout, stderr, code } = renderAnswer(answer);
-	if (json) writeJson(answer, wrote);
+	if (json) writeJson(answer);
 	else {
 		process.stdout.write(stdout);
 		process.stderr.write(stderr);

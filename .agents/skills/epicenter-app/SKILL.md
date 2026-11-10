@@ -162,6 +162,12 @@ through `folder` throw, so an action that writes a file is not read-only. A
 `.local` file is the exception: it is never in history, so a read-only action
 may refresh the token it keeps there.
 
+Write last. A call holds its app's lock from its first write until its
+commit, and other writes to the app wait for it, so fetch from a service or
+compute first, then write. Never run `epicenter` against the action's own app
+after writing: the inner call waits for the lock its own caller holds, and
+fails after 30 seconds.
+
 When you edit an app's files yourself rather than through its actions, commit
 your own edits when you finish, saying what you did:
 `epicenter sync <app> -m "<what you did>"` commits everything pending in the

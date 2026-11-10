@@ -1,8 +1,8 @@
 /**
  * Acceptance, stage 2: commits (ADR-0850). Black-box runs of the real
- * `epicenter` against a temporary HOME. A run never commits; after a write
- * run, the command line commits exactly the paths it wrote, named for the
- * call, and leaves everything else pending until `epicenter sync` snapshots
+ * `epicenter` against a temporary HOME. A write call commits exactly the
+ * paths it wrote, named for the call, holding the app's lock from its first
+ * write, and leaves everything else pending until `epicenter sync` snapshots
  * it as changed outside epicenter, or as the message an agent gives. A
  * read-only action cannot write through `folder`, except to a `.local` path,
  * which no commit takes. The answer is
@@ -145,7 +145,7 @@ const status = (folder: string) =>
 	gitIn(folder, 'status', '--porcelain', '--untracked-files=all');
 const subjects = (folder: string) => gitIn(folder, 'log', '--format=%s');
 
-test('C1 a write run commits nothing itself, and the command line snapshots it as one commit named for the call', async () => {
+test('C1 a write call commits what it wrote as one commit named for the call', async () => {
 	const f = await setup();
 	const ran = await f.json('notes', 'write', 'monday');
 	expect(ran.code).toBe(0);
@@ -426,7 +426,7 @@ export default defineApp({ description: 'Many fields', collections: { items }, a
 	expect(await status(join(f.home, 'many'))).toBe('');
 });
 
-test("C12 runs leave no temporary file and no lock of Git's, and hold no lock once they answer", async () => {
+test('C12 runs leave no temporary file and no lock file, and hold no lock once they answer', async () => {
 	const f = await setup();
 	const temp = join(f.root, 'tmp');
 	await mkdir(temp);
@@ -444,16 +444,15 @@ test("C12 runs leave no temporary file and no lock of Git's, and hold no lock on
 		run('notes', 'half', 'wednesday'),
 	]);
 	expect(await readdir(temp)).toEqual([]);
-	const locks = (await readdir(join(f.dir, '.git'))).filter((name) =>
-		name.endsWith('.lock'),
-	);
-	// The call lock and the commit lock stay as files; no one holds them.
-	expect(locks.sort()).toEqual(['epicenter-commit.lock', 'epicenter.lock']);
-	for (const lock of locks) {
-		const held = await hold(join(f.dir, '.git', lock), 'exclusive', 0);
-		expect(held).toBeDefined();
-		held?.release();
-	}
+	expect(
+		(await readdir(join(f.dir, '.git'))).filter((name) =>
+			name.endsWith('.lock'),
+		),
+	).toEqual([]);
+	// The app's lock is the folder's own, and no one holds it.
+	const held = await hold(f.dir, 0);
+	expect(held).toBeDefined();
+	held?.release();
 	expect(await status(f.dir)).toBe('');
 });
 

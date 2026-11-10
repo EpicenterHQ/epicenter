@@ -41,8 +41,7 @@ type Fixture = Awaited<ReturnType<typeof fixture>>;
 /**
  * Serve a new Epicenter once `prepare` has made and committed its apps. serve
  * backs up once when it starts, so a test makes its apps first, and nothing
- * is pending for that backup to take; a call waits for it, or it skips an app
- * with a call running.
+ * is pending for that backup to take whenever it runs.
  */
 async function setup<T = undefined>(
 	prepare?: (f: Fixture) => Promise<T>,
@@ -178,9 +177,8 @@ test('a read-only action makes no commit, and one that throws after writing comm
 	const f = await setup((f) => f.folder(join(f.home, 'reading'), readingApp));
 	const folder = f.made;
 	const client = connect<Reading>('reading', { url: `${f.base}/` });
-	// After a call, the backup serve started with has passed this app.
+	// Nothing is pending, so serve's startup backup commits nothing whenever it runs.
 	expect(await client.week.show()).toBe(210);
-	await writeFile(join(folder, 'notes.md'), 'by hand\n');
 	expect(await client.week.show()).toBe(210);
 	expect(await gitIn(folder, 'rev-list', '--count', 'HEAD')).toBe('1');
 	const threw = await client.explode().catch((error: unknown) => error);
@@ -192,7 +190,7 @@ test('a read-only action makes no commit, and one that throws after writing comm
 	expect(await gitIn(folder, 'log', '-1', '--format=%B')).toBe(
 		'reading: explode (threw)',
 	);
-	expect(await gitIn(folder, 'status', '--porcelain')).toBe('?? notes.md');
+	expect(await gitIn(folder, 'status', '--porcelain')).toBe('');
 });
 
 test('a call whose snapshot fails still resolves, and the app says why', async () => {

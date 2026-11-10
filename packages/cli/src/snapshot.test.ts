@@ -1,8 +1,8 @@
 /**
- * A run commits nothing; a call's commit holds exactly the paths its run
- * reported, and a snapshot with no call commits what is pending as an outside
- * change (ADR-0850). In process, against a real repository in a temporary
- * folder.
+ * A call commits exactly the paths it wrote, holding the app's lock from its
+ * first write, and a snapshot with no call commits what is pending as an
+ * outside change (ADR-0850). In process, against a real repository in a
+ * temporary folder.
  */
 import { afterEach, expect, test } from 'bun:test';
 import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
@@ -17,9 +17,10 @@ import {
 } from '@epicenter/app';
 import { folderOnDisk } from './disk.ts';
 import type { Runnable } from './home.ts';
+import { hold } from './lock.ts';
 import { runAction } from './run.ts';
 import { gitIn } from './runner.test-support.ts';
-import { holdForCall, snapshot, statusOf, type Wrote } from './snapshot.ts';
+import { snapshot, statusOf } from './snapshot.ts';
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -27,6 +28,9 @@ afterEach(async () => {
 		roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
 	);
 });
+
+/** What `pause` waits for between its writes; each test that runs it makes a new one. */
+let gate = Promise.withResolvers<void>();
 
 const actions = {
 	write: defineAction({
@@ -45,6 +49,16 @@ const actions = {
 		run: async ({ page }) => {
 			await folder.write(`${page}.md`, page);
 			throw new Error('stopped halfway');
+		},
+	}),
+	pause: defineAction({
+		description: 'Write a page, wait for the gate, then write another',
+		input: { page: field.text() },
+		positional: ['page'],
+		run: async ({ page }) => {
+			await folder.write(`${page}.md`, page);
+			await gate.promise;
+			await folder.write(`${page}-after.md`, page);
 		},
 	}),
 	scratch: defineAction({
@@ -93,30 +107,18 @@ async function setup() {
 		staged: await gitIn(dir, 'diff', '--cached', '--name-only'),
 		untracked: await gitIn(dir, 'ls-files', '--others', '--exclude-standard'),
 	});
-	/** Commit a run's writes, as the command line and `serve` do after it. */
-	const commit = ({ wrote }: { wrote?: Wrote }) => {
-		if (!wrote) throw new Error('a write run reports what it wrote');
-		return snapshot('notes', dir, { wrote });
-	};
-	return { dir, run, head, message, files, left, commit };
+	return { dir, run, head, message, files, left };
 }
 
-test('a run that returns commits nothing; the commit after it is named for the call', async () => {
+test('a call commits what it wrote, named for the call, before it answers', async () => {
 	const f = await setup();
-	const before = await f.head();
 	const run = await f.run('write', 'monday');
-	expect(run.answer).toEqual({ returned: 'monday' });
-	expect(run.wrote).toEqual({
-		call: 'notes: write monday',
-		paths: ['monday.md'],
-	});
-	expect(await f.head()).toBe(before);
-	expect(await gitIn(f.dir, 'status', '--porcelain')).toBe('?? monday.md');
-	expect(await statusOf(f.dir)).toEqual({ pending: 1 });
-	expect(await f.commit(run)).toEqual({
-		committed: { subject: 'notes: write monday', files: 1 },
+	expect(run).toEqual({
+		answer: { returned: 'monday' },
+		committed: { committed: { subject: 'notes: write monday', files: 1 } },
 	});
 	expect(await f.message()).toBe('notes: write monday');
+	expect(await f.files()).toBe('monday.md');
 	expect(await snapshot('notes', f.dir)).toEqual({ committed: null });
 	expect(await statusOf(f.dir)).toEqual({ pending: 0 });
 });
@@ -128,7 +130,7 @@ test("a call's commit holds only its paths; a hand edit and a staged file stay p
 	await gitIn(f.dir, 'add', 'staged.md');
 	// A path is a path, never a pattern: `star*.md` does not take `stars.md`.
 	await writeFile(join(f.dir, 'stars.md'), 'by hand\n');
-	expect(await f.commit(await f.run('write', 'star*'))).toEqual({
+	expect((await f.run('write', 'star*')).committed).toEqual({
 		committed: { subject: 'notes: write star*', files: 1 },
 	});
 	expect(await f.message()).toBe('notes: write star*');
@@ -146,7 +148,7 @@ test('a run that throws after writing commits its writes as the call that threw'
 	const run = await f.run('half', 'tuesday');
 	expect(run.answer).toEqual({ threw: { message: 'stopped halfway' } });
 	expect(await readFile(join(f.dir, 'tuesday.md'), 'utf8')).toBe('tuesday');
-	expect(await f.commit(run)).toEqual({
+	expect(run.committed).toEqual({
 		committed: { subject: 'notes: half tuesday (threw)', files: 1 },
 	});
 	expect(await f.message()).toBe('notes: half tuesday (threw)');
@@ -160,32 +162,21 @@ test('a run that throws after writing commits its writes as the call that threw'
 
 test('a call skips what it created and deleted and what is ignored, without an error', async () => {
 	const f = await setup();
-	const run = await f.run('scratch', 'kept');
-	expect(run.wrote?.paths).toEqual([
-		'.cache/seen.txt',
-		'gone.md',
-		'kept.md',
-		'token.local',
-	]);
-	expect(await f.commit(run)).toEqual({
+	// It wrote .cache/seen.txt, gone.md, kept.md, and token.local.
+	expect((await f.run('scratch', 'kept')).committed).toEqual({
 		committed: { subject: 'notes: scratch kept', files: 1 },
 	});
 	expect(await f.files()).toBe('kept.md');
-	await rm(join(f.dir, 'kept.md'));
-	await gitIn(f.dir, 'commit', '-qam', 'no kept');
 	const before = await f.head();
-	await rm(join(f.dir, 'token.local'));
-	const none = await f.run('scratch', 'kept');
-	await rm(join(f.dir, 'kept.md'));
-	expect(await f.commit(none)).toEqual({ committed: null });
+	// The same call again changes nothing it would take, so it commits nothing.
+	expect((await f.run('scratch', 'kept')).committed).toEqual({
+		committed: null,
+	});
 	expect(await f.head()).toBe(before);
 });
 
 test('a snapshot with no call takes everything pending, named changed outside epicenter or by its message', async () => {
 	const f = await setup();
-	await f.run('write', 'monday');
-	await gitIn(f.dir, 'add', '-A');
-	await gitIn(f.dir, 'commit', '-q', '-m', 'by hand');
 	await writeFile(join(f.dir, 'b.md'), 'b\n');
 	await snapshot('notes', f.dir);
 	expect(await f.message()).toBe('notes: changed outside epicenter');
@@ -231,7 +222,7 @@ test('a *.local file the .gitignore lets through is refused before anything is s
 				'token.local would be committed; add *.local and *.local.* to notes/.gitignore',
 		},
 	};
-	expect(await f.commit(await f.run('scratch', 'kept'))).toEqual(refused);
+	expect((await f.run('scratch', 'kept')).committed).toEqual(refused);
 	expect(await snapshot('notes', f.dir)).toEqual(refused);
 	expect(await f.head()).toBe(before);
 	expect(await f.left()).toEqual({
@@ -270,22 +261,58 @@ test('a *.local file Git already tracks is refused, naming the command that untr
 	expect(await readFile(join(f.dir, 'token.local'), 'utf8')).toBe('second\n');
 });
 
-test("a snapshot with no call waits for a running call's commit, or says it is busy when it cannot wait", async () => {
+test("a call holds the app's lock from its first write to its commit: a snapshot with no call waits, or says it is busy", async () => {
 	const f = await setup();
-	// As runCall does: the call lock from before the run until its commit.
-	const call = await holdForCall(f.dir);
-	expect(call).toBeDefined();
-	const run = await f.run('write', 'monday');
+	gate = Promise.withResolvers<void>();
+	const running = f.run('pause', 'monday');
+	while (!(await Bun.file(join(f.dir, 'monday.md')).exists()))
+		await Bun.sleep(5);
 	expect(await snapshot('notes', f.dir, { wait: 0 })).toEqual({
-		failed: { message: 'a call to notes is still running', busy: true },
+		failed: { message: 'a call is still writing notes', busy: true },
 	});
 	const waiting = snapshot('notes', f.dir);
-	expect(await f.commit(run)).toEqual({
+	gate.resolve();
+	expect((await running).committed).toEqual({
+		committed: { subject: 'notes: pause monday', files: 2 },
+	});
+	expect(await waiting).toEqual({ committed: null });
+	expect(await f.message()).toBe('notes: pause monday');
+});
+
+test("a call's first write waits while another process holds the app's lock, and one killed holding it holds nothing", async () => {
+	const f = await setup();
+	const holder = (ms: number) =>
+		Bun.spawn(
+			[
+				process.execPath,
+				'-e',
+				`const { hold } = await import(${JSON.stringify(join(import.meta.dir, 'lock.ts'))}); await hold(${JSON.stringify(f.dir)}, 0); console.log('held'); await Bun.sleep(${ms});`,
+			],
+			{ stdout: 'pipe' },
+		);
+	const held = async (child: ReturnType<typeof holder>) =>
+		expect(
+			new TextDecoder().decode((await child.stdout.getReader().read()).value),
+		).toBe('held\n');
+
+	const brief = holder(300);
+	await held(brief);
+	const started = Date.now();
+	expect((await f.run('write', 'monday')).committed).toEqual({
 		committed: { subject: 'notes: write monday', files: 1 },
 	});
-	call?.release();
-	expect(await waiting).toEqual({ committed: null });
-	expect(await f.message()).toBe('notes: write monday');
+	expect(Date.now() - started).toBeGreaterThanOrEqual(200);
+
+	const killed = holder(3_600_000);
+	await held(killed);
+	killed.kill('SIGKILL');
+	await killed.exited;
+	const again = Date.now();
+	expect((await f.run('write', 'tuesday')).committed).toEqual({
+		committed: { subject: 'notes: write tuesday', files: 1 },
+	});
+	expect(Date.now() - again).toBeLessThan(1_000);
+	expect(await hold(f.dir, 0)).toBeDefined();
 });
 
 test('snapshots from several processes at once commit what is pending once, and none fails', async () => {

@@ -5,8 +5,8 @@
 - **Supersedes:** [ADR-0848](0848-the-runner-owns-only-what-an-action-wrote.md): recorded writes and run phases.
 - **Amends:** [ADR-0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md) at "an action is a commit": a run makes no commit of its own, nothing is undone, exit codes are 0, 1, and 2, and a refusal to run is `{ error: { name, message, next? } }` without `code`. [ADR-0868](0868-an-epicenter-is-any-folder-that-says-it-is-one-and-a-computer-runs-as-many-as-it-has.md) at how a commit leaves out `*.local`: the app's `.gitignore` does, and a commit refuses one it lets through.
 - **Relates:** [ADR-0851](0851-an-app-has-one-home-and-an-optional-push-only-backup.md) (`epicenter sync`), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (programs that write a folder), [ADR-0856](0856-binary-files-go-through-git-lfs.md) (LFS), [ADR-0858](0858-where-a-file-lives-decides-whether-it-travels-survives-or-dies-with-its-program.md) (what each path becomes), [ADR-0859](0859-an-action-changes-the-folder-or-the-world-and-a-world-verb-is-safe-to-repeat.md) (the folder and the world), [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (the snapshots `serve` takes).
-- **Amended:** 2026-11-10: a write commits itself, named for the call, however it arrives, and writes to one app take turns; `folder.commit` is removed. 2026-11-11: runs never commit, history is snapshots, a change that depends on what it read says so with `folder.update`, and the write lock is deleted. The commit per call held a lock for the whole run, so a slow action blocked every other write to its app, and it still swept a hand edit pending in the folder into the call's commit under the call's name. 2026-11-11, later: each writer gets its own commit boundary. A call commits exactly the paths it wrote; an agent names its own edits with `epicenter sync <app> -m`; `serve` backs up on a 5-minute clock instead of guessing when outside edits have gone quiet, and pushes only on that clock. The app's `.gitignore` alone keeps `*.local` out of commits, and a commit refuses one it lets through. 2026-11-11, last: only `sync` and `serve`'s clock push, by one rule (ahead of the tracking ref, or none yet), so `undo` no longer pushes; a snapshot's message is its subject alone, and `history` reads each commit's paths from Git; a failed commit names its next step; `update` snapshots before it merges. 2026-11-11, after that: a kernel lock per repository, which calls share and a snapshot with no call holds alone, replaces `serve`'s count of the calls running in its own process, so a snapshot from any process waits for a running call's commit; a second lock makes commits take turns instead of retrying.
-- **Built:** `folder.update` (`packages/cli/src/disk.ts`, `packages/app/src/memory.ts`), commits and their locks (`packages/cli/src/snapshot.ts`, `packages/cli/src/lock.ts`), the runs that report their writes (`run.ts`), the call's commit from the command line and `serve`, `sync` and `sync -m`, `serve`'s backup clock (`http.ts`), the app's status, and the answer as `{ returned }`, `{ threw }`, or `{ error }` with exit codes 0, 1, and 2. The first draft is recoverable at `9943c668db`; the commit per call and its lock at `965f4873c4`; snapshots with `Also changed:` and the quiet check at `3e6f1fca38`.
+- **Amended:** 2026-11-10: a write commits itself, named for the call, however it arrives, and writes to one app take turns; `folder.commit` is removed. 2026-11-11: runs never commit, history is snapshots, a change that depends on what it read says so with `folder.update`, and the write lock is deleted. The commit per call held a lock for the whole run, so a slow action blocked every other write to its app, and it still swept a hand edit pending in the folder into the call's commit under the call's name. 2026-11-11, later: each writer gets its own commit boundary. A call commits exactly the paths it wrote; an agent names its own edits with `epicenter sync <app> -m`; `serve` backs up on a 5-minute clock instead of guessing when outside edits have gone quiet, and pushes only on that clock. The app's `.gitignore` alone keeps `*.local` out of commits, and a commit refuses one it lets through. 2026-11-11, last: only `sync` and `serve`'s clock push, by one rule (ahead of the tracking ref, or none yet), so `undo` no longer pushes; a snapshot's message is its subject alone, and `history` reads each commit's paths from Git; a failed commit names its next step; `update` snapshots before it merges. 2026-11-11, after that: a kernel lock per repository, which calls share and a snapshot with no call holds alone, replaces `serve`'s count of the calls running in its own process, so a snapshot from any process waits for a running call's commit; a second lock makes commits take turns instead of retrying. 2026-11-11, last of all: one lock per app, the kernel's lock on the app's folder itself, held by a call from its first write until its commit, which the call's own process makes; a snapshot with no call holds it while it commits. It replaces both locks in `.git` and `folder.update`'s own lock, and the parent that started a call only relays its answer.
+- **Built:** `folder.update` (`packages/cli/src/disk.ts`, `packages/app/src/memory.ts`), the app's lock (`packages/cli/src/lock.ts`), a call's run and commit (`run.ts`), snapshots (`snapshot.ts`), `sync` and `sync -m`, `serve`'s backup clock (`http.ts`), the app's status, and the answer as `{ returned }`, `{ threw }`, or `{ error }` with exit codes 0, 1, and 2. The first draft is recoverable at `9943c668db`; the commit per call and its lock at `965f4873c4`; snapshots with `Also changed:` and the quiet check at `3e6f1fca38`.
 
 ## Context
 
@@ -64,9 +64,9 @@ an editor          no boundary exists (Obsidian, a text editor): serve's clock
 
 **A call's commit holds exactly the paths it wrote.** Each run that is not
 read-only reports its call (`tasks: add Water the plants`), the paths it wrote
-through `folder`, and whether it threw. The parent that started it (the command
-line, or `serve` before it answers) runs one `git status` of those paths, which
-drops what is unchanged, ignored, or created and then deleted; then `git add -A`
+through `folder`, and whether it threw. Once the action has returned or thrown,
+the call's own process, before it answers, runs one `git status` of those
+paths, which drops what is unchanged, ignored, or created and then deleted; then `git add -A`
 and `git commit` of what is left, with each path given literally. Every other
 pending or staged change stays as it was. The subject is the call, or
 `<call> (threw)` when the run threw, and there is no body. A run whose paths
@@ -91,24 +91,25 @@ skips an app while a call to it runs (below). A failure is logged on stderr
 once until it changes. `sync` from the command line pushes at once by the
 same rule, and no other command pushes (ADR-0851).
 
-**A call's lock keeps every snapshot out of its commit.** A snapshot with no
-call takes everything pending, so one taken while a call runs would commit
-what the call had written so far as changed outside epicenter, and the call's
-commit would hold the rest. So each repository has a kernel lock (`flock`) on
-`.git/epicenter.lock`, which every process takes: the command line, `serve`,
-and `serve --stdio`. A call holds it shared from before its run starts until
-its commit has finished, so calls never wait for each other. A snapshot with
-no call holds it exclusively: `sync`, `undo`, and `update` wait up to 10
-seconds for it and then refuse, saying a call to the app is still running,
-and `serve`'s clock tries once and skips the app. A call waits while such a
-snapshot runs, which takes only as long as its commit. `serve` waits by
-trying again every 20 ms, so its event loop never blocks. Each commit holds
-`.git/epicenter-commit.lock` exclusively, so two calls' commits take turns
-instead of meeting at Git's `index.lock`. The lock is a file in `.git`, never
-the app's folder, which is `folder.update`'s lock: a call holding the folder
-would block every update inside its own run. Apps inside one larger
-repository share its locks. The kernel releases a lock when the process
-holding it ends, so a crash never leaves one held.
+**One lock per app keeps every commit whole.** A snapshot with no call takes
+everything pending, so one taken while a call runs would commit what the call
+had written so far as changed outside epicenter, and the call's commit would
+hold the rest. And two calls' commits at once meet at Git's `index.lock`. So
+each app has one lock, the kernel's `flock` on the app's folder itself, which
+every process takes: the command line, `serve`, and `serve --stdio`. A call
+takes it at its first write through `folder` and holds it until its commit has
+finished; the call's own process makes that commit, so the call finishes,
+commit and all, even if the process that started it dies. A call that writes
+nothing never takes it, so reads, and an action's work before its first
+write, never wait. A snapshot with no call holds it while it commits: `sync`,
+`undo`, and `update` wait up to 30 seconds and then refuse, saying a call is
+still writing the app, and `serve`'s clock tries once and skips the app. A
+call's first write waits up to 30 seconds too, then throws that the app is
+busy. Waits try again every 20 ms, so `serve`'s event loop never blocks. No
+lock file is made, so none is left behind, and the kernel releases the lock
+when the process holding it ends, so a crash never leaves it held. Apps
+inside one larger repository each have their own lock; their commits rarely
+meet, and Git's `index.lock` wait covers it when they do.
 
 **The app's `.gitignore` owns what never leaves this computer.** The template
 and every starter ignore `*.local` and `*.local.*` (ADR-0858). Before staging,
@@ -126,23 +127,17 @@ Status derives the pending path count from `git status` and the unpushed
 commit count from `origin/<branch>..HEAD` when that tracking ref exists.
 
 **A change that depends on what it read uses `folder.update`.**
-`folder.update(path, change)` holds the app's lock while it reads the file,
-calls `change` with its text (`undefined` when there is none), and writes what
-`change` returns, nothing when that is what is there. The lock is the kernel's
-`flock` on the app's folder, which every update of the app waits for and
-which the kernel releases when the process holding it ends, so a crash never
-leaves it held. Rereading before the rename alone lost 5 of 50 concurrent
-`set`s of one file, since another process can rename between the reread and
-the rename; under the lock no other update can. It still writes the new text
+`folder.update(path, change)` reads the file, calls `change` with its text
+(`undefined` when there is none), and writes what `change` returns, nothing
+when that is what is there. It never yields between the read and the write,
+so no other update in its process comes between them, and its call holds the
+app's lock, so no update from another process does. Rereading before the
+rename alone lost 5 of 50 concurrent `set`s of one file, since another process
+can rename between the reread and the rename. It still writes the new text
 beside the target and renames it over only if the file is still what `change`
-saw, since a writer that takes no lock (`folder.write`, an editor) may have
-changed it; then it reads and changes it again, and after 10 tries throws
-`WriteError.Changed`. A `change` that throws writes nothing. The lock replaced
-a claim file per replaced text, whose recovery after a crash took three
-timing thresholds: what the kernel releases needs no guess that a crash left
-it. Every action runs in its own process and holds the lock only for work
-that never yields, so waiting for it never blocks another action or `serve`.
-Every collection write (`add`,
+saw, since a writer outside epicenter (an editor) may have changed it; then it
+reads and changes it again, and after 10 tries throws `WriteError.Changed`. A
+`change` that throws writes nothing. Every collection write (`add`,
 `set`, `edit`, and the first write of a one-file collection) goes through it,
 so the action, by way of its collections, owns the correctness of a
 read-modify-write. `folder.write` stays a plain write, and
@@ -158,10 +153,8 @@ or the top of one; a folder in no repository is never committed. `epicenter new`
 
 **`epicenter` does nothing Git already does.** It runs Git's porcelain and
 passes on Git's messages: no Git objects of its own and no temporary index.
-Its locks only order its own processes, and none makes one call wait for
-another: the call lock keeps a snapshot out of a call's commit, the commit
-lock makes commits take turns, and `update` serializes an app's updates with
-the folder's lock, held only to read, change, and rename.
+Its one lock only orders its own processes: a call's writes and commit, and
+a snapshot's commit, take turns per app.
 
 **`folder` is a convenience, not a sandbox.** Paths stay normalized and `.git`
 stays refused (`normalizePath`). `folder.path` is the folder. An action can
@@ -182,14 +175,14 @@ answer.
 ## Why each layer is here
 
 - `folder.update` and a collection's `update`: two writers of one file at once
-  both land, without a lock. Each writes only over the text it read, and reads
-  again when another writer got there first.
+  both land, an editor among them. Each writes only over the text it read, and
+  reads again when another writer got there first.
 - A call's commit of exactly its paths: history says which call changed which
   files, and undoing one call undoes only that call. The runner can do this
   because it knows the boundary: the run reports its paths.
-- The call lock: a snapshot with no call, from any process, never takes part
-  of what a running call wrote, and no call waits for another call. The
-  commit lock: two calls' commits take turns without retrying.
+- The app's lock, from a call's first write to its commit: a snapshot with no
+  call, from any process, never takes part of what a running call wrote, two
+  calls' commits take turns without retrying, and reads never wait.
 - `sync -m` for agents: a writer that knows its intent, but that Epicenter
   cannot see, declares it, and the snapshot is backed up in the same command.
   A plain `git commit` works too.
@@ -211,11 +204,13 @@ answer.
 
 ## What is not here and why
 
-- No lock a run holds alone: a lock per app held by each run made one slow
-  action block every other write. Calls share the call lock; only a snapshot
-  with no call holds it alone, and only for its commit.
-- No queue beyond the commit lock and one backup at a time in `serve`: there
-  is nothing to replay.
+- No lock for a whole run: a lock per app held from before each run made one
+  slow action block every other write, reads included. The lock starts at a
+  call's first write.
+- No lock file, queue, or daemon: the kernel's lock on the folder needs no
+  file to clean up, a call's answer is wanted now, so there is nothing to
+  replay, and every process takes the same lock, so none has to route its
+  calls through another. `serve` runs one backup at a time.
 - No call log: the call's paths travel in the run's report and end in its
   commit.
 - No stored error: status and each failure are derived again from Git.
@@ -225,11 +220,15 @@ answer.
 
 ## Consequences
 
-- Two calls to one app run at once, and a slow action blocks no other call.
-  It does hold off a snapshot with no call: `sync`, `undo`, and `update`
-  refuse after 10 seconds, and `serve`'s clock takes the app on a later tick.
-  An action that runs `epicenter sync` on its own app waits for its own call,
-  so it is refused.
+- Reads, and an action's work before its first write, never wait. Two calls
+  that write one app take turns from each one's first write to its commit, so
+  an action that writes and then waits on a slow service holds off the app's
+  other writes meanwhile; one that fetches first and writes last holds the
+  lock only to write and commit. A call's first write gives up after 30
+  seconds, as do `sync`, `undo`, and `update`, and `serve`'s clock takes the
+  app on a later tick.
+- An action that, after writing, runs `epicenter` against its own app waits
+  for its own lock and fails after 30 seconds.
 - Two calls at once on different files make two commits, each with its own
   file.
 - A throw's writes are committed under the call, marked `(threw)`, so
@@ -248,8 +247,9 @@ answer.
   would take one, and says why, until the line is added.
 - A test run of a write in an agent's worktree commits there; run tests in a
   temporary `HOME`.
-- A run killed before it answers leaves its writes pending, and its call
-  unreported, so the next snapshot lists them as changed outside epicenter.
+- A run killed before it commits leaves its writes pending, so the next
+  snapshot names them changed outside epicenter. The process that started it
+  dying does not: the call commits anyway.
 
 ## Considered alternatives
 
@@ -276,6 +276,16 @@ answer.
 - **Holding a lock for the run (this record from 2026-11-10 to 2026-11-11).**
   A slow action blocks every other write to its app, and the commit after it
   still takes what others left in the folder.
+- **A call lock in `.git` that calls share, held from before each run, and a
+  commit lock beside it (built 2026-11-11).** Kept every snapshot out of a
+  call's commit from any process, at the cost of three locks (with
+  `folder.update`'s), two lock files left in `.git`, a parent that committed
+  for its child, and snapshots that starved behind a steady stream of
+  overlapping calls.
+- **Every call through one long-running process, such as a daemon the CLI
+  starts.** One process could order calls in memory, but editors still write
+  the folder, the command line must work without it, and it brings discovery,
+  version skew between the CLI and the daemon, and a lifetime to manage.
 - **Counting the calls running in `serve`'s process (built 2026-11-11).** The
   clock skipped an app with a call running, a call waited for a snapshot
   already running, and commits retried up to five times to outlast each

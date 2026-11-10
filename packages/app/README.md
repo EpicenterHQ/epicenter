@@ -291,9 +291,8 @@ same run
 `folder` has `read`, `readBytes`, `write`, `writeBytes`, `update`, `list`, and
 `delete`, and `path` on a computer.
 
-A run changes files and never commits. Whatever ran the action commits
-after it: the `epicenter` command after a write it ran, and `epicenter serve`
-after each write call
+An action changes files and never commits; on a computer, the call that ran
+it commits before it answers, however it arrived
 ([ADR-0850](../../docs/adr/0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md)).
 The commit holds exactly the files the run wrote through `folder` that
 changed, named for the call; other pending files stay pending until
@@ -304,15 +303,17 @@ action wrote before it throws is committed as `<call> (threw)`; whether a
 failed action should be rolled back instead is undecided
 ([ADR-0857](../../docs/adr/0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md)).
 
-Writes to one app run at once, from the command line, an agent, and a UI.
+Calls that write one app take turns, from the command line, an agent, and a
+UI alike: a call holds the app's lock from its first write until its commit,
+and a call that only reads never takes it. So an action that fetches or
+computes first and writes last holds the app for the least time.
 `folder.write` replaces the file, and the last write wins. A change that
-depends on what it read goes through `folder.update(path, change)`: holding
-the app's lock, which every update of the app waits for, it reads the file,
-calls `change` with its text (`undefined` when there is none), and writes
-what `change` returns, nothing when that is what is there. A writer that
-takes no lock, such as `folder.write` or an editor, may change the file
-between the read and the write; then `update` calls `change` again on what is
-there now, and after 10 tries it throws `WriteError.Changed`. A `change` that
+depends on what it read goes through `folder.update(path, change)`: it reads
+the file, calls `change` with its text (`undefined` when there is none), and
+writes what `change` returns, nothing when that is what is there. A writer
+outside epicenter, such as an editor, may change the file between the read
+and the write; then `update` calls `change` again on what is there now, and
+after 10 tries it throws `WriteError.Changed`. A `change` that
 throws writes nothing. It returns the text written. Every collection write (`add`, `set`, `edit`, `update`)
 goes through it, so two `set`s of different fields of one file both land, and
 two `update`s of one field each see the other's.

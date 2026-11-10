@@ -11,22 +11,19 @@
  * starts (Git, its hooks, anything an action leaves running) inherits an open
  * descriptor, and a pipe's reader waits for all of them. The child writes
  * `{ answer }` when it ends, by renaming over the file, so the parent reads a
- * whole answer or none; after a run that is not read-only it adds `wrote`,
- * the app, call, and paths the parent then commits. A child that ends without
- * a report answers that it threw (exit 1), naming its exit code or signal;
- * whatever it wrote stays on disk, pending until a snapshot with no call.
+ * whole answer or none. A child that ends without a report answers that it
+ * threw (exit 1), naming its exit code or signal; whatever it wrote stays on
+ * disk, pending until a snapshot with no call.
  *
- * The child finishes the run even when its parent dies: nothing it does
- * depends on the parent being there.
+ * The child owns the whole call: it takes the app's lock, runs the action,
+ * and commits what it wrote (`run.ts`), so it finishes the call, commit and
+ * all, even when its parent dies.
  */
 import { randomUUID } from 'node:crypto';
 import { readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { isName } from '@epicenter/app';
-import { writeErr } from './output.ts';
 import { epicenterDir } from './root.ts';
-import { holdForCall, snapshot, type Wrote } from './snapshot.ts';
 
 /** The internal flag that makes `epicenter` a child writing its answer to a file; undocumented, and read only as the first argument, so an action's own input can never be taken for it. */
 export const REPORT_FLAG = '--report=';
@@ -41,11 +38,8 @@ function self(): string[] {
 		: [process.execPath, ...process.execArgv, Bun.main];
 }
 
-/** What a child reports: its answer, and after a run that is not read-only, the app it ran. */
-export type Report = {
-	answer: unknown;
-	wrote?: Wrote & { app: string; folder: string };
-};
+/** What a child reports: its one JSON answer. */
+export type Report = { answer: unknown };
 
 /** Write `record` to the report file in one rename, so a reader never sees half of it. */
 export function writeReport(path: string, record: Report) {
@@ -55,14 +49,15 @@ export function writeReport(path: string, record: Report) {
 }
 
 /**
- * Run `epicenter <args>` as a child and return its report: the one JSON value
- * it answered (for an action, an `Answer`; for a listing, the listing), and
- * for a write run, the app it wrote.
+ * Run `epicenter <args>` as a child and return the one JSON value it
+ * answered: for a call, an `Answer`, after the child has committed what it
+ * wrote; for a listing, the listing. The command line and both MCP
+ * transports run every call this way.
  */
 export async function runChild(
 	args: string[],
 	stdin: 'inherit' | 'ignore',
-): Promise<Report> {
+): Promise<unknown> {
 	const path = join(tmpdir(), `epicenter-report-${randomUUID()}.json`);
 	const child = Bun.spawn([...self(), `${REPORT_FLAG}${path}`, ...args], {
 		cwd: epicenterDir(),
@@ -82,47 +77,10 @@ export async function runChild(
 		process.off('SIGTERM', forward);
 		rmSync(path, { force: true });
 	}
-	if ('answer' in record) return record as Report;
+	if ('answer' in record) return record.answer;
 	const ended =
 		child.signalCode === null
 			? `exit code ${child.exitCode}`
 			: `signal ${child.signalCode}`;
-	return {
-		answer: {
-			threw: { message: `The run ended without an answer (${ended})` },
-		},
-	};
-}
-
-/**
- * Run a call to `app`, `epicenter <app> <words> ...`, as a child, then commit
- * the paths it wrote, named for the call (ADR-0850), and return its answer.
- * The command line and both MCP transports run every call this way. The call
- * holds its repository's call lock shared from before the child starts until
- * the commit has finished, so a snapshot with no call, from any process,
- * waits for it rather than take part of what it wrote. A commit that fails
- * changes neither the answer nor the exit code: why, and its next step, go
- * to stderr, and the paths stay pending.
- */
-export async function runCall(
-	app: string,
-	args: string[],
-	stdin: 'inherit' | 'ignore',
-): Promise<unknown> {
-	const held = isName(app)
-		? await holdForCall(join(epicenterDir(), app))
-		: undefined;
-	try {
-		const { answer, wrote } = await runChild(args, stdin);
-		if (wrote) {
-			const taken = await snapshot(wrote.app, wrote.folder, { wrote });
-			if ('failed' in taken)
-				writeErr(
-					`${wrote.app}: not yet in history: ${taken.failed.message}\nRun: ${taken.failed.next ?? `epicenter sync ${wrote.app}`}`,
-				);
-		}
-		return answer;
-	} finally {
-		held?.release();
-	}
+	return { threw: { message: `The run ended without an answer (${ended})` } };
 }
