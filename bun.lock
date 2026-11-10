@@ -435,8 +435,13 @@
         "epicenter": "./src/bin.ts",
       },
       "dependencies": {
+        "@better-auth/cimd": "catalog:",
+        "@better-auth/core": "catalog:",
+        "@better-auth/mcp": "catalog:",
+        "@better-auth/passkey": "catalog:",
         "@epicenter/app": "workspace:*",
         "@modelcontextprotocol/sdk": "catalog:",
+        "better-auth": "catalog:",
         "typebox": "catalog:",
         "wellcrafted": "catalog:",
       },
@@ -758,11 +763,15 @@
 
     "@beeper/desktop-api": ["@beeper/desktop-api@6.0.0", "", {}, "sha512-dpFltNVoUg4gKwFp/czJwA1PAxiBOOmcwJTlTyXOaBgGE0dMbneoHaKcFU3dfSQ48qwHZpM0lT5uetW+Qyx/uA=="],
 
+    "@better-auth/cimd": ["@better-auth/cimd@1.8.0-beta.7", "", { "peerDependencies": { "@better-auth/core": "^1.8.0-beta.7", "@better-auth/oauth-provider": "^1.8.0-beta.7", "better-auth": "^1.8.0-beta.7", "better-call": "1.4.5" } }, "sha512-THaDBMMEElTJwURcKy90FTtBERoCKbfVQRFEIMq6iSmovQbMT0FdzIF6y6mn/wsb1UIA/TAf+09sIuFDVtqsrQ=="],
+
     "@better-auth/core": ["@better-auth/core@1.8.0-beta.7", "", { "dependencies": { "@standard-schema/spec": "^1.1.0", "zod": "^4.5.4" }, "peerDependencies": { "@better-auth/utils": "^0.4.2 || ^0.5.0", "@better-fetch/fetch": "1.3.3", "@opentelemetry/api": "^1.9.0", "better-call": "1.4.5", "jose": "^6.1.0", "kysely": "^0.28.5 || ^0.29.0", "nanostores": "^1.0.1" }, "optionalPeers": ["@opentelemetry/api"] }, "sha512-/+eaVuNiaRVUCgqb0gw3L6/HZiVpb67AI1XBcsvkHaq+pqztPSE5Yoe+EH1cOYe3PUdt6G8n23QpAUAE+su5dg=="],
 
     "@better-auth/drizzle-adapter": ["@better-auth/drizzle-adapter@1.8.0-beta.7", "", { "peerDependencies": { "@better-auth/core": "^1.8.0-beta.7", "@better-auth/utils": "^0.4.2 || ^0.5.0", "drizzle-orm": "^0.45.2 || >=1.0.0-rc.1 <2.0.0" }, "optionalPeers": ["drizzle-orm"] }, "sha512-ZE+AoynBj1k0usaGVpgiV7MdMH4YKsz6/A8PMDSCA4QsVqhDX7xYAUZ78NYRYeEyiX6RADaV8A3aGUpgNmLstw=="],
 
     "@better-auth/kysely-adapter": ["@better-auth/kysely-adapter@1.8.0-beta.7", "", { "peerDependencies": { "@better-auth/core": "^1.8.0-beta.7", "@better-auth/utils": "^0.4.2 || ^0.5.0", "kysely": "^0.28.17 || ^0.29.0" }, "optionalPeers": ["kysely"] }, "sha512-qcuP2++GiK5oBmnUaFCl9PRhjRL7t7B9yZn2JQ9dSqufv5NIjRCOG4zURyx0q0hqrYEt1jzxI8gXQ2X7ofoDQg=="],
+
+    "@better-auth/mcp": ["@better-auth/mcp@1.8.0-beta.7", "", { "dependencies": { "@better-auth/oauth-provider": "^1.8.0-beta.7", "jose": "^6.1.3" }, "peerDependencies": { "@better-auth/core": "^1.8.0-beta.7", "better-auth": "^1.8.0-beta.7", "better-call": "1.4.5" } }, "sha512-M8LDaQqDnCARHN7+sjiE/jX1vpzGXlQDdP0JY16xjKvii3LgR54Z3E5VbR1zPmQ7Lesy+XwDEOLj1KIVOFzf6A=="],
 
     "@better-auth/memory-adapter": ["@better-auth/memory-adapter@1.8.0-beta.7", "", { "peerDependencies": { "@better-auth/core": "^1.8.0-beta.7", "@better-auth/utils": "^0.4.2 || ^0.5.0" } }, "sha512-kW2dq7rh98sIZHv6U1LvhtlbrujCESxg00AJERuIQmJNzTDc3hBgdPSP8xC5q8suwFBAe1EkBllpI1uILsn3zw=="],
 

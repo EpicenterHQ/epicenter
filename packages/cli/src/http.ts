@@ -11,6 +11,12 @@
  * Any later path of the server's own starts with `.`, which no app name can,
  * so no name is reserved for the server.
  *
+ * This listener is on 127.0.0.1 (or `--host`) and trusts every request: only
+ * this computer and the tailnet reach it. When `EPICENTER.md` has a `public`
+ * address, a second listener on 127.0.0.1 and `publicPort` offers the same
+ * site to the internet through a tunnel, behind a sign-in (`public.ts`,
+ * ADR-0871).
+ *
  * A write call is snapshotted before it answers (`mcp.ts`). Every minute the
  * server checks each app's pending paths, sizes, and modification times. It
  * snapshots outside edits when those values have stayed the same since the
@@ -20,13 +26,20 @@ import { lstat, realpath, stat } from 'node:fs/promises';
 import { basename, isAbsolute, join, sep } from 'node:path';
 import { isName } from '@epicenter/app';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
+import { openAuthorizationServer } from './authorization-server.ts';
 import { runChild } from './child.ts';
 import { git, gitMessage } from './git.ts';
 import { homeEntries } from './home.ts';
-import { callTool, createMcpServer, listTools } from './mcp.ts';
+import {
+	callTool,
+	createMcpServer,
+	listReadOnlyTools,
+	listTools,
+} from './mcp.ts';
 import { writeErr } from './output.ts';
+import { startPublicServer } from './public.ts';
 import { pushOrigin } from './push.ts';
-import { epicenterDir, rootInstructions } from './root.ts';
+import { epicenterDir, epicenterRoot, rootInstructions } from './root.ts';
 import { pendingStatus, snapshot } from './snapshot.ts';
 import { VIEW } from './ui.ts';
 
@@ -67,7 +80,7 @@ async function pendingSignature(folder: string) {
 	return JSON.stringify([status, details]);
 }
 
-const escapeHtml = (text: string) =>
+export const escapeHtml = (text: string) =>
 	text.replace(
 		/[&<>"']/g,
 		(char) =>
@@ -104,16 +117,23 @@ p{color:var(--muted)}
 </style></head><body><main><h1>${escapeHtml(name)}</h1>${items ? `<ul>${items}</ul>` : '<p>No app here has a UI yet.</p>'}</main></body></html>`;
 }
 
+/** What both listeners offer; each decides who may reach it. */
+export type Site = {
+	/** Answer an MCP request. With `readOnly`, list and run only read-only actions. */
+	mcp(request: Request, readOnly?: boolean): Promise<Response>;
+	/** The launcher at `GET /`, or 405 when MCP asks for an event stream. */
+	launcher(request: Request): Promise<Response>;
+	/** `GET /<app>` and `/<app>/<path>`: the app's view, or 404. */
+	view(request: Request): Promise<Response>;
+};
+
+const notFound = () => new Response('Not found', { status: 404 });
+
 /**
- * Start the server. The caller owns its lifetime. Port 0 asks Bun for a free
- * port. `quietCheckMs` is how often it looks for quiet outside edits.
+ * The site both listeners serve, and the background work behind it: pushing
+ * each commit, and every `quietCheckMs`, snapshotting quiet outside edits.
  */
-export function startHttpServer(
-	host: string,
-	port: number,
-	instructions?: string,
-	quietCheckMs = QUIET_CHECK_MS,
-) {
+function createSite(instructions: string | undefined, quietCheckMs: number) {
 	const pushes = new Map<string, Push>();
 	/**
 	 * Push the app's branch to `origin` by name in the background, if it has
@@ -151,8 +171,6 @@ export function startHttpServer(
 				state.running = undefined;
 			});
 	};
-	/** Run the tool; when its snapshot commits, push that app. */
-	const call: typeof callTool = (name, args) => callTool(name, args, push);
 	/** Each app's pending signature at the last check, by folder. */
 	const lastSignature = new Map<string, string>();
 	const lastFailure = new Map<string, string>();
@@ -190,7 +208,6 @@ export function startHttpServer(
 		}, quietCheckMs).unref();
 	};
 	scheduleCheck();
-	const notFound = () => new Response('Not found', { status: 404 });
 	const uiFile = async (app: string, path: string) => {
 		if (!isName(app)) return notFound();
 		const entry = (await homeEntries()).find((item) => item.entry === app);
@@ -230,6 +247,92 @@ export function startHttpServer(
 			return notFound();
 		}
 	};
+	const site: Site = {
+		async mcp(request, readOnly = false) {
+			const server = readOnly
+				? createMcpServer(instructions, listReadOnlyTools, (name, args) =>
+						callTool(name, args, push, { readOnly: true }),
+					)
+				: createMcpServer(instructions, listTools, (name, args) =>
+						callTool(name, args, push),
+					);
+			const transport = new WebStandardStreamableHTTPServerTransport({
+				enableJsonResponse: true,
+			});
+			try {
+				await server.connect(transport);
+				return await transport.handleRequest(request);
+			} finally {
+				await server.close();
+			}
+		},
+		async launcher(request) {
+			// MCP's GET for a server-sent stream: stateless, so there is none.
+			const wantsStream = request.headers
+				.get('accept')
+				?.includes('text/event-stream');
+			if (
+				(request.method !== 'GET' && request.method !== 'HEAD') ||
+				wantsStream
+			)
+				return new Response('Method not allowed', {
+					status: 405,
+					headers: { allow: 'GET, HEAD, POST' },
+				});
+			const apps = await Promise.all(
+				(await homeEntries()).map(async (entry) => {
+					if (!(await uiFile(entry.entry, 'index.html')).ok) return undefined;
+					// Read in a child, as tools/list is: serve never imports an app.
+					const listed = (
+						await runChild([entry.entry, '--json'], { stdin: 'ignore' })
+					).answer as { description?: unknown };
+					return {
+						name: entry.entry,
+						description:
+							typeof listed.description === 'string'
+								? listed.description
+								: '',
+						icon: (await uiFile(entry.entry, 'icon.png')).ok,
+					};
+				}),
+			);
+			return new Response(
+				launcherPage(
+					basename(epicenterDir()),
+					apps.filter((app) => app !== undefined),
+				),
+				{
+					headers: {
+						'content-type': 'text/html; charset=utf-8',
+						'cache-control': 'no-cache',
+					},
+				},
+			);
+		},
+		async view(request) {
+			if (request.method !== 'GET' && request.method !== 'HEAD')
+				return notFound();
+			const match = /^\/([^/]+)(?:\/(.*))?$/.exec(new URL(request.url).pathname);
+			if (!match) return notFound();
+			const app = match[1];
+			if (!isName(app)) return notFound();
+			if (match[2] === undefined) {
+				if (!(await homeEntries()).some((entry) => entry.entry === app))
+					return notFound();
+				// Relative, so a proxy in front (tailscale serve) keeps its own host and scheme.
+				return new Response(null, {
+					status: 308,
+					headers: { location: `/${encodeURIComponent(app)}/` },
+				});
+			}
+			return uiFile(app, match[2]);
+		},
+	};
+	return site;
+}
+
+/** The private listener: everything, for any request whose `Origin`, if any, is its own host. */
+function startPrivateServer(host: string, port: number, site: Site) {
 	return Bun.serve({
 		hostname: host,
 		port,
@@ -250,77 +353,11 @@ export function startHttpServer(
 					return new Response('Forbidden', { status: 403 });
 			}
 			const { pathname } = new URL(request.url);
-			if (pathname === '/') {
-				if (request.method === 'POST') {
-					const server = createMcpServer(instructions, listTools, call);
-					const transport = new WebStandardStreamableHTTPServerTransport({
-						enableJsonResponse: true,
-					});
-					try {
-						await server.connect(transport);
-						return await transport.handleRequest(request);
-					} finally {
-						await server.close();
-					}
-				}
-				// MCP's GET for a server-sent stream: stateless, so there is none.
-				const wantsStream = request.headers
-					.get('accept')
-					?.includes('text/event-stream');
-				if (
-					(request.method !== 'GET' && request.method !== 'HEAD') ||
-					wantsStream
-				)
-					return new Response('Method not allowed', {
-						status: 405,
-						headers: { allow: 'GET, HEAD, POST' },
-					});
-				const apps = await Promise.all(
-					(await homeEntries()).map(async (entry) => {
-						if (!(await uiFile(entry.entry, 'index.html')).ok) return undefined;
-						// Read in a child, as tools/list is: serve never imports an app.
-						const listed = (
-							await runChild([entry.entry, '--json'], { stdin: 'ignore' })
-						).answer as { description?: unknown };
-						return {
-							name: entry.entry,
-							description:
-								typeof listed.description === 'string'
-									? listed.description
-									: '',
-							icon: (await uiFile(entry.entry, 'icon.png')).ok,
-						};
-					}),
-				);
-				return new Response(
-					launcherPage(
-						basename(epicenterDir()),
-						apps.filter((app) => app !== undefined),
-					),
-					{
-						headers: {
-							'content-type': 'text/html; charset=utf-8',
-							'cache-control': 'no-cache',
-						},
-					},
-				);
-			}
-			if (request.method !== 'GET' && request.method !== 'HEAD')
-				return notFound();
-			const match = /^\/([^/]+)(?:\/(.*))?$/.exec(pathname);
-			if (!match) return notFound();
-			const app = match[1];
-			if (!isName(app)) return notFound();
-			if (match[2] === undefined) {
-				if (!(await homeEntries()).some((entry) => entry.entry === app))
-					return notFound();
-				// Relative, so a proxy in front (tailscale serve) keeps its own host and scheme.
-				return new Response(null, {
-					status: 308,
-					headers: { location: `/${encodeURIComponent(app)}/` },
-				});
-			}
-			return uiFile(app, match[2]);
+			if (pathname === '/')
+				return request.method === 'POST'
+					? site.mcp(request)
+					: site.launcher(request);
+			return site.view(request);
 		},
 	});
 }
@@ -331,13 +368,29 @@ export async function serveHttp(host: string, port: number): Promise<number> {
 	const setting = process.env.EPICENTER_QUIET_CHECK_MS;
 	const parsed = setting === undefined ? NaN : Number(setting);
 	const every =
-		Number.isSafeInteger(parsed) && parsed >= 100 ? parsed : undefined;
-	const server = startHttpServer(host, port, await rootInstructions(), every);
+		Number.isSafeInteger(parsed) && parsed >= 100 ? parsed : QUIET_CHECK_MS;
+	const root = epicenterRoot();
+	// Opened before either listener, so a sign-in that cannot start stops serve.
+	const authorization = root.public
+		? await openAuthorizationServer(root.folder, root.public.url)
+		: undefined;
+	const site = createSite(await rootInstructions(), every);
+	const server = startPrivateServer(host, port, site);
 	writeErr(`Serving your apps at http://${host}:${server.port}.`);
+	const publicServer =
+		authorization && root.public
+			? startPublicServer(authorization, root.public.port, site)
+			: undefined;
+	if (authorization && publicServer)
+		writeErr(
+			`Serving ${authorization.resource} at http://127.0.0.1:${publicServer.port}: an HTTPS tunnel from that address must forward to this port.`,
+		);
 	await new Promise<void>((resolve) => {
 		process.once('SIGINT', resolve);
 		process.once('SIGTERM', resolve);
 	});
 	server.stop();
+	publicServer?.stop();
+	authorization?.close();
 	return 0;
 }
