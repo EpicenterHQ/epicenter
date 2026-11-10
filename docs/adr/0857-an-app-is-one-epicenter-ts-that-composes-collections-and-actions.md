@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-11-08; rewritten 2026-11-10
-- **Amended:** 2026-11-10, after an adversarial review: a read is checked by projection and says what does not fit in `problems`; collection methods take their verbs' object shapes, and many-file collections have `pathOf`; definitions check more; `defineApp` needs `collections` and `actions`; a read-only run refuses writes through `folder` and `secrets`; a thrown action's writes are committed; a UI's client must handle an uncommitted change. 2026-11-11, with ADR-0850: runs never commit, so a thrown action's writes are pending like any, collection writes go through `folder.update`, and the client has no uncommitted change to handle. 2026-11-11, with [ADR-0870](0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md): a run reaches `folder` only, since an app's secrets are `.local` files; a read-only run may write a `.local` path, and a `.local` collection's `actions()` throws.
+- **Amended:** 2026-11-10, after an adversarial review: a read is checked by projection and says what does not fit in `problems`; collection methods take their verbs' object shapes, and many-file collections have `pathOf`; definitions check more; `defineApp` needs `collections` and `actions`; a read-only run refuses writes through `folder` and `secrets`; a thrown action's writes are committed; a UI's client must handle an uncommitted change. 2026-11-11, with ADR-0850: runs never commit, so a thrown action's writes are pending like any, collection writes go through `folder.update`, and the client has no uncommitted change to handle. 2026-11-11, with [ADR-0870](0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md): a run reaches `folder` only, since an app's secrets are `.local` files; a read-only run may write a `.local` path, and a `.local` collection's `actions()` throws. 2026-11-11, later: a collection's `path` is one template, and a list is refused; a second layout is a second collection.
 - **Amends:** [ADR-0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md) at `defineApp`'s shape: an app composes collections and actions defined on their own, its actions nest under their words, and a run's folder reaches them without a context argument. [ADR-0845](0845-an-app-declares-collections-each-a-path-and-fields-which-the-hub-views.md) at a collection's path, which is a template with any number of placeholders, and its fields, which are the `field` helpers' JSON Schema.
 - **Relates:** [ADR-0853](0853-collections-give-five-actions-and-programs-without-the-folder-ask-over-mcp.md) (collection verbs and the client), [ADR-0854](0854-an-apps-cache-is-the-files-it-gitignores.md) (`.cache/`), [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (views), [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (where `epicenter.ts` runs), [ADR-0869](0869-a-body-is-changed-by-quoting-the-passage-it-replaces.md) (`edit`).
 - **Unbuilt:** `sync` naming a file that two collections hold.
@@ -55,7 +55,7 @@ export default defineApp({
   `words.set({ path, meaning })`, `words.edit({ path, old, new })`,
   `words.delete({ path })`, `words.list()`; a one-file collection has
   `get()`, `set(fields)`, and `edit({ old, new })`. A many-file collection
-  also has `pathOf({ word })`, which fills its first template with the checks
+  also has `pathOf({ word })`, which fills its template with the checks
   `add` applies, so action code never builds a path by hand.
 - `defineAction` returns the action as a function of its input, carrying its
   description, input, `positional`, and `annotations`. It exists to type
@@ -72,11 +72,12 @@ export default defineApp({
 - An app with one collection spreads its verbs at the top, so they are its own
   (`epicenter tasks add`); an app with several nests each under its name.
 
-**A collection's `path` is a template.** A placeholder matches one path
+**A collection's `path` is one template.** A placeholder matches one path
 segment; `{time}` is made by `add`, and every other placeholder is an input
 `add` takes. A path with no placeholder is one file, with only `get`, `set`,
-and `edit`. A list of templates holds files in several places, and `add` writes
-to the first. A record's address is its path inside the app. A field marked
+and `edit`. Files in a second layout are a second collection, so which files
+belong, what a read gives, where `add` writes, and how a record is addressed
+each have one answer. A record's address is its path inside the app. A field marked
 `readOnly` is written only by the app's own actions, through the collection's
 methods; the exposed `add` and `set` leave it out, and when such a field is
 required and has no default, `actions()` leaves out `add`.
@@ -84,16 +85,15 @@ required and has no default, `actions()` leaves out `add`.
 **A read never trusts the file.** One check feeds `list`, `get`, the files
 `add`, `set`, and `edit` return. Each declared field is its
 value when it fits, else its default, else absent. `path`, the placeholders
-of the template that matched (`word: '你好'`), and `body` come from the file
-after the fields, so front matter never replaces them. A file that does not
+its path holds (`word: '你好'`), and `body` come from the file after the
+fields, so front matter never replaces them. A file that does not
 fit carries `problems`, one line each, quoting the dropped value as JSON
 (`due: "next week" is not a day`, `title is missing`); a file that fits has
 no `problems` key. `get`, and the file each write returns, also carry `other`, the
 front matter that is not a field's fitting value, when there is any. In the
-types, a field with a default is required and every other field optional; a
-placeholder is required only when every template has it. `path`, `body`,
-`problems`, `other`, `json`, `help`, and `input` cannot name a field or a
-placeholder.
+types, a field with a default is required and every other field optional;
+every placeholder is required. `path`, `body`, `problems`, `other`, `json`,
+`help`, and `input` cannot name a field or a placeholder.
 
 **The generated verbs address a record by its path.** A path is the one
 address every collection has, so the verbs, written for the generic case, take
@@ -113,9 +113,10 @@ so loading an app never touches its files. `epicenter` supplies one copy of
 run.
 
 **A definition is checked when it is made.** Each `define*` throws, one problem
-a line, for what its types cannot say: a path that is not a relative `.md`
-template, or whose first part is a placeholder, `ui`, `node_modules`, or
-starts with `epicenter.`; a field its path already names; a reserved name; a
+a line, for what its types cannot say, and for a list of paths, which Bun
+runs without checking types: a path that is not a relative `.md` template, or
+whose first part is a placeholder, `ui`, `node_modules`, or starts with
+`epicenter.`; a field its path already names; a reserved name; a
 required field without a default in a one-file collection; two collections
 that would hold one file; a positional that is not a field; a key that is not
 a word, or is `then` at any depth. `epicenter` loads an app by calling
@@ -212,6 +213,9 @@ output for a UI.
   and the app's status says when one failed.
 - **Dropping undeclared front matter keys, with no `other`.** Hides what a
   person or another program wrote, which every write keeps.
+- **Several templates per collection (this record until 2026-11-11).** Dropped
+  again, as ADR-0845 first did, so membership, reading, creation, and
+  addressing each get one answer, and no app needed two layouts.
 - **Addressing by placeholder in the generated verbs (`get({ word })`).** A
   framework feature for one kind of template; a path addresses every
   collection, and an author's own action can take a placeholder and call

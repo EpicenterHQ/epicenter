@@ -45,9 +45,10 @@ in `epicenter.ts`: a path template and the fields of each file's front matter
 its own (`epicenter tasks set`, MCP `tasks_set`); an app with several nests
 each under its name (`epicenter mail messages list`). A record's address is
 its path: `tasks/2026-11-10T09-30-00-000Z-k3x9a2f8.md`.
-A path is a relative `.md` template that starts with a folder of its own
-(`days/{day}.md`, not `{day}.md`); `defineCollection` refuses a part starting
-with `.` (such as `.cache/`), a first part of `ui` or `node_modules`, and one
+A path is one relative `.md` template that starts with a folder of its own
+(`days/{day}.md`, not `{day}.md`); files in a second layout are a second
+collection. `defineCollection` refuses a list of paths, a part starting with
+`.` (such as `.cache/`), a first part of `ui` or `node_modules`, and one
 starting with `epicenter.`. A field or placeholder may not be named `path`,
 `body`, `problems`, `other`, `json`, `help`, or `input`.
 
