@@ -547,7 +547,7 @@ describe('update', () => {
 		expect((await inRun(context, () => counters.get(at)))?.n).toBe(3);
 	});
 
-	test('a revise that throws, or gives what set refuses, writes nothing; a file that is not there is refused', async () => {
+	test('a revise that throws, gives what set refuses, or changes nothing writes nothing; a file that is not there is refused', async () => {
 		const context = seeded();
 		const before = await context.folder.read('counters/a.md');
 		await expect(
@@ -562,9 +562,11 @@ describe('update', () => {
 				counters.update(at, () => ({ note: null }) as never),
 			),
 		).rejects.toThrow('note is required, so it cannot be removed');
-		await expect(
-			inRun(context, () => counters.update(at, () => ({}))),
-		).rejects.toThrow('Nothing to set in counters/a.md: give a field');
+		expect(await context.folder.read('counters/a.md')).toBe(before);
+		// A revise that changes nothing leaves the file as it is and answers the record.
+		const kept = await inRun(context, () => counters.update(at, () => ({})));
+		const current = await inRun(context, () => counters.get(at));
+		expect(kept).toEqual(current as typeof kept);
 		expect(await context.folder.read('counters/a.md')).toBe(before);
 		await expect(
 			inRun(context, () =>

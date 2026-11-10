@@ -142,7 +142,8 @@ and `body` included, and returns what `set` takes, without `path` and with
 `body` when the body changes. `update` writes that only over the record the
 function was given; when the file changed meanwhile, it calls the function
 again on what is there now, so keep the function pure. A function that
-throws writes nothing. Like `set`, it refuses a file that is not there, and a
+throws writes nothing, and one that returns nothing to change (`{}`) leaves
+the file as it is and returns the record. Like `set`, it refuses a file that is not there, and a
 one-file collection's first `update` makes the file. It returns the record
 written. `update` is not a verb, since a caller cannot send a function.
 Vocab's `review` schedules a word this way, so two reviews at once both

@@ -720,10 +720,9 @@ function createFiles(layout: Template, fields: Fields) {
 			const patch = patchOf(path, given);
 			const changesFields =
 				patch.removed.length > 0 || Object.keys(patch.set).length > 0;
-			if (!changesFields && body === undefined)
-				throw new Error(`Nothing to set in ${path}: give a field`);
 			if (before === undefined || !found)
 				return made(path, patch.set, body ?? '');
+			if (!changesFields && body === undefined) return before;
 			if (changesFields && !found.writable)
 				throw new Error(
 					`${path} has front matter that is neither key: <JSON> lines nor YAML; fix it by hand first`,
@@ -786,7 +785,10 @@ function createFiles(layout: Template, fields: Fields) {
 			return file(path, readMarkdown(text));
 		},
 		async set({ path, ...given }: PathIn & Record<string, unknown>) {
-			return rewrite(own(path), () => ({ fields: given }));
+			const at = own(path);
+			if (Object.values(given).every((value) => value === undefined))
+				throw new Error(`Nothing to set in ${at}: give a field`);
+			return rewrite(at, () => ({ fields: given }));
 		},
 		async edit({ path, ...quoted }: PathIn & Change) {
 			const at = own(path);
