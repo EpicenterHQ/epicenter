@@ -9,8 +9,9 @@ it uses `EPICENTER_ROOT`, then `$HOME/Epicenter`. A chosen folder without
 delete the old marker. The folder's basename is its display name.
 
 The marker has optional front matter: `port` is an integer from 0 to 65535
-and defaults to 4747; `public` is an HTTPS URL; `publicPort` is the local
-listener port. `public` and `publicPort` must appear together, and
+and defaults to 4747; `public` is an HTTPS origin such as
+`https://studio.example.ts.net:10000/`; `publicPort` is the port of the public
+listener on `127.0.0.1`. `public` and `publicPort` must appear together, and
 `publicPort` must differ from `port`. Unknown or invalid fields are refused.
 `epicenter init [<folder>] [--port <n>]` makes the folder, writes the marker,
 and adds starter `AGENTS.md` guidance if there is none. Epicenters cannot nest.
@@ -34,10 +35,13 @@ epicenter history reading
 epicenter undo reading
 epicenter serve
 epicenter serve --stdio
+epicenter access
+epicenter access invite phone
+epicenter access revoke Claude
 epicenter --version
 ```
 
-The commands are `init`, `new`, `update`, `build`, `sync`, `history`, `undo`, and `serve`; any other first word names an app. `--json` and `--help` (`-h`) go anywhere before `--`; `--version` is read only on its own. `epicenter` lists the Epicenter folder, its apps, and problems in individual apps; an app with changes not yet in its history is marked, as `(3 changes not yet in history; 2 snapshots not backed up)`. Its JSON listing has an `epicenter` folder string. An empty Epicenter says `No apps yet. Run: epicenter new <name>`. `epicenter <app>` lists its actions, each with a short usage line, and `epicenter <app> <action> --help` explains every field. Above its actions, it says how many changes are not yet in the app's history and how many snapshots have not been backed up, with `Run: epicenter sync <app>`.
+The commands are `init`, `new`, `update`, `build`, `sync`, `history`, `undo`, `serve`, and `access`; any other first word names an app. `--json` and `--help` (`-h`) go anywhere before `--`; `--version` is read only on its own. `epicenter` lists the Epicenter folder, its apps, and problems in individual apps; an app with changes not yet in its history is marked, as `(3 changes not yet in history; 2 snapshots not backed up)`. Its JSON listing has an `epicenter` folder string. An empty Epicenter says `No apps yet. Run: epicenter new <name>`. `epicenter <app>` lists its actions, each with a short usage line, and `epicenter <app> <action> --help` explains every field. Above its actions, it says how many changes are not yet in the app's history and how many snapshots have not been backed up, with `Run: epicenter sync <app>`.
 
 An app without `origin` says `not backed up` and gives `git -C <folder> remote add origin <url>, then epicenter sync <app>` as its next step. An app with `origin` but no `origin/<branch>` says `never backed up` and gives `epicenter sync <app>`. These messages appear in the Epicenter listing and above the app's actions.
 
@@ -49,11 +53,30 @@ A flag's value is read as its field's type ([ADR-0867](../../docs/adr/0867-the-c
 
 The `epicenter` you start only relays. It runs the action in a child `epicenter` whose stdout and stderr both go to your stderr, forwards SIGINT and SIGTERM, and reads the child's answer from a report file once the child exits. So nothing an action prints, through any `console` method or `process.stdout`, reaches the answer. A child that ends without an answer, killed or calling `process.exit`, answers that it threw, naming its exit code or signal; what it wrote stays pending for the next snapshot, which lists it as changed outside epicenter. After a run that is not read-only, the child's report names the app, call, and paths written through `folder`, and the parent, the `epicenter` you started or `serve`, takes the snapshot. A child whose parent dies finishes the run.
 
-`epicenter serve` starts an HTTP server on `127.0.0.1` at the port in `EPICENTER.md`, or 4747 when the marker has none. `--host <address>` and `--port <n>` override those settings. It serves MCP at `POST /`, the launcher at `GET /`, and each app's UI at `/<app>/`: its built `ui/dist/` ([ADR-0866](../../docs/adr/0866-an-app-starts-from-a-starter-kept-as-its-upstream-and-update-merges-the-starters-changes.md)). The launcher links to apps with a UI; a `GET /` asking for an event stream gets 405, since the server keeps no MCP session. Any later path of the server's own starts with `.`, which no app name can. An Origin must match the request Host; requests without Origin are accepted. A reverse proxy such as `tailscale serve` can provide HTTPS.
+`epicenter serve` starts an HTTP server on `127.0.0.1` at the port in `EPICENTER.md`, or 4747 when the marker has none. `--host <address>` and `--port <n>` override those settings. It serves MCP at `POST /`, the launcher at `GET /`, and each app's UI at `/<app>/`: its built `ui/dist/` ([ADR-0866](../../docs/adr/0866-an-app-starts-from-a-starter-kept-as-its-upstream-and-update-merges-the-starters-changes.md)). The launcher links to apps with a UI; a `GET /` asking for an event stream gets 405, since the server keeps no MCP session. Any later path of the server's own starts with `.`, which no app name can. An Origin must match the request Host; requests without Origin are accepted. A reverse proxy such as `tailscale serve` can provide HTTPS. This listener signs no one in; a `public` address adds a second listener that does (see below).
 
 Both HTTP and `serve --stdio` offer every app action as a tool and send the Epicenter's `AGENTS.md`, when present, as MCP server instructions. The server never imports an app. `tools/list` runs `epicenter <app> --json` for each app entry in its own child, so an app that fails to load loses only its own tools and says why on stderr. Each `tools/call` runs `epicenter <app> <words> --input <json>` in a fresh child from the Epicenter folder, so an edit between calls is seen by the next. `serve --stdio` uses stdin and stdout for MCP.
 
 After each call that is not read-only, either transport takes a snapshot of the app before it answers, one at a time per app. Every 60 seconds the HTTP server checks each app's pending paths, sizes, and modification times, and snapshots an app when those values are unchanged since the previous check. `EPICENTER_QUIET_CHECK_MS` is a test hook for this interval; values must be integers of at least 100 milliseconds. When a snapshot commits, the HTTP server pushes that app's branch to `origin` by name in the background, if the app has an `origin`; it never pushes to `upstream`. Push failures go to stderr and leave the commit local. A snapshot failure goes to stderr; the pending paths remain visible in status.
+
+## The public address
+
+When `EPICENTER.md` has `public` and `publicPort`, `serve` also listens on `127.0.0.1:<publicPort>` and prints `Serving <public> at http://127.0.0.1:<publicPort>: an HTTPS tunnel from that address must forward to this port.` Any HTTPS tunnel that forwards `public` to that port works, such as Tailscale Funnel or Cloudflare Tunnel; `serve` never starts or changes one ([ADR-0871](../../docs/adr/0871-a-public-address-signs-people-in-with-a-passkey-and-connectors-in-with-oauth.md)). The private listener is unchanged and trusts every request. The public one serves a request only for a person's session or a connector's token, so the boundary is the socket a request arrives on, not a header.
+
+| Public path | Needs |
+| --- | --- |
+| `GET /.well-known/oauth-protected-resource`, `GET /.well-known/oauth-authorization-server/.auth` | nothing: OAuth metadata |
+| `/.auth/oauth2/authorize`, `/.auth/oauth2/token`, `/.auth/oauth2/consent`, `/.auth/jwks`, `/.auth/passkey/*` | Better Auth; every other `/.auth/` path is 404 |
+| `GET /.sign-in` | nothing: signs in with a passkey, or registers one from an invite |
+| `GET /.allow` | a session: approves a connector |
+| `POST /` | a bearer token, or a session with this address as `Origin`; MCP |
+| `GET /`, `/<app>/...` | a session; without one, a redirect to `/.sign-in` |
+
+Better Auth is the authorization server (`src/authorization-server.ts`). Its state is `access.local.sqlite` and its secret is `access.local.key`, both in the Epicenter's folder with mode 0600; as `.local` files, no snapshot commits them. A connector's access token is a 15-minute JWT whose audience is `public`, checked against the signing keys in that database, so a check never leaves the computer. The `read` scope lists and calls only actions with `readOnlyHint: true`, in a child that refuses anything else; a call to another action answers 403 with an `insufficient_scope` challenge naming `write`. `write` allows every action. A person's session lasts 7 days and is not extended.
+
+People sign in with passkeys, starting from an invite. `epicenter access invite [<name>]` prints a link to `/.sign-in?invite=<token>` that registers one passkey, once, within 15 minutes; `<name>` defaults to `device-<n>`. A device already signed in cannot use an invite. Connectors such as Claude and ChatGPT are added by pasting `public` as a custom connector. Each identifies itself by a client metadata document, which `serve` fetches only over HTTPS from a public IP address, without following redirects. The person signs in, then chooses on `/.allow` between reading and changing, reading only, or not allowing it.
+
+`epicenter access` lists people and connectors, with when each was approved and last used; `--json` prints `{ "access": [...] }`. `epicenter access revoke <name>` takes a name, an id, or a connector's host. For a connector it deletes its approval, refresh tokens, access token records, and pending codes; an access token it already holds keeps working until it expires, within 15 minutes, because a token is checked by its signature. For a person it deletes the passkey and its sessions. `access` opens the same database `serve` holds open, so it works while `serve` runs and a change takes effect at once. Without `public` in `EPICENTER.md`, it says to add `public` and `publicPort`.
 
 ## Runs never commit; history is snapshots
 
