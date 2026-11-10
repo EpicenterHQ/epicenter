@@ -46,18 +46,21 @@ export async function underway(folder: string) {
 		.some((path) => existsSync(resolve(folder, path)));
 }
 
-/** What a commit did: the commit it made, nothing (nothing it would take had changed, or the folder is in no repository), or why it failed. */
+/** What a commit did: the commit it made, nothing (nothing it would take had changed, or the folder is in no repository), or why it failed and, when one is known, the command that resolves it. */
 export type Snapshot =
 	| { committed: { subject: string; files: number } }
 	| { committed: null }
-	| { failed: string };
+	| { failed: { message: string; next?: string } };
 
 /** What a snapshot with no call takes: everything in the folder that Git does not ignore. */
 const TAKEN = ['.'];
 
 /** Refused before staging when committing would store whole files that `.gitattributes` routes through LFS (ADR-0856). */
-const LFS_MISSING =
-	'.gitattributes routes files through Git LFS, and this computer has no LFS filter, so Git would store them whole; run: git lfs install';
+const LFS_MISSING = {
+	message:
+		'.gitattributes routes files through Git LFS, and this computer has no LFS filter, so Git would store them whole',
+	next: 'git lfs install',
+};
 
 /** How long a commit waits for someone else's hold on Git's index lock before giving up. */
 const INDEX_LOCK_WAIT_MS = 2_000;
@@ -246,8 +249,11 @@ async function take(
 	try {
 		if (await underway(folder))
 			return {
-				failed:
-					'the repository is in the middle of a merge, rebase, revert, or cherry-pick; finish or abort it first',
+				failed: {
+					message:
+						'the repository is in the middle of a merge, rebase, revert, or cherry-pick; finish or abort it first',
+					next: `git -C ${folder} status`,
+				},
 			};
 		const attributes = await readFile(
 			join(folder, '.gitattributes'),
@@ -270,7 +276,7 @@ async function take(
 						),
 		};
 	} catch (error) {
-		return { failed: extractErrorMessage(error) };
+		return { failed: { message: extractErrorMessage(error) } };
 	}
 }
 
@@ -294,7 +300,9 @@ export function snapshot(
 ): Promise<Snapshot> {
 	const next = (queued.get(folder) ?? Promise.resolve())
 		.then(() => take(app, folder, boundary))
-		.catch((error): Snapshot => ({ failed: extractErrorMessage(error) }));
+		.catch(
+			(error): Snapshot => ({ failed: { message: extractErrorMessage(error) } }),
+		);
 	queued.set(folder, next);
 	void next.then(() => {
 		if (queued.get(folder) === next) queued.delete(folder);

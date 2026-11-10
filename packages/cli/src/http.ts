@@ -221,7 +221,7 @@ export function startHttpServer(
 						if (!(await uiFile(entry.entry, 'index.html')).ok) return undefined;
 						// Read in a child, as tools/list is: serve never imports an app.
 						const listed = (
-							await runChild([entry.entry, '--json'], { stdin: 'ignore' })
+							await runChild([entry.entry, '--json'], 'ignore')
 						).answer as { description?: unknown };
 						return {
 							name: entry.entry,

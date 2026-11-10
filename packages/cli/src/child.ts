@@ -23,15 +23,19 @@ import { randomUUID } from 'node:crypto';
 import { readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { writeErr } from './output.ts';
 import { epicenterDir } from './root.ts';
-import type { Wrote } from './snapshot.ts';
+import { snapshot, type Wrote } from './snapshot.ts';
 
 /** The internal flag that makes `epicenter` a child writing its answer to a file; undocumented, and read only as the first argument, so an action's own input can never be taken for it. */
 export const REPORT_FLAG = '--report=';
 
+/** Whether this `epicenter` is the compiled binary, which is Bun itself under `BUN_BE_BUN=1`. */
+export const COMPILED = Bun.main.startsWith('/$bunfs/');
+
 /** How to run this same `epicenter`: the compiled binary alone, or Bun, with the flags it was started with, and this entry. */
 function self(): string[] {
-	return Bun.main.startsWith('/$bunfs/')
+	return COMPILED
 		? [process.execPath]
 		: [process.execPath, ...process.execArgv, Bun.main];
 }
@@ -56,7 +60,7 @@ export function writeReport(path: string, record: Report) {
  */
 export async function runChild(
 	args: string[],
-	{ stdin }: { stdin: 'inherit' | 'ignore' },
+	stdin: 'inherit' | 'ignore',
 ): Promise<Report> {
 	const path = join(tmpdir(), `epicenter-report-${randomUUID()}.json`);
 	const child = Bun.spawn([...self(), `${REPORT_FLAG}${path}`, ...args], {
@@ -87,4 +91,26 @@ export async function runChild(
 			threw: { message: `The run ended without an answer (${ended})` },
 		},
 	};
+}
+
+/**
+ * Run a call, `epicenter <app> <words> ...`, as a child, then commit the
+ * paths it wrote, named for the call (ADR-0850), and return its answer. The
+ * command line and both MCP transports run every call this way. A commit
+ * that fails changes neither the answer nor the exit code: why, and its next
+ * step, go to stderr, and the paths stay pending.
+ */
+export async function runCall(
+	args: string[],
+	stdin: 'inherit' | 'ignore',
+): Promise<unknown> {
+	const { answer, wrote } = await runChild(args, stdin);
+	if (wrote) {
+		const taken = await snapshot(wrote.app, wrote.folder, { wrote });
+		if ('failed' in taken)
+			writeErr(
+				`${wrote.app}: not yet in history: ${taken.failed.message}\nRun: ${taken.failed.next ?? `epicenter sync ${wrote.app}`}`,
+			);
+	}
+	return answer;
 }

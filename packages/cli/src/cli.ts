@@ -9,7 +9,7 @@
 import type { Action } from '@epicenter/app';
 import packageJson from '../package.json' with { type: 'json' };
 import { buildCommand } from './build.ts';
-import { REPORT_FLAG, runChild } from './child.ts';
+import { REPORT_FLAG, runCall } from './child.ts';
 import { COMMANDS, type Command } from './commands.ts';
 import { CliError } from './errors.ts';
 import { historyCommand, undoCommand } from './history.ts';
@@ -30,13 +30,12 @@ import {
 	answerInto,
 	fail,
 	presentAnswer,
-	writeErr,
 	writeJson,
 	writeOut,
 } from './output.ts';
 import { epicenterRoot, RootUsageError } from './root.ts';
 import { runAction } from './run.ts';
-import { snapshot, statusOf } from './snapshot.ts';
+import { statusOf } from './snapshot.ts';
 import { syncCommand } from './sync.ts';
 import { updateCommand } from './update.ts';
 
@@ -162,7 +161,6 @@ export async function runCli(argv: string[]): Promise<number> {
 		answerInto(reportArg.slice(REPORT_FLAG.length));
 		argv = argv.slice(1);
 	}
-	const relayed = argv;
 	// --version is read only on its own, so an action's --version stays its own flag.
 	const onlyGlobals = argv.every((token) => GLOBALS.has(token));
 	const tokens: string[] = [];
@@ -219,18 +217,8 @@ export async function runCli(argv: string[]): Promise<number> {
 		}
 		epicenterRoot();
 		// Running an action is two processes; the child owns the whole run, and this one its commit.
-		if (!reportArg && words.length > 0 && !help) {
-			const { answer, wrote } = await runChild(relayed, { stdin: 'inherit' });
-			const code = presentAnswer(answer as Answer, json);
-			if (wrote) {
-				const taken = await snapshot(wrote.app, wrote.folder, { wrote });
-				if ('failed' in taken)
-					writeErr(
-						`Not yet in ${wrote.app}'s history: ${taken.failed}\nRun: epicenter sync ${wrote.app}`,
-					);
-			}
-			return code;
-		}
+		if (!reportArg && words.length > 0 && !help)
+			return presentAnswer((await runCall(argv, 'inherit')) as Answer, json);
 		const { data: located, error: notFound } = await loadHomeApp(name);
 		if (notFound) return fail(notFound, json);
 		if (!located.ok)

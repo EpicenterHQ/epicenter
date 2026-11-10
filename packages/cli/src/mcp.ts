@@ -23,23 +23,20 @@ import {
 	type Tool,
 } from '@modelcontextprotocol/sdk/types.js';
 import packageJson from '../package.json' with { type: 'json' };
-import { type Report, runChild } from './child.ts';
+import { runCall, runChild } from './child.ts';
 import { homeEntries } from './home.ts';
 import { type Answer, renderAnswer, writeErr } from './output.ts';
 import { rootInstructions } from './root.ts';
-import { snapshot } from './snapshot.ts';
 
 /**
  * The tools the Epicenter offers now. Each entry is listed by its own child, so an
  * app that fails to import, or prints while importing, loses only its own
  * tools; why is written to stderr.
  */
-export async function listTools(): Promise<Tool[]> {
+async function listTools(): Promise<Tool[]> {
 	const listed = await Promise.all(
 		(await homeEntries()).map(async ({ entry }) => {
-			const { answer } = await runChild([entry, '--json'], {
-				stdin: 'ignore',
-			});
+			const { answer } = await runChild([entry, '--json'], 'ignore');
 			const value = answer as { actions?: Tool[]; error?: { message: string } };
 			if (value.actions) return value.actions;
 			writeErr(`${entry}: ${value.error?.message ?? JSON.stringify(answer)}`);
@@ -54,7 +51,7 @@ export async function listTools(): Promise<Tool[]> {
  * `structuredContent`, and `isError` exactly when the action threw or did not
  * run. A failure's text is what a person would read on stderr.
  */
-export function toolResult(answer: Answer) {
+function toolResult(answer: Answer) {
 	const structuredContent = answer as Record<string, unknown>;
 	const { code, stderr } = renderAnswer(answer);
 	if (code === 0)
@@ -69,35 +66,23 @@ export function toolResult(answer: Answer) {
 	};
 }
 
-/** Run an app's action as `<app>_<word>_<word>` names it, in a child process. */
-async function runAppTool(
-	name: string,
-	args: Record<string, unknown>,
-): Promise<Report> {
-	// `<app>_<word>_<word>`: app names and action words hold no underscores.
+/**
+ * Run the action `<app>_<word>_<word>` names in a child, as the command line
+ * does, committing what it wrote. App names and action words hold no
+ * underscores.
+ */
+async function callTool(name: string, args: Record<string, unknown>) {
 	const [app = '', ...words] = name.split('_');
 	if (!isName(app) || words.length === 0 || !words.every(isName))
-		return {
-			answer: { error: { name: 'Usage', message: `Unknown tool ${name}` } },
-		};
-	return runChild([app, ...words, '--input', JSON.stringify(args), '--json'], {
-		stdin: 'ignore',
-	});
-}
-
-/**
- * Run a tool through the same child process for either MCP transport, and
- * after a write, commit the paths it wrote. A commit that fails is written to
- * stderr, its paths stay pending, and the call's answer stands.
- */
-export async function callTool(name: string, args: Record<string, unknown>) {
-	const { answer, wrote } = await runAppTool(name, args);
-	if (wrote) {
-		const taken = await snapshot(wrote.app, wrote.folder, { wrote });
-		if ('failed' in taken)
-			writeErr(`${wrote.app}: not yet in history: ${taken.failed}`);
-	}
-	return toolResult(answer as Answer);
+		return toolResult({
+			error: { name: 'Usage', message: `Unknown tool ${name}` },
+		});
+	return toolResult(
+		(await runCall(
+			[app, ...words, '--input', JSON.stringify(args), '--json'],
+			'ignore',
+		)) as Answer,
+	);
 }
 
 /** Register the shared tool handlers on a fresh MCP server. */

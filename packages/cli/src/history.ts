@@ -384,8 +384,8 @@ async function undo(
 	if ('failed' in taken)
 		return {
 			error: refuse(
-				`${app}: nothing was undone, since what is pending could not be snapshotted first: ${taken.failed}`,
-				`epicenter sync ${app}`,
+				`${app}: nothing was undone, since what is pending could not be snapshotted first: ${taken.failed.message}`,
+				taken.failed.next ?? `epicenter sync ${app}`,
 			),
 		};
 	const left = await trackedChanges(folder);

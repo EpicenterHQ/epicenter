@@ -12,6 +12,7 @@
  */
 import { rename, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
+import { COMPILED } from './child.ts';
 
 /** Where an app's built UI lives, relative to its folder. */
 export const BUILT_UI = join('.cache', 'ui');
@@ -25,19 +26,14 @@ async function exists(path: string) {
 	}
 }
 
-/** Bun, as the program running now: itself when compiled, else the `bun` it runs under. */
-function bun(): { command: string[]; env: Record<string, string> } {
-	return Bun.main.startsWith('/$bunfs/')
-		? { command: [process.execPath], env: { BUN_BE_BUN: '1' } }
-		: { command: [process.execPath], env: {} };
-}
-
-/** Run Bun with `args` in `cwd`, throwing with its output when it fails. */
+/**
+ * Run Bun, the program running now (itself when compiled, else the `bun` it
+ * runs under), with `args` in `cwd`, throwing with its output when it fails.
+ */
 async function runBun(cwd: string, args: string[]) {
-	const { command, env } = bun();
-	const child = Bun.spawn([...command, ...args], {
+	const child = Bun.spawn([process.execPath, ...args], {
 		cwd,
-		env: { ...process.env, ...env },
+		env: { ...process.env, ...(COMPILED ? { BUN_BE_BUN: '1' } : {}) },
 		stdin: 'ignore',
 		stdout: 'pipe',
 		stderr: 'pipe',

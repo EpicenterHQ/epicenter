@@ -78,13 +78,7 @@ export async function syncOne(
 	const inside = await git(folder, insideArgs);
 	if (inside.code !== 0) return stop(gitMessage(insideArgs, inside));
 	const taken = await snapshot(app, folder, { message });
-	if ('failed' in taken)
-		return stop(
-			taken.failed,
-			taken.failed.endsWith('run: git lfs install')
-				? 'git lfs install'
-				: undefined,
-		);
+	if ('failed' in taken) return stop(taken.failed.message, taken.failed.next);
 	synced.committed = taken.committed;
 	if (onlyWhenAhead && !taken.committed) {
 		const origin = await originOf(folder);

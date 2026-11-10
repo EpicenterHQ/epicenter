@@ -208,9 +208,12 @@ test('snapshot refuses a revert in progress without staging or committing', asyn
 	await writeFile(join(f.dir, gitPath), `${before}\n`);
 	await writeFile(join(f.dir, 'pending.md'), 'pending\n');
 	expect(await snapshot('notes', f.dir)).toEqual({
-		failed: expect.stringContaining(
-			'middle of a merge, rebase, revert, or cherry-pick',
-		),
+		failed: {
+			message: expect.stringContaining(
+				'middle of a merge, rebase, revert, or cherry-pick',
+			),
+			next: `git -C ${f.dir} status`,
+		},
 	});
 	expect(await f.head()).toBe(before);
 	expect(await gitIn(f.dir, 'diff', '--cached', '--name-only')).toBe('');
@@ -237,8 +240,10 @@ test('a *.local file the .gitignore lets through is refused before anything is s
 	await gitIn(f.dir, 'commit', '-qam', 'no *.local in .gitignore');
 	const before = await f.head();
 	const refused = {
-		failed:
-			'token.local would be committed; add *.local and *.local.* to notes/.gitignore',
+		failed: {
+			message:
+				'token.local would be committed; add *.local and *.local.* to notes/.gitignore',
+		},
 	};
 	expect(await f.commit(await f.run('scratch', 'kept'))).toEqual(refused);
 	expect(await snapshot('notes', f.dir)).toEqual(refused);

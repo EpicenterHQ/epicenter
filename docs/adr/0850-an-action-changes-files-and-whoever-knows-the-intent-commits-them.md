@@ -96,10 +96,11 @@ app's `.gitignore`; it never filters one out silently.
 
 Every commit checks, before staging, that this computer has Git LFS's filter
 (`git config filter.lfs.process`) when `.gitattributes` routes a path through
-it, and otherwise stops with `run: git lfs install` (ADR-0856). It refuses
-while a merge, rebase, revert, or cherry-pick is underway. When Git's
-`index.lock` is held, it retries for up to 2 seconds. A commit failure changes
-no action answer: its caller reports why and suggests `epicenter sync <app>`.
+it, and otherwise stops with `git lfs install` as the next step (ADR-0856).
+It refuses while a merge, rebase, revert, or cherry-pick is underway, with
+`git -C <folder> status` as the next step. When Git's `index.lock` is held, it
+retries for up to 2 seconds. A commit failure changes no action answer: its
+caller reports why and the failure's next step, else `epicenter sync <app>`.
 Status derives the pending path count from `git status` and the unpushed
 commit count from `origin/<branch>..HEAD` when that tracking ref exists.
 

@@ -261,8 +261,9 @@ test('C5 a snapshot failure leaves the answer and pending paths for sync', async
 	const kept = await f.json('notes', 'picture');
 	expect(kept.code).toBe(0);
 	expect(kept.answer).toEqual({ returned: null });
-	expect(kept.stderr).toContain('run: git lfs install');
-	expect(kept.stderr).toContain('Run: epicenter sync notes');
+	expect(kept.stderr).toContain(
+		'notes: not yet in history: .gitattributes routes files through Git LFS, and this computer has no LFS filter, so Git would store them whole\nRun: git lfs install\n',
+	);
 	expect(await gitIn(f.dir, 'diff', '--cached', '--name-only')).toBe('');
 	expect(await subjects(f.dir)).toBe('initial');
 	const threw = await f.json('notes', 'half', 'friday');
