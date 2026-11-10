@@ -596,21 +596,15 @@ describe('authorizing a connector', () => {
 		expect(wider.status).toBe(400);
 	});
 
-	test('a connector whose document does not allow refreshing gets no grant', async () => {
+	test('a connector whose document lists only authorization_code still starts a refresh family', async () => {
+		// Better Auth lets any client allowed authorization_code refresh, so its
+		// exchange inserts a refresh row and passes the generation trigger.
 		const t = await setup({ grant_types: ['authorization_code'] });
 		const person = await t.signedIn();
-		const { query } = await authorizeQuery('read offline_access');
-		const allow = await reachAllow(ORIGIN, person, query);
-		const refused = await person.browser.post('/.auth/oauth2/consent', {
-			accept: true,
-			scope: 'read offline_access',
-			oauth_query: allow.search.slice(1),
-		});
-		expect(refused.status).toBe(400);
-		expect(((await refused.json()) as { error: string }).error).toBe(
-			'unauthorized_client',
-		);
-		expect(grants(t)).toEqual([]);
+		const tokens = await connectClaude(t, person, 'read offline_access');
+		expect(tokens.refresh_token).toBeString();
+		expect((await refresh(t, tokens.refresh_token)).status).toBe(200);
+		expect(grants(t)).toHaveLength(1);
 	});
 
 	test('/.allow leads with the host and full client_id, and strips control characters from the name the document claims', async () => {

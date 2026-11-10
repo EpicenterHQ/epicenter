@@ -103,11 +103,18 @@ const IS_CODE = (row: 'new' | 'verification') =>
 	`${codeField(row, '$.type')} = 'authorization_code'`;
 
 /**
- * The generation tables and triggers, created after Better Auth's migrations
- * on every start; each statement is idempotent. Neither table is pruned: a
- * family's `codeIssued` row is needed for as long as the family rotates.
+ * The generation tables and triggers, installed after Better Auth's migrations
+ * on every start in one transaction. Tables are created once; triggers are
+ * dropped and created again, so a change to their SQL reaches a database that
+ * already has them. Neither table is pruned: a family's `codeIssued` row is
+ * needed for as long as the family rotates.
  */
 const GENERATIONS = `
+begin immediate;
+drop trigger if exists epicenterCodeNeedsConsent;
+drop trigger if exists epicenterCodeIssued;
+drop trigger if exists epicenterRefreshCurrentGeneration;
+drop trigger if exists epicenterNarrowedConsent;
 create table if not exists grantRevocation (
 	clientId text not null,
 	userId text not null,
@@ -120,7 +127,7 @@ create table if not exists codeIssued (
 	userId text,
 	issuedAt integer not null
 );
-create trigger if not exists epicenterCodeNeedsConsent
+create trigger epicenterCodeNeedsConsent
 before insert on verification
 when ${IS_CODE('new')}
 	and not exists (
@@ -130,7 +137,7 @@ when ${IS_CODE('new')}
 begin
 	select raise(abort, 'epicenter: no consent for this authorization code');
 end;
-create trigger if not exists epicenterCodeIssued
+create trigger epicenterCodeIssued
 after insert on verification
 when ${IS_CODE('new')}
 begin
@@ -141,7 +148,7 @@ begin
 		${codeField('new', '$.userId')},
 		${NOW_MS});
 end;
-create trigger if not exists epicenterRefreshCurrentGeneration
+create trigger epicenterRefreshCurrentGeneration
 before insert on oauthRefreshToken
 when not exists (
 		select 1 from oauthConsent k
@@ -157,7 +164,7 @@ when not exists (
 begin
 	select raise(abort, '${REVOKED_GRANT}');
 end;
-create trigger if not exists epicenterNarrowedConsent
+create trigger epicenterNarrowedConsent
 after update of scopes on oauthConsent
 begin
 	delete from oauthRefreshToken
@@ -166,6 +173,7 @@ begin
 	       select 1 from json_each(oauthRefreshToken.scopes) s
 	        where s.value not in (select value from json_each(new.scopes)));
 end;
+commit;
 `;
 
 /** Read the secret, or create it once, readable only by this user. */

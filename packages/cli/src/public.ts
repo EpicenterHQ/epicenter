@@ -105,13 +105,12 @@ function forcedAuthorization(request: Request) {
 
 /**
  * Why a consent POST cannot approve, or nothing when it may reach Better
- * Auth. An approval must keep `offline_access`, and the connector must be
- * able to refresh, so every grant's code exchange starts a refresh family.
+ * Auth. An approval must keep `offline_access`, so every grant's code exchange
+ * starts a refresh family. A connector's declared `grant_types` need no check:
+ * Better Auth lets any client allowed `authorization_code` refresh
+ * (`clientAllowsGrant` in `@better-auth/oauth-provider`).
  */
-async function refusedConsent(
-	authorization: AuthorizationServer,
-	request: Request,
-) {
+async function refusedConsent(request: Request) {
 	let body: unknown;
 	try {
 		body = await request.clone().json();
@@ -119,10 +118,9 @@ async function refusedConsent(
 		// `/.allow` posts JSON; a body this cannot read is not checked, so it stops.
 		return refuse(400, 'invalid_request', 'An approval is a JSON body');
 	}
-	const { accept, scope, oauth_query } = (body ?? {}) as {
+	const { accept, scope } = (body ?? {}) as {
 		accept?: unknown;
 		scope?: unknown;
-		oauth_query?: unknown;
 	};
 	if (accept === false) return undefined;
 	if (typeof scope !== 'string' || !scope.split(' ').includes('offline_access'))
@@ -130,21 +128,6 @@ async function refusedConsent(
 			400,
 			'invalid_scope',
 			'An approval must include offline_access',
-		);
-	const clientId =
-		typeof oauth_query === 'string'
-			? new URLSearchParams(oauth_query).get('client_id')
-			: null;
-	const client = authorization.db
-		.query<{ grantTypes: string | null }, [string]>(
-			'select grantTypes from oauthClient where clientId = ?',
-		)
-		.get(clientId ?? '');
-	if (client && !client.grantTypes?.includes('"refresh_token"'))
-		return refuse(
-			400,
-			'unauthorized_client',
-			'This connector cannot refresh its access, which Epicenter requires',
 		);
 	return undefined;
 }
@@ -239,7 +222,7 @@ export function publicHandler(authorization: AuthorizationServer, site: Site) {
 				return handle(forcedAuthorization(request));
 			if (route === 'POST /oauth2/consent')
 				return (
-					(await refusedConsent(authorization, request)) ?? handle(request)
+					(await refusedConsent(request)) ?? handle(request)
 				);
 			return handle(request);
 		}
