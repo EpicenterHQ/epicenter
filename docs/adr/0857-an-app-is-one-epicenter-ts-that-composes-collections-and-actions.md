@@ -82,7 +82,7 @@ methods; the exposed `add` and `set` leave it out, and when such a field is
 required and has no default, `actions()` leaves out `add`.
 
 **A read never trusts the file.** One check feeds `list`, `get`, the files
-`add`, `set`, and `edit` return, and `misfits()`. Each declared field is its
+`add`, `set`, and `edit` return. Each declared field is its
 value when it fits, else its default, else absent. `path`, the placeholders
 of the template that matched (`word: '你好'`), and `body` come from the file
 after the fields, so front matter never replaces them. A file that does not

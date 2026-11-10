@@ -45,8 +45,8 @@ pending in the app's folder and names it from the write run's report when there 
 ```txt
 the command line   after a write run it ran itself
 epicenter serve    after each write call, one at a time per app; over HTTP,
-                   also every minute for an app whose pending changes are the
-                   same as a minute ago (outside edits gone quiet), and a push
+                   also every minute when pending paths, sizes, and modification
+                   times match the previous check, and a push
                    after each snapshot that commits
 epicenter sync     before it pushes (ADR-0851)
 an agent           git commit -m '…', for a sequence it understands
@@ -54,9 +54,9 @@ an agent           git commit -m '…', for a sequence it understands
 
 Each run that is not read-only reports its call (`tasks: add Water the plants`)
 and the paths it wrote through `folder` to its parent. The parent passes them to
-the snapshot. The call names the snapshot; other pending paths appear in one
-body line as `Also changed: <paths>`. Without a call, the subject is
-`<app>: changed outside epicenter` and the body is `Changed: <paths>`.
+the snapshot. The call names the snapshot; other pending paths follow an
+`Also changed:` header, one per line. Without a call, the subject is
+`<app>: changed outside epicenter` and the paths follow `Changed:`.
 
 A snapshot takes everything pending in the app's folder and nothing outside it:
 `git add -A` and `git commit` with the pathspec `.`, never `*.local` or
