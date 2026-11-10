@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192">
+	<title>Notes</title>
+	<rect width="192" height="192" rx="42" fill="#18181b" />
+	<path d="M54 34h62l24 24v100H54z" fill="#fafafa" />
+	<path d="M116 34v24h24" fill="#d4d4d8" />
+	<path
+		d="M72 80h50M72 98h50M72 116h50M72 134h31"
+		fill="none"
+		stroke="#52525b"
+		stroke-width="6"
+		stroke-linecap="round"
+	/>
+</svg>
