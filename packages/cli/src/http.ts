@@ -11,60 +11,38 @@
  * Any later path of the server's own starts with `.`, which no app name can,
  * so no name is reserved for the server.
  *
- * A write call is snapshotted before it answers (`mcp.ts`). Every minute the
- * server checks each app's pending paths, sizes, and modification times. It
- * snapshots outside edits when those values have stayed the same since the
- * previous check. Each commit is pushed to `origin` in the background.
+ * A write call commits the paths it wrote before it answers (`mcp.ts`).
+ * Everything else reaches history and the backup on the server's clock: when
+ * it starts, every 5 minutes, and when it stops, it does for each app what
+ * `epicenter sync <app>` does, snapshotting what is pending as changed
+ * outside epicenter and pushing to `origin` when there is something to push.
+ * The clock's interval is how old an unbacked change can get, not a guess at
+ * when an edit is done.
  */
-import { lstat, realpath, stat } from 'node:fs/promises';
+import { realpath, stat } from 'node:fs/promises';
 import { basename, isAbsolute, join, sep } from 'node:path';
 import { isName } from '@epicenter/app';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
+import { extractErrorMessage } from 'wellcrafted/error';
 import { runChild } from './child.ts';
-import { git, gitMessage } from './git.ts';
 import { homeEntries } from './home.ts';
-import { callTool, createMcpServer, listTools } from './mcp.ts';
+import { createMcpServer } from './mcp.ts';
 import { writeErr } from './output.ts';
-import { pushOrigin } from './push.ts';
 import { epicenterDir, rootInstructions } from './root.ts';
-import { pendingStatus, snapshot } from './snapshot.ts';
+import { type Synced, syncOne } from './sync.ts';
 import { BUILT_UI } from './ui.ts';
 
-/** An app's background push: the one running, and whether another is wanted after it. */
-type Push = { running?: Promise<void>; again: boolean };
+/** How often `serve` backs up every app. */
+const BACKUP_EVERY_MS = 5 * 60_000;
 
-/** How often `serve` looks for outside edits that have gone quiet. */
-const QUIET_CHECK_MS = 60_000;
+/** How long `serve` waits for the backup it runs when it starts and when it stops. */
+const BACKUP_WAIT_MS = 10_000;
 
-/** Status plus each pending path's size and modification time. */
-async function pendingSignature(folder: string) {
-	const status = (await pendingStatus(folder)) ?? '';
-	if (status === '') return '';
-	const rootArgs = ['rev-parse', '--show-toplevel'];
-	const root = await git(folder, rootArgs);
-	if (root.code !== 0) throw new Error(gitMessage(rootArgs, root));
-	const paths = status
-		.split('\0')
-		.filter(Boolean)
-		.map((entry) => entry.slice(3));
-	const details = await Promise.all(
-		paths.map(async (path) => {
-			try {
-				const file = await lstat(join(root.stdout, path));
-				return [file.mtimeMs, file.size];
-			} catch (error) {
-				if (
-					error &&
-					typeof error === 'object' &&
-					'code' in error &&
-					error.code === 'ENOENT'
-				)
-					return null;
-				throw error;
-			}
-		}),
-	);
-	return JSON.stringify([status, details]);
+/** Whether `work` finished within `ms`; it runs on after `false`. */
+function within(ms: number, work: Promise<unknown>) {
+	const { promise: late, resolve } = Promise.withResolvers<false>();
+	setTimeout(() => resolve(false), ms).unref();
+	return Promise.race([work.then(() => true as const), late]);
 }
 
 const escapeHtml = (text: string) =>
@@ -105,91 +83,54 @@ p{color:var(--muted)}
 }
 
 /**
- * Start the server. The caller owns its lifetime. Port 0 asks Bun for a free
- * port. `quietCheckMs` is how often it looks for quiet outside edits.
+ * Start the server and its backup clock, which backs up once now (`started`)
+ * and every 5 minutes after. The caller owns its lifetime and ends it with
+ * `stop`. Port 0 asks Bun for a free port. `tick` runs one backup now, after
+ * any already running, and answers what it did per app.
  */
 export function startHttpServer(
 	host: string,
 	port: number,
 	instructions?: string,
-	quietCheckMs = QUIET_CHECK_MS,
 ) {
-	const pushes = new Map<string, Push>();
-	/**
-	 * Push the app's branch to `origin` by name in the background, if it has
-	 * one: never to `upstream`, the starter it came from (ADR-0866). A push
-	 * asked for while one runs makes one more after it, so every commit goes
-	 * out and pushes never overlap.
-	 */
-	const push = (app: string, folder: string) => {
-		let current = pushes.get(app);
-		if (!current) {
-			current = { again: false };
-			pushes.set(app, current);
-		}
-		if (current.running) {
-			current.again = true;
-			return;
-		}
-		const state = current;
-		state.running = (async () => {
-			do {
-				state.again = false;
-				const result = await pushOrigin(folder);
-				if ('error' in result)
-					writeErr(
-						`${app}: ${result.error.message}${result.error.next ? `\nRun: ${result.error.next}` : ''}`,
-					);
-			} while (state.again);
-		})()
-			.catch((error) => {
-				writeErr(
-					`${app}: push failed: ${error instanceof Error ? error.message : String(error)}`,
-				);
-			})
-			.finally(() => {
-				state.running = undefined;
-			});
-	};
-	/** Run the tool; when its snapshot commits, push that app. */
-	const call: typeof callTool = (name, args) => callTool(name, args, push);
-	/** Each app's pending signature at the last check, by folder. */
-	const lastSignature = new Map<string, string>();
+	/** Each app's last backup failure as logged, so an unchanged one is logged once. */
 	const lastFailure = new Map<string, string>();
-	/** Snapshot and push each app whose pending changes are what they were at the last check. */
-	const checkQuiet = async () => {
+	const backUpAll = async () => {
+		const backedUp: Synced[] = [];
 		for (const { entry, realPath } of await homeEntries()) {
-			const signature = await pendingSignature(realPath);
-			const before = lastSignature.get(realPath);
-			lastSignature.set(realPath, signature);
-			if (signature === '') {
-				lastFailure.delete(realPath);
-				continue;
-			}
-			if (signature !== before) continue;
-			const taken = await snapshot(entry, realPath);
-			if ('failed' in taken) {
-				if (lastFailure.get(realPath) !== taken.failed)
-					writeErr(`${entry}: not yet in history: ${taken.failed}`);
-				lastFailure.set(realPath, taken.failed);
-			} else {
-				lastFailure.delete(realPath);
-				if (taken.committed) push(entry, realPath);
+			const synced = await syncOne(entry, realPath, { onlyWhenAhead: true });
+			backedUp.push(synced);
+			const failure =
+				synced.error &&
+				`${synced.error.message}${synced.error.next ? `\nRun: ${synced.error.next}` : ''}`;
+			if (!failure) lastFailure.delete(realPath);
+			else if (lastFailure.get(realPath) !== failure) {
+				writeErr(failure);
+				lastFailure.set(realPath, failure);
 			}
 		}
+		return backedUp;
 	};
-	const scheduleCheck = () => {
-		setTimeout(() => {
-			void checkQuiet()
-				.catch((error) => {
-					writeErr(
-						`Looking for quiet changes failed: ${error instanceof Error ? error.message : String(error)}`,
-					);
-				})
-				.finally(scheduleCheck);
-		}, quietCheckMs).unref();
+	let previous: Promise<unknown> = Promise.resolve();
+	const tick = (): Promise<Synced[]> => {
+		const next = previous.then(backUpAll);
+		previous = next.catch(() => undefined);
+		return next;
 	};
-	scheduleCheck();
+	const tickLogged = () =>
+		tick().catch((error) => {
+			writeErr(`Backing up failed: ${extractErrorMessage(error)}`);
+		});
+	let clock: ReturnType<typeof setTimeout> | undefined;
+	let stopping = false;
+	const schedule = () => {
+		if (stopping) return;
+		clock = setTimeout(() => {
+			void tickLogged().finally(schedule);
+		}, BACKUP_EVERY_MS);
+		clock.unref();
+	};
+	const started = tickLogged().finally(schedule);
 	const notFound = () => new Response('Not found', { status: 404 });
 	const uiFile = async (app: string, path: string) => {
 		if (!isName(app)) return notFound();
@@ -230,7 +171,7 @@ export function startHttpServer(
 			return notFound();
 		}
 	};
-	return Bun.serve({
+	const server = Bun.serve({
 		hostname: host,
 		port,
 		idleTimeout: 0,
@@ -252,7 +193,7 @@ export function startHttpServer(
 			const { pathname } = new URL(request.url);
 			if (pathname === '/') {
 				if (request.method === 'POST') {
-					const server = createMcpServer(instructions, listTools, call);
+					const server = createMcpServer(instructions);
 					const transport = new WebStandardStreamableHTTPServerTransport({
 						enableJsonResponse: true,
 					});
@@ -323,21 +264,40 @@ export function startHttpServer(
 			return uiFile(app, match[2]);
 		},
 	});
+	return {
+		port: server.port as number,
+		started,
+		tick,
+		/**
+		 * Stop listening and the clock, then run the last backup, waiting for
+		 * it at most 10 seconds; `false` when it gave up waiting.
+		 */
+		stop() {
+			stopping = true;
+			clearTimeout(clock);
+			void server.stop();
+			return within(BACKUP_WAIT_MS, tickLogged());
+		},
+	};
 }
 
-/** Keep the command alive until its process receives a signal. */
+/**
+ * Serve until the process receives SIGINT or SIGTERM, then back up once more.
+ * It says it is serving once the backup it starts with is done, or after 10
+ * seconds; it listens from the start.
+ */
 export async function serveHttp(host: string, port: number): Promise<number> {
-	// A test looks for quiet changes sooner than every minute.
-	const setting = process.env.EPICENTER_QUIET_CHECK_MS;
-	const parsed = setting === undefined ? NaN : Number(setting);
-	const every =
-		Number.isSafeInteger(parsed) && parsed >= 100 ? parsed : undefined;
-	const server = startHttpServer(host, port, await rootInstructions(), every);
+	const server = startHttpServer(host, port, await rootInstructions());
+	await within(BACKUP_WAIT_MS, server.started);
 	writeErr(`Serving your apps at http://${host}:${server.port}.`);
 	await new Promise<void>((resolve) => {
 		process.once('SIGINT', resolve);
 		process.once('SIGTERM', resolve);
 	});
-	server.stop();
+	if (!(await server.stop())) {
+		// A push still waiting on the network would keep the process alive.
+		writeErr('Stopped without waiting longer for the last backup.');
+		process.exit(0);
+	}
 	return 0;
 }

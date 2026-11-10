@@ -4,9 +4,10 @@
  * repository: the app's folder must be its root, so an undo can never touch
  * a file outside the app.
  *
- * A snapshot names what it took in its message (`snapshot.ts`): its subject
- * is the call, or `<app>: changed outside epicenter`; its body may add
- * `Also changed:` or `Changed:`, followed by one path per line. An undo is a
+ * A commit names what it took in its message (`snapshot.ts`): a call's
+ * subject is the call, with no body; a snapshot with no call reads
+ * `<app>: changed outside epicenter` or `<app>: <message>`, with `Changed:`
+ * and one path per line beneath. An undo is a
  * commit whose subject is `<app>: undid <subject>` and whose body keeps Git's own
  * `This reverts commit <sha>.` line, so undoing an undo redoes it.
  *
@@ -23,7 +24,7 @@ import { git, gitMessage } from './git.ts';
 import { homeEntries } from './home.ts';
 import { fail, writeErr, writeJson, writeOut } from './output.ts';
 import { pushOrigin } from './push.ts';
-import { ALSO_CHANGED, CHANGED, snapshot, underway } from './snapshot.ts';
+import { CHANGED, snapshot, underway } from './snapshot.ts';
 
 /** Git's own line in a revert's body, naming the commit it reverts. */
 const REVERTS = /^This reverts commit ([0-9a-f]{40}|[0-9a-f]{64})\.$/m;
@@ -50,8 +51,8 @@ export type Snapshot = {
 	commit: string;
 	date: string;
 	subject: string;
-	/** The paths its body names, from `Also changed:` or `Changed:`. */
-	also: string[];
+	/** The paths its body names beneath `Changed:`: a snapshot with no call lists what it took; a call's commit, named for the call, lists none. */
+	changed: string[];
 	/** The commit this one reverts, when it is an undo. */
 	undid?: string;
 };
@@ -139,11 +140,9 @@ function revertedBy(commit: Commit) {
 /** A commit as `history --json` gives it. */
 function snapshotOf(commit: Commit): Snapshot {
 	const lines = commit.body.split('\n');
-	const header = lines.findIndex(
-		(line) => line === ALSO_CHANGED || line === CHANGED,
-	);
+	const header = lines.indexOf(CHANGED);
 	const end = lines.findIndex((line, index) => index > header && line === '');
-	const also =
+	const changed =
 		header < 0
 			? []
 			: lines.slice(header + 1, end < 0 ? undefined : end).map((line) => {
@@ -160,7 +159,7 @@ function snapshotOf(commit: Commit): Snapshot {
 		commit: commit.commit,
 		date: commit.date,
 		subject: commit.subject,
-		also,
+		changed,
 		...(undid ? { undid } : {}),
 	};
 }

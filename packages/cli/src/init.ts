@@ -16,17 +16,23 @@ const STARTER_AGENTS = `This folder is an Epicenter.
 Each child folder with an epicenter.ts is an app and its own Git repository.
 
 Prefer \`epicenter <app> <verb>\` to change an app's data: it checks each value
-against the app's fields and snapshots each write into the app's history.
-\`epicenter <app>\` lists the verbs. \`set\` changes fields; \`edit --old <text>
---new <text>\` changes one passage of a file's body, and is refused if that
-passage changed since you read it. You may edit the files with your own tools
-instead; then run \`epicenter sync <app>\` to commit them.
+against the app's fields and commits each call's files into the app's history,
+named for the call. \`epicenter <app>\` lists the verbs. \`set\` changes fields;
+\`edit --old <text> --new <text>\` changes one passage of a file's body, and is
+refused if that passage changed since you read it.
+
+You may edit an app's files with your own tools instead. When you finish, say
+what you did: \`epicenter sync <app> -m "<what you did>"\` commits what is
+pending under that message and backs it up. A plain \`git commit\` in the app's
+folder is safe too. Otherwise \`epicenter serve\` commits it within 5 minutes as
+"changed outside epicenter".
 
 \`epicenter history <app>\` lists what changed, newest first. \`epicenter undo
 <app>\` reverts the most recent change as a new commit; run it again to go
 further back, or name a commit from history to undo that one.
 
-Files named *.local or *.local.* are never committed.
+Files named *.local or *.local.* stay on this computer: each app's .gitignore
+ignores them, and epicenter refuses to snapshot one that is not ignored.
 `;
 
 function actualFolder(path: string): string {
@@ -95,7 +101,8 @@ export async function initCommand(
 		writeOut(`Made Epicenter at ${folder}.`);
 		const hasApps = (await readdir(folder, { withFileTypes: true })).some(
 			(entry) =>
-				entry.isDirectory() && existsSync(join(folder, entry.name, 'epicenter.ts')),
+				entry.isDirectory() &&
+				existsSync(join(folder, entry.name, 'epicenter.ts')),
 		);
 		writeErr(hasApps ? 'Run: epicenter' : 'Run: epicenter new <name>');
 	}

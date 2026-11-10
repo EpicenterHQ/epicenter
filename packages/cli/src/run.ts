@@ -1,11 +1,11 @@
 /**
  * One action's run, for the command line and both MCP transports (ADR-0850).
  * The action writes through its folder as it runs, and the run commits
- * nothing: whoever started it takes a snapshot afterwards (`snapshot.ts`).
- * A run that is not read-only reports the call and the paths it wrote through
- * `folder`, so the parent can name the snapshot. A read-only run's writes
- * through `folder` and `secrets` throw. The answer is
- * what the action returned or threw.
+ * nothing: whoever started it commits afterwards (`snapshot.ts`). A run that
+ * is not read-only reports the call, the paths it wrote through `folder`, and
+ * whether it threw, so the parent commits exactly those paths under the
+ * call's name. A read-only run's writes through `folder` and `secrets` throw.
+ * The answer is what the action returned or threw.
  */
 
 import { type Action, type Folder, inRun, normalizePath } from '@epicenter/app';
@@ -91,19 +91,13 @@ export async function runAction(
 	} catch (error) {
 		answer = { threw: threwOf(error) };
 	}
+	if (readOnly) return { answer };
 	return {
 		answer,
-		...(readOnly
-			? {}
-			: {
-					wrote: {
-						call: callName(
-							located.name,
-							key,
-							input[action.positional?.[0] ?? ''],
-						),
-						paths: [...written].sort(),
-					},
-				}),
+		wrote: {
+			call: callName(located.name, key, input[action.positional?.[0] ?? '']),
+			paths: [...written].sort(),
+			...('threw' in answer ? { threw: true as const } : {}),
+		},
 	};
 }

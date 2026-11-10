@@ -1,7 +1,9 @@
 /**
- * `epicenter sync [<app>]` snapshots and pushes to `origin`, the home's
- * optional backup (ADR-0851). One app's failure never stops the others.
+ * `epicenter sync [<app> [-m <message>]]` snapshots and pushes to `origin`,
+ * the home's optional backup (ADR-0851). One app's failure never stops the
+ * others. `serve`'s backup clock runs the same `syncOne` for each app.
  */
+import { COMMANDS } from './commands.ts';
 import { CliError } from './errors.ts';
 import { git, gitMessage } from './git.ts';
 import { homeEntries } from './home.ts';
@@ -10,7 +12,7 @@ import { pushOrigin } from './push.ts';
 import { snapshot } from './snapshot.ts';
 
 /** What sync did for one app. */
-type Synced = {
+export type Synced = {
 	app: string;
 	folder: string;
 	/** The snapshot sync took of what was pending, or `null` when nothing was. */
@@ -45,7 +47,21 @@ async function originOf(folder: string) {
 	return { ahead, behind };
 }
 
-async function syncOne(app: string, folder: string): Promise<Synced> {
+/**
+ * Snapshot what is pending in one app, as `<app>: <message>` or `<app>:
+ * changed outside epicenter`, then push to `origin` when it exists. With
+ * `onlyWhenAhead`, as `serve`'s clock runs it, it pushes only when the
+ * snapshot committed, the branch is ahead of its `origin` tracking ref, or
+ * there is no tracking ref yet.
+ */
+export async function syncOne(
+	app: string,
+	folder: string,
+	{
+		message,
+		onlyWhenAhead = false,
+	}: { message?: string; onlyWhenAhead?: boolean } = {},
+): Promise<Synced> {
 	const synced: Synced = {
 		app,
 		folder,
@@ -61,7 +77,7 @@ async function syncOne(app: string, folder: string): Promise<Synced> {
 	const insideArgs = ['rev-parse', '--is-inside-work-tree'];
 	const inside = await git(folder, insideArgs);
 	if (inside.code !== 0) return stop(gitMessage(insideArgs, inside));
-	const taken = await snapshot(app, folder);
+	const taken = await snapshot(app, folder, { message });
 	if ('failed' in taken)
 		return stop(
 			taken.failed,
@@ -70,6 +86,10 @@ async function syncOne(app: string, folder: string): Promise<Synced> {
 				: undefined,
 		);
 	synced.committed = taken.committed;
+	if (onlyWhenAhead && !taken.committed) {
+		const origin = await originOf(folder);
+		if (origin?.ahead === 0) return { ...synced, origin };
+	}
 	const pushedNow = await pushOrigin(folder);
 	if ('noOrigin' in pushedNow) return synced;
 	if ('error' in pushedNow)
@@ -81,6 +101,7 @@ async function syncOne(app: string, folder: string): Promise<Synced> {
 /** Sync every app in the Epicenter, or only `name`, one after another. */
 async function syncApps(
 	name?: string,
+	message?: string,
 ): Promise<{ error: CliError } | SyncAnswer> {
 	const entries = await homeEntries();
 	const chosen =
@@ -96,7 +117,7 @@ async function syncApps(
 		};
 	const apps: Synced[] = [];
 	for (const { entry, realPath } of chosen)
-		apps.push(await syncOne(entry, realPath));
+		apps.push(await syncOne(entry, realPath, { message }));
 	return { apps };
 }
 
@@ -130,17 +151,54 @@ function renderSync(answer: SyncAnswer) {
 	return { stdout: lines(stdout), stderr: lines(stderr) };
 }
 
-/** `epicenter sync [<app>]`. */
+/**
+ * The app and message `epicenter sync` was given: at most one app, and
+ * `--message <text>`, `--message=<text>`, or `-m <text>` only with an app;
+ * `undefined` when the words say anything else.
+ */
+function syncWords(words: string[]) {
+	const [name, ...rest] = words;
+	if (name === undefined) return {};
+	if (name.startsWith('-')) return undefined;
+	if (rest.length === 0) return { name };
+	const [flag = '', value] = rest;
+	if (flag.startsWith('--message='))
+		return rest.length === 1
+			? { name, message: flag.slice('--message='.length) }
+			: undefined;
+	if ((flag === '--message' || flag === '-m') && rest.length === 2)
+		return { name, message: value };
+	return undefined;
+}
+
+/** `epicenter sync [<app> [-m <message>]]`. */
 export async function syncCommand(
 	words: string[],
 	json: boolean,
 ): Promise<number> {
-	if (words.length > 1)
+	const given = syncWords(words);
+	if (!given)
 		return fail(
-			CliError.Usage({ message: 'epicenter sync takes at most one app' }).error,
+			CliError.Usage({
+				message:
+					'epicenter sync takes at most one app, and with it maybe -m <message>',
+				next: COMMANDS.sync,
+			}).error,
 			json,
 		);
-	const answer = await syncApps(words[0]);
+	const { name, message } = given;
+	if (
+		message !== undefined &&
+		(message.trim() === '' || /[\r\n]/.test(message))
+	)
+		return fail(
+			CliError.Usage({
+				message: 'A sync message is one line of text, saying what changed',
+				next: COMMANDS.sync,
+			}).error,
+			json,
+		);
+	const answer = await syncApps(name, message);
 	if ('error' in answer) return fail(answer.error, json);
 	if (json) writeJson(answer);
 	else {

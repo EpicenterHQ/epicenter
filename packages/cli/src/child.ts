@@ -12,9 +12,9 @@
  * descriptor, and a pipe's reader waits for all of them. The child writes
  * `{ answer }` when it ends, by renaming over the file, so the parent reads a
  * whole answer or none; after a run that is not read-only it adds `wrote`,
- * the app, call, and paths the parent then snapshots. A child that ends without
+ * the app, call, and paths the parent then commits. A child that ends without
  * a report answers that it threw (exit 1), naming its exit code or signal;
- * whatever it wrote stays on disk, pending.
+ * whatever it wrote stays on disk, pending until a snapshot with no call.
  *
  * The child finishes the run even when its parent dies: nothing it does
  * depends on the parent being there.
@@ -24,6 +24,7 @@ import { readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { epicenterDir } from './root.ts';
+import type { Wrote } from './snapshot.ts';
 
 /** The internal flag that makes `epicenter` a child writing its answer to a file; undocumented, and read only as the first argument, so an action's own input can never be taken for it. */
 export const REPORT_FLAG = '--report=';
@@ -38,7 +39,7 @@ function self(): string[] {
 /** What a child reports: its answer, and after a run that is not read-only, the app it ran. */
 export type Report = {
 	answer: unknown;
-	wrote?: { app: string; folder: string; call: string; paths: string[] };
+	wrote?: Wrote & { app: string; folder: string };
 };
 
 /** Write `record` to the report file in one rename, so a reader never sees half of it. */

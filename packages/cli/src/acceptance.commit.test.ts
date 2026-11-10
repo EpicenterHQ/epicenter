@@ -1,11 +1,12 @@
 /**
- * Acceptance, stage 2: snapshots (ADR-0850). Black-box runs of the real
+ * Acceptance, stage 2: commits (ADR-0850). Black-box runs of the real
  * `epicenter` against a temporary HOME. A run never commits; after a write
- * run, the command line takes a snapshot of everything pending in the app's
- * folder and nothing outside it, named for the call, with what no call wrote
- * listed as changed outside epicenter. A read-only action cannot write
- * through `folder` or `secrets`. The answer is `{ returned }`, `{ threw }`,
- * or `{ error }`, exit 0, 1, or 2, whatever became of the snapshot.
+ * run, the command line commits exactly the paths it wrote, named for the
+ * call, and leaves everything else pending until `epicenter sync` snapshots
+ * it as changed outside epicenter, or as the message an agent gives. A
+ * read-only action cannot write through `folder` or `secrets`. The answer is
+ * `{ returned }`, `{ threw }`, or `{ error }`, exit 0, 1, or 2, whatever
+ * became of the commit.
  */
 
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
@@ -151,7 +152,7 @@ test('C1 a write run commits nothing itself, and the command line snapshots it a
 	expect(await readFile(join(loose.dir, 'tuesday.md'), 'utf8')).toBe('tuesday');
 });
 
-test('C2 a snapshot takes everything pending in the folder, staged or not, never ignored files, and names what no call wrote', async () => {
+test("C2 a call's commit holds only the paths it wrote; other changes, staged or not, stay pending, and ignored files are never taken", async () => {
 	const f = await setup();
 	await writeFile(join(f.dir, 'a.md'), 'edited by hand\n');
 	await writeFile(join(f.dir, 'staged.md'), 'staged\n');
@@ -159,18 +160,16 @@ test('C2 a snapshot takes everything pending in the folder, staged or not, never
 	const ran = await f.json('notes', 'write', 'monday');
 	expect(ran.code).toBe(0);
 	expect(await gitIn(f.dir, 'log', '-1', '--format=%B')).toBe(
-		'notes: write monday\n\nAlso changed:\na.md\nstaged.md',
+		'notes: write monday',
 	);
-	expect(
-		(await gitIn(f.dir, 'show', '--name-only', '--format=', 'HEAD')).split(
-			'\n',
-		),
-	).toEqual(['a.md', 'monday.md', 'staged.md']);
-	expect(await status(f.dir)).toBe('');
+	expect(await gitIn(f.dir, 'show', '--name-only', '--format=', 'HEAD')).toBe(
+		'monday.md',
+	);
+	expect(await status(f.dir)).toBe('M a.md\nA  staged.md');
 	expect(await gitIn(f.dir, 'ls-files', '.cache')).toBe('');
 });
 
-test('C2b a snapshot never commits *.local or *.local.*, even when .gitignore does not name them', async () => {
+test('C2b a snapshot refuses a *.local or *.local.* file the .gitignore lets through, and takes none once it is ignored', async () => {
 	const f = await setup();
 	await writeFile(join(f.dir, '.gitignore'), '.cache/\n');
 	await gitIn(f.dir, 'commit', '-qam', 'a .gitignore without .local');
@@ -180,6 +179,20 @@ test('C2b a snapshot never commits *.local or *.local.*, even when .gitignore do
 	expect(ran.code).toBe(0);
 	expect(await gitIn(f.dir, 'show', '--name-only', '--format=', 'HEAD')).toBe(
 		'monday.md',
+	);
+	const refused = await f.json('sync', 'notes');
+	expect(refused.code).toBe(1);
+	expect(refused.answer.apps[0].error.message).toBe(
+		'notes: device.local would be committed; add *.local and *.local.* to notes/.gitignore',
+	);
+	expect(await subjects(f.dir)).toBe(
+		'notes: write monday\na .gitignore without .local\ninitial',
+	);
+	await writeFile(join(f.dir, '.gitignore'), gitignore);
+	const synced = await f.json('sync', 'notes');
+	expect(synced.code).toBe(0);
+	expect(await gitIn(f.dir, 'show', '--name-only', '--format=', 'HEAD')).toBe(
+		'.gitignore',
 	);
 	expect(await gitIn(f.dir, 'ls-files', '*.local*')).toBe('');
 	expect(
@@ -220,13 +233,19 @@ test('C4 an app inside a larger repository commits only its own folder', async (
 	await writeFile(join(app, 'a.md'), 'edited inside\n');
 	const ran = await f.json('notes', 'write', 'monday');
 	expect(ran.code).toBe(0);
-	expect(
-		(await gitIn(vault, 'show', '--name-only', '--format=', 'HEAD')).split(
-			'\n',
-		),
-	).toEqual(['notes/a.md', 'notes/monday.md']);
+	expect(await gitIn(vault, 'show', '--name-only', '--format=', 'HEAD')).toBe(
+		'notes/monday.md',
+	);
 	expect(await gitIn(vault, 'log', '-1', '--format=%B')).toBe(
-		'notes: write monday\n\nAlso changed:\na.md',
+		'notes: write monday',
+	);
+	expect(await status(vault)).toBe(
+		'A  journal/staged.md\n M journal/today.md\n M notes/a.md',
+	);
+	// A snapshot with no call takes the app's folder and nothing beside it.
+	expect((await f.run('sync', 'notes')).code).toBe(0);
+	expect(await gitIn(vault, 'show', '--name-only', '--format=', 'HEAD')).toBe(
+		'notes/a.md',
 	);
 	expect(await status(vault)).toBe('A  journal/staged.md\n M journal/today.md');
 });
@@ -330,12 +349,12 @@ test('C7 exit codes: 0 returned, 1 threw or ended without an answer, 2 did not r
 	expect(human).toEqual({ code: 0, stdout: 'monday\n', stderr: '' });
 });
 
-test('C9 a write that throws leaves what it wrote pending like any change, and the snapshot after it names the call', async () => {
+test('C9 a write that throws is committed as the call that threw', async () => {
 	const f = await setup();
 	const ran = await f.json('notes', 'half', 'wednesday');
 	expect(ran.code).toBe(1);
 	expect(ran.answer).toEqual({ threw: { message: 'stopped halfway' } });
-	expect(await subjects(f.dir)).toBe('notes: half wednesday\ninitial');
+	expect(await subjects(f.dir)).toBe('notes: half wednesday (threw)\ninitial');
 	expect(await status(f.dir)).toBe('');
 	await f.json('notes', 'write', 'thursday');
 	expect(await gitIn(f.dir, 'show', '--name-only', '--format=', 'HEAD')).toBe(
@@ -413,6 +432,37 @@ test('C12 no lock file is made anywhere', async () => {
 		),
 	).toEqual([]);
 	expect(await status(f.dir)).toBe('');
+});
+
+test('C13 sync -m names a snapshot of what an agent edited, and refuses a message that is not one line or has no app', async () => {
+	const f = await setup();
+	await writeFile(join(f.dir, 'a.md'), 'tidied\n');
+	await writeFile(join(f.dir, 'b.md'), 'new\n');
+	for (const words of [
+		['sync', '-m', 'one\ntwo', 'notes'],
+		['sync', 'notes', '-m', 'one\ntwo'],
+		['sync', 'notes', '--message', '  '],
+		['sync', '-m', 'tidy'],
+		['sync', 'notes', '-m'],
+	]) {
+		const refused = await f.json(...words);
+		expect(refused.code).toBe(2);
+		expect(refused.answer.error).toMatchObject({ name: 'Usage' });
+	}
+	expect(await subjects(f.dir)).toBe('initial');
+	const synced = await f.run('sync', 'notes', '-m', 'tidy the pages');
+	expect(synced.code).toBe(0);
+	expect(synced.stdout).toBe(
+		'notes: committed notes: tidy the pages; no origin\n',
+	);
+	expect(await gitIn(f.dir, 'log', '-1', '--format=%B')).toBe(
+		'notes: tidy the pages\n\nChanged:\na.md\nb.md',
+	);
+	await writeFile(join(f.dir, 'c.md'), 'c\n');
+	expect((await f.run('sync', 'notes', '--message=add c')).code).toBe(0);
+	expect(await gitIn(f.dir, 'log', '-1', '--format=%s')).toBe('notes: add c');
+	// An undo treats it as a snapshot.
+	expect((await f.run('undo', 'notes')).stdout).toBe('undid notes: add c\n');
 });
 
 test('C8 stdout belongs to epicenter: an action that logs does not corrupt --json or serve --stdio', async () => {

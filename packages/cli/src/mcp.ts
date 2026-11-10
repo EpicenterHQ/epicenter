@@ -9,9 +9,9 @@
  * code and declaration on disk when a call arrives are what runs, an edit
  * between two calls is seen by the second, and a call's result is the same
  * object `--json` prints: `structuredContent` on success, and with
- * `isError` on failure. After a call that is not read-only, the server takes
- * a snapshot of the app's folder before it answers, one at a time per app
- * (ADR-0850). Diagnostics go to stderr.
+ * `isError` on failure. After a call that is not read-only, the server
+ * commits the paths the call wrote, named for it, before it answers, one
+ * commit at a time per app (ADR-0850). Diagnostics go to stderr.
  */
 
 import { isName } from '@epicenter/app';
@@ -87,31 +87,21 @@ async function runAppTool(
 
 /**
  * Run a tool through the same child process for either MCP transport, and
- * after a write, snapshot its app. `committed` hears of each snapshot that
- * made a commit; a failed one is written to stderr, its paths stay pending,
- * and the call's answer stands.
+ * after a write, commit the paths it wrote. A commit that fails is written to
+ * stderr, its paths stay pending, and the call's answer stands.
  */
-export async function callTool(
-	name: string,
-	args: Record<string, unknown>,
-	committed?: (app: string, folder: string) => void,
-) {
+export async function callTool(name: string, args: Record<string, unknown>) {
 	const { answer, wrote } = await runAppTool(name, args);
 	if (wrote) {
-		const taken = await snapshot(wrote.app, wrote.folder, wrote);
+		const taken = await snapshot(wrote.app, wrote.folder, { wrote });
 		if ('failed' in taken)
 			writeErr(`${wrote.app}: not yet in history: ${taken.failed}`);
-		else if (taken.committed) committed?.(wrote.app, wrote.folder);
 	}
 	return toolResult(answer as Answer);
 }
 
 /** Register the shared tool handlers on a fresh MCP server. */
-export function createMcpServer(
-	instructions?: string,
-	list: () => Promise<Tool[]> = listTools,
-	call: typeof callTool = callTool,
-) {
+export function createMcpServer(instructions?: string) {
 	const server = new Server(
 		{ name: 'epicenter', version: packageJson.version },
 		{
@@ -120,10 +110,10 @@ export function createMcpServer(
 		},
 	);
 	server.setRequestHandler(ListToolsRequestSchema, async () => ({
-		tools: await list(),
+		tools: await listTools(),
 	}));
 	server.setRequestHandler(CallToolRequestSchema, (request) =>
-		call(request.params.name, request.params.arguments ?? {}),
+		callTool(request.params.name, request.params.arguments ?? {}),
 	);
 	return server;
 }

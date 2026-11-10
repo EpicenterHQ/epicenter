@@ -2,9 +2,9 @@
  * The epicenter command runs apps from the selected Epicenter
  * (ADR-0841). It parses words, shows what can run, checks input, and prints the
  * answer. Its exit code is 0 when the action returned, 1 when it threw, and 2
- * when nothing ran (ADR-0867). After a run that is not read-only, it takes a
- * snapshot of the app's folder (ADR-0850); a snapshot that fails changes
- * neither the answer nor the exit code; the pending paths remain in status.
+ * when nothing ran (ADR-0867). After a run that is not read-only, it commits
+ * the paths the run wrote, named for the call (ADR-0850); a commit that fails
+ * changes neither the answer nor the exit code; the paths remain pending.
  */
 import type { Action } from '@epicenter/app';
 import packageJson from '../package.json' with { type: 'json' };
@@ -71,7 +71,9 @@ changes, undoes a merge that stops on a conflict, lists each file that no
 longer fits its collection's fields, and builds the UI, keeping the last one that built.`,
 	build: `Builds the UI of every app, or one app, keeping each last good build.`,
 	sync: `Takes a snapshot of what is pending in each app, or one app, then pushes
-to origin when it exists. It never pushes to upstream.`,
+to origin when it exists. It never pushes to upstream. The snapshot reads
+"<app>: changed outside epicenter", or with -m (--message), "<app>: <message>":
+an agent that edited an app's files itself names what it did this way.`,
 	history: `Lists the app's snapshots, newest first (20 by default; --limit takes 1 to 1000): each
 one's commit, local time, and what it took. An undo reads as "undid <subject>".`,
 	undo: `Snapshots what is pending, then reverts the app's most recent snapshot that is
@@ -81,7 +83,8 @@ merge, a commit not in the app's history, and a revert that conflicts, leaving
 the folder as it was, and then pushes to origin as sync does.`,
 	serve: `Offers every app's actions over MCP at / and each app's UI at /<app>/, on
 127.0.0.1 and the Epicenter's port (default 4747) unless --port or --host says otherwise. With --stdio, it speaks
-MCP on stdin and stdout instead.`,
+MCP on stdin and stdout instead. Over HTTP it backs up every app as sync does when it
+starts, every 5 minutes, and when it stops.`,
 };
 
 /** What each command in `COMMANDS` does. */
@@ -215,12 +218,12 @@ export async function runCli(argv: string[]): Promise<number> {
 			return HANDLERS[command](words, json);
 		}
 		epicenterRoot();
-		// Running an action is two processes; the child owns the whole run, and this one its snapshot.
+		// Running an action is two processes; the child owns the whole run, and this one its commit.
 		if (!reportArg && words.length > 0 && !help) {
 			const { answer, wrote } = await runChild(relayed, { stdin: 'inherit' });
 			const code = presentAnswer(answer as Answer, json);
 			if (wrote) {
-				const taken = await snapshot(wrote.app, wrote.folder, wrote);
+				const taken = await snapshot(wrote.app, wrote.folder, { wrote });
 				if ('failed' in taken)
 					writeErr(
 						`Not yet in ${wrote.app}'s history: ${taken.failed}\nRun: epicenter sync ${wrote.app}`,

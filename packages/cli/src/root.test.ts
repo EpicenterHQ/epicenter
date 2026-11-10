@@ -43,7 +43,10 @@ test('init writes an identity and starter guidance, keeps existing guidance, and
 	expect(defaulted.code).toBe(0);
 	expect(JSON.parse(defaulted.stdout).port).toBe(4747);
 	const starter = await readFile(join(fresh, 'AGENTS.md'), 'utf8');
-	expect(starter).toContain('*.local or *.local.* are never committed');
+	expect(starter).toContain('epicenter sync <app> -m "<what you did>"');
+	expect(starter).toContain(
+		'epicenter refuses to snapshot one that is not ignored',
+	);
 	expect(starter).toContain('Each child folder with an epicenter.ts is an app');
 	const shown = await f.run('init', join(f.root, 'shown'));
 	expect(shown.stdout).toContain(`Made Epicenter at ${join(f.root, 'shown')}`);

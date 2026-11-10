@@ -10,7 +10,7 @@ export const COMMANDS = {
 	new: 'epicenter new <name> [--from <git url|path>]',
 	update: 'epicenter update [<app>]',
 	build: 'epicenter build [<app>]',
-	sync: 'epicenter sync [<app>]',
+	sync: 'epicenter sync [<app> [-m <message>]]',
 	history: 'epicenter history <app> [--limit <n>]',
 	undo: 'epicenter undo <app> [<commit>]',
 	serve: 'epicenter serve [--port <n>] [--host <address>] [--stdio]',

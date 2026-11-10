@@ -209,7 +209,7 @@ test('F9 one table owns the vocabulary; --json goes anywhere; defaulted fields a
 		expect((await f.json('new', word)).code).toBe(2);
 	expect((await f.json('new', 'link')).code).toBe(0);
 	const help = (await f.run('--help')).stdout;
-	expect(help).toContain('epicenter sync [<app>]');
+	expect(help).toContain('epicenter sync [<app> [-m <message>]]');
 	expect(help).toContain(
 		'Exit codes: 0 done, 1 threw or an app did not sync, 2 did not run.',
 	);

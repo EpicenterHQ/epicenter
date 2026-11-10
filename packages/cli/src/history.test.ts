@@ -68,10 +68,7 @@ test('history lists calls, an outside change, and an undo, newest first', async 
 		{ 'outside.md': 'by hand\n' },
 		'notes: changed outside epicenter\n\nChanged:\noutside.md',
 	);
-	const two = await f.commit(
-		{ 'log.md': 'two\n', 'extra.md': 'x\n' },
-		'notes: put two\n\nAlso changed:\nextra.md',
-	);
+	const two = await f.commit({ 'log.md': 'two\n' }, 'notes: put two');
 	expect((await f.run('undo', 'notes')).code).toBe(0);
 	const undo = await f.head();
 
@@ -83,32 +80,32 @@ test('history lists calls, an outside change, and an undo, newest first', async 
 			commit: undo,
 			date: expect.any(String),
 			subject: 'notes: undid notes: put two',
-			also: [],
+			changed: [],
 			undid: two,
 		},
 		{
 			commit: two,
 			date: expect.any(String),
 			subject: 'notes: put two',
-			also: ['extra.md'],
+			changed: [],
 		},
 		{
 			commit: outside,
 			date: expect.any(String),
 			subject: 'notes: changed outside epicenter',
-			also: ['outside.md'],
+			changed: ['outside.md'],
 		},
 		{
 			commit: one,
 			date: expect.any(String),
 			subject: 'notes: put one',
-			also: [],
+			changed: [],
 		},
 		{
 			commit: expect.any(String),
 			date: expect.any(String),
 			subject: 'initial',
-			also: [],
+			changed: [],
 		},
 	]);
 	expect(snapshots[0].date).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d[+-Z]/);
@@ -122,11 +119,9 @@ test('history lists calls, an outside change, and an undo, newest first', async 
 		),
 	);
 	expect(lines[1]).toMatch(/ {2}notes: put two$/);
-	expect(lines[2]).toBe(`${' '.repeat(27)}Also changed:`);
-	expect(lines[3]).toBe(`${' '.repeat(27)}extra.md`);
-	expect(lines[4]).toMatch(/ {2}notes: changed outside epicenter$/);
-	expect(lines[5]).toBe(`${' '.repeat(27)}Changed:`);
-	expect(lines[6]).toBe(`${' '.repeat(27)}outside.md`);
+	expect(lines[2]).toMatch(/ {2}notes: changed outside epicenter$/);
+	expect(lines[3]).toBe(`${' '.repeat(27)}Changed:`);
+	expect(lines[4]).toBe(`${' '.repeat(27)}outside.md`);
 	expect(human.stdout).not.toContain('This reverts commit');
 
 	const limited = await f.run('history', 'notes', '--limit', '2', '--json');
@@ -147,7 +142,7 @@ test('history reads comma and JSON-quoted newline paths from a snapshot body', a
 		'notes: changed outside epicenter\n\nChanged:\na,b.md\n"line\\nbreak.md"',
 	);
 	const listed = await f.run('history', 'notes', '--json');
-	expect(JSON.parse(listed.stdout)[0].also).toEqual([
+	expect(JSON.parse(listed.stdout)[0].changed).toEqual([
 		'a,b.md',
 		'line\nbreak.md',
 	]);

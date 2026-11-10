@@ -19,8 +19,8 @@ const ENVIRONMENT = {
 
 /**
  * Run `git -C folder ...args`; never throws for a non-zero exit. `magic`
- * lets a snapshot's own fixed pathspec use `:(exclude)` (`snapshot.ts`);
- * every other call reads paths literally.
+ * lets a commit name each path with `:(literal)` or `:(top,literal)`
+ * (`snapshot.ts`); every other call reads paths literally.
  */
 export async function git(folder: string, args: string[], magic = false) {
 	const child = Bun.spawn(['git', '-C', folder, ...args], {

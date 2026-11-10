@@ -1,8 +1,8 @@
 /**
  * HTTP serve acceptance tests.
  * Runs the real CLI against a temporary HOME and checks MCP calls, the
- * snapshots after them and of quiet outside edits, UI confinement, and
- * request origin handling.
+ * commits after them, the backup when serve stops, UI confinement, and
+ * request origin handling. `http.test.ts` drives the backup clock's tick.
  */
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
 import { mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
@@ -29,12 +29,12 @@ afterEach(async () => {
 	for (const cleanup of cleanups.splice(0)) await cleanup();
 });
 
-async function setup(agents?: string, env: Record<string, string> = {}) {
+async function setup(agents?: string) {
 	const f = await fixture();
 	if (agents !== undefined) await writeFile(join(f.home, 'AGENTS.md'), agents);
 	const child = Bun.spawn([process.execPath, f.bin, 'serve', '--port', '0'], {
 		cwd: f.root,
-		env: { ...f.env, ...env },
+		env: f.env,
 		stdout: 'ignore',
 		stderr: 'pipe',
 	});
@@ -64,7 +64,12 @@ async function setup(agents?: string, env: Record<string, string> = {}) {
 			throw new Error('serve did not listen');
 		}),
 	]);
-	return { ...f, base, stderr: () => output };
+	/** Stop serve as a person would, and wait for its last backup and exit. */
+	const stop = async () => {
+		child.kill('SIGTERM');
+		return child.exited;
+	};
+	return { ...f, base, stderr: () => output, stop };
 }
 
 function mcp(base: string, method: string, params: object = {}) {
@@ -149,7 +154,7 @@ test('the browser client calls a tool without initialize and a write makes one n
 	);
 });
 
-test('a read-only action makes no commit, and one that throws after writing is snapshotted under its call', async () => {
+test('a read-only action makes no commit, and one that throws after writing commits its paths as the call that threw', async () => {
 	const f = await setup();
 	const folder = await f.folder(join(f.home, 'reading'), readingApp);
 	const client = connect<Reading>('reading', { url: `${f.base}/` });
@@ -163,9 +168,9 @@ test('a read-only action makes no commit, and one that throws after writing is s
 		threw: { message: 'line 4 is not a number' },
 	});
 	expect(await gitIn(folder, 'log', '-1', '--format=%B')).toBe(
-		'reading: explode\n\nAlso changed:\nnotes.md',
+		'reading: explode (threw)',
 	);
-	expect(await gitIn(folder, 'status', '--porcelain')).toBe('');
+	expect(await gitIn(folder, 'status', '--porcelain')).toBe('?? notes.md');
 });
 
 test('a call whose snapshot fails still resolves, and the app says why', async () => {
@@ -197,66 +202,35 @@ test('concurrent writes through update both land, and both are in history', asyn
 	expect(await gitIn(folder, 'rev-list', '--count', 'HEAD')).toMatch(/^[23]$/);
 });
 
-test('outside edits that have gone quiet are snapshotted and pushed within two checks', async () => {
-	const f = await setup(undefined, { EPICENTER_QUIET_CHECK_MS: '300' });
-	const folder = await f.folder(join(f.home, 'reading'), readingApp);
-	const remote = join(f.root, 'remote.git');
-	await gitIn(f.root, 'init', '--bare', '-q', remote);
-	await gitIn(folder, 'remote', 'add', 'origin', remote);
-	await gitIn(folder, 'push', '-q', '-u', 'origin', 'HEAD');
-	await writeFile(join(folder, 'notes.md'), 'by hand\n');
-	const wrote = Date.now();
-	let message = '';
-	while (Date.now() - wrote < 5_000) {
-		message = await gitIn(remote, 'log', '-1', '--format=%B');
-		if (message !== 'initial') break;
-		await Bun.sleep(50);
-	}
-	expect(message).toBe(
-		'reading: changed outside epicenter\n\nChanged:\nnotes.md',
+test('two calls at once on different files each commit only their own file', async () => {
+	const f = await setup();
+	const folder = await f.app(
+		'notes',
+		`export default defineApp({ description: 'Notes', collections: {}, actions: {
+		write: defineAction({ description: 'Write a page', input: { page: field.text() }, positional: ['page'],
+			run: async ({ page }) => { await folder.write(page + '.md', page); return page; } }),
+	} });`,
 	);
-	// Two checks 300 ms apart, then the snapshot and push; the bound leaves room for a loaded machine.
-	expect(Date.now() - wrote).toBeLessThan(4_000);
-	expect(await gitIn(folder, 'status', '--porcelain')).toBe('');
-});
-
-test('quiet check waits while a pending file keeps changing', async () => {
-	const f = await setup(undefined, { EPICENTER_QUIET_CHECK_MS: '100' });
-	const vault = await f.folder(
-		join(f.root, 'vault'),
-		Object.fromEntries(
-			Object.entries(readingApp).map(([path, text]) => [
-				`reading/${path}`,
-				text,
-			]),
-		),
-	);
-	const folder = join(vault, 'reading');
-	await symlink(folder, join(f.home, 'reading'));
-	const path = join(folder, 'notes.md');
-	for (let change = 0; change < 15; change++) {
-		await writeFile(path, 'x'.repeat(change + 1));
-		await Bun.sleep(75);
+	await writeFile(join(folder, 'by-hand.md'), 'by hand\n');
+	const client = connect<{
+		actions: { write: (input: { page: string }) => string };
+	}>('notes', { url: `${f.base}/` });
+	await Promise.all([
+		client.write({ page: 'monday' }),
+		client.write({ page: 'tuesday' }),
+	]);
+	const commits = (await gitIn(folder, 'log', '-2', '--format=%s')).split('\n');
+	expect(commits.sort()).toEqual([
+		'notes: write monday',
+		'notes: write tuesday',
+	]);
+	for (const rev of ['HEAD', 'HEAD~1']) {
+		const subject = await gitIn(folder, 'log', '-1', '--format=%s', rev);
+		expect(await gitIn(folder, 'show', '--name-only', '--format=', rev)).toBe(
+			`${subject.slice('notes: write '.length)}.md`,
+		);
 	}
-	expect(await gitIn(folder, 'rev-list', '--count', 'HEAD')).toBe('1');
-	for (let attempt = 0; attempt < 40; attempt++) {
-		if ((await gitIn(folder, 'rev-list', '--count', 'HEAD')) === '2') break;
-		await Bun.sleep(75);
-	}
-	expect(await gitIn(folder, 'rev-list', '--count', 'HEAD')).toBe('2');
-});
-
-test('quiet check logs an unchanged snapshot failure once', async () => {
-	const f = await setup(undefined, { EPICENTER_QUIET_CHECK_MS: '100' });
-	const folder = await f.folder(join(f.home, 'reading'), readingApp);
-	await writeFile(
-		join(folder, '.gitattributes'),
-		'*.csv filter=lfs diff=lfs merge=lfs -text\n',
-	);
-	await writeFile(join(folder, 'notes.md'), 'by hand\n');
-	await Bun.sleep(700);
-	expect(f.stderr().match(/not yet in history:/g)).toHaveLength(1);
-	expect(await gitIn(folder, 'rev-list', '--count', 'HEAD')).toBe('1');
+	expect(await gitIn(folder, 'status', '--porcelain')).toBe('?? by-hand.md');
 });
 
 test('serve reports a refused backup push and leaves both histories intact', async () => {
@@ -273,12 +247,7 @@ test('serve reports a refused backup push and leaves both histories intact', asy
 	await gitIn(peer, 'commit', '-q', '-m', 'peer');
 	await gitIn(peer, 'push', '-q');
 	await connect<Reading>('reading', { url: `${f.base}/` }).log({ minutes: 42 });
-	for (
-		let attempt = 0;
-		attempt < 100 && !f.stderr().includes('nothing was overwritten');
-		attempt++
-	)
-		await Bun.sleep(50);
+	expect(await f.stop()).toBe(0);
 	expect(f.stderr()).toContain(
 		'the backup at origin has changes this computer does not; nothing was overwritten',
 	);
@@ -292,7 +261,7 @@ test('serve reports a refused backup push and leaves both histories intact', asy
 	);
 });
 
-test('a successful write pushes to an upstream in the background', async () => {
+test('a write call is pushed by the backup clock, not by the call; serve backs up once more when it stops', async () => {
 	const f = await setup();
 	const folder = await f.folder(join(f.home, 'reading'), readingApp);
 	const remote = join(f.root, 'remote.git');
@@ -302,13 +271,16 @@ test('a successful write pushes to an upstream in the background', async () => {
 	await connect<Reading>('reading', {
 		url: `${f.base}/`,
 	}).log({ minutes: 42 });
-	let subject = '';
-	for (let attempt = 0; attempt < 50; attempt++) {
-		subject = await gitIn(remote, 'log', '-1', '--format=%s');
-		if (subject === 'reading: log 42') break;
-		await Bun.sleep(50);
-	}
-	expect(subject).toBe('reading: log 42');
+	expect(await gitIn(folder, 'log', '-1', '--format=%s')).toBe(
+		'reading: log 42',
+	);
+	expect(await gitIn(remote, 'log', '-1', '--format=%s')).toBe('initial');
+	await writeFile(join(folder, 'notes.md'), 'by hand\n');
+	expect(await f.stop()).toBe(0);
+	expect(await gitIn(remote, 'log', '--format=%s')).toBe(
+		'reading: changed outside epicenter\nreading: log 42\ninitial',
+	);
+	expect(await gitIn(folder, 'status', '--porcelain')).toBe('');
 });
 
 test('commit subjects use the first positional value on one line, capped at 60 characters', async () => {
