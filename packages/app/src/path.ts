@@ -34,6 +34,20 @@ export const TIME = 'time';
 const PLACEHOLDER = /\{([a-z][A-Za-z0-9]*)\}/g;
 const ESCAPE = /[.*+?^${}()|[\]\\]/g;
 
+/**
+ * How many bytes a placeholder's value may take. A file name holds 255, and
+ * `folder` writes beside a file under its name and up to 47 bytes more.
+ */
+const MAX_SEGMENT_BYTES = 200;
+
+/**
+ * A value as it names a file: NFC, so one word typed two ways names one file;
+ * trimmed; and each run of whitespace, a line break included, one space.
+ */
+function asSegment(value: string): string {
+	return value.normalize('NFC').trim().replace(/\s+/g, ' ');
+}
+
 /** A placeholder's value names one path segment: no `/` or `\`, and no leading `.`. */
 function isSegmentValue(value: string): boolean {
 	return value !== '' && !/[/\\]/.test(value) && !value.startsWith('.');
@@ -127,12 +141,15 @@ export function template(text: string): Template {
 		},
 		fill(values) {
 			const path = text.replace(PLACEHOLDER, (_, name: string) => {
-				const value = name === TIME ? (values[name] ?? timeId()) : values[name];
-				if (value === undefined) throw new Error(`{${name}} is needed`);
+				const given = name === TIME ? (values[name] ?? timeId()) : values[name];
+				if (given === undefined) throw new Error(`{${name}} is needed`);
+				const value = asSegment(given);
 				if (!isSegmentValue(value))
 					throw new Error(
-						`${JSON.stringify(value)} cannot name a file: it is empty, has / or \\, or starts with .`,
+						`${JSON.stringify(given)} cannot name a file: it is empty, has / or \\, or starts with .`,
 					);
+				if (new TextEncoder().encode(value).length > MAX_SEGMENT_BYTES)
+					throw new Error(`${JSON.stringify(given)} is too long to name a file`);
 				return value;
 			});
 			if (!local && isLocalPath(path))

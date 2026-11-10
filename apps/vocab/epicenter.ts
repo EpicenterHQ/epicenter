@@ -3,6 +3,7 @@ import {
 	defineApp,
 	defineCollection,
 	field,
+	localTime,
 } from '@epicenter/app';
 
 const words = defineCollection({
@@ -152,30 +153,6 @@ function nextFor(word: Pick<Word, 'interval' | 'ease' | 'reps'>, now: Date) {
 	) as Record<Grade, string>;
 }
 
-/** `at` as RFC 3339 in this computer's offset: `2026-11-10T22:41:05+08:00`. */
-function localTime(at: Date): string {
-	const offset = -at.getTimezoneOffset();
-	const sign = offset >= 0 ? '+' : '-';
-	const pad = (n: number) => String(Math.trunc(Math.abs(n))).padStart(2, '0');
-	const local = new Date(at.getTime() + offset * 60_000)
-		.toISOString()
-		.slice(0, 19);
-	return `${local}${sign}${pad(offset / 60)}:${pad(offset % 60)}`;
-}
-
-/** The word as its file is named: NFC, trimmed, single spaces; throws when no file can be named by it. */
-function fileWord(text: string): string {
-	const word = text.normalize('NFC').trim().replace(/\s+/g, ' ');
-	if (word === '') throw new Error('A word is needed');
-	if (/[/\\]/.test(word) || word.startsWith('.'))
-		throw new Error(
-			`"${word}" cannot name a file: it has / or \\, or starts with .`,
-		);
-	if (new TextEncoder().encode(word).length > 200)
-		throw new Error(`"${word}" is too long to name a file`);
-	return word;
-}
-
 /** `add`: a word already saved is returned as it is, with `added: false`. */
 const learn = defineAction({
 	description:
@@ -198,13 +175,13 @@ const learn = defineAction({
 		idempotentHint: true,
 		openWorldHint: false,
 	},
-	run: async ({ word: text, meaning, reading, body }) => {
-		const word = fileWord(text);
+	run: async ({ word, meaning, reading, body }) => {
+		// `pathOf` names the file by the word as typed, NFC, trimmed, and with single spaces.
 		const found = await words.get({ path: words.pathOf({ word }) });
 		if (found) return { ...found, added: false };
 		const made = await words.add({
 			word,
-			createdAt: localTime(new Date()),
+			createdAt: localTime(),
 			meaning: meaning?.trim() || undefined,
 			reading: reading?.trim() || undefined,
 			body: body?.trim() ? `${body.trim()}\n` : '',

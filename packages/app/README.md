@@ -120,9 +120,11 @@ gives the same operations as verbs to expose, each taking the same object:
 | `pathOf({ ...placeholders })`: the path `add` would write | |
 
 The exposed `get` throws `There is no <path>` where the method answers
-`undefined`. `pathOf` fills the template, `{time}` included, and throws
-for a value `add` would refuse: empty, holding `/` or `\`, or starting with
-`.`. So an action never writes `words/${word}.md` itself:
+`undefined`. `pathOf` fills the template, `{time}` included, as `add` does:
+it names the file by the value as NFC, trimmed, with each run of whitespace
+one space, so `" 你好 "` and `"你好"` name one file, and it throws for a value
+that is then empty, holds `/` or `\`, starts with `.`, or is over 200 bytes.
+So an action never writes `words/${word}.md` itself:
 
 ```ts
 const found = await words.get({ path: words.pathOf({ word }) });

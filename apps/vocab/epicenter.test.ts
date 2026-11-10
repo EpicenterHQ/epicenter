@@ -111,7 +111,7 @@ describe('actions', () => {
 			'cannot name a file',
 		);
 		await expect(inRun(context, () => add({ word: '  ' }))).rejects.toThrow(
-			'A word is needed',
+			'cannot name a file',
 		);
 	});
 

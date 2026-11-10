@@ -607,6 +607,16 @@ describe('pathOf', () => {
 			'A items/{id}.md file is named by its id; give it',
 		);
 	});
+
+	test('names one file however a value is typed: NFC, trimmed, single spaces', () => {
+		const decomposed = 'Go\u0308del'; // ö as o and a combining mark
+		expect(items.pathOf({ id: `  ${decomposed},\n Escher  ` })).toBe(
+			'items/G\u00f6del, Escher.md',
+		);
+		expect(() => items.pathOf({ id: 'x'.repeat(201) })).toThrow(
+			'is too long to name a file',
+		);
+	});
 });
 
 describe('a readOnly field that is required and has no default', () => {
