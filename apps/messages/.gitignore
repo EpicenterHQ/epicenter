@@ -1,2 +1,4 @@
-test-results
-playwright-report
+node_modules/
+.cache/
+*.local
+*.local.*

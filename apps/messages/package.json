@@ -1,41 +1,18 @@
 {
-	"name": "@epicenter/messages-app",
-	"description": "Beeper conversations with drafts kept as Markdown notes in a directory on this computer, served by its own program",
-	"version": "0.0.1",
+	"name": "@epicenter/messages",
+	"description": "Fictional Beeper conversations as an Epicenter app",
 	"private": true,
+	"version": "0.0.1",
 	"type": "module",
 	"scripts": {
-		"dev": "vite dev",
-		"build": "NODE_ENV=production vite build",
-		"start": "bun run build && bun scripts/serve.ts",
-		"preview": "vite preview",
-		"contract": "bun scripts/write-contract.ts",
-		"prepare": "svelte-kit sync || echo ''",
-		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
-		"test": "bun test --isolate --conditions=browser --conditions=svelte --conditions=test src scripts",
-		"test:e2e": "playwright test -c playwright.config.ts"
-	},
-	"dependencies": {
-		"@beeper/desktop-api": "^6.0.0",
-		"@epicenter/definition": "workspace:*",
-		"@epicenter/folder": "workspace:*",
-		"@epicenter/svelte": "workspace:*",
-		"@epicenter/ui": "workspace:*",
-		"@tanstack/svelte-query": "catalog:",
-		"typebox": "catalog:",
-		"wellcrafted": "catalog:"
+		"test": "bun test ./epicenter.test.ts ./epicenter.git.test.ts",
+		"typecheck": "tsc -p tsconfig.json",
+		"dev": "bun run --cwd ui dev"
 	},
 	"devDependencies": {
-		"@epicenter/vite-config": "workspace:*",
-		"@sveltejs/adapter-static": "catalog:",
-		"@sveltejs/kit": "catalog:",
-		"@sveltejs/vite-plugin-svelte": "catalog:",
+		"@epicenter/app": "workspace:*",
 		"@types/bun": "catalog:",
-		"playwright": "^1.61.1",
-		"svelte": "catalog:",
-		"svelte-check": "catalog:",
-		"typescript": "catalog:",
-		"vite": "catalog:"
+		"typescript": "catalog:"
 	},
 	"license": "AGPL-3.0-or-later"
 }

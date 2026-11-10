@@ -1,4 +1,17 @@
 {
-	"extends": ["../../tsconfig.base.json", "./.svelte-kit/tsconfig.json"],
-	"compilerOptions": { "types": ["bun"] }
+	"compilerOptions": {
+		"types": ["bun"],
+		"strict": true,
+		"noUnusedLocals": true,
+		"noUnusedParameters": true,
+		"allowImportingTsExtensions": true,
+		"resolveJsonModule": true,
+		"moduleResolution": "bundler",
+		"module": "esnext",
+		"target": "esnext",
+		"verbatimModuleSyntax": true,
+		"skipLibCheck": true,
+		"noEmit": true
+	},
+	"include": ["epicenter.ts", "beeper.ts", "*.test.ts"]
 }

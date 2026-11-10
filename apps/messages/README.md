@@ -1,172 +1,132 @@
 # Messages
 
-Read conversations and send text replies through Beeper Desktop, in
-Epicenter's own interface. Messages is a program you run on the computer
-where Beeper Desktop runs
-([ADR-0784](../../docs/adr/0784-whispering-is-the-webs-local-app-and-messages-is-a-program-on-this-computer.md)):
-a small local server serves the page, keeps its drafts in a directory it
-owns, and answers its Beeper requests through the Epicenter CLI, which keeps
-the Beeper token in the device keychain. It always starts with fictional
-demo chats.
+Fictional Beeper conversations, as an app in `~/Epicenter/messages`.
+Nothing reaches Beeper. Only `demoBeeper` exists: there is no live mode,
+account, or credential setup. `epicenter` runs the actions; `epicenter serve`
+serves the UI at `/messages/`.
 
-```sh
-bun run --cwd apps/messages start    # build, then serve http://127.0.0.1:5188
-```
-
-Messages has no service worker, no web manifest, and keeps nothing in the
-browser: the page works while its program runs, and its drafts are the
-program's.
-
-Epicenter no longer hosts apps
-([ADR-0701](../../docs/adr/0701-apps-run-as-separate-programs.md)), and
-Beeper Desktop listens only on this computer. `bun dev:messages` serves the
-page with Vite, keeps demo drafts in a development directory, and shows the
-demo only; live Beeper says how to start Messages. A page served from
-anywhere else has no drafts' directory, and shows Recovery saying so.
-
-## Run and check safely
-
-```sh
-bun dev:messages                                     # demo only, port 5188, development drafts
-bun run --cwd apps/messages typecheck
-bun run --cwd apps/messages test
-bun x playwright test -c apps/messages/playwright.config.ts
-```
-
-The end-to-end suite builds Messages and serves it with its own local
-program on port 5189 (which must be free), its drafts in a scratch directory
-(`e2e/folder.ts`) and a fake Beeper in place of the CLI's connection, in
-Chromium and WebKit. It covers drafts in the program's directory (created,
-edited, cleared, kept across a reload, and waiting while the program cannot
-be reached, then landing), demo sends and their check, repair of a file
-another program broke, `epicenter check` of the directory, live Beeper
-through the local program, and a browser holding none of the site's data
-showing the drafts. No check reads the keychain, touches the drafts Messages
-keeps for real, needs a real Beeper account, or reaches a real recipient.
-Demo replies and incoming messages stay in memory and reset on reload.
-
-The Community garden conversation includes a generated photo you can
-enlarge, and Noah's a downloadable fictional route file. Both are bundled
-with the app; viewing them never fetches from Beeper or another website. Live
-media still opens in Beeper.
-
-## What it keeps
-
-Messages' files are a contract (`src/lib/contract.ts`, published as
-`static/contract.json`):
+## Files
 
 ```txt
-drafts/<id>.md      the reply being written: chatId, profile, mode; the text in the body
-attempts/<id>.md    the latest send from that composer: chatId, profile, mode,
-                    state (sending, accepted, acknowledged), attemptId, pendingId;
-                    the text sent in the body
+messages/
+  epicenter.ts             collections and five actions
+  beeper.ts                fictional conversations and demoBeeper
+  drafts/<chat>.md         saved reply in the body
+  sends/<chat>.md          latest send, its attempt and state, text in the body
+  beeper-demo.local.json   fictional sent messages, ignored by Git
+  ui/                      SvelteKit UI with hash routes
+  .cache/ui/               built UI, ignored by Git
 ```
 
-`<id>` is `<mode>-<sha256 of mode, profile and chat>`, so demo and live
-drafts never share a file. The files live in Messages' own directory under
-Epicenter's application data, `<data root>/apps/so.epicenter.messages`
-(`messagesFolder()` in `apps/messages/scripts/serve.ts`; on macOS
-`~/Library/Application Support/so.epicenter/apps/so.epicenter.messages`,
-and `EPICENTER_DATA_DIR` names the root instead), not under `~/Epicenter`:
-nothing syncs them. `bun dev:messages` keeps its own under the development
-root (`so.epicenter.dev`). The program owns the directory, and the page
-reaches it only through the program, at `/folder` on the origin that served
-it: `src/lib/app.ts` opens it once for the page,
-`openFolder(messages, served('/folder'))` from `@epicenter/folder/served`
-([ADR-0766](../../docs/adr/0766-an-apps-capabilities-are-module-values-opened-synchronously.md)),
-and every component and the send workflow (`drafts.ts`) read and write
-through that `folder`. The page renders under `<WhenOpen>`, which shows a
-spinner after 150 ms while the files open, says when the program cannot be
-reached and that changes will save once it can, shows Recovery when nothing
-at `/folder` keeps Messages' files, and asks before the page is left while a
-save is out. Every read of the files inside it is synchronous.
+Drafts have no fields. Sends have `attempt`, `state`, and `at`, with optional
+`messageId`, `error`, and `checked`. States are `sending`, `sent`, `unconfirmed`,
+and `not-sent`. Earlier send records remain in Git history. Delete
+`beeper-demo.local.json` to reset the fictional Beeper messages; this leaves
+saved drafts and send records alone.
 
-Messages is local only: of the variants an app may have
-([ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)),
-it keeps just the local one, with no online variant, because Beeper Desktop
-only listens on this computer. A draft and its send attempt belong to that
-Beeper installation, and the send protocol below needs its writes to land
-at once, offline or not. Messages never signs in, and nothing uploads.
+## Actions
 
-| Data | Where |
+| Action | Does |
 | --- | --- |
-| Conversations, messages, accounts, delivery | Beeper; read into an in-memory query cache, never kept here |
-| The current reply, the latest send | `drafts/`, `attempts/` in Messages' directory on this computer |
-| Beeper access token | The device keychain, through the local program's Beeper connection (`openBeeper` in `scripts/beeper.ts`) |
-| Selection, filter, loaded pages, connection mode | Memory; every launch begins in demo mode |
+| `conversations` | Lists conversations newest first, with draft and send summaries |
+| `read <chat>` | Reads messages, the saved draft, and latest send |
+| `draft <chat> <text> [--previous <text>]` | Saves the whole draft; `''` clears it; a stale `previous` throws `Changed` |
+| `send <chat> [--text <text>]` | Sends the saved draft once; optional text checks what you last read |
+| `resolve <chat> <outcome> --attempt <id>` | Records a person's check as `sent` or `not-sent`; never sends |
 
-Selecting a conversation creates no file; the first keystroke creates its
-draft (`drafts.edit` with `create`), and each keystroke after updates it.
-Emptying the composer clears the draft (its note stays, with an empty
-body); no action deletes a draft's note. The
-composer keeps typed text until its save lands. A save never fails: while
-the files cannot be written it waits, `<WhenOpen>` says changes are waiting,
-and Send waits for the draft to land (ADR-0775). The conversation list shows a **Draft**
-preview of a non-empty draft, and **Check send** for an unconfirmed attempt,
-for the current mode and connection only.
+```sh
+epicenter messages conversations
+epicenter messages read maya-chen
+epicenter messages draft maya-chen "See you at ten"
+epicenter messages send maya-chen
+epicenter messages resolve harbor-ferry sent --attempt <id>
+```
 
-A draft or attempt that does not read as one (another program edited it) is
-shown as its text, with what is wrong as typed, and saved with **Save
-repair** through the note's editor (`edit.text`). Text that still does not
-fit is saved as typed and stays shown to repair, with its new problems.
+Quote the actual attempt value in place of `<id>`. MCP exposes the same five
+actions as `messages_conversations`, `messages_read`, `messages_draft`,
+`messages_send`, and `messages_resolve`. Collection verbs are not exposed.
 
-## Connect Beeper
+## Sending once
 
-With Messages started (`bun run --cwd apps/messages start`), **Connect
-Beeper** takes an access token created under Beeper Settings → Integrations →
-Approved connections. The page sends it once to the local program, which
-stores it in the keychain; Connect again with the field empty uses the saved
-one. Disconnect removes the saved token; it does not revoke the token Beeper
-issued or delete drafts. Beeper must keep running on this computer.
+1. Claim `sends/<chat>.md` with a new attempt and state `sending`. The
+   compare-and-write refuses a prior `sending` or `unconfirmed` attempt.
+2. Consume the saved draft only if it still matches. If it changed, put the
+   record back byte for byte and send nothing. A thrown send changes no file.
+3. Ask `demoBeeper` to send the consumed text once.
+4. Record `sent` and the message id, or `unconfirmed` and the error. Return
+   `outcome: 'sent'` or `outcome: 'unconfirmed'` with the send summary. An
+   unconfirmed result includes `next`, explaining how to check and resolve it.
 
-The local program (`apps/messages/scripts/serve.ts`) listens on `127.0.0.1` only and
-answers `POST /beeper` and its drafts' directory (`POST /folder/<verb>`,
-`serveDirectory` from `@epicenter/folder/serve`) only when the request names
-its own host (so a DNS-rebound name cannot reach it), comes from its own
-origin (so another site open in the browser cannot), and is JSON. It runs each operation
-validated against the protocol (`src/lib/beeper-protocol.ts`), with the
-Beeper endpoint fixed to `http://127.0.0.1:23373` and SDK retries off. Tokens
-never appear in command arguments, files, browser storage, or error output.
+A blind retry finds an empty draft or a blocked send record. Two callers
+compete for one file through `folder.update`, so only one reaches Beeper.
+Messages never resends on its own. A person checks an unconfirmed message in
+the conversation and resolves its attempt. A `sending` attempt interrupted
+for more than 30 seconds also needs that check. Resolving `not-sent` restores
+the sent text only when the draft is empty, so a newer reply survives.
 
-Manual token setup is the only connection flow. Do not connect production
-accounts while developing; use demo mode, or a separate Beeper installation
-with test accounts.
+The Harbor ferry desk demonstrates a lost confirmation: it records the
+fictional message, then throws. Read the conversation to see it, then choose
+“It was sent”. A new draft cannot be sent until the attempt is resolved.
+Choosing “It wasn't sent” restores an empty draft and permits another send,
+even though this fixture already delivered the first one. The person's check
+is what decides; Messages cannot infer delivery from a timeout.
 
-## Reading and sending
+An unconfirmed send exits successfully and commits the consumed draft and send
+record together as `messages: send harbor-ferry`. For example:
 
-Recent conversations combine networks, filter by loaded title and network,
-and load further pages. A conversation shows plain text, timestamps, and
-delivery status where Beeper has it; other content has a placeholder and
-**Open in Beeper**. An open conversation refreshes every four seconds and the
-list every five. Messages sends no read receipts and offers no archive,
-delete, edit, reaction, account, or new-conversation operation.
+```txt
+$ epicenter messages send harbor-ferry
+outcome: unconfirmed
+chat: harbor-ferry
+send:
+  attempt: 2026-11-11T09-00-00-000Z-abc123
+  state: unconfirmed
+  at: 2026-11-11T09:00:00.000Z
+  text: Is there room for a bicycle?
+  error: Beeper did not answer within 30 seconds
+  needsCheck: true
+next: Beeper did not confirm the message to Harbor ferry desk. It may have been sent: check the conversation, then run epicenter messages resolve harbor-ferry sent|not-sent --attempt 2026-11-11T09-00-00-000Z-abc123. Messages will not send it again on its own.
+```
 
-A send captures the text on screen and the attempt shown, waits for the
-composer's typing to land, then, serialized per draft in the tab and by a Web
-Lock across tabs:
+Draft and resolution calls commit as `messages: draft harbor-ferry` and
+`messages: resolve harbor-ferry`. Refused calls commit nothing and leave files
+unchanged. If a run dies after claiming, its `sending` record remains on disk.
+The next serve backup snapshots it as `messages: changed outside epicenter`:
+no action call finished to commit those changes.
 
-1. reads the attempts from storage, so the page shows another tab's send
-   it had not heard of, and refuses when they cannot be read;
-2. refuses an unconfirmed attempt, one other than the attempt shown when
-   Send was pressed (another tab sent first), a draft or attempt that needs
-   repair, and a draft that names another conversation or connection;
-3. saves a new **sending** attempt, and clears the draft only when the text
-   on screen is unchanged, waiting for each to land: a save never fails,
-   and while the files cannot be written Beeper is not asked;
-4. asks Beeper, and records Beeper's pending id on the attempt when it
-   accepts.
+See [ADR-0874](../../docs/adr/0874-an-unconfirmed-messages-send-blocks-the-next-send-until-a-person-resolves-it.md)
+for the decision and limits.
 
-If Beeper does not confirm, or the page closes before its receipt lands,
-the attempt stays unconfirmed and the person must check Beeper. **I checked** acknowledges the
-attempt shown; **keep as draft** restores its text when the composer is
-empty. A stale check cannot restore an accepted send or acknowledge a newer
-attempt. Reload, reconnect, and draft saves never resend.
+## The UI
 
-This is send recovery on one computer, not an outbox: it does not make Beeper
-idempotent, and editing attempt files by hand can defeat it. The Web Lock
-holds this browser's tabs; two browsers open on Messages at once share the
-directory, and step 1 is all that stands between their sends, so two sends
-in the same instant from two browsers can both reach Beeper.
+`#/` lists conversations; `#/<chat>` opens one. Desktop shows two panes;
+mobile shows one. The list refreshes every 10 seconds while visible, and the
+conversation every 5 seconds. Both refresh on focus and when shown again.
 
-References: [Beeper Desktop API](https://developers.beeper.com/desktop-api/),
-[authentication](https://developers.beeper.com/desktop-api/auth/).
+Drafts save after an 800 ms pause, on blur, on Save, on Cmd/Ctrl+S, and when
+the page is hidden or left. Each save quotes the last saved draft as `previous`.
+A conflict offers “Keep mine” and “Use theirs”. A refresh replaces the composer
+only when it has no unsaved edits, save in flight, or send in flight.
+
+Send and Cmd/Ctrl+Enter save pending edits first, then send that saved draft.
+The recovery banner quotes an unconfirmed send and asks the person to check
+it above. Sending stays disabled until they resolve it. Browser page exit
+saves are best effort: use Save and wait for “Saved” before closing if the
+text matters.
+
+## Checks and development
+
+From the repository root:
+
+```sh
+bun install --no-save
+bun run --cwd apps/messages typecheck
+bun run --cwd apps/messages test
+bun run --cwd apps/messages/ui typecheck
+bun run --cwd apps/messages/ui build
+bun dev:messages
+```
+
+The build writes `.cache/ui/index.html`. For development, run `epicenter serve`
+for the Epicenter containing Messages, then the UI dev command. The UI asks
+that server to run the same actions as the CLI and MCP.
