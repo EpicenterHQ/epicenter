@@ -5,7 +5,7 @@ apps frozen on the folder sync product, which waits.
 
 ## Apps for ~/Epicenter
 
-Capture, Tasks, and Vocab are the source of starters for apps in
+Capture, Reading, Tasks, and Vocab are the source of starters for apps in
 `~/Epicenter`
 ([ADR-0864](../docs/adr/0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md),
 [ADR-0866](../docs/adr/0866-an-app-starts-from-a-starter-kept-as-its-upstream-and-update-merges-the-starters-changes.md)).

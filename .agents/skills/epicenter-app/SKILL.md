@@ -1,6 +1,6 @@
 ---
 name: epicenter-app
-description: Make or change an app that lives in an Epicenter (such as ~/Epicenter), or the starter it comes from: its collections, its actions, and its UI. Use when asked to build a new personal app (a tracker, a log, a list), add a field or action to Capture, Tasks, or Vocab, change an app's UI, set up an Epicenter, or make or update an app from a starter on the computer that runs epicenter serve.
+description: Make or change an app that lives in an Epicenter (such as ~/Epicenter), or the starter it comes from: its collections, its actions, and its UI. Use when asked to build a new personal app (a tracker, a log, a list), add a field or action to Capture, Reading, Tasks, or Vocab, change an app's UI, set up an Epicenter, or make or update an app from a starter on the computer that runs epicenter serve.
 ---
 
 # Epicenter apps
@@ -15,7 +15,7 @@ Epicenter's actions over MCP at `/` and each app's UI at `/<app>/`, on the
 marked by `epicenter.root.json` is refused until `EPICENTER.md` replaces it.
 An app can start from a starter, a repository with no data, which it keeps as
 its `upstream` remote; `epicenter update` merges the starter's later changes
-and builds the UI (ADR-0866). Capture, Tasks, and Vocab are starters' source
+and builds the UI (ADR-0866). Capture, Reading, Tasks, and Vocab are starters' source
 in `apps/<app>/`; `apps/tasks` is the smallest whole example. Read
 `apps/README.md`, `packages/app/README.md`, and one existing app before
 starting.
@@ -55,8 +55,17 @@ starting with `epicenter.`. A field or placeholder may not be named `path`,
 - Choose the path by how people and agents will name a file. `{time}` suits
   things made in passing (`captures/{time}.md`, `tasks/{time}.md`): `add`
   names the file by the time. A placeholder `add` takes suits things named by
-  what they are (`words/{word}.md`), at the cost of characters a file name
-  cannot hold.
+  what they are (`words/{word}.md`, `books/{title}.md`), at the cost of
+  characters a file name cannot hold. `add` and `pathOf` name the file by the
+  value as NFC, trimmed, with single spaces, so an action passes what the
+  person typed.
+- Write a day or a moment with `localDay()` or `localTime()` from
+  `@epicenter/app`, in the time zone of the computer that runs the action,
+  as `field.date` and `field.datetime` hold them; `toISOString()` gives UTC's
+  day, which is the wrong one in the evening west of Greenwich.
+- Derive a state from fields that already say it rather than storing it
+  twice: Reading has no status, since `started` and `finished` say whether
+  a book is to read, being read, or read.
 - `list` returns fields without bodies. Put what a list or an agent needs at a
   glance in a field (a task's `title`); put prose in the body.
 - Keep fields few. `set` merges as JSON Merge Patch does: `null` removes a
@@ -125,7 +134,8 @@ For any other file, use `folder.update(path, change)`, never `folder.read`
 then `folder.write`. It does the same with the file's text (`undefined` when
 there is none). Either way, keep `change` a pure function of what it is
 given, since it may run more than once; throw in it to refuse, and nothing is
-written.
+written. A collection's `change` that returns `{}` leaves the file as it is,
+so an action like Reading's `start` returns `{}` for a book already started.
 
 ```ts
 await folder.update('2026.csv', (text = 'day,minutes\n') => `${text}${day},${minutes}\n`);
@@ -238,7 +248,7 @@ Only when the person asks, on the computer that runs `epicenter serve`:
 
 - `epicenter new <app> --from <git url|path>` clones a starter, keeps it as
   `upstream`, and builds the UI. The path must be a repository's root, so a
-  folder inside the monorepo is not a starter; Capture, Tasks, and Vocab
+  folder inside the monorepo is not a starter; Capture, Reading, Tasks, and Vocab
   become starters when each moves to a repository of its own.
 - `epicenter update [<app>]` snapshots what is pending, merges the starter's
   changes, and builds. It undoes a merge that conflicts, naming the command

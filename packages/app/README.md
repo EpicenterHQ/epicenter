@@ -71,7 +71,7 @@ and does not run it.
 An app with one collection usually spreads its verbs at the top, so they are
 the app's own: `actions: { ...tasks.actions(), add }` reads `epicenter tasks
 add`, not `epicenter tasks tasks add`. An app with several collections nests
-each under its name, as `reading` does.
+each under its name, as the example above does.
 
 A later key replaces an earlier one, as in any object:
 `{ ...words.actions(), add: learn }` gives every verb with `add` replaced.
