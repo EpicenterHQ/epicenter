@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-11-10
 - **Relates:** [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (one copy; the install rules this replaces), [ADR-0851](0851-an-app-with-history-has-one-git-remote-its-meeting-point-and-backup.md) (`origin`), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (`new`, `link`), [ADR-0854](0854-an-apps-cache-is-the-files-it-gitignores.md) (`.cache/`), [ADR-0857](0857-an-app-declares-itself-in-epicenter-json-and-its-code-in-epicenter-ts.md) (the declaration), [ADR-0858](0858-where-a-file-lives-decides-whether-it-travels-survives-or-dies-with-its-program.md) (`*.local`), [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (the UI).
-- **Unbuilt:** all of it: `epicenter new <name> --from`, `epicenter update`, pushing backups to `origin` by name, the check of data against the declaration after an update, `ui/` and `.cache/ui/` (the code still says `view/`, `.cache/view/`, and `VIEW_BASE`), and starters in repositories of their own, which wait on publishing `@epicenter/app` and `@epicenter/ui`. Until then `epicenter install` (`packages/cli/src/install.ts`) puts first-party apps on the Studio.
+- **Unbuilt:** first-party apps in the `ui/` layout (`apps/<app>` still builds a SvelteKit project at its root with `VIEW_BASE`), and starters in repositories of their own, which wait on publishing `@epicenter/app` and `@epicenter/ui`.
 
 ## Context
 
@@ -55,9 +55,12 @@ with an `upstream` and no uncommitted changes, it:
 1. runs `git fetch upstream` and merges `upstream`'s branch; on a conflict it
    aborts the merge, leaves the app as it was, and prints
    `git -C ~/Epicenter/vocab merge upstream/main` for whoever resolves it;
-2. builds the UI, keeping the last `.cache/ui/` that built if this build fails;
-3. checks every file of every collection against the declaration and lists
-   each file that does not fit it.
+2. checks every file of every collection against the declaration and lists
+   each file that does not fit it;
+3. builds the UI, keeping the last `.cache/ui/` that built if this build
+   fails. The build installs from the starter's committed `ui/bun.lock`, or
+   writes no lockfile when it has none, so it never leaves the app with
+   uncommitted changes.
 
 The merge commit records what came in; nothing writes trailers.
 

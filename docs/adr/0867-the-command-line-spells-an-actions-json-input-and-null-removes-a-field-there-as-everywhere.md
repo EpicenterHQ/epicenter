@@ -3,7 +3,6 @@
 - **Status:** Proposed
 - **Date:** 2026-11-10
 - **Relates:** [ADR-0853](0853-collections-give-four-actions-and-programs-without-the-folder-ask-over-mcp.md) (the four verbs, MCP), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (a write is one commit), [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (`serve` runs actions through the command line).
-- **Unbuilt:** reading `null` for a nullable field, `--input` anywhere and from stdin, refusing an empty `set`, choice errors that name the choices, and exit code 3, in `packages/cli/src/input.ts`, `cli.ts`, and `run.ts`.
 
 ## Context
 
@@ -47,8 +46,9 @@ this way.
 **One description per field serves every surface.** "null removes it" is true
 on the command line and over MCP alike.
 
-**`set` given no field and no body is refused** (exit 2), since it changes
-nothing.
+**`set` given no field and no body throws** (exit 1), since it changes
+nothing. The collection's `set` refuses it, so the answer is the same over
+MCP; the command line does not check it a second time.
 
 **The exit code says what happened.**
 
