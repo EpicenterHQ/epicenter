@@ -1,6 +1,6 @@
 {
 	"name": "@epicenter/tasks-ui",
-	"description": "Tasks's UI, built into the app's .cache/ui/ and served by epicenter serve at /tasks/",
+	"description": "Tasks's UI, built into ui/dist/ and served by epicenter serve at /tasks/",
 	"private": true,
 	"version": "0.0.1",
 	"type": "module",

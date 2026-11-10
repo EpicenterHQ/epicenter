@@ -111,7 +111,7 @@ test('a tick logs an unchanged failure once, and again when it changes', async (
 	const { folder } = await reading();
 	const server = serve();
 	await server.tick();
-	await writeFile(join(folder, '.gitignore'), '.cache/\n');
+	await writeFile(join(folder, '.gitignore'), 'node_modules/\n');
 	await writeFile(join(folder, 'token.local'), 'secret\n');
 	const logged = await stderrOf(async () => {
 		await server.tick();

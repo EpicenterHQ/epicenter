@@ -5,7 +5,7 @@
  * run, the app's collections and `folder` reach it, however deep the call,
  * and an action that calls another stays in the same run; outside any run
  * they throw. What an app can rebuild lives in files it gitignores inside the
- * folder, such as `.cache/`, and is never committed.
+ * folder, such as `ui/dist/`, and is never committed.
  *
  * An action changes files and never commits: whatever runs it takes snapshots
  * of the folder into its history (ADR-0850). A change that depends on what it

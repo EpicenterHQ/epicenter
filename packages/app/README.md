@@ -222,7 +222,7 @@ the path it was asked for, while `list` gives the name on disk.
 `defineCollection` refuses:
 
 - a path that is not a relative `.md` template, has an empty part or one
-  starting with `.` (such as `.cache/`), has a placeholder twice, or a brace
+  starting with `.`, has a placeholder twice, or a brace
   that is not a placeholder;
 - a path whose first part is a placeholder (`{day}.md` would hold
   `README.md`), is `ui` or `node_modules`, or starts with `epicenter.`: start
@@ -331,7 +331,7 @@ outside service, is the action's own promise.
 
 `folder` is a convenience, not a sandbox: an action may also write through
 `folder.path` with `node:fs`. What the app can rebuild lives in files it
-gitignores inside its folder, such as `.cache/`; they are never committed.
+gitignores inside its folder, such as `ui/dist/`; they are never committed.
 Paths are relative to the folder with `/` between parts, and `read` gives
 `undefined` for a missing file.
 

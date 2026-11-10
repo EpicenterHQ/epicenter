@@ -17,7 +17,7 @@ apps/vocab/
   epicenter.test.ts     the actions' tests, in memory
   package.json          what the actions' types and tests need
   ui/                   the UI, a SvelteKit project of its own
-  .cache/ui/            the built UI, ignored
+  ui/dist/              the built UI, ignored by ui/.gitignore
 ```
 
 A starter is a repository of its own whose root is the app's root, and
@@ -29,8 +29,8 @@ repository of its own, which waits on publishing `@epicenter/app` and
 
 `epicenter` supplies `@epicenter/app` to an `epicenter.ts` when it runs it, so
 the app's root `package.json` is only for whoever edits the actions. `ui/`
-has its own `package.json`, whose `build` writes `../.cache/ui/`.
-`epicenter serve` serves `.cache/ui/` at `/<app>/`, and MCP at `/`. A UI asks
+has its own `package.json` and `.gitignore`; its `build` writes `ui/dist/`.
+`epicenter serve` serves `ui/dist/` at `/<app>/`, and MCP at `/`. A UI asks
 for everything through `connect<typeof app>('<app>')` from
 `@epicenter/app/client`, typed by the app it imports as a type, and keeps
 nothing of its own.

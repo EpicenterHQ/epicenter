@@ -1,6 +1,6 @@
 {
 	"name": "@epicenter/reading-ui",
-	"description": "Reading's UI, built into the app's .cache/ui/ and served by epicenter serve at /reading/",
+	"description": "Reading's UI, built into ui/dist/ and served by epicenter serve at /reading/",
 	"private": true,
 	"version": "0.0.1",
 	"type": "module",

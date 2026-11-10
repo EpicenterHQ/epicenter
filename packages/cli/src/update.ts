@@ -32,7 +32,7 @@ type Updated = {
 	upstream: boolean;
 	/** The merge commit, or `null` when the app already had everything. */
 	merged: string | null;
-	/** Whether a UI was built; `false` for an app with no `ui/`. */
+	/** Whether a UI was built; `false` when `ui/package.json` has no `build` script. */
 	built: boolean;
 	/** Why this app did not finish updating, and the command that resolves it. */
 	error?: { message: string; next?: string };

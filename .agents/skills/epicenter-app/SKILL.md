@@ -30,7 +30,7 @@ made in the starter.
   epicenter.ts     the app: its collections and actions, composed by defineApp
   epicenter.test.ts, package.json   the actions' tests and what they need
   ui/              the UI, a SvelteKit project of its own
-  .cache/ui/       the built UI, ignored by Git
+  ui/dist/         the view serve shows at /<app>/: built, and ignored by ui/.gitignore
   <data>           files the collections' paths match; never in a starter
 ```
 
@@ -48,7 +48,7 @@ its path: `tasks/2026-11-10T09-30-00-000Z-k3x9a2f8.md`.
 A path is one relative `.md` template that starts with a folder of its own
 (`days/{day}.md`, not `{day}.md`); files in a second layout are a second
 collection. `defineCollection` refuses a list of paths, a part starting with
-`.` (such as `.cache/`), a first part of `ui` or `node_modules`, and one
+`.`, a first part of `ui` or `node_modules`, and one
 starting with `epicenter.`. A field or placeholder may not be named `path`,
 `body`, `problems`, `other`, `json`, `help`, or `input`.
 
@@ -193,8 +193,10 @@ happened.
 
 Copy an existing app's `ui/`: SvelteKit with the hash router, `@epicenter/ui`
 and its `app.css`, a manifest and icons in `static/`, and its
-`svelte.config.js`, which builds into `../.cache/ui/` with the app's folder
-name as the base. Ask for everything through
+`svelte.config.js`, which builds into `ui/dist/` with the app's folder
+name as the base. `serve` serves `ui/dist/` and looks nowhere else. A tiny
+view needs no build: with no `build` script in `ui/package.json`, write
+`ui/dist/index.html` by hand and commit it. Ask for everything through
 `connect<typeof app>('<app>')` from
 `@epicenter/app/client`, importing the app as a type
 (`import type app from '../../../epicenter.js'`): `app.set({ path, done: true
@@ -238,7 +240,7 @@ its own, since `epicenter` commits every write into the app's repository:
 
 ```sh
 bun test ./epicenter.test.ts               # in apps/<app>: actions over createMemoryContext
-(cd apps/<app>/ui && bun run build)        # writes apps/<app>/.cache/ui/
+(cd apps/<app>/ui && bun run build)        # writes apps/<app>/ui/dist/
 T=$(mktemp -d)
 printf '[user]\n\tname = Test\n\temail = test@example.com\n' > $T/.gitconfig
 HOME=$T bun packages/cli/src/bin.ts init $T/Epicenter   # writes EPICENTER.md and AGENTS.md
@@ -267,10 +269,10 @@ Only when the person asks, on the computer that runs `epicenter serve`:
   by name at once, and `serve` every 5 minutes, never to `upstream`. Nothing
   else pushes, `undo` included.
 - `epicenter build [<app>]` rebuilds a UI after a local edit, keeping the last
-  one that built; the UI project's own `bun run build` empties `.cache/ui/`
+  one that built; the UI project's own `bun run build` empties `ui/dist/`
   first, so a page served meanwhile is missing.
 - Run these from inside the Epicenter the app belongs to; another person's
   Epicenter on the same computer is another folder with its own port.
 
 A running `epicenter serve` sees a change on the next request: it lists tools
-and reads `.cache/ui/` from disk each time.
+and reads `ui/dist/` from disk each time.

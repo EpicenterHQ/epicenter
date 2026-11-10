@@ -43,7 +43,7 @@ export default defineApp({
 	actions: {},
 });
 `,
-		'.gitignore': 'node_modules/\n.cache/\n*.local\n*.local.*\n',
+		'.gitignore': 'node_modules/\n*.local\n*.local.*\n',
 	};
 }
 

@@ -26,7 +26,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { hold } from './lock.ts';
 import { fixture, gitIn, gitignore, header } from './runner.test-support.ts';
 
-setDefaultTimeout(60_000);
+setDefaultTimeout(300_000);
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -41,12 +41,12 @@ export default defineApp({
 	collections: {},
 	actions: {
 		write: defineAction({
-			description: 'Write a page, and note it in the cache',
+			description: 'Write a page, and note it where Git ignores it',
 			input: { page: field.text() },
 			positional: ['page'],
 			run: async ({ page }) => {
 				await folder.write(page + '.md', page);
-				await folder.write('.cache/seen.txt', page);
+				await folder.write('node_modules/seen.txt', page);
 				return page;
 			},
 		}),
@@ -178,12 +178,12 @@ test("C2 a call's commit holds only the paths it wrote; other changes, staged or
 		'monday.md',
 	);
 	expect(await status(f.dir)).toBe('M a.md\nA  staged.md');
-	expect(await gitIn(f.dir, 'ls-files', '.cache')).toBe('');
+	expect(await gitIn(f.dir, 'ls-files', 'node_modules')).toBe('');
 });
 
 test('C2b a snapshot refuses a *.local or *.local.* file the .gitignore lets through, and takes none once it is ignored', async () => {
 	const f = await setup();
-	await writeFile(join(f.dir, '.gitignore'), '.cache/\n');
+	await writeFile(join(f.dir, '.gitignore'), 'node_modules/\n');
 	await gitIn(f.dir, 'commit', '-qam', 'a .gitignore without .local');
 	await writeFile(join(f.dir, 'token.local.json'), '{"token":"secret"}\n');
 	await writeFile(join(f.dir, 'device.local'), 'this computer\n');

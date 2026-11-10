@@ -4,7 +4,7 @@
  * ```txt
  * POST /             MCP, stateless JSON
  * GET  /             the launcher; 405 when asked for an event stream (MCP)
- * GET  /<app>/...    the app's built UI, .cache/ui/, as static files
+ * GET  /<app>/...    the app's view, ui/dist/, as static files
  * GET  /<app>        308 to /<app>/
  * ```
  *
@@ -32,7 +32,7 @@ import { createMcpServer } from './mcp.ts';
 import { writeErr } from './output.ts';
 import { epicenterDir, rootInstructions } from './root.ts';
 import { type Synced, syncOne } from './sync.ts';
-import { BUILT_UI } from './ui.ts';
+import { VIEW } from './ui.ts';
 
 /** How often `serve` backs up every app. */
 const BACKUP_EVERY_MS = 5 * 60_000;
@@ -153,8 +153,8 @@ export function startHttpServer(
 		)
 			return notFound();
 		try {
-			// The built UI, rebuildable and ignored, is the only thing served (ADR-0866).
-			const root = await realpath(join(entry.realPath, BUILT_UI));
+			// The view in ui/dist/ is the only thing served (ADR-0860).
+			const root = await realpath(join(entry.realPath, VIEW));
 			if (!root.startsWith(`${entry.realPath}${sep}`)) return notFound();
 			const candidate = join(root, decoded || 'index.html');
 			const file = await realpath(

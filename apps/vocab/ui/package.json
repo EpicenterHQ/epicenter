@@ -1,6 +1,6 @@
 {
 	"name": "@epicenter/vocab-ui",
-	"description": "Vocab's UI, built into the app's .cache/ui/ and served by epicenter serve at /vocab/",
+	"description": "Vocab's UI, built into ui/dist/ and served by epicenter serve at /vocab/",
 	"private": true,
 	"version": "0.0.1",
 	"type": "module",
