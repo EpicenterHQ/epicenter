@@ -36,7 +36,7 @@ as many as it has folders; a folder that holds several is only a grouping.
       .gitignore                     node_modules/  *.local  *.local.*
       epicenter.ts                   its collections and actions
       ui/                            its UI project (optional)
-      ui/build/                      the built UI; ignored by ui/.gitignore (ADR-0854)
+      ui/dist/                      the built UI; ignored by ui/.gitignore (ADR-0854)
       tasks/<time>.md                data, committed
       google.local.md                this computer only; Epicenter never commits it (ADR-0870)
     capture/  vocab/  mail/
@@ -97,8 +97,8 @@ its own pathspec, which only its own commits honored). A person can still
 carries the same lines, since a starter is developed in ordinary clones
 outside any Epicenter. Epicenter writes nothing into a clone's `.git/`:
 no `info/exclude`, hooks, or config. A starter whose `.gitignore` leaves out
-`node_modules/` or its UI's `build/` gets them committed, the same as in any
-repository.
+`node_modules/` or its UI's built `dist/` gets them committed, the same as
+in any repository.
 
 **The command line.**
 
@@ -116,7 +116,7 @@ epicenter --help | --version
 ```
 
 `build` is its own verb because the UI project's own `bun run build` empties
-`ui/build/` before writing it, so a page served meanwhile is missing, and a
+`ui/dist/` before writing it, so a page served meanwhile is missing, and a
 failed build leaves none; `epicenter build` keeps the last one that built.
 
 **On the tailnet, separation is ports, not sign-in.** Each Epicenter is

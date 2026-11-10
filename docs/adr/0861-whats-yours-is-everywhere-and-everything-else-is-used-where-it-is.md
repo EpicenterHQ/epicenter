@@ -39,7 +39,7 @@ the Mac Studio, is always on and holds the one copy of each app (ADR-0864).
 ```txt
 vocab/
   epicenter.ts      collections and actions: what the files are and what you can do (ADR-0857)
-  ui/               for people: a web client's source, built into ui/build/ and served at /vocab/
+  ui/               for people: a web client's source, built into ui/dist/ and served at /vocab/
   prompts/          for agents: each prompt is a Markdown file, offered as an MCP prompt
   entries/  conversations/  settings.md
 ```
