@@ -147,8 +147,9 @@ replaced by the one written here. A file's address is its path:
 `epicenter tasks set tasks/2026-11-10T09-30-00-000Z-k3x9a2f8.md --done`. On
 the command line an action's `positional` fields are read by position:
 `epicenter tasks add 'Call the bank'`. An action reads and writes through its
-collections (`tasks.add`), or through the `folder` (the app's files) and
-`secrets` (its sign-ins) it imports; whatever runs it supplies both.
+collections (`tasks.add`), or through the `folder` (the app's files) it
+imports; whatever runs it supplies the folder. A sign-in is a `.local` file in
+that folder, which never leaves the computer.
 `epicenter.ts` imports `@epicenter/app`, which `epicenter` supplies when it
 runs, so the folder needs no install.
 

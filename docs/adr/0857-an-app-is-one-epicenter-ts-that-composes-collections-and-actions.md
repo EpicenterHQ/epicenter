@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-11-08; rewritten 2026-11-10
-- **Amended:** 2026-11-10, after an adversarial review: a read is checked by projection and says what does not fit in `problems`; collection methods take their verbs' object shapes, and many-file collections have `pathOf`; definitions check more; `defineApp` needs `collections` and `actions`; a read-only run refuses writes through `folder` and `secrets`; a thrown action's writes are committed; a UI's client must handle an uncommitted change. 2026-11-11, with ADR-0850: runs never commit, so a thrown action's writes are pending like any, collection writes go through `folder.update`, and the client has no uncommitted change to handle.
+- **Amended:** 2026-11-10, after an adversarial review: a read is checked by projection and says what does not fit in `problems`; collection methods take their verbs' object shapes, and many-file collections have `pathOf`; definitions check more; `defineApp` needs `collections` and `actions`; a read-only run refuses writes through `folder` and `secrets`; a thrown action's writes are committed; a UI's client must handle an uncommitted change. 2026-11-11, with ADR-0850: runs never commit, so a thrown action's writes are pending like any, collection writes go through `folder.update`, and the client has no uncommitted change to handle. 2026-11-11, with [ADR-0870](0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md): a run reaches `folder` only, since an app's secrets are `.local` files; a read-only run may write a `.local` path, and a `.local` collection's `actions()` throws.
 - **Amends:** [ADR-0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md) at `defineApp`'s shape: an app composes collections and actions defined on their own, its actions nest under their words, and a run's folder reaches them without a context argument. [ADR-0845](0845-an-app-declares-collections-each-a-path-and-fields-which-the-hub-views.md) at a collection's path, which is a template with any number of placeholders, and its fields, which are the `field` helpers' JSON Schema.
 - **Relates:** [ADR-0853](0853-collections-give-five-actions-and-programs-without-the-folder-ask-over-mcp.md) (collection verbs and the client), [ADR-0854](0854-an-apps-cache-is-the-files-it-gitignores.md) (`.cache/`), [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (views), [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (where `epicenter.ts` runs), [ADR-0869](0869-a-body-is-changed-by-quoting-the-passage-it-replaces.md) (`edit`).
 - **Unbuilt:** `sync` naming a file that two collections hold.
@@ -104,9 +104,9 @@ settles addressing by placeholder as the author's choice, not a framework
 feature; a UI routes by the whole path, URL-encoded.
 
 **Whatever runs an action opens its run.** The runner calls
-`inRun({ folder, secrets }, () => action(input))`; for the length of the call,
-the app's collections and the imported `folder` and `secrets` reach that
-folder and those secrets, however deep the code, through `AsyncLocalStorage`.
+`inRun({ folder }, () => action(input))`; for the length of the call, the
+app's collections and the imported `folder` reach that folder, however deep
+the code, through `AsyncLocalStorage`.
 An action that calls another stays in the same run. Outside a run they throw,
 so loading an app never touches its files. `epicenter` supplies one copy of
 `@epicenter/app` to every `epicenter.ts`, so the runner and the app share the
@@ -123,11 +123,12 @@ a word, or is `then` at any depth. `epicenter` loads an app by calling
 throws while loading, or whose export `defineApp` refuses, with those lines as
 its problems, and does not run it.
 
-**A read-only action cannot write through `folder` or `secrets`.** Its run,
-marked `readOnly`, is never logged or snapshotted, and `folder.write`,
-`writeBytes`, `update`, `delete`, `secrets.set`, and `secrets.delete` throw in
-it before doing anything. A raw `node:fs` write or an outside service remains the
-author's promise.
+**A read-only action cannot write through `folder`, except to a `.local`
+path.** Its run, marked `readOnly`, is never logged or snapshotted, and
+`folder.write`, `writeBytes`, `update`, and `delete` throw in it before doing
+anything. A `.local` path is let through, since it is never in the app's
+history, so a read-only action may refresh a token (ADR-0870). A raw
+`node:fs` write or an outside service remains the author's promise.
 
 **A UI calls the same tree.** `connect<typeof app>('vocab')` gives
 `vocab.add({ word })` and `vocab.review({ path, grade })`, typed by the app,
@@ -171,7 +172,6 @@ output for a UI.
 - Risks this record leaves open:
   - On a disk that ignores case, such as APFS, `words/Hello.md` and
     `words/hello.md` name one file under two addresses.
-  - An action that refreshes a token with `secrets.set` cannot be read-only.
   - A value that does not fit appears twice on `get`: quoted in `problems`,
     raw in `other`.
 
@@ -204,7 +204,7 @@ output for a UI.
   show a file, and an invalid file loses the fields that did fit.
 - **Locking every action, read-only ones included.** Serializes reads behind
   writes for a guarantee the read-only run's refusals already give for writes
-  through `folder` and `secrets`.
+  through `folder`.
 - **Rejecting the client's promise on an uncommitted change, or an
   `onUncommitted` handler every UI must give (this record until 2026-11-11).**
   The action ran, and a UI that retried a rejected call would run it twice;

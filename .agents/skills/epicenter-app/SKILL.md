@@ -77,6 +77,13 @@ starting with `epicenter.`. A field or placeholder may not be named `path`,
   passage and is refused unless `old` occurs exactly once, so a body read
   before someone else changed it is never written back over theirs
   (ADR-0869). An empty `old` fills an empty body.
+- A secret, such as a sign-in token, is a one-file collection at a
+  `.local.md` path (`google.local.md`), its fields declared like any other
+  (ADR-0870). A `.local` file stays on the computer that runs the app: the
+  app's `.gitignore` leaves it out of every commit, `folder` makes it `0600`,
+  and its `actions()` throws, so no generated verb hands it to an MCP client.
+  Read it in an action with `google.get()` and write it with `google.set(...)`.
+  A fresh clone has none, so the person signs in again.
 - The collections are the contract between a starter and the data. A starter
   that renames or tightens a field changes existing files itself: Git merges
   code and does not migrate data, and `epicenter update` lists each file that
@@ -135,8 +142,9 @@ Annotate honestly. An action never commits; after a run that is not
 `readOnlyHint: true`, `epicenter` commits exactly the files it wrote through
 `folder`, named for the call (`<app>: <words> <first positional>`, with
 ` (threw)` when it threw). A read-only run never commits, and its writes
-through `folder` and `secrets` throw, so an action that writes a file or
-refreshes a token with `secrets.set` is not read-only.
+through `folder` throw, so an action that writes a file is not read-only. A
+`.local` file is the exception: it is never in history, so a read-only action
+may refresh the token it keeps there.
 
 When you edit an app's files yourself rather than through its actions, commit
 your own edits when you finish, saying what you did:
