@@ -30,10 +30,10 @@ listener that signs people in with passkeys and connectors in with OAuth.
 | --- | --- | --- | --- |
 | 0a spike | none (`$TMPDIR/epicenter-spike`) | Opus | done; results below |
 | 0b Better Auth 1.8.0-beta.7 | `claude/w0b-better-auth-beta7` | Codex | merged (`36dfc26720`) |
-| 1 `.local` secrets and marker | `claude/w1-local-secrets-and-marker` | Codex | running |
-| 2 UI build path and backup status | `claude/w2-ui-build-and-backup` | Codex | running; built to `ui/build`, renamed in wave 3 |
-| 3 `ui/dist` | integration branch | Claude | after 1 and 2 merge |
-| 4 sign-in | from the integration tip | Opus | after 3, review, and green tests |
+| 1 `.local` secrets and marker | `claude/w1-local-secrets-and-marker` | Codex | merged (`a044ba3f5d`) |
+| 2 UI build path and backup status | `claude/w2-ui-build-and-backup` | Codex | merged (`1300d2b3eb`) |
+| 3 `ui/dist` | integration branch | Claude | done (`558c068ef4`); all tests pass, file by file |
+| 4 sign-in | `claude/w4-public-sign-in` | Opus | running |
 | 5 live Epicenter | `~/Epicenter` | the person approves each step | last |
 
 Before each merge: read the branch diff against its brief, search for
