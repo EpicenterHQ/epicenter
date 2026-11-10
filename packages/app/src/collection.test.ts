@@ -15,7 +15,11 @@ const items = collectionActions('items', {
 	},
 });
 
-function run(words: string, input: object, context: ReturnType<typeof createMemoryContext>) {
+function run(
+	words: string,
+	input: object,
+	context: ReturnType<typeof createMemoryContext>,
+) {
 	const action = items[words];
 	if (!action) throw new Error(`no action ${words}`);
 	return action.run(input as never, context);
@@ -40,7 +44,12 @@ describe('a Markdown collection', () => {
 		const context = createMemoryContext();
 		const made = await run(
 			'items set',
-			{ id: 'dune', added: '2026-11-09', kind: 'quote', body: 'Fear is the mind-killer.\n' },
+			{
+				id: 'dune',
+				added: '2026-11-09',
+				kind: 'quote',
+				body: 'Fear is the mind-killer.\n',
+			},
 			context,
 		);
 		expect(await context.folder.read('items/dune.md')).toBe(
@@ -57,9 +66,9 @@ describe('a Markdown collection', () => {
 
 	test('set refuses a new file without its required fields, and writes nothing', async () => {
 		const context = createMemoryContext();
-		expect(run('items set', { id: 'dune', kind: 'quote' }, context)).rejects.toThrow(
-			'A new items/dune.md needs added',
-		);
+		expect(
+			run('items set', { id: 'dune', kind: 'quote' }, context),
+		).rejects.toThrow('A new items/dune.md needs added');
 		expect(await context.folder.list()).toEqual([]);
 	});
 
@@ -67,7 +76,11 @@ describe('a Markdown collection', () => {
 		const text =
 			'---\nkind: "thought"\nadded:   "2026-11-01"\ndone: true\n---\n\nKeep me.\n';
 		const context = createMemoryContext({ 'items/a.md': text });
-		await run('items set', { id: 'a', kind: 'link', url: 'https://example.com' }, context);
+		await run(
+			'items set',
+			{ id: 'a', kind: 'link', url: 'https://example.com' },
+			context,
+		);
 		expect(await context.folder.read('items/a.md')).toBe(
 			'---\nkind: "link"\nadded:   "2026-11-01"\ndone: true\nurl: "https://example.com"\n---\n\nKeep me.\n',
 		);
@@ -79,7 +92,8 @@ describe('a Markdown collection', () => {
 
 	test('set removes a field given as null, as JSON Merge Patch does', async () => {
 		const context = createMemoryContext({
-			'items/a.md': '---\nkind: "link"\nurl: "https://example.com"\nadded: "2026-11-01"\n---\nKeep me.\n',
+			'items/a.md':
+				'---\nkind: "link"\nurl: "https://example.com"\nadded: "2026-11-01"\n---\nKeep me.\n',
 		});
 		await run('items set', { id: 'a', url: null }, context);
 		expect(await context.folder.read('items/a.md')).toBe(
@@ -89,7 +103,8 @@ describe('a Markdown collection', () => {
 
 	test('set rewrites YAML front matter as key: <JSON> lines and keeps the body', async () => {
 		const context = createMemoryContext({
-			'items/a.md': '---\nkind: thought # a comment\nadded: 2026-11-01\ntags: [x, y]\n---\nBody\n',
+			'items/a.md':
+				'---\nkind: thought # a comment\nadded: 2026-11-01\ntags: [x, y]\n---\nBody\n',
 		});
 		expect(await run('items get', { id: 'a' }, context)).toEqual({
 			kind: 'thought',
@@ -119,17 +134,22 @@ describe('a Markdown collection', () => {
 	test('front matter that is neither grammar nor YAML is read as body, and set refuses it', async () => {
 		const text = '---\nkind: [unclosed\n---\nBody\n';
 		const context = createMemoryContext({ 'items/a.md': text });
-		expect(await run('items get', { id: 'a' }, context)).toEqual({ id: 'a', body: text });
-		expect(run('items set', { id: 'a', kind: 'quote' }, context)).rejects.toThrow(
+		expect(await run('items get', { id: 'a' }, context)).toEqual({
+			id: 'a',
+			body: text,
+		});
+		expect(
+			run('items set', { id: 'a', kind: 'quote' }, context),
+		).rejects.toThrow(
 			'items/a.md has front matter that is neither key: <JSON> lines nor YAML; fix it by hand first',
 		);
 		expect(await context.folder.read('items/a.md')).toBe(text);
 	});
 
 	test('get names a missing file', async () => {
-		expect(run('items get', { id: 'nope' }, createMemoryContext())).rejects.toThrow(
-			'There is no items/nope.md',
-		);
+		expect(
+			run('items get', { id: 'nope' }, createMemoryContext()),
+		).rejects.toThrow('There is no items/nope.md');
 	});
 
 	test('list reads every file the path matches, by key, without bodies', async () => {
@@ -165,7 +185,9 @@ describe('a JSON collection', () => {
 			},
 		});
 		expect(Object.keys(settings)).toEqual(['settings get', 'settings set']);
-		const context = createMemoryContext({ 'settings.json': '{ "size": 12, "other": true }' });
+		const context = createMemoryContext({
+			'settings.json': '{ "size": 12, "other": true }',
+		});
 		await settings['settings set']?.run({ theme: 'dark' } as never, context);
 		expect(await context.folder.read('settings.json')).toBe(
 			'{\n  "size": 12,\n  "other": true,\n  "theme": "dark"\n}\n',
@@ -182,9 +204,13 @@ describe('a JSON collection', () => {
 			path: 'settings.json',
 			fields: { type: 'object', properties: { theme: { type: 'string' } } },
 		});
-		const context = createMemoryContext({ 'settings.json': '{ "theme": "dark", "size": 12 }' });
+		const context = createMemoryContext({
+			'settings.json': '{ "theme": "dark", "size": 12 }',
+		});
 		await settings['settings set']?.run({ theme: null } as never, context);
-		expect(await context.folder.read('settings.json')).toBe('{\n  "size": 12\n}\n');
+		expect(await context.folder.read('settings.json')).toBe(
+			'{\n  "size": 12\n}\n',
+		);
 	});
 
 	test('set refuses a file that is not a JSON object', async () => {

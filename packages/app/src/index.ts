@@ -33,5 +33,5 @@ export {
 	SCHEMA_URL,
 } from './declaration.ts';
 export { field, type TSwitch, type TTags } from './field.ts';
-export { createMemoryContext } from './memory.ts';
 export { timeId } from './ids.ts';
+export { createMemoryContext } from './memory.ts';

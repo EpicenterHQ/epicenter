@@ -26,17 +26,18 @@
  * must have every required field. A field a hand edit made wrong is kept;
  * nothing re-checks the fields `set` was not given.
  */
+
+import { type TSchema, Type } from 'typebox';
+import { Value } from 'typebox/value';
+import type { Action, Input } from './app.ts';
+import type { Context } from './context.ts';
+import type { Collection } from './declaration.ts';
 import {
 	isFieldKey,
 	parseFrontMatter,
 	patchFrontMatter,
 	stringifyValue,
 } from './front-matter.ts';
-import { type TSchema, Type } from 'typebox';
-import { Value } from 'typebox/value';
-import type { Action, Input } from './app.ts';
-import type { Context } from './context.ts';
-import type { Collection } from './declaration.ts';
 
 type JsonValue = Parameters<typeof stringifyValue>[0];
 type Fields = Record<string, JsonValue>;

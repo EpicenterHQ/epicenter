@@ -94,7 +94,11 @@ export function connect(
 			const text =
 				result.content?.find((part) => part.type === 'text')?.text ??
 				JSON.stringify(answer);
-			throw new ActionError(text, 'threw' in answer ? 'threw' : 'error', answer);
+			throw new ActionError(
+				text,
+				'threw' in answer ? 'threw' : 'error',
+				answer,
+			);
 		},
 	};
 }

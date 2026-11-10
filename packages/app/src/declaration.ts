@@ -98,7 +98,11 @@ export function declarationProblems(value: unknown): string[] {
 			.additionalProperties;
 		if (error.keyword === 'pattern' && /^\/collections\/[^/]+\/path$/.test(at))
 			return `epicenter.json at ${at} is not a path inside the folder with at most one placeholder, such as words/{stem}.md`;
-		if (error.keyword === 'additionalProperties' && at === '/' && extra?.includes('name'))
+		if (
+			error.keyword === 'additionalProperties' &&
+			at === '/' &&
+			extra?.includes('name')
+		)
 			return 'epicenter.json has "name", which a declaration does not take: an app\'s name is its folder\'s';
 		if (error.keyword === 'additionalProperties' && extra?.length)
 			return `epicenter.json at ${at} has ${extra.map((key) => `"${key}"`).join(', ')}, which a declaration does not take`;
