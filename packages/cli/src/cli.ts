@@ -5,7 +5,7 @@
  * nothing ran, and 3 when it returned but its writes were not committed
  * (ADR-0867).
  */
-import { type Action, COMMANDS, type Command } from '@epicenter/app';
+import { type Action, COMMANDS, type Command, isName } from '@epicenter/app';
 import packageJson from '../package.json' with { type: 'json' };
 import { REPORT_FLAG, runChild } from './child.ts';
 import { CliError } from './errors.ts';
@@ -252,20 +252,29 @@ export async function runCli(argv: string[]): Promise<number> {
 		}
 		const matched = matchAction(located.actions, words);
 		const action = matched && located.actions[matched.key];
-		if (!matched || !action)
+		if (!matched || !action) {
+			const { asked, keys: near } = nearestActions(
+				Object.keys(located.actions),
+				words,
+			);
+			const shown = near.length ? near : Object.keys(located.actions);
 			return fail(
 				CliError.Usage({
-					message: `Unknown action ${words.join(' ')}.\n${Object.entries(
-						located.actions,
-					)
-						.map(([key, action]) =>
-							usageLine(name, key, action, { short: true }),
+					message: `${name} has no action ${JSON.stringify(asked)}. ${near.length ? 'Did you mean' : 'Its actions'}:\n${shown
+						.map((key) =>
+							usageLine(name, key, located.actions[key] as Action, {
+								short: true,
+							}),
 						)
 						.join('\n')}`,
-					next: `epicenter ${name}`,
+					next:
+						near.length === 1
+							? `epicenter ${name} ${near[0]} --help`
+							: `epicenter ${name}`,
 				}).error,
 				json,
 			);
+		}
 		if (help) {
 			print(
 				json
@@ -285,4 +294,64 @@ export async function runCli(argv: string[]): Promise<number> {
 	} catch (error) {
 		return fail(CliError.Internal({ cause: error }).error, json);
 	}
+}
+
+/** The words a person gave before the first value or flag; any leading run of them may be the action's name. */
+function nameWords(words: string[]): string[] {
+	const end = words.findIndex((word) => !isName(word));
+	return words.slice(0, end < 0 ? words.length : end);
+}
+
+/**
+ * The actions a person most likely meant: for each leading run of their
+ * words, an action that run ends (`tasks set` for `tasks tasks set`) or that
+ * is a typo or two from it. Only the closest are kept, with the run they
+ * matched, so a value such as an id is not taken for part of the name.
+ */
+function nearestActions(
+	keys: string[],
+	words: string[],
+): { asked: string; keys: string[] } {
+	const named = nameWords(words);
+	let best = {
+		asked: named.join(' ') || words[0] || '',
+		keys: [] as string[],
+		score: Infinity,
+	};
+	for (let end = named.length; end > 0; end--) {
+		const asked = named.slice(0, end).join(' ');
+		for (const key of keys) {
+			const score = key.endsWith(` ${asked}`) ? 0 : distance(key, asked);
+			if (score > Math.min(2, Math.floor(key.length / 3))) continue;
+			if (score < best.score) best = { asked, keys: [key], score };
+			else if (score === best.score && asked === best.asked)
+				best.keys.push(key);
+		}
+	}
+	return best;
+}
+
+/** The fewest one-letter edits between two strings, a swap of neighbours counting as one. */
+function distance(a: string, b: string): number {
+	const d = Array.from({ length: a.length + 1 }, (_, i) =>
+		Array.from({ length: b.length + 1 }, (_, j) =>
+			i === 0 ? j : j === 0 ? i : 0,
+		),
+	);
+	for (let i = 1; i <= a.length; i++)
+		for (let j = 1; j <= b.length; j++) {
+			const row = d[i] as number[];
+			const above = d[i - 1] as number[];
+			row[j] = Math.min(
+				(above[j] as number) + 1,
+				(row[j - 1] as number) + 1,
+				(above[j - 1] as number) + (a[i - 1] === b[j - 1] ? 0 : 1),
+			);
+			if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1])
+				row[j] = Math.min(
+					row[j] as number,
+					((d[i - 2] as number[])[j - 2] as number) + 1,
+				);
+		}
+	return (d[a.length] as number[])[b.length] as number;
 }
