@@ -355,11 +355,20 @@ async function undo(
 		).stdout
 			.split('\0')
 			.filter(Boolean);
+		if (conflicted.length)
+			return stopped(
+				`undoing ${short} ${target.subject} conflicts with later changes to ${conflicted.join(', ')}`,
+				`epicenter history ${app}`,
+			);
+		// Git reverts a merge only when told which parent's side to keep.
+		const merge =
+			(await git(folder, ['rev-parse', '-q', '--verify', `${target.commit}^2`]))
+				.code === 0;
 		return stopped(
-			conflicted.length
-				? `undoing ${short} ${target.subject} conflicts with later changes to ${conflicted.join(', ')}`
-				: `could not undo ${short} ${target.subject} (${gitMessage(revertArgs, reverted)})`,
-			`epicenter history ${app}`,
+			`could not undo ${short} ${target.subject} (${gitMessage(revertArgs, reverted)})`,
+			merge
+				? `git -C ${folder} revert -m 1 ${target.commit}`
+				: `epicenter history ${app}`,
 		);
 	}
 	if ((await git(folder, ['diff', '--cached', '--quiet'])).code === 0)

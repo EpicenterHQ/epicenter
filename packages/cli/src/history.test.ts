@@ -123,7 +123,12 @@ test('history lists calls, an outside change, and an undo, newest first', async 
 	const limited = await f.run('history', 'notes', '--limit', '2', '--json');
 	expect(JSON.parse(limited.stdout)).toHaveLength(2);
 	// Any positive whole number is a limit; one past what Git reads is every commit.
-	const every = await f.run('history', 'notes', '--limit=99999999999', '--json');
+	const every = await f.run(
+		'history',
+		'notes',
+		'--limit=99999999999',
+		'--json',
+	);
 	expect(JSON.parse(every.stdout)).toHaveLength(5);
 	expect((await f.run('history', 'notes', '--limit', '0')).code).toBe(2);
 	expect((await f.run('history', 'nothing')).code).toBe(2);
@@ -209,7 +214,12 @@ test('undoing a commit already undone changes nothing, so it is refused', async 
 test('undo refuses while Git is in the middle of a revert, changing nothing', async () => {
 	const f = await setup();
 	expect((await f.run('notes', 'put', 'one')).code).toBe(0);
-	const reverting = await gitIn(f.app, 'rev-parse', '--git-path', 'REVERT_HEAD');
+	const reverting = await gitIn(
+		f.app,
+		'rev-parse',
+		'--git-path',
+		'REVERT_HEAD',
+	);
 	await writeFile(join(f.app, reverting), `${await f.head()}\n`);
 	const before = await f.state();
 	const refused = await f.run('undo', 'notes', '--json');
@@ -263,12 +273,16 @@ test("undo of a merge stops where Git refuses it, and a commit not in the app's 
 	expect(latest.stderr).toContain('notes: could not undo');
 	expect(latest.stderr).toContain('is a merge but no -m option was given');
 	expect(latest.stderr).toContain('the folder is as it was');
+	expect(latest.stderr).toContain(`Run: git -C ${f.app} revert -m 1 ${merge}`);
 	expect(await f.state()).toEqual(before);
 
 	const named = await f.run('undo', 'notes', merge, '--json');
 	expect(named.code).toBe(2);
 	expect(JSON.parse(named.stdout).error.message).toContain(
 		'is a merge but no -m option was given',
+	);
+	expect(JSON.parse(named.stdout).error.next).toBe(
+		`git -C ${f.app} revert -m 1 ${merge}`,
 	);
 	expect(await f.state()).toEqual(before);
 
