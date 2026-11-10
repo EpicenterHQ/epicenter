@@ -22,11 +22,6 @@ import {
 
 type Options = {
 	description?: string;
-	/**
-	 * JSON Schema's `writeOnly`, such as for a token. It means only what JSON
-	 * Schema says; nothing in `epicenter` reads it.
-	 */
-	writeOnly?: boolean;
 	/** JSON Schema's `readOnly`: in a collection, only the app's own actions write it. */
 	readOnly?: boolean;
 };
@@ -59,13 +54,12 @@ function maybeOptional<T extends TSchema, O extends MaybeOptional>(
 	>;
 }
 
-/** The schema options a field carries: its description, and whether it is write-only. */
+/** The schema options a field carries: its description, and whether it is read-only. */
 function schemaOptions(options: Options | undefined) {
 	return {
 		...(options?.description === undefined
 			? {}
 			: { description: options.description }),
-		...(options?.writeOnly ? { writeOnly: true } : {}),
 		...(options?.readOnly ? { readOnly: true } : {}),
 	};
 }

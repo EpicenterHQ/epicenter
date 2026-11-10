@@ -52,9 +52,9 @@ export function changedElsewhere(error: unknown): boolean {
 type Flat<T> = { [K in keyof T]: T[K] } & {};
 
 /**
- * `T` as it arrives through JSON: `undefined` is `null`, a property that may
- * be `undefined` may be absent, and a value with `toJSON` is what that
- * returns, as a `Date` is a string.
+ * `T` as it arrives through JSON: `undefined` is `null`, and a property that
+ * may be `undefined` may be absent. `defineAction` refuses any other value
+ * JSON does not carry, such as a `Date`.
  */
 type JsonOf<T> = unknown extends T
 	? T
@@ -64,21 +64,19 @@ type JsonOf<T> = unknown extends T
 			? null
 			: T extends string | number | boolean | null
 				? T
-				: T extends { toJSON(): infer J }
-					? JsonOf<J>
-					: T extends readonly unknown[]
-						? { [K in keyof T]: JsonOf<T[K]> }
-						: Flat<
-								{
-									[K in keyof T as undefined extends T[K] ? never : K]: JsonOf<
-										T[K]
-									>;
-								} & {
-									[K in keyof T as undefined extends T[K] ? K : never]?: JsonOf<
-										Exclude<T[K], undefined>
-									>;
-								}
-							>;
+				: T extends readonly unknown[]
+					? { [K in keyof T]: JsonOf<T[K]> }
+					: Flat<
+							{
+								[K in keyof T as undefined extends T[K] ? never : K]: JsonOf<
+									T[K]
+								>;
+							} & {
+								[K in keyof T as undefined extends T[K] ? K : never]?: JsonOf<
+									Exclude<T[K], undefined>
+								>;
+							}
+						>;
 
 /** What action `A` takes from a caller: `ActionInput<typeof app.actions.set>`. */
 export type ActionInput<A> = A extends (input: infer In) => unknown

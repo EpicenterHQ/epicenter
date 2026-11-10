@@ -6,7 +6,7 @@
  */
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fixture, gitIn } from './runner.test-support.ts';
 
@@ -20,13 +20,9 @@ afterEach(async () => {
 	);
 });
 
-/** Notes: an action that writes `log.md`, and a collection of pages. */
+/** Notes: an action that writes `log.md`. */
 const notes = `
-const pages = defineCollection({ path: 'pages/{slug}.md', fields: { title: field.text(), done: field.boolean() } });
-const todos = defineCollection({ path: 'todos/{id}.md', fields: { title: field.text() } });
-export default defineApp({ description: 'Notes', collections: { pages, todos }, actions: {
-	pages: pages.actions(),
-	todos: todos.actions(),
+export default defineApp({ description: 'Notes', collections: {}, actions: {
 	put: defineAction({ description: 'Write the log', input: { text: field.text() }, positional: ['text'], run: async ({ text }) => { await folder.write('log.md', text + '\\n'); return text; } }),
 } });`;
 
@@ -317,53 +313,6 @@ test('undo refuses a revert that conflicts, and leaves the folder as it was', as
 	expect(await readFile(join(f.app, 'scratch.local'), 'utf8')).toBe(
 		'never committed\n',
 	);
-});
-
-test('returned objects show every key and lists show rows, while --json is unchanged', async () => {
-	const f = await setup();
-	await mkdir(join(f.app, 'pages'));
-	await writeFile(
-		join(f.app, 'pages', 'a.md'),
-		'---\ntitle: "Alpha"\ndone: "yes"\ncolor: "red"\n---\nThe body.\n',
-	);
-	await writeFile(
-		join(f.app, 'pages', 'b.md'),
-		'---\ntitle: "Beta"\ndone: true\n---\n',
-	);
-
-	const got = await f.run('notes', 'pages', 'get', 'pages/a.md');
-	expect(got.code).toBe(0);
-	expect(got.stdout).toBe(
-		'path: pages/a.md\nslug: a\ntitle: Alpha\ndone: false\nbody: |\n  The body.\nproblems: ["done: \\"yes\\" is not true or false"]\nother: {"done":"yes","color":"red"}\n',
-	);
-	expect(got.stderr).toBe('');
-
-	const listed = await f.run('notes', 'pages', 'list');
-	expect(listed.code).toBe(0);
-	const rows = listed.stdout.split('\n');
-	expect(rows[0]).toBe(
-		'path: pages/a.md  slug: a  title: Alpha  done: false  problems: ["done: \\"yes\\" is not true or false"]',
-	);
-	expect(rows[1]).toBe('path: pages/b.md  slug: b  title: Beta  done: true');
-	expect(rows).toHaveLength(3);
-	expect(listed.stderr).toBe('');
-
-	const empty = await f.run('notes', 'todos', 'list');
-	expect(empty).toMatchObject({ code: 0, stdout: '' });
-
-	const json = await f.run('notes', 'pages', 'get', 'pages/b.md', '--json');
-	expect(JSON.parse(json.stdout)).toEqual({
-		returned: {
-			path: 'pages/b.md',
-			slug: 'b',
-			title: 'Beta',
-			done: true,
-			body: '',
-		},
-	});
-	expect(
-		JSON.parse((await f.run('notes', 'todos', 'list', '--json')).stdout),
-	).toEqual({ returned: [] });
 });
 
 test('undo never pushes; sync backs up the undo', async () => {

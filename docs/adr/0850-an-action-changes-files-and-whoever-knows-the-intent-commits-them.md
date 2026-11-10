@@ -209,7 +209,6 @@ answer.
   the last commit, as for any program that writes the folder.
 - An app whose `.gitignore` lacks `*.local` gets no commit from Epicenter that
   would take one, and says why, until the line is added.
-- `writeOnly` means only what JSON Schema says; nothing in `epicenter` reads it.
 - A test run of a write in an agent's worktree commits there; run tests in a
   temporary `HOME`.
 - A run killed before it answers leaves its writes pending, and its call

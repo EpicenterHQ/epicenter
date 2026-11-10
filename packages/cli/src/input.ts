@@ -52,7 +52,7 @@ type Described = {
 };
 
 /** Whether a field takes `null`, which a collection's `set` reads as "remove it" (ADR-0867). */
-export function takesNull(field: TSchema): boolean {
+function takesNull(field: TSchema): boolean {
 	const schema = field as Described;
 	return (
 		schema.type === 'null' ||
@@ -70,7 +70,7 @@ function withoutNull(field: TSchema): Described {
 }
 
 /** The values a field may take when it is one of a few strings, as `field.select` or `enum` writes it. */
-export function choicesOf(field: TSchema): string[] | undefined {
+function choicesOf(field: TSchema): string[] | undefined {
 	const schema = withoutNull(field);
 	const choices = schema.enum ?? schema.anyOf?.map((choice) => choice.const);
 	return choices?.every((choice) => typeof choice === 'string')
@@ -98,7 +98,7 @@ export function fieldKind(field: TSchema): string {
  * number, `true` or `false` for a switch, every value of a repeated flag for a
  * list, and `null` for the word `null` when the field takes `null` (ADR-0867).
  */
-export function inputFromArgs(
+function inputFromArgs(
 	action: Action,
 	tokens: string[],
 ): { ok: true; input: Record<string, unknown> } | { error: string } {

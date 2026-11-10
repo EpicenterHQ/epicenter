@@ -1,14 +1,4 @@
-export {
-	type Action,
-	type ActionDef,
-	type ActionMeta,
-	type Annotations,
-	defineAction,
-	type Input,
-	type InputOf,
-	isAction,
-	RESERVED_FIELDS,
-} from './action.ts';
+export { type Action, defineAction, type Input, isAction } from './action.ts';
 export {
 	type Actions,
 	type App,
@@ -39,4 +29,4 @@ export {
 export { field, type TSwitch, type TTags } from './field.ts';
 export { readMarkdown } from './front-matter.ts';
 export { createMemoryContext } from './memory.ts';
-export { type Placeholders, templateProblem } from './path.ts';
+export type { Placeholders } from './path.ts';

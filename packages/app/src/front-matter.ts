@@ -24,12 +24,6 @@ export type JsonValue =
 	| JsonValue[]
 	| { [key: string]: JsonValue };
 
-/** A note in the grammar: its fields in file order, and the text after the closing fence. */
-type FrontMatter = {
-	fields: Record<string, JsonValue>;
-	body: string;
-};
-
 /** The change a patch applies: fields to set, and keys to delete. A key in both is set. */
 type FieldPatch = {
 	set?: Record<string, JsonValue>;
@@ -80,18 +74,6 @@ function split(text: string): Parts | null {
 		at = end;
 	}
 	return null;
-}
-
-/** The note's fields and body, or null when it has no front matter: then all of it is body. */
-function parseFrontMatter(text: string): FrontMatter | null {
-	const parts = split(text);
-	if (parts === null) return null;
-	return {
-		fields: Object.fromEntries(
-			parts.fields.map(({ key, value }) => [key, value]),
-		),
-		body: parts.body,
-	};
 }
 
 /**
@@ -182,8 +164,15 @@ function isRecord(value: unknown): value is FieldValues {
 
 /** A Markdown file's fields: `key: <JSON>` lines, else YAML; else none, and the whole text is body. */
 export function readMarkdown(text: string): Read {
-	const parsed = parseFrontMatter(text);
-	if (parsed) return { ...parsed, writable: true };
+	const parts = split(text);
+	if (parts)
+		return {
+			fields: Object.fromEntries(
+				parts.fields.map(({ key, value }) => [key, value]),
+			),
+			body: parts.body,
+			writable: true,
+		};
 	const open = /^---\r?\n/.exec(text);
 	const rest = open ? text.slice(open[0].length) : '';
 	const close = open ? /^---[ \t]*(\r?\n|$)/m.exec(rest) : null;

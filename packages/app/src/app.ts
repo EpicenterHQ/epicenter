@@ -144,9 +144,8 @@ function appProblems(app: unknown): string[] {
 
 /**
  * A file both collections would hold: the same template, or one's one-file
- * path that the other's template matches. Overlap between two templates with
- * placeholders in general is left to `sync`, which names any file two
- * collections hold.
+ * path that the other's template matches. Two different templates with
+ * placeholders that can match one file are not caught.
  */
 function clash(a: AnyCollection, b: AnyCollection): string | undefined {
 	if (a.path === b.path || (!a.path.includes('{') && b.holds(a.path)))
