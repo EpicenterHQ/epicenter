@@ -45,8 +45,8 @@ Capture, Vocab, agents, and UIs keep nothing on a device and see the current
 files when they reach the home. Whispering on another device sends recordings
 to the home through an action when it can reach it. `epicenter serve`
 runs the `epicenter.ts` of each app you trust, and Epicenter holds no
-third-party credentials: Mail's Google sign-in is in the Keychain of the
-computer that runs Mail's actions.
+third-party credentials: Mail's Google sign-in is a `.local` file in Mail's
+folder, on the computer that runs Mail's actions, and never leaves it.
 
 Agents make apps: you start Claude Code on your server, ask for an app, and it
 writes the folder. Every app is its own source: its code is changed where it
@@ -193,9 +193,10 @@ epicenter serve, through Tailscale Funnel    claude.ai and ChatGPT, signed in wi
 A command always means the computer it is typed on. `serve` speaks MCP and
 serves UIs, and runs each call in a fresh process, so code you just changed is
 what runs. Adding claude.ai or ChatGPT as a connector opens a page on your
-server where you approve it with a passkey, and the client receives a token you
-can revoke. Nothing guards your sign-ins from another program running as you
-except your agents' permission rules.
+server where you approve it from a device on your tailnet, and the client
+receives a token you can revoke with `epicenter connections revoke`. Nothing
+guards your sign-ins from another program running as you except your agents'
+permission rules.
 
 ## UIs
 

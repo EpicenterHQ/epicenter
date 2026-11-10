@@ -3,7 +3,7 @@
 - **Status:** Accepted (2026-11-08)
 - **Date:** 2026-11-08
 - **Relates:** [ADR-0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md) (the app contract and its context), [ADR-0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md) (an action is a commit; Epicenter Cloud), [ADR-0845](0845-an-app-declares-collections-each-a-path-and-fields-which-the-hub-views.md) (what the hub's data view reads).
-- **Amended by:** [ADR-0846](0846-epicenter-owns-no-infrastructure-and-each-repository-has-one-meeting-point.md): no surface keeps a runner alive between calls; `serve` is a front door that runs each request as one process, and schedules run from one OS timer.
+- **Amended by:** [ADR-0846](0846-epicenter-owns-no-infrastructure-and-each-repository-has-one-meeting-point.md): no surface keeps a runner alive between calls; `serve` is a front door that runs each request as one process, and schedules run from one OS timer. [ADR-0870](0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md): the `secrets` row is deleted; an app's secrets are `.local` files on whichever host runs it.
 - **Spec:** [specs/20261107T222922-epicenter-is-where-personal-software-lives.md](../../specs/20261107T222922-epicenter-is-where-personal-software-lives.md)
 - **Unbuilt:** `epicenter serve`; the CLI as a client of a runner on another computer; the cache root and a secrets fallback for Linux and Windows (the CLI uses `~/Library/Caches` and `Bun.secrets` today); the hub; Epicenter Cloud.
 

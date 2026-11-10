@@ -45,8 +45,8 @@ ago is what runs.
 Your own devices reach it over your tailnet. Claude.ai and ChatGPT connect from
 their vendors' servers, so `serve` also has one public HTTPS address, through
 Tailscale Funnel, and signs a client in with OAuth, as MCP requires: adding the
-connector opens a page on your server where you approve it with a passkey, and
-the client receives a token you can revoke (ADR-0864).
+connector opens a page on your server where you approve it from a device on
+your tailnet, and the client receives a token you can revoke (ADR-0871).
 
 **A command means this computer.** `epicenter vocab define serendipity` runs
 the Vocab folder on the computer it is typed on, and never forwards.
@@ -54,10 +54,11 @@ the Vocab folder on the computer it is typed on, and never forwards.
 developing an app or a folder of one's own. Every write commits itself, and
 writes to one app take turns (ADR-0850).
 
-**A sign-in lives where the actions that use it run:** Gmail's in your server's
-Keychain, where `epicenter mail connect` runs. Epicenter holds no third-party
-credentials (ADR-0864). Keychain access does not stop another program running
-as the same user, so the person's agent permission rules are the gate for now.
+**A sign-in lives where the actions that use it run:** Gmail's in
+`mail/google.local.md` on your server, where `epicenter mail connect` runs
+(ADR-0870). Epicenter holds no third-party credentials (ADR-0864). A file, like
+a Keychain item, does not stop another program running as the same user, so
+the person's agent permission rules are the gate.
 
 **There are no schedules.** Your server runs nothing on its own: an action
 runs because a person, their agent, or a page they opened asks for it.

@@ -5,7 +5,8 @@
 - **Supersedes:** [ADR-0862](0862-notes-merge-field-by-field-and-every-conflict-is-listed-for-repair.md): one home makes merging notes between computers unnecessary.
 - **Amends:** [ADR-0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md) at `epicenter sync`: it snapshots pending changes and pushes, without pulling or rebasing.
 - **Relates:** [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) (reaching the home), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (snapshots), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (`origin`), [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (one copy).
-- **Built:** `epicenter sync` (`packages/cli/src/sync.ts`, `packages/cli/src/push.ts`) and `serve`'s push after a snapshot. **Unbuilt:** access to home actions from programs on other devices, such as Whispering.
+- **Built:** `epicenter sync` (`packages/cli/src/sync.ts`, `packages/cli/src/push.ts`) and `serve`'s push after a snapshot.
+- **Unbuilt:** an app's status saying it has no backup, and `epicenter new` saying so; access to home actions from programs on other devices, such as Whispering.
 
 ## Context
 
@@ -45,6 +46,23 @@ lacks from `origin/<branch>..HEAD`, so it stays true however the problem is
 fixed. That count reads the last fetched `origin/<branch>`, which `sync` does
 not refresh.
 
+**Every app should have a backup, and Epicenter says when one does not.** A
+backup is optional to run an app and expected to keep one. An app's status
+names a missing backup in two cases:
+
+| The app | Status says | Next step |
+| --- | --- | --- |
+| has no `origin` | `not backed up` | `git -C <folder> remote add origin <url>`, then `epicenter sync <app>` |
+| has an `origin` but no `origin/<branch>`: never pushed | `never backed up` | `epicenter sync <app>` |
+
+The listing (`epicenter`) marks such an app, and `epicenter <app>` shows the
+line above its actions. `epicenter new` ends its stderr with the same line, so
+an app is never born silently without a backup. Epicenter creates no
+repositories on a host: the person picks where the backup lives (a private
+GitHub repository, for example with `gh repo create <name> --private`, or a
+bare repository on a disk or another computer). Apps that hold mail or a
+journal may prefer the latter.
+
 To restore an app, clone its backup onto a computer and make that computer
 the home. A program on another device sends its data to the home through an
 action; this path for Whispering is not built yet. Binary files the app tracks
@@ -55,7 +73,11 @@ can read its history.
 
 - The home owns the only working copy used in normal operation. A refused
   push does not merge remote commits into that copy or overwrite the backup.
-- A remote is optional. Without one, `sync` makes a local snapshot.
+- A remote is optional to run. Without one, `sync` makes a local snapshot,
+  and the app's status says `not backed up` until it has one.
+- The backup holds what Git holds. `.local` files (ADR-0870) and the
+  Epicenter's own `EPICENTER.md` and `AGENTS.md` are in no repository; the
+  computer's own backup keeps them.
 - A device that cannot reach the home cannot change its apps through actions.
   A possible later offline outbox would queue action calls and replay them
   when the home is reachable.
