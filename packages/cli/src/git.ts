@@ -20,10 +20,18 @@ const ENVIRONMENT = {
 	GIT_TERMINAL_PROMPT: '0',
 };
 
-/** Run `git -C folder ...args`; never throws for a non-zero exit. */
-export async function git(folder: string, args: string[]) {
+/**
+ * Run `git -C folder ...args`; never throws for a non-zero exit. `magic`
+ * lets the commit's own fixed pathspec use `:(exclude)`; every other call
+ * reads paths literally.
+ */
+export async function git(folder: string, args: string[], magic = false) {
 	const child = Bun.spawn(['git', '-C', folder, ...args], {
-		env: { ...process.env, ...ENVIRONMENT },
+		env: {
+			...process.env,
+			...ENVIRONMENT,
+			...(magic ? { GIT_LITERAL_PATHSPECS: '0' } : {}),
+		},
 		stdin: 'ignore',
 		stdout: 'pipe',
 		stderr: 'pipe',
@@ -62,7 +70,7 @@ const INDEX_LOCK_WAIT_MS = 2_000;
 async function gitWaitingForIndex(folder: string, args: string[]) {
 	const deadline = Date.now() + INDEX_LOCK_WAIT_MS;
 	for (;;) {
-		const result = await git(folder, args);
+		const result = await git(folder, args, true);
 		if (result.code === 0) return result.stdout;
 		if (!result.stderr.includes('index.lock') || Date.now() > deadline)
 			throw new Error(gitMessage(args, result));
@@ -83,6 +91,13 @@ const LFS_MISSING =
  * throws before staging when its `.gitattributes` mentions `filter=lfs` and
  * `git config filter.lfs.process` is empty (ADR-0856).
  */
+/**
+ * What a commit takes: everything in the folder except `*.local` and
+ * `*.local.*`, which never leave this computer whatever the app's
+ * `.gitignore` says (a token, a device's settings).
+ */
+const COMMITTED = ['.', ':(exclude)*.local', ':(exclude)*.local.*'];
+
 export async function commitFolder(
 	folder: string,
 	message: string | ((files: number) => string),
@@ -96,14 +111,11 @@ export async function commitFolder(
 		(await git(folder, ['config', '--get', 'filter.lfs.process'])).stdout === ''
 	)
 		throw new Error(LFS_MISSING);
-	await gitWaitingForIndex(folder, ['add', '-A', '--', '.']);
-	const staged = await checkedGit(folder, [
-		'diff',
-		'--cached',
-		'--name-only',
-		'--',
-		'.',
-	]);
+	await gitWaitingForIndex(folder, ['add', '-A', '--', ...COMMITTED]);
+	const diff = ['diff', '--cached', '--name-only', '--', ...COMMITTED];
+	const result = await git(folder, diff, true);
+	if (result.code !== 0) throw new Error(gitMessage(diff, result));
+	const staged = result.stdout;
 	const files = staged === '' ? 0 : staged.split('\n').length;
 	if (files === 0) return 0;
 	await gitWaitingForIndex(folder, [
@@ -112,7 +124,7 @@ export async function commitFolder(
 		'-m',
 		typeof message === 'string' ? message : message(files),
 		'--',
-		'.',
+		...COMMITTED,
 	]);
 	return files;
 }

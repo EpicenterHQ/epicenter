@@ -142,6 +142,20 @@ test('C2 a write commits everything changed in its folder, staged or not, and ne
 	expect(await gitIn(f.dir, 'ls-files', '.cache')).toBe('');
 });
 
+test('C2b a write never commits *.local or *.local.*, even when .gitignore does not name them', async () => {
+	const f = await setup();
+	await writeFile(join(f.dir, '.gitignore'), '.cache/\n');
+	await gitIn(f.dir, 'commit', '-qam', 'a .gitignore without .local');
+	await writeFile(join(f.dir, 'token.local.json'), '{"token":"secret"}\n');
+	await writeFile(join(f.dir, 'device.local'), 'this computer\n');
+	const ran = await f.json('notes', 'write', 'monday');
+	expect(ran.code).toBe(0);
+	expect(await gitIn(f.dir, 'show', '--name-only', '--format=', 'HEAD')).toBe(
+		'monday.md',
+	);
+	expect(await gitIn(f.dir, 'ls-files', '*.local*')).toBe('');
+});
+
 test('C3 a write that changes nothing makes no commit', async () => {
 	const f = await setup();
 	const head = await gitIn(f.dir, 'rev-parse', 'HEAD');

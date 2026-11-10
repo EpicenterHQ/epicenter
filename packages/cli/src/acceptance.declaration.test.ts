@@ -370,12 +370,12 @@ test('D8 an app with only epicenter.json lists, reads, writes, and deletes its c
 			'A new items/new-one.md needs added',
 		],
 		[['items', 'set', '../escape', '--kind', 'link'], 2, '<id>'],
-		[['items', 'set', 'dune', '--kind', 'null'], 2, '--kind does not take null'],
 		[
-			['items', 'set', '--input', '{"id":"dune","added":null}'],
+			['items', 'set', 'dune', '--kind', 'null'],
 			2,
-			'added',
+			'--kind does not take null',
 		],
+		[['items', 'set', '--input', '{"id":"dune","added":null}'], 2, 'added'],
 	] as const;
 	for (const [args, code, message] of refused) {
 		const result = await json(...args);
