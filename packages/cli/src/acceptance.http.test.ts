@@ -6,7 +6,7 @@
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
 import { mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { connect } from '@epicenter/app/client';
+import { ActionError, connect } from '@epicenter/app/client';
 import { fixture, gitIn, readingApp } from './runner.test-support.ts';
 
 /** Reading's actions as its UI calls them, for `connect`. */
@@ -117,7 +117,7 @@ test('a crafted tool name cannot run an app outside the home', async () => {
 	const f = await setup();
 	const outside = await f.app(
 		'outside',
-		`export default defineApp({ description: 'Outside', actions: { run: defineAction({ description: 'Run', input: {}, run: async () => { await folder.write('ran.txt', 'yes'); return true; } }) } });`,
+		`export default defineApp({ description: 'Outside', collections: {}, actions: { run: defineAction({ description: 'Run', input: {}, run: async () => { await folder.write('ran.txt', 'yes'); return true; } }) } });`,
 		f.root,
 	);
 	const response = await mcp(f.base, 'tools/call', {
@@ -132,7 +132,12 @@ test('a crafted tool name cannot run an app outside the home', async () => {
 test('the browser client calls a tool without initialize and a write makes one named commit', async () => {
 	const f = await setup();
 	const folder = await f.folder(join(f.home, 'reading'), readingApp);
-	const client = connect<Reading>('reading', { url: `${f.base}/` });
+	const client = connect<Reading>('reading', {
+		url: `${f.base}/`,
+		onUncommitted: () => {
+			throw new Error('every write here commits');
+		},
+	});
 	expect(await client.log({ minutes: 30 })).toEqual({
 		minutes: 30,
 		book: null,
@@ -146,20 +151,64 @@ test('the browser client calls a tool without initialize and a write makes one n
 	);
 });
 
-test('read-only and thrown actions make no commit', async () => {
+test('a read-only action makes no commit, and one that throws after writing commits under its own subject', async () => {
 	const f = await setup();
 	const folder = await f.folder(join(f.home, 'reading'), readingApp);
-	const client = connect<Reading>('reading', { url: `${f.base}/` });
+	const client = connect<Reading>('reading', {
+		url: `${f.base}/`,
+		onUncommitted: () => {
+			throw new Error('every write here commits');
+		},
+	});
 	expect(await client.week.show()).toBe(210);
 	expect(await gitIn(folder, 'rev-list', '--count', 'HEAD')).toBe('1');
-	await expect(client.explode()).rejects.toThrow('line 4 is not a number');
-	expect(await gitIn(folder, 'rev-list', '--count', 'HEAD')).toBe('1');
+	const threw = await client.explode().catch((error: unknown) => error);
+	expect(threw).toBeInstanceOf(ActionError);
+	const answer = (threw as ActionError).answer as { committed?: string };
+	expect((threw as ActionError).message).toBe(
+		`line 4 is not a number\nWhat it wrote before it threw is committed as ${answer.committed}`,
+	);
+	expect(answer.committed).toBe(
+		await gitIn(folder, 'rev-parse', '--short', 'HEAD'),
+	);
+	expect(await gitIn(folder, 'log', '-1', '--format=%s')).toBe(
+		'reading: explode (threw)',
+	);
+	expect(await gitIn(folder, 'status', '--porcelain')).toBe('');
+});
+
+test('a call whose changes are not committed resolves, and onUncommitted hears why', async () => {
+	const f = await setup();
+	const folder = await f.folder(join(f.home, 'reading'), readingApp);
+	await writeFile(
+		join(folder, '.gitattributes'),
+		'*.csv filter=lfs diff=lfs merge=lfs -text\n',
+	);
+	const heard: unknown[] = [];
+	const client = connect<Reading>('reading', {
+		url: `${f.base}/`,
+		onUncommitted: (uncommitted) => heard.push(uncommitted),
+	});
+	expect(await client.log({ minutes: 5 })).toEqual({ minutes: 5, book: null });
+	expect(heard).toEqual([
+		{
+			action: 'log',
+			returned: { minutes: 5, book: null },
+			reason: expect.stringContaining('git lfs install'),
+			sync: 'epicenter sync reading',
+		},
+	]);
 });
 
 test('concurrent writes run one at a time and make one commit each', async () => {
 	const f = await setup();
 	const folder = await f.folder(join(f.home, 'reading'), readingApp);
-	const client = connect<Reading>('reading', { url: `${f.base}/` });
+	const client = connect<Reading>('reading', {
+		url: `${f.base}/`,
+		onUncommitted: () => {
+			throw new Error('every write here commits');
+		},
+	});
 	await Promise.all([client.log({ minutes: 10 }), client.log({ minutes: 20 })]);
 	expect(await gitIn(folder, 'rev-list', '--count', 'HEAD')).toBe('3');
 	expect(
@@ -177,9 +226,12 @@ test('a successful write pushes to an upstream in the background', async () => {
 	await gitIn(f.root, 'init', '--bare', '-q', remote);
 	await gitIn(folder, 'remote', 'add', 'origin', remote);
 	await gitIn(folder, 'push', '-q', '-u', 'origin', 'HEAD');
-	await connect<Reading>('reading', { url: `${f.base}/` }).log({
-		minutes: 42,
-	});
+	await connect<Reading>('reading', {
+		url: `${f.base}/`,
+		onUncommitted: () => {
+			throw new Error('every write here commits');
+		},
+	}).log({ minutes: 42 });
 	let subject = '';
 	for (let attempt = 0; attempt < 50; attempt++) {
 		subject = await gitIn(remote, 'log', '-1', '--format=%s');
@@ -193,7 +245,7 @@ test('commit subjects use the first positional value on one line, capped at 60 c
 	const f = await setup();
 	const folder = await f.app(
 		'notes',
-		`export default defineApp({ description: 'The notes app', actions: {
+		`export default defineApp({ description: 'The notes app', collections: {}, actions: {
 		add: defineAction({ description: 'Add a note', input: { text: field.text() }, positional: ['text'],
 			run: async ({ text }) => { await folder.write('note.txt', text); return text; } }),
 	} });`,
@@ -201,7 +253,12 @@ test('commit subjects use the first positional value on one line, capped at 60 c
 	const text = `Fear is the mind-killer ${'x'.repeat(80)}\nsecond line`;
 	await connect<{ actions: { add: (input: { text: string }) => string } }>(
 		'notes',
-		{ url: `${f.base}/` },
+		{
+			url: `${f.base}/`,
+			onUncommitted: () => {
+				throw new Error('every write here commits');
+			},
+		},
 	).add({ text });
 	expect(await gitIn(folder, 'log', '-1', '--format=%B')).toBe(
 		`notes: add ${text.replace(/\s+/g, ' ').slice(0, 60)}`,
@@ -228,7 +285,7 @@ test('a built UI serves files and refuses traversal and symlinks outside it', as
 	);
 	const linked = await f.app(
 		'linked',
-		`export default defineApp({ description: 'Linked UI' });\n`,
+		`export default defineApp({ description: 'Linked UI', collections: {}, actions: {} });\n`,
 	);
 	const outsideUi = join(f.root, 'outside-ui');
 	await mkdir(outsideUi);

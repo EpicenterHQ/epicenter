@@ -1,9 +1,12 @@
 /**
  * One action's run, for the command line and both MCP transports (ADR-0850).
- * The action writes through its folder as it runs. When it returns and is not
- * read-only, the run commits what changed in the app's folder as one commit
- * named for the call, however the call arrived. The answer is what the action returned, with
- * its commit, or what it threw.
+ * The action writes through its folder as it runs. When it is not read-only,
+ * the run then commits what changed in the app's folder as one commit named
+ * for the call, however the call arrived: when it threw, the subject says so,
+ * `<subject> (threw)`, so its writes are never left for a later call to
+ * claim. A read-only run takes no lock and makes no commit, and its writes
+ * through `folder` and `secrets` throw. The answer is what the action
+ * returned or threw, with its commit.
  */
 
 import { createHash } from 'node:crypto';
@@ -104,8 +107,8 @@ export async function holdWriteLock(
 /**
  * Run `action`, the app's `key`, with its checked input in the app's folder.
  * A write holds the app's write lock while it runs and commits; when it
- * returns, what changed in the folder is committed, named for the call. A
- * folder in no repository is left as it is.
+ * returns or throws, what changed in the folder is committed, named for the
+ * call. A folder in no repository is left as it is.
  */
 export async function runAction(
 	located: Runnable,
@@ -132,32 +135,34 @@ async function runAndCommit(
 	input: Record<string, unknown>,
 	readOnly: boolean,
 ): Promise<Exclude<Answer, { error: unknown }>> {
-	let returned: unknown;
+	const context = readOnly
+		? { ...located.context, readOnly: { action: key } }
+		: located.context;
+	let ended: { returned: unknown } | { threw: ReturnType<typeof threwOf> };
 	try {
-		returned =
-			(await inRun(located.context, () => action(input))) ?? null;
+		ended = { returned: (await inRun(context, () => action(input))) ?? null };
 	} catch (error) {
-		return { threw: threwOf(error) };
+		ended = { threw: threwOf(error) };
 	}
-	if (readOnly) return { returned };
+	if (readOnly) return ended;
 	const inside = await git(located.realPath, [
 		'rev-parse',
 		'--is-inside-work-tree',
 	]);
-	if (inside.code !== 0 || inside.stdout !== 'true') return { returned };
+	if (inside.code !== 0 || inside.stdout !== 'true') return ended;
 	try {
 		const subject = commitSubject(
 			located.name,
 			key,
 			input[action.positional?.[0] ?? ''],
 		);
-		if ((await commitFolder(located.realPath, subject)) === 0)
-			return { returned };
+		const message = 'threw' in ended ? `${subject} (threw)` : subject;
+		if ((await commitFolder(located.realPath, message)) === 0) return ended;
 		const head = await git(located.realPath, ['rev-parse', '--short', 'HEAD']);
-		return { returned, committed: head.stdout };
+		return { ...ended, committed: head.stdout };
 	} catch (error) {
 		return {
-			returned,
+			...ended,
 			uncommitted: {
 				message: extractErrorMessage(error),
 				next: `epicenter sync ${located.name}`,

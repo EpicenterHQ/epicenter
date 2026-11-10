@@ -40,11 +40,11 @@ test('D1 the listing shows folders with an epicenter.ts, ignores the rest, and n
 	await f.folder(join(f.home, 'reading'), readingApp);
 	await f.app(
 		'vocab',
-		`${words}export default defineApp({ description: 'The vocab app', collections: { words } });\n`,
+		`${words}export default defineApp({ description: 'The vocab app', collections: { words }, actions: {} });\n`,
 	);
 	const linked = await f.app(
 		'journal',
-		`export default defineApp({ description: 'The journal app' });\n`,
+		`export default defineApp({ description: 'The journal app', collections: {}, actions: {} });\n`,
 		join(f.root, 'elsewhere'),
 	);
 	await symlink(linked, join(f.home, 'journal'));
@@ -67,21 +67,30 @@ test('D1 the listing shows folders with an epicenter.ts, ignores the rest, and n
 	await f.app(
 		'malformed',
 		`const words = defineCollection({ path: 'words/{word}.md', fields: { word: field.text(), path: field.text() } });
-export default defineApp({ description: 'The malformed app', collections: { words } });
+export default defineApp({ description: 'The malformed app', collections: { words }, actions: {} });
 `,
 	);
 	await f.app(
 		'misplaced',
 		`const show = defineAction({ description: 'Show', input: {}, positional: ['nope'], run: () => 1 });
-export default defineApp({ description: 'The misplaced app', actions: { show } });
+export default defineApp({ description: 'The misplaced app', collections: {}, actions: { show } });
 `,
 	);
 	await f.app('badpath', `defineCollection({ path: 'words/', fields: {} });\n`);
 	await f.app(
 		'unchecked',
-		`export default defineApp({ description: 'The unchecked app', actions: { show: { description: 'Show', input: {}, run: () => 1 } } });\n`,
+		`export default defineApp({ description: 'The unchecked app', collections: {}, actions: { show: { description: 'Show', input: {}, run: () => 1 } } });\n`,
 	);
 	await f.app('nodefault', `export const actions = {};\n`);
+	// Exported without defineApp, so nothing checked it while importing.
+	await f.app(
+		'nullactions',
+		`export default { description: 'Unchecked', collections: {}, actions: null };\n`,
+	);
+	await f.app(
+		'shapeless',
+		`export default { description: 'Unchecked', collections: { words: {} }, actions: { show: 5 } };\n`,
+	);
 
 	const result = await f.run('--json');
 	expect(result.code).toBe(0);
@@ -113,6 +122,13 @@ export default defineApp({ description: 'The misplaced app', actions: { show } }
 			'epicenter.ts: The action "Show" has the positional "nope", which is not one of its fields',
 		],
 		nodefault: ['epicenter.ts does not export defineApp(...) by default'],
+		nullactions: [
+			'epicenter.ts: An app needs actions: an object of defineAction(...) and groups of them, {} for none',
+		],
+		shapeless: [
+			'epicenter.ts: collections.words is not defineCollection(...)',
+			'epicenter.ts: actions.show is neither an action nor a group of them',
+		],
 		unchecked: [
 			'epicenter.ts: actions.show is not an action: make it with defineAction(...), and change one with defineAction({ ... }) rather than a spread, which drops the call',
 		],
@@ -137,7 +153,7 @@ test('D2 --json prints the app from epicenter.ts, each action an MCP tool', asyn
 	await f.folder(join(f.home, 'reading'), readingApp);
 	await f.app(
 		'vocab',
-		`${words}export default defineApp({ description: 'The vocab app', collections: { words } });\n`,
+		`${words}export default defineApp({ description: 'The vocab app', collections: { words }, actions: {} });\n`,
 	);
 	const listing = JSON.parse((await f.run('--json')).stdout);
 	const reading = listing.apps.find(
@@ -183,7 +199,7 @@ test('D2 --json prints the app from epicenter.ts, each action an MCP tool', asyn
 		openWorldHint: false,
 	});
 	expect(reading.actions[0].description).toBe(
-		'Every books/{slug}.md file: its path and fields',
+		'Every books/{slug}.md file: its path and fields, and the problems of one that does not fit them',
 	);
 	expect(JSON.stringify(listing)).not.toContain('positional');
 	const vocab = listing.apps.find(
@@ -320,7 +336,7 @@ test('D7 discovery defaults to $HOME/Epicenter and ignores EPICENTER_HOME', asyn
 	const decoy = join(f.root, 'decoy-home');
 	await f.app(
 		'decoy',
-		`export default defineApp({ description: 'The decoy app' });\n`,
+		`export default defineApp({ description: 'The decoy app', collections: {}, actions: {} });\n`,
 		decoy,
 	);
 	f.env.EPICENTER_HOME = decoy;
@@ -378,6 +394,7 @@ test("D8 an app of one collection's verbs adds, reads, changes, and deletes its 
 		answer: {
 			returned: {
 				path: 'items/dune.md',
+				id: 'dune',
 				kind: 'quote',
 				added: '2026-11-09',
 				body: 'Fear is the mind-killer.\n',
@@ -460,6 +477,7 @@ test("D8 an app of one collection's verbs adds, reads, changes, and deletes its 
 			returned: [
 				{
 					path: 'items/dune.md',
+					id: 'dune',
 					kind: 'quote',
 					url: 'https://example.com/dune',
 					added: '2026-11-09',
@@ -523,6 +541,7 @@ test("D8 an app of one collection's verbs adds, reads, changes, and deletes its 
 			returned: [
 				{
 					path: 'items/petrichor.md',
+					id: 'petrichor',
 					kind: 'thought',
 					added: '2026-11-09',
 				},

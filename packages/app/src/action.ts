@@ -14,7 +14,8 @@
  * await learn({ word: '你好' });
  * ```
  */
-import type { Static, TObject, TSchema } from 'typebox';
+import { type Static, type TObject, type TSchema, Type } from 'typebox';
+import { Value } from 'typebox/value';
 
 /** An action's input: a record of fields, or of any TypeBox schemas. */
 export type Input = Record<string, TSchema>;
@@ -22,7 +23,9 @@ export type Input = Record<string, TSchema>;
 /**
  * MCP's tool annotations, verbatim. An action that does not say otherwise
  * may change things, may destroy, is not idempotent, and reaches outside the
- * folder; the last three mean something only when it is not read-only.
+ * folder; the last three mean something only when it is not read-only. A
+ * read-only action runs without the app's write lock and is never committed;
+ * a write through `folder` or `secrets` in its run throws.
  */
 export type Annotations = {
 	title?: string;
@@ -47,12 +50,20 @@ export type ActionMeta = {
 /** An action: a function of its input, with what callers read to call it. */
 export type Action<In = any, Out = unknown> = ((input: In) => Out) & ActionMeta;
 
-/** The value `run` receives for `input`: a field with a default is always there. */
-export type InputOf<I extends Input> = Simplify<
-	Omit<Static<TObject<I>>, DefaultedKeys<I>> & {
-		[K in DefaultedKeys<I>]-?: Exclude<Static<I[K]>, undefined>;
-	}
->;
+/**
+ * What an action may return: a value that survives JSON, which is how the CLI,
+ * MCP, and a UI receive it. `undefined` arrives as `null`, and a property that
+ * is `undefined` arrives absent.
+ */
+type Returned =
+	| string
+	| number
+	| boolean
+	| null
+	| undefined
+	| void
+	| readonly Returned[]
+	| { readonly [key: string]: Returned };
 
 type DefaultedKeys<I extends Input> = {
 	[K in keyof I]: I[K] extends { default: unknown } ? K : never;
@@ -60,25 +71,45 @@ type DefaultedKeys<I extends Input> = {
 
 type Simplify<T> = { -readonly [K in keyof T]: T[K] } & {};
 
+/** The value `run` receives for `input`: a field with a default is always there. */
+export type InputOf<I extends Input> = Simplify<
+	Omit<Static<TObject<I>>, DefaultedKeys<I>> & {
+		[K in DefaultedKeys<I>]-?: Exclude<Static<I[K]>, undefined>;
+	}
+>;
+
+/** What a caller gives for `input`: a field with a default may be left out. */
+type CallerInput<I extends Input> = Simplify<
+	Omit<Static<TObject<I>>, DefaultedKeys<I>> & {
+		[K in DefaultedKeys<I>]?: Exclude<Static<I[K]>, undefined>;
+	}
+>;
+
 /** An action as an app writes it: `run` receives its input, typed by its fields. */
-export type ActionDef<I extends Input, Out = unknown> = {
+export type ActionDef<
+	I extends Input,
+	Out extends Returned | Promise<Returned> = Returned | Promise<Returned>,
+> = {
 	description: string;
 	input: I;
 	positional?: readonly (keyof I & string)[];
 	annotations?: Annotations;
-	/** Returns what the caller sees, and what `--json` prints. */
+	/** Returns what the caller sees, and what `--json` prints: a value that survives JSON. */
 	run(input: InputOf<I>): Out;
 };
 
 /**
  * Define an action from its fields and its `run`, typing `run`'s input by
- * the fields. Inside `run`, the app's collections, `folder`, and `secrets`
- * reach the folder and secrets of the run that called it, however deep.
- * Throws when the definition is wrong in a way its types cannot say.
+ * the fields. Calling it fills each field's default before `run`, as a call
+ * through the CLI or MCP does. Inside `run`, the app's collections, `folder`,
+ * and `secrets` reach the folder and secrets of the run that called it,
+ * however deep. Throws when the definition is wrong in a way its types
+ * cannot say.
  */
-export function defineAction<const I extends Input, Out>(
-	def: ActionDef<I, Out>,
-): Action<InputOf<I>, Out> {
+export function defineAction<
+	const I extends Input,
+	Out extends Returned | Promise<Returned>,
+>(def: ActionDef<I, Out>): Action<CallerInput<I>, Out> {
 	const problems = actionProblems(def);
 	if (problems.length)
 		throw new Error(
@@ -87,7 +118,12 @@ export function defineAction<const I extends Input, Out>(
 				.join('\n'),
 		);
 	const { run, ...meta } = def;
-	return Object.assign((input: InputOf<I>) => run(input), meta);
+	const schema = Type.Object(def.input);
+	return Object.assign(
+		(input: CallerInput<I>) =>
+			run(Value.Default(schema, { ...input }) as InputOf<I>),
+		meta,
+	);
 }
 
 /**

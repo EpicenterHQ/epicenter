@@ -1,9 +1,9 @@
 /**
  * Acceptance, stage 2: the commit rule (ADR-0850). Black-box runs of the real
- * `epicenter` against a temporary HOME. A write that returns commits
+ * `epicenter` against a temporary HOME. A write that returns or throws commits
  * everything changed in its folder and nothing outside it, named for the
- * call. The answer is `{ returned }`, `{ threw }`, or `{ error }`, exit 0, 1,
- * or 2.
+ * call; a read-only action cannot write through `folder` or `secrets`. The
+ * answer is `{ returned }`, `{ threw }`, or `{ error }`, exit 0, 1, or 2.
  */
 
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
@@ -25,6 +25,7 @@ afterEach(async () => {
 const notesCode = `${header}
 export default defineApp({
 	description: 'The notes app',
+	collections: {},
 	actions: {
 		write: defineAction({
 			description: 'Write a page, and note it in the cache',
@@ -49,6 +50,29 @@ export default defineApp({
 			run: async () => {
 				await folder.writeBytes('cover.png', new Uint8Array([137, 80, 78, 71, 1, 2, 3]));
 			},
+		}),
+		half: defineAction({
+			description: 'Write a page, then throw',
+			input: { page: field.text() },
+			positional: ['page'],
+			run: async ({ page }) => {
+				await folder.write(page + '.md', page);
+				throw new Error('stopped halfway');
+			},
+		}),
+		peek: defineAction({
+			description: 'Say it only reads, then write',
+			input: {},
+			annotations: { readOnlyHint: true },
+			run: async () => {
+				await folder.write('peek.md', 'peeked');
+			},
+		}),
+		sneak: defineAction({
+			description: 'Say it only reads, then keep a secret',
+			input: {},
+			annotations: { readOnlyHint: true },
+			run: () => secrets.set('token', 'kept'),
 		}),
 		tagged: defineAction({
 			description: 'Throw a tagged error',
@@ -198,6 +222,17 @@ test('C5 the commit refuses before staging when .gitattributes routes a path thr
 	expect(kept.answer.uncommitted.next).toBe('epicenter sync notes');
 	expect(await gitIn(f.dir, 'diff', '--cached', '--name-only')).toBe('');
 	expect(await subjects(f.dir)).toBe('initial');
+	// A write that threw says the same.
+	const threw = await f.json('notes', 'half', 'friday');
+	expect(threw.code).toBe(1);
+	expect(threw.answer).toEqual({
+		threw: { message: 'stopped halfway' },
+		uncommitted: {
+			message: expect.stringContaining('run: git lfs install'),
+			next: 'epicenter sync notes',
+		},
+	});
+	expect(await subjects(f.dir)).toBe('initial');
 
 	if (!Bun.which('git-lfs')) return;
 	await gitIn(f.dir, 'lfs', 'install', '--local');
@@ -248,6 +283,49 @@ test('C7 exit codes: 0 returned, 1 threw or ended without an answer, 2 did not r
 	expect(unknown.answer.error).toMatchObject({ name: 'Usage' });
 	const human = await f.run('notes', 'write', 'monday');
 	expect(human).toEqual({ code: 0, stdout: 'monday\n', stderr: '' });
+});
+
+test('C9 a write that throws commits what it wrote under its own subject, marked threw', async () => {
+	const f = await setup();
+	const ran = await f.json('notes', 'half', 'wednesday');
+	expect(ran.code).toBe(1);
+	expect(ran.answer).toEqual({
+		threw: { message: 'stopped halfway' },
+		committed: await gitIn(f.dir, 'rev-parse', '--short', 'HEAD'),
+	});
+	expect(await subjects(f.dir)).toBe('notes: half wednesday (threw)\ninitial');
+	expect(await status(f.dir)).toBe('');
+	// The next call's commit holds only its own write.
+	await f.json('notes', 'write', 'thursday');
+	expect(await gitIn(f.dir, 'show', '--name-only', '--format=', 'HEAD')).toBe(
+		'thursday.md',
+	);
+	const human = await f.run('notes', 'half', 'friday');
+	expect(human.code).toBe(1);
+	expect(human.stderr).toBe(
+		`stopped halfway\nWhat it wrote before it threw is committed as ${await gitIn(f.dir, 'rev-parse', '--short', 'HEAD')}\n`,
+	);
+});
+
+test('C10 a read-only action cannot write through folder or secrets, and makes no commit', async () => {
+	const f = await setup();
+	const peek = await f.json('notes', 'peek');
+	expect(peek.code).toBe(1);
+	expect(peek.answer).toEqual({
+		threw: {
+			message: 'The action "peek" is read-only, so it cannot write peek.md',
+		},
+	});
+	expect(await Bun.file(join(f.dir, 'peek.md')).exists()).toBe(false);
+	const sneak = await f.json('notes', 'sneak');
+	expect(sneak.answer).toEqual({
+		threw: {
+			message:
+				'The action "sneak" is read-only, so it cannot set the secret token',
+		},
+	});
+	expect(await subjects(f.dir)).toBe('initial');
+	expect(await status(f.dir)).toBe('');
 });
 
 test('C8 stdout belongs to epicenter: an action that logs does not corrupt --json or serve --stdio', async () => {

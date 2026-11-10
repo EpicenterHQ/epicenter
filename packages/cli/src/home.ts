@@ -3,8 +3,9 @@
  * has an `epicenter.ts` whose default export is `defineApp(...)`. An app's
  * name is its entry in the Epicenter. Each entry loads on its own so a broken
  * app is listed without stopping the others: what its `define*` calls throw
- * while loading are its problems. A name that finds no app is a `CliError`
- * with the next command as data (ADR-0842).
+ * while loading, and what is wrong with the shape of what it exports, are its
+ * problems. A name that finds no app is a `CliError` with the next command as
+ * data (ADR-0842).
  */
 import { lstat, readdir, realpath, stat } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -14,8 +15,8 @@ import {
 	type Actions,
 	type App,
 	type Context,
+	defineApp,
 	isAction,
-	isApp,
 	isName,
 } from '@epicenter/app';
 import { Ok, type Result } from 'wellcrafted/result';
@@ -125,21 +126,36 @@ async function load(
 	const named = nameProblem(entry);
 	if (named !== undefined)
 		return broken([`its folder's name cannot name an app: ${named}`]);
+	const thrown = (error: unknown) =>
+		broken(
+			message(error)
+				.split('\n')
+				.map((line) => `${CODE}: ${line}`),
+		);
 	let module: { default?: unknown };
 	try {
 		module = await import(pathToFileURL(join(place.realPath, CODE)).href);
 	} catch (error) {
-		return broken(message(error).split('\n').map((line) => `${CODE}: ${line}`));
+		return thrown(error);
 	}
-	if (!isApp(module.default))
+	const exported = module.default;
+	if (typeof exported !== 'object' || exported === null)
 		return broken([`${CODE} does not export defineApp(...) by default`]);
-	const app = module.default;
+	let app: App;
+	let actions: Record<string, Action>;
+	try {
+		// `defineApp` returns what it is given once it has checked it, so this checks the export's whole shape.
+		app = defineApp(exported as App);
+		actions = Object.fromEntries(byWords(app.actions));
+	} catch (error) {
+		return thrown(error);
+	}
 	return {
 		...at,
 		ok: true,
 		name: entry,
 		app,
-		actions: Object.fromEntries(byWords(app.actions)),
+		actions,
 		context: {
 			folder: folderOnDisk(place.realPath),
 			secrets: keychain(keychainService(epicenterRoot().id, entry)),
@@ -148,7 +164,10 @@ async function load(
 }
 
 /** Every action nested in `actions`, by its words one space apart, in the order written. */
-function byWords(actions: Actions, words: readonly string[] = []): [string, Action][] {
+function byWords(
+	actions: Actions,
+	words: readonly string[] = [],
+): [string, Action][] {
 	return Object.entries(actions).flatMap(([word, entry]) =>
 		isAction(entry)
 			? [[[...words, word].join(' '), entry] as [string, Action]]

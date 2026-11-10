@@ -7,8 +7,8 @@ import {
 	field,
 	folder,
 	inRun,
-	isApp,
 	normalizePath,
+	secrets,
 } from './index.ts';
 
 const books = defineCollection({
@@ -58,6 +58,46 @@ describe('createMemoryContext', () => {
 	});
 });
 
+describe('a read-only run', () => {
+	test('refuses every write through folder, secrets, and collections before it happens, and still reads', async () => {
+		const memory = createMemoryContext({
+			'2026.csv': 'minutes\n',
+			'books/dune.md': '---\ntitle: "Dune"\n---\n',
+		});
+		await memory.secrets.set('token', 'kept');
+		const context = { ...memory, readOnly: { action: 'week show' } };
+		const refused = (doing: string) =>
+			`The action "week show" is read-only, so it cannot ${doing}`;
+		const tries: [() => Promise<unknown>, string][] = [
+			[() => folder.write('2026.csv', 'x'), refused('write 2026.csv')],
+			[
+				() => folder.writeBytes('a.bin', new Uint8Array([1])),
+				refused('write a.bin'),
+			],
+			[() => folder.delete('2026.csv'), refused('delete 2026.csv')],
+			[() => secrets.set('token', 'x'), refused('set the secret token')],
+			[() => secrets.delete('token'), refused('delete the secret token')],
+			[
+				() => books.set({ path: 'books/dune.md', title: 'Other' }),
+				refused('write books/dune.md'),
+			],
+			[
+				() => books.delete({ path: 'books/dune.md' }),
+				refused('delete books/dune.md'),
+			],
+		];
+		for (const [attempt, message] of tries)
+			await expect(inRun(context, attempt)).rejects.toThrow(message);
+		expect(await context.folder.list()).toEqual(['2026.csv', 'books/dune.md']);
+		expect(await context.folder.read('2026.csv')).toBe('minutes\n');
+		expect(await memory.secrets.get('token')).toBe('kept');
+		expect(
+			await inRun(context, () => books.get({ path: 'books/dune.md' })),
+		).toMatchObject({ title: 'Dune' });
+		expect(await inRun(context, () => secrets.get('token'))).toBe('kept');
+	});
+});
+
 describe('normalizePath', () => {
 	test('tidies a relative path', () => {
 		expect(normalizePath('./a//b.md')).toBe('a/b.md');
@@ -85,7 +125,12 @@ function problems(make: () => unknown): string[] {
 
 describe('defineApp', () => {
 	test('returns what it was given, with its actions nested under their words', () => {
-		expect(isApp(reading)).toBe(true);
+		const given = {
+			description: 'Same',
+			collections: { books },
+			actions: { log },
+		};
+		expect(defineApp(given)).toBe(given);
 		expect(reading.collections.books).toBe(books);
 		expect(reading.actions.log).toBe(log);
 		expect(Object.keys(reading.actions)).toEqual(['books', 'log']);
@@ -113,9 +158,38 @@ describe('defineApp', () => {
 		expect(await context.folder.read('2026.csv')).toBe('minutes\n5\n5\n');
 	});
 
-	test('needs a description', () => {
-		expect(problems(() => defineApp({ description: ' ' }))).toEqual([
-			'An app needs a description',
+	test('needs a description, collections, and actions', () => {
+		expect(
+			problems(() =>
+				defineApp({ description: ' ', collections: {}, actions: {} }),
+			),
+		).toEqual(['An app needs a description']);
+		expect(
+			problems(() =>
+				defineApp({ description: 'Bare', actions: null } as never),
+			),
+		).toEqual([
+			'An app needs collections: an object of defineCollection(...), {} for none',
+			'An app needs actions: an object of defineAction(...) and groups of them, {} for none',
+		]);
+		expect(problems(() => defineApp(undefined as never))).toEqual([
+			'An app is an object: defineApp({ description, collections, actions })',
+		]);
+	});
+
+	test('refuses an action named then at any depth, which a UI could not call', () => {
+		expect(
+			problems(() =>
+				defineApp({
+					description: 'Then',
+					collections: {},
+					actions: { then: noop, group: { then: noop, inner: { then: noop } } },
+				}),
+			),
+		).toEqual([
+			'actions.then is named "then", which a UI cannot call, since awaiting a value reads its then; name it another word',
+			'actions.group.then is named "then", which a UI cannot call, since awaiting a value reads its then; name it another word',
+			'actions.group.inner.then is named "then", which a UI cannot call, since awaiting a value reads its then; name it another word',
 		]);
 	});
 
@@ -130,6 +204,7 @@ describe('defineApp', () => {
 						quizzes: at('words/{word}.md'),
 						pinned: at('words/pinned.md'),
 					},
+					actions: {},
 				}),
 			),
 		).toEqual([
@@ -155,6 +230,7 @@ describe('defineApp', () => {
 			problems(() =>
 				defineApp({
 					description: 'Bad',
+					collections: {},
 					actions: {
 						'Two Words': noop,
 						spread: { ...noop, description: 'Spread' },
@@ -184,7 +260,25 @@ describe('defineCollection', () => {
 			'words/{a}-{b}.md',
 			'words/{a}-{b}.md has two placeholders in "{a}-{b}.md", so a name could not be split between them',
 		],
-		['{a}/{a}.md', '{a}/{a}.md has {a} twice'],
+		['a/{a}/{a}.md', 'a/{a}/{a}.md has {a} twice'],
+		[
+			'{day}.md',
+			'{day}.md starts with a placeholder, so it would hold files the app keeps for itself, such as README.md; start it with a folder, as days/{day}.md',
+		],
+		[
+			'{year}/{day}.md',
+			'{year}/{day}.md starts with a placeholder, so it would hold files the app keeps for itself, such as README.md; start it with a folder, as days/{day}.md',
+		],
+		['ui/{page}.md', "ui/{page}.md is inside ui/, which holds the app's UI"],
+		[
+			'node_modules/{id}.md',
+			'node_modules/{id}.md is inside node_modules/, which holds installed packages',
+		],
+		[
+			'epicenter.md',
+			'epicenter.md starts with "epicenter.", which names epicenter\'s own files',
+		],
+		['.cache/{id}.md', '.cache/{id}.md has a part that starts with "."'],
 		[
 			'words/{a.md',
 			'words/{a.md has a brace that is not a placeholder such as {word}',
@@ -204,6 +298,8 @@ describe('defineCollection', () => {
 						word: field.text(),
 						body: field.text(),
 						path: field.text(),
+						problems: field.text(),
+						other: field.text(),
 						json: field.text(),
 						'two words': field.text(),
 					},
@@ -213,8 +309,48 @@ describe('defineCollection', () => {
 			'The collection at words/{word}.md has a field "word", which its path gives as {word}; the file\'s name holds it',
 			'The collection at words/{word}.md has a field "body", which is the file\'s text after its front matter',
 			'The collection at words/{word}.md has a field "path", which is the file\'s address',
+			'The collection at words/{word}.md has a field "problems", which a read uses to say what does not fit',
+			'The collection at words/{word}.md has a field "other", which a read uses for front matter that is not a field',
 			'The collection at words/{word}.md has a field "json", which epicenter reads itself',
 			'The collection at words/{word}.md has a field "two words", which a front matter line cannot name',
+		]);
+	});
+
+	test('names placeholders a read or epicenter gives itself', () => {
+		expect(
+			problems(() =>
+				defineCollection({
+					path: [
+						'notes/{body}.md',
+						'notes/{path}/{problems}.md',
+						'old/{other}/{input}.md',
+					],
+					fields: {},
+				}),
+			),
+		).toEqual([
+			"The collection at notes/{body}.md and notes/{path}/{problems}.md and old/{other}/{input}.md has the placeholder {body}, which is the file's text after its front matter",
+			"The collection at notes/{body}.md and notes/{path}/{problems}.md and old/{other}/{input}.md has the placeholder {path}, which is the file's address",
+			'The collection at notes/{body}.md and notes/{path}/{problems}.md and old/{other}/{input}.md has the placeholder {problems}, which a read uses to say what does not fit',
+			'The collection at notes/{body}.md and notes/{path}/{problems}.md and old/{other}/{input}.md has the placeholder {other}, which a read uses for front matter that is not a field',
+			'The collection at notes/{body}.md and notes/{path}/{problems}.md and old/{other}/{input}.md has the placeholder {input}, which epicenter reads itself',
+		]);
+	});
+
+	test('a one-file collection has no required field without a default', () => {
+		expect(
+			problems(() =>
+				defineCollection({
+					path: 'settings.md',
+					fields: {
+						voice: field.select(['female', 'male']),
+						goal: field.integer({ optional: true }),
+						loud: field.boolean(),
+					},
+				}),
+			),
+		).toEqual([
+			'The collection at settings.md has the required field "voice" with no default; one file reads as its defaults before its first set, so make it optional or give it a default',
 		]);
 	});
 
@@ -230,6 +366,22 @@ describe('defineCollection', () => {
 });
 
 describe('defineAction', () => {
+	test('a direct call fills the defaults a call through the CLI or MCP would', async () => {
+		const tag = defineAction({
+			description: 'Tag',
+			input: {
+				tags: field.tags(),
+				done: field.boolean(),
+				note: field.text({ optional: true }),
+			},
+			run: (input) => input,
+		});
+		const given = {};
+		expect(tag(given)).toEqual({ tags: [], done: false });
+		expect(given).toEqual({});
+		expect(tag({ done: true })).toEqual({ tags: [], done: true });
+	});
+
 	test('names each problem its types cannot', () => {
 		expect(
 			problems(() =>

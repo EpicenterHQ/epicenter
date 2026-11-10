@@ -8,9 +8,11 @@
 	lands in between refuses the write and the change is applied again. Text another program changed in the meantime is not
 	overwritten without asking, and a thought is changed only when the list
 	is still the one the person saw. When a save fails, the file is shown as
-	it is and what was typed stays in its box.
+	it is and what was typed stays in its box. When the file has something
+	that does not fit a capture, such as a capturedAt that is not a time, a
+	note under the date quotes it.
 
-	The parent keys this view by `id`.
+	The parent keys this view by `path`.
 -->
 <script lang="ts">
 	import { ActionError, changedElsewhere } from '@epicenter/app/client';
@@ -29,19 +31,16 @@
 	import { untrack } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { type CaptureBody, type CaptureBodyReading, captureBody } from '$lib/body/document.js';
-	import { app, captures, messageOf, pathOf } from '$lib/captures.svelte.js';
+	import { app, type CaptureFile, captures, messageOf } from '$lib/captures.svelte.js';
 	import { instantOf } from '$lib/days.js';
 	import { hasKeyboard } from '$lib/keys.js';
 	import { whileVisible } from '$lib/visible.js';
 
-	let { id }: { id: string } = $props();
-	const args = untrack(() => ({ path: pathOf(id) }));
+	let { path }: { path: string } = $props();
+	const args = untrack(() => ({ path }));
 
-	/** A capture file as `get` and `edit` return it. */
-	type File = Awaited<ReturnType<typeof app.get>>;
-
-	let file = $state.raw<File>();
-	let status = $state<'loading' | 'ready' | 'gone' | 'failed'>('loading');
+	let file = $state.raw<CaptureFile>();
+	let status = $state<'loading' | 'ready' | 'gone' | 'refused' | 'failed'>('loading');
 	let problem = $state<string>();
 
 	const reading = $derived(file && captureBody.decode(file.body));
@@ -66,7 +65,10 @@
 		} catch (error) {
 			if (error instanceof ActionError && error.kind === 'threw' && error.message.includes('There is no'))
 				status = 'gone';
-			else if (file === undefined) {
+			else if (error instanceof ActionError && error.kind !== 'transport' && file === undefined) {
+				status = 'refused';
+				problem = messageOf(error);
+			} else if (file === undefined) {
 				status = 'failed';
 				problem = messageOf(error);
 			}
@@ -99,7 +101,7 @@
 		}
 		changes += 1;
 		const run = queue.then(async () => {
-			let latest: File | undefined;
+			let latest: CaptureFile | undefined;
 			try {
 				// edit quotes the body it read, so a change landing in between refuses it; read again and reapply.
 				for (let attempt = 1; ; attempt++) {
@@ -305,6 +307,14 @@
 			</Empty.Header>
 			<Empty.Content><Button href="#/" variant="outline" size="sm">Back to captures</Button></Empty.Content>
 		</Empty.Root>
+	{:else if status === 'refused'}
+		<Empty.Root>
+			<Empty.Header>
+				<Empty.Title>No capture here</Empty.Title>
+				<Empty.Description>{problem}</Empty.Description>
+			</Empty.Header>
+			<Empty.Content><Button href="#/" variant="outline" size="sm">Back to captures</Button></Empty.Content>
+		</Empty.Root>
 	{:else if status === 'failed'}
 		<Alert.Root variant="destructive">
 			<Alert.Title>Can't reach Epicenter</Alert.Title>
@@ -321,6 +331,17 @@
 				A capture with no date
 			{/if}
 		</h1>
+
+		{#if file.problems}
+			<div class="-mt-4 text-xs text-muted-foreground" role="note">
+				<p>Some of this capture's file could not be read:</p>
+				<ul class="mt-1 list-disc pl-4 font-mono break-words">
+					{#each file.problems as line (line)}
+						<li>{line}</li>
+					{/each}
+				</ul>
+			</div>
+		{/if}
 
 		{#if markdown !== undefined}
 			<form

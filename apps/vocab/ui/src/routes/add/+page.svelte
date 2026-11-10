@@ -1,13 +1,12 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import { resolve } from '$app/paths';
 	import { Button } from '@epicenter/ui/button';
 	import * as Field from '@epicenter/ui/field';
 	import { Input } from '@epicenter/ui/input';
 	import { toast } from '@epicenter/ui/sonner';
 	import { Textarea } from '@epicenter/ui/textarea';
-	import { langOf, wordOf } from '$lib/text.js';
-	import { app, vocab } from '$lib/vocab.svelte.js';
+	import { langOf } from '$lib/text.js';
+	import { app, hrefOf, vocab } from '$lib/vocab.svelte.js';
 
 	const empty = { word: '', reading: '', meaning: '', body: '' };
 	let draft = $state({ ...empty });
@@ -19,11 +18,8 @@
 		saving = true;
 		try {
 			const added = await app.add(draft);
-			const word = wordOf(added.path);
-			const open = {
-				label: 'Open',
-				onClick: () => goto(resolve('/words/[word]', { word })),
-			};
+			const { word, path } = added;
+			const open = { label: 'Open', onClick: () => goto(hrefOf(path)) };
 			if (added.added) toast.success(`Added ${word}`, { action: open });
 			else toast.info(`${word} is already saved`, { description: 'Nothing was changed.', action: open });
 			draft = { ...empty };

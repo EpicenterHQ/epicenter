@@ -9,7 +9,10 @@ const tasks = defineCollection({
 	path: 'tasks/{time}.md',
 	description: 'task',
 	fields: {
-		title: field.text({ description: 'What to do, one line' }),
+		title: field.text({
+			pattern: '^[^\\r\\n]*\\S[^\\r\\n]*$',
+			description: 'one line, not blank, saying what to do',
+		}),
 		done: field.boolean({ description: 'Whether it is done' }),
 		due: field.date({
 			optional: true,

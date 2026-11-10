@@ -7,8 +7,8 @@
 	import { toast } from '@epicenter/ui/sonner';
 	import PencilIcon from '@lucide/svelte/icons/pencil';
 	import type { Grade } from '../../../epicenter.js';
-	import { langOf, untilLabel, wordOf } from '$lib/text.js';
-	import { vocab } from '$lib/vocab.svelte.js';
+	import { langOf, untilLabel } from '$lib/text.js';
+	import { hrefOf, vocab } from '$lib/vocab.svelte.js';
 	import WordFace from '$lib/WordFace.svelte';
 
 	const LABELS = {
@@ -44,7 +44,7 @@
 		if (!word) return;
 		const graded = word;
 		vocab.grade(graded, grade).catch((error: unknown) => {
-			toast.error(`Your review of ${wordOf(graded.path)} was not saved`, {
+			toast.error(`Your review of ${graded.word} was not saved`, {
 				description: error instanceof Error ? error.message : String(error),
 			});
 		});
@@ -95,14 +95,14 @@
 		</Empty.Content>
 	</Empty.Root>
 {:else}
-	{@const text = wordOf(word.path)}
+	{@const text = word.word}
 	<div class="mx-auto flex w-full max-w-2xl flex-1 flex-col px-4 pt-4 pb-4">
 		<div class="flex items-center justify-between text-sm text-muted-foreground">
 			<p aria-live="polite"><span class="tabular-nums">{vocab.due().length}</span> due</p>
 			<Button
 				variant="ghost"
 				size="icon-sm"
-				href={resolve('/words/[word]', { word: text })}
+				href={hrefOf(word.path)}
 				aria-label="Edit {text}"
 			>
 				<PencilIcon />

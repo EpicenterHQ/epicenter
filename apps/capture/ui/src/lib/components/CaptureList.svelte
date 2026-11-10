@@ -9,7 +9,7 @@
 	import * as Empty from '@epicenter/ui/empty';
 	import * as Item from '@epicenter/ui/item';
 	import { Skeleton } from '@epicenter/ui/skeleton';
-	import { captures, idOf } from '$lib/captures.svelte.js';
+	import { captures, hrefOf } from '$lib/captures.svelte.js';
 	import { byDay, instantOf } from '$lib/days.js';
 
 	const time = new Intl.DateTimeFormat(undefined, { timeStyle: 'short' });
@@ -68,7 +68,7 @@
 								{#if row.pending}
 									<div {...props} aria-busy="true">{@render content()}</div>
 								{:else}
-									<a href="#/c/{idOf(row.path)}" {...props}>{@render content()}</a>
+									<a href={hrefOf(row.path)} {...props}>{@render content()}</a>
 								{/if}
 							{/snippet}
 						</Item.Root>

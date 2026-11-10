@@ -8,8 +8,9 @@
  * app can rebuild lives in files it gitignores inside the folder, such as
  * `.cache/`, and is never committed.
  *
- * A write that returns is one commit, named for the call, made by whatever
- * runs it (ADR-0850); an action never commits.
+ * A write, whether its action returns or throws, is one commit named for the
+ * call, made by whatever runs it (ADR-0850); an action never commits. A run
+ * of a read-only action refuses every write through `folder` and `secrets`.
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
 
@@ -45,6 +46,13 @@ export type Secrets = {
 export type Context = {
 	folder: Folder;
 	secrets: Secrets;
+	/**
+	 * The run is of a read-only action (`readOnlyHint: true`), named `action`:
+	 * `folder.write`, `writeBytes`, `delete`, `secrets.set`, and
+	 * `secrets.delete` throw in it before doing anything. A raw `node:fs` write
+	 * or an outside service is the action's own promise.
+	 */
+	readOnly?: { action: string };
 };
 
 const runs = new AsyncLocalStorage<Context>();
@@ -58,7 +66,7 @@ export function inRun<T>(context: Context, work: () => T): T {
 }
 
 /** The context of the run this code is in; throws outside any run. */
-export function currentRun(): Context {
+function currentRun(): Context {
 	const context = runs.getStore();
 	if (!context)
 		throw new Error(
@@ -67,14 +75,26 @@ export function currentRun(): Context {
 	return context;
 }
 
+/** The context of the run this code is in, which `doing` changes; throws in a read-only run. */
+function writableRun(doing: string): Context {
+	const context = currentRun();
+	if (context.readOnly)
+		throw new Error(
+			`The action "${context.readOnly.action}" is read-only, so it cannot ${doing}`,
+		);
+	return context;
+}
+
 /** The folder of the run this code is in. */
 export const folder: Folder = {
 	read: (path) => currentRun().folder.read(path),
 	readBytes: (path) => currentRun().folder.readBytes(path),
-	write: (path, text) => currentRun().folder.write(path, text),
-	writeBytes: (path, bytes) => currentRun().folder.writeBytes(path, bytes),
+	write: async (path, text) =>
+		writableRun(`write ${path}`).folder.write(path, text),
+	writeBytes: async (path, bytes) =>
+		writableRun(`write ${path}`).folder.writeBytes(path, bytes),
 	list: (dir) => currentRun().folder.list(dir),
-	delete: (path) => currentRun().folder.delete(path),
+	delete: async (path) => writableRun(`delete ${path}`).folder.delete(path),
 	get path() {
 		return currentRun().folder.path;
 	},
@@ -83,8 +103,10 @@ export const folder: Folder = {
 /** The secrets of the run this code is in: the app's own sign-ins. */
 export const secrets: Secrets = {
 	get: (name) => currentRun().secrets.get(name),
-	set: (name, value) => currentRun().secrets.set(name, value),
-	delete: (name) => currentRun().secrets.delete(name),
+	set: async (name, value) =>
+		writableRun(`set the secret ${name}`).secrets.set(name, value),
+	delete: async (name) =>
+		writableRun(`delete the secret ${name}`).secrets.delete(name),
 };
 
 /**

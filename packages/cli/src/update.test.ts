@@ -120,7 +120,7 @@ test('update merges the starter, lists files that no longer fit, and builds', as
 	const updated = await f.run('update');
 	expect(updated.code).toBe(0);
 	expect(updated.stdout).toMatch(
-		/^vocab: merged [0-9a-f]+; UI built; 1 file does not fit its fields\n {2}words\/neko\.md: needs reading$/m,
+		/^vocab: merged [0-9a-f]+; UI built; 1 file does not fit its fields\n {2}words\/neko\.md: reading is missing$/m,
 	);
 	expect(await gitIn(f.app, 'log', '-1', '--format=%s')).toBe(
 		'vocab: update from upstream',

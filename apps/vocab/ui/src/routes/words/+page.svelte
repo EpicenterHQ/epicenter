@@ -5,17 +5,28 @@
 	import * as Empty from '@epicenter/ui/empty';
 	import { Input } from '@epicenter/ui/input';
 	import { Loading } from '@epicenter/ui/loading';
-	import { langOf, matches, untilLabel, wordOf } from '$lib/text.js';
-	import { vocab } from '$lib/vocab.svelte.js';
+	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
+	import { langOf, matches, untilLabel } from '$lib/text.js';
+	import { hrefOf, vocab } from '$lib/vocab.svelte.js';
 
 	let search = $state('');
+
+	/** When a word was added, as a number to sort by; one with no date sorts last. */
+	function added(createdAt: string | undefined): number {
+		const at = createdAt === undefined ? Number.NaN : Date.parse(createdAt);
+		return Number.isNaN(at) ? Number.NEGATIVE_INFINITY : at;
+	}
 
 	/** Every word matching the search, the newest first. */
 	const shown = $derived(
 		vocab
 			.words()
 			.filter((word) => matches(word, search))
-			.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)),
+			.sort((a, b) => {
+				const [atA, atB] = [added(a.createdAt), added(b.createdAt)];
+				// Compared rather than subtracted: two words with no date are both -Infinity.
+				return atA === atB ? 0 : atA < atB ? 1 : -1;
+			}),
 	);
 	/** The time the words were last asked for, which their due labels count from. */
 	const now = $derived.by(() => {
@@ -53,13 +64,19 @@
 	{:else}
 		<ul class="-mx-2">
 			{#each shown as word (word.path)}
-				{@const text = wordOf(word.path)}
+				{@const text = word.word}
 				<li>
 					<a
-						href={resolve('/words/[word]', { word: text })}
+						href={hrefOf(word.path)}
 						class="flex min-h-14 items-center gap-3 rounded-md px-2 py-2 hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
 					>
 						<span lang={langOf(text)} class="shrink-0 text-xl">{text}</span>
+						{#if word.problems}
+							<TriangleAlertIcon
+								class="size-3.5 shrink-0 text-muted-foreground"
+								aria-label="Some of its file could not be read"
+							/>
+						{/if}
 						<span class="min-w-0 flex-1 truncate text-sm">
 							{#if word.reading}<span class="text-muted-foreground">{word.reading}</span>{/if}
 							{#if word.reading && word.meaning}<span class="text-muted-foreground"> · </span>{/if}

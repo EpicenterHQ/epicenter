@@ -3,10 +3,12 @@
 	notes, each saved shortly after it changes, when a field loses focus, and
 	when the page is left: the fields through `set`, and the notes through
 	`edit`, quoting the notes as loaded, so notes an agent changed meanwhile
-	are not overwritten without asking. Delete asks first.
+	are not overwritten without asking. Delete asks first. When the file has
+	something that does not fit a task, such as a due day that is not a day,
+	a note at the bottom quotes it.
 -->
 <script lang="ts">
-	import { changedElsewhere } from '@epicenter/app/client';
+	import { ActionError, changedElsewhere } from '@epicenter/app/client';
 	import { goto } from '$app/navigation';
 	import { Button } from '@epicenter/ui/button';
 	import { Checkbox } from '@epicenter/ui/checkbox';
@@ -20,19 +22,21 @@
 	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
 	import XIcon from '@lucide/svelte/icons/x';
 	import { onDestroy, untrack } from 'svelte';
-	import { app, tasks } from '$lib/store.svelte.js';
-	import { addDays, dayOf, dueLabel, labelOf, pathOf } from '$lib/tasks.js';
+	import { app, type TaskChanges, tasks } from '$lib/store.svelte.js';
+	import { addDays, dayOf, dueLabel, labelOf } from '$lib/tasks.js';
 
-	let { id }: { id: string } = $props();
-	// The parent keys this editor by `id`, so its path is fixed.
-	const path = untrack(() => pathOf(id));
+	let { path: given }: { path: string } = $props();
+	// The parent keys this editor by its path, so it is fixed.
+	const path = untrack(() => given);
 
-	let phase = $state<'loading' | 'ready' | 'missing' | 'failed'>('loading');
+	let phase = $state<'loading' | 'ready' | 'missing' | 'refused' | 'failed'>('loading');
 	let problem = $state('');
 	let title = $state('');
 	let done = $state(false);
 	let due = $state('');
 	let notes = $state('');
+	/** What in the file does not fit a task, one line each, as the last read said. */
+	let problems = $state<string[]>();
 	/** The notes as the server last returned them, which an edit quotes. */
 	let base = '';
 	let saving = $state(0);
@@ -46,20 +50,26 @@
 		try {
 			const file = await app.get({ path });
 			title = file.title ?? '';
-			done = file.done ?? false;
+			done = file.done;
 			due = file.due ?? '';
-			base = file.body ?? '';
+			base = file.body;
 			notes = base.replace(/\r?\n$/, '');
+			problems = file.problems;
 			phase = 'ready';
 		} catch (error) {
 			problem = error instanceof Error ? error.message : String(error);
-			phase = problem.startsWith('There is no') ? 'missing' : 'failed';
+			phase =
+				error instanceof ActionError && error.kind === 'transport'
+					? 'failed'
+					: problem.startsWith('There is no')
+						? 'missing'
+						: 'refused';
 		}
 	}
 	void load();
 
 	/** Changes typed and not yet sent: fields as `set` takes them, and the notes. */
-	type Changes = Omit<Parameters<typeof app.set>[0], 'path'> & { body?: string };
+	type Changes = TaskChanges & { body?: string };
 	let queued: Changes = {};
 	let timer: ReturnType<typeof setTimeout> | undefined;
 
@@ -81,12 +91,15 @@
 		try {
 			// Fields merge; the notes are an edit quoting what was loaded, so notes changed elsewhere are never overwritten.
 			if (Object.keys(fields).length > 0) {
-				tasks.changed(await app.set({ path, ...fields }));
+				const file = await app.set({ path, ...fields });
+				problems = file.problems;
+				tasks.changed(file);
 				left = body === undefined ? {} : { body };
 			}
 			if (body !== undefined && body !== base) {
 				const file = await app.edit({ path, old: base, new: body });
-				base = file.body ?? '';
+				base = file.body;
+				problems = file.problems;
 				tasks.changed(file);
 			}
 			left = {};
@@ -110,7 +123,7 @@
 	/** Replace notes changed elsewhere with the ones typed here, after the person chose to. */
 	async function keepMine(body: string) {
 		try {
-			base = (await app.get({ path })).body ?? '';
+			base = (await app.get({ path })).body;
 			change({ body }, 0);
 		} catch (error) {
 			toast.error('Could not save the task', { description: String(error) });
@@ -166,6 +179,12 @@
 			<Empty.Root class="py-16">
 				<Empty.Title>This task is gone</Empty.Title>
 				<Empty.Description>It was deleted, here or elsewhere.</Empty.Description>
+				<Button variant="outline" href="#/">Back to tasks</Button>
+			</Empty.Root>
+		{:else if phase === 'refused'}
+			<Empty.Root class="py-16">
+				<Empty.Title>No task here</Empty.Title>
+				<Empty.Description>{problem}</Empty.Description>
 				<Button variant="outline" href="#/">Back to tasks</Button>
 			</Empty.Root>
 		{:else if phase === 'failed'}
@@ -276,6 +295,17 @@
 					onblur={() => void save()}
 				/>
 			</section>
+
+			{#if problems}
+				<div class="mt-8 text-xs text-muted-foreground" role="note">
+					<p>Some of this task's file could not be read:</p>
+					<ul class="mt-1 list-disc pl-4 font-mono break-anywhere">
+						{#each problems as line (line)}
+							<li>{line}</li>
+						{/each}
+					</ul>
+				</div>
+			{/if}
 
 			<div class="mt-10 flex items-center gap-2 border-t pt-4">
 				<span class="min-w-0 truncate font-mono text-xs text-muted-foreground">{path}</span>

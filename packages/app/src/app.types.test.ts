@@ -4,7 +4,8 @@
  */
 import { describe, test } from 'bun:test';
 import { Type } from 'typebox';
-import type { AppClient } from './client.ts';
+import type { ActionInput, ActionOutput, AppClient } from './client.ts';
+import type { JsonValue } from './front-matter.ts';
 import {
 	createMemoryContext,
 	defineAction,
@@ -52,9 +53,11 @@ const review = defineAction({
 	description: 'Schedule a word',
 	input: { path: field.text() },
 	run: async ({ path }) => {
-		const found = await words.get(path);
-		assertType<Equal<NonNullable<typeof found>['meaning'], string | undefined>>();
-		await words.set(path, { due: '2026-11-11T04:00:00Z' });
+		const found = await words.get({ path });
+		assertType<
+			Equal<NonNullable<typeof found>['meaning'], string | undefined>
+		>();
+		await words.set({ path, due: '2026-11-11T04:00:00Z' });
 		// @ts-expect-error a collection of many files has no get without a path
 		await words.get();
 		return found?.meaning;
@@ -94,7 +97,14 @@ describe('an app author', () => {
 		assertType<
 			Equal<
 				Out<Actions['words']['list']>[number],
-				{ path: string; meaning?: string; createdAt: string; due?: string }
+				{
+					path: string;
+					word: string;
+					meaning?: string;
+					createdAt?: string;
+					due?: string;
+					problems?: string[];
+				}
 			>
 		>();
 		assertType<
@@ -118,6 +128,80 @@ describe('an app author', () => {
 	test('a collection is what it was defined with, plus its methods', () => {
 		assertType<Equal<typeof words.path, 'words/{word}.md'>>();
 		assertType<Equal<typeof settings.holds, (path: string) => boolean>>();
+	});
+
+	test('a read has a defaulted field always, every other field maybe, and placeholders every path has', () => {
+		const tasks = defineCollection({
+			path: ['tasks/{id}.md', 'tasks/done/{id}.md', 'tasks/{year}/{id}.md'],
+			fields: {
+				title: field.text(),
+				done: field.boolean(),
+				tags: field.tags(),
+			},
+		});
+		type Read = Awaited<ReturnType<typeof tasks.list>>[number];
+		assertType<
+			Equal<
+				Read,
+				{
+					path: string;
+					id: string;
+					year?: string;
+					title?: string;
+					done: boolean;
+					tags: string[];
+					problems?: string[];
+				}
+			>
+		>();
+		assertType<Equal<Parameters<typeof tasks.pathOf>[0], { id: string }>>();
+		assertType<Equal<Parameters<typeof words.pathOf>[0], { word: string }>>();
+	});
+
+	test('a required readOnly field without a default leaves add out', () => {
+		assertType<
+			Equal<
+				keyof ReturnType<typeof words.actions>,
+				'list' | 'get' | 'set' | 'edit' | 'delete'
+			>
+		>();
+		// @ts-expect-error words has a required readOnly createdAt, so no add
+		() => words.actions('add');
+		const flags = defineCollection({
+			path: 'flags/{id}.md',
+			fields: {
+				pinned: field.boolean({ readOnly: true }),
+				labels: field.tags({ readOnly: true }),
+			},
+		});
+		type SetIn = In<ReturnType<typeof flags.actions<'set'>>['set']>;
+		assertType<Equal<SetIn, { path: string }>>();
+	});
+
+	test('a caller may leave out a defaulted field, and run receives it', () => {
+		const tag = defineAction({
+			description: 'Tag',
+			input: { tags: field.tags(), done: field.boolean() },
+			run: ({ tags, done }) => {
+				assertType<Equal<typeof tags, string[]>>();
+				assertType<Equal<typeof done, boolean>>();
+				return { count: tags.length, at: done ? 'now' : undefined };
+			},
+		});
+		assertType<
+			Equal<ActionInput<typeof tag>, { tags?: string[]; done?: boolean }>
+		>();
+		assertType<
+			Equal<ActionOutput<typeof tag>, { count: number; at?: string }>
+		>();
+		const nothing = defineAction({ description: 'n', input: {}, run() {} });
+		assertType<Equal<ActionOutput<typeof nothing>, null>>();
+		defineAction({
+			description: 'Now',
+			input: {},
+			// @ts-expect-error a Date is not a value JSON carries
+			run: () => ({ at: new Date() }),
+		});
 	});
 
 	test('a one-file collection has no list, add, or delete', () => {
@@ -163,10 +247,13 @@ describe('an app author', () => {
 				Awaited<ReturnType<typeof call>>,
 				{
 					path: string;
+					word: string;
 					meaning?: string;
-					createdAt: string;
+					createdAt?: string;
 					due?: string;
 					body: string;
+					problems?: string[];
+					other?: Record<string, JsonValue>;
 				}
 			>
 		>();
@@ -176,5 +263,7 @@ describe('an app author', () => {
 		() => vocabUi.settings.list();
 		() => vocabUi.words.list();
 		() => vocabUi.review({ path: 'words/a.md' });
+		// @ts-expect-error no action is named then
+		() => vocabUi.then;
 	});
 });

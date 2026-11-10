@@ -49,7 +49,7 @@ export function preview(body: string): { text: string; thoughts: number } {
 	return { text, thoughts };
 }
 
-/** The moment `capturedAt` names, or -Infinity when it names none, so those sort last. */
+/** The moment `capturedAt` names, or -Infinity when there is none, so those sort last. */
 function instant(capturedAt: string | undefined): number {
 	const at = capturedAt === undefined ? Number.NaN : Date.parse(capturedAt);
 	return Number.isNaN(at) ? Number.NEGATIVE_INFINITY : at;
@@ -85,18 +85,21 @@ const recent = defineAction({
 			at: number;
 		}[] = [];
 		for (const { path } of await captures.list()) {
-			const read = await captures.get(path);
+			const read = await captures.get({ path });
 			if (!read) continue;
 			if (needle && !read.body.toLowerCase().includes(needle)) continue;
-			// A file written by hand may have no capturedAt, or not a string.
-			const capturedAt =
-				typeof read.capturedAt === 'string' ? read.capturedAt : undefined;
-			found.push({ path, capturedAt, body: read.body, at: instant(capturedAt) });
+			// A file written by hand may have no capturedAt, or one that is not a date and time; a read leaves it out.
+			const { capturedAt } = read;
+			found.push({
+				path,
+				capturedAt,
+				body: read.body,
+				at: instant(capturedAt),
+			});
 		}
 		// Newest first; ties, and captures with no date, by path, newest first.
 		found.sort(
-			(a, b) =>
-				b.at - a.at || (a.path < b.path ? 1 : a.path > b.path ? -1 : 0),
+			(a, b) => b.at - a.at || (a.path < b.path ? 1 : a.path > b.path ? -1 : 0),
 		);
 		return {
 			total: found.length,
@@ -112,7 +115,8 @@ const recent = defineAction({
 });
 
 const app = defineApp({
-	description: 'Things I want to keep: a note per capture, with my thoughts on it',
+	description:
+		'Things I want to keep: a note per capture, with my thoughts on it',
 	collections: { captures },
 	// One collection: its verbs are the app's own, `capture add` rather than `capture captures add`.
 	actions: { ...captures.actions(), add, recent },

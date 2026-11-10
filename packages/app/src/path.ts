@@ -3,7 +3,8 @@
  * says three things at once:
  *
  * - which files belong: `words/{word}.md` holds every `.md` file in `words/`;
- * - a record's address: its path, such as `words/你好.md`;
+ * - a record's address: its path, such as `words/你好.md`, from which a read
+ *   gives each placeholder's value (`word: '你好'`);
  * - where `add` writes: each placeholder is a value `add` takes, except
  *   `{time}`, which `add` makes from the time.
  *
@@ -26,7 +27,10 @@ export type TemplatesOf<P> = P extends readonly (infer T extends string)[]
 		: never;
 
 /** The template `add` writes to: the path itself, or the first of a list. */
-export type CreatedAt<P> = P extends readonly [infer First extends string, ...unknown[]]
+export type CreatedAt<P> = P extends readonly [
+	infer First extends string,
+	...unknown[],
+]
 	? First
 	: P extends string
 		? P
@@ -62,10 +66,18 @@ export type Template = {
 	fill(values: Record<string, string>): string;
 };
 
+/** First parts a template may not start with: the app's own folders. */
+const KEPT: Record<string, string> = {
+	ui: "the app's UI",
+	node_modules: 'installed packages',
+};
+
 /**
  * What is wrong with `text` as a template, or `undefined`: it must be a
  * relative `.md` path inside the folder, with no `.` or `..` part, no part
- * starting with `.`, and at most one placeholder in any part.
+ * starting with `.`, and at most one placeholder in any part. Its first part
+ * is literal, so it never claims a file the app keeps for itself, such as
+ * `README.md`, and is not `ui`, `node_modules`, or `epicenter.*`.
  */
 export function templateProblem(text: string): string | undefined {
 	if (!text.endsWith('.md')) return `${text} is not a .md path`;
@@ -74,6 +86,13 @@ export function templateProblem(text: string): string | undefined {
 		return `${text} is not a relative path`;
 	if (parts.some((part) => part.startsWith('.')))
 		return `${text} has a part that starts with "."`;
+	const [head = ''] = parts;
+	if (head.match(PLACEHOLDER))
+		return `${text} starts with a placeholder, so it would hold files the app keeps for itself, such as README.md; start it with a folder, as days/{day}.md`;
+	if (Object.hasOwn(KEPT, head))
+		return `${text} is inside ${head}/, which holds ${KEPT[head]}`;
+	if (head.startsWith('epicenter.'))
+		return `${text} starts with "epicenter.", which names epicenter's own files`;
 	for (const part of parts) {
 		const found = part.match(PLACEHOLDER) ?? [];
 		if (found.length > 1)

@@ -9,24 +9,39 @@
  * before a write finished is dropped, so an answer never undoes a write the
  * person just made.
  */
-import { connect } from '@epicenter/app/client';
+import { type ActionOutput, connect } from '@epicenter/app/client';
 import { toast } from '@epicenter/ui/sonner';
 import type capture from '../../../epicenter.js';
 
-/** The app's actions, asked of `epicenter serve`. */
-export const app = connect<typeof capture>('capture');
+type Actions = (typeof capture)['actions'];
+
+/**
+ * The app's actions, asked of `epicenter serve`. A change saved to its file
+ * but not recorded in the folder's history says so, with the command that
+ * records it.
+ */
+export const app = connect<typeof capture>('capture', {
+	onUncommitted: ({ sync }) =>
+		toast.warning('Saved to the file, but not recorded in history', {
+			id: 'uncommitted',
+			description: `To record it, run ${sync} on the computer that runs Epicenter.`,
+		}),
+});
+
+/** A capture file as `get` and `edit` return it. */
+export type CaptureFile = ActionOutput<Actions['get']>;
 
 /** One capture as listed; `pending` while its `add` has not answered. */
-export type Row = Awaited<ReturnType<typeof app.recent>>['captures'][number] & {
+export type Row = ActionOutput<Actions['recent']>['captures'][number] & {
 	pending?: true;
 };
 
-/** The file of the capture a page's URL names by `id`, its file's name without `.md`. */
-export const pathOf = (id: string) => `captures/${id}.md`;
-
-/** The `id` a page's URL names the capture at `path` by. */
-export const idOf = (path: string) =>
-	path.replace(/^captures\//, '').replace(/\.md$/, '');
+/**
+ * The page of the capture at `path`: the hash route is the path itself,
+ * `#/captures/<time>.md`, each part encoded so any file name survives.
+ */
+export const hrefOf = (path: string) =>
+	`#/${path.split('/').map(encodeURIComponent).join('/')}`;
 
 const PAGE = 50;
 

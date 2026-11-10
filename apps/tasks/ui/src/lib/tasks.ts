@@ -1,16 +1,16 @@
 /**
  * How the list groups and labels a task, a row of `tasks list`, by its due
- * day, and how a page's URL names it. Days are local `YYYY-MM-DD` strings,
- * which sort as text in the order they fall. A due day that is absent, or a
- * hand-written `null`, means none.
+ * day, and where a task's page is. Days are local `YYYY-MM-DD` strings, which
+ * sort as text in the order they fall. A task with no `due`, including one
+ * whose file has a `due` that is not a day, has none.
  */
 import type { Task } from './store.svelte.js';
 
-/** The file of the task a page's URL names by `id`, its file's name without `.md`. */
-export const pathOf = (id: string) => `tasks/${id}.md`;
-
-/** The `id` a page's URL names the task at `path` by. */
-export const idOf = (path: string) => path.replace(/^tasks\//, '').replace(/\.md$/, '');
+/**
+ * The page of the task at `path`: the hash route is the path itself,
+ * `#/tasks/<time>.md`, each part encoded so any file name survives.
+ */
+export const hrefOf = (path: string) => `#/${path.split('/').map(encodeURIComponent).join('/')}`;
 
 /** `at` as a local day, `2026-11-10`. */
 export function dayOf(at: Date): string {
@@ -108,4 +108,4 @@ export function completed(tasks: Task[]): Task[] {
 
 /** The task's label: its title, or its file's name when it has none. */
 export const labelOf = (task: Pick<Task, 'path' | 'title'>) =>
-	task.title?.trim() ? task.title : `${idOf(task.path)}.md`;
+	task.title?.trim() ? task.title : task.path.slice(task.path.lastIndexOf('/') + 1);

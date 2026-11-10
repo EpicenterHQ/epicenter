@@ -71,8 +71,19 @@ function schemaOptions(options: Options | undefined) {
 }
 
 export const field = {
-	text: <const O extends MaybeOptional>(options?: O) =>
-		maybeOptional(Type.String(schemaOptions(options)), options),
+	/**
+	 * Text. `pattern` is a regular expression the whole value must match; give
+	 * a `description` that reads after "must be", since that is how a refusal
+	 * names it: `{ pattern: '^\\S.*$', description: 'one line, not blank' }`.
+	 */
+	text: <const O extends MaybeOptional & { pattern?: string }>(options?: O) =>
+		maybeOptional(
+			Type.String({
+				...schemaOptions(options),
+				...(options?.pattern === undefined ? {} : { pattern: options.pattern }),
+			}),
+			options,
+		),
 
 	number: <const O extends MaybeOptional & { min?: number }>(options?: O) =>
 		maybeOptional(
@@ -123,13 +134,13 @@ export const field = {
 			options,
 		),
 
-	boolean: (options?: Options): TSwitch =>
+	boolean: <const O extends Options>(options?: O) =>
 		Type.Optional(
 			Type.Boolean({ ...schemaOptions(options), default: false }),
-		) as TSwitch,
+		) as Marked<TSwitch, O>,
 
-	tags: (options?: Options): TTags =>
+	tags: <const O extends Options>(options?: O) =>
 		Type.Optional(
 			Type.Array(Type.String(), { ...schemaOptions(options), default: [] }),
-		) as TTags,
+		) as Marked<TTags, O>,
 };

@@ -12,8 +12,9 @@ import type { CliError } from './errors.ts';
 /**
  * What a command that runs an action answers (ADR-0850): the one value
  * `--json` prints, MCP returns as `structuredContent`, and stderr renders.
- * A run that returned from an action that writes commits what changed in
- * the app's folder, and the answer says which commit, or why there is none.
+ * A run of an action that writes commits what changed in the app's folder,
+ * whether the action returned or threw, and the answer says which commit, or
+ * why there is none.
  */
 export type Answer =
 	/**
@@ -21,18 +22,22 @@ export type Answer =
 	 * commit its writes made; `uncommitted` says why they were left in the
 	 * folder when committing failed.
 	 */
-	| {
-			returned: unknown;
-			committed?: string;
-			uncommitted?: { message: string; next: string };
-	  }
+	| ({ returned: unknown } & Commit)
 	/**
 	 * The action threw, or the run ended without an answer. A thrown tagged
-	 * error (`{ name, message, ...fields }`) is kept whole as `thrown`.
+	 * error (`{ name, message, ...fields }`) is kept whole as `thrown`. What it
+	 * wrote before it threw is committed as for a return, under its call's
+	 * subject marked `(threw)`.
 	 */
-	| { threw: { message: string; thrown?: Record<string, unknown> } }
+	| ({ threw: { message: string; thrown?: Record<string, unknown> } } & Commit)
 	/** Nothing ran: the words, the input, or the app was wrong. */
 	| { error: { name: string; message: string; next?: string } };
+
+/** What became of a run's writes: the commit they made, or why they are still only in the folder. */
+type Commit = {
+	committed?: string;
+	uncommitted?: { message: string; next: string };
+};
 
 /** The report file this process answers into, when it is a child (`child.ts`). */
 let reportPath: string | undefined;
@@ -60,11 +65,11 @@ export function writeErr(text: string) {
 
 /**
  * An answer as a person reads it, and its exit code: a returned value on
- * stdout, and on stderr what the action threw, or why nothing ran with its
- * next step. 0: it returned, and its writes are committed or there were
- * none. 1: it threw, or ended without an answer. 2: it did not run. 3: it
- * returned, and its writes are not committed, so running it again would
- * repeat them (ADR-0867).
+ * stdout, and on stderr what the action threw, with what became of its
+ * writes, or why nothing ran with its next step. 0: it returned, and its
+ * writes are committed or there were none. 1: it threw, or ended without an
+ * answer. 2: it did not run. 3: it returned, and its writes are not
+ * committed, so running it again would repeat them (ADR-0867).
  */
 export function renderAnswer(answer: Answer): {
 	stdout: string;
@@ -79,8 +84,19 @@ export function renderAnswer(answer: Answer): {
 			code: 2,
 		};
 	}
-	if ('threw' in answer)
-		return { stdout: '', stderr: `${answer.threw.message}\n`, code: 1 };
+	if ('threw' in answer) {
+		const { committed, uncommitted } = answer;
+		const writes = committed
+			? `What it wrote before it threw is committed as ${committed}\n`
+			: uncommitted
+				? `What it wrote before it threw is not committed: ${uncommitted.message}\nRun: ${uncommitted.next}\n`
+				: '';
+		return {
+			stdout: '',
+			stderr: `${answer.threw.message}\n${writes}`,
+			code: 1,
+		};
+	}
 	const { returned, uncommitted } = answer;
 	const stderr = uncommitted
 		? `The action returned, but its changes were not committed: ${uncommitted.message}\nRun: ${uncommitted.next}\n`

@@ -40,6 +40,7 @@ async function setup() {
 const journalCode = `${header}
 export default defineApp({
 	description: 'The journal app',
+	collections: {},
 	actions: {
 		write: defineAction({
 			description: 'Write a page',

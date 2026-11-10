@@ -4,7 +4,8 @@ import vocab, { type Grade, isDue, schedule } from './epicenter.ts';
 
 /** 9pm local time on 10 November 2026; a day's interval is due at 4am local time. */
 const evening = new Date(2026, 10, 10, 21, 0, 0);
-const morningAfter = (days: number) => new Date(2026, 10, 10 + days, 4).toISOString();
+const morningAfter = (days: number) =>
+	new Date(2026, 10, 10 + days, 4).toISOString();
 
 function review(grades: Grade[]) {
 	let word: Parameters<typeof schedule>[0] = {};
@@ -15,10 +16,22 @@ function review(grades: Grade[]) {
 describe('schedule', () => {
 	test('a new word remembered is due the next morning, then in six days, then by its ease', () => {
 		const first = schedule({}, 'good', evening);
-		expect(first).toEqual({ due: morningAfter(1), interval: 1, ease: 2.5, reps: 1 });
+		expect(first).toEqual({
+			due: morningAfter(1),
+			interval: 1,
+			ease: 2.5,
+			reps: 1,
+		});
 		const second = schedule(first, 'good', evening);
-		expect(second).toMatchObject({ due: morningAfter(6), interval: 6, reps: 2 });
-		expect(schedule(second, 'good', evening)).toMatchObject({ interval: 15, reps: 3 });
+		expect(second).toMatchObject({
+			due: morningAfter(6),
+			interval: 6,
+			reps: 2,
+		});
+		expect(schedule(second, 'good', evening)).toMatchObject({
+			interval: 15,
+			reps: 3,
+		});
 	});
 
 	test('a review after midnight counts toward the night before', () => {
@@ -50,7 +63,9 @@ describe('schedule', () => {
 	});
 
 	test('ease never falls below 1.3, and every remembered review grows the interval', () => {
-		const word = review(Array(10).fill('again').concat(['good', 'good', 'hard', 'hard']));
+		const word = review(
+			Array(10).fill('again').concat(['good', 'good', 'hard', 'hard']),
+		);
 		expect(word.ease).toBe(1.3);
 		expect(word.interval).toBe(8);
 	});
@@ -84,7 +99,9 @@ describe('actions', () => {
 		expect(text).toContain('meaning: "hello"\nreading: "nǐ hǎo"\ncreatedAt: ');
 		expect(text?.endsWith('---\n你好，我叫小明。\n')).toBe(true);
 
-		const again = await inRun(context, () => add({ word: '你好', meaning: 'hi' }));
+		const again = await inRun(context, () =>
+			add({ word: '你好', meaning: 'hi' }),
+		);
 		expect(again).toMatchObject({ meaning: 'hello', added: false });
 	});
 
@@ -151,6 +168,29 @@ describe('actions', () => {
 			'words/new.md',
 		]);
 		expect(words[1]?.body).toBe('example\n');
+	});
+
+	test('a due written by hand that is not a date and time makes the word due now, and says why', async () => {
+		const context = createMemoryContext({
+			'words/null.md':
+				'---\ncreatedAt: "2026-01-01T00:00:00Z"\ndue: null\n---\n',
+			'words/soon.md':
+				'---\ncreatedAt: "2026-01-02T00:00:00Z"\ndue: "next week"\n---\n',
+			'words/undated.md': '---\nmeaning: "no createdAt"\n---\n',
+		});
+		const words = await inRun(context, () => due({}));
+		expect(words.map((word) => word.path)).toEqual([
+			'words/null.md',
+			'words/soon.md',
+			'words/undated.md',
+		]);
+		expect(words[0]).toMatchObject({
+			word: 'null',
+			problems: ['due: null is not a date and time'],
+			other: { due: null },
+		});
+		expect(words[0]).not.toHaveProperty('due');
+		expect(words[2]?.problems).toEqual(['createdAt is missing']);
 	});
 
 	test('review of a word that is not there throws', async () => {

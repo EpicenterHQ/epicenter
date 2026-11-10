@@ -6,7 +6,7 @@
  * import { defineAction, defineApp, defineCollection, field } from '@epicenter/app';
  *
  * const words = defineCollection({ path: 'words/{word}.md', fields: { meaning: field.text() } });
- * const settings = defineCollection({ path: 'settings.md', fields: { dailyGoal: field.integer() } });
+ * const settings = defineCollection({ path: 'settings.md', fields: { dailyGoal: field.integer({ optional: true }) } });
  *
  * const learn = defineAction({
  *   description: 'Learn a word',
@@ -47,37 +47,22 @@ export type App<
 };
 
 /**
- * Define an app: its description, its collections, and its actions. Each
- * collection's name is its key in `collections`; each action's words are its
- * keys in `actions`, so `words: { ...words.actions(), add: learn }` gives
- * `words list` through `words delete`, with `words add` replaced by `learn`.
- * A later key replaces an earlier one, as in any object. Returns what it was
- * given; throws when that is wrong in a way its types cannot say.
+ * Define an app: its description, its collections, and its actions, each
+ * given, `{}` for none. Each collection's name is its key in `collections`;
+ * each action's words are its keys in `actions`, so
+ * `words: { ...words.actions(), add: learn }` gives `words list` through
+ * `words delete`, with `words add` replaced by `learn`. A later key replaces
+ * an earlier one, as in any object. Returns `app` itself; throws when it is
+ * wrong in a way its types cannot say, so `epicenter` checks an app it loads
+ * by calling this again.
  */
 export function defineApp<
-	const C extends Record<string, AnyCollection> = {},
-	const A extends Actions = {},
->(app: { description: string; collections?: C; actions?: A }): App<C, A> {
-	const defined = {
-		description: app.description,
-		collections: app.collections ?? ({} as C),
-		actions: app.actions ?? ({} as A),
-	};
-	const problems = appProblems(defined);
+	const C extends Record<string, AnyCollection>,
+	const A extends Actions,
+>(app: App<C, A>): App<C, A> {
+	const problems = appProblems(app);
 	if (problems.length) throw new Error(problems.join('\n'));
-	return defined;
-}
-
-/** Whether `value` is an app: what `defineApp` returns. */
-export function isApp(value: unknown): value is App {
-	const app = value as Partial<App> | null;
-	return (
-		typeof app === 'object' &&
-		app !== null &&
-		typeof app.description === 'string' &&
-		typeof app.collections === 'object' &&
-		typeof app.actions === 'object'
-	);
+	return app;
 }
 
 /**
@@ -89,35 +74,60 @@ export function isName(value: unknown): value is string {
 	return typeof value === 'string' && /^[a-z][a-z0-9-]*$/.test(value);
 }
 
-const notName = 'which is not lowercase letters, digits, and dashes, starting with a letter';
+const notName =
+	'which is not lowercase letters, digits, and dashes, starting with a letter';
+
+const isObject = (value: unknown): value is object =>
+	typeof value === 'object' && value !== null && !Array.isArray(value);
 
 /** What is wrong with `app` beyond its types, one sentence each. */
-function appProblems(app: App): string[] {
+function appProblems(app: unknown): string[] {
+	if (!isObject(app))
+		return [
+			'An app is an object: defineApp({ description, collections, actions })',
+		];
+	const { description, collections, actions } = app as Partial<App>;
 	const problems: string[] = [];
-	if (typeof app.description !== 'string' || app.description.trim() === '')
+	if (typeof description !== 'string' || description.trim() === '')
 		problems.push('An app needs a description');
-	const collections = Object.entries(app.collections);
-	for (const [name, collection] of collections) {
+	if (!isObject(collections))
+		problems.push(
+			'An app needs collections: an object of defineCollection(...), {} for none',
+		);
+	if (!isObject(actions))
+		problems.push(
+			'An app needs actions: an object of defineAction(...) and groups of them, {} for none',
+		);
+	const entries = Object.entries(isObject(collections) ? collections : {});
+	for (const [name, collection] of entries) {
 		if (!isName(name))
-			problems.push(`collections has the key ${JSON.stringify(name)}, ${notName}`);
+			problems.push(
+				`collections has the key ${JSON.stringify(name)}, ${notName}`,
+			);
 		if (typeof (collection as Partial<AnyCollection>)?.holds !== 'function')
 			problems.push(`collections.${name} is not defineCollection(...)`);
 	}
 	// Overlaps are read only from collections that are all defineCollection(...).
 	if (problems.length === 0)
-		for (const [at, [a, first]] of collections.entries())
-			for (const [b, second] of collections.slice(at + 1)) {
+		for (const [at, [a, first]] of entries.entries())
+			for (const [b, second] of entries.slice(at + 1)) {
 				const shared = clash(first, second) ?? clash(second, first);
 				if (shared)
 					problems.push(
 						`collections "${a}" and "${b}" would both hold ${shared}`,
 					);
 			}
-	const walk = (group: unknown, words: string[]) => {
-		for (const [word, entry] of Object.entries(group as object)) {
+	const walk = (group: object, words: string[]) => {
+		for (const [word, entry] of Object.entries(group)) {
 			const at = `actions.${[...words, word].join('.')}`;
 			if (!isName(word))
-				problems.push(`actions has the key ${JSON.stringify(word)} at ${at}, ${notName}`);
+				problems.push(
+					`actions has the key ${JSON.stringify(word)} at ${at}, ${notName}`,
+				);
+			else if (word === 'then')
+				problems.push(
+					`${at} is named "then", which a UI cannot call, since awaiting a value reads its then; name it another word`,
+				);
 			else if (isAction(entry)) continue;
 			else if (typeof entry !== 'object' || entry === null)
 				problems.push(`${at} is neither an action nor a group of them`);
@@ -128,7 +138,7 @@ function appProblems(app: App): string[] {
 			else walk(entry, [...words, word]);
 		}
 	};
-	walk(app.actions, []);
+	if (isObject(actions)) walk(actions, []);
 	return problems;
 }
 

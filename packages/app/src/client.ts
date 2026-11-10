@@ -8,19 +8,23 @@
  * import { connect } from '@epicenter/app/client';
  * import type tasks from '../../epicenter.ts';
  *
- * const app = connect<typeof tasks>('tasks');
- * const rows = await app.tasks.list();
- * await app.tasks.set({ path: rows[0].path, done: true });
+ * const app = connect<typeof tasks>('tasks', {
+ *   onUncommitted: ({ action, reason, sync }) =>
+ *     toast(`${action} ran, but is not in the app's history: ${reason}. Run ${sync}`),
+ * });
+ * const [first] = await app.list();
+ * if (first) await app.set({ path: first.path, done: true });
  * ```
  *
  * The client has the app's actions under the same words as the app: each
- * call checks its input and types what it returns, and resolves to what the
- * action returned or rejects with an `ActionError` when it threw or did not
- * run. The app is imported as a type, so the UI's bundle carries no app
- * code; this file imports nothing, so the bundle carries only it. An action
- * whose last word is `then` cannot be called from here, since awaiting an
- * object reads its `then`.
+ * call checks its input and types what it returns in its JSON form, and
+ * resolves to what the action returned or rejects with an `ActionError` when
+ * it threw or did not run. An action that returned but whose changes could
+ * not be committed still resolves; `onUncommitted` hears of it. The app is
+ * imported as a type, and this file imports only types, so the UI's bundle
+ * carries no app code.
  */
+import type { JsonValue } from './front-matter.ts';
 
 /** Why a call did not return: the action threw, nothing ran, or the server did not answer. */
 export class ActionError extends Error {
@@ -29,7 +33,7 @@ export class ActionError extends Error {
 		message: string,
 		/** `threw` when the action threw, `error` when nothing ran, `transport` when no answer came back. */
 		readonly kind: 'threw' | 'error' | 'transport',
-		/** The answer's whole object, when there was one: `{ threw }` or `{ error }`. */
+		/** The answer's whole object, when there was one: `{ error }`, or `{ threw }` with `committed` or `uncommitted` when the action wrote before it threw. */
 		readonly answer?: unknown,
 	) {
 		super(message);
@@ -48,24 +52,86 @@ export function changedElsewhere(error: unknown): boolean {
 	return thrown?.name === 'Changed';
 }
 
+/** `T` flattened into one object type. */
+type Flat<T> = { [K in keyof T]: T[K] } & {};
+
+/**
+ * `T` as it arrives through JSON: `undefined` is `null`, a property that may
+ * be `undefined` may be absent, and a value with `toJSON` is what that
+ * returns, as a `Date` is a string.
+ */
+type JsonOf<T> = unknown extends T
+	? T
+	: [T] extends [JsonValue]
+		? T
+		: T extends undefined | void
+			? null
+			: T extends string | number | boolean | null
+				? T
+				: T extends { toJSON(): infer J }
+					? JsonOf<J>
+					: T extends readonly unknown[]
+						? { [K in keyof T]: JsonOf<T[K]> }
+						: Flat<
+								{
+									[K in keyof T as undefined extends T[K] ? never : K]: JsonOf<
+										T[K]
+									>;
+								} & {
+									[K in keyof T as undefined extends T[K] ? K : never]?: JsonOf<
+										Exclude<T[K], undefined>
+									>;
+								}
+							>;
+
+/** What action `A` takes from a caller: `ActionInput<typeof app.actions.set>`. */
+export type ActionInput<A> = A extends (input: infer In) => unknown
+	? In
+	: never;
+
+/** What action `A` returns to a client, in its JSON form: `ActionOutput<typeof app.actions.get>`. */
+export type ActionOutput<A> = A extends (input: never) => infer Out
+	? JsonOf<Awaited<Out>>
+	: never;
+
 /** The client for actions `A`: each action a function of its input, each group under its word. */
 export type AppClient<A> = {
-	readonly [K in keyof A]: A[K] extends (input: infer In) => infer Out
+	readonly [K in keyof A]: A[K] extends (input: never) => unknown
 		? (
-				...input: Record<string, never> extends In ? [input?: In] : [input: In]
-			) => Promise<Awaited<Out>>
+				...input: Record<string, never> extends ActionInput<A[K]>
+					? [input?: ActionInput<A[K]>]
+					: [input: ActionInput<A[K]>]
+			) => Promise<ActionOutput<A[K]>>
 		: AppClient<A[K]>;
+};
+
+/** What `onUncommitted` hears: an action that returned, but whose changes are not in the app's history. */
+type Uncommitted = {
+	/** The action's words, one space apart: `set`, `words add`. */
+	action: string;
+	/** What it returned, which the call also resolves to. */
+	returned: unknown;
+	/** Why its changes were not committed. */
+	reason: string;
+	/** The command that commits them: `epicenter sync <app>`. */
+	sync: string;
 };
 
 let nextId = 1;
 
 /**
  * A client for app `app` on the server at `url`: by default this origin's
- * `/`, where `epicenter serve` answers the UIs it serves.
+ * `/`, where `epicenter serve` answers the UIs it serves. `onUncommitted` is
+ * called, before the call resolves, for each call whose action returned but
+ * whose changes could not be committed, so the UI can say so rather than
+ * report them saved.
  */
 export function connect<App extends { actions: object }>(
 	app: string,
-	{ url = '/' }: { url?: string } = {},
+	{
+		url = '/',
+		onUncommitted,
+	}: { url?: string; onUncommitted: (uncommitted: Uncommitted) => void },
 ): AppClient<App['actions']> {
 	const at = (words: string[]): unknown =>
 		new Proxy(() => {}, {
@@ -73,21 +139,32 @@ export function connect<App extends { actions: object }>(
 				typeof key === 'string' && key !== 'then'
 					? at([...words, key])
 					: undefined,
-			apply: (_, __, [input]) => {
+			apply: async (_, __, [input]) => {
 				if (words.length === 0)
 					throw new Error(`Call one of ${app}'s actions, not the app`);
-				return call(url, [app, ...words].join('_'), input ?? {});
+				const answer = await call(url, [app, ...words].join('_'), input ?? {});
+				if (answer.uncommitted)
+					onUncommitted({
+						action: words.join(' '),
+						returned: answer.returned,
+						reason: answer.uncommitted.message,
+						sync: answer.uncommitted.next,
+					});
+				return answer.returned;
 			},
 		});
 	return at([]) as AppClient<App['actions']>;
 }
 
-/** Ask the server at `url` to run the MCP tool `name`. */
+/** Ask the server at `url` to run the MCP tool `name`, and return the answer of an action that returned. */
 async function call(
 	url: string,
 	name: string,
 	input: Record<string, unknown>,
-): Promise<unknown> {
+): Promise<{
+	returned: unknown;
+	uncommitted?: { message: string; next: string };
+}> {
 	let response: Response;
 	try {
 		response = await fetch(url, {
@@ -126,7 +203,8 @@ async function call(
 		throw new ActionError(message.error.message, 'transport', message);
 	const result = message.result ?? {};
 	const answer = result.structuredContent ?? {};
-	if (!result.isError && 'returned' in answer) return answer.returned;
+	if (!result.isError && 'returned' in answer)
+		return answer as Awaited<ReturnType<typeof call>>;
 	const text =
 		result.content?.find((part) => part.type === 'text')?.text ??
 		JSON.stringify(answer);

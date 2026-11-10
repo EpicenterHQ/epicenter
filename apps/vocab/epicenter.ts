@@ -130,9 +130,19 @@ export function schedule(
 	};
 }
 
-/** Whether `word` is due at `now`: it has never been reviewed, or its time has come. */
+/**
+ * Whether `word` is due at `now`: it has never been reviewed, or its time has
+ * come. A `due` written by hand that is not a date and time reads as absent,
+ * so that word is due now rather than never.
+ */
 export function isDue(word: Pick<Word, 'due'>, now: Date): boolean {
 	return word.due === undefined || Date.parse(word.due) <= now.getTime();
+}
+
+/** The moment `at` names, or +Infinity when there is none, so those sort last. */
+function instant(at: string | undefined): number {
+	const parsed = at === undefined ? Number.NaN : Date.parse(at);
+	return Number.isNaN(parsed) ? Number.POSITIVE_INFINITY : parsed;
 }
 
 /** When each grade would make `word` due next, reviewed at `now`. */
@@ -190,7 +200,7 @@ const learn = defineAction({
 	},
 	run: async ({ word: text, meaning, reading, body }) => {
 		const word = fileWord(text);
-		const found = await words.get(`words/${word}.md`);
+		const found = await words.get({ path: words.pathOf({ word }) });
 		if (found) return { ...found, added: false };
 		const made = await words.add({
 			word,
@@ -207,7 +217,7 @@ const review = defineAction({
 	description:
 		'Grade how well I remembered a word (again, hard, good, easy) and schedule its next review by SM-2. Returns the new schedule, and when each grade would make it due if it were reviewed again now',
 	input: {
-		path: field.text({ description: 'The word\'s file: words/你好.md' }),
+		path: field.text({ description: "The word's file: words/你好.md" }),
 		grade: field.select(GRADES, {
 			description:
 				'again: forgot it; hard: barely; good: remembered; easy: instantly',
@@ -216,11 +226,11 @@ const review = defineAction({
 	positional: ['path', 'grade'],
 	annotations: { destructiveHint: false, openWorldHint: false },
 	run: async ({ path, grade }) => {
-		const word = await words.get(path);
+		const word = await words.get({ path });
 		if (!word) throw new Error(`There is no ${path}`);
 		const now = new Date();
 		const scheduled = schedule(word, grade, now);
-		await words.set(path, scheduled);
+		await words.set({ path, ...scheduled });
 		return { path, grade, ...scheduled, next: nextFor(scheduled, now) };
 	},
 });
@@ -234,18 +244,21 @@ const due = defineAction({
 		const now = new Date();
 		const order = (row: WordRow) =>
 			row.due === undefined
-				? [1, Date.parse(row.createdAt)]
-				: [0, Date.parse(row.due)];
+				? ([1, instant(row.createdAt)] as const)
+				: ([0, instant(row.due)] as const);
 		const rows = (await words.list())
 			.filter((row) => isDue(row, now))
 			.sort((a, b) => {
-				const [groupA = 0, timeA = 0] = order(a);
-				const [groupB = 0, timeB = 0] = order(b);
-				return groupA - groupB || timeA - timeB;
+				const [groupA, timeA] = order(a);
+				const [groupB, timeB] = order(b);
+				// Compared rather than subtracted: two words with no time are both Infinity.
+				return (
+					groupA - groupB || (timeA === timeB ? 0 : timeA < timeB ? -1 : 1)
+				);
 			});
 		const found: DueWord[] = [];
 		for (const row of rows) {
-			const word = await words.get(row.path);
+			const word = await words.get({ path: row.path });
 			if (word) found.push({ ...word, next: nextFor(word, now) });
 		}
 		return found;

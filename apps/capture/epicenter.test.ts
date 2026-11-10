@@ -42,14 +42,17 @@ test('recent lists a capture with no date last, and matching searches the whole 
 		),
 		'captures/b.md': 'Written by hand, no front matter. Spice too.\n',
 		'captures/c.md': note('2026-11-10T03:00:00Z', 'Arrakis\n'),
+		'captures/d.md': note('last Tuesday', 'Undated by hand\n'),
 	});
 	const all = await inRun(context, () => recent({}));
 	expect(all.captures.map((row) => row.path)).toEqual([
 		'captures/c.md',
 		'captures/a.md',
+		'captures/d.md',
 		'captures/b.md',
 	]);
 	expect(all.captures[2]?.capturedAt).toBeUndefined();
+	expect(all.captures[3]?.capturedAt).toBeUndefined();
 
 	const spice = await inRun(context, () => recent({ matching: ' SPICE ' }));
 	expect(spice.total).toBe(2);
@@ -75,7 +78,8 @@ test('add then recent shows the capture with its text', async () => {
 	]);
 });
 
-test('capturedAt is written only by add', async () => {
+test("capturedAt is written only by add, which is the app's own", async () => {
+	expect(capture.actions.add.input).not.toHaveProperty('capturedAt');
 	const context = createMemoryContext({
 		'captures/a.md': note('2026-11-10T02:00:00Z', 'Dune\n'),
 	});

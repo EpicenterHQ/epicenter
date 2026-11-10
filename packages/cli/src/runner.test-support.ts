@@ -107,7 +107,7 @@ export const header = `import { defineAction, defineApp, defineCollection, field
 
 /** The `epicenter.ts` of an app with only a description that names it. */
 export function bareApp(name: string) {
-	return `${header}export default defineApp({ description: 'The ${name} app' });\n`;
+	return `${header}export default defineApp({ description: 'The ${name} app', collections: {}, actions: {} });\n`;
 }
 
 /** Reading, as an app's files: a books collection and actions that write a CSV. */
@@ -160,7 +160,7 @@ export default defineApp({
 };
 
 /** The source of an app with many kinds of input, for `fixture().app`. */
-export const reading = `export default defineApp({ description: 'The reading app', actions: {
+export const reading = `export default defineApp({ description: 'The reading app', collections: {}, actions: {
 	log: defineAction({ description: 'Record reading', input: { minutes: field.number(), book: field.text({optional:true}) }, positional: ['minutes'], run: async (input) => { await folder.write('records/log.json', JSON.stringify(input)); return input; } }),
 	week: { summary: defineAction({ description: 'Weekly minutes', input: {}, annotations: { readOnlyHint: true }, run: () => ({minutes:210}) }) },
 	tag: defineAction({ description:'Tag records', input: { tags: field.tags(), done: field.boolean() }, run: (input) => input }),
@@ -170,7 +170,7 @@ export const reading = `export default defineApp({ description: 'The reading app
 } });`;
 
 /** The source of an app whose actions share the word `calendar`. */
-export const vault = `export default defineApp({ description: 'The vault app', actions: { calendar: {
+export const vault = `export default defineApp({ description: 'The vault app', collections: {}, actions: { calendar: {
 	show: defineAction({description:'Show a day',annotations:{readOnlyHint:true,destructiveHint:false},input:{day:field.date()},positional:['day'],run:({day})=>({day})}),
 	add: defineAction({description:'Add a day',input:{day:field.date()},positional:['day'],run:({day})=>({day})}),
 } } });`;

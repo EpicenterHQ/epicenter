@@ -17,7 +17,7 @@
 
 	const tabs = [
 		{ href: resolve('/'), label: 'Review', icon: LayersIcon, routes: ['/'] },
-		{ href: resolve('/words'), label: 'Words', icon: BookOpenIcon, routes: ['/words', '/words/[word]'] },
+		{ href: resolve('/words'), label: 'Words', icon: BookOpenIcon, routes: ['/words', '/[...path]'] },
 		{ href: resolve('/add'), label: 'Add', icon: PlusIcon, routes: ['/add'] },
 	];
 </script>

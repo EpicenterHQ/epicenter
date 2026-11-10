@@ -31,11 +31,11 @@ test('listing isolates broken imports, invalid apps and folders that cannot name
 	await f.app('invalid', `export default {actions:{bad:{input:{}}}};`);
 	await f.app(
 		'spaced',
-		`export default defineApp({ description: 'The spaced app', actions: { 'week show': defineAction({ description: 'Show', input: {}, run: () => 1 }) } });`,
+		`export default defineApp({ description: 'The spaced app', collections: {}, actions: { 'week show': defineAction({ description: 'Show', input: {}, run: () => 1 }) } });`,
 	);
 	const linked = await f.app(
 		'linked',
-		`export default defineApp({ description: 'The linked app' });`,
+		`export default defineApp({ description: 'The linked app', collections: {}, actions: {} });`,
 		f.root,
 	);
 	await symlink(linked, join(f.home, 'linked'));
@@ -70,7 +70,11 @@ test('listing isolates broken imports, invalid apps and folders that cannot name
 		),
 	).toEqual({
 		broken: ['epicenter.ts: import exploded'],
-		invalid: ['epicenter.ts does not export defineApp(...) by default'],
+		// An object default is checked as defineApp checks it, since defineApp returns its argument.
+		invalid: [
+			'epicenter.ts: An app needs a description',
+			'epicenter.ts: An app needs collections: an object of defineCollection(...), {} for none',
+		],
 		// An action's words are its keys' path: one key holds one word.
 		spaced: [
 			'epicenter.ts: actions has the key "week show" at actions.week show, which is not lowercase letters, digits, and dashes, starting with a letter',
@@ -217,7 +221,7 @@ test('runs use the selected Epicenter and their own .cache', async () => {
 	).toBe(true);
 	const target = await f.app(
 		'linked',
-		`export default defineApp({ description: 'The linked app' });`,
+		`export default defineApp({ description: 'The linked app', collections: {}, actions: {} });`,
 		f.root,
 	);
 	await symlink(target, join(f.home, 'linked'));

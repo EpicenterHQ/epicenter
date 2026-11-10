@@ -13,7 +13,6 @@ export {
 	type Actions,
 	type App,
 	defineApp,
-	isApp,
 	isName,
 } from './app.ts';
 export {

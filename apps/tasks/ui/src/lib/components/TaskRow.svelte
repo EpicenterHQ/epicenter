@@ -1,11 +1,13 @@
 <!--
 	One task in the list: its check, and its title and due day, which open it.
+	A task whose file does not fit says so with a small mark; its page says why.
 -->
 <script lang="ts">
 	import { Checkbox } from '@epicenter/ui/checkbox';
+	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import { slide } from 'svelte/transition';
 	import type { Task } from '$lib/store.svelte.js';
-	import { dueLabel, idOf, isOverdue, labelOf } from '$lib/tasks.js';
+	import { dueLabel, hrefOf, isOverdue, labelOf } from '$lib/tasks.js';
 
 	let {
 		task,
@@ -30,17 +32,23 @@
 >
 	<Checkbox
 		class="size-5 rounded-full border-muted-foreground/40"
-		bind:checked={() => task.done ?? false, (done) => onToggle(task, done)}
+		bind:checked={() => task.done, (done) => onToggle(task, done)}
 		aria-label="{task.done ? 'Mark not done' : 'Mark done'}: {label}"
 	/>
 	<a
-		href="#/t/{idOf(task.path)}"
+		href={hrefOf(task.path)}
 		class="flex min-h-12 min-w-0 flex-1 flex-col justify-center py-2 outline-none focus-visible:underline"
 	>
 		<span
 			class="break-anywhere {task.done ? 'text-muted-foreground line-through' : ''}"
 		>
 			{label}
+			{#if task.problems}
+				<TriangleAlertIcon
+					class="inline size-3.5 align-[-0.125em] text-muted-foreground"
+					aria-label="Some of its file could not be read"
+				/>
+			{/if}
 		</span>
 		{#if showDue && task.due && !task.done}
 			<span

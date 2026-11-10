@@ -49,7 +49,8 @@ export async function listTools(): Promise<Tool[]> {
  * `structuredContent`, and `isError` exactly when the action threw or did not
  * run. An action that returned but was not committed is no error: it ran, and
  * a client that retried it would run it twice. A failure's text is what a
- * person would read on stderr.
+ * person would read on stderr, which for an action that threw after writing
+ * says whether those writes are committed.
  */
 export function toolResult(answer: Answer) {
 	const structuredContent = answer as Record<string, unknown>;

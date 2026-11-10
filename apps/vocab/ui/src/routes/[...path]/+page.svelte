@@ -1,5 +1,10 @@
+<!--
+	One word's page, at the word's path: `#/words/你好.md`. Its fields and
+	examples to edit, its review schedule, and, when its file has something
+	that does not fit a word, a note quoting it.
+-->
 <script lang="ts">
-	import { changedElsewhere } from '@epicenter/app/client';
+	import { ActionError, changedElsewhere } from '@epicenter/app/client';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
@@ -14,9 +19,8 @@
 	import { Textarea } from '@epicenter/ui/textarea';
 	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
 	import { untrack } from 'svelte';
-	import type { Word } from '../../../../../epicenter.js';
-	import { langOf, pathOf, untilLabel, wordOf } from '$lib/text.js';
-	import { app, vocab } from '$lib/vocab.svelte.js';
+	import { langOf, untilLabel } from '$lib/text.js';
+	import { app, vocab, type Word, type WordChanges } from '$lib/vocab.svelte.js';
 
 	type Stage = NonNullable<Word['stage']>;
 	const STAGES = {
@@ -26,13 +30,12 @@
 		usable: 'Use',
 	} satisfies Record<Stage, string>;
 
-	const key = $derived(page.params.word ?? '');
-	const path = $derived(pathOf(key));
+	const path = $derived(page.params.path ?? '');
 
 	/** The word as last read or saved, and what the form holds now. */
 	let saved = $state.raw<Word>();
 	let draft = $state({ reading: '', meaning: '', body: '', stage: undefined as Stage | undefined });
-	let problem = $state<string>();
+	let problem = $state<{ message: string; missing: boolean }>();
 	let saving = $state(false);
 
 	const isDirty = $derived(
@@ -67,7 +70,12 @@
 			(error: unknown) => {
 				if (asked !== path) return;
 				saved = undefined;
-				problem = error instanceof Error ? error.message : String(error);
+				const message = error instanceof Error ? error.message : String(error);
+				problem = {
+					message,
+					// Refused, rather than unanswered: no word is at this path.
+					missing: error instanceof ActionError && error.kind !== 'transport',
+				};
 			},
 		);
 	});
@@ -77,7 +85,7 @@
 	 * earlier over one changed elsewhere since. A field emptied is removed.
 	 */
 	function changesOf(word: Word) {
-		const changes: Omit<Parameters<typeof app.set>[0], 'path'> & { body?: string } = {};
+		const changes: WordChanges & { body?: string } = {};
 		for (const field of ['reading', 'meaning'] as const) {
 			const typed = draft[field].trim();
 			if (typed !== (word[field] ?? '')) changes[field] = typed === '' ? null : typed;
@@ -123,7 +131,7 @@
 
 	function confirmDelete(path: string) {
 		confirmationDialog.open({
-			title: `Delete ${wordOf(path)}?`,
+			title: `Delete ${saved?.word ?? path}?`,
 			description: 'Its meaning, examples, and review schedule are deleted. Your Epicenter’s history keeps a copy.',
 			confirm: { text: 'Delete', variant: 'destructive' },
 			onConfirm: async () => {
@@ -150,7 +158,7 @@
 				void save();
 			}}
 		>
-			<h1 lang={langOf(wordOf(saved.path))} class="text-5xl font-medium break-words">{wordOf(saved.path)}</h1>
+			<h1 lang={langOf(saved.word)} class="text-5xl font-medium break-words">{saved.word}</h1>
 			<Field.Group>
 				<Field.Field>
 					<Field.Label for="reading">Reading</Field.Label>
@@ -204,26 +212,43 @@
 			<dd class="tabular-nums">{saved.interval ?? 0} days</dd>
 			<dt class="text-muted-foreground">Ease</dt>
 			<dd class="tabular-nums">{saved.ease ?? 2.5}</dd>
-			<dt class="text-muted-foreground">Added</dt>
-			<dd>{dateFormat.format(new Date(saved.createdAt))}</dd>
+			{#if saved.createdAt}
+				<dt class="text-muted-foreground">Added</dt>
+				<dd>{dateFormat.format(new Date(saved.createdAt))}</dd>
+			{/if}
 		</dl>
+
+		{#if saved.problems}
+			<div class="text-xs text-muted-foreground" role="note">
+				<p>Some of this word's file could not be read:</p>
+				<ul class="mt-1 list-disc pl-4 font-mono break-words">
+					{#each saved.problems as line (line)}
+						<li>{line}</li>
+					{/each}
+				</ul>
+			</div>
+		{/if}
 
 		<Button variant="ghost-destructive" class="self-start" onclick={() => saved && confirmDelete(saved.path)}>
 			Delete word
 		</Button>
 	{:else if problem}
-		{#if problem.startsWith('There is no')}
+		{#if problem.missing}
 			<Empty.Root>
 				<Empty.Header>
-					<Empty.Title lang={langOf(key)}>{key} is not saved</Empty.Title>
-					<Empty.Description>It may have been deleted elsewhere.</Empty.Description>
+					<Empty.Title>No word here</Empty.Title>
+					<Empty.Description>
+						{problem.message.startsWith('There is no')
+							? 'It may have been deleted elsewhere.'
+							: problem.message}
+					</Empty.Description>
 				</Empty.Header>
 				<Empty.Content><Button href={resolve('/words')}>All words</Button></Empty.Content>
 			</Empty.Root>
 		{:else}
 			<Alert.Root variant="destructive">
-				<Alert.Title>Vocab could not read {key}</Alert.Title>
-				<Alert.Description>{problem}</Alert.Description>
+				<Alert.Title>Vocab could not reach your Epicenter</Alert.Title>
+				<Alert.Description>{problem.message}</Alert.Description>
 			</Alert.Root>
 		{/if}
 	{:else}
