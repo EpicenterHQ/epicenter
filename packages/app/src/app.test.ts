@@ -51,14 +51,6 @@ describe('createMemoryContext', () => {
 		await folder.delete('a/b.md');
 		expect(await folder.list()).toEqual([]);
 	});
-
-	test('folder.commit records its message and keeps the files', async () => {
-		const context = createMemoryContext({ 'a.md': 'a' });
-		await context.folder.commit('Add a');
-		await context.folder.commit('Nothing changed');
-		expect(context.commits).toEqual(['Add a', 'Nothing changed']);
-		expect(await context.folder.read('a.md')).toBe('a');
-	});
 });
 
 describe('normalizePath', () => {

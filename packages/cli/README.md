@@ -27,7 +27,7 @@ The commands are `new`, `link`, `install`, `sync`, and `serve`; any other first 
 
 The `epicenter` you start only relays. It runs the action in a child `epicenter` whose stdout and stderr both go to your stderr, forwards SIGINT and SIGTERM, and reads the child's answer from a report file once the child exits. So nothing an action prints, through any `console` method or `process.stdout`, reaches the answer. A child that ends without an answer, killed or calling `process.exit`, answers that it threw, naming its exit code or signal. A child whose parent dies finishes the run.
 
-`epicenter serve` starts an HTTP server on `127.0.0.1:4747`. `--host <address>` and `--port <n>` change where it listens. It serves MCP at `POST /`, the launcher at `GET /`, `connect` from `@epicenter/app/client` as plain JavaScript at `/.client.js`, and each app's view at `/<app>/`: its `.cache/view/` when there is one, else its `view/`. The launcher links to apps with a view; a `GET /` asking for an event stream gets 405, since the server keeps no MCP session. The server's own paths start with `.`, which no app name can. An Origin must match the request Host; requests without Origin are accepted. A reverse proxy such as `tailscale serve` can provide HTTPS.
+`epicenter serve` starts an HTTP server on `127.0.0.1:4747`. `--host <address>` and `--port <n>` change where it listens. It serves MCP at `POST /`, the launcher at `GET /`, and each app's view at `/<app>/`: its `.cache/view/` when there is one, else its `view/`. The launcher links to apps with a view; a `GET /` asking for an event stream gets 405, since the server keeps no MCP session. Any later path of the server's own starts with `.`, which no app name can. An Origin must match the request Host; requests without Origin are accepted. A reverse proxy such as `tailscale serve` can provide HTTPS.
 
 Both HTTP and `serve --stdio` offer every app action as a tool. The server never imports an app. `tools/list` runs `epicenter <app> --json` for each home entry in its own child, so an app that fails to load loses only its own tools and says why on stderr. Each `tools/call` runs `epicenter <app> <words> --input <json>` in a fresh child, so an edit between calls is seen by the next. `--input` takes the action's input as one JSON object instead of flags. `serve --stdio` uses stdin and stdout for MCP.
 
@@ -39,13 +39,9 @@ Every write commits itself, from the command line, `serve --stdio`, or HTTP alik
 
 Writes to one app take turns: each holds the app's lock, a file under the temporary folder named for the app's path, from before it runs until its commit, so a write that reads, changes, and writes back a file never loses another's change. A lock whose process died is taken over; a write that waits 30 seconds throws. Read-only runs take no lock.
 
-`folder` is a convenience, not a sandbox. Paths are normalized and `.git` is refused; writes replace a whole file at once and are recorded nowhere. `folder.path` is the folder, and an action may use `node:fs` too. An action may commit sooner, under its own message:
+The commit runs `git add -A -- .` and then `git commit -m <subject> -- .` from the app's folder, so it takes everything changed in the folder, staged or not, and nothing outside it. An app inside a larger repository commits into that repository and leaves the rest of it alone. Before staging, when the folder's `.gitattributes` mentions `filter=lfs` and `git config filter.lfs.process` is empty, it stops with a message ending `run: git lfs install`, since Git without the filter would store the whole file ([ADR-0856](../../docs/adr/0856-binary-files-go-through-git-lfs.md)). When another Git process holds `index.lock`, it retries for about 2 seconds. Either way the write stays, uncommitted. It never pushes.
 
-```ts
-await folder.commit('Add 12 words');
-```
-
-`folder.commit(message)` runs `git add -A -- .` and then `git commit -m <message> -- .` from the app's folder, so it commits everything changed in the folder, staged or not, and nothing outside it. An app inside a larger repository commits into that repository and leaves the rest of it alone. With nothing changed it does nothing. It throws Git's own error when the folder is in no repository. Before staging, when the folder's `.gitattributes` mentions `filter=lfs` and `git config filter.lfs.process` is empty, it throws a message ending `run: git lfs install`, since Git without the filter would store the whole file ([ADR-0856](../../docs/adr/0856-binary-files-go-through-git-lfs.md)). When another Git process holds `index.lock`, it retries for about 2 seconds, then throws Git's message. It never pushes.
+`folder` is a convenience, not a sandbox. Paths are normalized and `.git` is refused; writes replace a whole file at once and are recorded nowhere. `folder.path` is the folder, and an action may use `node:fs` too. An action never commits.
 
 ## What a run answers
 
@@ -64,7 +60,7 @@ An action that returns nothing answers `{ "returned": null }`. An action that th
 
 `epicenter sync [<app>]` commits what is left and pulls before pushing ([ADR-0851](../../docs/adr/0851-an-app-with-history-has-one-git-remote-its-meeting-point-and-backup.md)). For each app in the home, or the one named, one after another, from its folder:
 
-1. `git add -A -- .`, and when anything changed, a commit `sync: <app> (<n> files)` of the folder only, with the same LFS check as `folder.commit`.
+1. `git add -A -- .`, and when anything changed, a commit `sync: <app> (<n> files)` of the folder only, with the same LFS check as a write's commit.
 2. When the branch has an upstream, `git pull --rebase --autostash`, then `git push`. Which branch is Git's: the upstream and `push.default` the clone already has. A branch that tracks nothing is committed and not pushed.
 
 An app inside a larger repository commits only its own folder but pulls and pushes the whole repository, so other uncommitted files there are set aside and put back by `--autostash`; when they cannot be put back, Git keeps them in its stash and sync says so. A pull that stops on a conflict is aborted with `git rebase --abort`, so the folder is never left mid-rebase; the commits stay local and the next step is `git -C <folder> pull --rebase`. A pull or push that fails, offline for instance, leaves the commit local and says it was not pushed. A folder that is not a repository reports Git's error. One app's failure never stops the others.

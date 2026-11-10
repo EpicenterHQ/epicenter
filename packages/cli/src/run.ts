@@ -2,8 +2,7 @@
  * One action's run, for the command line and both MCP transports (ADR-0850).
  * The action writes through its folder as it runs. When it returns and is not
  * read-only, the run commits what changed in the app's folder as one commit
- * named for the call, however the call arrived; an action may also commit
- * sooner with `folder.commit`. The answer is what the action returned, with
+ * named for the call, however the call arrived. The answer is what the action returned, with
  * its commit, or what it threw.
  */
 

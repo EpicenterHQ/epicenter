@@ -2,7 +2,7 @@
  * An action's folder on this computer's disk (ADR-0841, ADR-0850). It is a
  * convenience, not a sandbox: paths are normalized and `.git` is refused, and
  * otherwise a write is a write, recorded nowhere. Writes replace a whole file
- * at once, keeping the mode of the file they replace. `commit` runs Git from the folder. Listing avoids Git,
+ * at once, keeping the mode of the file they replace. Listing avoids Git,
  * dependencies, and directory links so those trees never become app data.
  */
 
@@ -22,7 +22,6 @@ import {
 } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { type Folder, normalizePath } from '@epicenter/app';
-import { commitFolder } from './git.ts';
 
 function missing(error: unknown) {
 	return (error as NodeJS.ErrnoException).code === 'ENOENT';
@@ -76,9 +75,6 @@ export function folderOnDisk(dir: string): Folder {
 				if (missing(error)) return;
 				throw error;
 			}
-		},
-		async commit(message) {
-			await commitFolder(dir, message);
 		},
 		async list(subdir) {
 			const found: string[] = [];

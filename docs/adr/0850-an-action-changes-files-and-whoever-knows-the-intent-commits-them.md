@@ -5,8 +5,8 @@
 - **Supersedes:** [ADR-0848](0848-the-runner-owns-only-what-an-action-wrote.md): recorded writes and run phases.
 - **Amends:** [ADR-0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md) at "an action is a commit": a run makes no commit of its own, nothing is undone, exit codes are 0, 1, and 2, and a refusal to run is `{ error: { name, message, next? } }` without `code`.
 - **Relates:** [ADR-0851](0851-an-app-with-history-has-one-git-remote-its-meeting-point-and-backup.md) (`epicenter sync`), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (programs that write a folder), [ADR-0856](0856-binary-files-go-through-git-lfs.md) (LFS), [ADR-0858](0858-where-a-file-lives-decides-whether-it-travels-survives-or-dies-with-its-program.md) (what each path becomes), [ADR-0859](0859-an-action-changes-the-folder-or-the-world-and-a-world-verb-is-safe-to-repeat.md) (the folder and the world), [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (a commit per write through `serve`).
-- **Amended:** 2026-11-10: a write commits itself, named for the call, however it arrives, and writes to one app take turns. The draft before this amendment let a run commit nothing and let runs overlap; once `epicenter serve` ran writes from a phone, views, and agents at once, the most frequent writers were `epicenter`'s own, and two overlapping writes lost one's change.
-- **Built:** the commit after each write and the write lock (`packages/cli/src/run.ts`), `folder.commit`, the answer as `{ returned, committed? | uncommitted? }`, `{ threw }`, or `{ error }` with exit codes 0, 1, and 2, and the deletions under Consequences. The first draft is recoverable at `9943c668db`.
+- **Amended:** 2026-11-10: a write commits itself, named for the call, however it arrives, and writes to one app take turns. The draft before this amendment let a run commit nothing and let runs overlap; once `epicenter serve` ran writes from a phone, views, and agents at once, the most frequent writers were `epicenter`'s own, and two overlapping writes lost one's change. Later on 2026-11-10: `folder.commit` is removed. No app called it, and with every write committing itself it only offered a second commit inside one run.
+- **Built:** the commit after each write and the write lock (`packages/cli/src/run.ts`), the answer as `{ returned, committed? | uncommitted? }`, `{ threw }`, or `{ error }` with exit codes 0, 1, and 2, and the deletions under Consequences. The first draft is recoverable at `9943c668db`.
 
 ## Context
 
@@ -33,31 +33,30 @@ line, `serve --stdio`, or HTTP alike. A thrown action, a read-only one, and a
 folder in no repository commit nothing.
 
 ```txt
-the run           tasks: add Water the plants            every write that returned
-the action        await folder.commit('Add 12 words')   sooner, under its own message
-an agent          git commit -m '…'                      its own edits to files, after a sequence it understands
-anyone            epicenter sync                         everything left (ADR-0851)
+the run           tasks: add Water the plants   every write that returned
+an agent          git commit -m '…'             its own edits to files, after a sequence it understands
+anyone            epicenter sync                everything left (ADR-0851)
 ```
 
 A hand edit left in the folder when a write runs is committed with it, under
 the write's name.
 
-**`folder.commit(message)` commits everything changed in the app's folder and
-nothing outside it.** From the app's folder it runs `git add -A -- .` then
-`git commit -m <message> -- .`. Other changes inside the folder, staged or not,
-are included. It takes no paths; a `{ paths: string[] }` option can be added
-when an app needs one, without changing any caller. An app inside a larger repository (`~/Code/vault/recipes/`)
+**The commit takes everything changed in the app's folder and nothing outside
+it.** From the app's folder it runs `git add -A -- .` then
+`git commit -m <subject> -- .`. Other changes inside the folder, staged or not,
+are included. An app inside a larger repository (`~/Code/vault/recipes/`)
 commits into that repository and touches nothing else in it. Before staging it
 checks that this computer has Git LFS's filter (`git config filter.lfs.process`)
-when `.gitattributes` routes a path through it, and otherwise throws
+when `.gitattributes` routes a path through it, and otherwise stops with
 `run: git lfs install`, since Git without the filter would store the whole file
-(ADR-0856). When Git's `index.lock` is held, it retries for up to 2 seconds,
-then throws Git's message. It never pushes; only `epicenter sync` touches a
-remote.
+(ADR-0856). When Git's `index.lock` is held, it retries for up to 2 seconds.
+A commit that fails leaves the write in place and says so as `uncommitted`.
+The commit never pushes; `epicenter serve` pushes after it, and
+`epicenter sync` pushes what is left. An action never commits.
 
 **Running an action needs nothing from Git.** An app need not be a repository,
-or the top of one. `folder.commit` outside any repository throws Git's own
-error. `epicenter new` makes a repository.
+or the top of one; a write outside any repository makes no commit.
+`epicenter new` makes a repository.
 
 **`epicenter` does nothing Git already does.** It runs Git's porcelain and
 passes on Git's messages: no Git objects of its own, no temporary index, no

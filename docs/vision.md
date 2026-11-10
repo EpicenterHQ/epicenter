@@ -158,7 +158,7 @@ A folder with only `epicenter.json` is a whole app that cannot run code. Every
 collection is declared in `epicenter.json`; `epicenter.ts` holds only actions.
 Every export of `epicenter.ts` is an action or a group of them, such as
 `export const words = { archive: action({…}), delete: null }`. `run` gets
-`folder` (the app's files, and `folder.commit`), `secrets` (its sign-ins), and
+`folder` (the app's files), `secrets` (its sign-ins), and
 `collections` (the same four actions every client gets, checked against each
 collection's schema). `epicenter:app` is the app's own module, which
 `epicenter` generates from `epicenter.json` into `.cache/epicenter/`, so

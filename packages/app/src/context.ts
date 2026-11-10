@@ -6,8 +6,7 @@
  * CLI on a computer, memory in a test.
  *
  * A write that returns is one commit, named for the call, made by whatever
- * runs it (ADR-0850). An action calls `folder.commit` only to commit sooner,
- * under its own message.
+ * runs it (ADR-0850); an action never commits.
  */
 
 /**
@@ -27,15 +26,6 @@ export type Folder = {
 	list(dir?: string): Promise<string[]>;
 	/** Deletes the file at `path`, if there is one. */
 	delete(path: string): Promise<void>;
-	/**
-	 * Commits everything changed in the folder, staged or not, and nothing
-	 * outside it, with `message`; does nothing when nothing changed. An app
-	 * inside a larger repository commits into that repository. Throws Git's
-	 * own error when the folder is in no repository, and throws before
-	 * staging when `.gitattributes` routes a path through Git LFS and this
-	 * computer has no LFS filter (`run: git lfs install`). It never pushes.
-	 */
-	commit(message: string): Promise<void>;
 	/** The folder on disk; only on a computer. */
 	readonly path?: string;
 };

@@ -51,8 +51,8 @@ the client receives a token you can revoke (ADR-0864).
 **A command means this computer.** `epicenter vocab define serendipity` runs
 the Vocab folder on the computer it is typed on, and never forwards.
 `epicenter ./vocab define serendipity` runs the folder at that path, for
-developing an app or a folder of one's own. A run commits only when its action
-calls `folder.commit` (ADR-0850), and runs do not take turns.
+developing an app or a folder of one's own. Every write commits itself, and
+writes to one app take turns (ADR-0850).
 
 **A sign-in lives where the actions that use it run:** Gmail's in your server's
 Keychain, where `epicenter mail connect` runs. Epicenter holds no third-party

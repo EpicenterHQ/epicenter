@@ -99,20 +99,13 @@ reads as one that may destroy.
 
 | Store | Holds | Methods |
 | --- | --- | --- |
-| `folder` | the app's data, in its folder | `read`, `readBytes`, `write`, `writeBytes`, `list`, `delete`, `commit`; `path` on a computer |
+| `folder` | the app's data, in its folder | `read`, `readBytes`, `write`, `writeBytes`, `list`, `delete`; `path` on a computer |
 | `secrets` | sign-ins, in this computer's Keychain | `get`, `set`, `delete`; only on a computer |
 
 A write that returns is one commit, named for the call, and writes to one
 app take turns
 ([ADR-0850](../../docs/adr/0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md)).
-An action that wants to commit sooner, under its own message, calls
-`await folder.commit('Add 12 words')`, which commits everything changed in the
-app's folder, staged or not, and nothing outside it, and does nothing when
-nothing changed. It throws Git's error when the folder is in no repository,
-and throws `run: git lfs install` before staging when `.gitattributes` routes
-files through Git LFS and this computer has no LFS filter. It never pushes.
-Otherwise the writes stay uncommitted until a person, an agent, or
-`epicenter sync` commits them.
+The `epicenter` command makes that commit; an action never commits.
 
 `folder` is a convenience, not a sandbox: an action may also write through
 `folder.path` with `node:fs`. What the app can rebuild lives in files it
@@ -136,8 +129,7 @@ await reading.actions.log.run({ minutes: 30 }, context);
 expect(await context.folder.read('2026.csv')).toBe('minutes,book\n30,\n');
 ```
 
-The memory context has no Git: `folder.commit` appends its message to
-`context.commits`, so a test can check what the action would have committed.
+The memory context has no Git, so a test checks the files an action wrote.
 
 `problemsOf(declaration, code)` lists what is wrong with an app as the
 `epicenter` command would: a declaration that fails the schema, two
