@@ -3,18 +3,8 @@ import {
 	defineApp,
 	defineCollection,
 	field,
+	localTime,
 } from '@epicenter/app';
-
-/** `at` as RFC 3339 in this computer's offset: `2026-11-10T22:41:05+08:00`. */
-function localTime(at: Date): string {
-	const offset = -at.getTimezoneOffset();
-	const sign = offset >= 0 ? '+' : '-';
-	const pad = (n: number) => String(Math.trunc(Math.abs(n))).padStart(2, '0');
-	const local = new Date(at.getTime() + offset * 60_000)
-		.toISOString()
-		.slice(0, 19);
-	return `${local}${sign}${pad(offset / 60)}:${pad(offset % 60)}`;
-}
 
 /** How much of a capture's text `recent` returns. */
 const PREVIEW = 280;
@@ -63,7 +53,7 @@ const add = defineAction({
 	annotations: { destructiveHint: false, openWorldHint: false },
 	run: ({ text }) =>
 		captures.add({
-			capturedAt: localTime(new Date()),
+			capturedAt: localTime(),
 			body: text.endsWith('\n') ? text : `${text}\n`,
 		}),
 });

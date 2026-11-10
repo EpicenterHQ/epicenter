@@ -242,6 +242,11 @@ is required unless it says `optional: true`; `readOnly: true` is described
 above, and every field helper keeps it in its type. A field may not be named
 `json`, `help`, or `input`, which `epicenter` reads itself.
 
+`localDay()` and `localTime()` give now, or a `Date` passed to them, as
+`field.date` and `field.datetime` hold it, in the time zone of the computer
+that runs the action: `2026-11-10` and `2026-11-10T22:41:05+08:00`. Reading's
+`start` writes `started: localDay()`.
+
 `field.text({ pattern, description })` takes a regular expression the whole
 value must match. Write the `description` to read after "must be", since the
 command line's refusal reads `--title must be <description>` and a read's
