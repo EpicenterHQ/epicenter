@@ -5,7 +5,7 @@
 - **Supersedes:** [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) at "`~/Epicenter` exists on your server and is not moved by an environment variable": the Epicenter is found from where you stand, and `~/Epicenter` is only the fallback. [ADR-0857](0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md) at a folder run by path, and `epicenter link`: every app runs inside an Epicenter.
 - **Amends:** [ADR-0853](0853-collections-give-five-actions-and-programs-without-the-folder-ask-over-mcp.md) at the verbs' names: an app with one collection has them as its own. [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) at the public HTTPS address through Funnel: `serve` signs no one in, so it stays on the tailnet until a sign-in is built. [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) at what a commit takes: never `*.local` or `*.local.*` (since amended by ADR-0850: the app's `.gitignore` leaves them out, and a commit refuses one it lets through).
 - **Relates:** [ADR-0870](0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md) (secrets are `.local` files, so the marker carries no `id`), [ADR-0871](0871-a-public-address-signs-clients-in-with-better-auths-mcp-plugin-and-the-owner-approves-from-the-tailnet.md) (the sign-in for a public address, and `owners`), [ADR-0857](0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md) (an app is its `epicenter.ts`, which places its verbs), [ADR-0866](0866-an-app-starts-from-a-starter-kept-as-its-upstream-and-update-merges-the-starters-changes.md) (starters, `update`), [ADR-0867](0867-the-command-line-spells-an-actions-json-input-and-null-removes-a-field-there-as-everywhere.md) (the command line's input), [ADR-0865](0865-the-epicenter-mac-app-runs-epicenter-serve-so-the-computer-it-is-on-is-your-server.md) (the Mac app that would start each `serve`).
-- **Unbuilt:** `EPICENTER.md` as the marker; the code reads `epicenter.root.json` with an `id`. (The sign-in for a public address was settled 2026-11-11 by ADR-0871. Whether a write in an app outside any Git repository exits 3 was settled 2026-11-11 by ADR-0850: no run commits, and such an app is never snapshotted, so it exits 0.)
+- **Unbuilt:** what `public` and `owners` do: `EPICENTER.md` is the marker since 2026-11-11, and its front matter's `public` and `owners` are checked but unused until the sign-in of ADR-0871 is built. (The sign-in for a public address was settled 2026-11-11 by ADR-0871. Whether a write in an app outside any Git repository exits 3 was settled 2026-11-11 by ADR-0850: no run commits, and such an app is never snapshotted, so it exits 0.)
 
 ## Context
 
@@ -58,8 +58,9 @@ first, and its case keeps it apart from an app's `epicenter.ts`. The front
 matter has three optional fields: `port` (4747 when absent; `--port`
 overrides it), and `public` and `owners`, which make the Epicenter public and
 say who may approve a client there (ADR-0871). An empty file is a valid
-marker. The display name is the folder's name.
-`epicenter init` writes:
+marker. A value that does not fit, or any other field, is refused with a line
+naming the field, so a misspelled `port` is never served on 4747 unnoticed.
+The display name is the folder's name. `epicenter init` writes:
 
 ```md
 ---

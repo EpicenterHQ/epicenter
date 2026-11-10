@@ -1,7 +1,7 @@
 # Local secrets, the `EPICENTER.md` marker, backup status, and a public sign-in
 
 **Date**: 2026-11-11
-**Status**: Draft
+**Status**: In Progress
 **Owner**: Braden
 **Branch**: `claude/local-files-and-sign-in` (records); code waves branch from `claude/collections` once its review fixes land
 **Supersedes**: none. Decisions: [ADR-0870](../docs/adr/0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md), [ADR-0868](../docs/adr/0868-an-epicenter-is-any-folder-that-says-it-is-one-and-a-computer-runs-as-many-as-it-has.md) (marker), [ADR-0851](../docs/adr/0851-an-app-has-one-home-and-an-optional-push-only-backup.md) (backup status), [ADR-0871](../docs/adr/0871-a-public-address-signs-clients-in-with-better-auths-mcp-plugin-and-the-owner-approves-from-the-tailnet.md) (sign-in)
@@ -17,18 +17,13 @@ approval from the tailnet.
 
 | | Now (`claude/collections`) | Target |
 | --- | --- | --- |
-| Secrets | `secrets` in the run, `Bun.secrets` under `epicenter.<id>.<app>` | a one-file collection at `<name>.local.md`; no `secrets` |
-| `.local` | never committed | also: no generated verbs, writable in a read-only run, created `0600` |
-| Marker | `epicenter.root.json` `{ id, port }` | `EPICENTER.md`, front matter `port`, `owners`, `public` |
 | Backup | unpushed count only when `origin/<branch>` exists | `not backed up` / `never backed up` in status, and after `epicenter new` |
 | Public access | none; tailnet only, no sign-in | Funnel port from `public`; OAuth through `@better-auth/mcp` + `@better-auth/cimd`; `epicenter connections` |
 
 ## Order and dependencies
 
-Wave 1 edits `packages/app/src/context.ts` and `collection.ts`, which the
-review fixes on `claude/collections` also edit (collection `update`, BOM,
-claims). Start code after those commits land, from the new tip. Waves 1 to 3
-are independent of each other; wave 4 needs wave 2 (`EPICENTER.md` fields).
+Waves 1 and 2 are built. Wave 3 is independent; wave 4 reads the
+`EPICENTER.md` fields wave 2 checks.
 
 ## Wave 0: checks before code
 
@@ -51,43 +46,13 @@ Each settles a fact the records lean on; write the result into this spec.
    v2 `createMcpHandler({ legacy: 'reject' })`, but `requireMcpAuth` wraps any
    `(Request) => Response`, so moving is optional.
 
-## Wave 1: `.local` files replace the Keychain (ADR-0870)
+## Waves 1 and 2: done
 
-- `packages/app/src/context.ts`: `Context` is `{ folder }`; delete `secrets`,
-  `Secrets`, and their `writableRun` branches. A read-only run lets
-  `write`, `writeBytes`, `update`, and `delete` through when the path matches
-  `*.local` or `*.local.*`.
-- `packages/app/src/collection.ts`: `actions()` throws
-  `<path> never leaves this computer, so it offers no actions` when `path`
-  matches `*.local` or `*.local.*`. Check that `path.ts` accepts `google.local.md`
-  as a one-file template.
-- `packages/cli/src/disk.ts` and `packages/app/src/memory.ts`: a new file at a
-  `.local` path is created `0600` (the temp file is `chmod`ed before the
-  rename, as a replaced file's mode already is).
-- Delete `packages/cli/src/secrets.ts`, its uses in `home.ts`, the `keychain`
-  field in `listing.ts`, `createMemorySecrets`, and `EPICENTER_TEST_SECRETS`.
-- Tests:
-  - a read-only action writes `x.local.md` and is refused writing `x.md`;
-  - `actions()` on a `.local` collection throws;
-  - a `.local` file is `0600`;
-  - a snapshot never takes it (existing test);
-  - a run's context has no `secrets`.
-- Docs: `packages/app/README.md`, `packages/cli/README.md`, and the
-  `epicenter-app` skill teach a secret as a `.local.md` collection.
-
-## Wave 2: `EPICENTER.md` (ADR-0868)
-
-- `packages/cli/src/root.ts`: walk up for `EPICENTER.md`. Read its front
-  matter with `@epicenter/app`'s front-matter reader: `port` (integer 0 to
-  65535), `owners` (list of strings), and `public` (443, 8443, or 10000).
-  Anything else is a problem naming the field. `EpicenterRoot` loses `id`.
-- A folder with `epicenter.root.json` and no `EPICENTER.md` is refused with
-  the step `write EPICENTER.md with port: <n>, then delete epicenter.root.json`.
-- `packages/cli/src/init.ts` writes the `EPICENTER.md` shown in ADR-0868.
-- Tests: discovery from inside an app; front-matter problems; the old marker's
-  refusal; `init`'s file.
-- Docs: `packages/cli/README.md`, the `epicenter-app` skill (setup and test
-  sections).
+Built on `claude/collections` 2026-11-11: a run's context is `{ folder }`,
+`.local` paths are named by `isLocalPath` in `@epicenter/app`, and
+`EPICENTER.md` is the marker (`packages/cli/src/root.ts`). ADR-0870 and
+ADR-0868 record what was built; `public` and `owners` are checked and wait
+for wave 4.
 
 ## Wave 3: a missing backup is visible (ADR-0851)
 
@@ -158,11 +123,6 @@ The person runs these, or approves each.
 
 ## Done when
 
-- Mail-style secret: a `.local.md` collection read in a read-only action that
-  refreshes its token. No `secrets`, `Bun.secrets`, or `keychain` remains
-  outside `docs/`.
-- `epicenter` in a folder with only `EPICENTER.md` works; the old marker is
-  refused with its step.
 - An app with no `origin` says `not backed up` in the listing and after
   `epicenter new`.
 - Claude and ChatGPT each list and call actions over the Funnel address. A
