@@ -399,12 +399,12 @@ test("D8 an app of one collection's verbs adds, reads, changes, and deletes its 
 		[
 			['set', 'items/dune.md', '--kind', 'poem'],
 			2,
-			'--kind must be one of: thought, link, quote',
+			'--kind must be one of thought, link, quote',
 		],
 		[
 			['set', 'items/dune.md', '--added', '2026-13-45'],
 			2,
-			'--added needs a day, as 2026-11-12',
+			'--added must be a day like 2026-11-12',
 		],
 		[['add', 'new-one', '--kind', 'link'], 2, '--added is needed'],
 		[

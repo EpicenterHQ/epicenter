@@ -194,7 +194,7 @@ A read never trusts the file. `list`, `get`, and the file `add`, `set`, and
 file itself, after the fields, so front matter never replaces them: `words/你好.md` reads as `{ path: 'words/你好.md', word: '你好', ... }`.
 
 A file that does not fit has `problems`, one line per problem, quoting the
-value it dropped as JSON: `due: "next week" is not a day`, `title is missing`,
+value it dropped as JSON: `due: "next week" is not a day like 2026-11-12`, `title is missing`,
 or `its front matter is neither key: <JSON> lines nor YAML`. A file that fits
 has no `problems` key. `words.list()` returns rows with `problems`; for a one-file collection,
 `get()` returns the file with `problems`. `epicenter update` reports those

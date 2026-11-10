@@ -88,7 +88,7 @@ value when it fits, else its default, else absent. `path`, the placeholders
 its path holds (`word: '你好'`), and `body` come from the file after the
 fields, so front matter never replaces them. A file that does not
 fit carries `problems`, one line each, quoting the dropped value as JSON
-(`due: "next week" is not a day`, `title is missing`); a file that fits has
+(`due: "next week" is not a day like 2026-11-12`, `title is missing`); a file that fits has
 no `problems` key. `get`, and the file each write returns, also carry `other`, the
 front matter that is not a field's fitting value, when there is any. In the
 types, a field with a default is required and every other field optional;

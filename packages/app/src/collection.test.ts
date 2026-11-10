@@ -452,10 +452,10 @@ describe('a read', () => {
 			'---\nkind: "song"\nadded: "next week"\ndone: "yes"\nreviewed: null\n---\n';
 		const context = createMemoryContext({ 'items/a.md': text });
 		const problems = [
-			'kind: "song" is not one of "thought", "link", "quote"',
-			'added: "next week" is not a day',
+			'kind: "song" is not one of thought, link, quote',
+			'added: "next week" is not a day like 2026-11-12',
 			'done: "yes" is not true or false',
-			'reviewed: null is not a day',
+			'reviewed: null is not a day like 2026-11-12',
 		];
 		expect(
 			await inRun(context, () => items.get({ path: 'items/a.md' })),
@@ -681,7 +681,7 @@ describe('a collection of one file', () => {
 		});
 		expect(await context.folder.list()).toEqual([]);
 		expect(run('settings set', { voice: 'robot' }, context)).rejects.toThrow(
-			'settings.md: voice: "robot" is not one of "female", "male"',
+			'settings.md: voice: "robot" is not one of female, male',
 		);
 		await run('settings set', { dailyGoal: 20 }, context);
 		expect(await context.folder.read('settings.md')).toBe(
@@ -736,7 +736,7 @@ describe('problem rows', () => {
 				id: 'b',
 				done: false,
 				added: '2026-11-01',
-				problems: ['kind: "song" is not one of "thought", "link", "quote"'],
+				problems: ['kind: "song" is not one of thought, link, quote'],
 			},
 			{
 				path: 'items/c.md',

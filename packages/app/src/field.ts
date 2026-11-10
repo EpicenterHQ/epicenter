@@ -19,6 +19,7 @@ import {
 	type TUnion,
 	Type,
 } from 'typebox';
+import { Value } from 'typebox/value';
 
 type Options = {
 	description?: string;
@@ -143,3 +144,91 @@ export const field = {
 			Type.Array(Type.String(), { ...schemaOptions(options), default: [] }),
 		) as Marked<TTags, O>,
 };
+
+type Described = {
+	type?: string;
+	format?: string;
+	pattern?: string;
+	description?: string;
+	minimum?: number;
+	maximum?: number;
+	items?: Described;
+	anyOf?: Described[];
+	const?: unknown;
+	enum?: unknown[];
+};
+
+const FORMATS: Record<string, string> = {
+	date: 'a day like 2026-11-12',
+	'date-time': 'a date and time like 2026-11-12T09:30:00Z',
+	uri: 'a URL like https://example.com',
+	email: 'an email address',
+};
+
+const TYPES: Record<string, string> = {
+	string: 'text',
+	number: 'a number',
+	integer: 'a whole number',
+	boolean: 'true or false',
+	array: 'a list',
+	object: 'an object',
+};
+
+/** The checks `whatFits` says in words; another, such as `maxLength`, keeps TypeBox's message. */
+const SAID = new Set([
+	'type',
+	'format',
+	'const',
+	'anyOf',
+	'enum',
+	'pattern',
+	'minimum',
+	'maximum',
+]);
+
+/** The schema a field takes besides `null`: `X | null`, as `set` takes a field, is `X`. */
+function withoutNull(field: TSchema): TSchema {
+	const { anyOf } = field as Described;
+	const nonNull = anyOf?.filter((choice) => choice.type !== 'null');
+	return anyOf?.length === 2 && nonNull?.length === 1 && nonNull[0]
+		? (nonNull[0] as TSchema)
+		: field;
+}
+
+/** What `schema` takes, as the end of "<value> is not …". */
+function wanted(schema: Described): string | undefined {
+	const choices =
+		schema.enum ??
+		(schema.anyOf?.every((choice) => 'const' in choice)
+			? schema.anyOf.map((choice) => choice.const)
+			: undefined);
+	if (choices) return `one of ${choices.map(String).join(', ')}`;
+	// A pattern is a regular expression; the field's description says it in words.
+	if (schema.pattern !== undefined) return schema.description;
+	if (schema.format !== undefined) return FORMATS[schema.format];
+	if (schema.type === 'array' && schema.items?.type === 'string')
+		return 'a list of text';
+	const kind = schema.type === undefined ? undefined : TYPES[schema.type];
+	if (!kind) return kind;
+	const { minimum: min, maximum: max } = schema;
+	if (min !== undefined && max !== undefined)
+		return `${kind} from ${min} to ${max}`;
+	if (min !== undefined) return `${kind} of at least ${min}`;
+	if (max !== undefined) return `${kind} of at most ${max}`;
+	return kind;
+}
+
+/**
+ * What a field takes, in words such as `a day like 2026-11-12` or `a whole
+ * number from 1 to 5`, when `value` does not fit it for a reason those words
+ * say; `undefined` when it fits, or when they would not say why (a text too
+ * long). The CLI says it of a flag and a collection of a file's front matter,
+ * so both say it alike.
+ */
+export function whatFits(field: TSchema, value: unknown): string | undefined {
+	if (Value.Check(field, value)) return undefined;
+	const schema = withoutNull(field);
+	const [error] = Value.Errors(schema, value);
+	if (!error || !SAID.has(error.keyword)) return undefined;
+	return wanted(schema as Described);
+}

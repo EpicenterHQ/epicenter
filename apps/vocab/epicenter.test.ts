@@ -186,7 +186,7 @@ describe('actions', () => {
 		]);
 		expect(words[0]).toMatchObject({
 			word: 'null',
-			problems: ['due: null is not a date and time'],
+			problems: ['due: null is not a date and time like 2026-11-12T09:30:00Z'],
 			other: { due: null },
 		});
 		expect(words[0]).not.toHaveProperty('due');

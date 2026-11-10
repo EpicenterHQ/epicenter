@@ -7,7 +7,7 @@
  * field that needs attention. The action's `positional` list says which
  * fields the command line also reads by position, in order.
  */
-import { type Action, type Input, isName } from '@epicenter/app';
+import { type Action, type Input, isName, whatFits } from '@epicenter/app';
 import { type TSchema, Type } from 'typebox';
 import { Value } from 'typebox/value';
 
@@ -252,40 +252,13 @@ export function checkInput(
 	const field = key?.replace(/~1/g, '/').replace(/~0/g, '~');
 	const name = field ? nameOf(field) : 'input';
 	if (first?.keyword === 'required') return { error: `${name} is needed` };
-	const fieldSchema = field ? (action.input[field] as TSchema) : undefined;
-	const choices = fieldSchema ? choicesOf(fieldSchema) : undefined;
-	if (choices)
-		return { error: `${name} must be one of: ${choices.join(', ')}` };
-	const wanted = fieldSchema && wantedOf(fieldSchema);
-	if (wanted) return { error: `${name} needs ${wanted}` };
-	// A pattern is a regular expression; the field's description says it in words.
-	const described = (fieldSchema as { description?: string } | undefined)
-		?.description;
-	if (first?.keyword === 'pattern' && described)
-		return { error: `${name} must be ${described}` };
+	const fieldSchema = field ? action.input[field] : undefined;
+	const words =
+		field &&
+		fieldSchema &&
+		whatFits(fieldSchema, (value as Record<string, unknown>)[field]);
+	if (words) return { error: `${name} must be ${words}` };
 	return { error: `${name}: ${first?.message ?? 'is not accepted'}` };
-}
-
-/** What a field takes, said as its help would say it, for the formats and types a person can get wrong by shape. */
-const WANTED: Record<string, string> = {
-	date: 'a day, as 2026-11-12',
-	'date-time': 'a date and time, as 2026-11-12T09:30:00Z',
-	uri: 'a URL, as https://example.com',
-	email: 'an email address',
-	integer: 'a whole number',
-	number: 'a number',
-};
-
-function wantedOf(field: TSchema): string | undefined {
-	const schema = withoutNull(field);
-	if (schema.format && WANTED[schema.format]) return WANTED[schema.format];
-	const kind = schema.type && WANTED[schema.type];
-	if (!kind) return undefined;
-	const { minimum: min, maximum: max } = schema;
-	if (min !== undefined && max !== undefined) return `${kind} from ${min} to ${max}`;
-	if (min !== undefined) return `${kind} of at least ${min}`;
-	if (max !== undefined) return `${kind} of at most ${max}`;
-	return kind;
 }
 
 /**

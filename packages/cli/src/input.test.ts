@@ -49,9 +49,9 @@ test("a number's refusal names its bounds", () => {
 	});
 	const flag = (key: string) => `--${key}`;
 	expect(checkInput(rate, { stars: 9, pages: 1 }, flag)).toEqual({
-		error: '--stars needs a whole number from 1 to 5',
+		error: '--stars must be a whole number from 1 to 5',
 	});
 	expect(checkInput(rate, { stars: 2, pages: -1 }, flag)).toEqual({
-		error: '--pages needs a number of at least 0',
+		error: '--pages must be a number of at least 0',
 	});
 });
