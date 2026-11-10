@@ -208,6 +208,7 @@ test('a call whose snapshot fails still resolves, and the app says why', async (
 	expect(await gitIn(folder, 'rev-list', '--count', 'HEAD')).toBe('1');
 	expect(JSON.parse((await f.run('reading', '--json')).stdout).status).toEqual({
 		pending: 2,
+		backup: 'none',
 	});
 });
 

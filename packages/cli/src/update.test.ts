@@ -216,9 +216,10 @@ test('sync pushes to origin, never to the starter', async () => {
 	expect(
 		(await f.run('vocab', 'words', 'add', 'neko', '--meaning', 'cat')).code,
 	).toBe(0);
-	expect(
-		JSON.parse((await f.run('vocab', '--json')).stdout),
-	).not.toHaveProperty('status');
+	expect(JSON.parse((await f.run('vocab', '--json')).stdout).status).toEqual({
+		pending: 0,
+		backup: 'never',
+	});
 	const synced = await f.run('sync', 'vocab', '--json');
 	expect(synced.code).toBe(0);
 	expect(JSON.parse(synced.stdout).apps[0]).toMatchObject({
@@ -252,5 +253,7 @@ test('new --from whose UI does not build makes the app, exits 1, and names build
 	expect(human.code).toBe(1);
 	expect(human.stdout).toBe(`${join(f.home, 'words')}\n`);
 	expect(human.stderr).toStartWith('words: the UI did not build: ');
-	expect(human.stderr).toEndWith('\nRun: epicenter build words\n');
+	expect(human.stderr).toEndWith(
+		`\nRun: epicenter build words\nnot backed up\nRun: git -C ${join(f.home, 'words')} remote add origin <url>, then epicenter sync words\n`,
+	);
 });

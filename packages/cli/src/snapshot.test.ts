@@ -1,8 +1,9 @@
 /**
  * A call commits exactly the paths it wrote, holding the app's lock from its
  * first write, and a snapshot with no call commits what is pending as an
- * outside change (ADR-0850). In process, against a real repository in a
- * temporary folder.
+ * outside change (ADR-0850). Status names an app with no backup and one whose
+ * backup has never received its branch. In process, against a real
+ * repository in a temporary folder.
  */
 import { afterEach, expect, test } from 'bun:test';
 import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
@@ -69,7 +70,7 @@ const actions = {
 			await folder.write(`${page}.md`, page);
 			await folder.write('gone.md', 'gone');
 			await folder.delete('gone.md');
-			await folder.write('.cache/seen.txt', page);
+			await folder.write('node_modules/seen.txt', page);
 			await folder.write('token.local', 'secret');
 		},
 	}),
@@ -80,7 +81,7 @@ async function setup() {
 	const dir = await realpath(await mkdtemp(join(tmpdir(), 'epicenter-snap-')));
 	roots.push(dir);
 	await writeFile(join(dir, 'a.md'), 'a\n');
-	await writeFile(join(dir, '.gitignore'), '.cache/\n*.local\n*.local.*\n');
+	await writeFile(join(dir, '.gitignore'), 'node_modules/\n*.local\n*.local.*\n');
 	await gitIn(dir, 'init', '-q');
 	await gitIn(dir, 'config', 'user.name', 'Epicenter Test');
 	await gitIn(dir, 'config', 'user.email', 'epicenter-test@example.com');
@@ -120,7 +121,18 @@ test('a call commits what it wrote, named for the call, before it answers', asyn
 	expect(await f.message()).toBe('notes: write monday');
 	expect(await f.files()).toBe('monday.md');
 	expect(await snapshot('notes', f.dir)).toEqual({ committed: null });
-	expect(await statusOf(f.dir)).toEqual({ pending: 0 });
+	expect(await statusOf(f.dir)).toEqual({ pending: 0, backup: 'none' });
+});
+
+test('status names an origin that has never received the branch, and counts once it has', async () => {
+	const f = await setup();
+	const backup = join(f.dir, '.git', 'backup.git');
+	await gitIn(f.dir, 'init', '-q', '--bare', backup);
+	await gitIn(f.dir, 'remote', 'add', 'origin', backup);
+	expect(await statusOf(f.dir)).toEqual({ pending: 0, backup: 'never' });
+	const branch = await gitIn(f.dir, 'symbolic-ref', '--short', 'HEAD');
+	await gitIn(f.dir, 'push', '-q', 'origin', `HEAD:${branch}`);
+	expect(await statusOf(f.dir)).toEqual({ pending: 0, unpushed: 0 });
 });
 
 test("a call's commit holds only its paths; a hand edit and a staged file stay pending", async () => {
@@ -162,7 +174,7 @@ test('a run that throws after writing commits its writes as the call that threw'
 
 test('a call skips what it created and deleted and what is ignored, without an error', async () => {
 	const f = await setup();
-	// It wrote .cache/seen.txt, gone.md, kept.md, and token.local.
+	// It wrote node_modules/seen.txt, gone.md, kept.md, and token.local.
 	expect((await f.run('scratch', 'kept')).committed).toEqual({
 		committed: { subject: 'notes: scratch kept', files: 1 },
 	});
@@ -213,7 +225,7 @@ test('snapshot refuses a revert in progress without staging or committing', asyn
 
 test('a *.local file the .gitignore lets through is refused before anything is staged', async () => {
 	const f = await setup();
-	await writeFile(join(f.dir, '.gitignore'), '.cache/\n');
+	await writeFile(join(f.dir, '.gitignore'), 'node_modules/\n');
 	await gitIn(f.dir, 'commit', '-qam', 'no *.local in .gitignore');
 	const before = await f.head();
 	const refused = {

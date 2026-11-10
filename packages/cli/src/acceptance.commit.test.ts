@@ -207,9 +207,10 @@ test('C2b a snapshot refuses a *.local or *.local.* file the .gitignore lets thr
 		'.gitignore',
 	);
 	expect(await gitIn(f.dir, 'ls-files', '*.local*')).toBe('');
-	expect(
-		JSON.parse((await f.run('notes', '--json')).stdout),
-	).not.toHaveProperty('status');
+	expect(JSON.parse((await f.run('notes', '--json')).stdout).status).toEqual({
+		pending: 0,
+		backup: 'none',
+	});
 });
 
 test('C3 a write that changes nothing makes no commit', async () => {
@@ -285,12 +286,14 @@ test('C5 a snapshot failure leaves the answer and pending paths for sync', async
 	expect(await subjects(f.dir)).toBe('initial');
 
 	const listed = JSON.parse((await f.run('notes', '--json')).stdout);
-	expect(listed.status).toEqual({ pending: 3 });
+	expect(listed.status).toEqual({ pending: 3, backup: 'none' });
 	const human = (await f.run('notes')).stdout;
-	expect(human).toContain('3 changes not yet in history');
-	expect(human).toContain('Run: epicenter sync notes');
+	expect(human).toContain('3 changes not yet in history\nnot backed up');
+	expect(human).toContain(
+		`Run: git -C ${f.dir} remote add origin <url>, then epicenter sync notes`,
+	);
 	expect((await f.run()).stdout).toContain(
-		'The notes app (3 changes not yet in history)',
+		'The notes app (3 changes not yet in history; not backed up)',
 	);
 
 	// Sync's snapshot has no call, so it takes every pending path.
@@ -303,9 +306,10 @@ test('C5 a snapshot failure leaves the answer and pending paths for sync', async
 	expect(await gitIn(f.dir, 'show', '--name-only', '--format=', 'HEAD')).toBe(
 		'cover.png\nfriday.md',
 	);
-	expect(
-		JSON.parse((await f.run('notes', '--json')).stdout),
-	).not.toHaveProperty('status');
+	expect(JSON.parse((await f.run('notes', '--json')).stdout).status).toEqual({
+		pending: 0,
+		backup: 'none',
+	});
 	expect((await f.run()).stdout).not.toContain('not yet in history');
 
 	if (!Bun.which('git-lfs')) return;
@@ -343,6 +347,7 @@ test('C6 a snapshot waits for a held index lock, and after about 2 seconds leave
 	expect(await readFile(join(f.dir, 'tuesday.md'), 'utf8')).toBe('tuesday');
 	expect(JSON.parse((await f.run('notes', '--json')).stdout).status).toEqual({
 		pending: 1,
+		backup: 'none',
 	});
 });
 
