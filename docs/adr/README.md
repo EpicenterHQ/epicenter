@@ -1077,3 +1077,6 @@ When you add an ADR, add its row here.
 | [0869](0869-a-body-is-changed-by-quoting-the-passage-it-replaces.md) | A body is changed by quoting the passage it replaces | Proposed |
 | [0870](0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md) | An app's secrets are `.local` files, and a `.local` file never leaves its computer | Proposed |
 | [0871](0871-a-public-address-signs-clients-in-with-better-auths-mcp-plugin-and-the-owner-approves-from-the-tailnet.md) | A public address signs clients in with Better Auth's MCP plugin, and the owner approves from the tailnet | Proposed |
+| [0872](0872-a-note-made-from-a-capture-names-it-and-is-found-again-by-it.md) | A note made from a Capture names it and is found again by it | Proposed |
+| [0873](0873-a-mail-label-change-waits-in-intent-local-sqlite-until-reconcile-gmails-only-writer-confirms-it.md) | A Mail label change waits in `intent.local.sqlite` until reconcile confirms it | Proposed |
+| [0874](0874-an-unconfirmed-messages-send-blocks-the-next-send-until-a-person-resolves-it.md) | An unconfirmed Messages send blocks the next send until a person resolves it | Proposed |

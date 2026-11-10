@@ -5,7 +5,7 @@ apps frozen on the folder sync product, which waits.
 
 ## Apps for ~/Epicenter
 
-Capture, Tasks, Notes, and Vocab are the source of starters for apps in
+Capture, Tasks, Notes, Vocab, Mail, and Messages are the source of starters for apps in
 `~/Epicenter`
 ([ADR-0864](../docs/adr/0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md),
 [ADR-0866](../docs/adr/0866-an-app-starts-from-a-starter-kept-as-its-upstream-and-update-merges-the-starters-changes.md)).
@@ -45,8 +45,10 @@ default `http://127.0.0.1:4747`).
 | --- | --- | --- |
 | [Capture](capture) | `captures` | `add`, `recent` |
 | [Tasks](tasks/README.md) | `tasks` | `add` |
-| [Notes](notes/README.md) | notes | add |
+| [Notes](notes/README.md) | `notes` | `add`, `list`, `get`, `set`, `edit`, `delete` |
 | [Vocab](vocab) | `words` | `add`, `review`, `due` |
+| [Mail](mail/README.md) | `views` | `refresh`, `search`, `show`, `labels`, `label`, `reconcile`, `status`, saved-view verbs |
+| [Messages](messages/README.md) | private `drafts`, `sends` | `conversations`, `read`, `draft`, `send`, `resolve` |
 
 ## Apps frozen on the folder sync product
 
@@ -108,7 +110,6 @@ store where the page runs:
 | App | Surfaces |
 | --- | --- |
 | Honeycrisp, Whispering | web, desktop |
-| Messages | local (a program on the computer where Beeper Desktop runs) |
 
 The surfaces need not promise the same things
 ([ADR-0780](../docs/adr/0780-a-surface-uses-what-its-platform-gives-and-parity-is-not-a-goal.md)).
@@ -204,7 +205,6 @@ are deleted; the `folder-sync-product` tag keeps them.
 | --- | --- | --- | --- |
 | [Honeycrisp](honeycrisp/README.md) | web; desktop | `~/Epicenter/honeycrisp` | `honeycrisp`: `notes`, `folders` |
 | [Whispering](whispering/README.md) | web; desktop | `~/Epicenter/whispering` | `whispering`: `recordings`, `audio`, `transcriptions`, `transformations`, `transformation_runs`, `text_runs`, `shortcuts` |
-| [Messages](messages/README.md) | local program (`bun run --cwd apps/messages start`) | none: `<AppData>/apps/so.epicenter.messages`, which its program owns | `messages`: `drafts`, `attempts` |
 
 A web app keeps none of its files in the browser. The Epicenter app keeps no
 data of its own; the Epicenter folder, `~/Epicenter` (`~/Epicenter Dev` for a
@@ -223,8 +223,7 @@ Local Books keeps its QuickBooks replica in SQLite under
 
 ## Product root names
 
-Name each product root `<Product>App`: `HoneycrispApp`, `WhisperingApp`,
-and `MessagesApp`. This
+Name each product root `<Product>App`: `HoneycrispApp` and `WhisperingApp`. This
 component composes the product's state and interface over the folder
 `src/lib/app.ts` opened; nothing under it chooses a store.
 
@@ -235,12 +234,9 @@ application. For the naming rationale, see
 
 ## Messages and Beeper
 
-[Messages](messages/README.md) keeps its drafts and send attempts as notes of
-its own contract in a directory its program owns on this computer, outside
-the Epicenter folder. Conversation history stays in Beeper and is read into
-memory.
-Messages runs as a local program on the computer where Beeper Desktop runs
-(`bun run --cwd apps/messages start`): its server answers the page's
-requests of its drafts' directory, and its Beeper requests through the
-Epicenter CLI, which keeps the token in the device keychain. It starts with
-fictional demo chats, and `bun dev:messages` shows only those.
+[Messages](messages/README.md) now lives in `~/Epicenter/messages` as an app
+served by `epicenter serve`. Its saved drafts and send records are Markdown in
+that app's Git repository. Conversation history remains with Beeper. The
+current adapter uses fictional chats and a synthetic provider file; it never
+connects to a Beeper account. An uncertain send blocks another send until a
+person checks the conversation and resolves it ([ADR-0874](../docs/adr/0874-an-unconfirmed-messages-send-blocks-the-next-send-until-a-person-resolves-it.md)).

@@ -4,7 +4,7 @@
 - **Date:** 2026-11-09 (amended 2026-11-09: only a person or an agent reruns a world verb)
 - **Amends:** [ADR-0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md) at writes outside the folder: an action no longer writes another app's folder, so Mail saves attachments into its own.
 - **Relates:** [ADR-0858](0858-where-a-file-lives-decides-whether-it-travels-survives-or-dies-with-its-program.md) (inside the folder, the path is the policy), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (how the folder is committed), [ADR-0853](0853-collections-give-five-actions-and-programs-without-the-folder-ask-over-mcp.md) (collection actions), [ADR-0854](0854-an-apps-cache-is-the-files-it-gitignores.md) (the cache).
-- **Unbuilt:** Mail's verbs, and `@<file>` for a list field.
+- **Unbuilt:** `@<file>` for a list field. Mail's synthetic actions are built as described by [ADR-0873](0873-a-mail-label-change-waits-in-intent-local-sqlite-until-reconcile-gmails-only-writer-confirms-it.md).
 
 ## Context
 
@@ -31,30 +31,31 @@ the world    Gmail, a server     keeps its own state; undone, if at all, by the 
 What a write in the folder becomes belongs to its path (ADR-0858), not to the
 action, so an action never names it.
 
-**A verb that changes the world acts on explicit targets and is safe to repeat.**
-`epicenter mail archive <ids>` archives those messages and nothing else; running
-it again on messages already archived changes nothing. A run that fails partway
-is finished by running the same command again, so no action records its
-progress in the folder. Only a person or an agent reruns a verb; nothing in
-Epicenter reruns one on its own, and a rerun reads an `@<file>` batch again as
-it stands then. A verb that cannot be repeated safely, such as sending,
-is the exception that keeps its own record, and says so in its description.
+**A verb that changes the world acts on explicit targets and is safe to repeat
+when its effect allows it.** Mail's `label` now asserts desired labels in a
+durable local store; `reconcile` is the only verb that changes Gmail and can
+repeat an assertion safely (ADR-0873). A failed delivery leaves the assertion
+for the next pass. Only a person or an agent asks for another pass; Epicenter
+does not rerun it on its own. A verb that cannot repeat safely, such as
+Messages `send`, keeps its own record and blocks a retry until a person
+resolves an uncertain outcome (ADR-0874).
 
-**A reviewed batch is a file of targets, read by the same verb.** A list field
+**A reviewed batch can be a file of targets, read by the same verb.** The
+proposed list-field syntax
 accepts `@<file>`, the lines of that file with `#` comments removed:
 
 ```sh
-epicenter mail archive 18f2a9c0e1d4b7a3
-epicenter mail search 'category:promotions older_than:14d' > batches/newsletters.md
-epicenter mail archive --ids @batches/newsletters.md
+epicenter mail label 18f2a9c0e1d4b7a3 --remove INBOX
+epicenter mail label --ids @batches/newsletters.md --remove INBOX
 ```
 
-Mail has no `plan` or `apply`. A batch is the person's file like any other:
+Mail has no `plan` or `apply`. A batch would be the person's file like any other:
 `batches/newsletters.md` travels, and `batches/newsletters.local.md`, which
 lists other people's names and subjects, stays on this computer (ADR-0858).
 
-**An action writes only its own app's folder.** Mail saves attachments into
-`mail/`; another app that wants them reads them from there or asks Mail.
+**An action writes only its own app's folder.** Mail's current actions do not
+save attachments. If it gains that action, it writes under `mail/`; another
+app reads from there or asks Mail.
 
 **Annotations say which side a verb reaches.** `openWorldHint: false` means the
 folder only. A world verb sets `idempotentHint: true`, and `readOnlyHint: false`
@@ -62,13 +63,11 @@ unless it only reads.
 
 ## Consequences
 
-- Deleted from the spec's Mail: `plan`, `apply`, the applied marks in a batch,
-  saved queries in `queries/`, and the write into the vault. Left: `connect`,
-  `search`, `show`, `archive`, `trash`, and `label`.
-- Archiving one message is one command, and archiving a reviewed batch is the
-  same command with `@<file>`.
-- A rerun sends the calls again, including for targets already done: it costs
-  quota, never correctness.
+- Mail's built actions include `search`, `show`, `label`, and `reconcile`.
+  Saved views live under `views/`. A Gmail adapter is still unbuilt (ADR-0873).
+- The `@<file>` batch syntax is proposed, not part of the CLI yet.
+- Repeating a reconciliation may resend a label assertion, which changes no
+  result; an uncertain Messages send must not be repeated.
 - Undoing a world change depends on the world: Gmail restores an archived
   message and keeps a trashed one for 30 days. The folder's history does not
   record it.
