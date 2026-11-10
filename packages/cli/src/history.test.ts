@@ -126,12 +126,10 @@ test('history lists calls, an outside change, and an undo, newest first', async 
 
 	const limited = await f.run('history', 'notes', '--limit', '2', '--json');
 	expect(JSON.parse(limited.stdout)).toHaveLength(2);
+	// Any positive whole number is a limit; one past what Git reads is every commit.
+	const every = await f.run('history', 'notes', '--limit=99999999999', '--json');
+	expect(JSON.parse(every.stdout)).toHaveLength(5);
 	expect((await f.run('history', 'notes', '--limit', '0')).code).toBe(2);
-	expect((await f.run('history', 'notes', '--limit', '1000')).code).toBe(0);
-	expect((await f.run('history', 'notes', '--limit', '1001')).code).toBe(2);
-	expect(
-		(await f.run('history', 'notes', '--limit', '9007199254740992')).code,
-	).toBe(2);
 	expect((await f.run('history', 'nothing')).code).toBe(2);
 });
 

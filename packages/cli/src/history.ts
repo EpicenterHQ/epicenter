@@ -18,10 +18,10 @@
  */
 import { realpath } from 'node:fs/promises';
 import { extractErrorMessage } from 'wellcrafted/error';
-import { COMMANDS } from './commands.ts';
+import { misuse, parseWords } from './commands.ts';
 import { CliError } from './errors.ts';
 import { git, gitMessage } from './git.ts';
-import { homeEntries } from './home.ts';
+import { chooseApps, type Entry } from './home.ts';
 import { fail, writeJson, writeOut } from './output.ts';
 import { CHANGED, snapshot, underway } from './snapshot.ts';
 
@@ -90,15 +90,9 @@ const refuse = (message: string, next?: string) =>
 async function appRepository(
 	name: string,
 ): Promise<{ folder: string } | { error: CliError }> {
-	const found = (await homeEntries()).find((entry) => entry.entry === name);
-	if (!found)
-		return {
-			error: CliError.Usage({
-				message: `Unknown app "${name}"`,
-				next: 'epicenter',
-			}).error,
-		};
-	const folder = found.realPath;
+	const { data: chosen, error } = await chooseApps(name);
+	if (error) return { error };
+	const [{ realPath: folder }] = chosen as [Entry];
 	const top = await git(folder, ['rev-parse', '--show-toplevel']);
 	const root = top.code === 0 ? await realpath(top.stdout).catch(() => '') : '';
 	if (root !== folder)
@@ -123,7 +117,8 @@ async function commitsOf(folder: string, limit?: number): Promise<Commit[]> {
 		'-z',
 		'--first-parent',
 		FORMAT,
-		...(limit === undefined ? [] : [`-n${limit}`]),
+		// Git reads -n as an int; a larger limit is every commit anyway.
+		...(limit === undefined ? [] : [`-n${Math.min(limit, 2 ** 31 - 1)}`]),
 		'HEAD',
 	];
 	const logged = await git(folder, args);
@@ -197,30 +192,13 @@ export async function historyCommand(
 	words: string[],
 	json: boolean,
 ): Promise<number> {
-	const bad = () =>
-		fail(
-			CliError.Usage({
-				message:
-					'epicenter history takes one app, and maybe --limit <n> (a whole number from 1 to 1000)',
-				next: COMMANDS.history,
-			}).error,
-			json,
-		);
-	const [name, ...rest] = words;
-	if (name === undefined || name.startsWith('-')) return bad();
-	let limit = DEFAULT_LIMIT;
-	if (rest.length > 0) {
-		const [flag = '', value] = rest;
-		const given = flag.startsWith('--limit=')
-			? rest.length === 1 && flag.slice('--limit='.length)
-			: flag === '--limit' && rest.length === 2 && value;
-		if (!given || !/^[1-9]\d*$/.test(given)) return bad();
-		limit = Number(given);
-		if (!Number.isSafeInteger(limit) || limit > 1000) return bad();
-	}
+	const given = parseWords(words, { limit: { type: 'string' } }, [1, 1]);
+	const { limit = `${DEFAULT_LIMIT}` } = given?.values ?? {};
+	if (!given || !/^[1-9]\d*$/.test(limit)) return fail(misuse('history'), json);
+	const [name = ''] = given.positionals;
 	const found = await appRepository(name);
 	if ('error' in found) return fail(found.error, json);
-	const commits = await commitsOf(found.folder, limit);
+	const commits = await commitsOf(found.folder, Number(limit));
 	if (json) writeJson(commits.map(snapshotOf));
 	else process.stdout.write(renderHistory(name, commits));
 	return 0;
@@ -459,20 +437,9 @@ export async function undoCommand(
 	words: string[],
 	json: boolean,
 ): Promise<number> {
-	const [name, given, ...rest] = words;
-	if (
-		name === undefined ||
-		name.startsWith('-') ||
-		given?.startsWith('-') ||
-		rest.length > 0
-	)
-		return fail(
-			CliError.Usage({
-				message: 'epicenter undo takes one app, and maybe the commit to undo',
-				next: COMMANDS.undo,
-			}).error,
-			json,
-		);
+	const parsed = parseWords(words, {}, [1, 2]);
+	if (!parsed) return fail(misuse('undo'), json);
+	const [name = '', given] = parsed.positionals;
 	const found = await appRepository(name);
 	if ('error' in found) return fail(found.error, json);
 	let done: Undone | { error: CliError };

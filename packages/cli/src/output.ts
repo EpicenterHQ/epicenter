@@ -163,17 +163,3 @@ export function presentAnswer(
 export function fail(error: CliError, json: boolean): number {
 	return presentAnswer({ error }, json);
 }
-
-/** Present a command that made something: its answer on stdout, its next step on stderr. */
-export function made(
-	value: { folder: string; next: string } & Record<string, unknown>,
-	json: boolean,
-): number {
-	const { next, ...answer } = value;
-	if (json) writeJson(answer);
-	else {
-		writeOut(value.folder);
-		writeErr(`Run: ${next}`);
-	}
-	return 0;
-}

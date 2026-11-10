@@ -25,7 +25,7 @@ import { isName } from '@epicenter/app';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { runChild } from './child.ts';
-import { homeEntries } from './home.ts';
+import { chooseApps, homeEntries } from './home.ts';
 import { createMcpServer } from './mcp.ts';
 import { writeErr } from './output.ts';
 import { epicenterDir, rootInstructions } from './root.ts';
@@ -134,7 +134,7 @@ export function startHttpServer(
 	const notFound = () => new Response('Not found', { status: 404 });
 	const uiFile = async (app: string, path: string) => {
 		if (!isName(app)) return notFound();
-		const entry = (await homeEntries()).find((item) => item.entry === app);
+		const [entry] = (await chooseApps(app)).data ?? [];
 		if (!entry) return notFound();
 		let decoded: string;
 		try {
@@ -253,8 +253,7 @@ export function startHttpServer(
 			const app = match[1];
 			if (!isName(app)) return notFound();
 			if (match[2] === undefined) {
-				if (!(await homeEntries()).some((entry) => entry.entry === app))
-					return notFound();
+				if ((await chooseApps(app)).error) return notFound();
 				// Relative, so a proxy in front (tailscale serve) keeps its own host and scheme.
 				return new Response(null, {
 					status: 308,

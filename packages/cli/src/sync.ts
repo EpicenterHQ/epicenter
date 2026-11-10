@@ -4,10 +4,9 @@
  * others. `serve`'s backup clock runs the same `syncOne` for each app, and
  * no other command touches a remote.
  */
-import { COMMANDS } from './commands.ts';
-import { CliError } from './errors.ts';
+import { misuse, parseWords } from './commands.ts';
 import { git, gitMessage, originOf } from './git.ts';
-import { homeEntries } from './home.ts';
+import { chooseApps } from './home.ts';
 import { fail, writeJson } from './output.ts';
 import { snapshot } from './snapshot.ts';
 
@@ -23,9 +22,6 @@ export type Synced = {
 	/** Why this app did not finish syncing, and the command that resolves it. */
 	error?: { message: string; next?: string };
 };
-
-/** What `epicenter sync` answers: one report per app, in name order. */
-type SyncAnswer = { apps: Synced[] };
 
 /** How far the branch is ahead of `origin`, as `Synced` reports it. */
 async function aheadOf(folder: string) {
@@ -94,39 +90,11 @@ export async function syncOne(
 	});
 }
 
-/** Sync every app in the Epicenter, or only `name`, one after another. */
-async function syncApps(
-	name?: string,
-	message?: string,
-): Promise<{ error: CliError } | SyncAnswer> {
-	const entries = await homeEntries();
-	const chosen =
-		name === undefined
-			? entries
-			: entries.filter((entry) => entry.entry === name);
-	if (name !== undefined && chosen.length === 0)
-		return {
-			error: CliError.Usage({
-				message: `Unknown app "${name}"`,
-				next: 'epicenter',
-			}).error,
-		};
-	const apps: Synced[] = [];
-	for (const { entry, realPath } of chosen)
-		apps.push(await syncOne(entry, realPath, message));
-	return { apps };
-}
-
-/** 0 when every app synced, 1 when any did not. */
-function syncExitCode(answer: SyncAnswer) {
-	return answer.apps.some((app) => app.error) ? 1 : 0;
-}
-
 /** A sync as a person reads it: one line per app on stdout, and what went wrong on stderr. */
-function renderSync(answer: SyncAnswer) {
+function renderSync(apps: Synced[]) {
 	const stdout: string[] = [];
 	const stderr: string[] = [];
-	for (const app of answer.apps) {
+	for (const app of apps) {
 		const parts = [
 			app.committed
 				? `committed ${app.committed.subject}`
@@ -146,59 +114,41 @@ function renderSync(answer: SyncAnswer) {
 }
 
 /**
- * The app and message `epicenter sync` was given: at most one app, and
- * `--message <text>`, `--message=<text>`, or `-m <text>` only with an app;
- * `undefined` when the words say anything else.
+ * `epicenter sync [<app> [-m <message>]]`: each app, or the one named, one
+ * after another, answering `{ apps }` in name order. 0 when every app
+ * synced, 1 when any did not.
  */
-function syncWords(words: string[]) {
-	const [name, ...rest] = words;
-	if (name === undefined) return {};
-	if (name.startsWith('-')) return undefined;
-	if (rest.length === 0) return { name };
-	const [flag = '', value] = rest;
-	if (flag.startsWith('--message='))
-		return rest.length === 1
-			? { name, message: flag.slice('--message='.length) }
-			: undefined;
-	if ((flag === '--message' || flag === '-m') && rest.length === 2)
-		return { name, message: value };
-	return undefined;
-}
-
-/** `epicenter sync [<app> [-m <message>]]`. */
 export async function syncCommand(
 	words: string[],
 	json: boolean,
 ): Promise<number> {
-	const given = syncWords(words);
-	if (!given)
-		return fail(
-			CliError.Usage({
-				message:
-					'epicenter sync takes at most one app, and with it maybe -m <message>',
-				next: COMMANDS.sync,
-			}).error,
-			json,
-		);
-	const { name, message } = given;
+	const given = parseWords(
+		words,
+		{ message: { type: 'string', short: 'm' } },
+		[0, 1],
+	);
+	const [name] = given?.positionals ?? [];
+	const message = given?.values.message;
+	if (!given || (message !== undefined && name === undefined))
+		return fail(misuse('sync'), json);
 	if (
 		message !== undefined &&
 		(message.trim() === '' || /[\r\n]/.test(message))
 	)
 		return fail(
-			CliError.Usage({
-				message: 'A sync message is one line of text, saying what changed',
-				next: COMMANDS.sync,
-			}).error,
+			misuse('sync', 'A sync message is one line of text, saying what changed'),
 			json,
 		);
-	const answer = await syncApps(name, message);
-	if ('error' in answer) return fail(answer.error, json);
-	if (json) writeJson(answer);
+	const { data: chosen, error } = await chooseApps(name);
+	if (error) return fail(error, json);
+	const apps: Synced[] = [];
+	for (const { entry, realPath } of chosen)
+		apps.push(await syncOne(entry, realPath, message));
+	if (json) writeJson({ apps });
 	else {
-		const { stdout, stderr } = renderSync(answer);
+		const { stdout, stderr } = renderSync(apps);
 		process.stdout.write(stdout);
 		process.stderr.write(stderr);
 	}
-	return syncExitCode(answer);
+	return apps.some((app) => app.error) ? 1 : 0;
 }

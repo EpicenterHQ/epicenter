@@ -2,6 +2,7 @@
 import { existsSync, realpathSync } from 'node:fs';
 import { mkdir, readdir, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve } from 'node:path';
+import { BAD_PORT, misuse, parseWords, portOf } from './commands.ts';
 import { CliError } from './errors.ts';
 import { fail, writeErr, writeJson, writeOut } from './output.ts';
 import {
@@ -54,33 +55,14 @@ export async function initCommand(
 	words: string[],
 	json: boolean,
 ): Promise<number> {
-	let path: string | undefined;
-	let port: number | undefined;
-	for (let i = 0; i < words.length; i++) {
-		const word = words[i];
-		if (word === '--port' && port === undefined) {
-			const value = words[++i];
-			port = Number(value);
-			if (
-				value === undefined ||
-				!Number.isInteger(port) ||
-				port < 0 ||
-				port > 65535
-			)
-				return fail(
-					CliError.Usage({ message: 'Port must be an integer from 0 to 65535' })
-						.error,
-					json,
-				);
-		} else if (word?.startsWith('-') || path !== undefined)
-			return fail(
-				CliError.Usage({
-					message: 'epicenter init takes one folder and maybe --port <n>',
-				}).error,
-				json,
-			);
-		else path = word;
-	}
+	const given = parseWords(words, { port: { type: 'string' } }, [0, 1]);
+	if (!given) return fail(misuse('init'), json);
+	const [path] = given.positionals;
+	const port =
+		given.values.port === undefined
+			? DEFAULT_PORT
+			: portOf(given.values.port);
+	if (port === undefined) return fail(misuse('init', BAD_PORT), json);
 	const folder = actualFolder(folderPath(path ?? '.'));
 	if (isMarked(folder))
 		return fail(
@@ -96,12 +78,12 @@ export async function initCommand(
 			json,
 		);
 	await mkdir(folder, { recursive: true });
-	await writeFile(join(folder, MARKER), marker(port ?? DEFAULT_PORT), {
+	await writeFile(join(folder, MARKER), marker(port), {
 		flag: 'wx',
 	});
 	if (!existsSync(join(folder, 'AGENTS.md')))
 		await writeFile(join(folder, 'AGENTS.md'), STARTER_AGENTS, { flag: 'wx' });
-	if (json) writeJson({ folder, port: port ?? DEFAULT_PORT });
+	if (json) writeJson({ folder, port });
 	else {
 		writeOut(`Made Epicenter at ${folder}.`);
 		const hasApps = (await readdir(folder, { withFileTypes: true })).some(

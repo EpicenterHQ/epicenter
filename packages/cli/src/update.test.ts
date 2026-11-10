@@ -231,15 +231,25 @@ test('sync pushes to origin, never to the starter', async () => {
 	expect(await gitIn(f.starter, 'rev-parse', 'HEAD')).toBe(starterHead);
 });
 
-test('new --from whose UI does not build makes the app, exits 1, and names update', async () => {
+test('new --from whose UI does not build makes the app, exits 1, and names build', async () => {
 	const f = await starterFixture();
 	await writeFile(join(f.starter, 'ui', 'package.json'), uiPackage('exit 7'));
 	await commitAll(f.starter, 'break the build');
 	const made = await f.run('new', 'vocab', '--from', f.starter, '--json');
 	expect(made.code).toBe(1);
-	expect(JSON.parse(made.stdout).error).toMatchObject({
-		name: 'BuildFailed',
-		next: 'epicenter update vocab',
+	expect(JSON.parse(made.stdout)).toEqual({
+		name: 'vocab',
+		folder: f.app,
+		error: {
+			message: expect.stringContaining('vocab: the UI did not build: '),
+			next: 'epicenter build vocab',
+		},
 	});
 	expect(await gitIn(f.app, 'remote')).toBe('upstream');
+
+	const human = await f.run('new', 'words', '--from', f.starter);
+	expect(human.code).toBe(1);
+	expect(human.stdout).toBe(`${join(f.home, 'words')}\n`);
+	expect(human.stderr).toStartWith('words: the UI did not build: ');
+	expect(human.stderr).toEndWith('\nRun: epicenter build words\n');
 });

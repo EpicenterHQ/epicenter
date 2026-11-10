@@ -5,6 +5,7 @@
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
 import { mkdir, readFile, rm, symlink } from 'node:fs/promises';
 import { join } from 'node:path';
+import { COMMANDS } from './commands.ts';
 import { fixture, reading, vault } from './runner.test-support.ts';
 
 // Each test runs the real command several times as separate processes.
@@ -166,6 +167,39 @@ test('usage errors return exit 2 and exactly one JSON error', async () => {
 		});
 	}
 	expect((await f.run('mcp', 'nope')).code).toBe(2);
+});
+
+test('a misused command answers its usage line, with its help as the next step', async () => {
+	const f = await setup();
+	const misused = [
+		['sync', '-m', 'tidy'],
+		['sync', 'reading', '-m'],
+		['history'],
+		['history', 'reading', '--limit', '0'],
+		['undo', 'reading', 'a', 'b'],
+		['new'],
+		['new', 'garden', '--from'],
+		['build', 'reading', 'vault'],
+		['update', '--nope'],
+		['init', '--port'],
+	] as const;
+	for (const [command, ...words] of misused) {
+		const result = await f.run(command, ...words, '--json');
+		expect(result.code).toBe(2);
+		expect(JSON.parse(result.stdout).error).toEqual({
+			name: 'Usage',
+			message: `Usage: ${COMMANDS[command].usage}`,
+			next: `epicenter ${command} --help`,
+		});
+	}
+	expect(await f.run('serve', '--port', '70000')).toEqual({
+		code: 2,
+		stdout: '',
+		stderr: `--port must be a whole number from 0 to 65535\nUsage: ${COMMANDS.serve.usage}\nRun: epicenter serve --help\n`,
+	});
+	expect((await f.run('sync', '--help')).stdout).toBe(
+		`${COMMANDS.sync.usage}\n${COMMANDS.sync.help}\n`,
+	);
 });
 
 test('lists repeat, switches default and literal positionals append to flagged values', async () => {

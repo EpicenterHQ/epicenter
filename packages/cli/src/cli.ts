@@ -10,7 +10,14 @@ import type { Action } from '@epicenter/app';
 import packageJson from '../package.json' with { type: 'json' };
 import { buildCommand } from './build.ts';
 import { REPORT_FLAG, runCall } from './child.ts';
-import { COMMANDS, type Command } from './commands.ts';
+import {
+	BAD_PORT,
+	COMMANDS,
+	type Command,
+	misuse,
+	parseWords,
+	portOf,
+} from './commands.ts';
 import { CliError } from './errors.ts';
 import { historyCommand, undoCommand } from './history.ts';
 import { discoverAll, loadHomeApp } from './home.ts';
@@ -42,7 +49,9 @@ import { updateCommand } from './update.ts';
 const HELP = `epicenter                              your apps
 epicenter <app>                        what an app can do
 epicenter <app> <action> [<positionals>] [--flags]
-${Object.values(COMMANDS).join('\n')}
+${Object.values(COMMANDS)
+	.map(({ usage }) => usage)
+	.join('\n')}
 epicenter --version
 
 Uses the nearest Epicenter above the current folder, then EPICENTER_ROOT,
@@ -55,68 +64,10 @@ const GLOBALS = new Set(['--json', '--help', '-h', '--version', '-V']);
 
 type Handler = (words: string[], json: boolean) => Promise<number>;
 
-const usage = (message: string, next?: string) =>
-	CliError.Usage({ message, ...(next ? { next } : {}) }).error;
-
-/** What each command does, as `epicenter <command> --help` prints it under its usage. */
-const COMMAND_HELP: { [K in Command]: string } = {
-	init: `Makes a folder an Epicenter and writes EPICENTER.md and starter AGENTS.md.
-The folder defaults to the current directory. Epicenters cannot nest.`,
-	new: `Makes <Epicenter>/<name>, a Git repository. With --from, it clones a starter (a
-repository with no data), keeps it as the app's upstream remote, and builds its
-UI; without it, it starts from an epicenter.ts and a .gitignore.`,
-	update: `Merges each app's upstream, or one app's: it refuses an app with uncommitted
-changes, undoes a merge that stops on a conflict, lists each file that no
-longer fits its collection's fields, and builds the UI, keeping the last one that built.`,
-	build: `Builds the UI of every app, or one app, keeping each last good build.`,
-	sync: `Takes a snapshot of what is pending in each app, or one app, then pushes
-to origin when it exists and the branch is ahead of it. It never pushes to upstream. The snapshot reads
-"<app>: changed outside epicenter", or with -m (--message), "<app>: <message>":
-an agent that edited an app's files itself names what it did this way.`,
-	history: `Lists the app's snapshots, newest first (20 by default; --limit takes 1 to 1000): each
-one's commit, local time, and what it took. An undo reads as "undid <subject>".`,
-	undo: `Snapshots what is pending, then reverts the app's most recent snapshot that is
-not an undo and is not undone, or the commit named, as "<app>: undid <subject>".
-Run it again to go further back; undo an undo to bring it back. It refuses a
-merge, a commit not in the app's history, and a revert that conflicts, leaving
-the folder as it was. It never pushes; sync does.`,
-	serve: `Offers every app's actions over MCP at / and each app's UI at /<app>/, on
-127.0.0.1 and the Epicenter's port (default 4747) unless --port or --host says otherwise. With --stdio, it speaks
-MCP on stdin and stdout instead. Over HTTP it backs up every app as sync does when it
-starts, every 5 minutes, and when it stops.`,
-};
-
 /** What each command in `COMMANDS` does. */
 const HANDLERS: { [K in Command]: Handler } = {
 	init: initCommand,
-	async new(words, json) {
-		const [name, ...rest] = words;
-		const fromAt = rest.findIndex(
-			(word) => word === '--from' || word.startsWith('--from='),
-		);
-		const fromWord = fromAt < 0 ? undefined : rest[fromAt];
-		const from =
-			fromWord === undefined
-				? undefined
-				: fromWord.startsWith('--from=')
-					? fromWord.slice('--from='.length)
-					: rest[fromAt + 1];
-		const used = fromAt < 0 ? 0 : fromWord === '--from' ? 2 : 1;
-		if (
-			name === undefined ||
-			name.startsWith('-') ||
-			rest.length !== used ||
-			(fromAt >= 0 && !from)
-		)
-			return fail(
-				usage(
-					'epicenter new needs one name, and maybe --from <git url|path>',
-					COMMANDS.new,
-				),
-				json,
-			);
-		return newCommand(name, from, json);
-	},
+	new: newCommand,
 	update: updateCommand,
 	build: buildCommand,
 	sync: syncCommand,
@@ -125,31 +76,24 @@ const HANDLERS: { [K in Command]: Handler } = {
 	async serve(words, json) {
 		if (json)
 			return fail(
-				usage('MCP uses stdout for protocol; --json does not apply'),
+				misuse('serve', 'MCP uses stdout for protocol; --json does not apply'),
 				json,
 			);
-		if (words.length === 1 && words[0] === '--stdio') return serveStdio();
-		let port = epicenterRoot().port;
-		let host = '127.0.0.1';
-		const seen = new Set<string>();
-		for (let i = 0; i < words.length; i += 2) {
-			const flag = words[i];
-			const value = words[i + 1];
-			if (
-				(flag !== '--port' && flag !== '--host') ||
-				value === undefined ||
-				seen.has(flag)
-			)
-				return fail(usage('Invalid serve options', COMMANDS.serve), json);
-			seen.add(flag);
-			if (flag === '--host') host = value;
-			else {
-				port = Number(value);
-				if (!Number.isInteger(port) || port < 0 || port > 65535)
-					return fail(usage('Port must be an integer from 0 to 65535'), json);
-			}
-		}
-		return serveHttp(host, port);
+		const given = parseWords(
+			words,
+			{
+				port: { type: 'string' },
+				host: { type: 'string' },
+				stdio: { type: 'boolean' },
+			},
+			[0, 0],
+		);
+		if (!given) return fail(misuse('serve'), json);
+		const { port, host, stdio } = given.values;
+		if (stdio) return port || host ? fail(misuse('serve'), json) : serveStdio();
+		const listen = port === undefined ? epicenterRoot().port : portOf(port);
+		if (listen === undefined) return fail(misuse('serve', BAD_PORT), json);
+		return serveHttp(host ?? '127.0.0.1', listen);
 	},
 };
 
@@ -209,7 +153,7 @@ export async function runCli(argv: string[]): Promise<number> {
 		if (Object.hasOwn(HANDLERS, name)) {
 			const command = name as keyof typeof HANDLERS;
 			if (help) {
-				print(`${COMMANDS[command]}\n${COMMAND_HELP[command]}`);
+				print(`${COMMANDS[command].usage}\n${COMMANDS[command].help}`);
 				return 0;
 			}
 			if (command !== 'init') epicenterRoot();

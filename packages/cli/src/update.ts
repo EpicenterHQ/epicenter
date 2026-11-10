@@ -21,9 +21,9 @@ import {
 	type SingleHandle,
 } from '@epicenter/app';
 import { extractErrorMessage } from 'wellcrafted/error';
-import { CliError } from './errors.ts';
+import { misuse, parseWords } from './commands.ts';
 import { git, gitMessage } from './git.ts';
-import { homeEntries, loadHomeApp } from './home.ts';
+import { chooseApps, loadHomeApp } from './home.ts';
 import { fail, writeJson } from './output.ts';
 import { buildUi } from './ui.ts';
 
@@ -164,24 +164,10 @@ export async function updateCommand(
 	words: string[],
 	json: boolean,
 ): Promise<number> {
-	if (words.length > 1)
-		return fail(
-			CliError.Usage({ message: 'epicenter update takes at most one app' })
-				.error,
-			json,
-		);
-	const [name] = words;
-	const entries = await homeEntries();
-	const chosen =
-		name === undefined
-			? entries
-			: entries.filter((entry) => entry.entry === name);
-	if (name !== undefined && chosen.length === 0)
-		return fail(
-			CliError.Usage({ message: `Unknown app "${name}"`, next: 'epicenter' })
-				.error,
-			json,
-		);
+	const given = parseWords(words, {}, [0, 1]);
+	if (!given) return fail(misuse('update'), json);
+	const { data: chosen, error } = await chooseApps(given.positionals[0]);
+	if (error) return fail(error, json);
 	const apps: Updated[] = [];
 	for (const { entry, realPath } of chosen)
 		apps.push(await updateOne(entry, realPath));

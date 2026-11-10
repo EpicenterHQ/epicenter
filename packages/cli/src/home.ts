@@ -191,16 +191,32 @@ export async function discoverAll() {
 /** The listing keeps runnable apps separate from entries with problems. */
 export type Discovery = Awaited<ReturnType<typeof discoverAll>>;
 
+/** A name that finds no app in the Epicenter. */
+const unknownApp = (name: string) =>
+	CliError.Usage({ message: `Unknown app "${name}"`, next: 'epicenter' });
+
+/** One entry as `homeEntries` lists it. */
+export type Entry = Awaited<ReturnType<typeof homeEntries>>[number];
+
+/**
+ * Every app entry in the Epicenter, or only the one named, for a command
+ * that works on each app or one.
+ */
+export async function chooseApps(
+	name?: string,
+): Promise<Result<Entry[], CliError>> {
+	const entries = await homeEntries();
+	if (name === undefined) return Ok(entries);
+	const chosen = entries.filter((entry) => entry.entry === name);
+	return chosen.length ? Ok(chosen) : unknownApp(name);
+}
+
 /** Load only the requested app entry so unrelated apps cannot affect a run. */
 export async function loadHomeApp(
 	name: string,
 ): Promise<Result<Located, CliError>> {
-	const unknown = CliError.Usage({
-		message: `Unknown app "${name}"`,
-		next: 'epicenter',
-	});
-	if (!isName(name)) return unknown;
+	if (!isName(name)) return unknownApp(name);
 	const found = await entryAt(join(epicenterDir(), name));
 	if (found) return Ok(await load(found, name));
-	return unknown;
+	return unknownApp(name);
 }

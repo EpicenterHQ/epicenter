@@ -12,12 +12,13 @@
 import { mkdir, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
-import { nameProblem } from './commands.ts';
+import { extractErrorMessage } from 'wellcrafted/error';
+import { misuse, nameProblem, parseWords } from './commands.ts';
 import { CliError } from './errors.ts';
 import { checkedGit, git } from './git.ts';
 import { loadHomeApp } from './home.ts';
 import { epicenterDir, folderPath } from './root.ts';
-import { fail, made, presentAnswer } from './output.ts';
+import { fail, writeErr, writeJson, writeOut } from './output.ts';
 import { buildUi } from './ui.ts';
 
 /** A Git URL rather than a folder path: a scheme, or `user@host:path`. */
@@ -46,8 +47,8 @@ export default defineApp({
 	};
 }
 
-/** Whether `name` is free in the Epicenter, ignoring case, as macOS does. */
-export async function taken(name: string) {
+/** Whether `name` is taken in the Epicenter, ignoring case, as macOS does. */
+async function taken(name: string) {
 	try {
 		return (await readdir(epicenterDir())).some(
 			(entry) => entry.toLowerCase() === name.toLowerCase(),
@@ -58,11 +59,25 @@ export async function taken(name: string) {
 	}
 }
 
-function done(name: string, json: boolean) {
-	return made(
-		{ name, folder: join(epicenterDir(), name), next: `epicenter ${name}` },
-		json,
-	);
+/**
+ * Say what `new` made: the folder on stdout and the next step on stderr, or
+ * with `--json`, one object. An app made whose UI did not build is still
+ * made, so it exits 1, not 2, naming `epicenter build <name>`.
+ */
+function made(
+	name: string,
+	json: boolean,
+	error?: { message: string; next: string },
+) {
+	const folder = join(epicenterDir(), name);
+	if (json) writeJson({ name, folder, ...(error ? { error } : {}) });
+	else {
+		writeOut(folder);
+		writeErr(
+			error ? `${error.message}\nRun: ${error.next}` : `Run: epicenter ${name}`,
+		);
+	}
+	return error ? 1 : 0;
 }
 
 /**
@@ -70,10 +85,13 @@ function done(name: string, json: boolean) {
  * as its `upstream`, or from the built-in template.
  */
 export async function newCommand(
-	name: string,
-	from: string | undefined,
+	words: string[],
 	json: boolean,
 ): Promise<number> {
+	const given = parseWords(words, { from: { type: 'string' } }, [1, 1]);
+	if (!given || given.values.from === '') return fail(misuse('new'), json);
+	const [name = ''] = given.positionals;
+	const { from } = given.values;
 	const problem = nameProblem(name);
 	if (problem !== undefined)
 		return fail(
@@ -92,7 +110,7 @@ export async function newCommand(
 		} catch (error) {
 			return fail(CliError.GitFailed({ cause: error }).error, json);
 		}
-		return done(name, json);
+		return made(name, json);
 	}
 	const folder = join(epicenterDir(), name);
 	const cloned = await cloneStarter(from, folder);
@@ -103,15 +121,12 @@ export async function newCommand(
 	try {
 		await buildUi(folder);
 	} catch (error) {
-		// The app is made and only its UI is missing, so this exits 1, not 2:
-		// update builds it again.
-		presentAnswer(
-			{ error: CliError.BuildFailed({ app: name, cause: error }).error },
-			json,
-		);
-		return 1;
+		return made(name, json, {
+			message: `${name}: the UI did not build: ${extractErrorMessage(error)}`,
+			next: `epicenter build ${name}`,
+		});
 	}
-	return done(name, json);
+	return made(name, json);
 }
 
 /**
@@ -158,10 +173,10 @@ async function cloneStarter(
 
 /**
  * Make `<Epicenter>/<name>` from the built-in template, in its own repository
- * whose first commit is the template, and return its path. The caller has
- * checked the name. Throws Git's message when Git fails.
+ * whose first commit is the template. The caller has checked the name.
+ * Throws Git's message when Git fails.
  */
-export async function makeApp(name: string): Promise<string> {
+async function makeApp(name: string) {
 	const folder = join(epicenterDir(), name);
 	await mkdir(folder, { recursive: true });
 	for (const [path, text] of Object.entries(template(name)))
@@ -169,5 +184,4 @@ export async function makeApp(name: string): Promise<string> {
 	await checkedGit(folder, ['init', '-q']);
 	await checkedGit(folder, ['add', '-A']);
 	await checkedGit(folder, ['commit', '-q', '-m', `new ${name}`]);
-	return folder;
 }
