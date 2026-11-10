@@ -104,11 +104,15 @@ Another person's Epicenter is the same program on their own computer.
 - An app's source is a repository of its own, or `apps/<app>/` in the
   Epicenter repository, and is kept apart from the app's data so that sharing
   the app never shares anyone's data. `epicenter install <path|git url>`
-  copies its `epicenter.json` and `epicenter.ts` into `~/Epicenter/<app>` and
-  commits them with the source as a trailer, and builds its view into `view/`,
-  which the app's `.gitignore` keeps out of its history: the view is rebuilt
-  from source, and only the computer that serves it needs it.
+  copies its `epicenter.json`, `epicenter.ts`, and committed `view/` into
+  `~/Epicenter/<app>` and commits them with the source as a trailer, and
+  builds a view the source builds into `.cache/view/`, which is ignored: it is
+  rebuilt from source, and only the computer that serves it needs it.
   `epicenter install <app>` installs again from the recorded source.
+- An app has a source, or it is its own source. An installed app is changed at
+  its source and installed again, since the next install overwrites a change
+  made in place. An app made with `epicenter new` or joined with
+  `epicenter link` has no source and is changed where it is.
 - A rule another author's app needs everywhere lives in that app's client, or in
   an `epicenter.ts` a person chooses to trust, or in that author's own MCP
   server. The server enforces shapes only.

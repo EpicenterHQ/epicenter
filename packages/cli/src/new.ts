@@ -22,24 +22,11 @@ import { checkedGit } from './git.ts';
 import { homeDir, readDeclaration, resolveFolder } from './home.ts';
 import { fail, made } from './output.ts';
 
-/** Binary types the template routes through Git LFS (ADR-0856). */
-const LFS_TYPES = [
-	'webm',
-	'm4a',
-	'wav',
-	'mp3',
-	'png',
-	'jpg',
-	'jpeg',
-	'heic',
-	'gif',
-	'webp',
-	'mp4',
-	'mov',
-	'pdf',
-];
-
-/** The built-in template: a declaration, what Git ignores, and what goes through LFS. */
+/**
+ * The built-in template: a declaration and what Git ignores. It routes
+ * nothing through Git LFS; an app that comes to hold binary files adds its
+ * own `.gitattributes` (ADR-0856).
+ */
 function template(name: string) {
 	return {
 		'epicenter.json': `${JSON.stringify(
@@ -48,9 +35,6 @@ function template(name: string) {
 			2,
 		)}\n`,
 		'.gitignore': 'node_modules/\n.cache/\n*.local\n*.local.*\n',
-		'.gitattributes': LFS_TYPES.map(
-			(kind) => `*.${kind} filter=lfs diff=lfs merge=lfs -text\n`,
-		).join(''),
 	};
 }
 
@@ -74,8 +58,7 @@ function done(name: string, json: boolean) {
 
 /**
  * `epicenter new <name>`: an app from the built-in template, in its own
- * repository whose first commit is the template. It does not set up Git LFS;
- * that is each computer's, once (`git lfs install`).
+ * repository whose first commit is the template.
  */
 export async function newCommand(name: string, json: boolean): Promise<number> {
 	const problem = nameProblem(name);

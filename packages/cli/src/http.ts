@@ -5,7 +5,7 @@
  * POST /             MCP, stateless JSON
  * GET  /             the launcher; 405 when asked for an event stream (MCP)
  * GET  /.client.js   connect(), for a view with no build step
- * GET  /<app>/...    the app's view/ as static files
+ * GET  /<app>/...    the app's .cache/view/ (built), else view/, as static files
  * GET  /<app>        308 to /<app>/
  * ```
  *
@@ -122,6 +122,11 @@ export function startHttpServer(host: string, port: number) {
 		return result;
 	};
 	const notFound = () => new Response('Not found', { status: 404 });
+	const exists = (path: string) =>
+		stat(path).then(
+			() => true,
+			() => false,
+		);
 	const viewFile = async (app: string, path: string) => {
 		if (!isName(app)) return notFound();
 		const entry = (await homeEntries()).find((item) => item.entry === app);
@@ -139,7 +144,11 @@ export function startHttpServer(host: string, port: number) {
 		)
 			return notFound();
 		try {
-			const root = await realpath(join(entry.realPath, 'view'));
+			// A built view, rebuildable and ignored, wins over a committed one.
+			const built = join(entry.realPath, '.cache', 'view');
+			const root = await realpath(
+				(await exists(built)) ? built : join(entry.realPath, 'view'),
+			);
 			if (!root.startsWith(`${entry.realPath}${sep}`)) return notFound();
 			const candidate = join(root, decoded || 'index.html');
 			const file = await realpath(

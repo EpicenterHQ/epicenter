@@ -6,16 +6,16 @@
  * shares anyone's data.
  *
  * - The first install makes the app as `epicenter new` does.
- * - Every install copies `epicenter.json` and `epicenter.ts` (removing an
- *   `epicenter.ts` the source no longer has) and commits them as
+ * - Every install copies the app's code, `epicenter.json`, `epicenter.ts`,
+ *   and `view/` (removing what the source no longer has), and commits it as
  *   `install <name>`, with `Source:` and `Source-Commit:` trailers. The
  *   app's data is never touched, and an edit made to the installed code in
- *   place is overwritten: its commit keeps it.
- * - The view comes from the source: a `build` script in its `package.json`
- *   is run with `VIEW_BASE=/<name>` (where `epicenter serve` mounts it) and
- *   its `build/` copied, or else its `view/` is copied as it is. Either way
- *   the installed `view/` is listed in the app's `.gitignore`: the source
- *   holds it.
+ *   place is overwritten: its commit keeps it. An installed app is edited at
+ *   its source; an app with no source is edited where it is.
+ * - A `build` script in the source's `package.json` is run with
+ *   `VIEW_BASE=/<name>` (where `epicenter serve` mounts it), and its `build/`
+ *   becomes the app's `.cache/view/`: rebuildable, so ignored (ADR-0854).
+ *   `epicenter serve` serves `.cache/view/` when it is there, else `view/`.
  * - `epicenter install <name>` installs again from the source the app's last
  *   install recorded.
  *
@@ -23,7 +23,7 @@
  * `/` or starting with `.` or `~`. `HOME` decides `~`, so a test installs
  * into a temporary folder.
  */
-import { cp, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { cp, mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { isName, nameProblem } from '@epicenter/app';
@@ -33,7 +33,10 @@ import { homeDir, readDeclaration, resolveFolder } from './home.ts';
 import { makeApp } from './new.ts';
 import { fail, made } from './output.ts';
 
-const VIEW = 'view';
+/** The code an install copies from its source and commits. */
+const CODE = ['epicenter.json', 'epicenter.ts', 'view'];
+/** Where an install puts the view the source's build makes. */
+const BUILT_VIEW = join('.cache', 'view');
 
 /** A Git URL rather than a folder path: a scheme, or `user@host:path`. */
 function isUrl(source: string) {
@@ -105,40 +108,23 @@ async function sourceCommit(source: string): Promise<string | undefined> {
 		: `${head.stdout} (with uncommitted changes)`;
 }
 
-/** The view the source makes, as a folder to copy, or undefined when it has none. */
+/** Build the source's view, when its `package.json` has a `build` script, and return the built folder. */
 async function buildView(
 	source: string,
 	name: string,
 ): Promise<string | undefined> {
 	const manifest = join(source, 'package.json');
-	if (await exists(manifest)) {
-		const scripts = (
-			JSON.parse(await readFile(manifest, 'utf8')) as {
-				scripts?: Record<string, string>;
-			}
-		).scripts;
-		if (scripts?.build) {
-			if (!(await exists(join(source, 'node_modules'))))
-				await run(source, [process.execPath, 'install']);
-			await run(source, [process.execPath, 'run', 'build'], {
-				VIEW_BASE: `/${name}`,
-			});
-			return join(source, 'build');
-		}
-	}
-	const view = join(source, VIEW);
-	return (await exists(join(view, 'index.html'))) ? view : undefined;
-}
-
-/** Add `line` to the folder's `.gitignore` unless it is there. */
-async function ignore(folder: string, line: string) {
-	const path = join(folder, '.gitignore');
-	const text = (await exists(path)) ? await readFile(path, 'utf8') : '';
-	if (text.split('\n').includes(line)) return;
-	await writeFile(
-		path,
-		`${text}${text === '' || text.endsWith('\n') ? '' : '\n'}${line}\n`,
-	);
+	if (!(await exists(manifest))) return undefined;
+	const { scripts } = JSON.parse(await readFile(manifest, 'utf8')) as {
+		scripts?: Record<string, string>;
+	};
+	if (!scripts?.build) return undefined;
+	if (!(await exists(join(source, 'node_modules'))))
+		await run(source, [process.execPath, 'install']);
+	await run(source, [process.execPath, 'run', 'build'], {
+		VIEW_BASE: `/${name}`,
+	});
+	return join(source, 'build');
 }
 
 export async function installCommand(
@@ -226,9 +212,9 @@ export async function installCommand(
 			return fail(CliError.GitFailed({ cause: error }).error, json);
 		}
 
-		let view: string | undefined;
+		let built: string | undefined;
 		try {
-			view = await buildView(folder, chosen);
+			built = await buildView(folder, chosen);
 		} catch (error) {
 			return fail(
 				CliError.BuildFailed({ app: chosen, cause: error }).error,
@@ -236,18 +222,17 @@ export async function installCommand(
 			);
 		}
 
-		const paths = ['epicenter.json'];
-		await cp(join(folder, 'epicenter.json'), join(target, 'epicenter.json'));
-		const code = join(target, 'epicenter.ts');
-		// Staged when the source has it or the app had it, so a removal is committed too.
-		if ((await exists(join(folder, 'epicenter.ts'))) || (await exists(code)))
-			paths.push('epicenter.ts');
-		if (await exists(join(folder, 'epicenter.ts')))
-			await cp(join(folder, 'epicenter.ts'), code);
-		else await rm(code, { force: true });
-		if (view !== undefined) {
-			await ignore(target, `${VIEW}/`);
-			paths.push('.gitignore');
+		// A path is staged when the source has it or Git tracks it in the app, so a removal is committed too.
+		const paths: string[] = [];
+		for (const path of CODE) {
+			const from = join(folder, path);
+			const to = join(target, path);
+			const tracked = (await git(target, ['ls-files', '--', path])).stdout;
+			await rm(to, { recursive: true, force: true });
+			if (await exists(from)) {
+				await cp(from, to, { recursive: true });
+				paths.push(path);
+			} else if (tracked !== '') paths.push(path);
 		}
 
 		try {
@@ -278,9 +263,9 @@ export async function installCommand(
 			return fail(CliError.GitFailed({ cause: error }).error, json);
 		}
 
-		await rm(join(target, VIEW), { recursive: true, force: true });
-		if (view !== undefined)
-			await cp(view, join(target, VIEW), { recursive: true });
+		await rm(join(target, BUILT_VIEW), { recursive: true, force: true });
+		if (built !== undefined)
+			await cp(built, join(target, BUILT_VIEW), { recursive: true });
 		return made(
 			{ name: chosen, folder: target, next: `epicenter ${chosen}` },
 			json,

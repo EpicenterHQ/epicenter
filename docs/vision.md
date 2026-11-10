@@ -50,9 +50,13 @@ third-party credentials: Mail's Google sign-in is in the Keychain of the
 computer that runs Mail's actions.
 
 Agents make apps: you start Claude Code on your server, ask for an app, and it
-writes the folder. An app's source is a repository of its own or
-`apps/<app>/` in the Epicenter repository, and `epicenter install <source>`
-installs it into `~/Epicenter/<app>`.
+writes the folder. An app has a source, or it is its own source. Capture,
+Tasks, and Vocab have one, `apps/<app>/` in the Epicenter repository, kept
+apart from your data so the app can be shared; `epicenter install <source>`
+puts their code into `~/Epicenter/<app>`, and a change is made at the source
+and installed again. An app made with `epicenter new`, or joined where it lives
+with `epicenter link` as the vault is, is its own source: a change is made in
+its folder.
 
 ## What it is like
 
@@ -110,10 +114,11 @@ vocab/
   epicenter.ts            actions
   tsconfig.json           one line, extending .cache/epicenter/tsconfig.json
   words/serendipity.md    data: front matter and a body
-  view/                   the built view, ignored by Git
+  view/                   a view with no build step, committed
+  .cache/view/            a view built from source, served in its place
   .cache/epicenter/       types epicenter generates from epicenter.json
   .cache/                 rebuildable files, ignored by Git
-  .gitignore, .gitattributes
+  .gitignore              .gitattributes too, once it holds binaries
 ```
 
 ```json

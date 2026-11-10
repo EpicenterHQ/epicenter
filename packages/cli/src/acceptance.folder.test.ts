@@ -281,11 +281,7 @@ test('W4 epicenter new writes the template and runs git init', async () => {
 		description: 'Describe garden',
 	});
 	expect(await readFile(join(folder, '.gitignore'), 'utf8')).toBe(gitignore);
-	const attributes = await readFile(join(folder, '.gitattributes'), 'utf8');
-	for (const kind of ['webm', 'm4a', 'png', 'jpg', 'heic', 'pdf', 'mov'])
-		expect(attributes).toContain(
-			`*.${kind} filter=lfs diff=lfs merge=lfs -text`,
-		);
+	expect(existsSync(join(folder, '.gitattributes'))).toBe(false);
 	expect(await gitIn(folder, 'log', '--format=%s')).toBe('new garden');
 	expect(await gitIn(folder, 'status', '--porcelain')).toBe('');
 	const listed = JSON.parse((await f.run('--json')).stdout);

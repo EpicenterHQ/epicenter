@@ -14,7 +14,7 @@ afterEach(async () => {
 const trailer = (folder: string, key: string) =>
 	gitIn(folder, 'log', '-1', `--format=%(trailers:key=${key},valueonly)`);
 
-test('install makes the app, commits its code with its source, and copies its view without committing it', async () => {
+test('install makes the app and commits its code and view with its source', async () => {
 	const f = await fixture();
 	roots.push(f.root);
 	const source = await f.folder(join(f.root, 'code', 'reading'), {
@@ -41,7 +41,7 @@ test('install makes the app, commits its code with its source, and copies its vi
 		'<h1>Reading</h1>\n',
 	);
 	expect(await gitIn(app, 'ls-files')).toBe(
-		'.gitattributes\n.gitignore\nepicenter.json\nepicenter.ts',
+		'.gitignore\nepicenter.json\nepicenter.ts\nview/index.html',
 	);
 	expect(await gitIn(app, 'status', '--porcelain')).toBe('');
 
@@ -55,6 +55,7 @@ test('install <app> installs again from the recorded source, overwriting an edit
 	const source = await f.folder(join(f.root, 'code', 'reading'), {
 		'epicenter.json': readingApp['epicenter.json'],
 		'epicenter.ts': readingApp['epicenter.ts'],
+		'view/index.html': '<h1>Reading</h1>\n',
 	});
 	expect((await f.run('install', source)).code).toBe(0);
 	const app = join(f.home, 'reading');
@@ -64,9 +65,12 @@ test('install <app> installs again from the recorded source, overwriting an edit
 	await gitIn(app, 'commit', '-qm', 'by hand');
 
 	await rm(join(source, 'epicenter.ts'));
+	await rm(join(source, 'view'), { recursive: true });
 	const again = await f.run('install', 'reading');
 	expect(again.code).toBe(0);
 	expect(existsSync(join(app, 'epicenter.ts'))).toBe(false);
+	expect(existsSync(join(app, 'view'))).toBe(false);
+	expect(await gitIn(app, 'status', '--porcelain')).toBe('');
 	expect(await readFile(join(app, 'books.md'), 'utf8')).toBe('data\n');
 	expect(await gitIn(app, 'log', '-1', '--format=%s')).toBe('install reading');
 	expect(await trailer(app, 'Source-Commit')).toEndWith(
@@ -78,7 +82,7 @@ test('install <app> installs again from the recorded source, overwriting an edit
 	);
 });
 
-test('install runs the source build with the mount path and copies build/', async () => {
+test('install runs the source build with the mount path into .cache/view/, committing none of it', async () => {
 	const f = await fixture();
 	roots.push(f.root);
 	const source = await f.folder(
@@ -97,13 +101,13 @@ test('install runs the source build with the mount path and copies build/', asyn
 	const installed = await f.run('install', source, 'books');
 	expect(installed.stderr).toBe('Run: epicenter books\n');
 	expect(installed.code).toBe(0);
+	const books = join(f.home, 'books');
 	expect(
-		await readFile(join(f.home, 'books', 'view', 'index.html'), 'utf8'),
+		await readFile(join(books, '.cache', 'view', 'index.html'), 'utf8'),
 	).toBe('/books');
-	expect(
-		(await readFile(join(f.home, 'books', '.gitignore'), 'utf8')).split('\n'),
-	).toContain('view/');
-	expect(await trailer(join(f.home, 'books'), 'Source-Commit')).toBe('');
+	expect(await gitIn(books, 'ls-files')).toBe('.gitignore\nepicenter.json');
+	expect(await gitIn(books, 'status', '--porcelain')).toBe('');
+	expect(await trailer(books, 'Source-Commit')).toBe('');
 });
 
 test('install refuses a folder without epicenter.json, a name for a bare app, and an app with no recorded source', async () => {

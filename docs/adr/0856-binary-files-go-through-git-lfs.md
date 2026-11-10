@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-11-08
 - **Relates:** [ADR-0851](0851-an-app-with-history-has-one-git-remote-its-meeting-point-and-backup.md) (the remote), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (the template, and the rule of least power), [ADR-0853](0853-collections-give-four-actions-and-programs-without-the-folder-ask-over-mcp.md) (byte collections and programs that write files), [ADR-0858](0858-where-a-file-lives-decides-whether-it-travels-survives-or-dies-with-its-program.md) (a binary kept on one computer is a `.local` path).
-- **Unbuilt:** `setup`'s check for `git-lfs` and the vault's `.gitattributes`. The Epicenter API's LFS endpoint on R2 comes with Epicenter Cloud. Built 2026-11-09: the template's `.gitattributes`, and the refusal, before the write lands, of a path marked for LFS when `git-lfs` is not on `PATH` or its filter is not set up, since Git without the filter stores the whole file.
+- **Unbuilt:** `setup`'s check for `git-lfs` and the vault's `.gitattributes`. The Epicenter API's LFS endpoint on R2 comes with Epicenter Cloud. Built 2026-11-09: the refusal, before the write lands, of a path marked for LFS when `git-lfs` is not on `PATH` or its filter is not set up, since Git without the filter stores the whole file.
 
 ## Context
 
@@ -24,9 +24,11 @@ every clone: history holds a pointer, the bytes live in a store, and a clone
 fetches them when they are opened.
 
 **A binary a folder tracks goes through LFS; the folder's `.gitignore` still
-decides what is tracked.** The template's `.gitattributes`, the one Whispering
-writes, and one added to the vault route binary types through LFS, so every
-folder follows the same rule from then on:
+decides what is tracked.** A folder that holds binaries routes their types
+through LFS in its own `.gitattributes`: the one Whispering writes, and one
+added to the vault. The template of `epicenter new` has none, since most apps
+hold only text and a `.gitattributes` there made every commit on a computer
+without LFS fail (amended 2026-11-10). The lines are:
 
 ```txt
 *.webm *.m4a *.wav *.mp3 *.png *.jpg *.jpeg *.heic *.gif *.webp *.mp4 *.mov *.pdf

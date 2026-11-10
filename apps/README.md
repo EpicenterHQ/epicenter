@@ -18,15 +18,17 @@ apps/capture/
 ```
 
 `epicenter install <path|git url> [<name>]` makes `~/Epicenter/<name>` the
-first time, copies `epicenter.json` and `epicenter.ts` and commits them alone
-as `install <name>` with the source as a trailer, and builds the view into
-the app's `view/`, which the app's `.gitignore` keeps out of its history. It
-never touches the app's data; `epicenter install <app>` installs again from
+first time, copies `epicenter.json`, `epicenter.ts`, and a committed `view/`
+and commits them alone as `install <name>` with the source as a trailer, and
+builds the view into the app's `.cache/view/`, which Git ignores. It never
+touches the app's data, and the next install overwrites a change made to the
+installed code, so an installed app is changed here, at its source; `epicenter install <app>` installs again from
 the recorded source. The source can be any folder or repository, so an app
 made outside this monorepo installs the same way. `HOME` decides `~`, so a
 test installs into a temporary folder.
 
-`epicenter serve` serves an app's `view/` at `/<app>/` and MCP at `/`. A
+`epicenter serve` serves an app's `.cache/view/`, else its `view/`, at
+`/<app>/`, and MCP at `/`. A
 view asks for everything through `connect('<app>')` from
 `@epicenter/app/client`, and keeps nothing of its own. In development,
 `bun run dev` in an app's folder sends a POST to `/` (MCP) to a running

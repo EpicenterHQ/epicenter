@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-11-09
 - **Relates:** [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) (your server, and reach from vendors' clouds), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (programs that have the folder or ask), [ADR-0853](0853-collections-give-four-actions-and-programs-without-the-folder-ask-over-mcp.md) (MCP, the view client), [ADR-0857](0857-an-app-declares-itself-in-epicenter-json-and-its-code-in-epicenter-ts.md) (actions in `epicenter.ts`), [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (one copy, and `serve` at `/<app>/` and `/`).
-- **Unbuilt:** HTTPS for `epicenter serve`. Built: `epicenter serve` serving `view/` at `/<app>/`, MCP at `/`, and `connect` as plain JavaScript at `/.client.js` (`packages/cli/src/http.ts`); the view client `connect` (`packages/app/src/client.ts`), Capture's view in `apps/capture/`, and `epicenter install`, which builds a view into the app's `view/`.
+- **Unbuilt:** HTTPS for `epicenter serve`. Built: `epicenter serve` serving `view/` at `/<app>/`, MCP at `/`, and `connect` as plain JavaScript at `/.client.js` (`packages/cli/src/http.ts`); the view client `connect` (`packages/app/src/client.ts`), Capture's view in `apps/capture/`, and `epicenter install`, which builds a view into the app's `.cache/view/`.
 
 ## Context
 
@@ -33,8 +33,7 @@ as Capture's is, and calls the same `connect` from `@epicenter/app/client`.
 ~/Epicenter/capture/
   epicenter.json
   epicenter.ts
-  .gitignore          lists view/
-  view/               the built view, served at /capture/
+  .cache/view/        the built view, served at /capture/, ignored by Git
   captures/<id>.md
 
 apps/capture/        in the Epicenter repository: the source
@@ -43,12 +42,13 @@ apps/capture/        in the Epicenter repository: the source
   src/, static/       the view: SvelteKit, Svelte 5, and @epicenter/ui
 ```
 
-**A view is built from source and never committed to the app.** In the
-Epicenter repository an app's source is `apps/<app>/`, and
-`epicenter install apps/<app>` builds its view into `~/Epicenter/<app>/view/`,
-which the app's `.gitignore` keeps out of its history (ADR-0864). Any build
-that produces static files works; SvelteKit with Epicenter's components is the
-default, not a requirement.
+**A built view is never committed to the app.** In the Epicenter repository
+an app's source is `apps/<app>/`, and `epicenter install apps/<app>` builds its
+view into `~/Epicenter/<app>/.cache/view/`, which is rebuildable and so ignored
+(ADR-0854, ADR-0864). `epicenter serve` serves `.cache/view/` when it is there,
+else the committed `view/`, so an app made in place and an installed app have
+the same layout. Any build that produces static files works; SvelteKit with
+Epicenter's components is the default, not a requirement.
 
 **A view follows four rules.**
 

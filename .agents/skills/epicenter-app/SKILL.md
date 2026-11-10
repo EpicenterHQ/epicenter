@@ -81,7 +81,10 @@ package at a time.
 `bun epicenter install apps/<app>` makes the app with `epicenter new` the
 first time, commits `epicenter.json` and `epicenter.ts` as `install <app>`
 with the source and its commit as trailers, and builds the view into the
-app's gitignored `view/`. It never touches data. `bun epicenter install <app>`
+app's `.cache/view/`, which Git ignores. It never touches data, and it
+overwrites a change made to the installed code, so change an installed app in
+`apps/<app>/` and install again; only an app with no source (made with `new`
+or joined with `link`) is changed in `~/Epicenter`. `bun epicenter install <app>`
 installs again from the recorded source. A
 running `epicenter serve` sees the change on the next request: it lists tools
 and reads views from disk each time.

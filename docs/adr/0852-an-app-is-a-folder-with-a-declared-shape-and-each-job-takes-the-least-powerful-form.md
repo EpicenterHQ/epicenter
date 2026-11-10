@@ -68,11 +68,11 @@ so its path, scripts, and remotes keep working: it checks the folder's
 nothing. An app's code from a source comes in with `epicenter install`
 (ADR-0864), and an app keeps no `upstream` remote.
 `epicenter new <name>` makes the folder from a built-in template:
-`epicenter.json` with its `$schema`, a `.gitignore` with `node_modules/`,
-`.cache/`, `*.local`, and `*.local.*` (ADR-0858), and a `.gitattributes`
-(ADR-0856); it makes the folder a repository and commits the template. Git
-LFS's filter is set up once per computer (`git lfs install`), never per
-repository (ADR-0856). Sharing an app is sharing its Git URL; there is no
+`epicenter.json` with its `$schema` and a `.gitignore` with `node_modules/`,
+`.cache/`, `*.local`, and `*.local.*` (ADR-0858); it makes the folder a
+repository and commits the template. An app that comes to hold binary files
+adds its own `.gitattributes`, and Git LFS's filter is set up once per
+computer (`git lfs install`), never per repository (ADR-0856). Sharing an app is sharing its Git URL; there is no
 second way, such as an npm package an app re-exports.
 
 **Epicenter's defaults are ordinary instances of open standards.** A remote is

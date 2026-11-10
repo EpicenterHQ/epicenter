@@ -231,6 +231,21 @@ test('views serve files and refuse traversal and symlinks outside views', async 
 	expect((await fetch(`${f.base}/linked/`)).status).toBe(404);
 });
 
+test('a built view in .cache/view/ is served in place of the committed view/', async () => {
+	const f = await setup();
+	const folder = await f.folder(join(f.home, 'reading'), {
+		...readingApp,
+		'view/index.html': 'committed',
+		'view/only.txt': 'only committed',
+	});
+	expect(await (await fetch(`${f.base}/reading/`)).text()).toBe('committed');
+	await mkdir(join(folder, '.cache', 'view'), { recursive: true });
+	await writeFile(join(folder, '.cache', 'view', 'index.html'), 'built');
+	expect(await (await fetch(`${f.base}/reading/`)).text()).toBe('built');
+	// One view or the other, never a mix of the two.
+	expect((await fetch(`${f.base}/reading/only.txt`)).status).toBe(404);
+});
+
 test('/.client.js is connect() as plain JavaScript, and other dot paths are not apps', async () => {
 	const f = await setup();
 	const script = await fetch(`${f.base}/.client.js`);
