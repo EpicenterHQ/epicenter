@@ -120,22 +120,26 @@ Writes to one app run at once: a phone, an agent, and the command line can
 all call the app at the same moment, and an agent may edit its files
 directly. A value computed from `get` and written with `set` is last write
 wins: a change made between them is lost. Compute it inside the collection's
-`update` instead, which calls `change` with the record as `get` gives it and
-writes the patch it returns (what `set` takes, without `path`, plus `body`
-when the body changes) only over that same record; when the file changed
-meanwhile, it calls `change` again on what is there now. Vocab's `review`
-schedules a word this way, so two reviews at once both count.
+`update` instead, which calls `change` with the record as `get` gives it
+(`undefined` when there is no file) and writes the patch it returns (what
+`set` takes, without `path`, plus `body` when the body changes) only over
+that same record, or makes the file from it when there was none; when the
+file changed meanwhile, it calls `change` again on what is there now. Vocab's
+`review` schedules a word this way, so two reviews at once both count, and
+Reading's `start` makes a book or starts it in one `update`, never `get` then
+`add`, which two calls at once would race.
 
 ```ts
-await words.update({ path }, (word) => ({ reps: (word.reps ?? 0) + 1 }));
+await words.update({ path }, (word) => ({ reps: (word?.reps ?? 0) + 1 }));
 ```
 
 For any other file, use `folder.update(path, change)`, never `folder.read`
 then `folder.write`. It does the same with the file's text (`undefined` when
 there is none). Either way, keep `change` a pure function of what it is
 given, since it may run more than once; throw in it to refuse, and nothing is
-written. A collection's `change` that returns `{}` leaves the file as it is,
-so an action like Reading's `start` returns `{}` for a book already started.
+written. A collection's `change` that returns `{}` leaves a file as it is,
+so Reading's `start` returns `{}` for a book already started; throw in it
+when the record must already be there.
 
 ```ts
 await folder.update('2026.csv', (text = 'day,minutes\n') => `${text}${day},${minutes}\n`);

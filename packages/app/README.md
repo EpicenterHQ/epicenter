@@ -115,7 +115,7 @@ gives the same operations as verbs to expose, each taking the same object:
 | `add({ ...placeholders, ...fields, body? })`: makes a file; throws when one is at its path | |
 | `set({ path, ...fields })`: changes the fields given; `null` removes an optional one | `set(fields)`: the same, making the file when there is none |
 | `edit({ path, old, new })`: replaces one passage of the body, quoted exactly as `get` returned it | `edit({ old, new })` |
-| `update({ path }, (record) => patch)`: writes what the function computes from the file; a method only | `update((record) => patch)` |
+| `update({ path }, (record) => patch)`: writes what the function computes from the file, or makes it from `undefined`; a method only | `update((record) => patch)` |
 | `delete({ path })`: deletes the file; `true` when there was one | |
 | `pathOf({ ...placeholders })`: the path `add` would write | |
 
@@ -138,19 +138,34 @@ screens: the last write wins.
 The same goes for a value an action computes from `get` and writes with
 `set`: a change made between them is lost. Compute it inside `update`
 instead. Its function gets the record as `get` gives it, `problems`, `other`,
-and `body` included, and returns what `set` takes, without `path` and with
-`body` when the body changes. `update` writes that only over the record the
-function was given; when the file changed meanwhile, it calls the function
-again on what is there now, so keep the function pure. A function that
-throws writes nothing, and one that returns nothing to change (`{}`) leaves
-the file as it is and returns the record. Like `set`, it refuses a file that is not there, and a
-one-file collection's first `update` makes the file. It returns the record
-written. `update` is not a verb, since a caller cannot send a function.
-Vocab's `review` schedules a word this way, so two reviews at once both
-count:
+and `body` included, or `undefined` when there is no file, and returns what
+`set` takes, without `path` and with `body` when the body changes. `update`
+writes that only over the record the function was given, and when there was
+no file, what it returns makes one as `add` would, refusing a required field
+it leaves out; a one-file collection's function gets its defaults instead.
+When the file changed meanwhile, it calls the function again on what is
+there now, so keep the function pure. A function that throws writes nothing,
+and one that returns nothing to change (`{}`) for a file leaves it as it is.
+It returns the record written. `update` is not a verb, since a caller cannot
+send a function. Vocab's `review` schedules a word this way, so two reviews
+at once both count, and refuses a word that is not there:
 
 ```ts
-await words.update({ path }, (word) => schedule(word, grade, now));
+await words.update({ path }, (word) => {
+  if (!word) throw new Error(`There is no ${path}`);
+  return schedule(word, grade, now);
+});
+```
+
+"Make it if it is not there, else change it" is one `update`, so two calls
+at once never both try to make the file. Reading's `start` is:
+
+```ts
+books.update({ path: books.pathOf({ title }) }, (book) =>
+  book?.started === undefined || book.finished !== undefined
+    ? { started: localDay(), finished: null }
+    : {},
+);
 ```
 
 A field marked `readOnly` is written only by the app's own actions, through

@@ -509,8 +509,8 @@ describe('update', () => {
 		const context = seeded();
 		const written = await inRun(context, () =>
 			counters.update(at, (record) => ({
-				n: (record.n ?? 0) + 1,
-				body: `${record.body}More.\n`,
+				n: (record?.n ?? 0) + 1,
+				body: `${record?.body ?? ''}More.\n`,
 			})),
 		);
 		expect(written).toEqual({
@@ -533,7 +533,7 @@ describe('update', () => {
 		const context = seeded();
 		const increment = () =>
 			inRun(context, () =>
-				counters.update(at, (record) => ({ n: (record.n ?? 0) + 1 })),
+				counters.update(at, (record) => ({ n: (record?.n ?? 0) + 1 })),
 			);
 		await Promise.all([increment(), increment()]);
 		expect((await inRun(context, () => counters.get(at)))?.n).toBe(2);
@@ -568,12 +568,43 @@ describe('update', () => {
 		const current = await inRun(context, () => counters.get(at));
 		expect(kept).toEqual(current as typeof kept);
 		expect(await context.folder.read('counters/a.md')).toBe(before);
+		expect(await context.folder.list()).toEqual(['counters/a.md']);
+	});
+
+	test('gives undefined when there is no file, and what it returns makes one, as add would', async () => {
+		const context = seeded();
+		const b = { path: 'counters/b.md' };
+		const seen: unknown[] = [];
+		const made = await inRun(context, () =>
+			counters.update(b, (record) => {
+				seen.push(record);
+				return { n: 1, note: 'new', body: 'New.\n' };
+			}),
+		);
+		expect(seen).toEqual([undefined]);
+		expect(made).toEqual({
+			path: 'counters/b.md',
+			id: 'b',
+			n: 1,
+			note: 'new',
+			body: 'New.\n',
+		});
+		await expect(
+			inRun(context, () => counters.update({ path: 'counters/c.md' }, () => ({}))),
+		).rejects.toThrow('counters/c.md: note is missing');
 		await expect(
 			inRun(context, () =>
-				counters.update({ path: 'counters/b.md' }, () => ({ n: 1 })),
+				counters.update({ path: 'counters/c.md' }, () => {
+					throw new Error('not here');
+				}),
 			),
-		).rejects.toThrow('There is no counters/b.md');
-		expect(await context.folder.list()).toEqual(['counters/a.md']);
+		).rejects.toThrow('not here');
+		await expect(
+			inRun(context, () =>
+				counters.set({ path: 'counters/c.md', n: 1 }),
+			),
+		).rejects.toThrow('There is no counters/c.md');
+		expect(await context.folder.list()).toEqual(['counters/a.md', 'counters/b.md']);
 	});
 
 	test('a one-file collection gives its defaults to the first update, which makes the file', async () => {

@@ -179,7 +179,7 @@ test('concurrent updates of one collection file each land, each computed from th
 	await Promise.all(
 		Array.from({ length: 5 }, () =>
 			inRun(context, () =>
-				counters.update(at, (record) => ({ n: (record.n ?? 0) + 1 })),
+				counters.update(at, (record) => ({ n: (record?.n ?? 0) + 1 })),
 			),
 		),
 	);

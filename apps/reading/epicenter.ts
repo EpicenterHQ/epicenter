@@ -38,17 +38,14 @@ const title = field.text({ description: 'The title, as on the cover: Dune' });
 const start = defineAction({
 	description:
 		'Start reading a book today, adding books/<title>.md when it is not there. A book I am already reading keeps its day; one I finished starts again, its finished day cleared',
-	input: { title, author: field.text({ optional: true, description: 'Who wrote it' }) },
+	input: { title, author: books.fields.author },
 	positional: ['title'],
 	annotations: { destructiveHint: false, openWorldHint: false },
 	run: async ({ title, author }) => {
-		const path = books.pathOf({ title });
 		const today = localDay();
-		if (!(await books.get({ path })))
-			return books.add({ title, author, started: today });
-		return books.update({ path }, (book) => ({
+		return books.update({ path: books.pathOf({ title }) }, (book) => ({
 			...(author === undefined ? {} : { author }),
-			...(book.started === undefined || book.finished !== undefined
+			...(book?.started === undefined || book.finished !== undefined
 				? { started: today, finished: null }
 				: {}),
 		}));
@@ -58,19 +55,13 @@ const start = defineAction({
 const finish = defineAction({
 	description:
 		'Finish a book today, with a rating from 1 to 5 if I give one, adding books/<title>.md when it is not there. A book already finished keeps its day',
-	input: {
-		title,
-		rating: field.integer({ optional: true, min: 1, max: 5, description: 'How much I liked it' }),
-	},
+	input: { title, rating: books.fields.rating },
 	positional: ['title', 'rating'],
 	annotations: { destructiveHint: false, openWorldHint: false },
 	run: async ({ title, rating }) => {
-		const path = books.pathOf({ title });
 		const today = localDay();
-		if (!(await books.get({ path })))
-			return books.add({ title, finished: today, rating });
-		return books.update({ path }, (book) => ({
-			finished: book.finished ?? today,
+		return books.update({ path: books.pathOf({ title }) }, (book) => ({
+			finished: book?.finished ?? today,
 			...(rating === undefined ? {} : { rating }),
 		}));
 	},

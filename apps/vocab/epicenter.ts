@@ -177,16 +177,18 @@ const learn = defineAction({
 	},
 	run: async ({ word, meaning, reading, body }) => {
 		// `pathOf` names the file by the word as typed, NFC, trimmed, and with single spaces.
-		const found = await words.get({ path: words.pathOf({ word }) });
-		if (found) return { ...found, added: false };
-		const made = await words.add({
-			word,
-			createdAt: localTime(),
-			meaning: meaning?.trim() || undefined,
-			reading: reading?.trim() || undefined,
-			body: body?.trim() ? `${body.trim()}\n` : '',
+		let added = false;
+		const file = await words.update({ path: words.pathOf({ word }) }, (found) => {
+			added = found === undefined;
+			if (found) return {};
+			return {
+				createdAt: localTime(),
+				meaning: meaning?.trim() || undefined,
+				reading: reading?.trim() || undefined,
+				body: body?.trim() ? `${body.trim()}\n` : '',
+			};
 		});
-		return { ...made, added: true };
+		return { ...file, added };
 	},
 });
 
@@ -208,6 +210,7 @@ const review = defineAction({
 		// reviews at once both count; `scheduled` is the schedule it wrote.
 		let scheduled!: Schedule;
 		await words.update({ path }, (word) => {
+			if (!word) throw new Error(`There is no ${path}`);
 			scheduled = schedule(word, grade, now);
 			return scheduled;
 		});

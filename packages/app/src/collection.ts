@@ -184,9 +184,13 @@ type Change = { old: string; new: string };
 /** What an `update` function returns: the fields to change, as `set` takes them, and a new body if it changes. */
 type Revision<F extends Fields> = Simplify<Patch<F> & { body?: string }>;
 
-/** The function `update` calls with the record as it is, returning what to change in it. */
-type Revise<D extends CollectionDef> = (
-	record: FileOf<D>,
+/**
+ * The function `update` calls with the record as it is, returning what to
+ * change in it: `R` is the record, or for a many-file collection `undefined`
+ * when there is no file, which what it returns then makes.
+ */
+type Revise<D extends CollectionDef, R = FileOf<D>> = (
+	record: R,
 ) => Revision<D['fields']>;
 
 /** A collection of many files, as an action uses it. */
@@ -203,19 +207,20 @@ export type ManyHandle<D extends CollectionDef> = {
 	edit(input: Simplify<PathIn & Change>): Promise<FileOf<D>>;
 	/**
 	 * Change the file at `path` by what is in it. `revise` gets the record as
-	 * `get` gives it and returns what `set` takes, without `path` and with
-	 * `body` if the body changes; that is written only over the record it
-	 * was given. When the file changed meanwhile, `revise` runs again on what
-	 * is there now, so keep it a pure function of the record; after 10 tries
-	 * it throws `WriteError.Changed`. A `revise` that throws writes nothing,
-	 * and one that returns `{}` leaves the file as it is.
-	 * Throws when there is no file at `path`. Returns the record written.
+	 * `get` gives it, `undefined` when there is no file, and returns what
+	 * `set` takes, without `path` and with `body` if the body changes; that is
+	 * written only over the record it was given, and makes the file, as `add`
+	 * would, when there was none. When the file changed meanwhile, `revise`
+	 * runs again on what is there now, so keep it a pure function of the
+	 * record; after 10 tries it throws `WriteError.Changed`. A `revise` that
+	 * throws writes nothing, and one that returns `{}` for a file leaves it as
+	 * it is. Returns the record written.
 	 *
 	 * ```ts
-	 * await words.update({ path }, (word) => ({ reps: (word.reps ?? 0) + 1 }));
+	 * await words.update({ path }, (word) => ({ reps: (word?.reps ?? 0) + 1 }));
 	 * ```
 	 */
-	update(at: PathIn, revise: Revise<D>): Promise<FileOf<D>>;
+	update(at: PathIn, revise: Revise<D, FileOf<D> | undefined>): Promise<FileOf<D>>;
 	/** Delete the file; `true` when there was one. */
 	delete(at: PathIn): Promise<boolean>;
 	/** The path `add` would write for these placeholder values: `pathOf({ word: '你好' })` is `words/你好.md`. */
@@ -535,7 +540,9 @@ type Found = { fields: FieldValues; body: string; writable: boolean };
 const NONE: Found = { fields: {}, body: '', writable: true };
 
 /** An `update` function before its types are laid over. */
-type AnyRevise = (record: Record<string, unknown>) => Record<string, unknown>;
+type AnyRevise = (
+	record: Record<string, unknown> | undefined,
+) => Record<string, unknown>;
 
 /** What a write changes: the fields to set or remove, as `set` takes them, and a new body if it changes. */
 type Write = { fields: Record<string, unknown>; body?: unknown };
@@ -698,17 +705,18 @@ function createFiles(layout: Template, fields: Fields) {
 	/**
 	 * Change the file at `path` to what `revise` makes of the record there,
 	 * through `folder.update`, so it is written only over the record `revise`
-	 * was given. A file that is not there is refused, or, for a one-file
-	 * collection, made. Each of `set`, `edit`, and `update` writes through it.
+	 * was given. When there is no file, `revise` gets `undefined`, or for a
+	 * one-file collection its defaults, and what it returns makes the file.
+	 * Each of `set`, `edit`, and `update` writes through it.
 	 */
 	async function rewrite(
 		path: string,
-		revise: (record: ReturnType<typeof file>) => Write,
+		revise: (record: ReturnType<typeof file> | undefined) => Write,
 	) {
 		const text = await folder.update(path, (before) => {
 			const found = before === undefined ? undefined : readMarkdown(before);
-			if (!found && !single) throw new Error(`There is no ${path}`);
-			const { fields: given, body } = revise(file(path, found ?? NONE));
+			const record = found || single ? file(path, found ?? NONE) : undefined;
+			const { fields: given, body } = revise(record);
 			if (body !== undefined && typeof body !== 'string')
 				throw new Error(`${path}: body must be text`);
 			const patch = patchOf(path, given);
@@ -782,14 +790,17 @@ function createFiles(layout: Template, fields: Fields) {
 			const at = own(path);
 			if (Object.values(given).every((value) => value === undefined))
 				throw new Error(`Nothing to set in ${at}: give a field`);
-			return rewrite(at, () => ({ fields: given }));
+			return rewrite(at, (record) => {
+				if (!record) throw new Error(`There is no ${at}`);
+				return { fields: given };
+			});
 		},
 		async edit({ path, ...quoted }: PathIn & Change) {
 			const at = own(path);
-			return rewrite(at, (record) => ({
-				fields: {},
-				body: edited(at, record.body, quoted),
-			}));
+			return rewrite(at, (record) => {
+				if (!record) throw new Error(`There is no ${at}`);
+				return { fields: {}, body: edited(at, record.body, quoted) };
+			});
 		},
 		async update({ path }: PathIn, revise: AnyRevise) {
 			return rewrite(own(path), (record) => {
