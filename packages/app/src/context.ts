@@ -8,24 +8,44 @@
  * app can rebuild lives in files it gitignores inside the folder, such as
  * `.cache/`, and is never committed.
  *
- * A write, whether its action returns or throws, is one commit named for the
- * call, made by whatever runs it (ADR-0850); an action never commits. A run
- * of a read-only action refuses every write through `folder` and `secrets`.
+ * An action changes files and never commits: whatever runs it takes snapshots
+ * of the folder into its history (ADR-0850). A change that depends on what it
+ * read goes through `folder.update`. A run of a read-only action refuses every
+ * write through `folder` and `secrets`.
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
 
 /**
  * An app's folder as an object. Paths are relative to the folder, with `/`
  * between parts; one that is absolute, climbs out with `..`, or reaches into
- * `.git` throws. It is a convenience, not a sandbox: writes are recorded
- * nowhere, and an action may use `path` and `node:fs` directly.
+ * `.git` throws. It is a convenience, not a sandbox: an action may use `path`
+ * and `node:fs` directly.
  */
 export type Folder = {
 	/** The text at `path`, or `undefined` when no file is there. */
 	read(path: string): Promise<string | undefined>;
 	readBytes(path: string): Promise<Uint8Array | undefined>;
-	/** Writes `text` at `path`, making the directories it needs. */
+	/**
+	 * Writes `text` at `path`, making the directories it needs. The last write
+	 * wins: to change what you read, use `update`, so a change made meanwhile
+	 * is not lost.
+	 */
 	write(path: string, text: string): Promise<void>;
+	/**
+	 * Changes the text at `path` to what `change` makes of it (`undefined` when
+	 * no file is there), and returns the text written. When the file changes
+	 * between the read and the write, `change` runs again on what is there
+	 * now; after 10 tries it throws `{ name: 'Changed' }`. A `change` that
+	 * throws writes nothing.
+	 *
+	 * ```ts
+	 * await folder.update('2026.csv', (text = 'day,minutes\n') => `${text}${day},${minutes}\n`);
+	 * ```
+	 */
+	update(
+		path: string,
+		change: (text: string | undefined) => string,
+	): Promise<string>;
 	writeBytes(path: string, bytes: Uint8Array): Promise<void>;
 	/** Every file under `dir`, or the whole folder, relative to the folder and sorted. Never `.git` or `node_modules`. */
 	list(dir?: string): Promise<string[]>;
@@ -48,7 +68,7 @@ export type Context = {
 	secrets: Secrets;
 	/**
 	 * The run is of a read-only action (`readOnlyHint: true`), named `action`:
-	 * `folder.write`, `writeBytes`, `delete`, `secrets.set`, and
+	 * `folder.write`, `writeBytes`, `update`, `delete`, `secrets.set`, and
 	 * `secrets.delete` throw in it before doing anything. A raw `node:fs` write
 	 * or an outside service is the action's own promise.
 	 */
@@ -93,6 +113,8 @@ export const folder: Folder = {
 		writableRun(`write ${path}`).folder.write(path, text),
 	writeBytes: async (path, bytes) =>
 		writableRun(`write ${path}`).folder.writeBytes(path, bytes),
+	update: async (path, change) =>
+		writableRun(`write ${path}`).folder.update(path, change),
 	list: (dir) => currentRun().folder.list(dir),
 	delete: async (path) => writableRun(`delete ${path}`).folder.delete(path),
 	get path() {

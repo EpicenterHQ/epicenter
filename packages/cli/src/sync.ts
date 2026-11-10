@@ -1,8 +1,8 @@
 /**
- * `epicenter sync [<app>]` commits, pulls, and pushes to `origin`, the app's
- * backup or its server (ADR-0851, ADR-0866). For each app in the Epicenter, or the
- * one named, from its folder: commit whatever is left
- * (`sync: <app> (<n> files)`); then, when the app has an `origin`, fetch it,
+ * `epicenter sync [<app>]` snapshots, pulls, and pushes to `origin`, the
+ * app's backup or its server (ADR-0851, ADR-0866). For each app in the
+ * Epicenter, or the one named, from its folder: take a snapshot of whatever
+ * is pending (`snapshot.ts`); then, when the app has an `origin`, fetch it,
  * rebase onto `origin`'s copy of the branch when there is one, and push the
  * branch to `origin` by name. It never pushes to `upstream`, the starter an
  * app came from, nor to whatever the branch tracks.
@@ -12,15 +12,16 @@
  * step. One app's failure never stops the others. Sync reads no app's code.
  */
 import { CliError } from './errors.ts';
-import { commitFolder, git, gitMessage } from './git.ts';
+import { git, gitMessage } from './git.ts';
 import { homeEntries } from './home.ts';
 import { fail, writeJson } from './output.ts';
+import { snapshot } from './snapshot.ts';
 
 /** What sync did for one app. */
 type Synced = {
 	app: string;
 	folder: string;
-	/** The commit sync made of what was left, or `null` when nothing was. */
+	/** The snapshot sync took of what was pending, or `null` when nothing was. */
 	committed: { subject: string; files: number } | null;
 	pushed: boolean;
 	/** How far the branch is from `origin`'s copy of it afterwards; `null` when there is none. */
@@ -65,18 +66,18 @@ async function syncOne(app: string, folder: string): Promise<Synced> {
 		origin: await originOf(folder),
 		error: { message: `${app}: ${message}`, ...(next ? { next } : {}) },
 	});
-	try {
-		const subject = (files: number) =>
-			`sync: ${app} (${files} ${files === 1 ? 'file' : 'files'})`;
-		const files = await commitFolder(folder, subject);
-		if (files > 0) synced.committed = { subject: subject(files), files };
-	} catch (error) {
-		const message = error instanceof Error ? error.message : String(error);
+	const insideArgs = ['rev-parse', '--is-inside-work-tree'];
+	const inside = await git(folder, insideArgs);
+	if (inside.code !== 0) return stop(gitMessage(insideArgs, inside));
+	const taken = await snapshot(app, folder);
+	if ('failed' in taken)
 		return stop(
-			message,
-			message.endsWith('run: git lfs install') ? 'git lfs install' : undefined,
+			taken.failed,
+			taken.failed.endsWith('run: git lfs install')
+				? 'git lfs install'
+				: undefined,
 		);
-	}
+	synced.committed = taken.committed;
 	if ((await git(folder, ['remote', 'get-url', 'origin'])).code !== 0)
 		return synced;
 	const branch = await branchOf(folder);

@@ -1,23 +1,12 @@
 import { type ActionInput, type ActionOutput, connect } from '@epicenter/app/client';
 import { resolve } from '$app/paths';
-import { toast } from '@epicenter/ui/sonner';
 import type vocabApp from '../../../epicenter.js';
 import type { Grade } from '../../../epicenter.js';
 
 type Actions = (typeof vocabApp)['actions'];
 
-/**
- * Vocab's actions, asked of the server that serves this UI. A change saved to
- * its file but not recorded in the folder's history says so, with the command
- * that records it.
- */
-export const app = connect<typeof vocabApp>('vocab', {
-	onUncommitted: ({ sync }) =>
-		toast.warning('Saved to the file, but not recorded in history', {
-			id: 'uncommitted',
-			description: `To record it, run ${sync} on the computer that runs Epicenter.`,
-		}),
-});
+/** Vocab's actions, asked of the server that serves this UI. */
+export const app = connect<typeof vocabApp>('vocab');
 
 /** A row of `vocab list`: a word's path, the word, and its fields; `problems` when its file does not fit. */
 export type WordRow = ActionOutput<Actions['list']>[number];

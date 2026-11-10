@@ -9,7 +9,9 @@
  * code and declaration on disk when a call arrives are what runs, an edit
  * between two calls is seen by the second, and a call's result is the same
  * object `--json` prints: `structuredContent` on success, and with
- * `isError` on failure. Diagnostics go to stderr.
+ * `isError` on failure. After a call that is not read-only, the server takes
+ * a snapshot of the app's folder before it answers, one at a time per app
+ * (ADR-0850). Diagnostics go to stderr.
  */
 
 import { isName } from '@epicenter/app';
@@ -21,10 +23,11 @@ import {
 	type Tool,
 } from '@modelcontextprotocol/sdk/types.js';
 import packageJson from '../package.json' with { type: 'json' };
-import { runChild } from './child.ts';
+import { type Report, runChild } from './child.ts';
 import { homeEntries } from './home.ts';
 import { type Answer, renderAnswer, writeErr } from './output.ts';
 import { rootInstructions } from './root.ts';
+import { snapshot } from './snapshot.ts';
 
 /**
  * The tools the Epicenter offers now. Each entry is listed by its own child, so an
@@ -34,7 +37,9 @@ import { rootInstructions } from './root.ts';
 export async function listTools(): Promise<Tool[]> {
 	const listed = await Promise.all(
 		(await homeEntries()).map(async ({ entry }) => {
-			const answer = await runChild([entry, '--json'], { stdin: 'ignore' });
+			const { answer } = await runChild([entry, '--json'], {
+				stdin: 'ignore',
+			});
 			const value = answer as { actions?: Tool[]; error?: { message: string } };
 			if (value.actions) return value.actions;
 			writeErr(`${entry}: ${value.error?.message ?? JSON.stringify(answer)}`);
@@ -47,15 +52,12 @@ export async function listTools(): Promise<Tool[]> {
 /**
  * A child's answer as an MCP result: the same value `--json` prints, as
  * `structuredContent`, and `isError` exactly when the action threw or did not
- * run. An action that returned but was not committed is no error: it ran, and
- * a client that retried it would run it twice. A failure's text is what a
- * person would read on stderr, which for an action that threw after writing
- * says whether those writes are committed.
+ * run. A failure's text is what a person would read on stderr.
  */
 export function toolResult(answer: Answer) {
 	const structuredContent = answer as Record<string, unknown>;
 	const { code, stderr } = renderAnswer(answer);
-	if (code === 0 || code === 3)
+	if (code === 0)
 		return {
 			content: [{ type: 'text' as const, text: JSON.stringify(answer) }],
 			structuredContent,
@@ -68,22 +70,40 @@ export function toolResult(answer: Answer) {
 }
 
 /** Run an app's action as `<app>_<word>_<word>` names it, in a child process. */
-async function runAppTool(name: string, args: Record<string, unknown>) {
+async function runAppTool(
+	name: string,
+	args: Record<string, unknown>,
+): Promise<Report> {
 	// `<app>_<word>_<word>`: app names and action words hold no underscores.
 	const [app = '', ...words] = name.split('_');
 	if (!isName(app) || words.length === 0 || !words.every(isName))
 		return {
-			error: { name: 'Usage', message: `Unknown tool ${name}` },
-		} as Answer;
-	return (await runChild(
-		[app, ...words, '--input', JSON.stringify(args), '--json'],
-		{ stdin: 'ignore' },
-	)) as Answer;
+			answer: { error: { name: 'Usage', message: `Unknown tool ${name}` } },
+		};
+	return runChild([app, ...words, '--input', JSON.stringify(args), '--json'], {
+		stdin: 'ignore',
+	});
 }
 
-/** Run a tool through the same child process for either MCP transport. */
-export async function callTool(name: string, args: Record<string, unknown>) {
-	return toolResult(await runAppTool(name, args));
+/**
+ * Run a tool through the same child process for either MCP transport, and
+ * after a write, snapshot its app. `committed` hears of each snapshot that
+ * made a commit; a failed one is written to stderr and kept for the app's
+ * status, and the call's answer stands.
+ */
+export async function callTool(
+	name: string,
+	args: Record<string, unknown>,
+	committed?: (app: string, folder: string) => void,
+) {
+	const { answer, wrote } = await runAppTool(name, args);
+	if (wrote) {
+		const taken = await snapshot(wrote.app, wrote.folder);
+		if ('failed' in taken)
+			writeErr(`${wrote.app}: not yet in history: ${taken.failed}`);
+		else if (taken.committed) committed?.(wrote.app, wrote.folder);
+	}
+	return toolResult(answer as Answer);
 }
 
 /** Register the shared tool handlers on a fresh MCP server. */

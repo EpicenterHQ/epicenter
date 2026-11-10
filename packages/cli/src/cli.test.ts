@@ -111,7 +111,6 @@ test('commands write disk data and return one JSON answer without diagnostics', 
 	expect(result.stderr).toBe('');
 	expect(JSON.parse(result.stdout)).toEqual({
 		returned: { minutes: 30, book: 'Dune' },
-		committed: expect.any(String),
 	});
 	expect(
 		JSON.parse(

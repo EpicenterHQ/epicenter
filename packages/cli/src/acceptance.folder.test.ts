@@ -111,7 +111,7 @@ async function withOrigin(f: Awaited<ReturnType<typeof setup>>, name: string) {
 	return { folder, bare, peerCommits };
 }
 
-test('W2 epicenter sync commits what is left, pulls with --rebase, pushes, and reports ahead and behind', async () => {
+test('W2 epicenter sync snapshots what is pending, pulls with --rebase, pushes, and reports ahead and behind', async () => {
 	const f = await setup();
 	const journal = await withOrigin(f, 'journal');
 	await journal.peerCommits('peer.md', 'from the laptop\n');
@@ -130,14 +130,14 @@ test('W2 epicenter sync commits what is left, pulls with --rebase, pushes, and r
 			{
 				app: 'journal',
 				folder: journal.folder,
-				committed: { subject: 'sync: journal (2 files)', files: 2 },
+				committed: { subject: 'journal: 2 changes', files: 2 },
 				pushed: true,
 				origin: { ahead: 0, behind: 0 },
 			},
 			{
 				app: 'notes',
 				folder: join(f.home, 'notes'),
-				committed: { subject: 'sync: notes (1 file)', files: 1 },
+				committed: { subject: 'notes: 1 change', files: 1 },
 				pushed: false,
 				origin: null,
 			},
@@ -147,7 +147,7 @@ test('W2 epicenter sync commits what is left, pulls with --rebase, pushes, and r
 		'from the laptop\n',
 	);
 	expect(await gitIn(journal.bare, 'log', '--format=%s')).toBe(
-		'sync: journal (2 files)\npeer peer.md\ninitial',
+		'journal: 2 changes\npeer peer.md\ninitial',
 	);
 	expect(await gitIn(join(f.home, 'notes'), 'status', '--porcelain')).toBe('');
 
@@ -159,7 +159,7 @@ test('W2 epicenter sync commits what is left, pulls with --rebase, pushes, and r
 	expect(again.stderr).toBe('');
 	expect((await f.run('sync', 'nope', '--json')).code).toBe(2);
 
-	// The listing reads nothing from Git.
+	// The listing says nothing of origin.
 	const listed = JSON.parse((await f.run('--json')).stdout);
 	expect(listed.apps[0]).not.toHaveProperty('origin');
 });
@@ -196,7 +196,7 @@ test('W3 sync stops one app on a conflict, a failed push, or no repository, and 
 		]),
 	);
 	expect(apps.clash).toMatchObject({
-		committed: { subject: 'sync: clash (1 file)' },
+		committed: { subject: 'clash: 1 change' },
 		pushed: false,
 		origin: { ahead: 1, behind: 1 },
 		error: {
@@ -234,7 +234,7 @@ test('W3 sync stops one app on a conflict, a failed push, or no repository, and 
 	);
 });
 
-test('W3 sync of an app inside a larger repository commits only its folder and sets the rest aside while it pulls', async () => {
+test('W3 sync of an app inside a larger repository snapshots only its folder and sets the rest aside while it pulls', async () => {
 	const f = await setup();
 	const seed = await f.folder(join(f.root, 'vault-seed'), {
 		'journal/today.md': 'today\n',
@@ -258,7 +258,7 @@ test('W3 sync of an app inside a larger repository commits only its folder and s
 	const synced = await f.run('sync', 'recipes', '--json');
 	expect(synced.code).toBe(0);
 	expect(JSON.parse(synced.stdout).apps[0]).toMatchObject({
-		committed: { subject: 'sync: recipes (1 file)' },
+		committed: { subject: 'recipes: 1 change' },
 		pushed: true,
 	});
 	expect(await gitIn(bare, 'show', '--name-only', '--format=', 'HEAD')).toBe(

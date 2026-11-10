@@ -1,7 +1,7 @@
 /**
  * `epicenter update [<app>]` brings a starter's changes into each app made
  * from it (ADR-0866). For each app with an `upstream` remote, or the one
- * named, holding the app's write lock so no action writes meanwhile:
+ * named:
  *
  * 1. refuse an app with uncommitted changes, which the merge could mix in;
  * 2. `git fetch upstream` and merge the branch `upstream/HEAD` names, as
@@ -20,7 +20,6 @@ import { CliError } from './errors.ts';
 import { git, gitMessage } from './git.ts';
 import { homeEntries, loadHomeApp } from './home.ts';
 import { fail, writeJson } from './output.ts';
-import { holdWriteLock } from './run.ts';
 import { buildUi } from './ui.ts';
 
 /** What update did for one app. */
@@ -55,52 +54,47 @@ async function updateOne(app: string, folder: string): Promise<Updated> {
 		...updated,
 		error: { message: `${app}: ${message}`, ...(next ? { next } : {}) },
 	});
-	const release = await holdWriteLock(folder);
-	try {
-		const status = await git(folder, ['status', '--porcelain']);
-		if (status.stdout !== '')
-			return stop(
-				'has uncommitted changes, which a merge could mix in; commit them first',
-				`epicenter sync ${app}`,
-			);
-		const fetchArgs = ['fetch', '-q', 'upstream'];
-		const fetched = await git(folder, fetchArgs);
-		if (fetched.code !== 0)
-			return stop(`could not fetch: ${gitMessage(fetchArgs, fetched)}`);
-		const branch = (
-			await git(folder, ['rev-parse', '--abbrev-ref', 'upstream/HEAD'])
-		).stdout;
-		const target = branch !== '' && branch !== 'upstream/HEAD' ? branch : '';
-		if (target === '')
-			return stop(
-				'upstream names no default branch; set it with git remote set-head upstream --auto',
-				`git -C ${folder} remote set-head upstream --auto`,
-			);
-		const before = (await git(folder, ['rev-parse', 'HEAD'])).stdout;
-		const mergeArgs = [
-			'merge',
-			'-q',
-			'--no-edit',
-			'-m',
-			`${app}: update from upstream`,
-			target,
-		];
-		const merging = await git(folder, mergeArgs);
-		if (merging.code !== 0) {
-			const aborted = (await git(folder, ['merge', '--abort'])).code === 0;
-			return stop(
-				aborted
-					? 'the merge stopped on a conflict, so it was undone; the app is as it was'
-					: `could not merge: ${gitMessage(mergeArgs, merging)}`,
-				`git -C ${folder} merge ${target}`,
-			);
-		}
-		const after = (await git(folder, ['rev-parse', '--short', 'HEAD'])).stdout;
-		const moved = (await git(folder, ['rev-parse', 'HEAD'])).stdout !== before;
-		updated.merged = moved ? after : null;
-	} finally {
-		await release();
+	const status = await git(folder, ['status', '--porcelain']);
+	if (status.stdout !== '')
+		return stop(
+			'has uncommitted changes, which a merge could mix in; commit them first',
+			`epicenter sync ${app}`,
+		);
+	const fetchArgs = ['fetch', '-q', 'upstream'];
+	const fetched = await git(folder, fetchArgs);
+	if (fetched.code !== 0)
+		return stop(`could not fetch: ${gitMessage(fetchArgs, fetched)}`);
+	const branch = (
+		await git(folder, ['rev-parse', '--abbrev-ref', 'upstream/HEAD'])
+	).stdout;
+	const target = branch !== '' && branch !== 'upstream/HEAD' ? branch : '';
+	if (target === '')
+		return stop(
+			'upstream names no default branch; set it with git remote set-head upstream --auto',
+			`git -C ${folder} remote set-head upstream --auto`,
+		);
+	const before = (await git(folder, ['rev-parse', 'HEAD'])).stdout;
+	const mergeArgs = [
+		'merge',
+		'-q',
+		'--no-edit',
+		'-m',
+		`${app}: update from upstream`,
+		target,
+	];
+	const merging = await git(folder, mergeArgs);
+	if (merging.code !== 0) {
+		const aborted = (await git(folder, ['merge', '--abort'])).code === 0;
+		return stop(
+			aborted
+				? 'the merge stopped on a conflict, so it was undone; the app is as it was'
+				: `could not merge: ${gitMessage(mergeArgs, merging)}`,
+			`git -C ${folder} merge ${target}`,
+		);
 	}
+	const after = (await git(folder, ['rev-parse', '--short', 'HEAD'])).stdout;
+	const moved = (await git(folder, ['rev-parse', 'HEAD'])).stdout !== before;
+	updated.merged = moved ? after : null;
 	const { data: located, error } = await loadHomeApp(app);
 	if (error) return stop(error.message);
 	if (!located.ok) return stop(located.problems.join('; '));

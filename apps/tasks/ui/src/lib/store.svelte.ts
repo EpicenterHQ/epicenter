@@ -4,23 +4,12 @@
  * the app's actions; nothing is kept on the device.
  */
 import { type ActionInput, type ActionOutput, connect } from '@epicenter/app/client';
-import { toast } from '@epicenter/ui/sonner';
 import type tasksApp from '../../../epicenter.js';
 
 type Actions = (typeof tasksApp)['actions'];
 
-/**
- * Tasks' actions, asked of the server that serves this UI. A change saved to
- * its file but not recorded in the folder's history says so, with the command
- * that records it.
- */
-export const app = connect<typeof tasksApp>('tasks', {
-	onUncommitted: ({ sync }) =>
-		toast.warning('Saved to the file, but not recorded in history', {
-			id: 'uncommitted',
-			description: `To record it, run ${sync} on the computer that runs Epicenter.`,
-		}),
-});
+/** Tasks' actions, asked of the server that serves this UI. */
+export const app = connect<typeof tasksApp>('tasks');
 
 /** A row of `tasks list`: a task's path and fields, without its notes; `problems` when its file does not fit. */
 export type Task = ActionOutput<Actions['list']>[number];

@@ -126,8 +126,7 @@ export default defineApp({
 			input: { minutes: field.number(), book: field.text({ optional: true }) },
 			positional: ['minutes'],
 			run: async ({ minutes, book }) => {
-				const before = (await folder.read('2026.csv')) ?? 'minutes,book\\n';
-				await folder.write('2026.csv', \`\${before}\${minutes},\${book ?? ''}\\n\`);
+				await folder.update('2026.csv', (before = 'minutes,book\\n') => \`\${before}\${minutes},\${book ?? ''}\\n\`);
 				return { minutes, book: book ?? null };
 			},
 		}),

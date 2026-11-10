@@ -15,18 +15,8 @@ import type capture from '../../../epicenter.js';
 
 type Actions = (typeof capture)['actions'];
 
-/**
- * The app's actions, asked of `epicenter serve`. A change saved to its file
- * but not recorded in the folder's history says so, with the command that
- * records it.
- */
-export const app = connect<typeof capture>('capture', {
-	onUncommitted: ({ sync }) =>
-		toast.warning('Saved to the file, but not recorded in history', {
-			id: 'uncommitted',
-			description: `To record it, run ${sync} on the computer that runs Epicenter.`,
-		}),
-});
+/** The app's actions, asked of `epicenter serve`. */
+export const app = connect<typeof capture>('capture');
 
 /** A capture file as `get` and `edit` return it. */
 export type CaptureFile = ActionOutput<Actions['get']>;

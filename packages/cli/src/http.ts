@@ -10,21 +10,31 @@
  *
  * Any later path of the server's own starts with `.`, which no app name can,
  * so no name is reserved for the server.
+ *
+ * A write call is snapshotted before it answers (`mcp.ts`). Every minute the
+ * server also looks at each app's pending changes: an app whose
+ * `git status --porcelain` is not empty and is the same as a minute ago has
+ * edits from outside that have gone quiet, and gets a snapshot. Each snapshot
+ * that commits is pushed to `origin` in the background.
  */
 import { realpath, stat } from 'node:fs/promises';
 import { basename, isAbsolute, join, sep } from 'node:path';
 import { isName } from '@epicenter/app';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
-import { git, gitMessage } from './git.ts';
 import { runChild } from './child.ts';
+import { git, gitMessage } from './git.ts';
 import { homeEntries } from './home.ts';
 import { callTool, createMcpServer, listTools } from './mcp.ts';
 import { writeErr } from './output.ts';
 import { epicenterDir, rootInstructions } from './root.ts';
+import { pendingStatus, snapshot } from './snapshot.ts';
 import { BUILT_UI } from './ui.ts';
 
 /** An app's background push: the one running, and whether another is wanted after it. */
 type Push = { running?: Promise<void>; again: boolean };
+
+/** How often `serve` looks for outside edits that have gone quiet. */
+const QUIET_CHECK_MS = 60_000;
 
 const escapeHtml = (text: string) =>
 	text.replace(
@@ -63,11 +73,15 @@ p{color:var(--muted)}
 </style></head><body><main><h1>${escapeHtml(name)}</h1>${items ? `<ul>${items}</ul>` : '<p>No app here has a UI yet.</p>'}</main></body></html>`;
 }
 
-/** Start the server. The caller owns its lifetime. Port 0 asks Bun for a free port. */
+/**
+ * Start the server. The caller owns its lifetime. Port 0 asks Bun for a free
+ * port. `quietCheckMs` is how often it looks for quiet outside edits.
+ */
 export function startHttpServer(
 	host: string,
 	port: number,
 	instructions?: string,
+	quietCheckMs = QUIET_CHECK_MS,
 ) {
 	const pushes = new Map<string, Push>();
 	/**
@@ -111,16 +125,35 @@ export function startHttpServer(
 				state.running = undefined;
 			});
 	};
-	/** Run the tool; when its answer says it committed, push that app. */
-	const call: typeof callTool = async (name, args) => {
-		const result = await callTool(name, args);
-		if (typeof result.structuredContent?.committed === 'string') {
-			const [app = ''] = name.split('_');
-			const entry = (await homeEntries()).find((item) => item.entry === app);
-			if (entry) push(app, entry.realPath);
+	/** Run the tool; when its snapshot commits, push that app. */
+	const call: typeof callTool = (name, args) => callTool(name, args, push);
+	/** Each app's `git status --porcelain` at the last check, by folder. */
+	const lastStatus = new Map<string, string>();
+	/** Snapshot and push each app whose pending changes are what they were at the last check. */
+	const checkQuiet = async () => {
+		for (const { entry, realPath } of await homeEntries()) {
+			const status = (await pendingStatus(realPath)) ?? '';
+			const before = lastStatus.get(realPath);
+			lastStatus.set(realPath, status);
+			if (status === '' || status !== before) continue;
+			const taken = await snapshot(entry, realPath);
+			if ('failed' in taken)
+				writeErr(`${entry}: not yet in history: ${taken.failed}`);
+			else if (taken.committed) push(entry, realPath);
 		}
-		return result;
 	};
+	const scheduleCheck = () => {
+		setTimeout(() => {
+			void checkQuiet()
+				.catch((error) => {
+					writeErr(
+						`Looking for quiet changes failed: ${error instanceof Error ? error.message : String(error)}`,
+					);
+				})
+				.finally(scheduleCheck);
+		}, quietCheckMs).unref();
+	};
+	scheduleCheck();
 	const notFound = () => new Response('Not found', { status: 404 });
 	const uiFile = async (app: string, path: string) => {
 		if (!isName(app)) return notFound();
@@ -210,9 +243,9 @@ export function startHttpServer(
 					(await homeEntries()).map(async (entry) => {
 						if (!(await uiFile(entry.entry, 'index.html')).ok) return undefined;
 						// Read in a child, as tools/list is: serve never imports an app.
-						const listed = (await runChild([entry.entry, '--json'], {
-							stdin: 'ignore',
-						})) as { description?: unknown };
+						const listed = (
+							await runChild([entry.entry, '--json'], { stdin: 'ignore' })
+						).answer as { description?: unknown };
 						return {
 							name: entry.entry,
 							description:
@@ -258,7 +291,9 @@ export function startHttpServer(
 
 /** Keep the command alive until its process receives a signal. */
 export async function serveHttp(host: string, port: number): Promise<number> {
-	const server = startHttpServer(host, port, await rootInstructions());
+	// A test looks for quiet changes sooner than every minute.
+	const every = Number(process.env.EPICENTER_QUIET_CHECK_MS) || undefined;
+	const server = startHttpServer(host, port, await rootInstructions(), every);
 	writeErr(`Serving your apps at http://${host}:${server.port}.`);
 	await new Promise<void>((resolve) => {
 		process.once('SIGINT', resolve);

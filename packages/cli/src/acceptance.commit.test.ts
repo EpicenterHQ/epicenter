@@ -1,13 +1,22 @@
 /**
- * Acceptance, stage 2: the commit rule (ADR-0850). Black-box runs of the real
- * `epicenter` against a temporary HOME. A write that returns or throws commits
- * everything changed in its folder and nothing outside it, named for the
- * call; a read-only action cannot write through `folder` or `secrets`. The
- * answer is `{ returned }`, `{ threw }`, or `{ error }`, exit 0, 1, or 2.
+ * Acceptance, stage 2: snapshots (ADR-0850). Black-box runs of the real
+ * `epicenter` against a temporary HOME. A run never commits; after a write
+ * run, the command line takes a snapshot of everything pending in the app's
+ * folder and nothing outside it, named for the call, with what no call wrote
+ * listed as changed outside epicenter. A read-only action cannot write
+ * through `folder` or `secrets`. The answer is `{ returned }`, `{ threw }`,
+ * or `{ error }`, exit 0, 1, or 2, whatever became of the snapshot.
  */
 
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
-import { readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import {
+	mkdir,
+	readdir,
+	readFile,
+	rm,
+	symlink,
+	writeFile,
+} from 'node:fs/promises';
 import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
@@ -123,33 +132,35 @@ const status = (folder: string) =>
 	gitIn(folder, 'status', '--porcelain', '--untracked-files=all');
 const subjects = (folder: string) => gitIn(folder, 'log', '--format=%s');
 
-test('C1 a write commits itself, named for the call, and needs no Git repository', async () => {
+test('C1 a write run commits nothing itself, and the command line snapshots it as one commit named for the call', async () => {
 	const f = await setup();
 	const ran = await f.json('notes', 'write', 'monday');
 	expect(ran.code).toBe(0);
-	expect(ran.answer).toEqual({
-		returned: 'monday',
-		committed: await gitIn(f.dir, 'rev-parse', '--short', 'HEAD'),
-	});
+	expect(ran.answer).toEqual({ returned: 'monday' });
 	expect(ran.stderr).toBe('');
 	expect(await subjects(f.dir)).toBe('notes: write monday\ninitial');
+	expect(await gitIn(f.dir, 'log', '-1', '--format=%B')).toBe(
+		'notes: write monday',
+	);
 	expect(await status(f.dir)).toBe('');
 
 	const loose = await setup({ git: false });
 	const plain = await loose.json('notes', 'write', 'tuesday');
-	expect(plain.code).toBe(0);
+	expect(plain).toMatchObject({ code: 0, stderr: '' });
 	expect(plain.answer).toEqual({ returned: 'tuesday' });
 	expect(await readFile(join(loose.dir, 'tuesday.md'), 'utf8')).toBe('tuesday');
 });
 
-test('C2 a write commits everything changed in its folder, staged or not, and never ignored files', async () => {
+test('C2 a snapshot takes everything pending in the folder, staged or not, never ignored files, and names what no call wrote', async () => {
 	const f = await setup();
 	await writeFile(join(f.dir, 'a.md'), 'edited by hand\n');
 	await writeFile(join(f.dir, 'staged.md'), 'staged\n');
 	await gitIn(f.dir, 'add', 'staged.md');
 	const ran = await f.json('notes', 'write', 'monday');
 	expect(ran.code).toBe(0);
-	expect(await subjects(f.dir)).toBe('notes: write monday\ninitial');
+	expect(await gitIn(f.dir, 'log', '-1', '--format=%B')).toBe(
+		'notes: write monday\n\nChanged outside epicenter: a.md, staged.md',
+	);
 	expect(
 		(await gitIn(f.dir, 'show', '--name-only', '--format=', 'HEAD')).split(
 			'\n',
@@ -159,7 +170,7 @@ test('C2 a write commits everything changed in its folder, staged or not, and ne
 	expect(await gitIn(f.dir, 'ls-files', '.cache')).toBe('');
 });
 
-test('C2b a write never commits *.local or *.local.*, even when .gitignore does not name them', async () => {
+test('C2b a snapshot never commits *.local or *.local.*, even when .gitignore does not name them', async () => {
 	const f = await setup();
 	await writeFile(join(f.dir, '.gitignore'), '.cache/\n');
 	await gitIn(f.dir, 'commit', '-qam', 'a .gitignore without .local');
@@ -171,6 +182,9 @@ test('C2b a write never commits *.local or *.local.*, even when .gitignore does 
 		'monday.md',
 	);
 	expect(await gitIn(f.dir, 'ls-files', '*.local*')).toBe('');
+	expect(
+		JSON.parse((await f.run('notes', '--json')).stdout),
+	).not.toHaveProperty('history');
 });
 
 test('C3 a write that changes nothing makes no commit', async () => {
@@ -180,6 +194,12 @@ test('C3 a write that changes nothing makes no commit', async () => {
 	expect(ran.code).toBe(0);
 	expect(ran.answer).toEqual({ returned: null });
 	expect(await gitIn(f.dir, 'rev-parse', 'HEAD')).toBe(head);
+	// The call that changed nothing names no later snapshot.
+	await writeFile(join(f.dir, 'b.md'), 'by hand\n');
+	expect((await f.run('sync', 'notes')).code).toBe(0);
+	expect(await gitIn(f.dir, 'log', '-1', '--format=%B')).toBe(
+		'notes: 1 change\n\nChanged outside epicenter: b.md',
+	);
 });
 
 test('C4 an app inside a larger repository commits only its own folder', async () => {
@@ -205,46 +225,74 @@ test('C4 an app inside a larger repository commits only its own folder', async (
 			'\n',
 		),
 	).toEqual(['notes/a.md', 'notes/monday.md']);
+	expect(await gitIn(vault, 'log', '-1', '--format=%B')).toBe(
+		'notes: write monday\n\nChanged outside epicenter: a.md',
+	);
 	expect(await status(vault)).toBe('A  journal/staged.md\n M journal/today.md');
 });
 
-test('C5 the commit refuses before staging when .gitattributes routes a path through LFS and this computer has no filter', async () => {
+test('C5 a snapshot that fails leaves the answer and exit code alone; the status says why until a later snapshot succeeds', async () => {
 	const f = await setup();
 	await writeFile(
 		join(f.dir, '.gitattributes'),
 		'*.png filter=lfs diff=lfs merge=lfs -text\n',
 	);
-	// The write returned, so it keeps its answer and says why it is uncommitted.
 	const kept = await f.json('notes', 'picture');
-	expect(kept.code).toBe(3);
-	expect(kept.answer.returned).toBe(null);
-	expect(kept.answer.uncommitted.message).toContain('run: git lfs install');
-	expect(kept.answer.uncommitted.next).toBe('epicenter sync notes');
+	expect(kept.code).toBe(0);
+	expect(kept.answer).toEqual({ returned: null });
+	expect(kept.stderr).toContain('run: git lfs install');
+	expect(kept.stderr).toContain('Run: epicenter sync notes');
 	expect(await gitIn(f.dir, 'diff', '--cached', '--name-only')).toBe('');
 	expect(await subjects(f.dir)).toBe('initial');
-	// A write that threw says the same.
 	const threw = await f.json('notes', 'half', 'friday');
 	expect(threw.code).toBe(1);
-	expect(threw.answer).toEqual({
-		threw: { message: 'stopped halfway' },
-		uncommitted: {
+	expect(threw.answer).toEqual({ threw: { message: 'stopped halfway' } });
+	expect(await subjects(f.dir)).toBe('initial');
+
+	const listed = JSON.parse((await f.run('notes', '--json')).stdout);
+	expect(listed.history).toEqual({
+		pending: 3,
+		failed: {
 			message: expect.stringContaining('run: git lfs install'),
 			next: 'epicenter sync notes',
 		},
 	});
-	expect(await subjects(f.dir)).toBe('initial');
+	const human = (await f.run('notes')).stdout;
+	expect(human).toContain('3 changes not yet in history');
+	expect(human).toContain('The last snapshot failed: .gitattributes routes');
+	expect(human).toContain('Run: epicenter sync notes');
+	expect((await f.run()).stdout).toContain(
+		'The notes app (3 changes not in history; last snapshot failed)',
+	);
+
+	// The calls stay logged, so the snapshot that succeeds names them.
+	await rm(join(f.dir, '.gitattributes'));
+	const synced = await f.json('sync', 'notes');
+	expect(synced.code).toBe(0);
+	expect(await gitIn(f.dir, 'log', '-1', '--format=%B')).toBe(
+		'notes: 2 changes\n\nnotes: picture\nnotes: half friday',
+	);
+	expect(
+		JSON.parse((await f.run('notes', '--json')).stdout),
+	).not.toHaveProperty('history');
+	expect((await f.run()).stdout).not.toContain('not in history');
 
 	if (!Bun.which('git-lfs')) return;
+	await writeFile(
+		join(f.dir, '.gitattributes'),
+		'*.png filter=lfs diff=lfs merge=lfs -text\n',
+	);
 	await gitIn(f.dir, 'lfs', 'install', '--local');
+	await rm(join(f.dir, 'cover.png'));
+	await gitIn(f.dir, 'commit', '-qam', 'no cover');
 	const stored = await f.json('notes', 'picture');
-	expect(stored.code).toBe(0);
-	expect(stored.answer.committed).toBeString();
+	expect(stored).toMatchObject({ code: 0, stderr: '' });
 	expect(await gitIn(f.dir, 'show', 'HEAD:cover.png')).toStartWith(
 		'version https://git-lfs.github.com/spec/v1',
 	);
 });
 
-test('C6 the commit waits for a held index lock, and after about 2 seconds leaves the write uncommitted with Git’s message', async () => {
+test('C6 a snapshot waits for a held index lock, and after about 2 seconds leaves the write pending with Git’s message', async () => {
 	const f = await setup();
 	const lock = join(f.dir, '.git', 'index.lock');
 	await writeFile(lock, '');
@@ -258,9 +306,13 @@ test('C6 the commit waits for a held index lock, and after about 2 seconds leave
 	await writeFile(lock, '');
 	const held = await f.json('notes', 'write', 'tuesday');
 	await rm(lock);
-	expect(held.code).toBe(3);
-	expect(held.answer.uncommitted.message).toContain('index.lock');
+	expect(held.code).toBe(0);
+	expect(held.answer).toEqual({ returned: 'tuesday' });
+	expect(held.stderr).toContain('index.lock');
 	expect(await readFile(join(f.dir, 'tuesday.md'), 'utf8')).toBe('tuesday');
+	expect(
+		JSON.parse((await f.run('notes', '--json')).stdout).history.failed.message,
+	).toContain('index.lock');
 });
 
 test('C7 exit codes: 0 returned, 1 threw or ended without an answer, 2 did not run', async () => {
@@ -285,30 +337,24 @@ test('C7 exit codes: 0 returned, 1 threw or ended without an answer, 2 did not r
 	expect(human).toEqual({ code: 0, stdout: 'monday\n', stderr: '' });
 });
 
-test('C9 a write that throws commits what it wrote under its own subject, marked threw', async () => {
+test('C9 a write that throws leaves what it wrote pending like any change, and the snapshot after it names the call', async () => {
 	const f = await setup();
 	const ran = await f.json('notes', 'half', 'wednesday');
 	expect(ran.code).toBe(1);
-	expect(ran.answer).toEqual({
-		threw: { message: 'stopped halfway' },
-		committed: await gitIn(f.dir, 'rev-parse', '--short', 'HEAD'),
-	});
-	expect(await subjects(f.dir)).toBe('notes: half wednesday (threw)\ninitial');
+	expect(ran.answer).toEqual({ threw: { message: 'stopped halfway' } });
+	expect(await subjects(f.dir)).toBe('notes: half wednesday\ninitial');
 	expect(await status(f.dir)).toBe('');
-	// The next call's commit holds only its own write.
 	await f.json('notes', 'write', 'thursday');
 	expect(await gitIn(f.dir, 'show', '--name-only', '--format=', 'HEAD')).toBe(
 		'thursday.md',
 	);
 	const human = await f.run('notes', 'half', 'friday');
-	expect(human.code).toBe(1);
-	expect(human.stderr).toBe(
-		`stopped halfway\nWhat it wrote before it threw is committed as ${await gitIn(f.dir, 'rev-parse', '--short', 'HEAD')}\n`,
-	);
+	expect(human).toEqual({ code: 1, stdout: '', stderr: 'stopped halfway\n' });
 });
 
 test('C10 a read-only action cannot write through folder or secrets, and makes no commit', async () => {
 	const f = await setup();
+	await writeFile(join(f.dir, 'b.md'), 'by hand\n');
 	const peek = await f.json('notes', 'peek');
 	expect(peek.code).toBe(1);
 	expect(peek.answer).toEqual({
@@ -325,6 +371,54 @@ test('C10 a read-only action cannot write through folder or secrets, and makes n
 		},
 	});
 	expect(await subjects(f.dir)).toBe('initial');
+	expect(await status(f.dir)).toBe('?? b.md');
+});
+
+test('C11 concurrent sets of different fields on one file all land', async () => {
+	const f = await setup();
+	const fields = Array.from({ length: 50 }, (_, i) => `f${i}`);
+	await f.folder(join(f.home, 'many'), {
+		'.gitignore': gitignore,
+		'epicenter.ts': `${header}
+const items = defineCollection({ path: 'items/{id}.md', fields: { ${fields.map((key) => `${key}: field.number({ optional: true })`).join(', ')} } });
+export default defineApp({ description: 'Many fields', collections: { items }, actions: { items: items.actions() } });
+`,
+		'items/one.md': '---\n---\n',
+	});
+	const runs = await Promise.all(
+		fields.map((key, i) =>
+			f.run('many', 'items', 'set', 'items/one.md', `--${key}`, String(i)),
+		),
+	);
+	expect(runs.filter((run) => run.code !== 0)).toEqual([]);
+	const text = await readFile(join(f.home, 'many', 'items/one.md'), 'utf8');
+	for (const [i, key] of fields.entries())
+		expect(text).toContain(`${key}: ${i}\n`);
+});
+
+test('C12 no lock file is made anywhere', async () => {
+	const f = await setup();
+	const temp = join(f.root, 'tmp');
+	await mkdir(temp);
+	const env = { ...f.env, TMPDIR: temp };
+	const run = (...args: string[]) =>
+		Bun.spawn([process.execPath, f.bin, ...args], {
+			cwd: f.root,
+			env,
+			stdout: 'ignore',
+			stderr: 'ignore',
+		}).exited;
+	await Promise.all([
+		run('notes', 'write', 'monday'),
+		run('notes', 'write', 'tuesday'),
+		run('notes', 'half', 'wednesday'),
+	]);
+	expect(await readdir(temp)).toEqual([]);
+	expect(
+		(await readdir(join(f.dir, '.git'))).filter((name) =>
+			name.endsWith('.lock'),
+		),
+	).toEqual([]);
 	expect(await status(f.dir)).toBe('');
 });
 

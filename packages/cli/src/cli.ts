@@ -1,9 +1,10 @@
 /**
  * The epicenter command runs apps from the selected Epicenter
  * (ADR-0841). It parses words, shows what can run, checks input, and prints the
- * answer. Its exit code is 0 when the action returned, 1 when it threw, 2 when
- * nothing ran, and 3 when it returned but its writes were not committed
- * (ADR-0867).
+ * answer. Its exit code is 0 when the action returned, 1 when it threw, and 2
+ * when nothing ran (ADR-0867). After a run that is not read-only, it takes a
+ * snapshot of the app's folder (ADR-0850); a snapshot that fails changes
+ * neither the answer nor the exit code, and the app's status keeps why.
  */
 import type { Action } from '@epicenter/app';
 import packageJson from '../package.json' with { type: 'json' };
@@ -12,14 +13,9 @@ import { REPORT_FLAG, runChild } from './child.ts';
 import { COMMANDS, type Command } from './commands.ts';
 import { CliError } from './errors.ts';
 import { discoverAll, loadHomeApp } from './home.ts';
-import { initCommand } from './init.ts';
 import { serveHttp } from './http.ts';
-import {
-	matchAction,
-	nearestActions,
-	readInput,
-	usageLine,
-} from './input.ts';
+import { initCommand } from './init.ts';
+import { matchAction, nearestActions, readInput, usageLine } from './input.ts';
 import {
 	actionHelp,
 	actionTool,
@@ -33,11 +29,13 @@ import {
 	answerInto,
 	fail,
 	presentAnswer,
+	writeErr,
 	writeJson,
 	writeOut,
 } from './output.ts';
-import { runAction } from './run.ts';
 import { epicenterRoot, RootUsageError } from './root.ts';
+import { runAction } from './run.ts';
+import { historyOf, snapshot } from './snapshot.ts';
 import { syncCommand } from './sync.ts';
 import { updateCommand } from './update.ts';
 
@@ -52,7 +50,7 @@ then ~/Epicenter. An Epicenter has epicenter.root.json.
 A flag's value is read as its field's type; null removes a field that takes it.
 --input <json> gives an action's whole input as one JSON object; - reads it from stdin.
 --json prints one JSON answer, and --help (-h) explains anything; both go anywhere before --.
-Exit codes: 0 done, 1 threw or an app did not sync, 2 did not run, 3 ran but not committed.`;
+Exit codes: 0 done, 1 threw or an app did not sync, 2 did not run.`;
 const GLOBALS = new Set(['--json', '--help', '-h', '--version', '-V']);
 
 type Handler = (words: string[], json: boolean) => Promise<number>;
@@ -71,8 +69,8 @@ UI; without it, it starts from an epicenter.ts and a .gitignore.`,
 changes, undoes a merge that stops on a conflict, lists each file that no
 longer fits its collection's fields, and builds the UI, keeping the last one that built.`,
 	build: `Builds the UI of every app, or one app, keeping each last good build.`,
-	sync: `Commits what is left in each app, or one app, then pulls from origin and pushes
-to it. It never pushes to upstream.`,
+	sync: `Takes a snapshot of what is pending in each app, or one app, then pulls from
+origin and pushes to it. It never pushes to upstream.`,
 	serve: `Offers every app's actions over MCP at / and each app's UI at /<app>/, on
 127.0.0.1 and the Epicenter's port (default 4747) unless --port or --host says otherwise. With --stdio, it speaks
 MCP on stdin and stdout instead.`,
@@ -183,7 +181,17 @@ export async function runCli(argv: string[]): Promise<number> {
 						: `epicenter ${packageJson.version}`,
 				);
 			else if (help) print(HELP);
-			else print(homeListing(await discoverAll(), json));
+			else {
+				const found = await discoverAll();
+				const histories = new Map(
+					await Promise.all(
+						found.apps.map(
+							async (app) => [app.name, await historyOf(app.realPath)] as const,
+						),
+					),
+				);
+				print(homeListing(found, json, histories));
+			}
 			return 0;
 		}
 		const [name, ...words] = tokens as [string, ...string[]];
@@ -197,12 +205,19 @@ export async function runCli(argv: string[]): Promise<number> {
 			return HANDLERS[command](words, json);
 		}
 		epicenterRoot();
-		// Running an action is two processes; the child owns the whole run.
-		if (!reportArg && words.length > 0 && !help)
-			return presentAnswer(
-				(await runChild(relayed, { stdin: 'inherit' })) as Answer,
-				json,
-			);
+		// Running an action is two processes; the child owns the whole run, and this one its snapshot.
+		if (!reportArg && words.length > 0 && !help) {
+			const { answer, wrote } = await runChild(relayed, { stdin: 'inherit' });
+			const code = presentAnswer(answer as Answer, json);
+			if (wrote) {
+				const taken = await snapshot(wrote.app, wrote.folder);
+				if ('failed' in taken)
+					writeErr(
+						`Not yet in ${wrote.app}'s history: ${taken.failed}\nRun: epicenter sync ${wrote.app}`,
+					);
+			}
+			return code;
+		}
 		const { data: located, error: notFound } = await loadHomeApp(name);
 		if (notFound) return fail(notFound, json);
 		if (!located.ok)
@@ -211,7 +226,7 @@ export async function runCli(argv: string[]): Promise<number> {
 				json,
 			);
 		if (!words.length) {
-			print(oneAppListing(located, json));
+			print(oneAppListing(located, json, await historyOf(located.realPath)));
 			return 0;
 		}
 		const matched = matchAction(located.actions, words);
@@ -254,6 +269,9 @@ export async function runCli(argv: string[]): Promise<number> {
 		return presentAnswer(
 			await runAction(located, matched.key, action, given.input),
 			json,
+			action.annotations?.readOnlyHint === true
+				? undefined
+				: { app: located.name, folder: located.realPath },
 		);
 	} catch (error) {
 		if (error instanceof RootUsageError)

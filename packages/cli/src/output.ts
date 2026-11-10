@@ -6,38 +6,25 @@
  * stderr carries what went wrong, with a `Run: <next step>` line wherever
  * there is one.
  */
-import { writeReport } from './child.ts';
+import { type Report, writeReport } from './child.ts';
 import type { CliError } from './errors.ts';
 
 /**
  * What a command that runs an action answers (ADR-0850): the one value
  * `--json` prints, MCP returns as `structuredContent`, and stderr renders.
- * A run of an action that writes commits what changed in the app's folder,
- * whether the action returned or threw, and the answer says which commit, or
- * why there is none.
+ * Whether it returned or threw, what the action wrote stays in the folder
+ * until a snapshot takes it into the app's history.
  */
 export type Answer =
-	/**
-	 * The action returned this value; `null` for nothing. `committed` is the
-	 * commit its writes made; `uncommitted` says why they were left in the
-	 * folder when committing failed.
-	 */
-	| ({ returned: unknown } & Commit)
+	/** The action returned this value; `null` for nothing. */
+	| { returned: unknown }
 	/**
 	 * The action threw, or the run ended without an answer. A thrown tagged
-	 * error (`{ name, message, ...fields }`) is kept whole as `thrown`. What it
-	 * wrote before it threw is committed as for a return, under its call's
-	 * subject marked `(threw)`.
+	 * error (`{ name, message, ...fields }`) is kept whole as `thrown`.
 	 */
-	| ({ threw: { message: string; thrown?: Record<string, unknown> } } & Commit)
+	| { threw: { message: string; thrown?: Record<string, unknown> } }
 	/** Nothing ran: the words, the input, or the app was wrong. */
 	| { error: { name: string; message: string; next?: string } };
-
-/** What became of a run's writes: the commit they made, or why they are still only in the folder. */
-type Commit = {
-	committed?: string;
-	uncommitted?: { message: string; next: string };
-};
 
 /** The report file this process answers into, when it is a child (`child.ts`). */
 let reportPath: string | undefined;
@@ -47,9 +34,13 @@ export function answerInto(path: string) {
 	reportPath = path;
 }
 
-/** Write the one JSON answer: to stdout, or to the report file in a child. */
-export function writeJson(value: unknown) {
-	if (reportPath) writeReport(reportPath, { answer: value });
+/**
+ * Write the one JSON answer: to stdout, or to the report file in a child,
+ * with the app a write run wrote, for the parent to snapshot.
+ */
+export function writeJson(value: unknown, wrote?: Report['wrote']) {
+	if (reportPath)
+		writeReport(reportPath, { answer: value, ...(wrote ? { wrote } : {}) });
 	else process.stdout.write(`${JSON.stringify(value)}\n`);
 }
 
@@ -65,16 +56,14 @@ export function writeErr(text: string) {
 
 /**
  * An answer as a person reads it, and its exit code: a returned value on
- * stdout, and on stderr what the action threw, with what became of its
- * writes, or why nothing ran with its next step. 0: it returned, and its
- * writes are committed or there were none. 1: it threw, or ended without an
- * answer. 2: it did not run. 3: it returned, and its writes are not
- * committed, so running it again would repeat them (ADR-0867).
+ * stdout, and on stderr what the action threw, or why nothing ran with its
+ * next step. 0: it returned. 1: it threw, or ended without an answer. 2: it
+ * did not run.
  */
 export function renderAnswer(answer: Answer): {
 	stdout: string;
 	stderr: string;
-	code: 0 | 1 | 2 | 3;
+	code: 0 | 1 | 2;
 } {
 	if ('error' in answer) {
 		const { message, next } = answer.error;
@@ -84,34 +73,27 @@ export function renderAnswer(answer: Answer): {
 			code: 2,
 		};
 	}
-	if ('threw' in answer) {
-		const { committed, uncommitted } = answer;
-		const writes = committed
-			? `What it wrote before it threw is committed as ${committed}\n`
-			: uncommitted
-				? `What it wrote before it threw is not committed: ${uncommitted.message}\nRun: ${uncommitted.next}\n`
-				: '';
-		return {
-			stdout: '',
-			stderr: `${answer.threw.message}\n${writes}`,
-			code: 1,
-		};
-	}
-	const { returned, uncommitted } = answer;
-	const stderr = uncommitted
-		? `The action returned, but its changes were not committed: ${uncommitted.message}\nRun: ${uncommitted.next}\n`
-		: '';
-	const code = uncommitted ? 3 : 0;
-	if (returned === null) return { stdout: '', stderr, code };
+	if ('threw' in answer)
+		return { stdout: '', stderr: `${answer.threw.message}\n`, code: 1 };
+	const { returned } = answer;
+	if (returned === null) return { stdout: '', stderr: '', code: 0 };
 	const text =
 		typeof returned === 'string' ? returned : JSON.stringify(returned, null, 2);
-	return { stdout: text.endsWith('\n') ? text : `${text}\n`, stderr, code };
+	return {
+		stdout: text.endsWith('\n') ? text : `${text}\n`,
+		stderr: '',
+		code: 0,
+	};
 }
 
 /** Present an answer, as one JSON value or for a person, and return its exit code. */
-export function presentAnswer(answer: Answer, json: boolean): number {
+export function presentAnswer(
+	answer: Answer,
+	json: boolean,
+	wrote?: Report['wrote'],
+): number {
 	const { stdout, stderr, code } = renderAnswer(answer);
-	if (json) writeJson(answer);
+	if (json) writeJson(answer, wrote);
 	else {
 		process.stdout.write(stdout);
 		process.stderr.write(stderr);

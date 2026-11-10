@@ -8,10 +8,7 @@
  * import { connect } from '@epicenter/app/client';
  * import type tasks from '../../epicenter.ts';
  *
- * const app = connect<typeof tasks>('tasks', {
- *   onUncommitted: ({ action, reason, sync }) =>
- *     toast(`${action} ran, but is not in the app's history: ${reason}. Run ${sync}`),
- * });
+ * const app = connect<typeof tasks>('tasks');
  * const [first] = await app.list();
  * if (first) await app.set({ path: first.path, done: true });
  * ```
@@ -19,9 +16,7 @@
  * The client has the app's actions under the same words as the app: each
  * call checks its input and types what it returns in its JSON form, and
  * resolves to what the action returned or rejects with an `ActionError` when
- * it threw or did not run. An action that returned but whose changes could
- * not be committed still resolves; `onUncommitted` hears of it. The app is
- * imported as a type, and this file imports only types, so the UI's bundle
+ * it threw or did not run. The app is imported as a type, and this file imports only types, so the UI's bundle
  * carries no app code.
  */
 import type { JsonValue } from './front-matter.ts';
@@ -33,7 +28,7 @@ export class ActionError extends Error {
 		message: string,
 		/** `threw` when the action threw, `error` when nothing ran, `transport` when no answer came back. */
 		readonly kind: 'threw' | 'error' | 'transport',
-		/** The answer's whole object, when there was one: `{ error }`, or `{ threw }` with `committed` or `uncommitted` when the action wrote before it threw. */
+		/** The answer's whole object, when there was one: `{ error }` or `{ threw }`. */
 		readonly answer?: unknown,
 	) {
 		super(message);
@@ -41,9 +36,10 @@ export class ActionError extends Error {
 }
 
 /**
- * Whether a call was refused because the text it quoted changed since it was
- * read: a collection's `edit` throws `{ name: 'Changed' }` then, and a UI says
- * so and reloads rather than overwriting the other change.
+ * Whether a call was refused because what it changes changed since it was
+ * read: a collection's `edit` throws `{ name: 'Changed' }` when the text it
+ * quoted is gone, as `folder.update` does when the file kept changing, and a
+ * UI says so and reloads rather than overwriting the other change.
  */
 export function changedElsewhere(error: unknown): boolean {
 	const answer = error instanceof ActionError ? error.answer : undefined;
@@ -105,33 +101,15 @@ export type AppClient<A> = {
 		: AppClient<A[K]>;
 };
 
-/** What `onUncommitted` hears: an action that returned, but whose changes are not in the app's history. */
-type Uncommitted = {
-	/** The action's words, one space apart: `set`, `words add`. */
-	action: string;
-	/** What it returned, which the call also resolves to. */
-	returned: unknown;
-	/** Why its changes were not committed. */
-	reason: string;
-	/** The command that commits them: `epicenter sync <app>`. */
-	sync: string;
-};
-
 let nextId = 1;
 
 /**
  * A client for app `app` on the server at `url`: by default this origin's
- * `/`, where `epicenter serve` answers the UIs it serves. `onUncommitted` is
- * called, before the call resolves, for each call whose action returned but
- * whose changes could not be committed, so the UI can say so rather than
- * report them saved.
+ * `/`, where `epicenter serve` answers the UIs it serves.
  */
 export function connect<App extends { actions: object }>(
 	app: string,
-	{
-		url = '/',
-		onUncommitted,
-	}: { url?: string; onUncommitted: (uncommitted: Uncommitted) => void },
+	{ url = '/' }: { url?: string } = {},
 ): AppClient<App['actions']> {
 	const at = (words: string[]): unknown =>
 		new Proxy(() => {}, {
@@ -142,29 +120,18 @@ export function connect<App extends { actions: object }>(
 			apply: async (_, __, [input]) => {
 				if (words.length === 0)
 					throw new Error(`Call one of ${app}'s actions, not the app`);
-				const answer = await call(url, [app, ...words].join('_'), input ?? {});
-				if (answer.uncommitted)
-					onUncommitted({
-						action: words.join(' '),
-						returned: answer.returned,
-						reason: answer.uncommitted.message,
-						sync: answer.uncommitted.next,
-					});
-				return answer.returned;
+				return call(url, [app, ...words].join('_'), input ?? {});
 			},
 		});
 	return at([]) as AppClient<App['actions']>;
 }
 
-/** Ask the server at `url` to run the MCP tool `name`, and return the answer of an action that returned. */
+/** Ask the server at `url` to run the MCP tool `name`, and return what its action returned. */
 async function call(
 	url: string,
 	name: string,
 	input: Record<string, unknown>,
-): Promise<{
-	returned: unknown;
-	uncommitted?: { message: string; next: string };
-}> {
+): Promise<unknown> {
 	let response: Response;
 	try {
 		response = await fetch(url, {
@@ -203,8 +170,7 @@ async function call(
 		throw new ActionError(message.error.message, 'transport', message);
 	const result = message.result ?? {};
 	const answer = result.structuredContent ?? {};
-	if (!result.isError && 'returned' in answer)
-		return answer as Awaited<ReturnType<typeof call>>;
+	if (!result.isError && 'returned' in answer) return answer.returned;
 	const text =
 		result.content?.find((part) => part.type === 'text')?.text ??
 		JSON.stringify(answer);

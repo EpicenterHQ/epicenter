@@ -1,13 +1,15 @@
 /**
  * An action's folder on this computer's disk (ADR-0841, ADR-0850). It is a
  * convenience, not a sandbox: paths are normalized and `.git` is refused, and
- * otherwise a write is a write, recorded nowhere. Writes replace a whole file
- * at once, keeping the mode of the file they replace. Listing avoids Git,
- * dependencies, and directory links so those trees never become app data.
+ * otherwise a write is a write. Writes replace a whole file at once, keeping
+ * the mode of the file they replace; `update` replaces it only when it is
+ * still what its change read, so concurrent updates of one file, from any
+ * process, each land. Listing avoids Git, dependencies, and directory links
+ * so those trees never become app data.
  */
 
-import { randomUUID } from 'node:crypto';
-import type { Dirent } from 'node:fs';
+import { createHash, randomUUID } from 'node:crypto';
+import { type Dirent, readFileSync, renameSync } from 'node:fs';
 import {
 	chmod,
 	lstat,
@@ -23,8 +25,31 @@ import {
 import { dirname, join } from 'node:path';
 import { type Folder, normalizePath } from '@epicenter/app';
 
+/** How many times `update` reads and changes a file that keeps changing before it gives up. */
+const UPDATE_TRIES = 10;
+
+/** How old another update's file beside the target is before it is taken for one a crash left. */
+const ABANDONED_MS = 30_000;
+
 function missing(error: unknown) {
 	return (error as NodeJS.ErrnoException).code === 'ENOENT';
+}
+
+/** A short name for `text`, or for no file, that two updates of the same text share. */
+function textTag(text: string | undefined) {
+	return text === undefined
+		? 'none'
+		: createHash('sha256').update(text).digest('hex').slice(0, 16);
+}
+
+/** The text at `target` now, read without yielding. */
+function readNow(target: string) {
+	try {
+		return readFileSync(target, 'utf8');
+	} catch (error) {
+		if (missing(error)) return undefined;
+		throw error;
+	}
 }
 
 /** The app's folder at `dir`, its methods reading and writing the disk. */
@@ -38,11 +63,26 @@ export function folderOnDisk(dir: string): Folder {
 			throw error;
 		}
 	}
-	async function writeBytes(path: string, bytes: Uint8Array) {
+	/**
+	 * Write `bytes` beside the file at `path` and rename it over, so a reader
+	 * never sees half a file; a file it replaces keeps its mode. The file
+	 * beside it is named `*.local`, so a snapshot taken meanwhile never
+	 * commits it.
+	 *
+	 * Given `replacing`, the text the bytes were made from, it writes only
+	 * over that text, and answers whether it did. Its file beside is named
+	 * for that text and made only when no other is there, so two updates of
+	 * the same text never both write; and just before the rename it reads the
+	 * file again and leaves it as it is when the text has changed.
+	 */
+	async function replace(
+		path: string,
+		bytes: Uint8Array,
+		replacing?: { text: string | undefined },
+	) {
 		const target = pathOf(path);
 		await mkdir(dirname(target), { recursive: true });
-		// Beside the target and renamed over it, so a reader never sees half a file; a file it replaces keeps its mode.
-		const temp = `${target}.${randomUUID()}.tmp`;
+		const temp = `${target}.${replacing ? textTag(replacing.text) : randomUUID()}.tmp.local`;
 		let mode: number | undefined;
 		try {
 			mode = (await stat(target)).mode & 0o7777;
@@ -50,23 +90,61 @@ export function folderOnDisk(dir: string): Folder {
 			if (!missing(error)) throw error;
 		}
 		try {
-			await writeFile(temp, bytes, mode === undefined ? {} : { mode });
-			if (mode !== undefined) await chmod(temp, mode);
-			await rename(temp, target);
-		} finally {
-			await rm(temp, { force: true });
+			await writeFile(temp, bytes, {
+				flag: replacing ? 'wx' : 'w',
+				...(mode === undefined ? {} : { mode }),
+			});
+		} catch (error) {
+			if (!replacing || (error as NodeJS.ErrnoException).code !== 'EEXIST')
+				throw error;
+			// Another update of the same text is writing; one a crash left behind is cleared.
+			const left = await stat(temp).catch(() => undefined);
+			if (left && Date.now() - left.mtimeMs > ABANDONED_MS)
+				await rm(temp, { force: true });
+			return false;
 		}
+		let renamed = false;
+		try {
+			if (mode !== undefined) await chmod(temp, mode);
+			if (!replacing) await rename(temp, target);
+			// Read and rename without yielding, so nothing in this process runs between them.
+			else if (readNow(target) === replacing.text) renameSync(temp, target);
+			else return false;
+			renamed = true;
+			return true;
+		} finally {
+			// Once renamed, the name may already be another update's.
+			if (!renamed) await rm(temp, { force: true });
+		}
+	}
+	async function read(path: string) {
+		const bytes = await readBytes(path);
+		return bytes === undefined ? undefined : new TextDecoder().decode(bytes);
 	}
 	return {
 		path: dir,
 		readBytes,
-		async read(path) {
-			const bytes = await readBytes(path);
-			return bytes === undefined ? undefined : new TextDecoder().decode(bytes);
+		read,
+		async writeBytes(path, bytes) {
+			await replace(path, bytes);
 		},
-		writeBytes,
 		async write(path, text) {
-			await writeBytes(path, new TextEncoder().encode(text));
+			await replace(path, new TextEncoder().encode(text));
+		},
+		async update(path, change) {
+			for (let tries = 1; ; tries++) {
+				const text = await read(path);
+				const changed = change(text);
+				const bytes = new TextEncoder().encode(changed);
+				if (await replace(path, bytes, { text })) return changed;
+				if (tries === UPDATE_TRIES)
+					throw Object.freeze({
+						name: 'Changed',
+						message: `${normalizePath(path)} kept changing while it was updated`,
+					});
+				// A random wait, doubling with each try, so updates that met spread apart.
+				await Bun.sleep(Math.random() * 2 ** tries);
+			}
 		},
 		async delete(path) {
 			try {

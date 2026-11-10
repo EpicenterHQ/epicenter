@@ -74,6 +74,10 @@ describe('a read-only run', () => {
 				() => folder.writeBytes('a.bin', new Uint8Array([1])),
 				refused('write a.bin'),
 			],
+			[
+				() => folder.update('2026.csv', (text) => `${text}x`),
+				refused('write 2026.csv'),
+			],
 			[() => folder.delete('2026.csv'), refused('delete 2026.csv')],
 			[() => secrets.set('token', 'x'), refused('set the secret token')],
 			[() => secrets.delete('token'), refused('delete the secret token')],

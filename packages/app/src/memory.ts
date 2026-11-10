@@ -37,6 +37,15 @@ function createMemoryFolder(
 		async writeBytes(path, content) {
 			bytes.set(normalizePath(path), content);
 		},
+		// Nothing else writes this folder between the read and the write, so one try is enough.
+		async update(path, change) {
+			const found = bytes.get(normalizePath(path));
+			const text = change(
+				found === undefined ? undefined : decoder.decode(found),
+			);
+			bytes.set(normalizePath(path), encoder.encode(text));
+			return text;
+		},
 		async list(dir) {
 			const prefix = dir === undefined ? '' : `${normalizePath(dir)}/`;
 			return [...bytes.keys()].filter((path) => path.startsWith(prefix)).sort();

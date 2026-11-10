@@ -1,7 +1,8 @@
 /**
  * HTTP serve acceptance tests.
- * Runs the real CLI against a temporary HOME and checks MCP calls, Git commits,
- * UI confinement, and request origin handling.
+ * Runs the real CLI against a temporary HOME and checks MCP calls, the
+ * snapshots after them and of quiet outside edits, UI confinement, and
+ * request origin handling.
  */
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
 import { mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
@@ -28,12 +29,12 @@ afterEach(async () => {
 	for (const cleanup of cleanups.splice(0)) await cleanup();
 });
 
-async function setup(agents?: string) {
+async function setup(agents?: string, env: Record<string, string> = {}) {
 	const f = await fixture();
 	if (agents !== undefined) await writeFile(join(f.home, 'AGENTS.md'), agents);
 	const child = Bun.spawn([process.execPath, f.bin, 'serve', '--port', '0'], {
 		cwd: f.root,
-		env: f.env,
+		env: { ...f.env, ...env },
 		stdout: 'ignore',
 		stderr: 'pipe',
 	});
@@ -134,9 +135,6 @@ test('the browser client calls a tool without initialize and a write makes one n
 	const folder = await f.folder(join(f.home, 'reading'), readingApp);
 	const client = connect<Reading>('reading', {
 		url: `${f.base}/`,
-		onUncommitted: () => {
-			throw new Error('every write here commits');
-		},
 	});
 	expect(await client.log({ minutes: 30 })).toEqual({
 		minutes: 30,
@@ -151,72 +149,81 @@ test('the browser client calls a tool without initialize and a write makes one n
 	);
 });
 
-test('a read-only action makes no commit, and one that throws after writing commits under its own subject', async () => {
+test('a read-only action makes no commit, and one that throws after writing is snapshotted under its call', async () => {
 	const f = await setup();
 	const folder = await f.folder(join(f.home, 'reading'), readingApp);
-	const client = connect<Reading>('reading', {
-		url: `${f.base}/`,
-		onUncommitted: () => {
-			throw new Error('every write here commits');
-		},
-	});
+	const client = connect<Reading>('reading', { url: `${f.base}/` });
+	await writeFile(join(folder, 'notes.md'), 'by hand\n');
 	expect(await client.week.show()).toBe(210);
 	expect(await gitIn(folder, 'rev-list', '--count', 'HEAD')).toBe('1');
 	const threw = await client.explode().catch((error: unknown) => error);
 	expect(threw).toBeInstanceOf(ActionError);
-	const answer = (threw as ActionError).answer as { committed?: string };
-	expect((threw as ActionError).message).toBe(
-		`line 4 is not a number\nWhat it wrote before it threw is committed as ${answer.committed}`,
-	);
-	expect(answer.committed).toBe(
-		await gitIn(folder, 'rev-parse', '--short', 'HEAD'),
-	);
-	expect(await gitIn(folder, 'log', '-1', '--format=%s')).toBe(
-		'reading: explode (threw)',
+	expect((threw as ActionError).message).toBe('line 4 is not a number');
+	expect((threw as ActionError).answer).toEqual({
+		threw: { message: 'line 4 is not a number' },
+	});
+	expect(await gitIn(folder, 'log', '-1', '--format=%B')).toBe(
+		'reading: explode\n\nChanged outside epicenter: notes.md',
 	);
 	expect(await gitIn(folder, 'status', '--porcelain')).toBe('');
 });
 
-test('a call whose changes are not committed resolves, and onUncommitted hears why', async () => {
+test('a call whose snapshot fails still resolves, and the app says why', async () => {
 	const f = await setup();
 	const folder = await f.folder(join(f.home, 'reading'), readingApp);
 	await writeFile(
 		join(folder, '.gitattributes'),
 		'*.csv filter=lfs diff=lfs merge=lfs -text\n',
 	);
-	const heard: unknown[] = [];
-	const client = connect<Reading>('reading', {
-		url: `${f.base}/`,
-		onUncommitted: (uncommitted) => heard.push(uncommitted),
-	});
+	const client = connect<Reading>('reading', { url: `${f.base}/` });
 	expect(await client.log({ minutes: 5 })).toEqual({ minutes: 5, book: null });
-	expect(heard).toEqual([
+	expect(await gitIn(folder, 'rev-list', '--count', 'HEAD')).toBe('1');
+	expect(JSON.parse((await f.run('reading', '--json')).stdout).history).toEqual(
 		{
-			action: 'log',
-			returned: { minutes: 5, book: null },
-			reason: expect.stringContaining('git lfs install'),
-			sync: 'epicenter sync reading',
+			pending: 2,
+			failed: {
+				message: expect.stringContaining('git lfs install'),
+				next: 'epicenter sync reading',
+			},
 		},
-	]);
+	);
 });
 
-test('concurrent writes run one at a time and make one commit each', async () => {
+test('concurrent writes through update both land, and both are in history', async () => {
 	const f = await setup();
 	const folder = await f.folder(join(f.home, 'reading'), readingApp);
-	const client = connect<Reading>('reading', {
-		url: `${f.base}/`,
-		onUncommitted: () => {
-			throw new Error('every write here commits');
-		},
-	});
+	const client = connect<Reading>('reading', { url: `${f.base}/` });
 	await Promise.all([client.log({ minutes: 10 }), client.log({ minutes: 20 })]);
-	expect(await gitIn(folder, 'rev-list', '--count', 'HEAD')).toBe('3');
-	expect(
-		(await gitIn(folder, 'log', '-2', '--format=%s')).split('\n').sort(),
-	).toEqual(['reading: log 10', 'reading: log 20']);
 	expect(await readFile(join(folder, '2026.csv'), 'utf8')).toMatch(
 		/^minutes,book\n(?:10,\n20,|20,\n10,)\n$/,
 	);
+	expect(await gitIn(folder, 'status', '--porcelain')).toBe('');
+	const history = await gitIn(folder, 'log', '--format=%B');
+	expect(history).toContain('reading: log 10');
+	expect(history).toContain('reading: log 20');
+});
+
+test('outside edits that have gone quiet are snapshotted and pushed within two checks', async () => {
+	const f = await setup(undefined, { EPICENTER_QUIET_CHECK_MS: '300' });
+	const folder = await f.folder(join(f.home, 'reading'), readingApp);
+	const remote = join(f.root, 'remote.git');
+	await gitIn(f.root, 'init', '--bare', '-q', remote);
+	await gitIn(folder, 'remote', 'add', 'origin', remote);
+	await gitIn(folder, 'push', '-q', '-u', 'origin', 'HEAD');
+	await writeFile(join(folder, 'notes.md'), 'by hand\n');
+	const wrote = Date.now();
+	let message = '';
+	while (Date.now() - wrote < 5_000) {
+		message = await gitIn(remote, 'log', '-1', '--format=%B');
+		if (message !== 'initial') break;
+		await Bun.sleep(50);
+	}
+	expect(message).toBe(
+		'reading: 1 change\n\nChanged outside epicenter: notes.md',
+	);
+	// Two checks, 300 ms apart, and the snapshot and push after them.
+	expect(Date.now() - wrote).toBeLessThan(2_000);
+	expect(await gitIn(folder, 'status', '--porcelain')).toBe('');
 });
 
 test('a successful write pushes to an upstream in the background', async () => {
@@ -228,9 +235,6 @@ test('a successful write pushes to an upstream in the background', async () => {
 	await gitIn(folder, 'push', '-q', '-u', 'origin', 'HEAD');
 	await connect<Reading>('reading', {
 		url: `${f.base}/`,
-		onUncommitted: () => {
-			throw new Error('every write here commits');
-		},
 	}).log({ minutes: 42 });
 	let subject = '';
 	for (let attempt = 0; attempt < 50; attempt++) {
@@ -255,9 +259,6 @@ test('commit subjects use the first positional value on one line, capped at 60 c
 		'notes',
 		{
 			url: `${f.base}/`,
-			onUncommitted: () => {
-				throw new Error('every write here commits');
-			},
 		},
 	).add({ text });
 	expect(await gitIn(folder, 'log', '-1', '--format=%B')).toBe(

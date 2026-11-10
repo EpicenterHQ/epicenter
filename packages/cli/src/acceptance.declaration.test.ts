@@ -399,7 +399,6 @@ test("D8 an app of one collection's verbs adds, reads, changes, and deletes its 
 				added: '2026-11-09',
 				body: 'Fear is the mind-killer.\n',
 			},
-			committed: expect.any(String),
 		},
 	});
 	expect(await readFile(join(folder, 'items/dune.md'), 'utf8')).toBe(
@@ -530,7 +529,6 @@ test("D8 an app of one collection's verbs adds, reads, changes, and deletes its 
 		});
 		expect(deleted.structuredContent).toEqual({
 			returned: true,
-			committed: expect.any(String),
 		});
 	} finally {
 		await client.close();

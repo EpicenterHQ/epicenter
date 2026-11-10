@@ -211,7 +211,7 @@ test('F9 one table owns the vocabulary; --json goes anywhere; defaulted fields a
 	const help = (await f.run('--help')).stdout;
 	expect(help).toContain('epicenter sync [<app>]');
 	expect(help).toContain(
-		'Exit codes: 0 done, 1 threw or an app did not sync, 2 did not run, 3 ran but not committed.',
+		'Exit codes: 0 done, 1 threw or an app did not sync, 2 did not run.',
 	);
 	for (const gone of ['install', 'epicenter types', 'setup', 'epicenter help'])
 		expect(help).not.toContain(gone);
@@ -220,7 +220,6 @@ test('F9 one table owns the vocabulary; --json goes anywhere; defaulted fields a
 	expect(leading.code).toBe(0);
 	expect(JSON.parse(leading.stdout)).toEqual({
 		returned: 'Ada',
-		committed: expect.any(String),
 	});
 	expect(JSON.parse((await f.run('--json', 'notes')).stdout).name).toBe(
 		'notes',

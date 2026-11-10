@@ -1,9 +1,10 @@
 /**
  * The folder on disk preserves relative paths and atomic writes.
  * Listing excludes dependency and Git directories and never traverses directory links.
- * `commit` commits the folder and nothing outside it (ADR-0850).
+ * `update` changes what is there when it writes, never what was there when it read.
  */
 import { afterEach, expect, test } from 'bun:test';
+import { writeFileSync } from 'node:fs';
 import {
 	chmod,
 	mkdir,
@@ -63,6 +64,7 @@ test('normalization refuses climbing, absolute and Git paths on every file metho
 		await expect(folder.readBytes(path)).rejects.toThrow();
 		await expect(folder.write(path, 'no')).rejects.toThrow();
 		await expect(folder.writeBytes(path, new Uint8Array())).rejects.toThrow();
+		await expect(folder.update(path, () => 'no')).rejects.toThrow();
 		await expect(folder.delete(path)).rejects.toThrow();
 		await expect(folder.list(path)).rejects.toThrow();
 	}
@@ -92,4 +94,59 @@ test('listing is sorted and folder-relative and skips dependency trees and direc
 	expect(await folder.list('missing')).toEqual([]);
 	expect(await folder.list('directory-link')).toEqual([]);
 	expect(await folder.list('nested/node_modules')).toEqual([]);
+});
+
+test('update retries when another writer changes the file between its read and its write, and keeps both changes', async () => {
+	const { root, folder } = await setup();
+	await folder.write('list.txt', 'a\n');
+	const seen: (string | undefined)[] = [];
+	const written = await folder.update('list.txt', (text) => {
+		seen.push(text);
+		// Another writer, after this read and before this write.
+		if (seen.length === 1) writeFileSync(join(root, 'list.txt'), `${text}b\n`);
+		return `${text}c\n`;
+	});
+	expect(seen).toEqual(['a\n', 'a\nb\n']);
+	expect(written).toBe('a\nb\nc\n');
+	expect(await folder.read('list.txt')).toBe('a\nb\nc\n');
+	expect(await folder.update('new.txt', (text) => `${text ?? 'made'}`)).toBe(
+		'made',
+	);
+});
+
+test('update gives up on a file that keeps changing, throwing Changed, and writes nothing', async () => {
+	const { root, folder } = await setup();
+	await folder.write('busy.txt', '0');
+	let tries = 0;
+	const error = await folder
+		.update('busy.txt', () => {
+			tries++;
+			writeFileSync(join(root, 'busy.txt'), String(tries));
+			return 'mine';
+		})
+		.catch((thrown: unknown) => thrown);
+	expect(tries).toBe(10);
+	expect(error).toEqual({
+		name: 'Changed',
+		message: 'busy.txt kept changing while it was updated',
+	});
+	expect(await folder.read('busy.txt')).toBe('10');
+	expect((await readdir(root)).sort()).toEqual(['.git', 'busy.txt']);
+});
+
+test('update whose change throws writes nothing', async () => {
+	const { root, folder } = await setup();
+	await folder.write('kept.txt', 'kept');
+	await expect(
+		folder.update('kept.txt', () => {
+			throw new Error('no change');
+		}),
+	).rejects.toThrow('no change');
+	await expect(
+		folder.update('absent.txt', () => {
+			throw new Error('no file');
+		}),
+	).rejects.toThrow('no file');
+	expect(await folder.read('kept.txt')).toBe('kept');
+	expect((await readdir(root)).sort()).toEqual(['.git', 'kept.txt']);
 });

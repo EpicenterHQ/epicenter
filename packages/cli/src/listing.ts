@@ -4,8 +4,9 @@
  * offers, so a listing and `tools/list` agree; the human views come from the
  * same actions.
  */
-import type { Action } from '@epicenter/app';
+
 import { basename } from 'node:path';
+import type { Action } from '@epicenter/app';
 import type { TSchemaOptions } from 'typebox';
 import type { Discovery, Runnable } from './home.ts';
 import {
@@ -15,8 +16,42 @@ import {
 	requiredKeys,
 	usageLine,
 } from './input.ts';
-import { keychainService } from './secrets.ts';
 import { epicenterRoot } from './root.ts';
+import { keychainService } from './secrets.ts';
+import type { historyOf } from './snapshot.ts';
+
+/** What of an app is not yet in its history, as `historyOf` reads it; `undefined` for a folder in no repository. */
+type History = Awaited<ReturnType<typeof historyOf>>;
+
+/**
+ * An app's history status as `--json` gives it: how many paths are pending,
+ * and why the last snapshot failed with the command that retries it; absent
+ * when there is neither.
+ */
+function historyStatus(app: string, history: History) {
+	if (!history || (history.pending === 0 && !history.failed)) return {};
+	return {
+		history: {
+			pending: history.pending,
+			...(history.failed
+				? { failed: { message: history.failed, next: `epicenter sync ${app}` } }
+				: {}),
+		},
+	};
+}
+
+/** An app's history status in a few words for the Epicenter listing, or nothing. */
+function historyMark(history: History) {
+	const marks = [
+		...(history?.pending
+			? [
+					`${history.pending} ${history.pending === 1 ? 'change' : 'changes'} not in history`,
+				]
+			: []),
+		...(history?.failed ? ['last snapshot failed'] : []),
+	];
+	return marks.length ? ` (${marks.join('; ')})` : '';
+}
 
 /** MCP's defaults for each hint an action does not give. */
 const ANNOTATION_DEFAULTS = {
@@ -38,10 +73,10 @@ export function actionTool(app: string, key: string, action: Action) {
 
 /**
  * The app as `--json` prints it: its description, each collection's path and
- * fields as JSON Schema, and its actions as tools. Nothing here reads Git
- * (ADR-0851).
+ * fields as JSON Schema, its actions as tools, and what is not yet in its
+ * history, which the caller reads from Git.
  */
-function appListing(located: Runnable) {
+function appListing(located: Runnable, history: History) {
 	const { app } = located;
 	return {
 		name: located.name,
@@ -63,6 +98,7 @@ function appListing(located: Runnable) {
 		actions: Object.entries(located.actions).map(([key, action]) =>
 			actionTool(located.name, key, action),
 		),
+		...historyStatus(located.name, history),
 	};
 }
 
@@ -81,12 +117,16 @@ function actionLines(located: Runnable) {
 	]);
 }
 
-/** Render discovery as one answer while keeping broken entries separate from runnable apps. */
-export function homeListing(found: Discovery, json: boolean): unknown {
+/** Render discovery as one answer while keeping broken entries separate from runnable apps; an app with changes not in history is marked. */
+export function homeListing(
+	found: Discovery,
+	json: boolean,
+	histories: ReadonlyMap<string, History>,
+): unknown {
 	if (json)
 		return {
 			epicenter: found.epicenter,
-			apps: found.apps.map(appListing),
+			apps: found.apps.map((app) => appListing(app, histories.get(app.name))),
 			problems: found.problems.map(({ entry, folder, problems }) => ({
 				entry,
 				folder,
@@ -96,7 +136,7 @@ export function homeListing(found: Discovery, json: boolean): unknown {
 	const width = Math.max(0, ...found.apps.map(({ name }) => name.length));
 	const lines = found.apps.map(
 		(located) =>
-			`${located.name.padEnd(width)}  ${located.app.description}${located.link ? ` -> ${located.link}` : ''}`,
+			`${located.name.padEnd(width)}  ${located.app.description}${located.link ? ` -> ${located.link}` : ''}${historyMark(histories.get(located.name))}`,
 	);
 	if (!found.apps.length) lines.push('No apps yet. Run: epicenter new <name>');
 	else lines.push('', 'Run: epicenter <app>');
@@ -113,17 +153,32 @@ export function homeListing(found: Discovery, json: boolean): unknown {
 	return lines.join('\n');
 }
 
-/** Render an app's actions and its folder; `--json` adds its keychain service. */
-export function oneAppListing(located: Runnable, json: boolean): unknown {
+/** Render an app's actions, its folder, and what is not yet in its history; `--json` adds its keychain service. */
+export function oneAppListing(
+	located: Runnable,
+	json: boolean,
+	history: History,
+): unknown {
 	if (json)
 		return {
-			...appListing(located),
+			...appListing(located, history),
 			keychain: keychainService(epicenterRoot().id, located.name),
 		};
 	return [
 		`${located.name}  ${located.app.description}`,
 		`folder: ${located.folder}`,
 		...(located.link ? [`link: ${located.link}`] : []),
+		...(history?.pending
+			? [
+					`${history.pending} ${history.pending === 1 ? 'change' : 'changes'} not yet in history`,
+				]
+			: []),
+		...(history?.failed
+			? [
+					`The last snapshot failed: ${history.failed}`,
+					`Run: epicenter sync ${located.name}`,
+				]
+			: []),
 		'',
 		...actionLines(located),
 		'',

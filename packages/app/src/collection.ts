@@ -649,10 +649,8 @@ function createFiles(templates: readonly Template[], fields: Fields) {
 		return { set: inDeclaredOrder(set, fields), removed };
 	}
 
-	/** Make the file at `path` from the defaults, `given`, and `body`; throws when one is there or the fields do not fit. */
-	async function make(path: string, given: FieldValues, body: string) {
-		if ((await folder.read(path)) !== undefined)
-			throw new Error(`${path} is already there`);
+	/** The text of a new file at `path` from the defaults, `given`, and `body`; throws when the fields do not fit. */
+	function made(path: string, given: FieldValues, body: string) {
 		for (const key of Object.keys(given)) known(path, key);
 		const values: FieldValues = {};
 		for (const [key, schema] of Object.entries(fields))
@@ -662,13 +660,12 @@ function createFiles(templates: readonly Template[], fields: Fields) {
 				);
 		Object.assign(values, given);
 		refuse(path, values, true);
-		await folder.write(path, markdownOf(inDeclaredOrder(values, fields), body));
+		return markdownOf(inDeclaredOrder(values, fields), body);
 	}
 
-	async function editFile(path: string, change: Change) {
-		const found = await read(path);
-		if (!found) throw new Error(`There is no ${path}`);
-		const { body, text } = found;
+	/** `text` with the passage `change.old` of its body replaced by `change.new`; throws "Changed" when the body no longer has it. */
+	function edited(path: string, text: string, change: Change) {
+		const { body } = readMarkdown(text);
 		const head = text.slice(0, text.length - body.length);
 		const { old } = change;
 		const at = body.indexOf(old);
@@ -682,12 +679,11 @@ function createFiles(templates: readonly Template[], fields: Fields) {
 			throw new Error(
 				`${path}'s body has that text more than once; quote more around it`,
 			);
-		await folder.write(
-			path,
+		return (
 			head +
-				(old === ''
-					? change.new
-					: body.slice(0, at) + change.new + body.slice(at + old.length)),
+			(old === ''
+				? change.new
+				: body.slice(0, at) + change.new + body.slice(at + old.length))
 		);
 	}
 
@@ -731,33 +727,38 @@ function createFiles(templates: readonly Template[], fields: Fields) {
 			const given = Object.fromEntries(
 				Object.entries(rest).filter(([, value]) => value !== undefined),
 			) as FieldValues;
-			await make(path, given, typeof body === 'string' ? body : '');
+			await folder.update(path, (text) => {
+				if (text !== undefined) throw new Error(`${path} is already there`);
+				return made(path, given, typeof body === 'string' ? body : '');
+			});
 			return getFile(path);
 		},
 		async set({ path, ...given }: PathIn & Record<string, unknown>) {
 			const at = own(path);
-			const found = await read(at);
 			const patch = patchOf(at, given);
-			if (!found) {
-				if (!single) throw new Error(`There is no ${at}`);
-				await make(at, patch.set, '');
-			} else {
+			await folder.update(at, (text) => {
+				if (text === undefined) {
+					if (!single) throw new Error(`There is no ${at}`);
+					return made(at, patch.set, '');
+				}
+				const found = readMarkdown(text);
 				if (!found.writable)
 					throw new Error(
 						`${at} has front matter that is neither key: <JSON> lines nor YAML; fix it by hand first`,
 					);
-				await folder.write(
-					at,
-					withFields(found.text, found, patch.set, patch.removed),
-				);
-			}
+				return withFields(text, found, patch.set, patch.removed);
+			});
 			return getFile(at);
 		},
 		async edit({ path, ...change }: PathIn & Change) {
 			const at = own(path);
-			if (single && (await folder.read(at)) === undefined)
-				await make(at, {}, '');
-			await editFile(at, change);
+			await folder.update(at, (text) => {
+				if (text === undefined) {
+					if (!single) throw new Error(`There is no ${at}`);
+					return edited(at, made(at, {}, ''), change);
+				}
+				return edited(at, text, change);
+			});
 			return getFile(at);
 		},
 		async delete({ path }: PathIn) {
