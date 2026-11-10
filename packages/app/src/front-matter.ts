@@ -7,10 +7,12 @@
  * `---`, and every line between them is `key: <JSON>`, each key once. A
  * key is a letter or `_`, then letters, digits, `_` or `-`; a value is a
  * JSON text on that one line, which YAML 1.2 reads as the same value. A
- * line ends at `\n`, and a `\r` before it belongs to the ending. Anything
- * else is outside the grammar: the whole file is body. No YAML library is
- * involved.
+ * line ends at `\n`, and a `\r` before it belongs to the ending. This module
+ * reads and patches only that grammar and uses no YAML library.
  *
+ * A collection reads other YAML front matter too, and its first `set`
+ * rewrites that header in the grammar (`collection.ts`, ADR-0862), so
+ * Zhongwen's or Obsidian's `text: 银行` is a field, not body.
  */
 /** A JSON value. */
 export type JsonValue =
