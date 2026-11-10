@@ -329,7 +329,7 @@ may set `port` (0 to 65535, default 4747). A public listener needs both
 
 `folder` is a convenience, not a sandbox: an action may also write through
 `folder.path` with `node:fs`. An app can ignore files it can rebuild, such as
-`ui/build/`; Git does not commit them.
+`ui/dist/`; Git does not commit them.
 Paths are relative to the folder with `/` between parts, and `read` gives
 `undefined` for a missing file.
 

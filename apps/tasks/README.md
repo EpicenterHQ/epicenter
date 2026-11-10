@@ -48,7 +48,7 @@ blank one, as `add` does.
 
 ## The UI
 
-`ui/` is a SvelteKit project whose build writes `ui/build/`, ignored by
+`ui/` is a SvelteKit project whose build writes `ui/dist/`, ignored by
 `ui/.gitignore` and served at `/tasks/`. It shows the list (`#/`) with a quick
 add, open tasks grouped as Overdue, Today, Upcoming, and No date, and the done
 ones folded under Completed. A task's page
