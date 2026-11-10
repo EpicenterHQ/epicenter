@@ -13,7 +13,7 @@
 	import { Textarea } from '@epicenter/ui/textarea';
 	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
 	import { untrack } from 'svelte';
-	import type { Word } from '../../../../epicenter.js';
+	import type { Word } from '../../../../../epicenter.js';
 	import { langOf, untilLabel } from '$lib/text.js';
 	import { vocab } from '$lib/vocab.svelte.js';
 

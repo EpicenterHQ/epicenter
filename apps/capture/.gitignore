@@ -1,2 +1,4 @@
-.svelte-kit/
-build/
+node_modules/
+.cache/
+*.local
+*.local.*

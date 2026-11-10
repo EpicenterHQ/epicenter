@@ -1,5 +1,4 @@
 {
-	"extends": "./.svelte-kit/tsconfig.json",
 	"compilerOptions": {
 		"types": ["bun"],
 		"strict": true,
@@ -9,8 +8,10 @@
 		"resolveJsonModule": true,
 		"moduleResolution": "bundler",
 		"module": "esnext",
+		"target": "esnext",
 		"verbatimModuleSyntax": true,
-		"skipLibCheck": true
+		"skipLibCheck": true,
+		"noEmit": true
 	},
-	"include": [".svelte-kit/ambient.d.ts", ".svelte-kit/non-ambient.d.ts", ".svelte-kit/types/**/$types.d.ts", "src/**/*.ts", "src/**/*.svelte", "epicenter.ts", "*.test.ts"]
+	"include": ["epicenter.ts", "*.test.ts"]
 }

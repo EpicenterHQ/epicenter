@@ -1,34 +1,17 @@
 {
 	"name": "@epicenter/tasks",
-	"description": "Tasks as an app in ~/Epicenter: its declaration, its actions, and the source of its view",
+	"description": "Tasks as an app in ~/Epicenter: its declaration and actions; its UI is ui/",
 	"private": true,
 	"version": "0.0.1",
 	"type": "module",
 	"scripts": {
-		"dev": "vite dev",
-		"build": "vite build",
-		"prepare": "svelte-kit sync || echo ''",
-		"test": "bun test",
-		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"
-	},
-	"dependencies": {
-		"@epicenter/app": "workspace:*"
+		"test": "bun test ./epicenter.test.ts",
+		"typecheck": "tsc -p tsconfig.json"
 	},
 	"devDependencies": {
-		"@epicenter/ui": "workspace:*",
-		"@lucide/svelte": "catalog:",
-		"@sveltejs/adapter-static": "catalog:",
-		"@sveltejs/kit": "catalog:",
-		"@sveltejs/vite-plugin-svelte": "catalog:",
-		"@tailwindcss/vite": "catalog:",
+		"@epicenter/app": "workspace:*",
 		"@types/bun": "catalog:",
-		"mode-watcher": "catalog:",
-		"svelte": "catalog:",
-		"svelte-check": "catalog:",
-		"svelte-sonner": "catalog:",
-		"tailwindcss": "catalog:",
-		"typescript": "catalog:",
-		"vite": "catalog:"
+		"typescript": "catalog:"
 	},
 	"license": "AGPL-3.0-or-later"
 }

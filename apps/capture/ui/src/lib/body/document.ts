@@ -59,7 +59,7 @@ type CaptureDocument = {
 	/** Whether the source has its `## Thoughts` heading. */
 	readonly hasSection: boolean;
 	/**
-	 * Whether the source holds Markdown the structured view does not show:
+	 * Whether the source holds Markdown the structured editor does not show:
 	 * blocks after the thoughts list, or anything from the next heading on.
 	 */
 	readonly hasOtherContent: boolean;
@@ -502,13 +502,13 @@ function setText(document: CaptureDocument, text: string): Edit {
 	);
 }
 
-/** The complete structured value written by the Capture view. */
+/** The complete structured value written by Capture's UI. */
 export type CaptureBody = {
 	text: string;
 	thoughts: string[];
 };
 
-/** Information a view needs in addition to the complete structured value. */
+/** Information the UI needs in addition to the complete structured value. */
 export type CaptureBodyReading = CaptureBody & {
 	hasSection: boolean;
 	hasOtherContent: boolean;

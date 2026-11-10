@@ -1,12 +1,12 @@
 import { connect } from '@epicenter/app/client';
-import type vocabApp from '../../epicenter.js';
-import type { DueWord, Grade, WordRow } from '../../epicenter.js';
+import type vocabApp from '../../../epicenter.js';
+import type { DueWord, Grade, WordRow } from '../../../epicenter.js';
 
 /** What `review` returns: the word's new schedule, and when each grade would make it due next. */
 type Reviewed = Awaited<ReturnType<typeof vocabApp.actions.review.run>>;
 
 /**
- * The view's copy of what `epicenter serve` last answered: every word, and
+ * The UI's copy of what `epicenter serve` last answered: every word, and
  * the words due now. It keeps nothing between page loads; `refresh` asks
  * again, as the layout does when the page comes back into view.
  */

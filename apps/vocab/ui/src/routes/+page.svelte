@@ -6,7 +6,7 @@
 	import { Loading } from '@epicenter/ui/loading';
 	import { toast } from '@epicenter/ui/sonner';
 	import PencilIcon from '@lucide/svelte/icons/pencil';
-	import type { Grade } from '../../epicenter.js';
+	import type { Grade } from '../../../epicenter.js';
 	import { langOf, untilLabel } from '$lib/text.js';
 	import { vocab } from '$lib/vocab.svelte.js';
 	import WordFace from '$lib/WordFace.svelte';

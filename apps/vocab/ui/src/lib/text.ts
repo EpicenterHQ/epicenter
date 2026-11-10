@@ -1,5 +1,5 @@
 /**
- * What the view does with a word's text: search that ignores case, accents,
+ * What the UI does with a word's text: search that ignores case, accents,
  * and spaces, the language to tag a word with so the browser picks the right
  * CJK glyphs, and short times until a review.
  */

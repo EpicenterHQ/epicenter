@@ -5,38 +5,41 @@ apps frozen on the folder sync product, which waits.
 
 ## Apps for ~/Epicenter
 
-Capture, Tasks, and Vocab are the source of apps in `~/Epicenter`
-([ADR-0864](../docs/adr/0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md)).
-Each folder is one app's source: `bun epicenter install apps/capture` puts
-it into `~/Epicenter/capture`.
+Capture, Tasks, and Vocab are the source of starters for apps in
+`~/Epicenter`
+([ADR-0864](../docs/adr/0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md),
+[ADR-0866](../docs/adr/0866-an-app-starts-from-a-starter-kept-as-its-upstream-and-update-merges-the-starters-changes.md)).
+Each folder is laid out as the app is:
 
 ```txt
-apps/capture/
-  epicenter.json        the app's declaration: its collections
+apps/vocab/
+  epicenter.json        the declaration: its collections
   epicenter.ts          its actions beyond each collection's four
-  src/, static/         its view: SvelteKit, Svelte 5, and @epicenter/ui
+  epicenter.test.ts     the actions' tests, in memory
+  package.json          what the actions' types and tests need
+  ui/                   the UI, a SvelteKit project of its own
+  .cache/ui/            the built UI, ignored
 ```
 
-`epicenter install <path|git url> [<name>]` makes `~/Epicenter/<name>` the
-first time, copies `epicenter.json`, `epicenter.ts`, and a committed `view/`
-and commits them alone as `install <name>` with the source as a trailer, and
-builds the view into the app's `.cache/view/`, which Git ignores. It never
-touches the app's data, and the next install overwrites a change made to the
-installed code, so an installed app is changed here, at its source; `epicenter install <app>` installs again from
-the recorded source. The source can be any folder or repository, so an app
-made outside this monorepo installs the same way. `HOME` decides `~`, so a
-test installs into a temporary folder.
+A starter is a repository of its own whose root is the app's root, and
+`epicenter new vocab --from <git url|path>` makes an app from it, keeping it
+as the app's `upstream`; `epicenter update` merges its later changes and
+builds the UI. These folders become starters when each moves to a
+repository of its own, which waits on publishing `@epicenter/app` and
+`@epicenter/ui`: here their packages are `workspace:*` and `catalog:`.
 
-`epicenter serve` serves an app's `.cache/view/`, else its `view/`, at
-`/<app>/`, and MCP at `/`. A
-view asks for everything through `connect('<app>')` from
-`@epicenter/app/client`, and keeps nothing of its own. In development,
-`bun run dev` in an app's folder sends a POST to `/` (MCP) to a running
-`epicenter serve` (`EPICENTER_URL`, default `http://127.0.0.1:4747`).
+`epicenter` supplies `@epicenter/app` to an `epicenter.ts` when it runs it, so
+the app's root `package.json` is only for whoever edits the actions. `ui/`
+has its own `package.json`, whose `build` writes `../.cache/ui/`.
+`epicenter serve` serves `.cache/ui/` at `/<app>/`, and MCP at `/`. A UI asks
+for everything through `connect('<app>')` from `@epicenter/app/client`, and
+keeps nothing of its own.
 
-A view is a static SvelteKit build with hash routes (`#/c/<id>`), so the
-server serves files and routes nothing. Install builds it with
-`VIEW_BASE=/<app>`, the path `epicenter serve` mounts it at.
+A UI is a static SvelteKit build with hash routes (`#/c/<id>`), so the server
+serves files and routes nothing. Its base is `/<the app's folder name>`, the
+path `epicenter serve` mounts it at. In development, `bun run dev` in `ui/`
+sends a POST to `/` (MCP) to a running `epicenter serve` (`EPICENTER_URL`,
+default `http://127.0.0.1:4747`).
 
 | App | Collections | Its own actions |
 | --- | --- | --- |

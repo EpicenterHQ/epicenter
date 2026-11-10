@@ -1,5 +1,5 @@
 /**
- * The captures this view shows: the newest `limit` by capturedAt, from the
+ * The captures this UI shows: the newest `limit` by capturedAt, from the
  * app's `recent` action, narrowed by a search the server runs over every
  * file. One object for the page, made once, so going to a capture and back
  * keeps what was shown.
@@ -11,7 +11,7 @@
  */
 import { connect } from '@epicenter/app/client';
 import { toast } from '@epicenter/ui/sonner';
-import type { Recent } from '../../epicenter.js';
+import type { Recent } from '../../../epicenter.js';
 
 /** The app's actions, asked of `epicenter serve`. */
 export const capture = connect('capture');

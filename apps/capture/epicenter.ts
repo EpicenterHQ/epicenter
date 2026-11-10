@@ -31,7 +31,7 @@ const get = collectionActions(
 /**
  * What a list shows of a capture's body: its text, cut at `PREVIEW`
  * characters, and how many thoughts it has. A rough reading for a list, not
- * the body codec the view edits with: the text is everything before a
+ * the body codec the UI edits with: the text is everything before a
  * `## Thoughts` line, and a thought is a line under it that starts with a
  * bullet, up to the next heading.
  */
@@ -127,5 +127,5 @@ const app = defineApp(declaration, {
 
 export default app;
 
-/** What `recent` returns, for the view. */
+/** What `recent` returns, for the UI. */
 export type Recent = Awaited<ReturnType<typeof app.actions.recent.run>>;

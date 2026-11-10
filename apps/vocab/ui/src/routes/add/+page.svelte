@@ -6,7 +6,7 @@
 	import { Input } from '@epicenter/ui/input';
 	import { toast } from '@epicenter/ui/sonner';
 	import { Textarea } from '@epicenter/ui/textarea';
-	import type vocabApp from '../../../epicenter.js';
+	import type vocabApp from '../../../../epicenter.js';
 	import { langOf } from '$lib/text.js';
 	import { vocab } from '$lib/vocab.svelte.js';
 

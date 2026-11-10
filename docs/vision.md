@@ -5,7 +5,7 @@ agents make and change, whose data is your files, and which you can use from
 every device you own. Each app is a folder in one place, `~/Epicenter`, on a
 computer you keep on; the `epicenter` command runs its actions for you and your
 agents, and `epicenter serve` offers them over MCP to Claude, ChatGPT, and each
-app's views in a browser.
+app's UI in a browser.
 
 This page is the front door. It describes the design proposed on 2026-11-08 in
 [ADR-0849] to [ADR-0857] and reviewed by three independent reviewers before
@@ -24,7 +24,7 @@ which is mostly the earlier product described at the end.
 2. **Everything else is used where it is.** A sign-in, a machine's hardware, a
    service that exists on one machine. An action runs where what it uses is.
 3. **Everything you see or ask is an interface to actions.** The terminal and
-   MCP come from an app's actions; views and prompts are written.
+   MCP come from an app's actions; UIs and prompts are written.
 
 An app is a folder: `epicenter.json` (what its files are), `epicenter.ts` (what
 you can do), `ui/` (for people), and `prompts/` (for agents). Getting the
@@ -39,10 +39,10 @@ each app, and every client asks it ([ADR-0864]).
 | Way in | What it is | Who uses it |
 | --- | --- | --- |
 | `epicenter <app> <collection> <verb>` | the command, opening the folder directly | you, agents with a shell |
-| `epicenter serve` | MCP over HTTPS at `/`, the launcher there for a browser, and each app's UI at `/<app>/` | Claude, ChatGPT, any agent; views in a browser |
+| `epicenter serve` | MCP over HTTPS at `/`, the launcher there for a browser, and each app's UI at `/<app>/` | Claude, ChatGPT, any agent; UIs in a browser |
 | Git over SSH | `studio:Epicenter/whispering` as a copy's remote | a program that keeps a copy: Whispering |
 
-Capture, Vocab, agents, and views keep nothing on a device and always see the
+Capture, Vocab, agents, and UIs keep nothing on a device and always see the
 current files. Whispering keeps a copy on each Mac it runs on, because it must
 record with no network, and pushes to your server when it can. `epicenter serve`
 runs the `epicenter.ts` of each app you trust, and Epicenter holds no
@@ -53,9 +53,8 @@ Agents make apps: you start Claude Code on your server, ask for an app, and it
 writes the folder. Every app is its own source: its code is changed where it
 is. An app can start from a starter, a repository with no data, which it keeps
 as its `upstream` remote; `epicenter update` merges the starter's changes
-([ADR-0866]). Capture, Tasks, and Vocab are starters in `apps/<app>/` today,
-installed with `epicenter install` until they move to repositories of their
-own.
+([ADR-0866]). Capture, Tasks, and Vocab are starters in `apps/<app>/` today, and an app is
+made from one once it moves to a repository of its own.
 
 ## What it is like
 
@@ -74,8 +73,8 @@ own.
   groups events; it edits `epicenter.ts` in a worktree, tries it with
   `epicenter ./worktree calendar show`, and merges. The next run uses the new
   code.
-- **A capture from the phone.** You open Capture's view in your phone's browser,
-  served by your server at `/capture/`, and save a quote. The view asks
+- **A capture from the phone.** You open Capture's UI in your phone's browser,
+  served by your server at `/capture/`, and save a quote. The UI asks
   `capture_add` over MCP; your server writes `captures/<id>.md` and commits it.
 - **A recording on a plane.** Whispering records, transcribes, and pastes, with no
   network and no `epicenter`. It writes each recording into its copy of
@@ -95,7 +94,7 @@ own.
 | a collection | a kind of file in the app, by path (`words/{stem}.md`) and fields; it gives `list`, `get`, `set`, and `delete` |
 | a field | JSON Schema for one value; in TypeScript, written with helpers such as `field.text()` |
 | an action | something you can ask an app to do: a collection's four, or one the author writes with a `run` function |
-| a view | a web page built from the app's `ui/` into `.cache/ui/`, served at `/<app>/`, that shows its data and calls its actions over MCP |
+| a UI | a web page built from the app's `ui/` into `.cache/ui/`, served at `/<app>/`, that shows its data and calls its actions over MCP |
 | `epicenter` | the program that runs an action in a folder, and `epicenter serve`, which offers every app over MCP |
 | a device program | an app's own program, when it needs the device: Whispering |
 | your server | the computer that runs `epicenter serve`, from a terminal or as the Epicenter Mac app ([ADR-0865]); it holds the one copy of each app and runs its actions, and every device reaches it while it is on |
@@ -103,7 +102,7 @@ own.
 
 Everything else is a program that either has the folder or asks for actions:
 your editor and Claude Code on your server, and Whispering with its copy, have
-it; Claude Desktop, claude.ai, ChatGPT, and a view in a browser ask.
+it; Claude Desktop, claude.ai, ChatGPT, and a UI in a browser ask.
 
 ## An app
 
@@ -180,7 +179,7 @@ server, and for Whispering.
 
 **If you do not, or the write needs a sign-in or an app's rule, ask for an
 action.** That is true for Claude Desktop, an agent on another computer,
-claude.ai, ChatGPT, and a view.
+claude.ai, ChatGPT, and a UI.
 
 **A write is one commit, named for the call** (`capture: captures set dune`),
 however it arrives, and `epicenter serve` pushes it to the app's GitHub
@@ -197,29 +196,29 @@ your server.
 ```txt
 ssh studio                                   you, then `epicenter …` there
 ssh studio epicenter serve --stdio           an agent's MCP server, from any computer
-epicenter serve, over your tailnet           your devices: views and MCP
+epicenter serve, over your tailnet           your devices: UIs and MCP
 epicenter serve, through Tailscale Funnel    claude.ai and ChatGPT, signed in with OAuth
 ```
 
 A command always means the computer it is typed on. `serve` speaks MCP and
-serves views, and runs each call in a fresh process, so code you just pulled is
+serves UIs, and runs each call in a fresh process, so code you just pulled is
 what runs. Adding claude.ai or ChatGPT as a connector opens a page on your
 server where you approve it with a passkey, and the client receives a token you
 can revoke. Nothing guards your sign-ins from another program running as you
 except your agents' permission rules.
 
-## Views
+## UIs
 
-An app's interfaces are views ([ADR-0860]): a web page built from the app's
-`ui/` and served at `/<app>/`, that reads and changes the app only
-by calling its actions over MCP at `/`. A view never knows where the actions
+An app's UI ([ADR-0860]) is a web page built from the app's `ui/` into
+`.cache/ui/` and served at `/<app>/`, that reads and changes the app only by
+calling its actions over MCP at `/`. A UI never knows where the actions
 run, works in any browser that reaches your server, and keeps nothing of its
 own.
 
 | Rung | Interface | Steps up when |
 | --- | --- | --- |
 | 1 | the terminal, Claude, Claude Code, ChatGPT | you want to see or tap, not type |
-| 2 | a view, in a browser | it needs the device in a way a browser does not give |
+| 2 | a UI, in a browser | it needs the device in a way a browser does not give |
 | 3 | a program of its own with a copy, such as Whispering | never |
 
 ## How data moves
@@ -244,7 +243,7 @@ Every app climbs the same ladder, and each rung is optional.
 | 1. Files | nothing | any program reads and writes it |
 | 2. History | Git, `git-lfs`, an `origin` | backup and history |
 | 3. Actions | `epicenter` | its actions in the terminal and for Claude Code |
-| 4. Everywhere | `epicenter serve` on your server | every device, claude.ai, and ChatGPT reach it; its views open in a browser |
+| 4. Everywhere | `epicenter serve` on your server | every device, claude.ai, and ChatGPT reach it; its UIs open in a browser |
 
 The Epicenter Mac app installs rungs 2 to 4 at once: it carries its own Git and
 Git LFS and runs `epicenter serve`, so the Mac it is on is your server
@@ -266,7 +265,7 @@ on your server; its files reach every rung.
 | Move data | Git | never |
 | Big files | `.gitattributes` | never |
 | Reach | MCP | never |
-| An interface | Claude or the terminal | it needs to be seen: a view |
+| An interface | Claude or the terminal | it needs to be seen: a UI |
 | Run something later | someone asks | never |
 
 **Refused:** a sync engine, schedules, merging into your server's copy, a schema

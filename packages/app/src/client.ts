@@ -1,7 +1,8 @@
 /**
- * How a view asks `epicenter serve` to run an app's actions (ADR-0860,
- * ADR-0864). A view is a web page served from an app's `view/` at
- * `/<app>/`; it asks over MCP like any agent, at the same origin's `/`.
+ * How an app's UI asks `epicenter serve` to run its actions (ADR-0860,
+ * ADR-0866). A UI is a web page built from an app's `ui/` into `.cache/ui/`
+ * and served at `/<app>/`; it asks over MCP like any agent, at the same
+ * origin's `/`.
  *
  * ```ts
  * import { connect } from '@epicenter/app/client';
@@ -12,7 +13,7 @@
  * ```
  *
  * `call` resolves to what the action returned and rejects with an
- * `ActionError` when it threw or did not run. It imports nothing, so a view's
+ * `ActionError` when it threw or did not run. It imports nothing, so a UI's
  * bundle carries only this file.
  */
 
@@ -40,7 +41,7 @@ let nextId = 1;
 
 /**
  * A client for app `app` on the server at `url`: by default this origin's
- * `/`, where `epicenter serve` answers the views it serves.
+ * `/`, where `epicenter serve` answers the UIs it serves.
  */
 export function connect(
 	app: string,

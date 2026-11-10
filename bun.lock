@@ -94,6 +94,15 @@
     "apps/capture": {
       "name": "@epicenter/capture",
       "version": "0.0.1",
+      "devDependencies": {
+        "@epicenter/app": "workspace:*",
+        "@types/bun": "catalog:",
+        "typescript": "catalog:",
+      },
+    },
+    "apps/capture/ui": {
+      "name": "@epicenter/capture-ui",
+      "version": "0.0.1",
       "dependencies": {
         "@epicenter/app": "workspace:*",
         "markdown-it": "^14.0.0",
@@ -264,6 +273,15 @@
     "apps/tasks": {
       "name": "@epicenter/tasks",
       "version": "0.0.1",
+      "devDependencies": {
+        "@epicenter/app": "workspace:*",
+        "@types/bun": "catalog:",
+        "typescript": "catalog:",
+      },
+    },
+    "apps/tasks/ui": {
+      "name": "@epicenter/tasks-ui",
+      "version": "0.0.1",
       "dependencies": {
         "@epicenter/app": "workspace:*",
       },
@@ -286,6 +304,15 @@
     },
     "apps/vocab": {
       "name": "@epicenter/vocab",
+      "version": "0.0.1",
+      "devDependencies": {
+        "@epicenter/app": "workspace:*",
+        "@types/bun": "catalog:",
+        "typescript": "catalog:",
+      },
+    },
+    "apps/vocab/ui": {
+      "name": "@epicenter/vocab-ui",
       "version": "0.0.1",
       "dependencies": {
         "@epicenter/app": "workspace:*",
@@ -865,6 +892,8 @@
 
     "@epicenter/capture": ["@epicenter/capture@workspace:apps/capture"],
 
+    "@epicenter/capture-ui": ["@epicenter/capture-ui@workspace:apps/capture/ui"],
+
     "@epicenter/cli": ["@epicenter/cli@workspace:packages/cli"],
 
     "@epicenter/definition": ["@epicenter/definition@workspace:packages/definition"],
@@ -895,6 +924,8 @@
 
     "@epicenter/tasks": ["@epicenter/tasks@workspace:apps/tasks"],
 
+    "@epicenter/tasks-ui": ["@epicenter/tasks-ui@workspace:apps/tasks/ui"],
+
     "@epicenter/transcription": ["@epicenter/transcription@workspace:packages/transcription"],
 
     "@epicenter/ui": ["@epicenter/ui@workspace:packages/ui"],
@@ -902,6 +933,8 @@
     "@epicenter/vite-config": ["@epicenter/vite-config@workspace:packages/vite-config"],
 
     "@epicenter/vocab": ["@epicenter/vocab@workspace:apps/vocab"],
+
+    "@epicenter/vocab-ui": ["@epicenter/vocab-ui@workspace:apps/vocab/ui"],
 
     "@epicenter/whispering": ["@epicenter/whispering@workspace:apps/whispering"],
 

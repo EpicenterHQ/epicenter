@@ -6,7 +6,7 @@
 import { connect } from '@epicenter/app/client';
 import type { Task } from './tasks.js';
 
-/** Tasks' actions, asked of the server that serves this view. */
+/** Tasks' actions, asked of the server that serves this UI. */
 export const app = connect('tasks');
 
 /** What `tasks get` and `tasks set` answer: a task's fields, id, and notes. */
@@ -81,7 +81,7 @@ function createTaskList() {
 			}
 		},
 
-		/** Note what `tasks set` answered for a task changed elsewhere in the view. */
+		/** Note what `tasks set` answered for a task changed elsewhere in the UI. */
 		changed(file: TaskFile) {
 			writes++;
 			const { body: _, ...task } = file;
@@ -117,5 +117,5 @@ function createTaskList() {
 	};
 }
 
-/** The one task list every page of the view reads. */
+/** The one task list every page of the UI reads. */
 export const tasks = createTaskList();

@@ -1,0 +1,37 @@
+{
+	"name": "@epicenter/capture-ui",
+	"description": "Capture's UI, built into the app's .cache/ui/ and served by epicenter serve at /capture/",
+	"private": true,
+	"version": "0.0.1",
+	"type": "module",
+	"scripts": {
+		"dev": "vite dev",
+		"build": "vite build",
+		"prepare": "svelte-kit sync || echo ''",
+		"test": "bun test",
+		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"
+	},
+	"dependencies": {
+		"@epicenter/app": "workspace:*",
+		"markdown-it": "^14.0.0",
+		"wellcrafted": "catalog:"
+	},
+	"devDependencies": {
+		"@epicenter/ui": "workspace:*",
+		"@lucide/svelte": "catalog:",
+		"@sveltejs/adapter-static": "catalog:",
+		"@sveltejs/kit": "catalog:",
+		"@sveltejs/vite-plugin-svelte": "catalog:",
+		"@tailwindcss/vite": "catalog:",
+		"@types/bun": "catalog:",
+		"@types/markdown-it": "^14.0.0",
+		"mode-watcher": "catalog:",
+		"svelte": "catalog:",
+		"svelte-check": "catalog:",
+		"svelte-sonner": "catalog:",
+		"tailwindcss": "catalog:",
+		"typescript": "catalog:",
+		"vite": "catalog:"
+	},
+	"license": "AGPL-3.0-or-later"
+}

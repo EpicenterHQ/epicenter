@@ -1,5 +1,5 @@
 /**
- * What the view knows of a task: a row of `tasks list`, and how the list
+ * What the UI knows of a task: a row of `tasks list`, and how the list
  * groups and labels it by its due day. Days are local `YYYY-MM-DD` strings,
  * which sort as text in the order they fall.
  */

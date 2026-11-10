@@ -1,6 +1,6 @@
 <!-- A word's answer: its reading, its meaning, and its examples, one per line. -->
 <script lang="ts">
-	import type { Word } from '../../epicenter.js';
+	import type { Word } from '../../../epicenter.js';
 	import { langOf } from './text.js';
 
 	let { word }: { word: Pick<Word, 'reading' | 'meaning' | 'body'> } = $props();

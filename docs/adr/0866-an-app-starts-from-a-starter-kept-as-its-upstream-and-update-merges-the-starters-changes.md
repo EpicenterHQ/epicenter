@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-11-10
 - **Relates:** [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (one copy; the install rules this replaces), [ADR-0851](0851-an-app-with-history-has-one-git-remote-its-meeting-point-and-backup.md) (`origin`), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (`new`, `link`), [ADR-0854](0854-an-apps-cache-is-the-files-it-gitignores.md) (`.cache/`), [ADR-0857](0857-an-app-declares-itself-in-epicenter-json-and-its-code-in-epicenter-ts.md) (the declaration), [ADR-0858](0858-where-a-file-lives-decides-whether-it-travels-survives-or-dies-with-its-program.md) (`*.local`), [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (the UI).
-- **Unbuilt:** first-party apps in the `ui/` layout (`apps/<app>` still builds a SvelteKit project at its root with `VIEW_BASE`), and starters in repositories of their own, which wait on publishing `@epicenter/app` and `@epicenter/ui`.
+- **Unbuilt:** starters in repositories of their own: Capture, Tasks, and Vocab have the layout in `apps/<app>/`, and move out once `@epicenter/app` and `@epicenter/ui` are published.
 
 ## Context
 
@@ -26,6 +26,7 @@ someone else's changes with one's own: a fork and its upstream.
 ~/Epicenter/vocab/
   epicenter.json   the declaration: what the files are        from upstream; yours to extend
   epicenter.ts     actions                                     from upstream; yours to change
+  package.json     what the actions' types and tests need      from upstream
   ui/              the UI's source, a project of its own       from upstream; yours to change
   README.md        what the app is, for people and agents      from upstream
   .gitignore  .gitattributes                                   from upstream
@@ -39,7 +40,10 @@ someone else's changes with one's own: a fork and its upstream.
   root is the app's root. It holds no file its collections' paths match.
 - The UI is called the UI, and its folder `ui/`: a project with its own
   `package.json`, whose `build` writes `../.cache/ui/`. `epicenter serve` serves
-  `.cache/ui/` at `/<app>/` and nothing else.
+  `.cache/ui/` at `/<app>/` and nothing else. The UI's base is `/` and the
+  app's folder name, so a build by hand and one by `epicenter update` agree.
+- `epicenter` supplies `@epicenter/app` to `epicenter.ts` when it runs it; the
+  root `package.json` serves only whoever edits or tests the actions.
 - A collection's path may not start with `ui/`, `.cache/`, or `epicenter.`.
 
 **`epicenter new <name> --from <git url|path>` makes an app from a starter.**

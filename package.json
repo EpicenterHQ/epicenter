@@ -28,8 +28,7 @@
 	"workspaces": {
 		"packages": [
 			"apps/*",
-			"apps/api/ui",
-			"apps/local-books/ui",
+			"apps/*/ui",
 			".agents/skills/consult-claude",
 			"ops",
 			"packages/*",
