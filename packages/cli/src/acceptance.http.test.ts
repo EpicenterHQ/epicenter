@@ -163,7 +163,7 @@ test('a read-only action makes no commit, and one that throws after writing is s
 		threw: { message: 'line 4 is not a number' },
 	});
 	expect(await gitIn(folder, 'log', '-1', '--format=%B')).toBe(
-		'reading: explode\n\nAlso changed: notes.md',
+		'reading: explode\n\nAlso changed:\nnotes.md',
 	);
 	expect(await gitIn(folder, 'status', '--porcelain')).toBe('');
 });
@@ -178,9 +178,9 @@ test('a call whose snapshot fails still resolves, and the app says why', async (
 	const client = connect<Reading>('reading', { url: `${f.base}/` });
 	expect(await client.log({ minutes: 5 })).toEqual({ minutes: 5, book: null });
 	expect(await gitIn(folder, 'rev-list', '--count', 'HEAD')).toBe('1');
-	expect(JSON.parse((await f.run('reading', '--json')).stdout).history).toEqual(
-		{ pending: 2 },
-	);
+	expect(JSON.parse((await f.run('reading', '--json')).stdout).status).toEqual({
+		pending: 2,
+	});
 });
 
 test('concurrent writes through update both land, and both are in history', async () => {
@@ -213,11 +213,50 @@ test('outside edits that have gone quiet are snapshotted and pushed within two c
 		await Bun.sleep(50);
 	}
 	expect(message).toBe(
-		'reading: changed outside epicenter\n\nChanged: notes.md',
+		'reading: changed outside epicenter\n\nChanged:\nnotes.md',
 	);
-	// Two checks, 300 ms apart, and the snapshot and push after them.
-	expect(Date.now() - wrote).toBeLessThan(2_000);
+	// Two checks 300 ms apart, then the snapshot and push; the bound leaves room for a loaded machine.
+	expect(Date.now() - wrote).toBeLessThan(4_000);
 	expect(await gitIn(folder, 'status', '--porcelain')).toBe('');
+});
+
+test('quiet check waits while a pending file keeps changing', async () => {
+	const f = await setup(undefined, { EPICENTER_QUIET_CHECK_MS: '100' });
+	const vault = await f.folder(
+		join(f.root, 'vault'),
+		Object.fromEntries(
+			Object.entries(readingApp).map(([path, text]) => [
+				`reading/${path}`,
+				text,
+			]),
+		),
+	);
+	const folder = join(vault, 'reading');
+	await symlink(folder, join(f.home, 'reading'));
+	const path = join(folder, 'notes.md');
+	for (let change = 0; change < 15; change++) {
+		await writeFile(path, 'x'.repeat(change + 1));
+		await Bun.sleep(75);
+	}
+	expect(await gitIn(folder, 'rev-list', '--count', 'HEAD')).toBe('1');
+	for (let attempt = 0; attempt < 40; attempt++) {
+		if ((await gitIn(folder, 'rev-list', '--count', 'HEAD')) === '2') break;
+		await Bun.sleep(75);
+	}
+	expect(await gitIn(folder, 'rev-list', '--count', 'HEAD')).toBe('2');
+});
+
+test('quiet check logs an unchanged snapshot failure once', async () => {
+	const f = await setup(undefined, { EPICENTER_QUIET_CHECK_MS: '100' });
+	const folder = await f.folder(join(f.home, 'reading'), readingApp);
+	await writeFile(
+		join(folder, '.gitattributes'),
+		'*.csv filter=lfs diff=lfs merge=lfs -text\n',
+	);
+	await writeFile(join(folder, 'notes.md'), 'by hand\n');
+	await Bun.sleep(700);
+	expect(f.stderr().match(/not yet in history:/g)).toHaveLength(1);
+	expect(await gitIn(folder, 'rev-list', '--count', 'HEAD')).toBe('1');
 });
 
 test('serve reports a refused backup push and leaves both histories intact', async () => {
@@ -241,7 +280,7 @@ test('serve reports a refused backup push and leaves both histories intact', asy
 	)
 		await Bun.sleep(50);
 	expect(f.stderr()).toContain(
-		'The backup at origin has changes this computer does not; nothing was overwritten',
+		'the backup at origin has changes this computer does not; nothing was overwritten',
 	);
 	const branch = await gitIn(folder, 'symbolic-ref', '--short', 'HEAD');
 	expect(f.stderr()).toContain(

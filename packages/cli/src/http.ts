@@ -12,16 +12,16 @@
  * so no name is reserved for the server.
  *
  * A write call is snapshotted before it answers (`mcp.ts`). Every minute the
- * server also looks at each app's pending changes: an app whose
- * `git status --porcelain` is not empty and is the same as a minute ago has
- * edits from outside that have gone quiet, and gets a snapshot. Each snapshot
- * that commits is pushed to `origin` in the background.
+ * server checks each app's pending paths, sizes, and modification times. It
+ * snapshots outside edits when those values have stayed the same since the
+ * previous check. Each commit is pushed to `origin` in the background.
  */
-import { realpath, stat } from 'node:fs/promises';
+import { lstat, realpath, stat } from 'node:fs/promises';
 import { basename, isAbsolute, join, sep } from 'node:path';
 import { isName } from '@epicenter/app';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { runChild } from './child.ts';
+import { git, gitMessage } from './git.ts';
 import { homeEntries } from './home.ts';
 import { callTool, createMcpServer, listTools } from './mcp.ts';
 import { writeErr } from './output.ts';
@@ -35,6 +35,37 @@ type Push = { running?: Promise<void>; again: boolean };
 
 /** How often `serve` looks for outside edits that have gone quiet. */
 const QUIET_CHECK_MS = 60_000;
+
+/** Status plus each pending path's size and modification time. */
+async function pendingSignature(folder: string) {
+	const status = (await pendingStatus(folder)) ?? '';
+	if (status === '') return '';
+	const rootArgs = ['rev-parse', '--show-toplevel'];
+	const root = await git(folder, rootArgs);
+	if (root.code !== 0) throw new Error(gitMessage(rootArgs, root));
+	const paths = status
+		.split('\0')
+		.filter(Boolean)
+		.map((entry) => entry.slice(3));
+	const details = await Promise.all(
+		paths.map(async (path) => {
+			try {
+				const file = await lstat(join(root.stdout, path));
+				return [file.mtimeMs, file.size];
+			} catch (error) {
+				if (
+					error &&
+					typeof error === 'object' &&
+					'code' in error &&
+					error.code === 'ENOENT'
+				)
+					return null;
+				throw error;
+			}
+		}),
+	);
+	return JSON.stringify([status, details]);
+}
 
 const escapeHtml = (text: string) =>
 	text.replace(
@@ -122,19 +153,29 @@ export function startHttpServer(
 	};
 	/** Run the tool; when its snapshot commits, push that app. */
 	const call: typeof callTool = (name, args) => callTool(name, args, push);
-	/** Each app's `git status --porcelain` at the last check, by folder. */
-	const lastStatus = new Map<string, string>();
+	/** Each app's pending signature at the last check, by folder. */
+	const lastSignature = new Map<string, string>();
+	const lastFailure = new Map<string, string>();
 	/** Snapshot and push each app whose pending changes are what they were at the last check. */
 	const checkQuiet = async () => {
 		for (const { entry, realPath } of await homeEntries()) {
-			const status = (await pendingStatus(realPath)) ?? '';
-			const before = lastStatus.get(realPath);
-			lastStatus.set(realPath, status);
-			if (status === '' || status !== before) continue;
+			const signature = await pendingSignature(realPath);
+			const before = lastSignature.get(realPath);
+			lastSignature.set(realPath, signature);
+			if (signature === '') {
+				lastFailure.delete(realPath);
+				continue;
+			}
+			if (signature !== before) continue;
 			const taken = await snapshot(entry, realPath);
-			if ('failed' in taken)
-				writeErr(`${entry}: not yet in history: ${taken.failed}`);
-			else if (taken.committed) push(entry, realPath);
+			if ('failed' in taken) {
+				if (lastFailure.get(realPath) !== taken.failed)
+					writeErr(`${entry}: not yet in history: ${taken.failed}`);
+				lastFailure.set(realPath, taken.failed);
+			} else {
+				lastFailure.delete(realPath);
+				if (taken.committed) push(entry, realPath);
+			}
 		}
 	};
 	const scheduleCheck = () => {
@@ -287,7 +328,10 @@ export function startHttpServer(
 /** Keep the command alive until its process receives a signal. */
 export async function serveHttp(host: string, port: number): Promise<number> {
 	// A test looks for quiet changes sooner than every minute.
-	const every = Number(process.env.EPICENTER_QUIET_CHECK_MS) || undefined;
+	const setting = process.env.EPICENTER_QUIET_CHECK_MS;
+	const parsed = setting === undefined ? NaN : Number(setting);
+	const every =
+		Number.isSafeInteger(parsed) && parsed >= 100 ? parsed : undefined;
 	const server = startHttpServer(host, port, await rootInstructions(), every);
 	writeErr(`Serving your apps at http://${host}:${server.port}.`);
 	await new Promise<void>((resolve) => {

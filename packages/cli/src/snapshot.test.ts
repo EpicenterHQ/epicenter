@@ -109,7 +109,7 @@ test('a run that throws after writing commits nothing, and the next snapshot tak
 		committed: { subject: 'notes: write wednesday', files: 3 },
 	});
 	expect(await f.message()).toBe(
-		'notes: write wednesday\n\nAlso changed: a.md, tuesday.md',
+		'notes: write wednesday\n\nAlso changed:\na.md\ntuesday.md',
 	);
 });
 
@@ -121,7 +121,37 @@ test('a call whose changes are already in history names no later snapshot', asyn
 	await writeFile(join(f.dir, 'b.md'), 'b\n');
 	await snapshot('notes', f.dir);
 	expect(await f.message()).toBe(
-		'notes: changed outside epicenter\n\nChanged: b.md',
+		'notes: changed outside epicenter\n\nChanged:\nb.md',
+	);
+});
+
+test('snapshot refuses a revert in progress without staging or committing', async () => {
+	const f = await setup();
+	const before = await f.head();
+	const gitPath = await gitIn(f.dir, 'rev-parse', '--git-path', 'REVERT_HEAD');
+	await writeFile(join(f.dir, gitPath), `${before}\n`);
+	await writeFile(join(f.dir, 'pending.md'), 'pending\n');
+	expect(await snapshot('notes', f.dir)).toEqual({
+		failed: expect.stringContaining(
+			'middle of a merge, rebase, revert, or cherry-pick',
+		),
+	});
+	expect(await f.head()).toBe(before);
+	expect(await gitIn(f.dir, 'diff', '--cached', '--name-only')).toBe('');
+	expect(await gitIn(f.dir, 'status', '--porcelain')).toContain(
+		'?? pending.md',
+	);
+});
+
+test('snapshot body keeps comma and newline paths as separate paths', async () => {
+	const f = await setup();
+	await writeFile(join(f.dir, 'a,b.md'), 'comma\n');
+	await writeFile(join(f.dir, 'line\nbreak.md'), 'newline\n');
+	expect(await snapshot('notes', f.dir)).toEqual({
+		committed: { subject: 'notes: changed outside epicenter', files: 2 },
+	});
+	expect(await f.message()).toBe(
+		'notes: changed outside epicenter\n\nChanged:\na,b.md\n"line\\nbreak.md"',
 	);
 });
 

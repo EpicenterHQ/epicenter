@@ -66,11 +66,11 @@ test('history lists calls, an outside change, and an undo, newest first', async 
 	const one = await f.head();
 	const outside = await f.commit(
 		{ 'outside.md': 'by hand\n' },
-		'notes: changed outside epicenter\n\nChanged: outside.md',
+		'notes: changed outside epicenter\n\nChanged:\noutside.md',
 	);
 	const two = await f.commit(
 		{ 'log.md': 'two\n', 'extra.md': 'x\n' },
-		'notes: put two\n\nAlso changed: extra.md',
+		'notes: put two\n\nAlso changed:\nextra.md',
 	);
 	expect((await f.run('undo', 'notes')).code).toBe(0);
 	const undo = await f.head();
@@ -122,15 +122,35 @@ test('history lists calls, an outside change, and an undo, newest first', async 
 		),
 	);
 	expect(lines[1]).toMatch(/ {2}notes: put two$/);
-	expect(lines[2]).toBe(`${' '.repeat(27)}Also changed: extra.md`);
-	expect(lines[3]).toMatch(/ {2}notes: changed outside epicenter$/);
-	expect(lines[4]).toBe(`${' '.repeat(27)}Changed: outside.md`);
+	expect(lines[2]).toBe(`${' '.repeat(27)}Also changed:`);
+	expect(lines[3]).toBe(`${' '.repeat(27)}extra.md`);
+	expect(lines[4]).toMatch(/ {2}notes: changed outside epicenter$/);
+	expect(lines[5]).toBe(`${' '.repeat(27)}Changed:`);
+	expect(lines[6]).toBe(`${' '.repeat(27)}outside.md`);
 	expect(human.stdout).not.toContain('This reverts commit');
 
 	const limited = await f.run('history', 'notes', '--limit', '2', '--json');
 	expect(JSON.parse(limited.stdout)).toHaveLength(2);
 	expect((await f.run('history', 'notes', '--limit', '0')).code).toBe(2);
+	expect((await f.run('history', 'notes', '--limit', '1000')).code).toBe(0);
+	expect((await f.run('history', 'notes', '--limit', '1001')).code).toBe(2);
+	expect(
+		(await f.run('history', 'notes', '--limit', '9007199254740992')).code,
+	).toBe(2);
 	expect((await f.run('history', 'nothing')).code).toBe(2);
+});
+
+test('history reads comma and JSON-quoted newline paths from a snapshot body', async () => {
+	const f = await setup();
+	await f.commit(
+		{ 'a,b.md': 'comma\n', 'line\nbreak.md': 'newline\n' },
+		'notes: changed outside epicenter\n\nChanged:\na,b.md\n"line\\nbreak.md"',
+	);
+	const listed = await f.run('history', 'notes', '--json');
+	expect(JSON.parse(listed.stdout)[0].also).toEqual([
+		'a,b.md',
+		'line\nbreak.md',
+	]);
 });
 
 test('undo twice goes back twice, and undoing an undo redoes it', async () => {
@@ -296,11 +316,12 @@ test('a file reads as Markdown and rows as lines, while --json is unchanged', as
 	const listed = await f.run('notes', 'pages', 'list');
 	expect(listed.code).toBe(0);
 	const rows = listed.stdout.split('\n');
-	expect(rows[0]).toBe(
-		'pages/a.md  slug: "a"  title: "Alpha"  done: false  problems: ["done: \\"yes\\" is not true or false"]',
-	);
+	expect(rows[0]).toBe('pages/a.md  slug: "a"  title: "Alpha"  done: false');
 	expect(rows[1]).toBe('pages/b.md  slug: "b"  title: "Beta"  done: true');
 	expect(rows).toHaveLength(3);
+	expect(listed.stderr).toBe(
+		'! pages/a.md: done: "yes" is not true or false\n',
+	);
 
 	const empty = await f.run('notes', 'todos', 'list');
 	expect(empty).toMatchObject({ code: 0, stdout: '' });

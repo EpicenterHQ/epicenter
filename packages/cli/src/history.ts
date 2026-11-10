@@ -6,8 +6,8 @@
  *
  * A snapshot names what it took in its message (`snapshot.ts`): its subject
  * is the call, or `<app>: changed outside epicenter`; its body may add
- * `Also changed: <paths>` or `Changed: <paths>`. An undo is a commit whose
- * subject is `<app>: undid <subject>` and whose body keeps Git's own
+ * `Also changed:` or `Changed:`, followed by one path per line. An undo is a
+ * commit whose subject is `<app>: undid <subject>` and whose body keeps Git's own
  * `This reverts commit <sha>.` line, so undoing an undo redoes it.
  *
  * Undo never loses anything. It snapshots what is pending first, refuses
@@ -15,9 +15,7 @@
  * already undone, nothing to undo, a revert that conflicts or changes
  * nothing), and on any refusal leaves the folder's files as they were.
  */
-import { existsSync } from 'node:fs';
 import { realpath } from 'node:fs/promises';
-import { resolve } from 'node:path';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { COMMANDS } from './commands.ts';
 import { CliError } from './errors.ts';
@@ -25,8 +23,7 @@ import { git, gitMessage } from './git.ts';
 import { homeEntries } from './home.ts';
 import { fail, writeErr, writeJson, writeOut } from './output.ts';
 import { pushOrigin } from './push.ts';
-import { ALSO_CHANGED, CHANGED, snapshot } from './snapshot.ts';
-
+import { ALSO_CHANGED, CHANGED, snapshot, underway } from './snapshot.ts';
 
 /** Git's own line in a revert's body, naming the commit it reverts. */
 const REVERTS = /^This reverts commit ([0-9a-f]{40}|[0-9a-f]{64})\.$/m;
@@ -79,7 +76,7 @@ function commitOf(record: string): Commit {
 		date,
 		time: Number(time),
 		subject,
-		body: body.trim(),
+		body: body.replace(/\n+$/, ''),
 	};
 }
 
@@ -141,15 +138,23 @@ function revertedBy(commit: Commit) {
 
 /** A commit as `history --json` gives it. */
 function snapshotOf(commit: Commit): Snapshot {
-	const also = commit.body
-		.split('\n')
-		.flatMap((line) =>
-			[ALSO_CHANGED, CHANGED].flatMap((prefix) =>
-				line.startsWith(prefix)
-					? line.slice(prefix.length).split(', ').filter(Boolean)
-					: [],
-			),
-		);
+	const lines = commit.body.split('\n');
+	const header = lines.findIndex(
+		(line) => line === ALSO_CHANGED || line === CHANGED,
+	);
+	const end = lines.findIndex((line, index) => index > header && line === '');
+	const also =
+		header < 0
+			? []
+			: lines.slice(header + 1, end < 0 ? undefined : end).map((line) => {
+					if (!line.startsWith('"')) return line;
+					try {
+						const decoded: unknown = JSON.parse(line);
+						return typeof decoded === 'string' ? decoded : line;
+					} catch {
+						return line;
+					}
+				});
 	const undid = revertedBy(commit);
 	return {
 		commit: commit.commit,
@@ -198,7 +203,7 @@ export async function historyCommand(
 		fail(
 			CliError.Usage({
 				message:
-					'epicenter history takes one app, and maybe --limit <n> (a whole number above 0)',
+					'epicenter history takes one app, and maybe --limit <n> (a whole number from 1 to 1000)',
 				next: COMMANDS.history,
 			}).error,
 			json,
@@ -213,6 +218,7 @@ export async function historyCommand(
 			: flag === '--limit' && rest.length === 2 && value;
 		if (!given || !/^[1-9]\d*$/.test(given)) return bad();
 		limit = Number(given);
+		if (!Number.isSafeInteger(limit) || limit > 1000) return bad();
 	}
 	const found = await appRepository(name);
 	if ('error' in found) return fail(found.error, json);
@@ -220,29 +226,6 @@ export async function historyCommand(
 	if (json) writeJson(commits.map(snapshotOf));
 	else process.stdout.write(renderHistory(name, commits));
 	return 0;
-}
-
-/** The Git state files that mean a merge, rebase, revert, or cherry-pick is underway. */
-const UNDERWAY = [
-	'MERGE_HEAD',
-	'REVERT_HEAD',
-	'CHERRY_PICK_HEAD',
-	'rebase-merge',
-	'rebase-apply',
-	'sequencer',
-];
-
-/** Whether the repository at `folder` is in the middle of a merge, rebase, revert, or cherry-pick. */
-async function underway(folder: string) {
-	const args = [
-		'rev-parse',
-		...UNDERWAY.flatMap((path) => ['--git-path', path]),
-	];
-	const paths = await git(folder, args);
-	if (paths.code !== 0) throw new Error(gitMessage(args, paths));
-	return paths.stdout
-		.split('\n')
-		.some((path) => existsSync(resolve(folder, path)));
 }
 
 /** Tracked paths that differ from HEAD, NUL-separated; empty when the folder matches its last commit. */

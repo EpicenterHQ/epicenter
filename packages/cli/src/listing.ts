@@ -27,10 +27,10 @@ type Status = Awaited<ReturnType<typeof statusOf>>;
  * Git-derived status as `--json` gives it: pending paths and commits not
  * backed up; absent when both counts are zero.
  */
-function historyStatus(status: Status) {
+function listingStatus(status: Status) {
 	if (!status || (status.pending === 0 && !status.unpushed)) return {};
 	return {
-		history: {
+		status: {
 			pending: status.pending,
 			...(status.unpushed !== undefined ? { unpushed: status.unpushed } : {}),
 		},
@@ -42,7 +42,7 @@ function historyMark(status: Status) {
 	const marks = [
 		...(status?.pending
 			? [
-					`${status.pending} ${status.pending === 1 ? 'change' : 'changes'} not in history`,
+					`${status.pending} ${status.pending === 1 ? 'change' : 'changes'} not yet in history`,
 				]
 			: []),
 		...(status?.unpushed
@@ -99,7 +99,7 @@ function appListing(located: Runnable, history: Status) {
 		actions: Object.entries(located.actions).map(([key, action]) =>
 			actionTool(located.name, key, action),
 		),
-		...historyStatus(history),
+		...listingStatus(history),
 	};
 }
 
@@ -118,7 +118,7 @@ function actionLines(located: Runnable) {
 	]);
 }
 
-/** Render discovery as one answer while keeping broken entries separate from runnable apps; an app with changes not in history is marked. */
+/** Render discovery as one answer while keeping broken entries separate from runnable apps; an app with changes not yet in history is marked. */
 export function homeListing(
 	found: Discovery,
 	json: boolean,

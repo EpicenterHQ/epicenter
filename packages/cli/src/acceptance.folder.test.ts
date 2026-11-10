@@ -233,10 +233,10 @@ test('W3 a refused push leaves both sides unchanged and other apps still sync', 
 	});
 	await writeFile(join(clash.folder, 'still-pending.md'), 'pending\n');
 	const status = JSON.parse((await f.run('clash', '--json')).stdout);
-	expect(status.history).toEqual({ pending: 1, unpushed: 1 });
+	expect(status.status).toEqual({ pending: 1, unpushed: 1 });
 	const listed = await f.run();
 	expect(listed.stdout).toContain(
-		'(1 change not in history; 1 snapshot not backed up)',
+		'(1 change not yet in history; 1 snapshot not backed up)',
 	);
 	expect(listed.stdout).toContain('Run: epicenter sync clash');
 

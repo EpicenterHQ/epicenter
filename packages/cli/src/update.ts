@@ -14,7 +14,12 @@
  * An app without `upstream` is reported and left alone. One app's failure
  * never stops the others.
  */
-import { inRun } from '@epicenter/app';
+import {
+	type CollectionDef,
+	inRun,
+	type ManyHandle,
+	type SingleHandle,
+} from '@epicenter/app';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { CliError } from './errors.ts';
 import { git, gitMessage } from './git.ts';
@@ -101,15 +106,10 @@ async function updateOne(app: string, folder: string): Promise<Updated> {
 	updated.misfits = await inRun(located.context, async () => {
 		const found: string[] = [];
 		for (const collection of Object.values(located.app.collections)) {
-			const readable = collection as typeof collection & {
-				list?: () => Promise<{ path: string; problems?: string[] }[]>;
-				get?: () => Promise<{ path: string; problems?: string[] }>;
-			};
-			const rows = readable.list
-				? await readable.list()
-				: readable.get
-					? [await readable.get()]
-					: [];
+			const readable = collection as typeof collection &
+				(ManyHandle<CollectionDef> | SingleHandle<CollectionDef>);
+			const rows =
+				'list' in readable ? await readable.list() : [await readable.get()];
 			for (const row of rows)
 				if (row?.problems?.length)
 					found.push(`${row.path}: ${row.problems.join('; ')}`);

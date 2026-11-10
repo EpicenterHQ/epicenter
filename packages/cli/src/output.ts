@@ -99,7 +99,8 @@ function fieldLines(fields: Fields, skip: string[]) {
  * `key: <JSON>`, then `other`'s keys as `# other: key: <JSON>` lines, `---`,
  * and the body; each of its `problems` goes to stderr as `! <problem>`. Rows
  * (objects each with a `path` string) print one line each: the path, then
- * each other field as `key: <JSON>`, two spaces apart. `null` and an empty
+ * each field except `problems` as `key: <JSON>`, two spaces apart. Problems go
+ * to stderr with their path. `null` and an empty
  * array print nothing, a string prints as it is, and anything else as JSON.
  */
 function readable(value: unknown): { stdout: string; stderr: string } {
@@ -140,10 +141,24 @@ function readable(value: unknown): { stdout: string; stderr: string } {
 		return {
 			stdout: (value as Fields[])
 				.map((row) =>
-					line([row.path as string, ...fieldLines(row, ['path'])].join('  ')),
+					line(
+						[
+							row.path as string,
+							...fieldLines(row, [
+								'path',
+								...(isStrings(row.problems) ? ['problems'] : []),
+							]),
+						].join('  '),
+					),
 				)
 				.join(''),
-			stderr: '',
+			stderr: (value as Fields[])
+				.flatMap((row) =>
+					isStrings(row.problems)
+						? row.problems.map((problem) => `! ${row.path}: ${problem}\n`)
+						: [],
+				)
+				.join(''),
 		};
 	return { stdout: line(JSON.stringify(value, null, 2)), stderr: '' };
 }

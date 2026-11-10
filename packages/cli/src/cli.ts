@@ -72,7 +72,7 @@ longer fits its collection's fields, and builds the UI, keeping the last one tha
 	build: `Builds the UI of every app, or one app, keeping each last good build.`,
 	sync: `Takes a snapshot of what is pending in each app, or one app, then pushes
 to origin when it exists. It never pushes to upstream.`,
-	history: `Lists the app's snapshots, newest first (20 unless --limit says otherwise): each
+	history: `Lists the app's snapshots, newest first (20 by default; --limit takes 1 to 1000): each
 one's commit, local time, and what it took. An undo reads as "undid <subject>".`,
 	undo: `Snapshots what is pending, then reverts the app's most recent snapshot that is
 not an undo and is not undone, or the commit named, as "<app>: undid <subject>".

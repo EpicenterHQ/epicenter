@@ -29,7 +29,7 @@ export async function pushOrigin(
 			pushed: false,
 			error: {
 				message:
-					'The backup at origin has changes this computer does not; nothing was overwritten',
+					'the backup at origin has changes this computer does not; nothing was overwritten',
 				next: `git -C ${folder} fetch origin && git -C ${folder} log HEAD..origin/${branch}`,
 			},
 		};

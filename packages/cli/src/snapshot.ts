@@ -4,21 +4,45 @@
  * call and paths to the parent, which gives them to the snapshot.
  *
  * Who takes a snapshot: the command line after a write run it ran itself,
- * `serve` after each write call and for outside edits that have gone quiet,
+ * `serve` after each write call and for outside edits unchanged between two checks,
  * and `epicenter sync` before it pushes.
  */
+import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { git, gitMessage } from './git.ts';
 
 /** The write run that led to this snapshot. */
 export type Wrote = { call: string; paths: string[] };
 
-/** The body line of a snapshot with a call: the paths it took that the call did not write. `epicenter history` parses it. */
-export const ALSO_CHANGED = 'Also changed: ';
-/** The body line of a snapshot without a call: the paths it took. `epicenter history` parses it. */
-export const CHANGED = 'Changed: ';
+/** The body header for paths a call did not write. `epicenter history` parses it. */
+export const ALSO_CHANGED = 'Also changed:';
+/** The body header for paths taken without a call. `epicenter history` parses it. */
+export const CHANGED = 'Changed:';
+
+/** Git state that must finish before a snapshot may stage or commit. */
+const UNDERWAY = [
+	'MERGE_HEAD',
+	'REVERT_HEAD',
+	'CHERRY_PICK_HEAD',
+	'rebase-merge',
+	'rebase-apply',
+	'sequencer',
+];
+
+/** Whether Git is in the middle of a merge, rebase, revert, or cherry-pick. */
+export async function underway(folder: string) {
+	const args = [
+		'rev-parse',
+		...UNDERWAY.flatMap((path) => ['--git-path', path]),
+	];
+	const paths = await git(folder, args);
+	if (paths.code !== 0) throw new Error(gitMessage(args, paths));
+	return paths.stdout
+		.split('\n')
+		.some((path) => existsSync(resolve(folder, path)));
+}
 
 /** What a snapshot did: the commit it made, nothing (nothing was pending, or the folder is in no repository), or why it failed. */
 export type Snapshot =
@@ -101,14 +125,23 @@ export async function statusOf(folder: string) {
 	};
 }
 
-/** A call names its snapshot; all other pending paths get one body line. */
+/** A call names its snapshot; other pending paths follow a body header. */
 function messageOf(app: string, wrote: Wrote | undefined, paths: string[]) {
 	const subject = wrote?.call ?? `${app}: changed outside epicenter`;
 	const other = wrote
 		? paths.filter((path) => !wrote.paths.includes(path))
 		: paths;
 	const body = other.length
-		? `${wrote ? ALSO_CHANGED : CHANGED}${other.join(', ')}`
+		? `${wrote ? ALSO_CHANGED : CHANGED}\n${other
+				.map((path) =>
+					path.includes('\n') ||
+					path.startsWith('"') ||
+					path === ALSO_CHANGED ||
+					path === CHANGED
+						? JSON.stringify(path)
+						: path,
+				)
+				.join('\n')}`
 		: '';
 	return body ? `${subject}\n\n${body}` : subject;
 }
@@ -167,6 +200,11 @@ async function take(
 	)
 		return { committed: null };
 	try {
+		if (await underway(folder))
+			return {
+				failed:
+					'the repository is in the middle of a merge, rebase, revert, or cherry-pick; finish or abort it first',
+			};
 		return { committed: await commitPending(app, folder, wrote) };
 	} catch (error) {
 		return { failed: extractErrorMessage(error) };
@@ -180,9 +218,10 @@ const queued = new Map<string, Promise<Snapshot>>();
  * Commit everything pending in the app's folder as one snapshot (ADR-0850):
  * `git add -A` and `git commit`, never `*.local` or `*.local.*`, refused
  * before staging when `.gitattributes` routes files through LFS and this
- * computer has no filter. The subject is the reported call, or
- * `<app>: changed outside epicenter`. The body names other pending paths, or
- * all pending paths when there is no call. A failure is returned to the caller.
+ * computer has no filter, or when a Git operation is underway. The subject is
+ * the reported call, or `<app>: changed outside epicenter`. The body names
+ * other pending paths, or all pending paths when there is no call. A failure
+ * is returned to the caller.
  */
 export function snapshot(
 	app: string,

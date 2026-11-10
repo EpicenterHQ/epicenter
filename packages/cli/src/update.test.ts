@@ -217,7 +217,7 @@ test('sync pushes to origin, never to the starter', async () => {
 	).toBe(0);
 	expect(
 		JSON.parse((await f.run('vocab', '--json')).stdout),
-	).not.toHaveProperty('history');
+	).not.toHaveProperty('status');
 	const synced = await f.run('sync', 'vocab', '--json');
 	expect(synced.code).toBe(0);
 	expect(JSON.parse(synced.stdout).apps[0]).toMatchObject({
