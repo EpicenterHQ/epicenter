@@ -194,3 +194,16 @@ test('sync pushes to origin, never to the starter', async () => {
 	);
 	expect(await gitIn(f.starter, 'rev-parse', 'HEAD')).toBe(starterHead);
 });
+
+test('new --from whose UI does not build makes the app, exits 1, and names update', async () => {
+	const f = await starterFixture();
+	await writeFile(join(f.starter, 'ui', 'package.json'), uiPackage('exit 7'));
+	await commitAll(f.starter, 'break the build');
+	const made = await f.run('new', 'vocab', '--from', f.starter, '--json');
+	expect(made.code).toBe(1);
+	expect(JSON.parse(made.stdout).error).toMatchObject({
+		name: 'BuildFailed',
+		next: 'epicenter update vocab',
+	});
+	expect(await gitIn(f.app, 'remote')).toBe('upstream');
+});

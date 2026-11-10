@@ -31,7 +31,7 @@ import { nameProblem, SCHEMA_URL } from '@epicenter/app';
 import { CliError } from './errors.ts';
 import { checkedGit, git } from './git.ts';
 import { homeDir, readDeclaration, resolveFolder } from './home.ts';
-import { fail, made, writeErr } from './output.ts';
+import { fail, made, presentAnswer } from './output.ts';
 import { buildUi } from './ui.ts';
 
 /** A Git URL rather than a folder path: a scheme, or `user@host:path`. */
@@ -113,9 +113,12 @@ export async function newCommand(
 	try {
 		await buildUi(folder);
 	} catch (error) {
-		// The app is made; only its UI is missing, and update builds it again.
-		writeErr(CliError.BuildFailed({ app: name, cause: error }).error.message);
-		writeErr(`Run: epicenter update ${name}`);
+		// The app is made and only its UI is missing, so this exits 1, not 2:
+		// update builds it again.
+		presentAnswer(
+			{ error: CliError.BuildFailed({ app: name, cause: error }).error },
+			json,
+		);
 		return 1;
 	}
 	return done(name, json);

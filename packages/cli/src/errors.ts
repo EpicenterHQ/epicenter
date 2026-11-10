@@ -31,6 +31,7 @@ export const CliError = defineErrors({
 	BuildFailed: ({ app, cause }: { app: string; cause: unknown }) => ({
 		message: `${app}: the UI did not build: ${extractErrorMessage(cause)}`,
 		app,
+		next: `epicenter update ${app}`,
 	}),
 	/** `epicenter` itself failed unexpectedly before anything ran: a bug, or a home it cannot read. */
 	Internal: ({ cause }: { cause: unknown }) => ({
