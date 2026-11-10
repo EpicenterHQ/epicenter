@@ -19,7 +19,7 @@ epicenter serve --stdio
 epicenter --version
 ```
 
-The commands are `new`, `add`, `sync`, and `serve`; any other first word names an app. `--json` and `--help` (`-h`) go anywhere before `--`; `--version` is read only on its own. The listing shows each app's actions and the problems in individual apps. `epicenter --json` prints each app's declaration: its name, description, folder, the collections from its `epicenter.json`, and each action as the MCP tool `serve` offers, with all four annotations explicit. The listing reads nothing from Git. A folder with neither `epicenter.json` nor `epicenter.ts` is not an app and is not listed.
+The commands are `new`, `link`, `install`, `sync`, and `serve`; any other first word names an app. `--json` and `--help` (`-h`) go anywhere before `--`; `--version` is read only on its own. The listing shows each app's actions and the problems in individual apps. `epicenter --json` prints each app's declaration: its name, description, folder, the collections from its `epicenter.json`, and each action as the MCP tool `serve` offers, with all four annotations explicit. The listing reads nothing from Git. A folder with neither `epicenter.json` nor `epicenter.ts` is not an app and is not listed.
 
 `epicenter` supplies `@epicenter/app` to every `epicenter.ts` it loads, so a folder needs no `node_modules` to run. Listing and running an app only read it. An invalid `epicenter.json` is reported before any of the app's code is imported.
 
@@ -29,7 +29,7 @@ The `epicenter` you start only relays. It runs the action in a child `epicenter`
 
 `epicenter serve` starts an HTTP server on `127.0.0.1:4747`. `--host <address>` and `--port <n>` change where it listens. It serves MCP at `POST /mcp` and each app's `view/` at `/<app>/`. The home page links to apps with `view/index.html`. An Origin must match the request Host; requests without Origin are accepted. A reverse proxy such as `tailscale serve` can provide HTTPS.
 
-Both HTTP and `serve --stdio` offer every app action and `sync`. The server never imports an app. `tools/list` runs `epicenter <app> --json` for each home entry in its own child, so an app that fails to load loses only its own tools and says why on stderr. Each `tools/call` runs `epicenter <app> <words> --input <json>` in a fresh child, so an edit between calls is seen by the next. `--input` takes the action's input as one JSON object instead of flags. `serve --stdio` uses stdin and stdout for MCP.
+Both HTTP and `serve --stdio` offer every app action as a tool. The server never imports an app. `tools/list` runs `epicenter <app> --json` for each home entry in its own child, so an app that fails to load loses only its own tools and says why on stderr. Each `tools/call` runs `epicenter <app> <words> --input <json>` in a fresh child, so an edit between calls is seen by the next. `--input` takes the action's input as one JSON object instead of flags. `serve --stdio` uses stdin and stdout for MCP.
 
 When a call's answer says it committed, the HTTP server pushes that app in the background if its branch has an upstream. Push failures go to stderr and leave the commit local.
 
@@ -84,8 +84,6 @@ An app inside a larger repository commits only its own folder but pulls and push
 ```
 
 `committed` is `null` when nothing was left; `upstream` is how far the branch is from its upstream afterwards, or `null` when it tracks none; `error` is `{ message, next? }` when the app did not finish syncing. Without `--json`, stdout has one line per app, such as `reading: committed sync: reading (2 files); pushed; 0 ahead, 0 behind`, and stderr has each error with its `Run:` line. Exit 0 when every app synced, 1 when any did not, 2 when the app named is not in the home.
-
-Over MCP the tool `sync` takes `{ app?: string }`, runs `epicenter sync` in a child, and returns the same object, with `isError` when any app did not sync.
 
 ## Adding apps
 

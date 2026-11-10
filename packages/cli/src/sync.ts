@@ -16,7 +16,7 @@ import { homeEntries } from './home.ts';
 import { fail, writeJson } from './output.ts';
 
 /** What sync did for one app. */
-export type Synced = {
+type Synced = {
 	app: string;
 	folder: string;
 	/** The commit sync made of what was left, or `null` when nothing was. */
@@ -29,7 +29,7 @@ export type Synced = {
 };
 
 /** What `epicenter sync` answers: one report per app, in name order. */
-export type SyncAnswer = { apps: Synced[] };
+type SyncAnswer = { apps: Synced[] };
 
 /** Ahead and behind the upstream, or `null` when the branch tracks none. */
 async function upstreamOf(folder: string) {
@@ -101,7 +101,7 @@ async function syncOne(app: string, folder: string): Promise<Synced> {
 }
 
 /** Sync every app in the home, or only `name`, one after another. */
-export async function syncApps(
+async function syncApps(
 	name?: string,
 ): Promise<{ error: CliError } | SyncAnswer> {
 	const entries = await homeEntries();
@@ -123,12 +123,12 @@ export async function syncApps(
 }
 
 /** 0 when every app synced, 1 when any did not. */
-export function syncExitCode(answer: SyncAnswer) {
+function syncExitCode(answer: SyncAnswer) {
 	return answer.apps.some((app) => app.error) ? 1 : 0;
 }
 
 /** A sync as a person reads it: one line per app on stdout, and what went wrong on stderr. */
-export function renderSync(answer: SyncAnswer) {
+function renderSync(answer: SyncAnswer) {
 	const stdout: string[] = [];
 	const stderr: string[] = [];
 	for (const app of answer.apps) {

@@ -3,16 +3,10 @@
  * Each test runs the real `epicenter serve --stdio` against a temporary HOME.
  */
 import { expect, setDefaultTimeout, test } from 'bun:test';
-import { rm, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { rm } from 'node:fs/promises';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import {
-	declarationOf,
-	fixture,
-	reading,
-	vault,
-} from './runner.test-support.ts';
+import { fixture, reading, vault } from './runner.test-support.ts';
 
 // Each test runs the real command several times as separate processes.
 setDefaultTimeout(30_000);
@@ -122,66 +116,6 @@ test('serve --stdio exits 0 after the client ends stdin', async () => {
 		expect(stdout).toBe('');
 		expect(stderr).toContain('Serving your apps over MCP.');
 	} finally {
-		await rm(f.root, { recursive: true, force: true });
-	}
-});
-
-test('the sync tool syncs the home, or one app, and is an error when an app does not sync', async () => {
-	const f = await fixture();
-	const client = new Client({ name: 'test', version: '1' });
-	try {
-		await f.app('vault', vault);
-		await writeFile(join(f.home, 'vault', 'note.md'), 'note\n');
-		await f.folder(
-			join(f.home, 'loose'),
-			{ 'epicenter.json': declarationOf('loose') },
-			{ git: false },
-		);
-		await client.connect(
-			new StdioClientTransport({
-				command: process.execPath,
-				args: [f.bin, 'serve', '--stdio'],
-				cwd: f.root,
-				env: f.env as Record<string, string>,
-				stderr: 'pipe',
-			}),
-		);
-		const tool = (await client.listTools()).tools.find(
-			(tool) => tool.name === 'sync',
-		);
-		expect(tool?.inputSchema).toMatchObject({
-			properties: { app: { type: 'string' } },
-		});
-		const one = await client.callTool({
-			name: 'sync',
-			arguments: { app: 'vault' },
-		});
-		expect(one.isError).toBeFalsy();
-		expect(one.structuredContent).toEqual({
-			apps: [
-				{
-					app: 'vault',
-					folder: join(f.home, 'vault'),
-					committed: { subject: 'sync: vault (1 file)', files: 1 },
-					pushed: false,
-					upstream: null,
-				},
-			],
-		});
-		const all = await client.callTool({ name: 'sync', arguments: {} });
-		expect(all.isError).toBe(true);
-		expect(all.content).toEqual([
-			{
-				type: 'text',
-				text: expect.stringContaining('loose: '),
-			},
-		]);
-		for (const app of ['--help', 'nope'])
-			expect(
-				(await client.callTool({ name: 'sync', arguments: { app } })).isError,
-			).toBe(true);
-	} finally {
-		await client.close();
 		await rm(f.root, { recursive: true, force: true });
 	}
 });

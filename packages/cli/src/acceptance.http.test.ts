@@ -64,7 +64,7 @@ function mcp(base: string, method: string, params: object = {}) {
 	});
 }
 
-test('HTTP tools/list offers app actions and sync', async () => {
+test('HTTP tools/list offers app actions', async () => {
 	const f = await setup();
 	await f.folder(join(f.home, 'reading'), readingApp);
 	const response = await mcp(f.base, 'tools/list');
@@ -73,7 +73,6 @@ test('HTTP tools/list offers app actions and sync', async () => {
 		result: { tools: { name: string }[] };
 	};
 	expect(body.result.tools.map((tool) => tool.name)).toEqual([
-		'sync',
 		'reading_books_list',
 		'reading_books_get',
 		'reading_books_set',

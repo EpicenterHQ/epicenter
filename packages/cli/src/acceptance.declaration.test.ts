@@ -259,8 +259,7 @@ test('D6 serve --stdio answers initialize, lists the same tools as --json, and r
 		await client.connect(transport);
 		expect(client.getServerVersion()?.name).toBe('epicenter');
 		const { tools } = await client.listTools();
-		expect(tools[0]?.name).toBe('sync');
-		expect(tools.slice(1)).toEqual(
+		expect(tools).toEqual(
 			listing.apps.flatMap((app: { actions: unknown[] }) => app.actions),
 		);
 		const called = await client.callTool({
@@ -414,7 +413,6 @@ test('D8 an app with only epicenter.json lists, reads, writes, and deletes its c
 		await client.connect(transport);
 		const { tools } = await client.listTools();
 		expect(tools.map((tool) => tool.name)).toEqual([
-			'sync',
 			'capture_items_list',
 			'capture_items_get',
 			'capture_items_set',

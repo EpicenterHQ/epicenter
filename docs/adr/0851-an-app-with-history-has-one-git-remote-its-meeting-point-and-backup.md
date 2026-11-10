@@ -88,5 +88,9 @@ An app with no history yet (ADR-0852's first rung) has no remote.
   management, and rules out hosted runs.
 - **Push after each commit `epicenter` makes.** Nothing is left to push after
   once a run makes no commit, and a slow push sat behind every run.
-- **No `epicenter sync`, Git and editors only.** A caller without a shell, such
-  as Claude Desktop or a view, could never commit or push.
+- **No `epicenter sync`, Git and editors only.** Edits made by hand or by an
+  editor would have no one command that commits, pulls, and pushes them.
+- **`sync` as an MCP tool.** It was one while a caller without a shell, such
+  as Claude Desktop or a view, had no other way to commit or push. Every write
+  now commits itself and `epicenter serve` pushes after it (ADR-0850), so the
+  tool only committed what someone left by hand, which is the terminal's job.
