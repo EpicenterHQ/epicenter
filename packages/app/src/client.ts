@@ -13,15 +13,7 @@
  *
  * `call` resolves to what the action returned and rejects with an
  * `ActionError` when it threw or did not run. It imports nothing, so a view's
- * bundle carries only this file, and `epicenter serve` offers it as plain
- * JavaScript at `/.client.js` for a view with no build step:
- *
- * ```html
- * <script type="module">
- *   import { connect } from '/.client.js';
- *   const rows = await connect('capture').call('captures list');
- * </script>
- * ```
+ * bundle carries only this file.
  */
 
 /** Why a call did not return: the action threw, nothing ran, or the server did not answer. */

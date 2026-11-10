@@ -71,8 +71,8 @@ transport), or over stdio with `epicenter serve --stdio`. Each action is one
 MCP tool (`vocab_words_set`) whose `inputSchema` comes from its fields and
 whose `annotations` are its own. There is no file API and no data API beside
 the actions. Beside MCP, `serve` answers only its own paths, which start with
-`.` (the view client at `/.client.js`, and sign-in), and each app's `view/` as
-static files at `/<app>/` (ADR-0864).
+`.` (sign-in, when it comes), and each app's view as static files at
+`/<app>/` (ADR-0864).
 
 **A view asks through `connect` in `@epicenter/app/client`,** which posts
 MCP's `tools/call` to the same origin's `/` and names the action by its

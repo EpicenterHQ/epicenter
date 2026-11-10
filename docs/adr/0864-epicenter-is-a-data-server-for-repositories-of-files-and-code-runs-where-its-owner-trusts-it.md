@@ -72,9 +72,9 @@ must go on offline keeps a copy and syncs it with Git.**
   origin and one address for people and agents, so a view asks with no sign-in
   of its own beyond the server's. A `GET /` from a browser is the launcher. A
   view is static files with hash routes (`#/c/<id>`); the server routes
-  nothing. The server's own paths start with `.` (`/.client.js`, and
-  `/.well-known/` for sign-in), which no app name can, so no app name is
-  reserved for it.
+  nothing. The server's own paths start with `.` (`/.well-known/` for
+  sign-in, when it comes), which no app name can, so no app name is reserved
+  for it.
 
 **3. Code runs where its owner trusts it.** `epicenter serve` runs the
 `epicenter.ts` of each repository its operator trusts, and offers its actions as

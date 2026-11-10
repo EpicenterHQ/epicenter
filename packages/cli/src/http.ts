@@ -4,29 +4,21 @@
  * ```txt
  * POST /             MCP, stateless JSON
  * GET  /             the launcher; 405 when asked for an event stream (MCP)
- * GET  /.client.js   connect(), for a view with no build step
  * GET  /<app>/...    the app's .cache/view/ (built), else view/, as static files
  * GET  /<app>        308 to /<app>/
  * ```
  *
- * The server's own paths start with `.`, which no app name can, so no name is
- * reserved for the server.
+ * Any later path of the server's own starts with `.`, which no app name can,
+ * so no name is reserved for the server.
  */
 import { realpath, stat } from 'node:fs/promises';
 import { isAbsolute, join, sep } from 'node:path';
 import { isName } from '@epicenter/app';
-// @ts-expect-error TypeScript types the module; Bun imports its source as text.
-import clientSource from '@epicenter/app/client' with { type: 'text' };
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { git, gitMessage } from './git.ts';
 import { homeEntries, readDeclaration } from './home.ts';
 import { callTool, createMcpServer, listTools } from './mcp.ts';
 import { writeErr } from './output.ts';
-
-/** `connect()` as plain JavaScript, served at `/.client.js`. */
-const clientScript = new Bun.Transpiler({ loader: 'ts' }).transformSync(
-	clientSource,
-);
 
 /** An app's background push: the one running, and whether another is wanted after it. */
 type Push = { running?: Promise<void>; again: boolean };
@@ -239,13 +231,6 @@ export function startHttpServer(host: string, port: number) {
 			}
 			if (request.method !== 'GET' && request.method !== 'HEAD')
 				return notFound();
-			if (pathname === '/.client.js')
-				return new Response(clientScript, {
-					headers: {
-						'content-type': 'text/javascript; charset=utf-8',
-						'cache-control': 'no-cache',
-					},
-				});
 			const match = /^\/([^/]+)(?:\/(.*))?$/.exec(pathname);
 			if (!match) return notFound();
 			const app = match[1];

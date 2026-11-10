@@ -246,19 +246,6 @@ test('a built view in .cache/view/ is served in place of the committed view/', a
 	expect((await fetch(`${f.base}/reading/only.txt`)).status).toBe(404);
 });
 
-test('/.client.js is connect() as plain JavaScript, and other dot paths are not apps', async () => {
-	const f = await setup();
-	const script = await fetch(`${f.base}/.client.js`);
-	expect(script.status).toBe(200);
-	expect(script.headers.get('content-type')).toBe(
-		'text/javascript; charset=utf-8',
-	);
-	const text = await script.text();
-	expect(text).toContain('export function connect(');
-	expect(text).not.toContain(': string');
-	expect((await fetch(`${f.base}/.well-known/x`)).status).toBe(404);
-});
-
 test('mismatched Origin is forbidden, and / refuses an event stream and other methods', async () => {
 	const f = await setup();
 	expect(
