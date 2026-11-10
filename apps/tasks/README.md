@@ -1,6 +1,6 @@
 # Tasks
 
-Things to do, as an app in `~/Epicenter/tasks` (ADR-0864). `bun apps/install.ts tasks`
+Things to do, as an app in `~/Epicenter/tasks` (ADR-0864). `bun epicenter install apps/tasks`
 installs it; `epicenter serve` serves its view at `/tasks/`.
 
 ## A task is a file

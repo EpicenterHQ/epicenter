@@ -18,6 +18,7 @@ import {
 	matchAction,
 	usageLine,
 } from './input.ts';
+import { installCommand } from './install.ts';
 import {
 	actionHelp,
 	actionTool,
@@ -71,6 +72,17 @@ const HANDLERS: { [K in Command]: Handler } = {
 				json,
 			);
 		return addCommand(source, name, json);
+	},
+	async install(words, json) {
+		const [source, name] = words;
+		if (words.length > 2 || source === undefined)
+			return fail(
+				usage(
+					'epicenter install needs a source (a path or Git URL) and maybe a name, or an installed app',
+				),
+				json,
+			);
+		return installCommand(source, name, json);
 	},
 	sync: syncCommand,
 	async serve(words, json) {

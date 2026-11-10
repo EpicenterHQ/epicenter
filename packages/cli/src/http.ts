@@ -188,7 +188,7 @@ export function startHttpServer(host: string, port: number) {
 		)
 			return notFound();
 		try {
-			const root = await realpath(join(entry.realPath, 'views'));
+			const root = await realpath(join(entry.realPath, 'view'));
 			if (!root.startsWith(`${entry.realPath}${sep}`)) return notFound();
 			const candidate = join(root, decoded || 'index.html');
 			const file = await realpath(

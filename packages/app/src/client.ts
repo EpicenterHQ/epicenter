@@ -1,6 +1,6 @@
 /**
  * How a view asks `epicenter serve` to run an app's actions (ADR-0860,
- * ADR-0864). A view is a web page served from an app's `views/` at
+ * ADR-0864). A view is a web page served from an app's `view/` at
  * `/<app>/`; it asks over MCP like any agent, at the same origin's `/mcp`.
  *
  * ```ts

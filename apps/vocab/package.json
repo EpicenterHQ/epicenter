@@ -7,7 +7,6 @@
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
-		"install-app": "bun ../install.ts vocab",
 		"prepare": "svelte-kit sync || echo ''",
 		"test": "bun test",
 		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"

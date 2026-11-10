@@ -34,7 +34,7 @@ front matter, or JSON. Any tool can read the files with no Epicenter running.
 ```txt
 ~/Epicenter/
   capture/      epicenter.json  captures/<id>.md
-  vocab/        epicenter.json  epicenter.ts  views/  words/<word>.md
+  vocab/        epicenter.json  epicenter.ts  view/  words/<word>.md
   whispering/   epicenter.json  recordings/<id>.md  recordings/<id>.local.webm
   mail/         epicenter.json  epicenter.ts  receipts/<id>.md
 ```
@@ -47,7 +47,7 @@ must go on offline keeps a copy and syncs it with Git.**
 | --- | --- | --- |
 | `epicenter <app> <collection> <verb>` | the command, opening the folder directly | you, agents with a shell |
 | `open('~/Epicenter/vocab')` | the same, as a typed library | your scripts, tests |
-| `epicenter serve` | MCP over HTTPS: `vocab_words_list`, `capture_captures_set`, each trusted action; and `views/` as web pages | Claude, ChatGPT, any agent; views in a browser |
+| `epicenter serve` | MCP over HTTPS: `vocab_words_list`, `capture_captures_set`, each trusted action; and `view/` as web pages | Claude, ChatGPT, any agent; views in a browser |
 | Git over SSH | `studio:Epicenter/whispering` as the copy's remote | a program that keeps a copy: Whispering |
 
 - Capture, Tasks, Vocab, agents, and views keep nothing on a device and always
@@ -68,7 +68,7 @@ must go on offline keeps a copy and syncs it with Git.**
   pushes to the mirror. Nothing runs on a timer.
 - Who may ask is `epicenter serve`'s sign-in; who may pull and push is SSH's
   `authorized_keys`.
-- `epicenter serve` serves an app's `views/` at `/<app>/` and MCP at `/mcp`,
+- `epicenter serve` serves an app's `view/` at `/<app>/` and MCP at `/mcp`,
   one origin, so a view asks with no sign-in of its own beyond the server's. A
   view is static files with hash routes (`#/c/<id>`); the server routes
   nothing.
@@ -96,13 +96,16 @@ Another person's Epicenter is the same program on their own computer.
   upstreams, the three kinds of app, models as an Epicenter setting, Epicenter
   holding third-party credentials, and running code in isolates or Durable
   Objects.
-- A view is a web client: served from a repository's `views/` or from anywhere,
+- A view is a web client: served from a repository's `view/` or from anywhere,
   it asks over MCP like an agent, and the browser sandboxes it.
-- An app made in the Epicenter repository has its source in `apps/<app>/`
-  there. `bun apps/install.ts <app>` copies its `epicenter.json` and
-  `epicenter.ts` into `~/Epicenter/<app>` and commits them, and builds its view
-  into `views/`, which the app's `.gitignore` keeps out of its history: the
-  view is rebuilt from source, and only the computer that serves it needs it.
+- An app's source is a repository of its own, or `apps/<app>/` in the
+  Epicenter repository, and is kept apart from the app's data so that sharing
+  the app never shares anyone's data. `epicenter install <path|git url>`
+  copies its `epicenter.json` and `epicenter.ts` into `~/Epicenter/<app>` and
+  commits them with the source as a trailer, and builds its view into `view/`,
+  which the app's `.gitignore` keeps out of its history: the view is rebuilt
+  from source, and only the computer that serves it needs it.
+  `epicenter install <app>` installs again from the recorded source.
 - A rule another author's app needs everywhere lives in that app's client, or in
   an `epicenter.ts` a person chooses to trust, or in that author's own MCP
   server. The server enforces shapes only.

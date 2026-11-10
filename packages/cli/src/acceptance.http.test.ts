@@ -184,15 +184,15 @@ test('commit subjects use the first positional value on one line, capped at 60 c
 test('views serve files and refuse traversal and symlinks outside views', async () => {
 	const f = await setup();
 	const folder = await f.folder(join(f.home, 'reading'), readingApp);
-	await mkdir(join(folder, 'views', '_app', 'immutable'), { recursive: true });
-	await writeFile(join(folder, 'views', 'index.html'), '<h1>Reading</h1>');
+	await mkdir(join(folder, 'view', '_app', 'immutable'), { recursive: true });
+	await writeFile(join(folder, 'view', 'index.html'), '<h1>Reading</h1>');
 	await writeFile(
-		join(folder, 'views', '_app', 'immutable', 'asset.js'),
+		join(folder, 'view', '_app', 'immutable', 'asset.js'),
 		'export {};',
 	);
 	await symlink(
 		join(folder, 'epicenter.json'),
-		join(folder, 'views', 'outside.json'),
+		join(folder, 'view', 'outside.json'),
 	);
 	const linked = await f.folder(join(f.home, 'linked'), {
 		'epicenter.json': JSON.stringify({ description: 'Linked view' }),
@@ -200,7 +200,7 @@ test('views serve files and refuse traversal and symlinks outside views', async 
 	const outsideViews = join(f.root, 'outside-views');
 	await mkdir(outsideViews);
 	await writeFile(join(outsideViews, 'index.html'), 'outside');
-	await symlink(outsideViews, join(linked, 'views'));
+	await symlink(outsideViews, join(linked, 'view'));
 	expect(await (await fetch(`${f.base}/`)).text()).toContain(
 		'href="/reading/"',
 	);

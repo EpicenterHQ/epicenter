@@ -118,6 +118,7 @@ export function defineApp<I extends Record<string, Input>, A extends Actions>(
 export const COMMANDS = {
 	new: 'epicenter new <name>',
 	add: 'epicenter add <folder> [<name>] | add <git url> [<name>]',
+	install: 'epicenter install <path|git url> [<name>] | install <app>',
 	sync: 'epicenter sync [<app>]',
 	serve: 'epicenter serve [--port <n>] [--host <address>] | serve --stdio',
 } as const;

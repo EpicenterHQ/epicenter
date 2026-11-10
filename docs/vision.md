@@ -27,7 +27,7 @@ which is mostly the earlier product described at the end.
    MCP come from an app's actions; views and prompts are written.
 
 An app is a folder: `epicenter.json` (what its files are), `epicenter.ts` (what
-you can do), `views/` (for people), and `prompts/` (for agents). Getting the
+you can do), `view/` (for people), and `prompts/` (for agents). Getting the
 folder installs it ([ADR-0861]).
 
 ## One copy, and clients that ask
@@ -39,7 +39,7 @@ each app, and every client asks it ([ADR-0864]).
 | Way in | What it is | Who uses it |
 | --- | --- | --- |
 | `epicenter <app> <collection> <verb>` | the command, opening the folder directly | you, agents with a shell |
-| `epicenter serve` | MCP over HTTPS at `/mcp`, and each app's `views/` at `/<app>/` | Claude, ChatGPT, any agent; views in a browser |
+| `epicenter serve` | MCP over HTTPS at `/mcp`, and each app's `view/` at `/<app>/` | Claude, ChatGPT, any agent; views in a browser |
 | Git over SSH | `studio:Epicenter/whispering` as a copy's remote | a program that keeps a copy: Whispering |
 
 Capture, Vocab, agents, and views keep nothing on a device and always see the
@@ -50,9 +50,9 @@ third-party credentials: Mail's Google sign-in is in the Keychain of the
 computer that runs Mail's actions.
 
 Agents make apps: you start Claude Code on your server, ask for an app, and it
-writes the folder. In the Epicenter repository an app's source is
-`apps/<app>/`, and `bun apps/install.ts <app>` installs it into
-`~/Epicenter/<app>`.
+writes the folder. An app's source is a repository of its own or
+`apps/<app>/` in the Epicenter repository, and `epicenter install <source>`
+installs it into `~/Epicenter/<app>`.
 
 ## What it is like
 
@@ -92,7 +92,7 @@ writes the folder. In the Epicenter repository an app's source is
 | a collection | a kind of file in the app, by path (`words/{stem}.md`) and fields; it gives `list`, `get`, `set`, and `delete` |
 | a field | JSON Schema for one value; in TypeScript, written with helpers such as `field.text()` |
 | an action | something you can ask an app to do: a collection's four, or one the author writes with a `run` function |
-| a view | a web page in the app's `views/`, served at `/<app>/`, that shows its data and calls its actions over MCP |
+| a view | a web page in the app's `view/`, served at `/<app>/`, that shows its data and calls its actions over MCP |
 | `epicenter` | the program that runs an action in a folder, and `epicenter serve`, which offers every app over MCP |
 | a device program | an app's own program, when it needs the device: Whispering |
 | your server | the computer you keep on, which holds the one copy of each app and runs its actions |
@@ -110,7 +110,7 @@ vocab/
   epicenter.ts            actions
   tsconfig.json           one line, extending .cache/epicenter/tsconfig.json
   words/serendipity.md    data: front matter and a body
-  views/                  the built view, ignored by Git
+  view/                   the built view, ignored by Git
   .cache/epicenter/       types epicenter generates from epicenter.json
   .cache/                 rebuildable files, ignored by Git
   .gitignore, .gitattributes
@@ -198,7 +198,7 @@ except your agents' permission rules.
 
 ## Views
 
-An app's interfaces are views ([ADR-0860]): a web page in the app's `views/`,
+An app's interfaces are views ([ADR-0860]): a web page in the app's `view/`,
 built from source and served at `/<app>/`, that reads and changes the app only
 by calling its actions over MCP at `/mcp`. A view never knows where the actions
 run, works in any browser that reaches your server, and keeps nothing of its

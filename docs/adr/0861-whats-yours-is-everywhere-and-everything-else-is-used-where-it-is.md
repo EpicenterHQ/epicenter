@@ -40,7 +40,7 @@ the Mac Studio, is always on and holds the one copy of each app (ADR-0864).
 vocab/
   epicenter.json    collections: what the files are, readable by any language
   epicenter.ts      actions: what you can do
-  views/            for people: a built web client, served at /vocab/
+  view/             for people: a built web client, served at /vocab/
   prompts/          for agents: each prompt is a Markdown file, offered as an MCP prompt
   entries/  conversations/  settings.md
 ```

@@ -6,8 +6,8 @@ description: Make or change an app that lives in ~/Epicenter, from its source in
 # Epicenter apps
 
 An app is a Git repository of files in `~/Epicenter/<app>` (ADR-0864). Its
-source lives in this monorepo at `apps/<app>/`, and
-`bun apps/install.ts <app>` puts it there. `epicenter serve` offers its
+source lives in this monorepo at `apps/<app>/` (or in a repository of its
+own), and `bun epicenter install apps/<app>` puts it there. `epicenter serve` offers its
 actions over MCP at `/mcp` and its view at `/<app>/`. Read
 `apps/README.md`, `packages/app/README.md`, and one existing app before
 starting; `apps/tasks` is the smallest whole example.
@@ -68,7 +68,7 @@ install. `HOME` decides `~`, so:
 ```sh
 bun test                                   # in apps/<app>: actions over createMemoryContext
 T=$(mktemp -d); HOME=$T git lfs install
-HOME=$T bun apps/install.ts <app>
+HOME=$T bun epicenter install apps/<app>
 HOME=$T bun packages/cli/src/bin.ts <app> <words> ...
 HOME=$T bun packages/cli/src/bin.ts serve --port 4799   # then drive http://localhost:4799/<app>/
 ```
@@ -78,8 +78,10 @@ package at a time.
 
 ## Install
 
-`bun apps/install.ts <app>` makes the app with `epicenter new` the first
-time, commits `epicenter.json` and `epicenter.ts` as `install <app>`, and
-builds the view into the app's gitignored `views/`. It never touches data. A
+`bun epicenter install apps/<app>` makes the app with `epicenter new` the
+first time, commits `epicenter.json` and `epicenter.ts` as `install <app>`
+with the source and its commit as trailers, and builds the view into the
+app's gitignored `view/`. It never touches data. `bun epicenter install <app>`
+installs again from the recorded source. A
 running `epicenter serve` sees the change on the next request: it lists tools
 and reads views from disk each time.

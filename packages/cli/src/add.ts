@@ -73,7 +73,7 @@ async function exists(path: string) {
 }
 
 /** Whether `name` is free in the home, ignoring case, as macOS does. */
-async function taken(name: string) {
+export async function taken(name: string) {
 	try {
 		return (await readdir(homeDir())).some(
 			(entry) => entry.toLowerCase() === name.toLowerCase(),
@@ -108,29 +108,39 @@ export async function newCommand(name: string, json: boolean): Promise<number> {
 				.error,
 			json,
 		);
-	const folder = join(homeDir(), name);
-	await mkdir(folder, { recursive: true });
-	for (const [path, text] of Object.entries(template(name)))
-		await writeFile(join(folder, path), text);
 	try {
-		await checkedGit(folder, ['init', '-q']);
-		await checkedGit(folder, ['add', '-A']);
-		await checkedGit(folder, ['commit', '-q', '-m', `new ${name}`]);
+		await makeApp(name);
 	} catch (error) {
 		return fail(CliError.GitFailed({ cause: error }).error, json);
 	}
 	return done(name, json);
 }
 
+/**
+ * Make `~/Epicenter/<name>` from the built-in template, in its own repository
+ * whose first commit is the template, and return its path. The caller has
+ * checked the name. Throws Git's message when Git fails.
+ */
+export async function makeApp(name: string): Promise<string> {
+	const folder = join(homeDir(), name);
+	await mkdir(folder, { recursive: true });
+	for (const [path, text] of Object.entries(template(name)))
+		await writeFile(join(folder, path), text);
+	await checkedGit(folder, ['init', '-q']);
+	await checkedGit(folder, ['add', '-A']);
+	await checkedGit(folder, ['commit', '-q', '-m', `new ${name}`]);
+	return folder;
+}
+
 /** A Git URL rather than a folder path: a scheme, or `user@host:path`. */
-function isUrl(source: string) {
+export function isUrl(source: string) {
 	return (
 		/^[a-z][a-z0-9+.-]*:\/\//i.test(source) || /^[\w.-]+@[\w.-]+:/.test(source)
 	);
 }
 
 /** The name `git clone` would give `source`: its last part, without `.git`. */
-function nameOf(source: string) {
+export function nameOf(source: string) {
 	return basename(source.replace(/[/\\]+$/, '').replace(/^.*:/, '/')).replace(
 		/\.git$/,
 		'',

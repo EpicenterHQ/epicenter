@@ -7,8 +7,8 @@ apps frozen on the folder sync product, which waits.
 
 Capture, Tasks, and Vocab are the source of apps in `~/Epicenter`
 ([ADR-0864](../docs/adr/0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md)).
-Each folder is one app: `apps/capture` is what `bun apps/install.ts capture`
-puts into `~/Epicenter/capture`.
+Each folder is one app's source: `bun epicenter install apps/capture` puts
+it into `~/Epicenter/capture`.
 
 ```txt
 apps/capture/
@@ -17,13 +17,16 @@ apps/capture/
   src/, static/         its view: SvelteKit, Svelte 5, and @epicenter/ui
 ```
 
-`bun apps/install.ts <app>` makes `~/Epicenter/<app>` with `epicenter new`
-the first time, copies `epicenter.json` and `epicenter.ts` and commits them
-alone as `install <app>`, and builds the view into the app's `views/`, which
-the app's `.gitignore` keeps out of its history. It never touches the app's
-data. `HOME` decides `~`, so a test installs into a temporary folder.
+`epicenter install <path|git url> [<name>]` makes `~/Epicenter/<name>` the
+first time, copies `epicenter.json` and `epicenter.ts` and commits them alone
+as `install <name>` with the source as a trailer, and builds the view into
+the app's `view/`, which the app's `.gitignore` keeps out of its history. It
+never touches the app's data; `epicenter install <app>` installs again from
+the recorded source. The source can be any folder or repository, so an app
+made outside this monorepo installs the same way. `HOME` decides `~`, so a
+test installs into a temporary folder.
 
-`epicenter serve` serves an app's `views/` at `/<app>/` and MCP at `/mcp`. A
+`epicenter serve` serves an app's `view/` at `/<app>/` and MCP at `/mcp`. A
 view asks for everything through `connect('<app>')` from
 `@epicenter/app/client`, and keeps nothing of its own. In development,
 `bun run dev` in an app's folder proxies `/mcp` to a running
