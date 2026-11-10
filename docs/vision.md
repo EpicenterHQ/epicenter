@@ -99,7 +99,7 @@ its folder.
 | a view | a web page in the app's `view/`, served at `/<app>/`, that shows its data and calls its actions over MCP |
 | `epicenter` | the program that runs an action in a folder, and `epicenter serve`, which offers every app over MCP |
 | a device program | an app's own program, when it needs the device: Whispering |
-| your server | the computer you keep on, which holds the one copy of each app and runs its actions |
+| your server | the computer that runs `epicenter serve`, from a terminal or as the Epicenter Mac app ([ADR-0865]); it holds the one copy of each app and runs its actions, and every device reaches it while it is on |
 | Git | history, `origin` (your server's GitHub backup, or your server for a copy), LFS for binaries |
 
 Everything else is a program that either has the folder or asks for actions:
@@ -236,6 +236,10 @@ Every app climbs the same ladder, and each rung is optional.
 | 3. Actions | `epicenter` | its actions in the terminal and for Claude Code |
 | 4. Everywhere | `epicenter serve` on your server | every device, claude.ai, and ChatGPT reach it; its views open in a browser |
 
+The Epicenter Mac app installs rungs 2 to 4 at once: it carries its own Git and
+Git LFS and runs `epicenter serve`, so the Mac it is on is your server
+([ADR-0865]).
+
 Whispering is whole at rung 1. Mail's actions run where your Gmail sign-in is,
 on your server; its files reach every rung.
 
@@ -288,3 +292,4 @@ fields are written one `key: <JSON>` line each.
 [ADR-0860]: adr/0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md
 [ADR-0861]: adr/0861-whats-yours-is-everywhere-and-everything-else-is-used-where-it-is.md
 [ADR-0864]: adr/0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md
+[ADR-0865]: adr/0865-the-epicenter-mac-app-runs-epicenter-serve-so-the-computer-it-is-on-is-your-server.md

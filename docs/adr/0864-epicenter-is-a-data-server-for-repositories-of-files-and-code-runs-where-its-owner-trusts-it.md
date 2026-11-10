@@ -29,7 +29,7 @@ separate programs that read and write it.
 **1. Your data is repositories of files with declared shapes.** An app is a Git
 repository, `~/Epicenter/<app>/`, whose `epicenter.json` declares its
 collections (ADR-0857). A collection's files are Markdown with `key: <JSON>`
-front matter, or JSON. Any tool can read the files with no Epicenter running.
+front matter. Any tool can read the files with no Epicenter running.
 
 ```txt
 ~/Epicenter/
@@ -90,11 +90,13 @@ servers, so `epicenter serve` also has one public HTTPS address, through
 Tailscale Funnel, and signs a client in with
 OAuth, as MCP requires: adding the connector opens a page on the Studio where
 you approve it with a passkey, and the client receives a token you can revoke.
-Another person's Epicenter is the same program on their own computer.
+Another person's Epicenter is the same program on their own computer; without a
+terminal, it is the Epicenter Mac app, which runs `epicenter serve` (ADR-0865).
 
 ## Consequences
 
-- Deleted from the plan: the Epicenter app for Mac and iPhone, Git on the phone,
+- Deleted from the plan: an Epicenter app holding a copy on every device (the
+  Mac app returns as `epicenter serve` with a window, ADR-0865), Git on the phone,
   App Intents, the catalog and its install sheet, `id` in `epicenter.json`,
   upstreams, the three kinds of app, models as an Epicenter setting, Epicenter
   holding third-party credentials, and running code in isolates or Durable
