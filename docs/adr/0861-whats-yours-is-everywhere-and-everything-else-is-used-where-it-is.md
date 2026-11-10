@@ -60,9 +60,10 @@ An action uses what its context gives and never asks where it runs. What is
 missing fails when used, and the app's listing shows it as a problem ("needs
 Gmail's sign-in, held on studio").
 
-**Sign-ins are one kind.** Each is held in the Keychain of the computer whose
-actions use it, and none is ever a file. Epicenter holds only its own sign-in,
-the one `epicenter serve` gives a client (ADR-0864).
+**Sign-ins are one kind.** Each is held in a `.local` file of the app, on the
+computer whose actions use it, and never leaves that computer (ADR-0870).
+Epicenter holds only its own sign-in, the one `epicenter serve` gives a client
+(ADR-0871).
 
 **To ask for an action that runs on a machine other than your server, write a
 record.** A draft marked `ready`, a batch of message ids: the record is a file

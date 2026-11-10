@@ -83,15 +83,16 @@ must go on offline keeps a copy and syncs it with Git.**
 MCP tools. An app the operator made, alone or from a starter with
 `epicenter new --from`, is trusted: making it was the decision (ADR-0866). A server that serves people who
 do not trust each other runs no one's `epicenter.ts`. A client holds its own
-credentials: Mail's Google token is in the Keychain of the machine that runs
-Mail's actions, and Epicenter holds only its own sign-in.
+credentials: Mail's Google token is in `mail/google.local.md` on the machine
+that runs Mail's actions (ADR-0870), and Epicenter holds only its own sign-in.
 
 **Your Epicenter is the Studio running `epicenter serve`.** Your own devices
 reach it over your tailnet. Claude.ai and ChatGPT connect from their companies'
 servers, so `epicenter serve` also has one public HTTPS address, through
 Tailscale Funnel, and signs a client in with
 OAuth, as MCP requires: adding the connector opens a page on the Studio where
-you approve it with a passkey, and the client receives a token you can revoke.
+you approve it from a device on your tailnet, and the client receives a token
+you can revoke (ADR-0871).
 Another person's Epicenter is the same program on their own computer; without a
 terminal, it is the Epicenter Mac app, which runs `epicenter serve` (ADR-0865).
 

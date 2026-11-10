@@ -3,9 +3,9 @@
 - **Status:** Proposed
 - **Date:** 2026-11-10
 - **Supersedes:** [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) at "`~/Epicenter` exists on your server and is not moved by an environment variable": the Epicenter is found from where you stand, and `~/Epicenter` is only the fallback. [ADR-0857](0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md) at a folder run by path, and `epicenter link`: every app runs inside an Epicenter.
-- **Amends:** [ADR-0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md) at the Keychain service `epicenter.<name>`, now `epicenter.<Epicenter id>.<app>`. [ADR-0853](0853-collections-give-five-actions-and-programs-without-the-folder-ask-over-mcp.md) at the verbs' names: an app with one collection has them as its own. [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) at the public HTTPS address through Funnel: `serve` signs no one in, so it stays on the tailnet until a sign-in is built. [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) at what a commit takes: never `*.local` or `*.local.*` (since amended by ADR-0850: the app's `.gitignore` leaves them out, and a commit refuses one it lets through).
-- **Relates:** [ADR-0857](0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md) (an app is its `epicenter.ts`, which places its verbs), [ADR-0866](0866-an-app-starts-from-a-starter-kept-as-its-upstream-and-update-merges-the-starters-changes.md) (starters, `update`), [ADR-0867](0867-the-command-line-spells-an-actions-json-input-and-null-removes-a-field-there-as-everywhere.md) (the command line's input), [ADR-0865](0865-the-epicenter-mac-app-runs-epicenter-serve-so-the-computer-it-is-on-is-your-server.md) (the Mac app that would start each `serve`).
-- **Open:** a sign-in for a public address. (Whether a write in an app outside any Git repository exits 3 was settled 2026-11-11 by ADR-0850: no run commits, and such an app is never snapshotted, so it exits 0.)
+- **Amends:** [ADR-0853](0853-collections-give-five-actions-and-programs-without-the-folder-ask-over-mcp.md) at the verbs' names: an app with one collection has them as its own. [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) at the public HTTPS address through Funnel: `serve` signs no one in, so it stays on the tailnet until a sign-in is built. [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) at what a commit takes: never `*.local` or `*.local.*` (since amended by ADR-0850: the app's `.gitignore` leaves them out, and a commit refuses one it lets through).
+- **Relates:** [ADR-0870](0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md) (secrets are `.local` files, so the marker carries no `id`), [ADR-0871](0871-a-public-address-signs-clients-in-with-better-auths-mcp-plugin-and-the-owner-approves-from-the-tailnet.md) (the sign-in for a public address, and `owners`), [ADR-0857](0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md) (an app is its `epicenter.ts`, which places its verbs), [ADR-0866](0866-an-app-starts-from-a-starter-kept-as-its-upstream-and-update-merges-the-starters-changes.md) (starters, `update`), [ADR-0867](0867-the-command-line-spells-an-actions-json-input-and-null-removes-a-field-there-as-everywhere.md) (the command line's input), [ADR-0865](0865-the-epicenter-mac-app-runs-epicenter-serve-so-the-computer-it-is-on-is-your-server.md) (the Mac app that would start each `serve`).
+- **Unbuilt:** `EPICENTER.md` as the marker; the code reads `epicenter.root.json` with an `id`. (The sign-in for a public address was settled 2026-11-11 by ADR-0871. Whether a write in an app outside any Git repository exits 3 was settled 2026-11-11 by ADR-0850: no run commits, and such an app is never snapshotted, so it exits 0.)
 
 ## Context
 
@@ -20,7 +20,7 @@ differences to one direction, which this records (2026-11-10).
 
 ## Decision
 
-**An Epicenter is a folder holding `epicenter.root.json`. Its apps are the
+**An Epicenter is a folder holding `EPICENTER.md`. Its apps are the
 folders directly inside it with an `epicenter.ts`, each its own Git
 repository. `epicenter` works on the Epicenter you are standing in, and
 `epicenter serve` offers that one Epicenter on its own port.** A computer runs
@@ -29,7 +29,7 @@ as many as it has folders; a folder that holds several is only a grouping.
 ```txt
 /Users/Shared/Epicenters/            a grouping, not an Epicenter
   braden/
-    epicenter.root.json              { "id": "…", "port": 4747 }
+    EPICENTER.md                     marks the Epicenter; front matter port: 4747
     AGENTS.md                        guidance for agents; serve sends it as MCP instructions
     tasks/                           an app: its own Git repository
       .git/                          history; remotes upstream (its starter) and origin (its backup)
@@ -38,34 +38,43 @@ as many as it has folders; a folder that holds several is only a grouping.
       ui/                            its UI project (optional)
       .cache/ui/                     the built UI; rebuildable, never committed
       tasks/<time>.md                data, committed
-      token.local.json               this computer only; Epicenter never commits it
+      google.local.md                this computer only; Epicenter never commits it (ADR-0870)
     capture/  vocab/  mail/
-  bryce/      epicenter.root.json { "port": 4748 }, AGENTS.md, vocab/
-  family/     epicenter.root.json { "port": 4749 }, AGENTS.md, groceries/
+  bryce/      EPICENTER.md (port: 4748), AGENTS.md, vocab/
+  family/     EPICENTER.md (port: 4749), AGENTS.md, groceries/
 ```
 
 **Which Epicenter.** The nearest folder at or above the current directory
-holding `epicenter.root.json`; else `EPICENTER_ROOT`; else `~/Epicenter`.
+holding `EPICENTER.md`; else `EPICENTER_ROOT`; else `~/Epicenter`.
 Where you stand wins over the variable, because a variable exported in a shell
 profile is a default, and `cd` into Bryce's Epicenter must reach Bryce's apps.
 `serve` starts each run with the Epicenter's folder as its working directory,
 so the run finds the same one. A chosen folder without the file is refused,
 naming `epicenter init <folder>`. Epicenters do not nest.
 
-**The marker holds an id and a port.** `epicenter init` writes a random `id`
-once; nothing shows it. `port` is optional, 4747 when absent, and `--port`
-overrides it. The display name is the folder's name. The marker is a file
-of its own, not part of any app's `epicenter.ts`, because the two are
-different things:
-an app is a repository that syncs, and an Epicenter is a grouping on one
-computer that never leaves it.
+**The marker is `EPICENTER.md`, a note for people with optional front
+matter.** Its name sits beside `AGENTS.md` and `README.md` as a file to read
+first, and its case keeps it apart from an app's `epicenter.ts`. The front
+matter has three optional fields: `port` (4747 when absent; `--port`
+overrides it), and `public` and `owners`, which make the Epicenter public and
+say who may approve a client there (ADR-0871). An empty file is a valid
+marker. The display name is the folder's name.
+`epicenter init` writes:
 
-**Secrets belong to an app in one Epicenter.** The Keychain service is
-`epicenter.<id>.<app>`. Two Epicenters each with `mail` hold two tokens;
-renaming or moving the Epicenter keeps them. Moving an app into another
-Epicenter means entering its secrets again, which is right: the app now
-belongs to someone else. Deleting `epicenter.root.json` orphans them, so the
-marker is as worth keeping as the data.
+```md
+---
+port: 4747
+---
+This folder is an Epicenter. Each folder in it with an `epicenter.ts` is an
+app. Run `epicenter` here to list them.
+```
+
+The marker is a file of its own, not part of any app's `epicenter.ts`,
+because the two are different things: an app is a repository that syncs, and
+an Epicenter is a grouping on one computer that never leaves it. It holds no
+identity: an app's secrets are `.local` files in the app (ADR-0870), so
+nothing is keyed by the Epicenter, and renaming, moving, or recreating the
+marker loses nothing.
 
 **An app with one collection has its verbs as its own.** `epicenter tasks
 set <path> --done`, the MCP tool `tasks_set`, and `app.set({ path, done })`
@@ -82,17 +91,25 @@ commit refuses when what it would take holds one, naming the file and the
 its own pathspec, which only its own commits honored). A person can still
 `git add -f` one.
 
+**Everything else Git skips is the app's own `.gitignore`.** The template
+`.gitignore` of `epicenter new` (ADR-0858) is the default, and a starter
+carries the same lines, since a starter is developed in ordinary clones
+outside any Epicenter. Epicenter writes nothing into a clone's `.git/`:
+no `info/exclude`, hooks, or config. A starter that leaves `node_modules/` or
+`.cache/` out of its `.gitignore` gets them committed, the same as in any
+repository.
+
 **The command line.**
 
 ```txt
 epicenter                                  this Epicenter's folder and apps; none yet → Run: epicenter new <name>
 epicenter <app>                            what the app does
 epicenter <app> <verb> [<positionals>] [--field value | --field null] [--input <json>|-] [--json]
-epicenter init [<folder>] [--port <n>]     make a folder an Epicenter: epicenter.root.json and AGENTS.md
+epicenter init [<folder>] [--port <n>]     make a folder an Epicenter: EPICENTER.md and AGENTS.md
 epicenter new <app> [--from <git url|path>]
 epicenter update [<app>]                   merge the starter, list files that no longer fit, build
 epicenter build [<app>]                    build the UI, keeping the last one that built
-epicenter sync [<app>]                     commit what is left, pull and push origin
+epicenter sync [<app>]                     snapshot what is pending, push to origin (ADR-0851)
 epicenter serve [--port <n>] [--host <address>] [--stdio]
 epicenter --help | --version
 ```
@@ -101,9 +118,10 @@ epicenter --help | --version
 `.cache/ui/` before writing it, so a page served meanwhile is missing, and a
 failed build leaves none; `epicenter build` keeps the last one that built.
 
-**Separation is ports, not sign-in.** Each Epicenter is served on its own
-port, and the tailnet's access rules say who reaches which port. Everyone on
-one computer under one user can read every Epicenter's files and Keychain:
+**On the tailnet, separation is ports, not sign-in.** Each Epicenter is
+served on its own port, and the tailnet's access rules say who reaches which
+port; a public address signs clients in (ADR-0871). Everyone on one computer
+under one user can read every Epicenter's files, `.local` ones included:
 separating people from each other's devices and agents is this design;
 separating them from the computer's administrator is a separate OS user or a
 separate computer, and moving an Epicenter there is moving its folder.
@@ -118,12 +136,13 @@ separate computer, and moving an Epicenter there is moving its folder.
   creates nor checks a remote and would send a moved app's data to the old
   owner's backup.
 - Claude's and ChatGPT's custom connectors connect from their companies'
-  servers and need a public HTTPS address with a sign-in. Until one is built,
-  an Epicenter is reached from devices on the tailnet: Claude Code and other
-  local agents over SSH or the tailnet address, and the UIs in a browser.
-- Existing Keychain entries under `epicenter.<app>` are not read. Mail is not
-  built, so the author's Studio is expected to have none; that is to be
-  checked by the person, not by an agent.
+  servers and need a public HTTPS address with a sign-in (ADR-0871). Without
+  one, an Epicenter is reached from devices on the tailnet: Claude Code and
+  other local agents over SSH or the tailnet address, and the UIs in a
+  browser.
+- An Epicenter made before `EPICENTER.md` has `epicenter.root.json`;
+  `epicenter` refuses it and names the step: write `EPICENTER.md` with its
+  `port`, then delete the old file. Nothing else is keyed by the old `id`.
 - The MCP tool names and UI calls of Capture, Tasks, and Vocab changed
   (`tasks_tasks_set` to `tasks_set`); a client's saved tool permissions name
   the new tools.
@@ -137,10 +156,18 @@ separate computer, and moving an Epicenter there is moving its folder.
 - **The marker merged into `epicenter.json`.** One file name for two kinds of
   folder; walking up from an app would read its declaration to learn it is
   not the Epicenter, and editors would offer `port` inside an app.
-- **Secrets in the app as `secrets.local.json`.** They would move with the
-  app, but a token would be one `cat` away from any agent working in the
-  folder. **An id in each app's `.git/config`.** Apps inside a larger
-  repository share one config, and a fresh clone loses it.
+- **`epicenter.root.json` holding a random `id` and the port.** The first
+  marker. The `id` named the Keychain service for secrets, which ADR-0870
+  replaces with `.local` files, and "root" named an implementation idea
+  rather than what a person finds in the folder.
+- **`epicenter.json` holding the port.** It was an app's declaration until
+  ADR-0857, and agents and old notes still read it that way.
+- **A hidden `.epicenter/` directory.** The waiting folder-sync product puts
+  `.epicenter/` in its folders (Zhongwen has one), so walking up would find
+  the wrong kind of folder, and a person would not see what makes the folder
+  an Epicenter.
+- **A root `epicenter.ts`.** A folder with `epicenter.ts` is an app, so the
+  Epicenter would look like one.
 - **A declared `collection` field for an app's own collection.** It keeps
   names stable when a second collection is added, at the cost of a second
   declaration shape for a case none of the apps has.
