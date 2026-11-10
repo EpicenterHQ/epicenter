@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-11-09
 - **Relates:** [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) (your server, and reach from vendors' clouds), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (programs that have the folder or ask), [ADR-0853](0853-collections-give-four-actions-and-programs-without-the-folder-ask-over-mcp.md) (MCP, the view client), [ADR-0857](0857-an-app-declares-itself-in-epicenter-json-and-its-code-in-epicenter-ts.md) (actions in `epicenter.ts`), [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (one copy, and `serve` at `/<app>/` and `/`).
-- **Unbuilt:** HTTPS for `epicenter serve`. Built: `epicenter serve` serving the view at `/<app>/` and MCP at `/` (`packages/cli/src/http.ts`); the view client `connect` (`packages/app/src/client.ts`), Capture's view in `apps/capture/`, and `epicenter install`, which builds a view into the app's `.cache/view/`.
+- **Unbuilt:** HTTPS for `epicenter serve`. Built: `epicenter serve` serving the view at `/<app>/` and MCP at `/` (`packages/cli/src/http.ts`); the view client `connect` (`packages/app/src/client.ts`), Capture's view in `apps/capture/`, and `epicenter install`, which builds a view into the app's `.cache/view/`. Unbuilt: the view's source as the app's `ui/`, built into `.cache/ui/` (ADR-0866).
 
 ## Context
 
@@ -18,8 +18,8 @@ actions as an agent does.
 ## Decision
 
 **An app's interfaces are views, and a view is a web client of its app's
-actions.** A view is static files with hash routes (`#/c/<id>`) in the app's
-`view/`, and `epicenter serve` serves them at `/<app>/` on the same origin as
+actions.** A view is static files with hash routes (`#/c/<id>`) built into the
+app's `.cache/ui/`, and `epicenter serve` serves them at `/<app>/` on the same origin as
 MCP at `/`. It reads and changes the app only by calling the app's actions
 through `connect('<app>')` (ADR-0853). The server routes nothing and runs
 nothing for a view.
@@ -28,22 +28,17 @@ nothing for a view.
 ~/Epicenter/capture/
   epicenter.json
   epicenter.ts
-  .cache/view/        the built view, served at /capture/, ignored by Git
+  ui/                 the view's source: SvelteKit, Svelte 5, and @epicenter/ui
+  .cache/ui/          the built view, served at /capture/, ignored by Git
   captures/<id>.md
-
-apps/capture/        in the Epicenter repository: the source
-  epicenter.json
-  epicenter.ts
-  src/, static/       the view: SvelteKit, Svelte 5, and @epicenter/ui
 ```
 
-**A built view is never committed to the app.** In the Epicenter repository
-an app's source is `apps/<app>/`, and `epicenter install apps/<app>` builds its
-view into `~/Epicenter/<app>/.cache/view/`, which is rebuildable and so ignored
-(ADR-0854, ADR-0864). `epicenter serve` serves `.cache/view/` when it is there,
-else the committed `view/`, so an app made in place and an installed app have
-the same layout. Any build that produces static files works; SvelteKit with
-Epicenter's components is the default, not a requirement.
+**A built view is never committed to the app.** The app's `ui/` is the view's
+source, a project of its own whose `build` writes `.cache/ui/`, which is
+rebuildable and so ignored (ADR-0854). `epicenter new --from` and
+`epicenter update` build it (ADR-0866), and `epicenter serve` serves
+`.cache/ui/` and nothing else. Any build that produces static files works;
+SvelteKit with Epicenter's components is the default, not a requirement.
 
 **A view follows four rules.**
 

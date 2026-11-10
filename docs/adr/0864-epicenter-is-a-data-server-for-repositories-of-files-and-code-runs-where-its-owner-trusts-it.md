@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-11-10
 - **Relates:** [ADR-0840](0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md) (one person's software), [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) (your server), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (who commits), [ADR-0851](0851-an-app-with-history-has-one-git-remote-its-meeting-point-and-backup.md) (the remote), [ADR-0853](0853-collections-give-four-actions-and-programs-without-the-folder-ask-over-mcp.md) (the four verbs, MCP), [ADR-0857](0857-an-app-declares-itself-in-epicenter-json-and-its-code-in-epicenter-ts.md) (`epicenter.json`, `epicenter.ts`), [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (views), [ADR-0861](0861-whats-yours-is-everywhere-and-everything-else-is-used-where-it-is.md), [ADR-0862](0862-notes-merge-field-by-field-and-every-conflict-is-listed-for-repair.md) (the merge).
-- **Unbuilt:** HTTPS and sign-in for `epicenter serve`, the typed client `open()`, the list of trusted repositories, Whispering's Git sync, and the `push-to-checkout` hook. Built: each collection's `list`, `get`, `set`, and `delete` from the command line and over MCP (`packages/app/src/collection.ts`); `epicenter serve` over HTTP, serving MCP at `/` and views at `/<app>/`, with one commit per successful write and a background push to its upstream (`packages/cli/src/http.ts`).
+- **Unbuilt:** HTTPS and sign-in for `epicenter serve`, the typed client `open()`, Whispering's Git sync, and the `push-to-checkout` hook. Built: each collection's `list`, `get`, `set`, and `delete` from the command line and over MCP (`packages/app/src/collection.ts`); `epicenter serve` over HTTP, serving MCP at `/` and views at `/<app>/`, with one commit per successful write and a background push to its upstream (`packages/cli/src/http.ts`).
 
 ## Context
 
@@ -78,8 +78,8 @@ must go on offline keeps a copy and syncs it with Git.**
 
 **3. Code runs where its owner trusts it.** `epicenter serve` runs the
 `epicenter.ts` of each repository its operator trusts, and offers its actions as
-MCP tools. A repository the operator made is trusted; one added from someone
-else is trusted only when the operator says so. A server that serves people who
+MCP tools. An app the operator made, alone or from a starter with
+`epicenter new --from`, is trusted: making it was the decision (ADR-0866). A server that serves people who
 do not trust each other runs no one's `epicenter.ts`. A client holds its own
 credentials: Mail's Google token is in the Keychain of the machine that runs
 Mail's actions, and Epicenter holds only its own sign-in.
@@ -98,23 +98,15 @@ terminal, it is the Epicenter Mac app, which runs `epicenter serve` (ADR-0865).
 - Deleted from the plan: an Epicenter app holding a copy on every device (the
   Mac app returns as `epicenter serve` with a window, ADR-0865), Git on the phone,
   App Intents, the catalog and its install sheet, `id` in `epicenter.json`,
-  upstreams, the three kinds of app, models as an Epicenter setting, Epicenter
+  the three kinds of app, models as an Epicenter setting, Epicenter
   holding third-party credentials, and running code in isolates or Durable
   Objects.
-- A view is a web client: served from a repository's `view/` or from anywhere,
+- A view is a web client: served from a repository's `.cache/ui/` or from anywhere,
   it asks over MCP like an agent, and the browser sandboxes it.
-- An app's source is a repository of its own, or `apps/<app>/` in the
-  Epicenter repository, and is kept apart from the app's data so that sharing
-  the app never shares anyone's data. `epicenter install <path|git url>`
-  copies its `epicenter.json`, `epicenter.ts`, and committed `view/` into
-  `~/Epicenter/<app>` and commits them with the source as a trailer, and
-  builds a view the source builds into `.cache/view/`, which is ignored: it is
-  rebuilt from source, and only the computer that serves it needs it.
-  `epicenter install <app>` installs again from the recorded source.
-- An app has a source, or it is its own source. An installed app is changed at
-  its source and installed again, since the next install overwrites a change
-  made in place. An app made with `epicenter new` or joined with
-  `epicenter link` has no source and is changed where it is.
+- An app starts from a starter, a repository with no data, kept as its
+  `upstream`; it holds its own code and data and is changed where it is, and
+  `epicenter update` merges the starter's changes (ADR-0866). Since a starter
+  holds no data, sharing an app never shares anyone's data.
 - A rule another author's app needs everywhere lives in that app's client, or in
   an `epicenter.ts` a person chooses to trust, or in that author's own MCP
   server. The server enforces shapes only.

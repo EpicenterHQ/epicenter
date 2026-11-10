@@ -27,7 +27,7 @@ which is mostly the earlier product described at the end.
    MCP come from an app's actions; views and prompts are written.
 
 An app is a folder: `epicenter.json` (what its files are), `epicenter.ts` (what
-you can do), `view/` (for people), and `prompts/` (for agents). Getting the
+you can do), `ui/` (for people), and `prompts/` (for agents). Getting the
 folder installs it ([ADR-0861]).
 
 ## One copy, and clients that ask
@@ -39,7 +39,7 @@ each app, and every client asks it ([ADR-0864]).
 | Way in | What it is | Who uses it |
 | --- | --- | --- |
 | `epicenter <app> <collection> <verb>` | the command, opening the folder directly | you, agents with a shell |
-| `epicenter serve` | MCP over HTTPS at `/`, the launcher there for a browser, and each app's `view/` at `/<app>/` | Claude, ChatGPT, any agent; views in a browser |
+| `epicenter serve` | MCP over HTTPS at `/`, the launcher there for a browser, and each app's UI at `/<app>/` | Claude, ChatGPT, any agent; views in a browser |
 | Git over SSH | `studio:Epicenter/whispering` as a copy's remote | a program that keeps a copy: Whispering |
 
 Capture, Vocab, agents, and views keep nothing on a device and always see the
@@ -50,13 +50,12 @@ third-party credentials: Mail's Google sign-in is in the Keychain of the
 computer that runs Mail's actions.
 
 Agents make apps: you start Claude Code on your server, ask for an app, and it
-writes the folder. An app has a source, or it is its own source. Capture,
-Tasks, and Vocab have one, `apps/<app>/` in the Epicenter repository, kept
-apart from your data so the app can be shared; `epicenter install <source>`
-puts their code into `~/Epicenter/<app>`, and a change is made at the source
-and installed again. An app made with `epicenter new`, or joined where it lives
-with `epicenter link` as the vault is, is its own source: a change is made in
-its folder.
+writes the folder. Every app is its own source: its code is changed where it
+is. An app can start from a starter, a repository with no data, which it keeps
+as its `upstream` remote; `epicenter update` merges the starter's changes
+([ADR-0866]). Capture, Tasks, and Vocab are starters in `apps/<app>/` today,
+installed with `epicenter install` until they move to repositories of their
+own.
 
 ## What it is like
 
@@ -96,7 +95,7 @@ its folder.
 | a collection | a kind of file in the app, by path (`words/{stem}.md`) and fields; it gives `list`, `get`, `set`, and `delete` |
 | a field | JSON Schema for one value; in TypeScript, written with helpers such as `field.text()` |
 | an action | something you can ask an app to do: a collection's four, or one the author writes with a `run` function |
-| a view | a web page in the app's `view/`, served at `/<app>/`, that shows its data and calls its actions over MCP |
+| a view | a web page built from the app's `ui/` into `.cache/ui/`, served at `/<app>/`, that shows its data and calls its actions over MCP |
 | `epicenter` | the program that runs an action in a folder, and `epicenter serve`, which offers every app over MCP |
 | a device program | an app's own program, when it needs the device: Whispering |
 | your server | the computer that runs `epicenter serve`, from a terminal or as the Epicenter Mac app ([ADR-0865]); it holds the one copy of each app and runs its actions, and every device reaches it while it is on |
@@ -108,61 +107,70 @@ it; Claude Desktop, claude.ai, ChatGPT, and a view in a browser ask.
 
 ## An app
 
+An app is a Git repository of three kinds of file, each with one author
+([ADR-0866]):
+
 ```txt
 vocab/
-  epicenter.json          description, collections
-  epicenter.ts            actions
-  tsconfig.json           one line, extending .cache/epicenter/tsconfig.json
-  words/serendipity.md    data: front matter and a body
-  view/                   a view with no build step, committed
-  .cache/view/            a view built from source, served in its place
-  .cache/epicenter/       types epicenter generates from epicenter.json
-  .cache/                 rebuildable files, ignored by Git
-  .gitignore              .gitattributes too, once it holds binaries
+  epicenter.json    the declaration: what the files are          from its starter; yours to extend
+  epicenter.ts      actions                                       from its starter; yours to change
+  ui/               the UI's source, built into .cache/ui/        from its starter; yours to change
+  README.md         what the app is, for people and agents        from its starter
+  words/你好.md      data: front matter and a body                yours alone
+  .cache/           the built UI and anything rebuilt, ignored
+  .gitignore        .gitattributes too, once it holds binaries
 ```
 
 ```json
 {
   "$schema": "https://epicenter.so/epicenter.schema.json",
-  "description": "Words I'm learning",
+  "description": "Things I mean to do",
   "collections": {
-    "words": {
-      "path": "words/{stem}.md",
-      "fields": { "type": "object", "properties": { "stage": { "enum": ["new", "known"] } }, "required": ["stage"] }
+    "tasks": {
+      "path": "tasks/{id}.md",
+      "fields": {
+        "type": "object",
+        "properties": { "title": { "type": "string" }, "done": { "type": "boolean", "default": false } },
+        "required": ["title", "done"]
+      }
     }
   }
 }
 ```
 
 ```ts
-import { action, field } from 'epicenter:app';
+import { defineApp, field, timeId } from '@epicenter/app';
+import declaration from './epicenter.json';
 
-export const define = action({
-  description: "Look up a word's definition",
-  input: { stem: field.text() },
-  annotations: { readOnlyHint: true, openWorldHint: true },
-  run: async ({ stem }, { collections }) => {
-    const word = await collections.words.get({ stem });
-    // ask a dictionary, return what it says
+export default defineApp(declaration, {
+  actions: {
+    add: {
+      description: 'Add a task to do',
+      input: { title: field.text({ description: 'What to do' }) },
+      positional: ['title'],
+      async run({ title }, { folder }) {
+        const id = timeId();
+        await folder.write(`tasks/${id}.md`, `---\ntitle: ${JSON.stringify(title)}\ndone: false\n---\n`);
+        return { id, title };
+      },
+    },
   },
 });
 ```
 
-Vocab's tools are `words list`, `words get`, `words set`, `words delete` from
-`epicenter.json`, and `define` from `epicenter.ts`; a written action with a
-collection action's name replaces it, and `null` removes one. On the command
-line the first required field is read by position: `epicenter vocab define
-serendipity`.
+Tasks' tools are `tasks list`, `tasks get`, `tasks set`, `tasks delete` from
+`epicenter.json`, and `add` from `epicenter.ts`. On the command line an
+action's `positional` fields are read by position: `epicenter tasks add 'Call
+the bank'`. A folder with only `epicenter.json` is a whole app that cannot run
+code. `run` gets `folder` (the app's files) and `secrets` (its sign-ins), and
+`epicenter.ts` imports only `@epicenter/app`, which `epicenter` supplies when
+it runs.
 
-A folder with only `epicenter.json` is a whole app that cannot run code. Every
-collection is declared in `epicenter.json`; `epicenter.ts` holds only actions.
-Every export of `epicenter.ts` is an action or a group of them, such as
-`export const words = { archive: action({…}), delete: null }`. `run` gets
-`folder` (the app's files), `secrets` (its sign-ins), and
-`collections` (the same four actions every client gets, checked against each
-collection's schema). `epicenter:app` is the app's own module, which
-`epicenter` generates from `epicenter.json` into `.cache/epicenter/`, so
-`collections` and every field are typed in an editor with no `package.json`.
+A starter is an app with no data: `epicenter new vocab --from <git url>` clones
+one and keeps it as the app's `upstream`, and `epicenter update` merges its
+later changes, rebuilds the UI, and lists any file that no longer fits the
+declaration. The declaration is the contract between the two: a starter that
+changes a field owns the change to files already written.
 
 ## How a write happens
 
@@ -177,7 +185,8 @@ claude.ai, ChatGPT, and a view.
 **A write is one commit, named for the call** (`capture: captures set dune`),
 however it arrives, and `epicenter serve` pushes it to the app's GitHub
 backup. Writes to one app take turns, so two at once never lose a change. Exit codes
-tell an agent what happened: 0 returned, 1 threw, 2 did not run.
+tell an agent what happened: 0 returned, 1 threw, 2 did not run, 3 returned but
+not committed ([ADR-0867]).
 
 ## Where code runs, and how to reach it
 
@@ -201,8 +210,8 @@ except your agents' permission rules.
 
 ## Views
 
-An app's interfaces are views ([ADR-0860]): a web page in the app's `view/`,
-built from source and served at `/<app>/`, that reads and changes the app only
+An app's interfaces are views ([ADR-0860]): a web page built from the app's
+`ui/` and served at `/<app>/`, that reads and changes the app only
 by calling its actions over MCP at `/`. A view never knows where the actions
 run, works in any browser that reaches your server, and keeps nothing of its
 own.
@@ -215,12 +224,13 @@ own.
 
 ## How data moves
 
-Your server's copy is the one copy. Each app with history has one Git remote,
-`origin`: on your server, the app's GitHub repository, its backup; for a
-program's copy on another Mac, your server over SSH. `epicenter sync` commits
-what is left and pushes; on a copy it pulls with `--rebase` first. It is the
-only command that touches a remote, and you or an agent runs it; nothing runs
-on a timer. A push from a copy lands in your server's working tree unless it
+Your server's copy is the one copy. Each app with history pushes to one Git
+remote, `origin`: on your server, the app's GitHub repository, its backup; for
+a program's copy on another Mac, your server over SSH. An app made from a
+starter also has `upstream`, which only `epicenter update` reads, and nothing
+pushes to. `epicenter serve` pushes each write to `origin`; `epicenter sync`
+commits what is left and pushes; on a copy it pulls with `--rebase` first.
+Nothing runs on a timer. A push from a copy lands in your server's working tree unless it
 touches a file with uncommitted changes there. Binary files a folder tracks go
 through Git LFS: text is history, binaries are content. `.cache/` and sign-ins
 never leave a computer.
@@ -293,3 +303,5 @@ fields are written one `key: <JSON>` line each.
 [ADR-0861]: adr/0861-whats-yours-is-everywhere-and-everything-else-is-used-where-it-is.md
 [ADR-0864]: adr/0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md
 [ADR-0865]: adr/0865-the-epicenter-mac-app-runs-epicenter-serve-so-the-computer-it-is-on-is-your-server.md
+[ADR-0866]: adr/0866-an-app-starts-from-a-starter-kept-as-its-upstream-and-update-merges-the-starters-changes.md
+[ADR-0867]: adr/0867-the-command-line-spells-an-actions-json-input-and-null-removes-a-field-there-as-everywhere.md
