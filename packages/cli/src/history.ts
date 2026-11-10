@@ -4,26 +4,25 @@
  * repository: the app's folder must be its root, so an undo can never touch
  * a file outside the app.
  *
- * A commit names what it took in its message (`snapshot.ts`): a call's
- * subject is the call, with no body; a snapshot with no call reads
- * `<app>: changed outside epicenter` or `<app>: <message>`, with `Changed:`
- * and one path per line beneath. An undo is a
- * commit whose subject is `<app>: undid <subject>` and whose body keeps Git's own
- * `This reverts commit <sha>.` line, so undoing an undo redoes it.
+ * A commit's subject names it (`snapshot.ts`): a call's subject is the call,
+ * and a snapshot with no call reads `<app>: changed outside epicenter` or
+ * `<app>: <message>`. Its paths come from Git. An undo is a commit whose
+ * subject is `<app>: undid <subject>` and whose body keeps Git's own `This
+ * reverts commit <sha>.` line, so undoing an undo redoes it.
  *
  * Undo never loses anything. It snapshots what is pending first, refuses
- * rather than guesses (a merge, a commit not in the app's history, a commit
- * already undone, nothing to undo, a revert that conflicts or changes
- * nothing), and on any refusal leaves the folder's files as they were.
+ * rather than guesses (a commit not in the app's history, nothing to undo, a
+ * revert Git refuses, that conflicts, or that changes nothing), and on any
+ * refusal leaves the folder's files as they were.
  */
 import { realpath } from 'node:fs/promises';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { misuse, parseWords } from './commands.ts';
 import { CliError } from './errors.ts';
-import { git, gitMessage } from './git.ts';
+import { checkedGit, git, gitMessage } from './git.ts';
 import { chooseApps, type Entry } from './home.ts';
 import { fail, writeJson, writeOut } from './output.ts';
-import { CHANGED, snapshot, underway } from './snapshot.ts';
+import { snapshot, underway } from './snapshot.ts';
 
 /** Git's own line in a revert's body, naming the commit it reverts. */
 const REVERTS = /^This reverts commit ([0-9a-f]{40}|[0-9a-f]{64})\.$/m;
@@ -43,41 +42,44 @@ type Commit = {
 	time: number;
 	subject: string;
 	body: string;
+	/** The paths it changed from its first parent, as `--name-only` lists them; none when the log asked for none. */
+	paths: string[];
 };
 
-/** One snapshot as `epicenter history --json` gives it. */
-export type Snapshot = {
-	commit: string;
-	date: string;
-	subject: string;
-	/** The paths its body names beneath `Changed:`: a snapshot with no call lists what it took; a call's commit, named for the call, lists none. */
-	changed: string[];
-	/** The commit this one reverts, when it is an undo. */
-	undid?: string;
-};
+/** The `git log -z` format `commitsIn` reads: RS before each commit, its fields apart by US. */
+const FORMAT = '--format=%x1e%H%x1f%h%x1f%P%x1f%aI%x1f%at%x1f%s%x1f%b';
 
-/** The `git log` format `commitOf` reads: fields apart by US. */
-const FORMAT = '--format=%H%x1f%h%x1f%P%x1f%aI%x1f%at%x1f%s%x1f%b';
-
-function commitOf(record: string): Commit {
-	const [
-		commit = '',
-		short = '',
-		parents = '',
-		date = '',
-		time = '',
-		subject = '',
-		body = '',
-	] = record.split('\x1f');
-	return {
-		commit,
-		short,
-		parents: parents.split(' ').filter(Boolean),
-		date,
-		time: Number(time),
-		subject,
-		body: body.replace(/\n+$/, ''),
-	};
+/**
+ * The commits in `git log -z` output written in `FORMAT`. With
+ * `--name-only`, Git follows each commit's fields with NUL, a newline, and
+ * each path it changed, NUL after each.
+ */
+function commitsIn(logged: string): Commit[] {
+	return logged
+		.split('\x1e')
+		.filter(Boolean)
+		.map((record) => {
+			const [head = '', first = '', ...rest] = record.split('\0');
+			const [
+				commit = '',
+				short = '',
+				parents = '',
+				date = '',
+				time = '',
+				subject = '',
+				body = '',
+			] = head.split('\x1f');
+			return {
+				commit,
+				short,
+				parents: parents.split(' ').filter(Boolean),
+				date,
+				time: Number(time),
+				subject,
+				body: body.replace(/\n+$/, ''),
+				paths: [first.replace(/^\n/, ''), ...rest].filter(Boolean),
+			};
+		});
 }
 
 const refuse = (message: string, next?: string) =>
@@ -106,24 +108,26 @@ async function appRepository(
 
 /**
  * The commits on the app's line of history, newest first, following each
- * merge's first parent; at most `limit` of them. Empty in a repository with
- * no commits yet.
+ * merge's first parent, each with the paths it changed from that parent; at
+ * most `limit` of them. Empty in a repository with no commits yet.
  */
 async function commitsOf(folder: string, limit?: number): Promise<Commit[]> {
 	if ((await git(folder, ['rev-parse', '-q', '--verify', 'HEAD'])).code !== 0)
 		return [];
-	const args = [
-		'log',
-		'-z',
-		'--first-parent',
-		FORMAT,
-		// Git reads -n as an int; a larger limit is every commit anyway.
-		...(limit === undefined ? [] : [`-n${Math.min(limit, 2 ** 31 - 1)}`]),
-		'HEAD',
-	];
-	const logged = await git(folder, args);
-	if (logged.code !== 0) throw new Error(gitMessage(args, logged));
-	return logged.stdout.split('\0').filter(Boolean).map(commitOf);
+	return commitsIn(
+		await checkedGit(folder, [
+			'log',
+			'-z',
+			'--first-parent',
+			'--diff-merges=first-parent',
+			'--name-only',
+			'--no-renames',
+			FORMAT,
+			// Git reads -n as an int; a larger limit is every commit anyway.
+			...(limit === undefined ? [] : [`-n${Math.min(limit, 2 ** 31 - 1)}`]),
+			'HEAD',
+		]),
+	);
 }
 
 /** The commit `commit` reverts, when its body has Git's revert line. */
@@ -131,29 +135,14 @@ function revertedBy(commit: Commit) {
 	return REVERTS.exec(commit.body)?.[1];
 }
 
-/** A commit as `history --json` gives it. */
-function snapshotOf(commit: Commit): Snapshot {
-	const lines = commit.body.split('\n');
-	const header = lines.indexOf(CHANGED);
-	const end = lines.findIndex((line, index) => index > header && line === '');
-	const changed =
-		header < 0
-			? []
-			: lines.slice(header + 1, end < 0 ? undefined : end).map((line) => {
-					if (!line.startsWith('"')) return line;
-					try {
-						const decoded: unknown = JSON.parse(line);
-						return typeof decoded === 'string' ? decoded : line;
-					} catch {
-						return line;
-					}
-				});
+/** A commit as `history --json` gives it: `changed` is every path it changed, and `undid` the commit an undo reverts. */
+function snapshotOf(commit: Commit) {
 	const undid = revertedBy(commit);
 	return {
 		commit: commit.commit,
 		date: commit.date,
 		subject: commit.subject,
-		changed,
+		changed: commit.paths,
 		...(undid ? { undid } : {}),
 	};
 }
@@ -167,8 +156,8 @@ function localTime(seconds: number) {
 
 /**
  * History as a person reads it: one line per commit, its short hash, its
- * local time, and its subject (an undo reads `undid <subject>`), then its
- * body's lines beneath, without Git's revert line.
+ * local time, and its subject (an undo reads `undid <subject>`), then each
+ * path it changed beneath.
  */
 function renderHistory(app: string, commits: Commit[]) {
 	const undoPrefix = `${app}: undid `;
@@ -178,11 +167,10 @@ function renderHistory(app: string, commits: Commit[]) {
 			const subject = commit.subject.startsWith(undoPrefix)
 				? `undid ${commit.subject.slice(undoPrefix.length)}`
 				: commit.subject;
-			const body = commit.body
-				.split('\n')
-				.filter((line) => line.trim() !== '' && !REVERTS.test(line))
-				.map((line) => `${' '.repeat(head.length)}${line}\n`);
-			return `${head}${subject}\n${body.join('')}`;
+			const paths = commit.paths.map(
+				(path) => `${' '.repeat(head.length)}${path}\n`,
+			);
+			return `${head}${subject}\n${paths.join('')}`;
 		})
 		.join('');
 }
@@ -205,31 +193,28 @@ export async function historyCommand(
 }
 
 /** Tracked paths that differ from HEAD, NUL-separated; empty when the folder matches its last commit. */
-async function trackedChanges(folder: string) {
-	const args = [
+function trackedChanges(folder: string) {
+	return checkedGit(folder, [
 		'status',
 		'--porcelain',
 		'-z',
 		'--untracked-files=no',
 		'--no-renames',
-	];
-	const status = await git(folder, args);
-	if (status.code !== 0) throw new Error(gitMessage(args, status));
-	return status.stdout;
+	]);
 }
 
 /**
  * Which commits on the app's line are undone: each undo that is not itself
  * undone undoes the commit its revert line names, so an undo of an undo
- * brings that commit back. Maps each undone commit to the undo that undid it.
+ * brings that commit back.
  */
 function undoneIn(commits: Commit[]) {
-	const undone = new Map<string, Commit>();
+	const undone = new Set<string>();
 	// Newest first, so an undo is seen before the commit it reverts.
 	for (const commit of commits) {
 		if (undone.has(commit.commit)) continue;
 		const target = revertedBy(commit);
-		if (target) undone.set(target, commit);
+		if (target) undone.add(target);
 	}
 	return undone;
 }
@@ -245,13 +230,6 @@ function newestUndoable(app: string, commits: Commit[]) {
 			error: refuse(`${app} has nothing to undo`, `epicenter history ${app}`),
 		};
 	const { short } = candidate;
-	if (candidate.parents.length > 1)
-		return {
-			error: refuse(
-				`${app}'s most recent change is a merge, ${short} ${candidate.subject}, and undo does not undo a merge; name an older commit to undo`,
-				`epicenter history ${app}`,
-			),
-		};
 	if (
 		candidate.parents.length === 0 ||
 		!candidate.subject.startsWith(`${app}: `)
@@ -267,13 +245,8 @@ function newestUndoable(app: string, commits: Commit[]) {
 	return { commit: candidate };
 }
 
-/** The commit `given` names, when it is a commit on `app`'s history that undo can revert. */
-async function namedUndoable(
-	app: string,
-	folder: string,
-	given: string,
-	commits: Commit[],
-) {
+/** The commit `given` names, when it is a commit on `app`'s history. */
+async function namedUndoable(app: string, folder: string, given: string) {
 	const notOurs = () => ({
 		error: refuse(
 			`${given} is not a commit in ${app}'s history`,
@@ -296,44 +269,29 @@ async function namedUndoable(
 		'HEAD',
 	]);
 	if (ancestor.code !== 0) return notOurs();
-	const named = commitOf(
-		(await git(folder, ['log', '-1', FORMAT, sha])).stdout,
+	const [named] = commitsIn(
+		await checkedGit(folder, ['log', '-1', '-z', FORMAT, sha]),
 	);
-	const { short } = named;
-	if (named.parents.length > 1)
-		return {
-			error: refuse(
-				`${short} ${named.subject} is a merge, and undo does not undo a merge`,
-				`epicenter history ${app}`,
-			),
-		};
-	const undoneBy = undoneIn(commits).get(sha);
-	if (undoneBy)
-		return {
-			error: refuse(
-				`${short} ${named.subject} is already undone by ${undoneBy.short}; undo that to bring it back`,
-				`epicenter undo ${app} ${undoneBy.short}`,
-			),
-		};
-	return { commit: named };
+	return named ? { commit: named } : notOurs();
 }
 
 /**
  * Put the folder back after a revert that did not become a commit. Since the
  * folder matched its last commit before the revert, `git revert --abort`
  * returns every tracked file to it and leaves untracked files alone. Returns
- * why the folder could not be put back, when it could not.
+ * what is known when the folder may not be as it was; never throws.
  */
 async function putBack(folder: string, head: string) {
 	await git(folder, ['revert', '--abort']);
-	const now = await git(folder, ['rev-parse', 'HEAD']);
-	if (
-		now.stdout !== head ||
-		(await trackedChanges(folder)) !== '' ||
-		(await underway(folder))
-	)
-		return 'and the folder could not be put back as it was';
-	return undefined;
+	try {
+		if (
+			(await git(folder, ['rev-parse', 'HEAD'])).stdout === head &&
+			(await trackedChanges(folder)) === '' &&
+			!(await underway(folder))
+		)
+			return undefined;
+	} catch {}
+	return 'and the folder may not be as it was';
 }
 
 /** What `undo` did: the commit it reverted and the undo commit it made. */
@@ -344,18 +302,9 @@ async function undo(
 	folder: string,
 	given: string | undefined,
 ): Promise<Undone | { error: CliError }> {
-	if (await underway(folder))
-		return {
-			error: refuse(
-				`${app} is in the middle of a merge, rebase, revert, or cherry-pick, so nothing was undone; finish or abort it first`,
-				`git -C ${folder} status`,
-			),
-		};
 	// A named commit is checked before the snapshot, so a refusal adds nothing to history.
 	const named =
-		given === undefined
-			? undefined
-			: await namedUndoable(app, folder, given, await commitsOf(folder));
+		given === undefined ? undefined : await namedUndoable(app, folder, given);
 	if (named && 'error' in named) return named;
 	const taken = await snapshot(app, folder);
 	if ('failed' in taken)
@@ -446,6 +395,7 @@ export async function undoCommand(
 	try {
 		done = await undo(name, found.folder, given);
 	} catch (error) {
+		// Only the steps before the revert can throw: from it on, every failure puts the folder back.
 		return fail(
 			refuse(`${name}: nothing was undone: ${extractErrorMessage(error)}`),
 			json,

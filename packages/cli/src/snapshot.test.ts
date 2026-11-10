@@ -188,17 +188,15 @@ test('a snapshot with no call takes everything pending, named changed outside ep
 	await gitIn(f.dir, 'commit', '-q', '-m', 'by hand');
 	await writeFile(join(f.dir, 'b.md'), 'b\n');
 	await snapshot('notes', f.dir);
-	expect(await f.message()).toBe(
-		'notes: changed outside epicenter\n\nChanged:\nb.md',
-	);
+	expect(await f.message()).toBe('notes: changed outside epicenter');
+	expect(await f.files()).toBe('b.md');
 	await writeFile(join(f.dir, 'a.md'), 'tidied\n');
 	await writeFile(join(f.dir, 'c.md'), 'c\n');
 	expect(await snapshot('notes', f.dir, { message: 'tidy the pages' })).toEqual(
 		{ committed: { subject: 'notes: tidy the pages', files: 2 } },
 	);
-	expect(await f.message()).toBe(
-		'notes: tidy the pages\n\nChanged:\na.md\nc.md',
-	);
+	expect(await f.message()).toBe('notes: tidy the pages');
+	expect(await f.files()).toBe('a.md\nc.md');
 });
 
 test('snapshot refuses a revert in progress without staging or committing', async () => {
@@ -219,18 +217,6 @@ test('snapshot refuses a revert in progress without staging or committing', asyn
 	expect(await gitIn(f.dir, 'diff', '--cached', '--name-only')).toBe('');
 	expect(await gitIn(f.dir, 'status', '--porcelain')).toContain(
 		'?? pending.md',
-	);
-});
-
-test('snapshot body keeps comma and newline paths as separate paths', async () => {
-	const f = await setup();
-	await writeFile(join(f.dir, 'a,b.md'), 'comma\n');
-	await writeFile(join(f.dir, 'line\nbreak.md'), 'newline\n');
-	expect(await snapshot('notes', f.dir)).toEqual({
-		committed: { subject: 'notes: changed outside epicenter', files: 2 },
-	});
-	expect(await f.message()).toBe(
-		'notes: changed outside epicenter\n\nChanged:\na,b.md\n"line\\nbreak.md"',
 	);
 });
 

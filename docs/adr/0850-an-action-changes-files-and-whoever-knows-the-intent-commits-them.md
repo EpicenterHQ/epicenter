@@ -76,10 +76,11 @@ are all unchanged makes no commit.
 first step of `epicenter undo`, and `serve`'s clock commit everything pending
 in the app's folder and nothing outside it: `git add -A` and `git commit` with
 the pathspec `.`. The subject is `<app>: changed outside epicenter`, or
-`<app>: <message>` from `epicenter sync <app> -m <message>` (one line); the
-body is `Changed:` and one path per line. An app inside a larger repository
-(`~/Code/vault/recipes/`) commits into that repository and touches nothing
-else in it.
+`<app>: <message>` from `epicenter sync <app> -m <message>` (one line), with
+no body: `epicenter history` reads every commit's paths from Git
+(`git log --name-only`), so a snapshot need not list them. An app inside a
+larger repository (`~/Code/vault/recipes/`) commits into that repository and
+touches nothing else in it.
 
 **`serve` backs up on a clock.** When it starts, every 5 minutes, and when it
 stops (waiting at most 10 seconds), `serve` does for each app what

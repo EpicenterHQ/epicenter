@@ -64,8 +64,11 @@ test('serve backs up once when it starts: outside edits are snapshotted and push
 	const [after] = await server.tick();
 	expect(after).toMatchObject({ committed: null, pushed: false });
 	expect(await gitIn(remote, 'log', '-1', '--format=%B')).toBe(
-		'reading: changed outside epicenter\n\nChanged:\nnotes.md',
+		'reading: changed outside epicenter',
 	);
+	expect(
+		await gitIn(remote, 'show', '--name-only', '--format=', 'HEAD'),
+	).toBe('notes.md');
 	expect(await gitIn(folder, 'status', '--porcelain')).toBe('');
 });
 

@@ -213,7 +213,10 @@ test('C3 a write that changes nothing makes no commit', async () => {
 	await writeFile(join(f.dir, 'b.md'), 'by hand\n');
 	expect((await f.run('sync', 'notes')).code).toBe(0);
 	expect(await gitIn(f.dir, 'log', '-1', '--format=%B')).toBe(
-		'notes: changed outside epicenter\n\nChanged:\nb.md',
+		'notes: changed outside epicenter',
+	);
+	expect(await gitIn(f.dir, 'show', '--name-only', '--format=', 'HEAD')).toBe(
+		'b.md',
 	);
 });
 
@@ -280,12 +283,15 @@ test('C5 a snapshot failure leaves the answer and pending paths for sync', async
 		'The notes app (3 changes not yet in history)',
 	);
 
-	// Sync's snapshot has no call, so it names the pending paths.
+	// Sync's snapshot has no call, so it takes every pending path.
 	await rm(join(f.dir, '.gitattributes'));
 	const synced = await f.json('sync', 'notes');
 	expect(synced.code).toBe(0);
 	expect(await gitIn(f.dir, 'log', '-1', '--format=%B')).toBe(
-		'notes: changed outside epicenter\n\nChanged:\ncover.png\nfriday.md',
+		'notes: changed outside epicenter',
+	);
+	expect(await gitIn(f.dir, 'show', '--name-only', '--format=', 'HEAD')).toBe(
+		'cover.png\nfriday.md',
 	);
 	expect(
 		JSON.parse((await f.run('notes', '--json')).stdout),
@@ -456,7 +462,10 @@ test('C13 sync -m names a snapshot of what an agent edited, and refuses a messag
 		'notes: committed notes: tidy the pages; no origin\n',
 	);
 	expect(await gitIn(f.dir, 'log', '-1', '--format=%B')).toBe(
-		'notes: tidy the pages\n\nChanged:\na.md\nb.md',
+		'notes: tidy the pages',
+	);
+	expect(await gitIn(f.dir, 'show', '--name-only', '--format=', 'HEAD')).toBe(
+		'a.md\nb.md',
 	);
 	await writeFile(join(f.dir, 'c.md'), 'c\n');
 	expect((await f.run('sync', 'notes', '--message=add c')).code).toBe(0);

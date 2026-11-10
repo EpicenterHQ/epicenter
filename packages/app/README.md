@@ -275,7 +275,8 @@ after each write call
 The commit holds exactly the files the run wrote through `folder` that
 changed, named for the call; other pending files stay pending until
 `epicenter sync` or `serve`'s 5-minute clock snapshots them as
-`<app>: changed outside epicenter`, listing them under `Changed:`. What an
+`<app>: changed outside epicenter`; `epicenter history` lists each commit's
+paths from Git. What an
 action wrote before it throws is committed as `<call> (threw)`; whether a
 failed action should be rolled back instead is undecided
 ([ADR-0857](../../docs/adr/0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md)).

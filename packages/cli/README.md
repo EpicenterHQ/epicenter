@@ -53,7 +53,7 @@ A run changes files and commits nothing ([ADR-0850](../../docs/adr/0850-an-actio
 - An agent that edits an app's files itself: `epicenter sync <app> -m "<what it did>"` snapshots what is pending as `<app>: <what it did>` and backs it up. A plain `git commit` in the app's folder works too.
 - Anything else, such as an editor: `epicenter sync`, the first step of `epicenter undo`, and `serve`'s clock snapshot what is pending as `<app>: changed outside epicenter`.
 
-A snapshot with no call runs `git add -A` and `git commit` from the app's folder with the pathspec `.`, so it takes everything changed in the folder that Git does not ignore, staged or not, and nothing outside it. Its body is `Changed:` and one path per line; a path containing a newline is JSON-quoted on its line. An app inside a larger repository commits into that repository and leaves the rest of it alone.
+A snapshot with no call runs `git add -A` and `git commit` from the app's folder with the pathspec `.`, so it takes everything changed in the folder that Git does not ignore, staged or not, and nothing outside it. Its message is the subject alone; `epicenter history` reads its paths from Git. An app inside a larger repository commits into that repository and leaves the rest of it alone.
 
 Each app's `.gitignore` keeps `*.local` and `*.local.*` on this computer, as the template and starters write it. Before staging, a commit that would take such a file refuses with `<path> would be committed; add *.local and *.local.* to <app>/.gitignore`. Nothing changed makes no commit. Before staging, when the folder's `.gitattributes` mentions `filter=lfs` and `git config filter.lfs.process` is empty, it stops with `git lfs install` as the next step ([ADR-0856](../../docs/adr/0856-binary-files-go-through-git-lfs.md)), and while a merge, rebase, revert, or cherry-pick is underway it stops with `git -C <folder> status`. When another Git process holds `index.lock`, it retries for about 2 seconds. A failed commit is `{ message, next? }`. It changes no answer or exit code: after a call, stderr reads `<app>: not yet in history: <message>` and `Run: <next>`, or `Run: epicenter sync <app>` when the failure names no next step. The pending paths remain visible in status. A commit never pushes; only `sync` and `serve`'s clock do.
 
@@ -116,18 +116,19 @@ A refused non-fast-forward push leaves both histories as they were. Sync says th
 
 ## History and undo
 
-`epicenter history <app> [--limit <n>]` lists the app's commits, newest first, 20 unless `--limit` gives another positive whole number (`src/history.ts`). It reads `git log --first-parent` of the app's own repository, so an update's merge is one entry; an app whose folder is not the root of its own repository is refused. Each line is the short commit, the local time, and the subject, with the body's lines beneath; an undo reads as `undid <subject>`.
+`epicenter history <app> [--limit <n>]` lists the app's commits, newest first, 20 unless `--limit` gives another positive whole number (`src/history.ts`). It reads `git log --first-parent --name-only` of the app's own repository, so an update's merge is one entry whose paths are what it brought in; an app whose folder is not the root of its own repository is refused. Each line is the short commit, the local time, and the subject, with each path the commit changed beneath; an undo reads as `undid <subject>`.
 
 ```txt
 $ epicenter history tasks
 9c1e2f4  2026-11-11 09:41  undid tasks: add Water the plants
+                           tasks/2026-11-11T09-30-00-000Z-p2m7c4d1.md
 5b7a0d3  2026-11-11 09:30  tasks: add Water the plants
+                           tasks/2026-11-11T09-30-00-000Z-p2m7c4d1.md
 e02c9a1  2026-11-11 09:12  tasks: changed outside epicenter
-                           Changed:
                            tasks/2026-11-10T09-30-00-000Z-k3x9a2f8.md
 ```
 
-With `--json` it answers an array of `{ commit, date, subject, changed, undid? }`: `date` is the author date in ISO 8601, `changed` the paths beneath a `Changed:` body header (empty for a call's commit, whose subject names the call), and `undid` the commit an undo reverts.
+With `--json` it answers an array of `{ commit, date, subject, changed, undid? }`: `date` is the author date in ISO 8601, `changed` every path the commit changed from its first parent, and `undid` the commit an undo reverts.
 
 `epicenter undo <app> [<commit>]` reverts one commit as a new one, so nothing is lost:
 
@@ -135,7 +136,7 @@ With `--json` it answers an array of `{ commit, date, subject, changed, undid? }
 2. Without `<commit>`, it walks back from HEAD to the newest commit that is not an undo and has not been undone. An undo is a commit whose body has Git's line `This reverts commit <sha>.`; an undo that is itself undone no longer hides the commit it reverted. So `undo` again goes further back, and `undo <undo commit>` brings back what that undo removed.
 3. It runs `git revert --no-commit` and commits as `<app>: undid <subject>`, keeping Git's `This reverts commit <sha>.` line. It never pushes; `sync` or `serve`'s clock backs the undo up.
 
-It refuses, exit 2 with `{ "error": { "name": "Refused", "message", "next"? } }`, and leaves the folder's files as they were: a merge, a commit not in the app's history, a commit already undone (the next step undoes its undo), a newest commit that is not a snapshot, since its subject does not start with `<app>: ` (the first commit, or one made with Git directly, which can still be named), a revert that conflicts (it is aborted, naming the conflicting files), a revert that changes nothing, an app in the middle of a merge, rebase, revert, or cherry-pick, and a snapshot that fails. A named commit is checked before the snapshot, so its refusal adds nothing to history. Without `--json`, stdout says what was undone, as `undid tasks: add Water the plants`; with it, `{ "undid": <commit>, "commit": <the undo's commit> }`.
+It refuses, exit 2 with `{ "error": { "name": "Refused", "message", "next"? } }`, and leaves the folder's files as they were: a commit not in the app's history, a newest commit that is not a snapshot, since its subject does not start with `<app>: ` (the first commit, or one made with Git directly, which can still be named), a revert Git refuses, such as a merge's, with Git's message, a revert that conflicts (it is aborted, naming the conflicting files), a revert that changes nothing, such as one of a commit already undone, and a snapshot that fails, which includes an app in the middle of a merge, rebase, revert, or cherry-pick. A named commit is checked before the snapshot, so its refusal adds nothing to history. Without `--json`, stdout says what was undone, as `undid tasks: add Water the plants`; with it, `{ "undid": <commit>, "commit": <the undo's commit> }`.
 
 ## Adding apps
 

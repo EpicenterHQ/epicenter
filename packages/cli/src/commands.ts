@@ -42,15 +42,17 @@ names what it did this way.`,
 	history: {
 		usage: 'epicenter history <app> [--limit <n>]',
 		help: `Lists the app's snapshots, newest first, 20 unless --limit says how many: each
-one's commit, local time, and what it took. An undo reads as "undid <subject>".`,
+one's commit, local time, subject, and the paths it changed. An undo reads as
+"undid <subject>".`,
 	},
 	undo: {
 		usage: 'epicenter undo <app> [<commit>]',
 		help: `Snapshots what is pending, then reverts the app's most recent snapshot that is
 not an undo and is not undone, or the commit named, as "<app>: undid <subject>".
 Run it again to go further back; undo an undo to bring it back. It refuses a
-merge, a commit not in the app's history, and a revert that conflicts, leaving
-the folder as it was. It never pushes; sync does.`,
+commit not in the app's history and a revert Git refuses (a merge), or that
+conflicts or changes nothing, leaving the folder as it was. It never pushes;
+sync does.`,
 	},
 	serve: {
 		usage: 'epicenter serve [--port <n>] [--host <address>] [--stdio]',

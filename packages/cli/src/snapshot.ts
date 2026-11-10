@@ -15,13 +15,10 @@ import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { isLocalPath } from '@epicenter/app';
 import { extractErrorMessage } from 'wellcrafted/error';
-import { git, gitMessage, originOf } from './git.ts';
+import { checkedGit, git, gitMessage, originOf } from './git.ts';
 
 /** The write run that led to a commit: its call, the paths it wrote through `folder`, and whether it threw. */
 export type Wrote = { call: string; paths: string[]; threw?: true };
-
-/** The body header for the paths of a snapshot with no call. `epicenter history` parses it. */
-export const CHANGED = 'Changed:';
 
 /** Git state that must finish before a snapshot may stage or commit. */
 const UNDERWAY = [
@@ -35,13 +32,11 @@ const UNDERWAY = [
 
 /** Whether Git is in the middle of a merge, rebase, revert, or cherry-pick. */
 export async function underway(folder: string) {
-	const args = [
+	const paths = await checkedGit(folder, [
 		'rev-parse',
 		...UNDERWAY.flatMap((path) => ['--git-path', path]),
-	];
-	const paths = await git(folder, args);
-	if (paths.code !== 0) throw new Error(gitMessage(args, paths));
-	return paths.stdout
+	]);
+	return paths
 		.split('\n')
 		.some((path) => existsSync(resolve(folder, path)));
 }
@@ -135,12 +130,6 @@ export async function statusOf(folder: string) {
 	};
 }
 
-/** A path on its own line in a snapshot's body; JSON-quoted when it could be misread. */
-const bodyLine = (path: string) =>
-	path.includes('\n') || path.startsWith('"') || path === CHANGED
-		? JSON.stringify(path)
-		: path;
-
 /**
  * Commit exactly the paths `wrote` reports that have changed, named for its
  * call: one `git status` of those paths drops what is unchanged, ignored, or
@@ -177,10 +166,7 @@ async function commitCall(app: string, folder: string, wrote: Wrote) {
 	}
 }
 
-/**
- * Stage and commit everything pending, as `<app>: <message>` with each path
- * beneath `Changed:`; `null` when nothing was.
- */
+/** Stage and commit everything pending, as `<app>: <message>`; `null` when nothing was. */
 async function commitPending(app: string, folder: string, message: string) {
 	for (let tries = 1; ; tries++) {
 		await refuseLocal(
@@ -199,19 +185,19 @@ async function commitPending(app: string, folder: string, message: string) {
 			'--',
 			...TAKEN,
 		]);
-		const paths = staged.split('\0').filter(Boolean);
-		if (paths.length === 0) return null;
+		const files = staged.split('\0').filter(Boolean).length;
+		if (files === 0) return null;
 		const subject = `${app}: ${message}`;
 		try {
 			await gitWaitingForIndex(folder, [
 				'commit',
 				'-q',
 				'-m',
-				`${subject}\n\n${CHANGED}\n${paths.map(bodyLine).join('\n')}`,
+				subject,
 				'--',
 				...TAKEN,
 			]);
-			return { subject, files: paths.length };
+			return { subject, files };
 		} catch (error) {
 			// Another process's snapshot may have committed what this one staged: look again, once.
 			if (tries === 2) throw error;
@@ -277,8 +263,7 @@ const queued = new Map<string, Promise<Snapshot>>();
  * Commit in the app's folder (ADR-0850): with `{ wrote }`, exactly the
  * call's changed paths, named for the call (`<call> (threw)` when it threw),
  * with no body; otherwise everything pending that Git does not ignore, as
- * `<app>: changed outside epicenter` or `<app>: <message>`, its paths beneath
- * `Changed:`. Refused before staging when what it would take holds a
+ * `<app>: changed outside epicenter` or `<app>: <message>`. Refused before staging when what it would take holds a
  * `*.local` or `*.local.*` file, when `.gitattributes` routes files through
  * LFS and this computer has no filter, or when a Git operation is underway.
  * Never throws: a failure is returned to the caller.

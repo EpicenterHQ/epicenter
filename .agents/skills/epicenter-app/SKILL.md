@@ -158,13 +158,14 @@ committed by `epicenter serve` within 5 minutes as
 `<app>: changed outside epicenter`.
 
 An agent can read and reverse that history. `epicenter history <app>` lists
-the commits, newest first, each with its commit, local time, and subject
-(`--json` gives `{ commit, date, subject, changed, undid? }`). `epicenter undo
+the commits, newest first, each with its commit, local time, subject, and the
+paths it changed (`--json` gives `{ commit, date, subject, changed, undid? }`). `epicenter undo
 <app>` snapshots what is pending, then reverts the newest snapshot that is not
 an undo and not undone, as `<app>: undid <subject>`; run it again to go further
 back, `epicenter undo <app> <commit>` to undo that commit, and undo an undo to
-bring it back. It refuses a merge, a commit not in the app's history, and a
-revert that conflicts, leaving the folder as it was. After a write that went
+bring it back. It refuses a commit not in the app's history, a revert Git
+refuses (a merge), and one that conflicts or changes nothing, leaving the
+folder as it was. After a write that went
 wrong, undo it rather than rewriting the file by hand, so history says what
 happened.
 
