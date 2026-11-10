@@ -33,10 +33,10 @@ as many as it has folders; a folder that holds several is only a grouping.
     AGENTS.md                        guidance for agents; serve sends it as MCP instructions
     tasks/                           an app: its own Git repository
       .git/                          history; remotes upstream (its starter) and origin (its backup)
-      .gitignore                     node_modules/  .cache/  *.local  *.local.*
+      .gitignore                     node_modules/  *.local  *.local.*
       epicenter.ts                   its collections and actions
       ui/                            its UI project (optional)
-      .cache/ui/                     the built UI; rebuildable, never committed
+      ui/build/                      the built UI; ignored by ui/.gitignore (ADR-0854)
       tasks/<time>.md                data, committed
       google.local.md                this computer only; Epicenter never commits it (ADR-0870)
     capture/  vocab/  mail/
@@ -56,9 +56,10 @@ naming `epicenter init <folder>`. Epicenters do not nest.
 matter.** Its name sits beside `AGENTS.md` and `README.md` as a file to read
 first, and its case keeps it apart from an app's `epicenter.ts`. The front
 matter has three optional fields: `port` (4747 when absent; `--port`
-overrides it), and `public` and `owners`, which make the Epicenter public and
-say who may approve a client there (ADR-0871). An empty file is a valid
-marker. The display name is the folder's name.
+overrides it), and `public` and `publicPort`, which come together: the
+Epicenter's public HTTPS address, and the port on `127.0.0.1` that a tunnel to
+it targets (ADR-0871). An empty file is a valid marker. The display name is
+the folder's name.
 `epicenter init` writes:
 
 ```md
@@ -92,8 +93,8 @@ that: Epicenter does not commit them. A person can still `git add -f` one.
 `.gitignore` of `epicenter new` (ADR-0858) is the default, and a starter
 carries the same lines, since a starter is developed in ordinary clones
 outside any Epicenter. Epicenter writes nothing into a clone's `.git/`:
-no `info/exclude`, hooks, or config. A starter that leaves `node_modules/` or
-`.cache/` out of its `.gitignore` gets them committed, the same as in any
+no `info/exclude`, hooks, or config. A starter whose `.gitignore` leaves out
+`node_modules/` or its UI's `build/` gets them committed, the same as in any
 repository.
 
 **The command line.**
@@ -112,7 +113,7 @@ epicenter --help | --version
 ```
 
 `build` is its own verb because the UI project's own `bun run build` empties
-`.cache/ui/` before writing it, so a page served meanwhile is missing, and a
+`ui/build/` before writing it, so a page served meanwhile is missing, and a
 failed build leaves none; `epicenter build` keeps the last one that built.
 
 **On the tailnet, separation is ports, not sign-in.** Each Epicenter is

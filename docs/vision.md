@@ -20,7 +20,7 @@ which is mostly the earlier product described at the end.
 
 1. **What's yours is everywhere.** What you and your agents make is files in an
    app's folder on your server, the one copy, and every device reaches it
-   there. `*.local` and `.cache/` stay on the home.
+   there. `*.local` files and rebuilt files stay on the home.
 2. **Everything else is used where it is.** A sign-in, a machine's hardware, a
    service that exists on one machine. An action runs where what it uses is.
 3. **Everything you see or ask is an interface to actions.** The terminal and
@@ -93,7 +93,7 @@ made from one once it moves to a repository of its own.
 | a collection | a kind of file in the app, by a path template (`words/{word}.md`) and fields; it gives `list`, `get`, `add`, `set`, `edit`, and `delete` |
 | a field | JSON Schema for one value, written with helpers such as `field.text()` |
 | an action | something you can ask an app to do: a collection's verb, or one the author writes with `defineAction` |
-| a UI | a web page built from the app's `ui/` into `.cache/ui/`, served at `/<app>/`, that shows its data and calls its actions over MCP |
+| a UI | a web page built from the app's `ui/` into `ui/build/`, served at `/<app>/`, that shows its data and calls its actions over MCP |
 | `epicenter` | the program that runs an action in a folder, and `epicenter serve`, which offers every app over MCP |
 | a device program | an app's own program, when it needs the device: Whispering |
 | your server | the computer that runs `epicenter serve`, from a terminal or as the Epicenter Mac app ([ADR-0865]); it holds the one copy of each app and runs its actions, and every device reaches it while it is on |
@@ -110,10 +110,10 @@ An app is a Git repository of three kinds of file, each with one author
 ```txt
 vocab/
   epicenter.ts      the app: its collections and actions          from its starter; yours to change
-  ui/               the UI's source, built into .cache/ui/        from its starter; yours to change
+  ui/               the UI's source, built into ui/build/        from its starter; yours to change
   README.md         what the app is, for people and agents        from its starter
   words/你好.md      data: front matter and a body                yours alone
-  .cache/           the built UI and anything rebuilt, ignored
+  node_modules/     installed packages, ignored
   .gitignore        .gitattributes too, once it holds binaries
 ```
 
@@ -201,7 +201,7 @@ permission rules.
 ## UIs
 
 An app's UI ([ADR-0860]) is a web page built from the app's `ui/` into
-`.cache/ui/` and served at `/<app>/`, that reads and changes the app only by
+`ui/build/` and served at `/<app>/`, that reads and changes the app only by
 calling its actions over MCP at `/`. A UI never knows where the actions
 run, works in any browser that reaches your server, and keeps nothing of its
 own.
@@ -221,7 +221,7 @@ refused push leaves the backup untouched and appears in the app's status
 ([ADR-0851]). `epicenter serve` also pushes after snapshots. An app made from
 a starter has `upstream`, which only `epicenter update` fetches; nothing pushes
 to it. Binary files a folder tracks go through Git LFS: text is history,
-binaries are content. `.cache/` and sign-ins stay on the home.
+binaries are content. Rebuilt files and `.local` sign-ins stay on the home.
 
 ## One ladder
 

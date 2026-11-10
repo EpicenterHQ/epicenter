@@ -68,7 +68,7 @@ must go on offline keeps a copy and syncs it with Git.**
   pushes to the mirror. Nothing runs on a timer.
 - Who may ask is `epicenter serve`'s sign-in; who may pull and push is SSH's
   `authorized_keys`.
-- `epicenter serve` serves an app's built UI, `.cache/ui/`, at `/<app>/` and MCP at `/`, one
+- `epicenter serve` serves an app's built UI, `ui/build/`, at `/<app>/` and MCP at `/`, one
   origin and one address for people and agents, so a view asks with no sign-in
   of its own beyond the server's. A `GET /` from a browser is the launcher. A
   view is static files with hash routes (`#/c/<id>`); the server routes
@@ -102,7 +102,7 @@ terminal, it is the Epicenter Mac app, which runs `epicenter serve` (ADR-0865).
   the three kinds of app, models as an Epicenter setting, Epicenter
   holding third-party credentials, and running code in isolates or Durable
   Objects.
-- A view is a web client: served from a repository's `.cache/ui/` or from anywhere,
+- A view is a web client: served from a repository's `ui/build/` or from anywhere,
   it asks over MCP like an agent, and the browser sandboxes it.
 - An app starts from a starter, a repository with no data, kept as its
   `upstream`; it holds its own code and data and is changed where it is, and
