@@ -3,7 +3,6 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
 const bin = resolve(import.meta.dir, 'bin.ts');
-export const TEST_ROOT_ID = 'test-epicenter';
 
 /** Run git in `dir`, throwing with its stderr when it fails. */
 export async function gitIn(dir: string, ...args: string[]) {
@@ -23,7 +22,7 @@ export async function gitIn(dir: string, ...args: string[]) {
 /**
  * A temporary `HOME` whose `Epicenter` folder is the app home, and the real
  * `bin.ts` run against it, so output, exit codes, and the folders on disk are
- * tested together. Nothing here reads the person's own home or Keychain.
+ * tested together. Nothing here reads the person's own home.
  */
 export async function fixture() {
 	const root = await realpath(
@@ -31,10 +30,7 @@ export async function fixture() {
 	);
 	const home = join(root, 'Epicenter');
 	await mkdir(home);
-	await writeFile(
-		join(home, 'epicenter.root.json'),
-		`${JSON.stringify({ id: TEST_ROOT_ID })}\n`,
-	);
+	await writeFile(join(home, 'EPICENTER.md'), '---\nport: 4747\n---\n');
 	const env: Record<string, string | undefined> = {
 		...process.env,
 		HOME: root,
@@ -43,10 +39,6 @@ export async function fixture() {
 		GIT_AUTHOR_EMAIL: 'epicenter-test@example.com',
 		GIT_COMMITTER_NAME: 'Epicenter Test',
 		GIT_COMMITTER_EMAIL: 'epicenter-test@example.com',
-		EPICENTER_TEST_SECRETS: JSON.stringify({
-			[`epicenter.${TEST_ROOT_ID}.reading`]: { seed: 'plain seed' },
-			[`epicenter.${TEST_ROOT_ID}.other`]: { foreign: 'hidden' },
-		}),
 	};
 
 	/** Write `files` under `dir` and, unless `git` is false, commit them as a new repository. */
@@ -103,7 +95,7 @@ export async function fixture() {
 export const gitignore = 'node_modules/\n.cache/\n*.local\n*.local.*\n';
 
 /** The import every test app's `epicenter.ts` starts with. */
-export const header = `import { defineAction, defineApp, defineCollection, field, folder, secrets } from '@epicenter/app';\n`;
+export const header = `import { defineAction, defineApp, defineCollection, field, folder } from '@epicenter/app';\n`;
 
 /** The `epicenter.ts` of an app with only a description that names it. */
 export function bareApp(name: string) {
@@ -164,7 +156,7 @@ export const reading = `export default defineApp({ description: 'The reading app
 	week: { summary: defineAction({ description: 'Weekly minutes', input: {}, annotations: { readOnlyHint: true }, run: () => ({minutes:210}) }) },
 	tag: defineAction({ description:'Tag records', input: { tags: field.tags(), done: field.boolean() }, run: (input) => input }),
 	collect: defineAction({ description:'Collect tags', input: { tags: field.tags() }, positional: ['tags'], run: (input) => input }),
-	inspect: defineAction({ description:'Inspect the context', input:{}, run: async () => { await folder.write('.cache/index.json', '{}'); await secrets.set('token','round trip'); return {folder:folder.path,token:await secrets.get('token'),seed:await secrets.get('seed'),foreign:await secrets.get('foreign') ?? null}; } }),
+	inspect: defineAction({ description:'Inspect the context', input:{}, run: async () => { await folder.write('.cache/index.json', '{}'); return {folder:folder.path}; } }),
 	explode: defineAction({ description:'Throw an error', input:{}, run: () => {throw new Error('action exploded');} }),
 } });`;
 

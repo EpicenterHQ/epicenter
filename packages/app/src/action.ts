@@ -25,7 +25,7 @@ export type Input = Record<string, TSchema>;
  * may change things, may destroy, is not idempotent, and reaches outside the
  * folder; the last three mean something only when it is not read-only. A
  * read-only action's run is never snapshotted into the app's history, and a
- * write through `folder` or `secrets` in it throws.
+ * write through `folder` outside a local path in it throws.
  */
 export type Annotations = {
 	title?: string;
@@ -101,8 +101,8 @@ export type ActionDef<
 /**
  * Define an action from its fields and its `run`, typing `run`'s input by
  * the fields. Calling it fills each field's default before `run`, as a call
- * through the CLI or MCP does. Inside `run`, the app's collections, `folder`,
- * and `secrets` reach the folder and secrets of the run that called it,
+ * through the CLI or MCP does. Inside `run`, the app's collections and `folder`
+ * reach the folder of the run that called it,
  * however deep. Throws when the definition is wrong in a way its types
  * cannot say.
  */

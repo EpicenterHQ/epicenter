@@ -227,7 +227,6 @@ test('D2 --json prints the app from epicenter.ts, each action an MCP tool', asyn
 	const one = JSON.parse((await f.run('reading', '--json')).stdout);
 	expect(one).toMatchObject({
 		name: 'reading',
-		keychain: 'epicenter.test-epicenter.reading',
 	});
 	expect(one.actions).toEqual(reading.actions);
 });

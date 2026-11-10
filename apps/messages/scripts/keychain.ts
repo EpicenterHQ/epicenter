@@ -1,13 +1,11 @@
 /**
  * This computer's keychain as Messages' local program reaches it: `Bun.secrets`
- * under Messages' own service. `EPICENTER_TEST_SECRETS` replaces it with
- * stores held in memory for one process, so tests never touch the real
- * keychain. Copied from the CLI when the CLI stopped serving Messages
- * (ADR-0843).
+ * under Messages' own service. Tests inject an in-memory store, so they
+ * never touch the real keychain.
  */
 
 /**
- * Where keychain entries are kept, by entry name. The CLI binds
+ * Where keychain entries are kept, by entry name. The program binds
  * `Bun.secrets` per service; tests bind {@link createMemorySecrets}. A
  * method may throw.
  */
@@ -54,28 +52,8 @@ function unavailable(reason: string): SecretStore {
 	return { get: refuse, set: refuse, delete: refuse };
 }
 
-/** One test store per service, so every call in a process sees the same one. */
-const testStores = new Map<string, SecretStore>();
-
-/**
- * The store this run uses for `service`: the keychain, or the test store
- * `EPICENTER_TEST_SECRETS` stands up.
- */
+/** The Keychain store for `service`. */
 export function keychain(service: string): SecretStore {
-	const seed = process.env.EPICENTER_TEST_SECRETS;
-	if (seed !== undefined) {
-		let store = testStores.get(service);
-		if (store === undefined) {
-			try {
-				JSON.parse(seed);
-				store = createMemorySecrets();
-			} catch {
-				return unavailable('EPICENTER_TEST_SECRETS is not JSON');
-			}
-			testStores.set(service, store);
-		}
-		return store;
-	}
 	const secrets = (Bun as unknown as { secrets?: BunSecrets }).secrets;
 	if (secrets === undefined)
 		return unavailable(

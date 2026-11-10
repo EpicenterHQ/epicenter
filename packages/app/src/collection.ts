@@ -55,6 +55,7 @@ import {
 	readMarkdown,
 	withFields,
 } from './front-matter.ts';
+import { isLocalPath } from './local.ts';
 import {
 	type CreatedAt,
 	type IsSingle,
@@ -372,6 +373,10 @@ export function defineCollection<const D extends CollectionDef>(
 		...(single ? {} : { pathOf: files.pathOf }),
 		holds: (path: string) => templates.some((t) => t.match(path)),
 		actions: (...verbs: Verb[]) => {
+			if (templates.some((item) => isLocalPath(item.text)))
+				throw new Error(
+					`${first.text} never leaves this computer, so it offers no actions`,
+				);
 			for (const verb of verbs) {
 				if (fit.includes(verb)) continue;
 				if (verb === 'add' && !single)

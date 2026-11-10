@@ -10,6 +10,7 @@
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
+import { LOCAL_NAMES } from '@epicenter/app';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { git, gitMessage } from './git.ts';
 
@@ -55,7 +56,13 @@ export type Snapshot =
  * `*.local.*`, which never leave this computer whatever the app's
  * `.gitignore` says (a token, a device's settings).
  */
-const TAKEN = ['.', ':(exclude)*.local', ':(exclude)*.local.*'];
+const TAKEN = [
+	'.',
+	...LOCAL_NAMES.flatMap((name) => [
+		`:(exclude,glob)**/${name}`,
+		`:(exclude,glob)**/${name}/**`,
+	]),
+];
 
 /** Refused before staging when committing would store whole files that `.gitattributes` routes through LFS (ADR-0856). */
 const LFS_MISSING =

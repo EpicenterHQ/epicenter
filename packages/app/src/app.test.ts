@@ -8,7 +8,6 @@ import {
 	folder,
 	inRun,
 	normalizePath,
-	secrets,
 } from './index.ts';
 
 const books = defineCollection({
@@ -36,6 +35,7 @@ const reading = defineApp({
 describe('createMemoryContext', () => {
 	test('an action runs against a folder in memory', async () => {
 		const context = createMemoryContext({ '2026.csv': 'minutes\n10\n' });
+		expect(Object.keys(context)).toEqual(['folder']);
 		expect(
 			await inRun(context, () => reading.actions.log({ minutes: 30 })),
 		).toEqual({ minutes: 30 });
@@ -53,18 +53,17 @@ describe('createMemoryContext', () => {
 
 	test('the ambient folder is read only inside a run', () => {
 		expect(() => folder.read('2026.csv')).toThrow(
-			"An app's collections, folder, and secrets are read only inside an action's run",
+			"An app's collections and folder are available only inside an action's run",
 		);
 	});
 });
 
 describe('a read-only run', () => {
-	test('refuses every write through folder, secrets, and collections before it happens, and still reads', async () => {
+	test('refuses non-local writes through folder and collections, and still reads', async () => {
 		const memory = createMemoryContext({
 			'2026.csv': 'minutes\n',
 			'books/dune.md': '---\ntitle: "Dune"\n---\n',
 		});
-		await memory.secrets.set('token', 'kept');
 		const context = { ...memory, readOnly: { action: 'week show' } };
 		const refused = (doing: string) =>
 			`The action "week show" is read-only, so it cannot ${doing}`;
@@ -79,8 +78,6 @@ describe('a read-only run', () => {
 				refused('write 2026.csv'),
 			],
 			[() => folder.delete('2026.csv'), refused('delete 2026.csv')],
-			[() => secrets.set('token', 'x'), refused('set the secret token')],
-			[() => secrets.delete('token'), refused('delete the secret token')],
 			[
 				() => books.set({ path: 'books/dune.md', title: 'Other' }),
 				refused('write books/dune.md'),
@@ -92,13 +89,22 @@ describe('a read-only run', () => {
 		];
 		for (const [attempt, message] of tries)
 			await expect(inRun(context, attempt)).rejects.toThrow(message);
-		expect(await context.folder.list()).toEqual(['2026.csv', 'books/dune.md']);
+		await inRun(context, async () => {
+			await folder.write('x.local.md', 'one');
+			await folder.writeBytes('nested.local/data', new Uint8Array([65]));
+			await folder.update('x.local.md', (text) => `${text} two`);
+			await folder.delete('nested.local/data');
+		});
+		expect(await memory.folder.read('x.local.md')).toBe('one two');
+		expect(await context.folder.list()).toEqual([
+			'2026.csv',
+			'books/dune.md',
+			'x.local.md',
+		]);
 		expect(await context.folder.read('2026.csv')).toBe('minutes\n');
-		expect(await memory.secrets.get('token')).toBe('kept');
 		expect(
 			await inRun(context, () => books.get({ path: 'books/dune.md' })),
 		).toMatchObject({ title: 'Dune' });
-		expect(await inRun(context, () => secrets.get('token'))).toBe('kept');
 	});
 });
 
