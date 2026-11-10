@@ -21,6 +21,7 @@ import { hold } from './lock.ts';
 import { runAction } from './run.ts';
 import { gitIn } from './runner.test-support.ts';
 import { snapshot, statusOf } from './snapshot.ts';
+import { syncOne } from './sync.ts';
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -261,21 +262,22 @@ test('a *.local file Git already tracks is refused, naming the command that untr
 	expect(await readFile(join(f.dir, 'token.local'), 'utf8')).toBe('second\n');
 });
 
-test("a call holds the app's lock from its first write to its commit: a snapshot with no call waits, or says it is busy", async () => {
+test("a call holds the app's lock from its first write to its commit: sync waits for it, or says it is busy", async () => {
 	const f = await setup();
 	gate = Promise.withResolvers<void>();
 	const running = f.run('pause', 'monday');
 	while (!(await Bun.file(join(f.dir, 'monday.md')).exists()))
 		await Bun.sleep(5);
-	expect(await snapshot('notes', f.dir, { wait: 0 })).toEqual({
-		failed: { message: 'a call is still writing notes', busy: true },
+	expect((await syncOne('notes', f.dir, { wait: 0 })).error).toEqual({
+		message: 'notes: a call is still writing it',
+		busy: true,
 	});
-	const waiting = snapshot('notes', f.dir);
+	const waiting = syncOne('notes', f.dir);
 	gate.resolve();
 	expect((await running).committed).toEqual({
 		committed: { subject: 'notes: pause monday', files: 2 },
 	});
-	expect(await waiting).toEqual({ committed: null });
+	expect(await waiting).toMatchObject({ committed: null, pushed: false });
 	expect(await f.message()).toBe('notes: pause monday');
 });
 

@@ -3,13 +3,13 @@
  * (ADR-0850).
  *
  * A call's commit holds exactly the paths its run wrote, among those that
- * changed, and nothing else pending in the folder; the call makes it itself,
- * still holding the app's lock (`run.ts`). A snapshot with no call commits
- * everything pending in the folder: `epicenter sync` before it pushes (with
- * `--message`, for an agent naming its own edits), `epicenter undo` before it
- * reverts, `epicenter update` before it merges, and `serve`'s backup clock.
- * It holds the app's lock while it commits, so it never takes part of what a
- * running call has written, from any process.
+ * changed, and nothing else pending in the folder (`run.ts`). A snapshot with
+ * no call commits everything pending in the folder: `epicenter sync` before it
+ * pushes (with `--message`, for an agent naming its own edits), `epicenter
+ * undo` before it reverts, `epicenter update` before it merges, and `serve`'s
+ * backup clock. Whoever commits holds the app's lock (`lock.ts`), so a
+ * snapshot never takes part of what a running call has written, from any
+ * process.
  */
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
@@ -17,7 +17,6 @@ import { join, resolve } from 'node:path';
 import { isLocalPath } from '@epicenter/app';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { checkedGit, git, gitMessage, originOf } from './git.ts';
-import { hold, LOCK_WAIT_MS } from './lock.ts';
 
 /** The write run that led to a commit: its call, the paths it wrote through `folder`, and whether it threw. */
 export type Wrote = { call: string; paths: string[]; threw?: true };
@@ -44,13 +43,12 @@ export async function underway(folder: string) {
 /**
  * What a commit did: the commit it made, nothing (nothing it would take had
  * changed, or the folder is in no repository), or why it failed and, when one
- * is known, the command that resolves it; `busy` when a snapshot with no call
- * took nothing because a call was still writing the app.
+ * is known, the command that resolves it.
  */
 export type Snapshot =
 	| { committed: { subject: string; files: number } }
 	| { committed: null }
-	| { failed: { message: string; next?: string; busy?: true } };
+	| { failed: { message: string; next?: string } };
 
 /** What a snapshot with no call takes: everything in the folder that Git does not ignore. */
 const TAKEN = ['.'];
@@ -222,20 +220,33 @@ async function commitPending(app: string, folder: string, message: string) {
 
 /**
  * Whose boundary a commit has: a call's, which takes only the paths it
- * wrote and is made holding the app's lock, or none, which takes everything
- * pending under `message` (default `changed outside epicenter`) once it holds
- * the lock, waiting up to `wait` milliseconds for a call to finish (30
- * seconds unless given; 0 tries once).
+ * wrote, or none, which takes everything pending under `message` (default
+ * `changed outside epicenter`).
  */
-export type Boundary = { wrote: Wrote } | { message?: string; wait?: number };
+export type Boundary = { wrote: Wrote } | { message?: string };
 
-/** Commit in `folder`, which is in a repository. */
-async function take(
+/**
+ * Commit in the app's folder (ADR-0850): with `{ wrote }`, exactly the
+ * call's changed paths, named for the call (`<call> (threw)` when it threw),
+ * with no body; otherwise everything pending that Git does not ignore, as
+ * `<app>: changed outside epicenter` or `<app>: <message>`. Its caller holds
+ * the app's lock. A folder in no repository commits nothing.
+ * Refused before staging when what it would take holds a `*.local` or
+ * `*.local.*` file, when `.gitattributes` routes files through LFS and this
+ * computer has no filter, or when a Git operation is underway. Never throws:
+ * a failure is returned to the caller.
+ */
+export async function snapshot(
 	app: string,
 	folder: string,
-	boundary: Boundary,
+	boundary: Boundary = {},
 ): Promise<Snapshot> {
 	try {
+		if (
+			(await git(folder, ['rev-parse', '--is-inside-work-tree'])).stdout !==
+			'true'
+		)
+			return { committed: null };
 		if (await underway(folder))
 			return {
 				failed: {
@@ -271,43 +282,5 @@ async function take(
 				...(error instanceof Refused && error.next ? { next: error.next } : {}),
 			},
 		};
-	}
-}
-
-/**
- * Commit in the app's folder (ADR-0850): with `{ wrote }`, exactly the
- * call's changed paths, named for the call (`<call> (threw)` when it threw),
- * with no body; otherwise everything pending that Git does not ignore, as
- * `<app>: changed outside epicenter` or `<app>: <message>`, holding the app's
- * lock, or `busy` when a call still held it after the wait.
- * Refused before staging when what it would take holds a `*.local` or
- * `*.local.*` file, when `.gitattributes` routes files through LFS and this
- * computer has no filter, or when a Git operation is underway. Never throws:
- * a failure is returned to the caller.
- */
-export async function snapshot(
-	app: string,
-	folder: string,
-	boundary: Boundary = {},
-): Promise<Snapshot> {
-	try {
-		if (
-			(await git(folder, ['rev-parse', '--is-inside-work-tree'])).stdout !==
-			'true'
-		)
-			return { committed: null };
-		if ('wrote' in boundary) return await take(app, folder, boundary);
-		const alone = await hold(folder, boundary.wait ?? LOCK_WAIT_MS);
-		if (!alone)
-			return {
-				failed: { message: `a call is still writing ${app}`, busy: true },
-			};
-		try {
-			return await take(app, folder, boundary);
-		} finally {
-			alone.release();
-		}
-	} catch (error) {
-		return { failed: { message: extractErrorMessage(error) } };
 	}
 }

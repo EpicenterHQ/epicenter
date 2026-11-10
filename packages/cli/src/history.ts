@@ -10,7 +10,9 @@
  * subject is `<app>: undid <subject>` and whose body keeps Git's own `This
  * reverts commit <sha>.` line, so undoing an undo redoes it.
  *
- * Undo never loses anything. It snapshots what is pending first, refuses
+ * Undo never loses anything. It holds the app's lock (`lock.ts`) from its
+ * snapshot of what is pending until its revert is committed, so no call
+ * writes in between, and it refuses
  * rather than guesses (a commit not in the app's history, nothing to undo, a
  * revert Git refuses, that conflicts, or that changes nothing), and on any
  * refusal leaves the folder's files as they were.
@@ -21,6 +23,7 @@ import { misuse, parseWords } from './commands.ts';
 import { CliError } from './errors.ts';
 import { checkedGit, git, gitMessage } from './git.ts';
 import { chooseApps, type Entry } from './home.ts';
+import { LOCK_WAIT_MS, locked } from './lock.ts';
 import { fail, writeJson, writeOut } from './output.ts';
 import { snapshot, underway } from './snapshot.ts';
 
@@ -306,6 +309,29 @@ async function undo(
 	const named =
 		given === undefined ? undefined : await namedUndoable(app, folder, given);
 	if (named && 'error' in named) return named;
+	const ran = await locked(folder, LOCK_WAIT_MS, () =>
+		snapshotAndRevert(app, folder, named),
+	);
+	return 'busy' in ran
+		? {
+				error: refuse(
+					`${app}: nothing was undone, since a call is still writing it`,
+					`epicenter undo ${app}${given === undefined ? '' : ` ${given}`}`,
+				),
+			}
+		: ran.done;
+}
+
+/**
+ * Snapshot what is pending, then revert `named`, or the newest commit undo
+ * may take, as one new commit. Its caller holds the app's lock throughout, so
+ * no call writes between the snapshot and the revert.
+ */
+async function snapshotAndRevert(
+	app: string,
+	folder: string,
+	named: { commit: Commit } | undefined,
+): Promise<Undone | { error: CliError }> {
 	const taken = await snapshot(app, folder);
 	if ('failed' in taken)
 		return {

@@ -56,9 +56,10 @@ is the decision to trust it, as cloning and running any repository is.
 **`epicenter update [<app>]` brings in the starter's changes.** For each app
 with an `upstream`, it:
 
-1. snapshots what is pending as `<app>: changed outside epicenter`, so the
-   merge never mixes with an edit not yet in history;
-2. runs `git fetch upstream` and merges `upstream`'s branch; on a conflict it
+1. runs `git fetch upstream`;
+2. holding the app's lock (ADR-0850), snapshots what is pending as
+   `<app>: changed outside epicenter`, so the merge never mixes with an edit
+   not yet in history, and merges `upstream`'s branch; on a conflict it
    aborts the merge, leaves the app as it was, and prints
    `git -C ~/Epicenter/vocab merge upstream/main` for whoever resolves it;
 3. builds the UI, keeping the last `.cache/ui/` that built if this build
