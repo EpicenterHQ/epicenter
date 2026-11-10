@@ -31,12 +31,13 @@ repository of its own, which waits on publishing `@epicenter/app` and
 the app's root `package.json` is only for whoever edits the actions. `ui/`
 has its own `package.json`, whose `build` writes `../.cache/ui/`.
 `epicenter serve` serves `.cache/ui/` at `/<app>/`, and MCP at `/`. A UI asks
-for everything through `connect<typeof app>('<app>')` from
+for everything through `connect<typeof app>('<app>', { onUncommitted })` from
 `@epicenter/app/client`, typed by the app it imports as a type, and keeps
-nothing of its own.
+nothing of its own; `onUncommitted` tells the person when a change was saved
+to its file but not recorded in history.
 
-A UI is a static SvelteKit build with hash routes (`#/c/<id>`), so the server
-serves files and routes nothing. Its base is `/<the app's folder name>`, the
+A UI is a static SvelteKit build with hash routes, a record's page at its
+path (`#/tasks/<time>.md`), so the server serves files and routes nothing. Its base is `/<the app's folder name>`, the
 path `epicenter serve` mounts it at. In development, `bun run dev` in `ui/`
 sends a POST to `/` (MCP) to a running `epicenter serve` (`EPICENTER_URL`,
 default `http://127.0.0.1:4747`).

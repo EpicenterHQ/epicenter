@@ -29,8 +29,9 @@ caller knows that twelve `vocab add` calls are "Tuesday's lesson".
 **A write is one commit, named for the call, however it arrives.** When an
 action that is not read-only returns, the run commits what changed in the
 app's folder as `<app>: <action words> [first positional]`: from the command
-line, `serve --stdio`, or HTTP alike. A thrown action, a read-only one, and a
-folder in no repository commit nothing.
+line, `serve --stdio`, or HTTP alike. A read-only action and a folder in no
+repository commit nothing. An action that throws after writing has its writes
+committed under its subject marked `(threw)` (ADR-0857).
 
 ```txt
 the run           tasks: add Water the plants   every write that returned
@@ -79,7 +80,7 @@ only; an editor or agent writing files directly is a second writer as before.
 ```txt
 { "returned": <value>, "committed"?: <sha> }  exit 0
 { "returned": <value>, "uncommitted": { "message", "next" } }  exit 0, the commit failed
-{ "threw": { "message", "thrown"? } }         exit 1, also when the run ended without an answer
+{ "threw": { "message", "thrown"? }, "committed"? | "uncommitted"? }  exit 1, also when the run ended without an answer
 { "error": { "name", "message", "next"? } }   exit 2, nothing ran
 ```
 
@@ -102,6 +103,9 @@ answer.
 - `writeOnly` means only what JSON Schema says; nothing in `epicenter` reads it.
 - A test run of a write in an agent's worktree commits there; run tests in a
   temporary `HOME`.
+- The commit happens in the run's own process, so a run killed before it
+  answers leaves its writes uncommitted, for the next write or
+  `epicenter sync` to commit.
 
 ## Considered alternatives
 

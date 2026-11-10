@@ -44,9 +44,11 @@ in `epicenter.ts`: a path template and the fields of each file's front matter
 its own (`epicenter tasks set`, MCP `tasks_set`); an app with several nests
 each under its name (`epicenter mail messages list`). A record's address is
 its path: `tasks/2026-11-10T09-30-00-000Z-k3x9a2f8.md`.
-A path is a relative `.md` template, and a part starting with `.`, such as
-`.cache/`, is refused. Keep it out of `ui/` and off `epicenter.*` too
-(ADR-0866); nothing refuses those yet.
+A path is a relative `.md` template that starts with a folder of its own
+(`days/{day}.md`, not `{day}.md`); `defineCollection` refuses a part starting
+with `.` (such as `.cache/`), a first part of `ui` or `node_modules`, and one
+starting with `epicenter.`. A field or placeholder may not be named `path`,
+`body`, `problems`, `other`, `json`, `help`, or `input`.
 
 - Choose the path by how people and agents will name a file. `{time}` suits
   things made in passing (`captures/{time}.md`, `tasks/{time}.md`): `add`
@@ -57,9 +59,20 @@ A path is a relative `.md` template, and a part starting with `.`, such as
   glance in a field (a task's `title`); put prose in the body.
 - Keep fields few. `set` merges as JSON Merge Patch does: `null` removes a
   field, so a field that may be absent needs no `null` in its type; a
-  required field takes no `null`. A `set` with no field throws.
+  required field takes no `null`. A `set` with no field throws. In a one-file
+  collection every field is optional or has a default.
 - Mark a field `readOnly` when only the app's own actions may write it (Vocab's
   schedule, Capture's `capturedAt`): the exposed `add` and `set` leave it out.
+  A `readOnly` field that is required with no default removes the exposed
+  `add`, so write the app's own (Capture's `add`).
+- Constrain text with `field.text({ pattern, description })`, the description
+  reading after "must be" (Tasks' title: `one line, not blank, saying what to
+  do`), so the generated `set` refuses what the app's own `add` would.
+- A read never trusts the file: a field that does not fit reads as its
+  default, or is absent, and the file carries `problems` quoting what was
+  dropped; `get` also carries `other`, the front matter that is not a fitting
+  field. So every field without a default is optional when read, a required
+  one included. Read code handles absence; it never assumes the declaration.
 - A body changes through `edit --old <text> --new <text>`, which replaces one
   passage and is refused unless `old` occurs exactly once, so a body read
   before someone else changed it is never written back over theirs
@@ -80,26 +93,47 @@ verbs: a rule on making a file (Tasks' `add` splits a title from its notes),
 a rule across fields (Vocab's `review` scheduling), or a read shaped for a
 screen (Capture's `recent`). Replace a verb by key, as in any object:
 `{ ...words.actions(), add: learn }`. Inside `run`, read and write through the
-collection's methods (`words.get(path)`, `words.set(path, fields)`) instead of
-parsing front matter again, and through the imported `folder` for any other
-file.
+collection's methods (`words.get({ path })`, `words.set({ path, ...fields })`,
+`words.edit({ path, old, new })`) instead of parsing front matter again, and
+through the imported `folder` for any other file. Build a path with
+`words.pathOf({ word })`, never by hand.
+
+The generated verbs address a record by its path, the one address every
+collection has. An action you write chooses its own input, and one people type
+should take what they type: Vocab's `review` could take `{ word, grade }` and
+call `words.pathOf({ word })`, giving `epicenter vocab review 你好 good`.
 
 Annotate honestly. A run that is not `readOnlyHint: true` commits what it
 wrote, one commit per call named `<app>: <words> <first positional>`, so a
-read marked as a write leaves empty work and a write marked as a read is
-never committed.
+read marked as a write leaves empty work. A read-only run makes no commit,
+and its writes through `folder` and `secrets` throw, so an action that writes
+a file or refreshes a token with `secrets.set` is not read-only.
 
 ## Build the UI as a client
 
-Copy an existing app's `ui/`: SvelteKit with the hash router (routes are
-`#/t/<id>`), `@epicenter/ui` and its `app.css`, a manifest and icons in
-`static/`, and its `svelte.config.js`, which builds into `../.cache/ui/` with
-the app's folder name as the base. Ask for everything through
-`connect<typeof app>('<app>')` from `@epicenter/app/client`, importing the app
-as a type (`import type app from '../../../epicenter.js'`): `app.set({ path,
-done: true })` calls the action under the same words, typed by the app. Keep
-routes by the file's name (`#/t/<name>`) and build the path from it at the
-call. The UI keeps nothing of its own.
+Copy an existing app's `ui/`: SvelteKit with the hash router, `@epicenter/ui`
+and its `app.css`, a manifest and icons in `static/`, and its
+`svelte.config.js`, which builds into `../.cache/ui/` with the app's folder
+name as the base. Ask for everything through
+`connect<typeof app>('<app>', { onUncommitted })` from
+`@epicenter/app/client`, importing the app as a type
+(`import type app from '../../../epicenter.js'`): `app.set({ path, done: true
+})` calls the action under the same words, typed by the app. Name types with
+`ActionInput<typeof app.actions.set>` and
+`ActionOutput<typeof app.actions.get>`. The UI keeps nothing of its own.
+
+- Route a record by its whole path: a rest route `src/routes/[...path]`, so the
+  page is at `#/tasks/<time>.md`, linked with each part URL-encoded
+  (`path.split('/').map(encodeURIComponent).join('/')`) and read back from
+  `page.params.path`. Write no code that knows the app's templates; show a
+  record's name from its read (`row.word`). SvelteKit decodes the hash once
+  when the page loads, so a name holding `?`, `#`, or `%` survives a link
+  inside the UI but not a reload.
+- `onUncommitted` is required. Tell the person, in the UI's own notice, that
+  the change was saved to the file but not recorded in history, and give the
+  `sync` command it receives.
+- Show a record's `problems` quietly where the record is shown, and never
+  crash on a field that is absent.
 
 - It is a phone Home Screen app first: safe-area insets, 44 px targets, 16 px
   inputs so iOS does not zoom, light and dark from the system.
