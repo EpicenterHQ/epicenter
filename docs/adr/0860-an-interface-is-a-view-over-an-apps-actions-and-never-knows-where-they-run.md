@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-11-09
 - **Relates:** [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) (your server, and reach from vendors' clouds), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (programs that have the folder or ask), [ADR-0853](0853-collections-give-five-actions-and-programs-without-the-folder-ask-over-mcp.md) (MCP, the view client), [ADR-0857](0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md) (`epicenter.ts`, and the client typed by it), [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (one copy, and `serve` at `/<app>/` and `/`).
-- **Unbuilt:** HTTPS for `epicenter serve`. Built: `epicenter serve` serving the view at `/<app>/` and MCP at `/` (`packages/cli/src/http.ts`); the view client `connect`, typed by the app (`packages/app/src/client.ts`); Capture's, Tasks', and Vocab's views in `apps/<app>/ui/`, which `epicenter new --from`, `update`, and `build` build into `ui/build/` (ADR-0866).
+- **Unbuilt:** HTTPS for `epicenter serve`. Built: `epicenter serve` serving the view at `/<app>/` and MCP at `/` (`packages/cli/src/http.ts`); the view client `connect`, typed by the app (`packages/app/src/client.ts`); Capture's, Tasks', and Vocab's views in `apps/<app>/ui/`, which `epicenter new --from`, `update`, and `build` build into `ui/dist/` (ADR-0866).
 
 ## Context
 
@@ -19,7 +19,7 @@ actions as an agent does.
 
 **An app's interfaces are views, and a view is a web client of its app's
 actions.** A view is static files with hash routes (`#/c/<id>`) built into the
-app's `ui/build/`, and `epicenter serve` serves them at `/<app>/` on the same origin as
+app's `ui/dist/`, and `epicenter serve` serves them at `/<app>/` on the same origin as
 MCP at `/`. It reads and changes the app only by calling the app's actions
 through `connect<typeof app>('<app>')` (ADR-0853). The server routes nothing and runs
 nothing for a view.
@@ -28,16 +28,21 @@ nothing for a view.
 ~/Epicenter/capture/
   epicenter.ts        its collections and actions
   ui/                 the view's source: SvelteKit, Svelte 5, and @epicenter/ui
-  ui/build/          the built view, served at /capture/, ignored by Git
+  ui/dist/            the built view, served at /capture/, ignored by ui/.gitignore
   captures/<time>.md
 ```
 
-**A built view is never committed to the app.** The app's `ui/` is the view's
-source, a project of its own whose `build` writes `ui/build/`, which is
-rebuildable and so ignored (ADR-0854). `epicenter new --from` and
-`epicenter update` build it (ADR-0866), and `epicenter serve` serves
-`ui/build/` and nothing else. Any build that produces static files works;
-SvelteKit with Epicenter's components is the default, not a requirement.
+**A view is what is in `ui/dist/`.** `epicenter serve` serves `ui/dist/` at
+`/<app>/` and looks nowhere else. When `ui/package.json` has a `build` script,
+`ui/dist/` is its output: rebuildable, ignored by `ui/.gitignore`, never
+committed (ADR-0854). `epicenter build`, `new --from`, and `update` run that
+script and keep the last `ui/dist/` that built (ADR-0866). When there is no
+`build` script, `ui/dist/` holds files written by hand, committed like any
+other: a single `index.html` is a view. `dist` is the default output of Vite,
+Astro, Parcel, and Rsbuild, so most projects need no setting; SvelteKit's
+static adapter is pointed at it with `adapter({ pages: 'dist', assets: 'dist' })`.
+Any build that produces static files works; SvelteKit with Epicenter's
+components is the default starter, not a requirement.
 
 **A view follows four rules.**
 
@@ -103,3 +108,10 @@ served from somewhere other than the server passes the server's address to
   people's code and hold their tokens (ADR-0864).
 - **"Screen" or "interface" as the noun.** A view need not fill a screen, and
   `interface` already means something in TypeScript.
+- **Serving `ui/` itself when it has no build, and `ui/dist/` when it has
+  one.** A hand-written view would sit at the top of `ui/`, but `serve` would
+  choose between two folders, and a project not yet built would serve its
+  source `index.html` as a broken page instead of no view.
+- **`ui/build/`.** SvelteKit's static adapter writes there by default, but
+  Vite and most other tools write `dist/`, and the default starter is the one
+  project that changes a setting.

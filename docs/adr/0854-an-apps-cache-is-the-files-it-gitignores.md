@@ -4,7 +4,7 @@
 - **Date:** 2026-11-08 (revised 2026-11-11: no `.cache/` directory)
 - **Amends:** [ADR-0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md) at the context: `cache`, its directory under `~/Library/Caches`, `clear()`, and `sqlite(name)` go. [ADR-0844](0844-one-runner-runs-anywhere-and-every-surface-is-a-view-over-it.md) at its cache root per operating system. [ADR-0858](0858-where-a-file-lives-decides-whether-it-travels-survives-or-dies-with-its-program.md), for an app in an Epicenter, at "Can it be rebuilt? yes → `.cache/`" and the template `.gitignore`: there is no `.cache/` line; a rebuilt file is ignored where its tool writes it.
 - **Relates:** [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (ignored paths are written and never committed), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (the template's `.gitignore`), [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (the UI and its build), [ADR-0870](0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md) (`.local` paths, and a context of `folder` only).
-- **Built:** 2026-11-09: the `cache` object, its directory under `~/Library/Caches`, `EPICENTER_CACHE_HOME`, `clear()`, and `sqlite(name)` are deleted. Unbuilt: the UI's build at `ui/build/`; today it builds into `.cache/ui/`, and the template ignores `.cache/`.
+- **Built:** 2026-11-09: the `cache` object, its directory under `~/Library/Caches`, `EPICENTER_CACHE_HOME`, `clear()`, and `sqlite(name)` are deleted. Unbuilt: the UI's build at `ui/dist/`; today it builds into `.cache/ui/`, and the template ignores `.cache/`.
 
 ## Context
 
@@ -32,8 +32,8 @@ node_modules/
 *.local.*
 ```
 
-The UI builds where its own project builds: `ui/build/`, adapter-static's
-default, ignored by `ui/.gitignore`. An app that keeps another rebuildable
+The UI builds where most build tools write by default: `ui/dist/`, ignored by
+`ui/.gitignore` (ADR-0860). An app that keeps another rebuildable
 file, such as a search index, ignores that path in its own `.gitignore`. What
 is kept on one computer but cannot be rebuilt is a `.local` path (ADR-0858).
 An action reads and writes these files through `folder` like any file; Git
@@ -51,9 +51,9 @@ every JavaScript tool already ignores.
 - Deleted: the `cache` object, its directory per operating system, its per-path
   hash for worktrees, `clear()`, and `sqlite(name)`.
 - An app's UI is an ordinary SvelteKit or Vite project. `bun run build` in
-  `ui/` writes `ui/build/`; `epicenter build` keeps the last build that worked
+  `ui/` writes `ui/dist/`; `epicenter build` keeps the last build that worked
   (ADR-0868).
-- Rebuilding is the tool's job: delete `ui/build/` and run `epicenter build`.
+- Rebuilding is the tool's job: delete `ui/dist/` and run `epicenter build`.
 
 ## Considered alternatives
 

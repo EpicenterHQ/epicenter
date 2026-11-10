@@ -30,7 +30,7 @@ someone else's changes with one's own: a fork and its upstream.
   README.md        what the app is, for people and agents      from upstream
   .gitignore  .gitattributes                                   from upstream
   words/*.md       data                                        yours alone
-  ui/build/        the built UI, served at /vocab/             built on this computer, ignored by ui/.gitignore
+  ui/dist/        the built UI, served at /vocab/             built on this computer, ignored by ui/.gitignore
   node_modules/    installed packages                          ignored (ADR-0854)
   *.local          kept on this computer                       ignored (ADR-0858)
 ```
@@ -38,8 +38,8 @@ someone else's changes with one's own: a fork and its upstream.
 - **A starter is an app with no data.** It is a repository of its own whose
   root is the app's root. It holds no file its collections' paths match.
 - The UI is called the UI, and its folder `ui/`: a project with its own
-  `package.json`, whose `build` writes `ui/build/`, its tool's default. `epicenter serve` serves
-  `ui/build/` at `/<app>/` and nothing else. The UI's base is `/` and the
+  `package.json`, whose `build` writes `ui/dist/` (ADR-0860). `epicenter
+  serve` serves `ui/dist/` at `/<app>/` and nothing else. The UI's base is `/` and the
   app's folder name, so a build by hand and one by `epicenter update` agree.
 - `epicenter` supplies `@epicenter/app` to `epicenter.ts` when it runs it; the
   root `package.json` serves only whoever edits or tests the actions.
@@ -60,7 +60,7 @@ with an `upstream` and no uncommitted changes, it:
    `git -C ~/Epicenter/vocab merge upstream/main` for whoever resolves it;
 2. checks every file of every collection against the collection's fields and
    lists each file that does not fit them;
-3. builds the UI, keeping the last `ui/build/` that built if this build
+3. builds the UI, keeping the last `ui/dist/` that built if this build
    fails. The build installs from the starter's committed `ui/bun.lock`, or
    writes no lockfile when it has none, so it never leaves the app with
    uncommitted changes.
