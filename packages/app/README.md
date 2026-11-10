@@ -291,12 +291,14 @@ failed action should be rolled back instead is undecided
 
 Writes to one app run at once, from the command line, an agent, and a UI.
 `folder.write` replaces the file, and the last write wins. A change that
-depends on what it read goes through `folder.update(path, change)`: it reads
-the file, calls `change` with its text (`undefined` when there is none), and
-writes what `change` returns only if the file is still what `change` saw;
-otherwise it calls `change` again on what is there now, and after 10 seconds
-of that it throws `{ name: 'Changed' }`. A `change` that throws writes nothing. It returns
-the text written. Every collection write (`add`, `set`, `edit`, `update`)
+depends on what it read goes through `folder.update(path, change)`: holding
+the app's lock, which every update of the app waits for, it reads the file,
+calls `change` with its text (`undefined` when there is none), and writes
+what `change` returns, nothing when that is what is there. A writer that
+takes no lock, such as `folder.write` or an editor, may change the file
+between the read and the write; then `update` calls `change` again on what is
+there now, and after 10 tries it throws `WriteError.Changed`. A `change` that
+throws writes nothing. It returns the text written. Every collection write (`add`, `set`, `edit`, `update`)
 goes through it, so two `set`s of different fields of one file both land, and
 two `update`s of one field each see the other's.
 
@@ -391,8 +393,9 @@ if (first) await app.books.set({ path: first.path, finished: '2026-11-10' });
 
 A call resolves to what the action returned, in its JSON form, and rejects
 with an `ActionError` when it threw or did not run; `changedElsewhere(error)`
-says a call was refused with `{ name: 'Changed' }`: an `edit` whose passage
-changed, or an `update` of a file that kept changing. Whatever becomes of the
+says a call was refused with `WriteError.Changed` (`{ name: 'Changed', path,
+why }`): an `edit` whose passage changed, or an `update` of a file that kept
+changing. Whatever becomes of the
 snapshot after a call, the call resolves; the app's status on the computer
 that serves it says when one failed.
 

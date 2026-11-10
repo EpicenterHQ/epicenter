@@ -26,6 +26,7 @@ export {
 	isLocalPath,
 	normalizePath,
 } from './context.ts';
+export { WriteError } from './errors.ts';
 export { field, type TSwitch, type TTags } from './field.ts';
 export { readMarkdown } from './front-matter.ts';
 export { createMemoryContext } from './memory.ts';

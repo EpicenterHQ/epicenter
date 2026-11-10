@@ -42,6 +42,7 @@
  * A collection does not know its name: an app names it by its key in
  * `collections`, and everything a collection says names its path instead.
  */
+import { WriteError } from './errors.ts';
 import {
 	type Static,
 	type TObject,
@@ -205,8 +206,9 @@ export type ManyHandle<D extends CollectionDef> = {
 	 * `get` gives it and returns what `set` takes, without `path` and with
 	 * `body` if the body changes; that is written only over the record it
 	 * was given. When the file changed meanwhile, `revise` runs again on what
-	 * is there now, so keep it a pure function of the record; after 10
-	 * seconds of that it throws `{ name: 'Changed' }`. A `revise` that throws writes nothing.
+	 * is there now, so keep it a pure function of the record; after 10 tries
+	 * it throws `WriteError.Changed`. A `revise` that throws writes nothing,
+	 * and one that returns `{}` leaves the file as it is.
 	 * Throws when there is no file at `path`. Returns the record written.
 	 *
 	 * ```ts
@@ -523,11 +525,6 @@ function inDeclaredOrder(values: FieldValues, fields: Fields): FieldValues {
 	);
 }
 
-/** The "Changed" refusal: the quoted passage is not in the body as it is now. */
-function changed(message: string) {
-	return Object.freeze({ name: 'Changed', message });
-}
-
 /** A collection's methods as `defineCollection` gives them, before its types are laid over. */
 type Methods = Record<string, (...args: never[]) => Promise<unknown>>;
 
@@ -687,11 +684,8 @@ function createFiles(layout: Template, fields: Fields) {
 		const { old } = change;
 		const at = body.indexOf(old);
 		if (old === '' ? body !== '' : at < 0)
-			throw changed(
-				old === ''
-					? `${path}'s body is no longer empty; get it again`
-					: `${path}'s body does not have that text; it may have changed since it was read, so get it again`,
-			);
+			throw WriteError.Changed({ path, why: old === '' ? 'empty' : 'quote' })
+				.error;
 		if (old !== '' && body.indexOf(old, at + 1) >= 0)
 			throw new Error(
 				`${path}'s body has that text more than once; quote more around it`,

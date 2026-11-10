@@ -26,7 +26,8 @@
 	},
 	"dependencies": {
 		"nanoid": "catalog:",
-		"typebox": "catalog:"
+		"typebox": "catalog:",
+		"wellcrafted": "catalog:"
 	},
 	"devDependencies": {
 		"@types/bun": "catalog:",

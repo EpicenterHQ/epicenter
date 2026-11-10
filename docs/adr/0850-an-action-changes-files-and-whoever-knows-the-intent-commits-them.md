@@ -109,17 +109,23 @@ Status derives the pending path count from `git status` and the unpushed
 commit count from `origin/<branch>..HEAD` when that tracking ref exists.
 
 **A change that depends on what it read uses `folder.update`.**
-`folder.update(path, change)` reads the file, calls `change` with its text
-(`undefined` when there is none), and writes what `change` returns only if the
-file is still what `change` saw; otherwise it starts over, with a random wait
-of at most 64 ms, and after 10 seconds of that throws `{ name: 'Changed' }`. A
-`change` that throws writes nothing. It writes the new text beside the target
-under a random name, then claims the text it replaces with a claim file named
-for that text, which only one update can make, so two updates of the same text
-never both write; rereading before the rename alone lost 5 of 50 concurrent
+`folder.update(path, change)` holds the app's lock while it reads the file,
+calls `change` with its text (`undefined` when there is none), and writes what
+`change` returns, nothing when that is what is there. The lock is the kernel's
+`flock` on the app's folder, which every update of the app waits for and
+which the kernel releases when the process holding it ends, so a crash never
+leaves it held. Rereading before the rename alone lost 5 of 50 concurrent
 `set`s of one file, since another process can rename between the reread and
-the rename. The claim is held only to check, rename, and release, so one older
-than 2 seconds is taken for one a crash left. Every collection write (`add`,
+the rename; under the lock no other update can. It still writes the new text
+beside the target and renames it over only if the file is still what `change`
+saw, since a writer that takes no lock (`folder.write`, an editor) may have
+changed it; then it reads and changes it again, and after 10 tries throws
+`WriteError.Changed`. A `change` that throws writes nothing. The lock replaced
+a claim file per replaced text, whose recovery after a crash took three
+timing thresholds: what the kernel releases needs no guess that a crash left
+it. Every action runs in its own process and holds the lock only for work
+that never yields, so waiting for it never blocks another action or `serve`.
+Every collection write (`add`,
 `set`, `edit`, and the first write of a one-file collection) goes through it,
 so the action, by way of its collections, owns the correctness of a
 read-modify-write. `folder.write` stays a plain write, and
@@ -136,8 +142,8 @@ or the top of one; a folder in no repository is never committed. `epicenter new`
 **`epicenter` does nothing Git already does.** It runs Git's porcelain and
 passes on Git's messages: no Git objects of its own, no temporary index, and
 no lock held for a run. Git's `index.lock` serializes commits; `update`
-serializes changes to one file with a compare-and-swap guarded by its claim
-file, held only to check and rename.
+serializes an app's updates with the app's lock, held only to read, change,
+and rename.
 
 **`folder` is a convenience, not a sandbox.** Paths stay normalized and `.git`
 stays refused (`normalizePath`). `folder.path` is the folder. An action can

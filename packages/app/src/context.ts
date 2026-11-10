@@ -33,10 +33,11 @@ export type Folder = {
 	write(path: string, text: string): Promise<void>;
 	/**
 	 * Changes the text at `path` to what `change` makes of it (`undefined` when
-	 * no file is there), and returns the text written. When the file changes
-	 * between the read and the write, `change` runs again on what is there
-	 * now; after 10 seconds of that it throws `{ name: 'Changed' }`. A
-	 * `change` that throws writes nothing.
+	 * no file is there), and returns the text written; nothing is written when
+	 * that is what is there. Every update of the app takes turns. When a
+	 * writer that takes no lock changes the file between the read and the
+	 * write, `change` runs again on what is there now; after 10 tries it
+	 * throws `WriteError.Changed`. A `change` that throws writes nothing.
 	 *
 	 * ```ts
 	 * await folder.update('2026.csv', (text = 'day,minutes\n') => `${text}${day},${minutes}\n`);

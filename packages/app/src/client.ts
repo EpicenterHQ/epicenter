@@ -36,10 +36,10 @@ export class ActionError extends Error {
 }
 
 /**
- * Whether a call was refused because what it changes changed since it was
- * read: a collection's `edit` throws `{ name: 'Changed' }` when the text it
- * quoted is gone, as `folder.update` does when the file kept changing, and a
- * UI says so and reloads rather than overwriting the other change.
+ * Whether a call was refused with `WriteError.Changed` because what it
+ * changes changed since it was read: a collection's `edit` whose quoted text
+ * is gone, or a `folder.update` of a file that kept changing. A UI says so
+ * and reloads rather than overwriting the other change.
  */
 export function changedElsewhere(error: unknown): boolean {
 	const answer = error instanceof ActionError ? error.answer : undefined;

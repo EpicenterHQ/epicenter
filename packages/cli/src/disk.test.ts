@@ -5,18 +5,15 @@
  * and concurrent updates, through it or a collection's `update`, each land.
  */
 import { afterEach, expect, test } from 'bun:test';
-import { createHash } from 'node:crypto';
-import { rmSync, writeFileSync } from 'node:fs';
+import { writeFileSync } from 'node:fs';
 import {
 	chmod,
 	mkdir,
 	mkdtemp,
 	readdir,
-	readFile,
 	rm,
 	stat,
 	symlink,
-	utimes,
 	writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -190,87 +187,88 @@ test('concurrent updates of one collection file each land, each computed from th
 	expect((await readdir(join(root, 'counters'))).sort()).toEqual(['a.md']);
 });
 
-/** The claim an update of `path` makes while it holds `text`. */
-function claimOf(root: string, path: string, text: string) {
-	const tag = createHash('sha256').update(text).digest('hex').slice(0, 16);
-	return join(root, `${path}.${tag}.claim.local`);
+/**
+ * Another process holding the app's lock on `root`, as another epicenter's
+ * update would: it says when it holds the lock, then holds it for `ms`, or
+ * until it is killed when `ms` is `undefined`.
+ */
+async function holdLock(root: string, ms?: number) {
+	const script = join(root, '..', `${root.split('/').pop()}-hold.ts`);
+	await writeFile(
+		script,
+		`import { dlopen, FFIType } from 'bun:ffi';
+import { openSync } from 'node:fs';
+const { symbols } = dlopen(process.platform === 'darwin' ? 'libc.dylib' : 'libc.so.6', {
+	flock: { args: [FFIType.i32, FFIType.i32], returns: FFIType.i32 },
+});
+if (symbols.flock(openSync(process.argv[2], 'r'), 2) !== 0) process.exit(3);
+console.log('held');
+const ms = Number(process.argv[3]);
+await Bun.sleep(Number.isNaN(ms) ? 3_600_000 : ms);
+`,
+	);
+	const held = Bun.spawn(
+		[process.execPath, script, root, ...(ms === undefined ? [] : [String(ms)])],
+		{ stdout: 'pipe' },
+	);
+	const reader = held.stdout.getReader();
+	const { value } = await reader.read();
+	expect(new TextDecoder().decode(value)).toBe('held\n');
+	return held;
 }
 
-test('update clears a claim a crash left, and lands, even when two updates find it', async () => {
+test('a process killed while holding the lock leaves nothing held and nothing beside the file', async () => {
 	const { root, folder } = await setup();
 	await folder.write('list.txt', 'a\n');
-	const left = claimOf(root, 'list.txt', 'a\n');
-	await writeFile(left, 'crashed');
-	const old = new Date(Date.now() - 60_000);
-	await utimes(left, old, old);
-	await Promise.all([
-		folder.update('list.txt', (text) => `${text}b\n`),
-		folder.update('list.txt', (text) => `${text}c\n`),
-	]);
-	const lines = (await folder.read('list.txt'))?.trimEnd().split('\n');
-	expect(lines?.sort()).toEqual(['a', 'b', 'c']);
+	const held = await holdLock(root);
+	held.kill('SIGKILL');
+	await held.exited;
+	const started = Date.now();
+	expect(await folder.update('list.txt', (text) => `${text}b\n`)).toBe('a\nb\n');
+	expect(Date.now() - started).toBeLessThan(1_000);
 	expect((await readdir(root)).sort()).toEqual(['.git', 'list.txt']);
 });
 
-test('update waits while another update holds its claim, and lands once it is released', async () => {
+test('update waits while another process holds the lock, and lands once it lets go', async () => {
 	const { root, folder } = await setup();
 	await folder.write('held.txt', 'a\n');
-	const held = claimOf(root, 'held.txt', 'a\n');
-	await writeFile(held, 'another update');
-	setTimeout(() => rmSync(held), 300);
 	const started = Date.now();
-	expect(await folder.update('held.txt', (text) => `${text}b\n`)).toBe(
-		'a\nb\n',
-	);
-	expect(Date.now() - started).toBeGreaterThanOrEqual(300);
+	await holdLock(root, 300);
+	expect(await folder.update('held.txt', (text) => `${text}b\n`)).toBe('a\nb\n');
+	expect(Date.now() - started).toBeGreaterThanOrEqual(250);
 	expect((await readdir(root)).sort()).toEqual(['.git', 'held.txt']);
 });
 
-test('update gives up after 10 seconds, throwing Changed and writing nothing, on a file that keeps changing or a claim that is never released', async () => {
+test('an update that changes nothing leaves the file untouched', async () => {
+	const { root, folder } = await setup();
+	await folder.write('same.txt', 'a\n');
+	const before = await stat(join(root, 'same.txt'));
+	expect(await folder.update('same.txt', (text) => text ?? '')).toBe('a\n');
+	const after = await stat(join(root, 'same.txt'));
+	expect([after.ino, after.mtimeMs]).toEqual([before.ino, before.mtimeMs]);
+});
+
+test('update gives up, writing nothing, on a file another writer changes every time it tries', async () => {
 	const { root, folder } = await setup();
 	await folder.write('busy.txt', '0');
 	let tries = 0;
-	const busy = folder
+	const kept = await folder
 		.update('busy.txt', () => {
 			tries++;
 			writeFileSync(join(root, 'busy.txt'), String(tries));
 			return 'mine';
 		})
 		.catch((thrown: unknown) => thrown);
-	// A claim from a clock ahead of this one is never old enough to clear.
-	await folder.write('stuck.txt', 'a\n');
-	const stuck = claimOf(root, 'stuck.txt', 'a\n');
-	await writeFile(stuck, 'another update');
-	const ahead = new Date(Date.now() + 60_000);
-	await utimes(stuck, ahead, ahead);
-	const started = Date.now();
-	const [kept, claimed] = await Promise.all([
-		busy,
-		folder
-			.update('stuck.txt', (text) => `${text}b\n`)
-			.catch((thrown: unknown) => thrown),
-	]);
-	expect(Date.now() - started).toBeGreaterThanOrEqual(10_000);
 	expect(kept).toEqual({
 		name: 'Changed',
 		message: 'busy.txt kept changing while it was updated',
+		path: 'busy.txt',
+		why: 'kept',
 	});
-	expect(tries).toBeGreaterThan(10);
-	expect(await folder.read('busy.txt')).toBe(String(tries));
-	expect(claimed).toEqual({
-		name: 'Changed',
-		message:
-			'stuck.txt stayed claimed by another update while it was updated; if no epicenter is running, remove the stuck.txt.*.claim.local file beside it',
-	});
-	expect(await folder.read('stuck.txt')).toBe('a\n');
-	expect(await readFile(stuck, 'utf8')).toBe('another update');
-	await rm(stuck);
-	expect((await readdir(root)).sort()).toEqual([
-		'.git',
-		'busy.txt',
-		'stuck.txt',
-	]);
-}, 20_000);
+	expect(tries).toBe(10);
+	expect(await folder.read('busy.txt')).toBe('10');
+	expect((await readdir(root)).sort()).toEqual(['.git', 'busy.txt']);
+});
 
 test('update whose change throws writes nothing', async () => {
 	const { root, folder } = await setup();
