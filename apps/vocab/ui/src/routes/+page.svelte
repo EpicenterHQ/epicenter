@@ -7,7 +7,7 @@
 	import { toast } from '@epicenter/ui/sonner';
 	import PencilIcon from '@lucide/svelte/icons/pencil';
 	import type { Grade } from '../../../epicenter.js';
-	import { langOf, untilLabel } from '$lib/text.js';
+	import { langOf, untilLabel, wordOf } from '$lib/text.js';
 	import { vocab } from '$lib/vocab.svelte.js';
 	import WordFace from '$lib/WordFace.svelte';
 
@@ -29,7 +29,7 @@
 	const word = $derived(vocab.due()[0]);
 	/** The word whose answer is showing; another word starts hidden. */
 	let revealed = $state<string>();
-	const isRevealed = $derived(word !== undefined && revealed === word.word);
+	const isRevealed = $derived(word !== undefined && revealed === word.path);
 
 	/** When the next word is due, once nothing is. */
 	const nextDue = $derived(
@@ -44,7 +44,7 @@
 		if (!word) return;
 		const graded = word;
 		vocab.grade(graded, grade).catch((error: unknown) => {
-			toast.error(`Your review of ${graded.word} was not saved`, {
+			toast.error(`Your review of ${wordOf(graded.path)} was not saved`, {
 				description: error instanceof Error ? error.message : String(error),
 			});
 		});
@@ -55,7 +55,7 @@
 		if (event.target instanceof HTMLElement && event.target.closest('input, textarea, [role="dialog"]')) return;
 		if (!isRevealed && (event.key === ' ' || event.key === 'Enter')) {
 			event.preventDefault();
-			revealed = word.word;
+			revealed = word.path;
 			return;
 		}
 		const chosen = isRevealed ? GRADES[Number(event.key) - 1] : undefined;
@@ -95,14 +95,15 @@
 		</Empty.Content>
 	</Empty.Root>
 {:else}
+	{@const text = wordOf(word.path)}
 	<div class="mx-auto flex w-full max-w-2xl flex-1 flex-col px-4 pt-4 pb-4">
 		<div class="flex items-center justify-between text-sm text-muted-foreground">
 			<p aria-live="polite"><span class="tabular-nums">{vocab.due().length}</span> due</p>
 			<Button
 				variant="ghost"
 				size="icon-sm"
-				href={resolve('/words/[word]', { word: word.word })}
-				aria-label="Edit {word.word}"
+				href={resolve('/words/[word]', { word: text })}
+				aria-label="Edit {text}"
 			>
 				<PencilIcon />
 			</Button>
@@ -110,16 +111,16 @@
 
 		{#if isRevealed}
 			<div class="flex flex-1 flex-col items-center justify-center gap-6 py-8 text-center">
-				<p lang={langOf(word.word)} class="text-6xl font-medium break-words md:text-7xl">{word.word}</p>
+				<p lang={langOf(text)} class="text-6xl font-medium break-words md:text-7xl">{text}</p>
 				<WordFace {word} />
 			</div>
 		{:else}
 			<button
 				type="button"
 				class="flex flex-1 flex-col items-center justify-center gap-6 rounded-xl py-8 text-center outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
-				onclick={() => (revealed = word.word)}
+				onclick={() => (revealed = word.path)}
 			>
-				<span lang={langOf(word.word)} class="text-6xl font-medium break-words md:text-7xl">{word.word}</span>
+				<span lang={langOf(text)} class="text-6xl font-medium break-words md:text-7xl">{text}</span>
 				<span class="text-sm text-muted-foreground">Tap to show</span>
 			</button>
 		{/if}
@@ -142,7 +143,7 @@
 				{/each}
 			</div>
 		{:else}
-			<Button class="h-16 text-base" aria-keyshortcuts="Space" onclick={() => (revealed = word.word)}>
+			<Button class="h-16 text-base" aria-keyshortcuts="Space" onclick={() => (revealed = word.path)}>
 				Show answer
 			</Button>
 		{/if}

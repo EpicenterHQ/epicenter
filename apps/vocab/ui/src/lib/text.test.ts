@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test';
-import { langOf, matches, untilLabel } from './text.js';
+import { langOf, matches, pathOf, untilLabel, wordOf } from './text.js';
 
 describe('matches', () => {
-	const word = { word: '你好', reading: 'nǐ hǎo', meaning: 'Hello' };
+	const word = { path: 'words/你好.md', reading: 'nǐ hǎo', meaning: 'Hello' };
 
 	test('finds a word by its text, its reading without tones, or its meaning', () => {
 		expect(matches(word, '你')).toBe(true);
@@ -12,6 +12,12 @@ describe('matches', () => {
 		expect(matches(word, 'bye')).toBe(false);
 		expect(matches(word, '  ')).toBe(true);
 	});
+});
+
+test('pathOf and wordOf turn a word into its file and back', () => {
+	expect(pathOf('你好')).toBe('words/你好.md');
+	expect(wordOf('words/你好.md')).toBe('你好');
+	expect(wordOf(pathOf('a.md'))).toBe('a.md');
 });
 
 test('langOf tags CJK scripts', () => {

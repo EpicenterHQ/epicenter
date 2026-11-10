@@ -1,7 +1,7 @@
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
 import { mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { fixture, declarationOf, TEST_ROOT_ID } from './runner.test-support.ts';
+import { bareApp, fixture, TEST_ROOT_ID } from './runner.test-support.ts';
 
 setDefaultTimeout(30_000);
 const roots: string[] = [];
@@ -42,12 +42,18 @@ test('init writes an identity and starter guidance, keeps existing guidance, and
 	const defaulted = await f.runIn(f.root, 'init', fresh, '--json');
 	expect(defaulted.code).toBe(0);
 	expect(JSON.parse(defaulted.stdout).port).toBe(4747);
-	expect(await readFile(join(fresh, 'AGENTS.md'), 'utf8')).toContain(
-		'*.local or *.local.* are never committed',
-	);
+	const starter = await readFile(join(fresh, 'AGENTS.md'), 'utf8');
+	expect(starter).toContain('*.local or *.local.* are never committed');
+	expect(starter).toContain('Each child folder with an epicenter.ts is an app');
 	const shown = await f.run('init', join(f.root, 'shown'));
 	expect(shown.stdout).toContain(`Made Epicenter at ${join(f.root, 'shown')}`);
 	expect(shown.stderr).toBe('Run: epicenter new <name>\n');
+	// A folder that already holds an app is pointed at its listing instead.
+	const holding = join(f.root, 'holding');
+	await f.folder(join(holding, 'journal'), {
+		'epicenter.ts': bareApp('journal'),
+	});
+	expect((await f.run('init', holding)).stderr).toBe('Run: epicenter\n');
 	const current = join(f.root, 'current');
 	await mkdir(current);
 	expect(
@@ -58,12 +64,12 @@ test('init writes an identity and starter guidance, keeps existing guidance, and
 test('walk-up wins over EPICENTER_ROOT, which wins over the default', async () => {
 	const f = await setup();
 	await f.folder(join(f.home, 'reading'), {
-		'epicenter.json': declarationOf('reading'),
+		'epicenter.ts': bareApp('reading'),
 	});
 	const other = join(f.root, 'other');
 	expect((await f.run('init', other, '--json')).code).toBe(0);
 	await f.folder(join(other, 'tasks'), {
-		'epicenter.json': declarationOf('tasks'),
+		'epicenter.ts': bareApp('tasks'),
 	});
 	f.env.EPICENTER_ROOT = other;
 	const fromOutside = JSON.parse((await f.run('--json')).stdout);
@@ -73,9 +79,9 @@ test('walk-up wins over EPICENTER_ROOT, which wins over the default', async () =
 		'tasks',
 	]);
 	expect((await f.run('new', 'from-env')).code).toBe(0);
-	expect(
-		await Bun.file(join(other, 'from-env', 'epicenter.json')).exists(),
-	).toBe(true);
+	expect(await Bun.file(join(other, 'from-env', 'epicenter.ts')).exists()).toBe(
+		true,
+	);
 	const fromInside = JSON.parse(
 		(await f.runIn(join(f.home, 'reading'), '--json')).stdout,
 	);
@@ -85,7 +91,7 @@ test('walk-up wins over EPICENTER_ROOT, which wins over the default', async () =
 	]);
 	expect((await f.runIn(f.home, 'new', 'from-cwd')).code).toBe(0);
 	expect(
-		await Bun.file(join(f.home, 'from-cwd', 'epicenter.json')).exists(),
+		await Bun.file(join(f.home, 'from-cwd', 'epicenter.ts')).exists(),
 	).toBe(true);
 	expect(
 		JSON.parse((await f.runIn(f.home, 'reading', '--json')).stdout).keychain,
@@ -104,10 +110,10 @@ test('walk-up wins over EPICENTER_ROOT, which wins over the default', async () =
 test('build reports each app and keeps the last good UI after failure', async () => {
 	const f = await setup();
 	await f.folder(join(f.home, 'capture'), {
-		'epicenter.json': declarationOf('capture'),
+		'epicenter.ts': bareApp('capture'),
 	});
 	const tasks = await f.folder(join(f.home, 'tasks'), {
-		'epicenter.json': declarationOf('tasks'),
+		'epicenter.ts': bareApp('tasks'),
 		'ui/package.json': JSON.stringify({
 			private: true,
 			scripts: { build: 'bun build.ts' },

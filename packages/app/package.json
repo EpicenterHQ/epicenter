@@ -1,7 +1,7 @@
 {
 	"name": "@epicenter/app",
 	"version": "0.1.0",
-	"description": "What an app's epicenter.ts imports, and what every app's epicenter.json gives: the declaration's schema, each collection's actions, the fields an action's input is made of, and the places an action receives.",
+	"description": "What an app's epicenter.ts imports to define its collections, actions, and the app itself, and the client its UI calls them through.",
 	"repository": {
 		"type": "git",
 		"url": "https://github.com/EpicenterHQ/epicenter.git",
@@ -11,19 +11,16 @@
 	"type": "module",
 	"exports": {
 		".": "./src/index.ts",
-		"./client": "./src/client.ts",
-		"./epicenter.schema.json": "./epicenter.schema.json"
+		"./client": "./src/client.ts"
 	},
 	"files": [
 		"src",
-		"!src/**/*.test.ts",
-		"epicenter.schema.json"
+		"!src/**/*.test.ts"
 	],
 	"publishConfig": {
 		"access": "public"
 	},
 	"scripts": {
-		"schema": "bun scripts/schema.ts",
 		"typecheck": "tsc --noEmit -p tsconfig.json",
 		"test": "bun test"
 	},

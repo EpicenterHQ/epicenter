@@ -1,8 +1,14 @@
 /**
- * What the UI does with a word's text: search that ignores case, accents,
- * and spaces, the language to tag a word with so the browser picks the right
- * CJK glyphs, and short times until a review.
+ * What the UI does with a word's text: the file it names, search that ignores
+ * case, accents, and spaces, the language to tag a word with so the browser
+ * picks the right CJK glyphs, and short times until a review.
  */
+
+/** The file of `word`, as a page's URL names it: `words/你好.md`. */
+export const pathOf = (word: string) => `words/${word}.md`;
+
+/** The word the file at `path` is named by: `你好` for `words/你好.md`. */
+export const wordOf = (path: string) => path.replace(/^words\//, '').replace(/\.md$/, '');
 
 /** Text as search compares it: lowercase, no accents or tone marks, numbers, or spaces, so `nihao` finds `nǐ hǎo`. */
 export function searchable(text: string): string {
@@ -15,12 +21,12 @@ export function searchable(text: string): string {
 
 /** Whether a word's text, reading, or meaning holds `query`, ignoring case, accents, and spaces. */
 export function matches(
-	word: { word: string; reading?: string; meaning?: string },
+	word: { path: string; reading?: string; meaning?: string },
 	query: string,
 ): boolean {
 	const wanted = searchable(query);
 	if (wanted === '') return true;
-	return [word.word, word.reading ?? '', word.meaning ?? ''].some((text) =>
+	return [wordOf(word.path), word.reading ?? '', word.meaning ?? ''].some((text) =>
 		searchable(text).includes(wanted),
 	);
 }

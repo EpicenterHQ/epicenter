@@ -1,13 +1,17 @@
 /**
- * The context an action's `run` receives (ADR-0841, ADR-0854): its folder and
- * its secrets. What an app can rebuild lives in files it gitignores inside the
- * folder, such as `.cache/`, written through `folder` like any file and never
- * committed. Whatever runs the action supplies the context: the `epicenter`
- * CLI on a computer, memory in a test.
+ * The context a run has (ADR-0841, ADR-0854): its folder and its secrets.
+ * Whatever runs an action opens the run, as
+ * `inRun(context, () => action(input))`: the `epicenter` CLI on a computer,
+ * memory in a test. For the length of that run, the app's collections,
+ * `folder`, and `secrets` reach it, however deep the call, and an action that
+ * calls another stays in the same run; outside any run they throw. What an
+ * app can rebuild lives in files it gitignores inside the folder, such as
+ * `.cache/`, and is never committed.
  *
  * A write that returns is one commit, named for the call, made by whatever
  * runs it (ADR-0850); an action never commits.
  */
+import { AsyncLocalStorage } from 'node:async_hooks';
 
 /**
  * An app's folder as an object. Paths are relative to the folder, with `/`
@@ -30,17 +34,57 @@ export type Folder = {
 	readonly path?: string;
 };
 
-/** Sign-ins, kept in this computer's Keychain under `epicenter.<app name>`. */
+/** An app's sign-ins: never returned to a caller, and never in its files. */
 export type Secrets = {
 	get(name: string): Promise<string | undefined>;
 	set(name: string, value: string): Promise<void>;
 	delete(name: string): Promise<void>;
 };
 
-/** What `run` receives beside its input. */
+/** What whatever runs an action opens its run with. */
 export type Context = {
 	folder: Folder;
 	secrets: Secrets;
+};
+
+const runs = new AsyncLocalStorage<Context>();
+
+/**
+ * Run `work` with `context` as its run's, so collections, `folder`, and
+ * `secrets` reach it. Only a runner opens a run; an action never does.
+ */
+export function inRun<T>(context: Context, work: () => T): T {
+	return runs.run(context, work);
+}
+
+/** The context of the run this code is in; throws outside any run. */
+export function currentRun(): Context {
+	const context = runs.getStore();
+	if (!context)
+		throw new Error(
+			"An app's collections, folder, and secrets are read only inside an action's run",
+		);
+	return context;
+}
+
+/** The folder of the run this code is in. */
+export const folder: Folder = {
+	read: (path) => currentRun().folder.read(path),
+	readBytes: (path) => currentRun().folder.readBytes(path),
+	write: (path, text) => currentRun().folder.write(path, text),
+	writeBytes: (path, bytes) => currentRun().folder.writeBytes(path, bytes),
+	list: (dir) => currentRun().folder.list(dir),
+	delete: (path) => currentRun().folder.delete(path),
+	get path() {
+		return currentRun().folder.path;
+	},
+};
+
+/** The secrets of the run this code is in: the app's own sign-ins. */
+export const secrets: Secrets = {
+	get: (name) => currentRun().secrets.get(name),
+	set: (name, value) => currentRun().secrets.set(name, value),
+	delete: (name) => currentRun().secrets.delete(name),
 };
 
 /**

@@ -16,10 +16,11 @@ import {
 } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
-	declarationOf,
+	bareApp,
 	fixture,
 	gitIn,
 	gitignore,
+	header,
 } from './runner.test-support.ts';
 
 setDefaultTimeout(60_000);
@@ -36,48 +37,45 @@ async function setup() {
 	return f;
 }
 
-const journalCode = `import declaration from './epicenter.json';
-import { defineApp, field } from '@epicenter/app';
-export default defineApp(declaration, {
+const journalCode = `${header}
+export default defineApp({
+	description: 'The journal app',
 	actions: {
-		write: {
+		write: defineAction({
 			description: 'Write a page',
 			input: { page: field.text() },
 			positional: ['page'],
-			run: async ({ page }, { folder }) => {
+			run: async ({ page }) => {
 				await folder.write(page + '.md', page);
 			},
-		},
-		context: {
-			description: 'Name what run receives, and keep an index in the cache',
+		}),
+		context: defineAction({
+			description: 'Name where the folder is, and keep an index in the cache',
 			input: {},
-			run: async (_, context) => {
+			run: async () => {
 				const { Database } = await import('bun:sqlite');
-				await context.folder.write('.cache/seen.txt', 'cache');
-				const db = new Database(context.folder.path + '/.cache/index.sqlite');
+				await folder.write('.cache/seen.txt', 'cache');
+				const db = new Database(folder.path + '/.cache/index.sqlite');
 				db.run('CREATE TABLE IF NOT EXISTS pages (name TEXT)');
 				db.close();
-				return Object.keys(context).sort();
+				return folder.path;
 			},
-		},
+		}),
 	},
 });
 `;
 
 const journal = {
 	'.gitignore': gitignore,
-	'epicenter.json': declarationOf('journal'),
 	'epicenter.ts': journalCode,
 };
 
-test('W1 the cache is .cache/ in the folder, and run receives { folder, secrets }', async () => {
+test("W1 the cache is .cache/ in the folder, and folder.path is the app's folder on disk", async () => {
 	const f = await setup();
 	const folder = await f.folder(join(f.home, 'journal'), journal);
 	const result = await f.run('journal', 'context', '--json');
 	expect(result.code).toBe(0);
-	expect(JSON.parse(result.stdout)).toEqual({
-		returned: ['folder', 'secrets'],
-	});
+	expect(JSON.parse(result.stdout)).toEqual({ returned: folder });
 	expect(existsSync(join(folder, '.cache/index.sqlite'))).toBe(true);
 	expect(await gitIn(folder, 'status', '--porcelain')).toBe('');
 	// Bun keeps its own transpiler cache under ~/Library/Caches/bun; epicenter keeps none there.
@@ -94,7 +92,7 @@ test('W1 the cache is .cache/ in the folder, and run receives { folder, secrets 
 async function withOrigin(f: Awaited<ReturnType<typeof setup>>, name: string) {
 	const seed = await f.folder(join(f.root, `${name}-seed`), {
 		'.gitignore': gitignore,
-		'epicenter.json': declarationOf(name),
+		'epicenter.ts': bareApp(name),
 		'page.md': 'base\n',
 	});
 	const bare = join(f.root, `${name}.git`);
@@ -120,7 +118,7 @@ test('W2 epicenter sync commits what is left, pulls with --rebase, pushes, and r
 	await writeFile(join(journal.folder, 'tuesday.md'), 'tuesday\n');
 	await f.folder(join(f.home, 'notes'), {
 		'.gitignore': gitignore,
-		'epicenter.json': declarationOf('notes'),
+		'epicenter.ts': bareApp('notes'),
 	});
 	await writeFile(join(f.home, 'notes', 'kept.md'), 'kept\n');
 
@@ -182,7 +180,7 @@ test('W3 sync stops one app on a conflict, a failed push, or no repository, and 
 	);
 	await f.folder(
 		join(f.home, 'loose'),
-		{ 'epicenter.json': declarationOf('loose') },
+		{ 'epicenter.ts': bareApp('loose') },
 		{ git: false },
 	);
 	const fine = await withOrigin(f, 'fine');
@@ -239,7 +237,7 @@ test('W3 sync of an app inside a larger repository commits only its folder and s
 	const f = await setup();
 	const seed = await f.folder(join(f.root, 'vault-seed'), {
 		'journal/today.md': 'today\n',
-		'recipes/epicenter.json': declarationOf('recipes'),
+		'recipes/epicenter.ts': bareApp('recipes'),
 		'recipes/soup.md': 'soup\n',
 	});
 	const bare = join(f.root, 'vault.git');
@@ -276,19 +274,24 @@ test('W4 epicenter new writes the template and runs git init', async () => {
 	expect(result.code).toBe(0);
 	const folder = join(f.home, 'garden');
 	expect(JSON.parse(result.stdout)).toEqual({ name: 'garden', folder });
-	expect(
-		JSON.parse(await readFile(join(folder, 'epicenter.json'), 'utf8')),
-	).toEqual({
-		$schema: 'https://epicenter.so/epicenter.schema.json',
-		description: 'Describe garden',
-	});
+	expect(await readFile(join(folder, 'epicenter.ts'), 'utf8')).toBe(
+		`import { defineApp } from '@epicenter/app';
+
+export default defineApp({
+	description: 'Describe garden',
+	collections: {},
+	actions: {},
+});
+`,
+	);
+	expect(existsSync(join(folder, 'epicenter.json'))).toBe(false);
 	expect(await readFile(join(folder, '.gitignore'), 'utf8')).toBe(gitignore);
 	expect(existsSync(join(folder, '.gitattributes'))).toBe(false);
 	expect(await gitIn(folder, 'log', '--format=%s')).toBe('new garden');
 	expect(await gitIn(folder, 'status', '--porcelain')).toBe('');
 	const listed = JSON.parse((await f.run('--json')).stdout);
-	expect(listed.apps.map((app: { name: string }) => app.name)).toEqual([
-		'garden',
+	expect(listed.apps).toMatchObject([
+		{ name: 'garden', description: 'Describe garden', actions: [] },
 	]);
 });
 
@@ -296,7 +299,7 @@ test('W5 a symlinked entry loads an app where it lives', async () => {
 	const f = await setup();
 	const loose = await f.folder(
 		join(f.root, 'Code', 'loose'),
-		{ 'epicenter.json': declarationOf('loose'), 'notes/a.md': 'a\n' },
+		{ 'epicenter.ts': bareApp('loose'), 'notes/a.md': 'a\n' },
 		{ git: false },
 	);
 	await symlink(loose, join(f.home, 'loose'));
@@ -306,7 +309,7 @@ test('W5 a symlinked entry loads an app where it lives', async () => {
 	expect(existsSync(join(loose, '.gitignore'))).toBe(false);
 
 	const vault = await f.folder(join(f.root, 'Code', 'vault'), {
-		'recipes/epicenter.json': declarationOf('recipes'),
+		'recipes/epicenter.ts': bareApp('recipes'),
 		'journal/today.md': 'today\n',
 	});
 	const head = await gitIn(vault, 'rev-parse', 'HEAD');
@@ -330,7 +333,7 @@ test('W3 sync says so when changes beside the app cannot be put back after pulli
 	const f = await setup();
 	const seed = await f.folder(join(f.root, 'vault-seed'), {
 		'journal/today.md': 'today\n',
-		'recipes/epicenter.json': declarationOf('recipes'),
+		'recipes/epicenter.ts': bareApp('recipes'),
 	});
 	const bare = join(f.root, 'vault.git');
 	await gitIn(f.root, 'clone', '-q', '--bare', seed, bare);

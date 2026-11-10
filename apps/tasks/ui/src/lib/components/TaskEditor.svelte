@@ -19,11 +19,13 @@
 	import { Textarea } from '@epicenter/ui/textarea';
 	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
 	import XIcon from '@lucide/svelte/icons/x';
-	import { onDestroy } from 'svelte';
-	import { app, type TaskFile, tasks } from '$lib/store.svelte.js';
-	import { addDays, dayOf, dueLabel, labelOf } from '$lib/tasks.js';
+	import { onDestroy, untrack } from 'svelte';
+	import { app, tasks } from '$lib/store.svelte.js';
+	import { addDays, dayOf, dueLabel, labelOf, pathOf } from '$lib/tasks.js';
 
 	let { id }: { id: string } = $props();
+	// The parent keys this editor by `id`, so its path is fixed.
+	const path = untrack(() => pathOf(id));
 
 	let phase = $state<'loading' | 'ready' | 'missing' | 'failed'>('loading');
 	let problem = $state('');
@@ -42,7 +44,7 @@
 	async function load() {
 		phase = 'loading';
 		try {
-			const file = await app.call<TaskFile>('get', { id });
+			const file = await app.get({ path });
 			title = file.title ?? '';
 			done = file.done ?? false;
 			due = file.due ?? '';
@@ -56,11 +58,12 @@
 	}
 	void load();
 
-	/** Changes typed and not yet sent. */
-	let queued: Record<string, unknown> = {};
+	/** Changes typed and not yet sent: fields as `set` takes them, and the notes. */
+	type Changes = Omit<Parameters<typeof app.set>[0], 'path'> & { body?: string };
+	let queued: Changes = {};
 	let timer: ReturnType<typeof setTimeout> | undefined;
 
-	function change(fields: Record<string, unknown>, wait = 700) {
+	function change(fields: Changes, wait = 700) {
 		Object.assign(queued, fields);
 		unsaved = true;
 		clearTimeout(timer);
@@ -74,15 +77,15 @@
 		queued = {};
 		saving++;
 		const { body, ...fields } = sent;
-		let left: Record<string, unknown> = sent;
+		let left: Changes = sent;
 		try {
 			// Fields merge; the notes are an edit quoting what was loaded, so notes changed elsewhere are never overwritten.
 			if (Object.keys(fields).length > 0) {
-				tasks.changed(await app.call<TaskFile>('set', { id, ...fields }));
+				tasks.changed(await app.set({ path, ...fields }));
 				left = body === undefined ? {} : { body };
 			}
 			if (body !== undefined && body !== base) {
-				const file = await app.call<TaskFile>('edit', { id, old: base, new: body });
+				const file = await app.edit({ path, old: base, new: body });
 				base = file.body ?? '';
 				tasks.changed(file);
 			}
@@ -107,7 +110,7 @@
 	/** Replace notes changed elsewhere with the ones typed here, after the person chose to. */
 	async function keepMine(body: string) {
 		try {
-			base = (await app.call<TaskFile>('get', { id })).body ?? '';
+			base = (await app.get({ path })).body ?? '';
 			change({ body }, 0);
 		} catch (error) {
 			toast.error('Could not save the task', { description: String(error) });
@@ -118,13 +121,13 @@
 
 	function confirmDelete() {
 		confirmationDialog.open({
-			title: `Delete “${labelOf({ id, title })}”?`,
+			title: `Delete “${labelOf({ path, title })}”?`,
 			description: 'This deletes the task and its notes.',
 			confirm: { text: 'Delete', variant: 'destructive' },
 			async onConfirm() {
 				clearTimeout(timer);
 				queued = {};
-				await tasks.remove(id);
+				await tasks.remove(path);
 				toast('Task deleted');
 				await goto('#/');
 			},
@@ -275,7 +278,7 @@
 			</section>
 
 			<div class="mt-10 flex items-center gap-2 border-t pt-4">
-				<span class="min-w-0 truncate font-mono text-xs text-muted-foreground">tasks/{id}.md</span>
+				<span class="min-w-0 truncate font-mono text-xs text-muted-foreground">{path}</span>
 				<Button variant="ghost-destructive" class="ml-auto" onclick={confirmDelete}>Delete</Button>
 			</div>
 		{/if}

@@ -23,8 +23,7 @@ import {
 import packageJson from '../package.json' with { type: 'json' };
 import { runChild } from './child.ts';
 import { homeEntries } from './home.ts';
-import { renderAnswer, writeErr } from './output.ts';
-import { type Answer, exitCodeOf } from './report.ts';
+import { type Answer, renderAnswer, writeErr } from './output.ts';
 import { rootInstructions } from './root.ts';
 
 /**
@@ -54,16 +53,15 @@ export async function listTools(): Promise<Tool[]> {
  */
 export function toolResult(answer: Answer) {
 	const structuredContent = answer as Record<string, unknown>;
-	const code = exitCodeOf(answer);
+	const { code, stderr } = renderAnswer(answer);
 	if (code === 0 || code === 3)
 		return {
 			content: [{ type: 'text' as const, text: JSON.stringify(answer) }],
 			structuredContent,
 		};
-	const text = renderAnswer(answer).stderr.trim();
 	return {
 		isError: true,
-		content: [{ type: 'text' as const, text }],
+		content: [{ type: 'text' as const, text: stderr.trim() }],
 		structuredContent,
 	};
 }

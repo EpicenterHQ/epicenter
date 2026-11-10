@@ -21,17 +21,17 @@ test('dayLabel says Today, Yesterday, a weekday within the week, then a date', (
 test('byDay groups consecutive rows by local day and puts undated rows last', () => {
 	const groups = byDay(
 		[
-			{ id: 'a', capturedAt: at(10, 14) },
-			{ id: 'b', capturedAt: at(10, 1) },
-			{ id: 'x', capturedAt: undefined },
-			{ id: 'c', capturedAt: at(9, 22) },
-			{ id: 'y', capturedAt: 'not a date' },
+			{ path: 'a', capturedAt: at(10, 14) },
+			{ path: 'b', capturedAt: at(10, 1) },
+			{ path: 'x', capturedAt: undefined },
+			{ path: 'c', capturedAt: at(9, 22) },
+			{ path: 'y', capturedAt: 'not a date' },
 		],
 		now,
 		'en-US',
 	);
 	expect(
-		groups.map((group) => [group.label, group.rows.map((row) => row.id)]),
+		groups.map((group) => [group.label, group.rows.map((row) => row.path)]),
 	).toEqual([
 		['Today', ['a', 'b']],
 		['Yesterday', ['c']],

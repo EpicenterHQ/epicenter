@@ -16,7 +16,8 @@ import { basename, isAbsolute, join, sep } from 'node:path';
 import { isName } from '@epicenter/app';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { git, gitMessage } from './git.ts';
-import { homeEntries, readDeclaration } from './home.ts';
+import { runChild } from './child.ts';
+import { homeEntries } from './home.ts';
 import { callTool, createMcpServer, listTools } from './mcp.ts';
 import { writeErr } from './output.ts';
 import { epicenterDir, rootInstructions } from './root.ts';
@@ -208,11 +209,16 @@ export function startHttpServer(
 				const apps = await Promise.all(
 					(await homeEntries()).map(async (entry) => {
 						if (!(await uiFile(entry.entry, 'index.html')).ok) return undefined;
-						const read = await readDeclaration(entry.realPath);
+						// Read in a child, as tools/list is: serve never imports an app.
+						const listed = (await runChild([entry.entry, '--json'], {
+							stdin: 'ignore',
+						})) as { description?: unknown };
 						return {
 							name: entry.entry,
 							description:
-								'declaration' in read ? read.declaration.description : '',
+								typeof listed.description === 'string'
+									? listed.description
+									: '',
 							icon: (await uiFile(entry.entry, 'icon.png')).ok,
 						};
 					}),

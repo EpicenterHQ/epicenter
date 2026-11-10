@@ -29,16 +29,16 @@
 	import { untrack } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { type CaptureBody, type CaptureBodyReading, captureBody } from '$lib/body/document.js';
-	import { capture, captures, messageOf } from '$lib/captures.svelte.js';
+	import { app, captures, messageOf, pathOf } from '$lib/captures.svelte.js';
 	import { instantOf } from '$lib/days.js';
 	import { hasKeyboard } from '$lib/keys.js';
 	import { whileVisible } from '$lib/visible.js';
 
 	let { id }: { id: string } = $props();
-	const args = untrack(() => ({ id }));
+	const args = untrack(() => ({ path: pathOf(id) }));
 
-	/** A capture file as `get` and `set` return it. */
-	type File = { id: string; capturedAt?: string; body: string };
+	/** A capture file as `get` and `edit` return it. */
+	type File = Awaited<ReturnType<typeof app.get>>;
 
 	let file = $state.raw<File>();
 	let status = $state<'loading' | 'ready' | 'gone' | 'failed'>('loading');
@@ -60,7 +60,7 @@
 
 	async function load() {
 		try {
-			file = await capture.call<File>('get', args);
+			file = await app.get(args);
 			status = 'ready';
 			problem = undefined;
 		} catch (error) {
@@ -103,7 +103,7 @@
 			try {
 				// edit quotes the body it read, so a change landing in between refuses it; read again and reapply.
 				for (let attempt = 1; ; attempt++) {
-					latest = await capture.call<File>('get', args);
+					latest = await app.get(args);
 					const read = captureBody.decode(latest.body);
 					const value = read.error ? read.error.message : next(read.data);
 					if (typeof value === 'string') {
@@ -118,12 +118,12 @@
 						return false;
 					}
 					try {
-						file = await capture.call<File>('edit', { ...args, old: latest.body, new: encoded.data });
+						file = await app.edit({ ...args, old: latest.body, new: encoded.data });
 					} catch (error) {
 						if (changedElsewhere(error) && attempt < 3) continue;
 						throw error;
 					}
-					captures.saved(args.id, value.text.trim(), value.thoughts.length);
+					captures.saved(args.path, value.text.trim(), value.thoughts.length);
 					return true;
 				}
 			} catch (error) {
@@ -194,17 +194,17 @@
 		const run = queue.then(async () => {
 			try {
 				try {
-					file = await capture.call<File>('edit', { ...args, old: base, new: typed });
+					file = await app.edit({ ...args, old: base, new: typed });
 				} catch (error) {
 					if (!changedElsewhere(error)) throw error;
-					file = await capture.call<File>('get', args);
+					file = await app.get(args);
 					toast.error('Not saved', {
 						description: 'The file changed elsewhere while you were editing. Your version is still in the box; save again to replace what is there now.',
 					});
 					return;
 				}
 				const read = captureBody.decode(file.body);
-				if (read.data) captures.saved(args.id, read.data.text.trim(), read.data.thoughts.length);
+				if (read.data) captures.saved(args.path, read.data.text.trim(), read.data.thoughts.length);
 				if (markdown === typed) markdown = undefined;
 			} catch (error) {
 				toast.error('Not saved', { description: messageOf(error) });
@@ -232,7 +232,7 @@
 			confirm: { text: 'Delete', variant: 'destructive' },
 			async onConfirm() {
 				try {
-					await captures.delete(args.id);
+					await captures.delete(args.path);
 				} catch (error) {
 					toast.error('Not deleted', { description: messageOf(error) });
 					throw error;
@@ -337,7 +337,7 @@
 					spellcheck="false"
 				/>
 				<p class="text-xs text-muted-foreground">
-					The body of <code>captures/{args.id}.md</code>. Its text comes first, then its thoughts as a list under <code>## Thoughts</code>.
+					The body of <code>{args.path}</code>. Its text comes first, then its thoughts as a list under <code>## Thoughts</code>.
 				</p>
 				<div class="flex justify-end gap-2">
 					<Button variant="ghost" size="sm" onclick={() => (markdown = undefined)}>Cancel</Button>

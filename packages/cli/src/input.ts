@@ -1,9 +1,11 @@
 /**
- * An action's fields become CLI arguments and MCP input (ADR-0841, ADR-0857).
- * Both use the app's schema for defaults and validation, so a command and a
- * tool accept the same values and name the field that needs attention. The
- * action's `positional` list says which fields the command line also reads by
- * position, in order.
+ * Which action a person meant, and its input (ADR-0841). The longest run of
+ * words that names an action is the action, and the rest is its input; when
+ * none does, the nearest actions are suggested. An action's fields become CLI
+ * arguments and MCP input alike: both use its schema for defaults and
+ * validation, so a command and a tool accept the same values and name the
+ * field that needs attention. The action's `positional` list says which
+ * fields the command line also reads by position, in order.
  */
 import { type Action, type Input, isName } from '@epicenter/app';
 import { type TSchema, Type } from 'typebox';
@@ -254,6 +256,11 @@ export function checkInput(
 		return { error: `${name} must be one of: ${choices.join(', ')}` };
 	const wanted = fieldSchema && wantedOf(fieldSchema);
 	if (wanted) return { error: `${name} needs ${wanted}` };
+	// A pattern is a regular expression; the field's description says it in words.
+	const described = (fieldSchema as { description?: string } | undefined)
+		?.description;
+	if (first?.keyword === 'pattern' && described)
+		return { error: `${name} must be ${described}` };
 	return { error: `${name}: ${first?.message ?? 'is not accepted'}` };
 }
 
@@ -341,4 +348,97 @@ export function jsonSchema(fields: Input): {
 	if (required.length) schema.required = required;
 	else delete schema.required;
 	return schema;
+}
+
+/**
+ * The action's input, checked against its fields: from `--input <json>`, one
+ * JSON object as MCP and scripts pass it (`-` reads it from stdin), or else
+ * from flags and positionals. `--input` stands alone: the object holds every
+ * field, positional ones included (ADR-0867).
+ */
+export async function readInput(action: Action, rest: string[]) {
+	const end = rest.indexOf('--');
+	const at = rest.indexOf('--input');
+	if (at < 0 || (end >= 0 && at > end)) {
+		const parsed = inputFromArgs(action, rest);
+		if ('error' in parsed) return parsed;
+		return checkInput(action, parsed.input, (key) =>
+			action.positional?.includes(key) ? `<${key}>` : `--${flagOf(key)}`,
+		);
+	}
+	const given = rest[at + 1];
+	if (rest.length !== 2 || given === undefined)
+		return {
+			error:
+				'--input takes the whole input as one JSON object, with nothing beside it; put positional fields in the object',
+		};
+	let raw: unknown;
+	try {
+		raw = JSON.parse(given === '-' ? await Bun.stdin.text() : given);
+	} catch {
+		return { error: '--input is not JSON' };
+	}
+	if (typeof raw !== 'object' || raw === null || Array.isArray(raw))
+		return { error: '--input is not a JSON object' };
+	return checkInput(action, raw, (key) => key);
+}
+
+/** The words a person gave before the first value or flag; any leading run of them may be the action's name. */
+function nameWords(words: string[]): string[] {
+	const end = words.findIndex((word) => !isName(word));
+	return words.slice(0, end < 0 ? words.length : end);
+}
+
+/**
+ * The actions a person most likely meant: for each leading run of their
+ * words, an action that run ends (`tasks set` for `tasks tasks set`) or that
+ * is a typo or two from it. Only the closest are kept, with the run they
+ * matched, so a value such as an id is not taken for part of the name.
+ */
+export function nearestActions(
+	keys: string[],
+	words: string[],
+): { asked: string; keys: string[] } {
+	const named = nameWords(words);
+	let best = {
+		asked: named.join(' ') || words[0] || '',
+		keys: [] as string[],
+		score: Infinity,
+	};
+	for (let end = named.length; end > 0; end--) {
+		const asked = named.slice(0, end).join(' ');
+		for (const key of keys) {
+			const score = key.endsWith(` ${asked}`) ? 0 : distance(key, asked);
+			if (score > Math.min(2, Math.floor(key.length / 3))) continue;
+			if (score < best.score) best = { asked, keys: [key], score };
+			else if (score === best.score && asked === best.asked)
+				best.keys.push(key);
+		}
+	}
+	return best;
+}
+
+/** The fewest one-letter edits between two strings, a swap of neighbours counting as one. */
+function distance(a: string, b: string): number {
+	const d = Array.from({ length: a.length + 1 }, (_, i) =>
+		Array.from({ length: b.length + 1 }, (_, j) =>
+			i === 0 ? j : j === 0 ? i : 0,
+		),
+	);
+	for (let i = 1; i <= a.length; i++)
+		for (let j = 1; j <= b.length; j++) {
+			const row = d[i] as number[];
+			const above = d[i - 1] as number[];
+			row[j] = Math.min(
+				(above[j] as number) + 1,
+				(row[j - 1] as number) + 1,
+				(above[j - 1] as number) + (a[i - 1] === b[j - 1] ? 0 : 1),
+			);
+			if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1])
+				row[j] = Math.min(
+					row[j] as number,
+					((d[i - 2] as number[])[j - 2] as number) + 1,
+				);
+		}
+	return (d[a.length] as number[])[b.length] as number;
 }

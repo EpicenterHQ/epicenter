@@ -11,13 +11,22 @@
  */
 import { connect } from '@epicenter/app/client';
 import { toast } from '@epicenter/ui/sonner';
-import type { Recent } from '../../../epicenter.js';
+import type capture from '../../../epicenter.js';
 
 /** The app's actions, asked of `epicenter serve`. */
-export const capture = connect('capture');
+export const app = connect<typeof capture>('capture');
 
 /** One capture as listed; `pending` while its `add` has not answered. */
-export type Row = Recent['captures'][number] & { pending?: true };
+export type Row = Awaited<ReturnType<typeof app.recent>>['captures'][number] & {
+	pending?: true;
+};
+
+/** The file of the capture a page's URL names by `id`, its file's name without `.md`. */
+export const pathOf = (id: string) => `captures/${id}.md`;
+
+/** The `id` a page's URL names the capture at `path` by. */
+export const idOf = (path: string) =>
+	path.replace(/^captures\//, '').replace(/\.md$/, '');
 
 const PAGE = 50;
 
@@ -48,7 +57,7 @@ function createCaptures() {
 		const before = writes;
 		const query = matching;
 		try {
-			const answer = await capture.call<Recent>('recent', {
+			const answer = await app.recent({
 				limit,
 				...(query ? { matching: query } : {}),
 			});
@@ -119,7 +128,7 @@ function createCaptures() {
 		 */
 		async add(text: string): Promise<boolean> {
 			const shown: Row = {
-				id: `pending-${++nextPending}`,
+				path: `pending-${++nextPending}`,
 				capturedAt: new Date().toISOString(),
 				text: text.trim(),
 				thoughts: 0,
@@ -127,12 +136,12 @@ function createCaptures() {
 			};
 			adding = [shown, ...adding];
 			try {
-				const { id, capturedAt } = await writing(() =>
-					capture.call<{ id: string; capturedAt: string }>('add', { text }),
+				const { path, capturedAt } = await writing(() =>
+					app.add({ text }),
 				);
 				rows = [
-					{ id, capturedAt, text: shown.text, thoughts: 0 },
-					...rows.filter((row) => row.id !== id),
+					{ path, capturedAt, text: shown.text, thoughts: 0 },
+					...rows.filter((row) => row.path !== path),
 				];
 				total += 1;
 				return true;
@@ -143,16 +152,16 @@ function createCaptures() {
 				adding = adding.filter((row) => row !== shown);
 			}
 		},
-		/** Deletes the capture `id`; throws when the server did not. */
-		async delete(id: string) {
-			await writing(() => capture.call('delete', { id }));
-			if (rows.some((row) => row.id === id)) total -= 1;
-			rows = rows.filter((row) => row.id !== id);
+		/** Deletes the capture at `path`; throws when the server did not. */
+		async delete(path: string) {
+			await writing(() => app.delete({ path }));
+			if (rows.some((row) => row.path === path)) total -= 1;
+			rows = rows.filter((row) => row.path !== path);
 		},
 		/** Shows a capture's new text and thought count after its page saved it. */
-		saved(id: string, text: string, thoughts: number) {
+		saved(path: string, text: string, thoughts: number) {
 			rows = rows.map((row) =>
-				row.id === id ? { ...row, text, thoughts } : row,
+				row.path === path ? { ...row, text, thoughts } : row,
 			);
 			writes++;
 		},

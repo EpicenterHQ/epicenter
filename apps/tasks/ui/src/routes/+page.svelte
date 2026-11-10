@@ -13,8 +13,8 @@
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import TaskRow from '$lib/components/TaskRow.svelte';
-	import { tasks } from '$lib/store.svelte.js';
-	import { completed, dayOf, groupOpen, labelOf, type Task } from '$lib/tasks.js';
+	import { type Task, tasks } from '$lib/store.svelte.js';
+	import { completed, dayOf, groupOpen, labelOf } from '$lib/tasks.js';
 
 	let title = $state('');
 	let showCompleted = $state(false);
@@ -45,7 +45,7 @@
 
 	function toggle(task: Task, isDone: boolean) {
 		const label = labelOf(task);
-		tasks.setDone(task.id, isDone).then(
+		tasks.setDone(task.path, isDone).then(
 			() => {
 				if (!isDone) return;
 				toast(`Done: ${label}`, {
@@ -121,7 +121,7 @@
 						{group.label}
 					</h2>
 					<ul>
-						{#each group.tasks as task (task.id)}
+						{#each group.tasks as task (task.path)}
 							<TaskRow {task} {today} showDue={group.key !== 'today'} onToggle={toggle} />
 						{/each}
 					</ul>
@@ -148,7 +148,7 @@
 					</Collapsible.Trigger>
 					<Collapsible.Content>
 						<ul>
-							{#each done as task (task.id)}
+							{#each done as task (task.path)}
 								<TaskRow {task} {today} onToggle={toggle} />
 							{/each}
 						</ul>

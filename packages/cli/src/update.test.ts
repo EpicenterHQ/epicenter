@@ -2,7 +2,7 @@ import { afterEach, expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';
 import { readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { fixture, gitIn, gitignore } from './runner.test-support.ts';
+import { fixture, gitIn, gitignore, header } from './runner.test-support.ts';
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -11,28 +11,22 @@ afterEach(async () => {
 	);
 });
 
-/** A declaration with one Markdown collection whose files need a `meaning`. */
-function wordsDeclaration(required: string[]) {
-	return `${JSON.stringify(
-		{
-			description: 'Words I am learning',
-			collections: {
-				words: {
-					path: 'words/{word}.md',
-					fields: {
-						type: 'object',
-						properties: {
-							meaning: { type: 'string' },
-							reading: { type: 'string' },
-						},
-						required,
-					},
-				},
-			},
-		},
-		null,
-		2,
-	)}\n`;
+/** An app with one Markdown collection whose files need a `meaning`, and a `reading` when `reading` is required. */
+function wordsApp({ reading }: { reading: 'required' | 'optional' }) {
+	const field =
+		reading === 'required' ? 'field.text()' : 'field.text({ optional: true })';
+	return `${header}
+const words = defineCollection({
+	path: 'words/{word}.md',
+	fields: { meaning: field.text(), reading: ${field} },
+});
+
+export default defineApp({
+	description: 'Words I am learning',
+	collections: { words },
+	actions: { words: words.actions() },
+});
+`;
 }
 
 /** A `ui/` whose build writes `label` to `../.cache/ui/index.html`, without a dependency to install. */
@@ -53,7 +47,7 @@ async function starterFixture() {
 	roots.push(f.root);
 	const starter = await f.folder(join(f.root, 'starters', 'vocab'), {
 		'.gitignore': gitignore,
-		'epicenter.json': wordsDeclaration(['meaning']),
+		'epicenter.ts': wordsApp({ reading: 'optional' }),
 		'ui/package.json': builds('one'),
 	});
 	return { ...f, starter, app: join(f.home, 'vocab') };
@@ -86,12 +80,28 @@ test('new --from clones a starter as upstream, tracking nothing, and builds its 
 	expect(existsSync(join(f.home, 'nested'))).toBe(false);
 });
 
+test('new --from refuses a starter whose epicenter.ts does not load, and leaves no folder', async () => {
+	const f = await starterFixture();
+	await writeFile(
+		join(f.starter, 'epicenter.ts'),
+		`${header}defineCollection({ path: 'words/', fields: {} });\n`,
+	);
+	await commitAll(f.starter, 'break the app');
+	const made = await f.run('new', 'vocab', '--from', f.starter, '--json');
+	expect(made.code).toBe(2);
+	expect(JSON.parse(made.stdout).error).toMatchObject({
+		name: 'AppProblems',
+		problems: ['epicenter.ts: The collection path words/ is not a .md path'],
+	});
+	expect(existsSync(f.app)).toBe(false);
+});
+
 test('update merges the starter, lists files that no longer fit, and builds', async () => {
 	const f = await starterFixture();
 	expect((await f.run('new', 'vocab', '--from', f.starter)).code).toBe(0);
-	expect((await f.run('vocab', 'set', 'neko', '--meaning', 'cat')).code).toBe(
-		0,
-	);
+	expect(
+		(await f.run('vocab', 'words', 'add', 'neko', '--meaning', 'cat')).code,
+	).toBe(0);
 
 	const quiet = JSON.parse((await f.run('update', 'vocab', '--json')).stdout);
 	expect(quiet.apps[0]).toMatchObject({
@@ -102,15 +112,15 @@ test('update merges the starter, lists files that no longer fit, and builds', as
 	});
 
 	await writeFile(
-		join(f.starter, 'epicenter.json'),
-		wordsDeclaration(['meaning', 'reading']),
+		join(f.starter, 'epicenter.ts'),
+		wordsApp({ reading: 'required' }),
 	);
 	await writeFile(join(f.starter, 'ui', 'package.json'), builds('two'));
 	await commitAll(f.starter, 'require a reading');
 	const updated = await f.run('update');
 	expect(updated.code).toBe(0);
 	expect(updated.stdout).toMatch(
-		/^vocab: merged [0-9a-f]+; UI built; 1 file does not fit epicenter.json\n {2}words\/neko\.md: .*reading/m,
+		/^vocab: merged [0-9a-f]+; UI built; 1 file does not fit its fields\n {2}words\/neko\.md: needs reading$/m,
 	);
 	expect(await gitIn(f.app, 'log', '-1', '--format=%s')).toBe(
 		'vocab: update from upstream',
@@ -179,9 +189,9 @@ test('sync pushes to origin, never to the starter', async () => {
 	const backup = join(f.root, 'backup.git');
 	await gitIn(f.root, 'init', '-q', '--bare', backup);
 	await gitIn(f.app, 'remote', 'add', 'origin', backup);
-	expect((await f.run('vocab', 'set', 'neko', '--meaning', 'cat')).code).toBe(
-		0,
-	);
+	expect(
+		(await f.run('vocab', 'words', 'add', 'neko', '--meaning', 'cat')).code,
+	).toBe(0);
 	const synced = await f.run('sync', 'vocab', '--json');
 	expect(synced.code).toBe(0);
 	expect(JSON.parse(synced.stdout).apps[0]).toMatchObject({

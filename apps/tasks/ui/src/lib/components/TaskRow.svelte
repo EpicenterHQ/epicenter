@@ -4,7 +4,8 @@
 <script lang="ts">
 	import { Checkbox } from '@epicenter/ui/checkbox';
 	import { slide } from 'svelte/transition';
-	import { dueLabel, isOverdue, labelOf, type Task } from '$lib/tasks.js';
+	import type { Task } from '$lib/store.svelte.js';
+	import { dueLabel, idOf, isOverdue, labelOf } from '$lib/tasks.js';
 
 	let {
 		task,
@@ -24,16 +25,16 @@
 
 <li
 	class="flex items-center gap-3 border-b border-border/60 last:border-b-0"
-	data-id={task.id}
+	data-path={task.path}
 	transition:slide={{ duration: 150 }}
 >
 	<Checkbox
 		class="size-5 rounded-full border-muted-foreground/40"
-		bind:checked={() => task.done, (done) => onToggle(task, done)}
+		bind:checked={() => task.done ?? false, (done) => onToggle(task, done)}
 		aria-label="{task.done ? 'Mark not done' : 'Mark done'}: {label}"
 	/>
 	<a
-		href="#/t/{task.id}"
+		href="#/t/{idOf(task.path)}"
 		class="flex min-h-12 min-w-0 flex-1 flex-col justify-center py-2 outline-none focus-visible:underline"
 	>
 		<span

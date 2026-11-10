@@ -1,7 +1,7 @@
 /** `epicenter init` writes a root identity once and adds starter guidance. */
 import { randomUUID } from 'node:crypto';
 import { existsSync, realpathSync } from 'node:fs';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve } from 'node:path';
 import { CliError } from './errors.ts';
 import { fail, writeErr, writeJson, writeOut } from './output.ts';
@@ -13,7 +13,7 @@ import {
 } from './root.ts';
 
 const STARTER_AGENTS = `This folder is an Epicenter.
-Each child folder with epicenter.json is an app and its own Git repository.
+Each child folder with an epicenter.ts is an app and its own Git repository.
 
 Prefer \`epicenter <app> <verb>\` to change an app's data: it checks each value
 against the app's fields and commits each write. \`epicenter <app>\` lists the
@@ -89,7 +89,11 @@ export async function initCommand(
 	if (json) writeJson({ folder, id, port: port ?? DEFAULT_PORT });
 	else {
 		writeOut(`Made Epicenter at ${folder}.`);
-		writeErr('Run: epicenter new <name>');
+		const hasApps = (await readdir(folder, { withFileTypes: true })).some(
+			(entry) =>
+				entry.isDirectory() && existsSync(join(folder, entry.name, 'epicenter.ts')),
+		);
+		writeErr(hasApps ? 'Run: epicenter' : 'Run: epicenter new <name>');
 	}
 	return 0;
 }

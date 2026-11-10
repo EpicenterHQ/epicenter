@@ -1,5 +1,5 @@
 /**
- * Acceptance, stage 1: the declaration (ADR-0857, ADR-0849, ADR-0853).
+ * Acceptance, stage 1: what an app's epicenter.ts declares (ADR-0857, ADR-0849, ADR-0853).
  * Black-box runs of the real `epicenter` against a temporary HOME.
  */
 
@@ -9,13 +9,7 @@ import { readFile, rm, symlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import {
-	declarationOf,
-	fixture,
-	gitIn,
-	gitignore,
-	readingApp,
-} from './runner.test-support.ts';
+import { fixture, gitIn, readingApp } from './runner.test-support.ts';
 
 setDefaultTimeout(30_000);
 
@@ -31,14 +25,8 @@ async function setup() {
 	return f;
 }
 
-const words = {
-	path: 'words/{stem}.md',
-	fields: {
-		type: 'object',
-		properties: { stage: { enum: ['new', 'known'] } },
-		required: ['stage'],
-	},
-};
+/** Vocab's words collection, as epicenter.ts source. */
+const words = `const words = defineCollection({ path: 'words/{stem}.md', fields: { stage: field.select(['new', 'known']) } });\n`;
 
 const MCP_DEFAULTS = {
 	readOnlyHint: false,
@@ -47,39 +35,53 @@ const MCP_DEFAULTS = {
 	openWorldHint: true,
 };
 
-test('D1 the listing shows declared folders, ignores the rest, and names each problem', async () => {
+test('D1 the listing shows folders with an epicenter.ts, ignores the rest, and names each problem', async () => {
 	const f = await setup();
 	await f.folder(join(f.home, 'reading'), readingApp);
-	await f.folder(join(f.home, 'vocab'), {
-		'epicenter.json': declarationOf('vocab', { collections: { words } }),
-	});
-	const linked = await f.folder(join(f.root, 'elsewhere', 'journal'), {
-		'.gitignore': gitignore,
-		'epicenter.json': declarationOf('journal'),
-	});
+	await f.app(
+		'vocab',
+		`${words}export default defineApp({ description: 'The vocab app', collections: { words } });\n`,
+	);
+	const linked = await f.app(
+		'journal',
+		`export default defineApp({ description: 'The journal app' });\n`,
+		join(f.root, 'elsewhere'),
+	);
 	await symlink(linked, join(f.home, 'journal'));
 	await f.folder(join(f.home, 'readme-only'), { 'README.md': 'not an app\n' });
-	await f.folder(join(f.home, 'clash'), {
-		'.gitignore': gitignore,
-		'epicenter.json': declarationOf('clash', { collections: { words } }),
-		'epicenter.ts': `import declaration from './epicenter.json';
-import { defineApp, field } from '@epicenter/app';
-export default defineApp(declaration, {
+	await f.folder(join(f.home, 'json-only'), {
+		'epicenter.json': JSON.stringify({ description: 'Before epicenter.ts' }),
+	});
+	await f.app(
+		'clash',
+		`${words}export default defineApp({
+	description: 'The clash app',
+	collections: { words },
 	actions: {
-		set: { description: 'Save a word my way', input: { stem: field.text() }, positional: ['stem'], run: ({ stem }) => \`mine: \${stem}\` },
+		...words.actions(),
+		set: defineAction({ description: 'Save a word my way', input: { stem: field.text() }, positional: ['stem'], run: ({ stem }) => \`mine: \${stem}\` }),
 	},
 });
 `,
-	});
-	await f.folder(join(f.home, 'malformed'), {
-		'epicenter.json': JSON.stringify({ description: 3 }),
-		'epicenter.ts': `await Bun.write(${JSON.stringify(join(f.root, 'ran'))}, 'ran');\nexport default {};\n`,
-	});
-	await f.folder(join(f.home, 'nodefault'), {
-		'.gitignore': gitignore,
-		'epicenter.json': declarationOf('nodefault'),
-		'epicenter.ts': `export const actions = {};\n`,
-	});
+	);
+	await f.app(
+		'malformed',
+		`const words = defineCollection({ path: 'words/{word}.md', fields: { word: field.text(), path: field.text() } });
+export default defineApp({ description: 'The malformed app', collections: { words } });
+`,
+	);
+	await f.app(
+		'misplaced',
+		`const show = defineAction({ description: 'Show', input: {}, positional: ['nope'], run: () => 1 });
+export default defineApp({ description: 'The misplaced app', actions: { show } });
+`,
+	);
+	await f.app('badpath', `defineCollection({ path: 'words/', fields: {} });\n`);
+	await f.app(
+		'unchecked',
+		`export default defineApp({ description: 'The unchecked app', actions: { show: { description: 'Show', input: {}, run: () => 1 } } });\n`,
+	);
+	await f.app('nodefault', `export const actions = {};\n`);
 
 	const result = await f.run('--json');
 	expect(result.code).toBe(0);
@@ -97,36 +99,46 @@ export default defineApp(declaration, {
 	const problems = Object.fromEntries(
 		listing.problems.map((entry: { entry: string; problems: string[] }) => [
 			entry.entry,
-			entry.problems.join('\n'),
+			entry.problems,
 		]),
 	);
-	expect(Object.keys(problems)).toEqual(['malformed', 'nodefault']);
-	expect(problems.nodefault).toContain('does not export defineApp');
-	expect(existsSync(join(f.root, 'ran'))).toBe(false);
-	expect(problems.malformed).toContain('epicenter.json');
-	expect(problems.malformed).toContain('/description');
-	// A written action with a collection's words replaces the collection's: an app with one collection has its verbs as its own.
+	expect(problems).toEqual({
+		// Each line of what a define call throws is one problem.
+		badpath: ['epicenter.ts: The collection path words/ is not a .md path'],
+		malformed: [
+			'epicenter.ts: The collection at words/{word}.md has a field "word", which its path gives as {word}; the file\'s name holds it',
+			'epicenter.ts: The collection at words/{word}.md has a field "path", which is the file\'s address',
+		],
+		misplaced: [
+			'epicenter.ts: The action "Show" has the positional "nope", which is not one of its fields',
+		],
+		nodefault: ['epicenter.ts does not export defineApp(...) by default'],
+		unchecked: [
+			'epicenter.ts: actions.show is not an action: make it with defineAction(...), and change one with defineAction({ ... }) rather than a spread, which drops the call',
+		],
+	});
+	// A later key replaces an earlier one: the written set replaces the collection's.
 	const clash = await f.run('clash', 'set', 'serendipity');
 	expect(clash.stdout).toBe('mine: serendipity\n');
 	expect(JSON.stringify(listing)).not.toContain('readme-only');
+	expect(JSON.stringify(listing)).not.toContain('json-only');
 
 	const human = await f.run();
 	expect(human.stdout).toMatch(/^vocab +The vocab app$/m);
 	expect(human.stdout).toContain(`-> ${linked}`);
 	expect(human.stdout).toContain('Problems:');
+	expect(human.stdout).toContain(
+		'    epicenter.ts: The collection path words/ is not a .md path',
+	);
 });
 
-test('D2 --json prints the declaration from epicenter.json, each action an MCP tool', async () => {
+test('D2 --json prints the app from epicenter.ts, each action an MCP tool', async () => {
 	const f = await setup();
 	await f.folder(join(f.home, 'reading'), readingApp);
-	await f.folder(join(f.home, 'vocab'), {
-		'.gitignore': gitignore,
-		'epicenter.json': declarationOf('vocab', { collections: { words } }),
-		'epicenter.ts': `import declaration from './epicenter.json';
-import { defineApp } from '@epicenter/app';
-export default defineApp(declaration, { actions: {} });
-`,
-	});
+	await f.app(
+		'vocab',
+		`${words}export default defineApp({ description: 'The vocab app', collections: { words } });\n`,
+	);
 	const listing = JSON.parse((await f.run('--json')).stdout);
 	const reading = listing.apps.find(
 		(app: { name: string }) => app.name === 'reading',
@@ -143,17 +155,18 @@ export default defineApp(declaration, { actions: {} });
 		},
 	});
 	expect(reading.actions.map((tool: { name: string }) => tool.name)).toEqual([
-		'reading_list',
-		'reading_get',
-		'reading_set',
-		'reading_edit',
-		'reading_delete',
+		'reading_books_list',
+		'reading_books_get',
+		'reading_books_add',
+		'reading_books_set',
+		'reading_books_edit',
+		'reading_books_delete',
 		'reading_log',
 		'reading_between',
 		'reading_week_show',
 		'reading_explode',
 	]);
-	expect(reading.actions[5]).toEqual({
+	expect(reading.actions[6]).toEqual({
 		name: 'reading_log',
 		description: 'Record minutes read today',
 		inputSchema: {
@@ -164,16 +177,37 @@ export default defineApp(declaration, { actions: {} });
 		},
 		annotations: MCP_DEFAULTS,
 	});
-	expect(reading.actions[7].annotations).toEqual({
+	expect(reading.actions[8].annotations).toEqual({
 		...MCP_DEFAULTS,
 		readOnlyHint: true,
 		openWorldHint: false,
 	});
+	expect(reading.actions[0].description).toBe(
+		'Every books/{slug}.md file: its path and fields',
+	);
 	expect(JSON.stringify(listing)).not.toContain('positional');
 	const vocab = listing.apps.find(
 		(app: { name: string }) => app.name === 'vocab',
 	);
-	expect(vocab.collections).toEqual({ words });
+	expect(vocab.collections).toEqual({
+		words: {
+			path: 'words/{stem}.md',
+			fields: {
+				type: 'object',
+				properties: {
+					stage: {
+						anyOf: [
+							{ const: 'new', type: 'string' },
+							{ const: 'known', type: 'string' },
+						],
+					},
+				},
+				required: ['stage'],
+				additionalProperties: false,
+			},
+		},
+	});
+	expect(vocab.actions).toEqual([]);
 	const one = JSON.parse((await f.run('reading', '--json')).stdout);
 	expect(one).toMatchObject({
 		name: 'reading',
@@ -284,9 +318,11 @@ test('D7 discovery defaults to $HOME/Epicenter and ignores EPICENTER_HOME', asyn
 	const f = await setup();
 	await f.folder(join(f.home, 'reading'), readingApp);
 	const decoy = join(f.root, 'decoy-home');
-	await f.folder(join(decoy, 'decoy'), {
-		'epicenter.json': declarationOf('decoy'),
-	});
+	await f.app(
+		'decoy',
+		`export default defineApp({ description: 'The decoy app' });\n`,
+		decoy,
+	);
 	f.env.EPICENTER_HOME = decoy;
 	const listing = JSON.parse((await f.run('--json')).stdout);
 	expect(listing.epicenter).toBe(join(f.root, 'Epicenter'));
@@ -296,45 +332,39 @@ test('D7 discovery defaults to $HOME/Epicenter and ignores EPICENTER_HOME', asyn
 	expect((await f.run('--help')).stdout).not.toContain('EPICENTER_HOME');
 });
 
-/** Capture: an app that is only its epicenter.json. */
-const capture = {
-	$schema: 'https://epicenter.so/epicenter.schema.json',
-	description: 'Things I want to keep',
-	collections: {
-		items: {
-			path: 'items/{id}.md',
-			fields: {
-				type: 'object',
-				properties: {
-					kind: { type: 'string', enum: ['thought', 'link', 'quote'] },
-					url: { type: 'string', format: 'uri' },
-					added: { type: 'string', format: 'date' },
-				},
-				required: ['kind', 'added'],
-			},
-		},
+/** Capture: an app whose actions are only its one collection's verbs. */
+const capture = `const items = defineCollection({
+	path: 'items/{id}.md',
+	fields: {
+		kind: field.select(['thought', 'link', 'quote']),
+		url: field.text({ optional: true }),
+		added: field.date(),
 	},
-};
+});
 
-test('D8 an app with only epicenter.json lists, reads, writes, and deletes its collection from the terminal and MCP', async () => {
+export default defineApp({
+	description: 'Things I want to keep',
+	collections: { items },
+	actions: items.actions(),
+});
+`;
+
+test("D8 an app of one collection's verbs adds, reads, changes, and deletes its files from the terminal and MCP", async () => {
 	const f = await setup();
-	const folder = await f.folder(join(f.home, 'capture'), {
-		'.gitignore': gitignore,
-		'epicenter.json': `${JSON.stringify(capture, null, 2)}\n`,
-	});
+	const folder = await f.app('capture', capture);
 	const json = async (...args: string[]) => {
 		const result = await f.run('capture', ...args, '--json');
 		return { code: result.code, answer: JSON.parse(result.stdout) };
 	};
 
-	const help = await f.run('capture', 'set', '--help');
+	const help = await f.run('capture', 'add', '--help');
 	expect(help.stdout).toContain(
-		'epicenter capture set <id> [--kind <thought|link|quote>] [--url <text>] [--added <date>] [--body <text>]',
+		'epicenter capture add <id> --kind <thought|link|quote> [--url <text>] --added <date> [--body <text>]',
 	);
 
 	expect(
 		await json(
-			'set',
+			'add',
 			'dune',
 			'--kind',
 			'quote',
@@ -347,9 +377,9 @@ test('D8 an app with only epicenter.json lists, reads, writes, and deletes its c
 		code: 0,
 		answer: {
 			returned: {
+				path: 'items/dune.md',
 				kind: 'quote',
 				added: '2026-11-09',
-				id: 'dune',
 				body: 'Fear is the mind-killer.\n',
 			},
 			committed: expect.any(String),
@@ -359,23 +389,45 @@ test('D8 an app with only epicenter.json lists, reads, writes, and deletes its c
 		'---\nkind: "quote"\nadded: "2026-11-09"\n---\nFear is the mind-killer.\n',
 	);
 
-	// Refused before anything is written: a value outside the enum, a date that is not one, a new file missing a required field, a required field given as null.
+	// Refused before anything is written: by the command line (2) or by the collection (1).
 	const refused = [
-		[['set', 'dune', '--kind', 'poem'], 2, '--kind'],
 		[
-			['set', 'dune', '--added', '2026-13-45'],
+			['set', 'items/dune.md', '--kind', 'poem'],
+			2,
+			'--kind must be one of: thought, link, quote',
+		],
+		[
+			['set', 'items/dune.md', '--added', '2026-13-45'],
 			2,
 			'--added needs a day, as 2026-11-12',
 		],
-		[['set', 'dune', '--url', 'not a url'], 2, '--url needs a URL'],
+		[['add', 'new-one', '--kind', 'link'], 2, '--added is needed'],
 		[
-			['set', 'new-one', '--kind', 'link'],
+			['add', 'dune', '--kind', 'link', '--added', '2026-11-09'],
 			1,
-			'A new items/new-one.md needs added',
+			'items/dune.md is already there',
 		],
-		[['set', '../escape', '--kind', 'link'], 2, '<id>'],
-		[['set', 'dune', '--kind', 'null'], 2, '--kind does not take null'],
-		[['set', '--input', '{"id":"dune","added":null}'], 2, 'added'],
+		[
+			['add', '..', '--kind', 'link', '--added', '2026-11-09'],
+			2,
+			"<id> must be a file's name for {id} in items/{id}.md: no / or \\\\, and not starting with .",
+		],
+		[
+			['set', 'items/new-one.md', '--kind', 'link'],
+			1,
+			'There is no items/new-one.md',
+		],
+		[
+			['set', 'notes/dune.md', '--kind', 'link'],
+			1,
+			'notes/dune.md is not a file at items/{id}.md',
+		],
+		[
+			['set', 'items/dune.md', '--kind', 'null'],
+			2,
+			'--kind does not take null',
+		],
+		[['set', '--input', '{"path":"items/dune.md","added":null}'], 2, 'added'],
 	] as const;
 	for (const [args, code, message] of refused) {
 		const result = await json(...args);
@@ -387,23 +439,36 @@ test('D8 an app with only epicenter.json lists, reads, writes, and deletes its c
 	);
 
 	expect(
-		(await json('set', 'dune', '--url', 'https://example.com/dune')).code,
+		(await json('set', 'items/dune.md', '--url', 'https://example.com/dune'))
+			.code,
+	).toBe(0);
+	expect(
+		(
+			await json(
+				'edit',
+				'items/dune.md',
+				'--old',
+				'mind-killer',
+				'--new',
+				'little-death',
+			)
+		).code,
 	).toBe(0);
 	expect(await json('list')).toEqual({
 		code: 0,
 		answer: {
 			returned: [
 				{
+					path: 'items/dune.md',
 					kind: 'quote',
-					added: '2026-11-09',
 					url: 'https://example.com/dune',
-					id: 'dune',
+					added: '2026-11-09',
 				},
 			],
 		},
 	});
-	expect((await f.run('capture', 'get', 'dune')).stdout).toContain(
-		'"body": "Fear is the mind-killer.\\n"',
+	expect((await f.run('capture', 'get', 'items/dune.md')).stdout).toContain(
+		'"body": "Fear is the little-death.\\n"',
 	);
 
 	const transport = new StdioClientTransport({
@@ -420,29 +485,30 @@ test('D8 an app with only epicenter.json lists, reads, writes, and deletes its c
 		expect(tools.map((tool) => tool.name)).toEqual([
 			'capture_list',
 			'capture_get',
+			'capture_add',
 			'capture_set',
 			'capture_edit',
 			'capture_delete',
 		]);
-		expect(tools[4]?.annotations).toEqual({
+		expect(tools[5]?.annotations).toEqual({
 			readOnlyHint: false,
 			destructiveHint: true,
 			idempotentHint: true,
 			openWorldHint: false,
 		});
-		const set = await client.callTool({
-			name: 'capture_set',
+		const added = await client.callTool({
+			name: 'capture_add',
 			arguments: { id: 'petrichor', kind: 'thought', added: '2026-11-09' },
 		});
-		expect(set.isError).toBeFalsy();
+		expect(added.isError).toBeFalsy();
 		const bad = await client.callTool({
 			name: 'capture_set',
-			arguments: { id: 'petrichor', kind: 'poem' },
+			arguments: { path: 'items/petrichor.md', kind: 'poem' },
 		});
 		expect(bad.isError).toBe(true);
 		const deleted = await client.callTool({
 			name: 'capture_delete',
-			arguments: { id: 'dune' },
+			arguments: { path: 'items/dune.md' },
 		});
 		expect(deleted.structuredContent).toEqual({
 			returned: true,
@@ -454,16 +520,23 @@ test('D8 an app with only epicenter.json lists, reads, writes, and deletes its c
 	expect(await json('list')).toEqual({
 		code: 0,
 		answer: {
-			returned: [{ kind: 'thought', added: '2026-11-09', id: 'petrichor' }],
+			returned: [
+				{
+					path: 'items/petrichor.md',
+					kind: 'thought',
+					added: '2026-11-09',
+				},
+			],
 		},
 	});
 	// Every write is its own commit, named for the call, from the terminal and MCP alike.
 	expect(await gitIn(folder, 'log', '--format=%s')).toBe(
 		[
-			'capture: delete dune',
-			'capture: set petrichor',
-			'capture: set dune',
-			'capture: set dune',
+			'capture: delete items/dune.md',
+			'capture: add petrichor',
+			'capture: edit items/dune.md',
+			'capture: set items/dune.md',
+			'capture: add dune',
 			'initial',
 		].join('\n'),
 	);

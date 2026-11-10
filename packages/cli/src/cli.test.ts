@@ -29,9 +29,13 @@ test('listing isolates broken imports, invalid apps and folders that cannot name
 	await f.app('broken', `throw new Error('import exploded');`);
 	await f.app('sync', reading);
 	await f.app('invalid', `export default {actions:{bad:{input:{}}}};`);
+	await f.app(
+		'spaced',
+		`export default defineApp({ description: 'The spaced app', actions: { 'week show': defineAction({ description: 'Show', input: {}, run: () => 1 }) } });`,
+	);
 	const linked = await f.app(
 		'linked',
-		`export default defineApp(declaration, {actions:{}});`,
+		`export default defineApp({ description: 'The linked app' });`,
 		f.root,
 	);
 	await symlink(linked, join(f.home, 'linked'));
@@ -57,24 +61,36 @@ test('listing isolates broken imports, invalid apps and folders that cannot name
 	});
 	expect(JSON.stringify(value.apps)).not.toContain('positional');
 	expect(JSON.stringify(value.apps)).not.toContain('~kind');
-	expect(value.problems.map((app: { entry: string }) => app.entry)).toEqual([
-		'broken',
-		'invalid',
-		'sync',
-	]);
-	expect(value.problems[2]).toMatchObject({
+	expect(
+		Object.fromEntries(
+			value.problems.map((app: { entry: string; problems: string[] }) => [
+				app.entry,
+				app.problems,
+			]),
+		),
+	).toEqual({
+		broken: ['epicenter.ts: import exploded'],
+		invalid: ['epicenter.ts does not export defineApp(...) by default'],
+		// An action's words are its keys' path: one key holds one word.
+		spaced: [
+			'epicenter.ts: actions has the key "week show" at actions.week show, which is not lowercase letters, digits, and dashes, starting with a letter',
+		],
+		sync: [
+			'its folder\'s name cannot name an app: "sync" is an epicenter command',
+		],
+	});
+	expect(value.problems[3]).toMatchObject({
 		entry: 'sync',
 		folder: join(f.home, 'sync'),
 	});
-	expect(value.problems[2].problems).toEqual([
-		'its folder\'s name cannot name an app: "sync" is an epicenter command',
-	]);
 	const human = await f.run();
 	expect(human.stdout).toContain('Problems:');
 	expect(human.stdout).toContain('import exploded');
 	expect(human.stdout).toContain(`-> ${linked}`);
 	expect(human.stdout).not.toContain('epicenter reading');
-	expect((await f.run('reading')).stdout).toContain('(read-only)');
+	expect((await f.run('reading')).stdout).toContain(
+		'epicenter reading week summary\n    Weekly minutes (read-only)',
+	);
 });
 
 test('commands write disk data and return one JSON answer without diagnostics', async () => {
@@ -201,7 +217,7 @@ test('runs use the selected Epicenter and their own .cache', async () => {
 	).toBe(true);
 	const target = await f.app(
 		'linked',
-		`export default defineApp(declaration, {actions:{}});`,
+		`export default defineApp({ description: 'The linked app' });`,
 		f.root,
 	);
 	await symlink(target, join(f.home, 'linked'));
@@ -257,7 +273,7 @@ test('an empty Epicenter lists its next step and a missing marker suggests init'
 	);
 });
 
-test('an app is named by its folder in the home, whatever its declaration says', async () => {
+test('an app is named by its folder in the home, whatever its description says', async () => {
 	const f = await setup();
 	await f.app('other-name', reading);
 	const listed = JSON.parse((await f.run('--json')).stdout);

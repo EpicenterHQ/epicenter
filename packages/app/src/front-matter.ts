@@ -1,18 +1,19 @@
 /**
- * A note's front matter (ADR-0796, ADR-0797): read its fields and patch one
- * field's line, copied from the waiting product's front matter without its
- * merge (ADR-0843: new code copies from it, never imports it).
+ * A collection's file as fields and body (ADR-0796, ADR-0797). The grammar
+ * is copied from the waiting product's front matter without its merge
+ * (ADR-0843: new code copies from it, never imports it).
  *
  * A file has front matter when its first line is `---`, a later line is
  * `---`, and every line between them is `key: <JSON>`, each key once. A
  * key is a letter or `_`, then letters, digits, `_` or `-`; a value is a
  * JSON text on that one line, which YAML 1.2 reads as the same value. A
- * line ends at `\n`, and a `\r` before it belongs to the ending. This module
- * reads and patches only that grammar and uses no YAML library.
+ * line ends at `\n`, and a `\r` before it belongs to the ending.
  *
- * A collection reads other YAML front matter too, and its first `set`
- * rewrites that header in the grammar (`collection.ts`, ADR-0862), so
- * Zhongwen's or Obsidian's `text: 银行` is a field, not body.
+ * Front matter in that grammar is patched line by line, keeping every line a
+ * write does not change. Other YAML front matter is read too, so Zhongwen's
+ * or Obsidian's `text: 银行` is a field, not body, and the first write
+ * rewrites it in the grammar, keeping the body (ADR-0862). A file whose front
+ * matter is neither is read with its whole text as body, and never rewritten.
  */
 /** A JSON value. */
 export type JsonValue =
@@ -24,13 +25,13 @@ export type JsonValue =
 	| { [key: string]: JsonValue };
 
 /** A note in the grammar: its fields in file order, and the text after the closing fence. */
-export type FrontMatter = {
+type FrontMatter = {
 	fields: Record<string, JsonValue>;
 	body: string;
 };
 
 /** The change a patch applies: fields to set, and keys to delete. A key in both is set. */
-export type FieldPatch = {
+type FieldPatch = {
 	set?: Record<string, JsonValue>;
 	delete?: readonly string[];
 };
@@ -82,7 +83,7 @@ function split(text: string): Parts | null {
 }
 
 /** The note's fields and body, or null when it has no front matter: then all of it is body. */
-export function parseFrontMatter(text: string): FrontMatter | null {
+function parseFrontMatter(text: string): FrontMatter | null {
 	const parts = split(text);
 	if (parts === null) return null;
 	return {
@@ -97,7 +98,7 @@ export function parseFrontMatter(text: string): FrontMatter | null {
  * A field's value as Epicenter writes it: JSON on one line, with a space
  * after each `,` and `:` between items, and nothing else added.
  */
-export function stringifyValue(value: JsonValue): string {
+function stringifyValue(value: JsonValue): string {
 	if (Array.isArray(value)) return `[${value.map(stringifyValue).join(', ')}]`;
 	if (value !== null && typeof value === 'object')
 		return `{${Object.entries(value)
@@ -107,7 +108,7 @@ export function stringifyValue(value: JsonValue): string {
 }
 
 /** Whether two JSON values are the same value: numbers by value, objects whatever their key order. */
-export function sameValue(a: JsonValue, b: JsonValue): boolean {
+function sameValue(a: JsonValue, b: JsonValue): boolean {
 	if (a === b) return true;
 	if (
 		typeof a !== 'object' ||
@@ -138,7 +139,7 @@ export function sameValue(a: JsonValue, b: JsonValue): boolean {
  * the note is outside the grammar, and nothing is changed: a patch never
  * normalizes. It takes text, so it never creates a file.
  */
-export function patchFrontMatter(
+function patchFrontMatter(
 	text: string,
 	{ set = {}, delete: deleted = [] }: FieldPatch,
 ): string | 'outside' {
@@ -168,4 +169,58 @@ export function patchFrontMatter(
 	for (const [key, value] of Object.entries(set))
 		if (!present.has(key)) lines.push(`${key}: ${stringifyValue(value)}${eol}`);
 	return parts.open + lines.join('') + parts.close + parts.body;
+}
+
+export type FieldValues = Record<string, JsonValue>;
+
+/** A file's fields and body as read, and whether its fields may be rewritten. */
+type Read = { fields: FieldValues; body: string; writable: boolean };
+
+function isRecord(value: unknown): value is FieldValues {
+	return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** A Markdown file's fields: `key: <JSON>` lines, else YAML; else none, and the whole text is body. */
+export function readMarkdown(text: string): Read {
+	const parsed = parseFrontMatter(text);
+	if (parsed) return { ...parsed, writable: true };
+	const open = /^---\r?\n/.exec(text);
+	const rest = open ? text.slice(open[0].length) : '';
+	const close = open ? /^---[ \t]*(\r?\n|$)/m.exec(rest) : null;
+	if (!open || !close) return { fields: {}, body: text, writable: true };
+	try {
+		const value = Bun.YAML.parse(rest.slice(0, close.index));
+		if (value === null || isRecord(value))
+			return {
+				fields: value ?? {},
+				body: rest.slice(close.index + close[0].length),
+				writable: true,
+			};
+	} catch {}
+	return { fields: {}, body: text, writable: false };
+}
+
+/** A Markdown file of `fields` as `key: <JSON>` lines, then `body`. */
+export function markdownOf(fields: FieldValues, body: string): string {
+	const lines = Object.entries(fields).map(
+		([key, value]) => `${key}: ${stringifyValue(value)}\n`,
+	);
+	return `---\n${lines.join('')}---\n${body}`;
+}
+
+/**
+ * `text` with `given` set and `removed` gone, keeping its body and the lines
+ * of every other field; YAML front matter is rewritten as `key: <JSON>` lines.
+ */
+export function withFields(
+	text: string,
+	read: Read,
+	given: FieldValues,
+	removed: string[],
+): string {
+	const patched = patchFrontMatter(text, { set: given, delete: removed });
+	if (patched !== 'outside') return patched;
+	const fields = { ...read.fields, ...given };
+	for (const key of removed) delete fields[key];
+	return markdownOf(fields, read.body);
 }

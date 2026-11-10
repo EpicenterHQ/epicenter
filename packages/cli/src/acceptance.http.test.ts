@@ -9,6 +9,18 @@ import { join } from 'node:path';
 import { connect } from '@epicenter/app/client';
 import { fixture, gitIn, readingApp } from './runner.test-support.ts';
 
+/** Reading's actions as its UI calls them, for `connect`. */
+type Reading = {
+	actions: {
+		log: (input: { minutes: number; book?: string }) => {
+			minutes: number;
+			book: string | null;
+		};
+		week: { show: () => number };
+		explode: () => never;
+	};
+};
+
 setDefaultTimeout(30_000);
 
 const cleanups: (() => Promise<void>)[] = [];
@@ -88,11 +100,12 @@ test('HTTP tools/list offers app actions', async () => {
 		result: { tools: { name: string }[] };
 	};
 	expect(body.result.tools.map((tool) => tool.name)).toEqual([
-		'reading_list',
-		'reading_get',
-		'reading_set',
-		'reading_edit',
-		'reading_delete',
+		'reading_books_list',
+		'reading_books_get',
+		'reading_books_add',
+		'reading_books_set',
+		'reading_books_edit',
+		'reading_books_delete',
 		'reading_log',
 		'reading_between',
 		'reading_week_show',
@@ -102,11 +115,11 @@ test('HTTP tools/list offers app actions', async () => {
 
 test('a crafted tool name cannot run an app outside the home', async () => {
 	const f = await setup();
-	const outside = await f.folder(join(f.root, 'outside'), {
-		'epicenter.json': JSON.stringify({ description: 'Outside' }),
-		'epicenter.ts': `import { defineApp } from '@epicenter/app';
-export default defineApp({}, { actions: { run: { description: 'Run', input: {}, run: async (_, { folder }) => { await folder.write('ran.txt', 'yes'); return true; } } } });`,
-	});
+	const outside = await f.app(
+		'outside',
+		`export default defineApp({ description: 'Outside', actions: { run: defineAction({ description: 'Run', input: {}, run: async () => { await folder.write('ran.txt', 'yes'); return true; } }) } });`,
+		f.root,
+	);
 	const response = await mcp(f.base, 'tools/call', {
 		name: `${outside}_run`,
 		arguments: {},
@@ -119,10 +132,11 @@ export default defineApp({}, { actions: { run: { description: 'Run', input: {}, 
 test('the browser client calls a tool without initialize and a write makes one named commit', async () => {
 	const f = await setup();
 	const folder = await f.folder(join(f.home, 'reading'), readingApp);
-	const client = connect('reading', { url: `${f.base}/` });
-	expect(
-		await client.call<{ minutes: number; book: null }>('log', { minutes: 30 }),
-	).toEqual({ minutes: 30, book: null });
+	const client = connect<Reading>('reading', { url: `${f.base}/` });
+	expect(await client.log({ minutes: 30 })).toEqual({
+		minutes: 30,
+		book: null,
+	});
 	expect(await gitIn(folder, 'rev-list', '--count', 'HEAD')).toBe('2');
 	expect(await gitIn(folder, 'log', '-1', '--format=%s')).toBe(
 		'reading: log 30',
@@ -135,23 +149,18 @@ test('the browser client calls a tool without initialize and a write makes one n
 test('read-only and thrown actions make no commit', async () => {
 	const f = await setup();
 	const folder = await f.folder(join(f.home, 'reading'), readingApp);
-	const client = connect('reading', { url: `${f.base}/` });
-	expect(await client.call<number>('week show')).toBe(210);
+	const client = connect<Reading>('reading', { url: `${f.base}/` });
+	expect(await client.week.show()).toBe(210);
 	expect(await gitIn(folder, 'rev-list', '--count', 'HEAD')).toBe('1');
-	await expect(client.call('explode')).rejects.toThrow(
-		'line 4 is not a number',
-	);
+	await expect(client.explode()).rejects.toThrow('line 4 is not a number');
 	expect(await gitIn(folder, 'rev-list', '--count', 'HEAD')).toBe('1');
 });
 
 test('concurrent writes run one at a time and make one commit each', async () => {
 	const f = await setup();
 	const folder = await f.folder(join(f.home, 'reading'), readingApp);
-	const client = connect('reading', { url: `${f.base}/` });
-	await Promise.all([
-		client.call('log', { minutes: 10 }),
-		client.call('log', { minutes: 20 }),
-	]);
+	const client = connect<Reading>('reading', { url: `${f.base}/` });
+	await Promise.all([client.log({ minutes: 10 }), client.log({ minutes: 20 })]);
 	expect(await gitIn(folder, 'rev-list', '--count', 'HEAD')).toBe('3');
 	expect(
 		(await gitIn(folder, 'log', '-2', '--format=%s')).split('\n').sort(),
@@ -168,7 +177,7 @@ test('a successful write pushes to an upstream in the background', async () => {
 	await gitIn(f.root, 'init', '--bare', '-q', remote);
 	await gitIn(folder, 'remote', 'add', 'origin', remote);
 	await gitIn(folder, 'push', '-q', '-u', 'origin', 'HEAD');
-	await connect('reading', { url: `${f.base}/` }).call('log', {
+	await connect<Reading>('reading', { url: `${f.base}/` }).log({
 		minutes: 42,
 	});
 	let subject = '';
@@ -184,13 +193,16 @@ test('commit subjects use the first positional value on one line, capped at 60 c
 	const f = await setup();
 	const folder = await f.app(
 		'notes',
-		`export default defineApp(declaration, { actions: {
-		add: { description: 'Add a note', input: { text: field.text() }, positional: ['text'],
-			run: async ({ text }, { folder }) => { await folder.write('note.txt', text); return text; } },
+		`export default defineApp({ description: 'The notes app', actions: {
+		add: defineAction({ description: 'Add a note', input: { text: field.text() }, positional: ['text'],
+			run: async ({ text }) => { await folder.write('note.txt', text); return text; } }),
 	} });`,
 	);
 	const text = `Fear is the mind-killer ${'x'.repeat(80)}\nsecond line`;
-	await connect('notes', { url: `${f.base}/` }).call('add', { text });
+	await connect<{ actions: { add: (input: { text: string }) => string } }>(
+		'notes',
+		{ url: `${f.base}/` },
+	).add({ text });
 	expect(await gitIn(folder, 'log', '-1', '--format=%B')).toBe(
 		`notes: add ${text.replace(/\s+/g, ' ').slice(0, 60)}`,
 	);
@@ -211,12 +223,13 @@ test('a built UI serves files and refuses traversal and symlinks outside it', as
 		'export {};',
 	);
 	await symlink(
-		join(folder, 'epicenter.json'),
-		join(folder, '.cache', 'ui', 'outside.json'),
+		join(folder, 'epicenter.ts'),
+		join(folder, '.cache', 'ui', 'outside.ts'),
 	);
-	const linked = await f.folder(join(f.home, 'linked'), {
-		'epicenter.json': JSON.stringify({ description: 'Linked UI' }),
-	});
+	const linked = await f.app(
+		'linked',
+		`export default defineApp({ description: 'Linked UI' });\n`,
+	);
 	const outsideUi = join(f.root, 'outside-ui');
 	await mkdir(outsideUi);
 	await writeFile(join(outsideUi, 'index.html'), 'outside');
@@ -243,10 +256,10 @@ test('a built UI serves files and refuses traversal and symlinks outside it', as
 		),
 	).toBe('public, max-age=31536000, immutable');
 	for (const path of [
-		'../epicenter.json',
-		'%2e%2e/epicenter.json',
-		'%2e%2e%2fepicenter.json',
-		'outside.json',
+		'../epicenter.ts',
+		'%2e%2e/epicenter.ts',
+		'%2e%2e%2fepicenter.ts',
+		'outside.ts',
 	])
 		expect((await fetch(`${f.base}/reading/${path}`)).status).toBe(404);
 	expect((await fetch(`${f.base}/unknown`)).status).toBe(404);

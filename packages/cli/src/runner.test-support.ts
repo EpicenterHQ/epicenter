@@ -71,14 +71,13 @@ export async function fixture() {
 	}
 
 	/**
-	 * An app at `parent/entry`: an `epicenter.json`, and an `epicenter.ts` of
-	 * `source` with the declaration, `defineApp`, and `field` imported.
+	 * An app at `parent/entry`: a `.gitignore`, and an `epicenter.ts` of
+	 * `source` after an import of everything an app defines itself with.
 	 */
 	async function app(entry: string, source: string, parent = home) {
 		return folder(join(parent, entry), {
 			'.gitignore': gitignore,
-			'epicenter.json': declarationOf(entry),
-			'epicenter.ts': `import declaration from './epicenter.json';\nimport { defineApp, field } from '@epicenter/app';\n${source}`,
+			'epicenter.ts': `${header}${source}`,
 		});
 	}
 
@@ -103,86 +102,75 @@ export async function fixture() {
 /** The ignore file every test app carries, as `epicenter new` writes it. */
 export const gitignore = 'node_modules/\n.cache/\n*.local\n*.local.*\n';
 
-/** Reading, as an app with both declaration files. */
+/** The import every test app's `epicenter.ts` starts with. */
+export const header = `import { defineAction, defineApp, defineCollection, field, folder, secrets } from '@epicenter/app';\n`;
+
+/** The `epicenter.ts` of an app with only a description that names it. */
+export function bareApp(name: string) {
+	return `${header}export default defineApp({ description: 'The ${name} app' });\n`;
+}
+
+/** Reading, as an app's files: a books collection and actions that write a CSV. */
 export const readingApp = {
 	'.gitignore': gitignore,
-	'epicenter.json': `${JSON.stringify(
-		{
-			$schema: 'https://epicenter.so/epicenter.schema.json',
-			description: 'How much I read each week',
-			collections: {
-				books: {
-					path: 'books/{slug}.md',
-					fields: {
-						type: 'object',
-						properties: { title: { type: 'string' } },
-						required: ['title'],
-					},
-				},
-			},
-		},
-		null,
-		2,
-	)}\n`,
-	'epicenter.ts': `import declaration from './epicenter.json';
-import { defineApp, field } from '@epicenter/app';
+	'epicenter.ts': `${header}
+const books = defineCollection({ path: 'books/{slug}.md', fields: { title: field.text() } });
 
-export default defineApp(declaration, {
+export default defineApp({
+	description: 'How much I read each week',
+	collections: { books },
 	actions: {
-		log: {
+		books: books.actions(),
+		log: defineAction({
 			description: 'Record minutes read today',
 			input: { minutes: field.number(), book: field.text({ optional: true }) },
 			positional: ['minutes'],
-			run: async ({ minutes, book }, { folder }) => {
+			run: async ({ minutes, book }) => {
 				const before = (await folder.read('2026.csv')) ?? 'minutes,book\\n';
 				await folder.write('2026.csv', \`\${before}\${minutes},\${book ?? ''}\\n\`);
 				return { minutes, book: book ?? null };
 			},
-		},
-		between: {
+		}),
+		between: defineAction({
 			description: 'Minutes read between two days',
 			input: { from: field.date(), to: field.date() },
 			positional: ['from', 'to'],
 			annotations: { readOnlyHint: true },
 			run: ({ from, to }) => ({ from, to }),
+		}),
+		week: {
+			show: defineAction({
+				description: 'Minutes read this week',
+				input: {},
+				annotations: { readOnlyHint: true, openWorldHint: false },
+				run: () => 210,
+			}),
 		},
-		'week show': {
-			description: 'Minutes read this week',
-			input: {},
-			annotations: { readOnlyHint: true, openWorldHint: false },
-			run: () => 210,
-		},
-		explode: {
+		explode: defineAction({
 			description: 'Write, then throw',
 			input: {},
-			run: async (_, { folder }) => {
+			run: async () => {
 				await folder.write('2026.csv', 'minutes,book\\n1,\\n');
 				throw new Error('line 4 is not a number');
 			},
-		},
+		}),
 	},
 });
 `,
 };
 
-/** An epicenter.json with only a description that names the app. */
-export function declarationOf(
-	name: string,
-	extra: Record<string, unknown> = {},
-) {
-	return `${JSON.stringify({ description: `The ${name} app`, ...extra }, null, 2)}\n`;
-}
-
-export const reading = `export default defineApp(declaration, { actions: {
-	log: { description: 'Record reading', input: { minutes: field.number(), book: field.text({optional:true}) }, positional: ['minutes'], run: async (input, {folder}) => { await folder.write('records/log.json', JSON.stringify(input)); return input; } },
-	'week summary': { description: 'Weekly minutes', input: {}, annotations: { readOnlyHint: true }, run: () => ({minutes:210}) },
-	tag: { description:'Tag records', input: { tags: field.tags(), done: field.boolean() }, run: (input) => input },
-	collect: { description:'Collect tags', input: { tags: field.tags() }, positional: ['tags'], run: (input) => input },
-	inspect: { description:'Inspect the context', input:{}, run: async (_, {folder,secrets}) => { await folder.write('.cache/index.json', '{}'); await secrets.set('token','round trip'); return {folder:folder.path,token:await secrets.get('token'),seed:await secrets.get('seed'),foreign:await secrets.get('foreign') ?? null}; } },
-	explode: { description:'Throw an error', input:{}, run: () => {throw new Error('action exploded');} },
+/** The source of an app with many kinds of input, for `fixture().app`. */
+export const reading = `export default defineApp({ description: 'The reading app', actions: {
+	log: defineAction({ description: 'Record reading', input: { minutes: field.number(), book: field.text({optional:true}) }, positional: ['minutes'], run: async (input) => { await folder.write('records/log.json', JSON.stringify(input)); return input; } }),
+	week: { summary: defineAction({ description: 'Weekly minutes', input: {}, annotations: { readOnlyHint: true }, run: () => ({minutes:210}) }) },
+	tag: defineAction({ description:'Tag records', input: { tags: field.tags(), done: field.boolean() }, run: (input) => input }),
+	collect: defineAction({ description:'Collect tags', input: { tags: field.tags() }, positional: ['tags'], run: (input) => input }),
+	inspect: defineAction({ description:'Inspect the context', input:{}, run: async () => { await folder.write('.cache/index.json', '{}'); await secrets.set('token','round trip'); return {folder:folder.path,token:await secrets.get('token'),seed:await secrets.get('seed'),foreign:await secrets.get('foreign') ?? null}; } }),
+	explode: defineAction({ description:'Throw an error', input:{}, run: () => {throw new Error('action exploded');} }),
 } });`;
 
-export const vault = `export default defineApp(declaration, { actions: {
-	'calendar show': {description:'Show a day',annotations:{readOnlyHint:true,destructiveHint:false},input:{day:field.date()},positional:['day'],run:({day})=>({day})},
-	'calendar add': {description:'Add a day',input:{day:field.date()},positional:['day'],run:({day})=>({day})},
-} });`;
+/** The source of an app whose actions share the word `calendar`. */
+export const vault = `export default defineApp({ description: 'The vault app', actions: { calendar: {
+	show: defineAction({description:'Show a day',annotations:{readOnlyHint:true,destructiveHint:false},input:{day:field.date()},positional:['day'],run:({day})=>({day})}),
+	add: defineAction({description:'Add a day',input:{day:field.date()},positional:['day'],run:({day})=>({day})}),
+} } });`;

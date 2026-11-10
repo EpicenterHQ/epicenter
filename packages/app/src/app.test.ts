@@ -1,45 +1,44 @@
 import { describe, expect, test } from 'bun:test';
-import { join } from 'node:path';
 import {
 	createMemoryContext,
-	declarationJsonSchema,
+	defineAction,
 	defineApp,
+	defineCollection,
 	field,
+	folder,
+	inRun,
+	isApp,
 	normalizePath,
-	problemsOf,
 } from './index.ts';
 
-const declaration = {
-	description: 'How much I read each week',
-	collections: {
-		books: {
-			path: 'books/{slug}.md',
-			fields: { type: 'object', properties: { title: { type: 'string' } } },
-		},
-	},
-};
+const books = defineCollection({
+	path: 'books/{slug}.md',
+	fields: { title: field.text() },
+});
 
-const reading = defineApp(declaration, {
-	actions: {
-		log: {
-			description: 'Record minutes read today',
-			input: { minutes: field.number() },
-			positional: ['minutes'],
-			run: async ({ minutes }, { folder }) => {
-				const before = (await folder.read('2026.csv')) ?? 'minutes\n';
-				await folder.write('2026.csv', `${before}${minutes}\n`);
-				return { minutes };
-			},
-		},
+const log = defineAction({
+	description: 'Record minutes read today',
+	input: { minutes: field.number() },
+	positional: ['minutes'],
+	run: async ({ minutes }) => {
+		const before = (await folder.read('2026.csv')) ?? 'minutes\n';
+		await folder.write('2026.csv', `${before}${minutes}\n`);
+		return { minutes };
 	},
+});
+
+const reading = defineApp({
+	description: 'How much I read each week',
+	collections: { books },
+	actions: { books: books.actions(), log },
 });
 
 describe('createMemoryContext', () => {
 	test('an action runs against a folder in memory', async () => {
 		const context = createMemoryContext({ '2026.csv': 'minutes\n10\n' });
-		expect(await reading.actions.log.run({ minutes: 30 }, context)).toEqual({
-			minutes: 30,
-		});
+		expect(
+			await inRun(context, () => reading.actions.log({ minutes: 30 })),
+		).toEqual({ minutes: 30 });
 		expect(await context.folder.read('2026.csv')).toBe('minutes\n10\n30\n');
 		expect(await context.folder.list()).toEqual(['2026.csv']);
 	});
@@ -50,6 +49,12 @@ describe('createMemoryContext', () => {
 		expect(await folder.list('a')).toEqual(['a/b.md']);
 		await folder.delete('a/b.md');
 		expect(await folder.list()).toEqual([]);
+	});
+
+	test('the ambient folder is read only inside a run', () => {
+		expect(() => folder.read('2026.csv')).toThrow(
+			"An app's collections, folder, and secrets are read only inside an action's run",
+		);
 	});
 });
 
@@ -66,156 +71,190 @@ describe('normalizePath', () => {
 	);
 });
 
-describe('problemsOf', () => {
-	test('a declaration alone, and a declaration with its code, have none', () => {
-		expect(problemsOf(declaration)).toEqual([]);
-		expect(problemsOf(declaration, reading)).toEqual([]);
-	});
+const noop = defineAction({ description: 'n', input: {}, run() {} });
 
-	test('names what the declaration schema refuses, by JSON pointer', () => {
-		expect(
-			problemsOf({
-				collections: { books: { path: '/abs/{a}/{b}.md', fields: {} } },
-				extra: true,
-			}),
-		).toEqual([
-			'epicenter.json at / must have required properties description',
-			'epicenter.json at / has "extra", which a declaration does not take',
-			'epicenter.json at /collections/books/path is not a path inside the folder with at most one placeholder, such as words/{stem}.md',
-			'epicenter.json at /collections/books/fields must have required properties type',
+/** What `make` throws, one problem a line. */
+function problems(make: () => unknown): string[] {
+	try {
+		make();
+	} catch (error) {
+		return (error as Error).message.split('\n');
+	}
+	return [];
+}
+
+describe('defineApp', () => {
+	test('returns what it was given, with its actions nested under their words', () => {
+		expect(isApp(reading)).toBe(true);
+		expect(reading.collections.books).toBe(books);
+		expect(reading.actions.log).toBe(log);
+		expect(Object.keys(reading.actions)).toEqual(['books', 'log']);
+		expect(Object.keys(reading.actions.books)).toEqual([
+			'list',
+			'get',
+			'add',
+			'set',
+			'edit',
+			'delete',
 		]);
 	});
 
-	test.each([
-		'../x.md',
-		'a/../{id}.md',
-		'./{id}.md',
-		'a//{id}.md',
-		'words/',
-		'{a}/{b}.md',
-	])('refuses the collection path %p', (path) => {
-		expect(
-			problemsOf({
-				description: 'Words',
-				collections: { words: { path, fields: { type: 'object' } } },
-			}),
-		).toEqual([
-			'epicenter.json at /collections/words/path is not a path inside the folder with at most one placeholder, such as words/{stem}.md',
-		]);
-	});
-
-	test('names code that is missing, and collections that share a path, without code', () => {
-		const vocab = {
-			description: 'Words',
-			collections: {
-				words: { path: 'words/{stem}.md', fields: { type: 'object' } },
+	test('an action that calls another stays in the same run', async () => {
+		const twice = defineAction({
+			description: 'Log twice',
+			input: { minutes: field.number() },
+			run: async ({ minutes }) => {
+				await log({ minutes });
+				return log({ minutes });
 			},
-		};
-		expect(problemsOf(vocab, null)).toEqual([
-			'epicenter.ts does not export defineApp(...) by default',
-		]);
-		expect(
-			problemsOf({
-				...vocab,
-				collections: {
-					...vocab.collections,
-					quizzes: { path: 'words/{stem}.md', fields: { type: 'object' } },
-				},
-			}),
-		).toEqual([
-			'collections "words" and "quizzes" share the path words/{stem}.md',
+		});
+		const context = createMemoryContext();
+		await inRun(context, () => twice({ minutes: 5 }));
+		expect(await context.folder.read('2026.csv')).toBe('minutes\n5\n5\n');
+	});
+
+	test('needs a description', () => {
+		expect(problems(() => defineApp({ description: ' ' }))).toEqual([
+			'An app needs a description',
 		]);
 	});
 
-	test('names each problem in the code', () => {
-		const problems = problemsOf(
-			{
-				description: 'Bad',
-				collections: {
-					words: { path: 'words/{stem}.md', fields: { type: 'object' } },
-					settings: { path: 'settings.md', fields: { type: 'object' } },
-				},
-			},
-			{
-				actions: {
-					calendar: { description: 'c', input: {}, readonly: true, run() {} },
-					'calendar show': {
-						description: 'Show',
-						input: {
-							a: field.text(),
-							b: field.tags(),
-							json: field.boolean(),
-							// Not reserved: `--version` is read only on its own.
-							version: field.text(),
-						},
-						positional: ['b', 'a', 'a', 'nope'],
-						annotations: { readOnlyHint: true, dangerous: true },
-						run() {},
+	test('names collections that would hold the same file', () => {
+		const at = (path: string) => defineCollection({ path, fields: {} });
+		expect(
+			problems(() =>
+				defineApp({
+					description: 'Clash',
+					collections: {
+						words: at('words/{word}.md'),
+						quizzes: at('words/{word}.md'),
+						pinned: at('words/pinned.md'),
 					},
-					'words set': { description: 'Mine', input: {}, run() {} },
-					settings: { description: 'Settings', input: {}, run() {} },
-					'Bad Name': { description: 'b', input: {}, run() {} },
-				},
-			},
-		);
-		expect(problems).toEqual([
-			'action "calendar" is the start of action "calendar show", so "calendar show" could not be told apart',
-			'action "calendar" has "readonly", which an action does not take',
-			'action "calendar show" has the annotation "dangerous", which MCP does not define',
-			'action "calendar show" has a field named "json", which epicenter reads itself',
-			'action "calendar show" has the list "b" as a positional before the last, so the ones after it could never be given',
-			'action "calendar show" lists the positional "a" twice',
-			'action "calendar show" has the positional "nope", which is not one of its fields',
-			'action "settings" is the start of action "settings get", so "settings get" could not be told apart',
-			'action "Bad Name" is not words of lowercase letters, digits, and dashes, one space apart',
-		]);
-	});
-
-	test('an old declaration with a name is told where the name went', () => {
-		expect(problemsOf({ name: 'vocab', description: 'Words' })).toEqual([
-			'epicenter.json has "name", which a declaration does not take: an app\'s name is its folder\'s',
-		]);
-	});
-
-	test('names collections whose files or fields a collection cannot hold', () => {
-		expect(
-			problemsOf({
-				description: 'Bad',
-				collections: {
-					photos: { path: 'photos/{id}.jpg', fields: { type: 'object' } },
-					words: {
-						path: 'words/{stem}.md',
-						fields: {
-							type: 'object',
-							properties: {
-								stem: { type: 'string' },
-								body: { type: 'string' },
-								json: { type: 'string' },
-								'two words': { type: 'string' },
-							},
-						},
-					},
-				},
-			}),
+				}),
+			),
 		).toEqual([
-			'collection "photos" has the path photos/{id}.jpg, which is not .md',
-			'collection "words" has a field "stem", which its path gives as {stem}; the file\'s name holds it',
-			'collection "words" has a field "body", which is the text after the front matter',
-			'collection "words" has a field "two words", which a front matter line cannot name',
-			'action "words set" has a field named "json", which epicenter reads itself',
+			'collections "words" and "quizzes" would both hold words/{word}.md',
+			'collections "words" and "pinned" would both hold words/pinned.md',
+			'collections "quizzes" and "pinned" would both hold words/pinned.md',
 		]);
 	});
 
-	test('code that is not defineApp(...)', () => {
-		expect(problemsOf(declaration, undefined)).toEqual([]);
-		expect(problemsOf(declaration, null)).toEqual([
-			'epicenter.ts does not export defineApp(...) by default',
+	test('names keys that cannot be words, and entries that are not actions', () => {
+		expect(
+			problems(() =>
+				defineApp({
+					description: 'Bad',
+					collections: { Books: books },
+					actions: {},
+				}),
+			),
+		).toEqual([
+			'collections has the key "Books", which is not lowercase letters, digits, and dashes, starting with a letter',
+		]);
+		expect(
+			problems(() =>
+				defineApp({
+					description: 'Bad',
+					actions: {
+						'Two Words': noop,
+						spread: { ...noop, description: 'Spread' },
+						plain: { description: 'p', input: {}, run() {} },
+						group: { five: 5 },
+					} as never,
+				}),
+			),
+		).toEqual([
+			'actions has the key "Two Words" at actions.Two Words, which is not lowercase letters, digits, and dashes, starting with a letter',
+			'actions.spread is not an action: make it with defineAction(...), and change one with defineAction({ ... }) rather than a spread, which drops the call',
+			'actions.plain is not an action: make it with defineAction(...), and change one with defineAction({ ... }) rather than a spread, which drops the call',
+			'actions.group.five is neither an action nor a group of them',
 		]);
 	});
 });
 
-test('epicenter.schema.json is the declaration schema; run `bun run schema` after changing it', async () => {
-	expect(
-		await Bun.file(join(import.meta.dir, '../epicenter.schema.json')).text(),
-	).toBe(declarationJsonSchema());
+describe('defineCollection', () => {
+	test.each([
+		['../x.md', '../x.md has a part that starts with "."'],
+		['./{id}.md', './{id}.md has a part that starts with "."'],
+		['a//{id}.md', 'a//{id}.md is not a relative path'],
+		['/abs/{id}.md', '/abs/{id}.md is not a relative path'],
+		['words/', 'words/ is not a .md path'],
+		['photos/{id}.jpg', 'photos/{id}.jpg is not a .md path'],
+		[
+			'words/{a}-{b}.md',
+			'words/{a}-{b}.md has two placeholders in "{a}-{b}.md", so a name could not be split between them',
+		],
+		['{a}/{a}.md', '{a}/{a}.md has {a} twice'],
+		[
+			'words/{a.md',
+			'words/{a.md has a brace that is not a placeholder such as {word}',
+		],
+	])('refuses the path %p', (path, problem) => {
+		expect(problems(() => defineCollection({ path, fields: {} }))).toEqual([
+			`The collection path ${problem}`,
+		]);
+	});
+
+	test('names fields a file cannot hold', () => {
+		expect(
+			problems(() =>
+				defineCollection({
+					path: 'words/{word}.md',
+					fields: {
+						word: field.text(),
+						body: field.text(),
+						path: field.text(),
+						json: field.text(),
+						'two words': field.text(),
+					},
+				}),
+			),
+		).toEqual([
+			'The collection at words/{word}.md has a field "word", which its path gives as {word}; the file\'s name holds it',
+			'The collection at words/{word}.md has a field "body", which is the file\'s text after its front matter',
+			'The collection at words/{word}.md has a field "path", which is the file\'s address',
+			'The collection at words/{word}.md has a field "json", which epicenter reads itself',
+			'The collection at words/{word}.md has a field "two words", which a front matter line cannot name',
+		]);
+	});
+
+	test('a collection in several places lists no one-file path', () => {
+		expect(
+			problems(() =>
+				defineCollection({ path: ['notes/{time}.md', 'inbox.md'], fields: {} }),
+			),
+		).toEqual([
+			'The collection at notes/{time}.md and inbox.md lists a path with no placeholder; a one-file collection has its path alone',
+		]);
+	});
+});
+
+describe('defineAction', () => {
+	test('names each problem its types cannot', () => {
+		expect(
+			problems(() =>
+				defineAction({
+					description: 'Show',
+					input: {
+						a: field.text(),
+						b: field.tags(),
+						json: field.boolean(),
+						// Not reserved: `--version` is read only on its own.
+						version: field.text(),
+					},
+					positional: ['b', 'a', 'a', 'nope' as 'a'],
+					annotations: { readOnlyHint: true, dangerous: true } as never,
+					readonly: true,
+					run() {},
+				} as never),
+			),
+		).toEqual([
+			'The action "Show" has "readonly", which an action does not take',
+			'The action "Show" has the annotation "dangerous", which MCP does not define',
+			'The action "Show" has a field named "json", which epicenter reads itself',
+			'The action "Show" has the list "b" as a positional before the last, so the ones after it could never be given',
+			'The action "Show" lists the positional "a" twice',
+			'The action "Show" has the positional "nope", which is not one of its fields',
+		]);
+	});
 });

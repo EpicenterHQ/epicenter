@@ -9,7 +9,7 @@
 	import * as Empty from '@epicenter/ui/empty';
 	import * as Item from '@epicenter/ui/item';
 	import { Skeleton } from '@epicenter/ui/skeleton';
-	import { captures } from '$lib/captures.svelte.js';
+	import { captures, idOf } from '$lib/captures.svelte.js';
 	import { byDay, instantOf } from '$lib/days.js';
 
 	const time = new Intl.DateTimeFormat(undefined, { timeStyle: 'short' });
@@ -61,14 +61,14 @@
 					{day.label}
 				</h2>
 				<Item.Group class="gap-0 has-data-[size=sm]:gap-0">
-					{#each day.rows as row (row.id)}
+					{#each day.rows as row (row.path)}
 						{@const at = instantOf(row.capturedAt)}
 						<Item.Root size="sm" class={['-mx-3 items-start', row.pending && 'opacity-60']}>
 							{#snippet child({ props })}
 								{#if row.pending}
 									<div {...props} aria-busy="true">{@render content()}</div>
 								{:else}
-									<a href="#/c/{row.id}" {...props}>{@render content()}</a>
+									<a href="#/c/{idOf(row.path)}" {...props}>{@render content()}</a>
 								{/if}
 							{/snippet}
 						</Item.Root>

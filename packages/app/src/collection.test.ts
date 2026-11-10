@@ -1,51 +1,87 @@
 import { describe, expect, test } from 'bun:test';
-import { allCollectionActions } from './collection.ts';
-import { collectionActions, createMemoryContext } from './index.ts';
+import { Type } from 'typebox';
+import {
+	createMemoryContext,
+	defineAction,
+	defineApp,
+	defineCollection,
+	field,
+	inRun,
+	isAction,
+} from './index.ts';
 
-const items = collectionActions('items', {
+const items = defineCollection({
 	path: 'items/{id}.md',
 	fields: {
-		type: 'object',
-		properties: {
-			kind: { type: 'string', enum: ['thought', 'link', 'quote'] },
-			url: { type: 'string', format: 'uri' },
-			added: { type: 'string', format: 'date' },
-			done: { type: 'boolean', default: false },
-		},
-		required: ['kind', 'added'],
+		kind: field.select(['thought', 'link', 'quote']),
+		url: Type.Optional(Type.String({ format: 'uri' })),
+		added: field.date(),
+		done: field.boolean(),
+		reviewed: field.date({ optional: true, readOnly: true }),
 	},
 });
 
-function run(
-	words: string,
-	input: object,
-	context: ReturnType<typeof createMemoryContext>,
-) {
-	const action = items[words];
-	if (!action) throw new Error(`no action ${words}`);
-	return action.run(input as never, context);
+const settings = defineCollection({
+	path: 'settings.md',
+	fields: {
+		dailyGoal: field.integer({ optional: true }),
+		voice: field.select(['female', 'male']),
+	},
+});
+
+const review = defineAction({
+	description: 'Mark an item reviewed',
+	input: { path: field.text() },
+	run: ({ path }) => items.set(path, { reviewed: '2026-11-10' }),
+});
+
+const app = defineApp({
+	description: 'Things',
+	collections: { items, settings },
+	actions: {
+		items: { ...items.actions(), review },
+		settings: settings.actions(),
+	},
+});
+
+type Context = ReturnType<typeof createMemoryContext>;
+
+/** Run the action at `words` as the runner does: by its words, with input it has not checked. */
+function run(words: string, input: object, context: Context): Promise<unknown> {
+	const action = words
+		.split(' ')
+		.reduce<unknown>((at, word) => (at as Record<string, unknown>)?.[word], app.actions);
+	if (!isAction(action)) throw new Error(`no action ${words}`);
+	return Promise.resolve(inRun(context, () => action(input)));
 }
 
-describe('a Markdown collection', () => {
-	test('gives list, get, set, and delete, reading by the key alone', () => {
-		expect(Object.keys(items)).toEqual([
-			'items list',
-			'items get',
-			'items set',
-			'items edit',
-			'items delete',
+describe('a collection of many files', () => {
+	test('gives six verbs, each addressed by path', () => {
+		expect(Object.keys(app.actions.items)).toEqual([
+			'list',
+			'get',
+			'add',
+			'set',
+			'edit',
+			'delete',
+			'review',
 		]);
-		expect(items['items get']?.positional).toEqual(['id']);
-		expect(items['items list']?.annotations).toEqual({
+		expect(Object.keys(app.actions.settings)).toEqual(['get', 'set', 'edit']);
+		expect(app.actions.items.get.positional).toEqual(['path']);
+		expect(app.actions.items.add.positional).toEqual(['id']);
+		expect(app.actions.items.list.annotations).toEqual({
 			readOnlyHint: true,
 			openWorldHint: false,
 		});
+		expect(app.actions.items.list.description).toBe(
+			'Every items/{id}.md file: its path and fields',
+		);
 	});
 
-	test('set makes a new file as key: <JSON> lines in declared order, with defaults', async () => {
+	test('add makes a file as key: <JSON> lines in declared order, with defaults and a body', async () => {
 		const context = createMemoryContext();
 		const made = await run(
-			'items set',
+			'items add',
 			{
 				id: 'dune',
 				added: '2026-11-09',
@@ -58,20 +94,39 @@ describe('a Markdown collection', () => {
 			'---\nkind: "quote"\nadded: "2026-11-09"\ndone: false\n---\nFear is the mind-killer.\n',
 		);
 		expect(made).toEqual({
+			path: 'items/dune.md',
 			kind: 'quote',
 			added: '2026-11-09',
 			done: false,
-			id: 'dune',
 			body: 'Fear is the mind-killer.\n',
 		});
 	});
 
-	test('set refuses a new file without its required fields, and writes nothing', async () => {
-		const context = createMemoryContext();
+	test('add refuses a file already there, and one without its required fields', async () => {
+		const text = '---\nkind: "thought"\nadded: "2026-11-01"\n---\nKept.\n';
+		const context = createMemoryContext({ 'items/a.md': text });
 		expect(
-			run('items set', { id: 'dune', kind: 'quote' }, context),
-		).rejects.toThrow('A new items/dune.md needs added');
-		expect(await context.folder.list()).toEqual([]);
+			run('items add', { id: 'a', kind: 'quote', added: '2026-11-02' }, context),
+		).rejects.toThrow('items/a.md is already there');
+		expect(
+			run('items add', { id: 'b', kind: 'quote' }, context),
+		).rejects.toThrow('A new items/b.md needs added');
+		expect(await context.folder.list()).toEqual(['items/a.md']);
+		expect(await context.folder.read('items/a.md')).toBe(text);
+	});
+
+	test('add names a file by the time when its path holds {time}', async () => {
+		const notes = defineCollection({
+			path: 'notes/{year}/{time}.md',
+			fields: { title: field.text() },
+		});
+		const { add } = notes.actions('add');
+		const context = createMemoryContext();
+		const made = await inRun(context, () => add({ year: '2026', title: 'A' }));
+		expect(made.path).toMatch(/^notes\/2026\/\d{4}-\d\d-\d\dT[\d-]+Z-[a-z0-9]{8}\.md$/);
+		expect(
+			inRun(context, () => add({ year: '../x', title: 'A' })),
+		).rejects.toThrow('cannot name a file');
 	});
 
 	test('set changes only the lines it is given, keeping the rest byte for byte', async () => {
@@ -80,7 +135,7 @@ describe('a Markdown collection', () => {
 		const context = createMemoryContext({ 'items/a.md': text });
 		await run(
 			'items set',
-			{ id: 'a', kind: 'link', url: 'https://example.com' },
+			{ path: 'items/a.md', kind: 'link', url: 'https://example.com' },
 			context,
 		);
 		expect(await context.folder.read('items/a.md')).toBe(
@@ -88,7 +143,7 @@ describe('a Markdown collection', () => {
 		);
 		await run(
 			'items edit',
-			{ id: 'a', old: '\nKeep me.\n', new: 'New.\n' },
+			{ path: 'items/a.md', old: '\nKeep me.\n', new: 'New.\n' },
 			context,
 		);
 		expect(await context.folder.read('items/a.md')).toBe(
@@ -96,15 +151,74 @@ describe('a Markdown collection', () => {
 		);
 	});
 
-	test('set gives a body only to a new file, so a body read earlier never undoes a later change', async () => {
-		const text = '---\nkind: "thought"\nadded: "2026-11-01"\n---\nKept.\n';
-		const context = createMemoryContext({ 'items/a.md': text });
+	test('set changes a file that is there and refuses one that is not', async () => {
+		const context = createMemoryContext();
 		expect(
-			run('items set', { id: 'a', body: 'Stale.\n' }, context),
-		).rejects.toThrow(
-			'items/a.md already has a body, which set does not replace',
+			run('items set', { path: 'items/nope.md', kind: 'link' }, context),
+		).rejects.toThrow('There is no items/nope.md');
+		expect(await context.folder.list()).toEqual([]);
+	});
+
+	test('set removes a field given as null, and takes null only for one a file may go without', async () => {
+		const context = createMemoryContext({
+			'items/a.md':
+				'---\nkind: "link"\nurl: "https://example.com"\nadded: "2026-11-01"\n---\nKeep me.\n',
+		});
+		await run('items set', { path: 'items/a.md', url: null }, context);
+		expect(await context.folder.read('items/a.md')).toBe(
+			'---\nkind: "link"\nadded: "2026-11-01"\n---\nKeep me.\n',
+		);
+		expect(
+			run('items set', { path: 'items/a.md', kind: null }, context),
+		).rejects.toThrow('kind is required, so it cannot be removed');
+		const input = app.actions.items.set.input as Record<
+			string,
+			{ anyOf?: { type?: string }[] }
+		>;
+		const takesNull = (key: string) =>
+			input[key]?.anyOf?.some((choice) => choice.type === 'null') ?? false;
+		expect(takesNull('url')).toBe(true);
+		expect(takesNull('done')).toBe(true);
+		expect(takesNull('kind')).toBe(false);
+	});
+
+	test('set given nothing refuses, and writes nothing', async () => {
+		const text = '---\nkind: "thought"\n---\nKeep me.\n';
+		const context = createMemoryContext({ 'items/a.md': text });
+		expect(run('items set', { path: 'items/a.md' }, context)).rejects.toThrow(
+			'Nothing to set in items/a.md: give a field',
 		);
 		expect(await context.folder.read('items/a.md')).toBe(text);
+	});
+
+	test("a readOnly field is left out of add and set, and written by the app's own action", async () => {
+		expect(Object.keys(app.actions.items.set.input)).not.toContain(
+			'reviewed',
+		);
+		expect(Object.keys(app.actions.items.add.input)).not.toContain(
+			'reviewed',
+		);
+		const text = '---\nkind: "thought"\nadded: "2026-11-01"\n---\n';
+		const context = createMemoryContext({ 'items/a.md': text });
+		expect(
+			run('items set', { path: 'items/a.md', reviewed: '2026-11-10' }, context),
+		).rejects.toThrow("reviewed is written only by the app's own actions");
+		await run('items review', { path: 'items/a.md' }, context);
+		expect(await context.folder.read('items/a.md')).toBe(
+			'---\nkind: "thought"\nadded: "2026-11-01"\nreviewed: "2026-11-10"\n---\n',
+		);
+	});
+
+	test('a path that is not one of its files is refused, naming its path', async () => {
+		const context = createMemoryContext({
+			'settings.md': '---\nvoice: "female"\n---\n',
+		});
+		expect(
+			run('items set', { path: 'settings.md', kind: 'link' }, context),
+		).rejects.toThrow('settings.md is not a file at items/{id}.md');
+		expect(
+			run('items get', { path: 'elsewhere/a.md' }, context),
+		).rejects.toThrow('elsewhere/a.md is not a file at items/{id}.md');
 	});
 
 	test('edit replaces one quoted passage of the body, and refuses one it cannot find exactly once', async () => {
@@ -112,33 +226,25 @@ describe('a Markdown collection', () => {
 			'items/a.md':
 				'---\nkind: "thought"\nadded: "2026-11-01"\n---\nWater the plant.\nWater the cat.\n',
 		});
-		const edited = await run(
-			'items edit',
-			{ id: 'a', old: 'the plant', new: 'both plants' },
-			context,
-		);
-		expect(edited).toMatchObject({
-			kind: 'thought',
-			body: 'Water both plants.\nWater the cat.\n',
-		});
+		const at = { path: 'items/a.md' };
 		expect(
-			run('items edit', { id: 'a', old: 'the plant', new: 'x' }, context),
+			await run('items edit', { ...at, old: 'the plant', new: 'both plants' }, context),
+		).toMatchObject({ kind: 'thought', body: 'Water both plants.\nWater the cat.\n' });
+		expect(
+			run('items edit', { ...at, old: 'the plant', new: 'x' }, context),
 		).rejects.toMatchObject({
 			name: 'Changed',
 			message: expect.stringContaining('does not have that text'),
 		});
 		expect(
-			run('items edit', { id: 'a', old: 'Water', new: 'Feed' }, context),
+			run('items edit', { ...at, old: 'Water', new: 'Feed' }, context),
 		).rejects.toThrow('more than once');
 		expect(
-			run('items edit', { id: 'a', old: '', new: 'x' }, context),
+			run('items edit', { ...at, old: '', new: 'x' }, context),
 		).rejects.toMatchObject({ name: 'Changed' });
 		expect(
-			run('items edit', { id: 'nope', old: 'a', new: 'b' }, context),
+			run('items edit', { path: 'items/nope.md', old: 'a', new: 'b' }, context),
 		).rejects.toThrow('There is no items/nope.md');
-		expect(await context.folder.read('items/a.md')).toBe(
-			'---\nkind: "thought"\nadded: "2026-11-01"\n---\nWater both plants.\nWater the cat.\n',
-		);
 	});
 
 	test('edit with an empty old fills an empty body, in YAML front matter too', async () => {
@@ -147,7 +253,7 @@ describe('a Markdown collection', () => {
 		});
 		await run(
 			'items edit',
-			{ id: 'a', old: '', new: 'First words.\n' },
+			{ path: 'items/a.md', old: '', new: 'First words.\n' },
 			context,
 		);
 		expect(await context.folder.read('items/a.md')).toBe(
@@ -155,43 +261,19 @@ describe('a Markdown collection', () => {
 		);
 	});
 
-	test('set removes a field given as null, as JSON Merge Patch does', async () => {
-		const context = createMemoryContext({
-			'items/a.md':
-				'---\nkind: "link"\nurl: "https://example.com"\nadded: "2026-11-01"\n---\nKeep me.\n',
-		});
-		await run('items set', { id: 'a', url: null }, context);
-		expect(await context.folder.read('items/a.md')).toBe(
-			'---\nkind: "link"\nadded: "2026-11-01"\n---\nKeep me.\n',
-		);
-	});
-
-	test('set takes null only for a field a file may go without', () => {
-		const input = items['items set']?.input as Record<
-			string,
-			{ type?: string; anyOf?: { type?: string }[] }
-		>;
-		const takesNull = (key: string) =>
-			input[key]?.anyOf?.some((choice) => choice.type === 'null') ?? false;
-		expect(takesNull('url')).toBe(true);
-		expect(takesNull('done')).toBe(true);
-		expect(takesNull('kind')).toBe(false);
-		expect(takesNull('added')).toBe(false);
-	});
-
 	test('set rewrites YAML front matter as key: <JSON> lines and keeps the body', async () => {
 		const context = createMemoryContext({
 			'items/a.md':
 				'---\nkind: thought # a comment\nadded: 2026-11-01\ntags: [x, y]\n---\nBody\n',
 		});
-		expect(await run('items get', { id: 'a' }, context)).toEqual({
+		expect(await run('items get', { path: 'items/a.md' }, context)).toEqual({
+			path: 'items/a.md',
 			kind: 'thought',
 			added: '2026-11-01',
 			tags: ['x', 'y'],
-			id: 'a',
 			body: 'Body\n',
 		});
-		await run('items set', { id: 'a', kind: 'quote' }, context);
+		await run('items set', { path: 'items/a.md', kind: 'quote' }, context);
 		expect(await context.folder.read('items/a.md')).toBe(
 			'---\nkind: "quote"\nadded: "2026-11-01"\ntags: ["x", "y"]\n---\nBody\n',
 		);
@@ -199,11 +281,11 @@ describe('a Markdown collection', () => {
 
 	test('a file without front matter is all body, and set adds front matter above it', async () => {
 		const context = createMemoryContext({ 'items/a.md': '# Just text\n' });
-		expect(await run('items get', { id: 'a' }, context)).toEqual({
-			id: 'a',
+		expect(await run('items get', { path: 'items/a.md' }, context)).toEqual({
+			path: 'items/a.md',
 			body: '# Just text\n',
 		});
-		await run('items set', { id: 'a', kind: 'thought' }, context);
+		await run('items set', { path: 'items/a.md', kind: 'thought' }, context);
 		expect(await context.folder.read('items/a.md')).toBe(
 			'---\nkind: "thought"\n---\n# Just text\n',
 		);
@@ -212,34 +294,19 @@ describe('a Markdown collection', () => {
 	test('front matter that is neither grammar nor YAML is read as body, and set refuses it', async () => {
 		const text = '---\nkind: [unclosed\n---\nBody\n';
 		const context = createMemoryContext({ 'items/a.md': text });
-		expect(await run('items get', { id: 'a' }, context)).toEqual({
-			id: 'a',
+		expect(await run('items get', { path: 'items/a.md' }, context)).toEqual({
+			path: 'items/a.md',
 			body: text,
 		});
 		expect(
-			run('items set', { id: 'a', kind: 'quote' }, context),
+			run('items set', { path: 'items/a.md', kind: 'quote' }, context),
 		).rejects.toThrow(
 			'items/a.md has front matter that is neither key: <JSON> lines nor YAML; fix it by hand first',
 		);
 		expect(await context.folder.read('items/a.md')).toBe(text);
 	});
 
-	test('set given no field and no body refuses, and writes nothing', async () => {
-		const text = '---\nkind: "thought"\n---\nKeep me.\n';
-		const context = createMemoryContext({ 'items/a.md': text });
-		expect(run('items set', { id: 'a' }, context)).rejects.toThrow(
-			'Nothing to set in items/a.md: give a field, or the body',
-		);
-		expect(await context.folder.read('items/a.md')).toBe(text);
-	});
-
-	test('get names a missing file', async () => {
-		expect(
-			run('items get', { id: 'nope' }, createMemoryContext()),
-		).rejects.toThrow('There is no items/nope.md');
-	});
-
-	test('list reads every file the path matches, by key, without bodies', async () => {
+	test('list reads every file a template matches, with its path, without bodies', async () => {
 		const context = createMemoryContext({
 			'items/b.md': '---\nkind: "link"\n---\nB\n',
 			'items/a.md': 'no front matter\n',
@@ -249,76 +316,83 @@ describe('a Markdown collection', () => {
 			'other/d.md': '---\nkind: "x"\n---\n',
 		});
 		expect(await run('items list', {}, context)).toEqual([
-			{ id: 'a' },
-			{ kind: 'link', id: 'b' },
+			{ path: 'items/a.md' },
+			{ path: 'items/b.md', kind: 'link' },
 		]);
+	});
+
+	test('a collection in several places lists them all and adds to the first', async () => {
+		const entries = defineCollection({
+			path: ['entries/{time}.md', 'entries/archive/{slug}.md'],
+			fields: { text: field.text({ optional: true }) },
+		});
+		const context = createMemoryContext({
+			'entries/0lnc4n46f9.md': '---\ntext: "a"\n---\n',
+			'entries/archive/old.md': '---\ntext: "b"\n---\n',
+		});
+		const rows = await inRun(context, () => entries.list());
+		expect(rows.map((row) => row.path)).toEqual([
+			'entries/0lnc4n46f9.md',
+			'entries/archive/old.md',
+		]);
+		expect(entries.holds('entries/archive/old.md')).toBe(true);
+		expect(entries.holds('entries/archive/deeper/old.md')).toBe(false);
+		const { add } = entries.actions('add');
+		const made = await inRun(context, () => add({ text: 'c' }));
+		expect(made.path).toStartWith('entries/2');
+		expect(made.path.split('/')).toHaveLength(2);
 	});
 
 	test('delete answers whether a file was there', async () => {
 		const context = createMemoryContext({ 'items/a.md': 'A\n' });
-		expect(await run('items delete', { id: 'a' }, context)).toBe(true);
-		expect(await run('items delete', { id: 'a' }, context)).toBe(false);
+		expect(await run('items delete', { path: 'items/a.md' }, context)).toBe(true);
+		expect(await run('items delete', { path: 'items/a.md' }, context)).toBe(false);
 		expect(await context.folder.list()).toEqual([]);
 	});
 });
 
 describe('a collection of one file', () => {
-	test('a path with no placeholder gives get, set, and edit, merging its fields', async () => {
-		const settings = collectionActions('settings', {
+	test('reads as its defaults while there is none, and its first set makes it', async () => {
+		const context = createMemoryContext();
+		expect(await run('settings get', {}, context)).toEqual({
 			path: 'settings.md',
-			fields: {
-				type: 'object',
-				properties: { theme: { type: 'string' }, size: { type: 'number' } },
-			},
-		});
-		expect(Object.keys(settings)).toEqual([
-			'settings get',
-			'settings set',
-			'settings edit',
-		]);
-		const context = createMemoryContext({
-			'settings.md': '---\nsize: 12\nother: true\n---\n',
-		});
-		await settings['settings set']?.run({ theme: 'dark' } as never, context);
-		expect(await context.folder.read('settings.md')).toBe(
-			'---\nsize: 12\nother: true\ntheme: "dark"\n---\n',
-		);
-		expect(await settings['settings get']?.run({} as never, context)).toEqual({
-			size: 12,
-			other: true,
-			theme: 'dark',
 			body: '',
+		});
+		expect(run('settings set', { dailyGoal: 20 }, context)).rejects.toThrow(
+			'A new settings.md needs voice',
+		);
+		await run('settings set', { voice: 'female', dailyGoal: 20 }, context);
+		expect(await context.folder.read('settings.md')).toBe(
+			'---\ndailyGoal: 20\nvoice: "female"\n---\n',
+		);
+		await run('settings set', { dailyGoal: null }, context);
+		await run('settings edit', { old: '', new: 'Notes.\n' }, context);
+		expect(await run('settings get', {}, context)).toEqual({
+			path: 'settings.md',
+			voice: 'female',
+			body: 'Notes.\n',
 		});
 	});
 });
 
-describe("an app's collections", () => {
-	const notes = { path: 'notes/{id}.md', fields: { type: 'object' } } as const;
-	test('one collection gives its verbs to the app itself', () => {
-		expect(Object.keys(allCollectionActions({ notes }))).toEqual([
-			'list',
-			'get',
-			'set',
-			'edit',
-			'delete',
+describe('misfits', () => {
+	test('names each file whose fields do not fit, by path', async () => {
+		const context = createMemoryContext({
+			'items/a.md': '---\nkind: "thought"\nadded: "2026-11-01"\n---\n',
+			'items/b.md': '---\nkind: "song"\nadded: "2026-11-01"\n---\n',
+			'items/c.md': '---\nkind: "thought"\n---\n',
+		});
+		expect(await inRun(context, () => items.misfits())).toEqual([
+			'items/b.md: kind: must be equal to constant',
+			'items/c.md: needs added',
 		]);
 	});
-	test('several keep each verb under its collection', () => {
-		const links = {
-			path: 'links/{id}.md',
-			fields: { type: 'object' },
-		} as const;
-		expect(Object.keys(allCollectionActions({ notes, links }))).toEqual([
-			'notes list',
-			'notes get',
-			'notes set',
-			'notes edit',
-			'notes delete',
-			'links list',
-			'links get',
-			'links set',
-			'links edit',
-			'links delete',
-		]);
+});
+
+describe('outside a run', () => {
+	test('a collection throws rather than touch any folder', () => {
+		expect(items.list()).rejects.toThrow(
+			"An app's collections, folder, and secrets are read only inside an action's run",
+		);
 	});
 });

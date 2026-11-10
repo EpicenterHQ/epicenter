@@ -1,30 +1,68 @@
 import {
-	type Context,
-	collectionActions,
+	defineAction,
 	defineApp,
+	defineCollection,
 	field,
 } from '@epicenter/app';
-import declaration from './epicenter.json';
+
+const words = defineCollection({
+	path: 'words/{word}.md',
+	description: 'word I am learning',
+	fields: {
+		meaning: field.text({
+			optional: true,
+			description: 'What the word means: a translation or a short definition',
+		}),
+		reading: field.text({
+			optional: true,
+			description: 'How it is read or pronounced, such as pinyin, kana, or IPA',
+		}),
+		stage: field.select(['new', 'recognized', 'understood', 'usable'], {
+			optional: true,
+			description: 'How well I say I know it; only I set it',
+		}),
+		createdAt: field.datetime({
+			readOnly: true,
+			description: 'When it was added, RFC 3339 with an offset',
+		}),
+		due: field.datetime({
+			optional: true,
+			readOnly: true,
+			description:
+				'When it is next due for review; a word without one is new and due now',
+		}),
+		interval: field.number({
+			optional: true,
+			readOnly: true,
+			min: 0,
+			description: 'Days between the last review and the next (SM-2)',
+		}),
+		ease: field.number({
+			optional: true,
+			readOnly: true,
+			min: 1.3,
+			description:
+				'How fast the interval grows after a good review (SM-2), 2.5 to start',
+		}),
+		reps: field.integer({
+			optional: true,
+			readOnly: true,
+			min: 0,
+			description:
+				'Reviews in a row remembered since it was new or last forgotten',
+		}),
+	},
+});
+
+/** A row of `list`: a word's path and fields. */
+export type WordRow = Awaited<ReturnType<typeof words.list>>[number];
+
+/** A word as `get` reads it: its fields and its body, which holds examples and notes. */
+export type Word = NonNullable<Awaited<ReturnType<typeof words.get>>>;
 
 /** The four answers to "did I remember it?", as Anki names them. */
 export const GRADES = ['again', 'hard', 'good', 'easy'] as const;
 export type Grade = (typeof GRADES)[number];
-
-/** A row of `vocab list`: a word's fields; `word` is the file's name. */
-export type WordRow = {
-	word: string;
-	meaning?: string;
-	reading?: string;
-	stage?: 'new' | 'recognized' | 'understood' | 'usable';
-	createdAt: string;
-	due?: string;
-	interval?: number;
-	ease?: number;
-	reps?: number;
-};
-
-/** A word as `vocab get` reads it: its fields and its body, which holds examples and notes. */
-export type Word = WordRow & { body: string };
 
 /** What a review leaves in the word's scheduling fields. */
 export type Schedule = {
@@ -128,101 +166,96 @@ function fileWord(text: string): string {
 	return word;
 }
 
-const words = collectionActions('words', declaration.collections.words);
-
-function getWord(word: string, context: Context) {
-	return words['words get']!.run({ word }, context) as Promise<Word>;
-}
-
-function setWord(fields: Record<string, unknown>, context: Context) {
-	return words['words set']!.run(fields, context) as Promise<Word>;
-}
-
-export default defineApp(declaration, {
-	actions: {
-		add: {
-			description:
-				'Add a word to learn, due for review now: words/<word>.md with its meaning, reading, and examples. A word already saved is returned unchanged, with added false',
-			input: {
-				word: field.text({
-					description: 'The word or phrase, as written: 你好',
-				}),
-				meaning: field.text({ optional: true, description: 'What it means' }),
-				reading: field.text({
-					optional: true,
-					description:
-						'How it is read or pronounced, such as pinyin, kana, or IPA',
-				}),
-				body: field.text({
-					optional: true,
-					description: 'Examples and notes, one example per line',
-				}),
-			},
-			positional: ['word', 'meaning'],
-			annotations: {
-				destructiveHint: false,
-				idempotentHint: true,
-				openWorldHint: false,
-			},
-			async run({ word: text, meaning, reading, body }, context) {
-				const word = fileWord(text);
-				if ((await context.folder.read(`words/${word}.md`)) !== undefined)
-					return { ...(await getWord(word, context)), added: false };
-				const fields: Record<string, unknown> = {
-					word,
-					createdAt: localTime(new Date()),
-				};
-				if (meaning?.trim()) fields.meaning = meaning.trim();
-				if (reading?.trim()) fields.reading = reading.trim();
-				if (body?.trim()) fields.body = `${body.trim()}\n`;
-				return { ...(await setWord(fields, context)), added: true };
-			},
-		},
-		review: {
-			description:
-				'Grade how well I remembered a word (again, hard, good, easy) and schedule its next review by SM-2. Returns the new schedule, and when each grade would make it due if it were reviewed again now',
-			input: {
-				word: field.text({ description: 'The word, as its file is named' }),
-				grade: field.select(GRADES, {
-					description:
-						'again: forgot it; hard: barely; good: remembered; easy: instantly',
-				}),
-			},
-			positional: ['word', 'grade'],
-			annotations: { destructiveHint: false, openWorldHint: false },
-			async run({ word, grade }, context) {
-				const now = new Date();
-				const scheduled = schedule(await getWord(word, context), grade, now);
-				await setWord({ word, ...scheduled }, context);
-				return { word, grade, ...scheduled, next: nextFor(scheduled, now) };
-			},
-		},
-		due: {
-			description:
-				'The words due for review now, with their meanings, readings, and examples: words reviewed before first, the most overdue first, then new words, oldest first. Each says when every grade would make it due next',
-			input: {},
-			annotations: { readOnlyHint: true, openWorldHint: false },
-			async run(_, context) {
-				const now = new Date();
-				const rows = (await words['words list']!.run({}, context)) as WordRow[];
-				const order = (row: WordRow) =>
-					row.due === undefined
-						? [1, Date.parse(row.createdAt)]
-						: [0, Date.parse(row.due)];
-				const due = rows
-					.filter((row) => isDue(row, now))
-					.sort((a, b) => {
-						const [groupA = 0, timeA = 0] = order(a);
-						const [groupB = 0, timeB = 0] = order(b);
-						return groupA - groupB || timeA - timeB;
-					});
-				const found: DueWord[] = [];
-				for (const row of due) {
-					const word = await getWord(row.word, context);
-					found.push({ ...word, next: nextFor(word, now) });
-				}
-				return found;
-			},
-		},
+/** `add`: a word already saved is returned as it is, with `added: false`. */
+const learn = defineAction({
+	description:
+		'Add a word to learn, due for review now: words/<word>.md with its meaning, reading, and examples. A word already saved is returned unchanged, with added false',
+	input: {
+		word: field.text({ description: 'The word or phrase, as written: 你好' }),
+		meaning: field.text({ optional: true, description: 'What it means' }),
+		reading: field.text({
+			optional: true,
+			description: 'How it is read or pronounced, such as pinyin, kana, or IPA',
+		}),
+		body: field.text({
+			optional: true,
+			description: 'Examples and notes, one example per line',
+		}),
 	},
+	positional: ['word', 'meaning'],
+	annotations: {
+		destructiveHint: false,
+		idempotentHint: true,
+		openWorldHint: false,
+	},
+	run: async ({ word: text, meaning, reading, body }) => {
+		const word = fileWord(text);
+		const found = await words.get(`words/${word}.md`);
+		if (found) return { ...found, added: false };
+		const made = await words.add({
+			word,
+			createdAt: localTime(new Date()),
+			meaning: meaning?.trim() || undefined,
+			reading: reading?.trim() || undefined,
+			body: body?.trim() ? `${body.trim()}\n` : '',
+		});
+		return { ...made, added: true };
+	},
+});
+
+const review = defineAction({
+	description:
+		'Grade how well I remembered a word (again, hard, good, easy) and schedule its next review by SM-2. Returns the new schedule, and when each grade would make it due if it were reviewed again now',
+	input: {
+		path: field.text({ description: 'The word\'s file: words/你好.md' }),
+		grade: field.select(GRADES, {
+			description:
+				'again: forgot it; hard: barely; good: remembered; easy: instantly',
+		}),
+	},
+	positional: ['path', 'grade'],
+	annotations: { destructiveHint: false, openWorldHint: false },
+	run: async ({ path, grade }) => {
+		const word = await words.get(path);
+		if (!word) throw new Error(`There is no ${path}`);
+		const now = new Date();
+		const scheduled = schedule(word, grade, now);
+		await words.set(path, scheduled);
+		return { path, grade, ...scheduled, next: nextFor(scheduled, now) };
+	},
+});
+
+const due = defineAction({
+	description:
+		'The words due for review now, with their meanings, readings, and examples: words reviewed before first, the most overdue first, then new words, oldest first. Each says when every grade would make it due next',
+	input: {},
+	annotations: { readOnlyHint: true, openWorldHint: false },
+	run: async () => {
+		const now = new Date();
+		const order = (row: WordRow) =>
+			row.due === undefined
+				? [1, Date.parse(row.createdAt)]
+				: [0, Date.parse(row.due)];
+		const rows = (await words.list())
+			.filter((row) => isDue(row, now))
+			.sort((a, b) => {
+				const [groupA = 0, timeA = 0] = order(a);
+				const [groupB = 0, timeB = 0] = order(b);
+				return groupA - groupB || timeA - timeB;
+			});
+		const found: DueWord[] = [];
+		for (const row of rows) {
+			const word = await words.get(row.path);
+			if (word) found.push({ ...word, next: nextFor(word, now) });
+		}
+		return found;
+	},
+});
+
+export default defineApp({
+	description:
+		"Words I'm learning: a note per word, named by the word, with its meaning, its reading, examples in the body, and when to review it next",
+	collections: { words },
+	// One collection: its verbs are the app's own, `vocab add` rather than `vocab words add`.
+	actions: { ...words.actions(), add: learn, review, due },
 });

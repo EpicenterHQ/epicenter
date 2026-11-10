@@ -11,11 +11,11 @@
  */
 import { mkdir, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { nameProblem, SCHEMA_URL } from '@epicenter/app';
+import { basename, join } from 'node:path';
+import { nameProblem } from './commands.ts';
 import { CliError } from './errors.ts';
 import { checkedGit, git } from './git.ts';
-import { readDeclaration } from './home.ts';
+import { loadHomeApp } from './home.ts';
 import { epicenterDir, folderPath } from './root.ts';
 import { fail, made, presentAnswer } from './output.ts';
 import { buildUi } from './ui.ts';
@@ -28,17 +28,20 @@ function isUrl(source: string) {
 }
 
 /**
- * The built-in template: a declaration and what Git ignores. It routes
- * nothing through Git LFS; an app that comes to hold binary files adds its
- * own `.gitattributes` (ADR-0856).
+ * The built-in template: an app with no collections or actions yet, and what
+ * Git ignores. It routes nothing through Git LFS; an app that comes to hold
+ * binary files adds its own `.gitattributes` (ADR-0856).
  */
 function template(name: string) {
 	return {
-		'epicenter.json': `${JSON.stringify(
-			{ $schema: SCHEMA_URL, description: `Describe ${name}` },
-			null,
-			2,
-		)}\n`,
+		'epicenter.ts': `import { defineApp } from '@epicenter/app';
+
+export default defineApp({
+	description: 'Describe ${name}',
+	collections: {},
+	actions: {},
+});
+`,
 		'.gitignore': 'node_modules/\n.cache/\n*.local\n*.local.*\n',
 	};
 }
@@ -115,7 +118,7 @@ export async function newCommand(
  * Clone the starter `from` into `folder`, rename its remote to `upstream`,
  * and leave the branch tracking nothing, so no push ever reaches the starter.
  * A path must be a repository's root, since Git clones only whole
- * repositories; the clone must hold a valid `epicenter.json`.
+ * repositories; the clone must hold an `epicenter.ts` that loads.
  */
 async function cloneStarter(
 	from: string,
@@ -143,10 +146,12 @@ async function cloneStarter(
 	} catch (error) {
 		return { error: CliError.GitFailed({ cause: error }).error };
 	}
-	const read = await readDeclaration(folder);
-	if ('problems' in read)
+	const { data: located, error } = await loadHomeApp(basename(folder));
+	if (error) return { error };
+	if (!located.ok)
 		return {
-			error: CliError.AppProblems({ app: from, problems: read.problems }).error,
+			error: CliError.AppProblems({ app: from, problems: located.problems })
+				.error,
 		};
 	return { ok: true };
 }

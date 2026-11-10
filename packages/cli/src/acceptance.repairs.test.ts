@@ -10,9 +10,9 @@ import { join, resolve } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import {
-	declarationOf,
 	fixture,
 	gitignore,
+	header,
 	readingApp,
 } from './runner.test-support.ts';
 
@@ -28,46 +28,45 @@ afterEach(async () => {
 });
 
 /** An app whose actions each exercise one repair; signals pause an action at a known point. */
-const repairsCode = `import declaration from './epicenter.json';
-import { defineApp, field } from '@epicenter/app';
-
+const repairsCode = `${header}
 const until = async (path: string) => {
 	while (!(await Bun.file(path).exists())) await Bun.sleep(10);
 };
 
-export default defineApp(declaration, {
+export default defineApp({
+	description: 'The notes app',
 	actions: {
-		two: {
+		two: defineAction({
 			description: 'Write two files',
 			input: { text: field.text() },
 			positional: ['text'],
-			run: async ({ text }, { folder }) => {
+			run: async ({ text }) => {
 				await folder.write('a.md', text);
 				await folder.write('b.md', text);
 				return text;
 			},
-		},
-		orphan: {
+		}),
+		orphan: defineAction({
 			description: 'Leave the parent pid, wait for a signal, then write a.md',
 			input: { signals: field.text() },
-			run: async ({ signals }, { folder }) => {
+			run: async ({ signals }) => {
 				await Bun.write(signals + '/parent', String(process.ppid));
 				await until(signals + '/go');
 				await folder.write('a.md', 'finished without a parent');
 			},
-		},
-		flags: {
+		}),
+		flags: defineAction({
 			description: 'Report how this process was started',
 			input: {},
 			annotations: { readOnlyHint: true },
 			run: () => process.execArgv,
-		},
-		defaulted: {
+		}),
+		defaulted: defineAction({
 			description: 'Take a raw field with a default',
 			input: { count: { type: 'number', default: 3 } as never, day: field.date({ optional: true }) },
 			annotations: { readOnlyHint: true },
 			run: (input) => input,
-		},
+		}),
 	},
 });
 `;
@@ -75,7 +74,6 @@ export default defineApp(declaration, {
 const repairsApp = {
 	'.gitignore': gitignore,
 	'a.md': 'base a\n',
-	'epicenter.json': declarationOf('notes'),
 	'epicenter.ts': repairsCode,
 };
 
@@ -156,18 +154,14 @@ test('F7 over MCP a broken app loses only its tools, and a call is decoded from 
 	await notes(f);
 	await f.folder(join(f.home, 'broken'), {
 		'.gitignore': gitignore,
-		'epicenter.json': declarationOf('broken'),
 		'epicenter.ts': `import 'epicenter-acceptance-not-installed';\nexport default {};\n`,
 	});
-	await f.folder(join(f.home, 'loud'), {
-		'.gitignore': gitignore,
-		'epicenter.json': declarationOf('loud'),
-		'epicenter.ts': `import declaration from './epicenter.json';
-import { defineApp } from '@epicenter/app';
-console.log('noise while importing');
-export default defineApp(declaration, { actions: { hello: { description: 'Say hello', input: {}, run: () => 'hello' } } });
+	await f.app(
+		'loud',
+		`console.log('noise while importing');
+export default defineApp({ description: 'The loud app', actions: { hello: defineAction({ description: 'Say hello', input: {}, run: () => 'hello' }) } });
 `,
-	});
+	);
 	const client = new Client({ name: 'acceptance', version: '1' });
 	try {
 		await client.connect(serve(f, ['--no-install']));
@@ -242,19 +236,16 @@ test('F9 one table owns the vocabulary; --json goes anywhere; defaulted fields a
 	);
 });
 
-test('F10 typing waits for its first consumer: no epicenter types, no generated file, no declaration check', async () => {
+test('F10 typing waits for its first consumer: no epicenter types, no generated file', async () => {
 	const f = await setup();
 	expect((await f.run('new', 'garden')).code).toBe(0);
 	expect(await readFile(join(f.home, 'garden', '.gitignore'), 'utf8')).toBe(
 		gitignore,
 	);
-	await f.folder(join(f.home, 'other'), {
-		'.gitignore': gitignore,
-		'epicenter.json': declarationOf('other'),
-		'epicenter.ts': `import { defineApp } from '@epicenter/app';
-export default defineApp({ name: 'not-this', description: 'Another declaration' }, { actions: { hi: { description: 'Hi', input: {}, run: () => 'hi' } } });
-`,
-	});
+	await f.app(
+		'other',
+		`export default defineApp({ description: 'Another app', actions: { hi: defineAction({ description: 'Hi', input: {}, run: () => 'hi' }) } });\n`,
+	);
 	const listed = await f.json('other');
 	expect(listed.code).toBe(0);
 	expect(listed.report).not.toHaveProperty('notes');

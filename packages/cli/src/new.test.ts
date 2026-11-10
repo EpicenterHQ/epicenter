@@ -34,7 +34,7 @@ test('new commits its template and link is a valid app name', async () => {
 	expect((await f.run('new', 'garden')).code).toBe(0);
 	const garden = join(f.home, 'garden');
 	expect(await gitIn(garden, 'log', '--format=%s')).toBe('new garden');
-	expect(await gitIn(garden, 'ls-files')).toBe('.gitignore\nepicenter.json');
+	expect(await gitIn(garden, 'ls-files')).toBe('.gitignore\nepicenter.ts');
 	expect(await gitIn(garden, 'status', '--porcelain')).toBe('');
 
 	expect((await f.run('new', 'link')).code).toBe(0);

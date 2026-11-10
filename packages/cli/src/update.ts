@@ -7,19 +7,18 @@
  * 2. `git fetch upstream` and merge the branch `upstream/HEAD` names, as
  *    `<app>: update from upstream`; a conflict aborts the merge, leaving the
  *    app as it was, and names the command that resolves it;
- * 3. list each file that no longer fits the declaration, for whoever repairs
- *    it: Git merges code, and does not migrate data;
+ * 3. list each file that no longer fits its collection's fields, for whoever
+ *    repairs it: Git merges code, and does not migrate data;
  * 4. build the UI, keeping the last one that built if this build fails.
  *
  * An app without `upstream` is reported and left alone. One app's failure
  * never stops the others.
  */
-import { type Declaration, misfits } from '@epicenter/app';
+import { inRun } from '@epicenter/app';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { CliError } from './errors.ts';
-import { folderOnDisk } from './disk.ts';
 import { git, gitMessage } from './git.ts';
-import { homeEntries, readDeclaration } from './home.ts';
+import { homeEntries, loadHomeApp } from './home.ts';
 import { fail, writeJson } from './output.ts';
 import { holdWriteLock } from './run.ts';
 import { buildUi } from './ui.ts';
@@ -34,7 +33,7 @@ type Updated = {
 	merged: string | null;
 	/** Whether a UI was built; `false` for an app with no `ui/`. */
 	built: boolean;
-	/** Each file that does not fit the declaration, as `<path>: <what is wrong>`. */
+	/** Each file that does not fit its collection's fields, as `<path>: <what is wrong>`. */
 	misfits: string[];
 	/** Why this app did not finish updating, and the command that resolves it. */
 	error?: { message: string; next?: string };
@@ -102,10 +101,15 @@ async function updateOne(app: string, folder: string): Promise<Updated> {
 	} finally {
 		await release();
 	}
-	const read = await readDeclaration(folder);
-	if ('problems' in read)
-		return stop(`epicenter.json: ${read.problems.join('; ')}`);
-	updated.misfits = await declaredMisfits(read.declaration, folder);
+	const { data: located, error } = await loadHomeApp(app);
+	if (error) return stop(error.message);
+	if (!located.ok) return stop(located.problems.join('; '));
+	updated.misfits = await inRun(located.context, async () => {
+		const found: string[] = [];
+		for (const collection of Object.values(located.app.collections))
+			found.push(...(await collection.misfits()));
+		return found;
+	});
 	try {
 		updated.built = await buildUi(folder);
 	} catch (error) {
@@ -114,15 +118,6 @@ async function updateOne(app: string, folder: string): Promise<Updated> {
 		);
 	}
 	return updated;
-}
-
-/** Every file of every collection that does not fit its fields. */
-async function declaredMisfits(declaration: Declaration, folder: string) {
-	const disk = folderOnDisk(folder);
-	const found: string[] = [];
-	for (const collection of Object.values(declaration.collections ?? {}))
-		found.push(...(await misfits(collection, disk)));
-	return found;
 }
 
 /** A person's reading of an update: one line per app, problems on stderr. */
@@ -140,7 +135,9 @@ function render(apps: Updated[]) {
 				...(app.built ? ['UI built'] : []),
 				...(app.misfits.length
 					? [
-							`${app.misfits.length} ${app.misfits.length === 1 ? 'file does' : 'files do'} not fit epicenter.json`,
+							app.misfits.length === 1
+								? '1 file does not fit its fields'
+								: `${app.misfits.length} files do not fit their fields`,
 						]
 					: []),
 			].join('; ')}`,

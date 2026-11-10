@@ -1,8 +1,9 @@
 import { describe, expect, test } from 'bun:test';
-import { addDays, completed, dayOf, dueLabel, groupOpen, labelOf, type Task } from './tasks.js';
+import type { Task } from './store.svelte.js';
+import { addDays, completed, dayOf, dueLabel, groupOpen, idOf, labelOf, pathOf } from './tasks.js';
 
 const task = (id: string, fields: Partial<Task> = {}): Task => ({
-	id,
+	path: pathOf(id),
 	title: id,
 	done: false,
 	...fields,
@@ -38,14 +39,15 @@ describe('groupOpen', () => {
 		task('b', { due: '2026-11-08' }),
 		task('c', { due: today }),
 		task('d'),
-		task('e', { due: null }),
+		// A hand-written `null`, which the row's type does not admit, reads as no date.
+		task('e', { due: null as never }),
 		task('f', { due: '2026-11-11' }),
 		task('g', { done: true, due: '2026-11-01' }),
 	];
 
 	test('groups overdue, today, upcoming by day, then undated newest first', () => {
 		expect(
-			groupOpen(rows, today).map((group) => [group.key, group.tasks.map((t) => t.id)]),
+			groupOpen(rows, today).map((group) => [group.key, group.tasks.map((t) => idOf(t.path))]),
 		).toEqual([
 			['overdue', ['b']],
 			['today', ['c']],
@@ -64,12 +66,17 @@ describe('groupOpen', () => {
 test('completed lists done tasks newest first', () => {
 	expect(
 		completed([task('a', { done: true }), task('b'), task('c', { done: true })]).map(
-			(t) => t.id,
+			(t) => idOf(t.path),
 		),
 	).toEqual(['c', 'a']);
 });
 
+test('pathOf and idOf turn a URL id into its file and back', () => {
+	expect(pathOf('2026-11-10T22-41-05')).toBe('tasks/2026-11-10T22-41-05.md');
+	expect(idOf('tasks/2026-11-10T22-41-05.md')).toBe('2026-11-10T22-41-05');
+});
+
 test('labelOf falls back to the file name', () => {
-	expect(labelOf({ id: 'x', title: '  ' })).toBe('x.md');
-	expect(labelOf({ id: 'x', title: 'Buy milk' })).toBe('Buy milk');
+	expect(labelOf({ path: 'tasks/x.md', title: '  ' })).toBe('x.md');
+	expect(labelOf({ path: 'tasks/x.md', title: 'Buy milk' })).toBe('Buy milk');
 });

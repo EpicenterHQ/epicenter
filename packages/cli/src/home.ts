@@ -1,25 +1,29 @@
 /**
- * The apps in the selected Epicenter (ADR-0841, ADR-0857). A folder is an
- * app when it has an `epicenter.json`; its `epicenter.ts`, when present, adds
- * code. An app's name is its entry in the Epicenter. Each entry loads on its
- * own so a broken app is listed without stopping the others. A name that finds no app is a
- * `CliError` with the next command as data (ADR-0842).
+ * The apps in the selected Epicenter (ADR-0841). A folder is an app when it
+ * has an `epicenter.ts` whose default export is `defineApp(...)`. An app's
+ * name is its entry in the Epicenter. Each entry loads on its own so a broken
+ * app is listed without stopping the others: what its `define*` calls throw
+ * while loading are its problems. A name that finds no app is a `CliError`
+ * with the next command as data (ADR-0842).
  */
-import { lstat, readdir, readFile, realpath, stat } from 'node:fs/promises';
+import { lstat, readdir, realpath, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
 	type Action,
+	type Actions,
 	type App,
-	appActions,
-	type Declaration,
+	type Context,
+	isAction,
+	isApp,
 	isName,
-	nameProblem,
-	problemsOf,
 } from '@epicenter/app';
 import { Ok, type Result } from 'wellcrafted/result';
+import { nameProblem } from './commands.ts';
+import { folderOnDisk } from './disk.ts';
 import { CliError } from './errors.ts';
 import { epicenterDir, epicenterRoot } from './root.ts';
+import { keychain, keychainService } from './secrets.ts';
 
 /** Where an entry is on disk: the same for an app that runs and one with problems. */
 type Place = {
@@ -27,32 +31,33 @@ type Place = {
 	entry: string;
 	/** The Epicenter entry's path before resolving links. */
 	folder: string;
-	/** The real directory whose declaration, code, and data the runner uses. */
+	/** The real directory whose code and data the runner uses. */
 	realPath: string;
 	/** The real target when the entry itself is a symlink, for the listing. */
 	link?: string;
 };
 
 /**
- * An Epicenter entry as `epicenter` found it: an app that can run, with
- * its `epicenter.json` as read from disk and its code's actions, or an entry
- * with the problems that keep it from running.
+ * An Epicenter entry as `epicenter` found it: an app that can run, with what
+ * its `epicenter.ts` exports, or an entry with the problems that keep it from
+ * running.
  */
 export type Located =
 	| (Place & {
 			ok: true;
 			name: string;
-			/** The parsed `epicenter.json`: the one source of the app's description and collections. */
-			declaration: Declaration;
-			/** Each collection's actions, with `epicenter.ts`'s laid over them. */
+			/** What `epicenter.ts` default-exports. */
+			app: App;
+			/** Every action by its words, one space apart, as the command line and MCP name it. */
 			actions: Record<string, Action>;
+			/** The folder and secrets a run of its actions reaches. */
+			context: Context;
 	  })
 	| (Place & { ok: false; problems: string[] });
 
 /** An app that can run. */
 export type Runnable = Extract<Located, { ok: true }>;
 
-const DECLARATION = 'epicenter.json';
 const CODE = 'epicenter.ts';
 
 async function isFile(path: string) {
@@ -75,13 +80,10 @@ async function entryAt(folder: string) {
 		if (!info.isDirectory() && !info.isSymbolicLink()) return undefined;
 		if (!(await stat(folder)).isDirectory()) return undefined;
 		const realPath = await realpath(folder);
-		const declared = await isFile(join(realPath, DECLARATION));
-		const code = await isFile(join(realPath, CODE));
-		if (!declared && !code) return undefined;
+		if (!(await isFile(join(realPath, CODE)))) return undefined;
 		return {
 			folder,
 			realPath,
-			code,
 			...(info.isSymbolicLink() ? { link: realPath } : {}),
 		};
 	} catch (error) {
@@ -95,7 +97,8 @@ async function entryAt(folder: string) {
 	}
 }
 
-async function entries() {
+/** The Epicenter's entries that look like apps, sorted by name, without importing any of them. */
+export async function homeEntries() {
 	const names = (await readdir(epicenterDir()))
 		.filter((name) => !name.startsWith('.'))
 		.sort();
@@ -109,30 +112,8 @@ async function entries() {
 	).filter((entry) => entry !== undefined);
 }
 
-/** `folder`'s `epicenter.json`, parsed and checked, or what is wrong with it. Imports no code. */
-export async function readDeclaration(
-	folder: string,
-): Promise<{ declaration: Declaration } | { problems: string[] }> {
-	let declaration: unknown;
-	try {
-		declaration = JSON.parse(await readFile(join(folder, DECLARATION), 'utf8'));
-	} catch (error) {
-		return {
-			problems: [
-				(error as NodeJS.ErrnoException).code === 'ENOENT'
-					? `has no ${DECLARATION}`
-					: `${DECLARATION} is not JSON: ${message(error)}`,
-			],
-		};
-	}
-	const problems = problemsOf(declaration);
-	return problems.length
-		? { problems }
-		: { declaration: declaration as Declaration };
-}
-
 async function load(
-	{ code, ...place }: NonNullable<Awaited<ReturnType<typeof entryAt>>>,
+	place: NonNullable<Awaited<ReturnType<typeof entryAt>>>,
 	entry: string,
 ): Promise<Located> {
 	const at = { ...place, entry };
@@ -141,45 +122,47 @@ async function load(
 		ok: false,
 		problems,
 	});
-	// An invalid declaration is reported before any of the app's code runs.
-	const read = await readDeclaration(place.realPath);
-	if ('problems' in read) return broken(read.problems);
-	const { declaration } = read;
-	const name = entry;
-	let module: { default?: unknown } | undefined;
-	if (code) {
-		try {
-			module = await import(pathToFileURL(join(place.realPath, CODE)).href);
-		} catch (error) {
-			return broken([`importing ${CODE} threw: ${message(error)}`]);
-		}
-	}
-	const problems = problemsOf(declaration, module && (module.default ?? null));
 	const named = nameProblem(entry);
 	if (named !== undefined)
-		problems.unshift(`its folder's name cannot name an app: ${named}`);
-	if (problems.length) return broken(problems);
+		return broken([`its folder's name cannot name an app: ${named}`]);
+	let module: { default?: unknown };
+	try {
+		module = await import(pathToFileURL(join(place.realPath, CODE)).href);
+	} catch (error) {
+		return broken(message(error).split('\n').map((line) => `${CODE}: ${line}`));
+	}
+	if (!isApp(module.default))
+		return broken([`${CODE} does not export defineApp(...) by default`]);
+	const app = module.default;
 	return {
 		...at,
 		ok: true,
-		name,
-		declaration,
-		actions: appActions(declaration, module?.default as App | undefined),
+		name: entry,
+		app,
+		actions: Object.fromEntries(byWords(app.actions)),
+		context: {
+			folder: folderOnDisk(place.realPath),
+			secrets: keychain(keychainService(epicenterRoot().id, entry)),
+		},
 	};
+}
+
+/** Every action nested in `actions`, by its words one space apart, in the order written. */
+function byWords(actions: Actions, words: readonly string[] = []): [string, Action][] {
+	return Object.entries(actions).flatMap(([word, entry]) =>
+		isAction(entry)
+			? [[[...words, word].join(' '), entry] as [string, Action]]
+			: byWords(entry as Actions, [...words, word]),
+	);
 }
 
 function message(error: unknown) {
 	return error instanceof Error ? error.message : String(error);
 }
 
-/** The Epicenter's entries that look like apps, sorted by name, without importing any of them. */
-export async function homeEntries() {
-	return entries();
-}
-
 /** Import every app entry independently so one broken app does not hide the rest. */
 export async function discoverAll() {
-	const found = await entries();
+	const found = await homeEntries();
 	const loaded = await Promise.all(
 		found.map((entry) => load(entry, entry.entry)),
 	);

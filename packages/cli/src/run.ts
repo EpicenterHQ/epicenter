@@ -10,14 +10,11 @@ import { createHash } from 'node:crypto';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { Action } from '@epicenter/app';
+import { type Action, inRun } from '@epicenter/app';
 import { extractErrorMessage } from 'wellcrafted/error';
-import { folderOnDisk } from './disk.ts';
 import { commitFolder, git } from './git.ts';
 import type { Runnable } from './home.ts';
-import type { Answer } from './report.ts';
-import { keychain, keychainService } from './secrets.ts';
-import { epicenterRoot } from './root.ts';
+import type { Answer } from './output.ts';
 
 /**
  * What the action threw, as the answer carries it. A thrown tagged error (a
@@ -138,10 +135,7 @@ async function runAndCommit(
 	let returned: unknown;
 	try {
 		returned =
-			(await action.run(input, {
-				folder: folderOnDisk(located.realPath),
-				secrets: keychain(keychainService(epicenterRoot().id, located.name)),
-			})) ?? null;
+			(await inRun(located.context, () => action(input))) ?? null;
 	} catch (error) {
 		return { threw: threwOf(error) };
 	}

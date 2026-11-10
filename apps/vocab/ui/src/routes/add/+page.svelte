@@ -6,11 +6,8 @@
 	import { Input } from '@epicenter/ui/input';
 	import { toast } from '@epicenter/ui/sonner';
 	import { Textarea } from '@epicenter/ui/textarea';
-	import type vocabApp from '../../../../epicenter.js';
-	import { langOf } from '$lib/text.js';
-	import { vocab } from '$lib/vocab.svelte.js';
-
-	type Added = Awaited<ReturnType<typeof vocabApp.actions.add.run>>;
+	import { langOf, wordOf } from '$lib/text.js';
+	import { app, vocab } from '$lib/vocab.svelte.js';
 
 	const empty = { word: '', reading: '', meaning: '', body: '' };
 	let draft = $state({ ...empty });
@@ -21,13 +18,14 @@
 		if (saving || !draft.word.trim()) return;
 		saving = true;
 		try {
-			const added = await vocab.call<Added>('add', draft);
+			const added = await app.add(draft);
+			const word = wordOf(added.path);
 			const open = {
 				label: 'Open',
-				onClick: () => goto(resolve('/words/[word]', { word: added.word })),
+				onClick: () => goto(resolve('/words/[word]', { word })),
 			};
-			if (added.added) toast.success(`Added ${added.word}`, { action: open });
-			else toast.info(`${added.word} is already saved`, { description: 'Nothing was changed.', action: open });
+			if (added.added) toast.success(`Added ${word}`, { action: open });
+			else toast.info(`${word} is already saved`, { description: 'Nothing was changed.', action: open });
 			draft = { ...empty };
 			wordInput?.focus();
 			void vocab.refresh();

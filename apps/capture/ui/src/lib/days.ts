@@ -37,7 +37,7 @@ export function dayLabel(at: Date, now = new Date(), locale?: string): string {
  * `rows`, in the order given, as consecutive days: a new group starts when
  * the day changes. Rows with no date gather in one group, `No date`, last.
  */
-export function byDay<TRow extends { id: string; capturedAt?: string }>(
+export function byDay<TRow extends { capturedAt?: string }>(
 	rows: readonly TRow[],
 	now = new Date(),
 	locale?: string,

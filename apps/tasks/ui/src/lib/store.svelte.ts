@@ -4,26 +4,29 @@
  * the app's actions; nothing is kept on the device.
  */
 import { connect } from '@epicenter/app/client';
-import type { Task } from './tasks.js';
+import type tasksApp from '../../../epicenter.js';
 
 /** Tasks' actions, asked of the server that serves this UI. */
-export const app = connect('tasks');
+export const app = connect<typeof tasksApp>('tasks');
 
-/** What `tasks get` and `tasks set` answer: a task's fields, id, and notes. */
-export type TaskFile = Task & { body: string };
+/** A row of `tasks list`: a task's path and fields, without its notes. */
+export type Task = Awaited<ReturnType<typeof app.list>>[number];
+
+/** What `tasks get`, `set`, and `edit` answer: a task's path, fields, and notes. */
+export type TaskFile = Awaited<ReturnType<typeof app.get>>;
 
 function createTaskList() {
 	let rows = $state.raw<Task[]>([]);
 	let loaded = $state(false);
 	let problem = $state<string>();
-	/** Done changes sent and not yet answered, by id, shown over the server's rows. */
+	/** Done changes sent and not yet answered, by path, shown over the server's rows. */
 	let pending = $state.raw(new Map<string, boolean>());
 	/** Counts writes, so a list asked for before a write does not undo it on screen. */
 	let writes = 0;
 
-	function replace(id: string, change: (task: Task) => Task | undefined) {
+	function replace(path: string, change: (task: Task) => Task | undefined) {
 		rows = rows.flatMap((task) => {
-			if (task.id !== id) return [task];
+			if (task.path !== path) return [task];
 			const next = change(task);
 			return next ? [next] : [];
 		});
@@ -32,7 +35,7 @@ function createTaskList() {
 	async function refresh() {
 		const before = writes;
 		try {
-			const next = await app.call<Task[]>('list');
+			const next = await app.list();
 			if (before !== writes) return;
 			rows = next;
 			problem = undefined;
@@ -48,7 +51,7 @@ function createTaskList() {
 		rows() {
 			if (pending.size === 0) return rows;
 			return rows.map((task) =>
-				pending.has(task.id) ? { ...task, done: pending.get(task.id) as boolean } : task,
+				pending.has(task.path) ? { ...task, done: pending.get(task.path) as boolean } : task,
 			);
 		},
 		/** Whether the first list has come back. */
@@ -62,21 +65,21 @@ function createTaskList() {
 		/** Add a task titled `title`; resolves to its row. */
 		async add(title: string) {
 			writes++;
-			const task = await app.call<Task>('add', { title });
-			rows = [...rows.filter((row) => row.id !== task.id), task];
+			const { body: _, ...task } = await app.add({ title });
+			rows = [...rows.filter((row) => row.path !== task.path), task];
 			return task;
 		},
 
-		/** Mark `id` done or not, shown at once and undone on screen if the write fails. */
-		async setDone(id: string, done: boolean) {
+		/** Mark the task at `path` done or not, shown at once and undone on screen if the write fails. */
+		async setDone(path: string, done: boolean) {
 			writes++;
-			pending = new Map(pending).set(id, done);
+			pending = new Map(pending).set(path, done);
 			try {
-				const file = await app.call<TaskFile>('set', { id, done });
-				replace(id, (task) => ({ ...task, done: file.done }));
+				const file = await app.set({ path, done });
+				replace(path, (task) => ({ ...task, done: file.done }));
 			} finally {
 				const next = new Map(pending);
-				next.delete(id);
+				next.delete(path);
 				pending = next;
 			}
 		},
@@ -85,14 +88,14 @@ function createTaskList() {
 		changed(file: TaskFile) {
 			writes++;
 			const { body: _, ...task } = file;
-			replace(file.id, () => task);
+			replace(file.path, () => task);
 		},
 
-		/** Delete `id`; it leaves the list at once. */
-		async remove(id: string) {
+		/** Delete the task at `path`; it leaves the list at once. */
+		async remove(path: string) {
 			writes++;
-			replace(id, () => undefined);
-			await app.call<boolean>('delete', { id });
+			replace(path, () => undefined);
+			await app.delete({ path });
 		},
 
 		/**

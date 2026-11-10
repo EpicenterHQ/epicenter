@@ -1,167 +1,312 @@
 /**
- * The five actions every collection gives its app (ADR-0853), with no code.
- * For Capture, whose one collection is `items/{id}.md`:
+ * A collection: a typed set of Markdown files in an app. Its `path` says which
+ * files belong and where `add` writes (`path.ts`); its `fields` say what each
+ * file's front matter holds. A file's fields are its front matter, and its
+ * body is the text after it.
  *
- * ```txt
- * epicenter capture list                         every file: its key and fields
- * epicenter capture get dune                      one file: its key, fields, and body
- * epicenter capture set dune --kind quote         changes the fields given, keeps the rest and the body
- * epicenter capture edit dune --old "mind" --new "soul"   replaces one passage of the body, quoted
- * epicenter capture delete dune                   true when a file was there
- * ```
+ * `defineCollection` returns what it was given, plus:
  *
- * An app with several collections names each before its verb
- * (`epicenter mail messages list`); see `allCollectionActions`.
+ * - the methods an action reads and writes through, typed by the fields
+ *   (`words.get(path)`, `words.set(path, { meaning })`), over the folder of
+ *   the run they are called in;
+ * - `actions()`, which gives its verbs as actions to expose
+ *   (`list`, `get`, `add`, `set`, `edit`, `delete`), each a thin layer over
+ *   those methods.
  *
- * They are ordinary actions over the run's `folder`, so the command line, MCP,
- * and a test in memory run the same code. A path with no placeholder (a single
- * `settings.md`) gives only `get`, `set`, and `edit`.
+ * A record's address is its path inside the app. `add` makes a file and
+ * refuses one already there; `set` changes fields of a file that exists,
+ * merging as JSON Merge Patch does (a field given as `null` is removed); `edit`
+ * replaces one quoted passage of the body. A one-file collection (`settings.md`)
+ * has `get`, `set`, and `edit`: an absent file reads as its defaults, and its
+ * first `set` makes it.
  *
- * A collection's files are Markdown, and a file's fields are its front matter.
- * Front matter is read as Epicenter's `key: <JSON>` lines, or else as
- * YAML, and `set` writes `key: <JSON>` lines: it changes only the lines of the
- * fields it sets in a file already written that way, and rewrites YAML front
- * matter as `key: <JSON>`, keeping the body. A file whose front matter is
- * neither is listed and read, its whole text as body, and `set` refuses it.
+ * A field marked `readOnly` is left out of the exposed `add` and `set`, so only
+ * the app's own actions write it, through the methods.
  *
- * `set` merges as JSON Merge Patch (RFC 7396) does: a field given as `null`
- * is removed, and one not given is kept; given nothing, it refuses. It checks its input against the
- * collection's fields before writing, with `format` asserted, and a new file
- * must have every required field. A field a hand edit made wrong is kept;
- * nothing re-checks the fields `set` was not given.
+ * A collection does not know its name: an app names it by its key in
+ * `collections`, and everything a collection says names its path instead.
  */
-
-import { type TSchema, Type } from 'typebox';
-import { Value } from 'typebox/value';
-import type { Action, Input } from './app.ts';
-import type { Context } from './context.ts';
-import type { Collection } from './declaration.ts';
 import {
+	type Static,
+	type TObject,
+	type TSchema,
+	type TString,
+	Type,
+} from 'typebox';
+import { Value } from 'typebox/value';
+import { type Action, type ActionMeta, RESERVED_FIELDS } from './action.ts';
+import { folder } from './context.ts';
+import {
+	type FieldValues,
 	isFieldKey,
-	parseFrontMatter,
-	patchFrontMatter,
-	stringifyValue,
+	type JsonValue,
+	markdownOf,
+	readMarkdown,
+	withFields,
 } from './front-matter.ts';
+import {
+	type CreatedAt,
+	type IsSingle,
+	type Placeholders,
+	TIME,
+	type Template,
+	template,
+	templateProblem,
+} from './path.ts';
 
-type JsonValue = Parameters<typeof stringifyValue>[0];
-type Fields = Record<string, JsonValue>;
+/** A collection's fields: each a TypeBox schema, such as `field.text()`. */
+export type Fields = Record<string, TSchema>;
 
-/** A key names one file: no `/` or `\`, and no leading `.`, so it never climbs out or hides. */
-const KEY = '^[^./\\\\][^/\\\\]*$';
-const KEY_PATTERN = new RegExp(KEY);
+/** What `defineCollection` takes. */
+export type CollectionDef = {
+	/** Its files: `words/{word}.md`, `settings.md`, or a list whose first is where `add` writes. */
+	readonly path: string | readonly string[];
+	/** What one file is, for the descriptions of its actions: "a word I'm learning". */
+	readonly description?: string;
+	readonly fields: Fields;
+};
 
-/** A collection's path split around its placeholder, when it has one. */
-export function pathTemplate(path: string) {
-	const found = /\{([A-Za-z_][A-Za-z0-9_]*)\}/.exec(path);
-	if (!found) return undefined;
-	const [placeholder, key] = found as unknown as [string, string];
-	const before = path.slice(0, found.index);
-	const after = path.slice(found.index + placeholder.length);
-	const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-	return {
-		/** The placeholder's name, which is the key field's. */
-		key,
-		/** The directory to list: everything before the placeholder, up to its last `/`. */
-		dir: before.slice(0, before.lastIndexOf('/') + 1),
-		pathOf: (value: string) => `${before}${value}${after}`,
-		pattern: new RegExp(`^${escape(before)}([^/]+)${escape(after)}$`),
+/** `T` flattened, without the `readonly` a `const` declaration gives its fields. */
+type Simplify<T> = { -readonly [K in keyof T]: T[K] } & {};
+
+type Values<F extends Fields> = Static<TObject<F>>;
+
+type KeysWhere<F, Mark> = {
+	[K in keyof F]: F[K] extends Mark ? K : never;
+}[keyof F];
+
+/** Fields only the app's own actions write. */
+type ReadOnlyKeys<F> = KeysWhere<F, { readOnly: true }>;
+
+/** Fields a file may go without, which `null` removes. */
+type OptionalKeys<F> = KeysWhere<F, { '~optional': true }>;
+
+/** The fields given to `set`: any of them, and `null` for one a file may go without. */
+type Patch<F extends Fields, K extends keyof F = keyof F> = {
+	-readonly [P in K]?:
+		| Values<F>[P & keyof Values<F>]
+		| (P extends OptionalKeys<F> ? null : never);
+};
+
+/** A row of `list`: the file's path and its fields. */
+export type Row<D extends CollectionDef> = Simplify<
+	{ path: string } & Values<D['fields']>
+>;
+
+/** One file as `get` reads it: its path, fields, and body. */
+export type FileOf<D extends CollectionDef> = Simplify<
+	{ path: string } & Values<D['fields']> & { body: string }
+>;
+
+/** The placeholders a caller fills when adding: every one in the first template but `{time}`. */
+type AddKeys<D extends CollectionDef> = Exclude<
+	Placeholders<CreatedAt<D['path']>>,
+	typeof TIME
+>;
+
+/** What `add` takes: its placeholders, its fields, and maybe a body. */
+type AddInput<D extends CollectionDef, K extends keyof D['fields']> = Simplify<
+	{ [P in AddKeys<D>]: string } & Pick<
+		Values<D['fields']>,
+		K & keyof Values<D['fields']>
+	> & { body?: string }
+>;
+
+type Writable<D extends CollectionDef> = Exclude<
+	keyof D['fields'],
+	ReadOnlyKeys<D['fields']>
+>;
+
+type Change = { old: string; new: string };
+
+/** A collection of many files, as an action uses it. */
+export type ManyHandle<D extends CollectionDef> = {
+	/** Every file, with its path and fields, sorted by path. */
+	list(): Promise<Row<D>[]>;
+	/** One file, or `undefined` when there is none at `path`. */
+	get(path: string): Promise<FileOf<D> | undefined>;
+	/** Make a file; throws when one is already at its path. */
+	add(input: AddInput<D, keyof D['fields']>): Promise<FileOf<D>>;
+	/** Change the fields given; `null` removes one a file may go without. */
+	set(path: string, fields: Patch<D['fields']>): Promise<FileOf<D>>;
+	/** Replace the one place `old` appears in the body with `new`. */
+	edit(path: string, change: Change): Promise<FileOf<D>>;
+	/** Delete the file; `true` when there was one. */
+	delete(path: string): Promise<boolean>;
+};
+
+/** A one-file collection, as an action uses it. */
+export type SingleHandle<D extends CollectionDef> = {
+	/** The file, or its defaults while there is none. */
+	get(): Promise<FileOf<D>>;
+	/** Change the fields given, making the file when there is none. */
+	set(fields: Patch<D['fields']>): Promise<FileOf<D>>;
+	edit(change: Change): Promise<FileOf<D>>;
+};
+
+/** A collection as an action uses it. */
+export type Handle<D extends CollectionDef> =
+	IsSingle<D['path']> extends true ? SingleHandle<D> : ManyHandle<D>;
+
+/** The verbs a collection may expose. */
+export type Verb = 'list' | 'get' | 'add' | 'set' | 'edit' | 'delete';
+
+/** The verbs that fit a collection: all six, or `get`, `set`, `edit` for one file. */
+export type VerbOf<D extends CollectionDef> =
+	IsSingle<D['path']> extends true ? 'get' | 'set' | 'edit' : Verb;
+
+type PathIn = { path: string };
+
+/** The action verb `V` of a one-file or many-file collection gives. */
+type VerbAction<D extends CollectionDef, V extends Verb> =
+	IsSingle<D['path']> extends true
+		? {
+				get: Action<Record<string, never>, Promise<FileOf<D>>>;
+				set: Action<Patch<D['fields'], Writable<D>>, Promise<FileOf<D>>>;
+				edit: Action<Change, Promise<FileOf<D>>>;
+				list: never;
+				add: never;
+				delete: never;
+			}[V]
+		: {
+				list: Action<Record<string, never>, Promise<Row<D>[]>>;
+				get: Action<PathIn, Promise<FileOf<D>>>;
+				add: Action<AddInput<D, Writable<D>>, Promise<FileOf<D>>>;
+				set: Action<
+					Simplify<PathIn & Patch<D['fields'], Writable<D>>>,
+					Promise<FileOf<D>>
+				>;
+				edit: Action<PathIn & Change, Promise<FileOf<D>>>;
+				delete: Action<PathIn, Promise<boolean>>;
+			}[V];
+
+/** What `.actions(...)` returns: each verb's action under the verb. */
+export type CollectionActions<D extends CollectionDef, V extends Verb> = {
+	[P in V]: VerbAction<D, P>;
+};
+
+/** What every collection has, whatever its fields: what an app holds in `collections`. */
+export type AnyCollection = CollectionDef & {
+	/** Whether the file at `path` is one of this collection's. */
+	holds(path: string): boolean;
+	/** Each of its files whose fields do not fit, as `<path>: <what is wrong>`; inside a run. */
+	misfits(): Promise<string[]>;
+	actions(...verbs: never[]): Record<string, Action>;
+};
+
+/** A collection: what it was defined with, its methods, and its actions. */
+export type Collection<D extends CollectionDef = CollectionDef> = Readonly<D> &
+	Handle<D> &
+	Pick<AnyCollection, 'holds' | 'misfits'> & {
+		/** Its actions, each under its verb: every verb that fits it, or the ones named. */
+		actions<V extends VerbOf<D> = VerbOf<D>>(
+			...verbs: V[]
+		): CollectionActions<D, V>;
 	};
-}
-
-type Properties = Record<string, Record<string, unknown>>;
-
-function propertiesOf(collection: Collection): Properties {
-	return ((collection.fields as { properties?: Properties }).properties ??
-		{}) as Properties;
-}
 
 /**
- * What is wrong with a collection beyond its declared shape, one sentence
- * each: its path's extension, and fields named like the key or the body,
- * which `set` takes as its own input.
+ * Define a collection: where its files are, and what their front matter holds.
+ *
+ * ```ts
+ * const words = defineCollection({
+ *   path: 'words/{word}.md',
+ *   fields: { meaning: field.text(), due: field.datetime({ optional: true, readOnly: true }) },
+ * });
+ * ```
+ *
+ * Inside a run, its methods read and write that run's folder:
+ * `await words.get('words/你好.md')`. Anywhere else they throw, so loading an
+ * app never touches its files. Throws when the definition is wrong in a way
+ * its types cannot say.
  */
-export function collectionProblems(collection: Collection): string[] {
+export function defineCollection<const D extends CollectionDef>(
+	definition: D,
+): Collection<D> {
+	const problems = collectionProblems(definition);
+	if (problems.length) throw new Error(problems.join('\n'));
+	const templates = [definition.path].flat().map(template);
+	const first = templates[0] as Template;
+	const single = isSingle(templates);
+	const files = createFiles(templates, definition.fields);
+	const methods: Methods = single
+		? {
+				get: async () =>
+					(await files.get(first.text)) ?? {
+						path: first.text,
+						...files.defaults(),
+						body: '',
+					},
+				set: (fields: FieldValues) => files.set(first.text, fields),
+				edit: (change: Change) => files.edit(first.text, change),
+			}
+		: {
+				list: files.list,
+				get: files.get,
+				add: files.add,
+				set: files.set,
+				edit: files.edit,
+				delete: files.delete,
+			};
+	const fit: readonly Verb[] = single ? SINGLE_VERBS : VERBS;
+	return {
+		...definition,
+		...methods,
+		holds: (path: string) => templates.some((t) => t.match(path)),
+		misfits: files.misfits,
+		actions: (...verbs: Verb[]) => {
+			for (const verb of verbs)
+				if (!fit.includes(verb))
+					throw new Error(
+						`${first.text} is one file, so it has no "${verb}"; it has ${fit.join(', ')}`,
+					);
+			const all = verbActions(definition, templates, methods);
+			return Object.fromEntries(
+				(verbs.length ? verbs : fit).map((verb) => [verb, all[verb]]),
+			);
+		},
+	} as unknown as Collection<D>;
+}
+
+const VERBS: readonly Verb[] = ['list', 'get', 'add', 'set', 'edit', 'delete'];
+const SINGLE_VERBS: readonly Verb[] = ['get', 'set', 'edit'];
+
+const isSingle = (templates: readonly Template[]) =>
+	templates.every((t) => t.placeholders.length === 0);
+
+/** What is wrong with `def` beyond its types, one sentence each. */
+function collectionProblems(def: CollectionDef): string[] {
+	const texts = [def.path].flat();
+	if (texts.length === 0) return ['A collection needs a path'];
+	const wrong = texts.flatMap((text) => {
+		const problem = templateProblem(text);
+		return problem ? [`The collection path ${problem}`] : [];
+	});
+	if (wrong.length) return wrong;
+	const read = texts.map(template);
+	const at = `The collection at ${texts.join(' and ')}`;
 	const problems: string[] = [];
-	if (!collection.path.endsWith('.md'))
-		problems.push(`has the path ${collection.path}, which is not .md`);
-	const template = pathTemplate(collection.path);
-	for (const key of Object.keys(propertiesOf(collection))) {
-		if (key === template?.key)
+	if (read.length > 1 && read.some((t) => t.placeholders.length === 0))
+		problems.push(
+			`${at} lists a path with no placeholder; a one-file collection has its path alone`,
+		);
+	const keys = new Set(read.flatMap((t) => t.placeholders));
+	for (const key of Object.keys(def.fields ?? {})) {
+		if (keys.has(key))
 			problems.push(
-				`has a field "${key}", which its path gives as {${key}}; the file's name holds it`,
+				`${at} has a field "${key}", which its path gives as {${key}}; the file's name holds it`,
 			);
-		if (key === 'body')
+		if (key === 'path' || key === 'body')
 			problems.push(
-				'has a field "body", which is the text after the front matter',
+				`${at} has a field "${key}", which is the file's ${key === 'path' ? 'address' : 'text after its front matter'}`,
 			);
+		if (RESERVED_FIELDS.has(key))
+			problems.push(`${at} has a field "${key}", which epicenter reads itself`);
 		if (!isFieldKey(key))
 			problems.push(
-				`has a field ${JSON.stringify(key)}, which a front matter line cannot name`,
+				`${at} has a field ${JSON.stringify(key)}, which a front matter line cannot name`,
 			);
 	}
 	return problems;
-}
-
-/** A file's fields and body as read, and whether `set` may rewrite its fields. */
-type Read = { fields: Fields; body: string; writable: boolean };
-
-function isRecord(value: unknown): value is Fields {
-	return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-/** A Markdown file's fields: `key: <JSON>` lines, else YAML; else none, and the whole text is body. */
-function readMarkdown(text: string): Read {
-	const parsed = parseFrontMatter(text);
-	if (parsed) return { ...parsed, writable: true };
-	const open = /^---\r?\n/.exec(text);
-	const rest = open ? text.slice(open[0].length) : '';
-	const close = open ? /^---[ \t]*(\r?\n|$)/m.exec(rest) : null;
-	if (!open || !close) return { fields: {}, body: text, writable: true };
-	try {
-		const value = Bun.YAML.parse(rest.slice(0, close.index));
-		if (value === null || isRecord(value))
-			return {
-				fields: value ?? {},
-				body: rest.slice(close.index + close[0].length),
-				writable: true,
-			};
-	} catch {}
-	return { fields: {}, body: text, writable: false };
-}
-
-/** A Markdown file of `fields` as `key: <JSON>` lines, then `body`. */
-function markdownOf(fields: Fields, body: string): string {
-	const lines = Object.entries(fields).map(
-		([key, value]) => `${key}: ${stringifyValue(value)}\n`,
-	);
-	return `---\n${lines.join('')}---\n${body}`;
-}
-
-/** `fields` less the keys in `removed`. */
-function without(fields: Fields, removed: string[]): Fields {
-	return Object.fromEntries(
-		Object.entries(fields).filter(([key]) => !removed.includes(key)),
-	);
-}
-
-/** `text` with `given` set, `removed` gone, and, when `body` is given, its body replaced. */
-function written(
-	text: string | undefined,
-	read: Read,
-	given: Fields,
-	removed: string[],
-	body: string | undefined,
-): string {
-	const newBody = body ?? read.body;
-	if (text !== undefined) {
-		const patched = patchFrontMatter(text, { set: given, delete: removed });
-		if (patched !== 'outside') {
-			if (body === undefined) return patched;
-			const kept = parseFrontMatter(patched)?.body ?? '';
-			return patched.slice(0, patched.length - kept.length) + newBody;
-		}
-	}
-	return markdownOf(without({ ...read.fields, ...given }, removed), newBody);
 }
 
 /** The first thing wrong with `value` against `schema`, as a sentence naming its field. */
@@ -175,276 +320,343 @@ function firstProblem(schema: TSchema, value: unknown): string | undefined {
 	return `${error.instancePath.slice(1) || 'its fields'}: ${error.message}`;
 }
 
-/** `given`'s keys in the order the collection declares its fields, then the rest. */
-function inDeclaredOrder(given: Fields, properties: Properties): Fields {
-	const order = Object.keys(properties);
+const isOptional = (schema: TSchema) =>
+	(schema as { '~optional'?: boolean })['~optional'] === true;
+const isReadOnly = (schema: TSchema) =>
+	(schema as { readOnly?: boolean }).readOnly === true;
+
+/** `values` in the order the collection declares its fields, then the rest. */
+function inDeclaredOrder(values: FieldValues, fields: Fields): FieldValues {
+	const order = Object.keys(fields);
+	const rank = (key: string) => order.indexOf(key) + 1 || order.length + 1;
 	return Object.fromEntries(
-		Object.entries(given).sort(
-			([a], [b]) =>
-				(order.indexOf(a) + 1 || order.length + 1) -
-				(order.indexOf(b) + 1 || order.length + 1),
-		),
+		Object.entries(values).sort(([a], [b]) => rank(a) - rank(b)),
 	);
 }
 
+/** The "Changed" refusal: the quoted passage is not in the body as it is now. */
+function changed(message: string) {
+	return Object.freeze({ name: 'Changed', message });
+}
+
+/** A collection's methods as `defineCollection` gives them, before its types are laid over. */
+type Methods = Record<string, (...args: never[]) => Promise<unknown>>;
+
 /**
- * The actions collection `name` gives, keyed by their words (`items list`):
- * four for a path with a placeholder, `get` and `set` for one without.
+ * A collection's files, each addressed by its path, read and written through
+ * the folder of the run they are called in. A one-file collection makes its
+ * file on its first `set` or `edit`.
  */
-export function collectionActions(
-	name: string,
-	collection: Collection,
-): Record<string, Action> {
-	const template = pathTemplate(collection.path);
-	const properties = propertiesOf(collection);
-	const schema = collection.fields as TSchema;
-	const keyName = template?.key;
-	const keyInput: Input = keyName
-		? {
-				[keyName]: Type.String({
-					pattern: KEY,
-					description: `Which file: ${collection.path}`,
-				}),
-			}
-		: {};
-	const positional = keyName ? [keyName] : [];
-	const pathOf = (input: Record<string, unknown>) =>
-		template ? template.pathOf(input[template.key] as string) : collection.path;
-	const keyOf = (input: Record<string, unknown>) =>
-		keyName ? { [keyName]: input[keyName] as string } : {};
+function createFiles(templates: readonly Template[], fields: Fields) {
+	const first = templates[0] as Template;
+	const single = isSingle(templates);
+	const schema = Type.Object(fields);
+	const defaultValues: FieldValues = {};
+	for (const [key, field] of Object.entries(fields))
+		if (Object.hasOwn(field, 'default'))
+			defaultValues[key] = (field as { default: JsonValue }).default;
+	/** Each field's default, fresh, for a file made without it. */
+	const defaults = () => structuredClone(defaultValues);
+	const kind = templates.map((t) => t.text).join(' or ');
 
-	// Every field is optional to `set`, which merges. `null` removes a field a file may go without, and only those: a required one has no null to take. A default would overwrite the file's value, so it applies only to a new file.
-	const required = new Set(
-		(collection.fields as { required?: string[] }).required ?? [],
-	);
-	const setInput: Input = { ...keyInput };
-	for (const [key, property] of Object.entries(properties)) {
-		const { default: _, ...rest } = property;
-		setInput[key] = Type.Optional(
-			required.has(key)
-				? (rest as TSchema)
-				: Type.Union([rest as TSchema, Type.Null()], {
-						description: rest.description
-							? `${rest.description}; null removes it`
-							: 'null removes it',
-					}),
-		);
+	function own(path: string): string {
+		const normal = path.replace(/^\.\//, '');
+		if (templates.some((t) => t.match(normal))) return normal;
+		throw new Error(`${normal} is not a file at ${kind}`);
 	}
-	setInput.body = Type.Optional(
-		Type.String({
-			description:
-				'The text after the front matter, for a new file only; change an existing body with edit',
-		}),
-	);
 
-	const get: Action = {
-		description: `Read one ${name} file: its fields and body`,
-		input: keyInput,
-		positional,
-		annotations: { readOnlyHint: true, openWorldHint: false },
-		async run(input: Record<string, unknown>, { folder }: Context) {
-			const path = pathOf(input);
-			const text = await folder.read(path);
-			if (text === undefined) throw new Error(`There is no ${path}`);
-			const { fields, body } = readMarkdown(text);
-			return { ...fields, ...keyOf(input), body };
-		},
-	};
+	function known(path: string, key: string) {
+		if (!fields[key]) throw new Error(`${path} has no field "${key}"`);
+	}
 
-	const set: Action = {
-		description: `Change the fields given in one ${name} file, keeping the rest and the body; a field that may be absent is removed when given as null; makes the file, with its body, when there is none`,
-		input: setInput,
-		positional,
-		annotations: { idempotentHint: true, openWorldHint: false },
-		async run(input: Record<string, unknown>, context: Context) {
-			const { folder } = context;
-			const path = pathOf(input);
-			const { body, ...rest } = input;
-			if (keyName) delete rest[keyName];
-			if (Object.keys(rest).length === 0 && body === undefined)
-				throw new Error(`Nothing to set in ${path}: give a field, or the body`);
-			const removed = Object.keys(rest).filter((key) => rest[key] === null);
-			const given = without(rest as Fields, removed);
-			const text = await folder.read(path);
-			// A body read earlier and sent back whole would undo a change made since; edit quotes what it replaces instead.
-			if (text !== undefined && body !== undefined)
-				throw new Error(
-					`${path} already has a body, which set does not replace; change it with edit, quoting the text to replace`,
-				);
-			if (text === undefined) {
-				for (const [key, property] of Object.entries(properties))
-					if (!Object.hasOwn(given, key) && Object.hasOwn(property, 'default'))
-						given[key] = structuredClone(property.default) as JsonValue;
-				const problem = firstProblem(schema, given);
-				if (problem) throw new Error(`A new ${path} ${problem}`);
-			}
-			const before =
-				text === undefined
-					? { fields: {}, body: '', writable: true }
-					: readMarkdown(text);
-			if (!before.writable)
+	async function read(path: string) {
+		const text = await folder.read(path);
+		return text === undefined ? undefined : { text, ...readMarkdown(text) };
+	}
+
+	async function getFile(path: string) {
+		const found = await read(path);
+		if (!found) return undefined;
+		return { path, ...found.fields, body: found.body } as FileOf<CollectionDef>;
+	}
+
+	/** Split a patch into fields to set and fields to remove, refusing what does not fit. */
+	function patchOf(path: string, given: Record<string, unknown>) {
+		const removed: string[] = [];
+		const set: FieldValues = {};
+		for (const [key, value] of Object.entries(given)) {
+			known(path, key);
+			if (value === undefined) continue;
+			if (value === null) {
+				if (!isOptional(fields[key] as TSchema))
+					throw new Error(`${key} is required, so it cannot be removed`);
+				removed.push(key);
+			} else set[key] = value as JsonValue;
+		}
+		if (removed.length === 0 && Object.keys(set).length === 0)
+			throw new Error(`Nothing to set in ${path}: give a field`);
+		const problem = firstProblem(Type.Partial(schema), set);
+		if (problem) throw new Error(`${path} ${problem}`);
+		return { set: inDeclaredOrder(set, fields), removed };
+	}
+
+	/** Make the file at `path` from the defaults, `given`, and `body`; throws when one is there or the fields do not fit. */
+	async function make(path: string, given: FieldValues, body: string) {
+		if ((await folder.read(path)) !== undefined)
+			throw new Error(`${path} is already there`);
+		for (const key of Object.keys(given)) known(path, key);
+		const values = { ...defaults(), ...given };
+		const problem = firstProblem(schema, values);
+		if (problem) throw new Error(`A new ${path} ${problem}`);
+		await folder.write(path, markdownOf(inDeclaredOrder(values, fields), body));
+	}
+
+	/** Change the fields of the file at `path`; a one-file collection makes it when there is none. */
+	async function write(path: string, given: Record<string, unknown>) {
+		const found = await read(path);
+		const patch = patchOf(path, given);
+		if (!found) {
+			if (!single) throw new Error(`There is no ${path}`);
+			await make(path, patch.set, '');
+		} else {
+			if (!found.writable)
 				throw new Error(
 					`${path} has front matter that is neither key: <JSON> lines nor YAML; fix it by hand first`,
 				);
 			await folder.write(
 				path,
-				written(
-					text,
-					before,
-					inDeclaredOrder(given, properties),
-					removed,
-					body as string | undefined,
-				),
+				withFields(found.text, found, patch.set, patch.removed),
 			);
-			return get.run(keyOf(input), context);
-		},
-	};
+		}
+		return (await getFile(path)) as FileOf<CollectionDef>;
+	}
 
-	const edit: Action = {
-		description: `Replace one passage of a ${name} file's body: old must appear in it exactly once, or be empty for an empty body; refused otherwise, so a passage changed since it was read is never overwritten`,
-		input: {
-			...keyInput,
-			old: Type.String({
-				description: 'The exact text to replace, as get returned it',
-			}),
-			new: Type.String({ description: 'The text to put in its place' }),
-		},
-		positional,
-		annotations: { openWorldHint: false },
-		async run(input: Record<string, unknown>, context: Context) {
-			const { folder } = context;
-			const path = pathOf(input);
-			const old = input.old as string;
-			const text = await folder.read(path);
-			if (text === undefined) throw new Error(`There is no ${path}`);
-			const { body } = readMarkdown(text);
-			const head = text.slice(0, text.length - body.length);
-			const at = body.indexOf(old);
-			// Tagged, so a UI can tell a passage changed elsewhere from any other failure.
-			if (old === '' ? body !== '' : at < 0)
-				throw Object.freeze({
-					name: 'Changed',
-					message:
-						old === ''
-							? `${path}'s body is no longer empty; get it again`
-							: `${path}'s body does not have that text; it may have changed since it was read, so get it again`,
-				});
-			if (old !== '' && body.indexOf(old, at + 1) >= 0)
-				throw new Error(
-					`${path}'s body has that text more than once; quote more around it`,
-				);
-			await folder.write(
-				path,
-				head +
-					(old === ''
-						? (input.new as string)
-						: body.slice(0, at) +
-							(input.new as string) +
-							body.slice(at + old.length)),
+	async function editFile(path: string, change: Change) {
+		const found = await read(path);
+		if (!found) throw new Error(`There is no ${path}`);
+		const { body, text } = found;
+		const head = text.slice(0, text.length - body.length);
+		const { old } = change;
+		const at = body.indexOf(old);
+		if (old === '' ? body !== '' : at < 0)
+			throw changed(
+				old === ''
+					? `${path}'s body is no longer empty; get it again`
+					: `${path}'s body does not have that text; it may have changed since it was read, so get it again`,
 			);
-			return get.run(keyOf(input), context);
-		},
-	};
+		if (old !== '' && body.indexOf(old, at + 1) >= 0)
+			throw new Error(
+				`${path}'s body has that text more than once; quote more around it`,
+			);
+		await folder.write(
+			path,
+			head +
+				(old === ''
+					? change.new
+					: body.slice(0, at) + change.new + body.slice(at + old.length)),
+		);
+		return (await getFile(path)) as FileOf<CollectionDef>;
+	}
 
-	if (!template)
-		return {
-			[`${name} get`]: get,
-			[`${name} set`]: set,
-			[`${name} edit`]: edit,
-		};
-
-	const { dir, pattern, key: listKey } = template;
-	const list: Action = {
-		description: `Every ${name} file, by ${listKey}, with its fields`,
-		input: {},
-		annotations: { readOnlyHint: true, openWorldHint: false },
-		async run(_: unknown, { folder }: Context) {
-			const rows: Fields[] = [];
-			for (const path of await folder.list(dir || undefined)) {
-				const key = pattern.exec(path)?.[1];
-				if (key === undefined || !KEY_PATTERN.test(key)) continue;
-				const text = await folder.read(path);
-				if (text !== undefined)
-					rows.push({ ...readMarkdown(text).fields, [listKey]: key });
-			}
-			return rows;
-		},
-	};
-
-	const remove: Action = {
-		description: `Delete one ${name} file; true when there was one`,
-		input: keyInput,
-		positional,
-		annotations: { idempotentHint: true, openWorldHint: false },
-		async run(input: Record<string, unknown>, { folder }: Context) {
-			const path = pathOf(input);
-			const existed = (await folder.read(path)) !== undefined;
-			await folder.delete(path);
-			return existed;
-		},
-	};
+	async function paths() {
+		const found = new Set<string>();
+		for (const t of templates)
+			for (const path of await folder.list(t.dir || undefined))
+				if (t.match(path)) found.add(path);
+		return [...found].sort();
+	}
 
 	return {
-		[`${name} list`]: list,
-		[`${name} get`]: get,
-		[`${name} set`]: set,
-		[`${name} edit`]: edit,
-		[`${name} delete`]: remove,
+		async list() {
+			const rows = [];
+			for (const path of await paths()) {
+				const found = await read(path);
+				if (found) rows.push({ path, ...found.fields });
+			}
+			return rows as Row<CollectionDef>[];
+		},
+		async get(path: string) {
+			return getFile(own(path));
+		},
+		async add(input: never) {
+			const { body, ...rest } = input as Record<string, unknown>;
+			const values: Record<string, string> = {};
+			for (const key of first.placeholders) {
+				if (key === TIME) continue;
+				const value = rest[key];
+				if (typeof value !== 'string')
+					throw new Error(`Adding a ${first.text} file needs ${key}`);
+				values[key] = value;
+				delete rest[key];
+			}
+			const path = first.fill(values);
+			const given = Object.fromEntries(
+				Object.entries(rest).filter(([, value]) => value !== undefined),
+			) as FieldValues;
+			await make(path, given, typeof body === 'string' ? body : '');
+			return (await getFile(path)) as FileOf<CollectionDef>;
+		},
+		async set(path: string, given: Record<string, unknown>) {
+			return write(own(path), given);
+		},
+		async edit(path: string, change: Change) {
+			const at = own(path);
+			if (single && (await folder.read(at)) === undefined)
+				await make(at, {}, '');
+			return editFile(at, change);
+		},
+		async delete(path: string) {
+			const at = own(path);
+			const existed = (await folder.read(at)) !== undefined;
+			await folder.delete(at);
+			return existed;
+		},
+		defaults,
+		async misfits() {
+			const found: string[] = [];
+			for (const path of single ? [first.text] : await paths()) {
+				const text = await folder.read(path);
+				if (text === undefined) continue;
+				const read = readMarkdown(text);
+				const problem = read.writable
+					? firstProblem(schema, read.fields)
+					: 'its front matter is neither key: <JSON> lines nor YAML';
+				if (problem) found.push(`${path}: ${problem}`);
+			}
+			return found;
+		},
 	};
 }
 
-/**
- * Each file of `collection` that does not fit its fields, as
- * `<path>: <what is wrong>`: what `epicenter update` lists after merging a
- * starter's changes, for whoever repairs them (ADR-0866). A file without front
- * matter is checked as having no fields.
- */
-export async function misfits(
-	collection: Collection,
-	folder: Context['folder'],
-): Promise<string[]> {
-	const template = pathTemplate(collection.path);
-	const paths = template
-		? (await folder.list(template.dir || undefined)).filter((path) => {
-				const key = template.pattern.exec(path)?.[1];
-				return key !== undefined && KEY_PATTERN.test(key);
-			})
-		: [collection.path];
-	const found: string[] = [];
-	for (const path of paths) {
-		const text = await folder.read(path);
-		if (text === undefined) continue;
-		const read = readMarkdown(text);
-		const problem = read.writable
-			? firstProblem(collection.fields as TSchema, read.fields)
-			: 'its front matter is neither key: <JSON> lines nor YAML';
-		if (problem) found.push(`${path}: ${problem}`);
-	}
-	return found;
-}
-
-/**
- * Every collection's actions in a declaration, keyed by their words. An app
- * with one collection is that collection, so its verbs are the app's own
- * (`tasks set`, not `tasks tasks set`); with several, each verb keeps its
- * collection's name (`mail messages list`). A second collection is a
- * redesign of the app, and renames the first's actions where everyone sees.
- */
-export function allCollectionActions(
-	collections: Readonly<Record<string, Collection>> = {},
-): Record<string, Action> {
-	const entries = Object.entries(collections);
-	const only = entries.length === 1 ? entries[0] : undefined;
-	if (only) {
-		const [name, collection] = only;
-		return Object.fromEntries(
-			Object.entries(collectionActions(name, collection)).map(
-				([key, action]) => [key.slice(name.length + 1), action],
-			),
+/** Each verb as an action to expose, described by the collection's path. */
+function verbActions(
+	def: CollectionDef,
+	templates: readonly Template[],
+	methods: Methods,
+): Record<Verb, Action> {
+	const call = methods as Record<string, (...args: unknown[]) => Promise<unknown>>;
+	const first = templates[0] as Template;
+	const single = isSingle(templates);
+	const kind = templates.map((t) => t.text).join(' or ');
+	const what = def.description ?? `${kind} file`;
+	const writable = Object.fromEntries(
+		Object.entries(def.fields).filter(([, schema]) => !isReadOnly(schema)),
+	);
+	const pathIn = {
+		path: Type.String({ description: `Which file: ${kind}` }) as TString,
+	};
+	const patchIn: Record<string, TSchema> = {};
+	for (const [key, schema] of Object.entries(writable)) {
+		const { default: _, ...rest } = schema as TSchema & { default?: unknown };
+		const described = (rest as { description?: string }).description;
+		patchIn[key] = Type.Optional(
+			isOptional(schema)
+				? Type.Union([rest as TSchema, Type.Null()], {
+						description: described
+							? `${described}; null removes it`
+							: 'null removes it',
+					})
+				: (rest as TSchema),
 		);
 	}
-	return Object.assign(
-		{},
-		...entries.map(([name, collection]) => collectionActions(name, collection)),
-	);
+	const addKeys = first.placeholders.filter((key) => key !== TIME);
+	const addIn: Record<string, TSchema> = {
+		...Object.fromEntries(
+			addKeys.map((key) => [
+				key,
+				Type.String({
+					description: `a file's name for {${key}} in ${first.text}: no / or \\, and not starting with .`,
+					pattern: '^[^./\\\\][^/\\\\]*$',
+				}),
+			]),
+		),
+		...writable,
+		body: Type.Optional(
+			Type.String({ description: 'The text after the front matter' }),
+		),
+	};
+	const quote = {
+		old: Type.String({
+			description:
+				'The exact text to replace, as get returned it; empty for an empty body',
+		}),
+		new: Type.String({ description: 'The text to put in its place' }),
+	};
+	const local = { openWorldHint: false } as const;
+	/** Refuse a field only the app's own actions write; the runner refuses it first, this guards a direct call. */
+	const outside = (input: Record<string, unknown>) => {
+		for (const key of Object.keys(input))
+			if (def.fields[key] && isReadOnly(def.fields[key]))
+				throw new Error(`${key} is written only by the app's own actions`);
+		return input;
+	};
+	const action = <In>(run: (input: In) => unknown, meta: ActionMeta): Action =>
+		Object.assign(run, meta);
+	return {
+		list: action(async () => call.list?.(), {
+			description: `Every ${what}: its path and fields`,
+			input: {},
+			annotations: { readOnlyHint: true, ...local },
+		}),
+		get: action(
+			async (input: { path?: string }) => {
+				if (single) return call.get?.();
+				const found = await call.get?.(input.path);
+				if (!found) throw new Error(`There is no ${input.path}`);
+				return found;
+			},
+			{
+				description: single
+					? `Read ${first.text}: its fields and body, or its defaults while there is none`
+					: `Read one ${what}: its fields and body`,
+				input: single ? {} : pathIn,
+				positional: single ? [] : ['path'],
+				annotations: { readOnlyHint: true, ...local },
+			},
+		),
+		add: action(
+			async (input: Record<string, unknown>) =>
+				call.add?.(outside(input)),
+			{
+				description: `Make a new ${what}${first.placeholders.includes(TIME) ? ', named by the time' : ''}; refused when one is already at its path`,
+				input: addIn,
+				positional: addKeys,
+				annotations: { destructiveHint: false, ...local },
+			},
+		),
+		set: action(
+			async (input: Record<string, unknown>) => {
+				const { path, ...given } = outside(input);
+				return single
+					? call.set?.(given)
+					: call.set?.(path, given);
+			},
+			{
+				description: single
+					? `Change the fields given in ${first.text}, keeping the rest and the body; null removes a field that may be absent; makes the file when there is none`
+					: `Change the fields given in one ${what}, keeping the rest and the body; null removes a field that may be absent`,
+				input: single ? patchIn : { ...pathIn, ...patchIn },
+				positional: single ? [] : ['path'],
+				annotations: { idempotentHint: true, ...local },
+			},
+		),
+		edit: action(
+			async (input: { path?: string } & Change) =>
+				single
+					? call.edit?.(input)
+					: call.edit?.(input.path, input),
+			{
+				description: `Replace one passage of ${single ? first.text : `a ${what}`}'s body: old must appear in it exactly once, or be empty for an empty body; refused otherwise, so a passage changed since it was read is never overwritten`,
+				input: single ? quote : { ...pathIn, ...quote },
+				positional: single ? [] : ['path'],
+				annotations: local,
+			},
+		),
+		delete: action(async (input: { path: string }) => call.delete?.(input.path), {
+			description: `Delete one ${what}; true when there was one`,
+			input: pathIn,
+			positional: ['path'],
+			annotations: { idempotentHint: true, ...local },
+		}),
+	};
 }

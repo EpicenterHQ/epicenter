@@ -11,12 +11,7 @@ import { readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import {
-	declarationOf,
-	fixture,
-	gitIn,
-	gitignore,
-} from './runner.test-support.ts';
+import { fixture, gitIn, gitignore, header } from './runner.test-support.ts';
 
 setDefaultTimeout(60_000);
 
@@ -27,48 +22,47 @@ afterEach(async () => {
 	);
 });
 
-const notesCode = `import declaration from './epicenter.json';
-import { defineApp, field } from '@epicenter/app';
-
-export default defineApp(declaration, {
+const notesCode = `${header}
+export default defineApp({
+	description: 'The notes app',
 	actions: {
-		write: {
+		write: defineAction({
 			description: 'Write a page, and note it in the cache',
 			input: { page: field.text() },
 			positional: ['page'],
-			run: async ({ page }, { folder }) => {
+			run: async ({ page }) => {
 				await folder.write(page + '.md', page);
 				await folder.write('.cache/seen.txt', page);
 				return page;
 			},
-		},
-		same: {
+		}),
+		same: defineAction({
 			description: 'Write a page as it already is',
 			input: {},
-			run: async (_, { folder }) => {
+			run: async () => {
 				await folder.write('a.md', 'base a\\n');
 			},
-		},
-		picture: {
+		}),
+		picture: defineAction({
 			description: 'Write a binary',
 			input: {},
-			run: async (_, { folder }) => {
+			run: async () => {
 				await folder.writeBytes('cover.png', new Uint8Array([137, 80, 78, 71, 1, 2, 3]));
 			},
-		},
-		tagged: {
+		}),
+		tagged: defineAction({
 			description: 'Throw a tagged error',
 			input: {},
 			run: () => {
 				throw Object.freeze({ name: 'NotFound', message: 'no such page', page: 'x' });
 			},
-		},
-		exit: {
+		}),
+		exit: defineAction({
 			description: 'End the process without an answer',
 			input: {},
 			run: () => process.exit(7),
-		},
-		chatty: {
+		}),
+		chatty: defineAction({
 			description: 'Log to the console every way and return',
 			input: {},
 			run: () => {
@@ -79,7 +73,7 @@ export default defineApp(declaration, {
 				process.stdout.write('raw stdout\\n');
 				return 'answer';
 			},
-		},
+		}),
 	},
 });
 `;
@@ -87,7 +81,6 @@ export default defineApp(declaration, {
 const notesApp = {
 	'.gitignore': gitignore,
 	'a.md': 'base a\n',
-	'epicenter.json': declarationOf('notes'),
 	'epicenter.ts': notesCode,
 };
 

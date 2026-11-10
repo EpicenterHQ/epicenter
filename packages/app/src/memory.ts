@@ -3,7 +3,7 @@
  *
  * ```ts
  * const context = createMemoryContext({ '2026.csv': 'day,minutes\n' });
- * await app.actions.log.run({ minutes: 30 }, context);
+ * await inRun(context, () => app.actions.log({ minutes: 30 }));
  * expect(await context.folder.read('2026.csv')).toContain('30');
  * ```
  *

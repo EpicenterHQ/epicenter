@@ -1,9 +1,10 @@
 /**
- * The Epicenter, app, and action views (ADR-0841, ADR-0857). `--json` prints the
- * declaration with each action as the MCP tool `serve` offers, so a listing
- * and `tools/list` agree; the human views come from the same actions.
+ * The Epicenter, app, and action views (ADR-0841). `--json` prints the app's
+ * description and collections with each action as the MCP tool `serve`
+ * offers, so a listing and `tools/list` agree; the human views come from the
+ * same actions.
  */
-import { type Action, ANNOTATION_DEFAULTS } from '@epicenter/app';
+import type { Action } from '@epicenter/app';
 import { basename } from 'node:path';
 import type { TSchemaOptions } from 'typebox';
 import type { Discovery, Runnable } from './home.ts';
@@ -17,6 +18,14 @@ import {
 import { keychainService } from './secrets.ts';
 import { epicenterRoot } from './root.ts';
 
+/** MCP's defaults for each hint an action does not give. */
+const ANNOTATION_DEFAULTS = {
+	readOnlyHint: false,
+	destructiveHint: true,
+	idempotentHint: false,
+	openWorldHint: true,
+} as const;
+
 /** An action as an MCP tool definition: its name, input schema, and all four hints, explicit. */
 export function actionTool(app: string, key: string, action: Action) {
 	return {
@@ -28,17 +37,29 @@ export function actionTool(app: string, key: string, action: Action) {
 }
 
 /**
- * The app as `--json` prints it: its declaration from `epicenter.json` and
- * its actions as tools. Nothing here reads Git (ADR-0851).
+ * The app as `--json` prints it: its description, each collection's path and
+ * fields as JSON Schema, and its actions as tools. Nothing here reads Git
+ * (ADR-0851).
  */
 function appListing(located: Runnable) {
-	const { declaration } = located;
+	const { app } = located;
 	return {
 		name: located.name,
-		description: declaration.description,
+		description: app.description,
 		folder: located.folder,
 		...(located.link ? { link: located.link } : {}),
-		collections: declaration.collections ?? {},
+		collections: Object.fromEntries(
+			Object.entries(app.collections).map(([name, collection]) => [
+				name,
+				{
+					path: collection.path,
+					...(collection.description
+						? { description: collection.description }
+						: {}),
+					fields: jsonSchema(collection.fields),
+				},
+			]),
+		),
 		actions: Object.entries(located.actions).map(([key, action]) =>
 			actionTool(located.name, key, action),
 		),
@@ -75,7 +96,7 @@ export function homeListing(found: Discovery, json: boolean): unknown {
 	const width = Math.max(0, ...found.apps.map(({ name }) => name.length));
 	const lines = found.apps.map(
 		(located) =>
-			`${located.name.padEnd(width)}  ${located.declaration.description}${located.link ? ` -> ${located.link}` : ''}`,
+			`${located.name.padEnd(width)}  ${located.app.description}${located.link ? ` -> ${located.link}` : ''}`,
 	);
 	if (!found.apps.length) lines.push('No apps yet. Run: epicenter new <name>');
 	else lines.push('', 'Run: epicenter <app>');
@@ -100,7 +121,7 @@ export function oneAppListing(located: Runnable, json: boolean): unknown {
 			keychain: keychainService(epicenterRoot().id, located.name),
 		};
 	return [
-		`${located.name}  ${located.declaration.description}`,
+		`${located.name}  ${located.app.description}`,
 		`folder: ${located.folder}`,
 		...(located.link ? [`link: ${located.link}`] : []),
 		'',

@@ -2,8 +2,8 @@ import { connect } from '@epicenter/app/client';
 import type vocabApp from '../../../epicenter.js';
 import type { DueWord, Grade, WordRow } from '../../../epicenter.js';
 
-/** What `review` returns: the word's new schedule, and when each grade would make it due next. */
-type Reviewed = Awaited<ReturnType<typeof vocabApp.actions.review.run>>;
+/** Vocab's actions, asked of the server that serves this UI. */
+export const app = connect<typeof vocabApp>('vocab');
 
 /**
  * The UI's copy of what `epicenter serve` last answered: every word, and
@@ -11,7 +11,6 @@ type Reviewed = Awaited<ReturnType<typeof vocabApp.actions.review.run>>;
  * again, as the layout does when the page comes back into view.
  */
 function createVocab() {
-	const app = connect('vocab');
 	let words = $state.raw<WordRow[]>([]);
 	let due = $state.raw<DueWord[]>([]);
 	let problem = $state<string>();
@@ -21,8 +20,8 @@ function createVocab() {
 	async function refresh() {
 		try {
 			const [allWords, dueWords] = await Promise.all([
-				app.call<WordRow[]>('list'),
-				app.call<DueWord[]>('due'),
+				app.list(),
+				app.due(),
 			]);
 			words = allWords;
 			due = dueWords;
@@ -35,8 +34,6 @@ function createVocab() {
 	}
 
 	return {
-		/** Asks for the actions by their words, as `connect` does. */
-		call: app.call,
 		refresh,
 		/** Every word, without bodies. */
 		words: () => words,
@@ -55,11 +52,11 @@ function createVocab() {
 		 * puts it back first.
 		 */
 		async grade(word: DueWord, grade: Grade) {
-			const others = () => due.filter((other) => other.word !== word.word);
+			const others = () => due.filter((other) => other.path !== word.path);
 			due = others();
-			let reviewed: Reviewed;
+			let reviewed: Awaited<ReturnType<typeof app.review>>;
 			try {
-				reviewed = await app.call<Reviewed>('review', { word: word.word, grade });
+				reviewed = await app.review({ path: word.path, grade });
 			} catch (error) {
 				due = [word, ...others()];
 				throw error;

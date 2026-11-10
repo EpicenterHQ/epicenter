@@ -1,17 +1,16 @@
 /**
- * What the UI knows of a task: a row of `tasks list`, and how the list
- * groups and labels it by its due day. Days are local `YYYY-MM-DD` strings,
- * which sort as text in the order they fall.
+ * How the list groups and labels a task, a row of `tasks list`, by its due
+ * day, and how a page's URL names it. Days are local `YYYY-MM-DD` strings,
+ * which sort as text in the order they fall. A due day that is absent, or a
+ * hand-written `null`, means none.
  */
+import type { Task } from './store.svelte.js';
 
-/** A row of `tasks list`: the fields of `tasks/<id>.md` and its id, without the notes. */
-export type Task = {
-	id: string;
-	title: string;
-	done: boolean;
-	/** The day it is due; absent when it has none (a hand-written `null` reads the same). */
-	due?: string | null;
-};
+/** The file of the task a page's URL names by `id`, its file's name without `.md`. */
+export const pathOf = (id: string) => `tasks/${id}.md`;
+
+/** The `id` a page's URL names the task at `path` by. */
+export const idOf = (path: string) => path.replace(/^tasks\//, '').replace(/\.md$/, '');
 
 /** `at` as a local day, `2026-11-10`. */
 export function dayOf(at: Date): string {
@@ -69,14 +68,14 @@ export type Group = {
 	tasks: Task[];
 };
 
-const byId = (a: Task, b: Task) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+const byPath = (a: Task, b: Task) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
 const byDue = (a: Task, b: Task) =>
-	(a.due ?? '') < (b.due ?? '') ? -1 : (a.due ?? '') > (b.due ?? '') ? 1 : byId(a, b);
+	(a.due ?? '') < (b.due ?? '') ? -1 : (a.due ?? '') > (b.due ?? '') ? 1 : byPath(a, b);
 
 /**
  * The open tasks in the groups that have any: overdue and today first, then
  * upcoming by day, then those with no day, newest first so a task just added
- * is at the top of its group. Ids sort by when they were made.
+ * is at the top of its group. Paths sort by when they were made.
  */
 export function groupOpen(tasks: Task[], today: string): Group[] {
 	const open = tasks.filter((task) => !task.done);
@@ -96,7 +95,7 @@ export function groupOpen(tasks: Task[], today: string): Group[] {
 		{
 			key: 'later',
 			label: 'No date',
-			tasks: open.filter((task) => !task.due).toSorted(byId).reverse(),
+			tasks: open.filter((task) => !task.due).toSorted(byPath).reverse(),
 		},
 	];
 	return groups.filter((group) => group.tasks.length > 0);
@@ -104,9 +103,9 @@ export function groupOpen(tasks: Task[], today: string): Group[] {
 
 /** The done tasks, newest first. */
 export function completed(tasks: Task[]): Task[] {
-	return tasks.filter((task) => task.done).toSorted(byId).reverse();
+	return tasks.filter((task) => task.done).toSorted(byPath).reverse();
 }
 
 /** The task's label: its title, or its file's name when it has none. */
-export const labelOf = (task: Pick<Task, 'id' | 'title'>) =>
-	task.title?.trim() ? task.title : `${task.id}.md`;
+export const labelOf = (task: Pick<Task, 'path' | 'title'>) =>
+	task.title?.trim() ? task.title : `${idOf(task.path)}.md`;

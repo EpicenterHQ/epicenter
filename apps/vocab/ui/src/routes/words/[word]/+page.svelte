@@ -15,8 +15,8 @@
 	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
 	import { untrack } from 'svelte';
 	import type { Word } from '../../../../../epicenter.js';
-	import { langOf, untilLabel } from '$lib/text.js';
-	import { vocab } from '$lib/vocab.svelte.js';
+	import { langOf, pathOf, untilLabel, wordOf } from '$lib/text.js';
+	import { app, vocab } from '$lib/vocab.svelte.js';
 
 	type Stage = NonNullable<Word['stage']>;
 	const STAGES = {
@@ -27,6 +27,7 @@
 	} satisfies Record<Stage, string>;
 
 	const key = $derived(page.params.word ?? '');
+	const path = $derived(pathOf(key));
 
 	/** The word as last read or saved, and what the form holds now. */
 	let saved = $state.raw<Word>();
@@ -55,16 +56,16 @@
 
 	// Read the word when the route names another, and again on each refresh unless there are unsaved edits.
 	$effect(() => {
-		const word = key;
+		const asked = path;
 		vocab.refreshes();
-		if (untrack(() => isDirty && saved?.word === word)) return;
-		if (untrack(() => saved?.word !== word)) saved = undefined;
-		vocab.call<Word>('get', { word }).then(
+		if (untrack(() => isDirty && saved?.path === asked)) return;
+		if (untrack(() => saved?.path !== asked)) saved = undefined;
+		app.get({ path: asked }).then(
 			(found) => {
-				if (word === key) show(found);
+				if (asked === path) show(found);
 			},
 			(error: unknown) => {
-				if (word !== key) return;
+				if (asked !== path) return;
 				saved = undefined;
 				problem = error instanceof Error ? error.message : String(error);
 			},
@@ -76,7 +77,7 @@
 	 * earlier over one changed elsewhere since. A field emptied is removed.
 	 */
 	function changesOf(word: Word) {
-		const changes: Record<string, string | null> = {};
+		const changes: Omit<Parameters<typeof app.set>[0], 'path'> & { body?: string } = {};
 		for (const field of ['reading', 'meaning'] as const) {
 			const typed = draft[field].trim();
 			if (typed !== (word[field] ?? '')) changes[field] = typed === '' ? null : typed;
@@ -99,15 +100,15 @@
 		saving = true;
 		let word = saved;
 		try {
-			if (Object.keys(fields).length > 0) word = await vocab.call<Word>('set', { word: word.word, ...fields });
-			if (body !== undefined) word = await vocab.call<Word>('edit', { word: word.word, old: saved.body, new: body });
+			if (Object.keys(fields).length > 0) word = await app.set({ path: word.path, ...fields });
+			if (body !== undefined) word = await app.edit({ path: word.path, old: saved.body, new: body });
 			show(word);
 			toast.success('Saved');
 			void vocab.refresh();
 		} catch (error) {
 			if (changedElsewhere(error)) {
 				// The fields are saved; what was typed stays, and saving again replaces the examples now there.
-				saved = await vocab.call<Word>('get', { word: word.word }).catch(() => word);
+				saved = await app.get({ path: word.path }).catch(() => word);
 				toast.error('Examples not saved', {
 					description: 'They changed elsewhere while you were editing. Your version is still in the box; save again to replace what is there now.',
 				});
@@ -120,13 +121,13 @@
 		}
 	}
 
-	function confirmDelete(word: string) {
+	function confirmDelete(path: string) {
 		confirmationDialog.open({
-			title: `Delete ${word}?`,
+			title: `Delete ${wordOf(path)}?`,
 			description: 'Its meaning, examples, and review schedule are deleted. Your Epicenter’s history keeps a copy.',
 			confirm: { text: 'Delete', variant: 'destructive' },
 			onConfirm: async () => {
-				await vocab.call('delete', { word });
+				await app.delete({ path });
 				void vocab.refresh();
 				await goto(resolve('/words'));
 			},
@@ -149,7 +150,7 @@
 				void save();
 			}}
 		>
-			<h1 lang={langOf(saved.word)} class="text-5xl font-medium break-words">{saved.word}</h1>
+			<h1 lang={langOf(wordOf(saved.path))} class="text-5xl font-medium break-words">{wordOf(saved.path)}</h1>
 			<Field.Group>
 				<Field.Field>
 					<Field.Label for="reading">Reading</Field.Label>
@@ -207,7 +208,7 @@
 			<dd>{dateFormat.format(new Date(saved.createdAt))}</dd>
 		</dl>
 
-		<Button variant="ghost-destructive" class="self-start" onclick={() => saved && confirmDelete(saved.word)}>
+		<Button variant="ghost-destructive" class="self-start" onclick={() => saved && confirmDelete(saved.path)}>
 			Delete word
 		</Button>
 	{:else if problem}

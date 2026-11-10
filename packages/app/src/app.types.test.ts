@@ -1,6 +1,18 @@
+/**
+ * What an app author's editor shows: each check is a compile-time assertion,
+ * run by `tsc`; the test bodies only keep `bun test` from skipping the file.
+ */
 import { describe, test } from 'bun:test';
 import { Type } from 'typebox';
-import { defineApp, field } from './index.ts';
+import type { AppClient } from './client.ts';
+import {
+	createMemoryContext,
+	defineAction,
+	defineApp,
+	defineCollection,
+	field,
+	inRun,
+} from './index.ts';
 
 type Equal<X, Y> =
 	(<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2
@@ -8,146 +20,161 @@ type Equal<X, Y> =
 		: false;
 const assertType = <T extends true>(): T | undefined => undefined;
 
-/** A declaration as TypeScript reads an imported epicenter.json: widened. */
-const widened: {
-	$schema: string;
-	description: string;
-	collections: {
-		books: {
-			path: string;
-			fields: { type: string; properties: { title: { type: string } } };
-		};
-	};
-} = {
-	$schema: 'https://epicenter.so/epicenter.schema.json',
-	description: 'How much I read each week',
-	collections: {
-		books: {
-			path: 'books/{slug}.md',
-			fields: { type: 'object', properties: { title: { type: 'string' } } },
-		},
+const words = defineCollection({
+	path: 'words/{word}.md',
+	fields: {
+		meaning: field.text({ optional: true }),
+		createdAt: field.datetime({ readOnly: true }),
+		due: field.datetime({ optional: true, readOnly: true }),
 	},
-};
+});
 
-const reading = defineApp(widened, {
+const settings = defineCollection({
+	path: 'settings.md',
+	fields: { dailyGoal: field.integer({ optional: true }) },
+});
+
+const learn = defineAction({
+	description: 'Learn a word, due now',
+	input: { word: field.text(), meaning: field.text({ optional: true }) },
+	positional: ['word', 'meaning'],
+	run: async ({ word, meaning }) => {
+		assertType<Equal<typeof word, string>>();
+		assertType<Equal<typeof meaning, string | undefined>>();
+		const goal = (await settings.get()).dailyGoal;
+		assertType<Equal<typeof goal, number | undefined>>();
+		// The handle writes readOnly fields; the exposed add and set do not take them.
+		return words.add({ word, meaning, createdAt: '2026-11-10T00:00:00Z' });
+	},
+});
+
+const review = defineAction({
+	description: 'Schedule a word',
+	input: { path: field.text() },
+	run: async ({ path }) => {
+		const found = await words.get(path);
+		assertType<Equal<NonNullable<typeof found>['meaning'], string | undefined>>();
+		await words.set(path, { due: '2026-11-11T04:00:00Z' });
+		// @ts-expect-error a collection of many files has no get without a path
+		await words.get();
+		return found?.meaning;
+	},
+});
+
+const vocab = defineApp({
+	description: 'Words I am learning',
+	collections: { words, settings },
 	actions: {
-		log: {
-			description: 'Record minutes read today',
-			input: {
-				minutes: field.number(),
-				book: field.text({ optional: true }),
-				kind: field.select(['paper', 'ebook']),
-				day: field.date({ optional: true }),
-				reread: field.boolean(),
-				tags: field.tags(),
-				note: Type.Optional(Type.String()),
-			},
-			positional: ['minutes', 'tags'],
-			run: async (input, { folder }) => {
-				assertType<
-					Equal<
-						typeof input,
-						{
-							minutes: number;
-							book?: string;
-							kind: 'paper' | 'ebook';
-							day?: string;
-							reread: boolean;
-							tags: string[];
-							note?: string;
-						}
-					>
-				>();
-				await folder.write('2026.csv', `${input.minutes}\n`);
-				return { minutes: input.minutes, kind: input.kind };
-			},
-		},
-		'week show': {
-			description: 'Minutes read this week',
-			input: {},
-			annotations: { readOnlyHint: true },
-			run: () => 210,
-		},
+		words: { ...words.actions(), add: learn },
+		settings: settings.actions(),
+		review,
 	},
 });
 
-type Output<K extends keyof (typeof reading)['actions']> = Awaited<
-	ReturnType<(typeof reading)['actions'][K]['run']>
->;
+type Actions = typeof vocab.actions;
+type In<A> = A extends (input: infer I) => unknown ? I : never;
+type Out<A> = A extends (input: never) => infer O ? Awaited<O> : never;
 
-describe('defineApp', () => {
-	test("run's return value stays typed", () => {
+describe('an app author', () => {
+	test('gets every action under its words, with exact inputs and outputs', () => {
+		assertType<Equal<keyof Actions, 'words' | 'settings' | 'review'>>();
 		assertType<
-			Equal<Output<'log'>, { minutes: number; kind: 'paper' | 'ebook' }>
+			Equal<
+				keyof Actions['words'],
+				'list' | 'get' | 'add' | 'set' | 'edit' | 'delete'
+			>
 		>();
-		assertType<Equal<Output<'week show'>, number>>();
+		assertType<Equal<keyof Actions['settings'], 'get' | 'set' | 'edit'>>();
+		assertType<
+			Equal<
+				In<Actions['words']['set']>,
+				{ path: string; meaning?: string | null | undefined }
+			>
+		>();
+		assertType<
+			Equal<
+				Out<Actions['words']['list']>[number],
+				{ path: string; meaning?: string; createdAt: string; due?: string }
+			>
+		>();
+		assertType<
+			Equal<
+				In<Actions['settings']['set']>,
+				{ dailyGoal?: number | null | undefined }
+			>
+		>();
+		assertType<
+			Equal<In<Actions['words']['add']>, { word: string; meaning?: string }>
+		>();
+		assertType<Equal<Out<Actions['review']>, string | undefined>>();
 	});
-});
 
-describe('type errors', () => {
-	test('a run that disagrees with its fields is refused', () => {
-		defineApp(widened, {
-			actions: {
-				log: {
-					description: 'Log',
-					input: { minutes: field.number() },
-					// @ts-expect-error — minutes is a number, not a string
-					run: ({ minutes }: { minutes: string }) => minutes,
-				},
+	test('an action is called as a function, inside a run', async () => {
+		await inRun(createMemoryContext(), () =>
+			vocab.actions.words.add({ word: '你好' }),
+		);
+	});
+
+	test('a collection is what it was defined with, plus its methods', () => {
+		assertType<Equal<typeof words.path, 'words/{word}.md'>>();
+		assertType<Equal<typeof settings.holds, (path: string) => boolean>>();
+	});
+
+	test('a one-file collection has no list, add, or delete', () => {
+		// @ts-expect-error settings.md is one file
+		() => settings.actions('list');
+		// @ts-expect-error settings.md is one file
+		() => settings.delete;
+	});
+
+	test('add takes every placeholder but {time}', () => {
+		const notes = defineCollection({
+			path: 'notes/{year}/{time}.md',
+			fields: { title: field.text() },
+		});
+		type AddIn = In<ReturnType<typeof notes.actions<'add'>>['add']>;
+		assertType<Equal<AddIn, { year: string; title: string; body?: string }>>();
+	});
+
+	test('a collection in several places adds to the first', () => {
+		const entries = defineCollection({
+			path: ['entries/{time}.md', 'entries/archive/{slug}.md'],
+			fields: { text: field.text() },
+		});
+		type AddIn = In<ReturnType<typeof entries.actions<'add'>>['add']>;
+		assertType<Equal<AddIn, { text: string; body?: string }>>();
+	});
+
+	test('raw TypeBox sits beside fields', () => {
+		defineAction({
+			description: 'Log minutes',
+			input: { minutes: Type.Number({ minimum: 0 }) },
+			run: ({ minutes }) => {
+				assertType<Equal<typeof minutes, number>>();
 			},
 		});
 	});
 
-	test('a field without optional is required', () => {
-		defineApp(widened, {
-			actions: {
-				log: {
-					description: 'Log',
-					input: { book: field.text() },
-					run: ({ book }) => {
-						const title: string = book;
-						// @ts-expect-error — book is always there, so it is never undefined
-						const missing: undefined = book;
-						return [title, missing];
-					},
-				},
-			},
-		});
-	});
-
-	test('a positional names one of its fields', () => {
-		defineApp(widened, {
-			actions: {
-				log: {
-					description: 'Log',
-					input: { minutes: field.number() },
-					// @ts-expect-error — "hours" is not a field
-					positional: ['hours'],
-					run: () => 0,
-				},
-			},
-		});
-	});
-
-	test('an action needs a description', () => {
-		defineApp(widened, {
-			actions: {
-				// @ts-expect-error — description is missing
-				log: { input: {}, run: () => 0 },
-			},
-		});
-	});
-
-	test('collections belong in epicenter.json, not in code', () => {
-		defineApp(widened, {
-			// @ts-expect-error — epicenter.ts holds actions only
-			collections: { quizzes: { path: 'quizzes/{day}.md', fields: {} } },
-			actions: {},
-		});
-	});
-
-	test('a declaration needs a description', () => {
-		// @ts-expect-error — description is missing
-		defineApp({ collections: {} }, { actions: {} });
+	test('a UI calls under the same words, typed by the app', () => {
+		const vocabUi = {} as AppClient<Actions>;
+		const call = () => vocabUi.words.set({ path: 'words/a.md', meaning: 'x' });
+		assertType<
+			Equal<
+				Awaited<ReturnType<typeof call>>,
+				{
+					path: string;
+					meaning?: string;
+					createdAt: string;
+					due?: string;
+					body: string;
+				}
+			>
+		>();
+		// @ts-expect-error due is written only by Vocab's own actions
+		() => vocabUi.words.set({ path: 'words/a.md', due: 'x' });
+		// @ts-expect-error settings has no list
+		() => vocabUi.settings.list();
+		() => vocabUi.words.list();
+		() => vocabUi.review({ path: 'words/a.md' });
 	});
 });
