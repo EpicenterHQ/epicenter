@@ -211,10 +211,7 @@ test('runs use the selected Epicenter and their own .cache', async () => {
 	);
 	expect(result.code).toBe(0);
 	const value = JSON.parse(result.stdout).returned;
-	expect(value.folder).toBe(join(f.home, 'reading'));
-	expect(value.token).toBe('round trip');
-	expect(value.seed).toBe('plain seed');
-	expect(value.foreign).toBeNull();
+	expect(value).toEqual({ folder: join(f.home, 'reading') });
 	expect(
 		await Bun.file(join(f.home, 'reading', '.cache/index.json')).exists(),
 	).toBe(true);
@@ -241,13 +238,11 @@ test('app and action views include locations, schemas, field help and version', 
 	const view = JSON.parse((await f.run('reading', '--json')).stdout);
 	expect(view).toMatchObject({
 		name: 'reading',
-		keychain: 'epicenter.test-epicenter.reading',
 	});
 	expect((await f.run('reading')).stdout).toContain('folder:');
 	expect((await f.run('reading', 'log', '-h')).stdout).toContain(
 		'<minutes>, --minutes <number>  required.',
 	);
-	expect((await f.run('reading')).stdout).not.toContain('keychain:');
 	expect(
 		JSON.parse((await f.run('reading', 'log', '--help', '--json')).stdout),
 	).toMatchObject({ name: 'reading_log', inputSchema: { type: 'object' } });
@@ -268,9 +263,7 @@ test('an empty Epicenter lists its next step and a missing marker suggests init'
 	expect((await f.run()).stderr).toContain(`epicenter init ${f.home}`);
 	const missing = await f.run('reading', '--json');
 	expect(missing.code).toBe(2);
-	expect(JSON.parse(missing.stdout).error.message).toContain(
-		'epicenter.root.json',
-	);
+	expect(JSON.parse(missing.stdout).error.message).toContain('EPICENTER.md');
 	expect(JSON.parse(missing.stdout).error.next).toBe(
 		`epicenter init ${f.home}`,
 	);

@@ -3,8 +3,8 @@
  * `epicenter` against a temporary HOME. A run never commits; after a write
  * run, the command line takes a snapshot of everything pending in the app's
  * folder and nothing outside it, named for the call, with what no call wrote
- * listed as changed outside epicenter. A read-only action cannot write
- * through `folder` or `secrets`. The answer is `{ returned }`, `{ threw }`,
+ * listed as changed outside epicenter. A read-only action may write local
+ * files through `folder`. The answer is `{ returned }`, `{ threw }`,
  * or `{ error }`, exit 0, 1, or 2, whatever became of the snapshot.
  */
 
@@ -78,10 +78,10 @@ export default defineApp({
 			},
 		}),
 		sneak: defineAction({
-			description: 'Say it only reads, then keep a secret',
+			description: 'Refresh a local token',
 			input: {},
 			annotations: { readOnlyHint: true },
-			run: () => secrets.set('token', 'kept'),
+			run: () => folder.write('x.local.md', 'kept'),
 		}),
 		tagged: defineAction({
 			description: 'Throw a tagged error',
@@ -345,7 +345,7 @@ test('C9 a write that throws leaves what it wrote pending like any change, and t
 	expect(human).toEqual({ code: 1, stdout: '', stderr: 'stopped halfway\n' });
 });
 
-test('C10 a read-only action cannot write through folder or secrets, and makes no commit', async () => {
+test('C10 a read-only action writes a local file but no ordinary file or commit', async () => {
 	const f = await setup();
 	await writeFile(join(f.dir, 'b.md'), 'by hand\n');
 	const peek = await f.json('notes', 'peek');
@@ -357,12 +357,8 @@ test('C10 a read-only action cannot write through folder or secrets, and makes n
 	});
 	expect(await Bun.file(join(f.dir, 'peek.md')).exists()).toBe(false);
 	const sneak = await f.json('notes', 'sneak');
-	expect(sneak.answer).toEqual({
-		threw: {
-			message:
-				'The action "sneak" is read-only, so it cannot set the secret token',
-		},
-	});
+	expect(sneak.answer).toEqual({ returned: null });
+	expect(await readFile(join(f.dir, 'x.local.md'), 'utf8')).toBe('kept');
 	expect(await subjects(f.dir)).toBe('initial');
 	expect(await status(f.dir)).toBe('?? b.md');
 });

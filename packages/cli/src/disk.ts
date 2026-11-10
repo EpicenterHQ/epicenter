@@ -24,7 +24,7 @@ import {
 	writeFile,
 } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { type Folder, normalizePath } from '@epicenter/app';
+import { type Folder, isLocalPath, normalizePath } from '@epicenter/app';
 
 /** How many times `update` reads and changes a file that keeps changing before it gives up. */
 const UPDATE_TRIES = 10;
@@ -177,8 +177,14 @@ export function folderOnDisk(dir: string): Folder {
 			} catch (error) {
 				if (!missing(error)) throw error;
 			}
-			await writeFile(temp, bytes, mode === undefined ? {} : { mode });
-			if (mode !== undefined) await chmod(temp, mode);
+			const newMode =
+				mode ?? (isLocalPath(normalizePath(path)) ? 0o600 : undefined);
+			await writeFile(
+				temp,
+				bytes,
+				newMode === undefined ? {} : { mode: newMode },
+			);
+			if (newMode !== undefined) await chmod(temp, newMode);
 			if (!replacing) await rename(temp, target);
 			// Check and rename without yielding, so nothing in this process runs between them.
 			else if (

@@ -1,8 +1,19 @@
 # The epicenter command
 
-`epicenter` runs the apps in an Epicenter as commands and MCP tools. An Epicenter is a folder with `epicenter.root.json`; its direct child folders with an `epicenter.ts` that default-exports `defineApp(...)` are apps, each with its collections and actions ([ADR-0841](../../docs/adr/0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md), [ADR-0857](../../docs/adr/0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md)).
+`epicenter` runs the apps in an Epicenter as commands and MCP tools. An Epicenter is a folder with `EPICENTER.md`; its direct child folders with an `epicenter.ts` that default-exports `defineApp(...)` are apps, each with its collections and actions ([ADR-0841](../../docs/adr/0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md), [ADR-0857](../../docs/adr/0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md)).
 
-The command uses the nearest Epicenter above the current directory. Otherwise it uses `EPICENTER_ROOT`, then `$HOME/Epicenter`. A chosen folder without `epicenter.root.json` needs `epicenter init <folder>`. The marker holds a written-once ID and an optional port; `serve` defaults to port 4747. The folder's basename is its display name. `epicenter init [<folder>] [--port <n>]` makes the folder, writes its marker, and adds starter `AGENTS.md` guidance if there is none. Epicenters cannot nest.
+The command uses the nearest Epicenter above the current directory. Otherwise
+it uses `EPICENTER_ROOT`, then `$HOME/Epicenter`. A chosen folder without
+`EPICENTER.md` needs `epicenter init <folder>`. A folder with the old
+`epicenter.root.json` names the step to write `EPICENTER.md` with its port and
+delete the old marker. The folder's basename is its display name.
+
+The marker has optional front matter: `port` is an integer from 0 to 65535
+and defaults to 4747; `public` is an HTTPS URL; `publicPort` is the local
+listener port. `public` and `publicPort` must appear together, and
+`publicPort` must differ from `port`. Unknown or invalid fields are refused.
+`epicenter init [<folder>] [--port <n>]` makes the folder, writes the marker,
+and adds starter `AGENTS.md` guidance if there is none. Epicenters cannot nest.
 
 ```sh
 epicenter
@@ -28,7 +39,7 @@ epicenter --version
 
 The commands are `init`, `new`, `update`, `build`, `sync`, `history`, `undo`, and `serve`; any other first word names an app. `--json` and `--help` (`-h`) go anywhere before `--`; `--version` is read only on its own. `epicenter` lists the Epicenter folder, its apps, and problems in individual apps; an app with changes not yet in its history is marked, as `(3 changes not yet in history; 2 snapshots not backed up)`. Its JSON listing has an `epicenter` folder string. An empty Epicenter says `No apps yet. Run: epicenter new <name>`. `epicenter <app>` lists its actions, each with a short usage line, and `epicenter <app> <action> --help` explains every field. Above its actions, it says how many changes are not yet in the app's history and how many snapshots have not been backed up, with `Run: epicenter sync <app>`.
 
-A flag's value is read as its field's type ([ADR-0867](../../docs/adr/0867-the-command-line-spells-an-actions-json-input-and-null-removes-a-field-there-as-everywhere.md)): a number for a number, `--done` or `--done=false` for a switch, every value of a repeated flag for a list, one of its choices for a choice (an error names them), and `null` for a field that takes `null`, which a collection's `set` reads as "remove it". `--no-done` is refused with `--done=false` as the way to say false. `--input <json>` gives the whole input as one JSON object instead, with positional fields inside it and nothing beside it; `--input -` reads it from stdin. The text `null` for a field that takes `null` is given this way. `epicenter --json` prints each app's name, description, folder, each collection's path and fields as JSON Schema, and each action as the MCP tool `serve` offers, with all four annotations explicit; `epicenter <app> --json` prints the same for one app, with its Keychain service. Each app's JSON adds `status` when anything is not yet in its history: `{ "pending": <n>, "unpushed"?: <n> }`, from `git status` and the difference from the existing `origin/<branch>` tracking ref. An app with no tracking ref has no `unpushed` count. A folder without `epicenter.ts` is not an app and is not listed.
+A flag's value is read as its field's type ([ADR-0867](../../docs/adr/0867-the-command-line-spells-an-actions-json-input-and-null-removes-a-field-there-as-everywhere.md)): a number for a number, `--done` or `--done=false` for a switch, every value of a repeated flag for a list, one of its choices for a choice (an error names them), and `null` for a field that takes `null`, which a collection's `set` reads as "remove it". `--no-done` is refused with `--done=false` as the way to say false. `--input <json>` gives the whole input as one JSON object instead, with positional fields inside it and nothing beside it; `--input -` reads it from stdin. The text `null` for a field that takes `null` is given this way. `epicenter --json` prints each app's name, description, folder, each collection's path and fields as JSON Schema, and each action as the MCP tool `serve` offers, with all four annotations explicit; `epicenter <app> --json` prints the same for one app. Each app's JSON adds `status` when anything is not yet in its history: `{ "pending": <n>, "unpushed"?: <n> }`, from `git status` and the difference from the existing `origin/<branch>` tracking ref. An app with no tracking ref has no `unpushed` count. A folder without `epicenter.ts` is not an app and is not listed.
 
 `epicenter` supplies `@epicenter/app` to every `epicenter.ts` it loads, so a folder needs no `node_modules` to run. Listing and running an app only read it. Loading an app imports its `epicenter.ts`, whose `defineCollection`, `defineAction`, and `defineApp` calls check what they are given, then calls `defineApp` on the default export, which checks its whole shape. An app is listed under problems, and does not run, when its file throws while loading or its export fails that check, with each line as `epicenter.ts: <line>`, or when its default export is not an object, as `epicenter.ts does not export defineApp(...) by default`. One app's broken export never stops the others from being listed ([ADR-0857](../../docs/adr/0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md)).
 
@@ -36,7 +47,7 @@ A flag's value is read as its field's type ([ADR-0867](../../docs/adr/0867-the-c
 
 The `epicenter` you start only relays. It runs the action in a child `epicenter` whose stdout and stderr both go to your stderr, forwards SIGINT and SIGTERM, and reads the child's answer from a report file once the child exits. So nothing an action prints, through any `console` method or `process.stdout`, reaches the answer. A child that ends without an answer, killed or calling `process.exit`, answers that it threw, naming its exit code or signal; what it wrote stays pending for the next snapshot, which lists it as changed outside epicenter. After a run that is not read-only, the child's report names the app, call, and paths written through `folder`, and the parent, the `epicenter` you started or `serve`, takes the snapshot. A child whose parent dies finishes the run.
 
-`epicenter serve` starts an HTTP server on `127.0.0.1` at the port in `epicenter.root.json`, or 4747 when the marker has none. `--host <address>` and `--port <n>` override those settings. It serves MCP at `POST /`, the launcher at `GET /`, and each app's UI at `/<app>/`: its built `.cache/ui/` ([ADR-0866](../../docs/adr/0866-an-app-starts-from-a-starter-kept-as-its-upstream-and-update-merges-the-starters-changes.md)). The launcher links to apps with a UI; a `GET /` asking for an event stream gets 405, since the server keeps no MCP session. Any later path of the server's own starts with `.`, which no app name can. An Origin must match the request Host; requests without Origin are accepted. A reverse proxy such as `tailscale serve` can provide HTTPS.
+`epicenter serve` starts an HTTP server on `127.0.0.1` at the port in `EPICENTER.md`, or 4747 when the marker has none. `--host <address>` and `--port <n>` override those settings. It serves MCP at `POST /`, the launcher at `GET /`, and each app's UI at `/<app>/`: its built `.cache/ui/` ([ADR-0866](../../docs/adr/0866-an-app-starts-from-a-starter-kept-as-its-upstream-and-update-merges-the-starters-changes.md)). The launcher links to apps with a UI; a `GET /` asking for an event stream gets 405, since the server keeps no MCP session. Any later path of the server's own starts with `.`, which no app name can. An Origin must match the request Host; requests without Origin are accepted. A reverse proxy such as `tailscale serve` can provide HTTPS.
 
 Both HTTP and `serve --stdio` offer every app action as a tool and send the Epicenter's `AGENTS.md`, when present, as MCP server instructions. The server never imports an app. `tools/list` runs `epicenter <app> --json` for each app entry in its own child, so an app that fails to load loses only its own tools and says why on stderr. Each `tools/call` runs `epicenter <app> <words> --input <json>` in a fresh child from the Epicenter folder, so an edit between calls is seen by the next. `serve --stdio` uses stdin and stdout for MCP.
 
@@ -50,7 +61,7 @@ A snapshot commits everything pending in the app's folder (`src/snapshot.ts`). T
 
 There is no lock: writes to one app run at once. Git's `index.lock` keeps commits apart, and `folder.update` keeps changes to one file apart: it writes only over the text its change read, so every collection write lands. `folder.write` is last-write-wins.
 
-A read-only run, of an action with `readOnlyHint: true`, is never snapshotted. In it, `folder.write`, `folder.writeBytes`, `folder.update`, `folder.delete`, `secrets.set`, and `secrets.delete` throw before doing anything, naming the action: `The action "<words>" is read-only, so it cannot write <path>`. A raw `node:fs` write is not caught.
+A read-only run, of an action with `readOnlyHint: true`, is never snapshotted. It may write and delete `*.local` and `*.local.*` paths through `folder`; every other `folder` write throws before doing anything, naming the action: `The action "<words>" is read-only, so it cannot write <path>`. A raw `node:fs` write is not caught.
 
 `folder` is a convenience, not a sandbox. Paths are normalized and `.git` is refused; writes replace a whole file at once, through a file beside it named `*.local` so a snapshot never takes it. `folder.path` is the folder, and an action may use `node:fs` too; what it writes that way is a change from outside epicenter.
 
@@ -155,7 +166,10 @@ The UI is an app's `ui/`, a project of its own whose `build` script writes `../.
 
 What an app can rebuild lives in files it gitignores in its folder, such as `.cache/` ([ADR-0854](../../docs/adr/0854-an-apps-cache-is-the-files-it-gitignores.md)).
 
-Tests use a marked Epicenter under a temporary `HOME`. Tests replace the Keychain with process-local stores through `EPICENTER_TEST_SECRETS`, JSON keyed by `epicenter.<root id>.<app name>`, so they never reach the real one. Secrets belong to an app in one Epicenter; moving an app to another Epicenter means entering them again. Deleting `epicenter.root.json` orphans its secrets.
+Tests use a marked Epicenter under a temporary `HOME`. An app's secrets live
+in `.local.md` collections in its folder. For example, `google.local.md` can
+hold optional `account` and `refreshToken` fields. Calling its `actions()` is
+refused, new files have mode `0600`, and snapshots never commit them.
 
 Compile the executable from the repository root:
 

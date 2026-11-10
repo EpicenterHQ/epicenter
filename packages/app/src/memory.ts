@@ -10,7 +10,7 @@
  * The folder has no `path`; an action that needs one runs only on a computer.
  * There is no Git: a test checks the folder's files, not commits.
  */
-import { type Folder, normalizePath, type Secrets } from './context.ts';
+import { type Folder, normalizePath } from './context.ts';
 
 function createMemoryFolder(
 	files: Readonly<Record<string, string | Uint8Array>>,
@@ -56,27 +56,9 @@ function createMemoryFolder(
 	};
 }
 
-function createMemorySecrets(): Secrets {
-	const values = new Map<string, string>();
-	return {
-		async get(name) {
-			return values.get(name);
-		},
-		async set(name, value) {
-			values.set(name, value);
-		},
-		async delete(name) {
-			values.delete(name);
-		},
-	};
-}
-
-/** A folder seeded with `files`, and empty secrets. */
+/** A folder seeded with `files`. */
 export function createMemoryContext(
 	files: Readonly<Record<string, string | Uint8Array>> = {},
-): { folder: Folder; secrets: Secrets } {
-	return {
-		folder: createMemoryFolder(files),
-		secrets: createMemorySecrets(),
-	};
+): { folder: Folder } {
+	return { folder: createMemoryFolder(files) };
 }

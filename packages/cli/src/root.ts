@@ -1,13 +1,19 @@
-/** Find the Epicenter for this process and read its written-once identity. */
+/** Find the Epicenter for this process and read its marker. */
 import { existsSync, readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { readMarkdown } from '@epicenter/app';
 
-export const ROOT_MARKER = 'epicenter.root.json';
+export const ROOT_MARKER = 'EPICENTER.md';
+const OLD_MARKER = 'epicenter.root.json';
 export const DEFAULT_PORT = 4747;
 
-export type EpicenterRoot = { folder: string; id: string; port: number };
+export type EpicenterRoot = {
+	folder: string;
+	port: number;
+	public?: { url: string; port: number };
+};
 
 export class RootUsageError extends Error {
 	constructor(
@@ -32,46 +38,101 @@ export function folderPath(path: string): string {
 export function ancestorWithMarker(start: string): string | undefined {
 	let folder = start;
 	for (;;) {
-		if (existsSync(join(folder, ROOT_MARKER))) return folder;
+		if (
+			existsSync(join(folder, ROOT_MARKER)) ||
+			existsSync(join(folder, OLD_MARKER))
+		)
+			return folder;
 		const parent = dirname(folder);
 		if (parent === folder) return undefined;
 		folder = parent;
 	}
 }
 
+function validPort(value: unknown): value is number {
+	return (
+		typeof value === 'number' &&
+		Number.isInteger(value) &&
+		value >= 0 &&
+		value <= 65535
+	);
+}
+
+export function oldMarkerStep(folder: string): string {
+	const old = join(folder, OLD_MARKER);
+	let port = DEFAULT_PORT;
+	try {
+		const value: unknown = JSON.parse(readFileSync(old, 'utf8'));
+		if (
+			typeof value === 'object' &&
+			value !== null &&
+			'port' in value &&
+			validPort(value.port)
+		)
+			port = value.port;
+	} catch {}
+	return `write ${ROOT_MARKER} with port: ${port}, then delete ${OLD_MARKER}`;
+}
+
 function readRoot(folder: string): EpicenterRoot {
 	const marker = join(folder, ROOT_MARKER);
-	let value: unknown;
+	let text: string;
 	try {
-		value = JSON.parse(readFileSync(marker, 'utf8'));
+		text = readFileSync(marker, 'utf8');
 	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code === 'ENOENT')
+		if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
+			throw new RootUsageError(`${marker} cannot be read`);
+		const old = join(folder, OLD_MARKER);
+		if (existsSync(old)) {
 			throw new RootUsageError(
-				`There is no ${ROOT_MARKER} in ${folder}`,
-				`epicenter init ${folder}`,
+				`${old} is an old Epicenter marker; ${ROOT_MARKER} is needed`,
+				oldMarkerStep(folder),
 			);
-		throw new RootUsageError(`${marker} is not readable JSON`);
-	}
-	if (
-		typeof value !== 'object' ||
-		value === null ||
-		!('id' in value) ||
-		typeof value.id !== 'string' ||
-		value.id.length === 0 ||
-		('port' in value &&
-			(typeof value.port !== 'number' ||
-				!Number.isInteger(value.port) ||
-				value.port < 0 ||
-				value.port > 65535))
-	)
+		}
 		throw new RootUsageError(
-			`${marker} must have an id and an optional port from 0 to 65535`,
+			`There is no ${ROOT_MARKER} in ${folder}`,
+			`epicenter init ${folder}`,
 		);
-	return {
-		folder,
-		id: value.id,
-		port: 'port' in value ? (value.port as number) : DEFAULT_PORT,
-	};
+	}
+	const read = readMarkdown(text);
+	if (!read.writable || (text.startsWith('---') && read.body === text))
+		throw new RootUsageError(`${marker} has invalid front matter`);
+	const fields = read.fields;
+	for (const field of Object.keys(fields))
+		if (!['port', 'public', 'publicPort'].includes(field))
+			throw new RootUsageError(`${marker} has unknown field ${field}`);
+	const port = Object.hasOwn(fields, 'port') ? fields.port : DEFAULT_PORT;
+	if (!validPort(port)) throw new RootUsageError(`${marker} has invalid port`);
+	const publicUrl = fields.public;
+	const publicPort = fields.publicPort;
+	if ((publicUrl === undefined) !== (publicPort === undefined))
+		throw new RootUsageError(
+			`${marker} requires public and publicPort together`,
+		);
+	if (publicUrl !== undefined) {
+		if (typeof publicUrl !== 'string')
+			throw new RootUsageError(
+				`${marker} has invalid public: use an https URL`,
+			);
+		let url: URL;
+		try {
+			url = new URL(publicUrl);
+		} catch {
+			throw new RootUsageError(
+				`${marker} has invalid public: use an https URL`,
+			);
+		}
+		if (url.protocol !== 'https:')
+			throw new RootUsageError(
+				`${marker} has invalid public: use an https URL`,
+			);
+		if (!validPort(publicPort))
+			throw new RootUsageError(`${marker} has invalid publicPort`);
+		if (publicPort === port)
+			throw new RootUsageError(`${marker} has publicPort equal to port`);
+		return { folder, port, public: { url: publicUrl, port: publicPort } };
+	}
+	return { folder, port };
 }
 
 let selected: EpicenterRoot | undefined;

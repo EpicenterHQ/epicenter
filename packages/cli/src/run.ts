@@ -4,7 +4,7 @@
  * nothing: whoever started it takes a snapshot afterwards (`snapshot.ts`).
  * A run that is not read-only reports the call and the paths it wrote through
  * `folder`, so the parent can name the snapshot. A read-only run's writes
- * through `folder` and `secrets` throw. The answer is
+ * through `folder` outside local paths throw. The answer is
  * what the action returned or threw.
  */
 

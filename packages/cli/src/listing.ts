@@ -16,8 +16,6 @@ import {
 	requiredKeys,
 	usageLine,
 } from './input.ts';
-import { epicenterRoot } from './root.ts';
-import { keychainService } from './secrets.ts';
 import type { statusOf } from './snapshot.ts';
 
 /** Git's pending and unpushed counts; `undefined` for a folder in no repository. */
@@ -157,17 +155,13 @@ export function homeListing(
 	return lines.join('\n');
 }
 
-/** Render an app's actions, its folder, and what is not yet in its history; `--json` adds its keychain service. */
+/** Render an app's actions, its folder, and what is not yet in its history. */
 export function oneAppListing(
 	located: Runnable,
 	json: boolean,
 	history: Status,
 ): unknown {
-	if (json)
-		return {
-			...appListing(located, history),
-			keychain: keychainService(epicenterRoot().id, located.name),
-		};
+	if (json) return appListing(located, history);
 	return [
 		`${located.name}  ${located.app.description}`,
 		`folder: ${located.folder}`,

@@ -1,7 +1,7 @@
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
 import { mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { bareApp, fixture, TEST_ROOT_ID } from './runner.test-support.ts';
+import { bareApp, fixture } from './runner.test-support.ts';
 
 setDefaultTimeout(30_000);
 const roots: string[] = [];
@@ -16,7 +16,7 @@ async function setup() {
 	return f;
 }
 
-test('init writes an identity and starter guidance, keeps existing guidance, and refuses nesting', async () => {
+test('init writes the marker and starter guidance, keeps existing guidance, and refuses nesting', async () => {
 	const f = await setup();
 	const folder = join(f.root, 'other');
 	await mkdir(folder);
@@ -24,10 +24,10 @@ test('init writes an identity and starter guidance, keeps existing guidance, and
 	const result = await f.run('init', folder, '--port', '4748', '--json');
 	expect(result.code).toBe(0);
 	const made = JSON.parse(result.stdout);
-	expect(made).toEqual({ folder, id: expect.any(String), port: 4748 });
-	expect(
-		JSON.parse(await readFile(join(folder, 'epicenter.root.json'), 'utf8')),
-	).toEqual({ id: made.id, port: 4748 });
+	expect(made).toEqual({ folder, port: 4748 });
+	expect(await readFile(join(folder, 'EPICENTER.md'), 'utf8')).toBe(
+		'---\nport: 4748\n---\nThis folder is an Epicenter. Each folder in it with an `epicenter.ts` is an\napp. Run `epicenter` here to list them.\n',
+	);
 	expect(await readFile(join(folder, 'AGENTS.md'), 'utf8')).toBe(
 		'Keep this guidance.\n',
 	);
@@ -42,6 +42,9 @@ test('init writes an identity and starter guidance, keeps existing guidance, and
 	const defaulted = await f.runIn(f.root, 'init', fresh, '--json');
 	expect(defaulted.code).toBe(0);
 	expect(JSON.parse(defaulted.stdout).port).toBe(4747);
+	expect(await readFile(join(fresh, 'EPICENTER.md'), 'utf8')).toBe(
+		'---\nport: 4747\n---\nThis folder is an Epicenter. Each folder in it with an `epicenter.ts` is an\napp. Run `epicenter` here to list them.\n',
+	);
 	const starter = await readFile(join(fresh, 'AGENTS.md'), 'utf8');
 	expect(starter).toContain('*.local or *.local.* are never committed');
 	expect(starter).toContain('Each child folder with an epicenter.ts is an app');
@@ -59,6 +62,54 @@ test('init writes an identity and starter guidance, keeps existing guidance, and
 	expect(
 		JSON.parse((await f.runIn(current, 'init', '--json')).stdout).folder,
 	).toBe(current);
+});
+
+test('marker front matter accepts the public listener and refuses invalid fields', async () => {
+	const f = await setup();
+	const marker = join(f.home, 'EPICENTER.md');
+	await writeFile(
+		marker,
+		'---\nport: 4747\npublic: https://studio.example.com:10000\npublicPort: 10000\n---\n',
+	);
+	expect((await f.run('--json')).code).toBe(0);
+	for (const [contents, field] of [
+		['---\nport: -1\n---\n', 'port'],
+		['---\nport: 1.5\n---\n', 'port'],
+		['---\nport: null\n---\n', 'port'],
+		[
+			'---\npublic: http://studio.example.com\npublicPort: 10000\n---\n',
+			'public',
+		],
+		['---\npublic: https://studio.example.com\n---\n', 'publicPort'],
+		[
+			'---\nport: 4747\npublic: https://studio.example.com\npublicPort: 4747\n---\n',
+			'publicPort',
+		],
+		['---\nmystery: true\n---\n', 'mystery'],
+	] as const) {
+		await writeFile(marker, contents);
+		const result = await f.run('--json');
+		expect(result.code).toBe(2);
+		const message = JSON.parse(result.stdout).error.message;
+		expect(message).toContain(marker);
+		expect(message).toContain(field);
+	}
+});
+
+test('an old marker names the migration step from inside its app', async () => {
+	const f = await setup();
+	await rm(join(f.home, 'EPICENTER.md'));
+	await writeFile(
+		join(f.home, 'epicenter.root.json'),
+		'{"id":"old","port":4748}\n',
+	);
+	const app = join(f.home, 'reading');
+	await f.folder(app, { 'epicenter.ts': bareApp('reading') });
+	const result = await f.runIn(app, '--json');
+	expect(result.code).toBe(2);
+	expect(JSON.parse(result.stdout).error.next).toBe(
+		'write EPICENTER.md with port: 4748, then delete epicenter.root.json',
+	);
 });
 
 test('walk-up wins over EPICENTER_ROOT, which wins over the default', async () => {
@@ -93,9 +144,7 @@ test('walk-up wins over EPICENTER_ROOT, which wins over the default', async () =
 	expect(
 		await Bun.file(join(f.home, 'from-cwd', 'epicenter.ts')).exists(),
 	).toBe(true);
-	expect(
-		JSON.parse((await f.runIn(f.home, 'reading', '--json')).stdout).keychain,
-	).toBe(`epicenter.${TEST_ROOT_ID}.reading`);
+
 	f.env.EPICENTER_ROOT = join(f.root, 'uninitialized');
 	const missing = await f.run('--json');
 	expect(missing.code).toBe(2);
@@ -150,10 +199,7 @@ test('build reports each app and keeps the last good UI after failure', async ()
 
 test('serve reads the root port when no command port is given', async () => {
 	const f = await setup();
-	await writeFile(
-		join(f.home, 'epicenter.root.json'),
-		JSON.stringify({ id: TEST_ROOT_ID, port: 0 }),
-	);
+	await writeFile(join(f.home, 'EPICENTER.md'), '---\nport: 0\n---\n');
 	const child = Bun.spawn([process.execPath, f.bin, 'serve'], {
 		cwd: f.root,
 		env: f.env,

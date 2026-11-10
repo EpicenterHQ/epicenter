@@ -34,9 +34,9 @@ export {
 	folder,
 	inRun,
 	normalizePath,
-	type Secrets,
-	secrets,
 } from './context.ts';
 export { field, type TSwitch, type TTags } from './field.ts';
+export { readMarkdown } from './front-matter.ts';
+export { isLocalPath, LOCAL_NAMES } from './local.ts';
 export { createMemoryContext } from './memory.ts';
 export { type Placeholders, templateProblem } from './path.ts';

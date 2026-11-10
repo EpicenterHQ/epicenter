@@ -9,7 +9,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
 	type Action,
-	createMemoryContext,
 	defineAction,
 	defineApp,
 	field,
@@ -69,7 +68,6 @@ async function setup() {
 		actions: actions as Record<string, Action>,
 		context: {
 			folder: folderOnDisk(dir),
-			secrets: createMemoryContext().secrets,
 		},
 	} as Runnable;
 	const run = (key: keyof typeof actions, page: string) =>
@@ -93,6 +91,16 @@ test('a run that returns commits nothing; the snapshot after it is named for the
 	expect(await f.message()).toBe('notes: write monday');
 	expect(await snapshot('notes', f.dir)).toEqual({ committed: null });
 	expect(await statusOf(f.dir)).toEqual({ pending: 0 });
+});
+
+test('a snapshot leaves local files and local directories out of history', async () => {
+	const f = await setup();
+	const folder = folderOnDisk(f.dir);
+	await folder.write('google.local.md', 'token');
+	await folder.write('tokens.local/item.md', 'token');
+	expect(await statusOf(f.dir)).toEqual({ pending: 0 });
+	expect(await snapshot('notes', f.dir)).toEqual({ committed: null });
+	expect(await gitIn(f.dir, 'ls-files')).toBe('a.md');
 });
 
 test('a run that throws after writing commits nothing, and the next snapshot takes its writes', async () => {

@@ -21,12 +21,7 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import {
-	createMemoryContext,
-	defineCollection,
-	field,
-	inRun,
-} from '@epicenter/app';
+import { defineCollection, field, inRun } from '@epicenter/app';
 import { folderOnDisk } from './disk.ts';
 import { gitIn } from './runner.test-support.ts';
 
@@ -65,6 +60,36 @@ test('a write keeps the mode of the file it replaces', async () => {
 	await folder.write('run.sh', 'echo two\n');
 	expect((await stat(join(root, 'run.sh'))).mode & 0o777).toBe(0o755);
 	expect(await folder.read('run.sh')).toBe('echo two\n');
+});
+
+test('new local files are private, including files in a local directory', async () => {
+	const { root, folder } = await setup();
+	await folder.write('google.local.md', 'token');
+	await folder.writeBytes('tokens.local/item.md', new Uint8Array([1]));
+	expect((await stat(join(root, 'google.local.md'))).mode & 0o777).toBe(0o600);
+	expect((await stat(join(root, 'tokens.local/item.md'))).mode & 0o777).toBe(
+		0o600,
+	);
+});
+
+test('a local one-file collection gets, sets, and updates on disk', async () => {
+	const { root, folder } = await setup();
+	const google = defineCollection({
+		path: 'google.local.md',
+		fields: { refreshToken: field.text({ optional: true }) },
+	});
+	const context = { folder };
+	await inRun(context, () => google.set({ refreshToken: 'first' }));
+	expect(await inRun(context, () => google.get())).toMatchObject({
+		refreshToken: 'first',
+	});
+	await inRun(context, () =>
+		google.update((before) => ({
+			refreshToken: `${before.refreshToken} second`,
+		})),
+	);
+	expect(await folder.read('google.local.md')).toContain('first second');
+	expect((await stat(join(root, 'google.local.md'))).mode & 0o777).toBe(0o600);
 });
 
 test('normalization refuses climbing, absolute and Git paths on every file method', async () => {
@@ -171,7 +196,7 @@ test('concurrent updates of one collection file each land, each computed from th
 		fields: { n: field.integer({ optional: true }) },
 	});
 	await folder.write('counters/a.md', '---\nn: 0\n---\n');
-	const context = { folder, secrets: createMemoryContext().secrets };
+	const context = { folder };
 	const at = { path: 'counters/a.md' };
 	await Promise.all(
 		Array.from({ length: 5 }, () =>

@@ -1,5 +1,4 @@
-/** `epicenter init` writes a root identity once and adds starter guidance. */
-import { randomUUID } from 'node:crypto';
+/** `epicenter init` writes a root marker once and adds starter guidance. */
 import { existsSync, realpathSync } from 'node:fs';
 import { mkdir, readdir, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve } from 'node:path';
@@ -9,6 +8,7 @@ import {
 	ancestorWithMarker,
 	DEFAULT_PORT,
 	folderPath,
+	oldMarkerStep,
 	ROOT_MARKER,
 } from './root.ts';
 
@@ -73,6 +73,14 @@ export async function initCommand(
 			CliError.Usage({ message: `${folder} is already an Epicenter` }).error,
 			json,
 		);
+	if (existsSync(join(folder, 'epicenter.root.json')))
+		return fail(
+			CliError.Usage({
+				message: `${folder} has an old Epicenter marker`,
+				next: oldMarkerStep(folder),
+			}).error,
+			json,
+		);
 	const parent = ancestorWithMarker(dirname(folder));
 	if (parent)
 		return fail(
@@ -82,20 +90,20 @@ export async function initCommand(
 			json,
 		);
 	await mkdir(folder, { recursive: true });
-	const id = randomUUID();
 	await writeFile(
 		join(folder, ROOT_MARKER),
-		`${JSON.stringify({ id, ...(port === undefined ? {} : { port }) }, null, 2)}\n`,
+		`---\nport: ${port ?? DEFAULT_PORT}\n---\nThis folder is an Epicenter. Each folder in it with an \`epicenter.ts\` is an\napp. Run \`epicenter\` here to list them.\n`,
 		{ flag: 'wx' },
 	);
 	if (!existsSync(join(folder, 'AGENTS.md')))
 		await writeFile(join(folder, 'AGENTS.md'), STARTER_AGENTS, { flag: 'wx' });
-	if (json) writeJson({ folder, id, port: port ?? DEFAULT_PORT });
+	if (json) writeJson({ folder, port: port ?? DEFAULT_PORT });
 	else {
 		writeOut(`Made Epicenter at ${folder}.`);
 		const hasApps = (await readdir(folder, { withFileTypes: true })).some(
 			(entry) =>
-				entry.isDirectory() && existsSync(join(folder, entry.name, 'epicenter.ts')),
+				entry.isDirectory() &&
+				existsSync(join(folder, entry.name, 'epicenter.ts')),
 		);
 		writeErr(hasApps ? 'Run: epicenter' : 'Run: epicenter new <name>');
 	}

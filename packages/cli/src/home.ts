@@ -24,7 +24,6 @@ import { nameProblem } from './commands.ts';
 import { folderOnDisk } from './disk.ts';
 import { CliError } from './errors.ts';
 import { epicenterDir, epicenterRoot } from './root.ts';
-import { keychain, keychainService } from './secrets.ts';
 
 /** Where an entry is on disk: the same for an app that runs and one with problems. */
 type Place = {
@@ -51,7 +50,7 @@ export type Located =
 			app: App;
 			/** Every action by its words, one space apart, as the command line and MCP name it. */
 			actions: Record<string, Action>;
-			/** The folder and secrets a run of its actions reaches. */
+			/** The folder a run of its actions reaches. */
 			context: Context;
 	  })
 	| (Place & { ok: false; problems: string[] });
@@ -158,7 +157,6 @@ async function load(
 		actions,
 		context: {
 			folder: folderOnDisk(place.realPath),
-			secrets: keychain(keychainService(epicenterRoot().id, entry)),
 		},
 	};
 }

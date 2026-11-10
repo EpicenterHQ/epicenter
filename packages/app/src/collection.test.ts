@@ -31,6 +31,29 @@ const settings = defineCollection({
 	},
 });
 
+test('a local one-file collection reads and writes but offers no actions', async () => {
+	const google = defineCollection({
+		path: 'google.local.md',
+		fields: { refreshToken: field.text({ optional: true }) },
+	});
+	expect(() => google.actions()).toThrow(
+		'google.local.md never leaves this computer, so it offers no actions',
+	);
+	const context = createMemoryContext();
+	await inRun(context, () => google.set({ refreshToken: 'first' }));
+	expect(await inRun(context, () => google.get())).toMatchObject({
+		refreshToken: 'first',
+	});
+	await inRun(context, () =>
+		google.update((before) => ({
+			refreshToken: `${before.refreshToken} second`,
+		})),
+	);
+	expect(await context.folder.read('google.local.md')).toContain(
+		'first second',
+	);
+});
+
 const review = defineAction({
 	description: 'Mark an item reviewed',
 	input: { path: field.text() },
@@ -655,7 +678,7 @@ describe('problem rows', () => {
 describe('outside a run', () => {
 	test('a collection throws rather than touch any folder', () => {
 		expect(items.list()).rejects.toThrow(
-			"An app's collections, folder, and secrets are read only inside an action's run",
+			"An app's collections and folder are available only inside an action's run",
 		);
 	});
 });

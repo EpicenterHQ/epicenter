@@ -47,7 +47,7 @@ ${Object.values(COMMANDS).join('\n')}
 epicenter --version
 
 Uses the nearest Epicenter above the current folder, then EPICENTER_ROOT,
-then ~/Epicenter. An Epicenter has epicenter.root.json.
+then ~/Epicenter. An Epicenter has EPICENTER.md.
 A flag's value is read as its field's type; null removes a field that takes it.
 --input <json> gives an action's whole input as one JSON object; - reads it from stdin.
 --json prints one JSON answer, and --help (-h) explains anything; both go anywhere before --.
@@ -61,7 +61,7 @@ const usage = (message: string, next?: string) =>
 
 /** What each command does, as `epicenter <command> --help` prints it under its usage. */
 const COMMAND_HELP: { [K in Command]: string } = {
-	init: `Makes a folder an Epicenter and writes epicenter.root.json and starter AGENTS.md.
+	init: `Makes a folder an Epicenter and writes EPICENTER.md and starter AGENTS.md.
 The folder defaults to the current directory. Epicenters cannot nest.`,
 	new: `Makes <Epicenter>/<name>, a Git repository. With --from, it clones a starter (a
 repository with no data), keeps it as the app's upstream remote, and builds its
