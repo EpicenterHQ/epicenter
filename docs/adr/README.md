@@ -1058,7 +1058,7 @@ When you add an ADR, add its row here.
 | [0848](0848-the-runner-owns-only-what-an-action-wrote.md) | The runner owns only what an action wrote | Accepted |
 | [0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) | Your server is one always-reachable computer that runs named actions | Proposed |
 | [0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) | An action changes files, and whoever knows the intent commits them | Proposed |
-| [0851](0851-an-app-with-history-has-one-git-remote-its-meeting-point-and-backup.md) | An app with history has one Git remote, its meeting point and its backup | Proposed |
+| [0851](0851-an-app-with-history-has-one-git-remote-its-meeting-point-and-backup.md) | An app has one home and an optional push-only backup | Proposed |
 | [0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) | An app is a folder with a declared shape, and each job takes the least powerful form | Proposed |
 | [0853](0853-collections-give-four-actions-and-programs-without-the-folder-ask-over-mcp.md) | Collections give four actions, and programs without the folder ask over MCP | Proposed |
 | [0854](0854-an-apps-cache-is-the-files-it-gitignores.md) | An app's cache is the files it gitignores | Proposed |
@@ -1068,5 +1068,5 @@ When you add an ADR, add its row here.
 | [0859](0859-an-action-changes-the-folder-or-the-world-and-a-world-verb-is-safe-to-repeat.md) | An action changes the folder or the world, and a world verb is safe to repeat on the targets it is given | Proposed |
 | [0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) | An interface is a view over an app's actions, and never knows where they run | Proposed |
 | [0861](0861-whats-yours-is-everywhere-and-everything-else-is-used-where-it-is.md) | What's yours is everywhere, and everything else is used where it is | Proposed |
-| [0862](0862-notes-merge-field-by-field-and-every-conflict-is-listed-for-repair.md) | Notes merge field by field, and every conflict is listed for repair | Proposed |
+| [0862](0862-notes-merge-field-by-field-and-every-conflict-is-listed-for-repair.md) | Notes merge field by field, and every conflict is listed for repair | Rejected 2026-11-11 (ADR-0851's one home makes merging notes between computers unnecessary) |
 | [0863](0863-epicenter-is-one-place-and-one-app-shows-it-on-every-device-you-own.md) | Epicenter is one place, and one app shows it on every device you own | Proposed |

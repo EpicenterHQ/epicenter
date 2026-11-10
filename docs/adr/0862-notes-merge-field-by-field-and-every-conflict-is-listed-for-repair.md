@@ -1,6 +1,7 @@
 # 0862. Notes merge field by field, and every conflict is listed for repair
 
-- **Status:** Proposed
+- **Status:** Rejected
+- **Reason:** [ADR-0851](0851-an-app-with-history-has-one-git-remote-its-meeting-point-and-backup.md)'s one home makes merging notes between computers unnecessary.
 - **Date:** 2026-11-09 (amended 2026-11-09: retitled from "Nothing blocks, and nothing is lost", a promise broader than the mechanism; the merge's second caller is the Epicenter app on a phone, not a browser, [ADR-0863](0863-epicenter-is-one-place-and-one-app-shows-it-on-every-device-you-own.md))
 - **Relates:** [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (who commits), [ADR-0851](0851-an-app-with-history-has-one-git-remote-its-meeting-point-and-backup.md) (`sync`, edited), [ADR-0856](0856-binary-files-go-through-git-lfs.md) (binary files), [ADR-0861](0861-whats-yours-is-everywhere-and-everything-else-is-used-where-it-is.md) (the meeting place), [ADR-0863](0863-epicenter-is-one-place-and-one-app-shows-it-on-every-device-you-own.md) (the Epicenter app on a phone).
 - **Unbuilt:** all of it: the `key: <JSON>` writer, the merge function and its Git driver, conflicted copies, and the problems list.

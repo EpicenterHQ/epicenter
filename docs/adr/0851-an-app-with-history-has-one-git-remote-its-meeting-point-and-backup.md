@@ -1,83 +1,70 @@
-# 0851. An app with history has one Git remote, its meeting point and its backup
+# 0851. An app has one home and an optional push-only backup
 
 - **Status:** Proposed
-- **Date:** 2026-11-08
-- **Amends:** [ADR-0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md) at `epicenter sync`, which stays as the one command that commits what is left, pulls with `--rebase`, and pushes.
-- **Relates:** [ADR-0861](0861-whats-yours-is-everywhere-and-everything-else-is-used-where-it-is.md) (the meeting place), [ADR-0862](0862-notes-merge-field-by-field-and-every-conflict-is-listed-for-repair.md) (merging), [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (`origin`).
-- **Unbuilt:** `epicenter sync` and Whispering's own sync. Built 2026-11-09 and to be deleted: the fast-forward push after each commit `epicenter` made, the fetch after a refused push, and ahead and behind `origin` in the listing (`packages/cli/src/push.ts`).
+- **Date:** 2026-11-08 (revised 2026-11-11: one home replaces copies meeting at `origin`)
+- **Amends:** [ADR-0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md) at `epicenter sync`: it snapshots pending changes and pushes, without pulling or rebasing.
+- **Relates:** [ADR-0861](0861-whats-yours-is-everywhere-and-everything-else-is-used-where-it-is.md) (access from other devices), [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) (reaching the home), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (snapshots), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (`origin`).
+- **Unbuilt:** The one-home sync behavior and access to home actions from other devices. The earlier fetch after a refused push and ahead/behind listing are to be removed.
 
 ## Context
 
-Earlier records gave each app a meeting point chosen by placement, a separate
-backup, and an encrypted remote that was dropped. A later draft had your
-Epicenter pull before every run and merge when the remote had moved, which
-merged into a folder the person was editing on the same Mac and paid a network
-fetch on every call. The first draft of this record then pushed after every
-commit `epicenter` made; once a run stopped committing (ADR-0850), nothing was
-left to push after.
+Earlier designs gave each computer a copy of an app. The computers met at a
+Git remote, pulled each other's changes, and merged notes. That arrangement
+served editing one Epicenter on two computers that could not reach each other.
+It also made a routine action depend on a network fetch and could change files
+under an open editor. An app now lives on one home computer. Other devices and
+programs reach that home through its actions.
+
+Runs do not commit. History consists of snapshots of pending changes. The home
+makes a snapshot before `epicenter sync` pushes.
 
 ## Decision
 
-**An app with history has exactly one Git remote, `origin`, and it is both the
-place copies meet and the backup.** A repository in Cloudflare Artifacts, the
-meeting place (ADR-0861), with a GitHub repository as a second push URL for a
-backup; any Git host works. An app with no history yet (ADR-0852's first
-rung) has no remote.
+**An Epicenter lives on one home computer.** Its app folders and their history
+live there. A phone, browser, agent, another computer, or a program such as
+Whispering on another device calls the home's actions to read or change them.
+A program on the home may write the folder directly.
 
-- **`epicenter sync [<app>]` is the only command that touches a remote.** For
-  each app, or the one named, from its folder: `git add -A -- .` and a commit
-  `sync: <app> (<n> files)` when anything changed, then
-  `git pull --rebase --autostash`, then `git push`. An app inside a larger
-  repository commits only its own folder but pulls and pushes that whole
-  repository, so other uncommitted files there are set aside and put back by
-  `--autostash`; when they cannot be put back, Git keeps them in its stash and
-  `sync` says so. Before it pulls, `sync` configures Epicenter's merge driver
-  in the repository, so content never stops a rebase (ADR-0862); a rebase that
-  stops for another reason is aborted (`git rebase --abort`), the commits stay
-  local, and `sync` says why. Offline, it commits
-  and says it could not push. Which branch it pushes is Git's: the upstream and
-  `push.default` the clone already has, so a branch that tracks nothing is
-  committed and not pushed. It reports how far each app is ahead of and behind
-  `origin` afterwards.
-- **Copies never talk to each other.** The Mac Studio, the laptop, and anyone a
-  repository is shared with each sync with `origin` and never with one another,
-  so no copy has to be awake for another to sync.
-- **Who runs `sync` is the caller's choice:** the person, an agent (the MCP tool
-  `sync`), a screen's button through `serve`, or a launchd job on each copy.
-  `epicenter` schedules nothing (ADR-0849).
-- **The listing reads nothing from Git.** How far a copy is behind is in what
-  `sync` reports.
-- **A program that writes the folder syncs the same way.** Whispering commits
-  with Git and pulls with `--rebase` and pushes as `sync` does.
-- A person or agent pulls and pushes any clone with Git or a Git-aware editor. A
-  cloud agent clones from the remote and pushes a branch; a person merges it.
-- Who can read an app: whoever holds a clone, your server, and the remote's
-  host. Epicenter builds no encryption.
-- A backup on another host is a second push URL on `origin`, never a second
-  meeting point.
+**An app's `origin` is an optional backup.** It may be any Git remote: GitHub,
+GitLab, SSH, or a disk. The home pushes to it. Normal use never pulls from it.
+An app without `origin` still has local history.
+
+**`epicenter sync <app>` makes a snapshot, then pushes** with
+`git push origin HEAD:<branch>`. It does not fetch, rebase, or autostash. It
+never forces a push. With no remote, sync only makes the snapshot. `serve` may
+also push after a snapshot; it follows the same refusal rule.
+
+**A refused push does not overwrite the backup.** If `origin` has commits the
+home lacks, the app's status says that the backup has changes this computer
+does not and was not overwritten. It gives a next step to fetch and inspect
+them, for example `git -C <app> fetch origin` and
+`git -C <app> log HEAD..origin/<branch>`. Background pushes through `serve`
+report the same failure and keep logging it on stderr. The home does not merge
+the backup automatically.
+
+**`epicenter update` still fetches `upstream`.** That remote supplies the app's
+starter. It is distinct from the `origin` backup.
 
 ## Consequences
 
-- Deleted: pushing after each commit, the fetch after a refused push, ahead and
-  behind in the listing, pulling before a run, merging into a working tree, a
-  meeting point per app, a backup separate from the remote, and backup
-  detection.
-- A change made on the laptop reaches the Mac Studio at the next `sync` on each.
-- A rebase on the daily Mac can change a file under an open editor buffer. A
-  conflict never leaves the folder mid-rebase.
-- An app without a remote still runs and commits; it has no backup until one is
-  added.
+- Restore an app by cloning its backup on a computer and making that computer
+  its home. That computer then serves the app's actions.
+- A phone or another computer needs a route to the home to use its actions.
+  An offline outbox that queues calls for replay when the home is reachable
+  is a possible later design.
+- A refused push leaves both the home and backup intact until someone inspects
+  their histories and resolves the difference.
+- An app with no remote has snapshots on its home and no remote backup.
 
 ## Considered alternatives
 
-- **Pull before every run, merging when the remote moved.** Merges into a tree
-  the person is editing, fails reads on conflicts, and fetches on every call.
-- **Your server as the meeting point, the remote as a backup.** Pushes into a
-  folder someone may be editing, and two remotes per app.
-- **An end-to-end encrypted remote.** Re-uploads history or needs key
-  management, and rules out hosted runs.
-- **Push after each commit `epicenter` makes (this record's first draft, built
-  2026-11-09).** Nothing is left to push after once a run makes no commit, and a
-  slow push sat behind every run.
-- **No `epicenter sync`, Git and editors only.** A caller without a shell, such
-  as Claude Desktop or a screen, could never commit or push.
+- **`origin` as a meeting point and backup for several working copies.** Each
+  computer would commit, pull with `--rebase --autostash`, merge notes, and push.
+  This served editing one Epicenter on computers that could not reach each
+  other. One home removes that need and avoids merges into an active folder.
+- **Pull before every run.** This fetched on every call and could change the
+  folder while a person was editing it.
+- **Your server as a meeting point with a separate backup.** This pushed into
+  a folder someone might be editing and required two remotes per app.
+- **An end-to-end encrypted remote.** This needs key management and complicates
+  restoring a home.
