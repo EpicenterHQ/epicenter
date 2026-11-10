@@ -14,6 +14,7 @@ export const COMMANDS = {
 	history: 'epicenter history <app> [--limit <n>]',
 	undo: 'epicenter undo <app> [<commit>]',
 	serve: 'epicenter serve [--port <n>] [--host <address>] [--stdio]',
+	access: 'epicenter access [invite [<name>] | revoke <name>]',
 } as const;
 
 export type Command = keyof typeof COMMANDS;

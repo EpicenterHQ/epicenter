@@ -8,6 +8,7 @@
  */
 import type { Action } from '@epicenter/app';
 import packageJson from '../package.json' with { type: 'json' };
+import { accessCommand } from './access.ts';
 import { buildCommand } from './build.ts';
 import { READ_ONLY_FLAG, REPORT_FLAG, runChild } from './child.ts';
 import { COMMANDS, type Command } from './commands.ts';
@@ -81,12 +82,20 @@ merge, a commit not in the app's history, and a revert that conflicts, leaving
 the folder as it was, and then pushes to origin as sync does.`,
 	serve: `Offers every app's actions over MCP at / and each app's UI at /<app>/, on
 127.0.0.1 and the Epicenter's port (default 4747) unless --port or --host says otherwise. With --stdio, it speaks
-MCP on stdin and stdout instead.`,
+MCP on stdin and stdout instead. When EPICENTER.md has public and publicPort, it
+also offers them on 127.0.0.1:<publicPort> to a person signed in with a passkey and
+to a connector such as Claude signed in with OAuth; an HTTPS tunnel from public
+to that port is yours to run.`,
+	access: `Lists the people (passkeys) and connectors that can reach the public address.
+invite makes a link that registers a passkey on one device, once, within 15
+minutes; revoke ends a connector's refresh tokens and approval, or a person's
+passkey and sessions. It works while serve runs.`,
 };
 
 /** What each command in `COMMANDS` does. */
 const HANDLERS: { [K in Command]: Handler } = {
 	init: initCommand,
+	access: accessCommand,
 	async new(words, json) {
 		const [name, ...rest] = words;
 		const fromAt = rest.findIndex(

@@ -166,7 +166,7 @@ function snapshotOf(commit: Commit): Snapshot {
 }
 
 /** `seconds` as local time, plainly: `2026-11-11 09:30`. */
-function localTime(seconds: number) {
+export function localTime(seconds: number) {
 	const at = new Date(seconds * 1000);
 	const two = (n: number) => String(n).padStart(2, '0');
 	return `${at.getFullYear()}-${two(at.getMonth() + 1)}-${two(at.getDate())} ${two(at.getHours())}:${two(at.getMinutes())}`;
