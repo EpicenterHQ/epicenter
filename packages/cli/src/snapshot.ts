@@ -36,9 +36,7 @@ export async function underway(folder: string) {
 		'rev-parse',
 		...UNDERWAY.flatMap((path) => ['--git-path', path]),
 	]);
-	return paths
-		.split('\n')
-		.some((path) => existsSync(resolve(folder, path)));
+	return paths.split('\n').some((path) => existsSync(resolve(folder, path)));
 }
 
 /** What a commit did: the commit it made, nothing (nothing it would take had changed, or the folder is in no repository), or why it failed and, when one is known, the command that resolves it. */
@@ -56,6 +54,13 @@ const LFS_MISSING = {
 		'.gitattributes routes files through Git LFS, and this computer has no LFS filter, so Git would store them whole',
 	next: 'git lfs install',
 };
+
+/**
+ * How many times a commit looks again at what is pending after its `git
+ * commit` failed. Each failure means another process committed meanwhile,
+ * so a later look may find nothing left to take.
+ */
+const COMMIT_TRIES = 5;
 
 /** How long a commit waits for someone else's hold on Git's index lock before giving up. */
 const INDEX_LOCK_WAIT_MS = 2_000;
@@ -160,8 +165,8 @@ async function commitCall(app: string, folder: string, wrote: Wrote) {
 			]);
 			return { subject, files: changed.length };
 		} catch (error) {
-			// Another process may have committed these paths meanwhile: look again, once.
-			if (tries === 2) throw error;
+			// Another process may have committed these paths meanwhile: look again.
+			if (tries === COMMIT_TRIES) throw error;
 		}
 	}
 }
@@ -199,8 +204,8 @@ async function commitPending(app: string, folder: string, message: string) {
 			]);
 			return { subject, files };
 		} catch (error) {
-			// Another process's snapshot may have committed what this one staged: look again, once.
-			if (tries === 2) throw error;
+			// Another process's snapshot may have committed what this one staged: look again.
+			if (tries === COMMIT_TRIES) throw error;
 		}
 	}
 }
@@ -276,7 +281,9 @@ export function snapshot(
 	const next = (queued.get(folder) ?? Promise.resolve())
 		.then(() => take(app, folder, boundary))
 		.catch(
-			(error): Snapshot => ({ failed: { message: extractErrorMessage(error) } }),
+			(error): Snapshot => ({
+				failed: { message: extractErrorMessage(error) },
+			}),
 		);
 	queued.set(folder, next);
 	void next.then(() => {

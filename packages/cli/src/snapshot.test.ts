@@ -253,3 +253,27 @@ test('concurrent snapshots of one folder in one process take turns', async () =>
 	});
 	expect(second).toEqual({ committed: null });
 });
+
+test('snapshots from several processes at once commit what is pending once, and none fails', async () => {
+	const f = await setup();
+	for (const page of ['b', 'c', 'd'])
+		await writeFile(join(f.dir, `${page}.md`), page);
+	const script = `const { snapshot } = await import(${JSON.stringify(join(import.meta.dir, 'snapshot.ts'))}); console.log(JSON.stringify(await snapshot('notes', ${JSON.stringify(f.dir)})));`;
+	const answers = await Promise.all(
+		Array.from({ length: 6 }, async () => {
+			const child = Bun.spawn([process.execPath, '-e', script], {
+				stdout: 'pipe',
+				stderr: 'inherit',
+			});
+			await child.exited;
+			return JSON.parse(await new Response(child.stdout).text());
+		}),
+	);
+	expect(answers.filter((answer) => 'failed' in answer)).toEqual([]);
+	expect(answers.filter((answer) => answer.committed !== null)).toEqual([
+		{ committed: { subject: 'notes: changed outside epicenter', files: 3 } },
+	]);
+	expect(await gitIn(f.dir, 'log', '--format=%s')).toBe(
+		'notes: changed outside epicenter\ninitial',
+	);
+});
