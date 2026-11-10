@@ -13,6 +13,7 @@
  * are a second collection.
  */
 import { customAlphabet } from 'nanoid';
+import { isLocalPath } from './context.ts';
 
 /** The names inside a template's braces: `Placeholders<'notes/{year}/{time}.md'>` is `'year' | 'time'`. */
 export type Placeholders<P extends string> =
@@ -44,9 +45,14 @@ export type Template = {
 	readonly placeholders: readonly string[];
 	/** The directory to list for its files: the literal part before the first placeholder, up to its last `/`. */
 	readonly dir: string;
-	/** The placeholder values when `path` is one of its files, else `undefined`. */
+	/**
+	 * The placeholder values when `path` is one of its files, else
+	 * `undefined`. A template that is not `.local` never matches a `.local`
+	 * path, so a value such as `token.local` never makes a record of a file
+	 * that stays on this computer.
+	 */
 	match(path: string): Record<string, string> | undefined;
-	/** The path for these values. */
+	/** The path for these values; throws when they make a `.local` path of a template that is not one. */
 	fill(values: Record<string, string>): string;
 };
 
@@ -95,6 +101,7 @@ export function template(text: string): Template {
 	const placeholders = [...text.matchAll(PLACEHOLDER)].map(
 		([, name]) => name as string,
 	);
+	const local = isLocalPath(text);
 	const firstBrace = text.indexOf('{');
 	const literal = firstBrace < 0 ? text : text.slice(0, firstBrace);
 	const pattern = new RegExp(
@@ -109,7 +116,7 @@ export function template(text: string): Template {
 		dir: literal.slice(0, literal.lastIndexOf('/') + 1),
 		match(path) {
 			const found = pattern.exec(path);
-			if (!found) return undefined;
+			if (!found || (!local && isLocalPath(path))) return undefined;
 			const values: Record<string, string> = {};
 			for (const [at, name] of placeholders.entries()) {
 				const value = found[at + 1] as string;
@@ -119,7 +126,7 @@ export function template(text: string): Template {
 			return values;
 		},
 		fill(values) {
-			return text.replace(PLACEHOLDER, (_, name: string) => {
+			const path = text.replace(PLACEHOLDER, (_, name: string) => {
 				const value = name === TIME ? (values[name] ?? timeId()) : values[name];
 				if (value === undefined) throw new Error(`{${name}} is needed`);
 				if (!isSegmentValue(value))
@@ -128,6 +135,11 @@ export function template(text: string): Template {
 					);
 				return value;
 			});
+			if (!local && isLocalPath(path))
+				throw new Error(
+					`${path} would be a .local file, which stays on this computer; ${text} names files that are committed`,
+				);
+			return path;
 		},
 	};
 }

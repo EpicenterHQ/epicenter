@@ -39,14 +39,15 @@ commit either when an app's `.gitignore` lets one through (ADR-0850).
 ## Decision
 
 **A `.local` file never leaves its computer.** A path matching `*.local` or
-`*.local.*`, anywhere in an app's folder, has four properties:
+`*.local.*` in any case, anywhere in an app's folder, has these properties:
 
 | Path | Property |
 | --- | --- |
 | snapshot (`packages/cli/src/snapshot.ts`) | never committed, so never pushed to `origin`: the app's `.gitignore` leaves it out, and a snapshot refuses one it lets through (already true) |
 | `actions()` of a collection whose `path` matches `*.local` or `*.local.*` | refused when called: `<path> never leaves this computer, so it offers no actions` |
 | a read-only run (`readOnlyHint: true`) | may write and delete `.local` paths through `folder`; everything else stays refused |
-| a file `folder` creates at a `.local` path | mode `0600` |
+| a file `folder` creates at a `.local` path | mode `0600`; a directory it creates on one is `0700` |
+| a collection whose `path` is not `.local` | never matches or fills a `.local` path, so a value such as `token.local` is not a record |
 
 The second row keeps generated verbs from handing a token to an MCP client
 through one spread. An action the app writes may still return what it reads;

@@ -78,6 +78,21 @@ test('a new .local file is readable by its owner alone, made by write or update'
 	expect(await mode('google.local.md')).toBe(0o640);
 });
 
+test('a new directory on a .local path is open to its owner alone, and one there already keeps its mode', async () => {
+	const { root, folder } = await setup();
+	const mode = async (path: string) =>
+		(await stat(join(root, path))).mode & 0o777;
+	await folder.write('accounts/keys.local/mail/token.md', 'a');
+	expect(await mode('accounts')).toBe(0o755);
+	expect(await mode('accounts/keys.local')).toBe(0o700);
+	expect(await mode('accounts/keys.local/mail')).toBe(0o700);
+	await mkdir(join(root, 'shared.local'), { mode: 0o755 });
+	await folder.update('shared.local/token.md', () => 'b');
+	expect(await mode('shared.local')).toBe(0o755);
+	await folder.write('notes/today.md', 'c');
+	expect(await mode('notes')).toBe(0o755);
+});
+
 test('normalization refuses climbing, absolute and Git paths on every file method', async () => {
 	const { folder } = await setup();
 	for (const path of ['../x', '/abs', '.git/config']) {

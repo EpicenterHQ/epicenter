@@ -377,6 +377,36 @@ describe('a collection of many files', () => {
 		expect(made.path.split('/')).toHaveLength(2);
 	});
 
+	test('never holds, lists, gets, or adds a .local file, which stays on this computer', async () => {
+		const context = createMemoryContext({
+			'items/dune.md': '---\nkind: "link"\n---\n',
+			'items/token.local.md': '---\nkind: "link"\n---\n',
+			'items/Token.LOCAL.md': '---\nkind: "link"\n---\n',
+		});
+		expect(items.holds('items/token.local.md')).toBe(false);
+		expect(items.holds('items/Token.LOCAL.md')).toBe(false);
+		const rows = await inRun(context, () => items.list());
+		expect(rows.map((row) => row.path)).toEqual(['items/dune.md']);
+		await expect(
+			inRun(context, () => items.get({ path: 'items/token.local.md' })),
+		).rejects.toThrow('items/token.local.md is not a file at items/{id}.md');
+		expect(() => items.pathOf({ id: 'token.local' })).toThrow(
+			'items/token.local.md would be a .local file, which stays on this computer; items/{id}.md names files that are committed',
+		);
+		await expect(
+			run(
+				'items add',
+				{ id: 'token.local', kind: 'link', added: '2026-11-11', done: false },
+				context,
+			),
+		).rejects.toThrow('would be a .local file');
+		expect(await context.folder.list()).toEqual([
+			'items/Token.LOCAL.md',
+			'items/dune.md',
+			'items/token.local.md',
+		]);
+	});
+
 	test('delete answers whether a file was there', async () => {
 		const context = createMemoryContext({ 'items/a.md': 'A\n' });
 		expect(await run('items delete', { path: 'items/a.md' }, context)).toBe(

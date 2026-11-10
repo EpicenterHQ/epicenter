@@ -311,8 +311,8 @@ Paths are relative to the folder with `/` between parts, and `read` gives
 
 ## Secrets are `.local` files
 
-A path with a part matching `*.local` or `*.local.*` stays on the computer
-that runs the app
+A path with a part matching `*.local` or `*.local.*`, in any case, stays on
+the computer that runs the app
 ([ADR-0870](../../docs/adr/0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md)).
 `isLocalPath(path)` says whether a path is one. Such a file:
 
@@ -321,7 +321,10 @@ that runs the app
 - may be written and deleted in a read-only run, since it is never in the
   app's history, so an action that only reads may still refresh a token;
 - is made `0600`, readable by its owner alone, when `folder` creates it on a
-  computer.
+  computer, and a directory `folder` creates on such a path is `0700`;
+- is never one of a collection's files unless the collection's own `path` is
+  `.local`: a value such as `token.local` that would make one is skipped by
+  `list`, `get`, and `holds`, and refused by `add` and `pathOf`.
 
 An app's secret is a one-file collection at a `.local.md` path, with its
 fields declared like any other:

@@ -119,8 +119,11 @@ export const folder: Folder = {
 	},
 };
 
-/** A file or folder name matching `*.local` or `*.local.*`. */
-const LOCAL = /\.local(\.|$)/;
+/**
+ * A file or folder name matching `*.local` or `*.local.*`, in any case, so a
+ * name the ignore file keeps out on a case-insensitive disk is local anywhere.
+ */
+const LOCAL = /\.local(\.|$)/i;
 
 /**
  * Whether `path` stays on this computer: one of its parts matches `*.local`

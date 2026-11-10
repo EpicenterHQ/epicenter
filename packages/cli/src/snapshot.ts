@@ -93,30 +93,55 @@ const statusArgs = (pathspec: string[]) => [
 	...pathspec,
 ];
 
-/** The paths in `git status --porcelain -z` output, relative to the repository's top. */
-const statusPaths = (status: string) =>
+/** The entries in `git status --porcelain -z` output: each one's `XY` code, and its path relative to the repository's top. */
+const statusEntries = (status: string) =>
 	status
 		.split('\0')
 		.filter(Boolean)
-		.map((entry) => entry.slice(3));
+		.map((entry) => ({ code: entry.slice(0, 2), path: entry.slice(3) }));
+
+/** The paths in `git status --porcelain -z` output, relative to the repository's top. */
+const statusPaths = (status: string) =>
+	statusEntries(status).map((entry) => entry.path);
+
+/** A commit refused before staging, with the command that resolves it. */
+class Refused extends Error {
+	constructor(
+		message: string,
+		readonly next?: string,
+	) {
+		super(message);
+	}
+}
 
 /**
- * Throws, before anything is staged, when `paths` (relative to the
- * repository's top) hold a `.local` path, one that stays on this computer (a
- * token, a device's settings, a write's temporary file), naming the first as
- * a path in the app's folder. The app's `.gitignore` keeps them out of every
- * Git tool's commits; a commit here only checks, and refuses to take one the
- * ignore file let through.
+ * Throws, before anything is staged, when `status` holds a `.local` path, one
+ * that stays on this computer (a token, a device's settings, a write's
+ * temporary file), naming the first as a path in the app's folder. The app's
+ * `.gitignore` keeps them out of every Git tool's commits; a commit here only
+ * checks, and refuses to take one the ignore file let through. An untracked
+ * one needs the ignore file's lines; one Git already tracks needs removing
+ * from the index, which the ignore file cannot do, and a commit of that.
  */
-async function refuseLocal(app: string, folder: string, paths: string[]) {
-	const local = paths.find(isLocalPath);
+async function refuseLocal(app: string, folder: string, status: string) {
+	const local = statusEntries(status).find((entry) => isLocalPath(entry.path));
 	if (local === undefined) return;
 	const prefix = (await git(folder, ['rev-parse', '--show-prefix'])).stdout;
-	const inFolder = local.startsWith(prefix)
-		? local.slice(prefix.length)
-		: local;
-	throw new Error(
-		`${inFolder} would be committed; add *.local and *.local.* to ${app}/.gitignore`,
+	const inFolder = local.path.startsWith(prefix)
+		? local.path.slice(prefix.length)
+		: local.path;
+	if (local.code === '??')
+		throw new Refused(
+			`${inFolder} would be committed; add *.local and *.local.* to ${app}/.gitignore`,
+		);
+	// A commit of named paths takes a file's bytes from the folder even once
+	// it is out of the index, so its removal is committed by Git alone.
+	const commit = `git -C ${folder} commit -m "${app}: stop tracking ${inFolder}"`;
+	throw new Refused(
+		`${inFolder} would be committed: Git already tracks it, so ${app}/.gitignore cannot keep it out`,
+		local.code.startsWith('D')
+			? commit
+			: `git -C ${folder} rm --cached -- ${inFolder} && ${commit}`,
 	);
 }
 
@@ -147,11 +172,10 @@ async function commitCall(app: string, folder: string, wrote: Wrote) {
 	const subject = wrote.threw ? `${wrote.call} (threw)` : wrote.call;
 	const written = wrote.paths.map((path) => `:(literal)${path}`);
 	for (let tries = 1; ; tries++) {
-		const paths = statusPaths(
-			await gitWaitingForIndex(folder, statusArgs(written)),
-		);
+		const status = await gitWaitingForIndex(folder, statusArgs(written));
+		const paths = statusPaths(status);
 		if (paths.length === 0) return null;
-		await refuseLocal(app, folder, paths);
+		await refuseLocal(app, folder, status);
 		const changed = paths.map((path) => `:(top,literal)${path}`);
 		await gitWaitingForIndex(folder, ['add', '-A', '--', ...changed]);
 		try {
@@ -177,7 +201,7 @@ async function commitPending(app: string, folder: string, message: string) {
 		await refuseLocal(
 			app,
 			folder,
-			statusPaths(await gitWaitingForIndex(folder, statusArgs(TAKEN))),
+			await gitWaitingForIndex(folder, statusArgs(TAKEN)),
 		);
 		await gitWaitingForIndex(folder, ['add', '-A', '--', ...TAKEN]);
 		const staged = await gitWaitingForIndex(folder, [
@@ -257,7 +281,12 @@ async function take(
 						),
 		};
 	} catch (error) {
-		return { failed: { message: extractErrorMessage(error) } };
+		return {
+			failed: {
+				message: extractErrorMessage(error),
+				...(error instanceof Refused && error.next ? { next: error.next } : {}),
+			},
+		};
 	}
 }
 

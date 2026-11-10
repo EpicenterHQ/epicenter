@@ -3,7 +3,8 @@
  * convenience, not a sandbox: paths are normalized and `.git` is refused, and
  * otherwise a write is a write. Writes replace a whole file at once, keeping
  * the mode of the file they replace; a new `.local` file is `0600`, readable
- * by its owner alone (ADR-0870). `update` replaces it only when it is
+ * by its owner alone, and a new directory on a `.local` path is `0700`
+ * (ADR-0870). `update` replaces it only when it is
  * still what its change read, so concurrent updates of one file, from any
  * process, each land. Listing avoids Git, dependencies, and directory links
  * so those trees never become app data.
@@ -24,7 +25,7 @@ import {
 	unlink,
 	writeFile,
 } from 'node:fs/promises';
-import { basename, dirname, join } from 'node:path';
+import { basename, join } from 'node:path';
 import { type Folder, isLocalPath, normalizePath } from '@epicenter/app';
 
 /** How long `update` keeps trying a file that keeps changing, or that stays claimed, before it gives up. */
@@ -169,6 +170,18 @@ export function folderOnDisk(dir: string): Folder {
 		}
 	}
 	/**
+	 * Make the directories `path` needs. One on a `.local` path is `0700`,
+	 * open to its owner alone, as a `.local` file is `0600`; one that is
+	 * already there keeps its mode.
+	 */
+	async function makeParents(path: string) {
+		const parts = normalizePath(path).split('/').slice(0, -1);
+		const local = parts.findIndex((part) => isLocalPath(part));
+		if (local < 0) return mkdir(join(dir, ...parts), { recursive: true });
+		await mkdir(join(dir, ...parts.slice(0, local)), { recursive: true });
+		await mkdir(join(dir, ...parts), { recursive: true, mode: 0o700 });
+	}
+	/**
 	 * Write `bytes` beside the file at `path`, where it can be renamed over
 	 * it, so a reader never sees half a file; a file it replaces keeps its
 	 * mode, and a new `.local` file is `0600` from before it has a name there.
@@ -177,7 +190,7 @@ export function folderOnDisk(dir: string): Folder {
 	 */
 	async function stage(path: string, bytes: Uint8Array) {
 		const target = pathOf(path);
-		await mkdir(dirname(target), { recursive: true });
+		await makeParents(path);
 		const temp = `${target}.${randomUUID()}.tmp.local`;
 		let mode = isLocalPath(normalizePath(path)) ? 0o600 : undefined;
 		try {
@@ -223,9 +236,7 @@ export function folderOnDisk(dir: string): Folder {
 			// Another writer got there while this one staged: no claim is needed to know.
 			if (!sameBytes(readNow(target), before))
 				return { written: false, changed: true };
-			const claimed = await claim(
-				`${target}.${bytesTag(before)}.claim.local`,
-			);
+			const claimed = await claim(`${target}.${bytesTag(before)}.claim.local`);
 			if (!('token' in claimed))
 				return { written: false, changed: false, heldBy: claimed.heldBy };
 			try {

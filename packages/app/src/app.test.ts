@@ -129,6 +129,8 @@ describe('isLocalPath', () => {
 		'x.local',
 		'tokens.local/google.md',
 		'a/b.local.json',
+		'Token.LOCAL',
+		'notes/Google.Local.md',
 	])('%p stays on this computer', (path) => {
 		expect(isLocalPath(path)).toBe(true);
 	});

@@ -241,6 +241,35 @@ test('a *.local file the .gitignore lets through is refused before anything is s
 	});
 });
 
+test('a *.local file Git already tracks is refused, naming the command that untracks it', async () => {
+	const f = await setup();
+	await writeFile(join(f.dir, 'token.local'), 'first\n');
+	await gitIn(f.dir, 'add', '-f', 'token.local');
+	await gitIn(f.dir, 'commit', '-qm', 'a token, committed by mistake');
+	await writeFile(join(f.dir, 'token.local'), 'second\n');
+	const before = await f.head();
+	const message =
+		'token.local would be committed: Git already tracks it, so notes/.gitignore cannot keep it out';
+	const commit = `git -C ${f.dir} commit -m "notes: stop tracking token.local"`;
+	expect(await snapshot('notes', f.dir)).toEqual({
+		failed: {
+			message,
+			next: `git -C ${f.dir} rm --cached -- token.local && ${commit}`,
+		},
+	});
+	expect(await f.head()).toBe(before);
+	// Out of the index, it is still refused: a commit here would take its bytes again.
+	await gitIn(f.dir, 'rm', '-q', '--cached', '--', 'token.local');
+	expect(await snapshot('notes', f.dir)).toEqual({
+		failed: { message, next: commit },
+	});
+	expect(await f.head()).toBe(before);
+	await gitIn(f.dir, 'commit', '-q', '-m', 'notes: stop tracking token.local');
+	expect(await snapshot('notes', f.dir)).toEqual({ committed: null });
+	expect(await gitIn(f.dir, 'ls-files', 'token.local')).toBe('');
+	expect(await readFile(join(f.dir, 'token.local'), 'utf8')).toBe('second\n');
+});
+
 test('concurrent snapshots of one folder in one process take turns', async () => {
 	const f = await setup();
 	const run = await f.run('write', 'monday');
