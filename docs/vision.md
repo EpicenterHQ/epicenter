@@ -93,7 +93,7 @@ made from one once it moves to a repository of its own.
 | an app | a folder whose `epicenter.json` declares its collections; an `epicenter.ts` beside it adds actions; its name is the folder's |
 | a collection | a kind of file in the app, by path (`words/{stem}.md`) and fields; it gives `list`, `get`, `set`, and `delete` |
 | a field | JSON Schema for one value; in TypeScript, written with helpers such as `field.text()` |
-| an action | something you can ask an app to do: a collection's four, or one the author writes with a `run` function |
+| an action | something you can ask an app to do: a collection's five, or one the author writes with a `run` function |
 | a UI | a web page built from the app's `ui/` into `.cache/ui/`, served at `/<app>/`, that shows its data and calls its actions over MCP |
 | `epicenter` | the program that runs an action in a folder, and `epicenter serve`, which offers every app over MCP |
 | a device program | an app's own program, when it needs the device: Whispering |
@@ -259,7 +259,7 @@ on your server; its files reach every rung.
 | Declare an app | `epicenter.json` | it has code: `epicenter.ts` |
 | Describe a field | JSON Schema | never |
 | Change data | edit a file | it needs a rule, a sign-in, or reach |
-| An action | a collection's four | it needs logic |
+| An action | a collection's five | it needs logic |
 | Record what ran | its own files, and a commit by whoever knows the intent | never |
 | Share data between programs | the folder | never |
 | Move data | Git | never |

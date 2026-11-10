@@ -1,11 +1,11 @@
 <!--
 	One capture: its text and its thoughts, read from the file's body with the
-	body codec, and each change saved through `set` with the whole
-	new body.
+	body codec, and each change saved through `edit`.
 
 	Every change is shown at once, then made in order against the file as the
 	server has it now: the change reads the file again, applies itself to
-	that, and writes. Text another program changed in the meantime is not
+	that, and writes with `edit` quoting the body it read, so a change that
+	lands in between refuses the write and the change is applied again. Text another program changed in the meantime is not
 	overwritten without asking, and a thought is changed only when the list
 	is still the one the person saw. When a save fails, the file is shown as
 	it is and what was typed stays in its box.
@@ -13,7 +13,7 @@
 	The parent keys this view by `id`.
 -->
 <script lang="ts">
-	import { ActionError } from '@epicenter/app/client';
+	import { ActionError, changedElsewhere } from '@epicenter/app/client';
 	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
 	import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
@@ -101,23 +101,31 @@
 		const run = queue.then(async () => {
 			let latest: File | undefined;
 			try {
-				latest = await capture.call<File>('get', args);
-				const read = captureBody.decode(latest.body);
-				const value = read.error ? read.error.message : next(read.data);
-				if (typeof value === 'string') {
-					file = latest;
-					toast.error(`${what} not saved`, { description: value });
-					return false;
+				// edit quotes the body it read, so a change landing in between refuses it; read again and reapply.
+				for (let attempt = 1; ; attempt++) {
+					latest = await capture.call<File>('get', args);
+					const read = captureBody.decode(latest.body);
+					const value = read.error ? read.error.message : next(read.data);
+					if (typeof value === 'string') {
+						file = latest;
+						toast.error(`${what} not saved`, { description: value });
+						return false;
+					}
+					const encoded = captureBody.encode(value, latest.body);
+					if (encoded.error) {
+						file = latest;
+						toast.error(`${what} not saved`, { description: encoded.error.message });
+						return false;
+					}
+					try {
+						file = await capture.call<File>('edit', { ...args, old: latest.body, new: encoded.data });
+					} catch (error) {
+						if (changedElsewhere(error) && attempt < 3) continue;
+						throw error;
+					}
+					captures.saved(args.id, value.text.trim(), value.thoughts.length);
+					return true;
 				}
-				const encoded = captureBody.encode(value, latest.body);
-				if (encoded.error) {
-					file = latest;
-					toast.error(`${what} not saved`, { description: encoded.error.message });
-					return false;
-				}
-				file = await capture.call<File>('set', { ...args, body: encoded.data });
-				captures.saved(args.id, value.text.trim(), value.thoughts.length);
-				return true;
 			} catch (error) {
 				toast.error(`${what} not saved`, { description: messageOf(error) });
 				if (latest) file = latest;
@@ -185,15 +193,16 @@
 		changes += 1;
 		const run = queue.then(async () => {
 			try {
-				const latest = await capture.call<File>('get', args);
-				if (latest.body !== base) {
-					file = latest;
+				try {
+					file = await capture.call<File>('edit', { ...args, old: base, new: typed });
+				} catch (error) {
+					if (!changedElsewhere(error)) throw error;
+					file = await capture.call<File>('get', args);
 					toast.error('Not saved', {
 						description: 'The file changed elsewhere while you were editing. Your version is still in the box; save again to replace what is there now.',
 					});
 					return;
 				}
-				file = await capture.call<File>('set', { ...args, body: typed });
 				const read = captureBody.decode(file.body);
 				if (read.data) captures.saved(args.id, read.data.text.trim(), read.data.thoughts.length);
 				if (markdown === typed) markdown = undefined;

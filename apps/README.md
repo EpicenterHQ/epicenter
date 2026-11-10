@@ -14,7 +14,7 @@ Each folder is laid out as the app is:
 ```txt
 apps/vocab/
   epicenter.json        the declaration: its collections
-  epicenter.ts          its actions beyond each collection's four
+  epicenter.ts          its actions beyond each collection's five
   epicenter.test.ts     the actions' tests, in memory
   package.json          what the actions' types and tests need
   ui/                   the UI, a SvelteKit project of its own

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { changedElsewhere } from '@epicenter/app/client';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
@@ -86,19 +87,34 @@
 		return changes;
 	}
 
+	/**
+	 * Saves the fields that changed with `set`, then the examples with `edit`,
+	 * quoting them as loaded, so examples changed elsewhere are never
+	 * overwritten without the person saving again.
+	 */
 	async function save() {
 		if (!saved || saving) return;
-		const changes = changesOf(saved);
-		if (Object.keys(changes).length === 0) return;
+		const { body, ...fields } = changesOf(saved);
+		if (body === undefined && Object.keys(fields).length === 0) return;
 		saving = true;
+		let word = saved;
 		try {
-			show(await vocab.call<Word>('set', { word: saved.word, ...changes }));
+			if (Object.keys(fields).length > 0) word = await vocab.call<Word>('set', { word: word.word, ...fields });
+			if (body !== undefined) word = await vocab.call<Word>('edit', { word: word.word, old: saved.body, new: body });
+			show(word);
 			toast.success('Saved');
 			void vocab.refresh();
 		} catch (error) {
-			toast.error('Not saved', {
-				description: error instanceof Error ? error.message : String(error),
-			});
+			if (changedElsewhere(error)) {
+				// The fields are saved; what was typed stays, and saving again replaces the examples now there.
+				saved = await vocab.call<Word>('get', { word: word.word }).catch(() => word);
+				toast.error('Examples not saved', {
+					description: 'They changed elsewhere while you were editing. Your version is still in the box; save again to replace what is there now.',
+				});
+			} else
+				toast.error('Not saved', {
+					description: error instanceof Error ? error.message : String(error),
+				});
 		} finally {
 			saving = false;
 		}

@@ -91,6 +91,7 @@ test('HTTP tools/list offers app actions', async () => {
 		'reading_list',
 		'reading_get',
 		'reading_set',
+		'reading_edit',
 		'reading_delete',
 		'reading_log',
 		'reading_between',

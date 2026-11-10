@@ -12,7 +12,18 @@ import {
 	ROOT_MARKER,
 } from './root.ts';
 
-const STARTER_AGENTS = `This folder is an Epicenter.\nEach child folder with epicenter.json is an app and its own Git repository.\nChange app data through epicenter <app> <verb> so each write is committed.\n*.local* is never committed.\n`;
+const STARTER_AGENTS = `This folder is an Epicenter.
+Each child folder with epicenter.json is an app and its own Git repository.
+
+Prefer \`epicenter <app> <verb>\` to change an app's data: it checks each value
+against the app's fields and commits each write. \`epicenter <app>\` lists the
+verbs. \`set\` changes fields; \`edit --old <text> --new <text>\` changes one
+passage of a file's body, and is refused if that passage changed since you
+read it. You may edit the files with your own tools instead; then run
+\`epicenter sync <app>\` to commit them.
+
+Files named *.local or *.local.* are never committed.
+`;
 
 function actualFolder(path: string): string {
 	let existing = path;

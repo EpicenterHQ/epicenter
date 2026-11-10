@@ -1,11 +1,12 @@
 /**
- * The four actions every collection gives its app (ADR-0853), with no code.
+ * The five actions every collection gives its app (ADR-0853), with no code.
  * For Capture, whose one collection is `items/{id}.md`:
  *
  * ```txt
  * epicenter capture list                         every file: its key and fields
  * epicenter capture get dune                      one file: its key, fields, and body
  * epicenter capture set dune --kind quote         changes the fields given, keeps the rest and the body
+ * epicenter capture edit dune --old "mind" --new "soul"   replaces one passage of the body, quoted
  * epicenter capture delete dune                   true when a file was there
  * ```
  *
@@ -14,7 +15,7 @@
  *
  * They are ordinary actions over the run's `folder`, so the command line, MCP,
  * and a test in memory run the same code. A path with no placeholder (a single
- * `settings.md`) gives only `get` and `set`.
+ * `settings.md`) gives only `get`, `set`, and `edit`.
  *
  * A collection's files are Markdown, and a file's fields are its front matter.
  * Front matter is read as Epicenter's `key: <JSON>` lines, or else as
@@ -231,7 +232,8 @@ export function collectionActions(
 	}
 	setInput.body = Type.Optional(
 		Type.String({
-			description: 'The text after the front matter; replaces it',
+			description:
+				'The text after the front matter, for a new file only; change an existing body with edit',
 		}),
 	);
 
@@ -250,7 +252,7 @@ export function collectionActions(
 	};
 
 	const set: Action = {
-		description: `Change the fields given in one ${name} file, keeping the rest and the body; a field that may be absent is removed when given as null; makes the file when there is none`,
+		description: `Change the fields given in one ${name} file, keeping the rest and the body; a field that may be absent is removed when given as null; makes the file, with its body, when there is none`,
 		input: setInput,
 		positional,
 		annotations: { idempotentHint: true, openWorldHint: false },
@@ -264,6 +266,11 @@ export function collectionActions(
 			const removed = Object.keys(rest).filter((key) => rest[key] === null);
 			const given = without(rest as Fields, removed);
 			const text = await folder.read(path);
+			// A body read earlier and sent back whole would undo a change made since; edit quotes what it replaces instead.
+			if (text !== undefined && body !== undefined)
+				throw new Error(
+					`${path} already has a body, which set does not replace; change it with edit, quoting the text to replace`,
+				);
 			if (text === undefined) {
 				for (const [key, property] of Object.entries(properties))
 					if (!Object.hasOwn(given, key) && Object.hasOwn(property, 'default'))
@@ -293,7 +300,58 @@ export function collectionActions(
 		},
 	};
 
-	if (!template) return { [`${name} get`]: get, [`${name} set`]: set };
+	const edit: Action = {
+		description: `Replace one passage of a ${name} file's body: old must appear in it exactly once, or be empty for an empty body; refused otherwise, so a passage changed since it was read is never overwritten`,
+		input: {
+			...keyInput,
+			old: Type.String({
+				description: 'The exact text to replace, as get returned it',
+			}),
+			new: Type.String({ description: 'The text to put in its place' }),
+		},
+		positional,
+		annotations: { openWorldHint: false },
+		async run(input: Record<string, unknown>, context: Context) {
+			const { folder } = context;
+			const path = pathOf(input);
+			const old = input.old as string;
+			const text = await folder.read(path);
+			if (text === undefined) throw new Error(`There is no ${path}`);
+			const { body } = readMarkdown(text);
+			const head = text.slice(0, text.length - body.length);
+			const at = body.indexOf(old);
+			// Tagged, so a UI can tell a passage changed elsewhere from any other failure.
+			if (old === '' ? body !== '' : at < 0)
+				throw Object.freeze({
+					name: 'Changed',
+					message:
+						old === ''
+							? `${path}'s body is no longer empty; get it again`
+							: `${path}'s body does not have that text; it may have changed since it was read, so get it again`,
+				});
+			if (old !== '' && body.indexOf(old, at + 1) >= 0)
+				throw new Error(
+					`${path}'s body has that text more than once; quote more around it`,
+				);
+			await folder.write(
+				path,
+				head +
+					(old === ''
+						? (input.new as string)
+						: body.slice(0, at) +
+							(input.new as string) +
+							body.slice(at + old.length)),
+			);
+			return get.run(keyOf(input), context);
+		},
+	};
+
+	if (!template)
+		return {
+			[`${name} get`]: get,
+			[`${name} set`]: set,
+			[`${name} edit`]: edit,
+		};
 
 	const { dir, pattern, key: listKey } = template;
 	const list: Action = {
@@ -330,6 +388,7 @@ export function collectionActions(
 		[`${name} list`]: list,
 		[`${name} get`]: get,
 		[`${name} set`]: set,
+		[`${name} edit`]: edit,
 		[`${name} delete`]: remove,
 	};
 }

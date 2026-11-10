@@ -31,7 +31,7 @@ Patch does, so `due: null`, over MCP or from the UI, removes the line.
 
 | Action | Does |
 | --- | --- |
-| `tasks list`, `get`, `set`, `delete` | the collection's four (`packages/app/src/collection.ts`) |
+| `tasks list`, `get`, `set`, `edit`, `delete` | the collection's five (`packages/app/src/collection.ts`) |
 | `add <title> [--due <day>] [--notes <text>]` | a new task with a time id; a title of several lines keeps its first line as the title and the rest as notes |
 
 `tasks set <id> --done` checks one off.

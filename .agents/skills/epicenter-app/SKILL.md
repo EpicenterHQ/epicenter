@@ -27,7 +27,7 @@ made in the starter.
 ```txt
 <app>/
   epicenter.json   the declaration: its collections
-  epicenter.ts     its actions beyond each collection's four
+  epicenter.ts     its actions beyond each collection's five
   epicenter.test.ts, package.json   the actions' tests and what they need
   ui/              the UI, a SvelteKit project of its own
   .cache/ui/       the built UI, ignored by Git
@@ -39,7 +39,7 @@ made in the starter.
 The files outlive every UI and agent, so their shape is the decision that
 matters most. Declare each collection in `epicenter.json`: a path with one
 placeholder and the JSON Schema of each file's fields. A collection gives
-`list|get|set|delete` with no code (`packages/app/src/collection.ts`): as the
+`list|get|set|edit|delete` with no code (`packages/app/src/collection.ts`): as the
 app's own verbs when it is the app's only collection (`epicenter tasks set`,
 MCP `tasks_set`), and under its name when there are several (`epicenter mail
 messages list`). Adding a second collection renames the first's actions, so
@@ -55,12 +55,17 @@ A path may not start with `ui/`, `.cache/`, or `epicenter.`.
 - Keep fields few. `set` merges as JSON Merge Patch does: `null` removes a
   field, so a field that may be absent needs no `null` in its type; a
   required field takes no `null`. A `set` with no field and no body throws.
+- `set` gives a body only to a new file. A body already there changes through
+  `edit --old <text> --new <text>`, which replaces one passage and is refused
+  unless `old` occurs exactly once, so a body read before someone else
+  changed it is never written back over theirs (ADR-0869). An empty `old`
+  fills an empty body.
 - The declaration is the contract between a starter and the data. A starter
   that renames or tightens a field changes existing files itself: Git merges
   code and does not migrate data, and `epicenter update` lists each file that
   no longer fits.
 
-## Write actions only for what the four verbs cannot do
+## Write actions only for what the five verbs cannot do
 
 `epicenter.ts` default-exports `defineApp(declaration, { actions })` and may
 import only `@epicenter/app`, which `epicenter` supplies when it runs the
@@ -90,6 +95,12 @@ own.
 - Send `set` only the fields that changed, and `null` for one emptied, so a
   save never writes back a value read before someone else changed it. Skip a
   save with nothing to send.
+- Save a changed body with `edit`, quoting the body as it was loaded
+  (`old: loaded, new: draft`), after `set` has saved the fields. When
+  `changedElsewhere(error)` from `@epicenter/app/client` is true, get the
+  file again: reapply a small change to the new body (Capture's checkbox), or
+  keep what was typed and say it was not saved, letting the person save over
+  the other change on purpose (Tasks' "Keep mine").
 - Update optimistically and say a failed write in a toast. Refresh on
   visibility and every 15 s while visible, and drop a refresh that began
   before a write, so it cannot undo what the screen shows.

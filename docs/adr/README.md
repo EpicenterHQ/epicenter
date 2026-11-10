@@ -1060,7 +1060,7 @@ When you add an ADR, add its row here.
 | [0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) | An action changes files, and whoever knows the intent commits them | Proposed |
 | [0851](0851-an-app-with-history-has-one-git-remote-its-meeting-point-and-backup.md) | An app with history has one Git remote, its meeting point and its backup | Proposed |
 | [0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) | An app is a folder with a declared shape, and each job takes the least powerful form | Proposed |
-| [0853](0853-collections-give-four-actions-and-programs-without-the-folder-ask-over-mcp.md) | Collections give four actions, and programs without the folder ask over MCP | Proposed |
+| [0853](0853-collections-give-five-actions-and-programs-without-the-folder-ask-over-mcp.md) | Collections give five actions, and programs without the folder ask over MCP | Proposed |
 | [0854](0854-an-apps-cache-is-the-files-it-gitignores.md) | An app's cache is the files it gitignores | Proposed |
 | [0856](0856-binary-files-go-through-git-lfs.md) | Binary files go through Git LFS | Proposed |
 | [0857](0857-an-app-declares-itself-in-epicenter-json-and-its-code-in-epicenter-ts.md) | An app declares itself in `epicenter.json`, and its code in `epicenter.ts` | Proposed |
@@ -1070,3 +1070,8 @@ When you add an ADR, add its row here.
 | [0861](0861-whats-yours-is-everywhere-and-everything-else-is-used-where-it-is.md) | What's yours is everywhere, and everything else is used where it is | Proposed |
 | [0862](0862-notes-merge-field-by-field-and-every-conflict-is-listed-for-repair.md) | Notes merge field by field, and every conflict is listed for repair | Proposed |
 | [0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) | Epicenter is a data server for repositories of files, and code runs where its owner trusts it | Proposed |
+| [0865](0865-the-epicenter-mac-app-runs-epicenter-serve-so-the-computer-it-is-on-is-your-server.md) | The Epicenter Mac app runs `epicenter serve`, so the computer it is on is your server | Proposed |
+| [0866](0866-an-app-starts-from-a-starter-kept-as-its-upstream-and-update-merges-the-starters-changes.md) | An app starts from a starter kept as its `upstream`, and `epicenter update` merges the starter's changes | Proposed |
+| [0867](0867-the-command-line-spells-an-actions-json-input-and-null-removes-a-field-there-as-everywhere.md) | The command line spells an action's JSON input, and `null` removes a field there as everywhere | Proposed |
+| [0868](0868-an-epicenter-is-any-folder-that-says-it-is-one-and-a-computer-runs-as-many-as-it-has.md) | An Epicenter is any folder that says it is one, and a computer runs as many as it has | Proposed |
+| [0869](0869-a-body-is-changed-by-quoting-the-passage-it-replaces.md) | A body is changed by quoting the passage it replaces | Proposed |

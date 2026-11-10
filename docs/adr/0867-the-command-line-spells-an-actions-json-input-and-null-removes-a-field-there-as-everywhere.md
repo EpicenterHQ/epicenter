@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-11-10
-- **Relates:** [ADR-0853](0853-collections-give-four-actions-and-programs-without-the-folder-ask-over-mcp.md) (the four verbs, MCP), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (a write is one commit), [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (`serve` runs actions through the command line).
+- **Relates:** [ADR-0853](0853-collections-give-five-actions-and-programs-without-the-folder-ask-over-mcp.md) (the four verbs, MCP), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (a write is one commit), [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (`serve` runs actions through the command line).
 
 ## Context
 

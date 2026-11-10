@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-11-09 (amended 2026-11-09: only a person or an agent reruns a world verb)
 - **Amends:** [ADR-0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md) at writes outside the folder: an action no longer writes another app's folder, so Mail saves attachments into its own.
-- **Relates:** [ADR-0858](0858-where-a-file-lives-decides-whether-it-travels-survives-or-dies-with-its-program.md) (inside the folder, the path is the policy), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (how the folder is committed), [ADR-0853](0853-collections-give-four-actions-and-programs-without-the-folder-ask-over-mcp.md) (collection actions), [ADR-0854](0854-an-apps-cache-is-the-files-it-gitignores.md) (the cache).
+- **Relates:** [ADR-0858](0858-where-a-file-lives-decides-whether-it-travels-survives-or-dies-with-its-program.md) (inside the folder, the path is the policy), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (how the folder is committed), [ADR-0853](0853-collections-give-five-actions-and-programs-without-the-folder-ask-over-mcp.md) (collection actions), [ADR-0854](0854-an-apps-cache-is-the-files-it-gitignores.md) (the cache).
 - **Unbuilt:** Mail's verbs, and `@<file>` for a list field.
 
 ## Context

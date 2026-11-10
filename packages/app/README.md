@@ -50,8 +50,14 @@ is its folder's: `<Epicenter>/reading` is `reading`, whatever the file says.
 loading and the source of `epicenter.schema.json` (`bun run schema` rewrites
 it). A collection is `{ path, fields }`: a path with at most one placeholder,
 such as `words/{stem}.md`, and the JSON Schema of each file's fields. Each
-collection gives the actions `list`, `get`, `set`, and `delete` with no code
-(`get` and `set` alone for a path with no placeholder); see `collection.ts`.
+collection gives the actions `list`, `get`, `set`, `edit`, and `delete` with no
+code (`get`, `set`, and `edit` alone for a path with no placeholder); see
+`collection.ts`. `set` merges the fields given and gives a body only to a new
+file; `edit` replaces one passage of an existing body, quoted exactly as `get`
+returned it and refused unless it appears once (an empty `old` fills an empty
+body). The quote is its own check: a passage someone changed since it was read
+is never overwritten, so no revision is needed. Two callers setting the same
+field from stale screens: the last write wins.
 An app with one collection has those verbs as its own (`tasks set`); with
 several, each keeps its collection's name (`mail messages list`), so adding a
 second collection renames the first's actions.

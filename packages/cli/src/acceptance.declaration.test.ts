@@ -146,13 +146,14 @@ export default defineApp(declaration, { actions: {} });
 		'reading_list',
 		'reading_get',
 		'reading_set',
+		'reading_edit',
 		'reading_delete',
 		'reading_log',
 		'reading_between',
 		'reading_week_show',
 		'reading_explode',
 	]);
-	expect(reading.actions[4]).toEqual({
+	expect(reading.actions[5]).toEqual({
 		name: 'reading_log',
 		description: 'Record minutes read today',
 		inputSchema: {
@@ -163,7 +164,7 @@ export default defineApp(declaration, { actions: {} });
 		},
 		annotations: MCP_DEFAULTS,
 	});
-	expect(reading.actions[6].annotations).toEqual({
+	expect(reading.actions[7].annotations).toEqual({
 		...MCP_DEFAULTS,
 		readOnlyHint: true,
 		openWorldHint: false,
@@ -420,9 +421,10 @@ test('D8 an app with only epicenter.json lists, reads, writes, and deletes its c
 			'capture_list',
 			'capture_get',
 			'capture_set',
+			'capture_edit',
 			'capture_delete',
 		]);
-		expect(tools[3]?.annotations).toEqual({
+		expect(tools[4]?.annotations).toEqual({
 			readOnlyHint: false,
 			destructiveHint: true,
 			idempotentHint: true,

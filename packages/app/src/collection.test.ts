@@ -32,6 +32,7 @@ describe('a Markdown collection', () => {
 			'items list',
 			'items get',
 			'items set',
+			'items edit',
 			'items delete',
 		]);
 		expect(items['items get']?.positional).toEqual(['id']);
@@ -85,9 +86,72 @@ describe('a Markdown collection', () => {
 		expect(await context.folder.read('items/a.md')).toBe(
 			'---\nkind: "link"\nadded:   "2026-11-01"\ndone: true\nurl: "https://example.com"\n---\n\nKeep me.\n',
 		);
-		await run('items set', { id: 'a', body: 'New.\n' }, context);
+		await run(
+			'items edit',
+			{ id: 'a', old: '\nKeep me.\n', new: 'New.\n' },
+			context,
+		);
 		expect(await context.folder.read('items/a.md')).toBe(
 			'---\nkind: "link"\nadded:   "2026-11-01"\ndone: true\nurl: "https://example.com"\n---\nNew.\n',
+		);
+	});
+
+	test('set gives a body only to a new file, so a body read earlier never undoes a later change', async () => {
+		const text = '---\nkind: "thought"\nadded: "2026-11-01"\n---\nKept.\n';
+		const context = createMemoryContext({ 'items/a.md': text });
+		expect(
+			run('items set', { id: 'a', body: 'Stale.\n' }, context),
+		).rejects.toThrow(
+			'items/a.md already has a body, which set does not replace',
+		);
+		expect(await context.folder.read('items/a.md')).toBe(text);
+	});
+
+	test('edit replaces one quoted passage of the body, and refuses one it cannot find exactly once', async () => {
+		const context = createMemoryContext({
+			'items/a.md':
+				'---\nkind: "thought"\nadded: "2026-11-01"\n---\nWater the plant.\nWater the cat.\n',
+		});
+		const edited = await run(
+			'items edit',
+			{ id: 'a', old: 'the plant', new: 'both plants' },
+			context,
+		);
+		expect(edited).toMatchObject({
+			kind: 'thought',
+			body: 'Water both plants.\nWater the cat.\n',
+		});
+		expect(
+			run('items edit', { id: 'a', old: 'the plant', new: 'x' }, context),
+		).rejects.toMatchObject({
+			name: 'Changed',
+			message: expect.stringContaining('does not have that text'),
+		});
+		expect(
+			run('items edit', { id: 'a', old: 'Water', new: 'Feed' }, context),
+		).rejects.toThrow('more than once');
+		expect(
+			run('items edit', { id: 'a', old: '', new: 'x' }, context),
+		).rejects.toMatchObject({ name: 'Changed' });
+		expect(
+			run('items edit', { id: 'nope', old: 'a', new: 'b' }, context),
+		).rejects.toThrow('There is no items/nope.md');
+		expect(await context.folder.read('items/a.md')).toBe(
+			'---\nkind: "thought"\nadded: "2026-11-01"\n---\nWater both plants.\nWater the cat.\n',
+		);
+	});
+
+	test('edit with an empty old fills an empty body, in YAML front matter too', async () => {
+		const context = createMemoryContext({
+			'items/a.md': '---\nkind: thought\nadded: 2026-11-01\n---\n',
+		});
+		await run(
+			'items edit',
+			{ id: 'a', old: '', new: 'First words.\n' },
+			context,
+		);
+		expect(await context.folder.read('items/a.md')).toBe(
+			'---\nkind: thought\nadded: 2026-11-01\n---\nFirst words.\n',
 		);
 	});
 
@@ -199,7 +263,7 @@ describe('a Markdown collection', () => {
 });
 
 describe('a collection of one file', () => {
-	test('a path with no placeholder gives get and set, merging its fields', async () => {
+	test('a path with no placeholder gives get, set, and edit, merging its fields', async () => {
 		const settings = collectionActions('settings', {
 			path: 'settings.md',
 			fields: {
@@ -207,7 +271,11 @@ describe('a collection of one file', () => {
 				properties: { theme: { type: 'string' }, size: { type: 'number' } },
 			},
 		});
-		expect(Object.keys(settings)).toEqual(['settings get', 'settings set']);
+		expect(Object.keys(settings)).toEqual([
+			'settings get',
+			'settings set',
+			'settings edit',
+		]);
 		const context = createMemoryContext({
 			'settings.md': '---\nsize: 12\nother: true\n---\n',
 		});
@@ -231,6 +299,7 @@ describe("an app's collections", () => {
 			'list',
 			'get',
 			'set',
+			'edit',
 			'delete',
 		]);
 	});
@@ -243,10 +312,12 @@ describe("an app's collections", () => {
 			'notes list',
 			'notes get',
 			'notes set',
+			'notes edit',
 			'notes delete',
 			'links list',
 			'links get',
 			'links set',
+			'links edit',
 			'links delete',
 		]);
 	});

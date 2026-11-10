@@ -43,7 +43,7 @@ test('init writes an identity and starter guidance, keeps existing guidance, and
 	expect(defaulted.code).toBe(0);
 	expect(JSON.parse(defaulted.stdout).port).toBe(4747);
 	expect(await readFile(join(fresh, 'AGENTS.md'), 'utf8')).toContain(
-		'*.local* is never committed',
+		'*.local or *.local.* are never committed',
 	);
 	const shown = await f.run('init', join(f.root, 'shown'));
 	expect(shown.stdout).toContain(`Made Epicenter at ${join(f.root, 'shown')}`);

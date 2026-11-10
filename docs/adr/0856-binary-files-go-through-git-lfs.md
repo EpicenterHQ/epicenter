@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-11-08
-- **Relates:** [ADR-0851](0851-an-app-with-history-has-one-git-remote-its-meeting-point-and-backup.md) (the remote), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (the template, and the rule of least power), [ADR-0853](0853-collections-give-four-actions-and-programs-without-the-folder-ask-over-mcp.md) (byte collections and programs that write files), [ADR-0858](0858-where-a-file-lives-decides-whether-it-travels-survives-or-dies-with-its-program.md) (a binary kept on one computer is a `.local` path).
+- **Relates:** [ADR-0851](0851-an-app-with-history-has-one-git-remote-its-meeting-point-and-backup.md) (the remote), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (the template, and the rule of least power), [ADR-0853](0853-collections-give-five-actions-and-programs-without-the-folder-ask-over-mcp.md) (byte collections and programs that write files), [ADR-0858](0858-where-a-file-lives-decides-whether-it-travels-survives-or-dies-with-its-program.md) (a binary kept on one computer is a `.local` path).
 - **Unbuilt:** `setup`'s check for `git-lfs` and the vault's `.gitattributes`. The Epicenter API's LFS endpoint on R2 comes with Epicenter Cloud. Built 2026-11-09: the refusal, before the write lands, of a path marked for LFS when `git-lfs` is not on `PATH` or its filter is not set up, since Git without the filter stores the whole file.
 
 ## Context

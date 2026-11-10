@@ -1,10 +1,10 @@
-# 0853. Collections give four actions, and programs without the folder ask over MCP
+# 0853. Collections give five actions, and programs without the folder ask over MCP
 
 - **Status:** Proposed
 - **Date:** 2026-11-08
 - **Amends:** [ADR-0845](0845-an-app-declares-collections-each-a-path-and-fields-which-the-hub-views.md) at how a collection is used: through actions it gives the app, not a separate data view; a collection's own `save` refuses input that does not fit, while hand edits are still never refused. [ADR-0844](0844-one-runner-runs-anywhere-and-every-surface-is-a-view-over-it.md) at what the hub is: a program asking `epicenter serve` over MCP. [ADR-0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md) at Epicenter Cloud's file API, which is not built: a program without the folder asks for actions instead.
-- **Relates:** [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) (`serve`), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (who commits), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (programs that have the folder or ask), [ADR-0857](0857-an-app-declares-itself-in-epicenter-json-and-its-code-in-epicenter-ts.md) (fields and annotations), [ADR-0858](0858-where-a-file-lives-decides-whether-it-travels-survives-or-dies-with-its-program.md) (where Whispering's files and state live), [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (views), [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (one copy, and clients that ask).
-- **Unbuilt:** `collections` in `run`, groups of actions with `null` removing one, `epicenter serve` over HTTPS, and the client typed by `App`. Built: each collection's `list`, `get`, `set`, and `delete` from the command line and over `epicenter serve --stdio` (`packages/app/src/collection.ts`), a written action replacing a collection's by its words, and the untyped view client `connect` (`packages/app/src/client.ts`).
+- **Relates:** [ADR-0869](0869-a-body-is-changed-by-quoting-the-passage-it-replaces.md) (why `edit` quotes the passage it replaces), [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) (`serve`), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (who commits), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (programs that have the folder or ask), [ADR-0857](0857-an-app-declares-itself-in-epicenter-json-and-its-code-in-epicenter-ts.md) (fields and annotations), [ADR-0858](0858-where-a-file-lives-decides-whether-it-travels-survives-or-dies-with-its-program.md) (where Whispering's files and state live), [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (views), [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (one copy, and clients that ask).
+- **Unbuilt:** `collections` in `run`, groups of actions with `null` removing one, `epicenter serve` over HTTPS, and the client typed by `App`. Built: each collection's `list`, `get`, `set`, `edit`, and `delete` from the command line and over `epicenter serve --stdio` (`packages/app/src/collection.ts`), a written action replacing a collection's by its words, and the untyped view client `connect` (`packages/app/src/client.ts`).
 
 ## Context
 
@@ -17,7 +17,7 @@ drafts also gave `serve` an HTTP API beside MCP.
 
 ## Decision
 
-**Each collection gives its app four actions.** For a collection `words` with
+**Each collection gives its app five actions.** For a collection `words` with
 path `words/{stem}.md` and a `stage` field that is one of `new` or `known`:
 
 ```txt
@@ -25,10 +25,12 @@ vocab words list                                      every file, its fields as 
 vocab words get serendipity                           one file: its fields and its body
 vocab words set serendipity --stage known             changes the fields given, keeps the rest and the body
 vocab words set petrichor --stage new --body "…"      no such file yet, so it makes words/petrichor.md
+vocab words edit petrichor --old "…" --new "…"        replaces one passage of the body, quoted
 vocab words delete petrichor
 ```
 
-- The verbs are `Map`'s and Deno KV's: `list`, `get`, `set`, `delete`. They
+- The verbs are `Map`'s and Deno KV's, `list`, `get`, `set`, `delete`, and
+  `edit` for prose (ADR-0869). They
   read the same in a terminal, in an MCP tool name (`vocab_words_set`), and in
   code (`collections.words.set({ stem, stage })`).
 - The path's last placeholder is the key field: required, first, and so read by
@@ -36,18 +38,20 @@ vocab words delete petrichor
   (RFC 6570).
 - `set`'s flags are the collection's fields, so every program that asks is
   refused a value that does not fit before anything is written. `--body`
-  replaces a Markdown file's body. `set` merges, as Firestore's
+  gives a new Markdown file its body; a body already there is changed with
+  `edit`, which quotes the passage it replaces and is refused when that
+  passage is not there exactly once (ADR-0869). `set` merges, as Firestore's
   `set(…, { merge: true })` does, not as `Map.set` replaces: a person changing
   one field from a terminal keeps the others and the body. A collection with
-  one file and no placeholder gives only `get` and `set`.
-- `list` and `get` are read-only. `set` and `delete` keep MCP's default,
+  one file and no placeholder gives only `get`, `set`, and `edit`.
+- `list` and `get` are read-only. `set`, `edit`, and `delete` keep MCP's default,
   destructive: a run from the command line commits nothing (ADR-0850), so the
   value they replace is gone unless someone committed it. Through
   `epicenter serve` each write is a commit (ADR-0864).
 
 **An app's tools are its collections' actions, then `epicenter.ts`'s actions
 on top.** Actions nest: an object with `run` is an action, and any other
-object is a group of them. Each collection is a group holding its four, and
+object is a group of them. Each collection is a group holding its five, and
 `epicenter.ts`'s object is laid over the groups one level deep. A written action
 at the same path replaces the collection's (a `words.set` that checks a rule
 across files), a new one joins the group (`words.archive`), and `null` removes
@@ -63,8 +67,8 @@ client       epicenter.vocab.words.archive(…)
 ```
 
 A name of more than one word is camelCase in code and kebab-case elsewhere
-(`summarizeWeek`, `summarize-week`; ADR-0857). Inside `run`, the same four are
-`collections.<name>.list`, `.get`, `.set`, `.delete`, bound to the run's folder.
+(`summarizeWeek`, `summarize-week`; ADR-0857). Inside `run`, the same five are
+`collections.<name>.list`, `.get`, `.set`, `.edit`, `.delete`, bound to the run's folder.
 
 **`epicenter serve` speaks MCP,** over HTTPS at `/` (MCP's Streamable HTTP
 transport), or over stdio with `epicenter serve --stdio`. Each action is one
@@ -152,7 +156,7 @@ device and are never actions.
 - **A written action named like a collection's is a problem.** Leaves the
   generic action callable beside the rule the written one enforces.
 - **A client typed by `typeof` the module `epicenter.ts`.** The module's exports
-  are only the written actions; the collections' four would be missing.
+  are only the written actions; the collections' five would be missing.
 - **Collection actions spread by hand (`...collection('words')`).** The same
   rule typed in every app, and a second way to pass the declaration.
 - **A view's client with the transport passed in: `postMessage` through a host

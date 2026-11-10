@@ -31,6 +31,18 @@ export class ActionError extends Error {
 	}
 }
 
+/**
+ * Whether a call was refused because the text it quoted changed since it was
+ * read: a collection's `edit` throws `{ name: 'Changed' }` then, and a UI says
+ * so and reloads rather than overwriting the other change.
+ */
+export function changedElsewhere(error: unknown): boolean {
+	const answer = error instanceof ActionError ? error.answer : undefined;
+	const thrown = (answer as { threw?: { thrown?: { name?: unknown } } })?.threw
+		?.thrown;
+	return thrown?.name === 'Changed';
+}
+
 /** An app's actions, asked of the server by their words (`list`, `mail messages list`). */
 export type AppClient = {
 	readonly app: string;

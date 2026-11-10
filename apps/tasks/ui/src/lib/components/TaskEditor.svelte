@@ -1,9 +1,12 @@
 <!--
 	One task to edit: whether it is done, its title, its due day, and its
-	notes, each saved through `tasks set` shortly after it changes, when a
-	field loses focus, and when the page is left. Delete asks first.
+	notes, each saved shortly after it changes, when a field loses focus, and
+	when the page is left: the fields through `set`, and the notes through
+	`edit`, quoting the notes as loaded, so notes an agent changed meanwhile
+	are not overwritten without asking. Delete asks first.
 -->
 <script lang="ts">
+	import { changedElsewhere } from '@epicenter/app/client';
 	import { goto } from '$app/navigation';
 	import { Button } from '@epicenter/ui/button';
 	import { Checkbox } from '@epicenter/ui/checkbox';
@@ -28,6 +31,8 @@
 	let done = $state(false);
 	let due = $state('');
 	let notes = $state('');
+	/** The notes as the server last returned them, which an edit quotes. */
+	let base = '';
 	let saving = $state(0);
 	let unsaved = $state(false);
 	let saved = $state(false);
@@ -41,7 +46,8 @@
 			title = file.title ?? '';
 			done = file.done ?? false;
 			due = file.due ?? '';
-			notes = (file.body ?? '').replace(/\r?\n$/, '');
+			base = file.body ?? '';
+			notes = base.replace(/\r?\n$/, '');
 			phase = 'ready';
 		} catch (error) {
 			problem = error instanceof Error ? error.message : String(error);
@@ -67,15 +73,44 @@
 		const sent = queued;
 		queued = {};
 		saving++;
+		const { body, ...fields } = sent;
+		let left: Record<string, unknown> = sent;
 		try {
-			tasks.changed(await app.call<TaskFile>('set', { id, ...sent }));
+			// Fields merge; the notes are an edit quoting what was loaded, so notes changed elsewhere are never overwritten.
+			if (Object.keys(fields).length > 0) {
+				tasks.changed(await app.call<TaskFile>('set', { id, ...fields }));
+				left = body === undefined ? {} : { body };
+			}
+			if (body !== undefined && body !== base) {
+				const file = await app.call<TaskFile>('edit', { id, old: base, new: body });
+				base = file.body ?? '';
+				tasks.changed(file);
+			}
+			left = {};
 			unsaved = Object.keys(queued).length > 0;
 			saved = true;
 		} catch (error) {
-			queued = { ...sent, ...queued };
-			toast.error('Could not save the task', { description: String(error) });
+			if (changedElsewhere(error)) {
+				toast.error('The notes changed elsewhere', {
+					description: 'Your notes were not saved.',
+					action: { label: 'Keep mine', onClick: () => void keepMine(body as string) },
+				});
+			} else {
+				queued = { ...left, ...queued };
+				toast.error('Could not save the task', { description: String(error) });
+			}
 		} finally {
 			saving--;
+		}
+	}
+
+	/** Replace notes changed elsewhere with the ones typed here, after the person chose to. */
+	async function keepMine(body: string) {
+		try {
+			base = (await app.call<TaskFile>('get', { id })).body ?? '';
+			change({ body }, 0);
+		} catch (error) {
+			toast.error('Could not save the task', { description: String(error) });
 		}
 	}
 
