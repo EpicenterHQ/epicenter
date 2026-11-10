@@ -159,7 +159,8 @@ for the call (`<app>: <words> <first positional>`), so a read marked as a
 write may take someone else's pending edits into history. A read-only run is
 never snapshotted. It may refresh a token in a `.local.md` collection,
 because local files never enter app history. Writes to other paths through
-`folder` throw.
+`folder` throw. A connector allowed only to read sees and calls only
+`readOnlyHint: true` actions, so a read marked as a write is hidden from it.
 
 An agent can read and reverse that history. `epicenter history <app>` lists
 the snapshots, newest first, each with its commit, local time, and subject
@@ -255,6 +256,13 @@ Only when the person asks, on the computer that runs `epicenter serve`:
   first, so a page served meanwhile is missing.
 - Run these from inside the Epicenter the app belongs to; another person's
   Epicenter on the same computer is another folder with its own port.
+- To reach the apps from claude.ai, ChatGPT, or a device off the tailnet, add
+  `public: https://<host>:<port>/` and `publicPort: <n>` to `EPICENTER.md`.
+  The person runs an HTTPS tunnel from that address to
+  `127.0.0.1:<publicPort>`; never start one yourself, since it opens the
+  computer to the internet. `epicenter access invite` prints a one-time link
+  for each device's passkey, a connector is added by pasting the address, and
+  `epicenter access` lists and revokes both (`packages/cli/README.md`).
 
 A running `epicenter serve` sees a change on the next request: it lists tools
 and reads `ui/dist/` from disk each time.

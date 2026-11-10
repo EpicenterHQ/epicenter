@@ -24,6 +24,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import packageJson from '../package.json' with { type: 'json' };
 import { type Report, runChild } from './child.ts';
+import { nameProblem } from './commands.ts';
 import { homeEntries } from './home.ts';
 import { type Answer, renderAnswer, writeErr } from './output.ts';
 import { rootInstructions } from './root.ts';
@@ -36,17 +37,37 @@ import { snapshot } from './snapshot.ts';
  */
 export async function listTools(): Promise<Tool[]> {
 	const listed = await Promise.all(
-		(await homeEntries()).map(async ({ entry }) => {
-			const { answer } = await runChild([entry, '--json'], {
-				stdin: 'ignore',
-			});
-			const value = answer as { actions?: Tool[]; error?: { message: string } };
-			if (value.actions) return value.actions;
-			writeErr(`${entry}: ${value.error?.message ?? JSON.stringify(answer)}`);
-			return [];
-		}),
+		(await homeEntries()).map(({ entry }) => appTools(entry)),
 	);
 	return listed.flat();
+}
+
+/** One app's tools, as its own child lists them; none when it cannot load, and why goes to stderr. */
+async function appTools(entry: string): Promise<Tool[]> {
+	const { answer } = await runChild([entry, '--json'], { stdin: 'ignore' });
+	const value = answer as { actions?: Tool[]; error?: { message: string } };
+	if (value.actions) return value.actions;
+	writeErr(`${entry}: ${value.error?.message ?? JSON.stringify(answer)}`);
+	return [];
+}
+
+/** Whether a tool says it changes nothing (`readOnlyHint`): all the `read` scope may list and call. */
+const isReadOnly = (tool: Tool) => tool.annotations?.readOnlyHint === true;
+
+/** The tools that change nothing, for a caller that may only read. */
+export async function listReadOnlyTools(): Promise<Tool[]> {
+	return (await listTools()).filter(isReadOnly);
+}
+
+/** Whether `name` is a tool its app lists now as read-only. */
+export async function isReadOnlyTool(name: unknown): Promise<boolean> {
+	if (typeof name !== 'string') return false;
+	const [app = ''] = name.split('_');
+	if (nameProblem(app) !== undefined) return false;
+	if (!(await homeEntries()).some((entry) => entry.entry === app)) return false;
+	return (await appTools(app)).some(
+		(tool) => tool.name === name && isReadOnly(tool),
+	);
 }
 
 /**
@@ -69,19 +90,30 @@ export function toolResult(answer: Answer) {
 	};
 }
 
-/** Run an app's action as `<app>_<word>_<word>` names it, in a child process. */
+/**
+ * Run an app's action as `<app>_<word>_<word>` names it, in a child process.
+ * The first word must be able to name an app, so a tool name never runs one
+ * of `epicenter`'s own commands. With `readOnly`, the child runs the action
+ * only when it is read-only.
+ */
 async function runAppTool(
 	name: string,
 	args: Record<string, unknown>,
+	readOnly: boolean,
 ): Promise<Report> {
 	// `<app>_<word>_<word>`: app names and action words hold no underscores.
 	const [app = '', ...words] = name.split('_');
-	if (!isName(app) || words.length === 0 || !words.every(isName))
+	if (
+		nameProblem(app) !== undefined ||
+		words.length === 0 ||
+		!words.every(isName)
+	)
 		return {
 			answer: { error: { name: 'Usage', message: `Unknown tool ${name}` } },
 		};
 	return runChild([app, ...words, '--input', JSON.stringify(args), '--json'], {
 		stdin: 'ignore',
+		readOnly,
 	});
 }
 
@@ -89,14 +121,15 @@ async function runAppTool(
  * Run a tool through the same child process for either MCP transport, and
  * after a write, snapshot its app. `committed` hears of each snapshot that
  * made a commit; a failed one is written to stderr, its paths stay pending,
- * and the call's answer stands.
+ * and the call's answer stands. With `readOnly`, only a read-only action runs.
  */
 export async function callTool(
 	name: string,
 	args: Record<string, unknown>,
 	committed?: (app: string, folder: string) => void,
+	{ readOnly = false }: { readOnly?: boolean } = {},
 ) {
-	const { answer, wrote } = await runAppTool(name, args);
+	const { answer, wrote } = await runAppTool(name, args, readOnly);
 	if (wrote) {
 		const taken = await snapshot(wrote.app, wrote.folder, wrote);
 		if ('failed' in taken)

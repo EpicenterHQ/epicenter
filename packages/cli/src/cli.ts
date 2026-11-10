@@ -8,8 +8,9 @@
  */
 import type { Action } from '@epicenter/app';
 import packageJson from '../package.json' with { type: 'json' };
+import { accessCommand } from './access.ts';
 import { buildCommand } from './build.ts';
-import { REPORT_FLAG, runChild } from './child.ts';
+import { READ_ONLY_FLAG, REPORT_FLAG, runChild } from './child.ts';
 import { COMMANDS, type Command } from './commands.ts';
 import { CliError } from './errors.ts';
 import { historyCommand, undoCommand } from './history.ts';
@@ -81,12 +82,27 @@ merge, a commit not in the app's history, and a revert that conflicts, leaving
 the folder as it was, and then pushes to origin as sync does.`,
 	serve: `Offers every app's actions over MCP at / and each app's UI at /<app>/, on
 127.0.0.1 and the Epicenter's port (default 4747) unless --port or --host says otherwise. With --stdio, it speaks
-MCP on stdin and stdout instead.`,
+MCP on stdin and stdout instead. When EPICENTER.md has public and publicPort, it
+also offers them on 127.0.0.1:<publicPort> to a person signed in with a passkey and
+to a connector such as Claude signed in with OAuth; an HTTPS tunnel from public
+to that port is yours to run. Then --host must be a loopback address, and serve
+checks every 5 minutes that public reaches that port, never this one.`,
+	access: `Lists the people (passkeys) who can reach the public address, and each grant:
+a connector one person approved. invite makes a link that registers a passkey
+on one device, once, within 15 minutes. revoke ends a person (their passkey,
+sessions, and grants), a connector (all its grants), or a connector and a
+person (that grant); the next call it makes is refused. It works while serve
+runs.`,
 };
+
+/** Whether `host` is a loopback address or name, reachable only from this computer. */
+const isLoopbackHost = (host: string) =>
+	host === 'localhost' || host === '::1' || /^127(\.\d{1,3}){3}$/.test(host);
 
 /** What each command in `COMMANDS` does. */
 const HANDLERS: { [K in Command]: Handler } = {
 	init: initCommand,
+	access: accessCommand,
 	async new(words, json) {
 		const [name, ...rest] = words;
 		const fromAt = rest.findIndex(
@@ -127,7 +143,8 @@ const HANDLERS: { [K in Command]: Handler } = {
 				json,
 			);
 		if (words.length === 1 && words[0] === '--stdio') return serveStdio();
-		let port = epicenterRoot().port;
+		const root = epicenterRoot();
+		let port = root.port;
 		let host = '127.0.0.1';
 		const seen = new Set<string>();
 		for (let i = 0; i < words.length; i += 2) {
@@ -147,6 +164,16 @@ const HANDLERS: { [K in Command]: Handler } = {
 					return fail(usage('Port must be an integer from 0 to 65535'), json);
 			}
 		}
+		// With a public address, the tailnet reaches the private listener only
+		// through a proxy on this computer, such as tailscale serve.
+		if (root.public && !isLoopbackHost(host))
+			return fail(
+				usage(
+					`With a public address, serve listens only on a loopback address, not ${host}`,
+					COMMANDS.serve,
+				),
+				json,
+			);
 		return serveHttp(host, port);
 	},
 };
@@ -159,6 +186,9 @@ export async function runCli(argv: string[]): Promise<number> {
 		answerInto(reportArg.slice(REPORT_FLAG.length));
 		argv = argv.slice(1);
 	}
+	// A child may be limited to read-only actions (child.ts).
+	const onlyReadOnly = reportArg !== undefined && argv[0] === READ_ONLY_FLAG;
+	if (onlyReadOnly) argv = argv.slice(1);
 	const relayed = argv;
 	// --version is read only on its own, so an action's --version stays its own flag.
 	const onlyGlobals = argv.every((token) => GLOBALS.has(token));
@@ -206,6 +236,13 @@ export async function runCli(argv: string[]): Promise<number> {
 		}
 		const [name, ...words] = tokens as [string, ...string[]];
 		if (Object.hasOwn(HANDLERS, name)) {
+			if (onlyReadOnly)
+				return fail(
+					CliError.Refused({
+						message: `epicenter ${name} is not an action, and this call may only read`,
+					}).error,
+					json,
+				);
 			const command = name as keyof typeof HANDLERS;
 			if (help) {
 				print(`${COMMANDS[command]}\n${COMMAND_HELP[command]}`);
@@ -264,6 +301,13 @@ export async function runCli(argv: string[]): Promise<number> {
 				json,
 			);
 		}
+		if (onlyReadOnly && action.annotations?.readOnlyHint !== true)
+			return fail(
+				CliError.Refused({
+					message: `${name} ${matched.key} changes files, and this call may only read`,
+				}).error,
+				json,
+			);
 		if (help) {
 			print(
 				json
