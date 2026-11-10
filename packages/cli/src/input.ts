@@ -248,10 +248,32 @@ export function checkInput(
 	const field = key?.replace(/~1/g, '/').replace(/~0/g, '~');
 	const name = field ? nameOf(field) : 'input';
 	if (first?.keyword === 'required') return { error: `${name} is needed` };
-	const choices = field ? choicesOf(action.input[field] as TSchema) : undefined;
+	const fieldSchema = field ? (action.input[field] as TSchema) : undefined;
+	const choices = fieldSchema ? choicesOf(fieldSchema) : undefined;
 	if (choices)
 		return { error: `${name} must be one of: ${choices.join(', ')}` };
+	const wanted = fieldSchema && wantedOf(fieldSchema);
+	if (wanted) return { error: `${name} needs ${wanted}` };
 	return { error: `${name}: ${first?.message ?? 'is not accepted'}` };
+}
+
+/** What a field takes, said as its help would say it, for the formats and types a person can get wrong by shape. */
+const WANTED: Record<string, string> = {
+	date: 'a day, as 2026-11-12',
+	'date-time': 'a date and time, as 2026-11-12T09:30:00Z',
+	uri: 'a URL, as https://example.com',
+	email: 'an email address',
+	integer: 'a whole number',
+	number: 'a number',
+};
+
+function wantedOf(field: TSchema): string | undefined {
+	const schema = withoutNull(field);
+	return (
+		(schema.format && WANTED[schema.format]) ||
+		(schema.type && WANTED[schema.type]) ||
+		undefined
+	);
 }
 
 /**

@@ -362,8 +362,12 @@ test('D8 an app with only epicenter.json lists, reads, writes, and deletes its c
 	// Refused before anything is written: a value outside the enum, a date that is not one, a new file missing a required field, a required field given as null.
 	const refused = [
 		[['items', 'set', 'dune', '--kind', 'poem'], 2, '--kind'],
-		[['items', 'set', 'dune', '--added', '2026-13-45'], 2, '--added'],
-		[['items', 'set', 'dune', '--url', 'not a url'], 2, '--url'],
+		[
+			['items', 'set', 'dune', '--added', '2026-13-45'],
+			2,
+			'--added needs a day, as 2026-11-12',
+		],
+		[['items', 'set', 'dune', '--url', 'not a url'], 2, '--url needs a URL'],
 		[
 			['items', 'set', 'new-one', '--kind', 'link'],
 			1,
