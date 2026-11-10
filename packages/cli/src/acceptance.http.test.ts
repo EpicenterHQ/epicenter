@@ -336,20 +336,20 @@ test('commit subjects use the first positional value on one line, capped at 60 c
 test('a built UI serves files and refuses traversal and symlinks outside it', async () => {
 	const f = await setup();
 	const folder = await f.folder(join(f.home, 'reading'), readingApp);
-	await mkdir(join(folder, 'ui', 'build', '_app', 'immutable'), {
+	await mkdir(join(folder, 'ui', 'dist', '_app', 'immutable'), {
 		recursive: true,
 	});
 	await writeFile(
-		join(folder, 'ui', 'build', 'index.html'),
+		join(folder, 'ui', 'dist', 'index.html'),
 		'<h1>Reading</h1>',
 	);
 	await writeFile(
-		join(folder, 'ui', 'build', '_app', 'immutable', 'asset.js'),
+		join(folder, 'ui', 'dist', '_app', 'immutable', 'asset.js'),
 		'export {};',
 	);
 	await symlink(
 		join(folder, 'epicenter.ts'),
-		join(folder, 'ui', 'build', 'outside.ts'),
+		join(folder, 'ui', 'dist', 'outside.ts'),
 	);
 	const linked = await f.app(
 		'linked',
@@ -359,7 +359,7 @@ test('a built UI serves files and refuses traversal and symlinks outside it', as
 	await mkdir(outsideUi);
 	await writeFile(join(outsideUi, 'index.html'), 'outside');
 	await mkdir(join(linked, 'ui'));
-	await symlink(outsideUi, join(linked, 'ui', 'build'));
+	await symlink(outsideUi, join(linked, 'ui', 'dist'));
 	expect(await (await fetch(`${f.base}/`)).text()).toContain(
 		'href="/reading/"',
 	);
@@ -391,15 +391,15 @@ test('a built UI serves files and refuses traversal and symlinks outside it', as
 	expect((await fetch(`${f.base}/linked/`)).status).toBe(404);
 });
 
-test('only the built UI in ui/build/ is served, never the ui/ source', async () => {
+test('only the view in ui/dist/ is served, never the ui/ source', async () => {
 	const f = await setup();
 	const folder = await f.folder(join(f.home, 'reading'), {
 		...readingApp,
 		'ui/index.html': 'source',
 	});
 	expect((await fetch(`${f.base}/reading/`)).status).toBe(404);
-	await mkdir(join(folder, 'ui', 'build'), { recursive: true });
-	await writeFile(join(folder, 'ui', 'build', 'index.html'), 'built');
+	await mkdir(join(folder, 'ui', 'dist'), { recursive: true });
+	await writeFile(join(folder, 'ui', 'dist', 'index.html'), 'built');
 	expect(await (await fetch(`${f.base}/reading/`)).text()).toBe('built');
 });
 

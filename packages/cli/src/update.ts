@@ -35,7 +35,7 @@ type Updated = {
 	upstream: boolean;
 	/** The merge commit, or `null` when the app already had everything. */
 	merged: string | null;
-	/** Whether a UI was built; `false` for an app with no `ui/`. */
+	/** Whether a UI was built; `false` when `ui/package.json` has no `build` script. */
 	built: boolean;
 	/** Each file that does not fit its collection's fields, as `<path>: <what is wrong>`. */
 	misfits: string[];

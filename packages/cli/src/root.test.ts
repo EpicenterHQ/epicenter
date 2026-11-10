@@ -167,8 +167,8 @@ test('build reports each app and keeps the last good UI after failure', async ()
 			private: true,
 			scripts: { build: 'bun build.ts' },
 		}),
-		'ui/.gitignore': 'build/\nbuild.last/\nnode_modules/\n',
-		'ui/build.ts': `await Bun.write('build/index.html', 'good');\n`,
+		'ui/.gitignore': 'dist/\nnode_modules/\n',
+		'ui/build.ts': `await Bun.write('dist/index.html', 'good');\n`,
 	});
 	const first = await f.run('build', '--json');
 	expect(first.code).toBe(0);
@@ -180,7 +180,7 @@ test('build reports each app and keeps the last good UI after failure', async ()
 		['capture', false],
 		['tasks', true],
 	]);
-	expect(await readFile(join(tasks, 'ui/build/index.html'), 'utf8')).toBe(
+	expect(await readFile(join(tasks, 'ui/dist/index.html'), 'utf8')).toBe(
 		'good',
 	);
 	await writeFile(
@@ -192,10 +192,21 @@ test('build reports each app and keeps the last good UI after failure', async ()
 	expect(JSON.parse(failed.stdout).apps[0].error.message).toContain(
 		'build broke',
 	);
-	expect(await readFile(join(tasks, 'ui/build/index.html'), 'utf8')).toBe(
+	expect(await readFile(join(tasks, 'ui/dist/index.html'), 'utf8')).toBe(
 		'good',
 	);
-	expect((await f.run('build', 'capture')).stdout).toBe('capture: no ui/\n');
+	expect((await f.run('build', 'capture')).stdout).toBe('capture: nothing to build\n');
+	const capture = join(f.home, 'capture');
+	await mkdir(join(capture, 'ui', 'dist'), { recursive: true });
+	await writeFile(
+		join(capture, 'ui', 'package.json'),
+		JSON.stringify({ name: 'ui', private: true }),
+	);
+	await writeFile(join(capture, 'ui', 'dist', 'index.html'), 'by hand');
+	expect((await f.run('build', 'capture')).stdout).toBe('capture: nothing to build\n');
+	expect(await readFile(join(capture, 'ui', 'dist', 'index.html'), 'utf8')).toBe(
+		'by hand',
+	);
 });
 
 test('serve reads the root port when no command port is given', async () => {

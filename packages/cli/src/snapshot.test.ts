@@ -98,7 +98,7 @@ test('a snapshot leaves local files and local directories out of history', async
 	const folder = folderOnDisk(f.dir);
 	await folder.write('google.local.md', 'token');
 	await folder.write('tokens.local/item.md', 'token');
-	expect(await statusOf(f.dir)).toEqual({ pending: 0 });
+	expect(await statusOf(f.dir)).toEqual({ pending: 0, backup: 'none' });
 	expect(await snapshot('notes', f.dir)).toEqual({ committed: null });
 	expect(await gitIn(f.dir, 'ls-files')).toBe('a.md');
 });

@@ -4,7 +4,7 @@
  * ```txt
  * POST /             MCP, stateless JSON
  * GET  /             the launcher; 405 when asked for an event stream (MCP)
- * GET  /<app>/...    the app's built UI, ui/build/, as static files
+ * GET  /<app>/...    the app's view, ui/dist/, as static files
  * GET  /<app>        308 to /<app>/
  * ```
  *
@@ -28,7 +28,7 @@ import { writeErr } from './output.ts';
 import { pushOrigin } from './push.ts';
 import { epicenterDir, rootInstructions } from './root.ts';
 import { pendingStatus, snapshot } from './snapshot.ts';
-import { BUILT_UI } from './ui.ts';
+import { VIEW } from './ui.ts';
 
 /** An app's background push: the one running, and whether another is wanted after it. */
 type Push = { running?: Promise<void>; again: boolean };
@@ -209,7 +209,7 @@ export function startHttpServer(
 			return notFound();
 		try {
 			// The built UI, rebuildable and ignored, is the only thing served (ADR-0866).
-			const root = await realpath(join(entry.realPath, BUILT_UI));
+			const root = await realpath(join(entry.realPath, VIEW));
 			if (!root.startsWith(`${entry.realPath}${sep}`)) return notFound();
 			const candidate = join(root, decoded || 'index.html');
 			const file = await realpath(

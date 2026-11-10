@@ -177,8 +177,8 @@ export function oneAppListing(
 	json: boolean,
 	history: Status,
 ): unknown {
-	const step = backupStep(located.name, located.folder, history);
 	if (json) return appListing(located, history);
+	const step = backupStep(located.name, located.folder, history);
 	return [
 		`${located.name}  ${located.app.description}`,
 		`folder: ${located.folder}`,

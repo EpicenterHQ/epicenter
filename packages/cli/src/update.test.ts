@@ -33,12 +33,12 @@ export default defineApp({
 `;
 }
 
-/** A `ui/` whose build writes `label` to `build/index.html`, without a dependency to install. */
+/** A `ui/` whose build writes `label` to `dist/index.html`, without a dependency to install. */
 function uiPackage(build: string) {
 	return `${JSON.stringify({ name: 'ui', private: true, scripts: { build } })}\n`;
 }
 const builds = (label: string) =>
-	uiPackage(`mkdir -p build && echo ${label} > build/index.html`);
+	uiPackage(`mkdir -p dist && echo ${label} > dist/index.html`);
 
 /** Commit every change in `dir` as `message`. */
 async function commitAll(dir: string, message: string) {
@@ -53,7 +53,7 @@ async function starterFixture() {
 		'.gitignore': gitignore,
 		'epicenter.ts': wordsApp({ reading: 'optional' }),
 		'ui/package.json': builds('one'),
-		'ui/.gitignore': 'build/\nbuild.last/\nnode_modules/\n',
+		'ui/.gitignore': 'dist/\nnode_modules/\n',
 	});
 	return { ...f, starter, app: join(f.home, 'vocab') };
 }
@@ -69,7 +69,7 @@ test('new --from clones a starter as upstream, tracking nothing, and builds its 
 	expect(
 		await gitIn(f.app, 'config', '--get-regexp', '^branch\\.').catch(() => ''),
 	).toBe('');
-	expect(await readFile(join(f.app, 'ui', 'build', 'index.html'), 'utf8')).toBe(
+	expect(await readFile(join(f.app, 'ui', 'dist', 'index.html'), 'utf8')).toBe(
 		'one\n',
 	);
 	expect(await gitIn(f.app, 'status', '--porcelain')).toBe('');
@@ -133,7 +133,7 @@ test('update merges the starter, lists files that no longer fit, and builds', as
 	expect(await gitIn(f.app, 'log', '-1', '--format=%s')).toBe(
 		'vocab: update from upstream',
 	);
-	expect(await readFile(join(f.app, 'ui', 'build', 'index.html'), 'utf8')).toBe(
+	expect(await readFile(join(f.app, 'ui', 'dist', 'index.html'), 'utf8')).toBe(
 		'two\n',
 	);
 	expect(await gitIn(f.app, 'status', '--porcelain')).toBe('');
@@ -200,7 +200,7 @@ test('a failed build keeps the last UI that built', async () => {
 	const updated = await f.run('update', 'vocab');
 	expect(updated.code).toBe(1);
 	expect(updated.stderr).toContain('the last one that did is kept');
-	expect(await readFile(join(f.app, 'ui', 'build', 'index.html'), 'utf8')).toBe(
+	expect(await readFile(join(f.app, 'ui', 'dist', 'index.html'), 'utf8')).toBe(
 		'one\n',
 	);
 });
@@ -210,13 +210,13 @@ test('a build that removes its output keeps the last UI and names the required i
 	expect((await f.run('new', 'vocab', '--from', f.starter)).code).toBe(0);
 	await writeFile(
 		join(f.starter, 'ui', 'package.json'),
-		uiPackage('rm -rf build'),
+		uiPackage('rm -rf dist'),
 	);
 	await commitAll(f.starter, 'empty the build');
 	const updated = await f.run('update', 'vocab');
 	expect(updated.code).toBe(1);
-	expect(updated.stderr).toContain('ui/build/index.html');
-	expect(await readFile(join(f.app, 'ui', 'build', 'index.html'), 'utf8')).toBe(
+	expect(updated.stderr).toContain('ui/dist/index.html');
+	expect(await readFile(join(f.app, 'ui', 'dist', 'index.html'), 'utf8')).toBe(
 		'one\n',
 	);
 });
