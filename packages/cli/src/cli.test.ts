@@ -262,9 +262,7 @@ test('an empty Epicenter lists its next step and a missing marker suggests init'
 	expect((await f.run()).stderr).toContain(`epicenter init ${f.home}`);
 	const missing = await f.run('reading', '--json');
 	expect(missing.code).toBe(2);
-	expect(JSON.parse(missing.stdout).error.message).toContain(
-		'epicenter.root.json',
-	);
+	expect(JSON.parse(missing.stdout).error.message).toContain('EPICENTER.md');
 	expect(JSON.parse(missing.stdout).error.next).toBe(
 		`epicenter init ${f.home}`,
 	);

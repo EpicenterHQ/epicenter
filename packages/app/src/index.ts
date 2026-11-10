@@ -37,5 +37,6 @@ export {
 	normalizePath,
 } from './context.ts';
 export { field, type TSwitch, type TTags } from './field.ts';
+export { readMarkdown } from './front-matter.ts';
 export { createMemoryContext } from './memory.ts';
 export { type Placeholders, templateProblem } from './path.ts';

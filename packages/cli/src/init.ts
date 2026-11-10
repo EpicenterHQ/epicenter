@@ -1,5 +1,4 @@
-/** `epicenter init` writes a root identity once and adds starter guidance. */
-import { randomUUID } from 'node:crypto';
+/** `epicenter init` writes the marker, `EPICENTER.md`, and adds starter guidance (ADR-0868). */
 import { existsSync, realpathSync } from 'node:fs';
 import { mkdir, readdir, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve } from 'node:path';
@@ -9,8 +8,17 @@ import {
 	ancestorWithMarker,
 	DEFAULT_PORT,
 	folderPath,
-	ROOT_MARKER,
+	isMarked,
+	MARKER,
 } from './root.ts';
+
+/** The marker for an Epicenter served on `port`: a note for people, its port in the front matter. */
+const marker = (port: number) => `---
+port: ${port}
+---
+This folder is an Epicenter. Each folder in it with an \`epicenter.ts\` is an
+app. Run \`epicenter\` here to list them.
+`;
 
 const STARTER_AGENTS = `This folder is an Epicenter.
 Each child folder with an epicenter.ts is an app and its own Git repository.
@@ -74,7 +82,7 @@ export async function initCommand(
 		else path = word;
 	}
 	const folder = actualFolder(folderPath(path ?? '.'));
-	if (existsSync(join(folder, ROOT_MARKER)))
+	if (isMarked(folder))
 		return fail(
 			CliError.Usage({ message: `${folder} is already an Epicenter` }).error,
 			json,
@@ -88,15 +96,12 @@ export async function initCommand(
 			json,
 		);
 	await mkdir(folder, { recursive: true });
-	const id = randomUUID();
-	await writeFile(
-		join(folder, ROOT_MARKER),
-		`${JSON.stringify({ id, ...(port === undefined ? {} : { port }) }, null, 2)}\n`,
-		{ flag: 'wx' },
-	);
+	await writeFile(join(folder, MARKER), marker(port ?? DEFAULT_PORT), {
+		flag: 'wx',
+	});
 	if (!existsSync(join(folder, 'AGENTS.md')))
 		await writeFile(join(folder, 'AGENTS.md'), STARTER_AGENTS, { flag: 'wx' });
-	if (json) writeJson({ folder, id, port: port ?? DEFAULT_PORT });
+	if (json) writeJson({ folder, port: port ?? DEFAULT_PORT });
 	else {
 		writeOut(`Made Epicenter at ${folder}.`);
 		const hasApps = (await readdir(folder, { withFileTypes: true })).some(

@@ -1,7 +1,7 @@
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
 import { mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { bareApp, fixture, TEST_ROOT_ID } from './runner.test-support.ts';
+import { bareApp, fixture } from './runner.test-support.ts';
 
 setDefaultTimeout(30_000);
 const roots: string[] = [];
@@ -16,18 +16,17 @@ async function setup() {
 	return f;
 }
 
-test('init writes an identity and starter guidance, keeps existing guidance, and refuses nesting', async () => {
+test('init writes EPICENTER.md and starter guidance, keeps existing guidance, and refuses nesting', async () => {
 	const f = await setup();
 	const folder = join(f.root, 'other');
 	await mkdir(folder);
 	await writeFile(join(folder, 'AGENTS.md'), 'Keep this guidance.\n');
 	const result = await f.run('init', folder, '--port', '4748', '--json');
 	expect(result.code).toBe(0);
-	const made = JSON.parse(result.stdout);
-	expect(made).toEqual({ folder, id: expect.any(String), port: 4748 });
-	expect(
-		JSON.parse(await readFile(join(folder, 'epicenter.root.json'), 'utf8')),
-	).toEqual({ id: made.id, port: 4748 });
+	expect(JSON.parse(result.stdout)).toEqual({ folder, port: 4748 });
+	expect(await readFile(join(folder, 'EPICENTER.md'), 'utf8')).toBe(
+		'---\nport: 4748\n---\nThis folder is an Epicenter. Each folder in it with an `epicenter.ts` is an\napp. Run `epicenter` here to list them.\n',
+	);
 	expect(await readFile(join(folder, 'AGENTS.md'), 'utf8')).toBe(
 		'Keep this guidance.\n',
 	);
@@ -42,6 +41,9 @@ test('init writes an identity and starter guidance, keeps existing guidance, and
 	const defaulted = await f.runIn(f.root, 'init', fresh, '--json');
 	expect(defaulted.code).toBe(0);
 	expect(JSON.parse(defaulted.stdout).port).toBe(4747);
+	expect(await readFile(join(fresh, 'EPICENTER.md'), 'utf8')).toStartWith(
+		'---\nport: 4747\n---\n',
+	);
 	const starter = await readFile(join(fresh, 'AGENTS.md'), 'utf8');
 	expect(starter).toContain('epicenter sync <app> -m "<what you did>"');
 	expect(starter).toContain(
@@ -107,6 +109,66 @@ test('walk-up wins over EPICENTER_ROOT, which wins over the default', async () =
 	).toBe(`epicenter init ${f.env.EPICENTER_ROOT}`);
 });
 
+test('the marker is found from inside an app, and its front matter is checked field by field', async () => {
+	const f = await setup();
+	const inside = await f.folder(join(f.home, 'reading'), {
+		'epicenter.ts': bareApp('reading'),
+		'notes/today.md': 'x',
+	});
+	const marker = join(f.home, 'EPICENTER.md');
+	const listed = async () => f.runIn(join(inside, 'notes'), '--json');
+	await writeFile(
+		marker,
+		'---\nport: 4800\nowners: ["braden@example.com"]\npublic: 10000\n---\nNotes for people.\n',
+	);
+	expect(JSON.parse((await listed()).stdout).epicenter).toBe(f.home);
+	await writeFile(
+		marker,
+		'---\nowners:\n  - braden@example.com\n  - bryce@example.com\n---\n',
+	);
+	expect((await listed()).code).toBe(0);
+	await writeFile(
+		marker,
+		'---\nport: 70000\nowners: "braden"\npublic: 80\nprot: 4748\n---\n',
+	);
+	const refused = await listed();
+	expect(refused.code).toBe(2);
+	expect(JSON.parse(refused.stdout).error.message.split('\n')).toEqual([
+		`${marker}: port: 70000 is not a whole number from 0 to 65535`,
+		`${marker}: owners: "braden" is not a list of logins`,
+		`${marker}: public: 80 is not 443, 8443, or 10000, the ports Funnel publishes`,
+		`${marker}: prot is not a field; the fields are port, owners, and public`,
+	]);
+	await writeFile(marker, '---\nport: [unclosed\n---\n');
+	expect(JSON.parse((await listed()).stdout).error.message).toBe(
+		`${marker}: its front matter is neither key: <JSON> lines nor YAML`,
+	);
+});
+
+test('a folder marked only by epicenter.root.json is refused with the step that replaces it', async () => {
+	const f = await setup();
+	await rm(join(f.home, 'EPICENTER.md'));
+	await writeFile(
+		join(f.home, 'epicenter.root.json'),
+		JSON.stringify({ id: 'old', port: 4748 }),
+	);
+	const app = await f.folder(join(f.home, 'reading'), {
+		'epicenter.ts': bareApp('reading'),
+	});
+	const step = `${f.home} is marked by epicenter.root.json, which epicenter no longer reads; write EPICENTER.md with port: 4748, then delete epicenter.root.json`;
+	for (const cwd of [f.root, app]) {
+		const refused = await f.runIn(cwd, '--json');
+		expect(refused.code).toBe(2);
+		expect(JSON.parse(refused.stdout).error).toEqual({
+			name: 'Usage',
+			message: step,
+		});
+	}
+	expect((await f.run('init', f.home, '--json')).code).toBe(2);
+	await writeFile(join(f.home, 'EPICENTER.md'), '---\nport: 4748\n---\n');
+	expect((await f.runIn(app, '--json')).code).toBe(0);
+});
+
 test('build reports each app and keeps the last good UI after failure', async () => {
 	const f = await setup();
 	await f.folder(join(f.home, 'capture'), {
@@ -148,12 +210,9 @@ test('build reports each app and keeps the last good UI after failure', async ()
 	expect((await f.run('build', 'capture')).stdout).toBe('capture: no ui/\n');
 });
 
-test('serve reads the root port when no command port is given', async () => {
+test("serve reads the marker's port when no command port is given", async () => {
 	const f = await setup();
-	await writeFile(
-		join(f.home, 'epicenter.root.json'),
-		JSON.stringify({ id: TEST_ROOT_ID, port: 0 }),
-	);
+	await writeFile(join(f.home, 'EPICENTER.md'), '---\nport: 0\n---\n');
 	const child = Bun.spawn([process.execPath, f.bin, 'serve'], {
 		cwd: f.root,
 		env: f.env,
