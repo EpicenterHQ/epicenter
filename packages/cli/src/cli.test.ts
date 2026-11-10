@@ -91,6 +91,7 @@ test('commands write disk data and return one JSON answer without diagnostics', 
 	expect(result.stderr).toBe('');
 	expect(JSON.parse(result.stdout)).toEqual({
 		returned: { minutes: 30, book: 'Dune' },
+		committed: expect.any(String),
 	});
 	expect(
 		JSON.parse(
@@ -111,7 +112,7 @@ test('negative numbers work as positional, separate flag and inline flag values'
 		const result = await f.run('reading', 'log', ...args, '--json');
 		expect(result.code).toBe(0);
 		expect(result.stderr).toBe('');
-		expect(JSON.parse(result.stdout)).toEqual({ returned: { minutes: -3 } });
+		expect(JSON.parse(result.stdout).returned).toEqual({ minutes: -3 });
 	}
 });
 
@@ -149,8 +150,14 @@ test('lists repeat, switches default and literal positionals append to flagged v
 	const answer = async (...args: string[]) =>
 		JSON.parse((await f.run(...args, '--json')).stdout).returned;
 	expect(await answer('reading', 'tag')).toEqual({ tags: [], done: false });
-	expect(await answer('reading', 'tag', '--done=true')).toEqual({ tags: [], done: true });
-	expect(await answer('reading', 'tag', '--done=false')).toEqual({ tags: [], done: false });
+	expect(await answer('reading', 'tag', '--done=true')).toEqual({
+		tags: [],
+		done: true,
+	});
+	expect(await answer('reading', 'tag', '--done=false')).toEqual({
+		tags: [],
+		done: false,
+	});
 	expect(
 		await answer('reading', 'tag', '--tags', 'a', '--tags=b', '--done'),
 	).toEqual({ tags: ['a', 'b'], done: true });

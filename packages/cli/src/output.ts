@@ -12,28 +12,15 @@ import { type Answer, exitCodeOf } from './report.ts';
 
 /** The report file this process answers into, when it is a child (`child.ts`). */
 let reportPath: string | undefined;
-let firstPositional: unknown;
-let runFolder: string | undefined;
 
 /** Make this process a child: its one JSON answer goes to `path`, never to stdout. */
 export function answerInto(path: string) {
 	reportPath = path;
 }
 
-/** Private metadata for the HTTP server's commit subject, absent from stdout. */
-export function noteRun(folder: string, value: unknown) {
-	runFolder = folder;
-	firstPositional = value;
-}
-
 /** Write the one JSON answer: to stdout, or to the report file in a child. */
 export function writeJson(value: unknown) {
-	if (reportPath)
-		writeReport(reportPath, {
-			answer: value,
-			firstPositional,
-			folder: runFolder,
-		});
+	if (reportPath) writeReport(reportPath, { answer: value });
 	else process.stdout.write(`${JSON.stringify(value)}\n`);
 }
 
@@ -64,11 +51,14 @@ export function renderAnswer(answer: Answer): {
 	}
 	if ('threw' in answer)
 		return { stdout: '', stderr: `${answer.threw.message}\n` };
-	const { returned } = answer;
-	if (returned === null) return { stdout: '', stderr: '' };
+	const { returned, uncommitted } = answer;
+	const stderr = uncommitted
+		? `The action returned, but its changes were not committed: ${uncommitted.message}\nRun: ${uncommitted.next}\n`
+		: '';
+	if (returned === null) return { stdout: '', stderr };
 	const text =
 		typeof returned === 'string' ? returned : JSON.stringify(returned, null, 2);
-	return { stdout: text.endsWith('\n') ? text : `${text}\n`, stderr: '' };
+	return { stdout: text.endsWith('\n') ? text : `${text}\n`, stderr };
 }
 
 /** Present an answer, as one JSON value or for a person, and return its exit code. */

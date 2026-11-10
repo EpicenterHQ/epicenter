@@ -88,7 +88,10 @@ test('tools list plain schemas and annotations and return structured answers or 
 			name: 'reading_log',
 			arguments: { minutes: 30 },
 		});
-		expect(logged.structuredContent).toEqual({ returned: { minutes: 30 } });
+		expect(logged.structuredContent).toEqual({
+			returned: { minutes: 30 },
+			committed: expect.any(String),
+		});
 		expect(
 			(await client.callTool({ name: 'reading_tag' })).structuredContent,
 		).toEqual({ returned: { tags: [], done: false } });

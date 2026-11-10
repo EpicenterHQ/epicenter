@@ -5,9 +5,9 @@
  * committed. Whatever runs the action supplies the context: the `epicenter`
  * CLI on a computer, memory in a test.
  *
- * A run commits nothing on its own (ADR-0850). An action that knows its
- * writes are one change calls `folder.commit`; otherwise they stay
- * uncommitted until a person, an agent, or `epicenter sync` commits them.
+ * A write that returns is one commit, named for the call, made by whatever
+ * runs it (ADR-0850). An action calls `folder.commit` only to commit sooner,
+ * under its own message.
  */
 
 /**

@@ -169,11 +169,9 @@ server, and for Whispering.
 action.** That is true for Claude Desktop, an agent on another computer,
 claude.ai, ChatGPT, and a view.
 
-**A write through `epicenter serve` is one commit, named for the call**
-(`capture: captures set dune`), pushed to the app's GitHub backup. **An action
-run from the command line commits only if its author says so.** `run` calls
-`folder.commit('Add 12 words')` when one run is one change; otherwise what it
-wrote waits for you, your agent, or `epicenter sync` to commit it. Exit codes
+**A write is one commit, named for the call** (`capture: captures set dune`),
+however it arrives, and `epicenter serve` pushes it to the app's GitHub
+backup. Writes to one app take turns, so two at once never lose a change. Exit codes
 tell an agent what happened: 0 returned, 1 threw, 2 did not run.
 
 ## Where code runs, and how to reach it

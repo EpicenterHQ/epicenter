@@ -29,7 +29,6 @@ import { linkCommand, newCommand } from './new.ts';
 import {
 	answerInto,
 	fail,
-	noteRun,
 	presentAnswer,
 	writeJson,
 	writeOut,
@@ -238,9 +237,10 @@ export async function runCli(argv: string[]): Promise<number> {
 		const given = inputOf(action, matched.rest);
 		if ('error' in given)
 			return fail(CliError.Usage({ message: given.error, next }).error, json);
-		if (reportArg)
-			noteRun(located.realPath, given.input[action.positional?.[0] ?? '']);
-		return presentAnswer(await runAction(located, action, given.input), json);
+		return presentAnswer(
+			await runAction(located, matched.key, action, given.input),
+			json,
+		);
 	} catch (error) {
 		return fail(CliError.Internal({ cause: error }).error, json);
 	}

@@ -222,7 +222,10 @@ test('F9 one table owns the vocabulary; --json goes anywhere; defaulted fields a
 
 	const leading = await f.run('--json', 'notes', 'two', 'Ada');
 	expect(leading.code).toBe(0);
-	expect(JSON.parse(leading.stdout)).toEqual({ returned: 'Ada' });
+	expect(JSON.parse(leading.stdout)).toEqual({
+		returned: 'Ada',
+		committed: expect.any(String),
+	});
 	expect(JSON.parse((await f.run('--json', 'notes')).stdout).name).toBe(
 		'notes',
 	);

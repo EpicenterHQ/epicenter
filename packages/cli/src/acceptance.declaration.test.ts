@@ -268,7 +268,9 @@ test('D6 serve --stdio answers initialize, lists the same tools as --json, and r
 			arguments: { minutes: 30 },
 		});
 		expect(called.isError).toBeFalsy();
-		expect(await gitIn(folder, 'log', '-1', '--format=%s')).toBe('initial');
+		expect(await gitIn(folder, 'log', '-1', '--format=%s')).toBe(
+			'reading: log 30',
+		);
 		expect(await readFile(join(folder, '2026.csv'), 'utf8')).toBe(
 			'minutes,book\n30,\n',
 		);
@@ -331,7 +333,17 @@ test('D8 an app with only epicenter.json lists, reads, writes, and deletes its c
 	);
 
 	expect(
-		await json('items', 'set', 'dune', '--kind', 'quote', '--added', '2026-11-09', '--body', 'Fear is the mind-killer.\n'),
+		await json(
+			'items',
+			'set',
+			'dune',
+			'--kind',
+			'quote',
+			'--added',
+			'2026-11-09',
+			'--body',
+			'Fear is the mind-killer.\n',
+		),
 	).toEqual({
 		code: 0,
 		answer: {
@@ -341,6 +353,7 @@ test('D8 an app with only epicenter.json lists, reads, writes, and deletes its c
 				id: 'dune',
 				body: 'Fear is the mind-killer.\n',
 			},
+			committed: expect.any(String),
 		},
 	});
 	expect(await readFile(join(folder, 'items/dune.md'), 'utf8')).toBe(
@@ -352,7 +365,11 @@ test('D8 an app with only epicenter.json lists, reads, writes, and deletes its c
 		[['items', 'set', 'dune', '--kind', 'poem'], 2, '--kind'],
 		[['items', 'set', 'dune', '--added', '2026-13-45'], 2, '--added'],
 		[['items', 'set', 'dune', '--url', 'not a url'], 2, '--url'],
-		[['items', 'set', 'new-one', '--kind', 'link'], 1, 'A new items/new-one.md needs added'],
+		[
+			['items', 'set', 'new-one', '--kind', 'link'],
+			1,
+			'A new items/new-one.md needs added',
+		],
 		[['items', 'set', '../escape', '--kind', 'link'], 2, '<id>'],
 	] as const;
 	for (const [args, code, message] of refused) {
@@ -360,14 +377,24 @@ test('D8 an app with only epicenter.json lists, reads, writes, and deletes its c
 		expect(result.code).toBe(code);
 		expect(JSON.stringify(result.answer)).toContain(message);
 	}
-	expect(await readFile(join(folder, 'items/dune.md'), 'utf8')).toContain('kind: "quote"');
+	expect(await readFile(join(folder, 'items/dune.md'), 'utf8')).toContain(
+		'kind: "quote"',
+	);
 
-	expect((await json('items', 'set', 'dune', '--url', 'https://example.com/dune')).code).toBe(0);
+	expect(
+		(await json('items', 'set', 'dune', '--url', 'https://example.com/dune'))
+			.code,
+	).toBe(0);
 	expect(await json('items', 'list')).toEqual({
 		code: 0,
 		answer: {
 			returned: [
-				{ kind: 'quote', added: '2026-11-09', url: 'https://example.com/dune', id: 'dune' },
+				{
+					kind: 'quote',
+					added: '2026-11-09',
+					url: 'https://example.com/dune',
+					id: 'dune',
+				},
 			],
 		},
 	});
@@ -413,14 +440,27 @@ test('D8 an app with only epicenter.json lists, reads, writes, and deletes its c
 			name: 'capture_items_delete',
 			arguments: { id: 'dune' },
 		});
-		expect(deleted.structuredContent).toEqual({ returned: true });
+		expect(deleted.structuredContent).toEqual({
+			returned: true,
+			committed: expect.any(String),
+		});
 	} finally {
 		await client.close();
 	}
 	expect(await json('items', 'list')).toEqual({
 		code: 0,
-		answer: { returned: [{ kind: 'thought', added: '2026-11-09', id: 'petrichor' }] },
+		answer: {
+			returned: [{ kind: 'thought', added: '2026-11-09', id: 'petrichor' }],
+		},
 	});
-	// Nothing commits a collection's writes (ADR-0850).
-	expect(await gitIn(folder, 'log', '--format=%s')).toBe('initial');
+	// Every write is its own commit, named for the call, from the terminal and MCP alike.
+	expect(await gitIn(folder, 'log', '--format=%s')).toBe(
+		[
+			'capture: items delete dune',
+			'capture: items set petrichor',
+			'capture: items set dune',
+			'capture: items set dune',
+			'initial',
+		].join('\n'),
+	);
 });

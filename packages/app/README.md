@@ -102,9 +102,10 @@ reads as one that may destroy.
 | `folder` | the app's data, in its folder | `read`, `readBytes`, `write`, `writeBytes`, `list`, `delete`, `commit`; `path` on a computer |
 | `secrets` | sign-ins, in this computer's Keychain | `get`, `set`, `delete`; only on a computer |
 
-A run commits nothing on its own
+A write that returns is one commit, named for the call, and writes to one
+app take turns
 ([ADR-0850](../../docs/adr/0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md)).
-An action whose author decided one run is one change calls
+An action that wants to commit sooner, under its own message, calls
 `await folder.commit('Add 12 words')`, which commits everything changed in the
 app's folder, staged or not, and nothing outside it, and does nothing when
 nothing changed. It throws Git's error when the folder is in no repository,

@@ -1,8 +1,9 @@
 /**
  * Acceptance, stage 2: the commit rule (ADR-0850). Black-box runs of the real
- * `epicenter` against a temporary HOME. A run commits nothing on its own; an
- * action that calls `folder.commit` commits everything changed in its folder
- * and nothing outside it. The answer is `{ returned }`, `{ threw }`, or
+ * `epicenter` against a temporary HOME. A write that returns commits what
+ * changed in its folder, named for the call; an action may commit sooner with
+ * `folder.commit`, which commits everything changed in its folder and nothing
+ * outside it. The answer is `{ returned }`, `{ threw }`, or
  * `{ error }`, exit 0, 1, or 2.
  */
 
@@ -117,14 +118,17 @@ const status = (folder: string) =>
 	gitIn(folder, 'status', '--porcelain', '--untracked-files=all');
 const subjects = (folder: string) => gitIn(folder, 'log', '--format=%s');
 
-test('C1 a run commits nothing, and needs no Git repository', async () => {
+test('C1 a write commits itself, named for the call, and needs no Git repository', async () => {
 	const f = await setup();
 	const ran = await f.json('notes', 'write', 'monday');
 	expect(ran.code).toBe(0);
-	expect(ran.answer).toEqual({ returned: 'monday' });
+	expect(ran.answer).toEqual({
+		returned: 'monday',
+		committed: await gitIn(f.dir, 'rev-parse', '--short', 'HEAD'),
+	});
 	expect(ran.stderr).toBe('');
-	expect(await subjects(f.dir)).toBe('initial');
-	expect(await status(f.dir)).toBe('?? monday.md');
+	expect(await subjects(f.dir)).toBe('notes: write monday\ninitial');
+	expect(await status(f.dir)).toBe('');
 
 	const loose = await setup({ git: false });
 	const plain = await loose.json('notes', 'write', 'tuesday');
@@ -208,6 +212,14 @@ test('C6 folder.commit refuses before staging when .gitattributes routes a path 
 	expect(refused.code).toBe(1);
 	expect(refused.answer.threw.message).toContain('run: git lfs install');
 	expect(await gitIn(f.dir, 'diff', '--cached', '--name-only')).toBe('');
+	expect(await subjects(f.dir)).toBe('initial');
+
+	// A write that returned keeps its answer and says why it is uncommitted.
+	const kept = await f.json('notes', 'write', 'monday');
+	expect(kept.code).toBe(0);
+	expect(kept.answer.returned).toBe('monday');
+	expect(kept.answer.uncommitted.message).toContain('run: git lfs install');
+	expect(kept.answer.uncommitted.next).toBe('epicenter sync notes');
 	expect(await subjects(f.dir)).toBe('initial');
 
 	if (!Bun.which('git-lfs')) return;

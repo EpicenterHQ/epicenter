@@ -129,7 +129,7 @@ test('read-only and thrown actions make no commit', async () => {
 	expect(await gitIn(folder, 'rev-list', '--count', 'HEAD')).toBe('1');
 });
 
-test('concurrent writes make separate commits in call order', async () => {
+test('concurrent writes run one at a time and make one commit each', async () => {
 	const f = await setup();
 	const folder = await f.folder(join(f.home, 'reading'), readingApp);
 	const client = connect('reading', { url: `${f.base}/mcp` });

@@ -3,32 +3,13 @@ import { realpath, stat } from 'node:fs/promises';
 import { isAbsolute, join, sep } from 'node:path';
 import { isName } from '@epicenter/app';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
-import { commitFolder, git, gitMessage } from './git.ts';
+import { git, gitMessage } from './git.ts';
 import { homeEntries, readDeclaration } from './home.ts';
-import {
-	callTool,
-	createMcpServer,
-	listTools,
-	runAppTool,
-	toolResult,
-} from './mcp.ts';
+import { callTool, createMcpServer, listTools } from './mcp.ts';
 import { writeErr } from './output.ts';
 
-type ToolResult = Awaited<ReturnType<typeof callTool>>;
-type AppWrite = {
-	tail: Promise<void>;
-	pushing?: Promise<void>;
-	pushAgain: boolean;
-};
-
-function commitSubject(app: string, words: string[], value: unknown) {
-	const suffix =
-		value === undefined
-			? ''
-			: ` ${typeof value === 'string' ? value : JSON.stringify(value)}`;
-	return `${app}: ${words.join(' ')}${suffix.replace(/\s+/g, ' ').slice(0, 61)}`;
-}
+/** An app's background push: the one running, and whether another is wanted after it. */
+type Push = { running?: Promise<void>; again: boolean };
 
 const escapeHtml = (text: string) =>
 	text.replace(
@@ -68,29 +49,26 @@ p{color:var(--muted)}
 
 /** Start the server. The caller owns its lifetime. Port 0 asks Bun for a free port. */
 export function startHttpServer(host: string, port: number) {
-	let tools: Map<string, Tool> | undefined;
-	const writes = new Map<string, AppWrite>();
-	const refresh = async () => {
-		const listed = await listTools();
-		tools = new Map(listed.map((tool) => [tool.name, tool]));
-		return listed;
-	};
-	const state = (app: string) => {
-		let current = writes.get(app);
+	const pushes = new Map<string, Push>();
+	/**
+	 * Push the app's repository to its upstream in the background, if it has
+	 * one. A push asked for while one runs makes one more after it, so every
+	 * commit goes out and pushes never overlap.
+	 */
+	const push = (app: string, folder: string) => {
+		let current = pushes.get(app);
 		if (!current) {
-			current = { tail: Promise.resolve(), pushAgain: false };
-			writes.set(app, current);
+			current = { again: false };
+			pushes.set(app, current);
 		}
-		return current;
-	};
-	const push = (app: string, folder: string, current: AppWrite) => {
-		if (current.pushing) {
-			current.pushAgain = true;
+		if (current.running) {
+			current.again = true;
 			return;
 		}
-		current.pushing = (async () => {
+		const state = current;
+		state.running = (async () => {
 			do {
-				current.pushAgain = false;
+				state.again = false;
 				const upstream = await git(folder, [
 					'rev-parse',
 					'--abbrev-ref',
@@ -102,7 +80,7 @@ export function startHttpServer(host: string, port: number) {
 				const result = await git(folder, args);
 				if (result.code !== 0)
 					writeErr(`${app}: push failed: ${gitMessage(args, result)}`);
-			} while (current.pushAgain);
+			} while (state.again);
 		})()
 			.catch((error) => {
 				writeErr(
@@ -110,64 +88,17 @@ export function startHttpServer(host: string, port: number) {
 				);
 			})
 			.finally(() => {
-				current.pushing = undefined;
-				if (current.pushAgain) push(app, folder, current);
+				state.running = undefined;
 			});
 	};
-	const call = async (
-		name: string,
-		args: Record<string, unknown>,
-	): Promise<ToolResult> => {
-		if (name === 'sync') return callTool(name, args);
-		let tool = tools?.get(name);
-		if (!tool) tool = (await refresh()).find((item) => item.name === name);
-		if (!tool || tool.annotations?.readOnlyHint === true)
-			return callTool(name, args);
-		const [app = '', ...words] = name.split('_');
-		const entry = (await homeEntries()).find((item) => item.entry === app);
-		if (!entry) return callTool(name, args);
-		const current = state(app);
-		const run = async () => {
-			const called = await runAppTool(name, args);
-			const result = toolResult(called.answer);
-			if (result.isError) return result;
-			if (!called.folder) return result;
-			const repository = await git(called.folder, [
-				'rev-parse',
-				'--is-inside-work-tree',
-			]);
-			if (repository.code !== 0 || repository.stdout !== 'true') return result;
-			try {
-				await commitFolder(
-					called.folder,
-					commitSubject(app, words, called.firstPositional),
-				);
-				push(app, called.folder, current);
-				return result;
-			} catch (error) {
-				const message = error instanceof Error ? error.message : String(error);
-				writeErr(`${app}: commit failed: ${message}`);
-				return {
-					...result,
-					structuredContent: {
-						...result.structuredContent,
-						uncommitted: { message, next: `epicenter sync ${app}` },
-					},
-					content: [
-						...result.content,
-						{
-							type: 'text' as const,
-							text: `The action returned, but its changes were not committed: ${message}`,
-						},
-					],
-				};
-			}
-		};
-		const result = current.tail.then(run, run);
-		current.tail = result.then(
-			() => {},
-			() => {},
-		);
+	/** Run the tool; when its answer says it committed, push that app. */
+	const call: typeof callTool = async (name, args) => {
+		const result = await callTool(name, args);
+		if (typeof result.structuredContent?.committed === 'string') {
+			const [app = ''] = name.split('_');
+			const entry = (await homeEntries()).find((item) => item.entry === app);
+			if (entry) push(app, entry.realPath);
+		}
 		return result;
 	};
 	const notFound = () => new Response('Not found', { status: 404 });
@@ -232,7 +163,7 @@ export function startHttpServer(host: string, port: number) {
 			if (pathname === '/mcp') {
 				if (request.method !== 'POST')
 					return new Response('Method not allowed', { status: 405 });
-				const server = createMcpServer(refresh, call);
+				const server = createMcpServer(listTools, call);
 				const transport = new WebStandardStreamableHTTPServerTransport({
 					enableJsonResponse: true,
 				});
@@ -248,7 +179,8 @@ export function startHttpServer(host: string, port: number) {
 			if (pathname === '/') {
 				const apps = await Promise.all(
 					(await homeEntries()).map(async (entry) => {
-						if (!(await viewFile(entry.entry, 'index.html')).ok) return undefined;
+						if (!(await viewFile(entry.entry, 'index.html')).ok)
+							return undefined;
 						const read = await readDeclaration(entry.realPath);
 						return {
 							name: entry.entry,

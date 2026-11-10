@@ -5,9 +5,9 @@
  */
 import { afterEach, expect, test } from 'bun:test';
 import {
+	chmod,
 	mkdir,
 	mkdtemp,
-	chmod,
 	readdir,
 	rm,
 	stat,

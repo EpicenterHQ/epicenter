@@ -31,19 +31,19 @@ The `epicenter` you start only relays. It runs the action in a child `epicenter`
 
 Both HTTP and `serve --stdio` offer every app action and `sync`. The server never imports an app. `tools/list` runs `epicenter <app> --json` for each home entry in its own child, so an app that fails to load loses only its own tools and says why on stderr. Each `tools/call` runs `epicenter <app> <words> --input <json>` in a fresh child, so an edit between calls is seen by the next. `--input` takes the action's input as one JSON object instead of flags. `serve --stdio` uses stdin and stdout for MCP.
 
-HTTP calls to actions marked read-only run without a commit. Other successful calls take turns per app. Each commits the app folder's changes as `<app>: <action words> [first positional value]` when the folder is in a Git repository. If the branch has an upstream, the server pushes in the background. A thrown action makes no commit. A call that changes no files makes no commit. Push failures go to stderr and leave the commit local.
+When a call's answer says it committed, the HTTP server pushes that app in the background if its branch has an upstream. Push failures go to stderr and leave the commit local.
 
-## Direct runs commit nothing
+## A write is one commit
 
-Running an action needs nothing from Git: the folder need not be a repository, or the top of one ([ADR-0850](../../docs/adr/0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md)). An action writes through `folder` and its writes stay uncommitted until whoever knows the intent commits them:
+Every write commits itself, from the command line, `serve --stdio`, or HTTP alike ([ADR-0850](../../docs/adr/0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md)). When an action that is not read-only returns, the run commits what changed in the app's folder as `<app>: <action words> [first positional value]` (one line, cut at 60 characters) and answers `committed` with the commit. A thrown action, a read-only one, a write that changed nothing, and a folder in no repository make no commit; running an action needs nothing from Git. When the commit fails, the answer keeps `returned` and adds `uncommitted` with why and `epicenter sync <app>` as the next step.
 
-```txt
-the action   await folder.commit('Add 12 words')   its author decided one run is one change
-an agent     git commit -m '…'                      after a sequence it understands
-anyone       epicenter sync                         everything left
+Writes to one app take turns: each holds the app's lock, a file under the temporary folder named for the app's path, from before it runs until its commit, so a write that reads, changes, and writes back a file never loses another's change. A lock whose process died is taken over; a write that waits 30 seconds throws. Read-only runs take no lock.
+
+`folder` is a convenience, not a sandbox. Paths are normalized and `.git` is refused; writes replace a whole file at once and are recorded nowhere. `folder.path` is the folder, and an action may use `node:fs` too. An action may commit sooner, under its own message:
+
+```ts
+await folder.commit('Add 12 words');
 ```
-
-`folder` is a convenience, not a sandbox. Paths are normalized and `.git` is refused; writes replace a whole file at once and are recorded nowhere. `folder.path` is the folder, and an action may use `node:fs` too. Runs of one app do not take turns.
 
 `folder.commit(message)` runs `git add -A -- .` and then `git commit -m <message> -- .` from the app's folder, so it commits everything changed in the folder, staged or not, and nothing outside it. An app inside a larger repository commits into that repository and leaves the rest of it alone. With nothing changed it does nothing. It throws Git's own error when the folder is in no repository. Before staging, when the folder's `.gitattributes` mentions `filter=lfs` and `git config filter.lfs.process` is empty, it throws a message ending `run: git lfs install`, since Git without the filter would store the whole file ([ADR-0856](../../docs/adr/0856-binary-files-go-through-git-lfs.md)). When another Git process holds `index.lock`, it retries for about 2 seconds, then throws Git's message. It never pushes.
 
@@ -52,7 +52,8 @@ anyone       epicenter sync                         everything left
 With `--json`, stdout is one JSON object, and MCP returns the same object as `structuredContent`, with `isError` when the exit code is not 0:
 
 ```txt
-{ "returned": <value> }                       exit 0
+{ "returned": <value>, "committed"?: <sha> }  exit 0
+{ "returned": <value>, "uncommitted": { "message", "next" } }  exit 0, the commit failed
 { "threw": { "message", "thrown"? } }         exit 1, also when the run ended without an answer
 { "error": { "name", "message", "next"? } }   exit 2, nothing ran
 ```

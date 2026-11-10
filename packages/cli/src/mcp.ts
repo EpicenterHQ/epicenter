@@ -23,7 +23,7 @@ import {
 	type Tool,
 } from '@modelcontextprotocol/sdk/types.js';
 import packageJson from '../package.json' with { type: 'json' };
-import { runChild, runChildRecord } from './child.ts';
+import { runChild } from './child.ts';
 import { homeEntries } from './home.ts';
 import { renderAnswer, writeErr } from './output.ts';
 import { type Answer, exitCodeOf } from './report.ts';
@@ -123,20 +123,18 @@ function syncWords(args: Record<string, unknown>): string[] | Answer {
 	return app === undefined ? [] : [app];
 }
 
-/** Run an app action and retain private metadata for HTTP commit naming. */
-export async function runAppTool(name: string, args: Record<string, unknown>) {
+/** Run an app's action as `<app>_<word>_<word>` names it, in a child process. */
+async function runAppTool(name: string, args: Record<string, unknown>) {
 	// `<app>_<word>_<word>`: app names and action words hold no underscores.
 	const [app = '', ...words] = name.split('_');
 	if (!isName(app) || words.length === 0 || !words.every(isName))
 		return {
-			answer: {
-				error: { name: 'Usage', message: `Unknown tool ${name}` },
-			} as Answer,
-		};
-	return (await runChildRecord(
+			error: { name: 'Usage', message: `Unknown tool ${name}` },
+		} as Answer;
+	return (await runChild(
 		[app, ...words, '--input', JSON.stringify(args), '--json'],
 		{ stdin: 'ignore' },
-	)) as { answer: Answer; firstPositional?: unknown; folder?: string };
+	)) as Answer;
 }
 
 /** Run a tool through the same child process for either MCP transport. */
@@ -150,7 +148,7 @@ export async function callTool(name: string, args: Record<string, unknown>) {
 			})) as SyncAnswer | Answer,
 		);
 	}
-	return toolResult((await runAppTool(name, args)).answer);
+	return toolResult(await runAppTool(name, args));
 }
 
 /** Register the shared tool handlers on a fresh MCP server. */

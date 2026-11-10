@@ -1,12 +1,20 @@
 /**
  * What a command that runs an action answers (ADR-0850): the one value
  * `--json` prints, MCP returns as `structuredContent`, and stderr renders.
- * The run commits nothing, so the answer is only what the action did, or why
- * nothing ran.
+ * A run that returned from an action that writes commits what changed in
+ * the app's folder, and the answer says which commit, or why there is none.
  */
 export type Answer =
-	/** The action returned this value; `null` for nothing. */
-	| { returned: unknown }
+	/**
+	 * The action returned this value; `null` for nothing. `committed` is the
+	 * commit its writes made; `uncommitted` says why they were left in the
+	 * folder when committing failed.
+	 */
+	| {
+			returned: unknown;
+			committed?: string;
+			uncommitted?: { message: string; next: string };
+	  }
 	/**
 	 * The action threw, or the run ended without an answer. A thrown tagged
 	 * error (`{ name, message, ...fields }`) is kept whole as `thrown`.
