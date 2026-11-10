@@ -286,8 +286,8 @@ Writes to one app run at once, from the command line, an agent, and a UI.
 depends on what it read goes through `folder.update(path, change)`: it reads
 the file, calls `change` with its text (`undefined` when there is none), and
 writes what `change` returns only if the file is still what `change` saw;
-otherwise it calls `change` again on what is there now, and after 10 tries it
-throws `{ name: 'Changed' }`. A `change` that throws writes nothing. It returns
+otherwise it calls `change` again on what is there now, and after 10 seconds
+of that it throws `{ name: 'Changed' }`. A `change` that throws writes nothing. It returns
 the text written. Every collection write (`add`, `set`, `edit`, `update`)
 goes through it, so two `set`s of different fields of one file both land, and
 two `update`s of one field each see the other's.

@@ -35,8 +35,8 @@ export type Folder = {
 	 * Changes the text at `path` to what `change` makes of it (`undefined` when
 	 * no file is there), and returns the text written. When the file changes
 	 * between the read and the write, `change` runs again on what is there
-	 * now; after 10 tries it throws `{ name: 'Changed' }`. A `change` that
-	 * throws writes nothing.
+	 * now; after 10 seconds of that it throws `{ name: 'Changed' }`. A
+	 * `change` that throws writes nothing.
 	 *
 	 * ```ts
 	 * await folder.update('2026.csv', (text = 'day,minutes\n') => `${text}${day},${minutes}\n`);

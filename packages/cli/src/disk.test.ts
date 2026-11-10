@@ -6,7 +6,7 @@
  */
 import { afterEach, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
-import { writeFileSync } from 'node:fs';
+import { rmSync, writeFileSync } from 'node:fs';
 import {
 	chmod,
 	mkdir,
@@ -135,26 +135,6 @@ test('update retries when another writer changes the file between its read and i
 	);
 });
 
-test('update gives up on a file that keeps changing, throwing Changed, and writes nothing', async () => {
-	const { root, folder } = await setup();
-	await folder.write('busy.txt', '0');
-	let tries = 0;
-	const error = await folder
-		.update('busy.txt', () => {
-			tries++;
-			writeFileSync(join(root, 'busy.txt'), String(tries));
-			return 'mine';
-		})
-		.catch((thrown: unknown) => thrown);
-	expect(tries).toBe(10);
-	expect(error).toEqual({
-		name: 'Changed',
-		message: 'busy.txt kept changing while it was updated',
-	});
-	expect(await folder.read('busy.txt')).toBe('10');
-	expect((await readdir(root)).sort()).toEqual(['.git', 'busy.txt']);
-});
-
 test('update changes a file that starts with a byte order mark, comparing what is there as bytes', async () => {
 	const { root, folder } = await setup();
 	await writeFile(join(root, 'bom.txt'), '﻿a\n');
@@ -217,18 +197,65 @@ test('update clears a claim a crash left, and lands, even when two updates find 
 	expect((await readdir(root)).sort()).toEqual(['.git', 'list.txt']);
 });
 
-test('update waits on a fresh claim, which another update holds, and gives up with Changed', async () => {
+test('update waits while another update holds its claim, and lands once it is released', async () => {
 	const { root, folder } = await setup();
 	await folder.write('held.txt', 'a\n');
 	const held = claimOf(root, 'held.txt', 'a\n');
 	await writeFile(held, 'another update');
-	const error = await folder
-		.update('held.txt', (text) => `${text}b\n`)
-		.catch((thrown: unknown) => thrown);
-	expect(error).toMatchObject({ name: 'Changed' });
-	expect(await folder.read('held.txt')).toBe('a\n');
-	expect(await readFile(held, 'utf8')).toBe('another update');
+	setTimeout(() => rmSync(held), 300);
+	const started = Date.now();
+	expect(await folder.update('held.txt', (text) => `${text}b\n`)).toBe(
+		'a\nb\n',
+	);
+	expect(Date.now() - started).toBeGreaterThanOrEqual(300);
+	expect((await readdir(root)).sort()).toEqual(['.git', 'held.txt']);
 });
+
+test('update gives up after 10 seconds, throwing Changed and writing nothing, on a file that keeps changing or a claim that is never released', async () => {
+	const { root, folder } = await setup();
+	await folder.write('busy.txt', '0');
+	let tries = 0;
+	const busy = folder
+		.update('busy.txt', () => {
+			tries++;
+			writeFileSync(join(root, 'busy.txt'), String(tries));
+			return 'mine';
+		})
+		.catch((thrown: unknown) => thrown);
+	// A claim from a clock ahead of this one is never old enough to clear.
+	await folder.write('stuck.txt', 'a\n');
+	const stuck = claimOf(root, 'stuck.txt', 'a\n');
+	await writeFile(stuck, 'another update');
+	const ahead = new Date(Date.now() + 60_000);
+	await utimes(stuck, ahead, ahead);
+	const started = Date.now();
+	const [kept, claimed] = await Promise.all([
+		busy,
+		folder
+			.update('stuck.txt', (text) => `${text}b\n`)
+			.catch((thrown: unknown) => thrown),
+	]);
+	expect(Date.now() - started).toBeGreaterThanOrEqual(10_000);
+	expect(kept).toEqual({
+		name: 'Changed',
+		message: 'busy.txt kept changing while it was updated',
+	});
+	expect(tries).toBeGreaterThan(10);
+	expect(await folder.read('busy.txt')).toBe(String(tries));
+	expect(claimed).toEqual({
+		name: 'Changed',
+		message:
+			'stuck.txt stayed claimed by another update while it was updated; if no epicenter is running, remove the stuck.txt.*.claim.local file beside it',
+	});
+	expect(await folder.read('stuck.txt')).toBe('a\n');
+	expect(await readFile(stuck, 'utf8')).toBe('another update');
+	await rm(stuck);
+	expect((await readdir(root)).sort()).toEqual([
+		'.git',
+		'busy.txt',
+		'stuck.txt',
+	]);
+}, 20_000);
 
 test('update whose change throws writes nothing', async () => {
 	const { root, folder } = await setup();

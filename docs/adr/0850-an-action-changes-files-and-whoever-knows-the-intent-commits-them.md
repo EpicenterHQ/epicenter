@@ -108,30 +108,33 @@ commit count from `origin/<branch>..HEAD` when that tracking ref exists.
 **A change that depends on what it read uses `folder.update`.**
 `folder.update(path, change)` reads the file, calls `change` with its text
 (`undefined` when there is none), and writes what `change` returns only if the
-file is still what `change` saw; otherwise it starts over, up to 10 times, then
-throws `{ name: 'Changed' }`. A `change` that throws writes nothing. The file
-it writes beside the target before renaming it over is named for the text it
-replaces and made only when no other is, so two updates of the same text never
-both write; rereading before the rename alone lost 5 of 50 concurrent `set`s
-of one file, since another process can rename between the reread and the
-rename. Every
-collection write (`add`, `set`, `edit`, and the first write of a one-file
-collection) goes through it, so the action, by way of its collections, owns
-the correctness of a read-modify-write. `folder.write` stays a plain write, and
+file is still what `change` saw; otherwise it starts over, with a random wait
+of at most 64 ms, and after 10 seconds of that throws `{ name: 'Changed' }`. A
+`change` that throws writes nothing. It writes the new text beside the target
+under a random name, then claims the text it replaces with a claim file named
+for that text, which only one update can make, so two updates of the same text
+never both write; rereading before the rename alone lost 5 of 50 concurrent
+`set`s of one file, since another process can rename between the reread and
+the rename. The claim is held only to check, rename, and release, so one older
+than 2 seconds is taken for one a crash left. Every collection write (`add`,
+`set`, `edit`, and the first write of a one-file collection) goes through it,
+so the action, by way of its collections, owns the correctness of a
+read-modify-write. `folder.write` stays a plain write, and
 the last one wins.
 
 **Annotations describe a tool to its clients; the runner enforces only
-`readOnlyHint`.** A read-only run's writes through `folder` and `secrets` throw
-before doing anything, and it never commits.
+`readOnlyHint`.** A read-only run's writes through `folder` throw before
+doing anything, except to a `.local` path (ADR-0870), and it never commits.
 `destructiveHint`, `idempotentHint`, and `openWorldHint` are for MCP clients.
 
 **Running an action needs nothing from Git.** An app need not be a repository,
 or the top of one; a folder in no repository is never committed. `epicenter new` makes a repository.
 
 **`epicenter` does nothing Git already does.** It runs Git's porcelain and
-passes on Git's messages: no Git objects of its own, no temporary index, no
-compare-and-swap, and no lock of its own. Git's `index.lock` serializes
-commits; `update` serializes changes to one file.
+passes on Git's messages: no Git objects of its own, no temporary index, and
+no lock held for a run. Git's `index.lock` serializes commits; `update`
+serializes changes to one file with a compare-and-swap guarded by its claim
+file, held only to check and rename.
 
 **`folder` is a convenience, not a sandbox.** Paths stay normalized and `.git`
 stays refused (`normalizePath`). `folder.path` is the folder. An action can

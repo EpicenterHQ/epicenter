@@ -205,8 +205,8 @@ export type ManyHandle<D extends CollectionDef> = {
 	 * `get` gives it and returns what `set` takes, without `path` and with
 	 * `body` if the body changes; that is written only over the record it
 	 * was given. When the file changed meanwhile, `revise` runs again on what
-	 * is there now, so keep it a pure function of the record; after 10 tries
-	 * it throws `{ name: 'Changed' }`. A `revise` that throws writes nothing.
+	 * is there now, so keep it a pure function of the record; after 10
+	 * seconds of that it throws `{ name: 'Changed' }`. A `revise` that throws writes nothing.
 	 * Throws when there is no file at `path`. Returns the record written.
 	 *
 	 * ```ts
