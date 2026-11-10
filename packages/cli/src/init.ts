@@ -16,11 +16,15 @@ const STARTER_AGENTS = `This folder is an Epicenter.
 Each child folder with an epicenter.ts is an app and its own Git repository.
 
 Prefer \`epicenter <app> <verb>\` to change an app's data: it checks each value
-against the app's fields and commits each write. \`epicenter <app>\` lists the
-verbs. \`set\` changes fields; \`edit --old <text> --new <text>\` changes one
-passage of a file's body, and is refused if that passage changed since you
-read it. You may edit the files with your own tools instead; then run
-\`epicenter sync <app>\` to commit them.
+against the app's fields and snapshots each write into the app's history.
+\`epicenter <app>\` lists the verbs. \`set\` changes fields; \`edit --old <text>
+--new <text>\` changes one passage of a file's body, and is refused if that
+passage changed since you read it. You may edit the files with your own tools
+instead; then run \`epicenter sync <app>\` to commit them.
+
+\`epicenter history <app>\` lists what changed, newest first. \`epicenter undo
+<app>\` reverts the most recent change as a new commit; run it again to go
+further back, or name a commit from history to undo that one.
 
 Files named *.local or *.local.* are never committed.
 `;

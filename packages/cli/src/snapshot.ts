@@ -15,7 +15,9 @@ import { git, gitMessage } from './git.ts';
 /** The write run that led to this snapshot. */
 export type Wrote = { call: string; paths: string[] };
 
+/** The body line of a snapshot with a call: the paths it took that the call did not write. `epicenter history` parses it. */
 export const ALSO_CHANGED = 'Also changed: ';
+/** The body line of a snapshot without a call: the paths it took. `epicenter history` parses it. */
 export const CHANGED = 'Changed: ';
 
 /** What a snapshot did: the commit it made, nothing (nothing was pending, or the folder is in no repository), or why it failed. */

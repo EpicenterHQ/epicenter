@@ -12,6 +12,7 @@ import { buildCommand } from './build.ts';
 import { REPORT_FLAG, runChild } from './child.ts';
 import { COMMANDS, type Command } from './commands.ts';
 import { CliError } from './errors.ts';
+import { historyCommand, undoCommand } from './history.ts';
 import { discoverAll, loadHomeApp } from './home.ts';
 import { serveHttp } from './http.ts';
 import { initCommand } from './init.ts';
@@ -71,6 +72,13 @@ longer fits its collection's fields, and builds the UI, keeping the last one tha
 	build: `Builds the UI of every app, or one app, keeping each last good build.`,
 	sync: `Takes a snapshot of what is pending in each app, or one app, then pushes
 to origin when it exists. It never pushes to upstream.`,
+	history: `Lists the app's snapshots, newest first (20 unless --limit says otherwise): each
+one's commit, local time, and what it took. An undo reads as "undid <subject>".`,
+	undo: `Snapshots what is pending, then reverts the app's most recent snapshot that is
+not an undo and is not undone, or the commit named, as "<app>: undid <subject>".
+Run it again to go further back; undo an undo to bring it back. It refuses a
+merge, a commit not in the app's history, and a revert that conflicts, leaving
+the folder as it was, and then pushes to origin as sync does.`,
 	serve: `Offers every app's actions over MCP at / and each app's UI at /<app>/, on
 127.0.0.1 and the Epicenter's port (default 4747) unless --port or --host says otherwise. With --stdio, it speaks
 MCP on stdin and stdout instead.`,
@@ -110,6 +118,8 @@ const HANDLERS: { [K in Command]: Handler } = {
 	update: updateCommand,
 	build: buildCommand,
 	sync: syncCommand,
+	history: historyCommand,
+	undo: undoCommand,
 	async serve(words, json) {
 		if (json)
 			return fail(
