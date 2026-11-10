@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-11-10
-- **Relates:** [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (one copy, clients that ask), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (`epicenter` runs Git's porcelain), [ADR-0856](0856-binary-files-go-through-git-lfs.md) (LFS), [ADR-0851](0851-an-app-with-history-has-one-git-remote-its-meeting-point-and-backup.md) (the remote).
+- **Relates:** [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (one copy, clients that ask), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (`epicenter` runs Git's porcelain), [ADR-0856](0856-binary-files-go-through-git-lfs.md) (LFS), [ADR-0851](0851-an-app-has-one-home-and-an-optional-push-only-backup.md) (the remote).
 - **Unbuilt:** all of it: the app in `apps/epicenter/` (only Tauri's generated `src-tauri/gen/` exists, untracked), its bundled `epicenter`, `git`, and `git-lfs`, the menu bar item, and "Open at login".
 
 ## Context

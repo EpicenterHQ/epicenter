@@ -8,10 +8,9 @@ outcome we committed to.
 **Start with [ADR-0840](0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md).** On 2026-11-07 Epicenter became where one person's
 software lives: each app is a folder whose `epicenter.ts` defines its actions
 ([ADR-0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md)),
-and the folder's repository is its history and its sync
-([ADR-0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md)),
-committed by whoever knows the intent rather than by each action
-([ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md)).
+and the folder's repository holds snapshots of pending changes
+([ADR-0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md),
+[ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md)).
 Records 0802 to 0839 designed a folder sync product for many people, with
 [ADR-0835](0835-records-from-0802-to-0834-agree-on-files-a-ledger-and-git-at-the-edges.md)
 as its register; ADR-0840 supersedes them as governing current work, and they
@@ -63,7 +62,8 @@ one. Before stating a signature or an export, grep it with
   settles something durable, harvest it into an ADR and let the spec be deleted.
 - **`Proposed` is the resting state.** Most records are `Proposed`, and age is
   not a defect. A record can sit soft for weeks while it gets better, and one
-  that turns out to have been a bad guess is deleted rather than superseded.
+  that turns out to have been a bad guess is usually deleted. Supersede it
+  when the withdrawn design explains a later decision.
   `bun scripts/check-doc-hygiene.ts` does not flag a record for being old. It
   flags a `Proposed` record that another record already reasons from, or whose
   `Unbuilt` line is empty, because that is a soft claim something has started
@@ -1058,7 +1058,7 @@ When you add an ADR, add its row here.
 | [0848](0848-the-runner-owns-only-what-an-action-wrote.md) | The runner owns only what an action wrote | Accepted |
 | [0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) | Your server is one always-reachable computer that runs named actions | Proposed |
 | [0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) | An action changes files, and whoever knows the intent commits them | Proposed |
-| [0851](0851-an-app-with-history-has-one-git-remote-its-meeting-point-and-backup.md) | An app with history has one Git remote, its meeting point and its backup | Proposed |
+| [0851](0851-an-app-has-one-home-and-an-optional-push-only-backup.md) | An app has one home and an optional push-only backup | Proposed |
 | [0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) | An app is a folder with a declared shape, and each job takes the least powerful form | Proposed |
 | [0853](0853-collections-give-five-actions-and-programs-without-the-folder-ask-over-mcp.md) | Collections give five actions, and programs without the folder ask over MCP | Proposed |
 | [0854](0854-an-apps-cache-is-the-files-it-gitignores.md) | An app's cache is the files it gitignores | Proposed |
@@ -1068,7 +1068,7 @@ When you add an ADR, add its row here.
 | [0859](0859-an-action-changes-the-folder-or-the-world-and-a-world-verb-is-safe-to-repeat.md) | An action changes the folder or the world, and a world verb is safe to repeat on the targets it is given | Proposed |
 | [0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) | An interface is a view over an app's actions, and never knows where they run | Proposed |
 | [0861](0861-whats-yours-is-everywhere-and-everything-else-is-used-where-it-is.md) | What's yours is everywhere, and everything else is used where it is | Proposed |
-| [0862](0862-notes-merge-field-by-field-and-every-conflict-is-listed-for-repair.md) | Notes merge field by field, and every conflict is listed for repair | Proposed |
+| [0862](0862-notes-merge-field-by-field-and-every-conflict-is-listed-for-repair.md) | Notes merge field by field, and every conflict is listed for repair | Superseded by 0851 |
 | [0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) | Epicenter is a data server for repositories of files, and code runs where its owner trusts it | Proposed |
 | [0865](0865-the-epicenter-mac-app-runs-epicenter-serve-so-the-computer-it-is-on-is-your-server.md) | The Epicenter Mac app runs `epicenter serve`, so the computer it is on is your server | Proposed |
 | [0866](0866-an-app-starts-from-a-starter-kept-as-its-upstream-and-update-merges-the-starters-changes.md) | An app starts from a starter kept as its `upstream`, and `epicenter update` merges the starter's changes | Proposed |

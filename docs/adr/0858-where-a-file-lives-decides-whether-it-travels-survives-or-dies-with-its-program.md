@@ -2,7 +2,7 @@
 
 - **Status:** Accepted (2026-11-09)
 - **Date:** 2026-11-09
-- **Relates:** [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (ignored paths are written and never committed), [ADR-0851](0851-an-app-with-history-has-one-git-remote-its-meeting-point-and-backup.md) (the remote is the backup), [ADR-0853](0853-collections-give-five-actions-and-programs-without-the-folder-ask-over-mcp.md) (Whispering's folder), [ADR-0854](0854-an-apps-cache-is-the-files-it-gitignores.md) (`.cache/`), [ADR-0856](0856-binary-files-go-through-git-lfs.md) (binaries through LFS).
+- **Relates:** [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (ignored paths are written and never committed), [ADR-0851](0851-an-app-has-one-home-and-an-optional-push-only-backup.md) (the remote is the backup), [ADR-0853](0853-collections-give-five-actions-and-programs-without-the-folder-ask-over-mcp.md) (Whispering's folder), [ADR-0854](0854-an-apps-cache-is-the-files-it-gitignores.md) (`.cache/`), [ADR-0856](0856-binary-files-go-through-git-lfs.md) (binaries through LFS).
 - **Unbuilt:** the template's `*.local` and `*.local.*` lines; Whispering's first-run folder sheet, its `<id>.local.<ext>` audio, the "Keep audio on this Mac only" setting, and its sign-ins in the Keychain instead of `credentials.json`.
 
 ## Context
