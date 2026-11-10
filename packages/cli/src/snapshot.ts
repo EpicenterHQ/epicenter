@@ -104,15 +104,30 @@ export async function pendingStatus(folder: string) {
  * What Git says is pending and not yet backed up. A missing origin tracking
  * branch gives no unpushed count because its distance cannot be known.
  */
-export async function statusOf(folder: string) {
+export async function statusOf(
+	folder: string,
+): Promise<
+	{ pending: number; backup?: 'none' | 'never'; unpushed?: number } | undefined
+> {
 	const status = await pendingStatus(folder);
 	if (status === undefined) return undefined;
 	const hasOrigin =
 		(await git(folder, ['remote', 'get-url', 'origin'])).code === 0;
-	const branch = hasOrigin
-		? (await git(folder, ['symbolic-ref', '-q', '--short', 'HEAD'])).stdout
-		: '';
-	const counted = branch
+	const pending = status.split('\0').filter(Boolean).length;
+	if (!hasOrigin) return { pending, backup: 'none' as const };
+	const branch = (await git(folder, ['symbolic-ref', '-q', '--short', 'HEAD']))
+		.stdout;
+	const hasBackup =
+		branch !== '' &&
+		(
+			await git(folder, [
+				'show-ref',
+				'--verify',
+				'--quiet',
+				`refs/remotes/origin/${branch}`,
+			])
+		).code === 0;
+	const counted = hasBackup
 		? await git(folder, [
 				'rev-list',
 				'--count',
@@ -120,7 +135,8 @@ export async function statusOf(folder: string) {
 			])
 		: undefined;
 	return {
-		pending: status.split('\0').filter(Boolean).length,
+		pending,
+		...(!hasBackup ? { backup: 'never' as const } : {}),
 		...(counted?.code === 0 ? { unpushed: Number(counted.stdout) } : {}),
 	};
 }

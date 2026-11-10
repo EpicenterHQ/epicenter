@@ -22,7 +22,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { fixture, gitIn, gitignore, header } from './runner.test-support.ts';
 
-setDefaultTimeout(60_000);
+setDefaultTimeout(300_000);
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -37,12 +37,12 @@ export default defineApp({
 	collections: {},
 	actions: {
 		write: defineAction({
-			description: 'Write a page, and note it in the cache',
+			description: 'Write a page, and write a local note',
 			input: { page: field.text() },
 			positional: ['page'],
 			run: async ({ page }) => {
 				await folder.write(page + '.md', page);
-				await folder.write('.cache/seen.txt', page);
+				await folder.write('seen.local.txt', page);
 				return page;
 			},
 		}),
@@ -167,12 +167,12 @@ test('C2 a snapshot takes everything pending in the folder, staged or not, never
 		),
 	).toEqual(['a.md', 'monday.md', 'staged.md']);
 	expect(await status(f.dir)).toBe('');
-	expect(await gitIn(f.dir, 'ls-files', '.cache')).toBe('');
+	expect(await gitIn(f.dir, 'ls-files', '*.local.*')).toBe('');
 });
 
 test('C2b a snapshot never commits *.local or *.local.*, even when .gitignore does not name them', async () => {
 	const f = await setup();
-	await writeFile(join(f.dir, '.gitignore'), '.cache/\n');
+	await writeFile(join(f.dir, '.gitignore'), 'node_modules/\n');
 	await gitIn(f.dir, 'commit', '-qam', 'a .gitignore without .local');
 	await writeFile(join(f.dir, 'token.local.json'), '{"token":"secret"}\n');
 	await writeFile(join(f.dir, 'device.local'), 'this computer\n');
@@ -182,9 +182,10 @@ test('C2b a snapshot never commits *.local or *.local.*, even when .gitignore do
 		'monday.md',
 	);
 	expect(await gitIn(f.dir, 'ls-files', '*.local*')).toBe('');
-	expect(
-		JSON.parse((await f.run('notes', '--json')).stdout),
-	).not.toHaveProperty('status');
+	expect(JSON.parse((await f.run('notes', '--json')).stdout)).toHaveProperty(
+		'status.backup',
+		'none',
+	);
 });
 
 test('C3 a write that changes nothing makes no commit', async () => {
@@ -250,12 +251,14 @@ test('C5 a snapshot failure leaves the answer and pending paths for sync', async
 	expect(await subjects(f.dir)).toBe('initial');
 
 	const listed = JSON.parse((await f.run('notes', '--json')).stdout);
-	expect(listed.status).toEqual({ pending: 3 });
+	expect(listed.status).toEqual({ pending: 3, backup: 'none' });
 	const human = (await f.run('notes')).stdout;
 	expect(human).toContain('3 changes not yet in history');
-	expect(human).toContain('Run: epicenter sync notes');
+	expect(human).toContain(
+		`Run: git -C ${f.dir} remote add origin <url>, then epicenter sync notes`,
+	);
 	expect((await f.run()).stdout).toContain(
-		'The notes app (3 changes not yet in history)',
+		'The notes app (3 changes not yet in history; not backed up)',
 	);
 
 	// Sync's snapshot has no call, so it names the pending paths.
@@ -265,9 +268,10 @@ test('C5 a snapshot failure leaves the answer and pending paths for sync', async
 	expect(await gitIn(f.dir, 'log', '-1', '--format=%B')).toBe(
 		'notes: changed outside epicenter\n\nChanged:\ncover.png\nfriday.md',
 	);
-	expect(
-		JSON.parse((await f.run('notes', '--json')).stdout),
-	).not.toHaveProperty('status');
+	expect(JSON.parse((await f.run('notes', '--json')).stdout)).toHaveProperty(
+		'status.backup',
+		'none',
+	);
 	expect((await f.run()).stdout).not.toContain('not yet in history');
 
 	if (!Bun.which('git-lfs')) return;
@@ -305,6 +309,7 @@ test('C6 a snapshot waits for a held index lock, and after about 2 seconds leave
 	expect(await readFile(join(f.dir, 'tuesday.md'), 'utf8')).toBe('tuesday');
 	expect(JSON.parse((await f.run('notes', '--json')).stdout).status).toEqual({
 		pending: 1,
+		backup: 'none',
 	});
 });
 

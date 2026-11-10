@@ -4,7 +4,7 @@
  * ```txt
  * POST /             MCP, stateless JSON
  * GET  /             the launcher; 405 when asked for an event stream (MCP)
- * GET  /<app>/...    the app's built UI, .cache/ui/, as static files
+ * GET  /<app>/...    the app's built UI, ui/build/, as static files
  * GET  /<app>        308 to /<app>/
  * ```
  *

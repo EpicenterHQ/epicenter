@@ -17,7 +17,7 @@ import { CliError } from './errors.ts';
 import { checkedGit, git } from './git.ts';
 import { loadHomeApp } from './home.ts';
 import { epicenterDir, folderPath } from './root.ts';
-import { fail, made, presentAnswer } from './output.ts';
+import { fail, made, presentAnswer, writeErr } from './output.ts';
 import { buildUi } from './ui.ts';
 
 /** A Git URL rather than a folder path: a scheme, or `user@host:path`. */
@@ -42,7 +42,7 @@ export default defineApp({
 	actions: {},
 });
 `,
-		'.gitignore': 'node_modules/\n.cache/\n*.local\n*.local.*\n',
+		'.gitignore': 'node_modules/\n*.local\n*.local.*\n',
 	};
 }
 
@@ -59,9 +59,15 @@ export async function taken(name: string) {
 }
 
 function done(name: string, json: boolean) {
-	return made(
-		{ name, folder: join(epicenterDir(), name), next: `epicenter ${name}` },
-		json,
+	const folder = join(epicenterDir(), name);
+	const code = made({ name, folder, next: `epicenter ${name}` }, json);
+	backupNotice(name, folder);
+	return code;
+}
+
+function backupNotice(name: string, folder: string) {
+	writeErr(
+		`not backed up\nRun: git -C ${folder} remote add origin <url>, then epicenter sync ${name}`,
 	);
 }
 
@@ -109,6 +115,7 @@ export async function newCommand(
 			{ error: CliError.BuildFailed({ app: name, cause: error }).error },
 			json,
 		);
+		backupNotice(name, folder);
 		return 1;
 	}
 	return done(name, json);

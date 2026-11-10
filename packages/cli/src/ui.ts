@@ -1,6 +1,6 @@
 /**
  * Building an app's UI (ADR-0860, ADR-0866). An app's `ui/` is a project of
- * its own whose `build` script writes `../.cache/ui/`, which `epicenter serve`
+ * its own whose `build` script writes `ui/build/`, which `epicenter serve`
  * serves at `/<app>/`. `epicenter new --from` and `epicenter update` build it
  * with the Bun that runs `epicenter`: the compiled `epicenter` is Bun itself
  * when `BUN_BE_BUN=1` is set, so a computer needs no other program.
@@ -14,7 +14,7 @@ import { rename, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 
 /** Where an app's built UI lives, relative to its folder. */
-export const BUILT_UI = join('.cache', 'ui');
+export const BUILT_UI = 'ui/build';
 
 async function exists(path: string) {
 	try {
@@ -54,7 +54,7 @@ async function runBun(cwd: string, args: string[]) {
 }
 
 /**
- * Install the packages of `folder`'s `ui/` and build it into `.cache/ui/`.
+ * Install the packages of `folder`'s `ui/` and build it into `ui/build/`.
  * Returns false when the app has no `ui/package.json`, so nothing was built;
  * throws with the build's own message when it fails, after putting the last
  * built UI back.
@@ -76,7 +76,7 @@ export async function buildUi(folder: string): Promise<boolean> {
 		await runBun(ui, ['--bun', 'run', 'build']);
 		if (!(await exists(join(built, 'index.html'))))
 			throw new Error(
-				`ui/'s build wrote no ${BUILT_UI}/index.html; its build must write ../.cache/ui/`,
+				`ui/'s build wrote no ${BUILT_UI}/index.html; its build must write ui/build/`,
 			);
 	} catch (error) {
 		await rm(built, { recursive: true, force: true });

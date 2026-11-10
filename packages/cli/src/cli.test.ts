@@ -201,7 +201,7 @@ test('a throwing action returns exit 1 with its message', async () => {
 	});
 });
 
-test('runs use the selected Epicenter and their own .cache', async () => {
+test('runs use the selected Epicenter and their own local files', async () => {
 	const f = await setup();
 	const result = await f.runIn(
 		join(f.home, 'reading'),
@@ -216,7 +216,7 @@ test('runs use the selected Epicenter and their own .cache', async () => {
 	expect(value.seed).toBe('plain seed');
 	expect(value.foreign).toBeNull();
 	expect(
-		await Bun.file(join(f.home, 'reading', '.cache/index.json')).exists(),
+		await Bun.file(join(f.home, 'reading', 'index.local.json')).exists(),
 	).toBe(true);
 	const target = await f.app(
 		'linked',
@@ -232,7 +232,7 @@ test('runs use the selected Epicenter and their own .cache', async () => {
 	).returned;
 	expect(homeRun.folder).toBe(join(f.home, 'reading'));
 	expect(
-		await Bun.file(join(f.home, 'reading/.cache/index.json')).exists(),
+		await Bun.file(join(f.home, 'reading/index.local.json')).exists(),
 	).toBe(true);
 });
 

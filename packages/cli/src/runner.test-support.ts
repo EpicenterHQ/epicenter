@@ -100,7 +100,7 @@ export async function fixture() {
 }
 
 /** The ignore file every test app carries, as `epicenter new` writes it. */
-export const gitignore = 'node_modules/\n.cache/\n*.local\n*.local.*\n';
+export const gitignore = 'node_modules/\n*.local\n*.local.*\n';
 
 /** The import every test app's `epicenter.ts` starts with. */
 export const header = `import { defineAction, defineApp, defineCollection, field, folder, secrets } from '@epicenter/app';\n`;
@@ -164,7 +164,7 @@ export const reading = `export default defineApp({ description: 'The reading app
 	week: { summary: defineAction({ description: 'Weekly minutes', input: {}, annotations: { readOnlyHint: true }, run: () => ({minutes:210}) }) },
 	tag: defineAction({ description:'Tag records', input: { tags: field.tags(), done: field.boolean() }, run: (input) => input }),
 	collect: defineAction({ description:'Collect tags', input: { tags: field.tags() }, positional: ['tags'], run: (input) => input }),
-	inspect: defineAction({ description:'Inspect the context', input:{}, run: async () => { await folder.write('.cache/index.json', '{}'); await secrets.set('token','round trip'); return {folder:folder.path,token:await secrets.get('token'),seed:await secrets.get('seed'),foreign:await secrets.get('foreign') ?? null}; } }),
+	inspect: defineAction({ description:'Inspect the context', input:{}, run: async () => { await folder.write('index.local.json', '{}'); await secrets.set('token','round trip'); return {folder:folder.path,token:await secrets.get('token'),seed:await secrets.get('seed'),foreign:await secrets.get('foreign') ?? null}; } }),
 	explode: defineAction({ description:'Throw an error', input:{}, run: () => {throw new Error('action exploded');} }),
 } });`;
 
