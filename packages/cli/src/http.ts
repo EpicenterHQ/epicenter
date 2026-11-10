@@ -17,8 +17,9 @@
  * `epicenter sync <app>` does, snapshotting what is pending as changed
  * outside epicenter and pushing to `origin` when there is something to push.
  * The clock's interval is how old an unbacked change can get, not a guess at
- * when an edit is done. It skips an app while a call to it runs, and a call
- * waits for the app's snapshot already running, so a call's commit is whole.
+ * when an edit is done. A tick never waits for a call: it skips an app whose
+ * call lock a call holds (`snapshot.ts`), and the call's commit, or the next
+ * tick, takes what the call wrote.
  */
 import { realpath, stat } from 'node:fs/promises';
 import { basename, isAbsolute, join, sep } from 'node:path';
@@ -27,7 +28,7 @@ import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/
 import { extractErrorMessage } from 'wellcrafted/error';
 import { runChild } from './child.ts';
 import { chooseApps, homeEntries } from './home.ts';
-import { callInFlight, createMcpServer } from './mcp.ts';
+import { createMcpServer } from './mcp.ts';
 import { writeErr } from './output.ts';
 import { epicenterDir, rootInstructions } from './root.ts';
 import { type Synced, syncOne } from './sync.ts';
@@ -99,9 +100,9 @@ export function startHttpServer(
 	const backUpAll = async () => {
 		const backedUp: Synced[] = [];
 		for (const { entry, realPath } of await homeEntries()) {
-			// Its call's commit, or the next tick, takes what it wrote.
-			if (callInFlight(entry)) continue;
-			const synced = await syncOne(entry, realPath);
+			const synced = await syncOne(entry, realPath, { wait: 0 });
+			// A call to it is running: its commit, or the next tick, takes what it wrote.
+			if (synced.error?.busy) continue;
 			backedUp.push(synced);
 			const failure =
 				synced.error &&

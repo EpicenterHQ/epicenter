@@ -19,7 +19,7 @@ import { folderOnDisk } from './disk.ts';
 import type { Runnable } from './home.ts';
 import { runAction } from './run.ts';
 import { gitIn } from './runner.test-support.ts';
-import { snapshot, statusOf, type Wrote } from './snapshot.ts';
+import { holdForCall, snapshot, statusOf, type Wrote } from './snapshot.ts';
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -270,17 +270,22 @@ test('a *.local file Git already tracks is refused, naming the command that untr
 	expect(await readFile(join(f.dir, 'token.local'), 'utf8')).toBe('second\n');
 });
 
-test('concurrent snapshots of one folder in one process take turns', async () => {
+test("a snapshot with no call waits for a running call's commit, or says it is busy when it cannot wait", async () => {
 	const f = await setup();
+	// As runCall does: the call lock from before the run until its commit.
+	const call = await holdForCall(f.dir);
+	expect(call).toBeDefined();
 	const run = await f.run('write', 'monday');
-	const [first, second] = await Promise.all([
-		f.commit(run),
-		snapshot('notes', f.dir),
-	]);
-	expect(first).toEqual({
+	expect(await snapshot('notes', f.dir, { wait: 0 })).toEqual({
+		failed: { message: 'a call to notes is still running', busy: true },
+	});
+	const waiting = snapshot('notes', f.dir);
+	expect(await f.commit(run)).toEqual({
 		committed: { subject: 'notes: write monday', files: 1 },
 	});
-	expect(second).toEqual({ committed: null });
+	call?.release();
+	expect(await waiting).toEqual({ committed: null });
+	expect(await f.message()).toBe('notes: write monday');
 });
 
 test('snapshots from several processes at once commit what is pending once, and none fails', async () => {

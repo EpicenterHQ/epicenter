@@ -10,10 +10,9 @@
  * between two calls is seen by the second, and a call's result is the same
  * object `--json` prints: `structuredContent` on success, and with
  * `isError` on failure. After a call that is not read-only, the server
- * commits the paths the call wrote, named for it, before it answers, one
- * commit at a time per app (ADR-0850); `serve`'s clock leaves an app alone
- * while a call to it runs, so that commit holds all the call wrote.
- * Diagnostics go to stderr.
+ * commits the paths the call wrote, named for it, before it answers
+ * (ADR-0850); the call's lock keeps every snapshot with no call, from any
+ * process, out of that commit (`snapshot.ts`). Diagnostics go to stderr.
  */
 
 import { isName } from '@epicenter/app';
@@ -26,10 +25,9 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import packageJson from '../package.json' with { type: 'json' };
 import { runCall, runChild } from './child.ts';
-import { chooseApps, homeEntries } from './home.ts';
+import { homeEntries } from './home.ts';
 import { type Answer, renderAnswer, writeErr } from './output.ts';
 import { rootInstructions } from './root.ts';
-import { snapshotsSettled } from './snapshot.ts';
 
 /**
  * The tools the Epicenter offers now. Each entry is listed by its own child, so an
@@ -69,24 +67,10 @@ function toolResult(answer: Answer) {
 	};
 }
 
-/** How many calls to each app are running in this process. */
-const inFlight = new Map<string, number>();
-
-/**
- * Whether a call to `app` is running in this process. `serve`'s clock skips
- * such an app, so a snapshot never takes what a call has written so far
- * under another name; the call's own commit, or the next tick, takes it.
- */
-export function callInFlight(app: string) {
-	return (inFlight.get(app) ?? 0) > 0;
-}
-
 /**
  * Run the action `<app>_<word>_<word>` names in a child, as the command line
  * does, committing what it wrote. App names and action words hold no
- * underscores. The call counts as in flight from before anything is awaited,
- * and its child starts only once a snapshot already running for the app has
- * finished, so one commit named for the call holds everything it wrote.
+ * underscores.
  */
 async function callTool(name: string, args: Record<string, unknown>) {
 	const [app = '', ...words] = name.split('_');
@@ -94,21 +78,13 @@ async function callTool(name: string, args: Record<string, unknown>) {
 		return toolResult({
 			error: { name: 'Usage', message: `Unknown tool ${name}` },
 		});
-	inFlight.set(app, (inFlight.get(app) ?? 0) + 1);
-	try {
-		const [entry] = (await chooseApps(app)).data ?? [];
-		if (entry) await snapshotsSettled(entry.realPath);
-		return toolResult(
-			(await runCall(
-				[app, ...words, '--input', JSON.stringify(args), '--json'],
-				'ignore',
-			)) as Answer,
-		);
-	} finally {
-		const left = (inFlight.get(app) ?? 1) - 1;
-		if (left > 0) inFlight.set(app, left);
-		else inFlight.delete(app);
-	}
+	return toolResult(
+		(await runCall(
+			app,
+			[app, ...words, '--input', JSON.stringify(args), '--json'],
+			'ignore',
+		)) as Answer,
+	);
 }
 
 /** Register the shared tool handlers on a fresh MCP server. */

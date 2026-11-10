@@ -9,6 +9,13 @@
  * `epicenter sync` before it pushes (with `--message`, for an agent naming
  * its own edits), `epicenter undo` before it reverts, `epicenter update`
  * before it merges, and `serve`'s backup clock.
+ *
+ * Two kernel locks (`lock.ts`) in the repository's Git directory keep each
+ * boundary whole across every process. A call holds `epicenter.lock` shared
+ * from before its run starts until its commit has finished, so calls never
+ * wait for each other, and a snapshot with no call holds it exclusively, so it
+ * never takes part of what a running call has written. Each commit holds
+ * `epicenter-commit.lock` exclusively, so two calls' commits take turns.
  */
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
@@ -16,6 +23,7 @@ import { join, resolve } from 'node:path';
 import { isLocalPath } from '@epicenter/app';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { checkedGit, git, gitMessage, originOf } from './git.ts';
+import { type Held, hold } from './lock.ts';
 
 /** The write run that led to a commit: its call, the paths it wrote through `folder`, and whether it threw. */
 export type Wrote = { call: string; paths: string[]; threw?: true };
@@ -39,11 +47,16 @@ export async function underway(folder: string) {
 	return paths.split('\n').some((path) => existsSync(resolve(folder, path)));
 }
 
-/** What a commit did: the commit it made, nothing (nothing it would take had changed, or the folder is in no repository), or why it failed and, when one is known, the command that resolves it. */
+/**
+ * What a commit did: the commit it made, nothing (nothing it would take had
+ * changed, or the folder is in no repository), or why it failed and, when one
+ * is known, the command that resolves it; `busy` when a snapshot with no call
+ * took nothing because a call to the repository was still running.
+ */
 export type Snapshot =
 	| { committed: { subject: string; files: number } }
 	| { committed: null }
-	| { failed: { message: string; next?: string } };
+	| { failed: { message: string; next?: string; busy?: true } };
 
 /** What a snapshot with no call takes: everything in the folder that Git does not ignore. */
 const TAKEN = ['.'];
@@ -55,12 +68,17 @@ const LFS_MISSING = {
 	next: 'git lfs install',
 };
 
-/**
- * How many times a commit looks again at what is pending after its `git
- * commit` failed. Each failure means another process committed meanwhile,
- * so a later look may find nothing left to take.
- */
-const COMMIT_TRIES = 5;
+/** The lock file, in the repository's Git directory, that calls share and a snapshot with no call holds alone. */
+const CALL_LOCK = 'epicenter.lock';
+
+/** The lock file, in the repository's Git directory, that each commit holds alone. */
+const COMMIT_LOCK = 'epicenter-commit.lock';
+
+/** How long a snapshot with no call waits, unless told otherwise, for the calls running in its repository to commit. */
+const SNAPSHOT_WAIT_MS = 10_000;
+
+/** How long a commit waits for the commits ahead of it. */
+const COMMIT_WAIT_MS = 60_000;
 
 /** How long a commit waits for someone else's hold on Git's index lock before giving up. */
 const INDEX_LOCK_WAIT_MS = 2_000;
@@ -171,86 +189,106 @@ async function commitCall(app: string, folder: string, wrote: Wrote) {
 	if (wrote.paths.length === 0) return null;
 	const subject = wrote.threw ? `${wrote.call} (threw)` : wrote.call;
 	const written = wrote.paths.map((path) => `:(literal)${path}`);
-	for (let tries = 1; ; tries++) {
-		const status = await gitWaitingForIndex(folder, statusArgs(written));
-		const paths = statusPaths(status);
-		if (paths.length === 0) return null;
-		await refuseLocal(app, folder, status);
-		const changed = paths.map((path) => `:(top,literal)${path}`);
-		await gitWaitingForIndex(folder, ['add', '-A', '--', ...changed]);
-		try {
-			await gitWaitingForIndex(folder, [
-				'commit',
-				'-q',
-				'-m',
-				subject,
-				'--',
-				...changed,
-			]);
-			return { subject, files: changed.length };
-		} catch (error) {
-			// Another process may have committed these paths meanwhile: look again.
-			if (tries === COMMIT_TRIES) throw error;
-		}
-	}
+	const status = await gitWaitingForIndex(folder, statusArgs(written));
+	const paths = statusPaths(status);
+	if (paths.length === 0) return null;
+	await refuseLocal(app, folder, status);
+	const changed = paths.map((path) => `:(top,literal)${path}`);
+	await gitWaitingForIndex(folder, ['add', '-A', '--', ...changed]);
+	await gitWaitingForIndex(folder, [
+		'commit',
+		'-q',
+		'-m',
+		subject,
+		'--',
+		...changed,
+	]);
+	return { subject, files: changed.length };
 }
 
 /** Stage and commit everything pending, as `<app>: <message>`; `null` when nothing was. */
 async function commitPending(app: string, folder: string, message: string) {
-	for (let tries = 1; ; tries++) {
-		await refuseLocal(
-			app,
-			folder,
-			await gitWaitingForIndex(folder, statusArgs(TAKEN)),
-		);
-		await gitWaitingForIndex(folder, ['add', '-A', '--', ...TAKEN]);
-		const staged = await gitWaitingForIndex(folder, [
-			'diff',
-			'--cached',
-			'--name-only',
-			'--relative',
-			'--no-renames',
-			'-z',
-			'--',
-			...TAKEN,
-		]);
-		const files = staged.split('\0').filter(Boolean).length;
-		if (files === 0) return null;
-		const subject = `${app}: ${message}`;
-		try {
-			await gitWaitingForIndex(folder, [
-				'commit',
-				'-q',
-				'-m',
-				subject,
-				'--',
-				...TAKEN,
-			]);
-			return { subject, files };
-		} catch (error) {
-			// Another process's snapshot may have committed what this one staged: look again.
-			if (tries === COMMIT_TRIES) throw error;
-		}
-	}
+	await refuseLocal(
+		app,
+		folder,
+		await gitWaitingForIndex(folder, statusArgs(TAKEN)),
+	);
+	await gitWaitingForIndex(folder, ['add', '-A', '--', ...TAKEN]);
+	const staged = await gitWaitingForIndex(folder, [
+		'diff',
+		'--cached',
+		'--name-only',
+		'--relative',
+		'--no-renames',
+		'-z',
+		'--',
+		...TAKEN,
+	]);
+	const files = staged.split('\0').filter(Boolean).length;
+	if (files === 0) return null;
+	const subject = `${app}: ${message}`;
+	await gitWaitingForIndex(folder, [
+		'commit',
+		'-q',
+		'-m',
+		subject,
+		'--',
+		...TAKEN,
+	]);
+	return { subject, files };
 }
 
 /**
  * Whose boundary a commit has: a call's, which takes only the paths it
  * wrote, or none, which takes everything pending under `message` (default
- * `changed outside epicenter`).
+ * `changed outside epicenter`) once no call to the repository is running,
+ * waiting up to `wait` milliseconds for that (10 seconds unless given; 0
+ * tries once).
  */
-export type Boundary = { wrote: Wrote } | { message?: string };
+export type Boundary = { wrote: Wrote } | { message?: string; wait?: number };
 
+/** The Git directory of the repository whose work tree holds `folder`; `undefined` when there is none. */
+async function gitDirOf(folder: string) {
+	const found = await git(folder, [
+		'rev-parse',
+		'--is-inside-work-tree',
+		'--absolute-git-dir',
+	]);
+	const [inside, dir] = found.stdout.split('\n');
+	return found.code === 0 && inside === 'true' ? dir : undefined;
+}
+
+/**
+ * Hold the call lock of the repository holding `folder` shared, as a call
+ * does from before its run starts until its commit has finished, waiting
+ * while a snapshot with no call holds it. `undefined` for a folder in no
+ * repository, which is never committed, or when the lock cannot be taken at
+ * all; the call then runs without it.
+ */
+export async function holdForCall(folder: string): Promise<Held | undefined> {
+	try {
+		const dir = await gitDirOf(folder);
+		if (dir === undefined) return undefined;
+		return await hold(join(dir, CALL_LOCK), 'shared', Infinity);
+	} catch {
+		return undefined;
+	}
+}
+
+/** Commit in `folder`, the work tree of the repository at `dir`, holding the commit lock. */
 async function take(
 	app: string,
 	folder: string,
+	dir: string,
 	boundary: Boundary,
 ): Promise<Snapshot> {
-	if (
-		(await git(folder, ['rev-parse', '--is-inside-work-tree'])).stdout !==
-		'true'
-	)
-		return { committed: null };
+	const turn = await hold(join(dir, COMMIT_LOCK), 'exclusive', COMMIT_WAIT_MS);
+	if (!turn)
+		return {
+			failed: {
+				message: `another commit to ${app}'s repository was still running after ${COMMIT_WAIT_MS / 1000} seconds`,
+			},
+		};
 	try {
 		if (await underway(folder))
 			return {
@@ -287,41 +325,46 @@ async function take(
 				...(error instanceof Refused && error.next ? { next: error.next } : {}),
 			},
 		};
+	} finally {
+		turn.release();
 	}
-}
-
-/** The commit running or waiting for each folder, so this process makes one at a time per app. */
-const queued = new Map<string, Promise<Snapshot>>();
-
-/** Settles once the commits running or waiting for `folder` in this process have finished. */
-export function snapshotsSettled(folder: string): Promise<unknown> {
-	return queued.get(folder) ?? Promise.resolve();
 }
 
 /**
  * Commit in the app's folder (ADR-0850): with `{ wrote }`, exactly the
  * call's changed paths, named for the call (`<call> (threw)` when it threw),
  * with no body; otherwise everything pending that Git does not ignore, as
- * `<app>: changed outside epicenter` or `<app>: <message>`. Refused before staging when what it would take holds a
- * `*.local` or `*.local.*` file, when `.gitattributes` routes files through
- * LFS and this computer has no filter, or when a Git operation is underway.
- * Never throws: a failure is returned to the caller.
+ * `<app>: changed outside epicenter` or `<app>: <message>`, once no call to
+ * the repository is running, or `busy` when one still runs after the wait.
+ * Refused before staging when what it would take holds a `*.local` or
+ * `*.local.*` file, when `.gitattributes` routes files through LFS and this
+ * computer has no filter, or when a Git operation is underway. Never throws:
+ * a failure is returned to the caller.
  */
-export function snapshot(
+export async function snapshot(
 	app: string,
 	folder: string,
 	boundary: Boundary = {},
 ): Promise<Snapshot> {
-	const next = (queued.get(folder) ?? Promise.resolve())
-		.then(() => take(app, folder, boundary))
-		.catch(
-			(error): Snapshot => ({
-				failed: { message: extractErrorMessage(error) },
-			}),
+	try {
+		const dir = await gitDirOf(folder);
+		if (dir === undefined) return { committed: null };
+		if ('wrote' in boundary) return await take(app, folder, dir, boundary);
+		const alone = await hold(
+			join(dir, CALL_LOCK),
+			'exclusive',
+			boundary.wait ?? SNAPSHOT_WAIT_MS,
 		);
-	queued.set(folder, next);
-	void next.then(() => {
-		if (queued.get(folder) === next) queued.delete(folder);
-	});
-	return next;
+		if (!alone)
+			return {
+				failed: { message: `a call to ${app} is still running`, busy: true },
+			};
+		try {
+			return await take(app, folder, dir, boundary);
+		} finally {
+			alone.release();
+		}
+	} catch (error) {
+		return { failed: { message: extractErrorMessage(error) } };
+	}
 }

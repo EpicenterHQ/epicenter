@@ -23,9 +23,10 @@ import { randomUUID } from 'node:crypto';
 import { readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { isName } from '@epicenter/app';
 import { writeErr } from './output.ts';
 import { epicenterDir } from './root.ts';
-import { snapshot, type Wrote } from './snapshot.ts';
+import { holdForCall, snapshot, type Wrote } from './snapshot.ts';
 
 /** The internal flag that makes `epicenter` a child writing its answer to a file; undocumented, and read only as the first argument, so an action's own input can never be taken for it. */
 export const REPORT_FLAG = '--report=';
@@ -94,23 +95,34 @@ export async function runChild(
 }
 
 /**
- * Run a call, `epicenter <app> <words> ...`, as a child, then commit the
- * paths it wrote, named for the call (ADR-0850), and return its answer. The
- * command line and both MCP transports run every call this way. A commit
- * that fails changes neither the answer nor the exit code: why, and its next
- * step, go to stderr, and the paths stay pending.
+ * Run a call to `app`, `epicenter <app> <words> ...`, as a child, then commit
+ * the paths it wrote, named for the call (ADR-0850), and return its answer.
+ * The command line and both MCP transports run every call this way. The call
+ * holds its repository's call lock shared from before the child starts until
+ * the commit has finished, so a snapshot with no call, from any process,
+ * waits for it rather than take part of what it wrote. A commit that fails
+ * changes neither the answer nor the exit code: why, and its next step, go
+ * to stderr, and the paths stay pending.
  */
 export async function runCall(
+	app: string,
 	args: string[],
 	stdin: 'inherit' | 'ignore',
 ): Promise<unknown> {
-	const { answer, wrote } = await runChild(args, stdin);
-	if (wrote) {
-		const taken = await snapshot(wrote.app, wrote.folder, { wrote });
-		if ('failed' in taken)
-			writeErr(
-				`${wrote.app}: not yet in history: ${taken.failed.message}\nRun: ${taken.failed.next ?? `epicenter sync ${wrote.app}`}`,
-			);
+	const held = isName(app)
+		? await holdForCall(join(epicenterDir(), app))
+		: undefined;
+	try {
+		const { answer, wrote } = await runChild(args, stdin);
+		if (wrote) {
+			const taken = await snapshot(wrote.app, wrote.folder, { wrote });
+			if ('failed' in taken)
+				writeErr(
+					`${wrote.app}: not yet in history: ${taken.failed.message}\nRun: ${taken.failed.next ?? `epicenter sync ${wrote.app}`}`,
+				);
+		}
+		return answer;
+	} finally {
+		held?.release();
 	}
-	return answer;
 }

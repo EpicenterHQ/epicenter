@@ -162,7 +162,10 @@ export async function runCli(argv: string[]): Promise<number> {
 		epicenterRoot();
 		// Running an action is two processes; the child owns the whole run, and this one its commit.
 		if (!reportArg && words.length > 0 && !help)
-			return presentAnswer((await runCall(argv, 'inherit')) as Answer, json);
+			return presentAnswer(
+				(await runCall(name, argv, 'inherit')) as Answer,
+				json,
+			);
 		const { data: located, error: notFound } = await loadHomeApp(name);
 		if (notFound) return fail(notFound, json);
 		if (!located.ok)

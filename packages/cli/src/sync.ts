@@ -19,8 +19,8 @@ export type Synced = {
 	pushed: boolean;
 	/** How many commits the branch is ahead of its locally known `origin` tracking ref; `null` when there is none. */
 	origin: { ahead: number } | null;
-	/** Why this app did not finish syncing, and the command that resolves it. */
-	error?: { message: string; next?: string };
+	/** Why this app did not finish syncing, and the command that resolves it; `busy` when a call to it was still running, so nothing was snapshotted or pushed. */
+	error?: { message: string; next?: string; busy?: true };
 };
 
 /** How far the branch is ahead of `origin`, as `Synced` reports it. */
@@ -35,12 +35,13 @@ async function aheadOf(folder: string) {
  * there by name if it is ahead of its tracking ref or has none yet. It never
  * fetches, merges, or force pushes, and never pushes to `upstream`
  * (ADR-0851). `epicenter sync` and `serve`'s clock both run it; nothing else
- * touches a remote.
+ * touches a remote. The snapshot waits up to `wait` milliseconds for calls
+ * to the app to commit (`snapshot.ts`); `serve`'s clock gives 0.
  */
 export async function syncOne(
 	app: string,
 	folder: string,
-	message?: string,
+	{ message, wait }: { message?: string; wait?: number } = {},
 ): Promise<Synced> {
 	const synced: Synced = {
 		app,
@@ -52,24 +53,21 @@ export async function syncOne(
 	const stop = async (failure: {
 		message: string;
 		next?: string;
+		busy?: true;
 	}): Promise<Synced> => ({
 		...synced,
 		origin: await aheadOf(folder),
 		error: {
 			message: `${app}: ${failure.message}`,
 			...(failure.next ? { next: failure.next } : {}),
+			...(failure.busy ? { busy: true } : {}),
 		},
 	});
-	// Queued before anything is awaited, so a call `serve` receives meanwhile
-	// waits for it rather than run while it takes what is pending (mcp.ts).
-	const taking = snapshot(app, folder, { message });
 	const insideArgs = ['rev-parse', '--is-inside-work-tree'];
 	const inside = await git(folder, insideArgs);
-	if (inside.code !== 0) {
-		await taking;
+	if (inside.code !== 0)
 		return stop({ message: gitMessage(insideArgs, inside) });
-	}
-	const taken = await taking;
+	const taken = await snapshot(app, folder, { message, wait });
 	if ('failed' in taken) return stop(taken.failed);
 	synced.committed = taken.committed;
 	const origin = await originOf(folder);
@@ -147,7 +145,7 @@ export async function syncCommand(
 	if (error) return fail(error, json);
 	const apps: Synced[] = [];
 	for (const { entry, realPath } of chosen)
-		apps.push(await syncOne(entry, realPath, message));
+		apps.push(await syncOne(entry, realPath, { message }));
 	if (json) writeJson({ apps });
 	else {
 		const { stdout, stderr } = renderSync(apps);

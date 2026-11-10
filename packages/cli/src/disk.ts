@@ -25,13 +25,13 @@ import {
 } from 'node:fs';
 import { lstat, readdir, readFile, stat, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
-import { dlopen, FFIType } from 'bun:ffi';
 import {
 	type Folder,
 	isLocalPath,
 	normalizePath,
 	WriteError,
 } from '@epicenter/app';
+import { lockBlocking } from './lock.ts';
 
 /** How many times `update` tries a file that a writer taking no lock keeps changing before it gives up. */
 const UPDATE_TRIES = 10;
@@ -57,39 +57,16 @@ function sameBytes(a: Uint8Array | undefined, b: Uint8Array | undefined) {
 		: Buffer.from(a).equals(b);
 }
 
-const LOCK_EX = 2;
-
-/** The C library's `flock`, opened on first use, so only an `update` needs it. */
-let flock: ((fd: number, operation: number) => number) | undefined;
-function flockOf() {
-	if (flock) return flock;
-	const libc =
-		process.platform === 'darwin'
-			? 'libc.dylib'
-			: process.platform === 'linux'
-				? 'libc.so.6'
-				: undefined;
-	if (!libc)
-		throw new Error(`folder.update needs flock, which ${process.platform} does not have`);
-	const { symbols } = dlopen(libc, {
-		flock: { args: [FFIType.i32, FFIType.i32], returns: FFIType.i32 },
-	});
-	flock = (fd, operation) => symbols.flock(fd, operation);
-	return flock;
-}
-
 /**
- * Run `work` holding the lock on directory `dir`, waiting while another
- * process holds it. The lock is the kernel's: it is released when its
- * descriptor closes, here or when the process holding it dies, so a crash
- * never leaves it held. `work` never yields, so nothing else in this process
- * runs while it holds, and the wait blocks only this process, which runs one
- * action (`child.ts`).
+ * Run `work` holding the kernel's lock on directory `dir` (`lock.ts`),
+ * waiting while another process holds it. `work` never yields, so nothing
+ * else in this process runs while it holds, and the wait blocks only this
+ * process, which runs one action (`child.ts`).
  */
 function locked<T>(dir: string, work: () => T): T {
 	const fd = openSync(dir, 'r');
 	try {
-		if (flockOf()(fd, LOCK_EX) !== 0) throw new Error(`Could not lock ${dir}`);
+		lockBlocking(fd, dir, 'exclusive');
 		return work();
 	} finally {
 		closeSync(fd);
@@ -117,7 +94,8 @@ export function folderOnDisk(dir: string): Folder {
 	function makeParents(path: string) {
 		const parts = normalizePath(path).split('/').slice(0, -1);
 		const local = parts.findIndex((part) => isLocalPath(part));
-		if (local < 0) return void mkdirSync(join(dir, ...parts), { recursive: true });
+		if (local < 0)
+			return void mkdirSync(join(dir, ...parts), { recursive: true });
 		mkdirSync(join(dir, ...parts.slice(0, local)), { recursive: true });
 		mkdirSync(join(dir, ...parts), { recursive: true, mode: 0o700 });
 	}

@@ -23,6 +23,7 @@ import {
 import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { hold } from './lock.ts';
 import { fixture, gitIn, gitignore, header } from './runner.test-support.ts';
 
 setDefaultTimeout(60_000);
@@ -97,6 +98,15 @@ export default defineApp({
 			description: 'End the process without an answer',
 			input: {},
 			run: () => process.exit(7),
+		}),
+		pair: defineAction({
+			description: 'Write one page, wait until told to go on, then write another',
+			input: { go: field.text() },
+			run: async ({ go }) => {
+				await folder.write('first.md', 'first');
+				while (!(await Bun.file(go).exists())) await Bun.sleep(20);
+				await folder.write('second.md', 'second');
+			},
 		}),
 		chatty: defineAction({
 			description: 'Log to the console every way and return',
@@ -408,13 +418,15 @@ export default defineApp({ description: 'Many fields', collections: { items }, a
 			f.run('many', 'items', 'set', 'items/one.md', `--${key}`, String(i)),
 		),
 	);
-	expect(runs.filter((run) => run.code !== 0)).toEqual([]);
+	// Every commit lands too: the commits take turns, and none fails.
+	expect(runs.filter((run) => run.code !== 0 || run.stderr !== '')).toEqual([]);
 	const text = await readFile(join(f.home, 'many', 'items/one.md'), 'utf8');
 	for (const [i, key] of fields.entries())
 		expect(text).toContain(`${key}: ${i}\n`);
+	expect(await status(join(f.home, 'many'))).toBe('');
 });
 
-test('C12 no lock file is made anywhere', async () => {
+test("C12 runs leave no temporary file and no lock of Git's, and hold no lock once they answer", async () => {
 	const f = await setup();
 	const temp = join(f.root, 'tmp');
 	await mkdir(temp);
@@ -432,11 +444,16 @@ test('C12 no lock file is made anywhere', async () => {
 		run('notes', 'half', 'wednesday'),
 	]);
 	expect(await readdir(temp)).toEqual([]);
-	expect(
-		(await readdir(join(f.dir, '.git'))).filter((name) =>
-			name.endsWith('.lock'),
-		),
-	).toEqual([]);
+	const locks = (await readdir(join(f.dir, '.git'))).filter((name) =>
+		name.endsWith('.lock'),
+	);
+	// The call lock and the commit lock stay as files; no one holds them.
+	expect(locks.sort()).toEqual(['epicenter-commit.lock', 'epicenter.lock']);
+	for (const lock of locks) {
+		const held = await hold(join(f.dir, '.git', lock), 'exclusive', 0);
+		expect(held).toBeDefined();
+		held?.release();
+	}
 	expect(await status(f.dir)).toBe('');
 });
 
@@ -472,6 +489,28 @@ test('C13 sync -m names a snapshot of what an agent edited, and refuses a messag
 	expect(await gitIn(f.dir, 'log', '-1', '--format=%s')).toBe('notes: add c');
 	// An undo treats it as a snapshot.
 	expect((await f.run('undo', 'notes')).stdout).toBe('undid notes: add c\n');
+});
+
+test("C14 a sync in another process while a call runs leaves the call's writes to the call's one commit", async () => {
+	const f = await setup();
+	const go = join(f.root, 'go');
+	const call = f.run('notes', 'pair', '--go', go);
+	while (!(await Bun.file(join(f.dir, 'first.md')).exists()))
+		await Bun.sleep(20);
+	// The call is between its two writes: sync waits for it, or would take the first.
+	const sync = f.run('sync', 'notes');
+	await Promise.race([sync, Bun.sleep(1_500)]);
+	await writeFile(go, '');
+	expect(await call).toMatchObject({ code: 0, stderr: '' });
+	expect(await sync).toMatchObject({
+		code: 0,
+		stdout: 'notes: nothing to commit; no origin\n',
+	});
+	expect(await subjects(f.dir)).toBe('notes: pair\ninitial');
+	expect(await gitIn(f.dir, 'show', '--name-only', '--format=', 'HEAD')).toBe(
+		'first.md\nsecond.md',
+	);
+	expect(await status(f.dir)).toBe('');
 });
 
 test('C8 stdout belongs to epicenter: an action that logs does not corrupt --json or serve --stdio', async () => {
