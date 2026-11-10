@@ -18,7 +18,6 @@
 	},
 	"devDependencies": {
 		"@epicenter/ui": "workspace:*",
-		"@epicenter/vite-config": "workspace:*",
 		"@lucide/svelte": "catalog:",
 		"@sveltejs/adapter-static": "catalog:",
 		"@sveltejs/kit": "catalog:",

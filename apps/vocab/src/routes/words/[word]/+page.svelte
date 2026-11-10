@@ -70,19 +70,29 @@
 		);
 	});
 
+	/**
+	 * Only the fields that changed, so a save never writes back a value read
+	 * earlier over one changed elsewhere since. A field emptied is removed.
+	 */
+	function changesOf(word: Word) {
+		const changes: Record<string, string | null> = {};
+		for (const field of ['reading', 'meaning'] as const) {
+			const typed = draft[field].trim();
+			if (typed !== (word[field] ?? '')) changes[field] = typed === '' ? null : typed;
+		}
+		if (draft.stage !== word.stage) changes.stage = draft.stage ?? null;
+		const body = draft.body.trim() === '' ? '' : `${draft.body.trim()}\n`;
+		if (body !== word.body) changes.body = body;
+		return changes;
+	}
+
 	async function save() {
 		if (!saved || saving) return;
+		const changes = changesOf(saved);
+		if (Object.keys(changes).length === 0) return;
 		saving = true;
 		try {
-			show(
-				await vocab.call<Word>('words set', {
-					word: saved.word,
-					reading: draft.reading.trim(),
-					meaning: draft.meaning.trim(),
-					body: draft.body.trim() === '' ? '' : `${draft.body.trim()}\n`,
-					...(draft.stage ? { stage: draft.stage } : {}),
-				}),
-			);
+			show(await vocab.call<Word>('words set', { word: saved.word, ...changes }));
 			toast.success('Saved');
 			void vocab.refresh();
 		} catch (error) {
