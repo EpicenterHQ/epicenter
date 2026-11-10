@@ -73,21 +73,21 @@ With `--json`, stdout is one JSON object, and MCP returns the same object as `st
 { "error": { "name", "message", "next"? } }  exit 2, nothing ran
 ```
 
-An action that returns nothing answers `{ "returned": null }`. An action that throws a tagged error (`{ name, message, …fields }`) reports it whole as `thrown`. Without `--json`, stdout carries only the returned value, as a person reads it, and stderr carries what the action threw, or why nothing ran followed by `Run: <next step>` when there is one. MCP's text for a thrown action is the same stderr. The returned value reads this way (`src/output.ts`):
+An action that returns nothing answers `{ "returned": null }`. An action that throws a tagged error (`{ name, message, …fields }`) reports it whole as `thrown`. Without `--json`, stdout carries only the returned value, rendered by its structure, and stderr carries what the action threw, or why nothing ran followed by `Run: <next step>` when there is one. MCP's text for a thrown action is the same stderr. The returned value reads this way (`src/output.ts`):
 
-- A file, an object with `path` and `body` strings as a collection's `get` gives it, prints as the Markdown file it is: `---`, each field but `path` as `key: <JSON>` in its order, then each key of `other` as `# other: key: <JSON>`, then `---` and the body. Each of its `problems` goes to stderr as `! <problem>`.
-- Rows, an array of objects each with a `path` string as `list` gives them, print one line each: the path, then each other field as `key: <JSON>`, two spaces apart. Each row's `problems` goes to stderr as `! <path>: <problem>`.
-- Nothing (`null`) and an empty array print nothing; a string prints as it is; anything else prints as JSON.
+- An object prints one `key: value` line per defined key, in order. A string with a newline prints as `key: |` followed by indented lines. Other strings print plainly unless empty, padded with spaces, starting with a quote or `|`, or shaped like JSON other than a plain word; those print as JSON strings. Numbers, booleans, null, arrays, and nested objects print as compact JSON values. A `problems` key stays on stdout like any other key.
+- An array of objects without multiline strings prints one row per object, with `key: value` pairs separated by two spaces. If an object has a multiline string, each object prints on its own lines, with a blank line between objects.
+- An empty array prints nothing. A string prints as is, with a final newline added if needed. Other arrays and scalars print as JSON.
 
 ```txt
 $ epicenter tasks get tasks/2026-11-10T09-30-00-000Z-k3x9a2f8.md
----
-time: "2026-11-10T09-30-00-000Z-k3x9a2f8"
-title: "Email Sam the slides"
+path: tasks/2026-11-10T09-30-00-000Z-k3x9a2f8.md
+time: 2026-11-10T09-30-00-000Z-k3x9a2f8
+title: Email Sam the slides
 done: false
-due: "2026-11-12"
----
-The deck is in Drive.
+due: 2026-11-12
+body: |
+  The deck is in Drive.
 ```
 
 A placeholder such as `time` prints as a field: the command reads only the answer, which does not say which keys came from the path.

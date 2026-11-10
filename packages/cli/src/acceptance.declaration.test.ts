@@ -235,15 +235,12 @@ test("D3 positionals come from the action's ordered list; flags always work", as
 	await f.folder(join(f.home, 'reading'), readingApp);
 	const logged = await f.run('reading', 'log', '30', '--book', 'Dune');
 	expect(logged.code).toBe(0);
-	expect(JSON.parse(logged.stdout)).toEqual({ minutes: 30, book: 'Dune' });
+	expect(logged.stdout).toBe('minutes: 30\nbook: Dune\n');
 	expect(await readFile(join(f.home, 'reading/2026.csv'), 'utf8')).toBe(
 		'minutes,book\n30,Dune\n',
 	);
 	const both = await f.run('reading', 'between', '2026-11-01', '2026-11-08');
-	expect(JSON.parse(both.stdout)).toEqual({
-		from: '2026-11-01',
-		to: '2026-11-08',
-	});
+	expect(both.stdout).toBe('from: 2026-11-01\nto: 2026-11-08\n');
 	const flags = await f.run(
 		'reading',
 		'between',
@@ -252,10 +249,7 @@ test("D3 positionals come from the action's ordered list; flags always work", as
 		'--from',
 		'2026-11-01',
 	);
-	expect(JSON.parse(flags.stdout)).toEqual({
-		from: '2026-11-01',
-		to: '2026-11-08',
-	});
+	expect(flags.stdout).toBe(both.stdout);
 	const mixed = await f.run(
 		'reading',
 		'between',
@@ -263,10 +257,7 @@ test("D3 positionals come from the action's ordered list; flags always work", as
 		'2026-11-01',
 		'2026-11-08',
 	);
-	expect(JSON.parse(mixed.stdout)).toEqual({
-		from: '2026-11-01',
-		to: '2026-11-08',
-	});
+	expect(mixed.stdout).toBe(both.stdout);
 	const extra = await f.run(
 		'reading',
 		'between',
@@ -286,7 +277,7 @@ test('D5 an epicenter.ts importing @epicenter/app loads from a folder with no no
 	expect(existsSync(join(folder, 'node_modules'))).toBe(false);
 	const result = await f.runIn(folder, 'reading', 'log', '12');
 	expect(result.code).toBe(0);
-	expect(JSON.parse(result.stdout)).toEqual({ minutes: 12, book: null });
+	expect(result.stdout).toBe('minutes: 12\nbook: null\n');
 	expect(await readFile(join(folder, '2026.csv'), 'utf8')).toBe(
 		'minutes,book\n12,\n',
 	);
@@ -483,7 +474,7 @@ test("D8 an app of one collection's verbs adds, reads, changes, and deletes its 
 		},
 	});
 	expect((await f.run('capture', 'get', 'items/dune.md')).stdout).toBe(
-		'---\nid: "dune"\nkind: "quote"\nurl: "https://example.com/dune"\nadded: "2026-11-09"\n---\nFear is the little-death.\n',
+		'path: items/dune.md\nid: dune\nkind: quote\nurl: https://example.com/dune\nadded: 2026-11-09\nbody: |\n  Fear is the little-death.\n',
 	);
 
 	const transport = new StdioClientTransport({

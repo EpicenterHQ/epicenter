@@ -2,16 +2,15 @@
  * The one place an answer becomes what a caller sees (ADR-0842, ADR-0850).
  * With `--json`, stdout is one JSON value: a run's answer, a listing, a
  * sync's report, or `{ error }` when nothing ran; MCP gets the same value.
- * Without it, stdout carries only what a person reads as the answer, and
- * stderr carries what went wrong, with a `Run: <next step>` line wherever
- * there is one.
+ * Without it, stdout renders the returned value by its structure. Stderr
+ * carries what went wrong, with a `Run: <next step>` line where there is one.
  */
 import { type Report, writeReport } from './child.ts';
 import type { CliError } from './errors.ts';
 
 /**
  * What a command that runs an action answers (ADR-0850): the one value
- * `--json` prints, MCP returns as `structuredContent`, and stderr renders.
+ * `--json` prints and MCP returns as `structuredContent`.
  * Whether it returned or threw, what the action wrote stays in the folder
  * until a snapshot takes it into the app's history.
  */
@@ -56,8 +55,8 @@ export function writeErr(text: string) {
 
 /**
  * An answer as a person reads it, and its exit code: a returned value on
- * stdout, readably (a file's problems on stderr), and on stderr what the
- * action threw, or why nothing ran with its next step. 0: it returned. 1: it
+ * stdout, and on stderr what the action threw, or why nothing ran with its
+ * next step. 0: it returned. 1: it
  * threw, or ended without an answer. 2: it did not run.
  */
 export function renderAnswer(answer: Answer): {
@@ -83,84 +82,66 @@ type Fields = Record<string, unknown>;
 const isFields = (value: unknown): value is Fields =>
 	typeof value === 'object' && value !== null && !Array.isArray(value);
 
-const isStrings = (value: unknown): value is string[] =>
-	Array.isArray(value) && value.every((item) => typeof item === 'string');
-
-/** `key: <JSON>` for each field of `fields` but those in `skip`. */
-function fieldLines(fields: Fields, skip: string[]) {
-	return Object.entries(fields)
-		.filter(([key, value]) => !skip.includes(key) && value !== undefined)
-		.map(([key, value]) => `${key}: ${JSON.stringify(value)}`);
+function stringValue(value: string): string {
+	if (
+		value === '' ||
+		value.trim() !== value ||
+		/^["'|]/.test(value) ||
+		(!/^[\p{L}_][\p{L}\p{N}_-]*$/u.test(value) && looksLikeJson(value))
+	)
+		return JSON.stringify(value);
+	return value;
 }
 
-/**
- * A returned value as a person reads it. A file (`path` and `body` strings)
- * prints as the Markdown file it is: `---`, each field but `path` as
- * `key: <JSON>`, then `other`'s keys as `# other: key: <JSON>` lines, `---`,
- * and the body; each of its `problems` goes to stderr as `! <problem>`. Rows
- * (objects each with a `path` string) print one line each: the path, then
- * each field except `problems` as `key: <JSON>`, two spaces apart. Problems go
- * to stderr with their path. `null` and an empty
- * array print nothing, a string prints as it is, and anything else as JSON.
- */
+function looksLikeJson(value: string): boolean {
+	try {
+		JSON.parse(value);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+function fieldLines(fields: Fields): string[] {
+	return Object.entries(fields)
+		.filter(([, value]) => value !== undefined)
+		.map(([key, value]) => {
+			if (typeof value === 'string' && value.includes('\n'))
+				return `${key}: |\n${value
+					.replace(/\n$/, '')
+					.split('\n')
+					.map((line) => `  ${line}`)
+					.join('\n')}`;
+			return `${key}: ${typeof value === 'string' ? stringValue(value) : JSON.stringify(value)}`;
+		});
+}
+
+/** Render the returned value without assuming what its keys mean. */
 function readable(value: unknown): { stdout: string; stderr: string } {
 	const line = (text: string) => (text.endsWith('\n') ? text : `${text}\n`);
-	if (value === null || (Array.isArray(value) && value.length === 0))
+	if (Array.isArray(value) && value.length === 0)
 		return { stdout: '', stderr: '' };
 	if (typeof value === 'string') return { stdout: line(value), stderr: '' };
-	if (
-		isFields(value) &&
-		typeof value.path === 'string' &&
-		typeof value.body === 'string'
-	) {
-		const { other, problems } = value;
-		const front = [
-			'---',
-			...fieldLines(value, [
-				'path',
-				'body',
-				...(isFields(other) ? ['other'] : []),
-				...(isStrings(problems) ? ['problems'] : []),
-			]),
-			...(isFields(other)
-				? fieldLines(other, []).map((field) => `# other: ${field}`)
-				: []),
-			'---',
-		];
+	if (isFields(value)) {
+		const fields = fieldLines(value);
+		return { stdout: fields.length ? line(fields.join('\n')) : '', stderr: '' };
+	}
+	if (Array.isArray(value) && value.every(isFields)) {
+		const blocks = value.some((item) =>
+			Object.values(item).some(
+				(field) => typeof field === 'string' && field.includes('\n'),
+			),
+		);
 		return {
-			stdout: `${front.join('\n')}\n${value.body === '' ? '' : line(value.body)}`,
-			stderr: isStrings(problems)
-				? problems.map((problem) => `! ${problem}\n`).join('')
-				: '',
+			stdout: line(
+				value
+					.map((item) => fieldLines(item).join(blocks ? '\n' : '  '))
+					.join(blocks ? '\n\n' : '\n'),
+			),
+			stderr: '',
 		};
 	}
-	if (
-		Array.isArray(value) &&
-		value.every((row) => isFields(row) && typeof row.path === 'string')
-	)
-		return {
-			stdout: (value as Fields[])
-				.map((row) =>
-					line(
-						[
-							row.path as string,
-							...fieldLines(row, [
-								'path',
-								...(isStrings(row.problems) ? ['problems'] : []),
-							]),
-						].join('  '),
-					),
-				)
-				.join(''),
-			stderr: (value as Fields[])
-				.flatMap((row) =>
-					isStrings(row.problems)
-						? row.problems.map((problem) => `! ${row.path}: ${problem}\n`)
-						: [],
-				)
-				.join(''),
-		};
-	return { stdout: line(JSON.stringify(value, null, 2)), stderr: '' };
+	return { stdout: line(JSON.stringify(value)), stderr: '' };
 }
 
 /** Present an answer, as one JSON value or for a person, and return its exit code. */

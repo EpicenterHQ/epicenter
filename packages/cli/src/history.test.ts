@@ -289,7 +289,7 @@ test('undo refuses a revert that conflicts, and leaves the folder as it was', as
 	);
 });
 
-test('a file reads as Markdown and rows as lines, while --json is unchanged', async () => {
+test('returned objects show every key and lists show rows, while --json is unchanged', async () => {
 	const f = await setup();
 	await mkdir(join(f.app, 'pages'));
 	await writeFile(
@@ -304,19 +304,19 @@ test('a file reads as Markdown and rows as lines, while --json is unchanged', as
 	const got = await f.run('notes', 'pages', 'get', 'pages/a.md');
 	expect(got.code).toBe(0);
 	expect(got.stdout).toBe(
-		'---\nslug: "a"\ntitle: "Alpha"\ndone: false\n# other: done: "yes"\n# other: color: "red"\n---\nThe body.\n',
+		'path: pages/a.md\nslug: a\ntitle: Alpha\ndone: false\nbody: |\n  The body.\nproblems: ["done: \\"yes\\" is not true or false"]\nother: {"done":"yes","color":"red"}\n',
 	);
-	expect(got.stderr).toBe(`! done: "yes" is not true or false\n`);
+	expect(got.stderr).toBe('');
 
 	const listed = await f.run('notes', 'pages', 'list');
 	expect(listed.code).toBe(0);
 	const rows = listed.stdout.split('\n');
-	expect(rows[0]).toBe('pages/a.md  slug: "a"  title: "Alpha"  done: false');
-	expect(rows[1]).toBe('pages/b.md  slug: "b"  title: "Beta"  done: true');
-	expect(rows).toHaveLength(3);
-	expect(listed.stderr).toBe(
-		'! pages/a.md: done: "yes" is not true or false\n',
+	expect(rows[0]).toBe(
+		'path: pages/a.md  slug: a  title: Alpha  done: false  problems: ["done: \\"yes\\" is not true or false"]',
 	);
+	expect(rows[1]).toBe('path: pages/b.md  slug: b  title: Beta  done: true');
+	expect(rows).toHaveLength(3);
+	expect(listed.stderr).toBe('');
 
 	const empty = await f.run('notes', 'todos', 'list');
 	expect(empty).toMatchObject({ code: 0, stdout: '' });

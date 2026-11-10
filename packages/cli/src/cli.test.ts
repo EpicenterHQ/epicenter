@@ -118,7 +118,7 @@ test('commands write disk data and return one JSON answer without diagnostics', 
 		),
 	).toEqual({ minutes: 30, book: 'Dune' });
 	const human = await f.run('reading', 'log', '15');
-	expect(human.stdout).toContain('"minutes": 15');
+	expect(human.stdout).toContain('minutes: 15');
 	expect(human.stderr).toBe('');
 	expect(
 		(await f.run('vault', 'calendar', 'show', '2026-11-08', '--json')).stdout,
@@ -185,11 +185,9 @@ test('lists repeat, switches default and literal positionals append to flagged v
 		await answer('reading', 'tag', '--tags', 'a', '--tags=b', '--done'),
 	).toEqual({ tags: ['a', 'b'], done: true });
 	expect(
-		JSON.parse(
-			(await f.run('reading', 'collect', '--tags', 'a', 'b', '--', '--literal'))
-				.stdout,
-		),
-	).toEqual({ tags: ['a', 'b', '--literal'] });
+		(await f.run('reading', 'collect', '--tags', 'a', 'b', '--', '--literal'))
+			.stdout,
+	).toBe('tags: ["a","b","--literal"]\n');
 });
 
 test('a throwing action returns exit 1 with its message', async () => {
