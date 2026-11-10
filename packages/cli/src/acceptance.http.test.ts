@@ -174,7 +174,7 @@ test('the browser client calls a tool without initialize and a write makes one n
 	);
 });
 
-test('a read-only action makes no commit, and one that throws after writing commits its paths as the call that threw', async () => {
+test('a read-only action and one that throws after writing make no commit', async () => {
 	const f = await setup((f) => f.folder(join(f.home, 'reading'), readingApp));
 	const folder = f.made;
 	const client = connect<Reading>('reading', { url: `${f.base}/` });
@@ -189,10 +189,10 @@ test('a read-only action makes no commit, and one that throws after writing comm
 	expect((threw as ActionError).answer).toEqual({
 		threw: { message: 'line 4 is not a number' },
 	});
-	expect(await gitIn(folder, 'log', '-1', '--format=%B')).toBe(
-		'reading: explode (threw)',
+	expect(await gitIn(folder, 'rev-list', '--count', 'HEAD')).toBe('1');
+	expect(await gitIn(folder, 'status', '--porcelain')).toBe(
+		'?? 2026.csv\n?? notes.md',
 	);
-	expect(await gitIn(folder, 'status', '--porcelain')).toBe('?? notes.md');
 });
 
 test('a call whose snapshot fails still resolves, and the app says why', async () => {

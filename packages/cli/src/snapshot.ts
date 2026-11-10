@@ -17,8 +17,8 @@ import { isLocalPath } from '@epicenter/app';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { checkedGit, git, gitMessage, originOf } from './git.ts';
 
-/** The write run that led to a commit: its call, the paths it wrote through `folder`, and whether it threw. */
-export type Wrote = { call: string; paths: string[]; threw?: true };
+/** A successful write run's call and the paths it wrote through `folder`. */
+export type Wrote = { call: string; paths: string[] };
 
 /** Git state that must finish before a snapshot may stage or commit. */
 const UNDERWAY = [
@@ -169,7 +169,7 @@ export async function statusOf(folder: string) {
  */
 async function commitCall(app: string, folder: string, wrote: Wrote) {
 	if (wrote.paths.length === 0) return null;
-	const subject = wrote.threw ? `${wrote.call} (threw)` : wrote.call;
+	const subject = wrote.call;
 	const written = wrote.paths.map((path) => `:(literal)${path}`);
 	for (let tries = 1; ; tries++) {
 		const status = await gitWaitingForIndex(folder, statusArgs(written));
@@ -300,7 +300,7 @@ export function snapshotsSettled(folder: string): Promise<unknown> {
 
 /**
  * Commit in the app's folder (ADR-0850): with `{ wrote }`, exactly the
- * call's changed paths, named for the call (`<call> (threw)` when it threw),
+ * successful call's changed paths, named for the call,
  * with no body; otherwise everything pending that Git does not ignore, as
  * `<app>: changed outside epicenter` or `<app>: <message>`. Refused before staging when what it would take holds a
  * `*.local` or `*.local.*` file, when `.gitattributes` routes files through

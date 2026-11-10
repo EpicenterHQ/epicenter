@@ -140,21 +140,20 @@ test("a call's commit holds only its paths; a hand edit and a staged file stay p
 	});
 });
 
-test('a run that throws after writing commits its writes as the call that threw', async () => {
+test('a run that throws leaves its writes pending without a call commit', async () => {
 	const f = await setup();
+	const before = await f.head();
 	await writeFile(join(f.dir, 'a.md'), 'by hand\n');
 	const run = await f.run('half', 'tuesday');
 	expect(run.answer).toEqual({ threw: { message: 'stopped halfway' } });
 	expect(await readFile(join(f.dir, 'tuesday.md'), 'utf8')).toBe('tuesday');
-	expect(await f.commit(run)).toEqual({
-		committed: { subject: 'notes: half tuesday (threw)', files: 1 },
-	});
-	expect(await f.message()).toBe('notes: half tuesday (threw)');
-	expect(await f.files()).toBe('tuesday.md');
+	expect(run.wrote).toBeUndefined();
+	expect(await f.head()).toBe(before);
+	expect(await f.message()).toBe('initial');
 	expect(await f.left()).toEqual({
 		changed: 'a.md',
 		staged: '',
-		untracked: '',
+		untracked: 'tuesday.md',
 	});
 });
 

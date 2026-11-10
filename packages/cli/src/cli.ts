@@ -2,7 +2,7 @@
  * The epicenter command runs apps from the selected Epicenter
  * (ADR-0841). It parses words, shows what can run, checks input, and prints the
  * answer. Its exit code is 0 when the action returned, 1 when it threw, and 2
- * when nothing ran (ADR-0867). After a run that is not read-only, it commits
+ * when nothing ran (ADR-0867). After a successful run that is not read-only, it commits
  * the paths the run wrote, named for the call (ADR-0850); a commit that fails
  * changes neither the answer nor the exit code; the paths remain pending.
  */

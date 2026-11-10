@@ -10,7 +10,7 @@
  * between two calls is seen by the second, and a call's result is the same
  * object `--json` prints: `structuredContent` on success, and with
  * `isError` on failure. After a call that is not read-only, the server
- * commits the paths the call wrote, named for it, before it answers, one
+ * commits the paths a successful call wrote, named for it, before it answers, one
  * commit at a time per app (ADR-0850); `serve`'s clock leaves an app alone
  * while a call to it runs, so that commit holds all the call wrote.
  * Diagnostics go to stderr.
@@ -86,7 +86,7 @@ export function callInFlight(app: string) {
  * does, committing what it wrote. App names and action words hold no
  * underscores. The call counts as in flight from before anything is awaited,
  * and its child starts only once a snapshot already running for the app has
- * finished, so one commit named for the call holds everything it wrote.
+ * finished, so one commit named for a successful call holds everything it wrote.
  */
 async function callTool(name: string, args: Record<string, unknown>) {
 	const [app = '', ...words] = name.split('_');

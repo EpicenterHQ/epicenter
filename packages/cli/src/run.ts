@@ -2,10 +2,9 @@
  * One action's run, for the command line and both MCP transports (ADR-0850).
  * The action writes through its folder as it runs, and the run commits
  * nothing: whoever started it commits afterwards (`snapshot.ts`). A run that
- * is not read-only reports the call, the paths it wrote through `folder`, and
- * whether it threw, so the parent commits exactly those paths under the
- * call's name. A read-only run's writes through `folder` throw, except to a
- * `.local` path.
+ * succeeds and is not read-only reports the call and paths it wrote through
+ * `folder`, so the parent commits exactly those paths under the call's name.
+ * A read-only run's writes through `folder` throw, except to a `.local` path.
  * The answer is what the action returned or threw.
  */
 
@@ -69,8 +68,8 @@ function noting(folder: Folder, written: Set<string>): Folder {
 
 /**
  * Run `action`, the app's `key`, with its checked input in the app's folder.
- * When it is not read-only, the paths it wrote through `folder` are reported
- * under the call's name, whether it returned or threw.
+ * When it returns and is not read-only, the paths it wrote through `folder`
+ * are reported under the call's name. A throw leaves its writes pending.
  */
 export async function runAction(
 	located: Runnable,
@@ -92,13 +91,12 @@ export async function runAction(
 	} catch (error) {
 		answer = { threw: threwOf(error) };
 	}
-	if (readOnly) return { answer };
+	if (readOnly || 'threw' in answer) return { answer };
 	return {
 		answer,
 		wrote: {
 			call: callName(located.name, key, input[action.positional?.[0] ?? '']),
 			paths: [...written].sort(),
-			...('threw' in answer ? { threw: true as const } : {}),
 		},
 	};
 }

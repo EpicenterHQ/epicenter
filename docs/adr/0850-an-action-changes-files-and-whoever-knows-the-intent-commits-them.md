@@ -62,15 +62,15 @@ an editor          no boundary exists (Obsidian, a text editor): serve's clock
                    for backup
 ```
 
-**A call's commit holds exactly the paths it wrote.** Each run that is not
-read-only reports its call (`tasks: add Water the plants`), the paths it wrote
-through `folder`, and whether it threw. The parent that started it (the command
+**A successful call's commit holds exactly the paths it wrote.** Each successful run that is not
+read-only reports its call (`tasks: add Water the plants`) and the paths it wrote
+through `folder`. The parent that started it (the command
 line, or `serve` before it answers) runs one `git status` of those paths, which
 drops what is unchanged, ignored, or created and then deleted; then `git add -A`
 and `git commit` of what is left, with each path given literally. Every other
-pending or staged change stays as it was. The subject is the call, or
-`<call> (threw)` when the run threw, and there is no body. A run whose paths
-are all unchanged makes no commit.
+pending or staged change stays as it was. The subject is the call, with no
+body. A run whose paths are all unchanged makes no commit. A thrown action
+makes no call commit; files it already wrote stay pending for a later snapshot.
 
 **A snapshot with no call takes everything pending.** `epicenter sync`, the
 first step of `epicenter undo` and of `epicenter update`, and `serve`'s clock
@@ -201,8 +201,8 @@ answer.
 - No lock: two writes to one app run at once, and a slow action blocks no one.
 - Two calls at once on different files make two commits, each with its own
   file.
-- A throw's writes are committed under the call, marked `(threw)`, so
-  `epicenter undo` reverts them as one.
+- A throw leaves any files it wrote pending. A later `sync` or `serve` backup
+  may commit them as changed outside epicenter.
 - A hand edit to a file a call later writes lands in the call's commit. The
   call's paths are known; whose bytes are in them is not.
 - An agent's direct edits stay pending until it commits them, `sync` runs, or

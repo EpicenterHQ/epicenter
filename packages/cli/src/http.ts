@@ -11,7 +11,7 @@
  * Any later path of the server's own starts with `.`, which no app name can,
  * so no name is reserved for the server.
  *
- * A write call commits the paths it wrote before it answers (`mcp.ts`).
+ * A successful write call commits the paths it wrote before it answers (`mcp.ts`).
  * Everything else reaches history and the backup on the server's clock: when
  * it starts, every 5 minutes, and when it stops, it does for each app what
  * `epicenter sync <app>` does, snapshotting what is pending as changed
@@ -99,7 +99,7 @@ export function startHttpServer(
 	const backUpAll = async () => {
 		const backedUp: Synced[] = [];
 		for (const { entry, realPath } of await homeEntries()) {
-			// Its call's commit, or the next tick, takes what it wrote.
+			// Its successful call's commit, or the next tick, takes what it wrote.
 			if (callInFlight(entry)) continue;
 			const synced = await syncOne(entry, realPath);
 			backedUp.push(synced);

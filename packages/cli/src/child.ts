@@ -11,7 +11,7 @@
  * starts (Git, its hooks, anything an action leaves running) inherits an open
  * descriptor, and a pipe's reader waits for all of them. The child writes
  * `{ answer }` when it ends, by renaming over the file, so the parent reads a
- * whole answer or none; after a run that is not read-only it adds `wrote`,
+ * whole answer or none; after a successful write run it adds `wrote`,
  * the app, call, and paths the parent then commits. A child that ends without
  * a report answers that it threw (exit 1), naming its exit code or signal;
  * whatever it wrote stays on disk, pending until a snapshot with no call.
@@ -40,7 +40,7 @@ function self(): string[] {
 		: [process.execPath, ...process.execArgv, Bun.main];
 }
 
-/** What a child reports: its answer, and after a run that is not read-only, the app it ran. */
+/** What a child reports: its answer, and after a successful write run, the app it ran. */
 export type Report = {
 	answer: unknown;
 	wrote?: Wrote & { app: string; folder: string };
@@ -105,7 +105,12 @@ export async function runCall(
 	stdin: 'inherit' | 'ignore',
 ): Promise<unknown> {
 	const { answer, wrote } = await runChild(args, stdin);
-	if (wrote) {
+	if (
+		wrote &&
+		typeof answer === 'object' &&
+		answer !== null &&
+		'returned' in answer
+	) {
 		const taken = await snapshot(wrote.app, wrote.folder, { wrote });
 		if ('failed' in taken)
 			writeErr(

@@ -358,19 +358,21 @@ test('C7 exit codes: 0 returned, 1 threw or ended without an answer, 2 did not r
 	expect(human).toEqual({ code: 0, stdout: 'monday\n', stderr: '' });
 });
 
-test('C9 a write that throws is committed as the call that threw', async () => {
+test('C9 a write that throws stays pending and makes no call commit', async () => {
 	const f = await setup();
 	const ran = await f.json('notes', 'half', 'wednesday');
 	expect(ran.code).toBe(1);
 	expect(ran.answer).toEqual({ threw: { message: 'stopped halfway' } });
-	expect(await subjects(f.dir)).toBe('notes: half wednesday (threw)\ninitial');
-	expect(await status(f.dir)).toBe('');
+	expect(await subjects(f.dir)).toBe('initial');
+	expect(await status(f.dir)).toBe('?? wednesday.md');
 	await f.json('notes', 'write', 'thursday');
 	expect(await gitIn(f.dir, 'show', '--name-only', '--format=', 'HEAD')).toBe(
 		'thursday.md',
 	);
+	expect(await status(f.dir)).toBe('?? wednesday.md');
 	const human = await f.run('notes', 'half', 'friday');
 	expect(human).toEqual({ code: 1, stdout: '', stderr: 'stopped halfway\n' });
+	expect(await status(f.dir)).toBe('?? friday.md\n?? wednesday.md');
 });
 
 test('C10 a read-only action cannot write through folder, except a .local file, and makes no commit', async () => {
@@ -437,7 +439,7 @@ test('C12 no lock file is made anywhere', async () => {
 			name.endsWith('.lock'),
 		),
 	).toEqual([]);
-	expect(await status(f.dir)).toBe('');
+	expect(await status(f.dir)).toBe('?? wednesday.md');
 });
 
 test('C13 sync -m names a snapshot of what an agent edited, and refuses a message that is not one line or has no app', async () => {
