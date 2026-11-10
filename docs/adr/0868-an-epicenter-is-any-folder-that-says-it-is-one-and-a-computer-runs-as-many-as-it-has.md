@@ -33,10 +33,10 @@ as many as it has folders; a folder that holds several is only a grouping.
     AGENTS.md                        guidance for agents; serve sends it as MCP instructions
     tasks/                           an app: its own Git repository
       .git/                          history; remotes upstream (its starter) and origin (its backup)
-      .gitignore                     node_modules/  .cache/  *.local  *.local.*
+      .gitignore                     node_modules/  *.local  *.local.*
       epicenter.ts                   its collections and actions
       ui/                            its UI project (optional)
-      .cache/ui/                     the built UI; rebuildable, never committed
+      ui/build/                      the built UI; ignored by ui/.gitignore (ADR-0854)
       tasks/<time>.md                data, committed
       google.local.md                this computer only; Epicenter never commits it (ADR-0870)
     capture/  vocab/  mail/
@@ -96,8 +96,8 @@ its own pathspec, which only its own commits honored). A person can still
 `.gitignore` of `epicenter new` (ADR-0858) is the default, and a starter
 carries the same lines, since a starter is developed in ordinary clones
 outside any Epicenter. Epicenter writes nothing into a clone's `.git/`:
-no `info/exclude`, hooks, or config. A starter that leaves `node_modules/` or
-`.cache/` out of its `.gitignore` gets them committed, the same as in any
+no `info/exclude`, hooks, or config. A starter whose `.gitignore` leaves out
+`node_modules/` or its UI's `build/` gets them committed, the same as in any
 repository.
 
 **The command line.**
@@ -116,7 +116,7 @@ epicenter --help | --version
 ```
 
 `build` is its own verb because the UI project's own `bun run build` empties
-`.cache/ui/` before writing it, so a page served meanwhile is missing, and a
+`ui/build/` before writing it, so a page served meanwhile is missing, and a
 failed build leaves none; `epicenter build` keeps the last one that built.
 
 **On the tailnet, separation is ports, not sign-in.** Each Epicenter is

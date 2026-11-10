@@ -24,7 +24,7 @@ can see; the world is everything Git cannot undo.
 ```txt
 the folder   the app's files     what each path becomes is ADR-0858's: tracked
                                  paths are history, .local paths stay on this
-                                 computer, .cache/ is rebuilt
+                                 computer, and rebuilt files are ignored
 the world    Gmail, a server     keeps its own state; undone, if at all, by the world
 ```
 
