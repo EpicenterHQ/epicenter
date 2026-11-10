@@ -116,11 +116,11 @@ export function defineApp<I extends Record<string, Input>, A extends Actions>(
  * named one of its words.
  */
 export const COMMANDS = {
-	new: 'epicenter new <name>',
-	install: 'epicenter install <path|git url> [<name>] | install <app>',
+	new: 'epicenter new <name> [--from <git url|path>]',
+	update: 'epicenter update [<app>]',
 	link: 'epicenter link <folder> [<name>]',
 	sync: 'epicenter sync [<app>]',
-	serve: 'epicenter serve [--port <n>] [--host <address>] | serve --stdio',
+	serve: 'epicenter serve [--port <n>] [--host <address>] [--stdio]',
 } as const;
 
 export type Command = keyof typeof COMMANDS;

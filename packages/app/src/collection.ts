@@ -21,7 +21,7 @@
  * neither is listed and read, its whole text as body, and `set` refuses it.
  *
  * `set` merges as JSON Merge Patch (RFC 7396) does: a field given as `null`
- * is removed, and one not given is kept. It checks its input against the
+ * is removed, and one not given is kept; given nothing, it refuses. It checks its input against the
  * collection's fields before writing, with `format` asserted, and a new file
  * must have every required field. A field a hand edit made wrong is kept;
  * nothing re-checks the fields `set` was not given.
@@ -251,6 +251,8 @@ export function collectionActions(
 			const path = pathOf(input);
 			const { body, ...rest } = input;
 			if (keyName) delete rest[keyName];
+			if (Object.keys(rest).length === 0 && body === undefined)
+				throw new Error(`Nothing to set in ${path}: give a field, or the body`);
 			const removed = Object.keys(rest).filter((key) => rest[key] === null);
 			const given = without(rest as Fields, removed);
 			const text = await folder.read(path);
@@ -322,6 +324,36 @@ export function collectionActions(
 		[`${name} set`]: set,
 		[`${name} delete`]: remove,
 	};
+}
+
+/**
+ * Each file of `collection` that does not fit its fields, as
+ * `<path>: <what is wrong>`: what `epicenter update` lists after merging a
+ * starter's changes, for whoever repairs them (ADR-0866). A file without front
+ * matter is checked as having no fields.
+ */
+export async function misfits(
+	collection: Collection,
+	folder: Context['folder'],
+): Promise<string[]> {
+	const template = pathTemplate(collection.path);
+	const paths = template
+		? (await folder.list(template.dir || undefined)).filter((path) => {
+				const key = template.pattern.exec(path)?.[1];
+				return key !== undefined && KEY_PATTERN.test(key);
+			})
+		: [collection.path];
+	const found: string[] = [];
+	for (const path of paths) {
+		const text = await folder.read(path);
+		if (text === undefined) continue;
+		const read = readMarkdown(text);
+		const problem = read.writable
+			? firstProblem(collection.fields as TSchema, read.fields)
+			: 'its front matter is neither key: <JSON> lines nor YAML';
+		if (problem) found.push(`${path}: ${problem}`);
+	}
+	return found;
 }
 
 /** Every collection's actions in a declaration, keyed by their words. */

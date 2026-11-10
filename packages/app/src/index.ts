@@ -15,6 +15,7 @@ export {
 export {
 	collectionActions,
 	collectionProblems,
+	misfits,
 	pathTemplate,
 } from './collection.ts';
 export {

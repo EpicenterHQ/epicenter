@@ -146,6 +146,15 @@ describe('a Markdown collection', () => {
 		expect(await context.folder.read('items/a.md')).toBe(text);
 	});
 
+	test('set given no field and no body refuses, and writes nothing', async () => {
+		const text = '---\nkind: "thought"\n---\nKeep me.\n';
+		const context = createMemoryContext({ 'items/a.md': text });
+		expect(run('items set', { id: 'a' }, context)).rejects.toThrow(
+			'Nothing to set in items/a.md: give a field, or the body',
+		);
+		expect(await context.folder.read('items/a.md')).toBe(text);
+	});
+
 	test('get names a missing file', async () => {
 		expect(
 			run('items get', { id: 'nope' }, createMemoryContext()),
