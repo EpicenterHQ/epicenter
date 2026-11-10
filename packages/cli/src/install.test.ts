@@ -82,6 +82,27 @@ test('install <app> installs again from the recorded source, overwriting an edit
 	);
 });
 
+test('install records a new source even when the code it copies is unchanged', async () => {
+	const f = await fixture();
+	roots.push(f.root);
+	const files = {
+		'epicenter.json': readingApp['epicenter.json'],
+		'epicenter.ts': readingApp['epicenter.ts'],
+	};
+	const first = await f.folder(join(f.root, 'code', 'reading'), files);
+	const moved = await f.folder(join(f.root, 'moved', 'reading'), files);
+	expect((await f.run('install', first)).code).toBe(0);
+	expect((await f.run('install', first)).code).toBe(0);
+	const app = join(f.home, 'reading');
+	// The same source again commits nothing.
+	expect(await gitIn(app, 'log', '--format=%s')).toBe(
+		'install reading\nnew reading',
+	);
+	expect((await f.run('install', moved)).code).toBe(0);
+	expect(await trailer(app, 'Source')).toBe(moved);
+	expect(await gitIn(app, 'show', '--format=', '--name-only', 'HEAD')).toBe('');
+});
+
 test('install runs the source build with the mount path into .cache/view/, committing none of it', async () => {
 	const f = await fixture();
 	roots.push(f.root);

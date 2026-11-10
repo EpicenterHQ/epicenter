@@ -244,7 +244,8 @@ export async function installCommand(
 				'--',
 				...paths,
 			]);
-			if (staged.code !== 0) {
+			// Also when only the source moved, so `install <name>` finds where to install from.
+			if (staged.code !== 0 || (await recordedSource(target)) !== source) {
 				const commit = await sourceCommit(folder);
 				const trailers = [
 					`Source: ${source}`,
@@ -253,6 +254,7 @@ export async function installCommand(
 				await checkedGit(target, [
 					'commit',
 					'-q',
+					'--allow-empty',
 					'-m',
 					`install ${chosen}\n\n${trailers.join('\n')}`,
 					'--',
