@@ -11,8 +11,8 @@ directly inside it with an `epicenter.ts`, each a Git repository of its own
 the current folder), else `EPICENTER_ROOT`, else `~/Epicenter`; a computer may
 hold several, such as one per person. `epicenter serve` offers one
 Epicenter's actions over MCP at `/` and each app's UI at `/<app>/`, on the
-`port` in its `EPICENTER.md` front matter (4747 when absent). A folder still
-marked by `epicenter.root.json` is refused until `EPICENTER.md` replaces it.
+`port` in its `EPICENTER.md` front matter (4747 when absent).
+
 An app can start from a starter, a repository with no data, which it keeps as
 its `upstream` remote; `epicenter update` merges the starter's later changes
 and builds the UI (ADR-0866). Capture, Reading, Tasks, and Vocab are starters' source

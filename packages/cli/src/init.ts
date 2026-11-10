@@ -10,9 +10,7 @@ import {
 	DEFAULT_PORT,
 	folderPath,
 	isMarked,
-	isMarkedOnlyByOld,
 	MARKER,
-	oldMarkerRefusal,
 } from './root.ts';
 
 /** The marker for an Epicenter served on `port`: a note for people, its port in the front matter. */
@@ -64,11 +62,6 @@ export async function initCommand(
 		given.values.port === undefined ? DEFAULT_PORT : portOf(given.values.port);
 	if (port === undefined) return fail(misuse('init', BAD_PORT), json);
 	const folder = actualFolder(folderPath(path ?? '.'));
-	if (isMarkedOnlyByOld(folder))
-		return fail(
-			CliError.Usage({ message: oldMarkerRefusal(folder) }).error,
-			json,
-		);
 	if (isMarked(folder))
 		return fail(
 			CliError.Usage({ message: `${folder} is already an Epicenter` }).error,

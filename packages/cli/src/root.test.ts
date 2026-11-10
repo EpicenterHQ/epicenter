@@ -120,25 +120,15 @@ test('the marker is found from inside an app, and its front matter is checked fi
 	const listed = async () => f.runIn(join(inside, 'notes'), '--json');
 	await writeFile(
 		marker,
-		'---\nport: 4800\nowners: ["braden@example.com"]\npublic: 10000\n---\nNotes for people.\n',
+		'---\nport: 4800\n---\nNotes for people.\n',
 	);
 	expect(JSON.parse((await listed()).stdout).epicenter).toBe(f.home);
-	await writeFile(
-		marker,
-		'---\nowners:\n  - braden@example.com\n  - bryce@example.com\n---\n',
-	);
-	expect((await listed()).code).toBe(0);
-	await writeFile(
-		marker,
-		'---\nport: 70000\nowners: "braden"\npublic: 80\nprot: 4748\n---\n',
-	);
+	await writeFile(marker, '---\nport: 70000\nprot: 4748\n---\n');
 	const refused = await listed();
 	expect(refused.code).toBe(2);
 	expect(JSON.parse(refused.stdout).error.message.split('\n')).toEqual([
 		`${marker}: port: 70000 is not a whole number from 0 to 65535`,
-		`${marker}: owners: "braden" is not a list of logins`,
-		`${marker}: public: 80 is not 443, 8443, or 10000, the ports Funnel publishes`,
-		`${marker}: prot is not a field; the fields are port, owners, and public`,
+		`${marker}: prot is not a field; the only field is port`,
 	]);
 	await writeFile(marker, '---\nport: [unclosed\n---\n');
 	expect(JSON.parse((await listed()).stdout).error.message).toBe(
@@ -171,39 +161,10 @@ test('the marker is matched by its exact name, and a byte order mark before its 
 	const marker = join(f.home, 'EPICENTER.md');
 	await writeFile(marker, '\uFEFF---\nprot: 4748\n---\n');
 	expect(JSON.parse((await f.run('--json')).stdout).error.message).toBe(
-		`${marker}: prot is not a field; the fields are port, owners, and public`,
+		`${marker}: prot is not a field; the only field is port`,
 	);
 	await writeFile(marker, '\uFEFF---\nport: 4800\n---\n');
 	expect((await f.run('--json')).code).toBe(0);
-});
-
-test('a folder marked only by epicenter.root.json is refused with the step that replaces it', async () => {
-	const f = await setup();
-	await rm(join(f.home, 'EPICENTER.md'));
-	await writeFile(
-		join(f.home, 'epicenter.root.json'),
-		JSON.stringify({ id: 'old', port: 4748 }),
-	);
-	const app = await f.folder(join(f.home, 'reading'), {
-		'epicenter.ts': bareApp('reading'),
-	});
-	const step = `${f.home} is marked by epicenter.root.json, which epicenter no longer reads; write EPICENTER.md with port: 4748, then delete epicenter.root.json`;
-	for (const cwd of [f.root, app]) {
-		const refused = await f.runIn(cwd, '--json');
-		expect(refused.code).toBe(2);
-		expect(JSON.parse(refused.stdout).error).toEqual({
-			name: 'Usage',
-			message: step,
-		});
-	}
-	expect(
-		JSON.parse((await f.run('init', f.home, '--json')).stdout).error,
-	).toEqual({
-		name: 'Usage',
-		message: step,
-	});
-	await writeFile(join(f.home, 'EPICENTER.md'), '---\nport: 4748\n---\n');
-	expect((await f.runIn(app, '--json')).code).toBe(0);
 });
 
 test('build reports each app and keeps the last good UI after failure', async () => {
