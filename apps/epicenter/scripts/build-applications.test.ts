@@ -1,6 +1,5 @@
 /**
- * Every declared compiled application actually builds, and is served below its
- * id.
+ * Every declared compiled application builds with its expected base path.
  *
  * This is the only check that runs each application's real Epicenter build. It
  * goes through Epicenter's own `build:<id>` script, so a declared application
@@ -37,7 +36,7 @@ async function run(script: string, cwd: string): Promise<void> {
 describe('compiled application builds', () => {
 	for (const application of COMPILED_APPLICATIONS) {
 		test(
-			`${application.title} builds and is served below its id`,
+			`${application.title} builds with its /apps/${application.id}/ base path`,
 			async () => {
 				await run(`build:${application.id}`, epicenterDir);
 
