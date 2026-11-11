@@ -45,7 +45,7 @@ export function shelves(books: Book[]): Shelf[] {
 
 /**
  * The page of the book at `path`: the hash route is the path itself,
- * `#/books/Dune.md`, each part encoded so any title survives.
+ * `#/data/books/Dune.md`, each part encoded so any title survives.
  */
 export const hrefOf = (path: string) => `#/${path.split('/').map(encodeURIComponent).join('/')}`;
 

@@ -12,7 +12,7 @@ import {
  * `started` alone one I am reading, and `finished` one I have read.
  */
 const books = defineCollection({
-	path: 'books/{title}.md',
+	path: 'data/books/{title}.md',
 	description: 'book',
 	fields: {
 		author: field.text({ optional: true, description: 'Who wrote it' }),
@@ -37,7 +37,7 @@ const title = field.text({ description: 'The title, as on the cover: Dune' });
 
 const start = defineAction({
 	description:
-		'Start reading a book today, adding books/<title>.md when it is not there. A book I am already reading keeps its day; one I finished starts again, its finished day cleared',
+		'Start reading a book today, adding data/books/<title>.md when it is not there. A book I am already reading keeps its day; one I finished starts again, its finished day cleared',
 	input: { title, author: books.fields.author },
 	positional: ['title'],
 	annotations: { destructiveHint: false, openWorldHint: false },
@@ -54,7 +54,7 @@ const start = defineAction({
 
 const finish = defineAction({
 	description:
-		'Finish a book today, with a rating from 1 to 5 if I give one, adding books/<title>.md when it is not there. A book already finished keeps its day',
+		'Finish a book today, with a rating from 1 to 5 if I give one, adding data/books/<title>.md when it is not there. A book already finished keeps its day',
 	input: { title, rating: books.fields.rating },
 	positional: ['title', 'rating'],
 	annotations: { destructiveHint: false, openWorldHint: false },

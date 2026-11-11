@@ -8,7 +8,7 @@ import {
 } from '@epicenter/app';
 
 const words = defineCollection({
-	path: 'words/{word}.md',
+	path: 'data/words/{word}.md',
 	description: 'word I am learning',
 	fields: {
 		meaning: field.text({
@@ -157,7 +157,7 @@ function nextFor(word: Pick<Word, 'interval' | 'ease' | 'reps'>, now: Date) {
 /** `add`: a word already saved is returned as it is, with `added: false`. */
 const learn = defineAction({
 	description:
-		'Add a word to learn, due for review now: words/<word>.md with its meaning, reading, and examples. A word already saved is returned unchanged, with added false',
+		'Add a word to learn, due for review now: data/words/<word>.md with its meaning, reading, and examples. A word already saved is returned unchanged, with added false',
 	input: {
 		word: field.text({ description: 'The word or phrase, as written: 你好' }),
 		meaning: field.text({ optional: true, description: 'What it means' }),
@@ -197,7 +197,7 @@ const review = defineAction({
 	description:
 		'Grade how well I remembered a word (again, hard, good, easy) and schedule its next review by SM-2. Returns the new schedule, and when each grade would make it due if it were reviewed again now',
 	input: {
-		path: field.text({ description: "The word's file: words/你好.md" }),
+		path: field.text({ description: "The word's file: data/words/你好.md" }),
 		grade: field.select(GRADES, {
 			description:
 				'again: forgot it; hard: barely; good: remembered; easy: instantly',

@@ -1,5 +1,5 @@
 <!--
-	One task's page, at the task's path: `#/tasks/<time>.md`. Keyed by the
+	One task's page, at the task's path: `#/data/tasks/<time>.md`. Keyed by the
 	path so each task gets its own editor.
 -->
 <script lang="ts">

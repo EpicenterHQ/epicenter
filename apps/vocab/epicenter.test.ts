@@ -80,7 +80,7 @@ describe('schedule', () => {
 describe('actions', () => {
 	const { add, review: grade, due } = vocab.actions;
 
-	test('add writes words/<word>.md and returns an existing word unchanged', async () => {
+	test('add writes data/words/<word>.md and returns an existing word unchanged', async () => {
 		const context = createMemoryContext({});
 		const added = await inRun(context, () =>
 			add({
@@ -91,11 +91,11 @@ describe('actions', () => {
 			}),
 		);
 		expect(added).toMatchObject({
-			path: 'words/你好.md',
+			path: 'data/words/你好.md',
 			meaning: 'hello',
 			added: true,
 		});
-		const text = await context.folder.read('words/你好.md');
+		const text = await context.folder.read('data/words/你好.md');
 		expect(text).toContain('meaning: "hello"\nreading: "nǐ hǎo"\ncreatedAt: ');
 		expect(text?.endsWith('---\n你好，我叫小明。\n')).toBe(true);
 
@@ -121,22 +121,22 @@ describe('actions', () => {
 		await inRun(context, () => add({ word: '再见', meaning: 'goodbye' }));
 		const paths = async () =>
 			(await inRun(context, () => due({}))).map((word) => word.path);
-		expect((await paths()).sort()).toEqual(['words/再见.md', 'words/谢谢.md']);
+		expect((await paths()).sort()).toEqual(['data/words/再见.md', 'data/words/谢谢.md']);
 
 		const graded = await inRun(context, () =>
-			grade({ path: 'words/谢谢.md', grade: 'good' }),
+			grade({ path: 'data/words/谢谢.md', grade: 'good' }),
 		);
 		expect(graded).toMatchObject({
-			path: 'words/谢谢.md',
+			path: 'data/words/谢谢.md',
 			interval: 1,
 			reps: 1,
 		});
-		const text = await context.folder.read('words/谢谢.md');
+		const text = await context.folder.read('data/words/谢谢.md');
 		expect(text).toContain('meaning: "thanks"');
 		expect(text).toContain('interval: 1\n');
 
 		const left = await inRun(context, () => due({}));
-		expect(left.map((word) => word.path)).toEqual(['words/再见.md']);
+		expect(left.map((word) => word.path)).toEqual(['data/words/再见.md']);
 		expect(left[0]?.next.good).toBe(schedule({}, 'good', new Date()).due);
 	});
 
@@ -146,43 +146,43 @@ describe('actions', () => {
 		const { set } = vocab.actions;
 		await expect(
 			inRun(context, () =>
-				set({ path: 'words/谢谢.md', interval: 9 } as never),
+				set({ path: 'data/words/谢谢.md', interval: 9 } as never),
 			),
 		).rejects.toThrow("interval is written only by the app's own actions");
 	});
 
 	test('due puts words reviewed before ahead of new ones, the most overdue first', async () => {
 		const context = createMemoryContext({
-			'words/new.md': '---\ncreatedAt: "2026-01-01T00:00:00Z"\n---\n',
-			'words/late.md':
+			'data/words/new.md': '---\ncreatedAt: "2026-01-01T00:00:00Z"\n---\n',
+			'data/words/late.md':
 				'---\ncreatedAt: "2026-01-02T00:00:00Z"\ndue: "2026-02-01T00:00:00Z"\n---\n',
-			'words/later.md':
+			'data/words/later.md':
 				'---\ncreatedAt: "2026-01-03T00:00:00Z"\ndue: "2026-03-01T00:00:00Z"\n---\nexample\n',
-			'words/future.md':
+			'data/words/future.md':
 				'---\ncreatedAt: "2026-01-03T00:00:00Z"\ndue: "2999-01-01T00:00:00Z"\n---\n',
 		});
 		const words = await inRun(context, () => due({}));
 		expect(words.map((word) => word.path)).toEqual([
-			'words/late.md',
-			'words/later.md',
-			'words/new.md',
+			'data/words/late.md',
+			'data/words/later.md',
+			'data/words/new.md',
 		]);
 		expect(words[1]?.body).toBe('example\n');
 	});
 
 	test('a due written by hand that is not a date and time makes the word due now, and says why', async () => {
 		const context = createMemoryContext({
-			'words/null.md':
+			'data/words/null.md':
 				'---\ncreatedAt: "2026-01-01T00:00:00Z"\ndue: null\n---\n',
-			'words/soon.md':
+			'data/words/soon.md':
 				'---\ncreatedAt: "2026-01-02T00:00:00Z"\ndue: "next week"\n---\n',
-			'words/undated.md': '---\nmeaning: "no createdAt"\n---\n',
+			'data/words/undated.md': '---\nmeaning: "no createdAt"\n---\n',
 		});
 		const words = await inRun(context, () => due({}));
 		expect(words.map((word) => word.path)).toEqual([
-			'words/null.md',
-			'words/soon.md',
-			'words/undated.md',
+			'data/words/null.md',
+			'data/words/soon.md',
+			'data/words/undated.md',
 		]);
 		expect(words[0]).toMatchObject({
 			word: 'null',
@@ -196,12 +196,12 @@ describe('actions', () => {
 	test('two reviews of one word at once both count', async () => {
 		const context = createMemoryContext({});
 		await inRun(context, () => add({ word: '谢谢' }));
-		const at = { path: 'words/谢谢.md', grade: 'good' } as const;
+		const at = { path: 'data/words/谢谢.md', grade: 'good' } as const;
 		await Promise.all([
 			inRun(context, () => grade(at)),
 			inRun(context, () => grade(at)),
 		]);
-		const text = await context.folder.read('words/谢谢.md');
+		const text = await context.folder.read('data/words/谢谢.md');
 		expect(text).toContain('reps: 2\n');
 		expect(text).toContain('interval: 6\n');
 	});
@@ -209,8 +209,8 @@ describe('actions', () => {
 	test('review of a word that is not there throws', async () => {
 		await expect(
 			inRun(createMemoryContext({}), () =>
-				grade({ path: 'words/missing.md', grade: 'good' }),
+				grade({ path: 'data/words/missing.md', grade: 'good' }),
 			),
-		).rejects.toThrow('There is no words/missing.md');
+		).rejects.toThrow('There is no data/words/missing.md');
 	});
 });

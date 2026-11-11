@@ -10,7 +10,7 @@ import {
 const PREVIEW = 280;
 
 const captures = defineCollection({
-	path: 'captures/{time}.md',
+	path: 'data/captures/{time}.md',
 	description: 'capture',
 	fields: {
 		capturedAt: field.datetime({
@@ -47,7 +47,7 @@ function instant(capturedAt: string | undefined): number {
 
 const add = defineAction({
 	description:
-		'Capture something now: a new captures/<time>.md holding the text, named by the time',
+		'Capture something now: a new data/captures/<time>.md holding the text, named by the time',
 	input: { text: field.text() },
 	positional: ['text'],
 	annotations: { destructiveHint: false, openWorldHint: false },

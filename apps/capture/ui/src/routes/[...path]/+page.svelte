@@ -1,5 +1,5 @@
 <!--
-	One capture's page, at the capture's path: `#/captures/<time>.md`. Keyed
+	One capture's page, at the capture's path: `#/data/captures/<time>.md`. Keyed
 	by the path so each capture gets its own view.
 -->
 <script lang="ts">

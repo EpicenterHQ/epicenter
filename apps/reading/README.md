@@ -16,8 +16,8 @@ rating: 5
 Fear is the mind-killer.
 ```
 
-`books/<title>.md`, named by its title as typed (NFC, trimmed, single
-spaces), such as `books/Dune.md`; that path is the book's address, and the
+`data/books/<title>.md`, named by its title as typed (NFC, trimmed, single
+spaces), such as `data/books/Dune.md`; that path is the book's address, and the
 title comes from it. Every field may be absent. `started` and `finished` are
 days; `rating` is a whole number from 1 to 5. The notes are the body, in
 Markdown.
@@ -39,7 +39,7 @@ no `started` is a book I mean to read, `started` alone one I am reading, and
 epicenter reading add "Piranesi" --author "Susanna Clarke"
 epicenter reading start "Project Hail Mary"
 epicenter reading finish Dune 5
-epicenter reading set books/Dune.md --rating null
+epicenter reading set data/books/Dune.md --rating null
 ```
 
 `start` and `finish` take the title a person types and write today's day in
@@ -51,7 +51,7 @@ already being read changes nothing and commits nothing.
 `ui/`: the shelves (`#/`) with a quick add for a book to read, then Reading,
 To read, and Read, each book with its author and its day; a book to read
 starts with one tap, and one being read finishes with one. A book's page is
-at its path (`#/books/Dune.md`): it edits the author, the two days, and the
+at its path (`#/data/books/Dune.md`): it edits the author, the two days, and the
 rating, each saved when it changes, and the notes, saved with `edit` when
 they lose focus or the page is hidden, quoting them as loaded, so notes an
 agent changed meanwhile are not overwritten without asking. The list asks
