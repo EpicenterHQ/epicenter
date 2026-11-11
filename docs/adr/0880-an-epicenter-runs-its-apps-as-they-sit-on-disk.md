@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-11-11
-- **Unbuilt:** all of it. Today a call commits exactly the paths it wrote through `folder` (`packages/cli/src/run.ts`); a data commit's `Code-Commit` names `HEAD` whatever the code on disk was; a UI is rebuilt from the code repository's `HEAD` in a detached worktree, stamped with that commit (`ui.ts`); the first-party UIs are SvelteKit projects with their own `ui/package.json`, built with `EPICENTER_BASE`; nothing installs an app's own packages; `@epicenter/app` is linked from the command's source folder, which a compiled `epicenter` does not have.
+- **Unbuilt:** the UI fingerprint build and serving; removal of the detached worktree, commit stamp, `EPICENTER_BASE`, and `ui/package.json`; starters off SvelteKit and Vite; a compiled epicenter writing its own copy of `@epicenter/app`. Call commits, captured Code-Commit and Code-Dirty, idle clock skips, and app package installation are built.
 - **Relates:** [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (a call's commit; the lock; the clock), [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (an app's UI), [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (code runs where its owner trusts it), [ADR-0873](0873-the-command-is-epicenter-cli-and-it-supplies-epicenter-app-to-every-app.md) (the command supplies `@epicenter/app`), [ADR-0876](0876-an-apps-records-live-under-data-and-everything-else-in-it-is-code.md) (`data/`), [ADR-0877](0877-an-apps-code-and-its-data-are-two-repositories-and-sharing-an-app-shares-its-code.md) (two repositories, `Code-Commit`).
 
 ## Context
@@ -48,7 +48,7 @@ sharing, never deployment.**
   `node_modules`, at the app's top, for its actions, its UI and its tests.
   `ui/` is a folder of source, not a project. `epicenter new`, `update`, and
   `install` install from the lock; an agent adding a package runs `bun add`,
-  which installs. Nothing installs on a call.
+  which installs. After `bun add`, run `epicenter install <app>` to restore the supplied @epicenter/app link, which Bun can remove. Nothing installs on a call.
 - **`@epicenter/app` comes from the command.** `epicenter` links
   `node_modules/@epicenter/app` to its own copy after every install
   (ADR-0873), and no app lists it. A compiled `epicenter` writes the package
