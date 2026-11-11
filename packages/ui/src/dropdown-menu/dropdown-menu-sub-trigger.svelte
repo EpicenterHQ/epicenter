@@ -1,7 +1,8 @@
 <script lang="ts">
-	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
-	import { DropdownMenu as DropdownMenuPrimitive } from 'bits-ui';
-	import { cn } from '../utils.js';
+	import ChevronRightIcon from "@lucide/svelte/icons/chevron-right";
+	import { DropdownMenu as DropdownMenuPrimitive } from "bits-ui";
+	// Epicenter: Capture and Whispering use dropdown menus; this package cannot import the registry's app-local icon placeholder.
+	import { cn } from "../utils.js";
 
 	let {
 		ref = $bindable(null),
@@ -20,10 +21,10 @@
 	data-inset={inset}
 	class={cn(
 		"focus:bg-accent focus:text-accent-foreground data-open:bg-accent data-open:text-accent-foreground not-data-[variant=destructive]:focus:**:text-accent-foreground gap-2 rounded-sm px-2 py-1.5 text-sm data-inset:pl-8 [&_svg:not([class*='size-'])]:size-4 flex cursor-default items-center outline-hidden select-none [&_svg]:pointer-events-none [&_svg]:shrink-0",
-		className,
+		className
 	)}
 	{...restProps}
 >
 	{@render children?.()}
-	<ChevronRightIcon class="ms-auto size-4" />
+	<ChevronRightIcon class="cn-rtl-flip ml-auto" />
 </DropdownMenuPrimitive.SubTrigger>

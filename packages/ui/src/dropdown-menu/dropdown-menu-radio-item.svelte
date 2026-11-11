@@ -1,6 +1,7 @@
 <script lang="ts">
+	import CheckIcon from "@lucide/svelte/icons/check";
 	import { DropdownMenu as DropdownMenuPrimitive } from "bits-ui";
-	import CheckIcon from '@lucide/svelte/icons/check';
+	// Epicenter: Capture and Whispering use dropdown menus; this package cannot import the registry's app-local icon placeholder.
 	import { cn, type WithoutChild } from "../utils.js";
 
 	let {

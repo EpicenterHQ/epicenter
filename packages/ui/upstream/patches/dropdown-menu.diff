@@ -1,0 +1,98 @@
+Epicenter: use package-local Lucide icons because the registry's $lib icon
+placeholder cannot resolve in @epicenter/ui. Capture's CaptureView and
+Whispering's TranscriptCard import DropdownMenu.Root through the index, which
+also imports the checkbox, radio and submenu parts.
+
+diff --git a/dropdown-menu/dropdown-menu-checkbox-item.svelte b/dropdown-menu/dropdown-menu-checkbox-item.svelte
+index 115176a..33606dd 100644
+--- a/dropdown-menu/dropdown-menu-checkbox-item.svelte
++++ b/dropdown-menu/dropdown-menu-checkbox-item.svelte
+@@ -1,6 +1,8 @@
+ <script lang="ts">
++	import CheckIcon from "@lucide/svelte/icons/check";
++	import MinusIcon from "@lucide/svelte/icons/minus";
+ 	import { DropdownMenu as DropdownMenuPrimitive } from "bits-ui";
+-	import IconPlaceholder from "$lib/components/icon-placeholder/icon-placeholder.svelte";
++	// Epicenter: Capture and Whispering use dropdown menus; this package cannot import the registry's app-local icon placeholder.
+ 	import { cn, type WithoutChildrenOrChild } from "../utils.js";
+ 	import type { Snippet } from "svelte";
+ 
+@@ -35,21 +37,9 @@
+ 			data-slot="dropdown-menu-checkbox-item-indicator"
+ 		>
+ 			{#if indeterminate}
+-				<IconPlaceholder
+-					lucide="MinusIcon"
+-					tabler="IconMinus"
+-					hugeicons="MinusSignIcon"
+-					phosphor="MinusIcon"
+-					remixicon="RiSubtractLine"
+-				/>
++				<MinusIcon />
+ 			{:else if checked}
+-				<IconPlaceholder
+-					lucide="CheckIcon"
+-					tabler="IconCheck"
+-					hugeicons="Tick02Icon"
+-					phosphor="CheckIcon"
+-					remixicon="RiCheckLine"
+-				/>
++				<CheckIcon />
+ 			{/if}
+ 		</span>
+ 		{@render childrenProp?.()}
+diff --git a/dropdown-menu/dropdown-menu-radio-item.svelte b/dropdown-menu/dropdown-menu-radio-item.svelte
+index 55879d8..961bd29 100644
+--- a/dropdown-menu/dropdown-menu-radio-item.svelte
++++ b/dropdown-menu/dropdown-menu-radio-item.svelte
+@@ -1,6 +1,7 @@
+ <script lang="ts">
++	import CheckIcon from "@lucide/svelte/icons/check";
+ 	import { DropdownMenu as DropdownMenuPrimitive } from "bits-ui";
+-	import IconPlaceholder from "$lib/components/icon-placeholder/icon-placeholder.svelte";
++	// Epicenter: Capture and Whispering use dropdown menus; this package cannot import the registry's app-local icon placeholder.
+ 	import { cn, type WithoutChild } from "../utils.js";
+ 
+ 	let {
+@@ -28,13 +29,7 @@
+ 			data-slot="dropdown-menu-radio-item-indicator"
+ 		>
+ 			{#if checked}
+-				<IconPlaceholder
+-					lucide="CheckIcon"
+-					tabler="IconCheck"
+-					hugeicons="Tick02Icon"
+-					phosphor="CheckIcon"
+-					remixicon="RiCheckLine"
+-				/>
++				<CheckIcon />
+ 			{/if}
+ 		</span>
+ 		{@render childrenProp?.({ checked })}
+diff --git a/dropdown-menu/dropdown-menu-sub-trigger.svelte b/dropdown-menu/dropdown-menu-sub-trigger.svelte
+index 0272609..557b102 100644
+--- a/dropdown-menu/dropdown-menu-sub-trigger.svelte
++++ b/dropdown-menu/dropdown-menu-sub-trigger.svelte
+@@ -1,6 +1,7 @@
+ <script lang="ts">
++	import ChevronRightIcon from "@lucide/svelte/icons/chevron-right";
+ 	import { DropdownMenu as DropdownMenuPrimitive } from "bits-ui";
+-	import IconPlaceholder from "$lib/components/icon-placeholder/icon-placeholder.svelte";
++	// Epicenter: Capture and Whispering use dropdown menus; this package cannot import the registry's app-local icon placeholder.
+ 	import { cn } from "../utils.js";
+ 
+ 	let {
+@@ -25,12 +26,5 @@
+ 	{...restProps}
+ >
+ 	{@render children?.()}
+-	<IconPlaceholder
+-		lucide="ChevronRightIcon"
+-		tabler="IconChevronRight"
+-		hugeicons="ArrowRight01Icon"
+-		phosphor="CaretRightIcon"
+-		remixicon="RiArrowRightSLine"
+-		class="cn-rtl-flip ml-auto"
+-	/>
++	<ChevronRightIcon class="cn-rtl-flip ml-auto" />
+ </DropdownMenuPrimitive.SubTrigger>

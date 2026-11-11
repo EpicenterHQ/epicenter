@@ -22,15 +22,11 @@ import {
  * empty.
  */
 const NOT_YET_REBASED = new Set([
-	'alert-dialog',
 	'command',
 	'context-menu',
 	'dialog',
 	'drawer',
-	'dropdown-menu',
-	'field',
 	'input',
-	'item',
 	'popover',
 	'select',
 	'sheet',

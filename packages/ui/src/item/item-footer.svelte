@@ -1,6 +1,6 @@
 <script lang="ts">
-	import type { HTMLAttributes } from 'svelte/elements';
-	import { cn, type WithElementRef } from '../utils.js';
+	import { cn, type WithElementRef } from "../utils.js";
+	import type { HTMLAttributes } from "svelte/elements";
 
 	let {
 		ref = $bindable(null),
@@ -13,7 +13,7 @@
 <div
 	bind:this={ref}
 	data-slot="item-footer"
-	class={cn('gap-2 flex basis-full items-center justify-between', className)}
+	class={cn("gap-2 flex basis-full items-center justify-between", className)}
 	{...restProps}
 >
 	{@render children?.()}

@@ -1,7 +1,7 @@
 <script lang="ts">
-	import type { ComponentProps } from 'svelte';
-	import { Separator } from '../separator/index.js';
-	import { cn } from '../utils.js';
+	import { Separator } from "../separator/index.js";
+	import { cn } from "../utils.js";
+	import type { ComponentProps } from "svelte";
 
 	let {
 		ref = $bindable(null),
@@ -14,6 +14,6 @@
 	bind:ref
 	data-slot="item-separator"
 	orientation="horizontal"
-	class={cn('my-2', className)}
+	class={cn("my-2", className)}
 	{...restProps}
 />
