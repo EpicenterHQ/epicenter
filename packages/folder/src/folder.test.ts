@@ -377,8 +377,7 @@ describe('dispose', () => {
 		folder.subscribe(() => seen.push(folder.state().status));
 		folder[Symbol.dispose]();
 		await tick();
-		expect(closed).toHaveLength(1);
-		expect(store).toBeDefined();
+		expect(closed).toEqual([store]);
 		expect(seen).toEqual(['closed']);
 	});
 

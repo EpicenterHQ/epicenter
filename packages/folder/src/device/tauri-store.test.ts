@@ -37,7 +37,11 @@ mock.module('@tauri-apps/api/core', () => ({
 		if (command === 'plugin:epicenter-folder|list_folder') {
 			listed = body;
 			return [
-				{ path: 'notes/a.md', version: `sha256:${'f'.repeat(64)}`, size: 3 },
+				{
+					path: 'notes/a.md',
+					version: `sha256:${await versionOf(noteBytes)}`,
+					size: noteBytes.byteLength,
+				},
 				{
 					path: 'notes/a.webm',
 					version: 'stamp:v1:3:1000000:3:4',
@@ -50,10 +54,12 @@ mock.module('@tauri-apps/api/core', () => ({
 			reads.push(body?.path ?? '');
 			if (body?.path === 'notes/missing.md')
 				throw { name: 'NotFound', path: body.path };
+			const bytes = body?.path === 'notes/a.md' ? 'note contents' : 'old';
+			const content = new TextEncoder().encode(bytes);
 			return Uint8Array.from([
-				...new TextEncoder().encode('v1:3:1000000:3:4'),
+				...new TextEncoder().encode(`v1:${content.byteLength}:1000000:3:4`),
 				0,
-				...new TextEncoder().encode('old'),
+				...content,
 			]).buffer;
 		}
 		if (command === 'plugin:epicenter-folder|put_folder_file') {
@@ -80,6 +86,7 @@ const store = () =>
 		},
 	});
 const old = new TextEncoder().encode('old');
+const noteBytes = new TextEncoder().encode('note contents');
 
 afterEach(() => {
 	putHeaders = undefined;
@@ -92,7 +99,11 @@ afterEach(() => {
 test('a listing keeps the versions the shell hashed, hashes a stamped file once, and names the root', async () => {
 	const listing = store();
 	const expected = [
-		{ path: 'notes/a.md', version: 'f'.repeat(64) as Version, size: 3 },
+		{
+			path: 'notes/a.md',
+			version: await versionOf(noteBytes),
+			size: noteBytes.byteLength,
+		},
 		{
 			path: 'notes/a.webm',
 			version: await versionOf(old),
@@ -121,10 +132,11 @@ test('a read names every file by its version', async () => {
 		await store().read(['notes/a.md', 'notes/a.webm', 'notes/missing.md']),
 	);
 	expect(readArgs).toEqual({ path: 'notes/missing.md', root: ROOT });
+	expect(reads).toEqual(['notes/a.md', 'notes/a.webm', 'notes/missing.md']);
 	expect(note).toEqual({
 		path: 'notes/a.md',
-		bytes: old,
-		version: await versionOf(old),
+		bytes: noteBytes,
+		version: await versionOf(noteBytes),
 	});
 	expect(audio).toMatchObject({
 		path: 'notes/a.webm',
@@ -163,5 +175,5 @@ test('a put sends its expectation, and names what landed by its version', async 
 	landing = 'stale';
 	expect(
 		expectErr(await store().put('notes/a.md', new Uint8Array([3]), exact)),
-	).toMatchObject({ name: 'Moved', now: await versionOf(old) });
+	).toMatchObject({ name: 'Moved', now: await versionOf(noteBytes) });
 });
