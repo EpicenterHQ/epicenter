@@ -109,10 +109,9 @@ const said = await vocab.chat.say({ message }, { onYield: (token) => (draft += t
   Claude can also call.
 - `serve` has two ways in for an action: MCP at `POST /` for agents, and
   `POST /<app>/<action>` for an app's own pages. Both reach the same call
-  (`run.ts`), so the input check, the answer, and the commit are one. On the
-  public address, an action's address takes only a signed-in page of the
-  same origin, as `POST /` does for a session; a token always goes through
-  MCP.
+  (`run.ts`), so the input check, the answer, and the commit are one. An
+  action's address is on the private listener only; a connector at the
+  public address goes through MCP (ADR-0881).
 - Yields are not validated by a schema, as inputs are. They reach only a UI
   the same app wrote, so a wrong shape is that app's bug, caught by its types.
 - A `readOnlyHint` action that yields still commits nothing. A writing action

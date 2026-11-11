@@ -3,9 +3,10 @@
 - **Status:** Proposed
 - **Date:** 2026-11-10
 - **Supersedes:** [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) at "`~/Epicenter` exists on your server and is not moved by an environment variable": the Epicenter is found from where you stand, and `~/Epicenter` is only the fallback. [ADR-0857](0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md) at a folder run by path, and `epicenter link`: every app runs inside an Epicenter.
-- **Amends:** [ADR-0853](0853-collections-give-five-actions-and-programs-without-the-folder-ask-over-mcp.md) at the verbs' names: an app with one collection has them as its own. [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) at the public HTTPS address through Funnel: it is any HTTPS tunnel to a second listener that signs everyone in (ADR-0871). [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) at what a commit takes: never `*.local` or `*.local.*` (since amended by ADR-0850: the app's `.gitignore` leaves them out, and a commit refuses one it lets through).
-- **Relates:** [ADR-0870](0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md) (secrets are `.local` files, so the marker carries no `id`), [ADR-0871](0871-a-public-address-signs-people-in-with-a-passkey-and-connectors-in-with-oauth.md) (the public listener and its sign-in, and `public` and `publicPort`), [ADR-0857](0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md) (an app is its `epicenter.ts`, which places its verbs), [ADR-0866](0866-an-app-starts-from-a-starter-kept-as-its-upstream-and-update-merges-the-starters-changes.md) (starters, `update`), [ADR-0867](0867-the-command-line-spells-an-actions-json-input-and-null-removes-a-field-there-as-everywhere.md) (the command line's input), [ADR-0865](0865-the-epicenter-mac-app-runs-epicenter-serve-so-the-computer-it-is-on-is-your-server.md) (the Mac app that would start each `serve`).
-- **Built:** 2026-11-11: `public` and `publicPort`, the fields ADR-0871 adds to `EPICENTER.md` (`packages/cli/src/root.ts`), read by `serve` and `epicenter access`. (The sign-in for a public address was settled 2026-11-11 by ADR-0871. Whether a write in an app outside any Git repository exits 3 was settled 2026-11-11 by ADR-0850: no run commits, and such an app is never snapshotted, so it exits 0.)
+- **Amends:** [ADR-0853](0853-collections-give-five-actions-and-programs-without-the-folder-ask-over-mcp.md) at the verbs' names: an app with one collection has them as its own. [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) at the public HTTPS address through Funnel: it is any HTTPS tunnel to a second listener that serves only connectors (ADR-0871, ADR-0881). [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) at what a commit takes: never `*.local` or `*.local.*` (since amended by ADR-0850: the app's `.gitignore` leaves them out, and a commit refuses one it lets through).
+- **Relates:** [ADR-0870](0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md) (secrets are `.local` files, so the marker carries no `id`), [ADR-0871](0871-a-public-address-signs-people-in-with-a-passkey-and-connectors-in-with-oauth.md) (the public listener and its OAuth), [ADR-0881](0881-people-reach-an-epicenter-over-the-tailnet-and-its-public-address-serves-only-connectors.md) (the `connectors` block), [ADR-0857](0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md) (an app is its `epicenter.ts`, which places its verbs), [ADR-0866](0866-an-app-starts-from-a-starter-kept-as-its-upstream-and-update-merges-the-starters-changes.md) (starters, `update`), [ADR-0867](0867-the-command-line-spells-an-actions-json-input-and-null-removes-a-field-there-as-everywhere.md) (the command line's input), [ADR-0865](0865-the-epicenter-mac-app-runs-epicenter-serve-so-the-computer-it-is-on-is-your-server.md) (the Mac app that would start each `serve`).
+- **Amended by:** [ADR-0881](0881-people-reach-an-epicenter-over-the-tailnet-and-its-public-address-serves-only-connectors.md): the `connectors` block (`url`, `port`, `tailnet`) replaces `public` and `publicPort`, and `epicenter access` no longer invites or revokes people.
+- **Built:** 2026-11-12: the `connectors` block ADR-0881 adds to `EPICENTER.md` (`packages/cli/src/root.ts`), read by `serve` and `epicenter access`. (The sign-in for a public address was settled 2026-11-11 by ADR-0871. Whether a write in an app outside any Git repository exits 3 was settled 2026-11-11 by ADR-0850: no run commits, and such an app is never snapshotted, so it exits 0.)
 
 ## Context
 
@@ -55,10 +56,11 @@ naming `epicenter init <folder>`. Epicenters do not nest.
 **The marker is `EPICENTER.md`, a note for people with optional front
 matter.** Its name sits beside `AGENTS.md` and `README.md` as a file to read
 first, and its case keeps it apart from an app's `epicenter.ts`. The front
-matter has three optional fields: `port` (4747 when absent; `--port`
-overrides it), and `public` and `publicPort`, which come together: the
-Epicenter's public https origin, and the port on `127.0.0.1`, other than
-`port`, that a tunnel to it targets (ADR-0871). An empty file is a valid
+matter has two optional fields: `port` (4747 when absent; `--port`
+overrides it), and `connectors`, a block of `url`, the public https origin
+connectors reach, `port`, the port on `127.0.0.1`, other than `port`, that a
+tunnel to it targets, and `tailnet`, where the tailnet reaches `serve` and a
+connector is approved (ADR-0881). An empty file is a valid
 marker. A value that does not fit, or any other field, is refused with a
 line naming the field, so a misspelled `port` is never served on 4747
 unnoticed.
@@ -114,7 +116,7 @@ epicenter update [<app>]                   snapshot, merge the starter, build
 epicenter build [<app>]                    build the UI, keeping the last one that built
 epicenter sync [<app>]                     snapshot what is pending, push to origin (ADR-0851)
 epicenter serve [--port <n>] [--host <address>] [--stdio]
-epicenter access [invite [<name>] | revoke <person or connector> [<person>]]   who reaches the public address (ADR-0871)
+epicenter access [revoke <connector>]       the connectors that reach the public address (ADR-0881)
 epicenter --help | --version
 ```
 
@@ -124,8 +126,8 @@ failed build leaves none; `epicenter build` keeps the last one that built.
 
 **On the tailnet, separation is ports, not sign-in.** Each Epicenter is
 served on its own port, and the tailnet's access rules say who reaches which
-port. A public address is a second listener, and it signs in every person
-and connector (ADR-0871). Everyone on one computer
+port. A public address is a second listener, and it serves only connectors
+the owner approved (ADR-0881). Everyone on one computer
 under one user can read every Epicenter's files, `.local` ones included:
 separating people from each other's devices and agents is this design;
 separating them from the computer's administrator is a separate OS user or a
@@ -141,7 +143,8 @@ separate computer, and moving an Epicenter there is moving its folder.
   creates nor checks a remote and would send a moved app's data to the old
   owner's backup.
 - Claude's and ChatGPT's custom connectors connect from their companies'
-  servers and need a public HTTPS address with a sign-in (ADR-0871). Without
+  servers and need a public HTTPS address, where they sign in with OAuth
+  (ADR-0871, ADR-0881). Without
   one, an Epicenter is reached from devices on the tailnet: Claude Code and
   other local agents over SSH or the tailnet address, and the UIs in a
   browser.

@@ -566,6 +566,17 @@ describe('authorizing a connector', () => {
 			t.authorization.isGrantLive({ ...claims, sub: 'someone-else' }),
 		).toBe(false);
 	});
+
+	test('a grant someone other than the owner holds, as one from before ADR-0881, is not listed, and revoking its connector deletes it', async () => {
+		const t = await setup();
+		await connectClaude(t, 'read offline_access');
+		t.authorization.db.exec(`update oauthConsent set userId = 'someone-else'`);
+		expect(listGrants(t.authorization.db)).toEqual([]);
+		revokeConnector(t.authorization.db, CLAUDE_ID);
+		expect(
+			t.authorization.db.query('select count(*) as n from oauthConsent').get(),
+		).toEqual({ n: 0 });
+	});
 });
 
 // ============================================================================

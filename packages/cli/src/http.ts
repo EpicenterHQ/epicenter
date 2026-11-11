@@ -116,7 +116,7 @@ p{color:var(--muted)}
 </style></head><body><main><h1>${escapeHtml(name)}</h1>${items ? `<ul>${items}</ul>` : '<p>No app here has a UI yet.</p>'}</main></body></html>`;
 }
 
-/** What both listeners offer; each decides who may reach it. */
+/** What the private listener serves; the public listener offers only `mcp`, to a connector's token. */
 export type Site = {
 	/** Answer an MCP request. With `readOnly`, list and run only read-only actions. */
 	mcp(request: Request, readOnly?: boolean): Promise<Response>;
@@ -199,7 +199,7 @@ async function exists(path: string) {
 	}
 }
 
-/** The site both listeners serve: MCP, the launcher, and each app's UI. */
+/** The private listener's site: MCP, the launcher, and each app's UI and actions. */
 function createSite(refreshUi: (app: string, folder: string) => unknown): Site {
 	const uiFile = async (app: string, path: string) => {
 		if (!isName(app)) return notFound();

@@ -25,7 +25,7 @@
  *
  * ```txt
  * codeIssued          each authorization code, when SQLite's clock issued it
- * grantRevocation     each revoke of a (client, person), when SQLite's clock ended it
+ * grantRevocation     each revoke of a (client, user), when SQLite's clock ended it
  * verification        a code inserts only under a live consent
  * oauthRefreshToken   a row inserts only under a consent, from a code issued after the last revoke
  * oauthConsent        approving narrower scopes deletes the families that hold more
@@ -481,7 +481,11 @@ const parseScopes = (text: string | null) => {
 	}
 };
 
-/** Every grant, oldest first. */
+/**
+ * Every grant of the owner's, oldest first. A grant a person made before
+ * ADR-0881 is not the owner's, never works again, and is not listed;
+ * revoking its connector still deletes it.
+ */
 export function listGrants(db: Database): Grant[] {
 	return db
 		.query<
@@ -493,7 +497,7 @@ export function listGrants(db: Database): Grant[] {
 				lastRefresh: string | null;
 				families: number;
 			},
-			[string]
+			[string, string]
 		>(
 			`select k.clientId, c.name, k.scopes, k.updatedAt as approved,
 			        (select max(r.createdAt) from oauthRefreshToken r
@@ -502,11 +506,11 @@ export function listGrants(db: Database): Grant[] {
 			          where r.clientId = k.clientId and r.userId = k.userId
 			            and r.revoked is null and r.expiresAt > ?1) as families
 			   from oauthConsent k
+			   join "user" u on u.id = k.userId and u.email = ?2
 			   left join oauthClient c on c.clientId = k.clientId
-			  where k.userId is not null
 			  order by k.createdAt`,
 		)
-		.all(new Date().toISOString())
+		.all(new Date().toISOString(), OWNER_EMAIL)
 		.map(({ clientId, name, scopes, lastRefresh, ...grant }): Grant => {
 			const held = new Set(parseScopes(scopes));
 			const host = cleanText(hostOf(clientId));
