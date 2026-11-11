@@ -9,8 +9,7 @@
  * Key behaviors:
  * - A signed-out boot has one document and never dials
  * - Settings recover application defaults and survive a restart
- * - Settings stay on the DEVICE document across signing in, so they neither
- *   travel to another machine nor disappear when an account opens
+ * - Settings remain readable from the device document after an account opens
  * - Recordings written signed out stay on the device and are not shown to a
  *   signed-in generation, which reads the account replica instead
  * - An aborted boot rejects with the abort and leaves nothing open
@@ -257,7 +256,7 @@ test('settings recover application defaults and survive a restart', async () => 
 	expect(reopened.settings.get('recordingAutoUpload')).toBe(true);
 });
 
-test('settings stay on the device document when an account opens', async () => {
+test('device settings remain readable when an account opens', async () => {
 	await resetStorage();
 	{
 		await using signedOut = await openWhisperingApp(
@@ -271,8 +270,7 @@ test('settings stay on the device document when an account opens', async () => {
 	await using signedIn = await openWhisperingApp(
 		dependencies(announcingAuth('alice')),
 	);
-	// The setting is a fact about this machine, so signing in neither loses it
-	// nor sends it anywhere.
+	// Signing in still reads the setting written while signed out.
 	expect(signedIn.settings.get('recordingAutoUpload')).toBe(true);
 	// The work is portable, so a signed-in generation reads the account replica.
 	// The device recording is retained but hidden; nothing copied it across.
