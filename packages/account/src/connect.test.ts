@@ -10,11 +10,16 @@
  * - In a Tauri window every app signs in through the shell
  */
 import { afterEach, expect, mock, test } from 'bun:test';
+import { expectOk } from 'wellcrafted/testing';
 
 let inTauri = false;
+const shellCommands: string[] = [];
 mock.module('@tauri-apps/api/core', () => ({
 	isTauri: () => inTauri,
-	invoke: async () => null,
+	invoke: async (command: string) => {
+		shellCommands.push(command);
+		return null;
+	},
 	Channel: class {},
 }));
 
@@ -96,9 +101,13 @@ test('a need declared after the account was made is asked for at the next sign-i
 	]);
 });
 
-test('in a Tauri window every app signs in through the shell', () => {
+test('in a Tauri window sign-in asks the shell', async () => {
 	inTauri = true;
+	shellCommands.length = 0;
 	const account = connectAccount({ clientId: 'so.epicenter.todos', api: API });
 	account.need('folders');
 	expect('completeSignIn' in account).toBe(false);
+	expectOk(await account.startSignIn());
+	expect(shellCommands).toEqual(['account_sign_in']);
+	account[Symbol.dispose]();
 });
