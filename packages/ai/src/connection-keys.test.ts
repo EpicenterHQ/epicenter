@@ -1,20 +1,18 @@
 /**
  * The keys in a Tauri window (`connection-keys.ts` when `isTauri()`): the
  * shell holds each connection's key in the app's credentials file, over a
- * stand-in shell.
+ * recording shell.
  *
  * Key behaviors:
  * - The keys say the shell sends each request (`relayed`)
- * - A key is handed to the shell with the endpoint it was entered for; the
- *   page holds none, and a connection's endpoint sends through the shell by
- *   its id
- * - Moving a key to a changed endpoint keeps it only when it was entered
- *   for the endpoint it moves from
+ * - A key and its endpoint are handed to the shell; the page holds none
+ * - A connection's endpoint sends through the shell by its id
+ * - Moving a key sends both endpoint addresses to the shell, which decides
+ *   whether the saved key may move
  */
 import { expect, mock, test } from 'bun:test';
 
-const kept = new Map<string, string>();
-const relayed: { connection?: string | null; url: string }[] = [];
+const commands: { name: string; args?: Record<string, unknown> }[] = [];
 
 mock.module('@tauri-apps/api/core', () => ({
 	isTauri: () => true,
@@ -23,32 +21,12 @@ mock.module('@tauri-apps/api/core', () => ({
 	},
 	transformCallback: () => 0,
 	invoke: async (command: string, args?: Record<string, unknown>) => {
+		commands.push({ name: command, args });
 		switch (command) {
-			case 'connection_key_set': {
-				const { id, endpoint, key } = args as {
-					id: string;
-					endpoint: string;
-					key: string | null;
-				};
-				if (key === null) kept.delete(id);
-				else kept.set(id, JSON.stringify({ endpoint, key }));
+			case 'connection_key_set':
+			case 'connection_key_move':
 				return null;
-			}
-			case 'connection_key_move': {
-				const { id, from, to } = args as { id: string; from: string; to: string };
-				const saved = kept.get(id);
-				if (saved === undefined) return null;
-				const entry = JSON.parse(saved) as { endpoint: string; key: string };
-				if (entry.endpoint === from)
-					kept.set(id, JSON.stringify({ endpoint: to, key: entry.key }));
-				return null;
-			}
 			case 'connection_fetch': {
-				const request = args?.request as {
-					connection?: string | null;
-					url: string;
-				};
-				relayed.push({ connection: request.connection, url: request.url });
 				const onEvent = args?.onEvent as {
 					onmessage: (message: unknown) => void;
 				};
@@ -74,27 +52,37 @@ const record = {
 };
 
 test('a key goes to the shell with its endpoint, and a request goes through the shell by id', async () => {
+	commands.length = 0;
 	expect(connectionKeys.relayed).toBe(true);
 	await connectionKeys.set('c1', record.baseUrl, 'sk-secret');
-	expect(JSON.parse(kept.get('c1') ?? '{}')).toEqual({
-		endpoint: record.baseUrl,
-		key: 'sk-secret',
-	});
+	expect(commands).toEqual([
+		{
+			name: 'connection_key_set',
+			args: { id: 'c1', endpoint: record.baseUrl, key: 'sk-secret' },
+		},
+	]);
 	expect(connectionKeys.keyOf(record)).toBeUndefined();
 	const endpoint = connectionKeys.endpoint(record);
-	await endpoint.fetch?.(`${record.baseUrl}/models`);
-	expect(relayed.at(-1)).toEqual({
-		connection: 'c1',
-		url: `${record.baseUrl}/models`,
+	const response = await endpoint.fetch?.(`${record.baseUrl}/models`);
+	expect(response?.status).toBe(200);
+	expect(commands.at(-1)).toMatchObject({
+		name: 'connection_fetch',
+		args: { request: { connection: 'c1', url: `${record.baseUrl}/models` } },
 	});
 	await connectionKeys.set('c1', '', null);
-	expect(kept.has('c1')).toBe(false);
+	expect(commands.at(-1)).toEqual({
+		name: 'connection_key_set',
+		args: { id: 'c1', endpoint: '', key: null },
+	});
 });
 
-test('a key moves to a changed endpoint only from the one it was entered for', async () => {
-	await connectionKeys.set('c1', 'https://a.test/v1', 'sk');
-	await connectionKeys.move('c1', 'https://other.test/v1', 'https://b.test/v1');
-	expect(JSON.parse(kept.get('c1') ?? '{}').endpoint).toBe('https://a.test/v1');
+test('moving a key sends its former and new endpoint to the shell', async () => {
+	commands.length = 0;
 	await connectionKeys.move('c1', 'https://a.test/v1', 'https://b.test/v1');
-	expect(JSON.parse(kept.get('c1') ?? '{}').endpoint).toBe('https://b.test/v1');
+	expect(commands).toEqual([
+		{
+			name: 'connection_key_move',
+			args: { id: 'c1', from: 'https://a.test/v1', to: 'https://b.test/v1' },
+		},
+	]);
 });

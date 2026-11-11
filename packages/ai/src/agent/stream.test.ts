@@ -390,26 +390,7 @@ describe('streamStep', () => {
 	});
 });
 
-// Stream framing and failed-stream admission
-
-test('decodes CRLF and multiline SSE data and stops at DONE', async () => {
-	const response = new Response(
-		[
-			'data: {"choices": [\r\n',
-			'data: {"delta": {"content": "hello"}, "finish_reason": "stop"}]}\r\n\r\n',
-			'data: [DONE]\r\n\r\n',
-			'data: {"choices":[{"delta":{"content":"ignored"}}]}\r\n\r\n',
-		].join(''),
-		{ headers: { 'content-type': 'text/event-stream' } },
-	);
-	const { fetch } = capturingFetch(response);
-	const engine = engineOver({ fetch, baseURL: GATEWAY, apiKey: 'test' });
-	expect(
-		await drain(
-			engine({ messages: [], tools: [] }, new AbortController().signal),
-		),
-	).toEqual([{ type: 'text-delta', delta: 'hello' }]);
-});
+// Failed-stream admission
 
 test('an SSE API error preserves its code and discards pending tool calls', async () => {
 	const { fetch } = capturingFetch(

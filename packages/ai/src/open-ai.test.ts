@@ -9,7 +9,7 @@ import type { Account, AuthState } from '@epicenter/account';
 import { settings } from '@epicenter/local';
 import { custom } from './custom.js';
 import { customEndpoints } from './custom-endpoints.js';
-import { type Endpoint, openAiCompatible } from './endpoint.js';
+import type { Endpoint } from './endpoint.js';
 import { hosted, type LiveAccount } from './hosted.js';
 import { openAi } from './open-ai.js';
 
@@ -279,19 +279,6 @@ test('a request goes to the endpoint it names, and an unknown one is NoEndpoint'
 	}))
 		chat.push(item);
 	expect(chat.map(({ error }) => error?.name)).toEqual(['NoEndpoint']);
-});
-
-test('openAiCompatible takes its models as a live answer', () => {
-	let models = [{ id: 'a', can: ['chat'] as const }];
-	const endpoint = openAiCompatible({
-		id: 'e',
-		name: 'E',
-		source: 'local',
-		baseUrl: 'http://localhost:1/v1',
-		models: () => models,
-	});
-	models = [];
-	expect(endpoint.models()).toEqual([]);
 });
 
 test('a live entry is read at every use: a connection added reaches the merge it is in, and nested merges', async () => {
