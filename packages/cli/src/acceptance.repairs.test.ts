@@ -5,11 +5,10 @@
  */
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { readFile, rm, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import {
+	connectMcp,
 	fixture,
 	gitignore,
 	header,
@@ -27,12 +26,8 @@ afterEach(async () => {
 	);
 });
 
-/** An app whose actions each exercise one repair; signals pause an action at a known point. */
+/** An app whose actions each exercise one repair. */
 const repairsCode = `${header}
-const until = async (path: string) => {
-	while (!(await Bun.file(path).exists())) await Bun.sleep(10);
-};
-
 export default defineApp({
 	description: 'The notes app',
 	collections: {},
@@ -45,15 +40,6 @@ export default defineApp({
 				await folder.write('data/a.md', text);
 				await folder.write('data/b.md', text);
 				return text;
-			},
-		}),
-		orphan: defineAction({
-			description: 'Leave the parent pid, wait for a signal, then write data/a.md',
-			input: { signals: field.text() },
-			run: async ({ signals }) => {
-				await Bun.write(signals + '/parent', String(process.ppid));
-				await until(signals + '/go');
-				await folder.write('data/a.md', 'finished without a parent');
 			},
 		}),
 		flags: defineAction({
@@ -81,32 +67,16 @@ const repairsApp = {
 async function setup() {
 	const f = await fixture();
 	roots.push(f.root);
-	const signals = join(f.root, 'signals');
-	await mkdir(signals);
-	const paused = async (name = 'paused') => {
-		while (!existsSync(join(signals, name))) await Bun.sleep(10);
-	};
-	const go = () => writeFile(join(signals, 'go'), '1');
 	const json = async (...args: string[]) => {
 		const result = await f.run(...args, '--json');
 		return { ...result, report: JSON.parse(result.stdout) };
 	};
-	return { ...f, signals, paused, go, json };
+	return { ...f, json };
 }
 
 /** The notes app in the home, as its own repository. */
 function notes(f: Awaited<ReturnType<typeof setup>>) {
 	return f.folder(join(f.home, 'notes'), repairsApp);
-}
-
-function serve(f: Awaited<ReturnType<typeof setup>>, execArgv: string[] = []) {
-	return new StdioClientTransport({
-		command: process.execPath,
-		args: [...execArgv, f.bin, 'serve', '--stdio'],
-		cwd: f.root,
-		env: f.env as Record<string, string>,
-		stderr: 'pipe',
-	});
 }
 
 test('F1 new puts the next step on stderr; a broken root is a usage error', async () => {
@@ -125,32 +95,6 @@ test('F1 new puts the next step on stderr; a broken root is a usage error', asyn
 	expect(listed.report.error.name).toBe('Usage');
 });
 
-test('F6 the child finishes the run when its parent dies', async () => {
-	const f = await setup();
-	const folder = await notes(f);
-	const parent = Bun.spawn(
-		[process.execPath, f.bin, 'notes', 'orphan', '--signals', f.signals],
-		{ cwd: f.root, env: f.env, stdout: 'pipe', stderr: 'pipe' },
-	);
-	await f.paused('parent');
-	expect(Number(await readFile(join(f.signals, 'parent'), 'utf8'))).toBe(
-		parent.pid,
-	);
-	parent.kill('SIGKILL');
-	await parent.exited;
-	await f.go();
-	const deadline = Date.now() + 15_000;
-	while (
-		(await readFile(join(folder, 'data/a.md'), 'utf8')) !==
-			'finished without a parent' &&
-		Date.now() < deadline
-	)
-		await Bun.sleep(50);
-	expect(await readFile(join(folder, 'data/a.md'), 'utf8')).toBe(
-		'finished without a parent',
-	);
-});
-
 test('F7 over MCP a broken app loses only its tools, and a call is decoded from the tool name', async () => {
 	const f = await setup();
 	await f.folder(join(f.home, 'reading'), readingApp);
@@ -165,9 +109,8 @@ test('F7 over MCP a broken app loses only its tools, and a call is decoded from 
 export default defineApp({ description: 'The loud app', collections: {}, actions: { hello: defineAction({ description: 'Say hello', input: {}, run: () => 'hello' }) } });
 `,
 	);
-	const client = new Client({ name: 'acceptance', version: '1' });
+	const { client, close } = await connectMcp(f, ['--no-install']);
 	try {
-		await client.connect(serve(f, ['--no-install']));
 		const names = (await client.listTools()).tools.map((tool) => tool.name);
 		expect(names).toContain('reading_log');
 		expect(names).toContain('loud_hello');
@@ -195,7 +138,7 @@ export default defineApp({ description: 'The loud app', collections: {}, actions
 			error: { name: 'AppProblems' },
 		});
 	} finally {
-		await client.close();
+		await close();
 	}
 });
 

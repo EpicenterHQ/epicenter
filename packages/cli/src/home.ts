@@ -8,7 +8,7 @@
  * data (ADR-0842).
  */
 import { lstat, readdir, realpath, stat } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
 	type Action,
@@ -112,6 +112,18 @@ export async function homeEntries() {
 	).filter((entry) => entry !== undefined);
 }
 
+/**
+ * Drop every module this process loaded from under `folder`, its own
+ * `node_modules` included, so the next import reads the files as they are
+ * now (ADR-0880). A run already holding the old modules keeps them.
+ * `@epicenter/app` is never under an app's folder: `bin.ts` supplies it.
+ */
+function forgetModules(folder: string) {
+	const inside = `${folder}${sep}`;
+	for (const path of Object.keys(require.cache))
+		if (path.startsWith(inside)) delete require.cache[path];
+}
+
 async function load(
 	place: NonNullable<Awaited<ReturnType<typeof entryAt>>>,
 	entry: string,
@@ -133,6 +145,7 @@ async function load(
 		);
 	let module: { default?: unknown };
 	try {
+		forgetModules(place.realPath);
 		module = await import(pathToFileURL(join(place.realPath, CODE)).href);
 	} catch (error) {
 		return thrown(error);

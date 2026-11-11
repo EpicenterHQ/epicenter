@@ -1,33 +1,23 @@
 /**
  * MCP tools use the same actions, schema defaults and errors as command runs.
- * Each test runs the real `epicenter serve --stdio` against a temporary HOME.
+ * Each test runs the real `epicenter serve` against a temporary HOME and
+ * connects to it as an agent does.
  */
 import { expect, setDefaultTimeout, test } from 'bun:test';
 import { rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { fixture, reading, vault } from './runner.test-support.ts';
+import { connectMcp, fixture, reading, vault } from './runner.test-support.ts';
 
 // Each test runs the real command several times as separate processes.
 setDefaultTimeout(30_000);
 
 test('tools list plain schemas and annotations and return structured answers or action errors', async () => {
 	const f = await fixture();
-	const client = new Client({ name: 'test', version: '1' });
+	await f.app('reading', reading);
+	await f.app('vault', vault);
+	await writeFile(join(f.home, 'AGENTS.md'), 'Use the app actions.\n');
+	const { client, close } = await connectMcp(f);
 	try {
-		await f.app('reading', reading);
-		await f.app('vault', vault);
-		await writeFile(join(f.home, 'AGENTS.md'), 'Use the app actions.\n');
-		await client.connect(
-			new StdioClientTransport({
-				command: process.execPath,
-				args: [f.bin, 'serve', '--stdio'],
-				cwd: f.root,
-				env: f.env as Record<string, string>,
-				stderr: 'pipe',
-			}),
-		);
 		expect(client.getInstructions()).toBe('Use the app actions.\n');
 		const listed = await client.listTools();
 		const show = listed.tools.find(
@@ -92,32 +82,7 @@ test('tools list plain schemas and annotations and return structured answers or 
 			(await client.callTool({ name: 'reading_tag' })).structuredContent,
 		).toEqual({ returned: { tags: [], done: false } });
 	} finally {
-		await client.close();
-		await rm(f.root, { recursive: true, force: true });
-	}
-});
-
-test('serve --stdio exits 0 after the client ends stdin', async () => {
-	const f = await fixture();
-	try {
-		await f.app('vault', vault);
-		const child = Bun.spawn([process.execPath, f.bin, 'serve', '--stdio'], {
-			cwd: f.root,
-			env: f.env,
-			stdin: 'pipe',
-			stdout: 'pipe',
-			stderr: 'pipe',
-		});
-		child.stdin.end();
-		const [stdout, stderr, code] = await Promise.all([
-			new Response(child.stdout).text(),
-			new Response(child.stderr).text(),
-			child.exited,
-		]);
-		expect(code).toBe(0);
-		expect(stdout).toBe('');
-		expect(stderr).toContain('Serving your apps over MCP.');
-	} finally {
+		await close();
 		await rm(f.root, { recursive: true, force: true });
 	}
 });

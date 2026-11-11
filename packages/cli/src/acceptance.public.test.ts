@@ -13,7 +13,6 @@
  */
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
 import { readFile, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openAuthorizationServer } from './authorization-server.ts';
 import type { Site } from './http.ts';
@@ -103,6 +102,7 @@ async function setup() {
 		mcp: unreachable,
 		launcher: unreachable,
 		ui: unreachable,
+		call: unreachable,
 	};
 	const inProcess = publicHandler(authorization, site);
 	/** The browser leg, in this process. */
@@ -257,33 +257,6 @@ test('a read token lists only read-only actions and its call to a write action i
 	expect(await gitIn(join(t.reading, 'data'), 'log', '-1', '--format=%s')).toBe(
 		'reading: log 5',
 	);
-});
-
-test('a child limited to reading refuses a write action and a command', async () => {
-	const t = await setup();
-	const report = join(tmpdir(), `epicenter-report-${crypto.randomUUID()}.json`);
-	cleanups.push(() => rm(report, { force: true }));
-	for (const words of [
-		['reading', 'log', '5'],
-		['access', 'invite'],
-	]) {
-		await t.run(`--report=${report}`, '--read-only-call', ...words);
-		const { answer } = JSON.parse(await readFile(report, 'utf8')) as {
-			answer: { error?: { name: string } };
-		};
-		expect(answer.error?.name).toBe('Refused');
-	}
-	expect(await Bun.file(join(t.reading, 'data/2026.csv')).exists()).toBe(false);
-	await t.run(
-		`--report=${report}`,
-		'--read-only-call',
-		'reading',
-		'week',
-		'show',
-	);
-	expect(JSON.parse(await readFile(report, 'utf8')).answer).toEqual({
-		returned: 210,
-	});
 });
 
 test("a person's session reaches the site from the public origin's own pages only", async () => {

@@ -150,6 +150,17 @@ path like `../tasks/data/tasks/<time>.md`, using `node:fs` or a library.
 Change another app's data through that app's actions, so its history names
 what happened; this is guidance, not enforced.
 
+Make `run` an `async function*` only when a person watches it work, such as a
+chat reply from a model: each yield reaches the page that called it, and no
+one else. Return what the call produced, as any action does, since the
+command line, Claude, and tests see only the return. Save at the end, before
+returning, so a page closed mid-reply leaves nothing half-saved (ADR-0879).
+
+Actions run inside `epicenter serve` itself, from the files as they are when
+the call arrives, so an edit takes effect on the next call. Never call
+`process.exit`, `process.chdir`, or set `process.env` in an action: each
+reaches every app `serve` runs.
+
 Writes to one app run at once: a phone, an agent, and the command line can
 all call the app at the same moment, and an agent may edit its files
 directly. A value computed from `get` and written with `set` is last write
@@ -296,6 +307,12 @@ each write, before the write counts as done, and when the UI is shown
 again, so a page never refreshes by hand or on a timer. Name
 types with `ActionInput<typeof app.actions.set>` and
 `ActionOutput<typeof app.actions.get>`.
+
+An action that yields takes `onYield` after its input, to show its work as it
+comes: `app.chat.say({ message }, { onYield: (token) => (draft += token) })`
+resolves with the same Result once the reply is whole. Pass it where the page
+keeps its draft, and make that call the mutation's function, so every read
+still refreshes once it returns.
 
 - Route a record by its whole path: a rest route `src/routes/[...path]`, so the
   page is at `#/data/tasks/<time>.md`, linked with each part URL-encoded

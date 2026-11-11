@@ -1,47 +1,40 @@
 # 0879. An action may yield values while it runs, and only its return is the answer
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-11-11)
 - **Date:** 2026-11-11
-- **Unbuilt:** all of it. A spike ran every layer end to end (below); none of
-  it is in `packages/app` or `packages/cli`.
-- **Relates:** [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (a view calls only actions), [ADR-0861](0861-whats-yours-is-everywhere-and-everything-else-is-used-where-it-is.md) (an action runs where what it uses is), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (a call commits what it wrote), [ADR-0853](0853-collections-give-five-actions-and-programs-without-the-folder-ask-over-mcp.md) (MCP and the view client).
+- **Amended:** 2026-11-11: a UI calls an action at `POST /<app>/<action>`,
+  whose response is JSON lines, instead of over MCP with progress
+  notifications, and `serve` runs the call itself instead of in a child
+  (ADR-0880). The MCP route was built and replaced the same day; see
+  Considered alternatives.
+- **Built:** 2026-11-11: `run` as an `async function*` and `runYielding`
+  (`packages/app/src/action.ts`), `onYield` on the UI client
+  (`packages/app/src/client.ts`), and the call's route, its JSON lines, and
+  its stop (`packages/cli/src/http.ts`, `run.ts`).
+- **Unbuilt:** Vocab's chat, the first action that yields.
+- **Relates:** [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (a UI calls only actions), [ADR-0861](0861-whats-yours-is-everywhere-and-everything-else-is-used-where-it-is.md) (an action runs where what it uses is), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (a call commits what it wrote), [ADR-0853](0853-collections-give-five-actions-and-programs-without-the-folder-ask-over-mcp.md) (MCP for agents), [ADR-0880](0880-an-epicenter-runs-its-apps-as-they-sit-on-disk.md) (`serve` runs each call itself).
 
 ## Context
 
 Vocab's chat sends a message to a model on the Studio's Ollama and shows the
 reply. A local 9B model takes a few seconds to answer, and a reply that types
 itself out reads as a conversation, where one that appears whole after a pause
-reads as a form. The view cannot call Ollama itself without `serve` proxying a
+reads as a form. The UI cannot call Ollama itself without `serve` proxying a
 model to every signed-in device, or Ollama listening on the tailnet with no
 sign-in, and either way the prompt, the choice of words, and the saving move
 into the browser, where Claude cannot reach them (ADR-0860, ADR-0861).
 
-Today an action returns one value. `serve` runs it in a child,
-`epicenter <app> <words> --input <json> --json`, reads the one JSON answer,
-and sends it as the MCP tool result in one JSON body
-(`packages/cli/src/mcp.ts`).
-
-A spike on 2026-11-11 ran the whole path with MCP SDK 1.29.0, the transport
-`serve` uses:
-
-```txt
-async function* in a child → one JSON line per yield on stdout
-  → the tool handler → an MCP progress notification per yield
-  → server-sent events on the one POST → a fetch client
-```
-
-Tokens chosen to break framing (Chinese, Japanese, an emoji, `\n\n`, `\r\n`,
-quotes, backslashes, an empty token, a line reading `data: …`) arrived 15 of
-15, as produced, and the text rebuilt from them equalled the returned reply
-byte for byte. Against `qwen3.5:9b` on Ollama, 19 and then 44 streamed tokens
-rebuilt the returned reply exactly, and a structured value per yield, carried
-in the notification's `_meta`, arrived intact.
+A spike on 2026-11-11 streamed tokens chosen to break framing (Chinese,
+Japanese, an emoji, `\n\n`, `\r\n`, quotes, backslashes, an empty token, a
+line reading `data: …`) 15 of 15, as produced, and the text rebuilt from them
+equalled the returned reply byte for byte. Against `qwen3.5:9b` on Ollama, 19
+and then 44 streamed tokens rebuilt the returned reply exactly.
 
 ## Decision
 
 **An action's `run` may be an `async function*`. What it yields goes only to
-the view that called it, as it runs; what it returns is the answer, as now; and
-only its writes are saved, committed once when it returns (ADR-0850).** Yields
+the UI that called it, as it runs; what it returns is the answer, as now; and
+only its writes are saved, committed once when it ends (ADR-0850).** Yields
 are for a person watching a page. Claude, ChatGPT, the terminal, a test, and
 another action never see them, and lose nothing.
 
@@ -69,8 +62,8 @@ const said = await vocab.chat.say({ message }, { onYield: (token) => (draft += t
 ```
 
 - **A yield is any value that survives JSON, and its shape is the app's.**
-  Tokens, `{ step, of }`, a partial list: the action and its view are written
-  together, and the view's client is typed by the app (ADR-0857), so the
+  Tokens, `{ step, of }`, a partial list: the action and its UI are written
+  together, and the UI's client is typed by the app (ADR-0857), so the
   yield's type reaches `onYield` as the return's type reaches the result.
   `epicenter` gives a yield no meaning.
 - **A yield is never the answer.** It is not saved, not committed, and not
@@ -78,43 +71,49 @@ const said = await vocab.chat.say({ message }, { onYield: (token) => (draft += t
   prints the answer, `--json` prints one answer as now, and Claude or ChatGPT
   get the tool result. An action whose meaning lives only in its yields is
   wrong; its return must carry what the call produced.
-- **Only the view client asks for yields.** `connect` marks a call with
-  `_meta: { "epicenter/yields": true }` and a `progressToken` when it passes
-  `onYield`. `serve` streams only then: each yield is a progress notification
-  with `progress` counting yields and the value in `_meta["epicenter/yield"]`.
-  Every other request, a connector's included even when it sends its own
-  `progressToken`, gets the one JSON body as now, so no connector ever shows
-  a yield.
+- **A UI calls an action at its own address.** `POST /<app>/<action>`, the
+  action's words joined by `.` (`/vocab/chat.say`), with the whole input as
+  the JSON body. The response is JSON lines, one JSON value and a newline
+  each: `{"yielded": <value>}` per yield, as it is yielded, then
+  `{"answer": <answer>}`, the answer `--json` prints. An action that only
+  returns answers one line. The words, not a tool name, make the address, so
+  `GET` gets a page and `POST` runs an action under the same `/<app>/`.
+- **MCP is for agents and carries no yields.** A connector's `tools/call`
+  gets the one tool result, as before; nothing a connector does can ask for a
+  yield.
 - **Called anywhere else, an action is a promise of its return.** The function
   `defineAction` returns drains the generator and resolves with what `run`
   returned, so a test, another action, and the CLI call it as they call any
-  action. Only the runner that `serve` starts with `--yields` reads the
+  action. Only `runYielding`, which every call runs through, reads the
   generator step by step.
 - **Yields go to the caller and nowhere else.** No page watches a call another
   device or a connector made; a conversation another caller continued shows
   when its turn is saved and the page reads it again.
-- **Between `serve` and its child,** `serve` runs the action with
-  `--yields`: the child writes each yield as one JSON line on stdout as it
-  happens and the answer as the last line. JSON escapes every character a
-  value holds, so a newline in a token is never a line break.
-- **The view client** sends a `progressToken` when the call passes `onYield`,
-  reads the event stream, calls `onYield` with each value in order, and
-  resolves with the same `Result` a call without it would.
-- **A call abandoned is a call that never returned.** When the request ends
-  early, `serve` stops the child; a generator that saves before it returns
-  has then saved nothing, and nothing is committed. A conversation turn the
-  person closed mid-reply leaves no half a turn behind.
+- **The UI client** posts to the action's address, reads the lines with the
+  stream's reader (Safari cannot iterate a stream with `for await`), calls
+  `onYield` with each value in order, and resolves with the same `Result` a
+  call without it would. Its type offers `onYield` only on an action that
+  yields. A response that ends without an answer is `Unreachable`.
+- **A call abandoned is a call stopped at its next yield.** When the page
+  stops reading, `serve` makes the action's next yield throw where it
+  stands: its `finally` blocks run, the call answers that it threw, and what
+  it wrote is committed as the call that threw. A generator that saves only
+  before it returns has then saved nothing. A conversation turn the person
+  closed mid-reply leaves no half a turn behind. An action that does not
+  yield runs to its end.
 
 ## Consequences
 
-- Vocab's chat streams from a model on the Studio with no route but MCP, no
-  model reachable from the phone, and its prompt, word choice, and history in
-  an action Claude can also call.
-- The protocol between `serve` and its child gains one flag and one line
-  format, `serve`'s tool handler stops forcing one JSON body for a request
-  with a `progressToken`, and `connect` reads an event stream. Every app gets
-  it at once; any slow action can report progress the same way.
-- Yields are not validated by a schema, as inputs are. They reach only a view
+- Vocab's chat streams from a model on the Studio with no model reachable
+  from the phone, and its prompt, word choice, and history in an action
+  Claude can also call.
+- `serve` has two ways in for an action: MCP at `POST /` for agents, and
+  `POST /<app>/<action>` for an app's own pages. Both reach the same call
+  (`run.ts`), so the input check, the answer, and the commit are one. On the
+  public address, an action's address takes only a signed-in page of the
+  same origin, as `POST /` does for a session; a token always goes through
+  MCP.
+- Yields are not validated by a schema, as inputs are. They reach only a UI
   the same app wrote, so a wrong shape is that app's bug, caught by its types.
 - A `readOnlyHint` action that yields still commits nothing. A writing action
   takes its lock at its first write (ADR-0850), so a stream of yields before
@@ -124,23 +123,29 @@ const said = await vocab.chat.say({ message }, { onYield: (token) => (draft += t
 
 ## Considered alternatives
 
-- **The view streams from Ollama itself and calls an action to save the turn.**
+- **The UI streams from Ollama itself and calls an action to save the turn.**
   No platform change, but Ollama has to be reachable from the phone, through a
   `serve` route that proxies a model or a tailnet port with no sign-in, and
   the prompt and word choice move into the browser, out of Claude's reach.
-- **A streaming endpoint for views beside MCP.** Its own framing and no
-  stretched use of progress notifications, but the view already calls every
-  action over MCP, and a second protocol would carry the same call, its
-  errors, and its sign-in twice.
+- **Yields as MCP progress notifications on the UI's MCP call (built
+  2026-11-11, replaced the same day).** The UI called every action over MCP,
+  so a yielding call marked itself with `_meta` and got an event stream of
+  progress notifications, each carrying a yield in its `_meta`. `serve` had
+  to peek at each body for the marker, switch each response between JSON and
+  an event stream, close the call's MCP server to stop it, and relay yields
+  from a child over IPC; the client parsed JSON-RPC inside server-sent
+  events. A UI's call never needed MCP: `epicenter` supplies the client, so
+  the client and `serve` cannot drift, and an address per action removed all
+  of it.
 - **A callback in `run`'s input, `run(input, { emit })`.** It nests into
   helpers without `yield*`, but `return` and `yield` already say "the answer"
   and "while it runs", and a generator stops when its caller goes away.
 - **Broadcasting yields to every open page of the app.** A second device could
   watch a reply being written, at the cost of a channel, its subscribers, and
   what each may see. A saved turn reaches every page when it reads again.
-- **Yields as text in the progress `message`.** Works today, but a connector
-  that shows `message` would flicker single tokens as status, and a value
-  other than text would be flattened into a string.
+- **Server-sent events instead of JSON lines.** `EventSource` cannot send a
+  body, so a UI would read either one with `fetch` anyway, and each message
+  would carry a `data:` prefix and a blank line for nothing.
 - **Writing the reply to its file as it streams.** Every reader, a connector,
   another device, `serve`'s snapshot, would see half a sentence, and a call
   commits once at its end anyway, so the writes would buy nothing.

@@ -2,6 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-11-11
+- **Amended:** 2026-11-11: a call runs in the process that received it, the command line's or `serve`'s, not in a child `epicenter` per call; each load first drops the modules the process loaded from under the app's folder, so the next import reads the files as they are now. Deleted with the child: its report file, the `--report` and `--read-only-call` flags, signal forwarding, its IPC channel for yields, and `serve --stdio`. Given up: a call that outlives the `serve` that started it, and isolation from an action that exits, hangs, or changes the process's working directory or environment; the code is its owner's (ADR-0864), and `serve`'s job restarts it.
 - **Built:** a call's commit of what it left in `data/`, `Code-Commit` with `Code-Dirty`, the clock's idle skip, and `epicenter install` (`packages/cli/src/run.ts`, `snapshot.ts`, `http.ts`, `install.ts`); the UI's fingerprint build into `EPICENTER_OUT` (`ui.ts`); the compiled command's copy of `@epicenter/app` and `linkAppPackage` (`app-package.ts`, `scripts/compile.ts`).
 - **Unbuilt:** the first-party apps as one Bun project each on Bun's bundler: converted outside this repository, not yet their own repositories or the Studio's apps; this repository's `apps/<app>` still hold SvelteKit UIs with their own `ui/package.json`, which `serve` no longer builds.
 - **Relates:** [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (a call's commit; the lock; the clock), [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (an app's UI), [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (code runs where its owner trusts it), [ADR-0873](0873-the-command-is-epicenter-cli-and-it-supplies-epicenter-app-to-every-app.md) (the command supplies `@epicenter/app`), [ADR-0876](0876-an-apps-records-live-under-data-and-everything-else-in-it-is-code.md) (`data/`), [ADR-0877](0877-an-apps-code-and-its-data-are-two-repositories-and-sharing-an-app-shares-its-code.md) (two repositories, `Code-Commit`).
@@ -10,7 +11,7 @@
 
 An Epicenter's code is edited where it runs: on the server, by its owner and
 their agents, over SSH or MCP. Its actions already run whatever `epicenter.ts`
-is on disk, since each call loads the file in a fresh process. Two other parts
+is on disk, since each call loaded the file in a fresh process. Two other parts
 follow commits instead, and each carries machinery for it:
 
 - A UI follows the code repository's `HEAD`: a stamp, a detached worktree, a
@@ -69,6 +70,14 @@ sharing, never deployment.**
     finished folder replaces `ui/dist/` by rename. A build writes relative
     URLs, so it is never told where it is served.
   - The word for it is UI; "view" is retired.
+- **A call runs where it arrives, from the files as they are.** The command
+  line runs a call itself, and so does `serve`. Each load of an app first
+  drops every module the process loaded from under the app's folder, its
+  `node_modules` included, then imports `epicenter.ts`, so an edit to it, or
+  to anything it imports, reaches the next call. Measured 2026-11-11 on Bun
+  1.4.3: an edit to `epicenter.ts`, a file it imports, and a package in its
+  `node_modules` each reached the next import, and 300 reloads grew the
+  process by 8 MB. A run already holding the old modules keeps them.
 - **Reads reach the whole Epicenter.** An action reads any file under the
   Epicenter with `node:fs` or any library, another app's records included:
   `../tasks/data/tasks/<time>.md`.
@@ -126,9 +135,22 @@ sharing, never deployment.**
 - **Commit pending code before each call, so `Code-Commit` is exact.** An
   agent's partial edit, staging included, becomes a commit per phone tap, and
   a code repository mid-rebase blocks every write.
-- **No clock; push after each commit.** Commits happen in each call's own
-  process, a command-line call never reaches `serve`, and code edited with no
-  call after it would never be committed or backed up.
+- **No clock; push after each commit.** A command-line call never reaches
+  `serve`, and code edited with no call after it would never be committed or
+  backed up.
+- **A child `epicenter` per call (built, replaced 2026-11-11).** A fresh
+  process read the files as they were, kept an action's prints off the
+  answer, and finished its commit if `serve` died. It cost a report file,
+  flags to say what the child was, signal forwarding, and, for yields, an IPC
+  channel whose last message was lost when the child exited at once (20 of
+  20 runs with a 200 KB message). Dropping the app's modules before each load
+  gives the first; the command line sends prints to stderr during a call for
+  the second; the clock's snapshot takes what an interrupted call left.
+- **A Bun Worker per call.** Measured 2026-11-11: a fresh module graph per
+  Worker, `process.env` and globals kept apart, `process.exit` ending only the
+  Worker. But `process.chdir` in a Worker moved the whole process's directory,
+  and a crash still ends `serve`, so it isolated little more than one process
+  does, behind a message protocol.
 - **Install from the lock on a call when it is newer.** Two calls install into
   one `node_modules` at once, or under a running action.
 - **Refuse a call that changed files outside its `data/`.** After the fact it

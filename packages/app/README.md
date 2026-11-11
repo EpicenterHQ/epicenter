@@ -58,7 +58,11 @@ and does not run it.
   as a call through the CLI or MCP does, so a caller may leave out a field
   with a default and `run` always has it. `run` returns a value that survives
   JSON; anything else, such as a `Date`, is a type error where the action is
-  written.
+  written. `run` may be an `async function*` whose yields also survive JSON:
+  each reaches only a UI that asked for it, as it runs, and called anywhere
+  else the action resolves with its return, its yields unread
+  ([ADR-0879](../../docs/adr/0879-an-action-may-yield-values-while-it-runs-and-only-its-return-is-the-answer.md)).
+  The return is the answer, so it must carry what the call produced.
 - `defineApp` checks what it was given and returns that same object. It needs
   `description`, `collections`, and `actions`, with `{}` for none. Each
   collection's name is its key in `collections`; each action's words are its
@@ -433,9 +437,22 @@ export const writes = resultMutations(['reading'], { set: app.books.set });
 // In a component: createQuery(() => reads.list()), createMutation(() => writes.set)
 ```
 
-`ActionInput<A>` and `ActionOutput<A>` name what action `A` takes from a
-caller and returns to a client: `ActionInput<typeof app.actions.set>`. A field
-with a default is optional in `ActionInput`.
+An action whose `run` yields takes `{ onYield }` after its input. Each value
+it yields reaches `onYield`, in order, while it runs, and the call resolves
+with the same Result as without it. No other caller sees a yield: not the
+command line, not a connector, not another page. Closing the page mid-call
+stops the action at its next yield, so whatever it would have saved after
+that is not saved.
+
+```ts
+let draft = $state('');
+const said = await vocab.chat.say({ message }, { onYield: (token) => (draft += token) });
+```
+
+`ActionInput<A>`, `ActionOutput<A>`, and `ActionYield<A>` name what action
+`A` takes from a caller, returns to a client, and yields while it runs:
+`ActionInput<typeof app.actions.set>`. A field with a default is optional in
+`ActionInput`; an action that only returns yields `never`.
 
 A UI routes to a record by its whole path, each part URL-encoded, so no UI
 needs code that knows the app's templates. Capture, Tasks, and Vocab put a

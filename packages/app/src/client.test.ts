@@ -6,7 +6,7 @@
 import { afterEach, expect, test } from 'bun:test';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { connect } from './client.ts';
-import { defineApp, defineCollection, field } from './index.ts';
+import { defineAction, defineApp, defineCollection, field } from './index.ts';
 
 const books = defineCollection({
 	path: 'data/books/{title}.md',
@@ -19,7 +19,7 @@ const reading = defineApp({
 	actions: { ...books.actions() },
 });
 
-const sent: { name: string; arguments: unknown }[] = [];
+const sent: { url: string; input: unknown }[] = [];
 const urls: string[] = [];
 const realFetch = globalThis.fetch;
 const realDocument = Object.getOwnPropertyDescriptor(globalThis, 'document');
@@ -34,16 +34,26 @@ afterEach(() => {
 	else Reflect.deleteProperty(globalThis, 'location');
 });
 
-/** Answer every call with `structuredContent`, recording what was asked. */
-function answer(content: (name: string) => unknown) {
+/** Serve `chunks` as one response body, each chunk sent on its own, recording what was asked. */
+function respond(chunks: string[]) {
 	globalThis.fetch = (async (url: string, init: RequestInit) => {
 		urls.push(url);
-		const { params } = JSON.parse(String(init.body));
-		sent.push({ name: params.name, arguments: params.arguments });
-		return Response.json({
-			result: { structuredContent: content(params.name) },
-		});
+		sent.push({ url, input: JSON.parse(String(init.body)) });
+		const encoder = new TextEncoder();
+		return new Response(
+			new ReadableStream({
+				start(controller) {
+					for (const chunk of chunks) controller.enqueue(encoder.encode(chunk));
+					controller.close();
+				},
+			}),
+		);
 	}) as typeof fetch;
+}
+
+/** Answer every call with `answer` as its one line. */
+function answer(value: unknown) {
+	respond([`${JSON.stringify({ answer: value })}\n`]);
 }
 
 const app = connect<typeof reading>({ app: 'reading' });
@@ -57,10 +67,9 @@ test('connect infers the app from document baseURI before location', async () =>
 		configurable: true,
 		value: { href: 'https://host/other/#/books/Dune.md' },
 	});
-	answer(() => ({ returned: [] }));
+	answer({ returned: [] });
 	await connect<typeof reading>().list();
-	expect(sent[0]?.name).toBe('reading_list');
-	expect(urls).toEqual(['/']);
+	expect(urls).toEqual(['/reading/list']);
 });
 
 test('connect infers the app from location with no document', async () => {
@@ -69,9 +78,9 @@ test('connect infers the app from location with no document', async () => {
 		configurable: true,
 		value: { href: 'https://host/reading/#/books/Dune.md' },
 	});
-	answer(() => ({ returned: [] }));
+	answer({ returned: [] });
 	await connect<typeof reading>().list();
-	expect(sent[0]?.name).toBe('reading_list');
+	expect(urls).toEqual(['/reading/list']);
 });
 
 test('connect requires an app when the page has no first path segment', () => {
@@ -88,24 +97,51 @@ test('connect requires an app when the page has no first path segment', () => {
 test('connect uses an explicit app without page globals', async () => {
 	Reflect.deleteProperty(globalThis, 'document');
 	Reflect.deleteProperty(globalThis, 'location');
-	answer(() => ({ returned: [] }));
-	await connect<typeof reading>({ app: 'reading', url: '/mcp' }).list();
-	expect(sent[0]?.name).toBe('reading_list');
-	expect(urls).toEqual(['/mcp']);
+	answer({ returned: [] });
+	await connect<typeof reading>({ app: 'reading', url: 'https://studio/epi' }).list();
+	expect(urls).toEqual(['https://studio/epi/reading/list']);
 });
 
-test('a call asks for its MCP tool and answers what the action returned', async () => {
-	answer(() => ({ returned: { path: 'data/books/Dune.md' } }));
+test("a call posts its input to the action's address and answers what the action returned", async () => {
+	answer({ returned: { path: 'data/books/Dune.md' } });
 	expect<unknown>(expectOk(await app.get({ path: 'data/books/Dune.md' }))).toEqual({
 		path: 'data/books/Dune.md',
 	});
 	expect(sent).toEqual([
-		{ name: 'reading_get', arguments: { path: 'data/books/Dune.md' } },
+		{ url: '/reading/get', input: { path: 'data/books/Dune.md' } },
 	]);
 });
 
+test('each value the action yields reaches onYield in order, however the lines arrive in chunks', async () => {
+	const yielding = defineAction({
+		description: 'Count',
+		input: {},
+		async *run() {
+			yield 1;
+			yield 2;
+			return 'done';
+		},
+	});
+	const counter = connect<{ actions: { count: typeof yielding } }>({
+		app: 'counter',
+	});
+	respond(['{"yielded":1}\n{"yiel', 'ded":2}\n{"answer":', '{"returned":"done"}}\n']);
+	const heard: number[] = [];
+	expect(
+		expectOk(await counter.count({}, { onYield: (n) => heard.push(n) })),
+	).toBe('done');
+	expect(heard).toEqual([1, 2]);
+	expect(urls).toEqual(['/counter/count']);
+
+	respond(['{"yielded":1}\n']);
+	expect(expectErr(await counter.count())).toMatchObject({
+		name: 'Unreachable',
+		message: 'Epicenter stopped answering before the action finished',
+	});
+});
+
 test('each way serve answers without a value is its own error', async () => {
-	answer(() => ({
+	answer({
 		threw: {
 			message: 'data/books/Dune.md changed',
 			thrown: {
@@ -115,12 +151,12 @@ test('each way serve answers without a value is its own error', async () => {
 				why: 'quote',
 			},
 		},
-	}));
+	});
 	expect(
 		expectErr(await app.edit({ path: 'data/books/Dune.md', old: 'a', new: 'b' })),
 	).toMatchObject({ name: 'Changed', path: 'data/books/Dune.md', why: 'quote' });
 
-	answer(() => ({
+	answer({
 		threw: {
 			message: 'There is no data/books/Dune.md',
 			thrown: {
@@ -129,21 +165,21 @@ test('each way serve answers without a value is its own error', async () => {
 				path: 'data/books/Dune.md',
 			},
 		},
-	}));
+	});
 	expect(expectErr(await app.get({ path: 'data/books/Dune.md' }))).toMatchObject({
 		name: 'Missing',
 		path: 'data/books/Dune.md',
 	});
 
-	answer(() => ({ threw: { message: 'boom' } }));
+	answer({ threw: { message: 'boom' } });
 	expect(expectErr(await app.list())).toMatchObject({
 		name: 'Threw',
 		message: 'boom',
 	});
 
-	answer(() => ({
+	answer({
 		error: { name: 'InputError', message: 'path is required', next: 'Give a path' },
-	}));
+	});
 	expect(expectErr(await app.list())).toMatchObject({
 		name: 'Refused',
 		message: 'path is required',

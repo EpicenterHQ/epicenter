@@ -5,7 +5,6 @@
  * Without it, stdout renders the returned value by its structure. Stderr
  * carries what went wrong, with a `Run: <next step>` line where there is one.
  */
-import { writeReport } from './child.ts';
 import type { CliError } from './errors.ts';
 
 /**
@@ -18,25 +17,37 @@ export type Answer =
 	/** The action returned this value; `null` for nothing. */
 	| { returned: unknown }
 	/**
-	 * The action threw, or the run ended without an answer. A thrown tagged
+	 * The action threw. A thrown tagged
 	 * error (`{ name, message, ...fields }`) is kept whole as `thrown`.
 	 */
 	| { threw: { message: string; thrown?: Record<string, unknown> } }
 	/** Nothing ran: the words, the input, or the app was wrong. */
 	| { error: { name: string; message: string; next?: string } };
 
-/** The report file this process answers into, when it is a child (`child.ts`). */
-let reportPath: string | undefined;
-
-/** Make this process a child: its one JSON answer goes to `path`, never to stdout. */
-export function answerInto(path: string) {
-	reportPath = path;
+/**
+ * Run `work` with whatever it prints to stdout, through `console` or
+ * `process.stdout`, sent to stderr, so the command's stdout holds only its
+ * answer. A program the action starts writes where the action tells it to.
+ */
+export async function printingToStderr<T>(work: () => Promise<T>): Promise<T> {
+	const methods = ['log', 'info', 'debug', 'dir', 'table'] as const;
+	const saved = methods.map((method) => console[method]);
+	const write = process.stdout.write;
+	for (const method of methods) console[method] = console.error;
+	process.stdout.write = process.stderr.write.bind(process.stderr) as typeof write;
+	try {
+		return await work();
+	} finally {
+		methods.forEach((method, index) => {
+			console[method] = saved[index] as never;
+		});
+		process.stdout.write = write;
+	}
 }
 
-/** Write the one JSON answer: to stdout, or to the report file in a child. */
+/** Write the one JSON answer to stdout. */
 export function writeJson(value: unknown) {
-	if (reportPath) writeReport(reportPath, { answer: value });
-	else process.stdout.write(`${JSON.stringify(value)}\n`);
+	process.stdout.write(`${JSON.stringify(value)}\n`);
 }
 
 /** Write an answer with a final newline for a person reading the command. */

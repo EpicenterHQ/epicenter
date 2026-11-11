@@ -12,6 +12,7 @@
  * GET  /.allow                                           a session: approve a connector
  * POST /                                                 a token, or a session with this Origin: MCP
  * GET  /, /<app>/...                                     a session, else a redirect to /.sign-in
+ * POST /<app>/<action>                                  a session with this Origin: run the action
  * ```
  *
  * The boundary is the socket: this listener never trusts a header to say
@@ -181,8 +182,8 @@ export function publicHandler(authorization: AuthorizationServer, site: Site) {
 			);
 			if (scopes.has('write')) return site.mcp(request);
 			if (!scopes.has('read')) throw createInsufficientScopeError(['read']);
-			// A read-only connection lists only reading tools, and its child
-			// refuses any other call (`--read-only-call`).
+			// A read-only connection lists only reading tools, and any other
+			// call is refused where the action is found (`run.ts`).
 			return site.mcp(request, true);
 		},
 	);
@@ -220,6 +221,13 @@ export function publicHandler(authorization: AuthorizationServer, site: Site) {
 			return withToken(request);
 		}
 		if (pathname.startsWith('/.')) return notFound();
+		// An action called by a person's own page, never by a connector:
+		// connectors call through MCP with their token.
+		if (request.method === 'POST' && pathname !== '/')
+			return request.headers.get('origin') === origin &&
+				(await signedIn(request))
+				? site.call(request)
+				: new Response('Forbidden', { status: 403 });
 		if (!isGet(request))
 			return pathname === '/' ? site.launcher(request) : notFound();
 		if (

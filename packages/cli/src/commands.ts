@@ -9,6 +9,9 @@ import { type ParseArgsOptionsConfig, parseArgs } from 'node:util';
 import { isName } from '@epicenter/app';
 import { CliError } from './errors.ts';
 
+/** Whether this `epicenter` is the compiled binary, which is Bun itself under `BUN_BE_BUN=1`. */
+export const COMPILED = Bun.main.startsWith('/$bunfs/');
+
 export const COMMANDS = {
 	init: {
 		usage: 'epicenter init [<folder>] [--port <n>]',
@@ -67,11 +70,11 @@ a revert Git refuses, or that conflicts or changes nothing, leaving the folder a
 it was. It never pushes; sync does.`,
 	},
 	serve: {
-		usage: 'epicenter serve [--port <n>] [--host <address>] [--stdio]',
-		help: `Offers every app's actions over MCP at / and each app's UI at /<app>/, on
-127.0.0.1 and the Epicenter's port (default 4747) unless --port or --host says
-otherwise. With --stdio, it speaks MCP on stdin and stdout instead. Over HTTP it
-backs up every app as sync does when it starts, every 5 minutes, and when it
+		usage: 'epicenter serve [--port <n>] [--host <address>]',
+		help: `Offers every app's actions over MCP at /, each app's UI at /<app>/, and each
+action to its UI at POST /<app>/<action>, on 127.0.0.1 and the Epicenter's port
+(default 4747) unless --port or --host says otherwise. It runs every call itself,
+from the app's code as it is on disk then. It backs up every app as sync does when it starts, every 5 minutes, and when it
 stops. When EPICENTER.md has public and publicPort, it also offers them on
 127.0.0.1:<publicPort> to a person signed in with a passkey and to a connector
 such as Claude signed in with OAuth; an HTTPS tunnel from public to that port is

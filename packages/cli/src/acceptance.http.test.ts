@@ -16,7 +16,18 @@ import {
 import { join } from 'node:path';
 import { connect } from '@epicenter/app/client';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { fixture, gitIn, readingApp } from './runner.test-support.ts';
+import type { Action } from '@epicenter/app';
+import {
+	fixture,
+	gitIn,
+	gitignore,
+	header,
+	readingApp,
+	startServe,
+} from './runner.test-support.ts';
+
+/** Talk's `say` as its app types it: takes words, yields each word, returns them joined. */
+type TalkSay = Action<{ words: string }, Promise<string>, string>;
 
 /** Reading's actions as its UI calls them, for `connect`. */
 type Reading = {
@@ -51,44 +62,12 @@ async function setup<T = undefined>(
 	const f = await fixture();
 	if (agents !== undefined) await writeFile(join(f.home, 'AGENTS.md'), agents);
 	const made = (await prepare?.(f)) as T;
-	const child = Bun.spawn([process.execPath, f.bin, 'serve', '--port', '0'], {
-		cwd: f.root,
-		env: f.env,
-		stdout: 'ignore',
-		stderr: 'pipe',
-	});
-	const ready = Promise.withResolvers<string>();
-	let output = '';
-	void (async () => {
-		const reader = child.stderr.getReader();
-		for (;;) {
-			const { value: chunk, done } = await reader.read();
-			if (done) break;
-			output += new TextDecoder().decode(chunk);
-			const port = /Serving your apps at http:\/\/127\.0\.0\.1:(\d+)\./.exec(
-				output,
-			)?.[1];
-			if (port) ready.resolve(`http://127.0.0.1:${port}`);
-		}
-		ready.reject(new Error(output || 'serve exited before listening'));
-	})();
+	const served = await startServe(f);
 	cleanups.push(async () => {
-		child.kill('SIGTERM');
-		await child.exited;
+		await served.stop();
 		await rm(f.root, { recursive: true, force: true });
 	});
-	const base = await Promise.race([
-		ready.promise,
-		Bun.sleep(10_000).then(() => {
-			throw new Error('serve did not listen');
-		}),
-	]);
-	/** Stop serve as a person would, and wait for its last backup and exit. */
-	const stop = async () => {
-		child.kill('SIGTERM');
-		return child.exited;
-	};
-	return { ...f, made, base, stderr: () => output, stop };
+	return { ...f, made, ...served };
 }
 
 function mcp(base: string, method: string, params: object = {}) {
@@ -534,6 +513,143 @@ test('serve builds the UI as it sits on disk when a page opens, waits only for t
 	await writeFile(join(folder, 'ui', 'page.txt'), 'three\n');
 	expect(await opened('three\n')).toBe(true);
 	expect((await fetch(`${f.base}/reading/.epicenter-build`)).status).toBe(404);
+});
+
+/** Talk: `say` yields each word and returns them joined; `drip` writes, then yields until its caller stops listening. */
+const talk = `export default defineApp({ description: 'Talk', collections: {}, actions: {
+	say: defineAction({
+		description: 'Say words one at a time',
+		input: { words: field.text() },
+		positional: ['words'],
+		async *run({ words }) {
+			for (const word of words.split(' ')) yield word;
+			return words;
+		},
+	}),
+	drip: defineAction({
+		description: 'Write, then yield until stopped',
+		input: {},
+		async *run() {
+			await folder.write('data/started.md', 'started');
+			try {
+				for (let i = 0; i < 600; i++) {
+					yield i;
+					await Bun.sleep(50);
+				}
+			} finally {
+				await folder.write('data/stopped.md', 'stopped');
+			}
+			return 'never stopped';
+		},
+	}),
+} });
+`;
+
+test("a UI's call gets each value the action yields, in order, then its answer; MCP gets only the answer", async () => {
+	const f = await setup((f) => f.app('talk', talk));
+	const heard: unknown[] = [];
+	const client = connect<{ actions: { say: TalkSay } }>({
+		app: 'talk',
+		url: `${f.base}/`,
+	});
+	const said = await client.say(
+		{ words: 'one two three' },
+		{ onYield: (word) => heard.push(word) },
+	);
+	expect(expectOk(said)).toBe('one two three');
+	expect(heard).toEqual(['one', 'two', 'three']);
+
+	const raw = await fetch(`${f.base}/talk/say`, {
+		method: 'POST',
+		body: JSON.stringify({ words: 'a b' }),
+	});
+	expect(raw.headers.get('content-type')).toBe('application/x-ndjson');
+	expect(await raw.text()).toBe(
+		'{"yielded":"a"}\n{"yielded":"b"}\n{"answer":{"returned":"a b"}}\n',
+	);
+	const refused = await fetch(`${f.base}/talk/say`, {
+		method: 'POST',
+		body: JSON.stringify({}),
+	});
+	expect(JSON.parse(await refused.text())).toEqual({
+		answer: {
+			error: {
+				name: 'Usage',
+				message: 'words is needed',
+				next: 'epicenter talk say --help',
+			},
+		},
+	});
+	expect(
+		(
+			await fetch(`${f.base}/talk/say`, {
+				method: 'POST',
+				headers: { origin: 'http://evil.example' },
+				body: JSON.stringify({ words: 'no' }),
+			})
+		).status,
+	).toBe(403);
+
+	const answered = await mcp(f.base, 'tools/call', {
+		name: 'talk_say',
+		arguments: { words: 'x y' },
+	});
+	const body = (await answered.json()) as {
+		result: { structuredContent: unknown };
+	};
+	expect(body.result.structuredContent).toEqual({ returned: 'x y' });
+});
+
+test('a caller that stops reading stops the action at its next yield; its finally runs and what it wrote is committed', async () => {
+	const f = await setup((f) => f.app('talk', talk));
+	const stop = new AbortController();
+	const response = await fetch(`${f.base}/talk/drip`, {
+		method: 'POST',
+		body: '{}',
+		signal: stop.signal,
+	});
+	const reader = (response.body as ReadableStream<Uint8Array>).getReader();
+	const first = new TextDecoder().decode((await reader.read()).value);
+	expect(first).toStartWith('{"yielded":0}\n');
+	stop.abort();
+	const data = join(f.home, 'talk', 'data');
+	const latest = () => gitIn(data, 'log', '-1', '--format=%s');
+	const deadline = Date.now() + 10_000;
+	while (!(await latest()).startsWith('talk: drip') && Date.now() < deadline)
+		await Bun.sleep(50);
+	expect(await latest()).toBe('talk: drip (threw)');
+	expect(
+		(await gitIn(data, 'show', '--name-only', '--format=', 'HEAD')).split('\n'),
+	).toEqual(['started.md', 'stopped.md']);
+});
+
+test('an edit to epicenter.ts, or to a file it imports, reaches the next call without restarting serve', async () => {
+	const f = await setup((f) =>
+		f.folder(join(f.home, 'echo'), {
+			'.gitignore': gitignore,
+			'word.ts': "export const word = 'one';\n",
+			'epicenter.ts': `${header}import { word } from './word.ts';
+export default defineApp({ description: 'Echo', collections: {}, actions: {
+	hello: defineAction({ description: 'Say the word', input: {}, run: () => word }),
+} });
+`,
+		}),
+	);
+	const client = connect<{ actions: { hello: () => string } }>({
+		app: 'echo',
+		url: `${f.base}/`,
+	});
+	expect(expectOk(await client.hello())).toBe('one');
+	await writeFile(join(f.made, 'word.ts'), "export const word = 'two';\n");
+	expect(expectOk(await client.hello())).toBe('two');
+	await writeFile(
+		join(f.made, 'epicenter.ts'),
+		`${header}export default defineApp({ description: 'Echo', collections: {}, actions: {
+	hello: defineAction({ description: 'Say the word', input: {}, run: () => 'three' }),
+} });
+`,
+	);
+	expect(expectOk(await client.hello())).toBe('three');
 });
 
 test('mismatched Origin is forbidden, and / refuses an event stream and other methods', async () => {

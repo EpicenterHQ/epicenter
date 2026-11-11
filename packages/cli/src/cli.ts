@@ -12,7 +12,6 @@ import { isName } from '@epicenter/app';
 import packageJson from '../package.json' with { type: 'json' };
 import { accessCommand } from './access.ts';
 import { buildCommand } from './build.ts';
-import { READ_ONLY_FLAG, REPORT_FLAG, runChild } from './child.ts';
 import {
 	BAD_PORT,
 	COMMANDS,
@@ -35,13 +34,11 @@ import {
 	homeListing,
 	oneAppListing,
 } from './listing.ts';
-import { serveStdio } from './mcp.ts';
 import { newCommand } from './new.ts';
 import {
-	type Answer,
-	answerInto,
 	fail,
 	presentAnswer,
+	printingToStderr,
 	writeErr,
 	writeJson,
 	writeOut,
@@ -89,22 +86,14 @@ const HANDLERS: { [K in Command]: Handler } = {
 	service: serviceCommand,
 	async serve(words, json) {
 		if (json)
-			return fail(
-				misuse('serve', 'MCP uses stdout for protocol; --json does not apply'),
-				json,
-			);
+			return fail(misuse('serve', 'serve prints no answer; --json does not apply'), json);
 		const given = parseWords(
 			words,
-			{
-				port: { type: 'string' },
-				host: { type: 'string' },
-				stdio: { type: 'boolean' },
-			},
+			{ port: { type: 'string' }, host: { type: 'string' } },
 			[0, 0],
 		);
 		if (!given) return fail(misuse('serve'), json);
-		const { port, host, stdio } = given.values;
-		if (stdio) return port || host ? fail(misuse('serve'), json) : serveStdio();
+		const { port, host } = given.values;
 		const root = epicenterRoot();
 		const listen = port === undefined ? root.port : portOf(port);
 		if (listen === undefined) return fail(misuse('serve', BAD_PORT), json);
@@ -124,19 +113,10 @@ const HANDLERS: { [K in Command]: Handler } = {
 
 /** Dispatch app commands and return an exit code so the entrypoint can let stdout drain. */
 export async function runCli(argv: string[]): Promise<number> {
-	// A child of another epicenter answers into the report file it names (child.ts).
-	const reportArg = argv[0]?.startsWith(REPORT_FLAG) ? argv[0] : undefined;
-	if (reportArg) {
-		answerInto(reportArg.slice(REPORT_FLAG.length));
-		argv = argv.slice(1);
-	}
-	// A child may be limited to read-only actions (child.ts).
-	const onlyReadOnly = reportArg !== undefined && argv[0] === READ_ONLY_FLAG;
-	if (onlyReadOnly) argv = argv.slice(1);
 	// --version is read only on its own, so an action's --version stays its own flag.
 	const onlyGlobals = argv.every((token) => GLOBALS.has(token));
 	const tokens: string[] = [];
-	let json = reportArg !== undefined;
+	let json = false;
 	let help = false;
 	let version = false;
 	let literal = false;
@@ -180,13 +160,6 @@ export async function runCli(argv: string[]): Promise<number> {
 		}
 		const [name, ...words] = tokens as [string, ...string[]];
 		if (Object.hasOwn(HANDLERS, name)) {
-			if (onlyReadOnly)
-				return fail(
-					CliError.Refused({
-						message: `epicenter ${name} is not an action, and this call may only read`,
-					}).error,
-					json,
-				);
 			const command = name as keyof typeof HANDLERS;
 			if (help) {
 				print(`${COMMANDS[command].usage}\n${COMMANDS[command].help}`);
@@ -196,11 +169,9 @@ export async function runCli(argv: string[]): Promise<number> {
 			return HANDLERS[command](words, json);
 		}
 		epicenterRoot();
-		// Running an action is two processes: the child owns the whole call, commit and all, and this one relays its answer.
-		if (!reportArg && words.length > 0 && !help)
-			return presentAnswer((await runChild(argv, 'inherit')) as Answer, json);
+		// The code a call ran is the code before loading it: an epicenter.ts may move HEAD as it loads.
 		const code =
-			reportArg && words.length > 0 && !help && isName(name)
+			words.length > 0 && !help && isName(name)
 				? await codeStateOf(join(epicenterDir(), name))
 				: { dirty: false };
 		const { data: located, error: notFound } = await loadHomeApp(name);
@@ -232,13 +203,6 @@ export async function runCli(argv: string[]): Promise<number> {
 				json,
 			);
 		}
-		if (onlyReadOnly && action.annotations?.readOnlyHint !== true)
-			return fail(
-				CliError.Refused({
-					message: `${name} ${matched.key} changes files, and this call may only read`,
-				}).error,
-				json,
-			);
 		if (help) {
 			print(
 				json
@@ -251,12 +215,9 @@ export async function runCli(argv: string[]): Promise<number> {
 		const given = await readInput(action, matched.rest);
 		if ('error' in given)
 			return fail(CliError.Usage({ message: given.error, next }).error, json);
-		const { answer, committed } = await runAction(
-			located,
-			matched.key,
-			action,
-			given.input,
-			code,
+		// What the action prints goes to stderr, so stdout holds only the answer.
+		const { answer, committed } = await printingToStderr(() =>
+			runAction(located, matched.key, action, given.input, code),
 		);
 		if (committed && 'failed' in committed)
 			writeErr(

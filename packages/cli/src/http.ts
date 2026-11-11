@@ -2,11 +2,15 @@
  * `epicenter serve` over HTTP (ADR-0864): one address for people and agents.
  *
  * ```txt
- * POST /             MCP, stateless JSON
- * GET  /             the launcher; 405 when asked for an event stream (MCP)
- * GET  /<app>/...    the app's UI, ui/dist/, as static files
- * GET  /<app>        308 to /<app>/
+ * POST /                MCP, stateless JSON
+ * GET  /                the launcher; 405 when asked for an event stream (MCP)
+ * GET  /<app>/...       the app's UI, ui/dist/, as static files
+ * GET  /<app>           308 to /<app>/
+ * POST /<app>/<action>  run the action for the UI; JSON lines (`callResponse`)
  * ```
+ *
+ * `serve` runs every call itself, from the app's code as it is on disk when
+ * the call arrives (`home.ts`, `run.ts`).
  *
  * Any later path of the server's own starts with `.`, which no app name can,
  * so no name is reserved for the server.
@@ -40,12 +44,13 @@ import { isName } from '@epicenter/app';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { openAuthorizationServer } from './authorization-server.ts';
-import { runChild } from './child.ts';
-import { chooseApps, homeEntries } from './home.ts';
+import { CliError } from './errors.ts';
+import { chooseApps, homeEntries, loadHomeApp } from './home.ts';
 import { createMcpServer } from './mcp.ts';
-import { writeErr } from './output.ts';
+import { type Answer, writeErr } from './output.ts';
 import { startPublicServer } from './public.ts';
 import { epicenterDir, epicenterRoot } from './root.ts';
+import { callAction } from './run.ts';
 import { nothingToBackUp } from './snapshot.ts';
 import { type Synced, syncFailures, syncOne } from './sync.ts';
 import { createUiRefresher, UI_DIST } from './ui.ts';
@@ -111,7 +116,66 @@ export type Site = {
 	launcher(request: Request): Promise<Response>;
 	/** `GET /<app>` and `/<app>/<path>`: the app's UI, or 404. */
 	ui(request: Request): Promise<Response>;
+	/** `POST /<app>/<action>`: run the action for the app's UI, or 404. */
+	call(request: Request): Promise<Response>;
 };
+
+/** One line of a call's response: a JSON value and a newline. */
+const line = (value: unknown) =>
+	new TextEncoder().encode(`${JSON.stringify(value)}\n`);
+
+/**
+ * Run the action `POST /<app>/<action>` names, its words joined by `.`
+ * (`/tasks/add`, `/vocab/words.add`), with the request's body as its whole
+ * input. The response is JSON lines: `{"yielded": value}` for each value the
+ * action yields, as it yields it, then `{"answer": answer}`, the same answer
+ * `--json` prints. A caller that stops reading stops the action at its next
+ * yield; what it wrote is committed.
+ */
+async function callResponse(request: Request): Promise<Response> {
+	const match = /^\/([^/]+)\/([^/]+)$/.exec(new URL(request.url).pathname);
+	if (!match) return notFound();
+	const [, app = '', action = ''] = match;
+	const words = action.split('.');
+	if (!isName(app) || !words.every(isName)) return notFound();
+	let input: unknown;
+	try {
+		input = await request.json();
+	} catch {
+		input = undefined;
+	}
+	const stopped = new AbortController();
+	const body = new ReadableStream<Uint8Array>({
+		start(controller) {
+			void (async () => {
+				let answer: Answer;
+				try {
+					answer = await callAction(app, words.join(' '), input, {
+						onYield: (value) => {
+							if (!stopped.signal.aborted)
+								controller.enqueue(line({ yielded: value }));
+						},
+						signal: stopped.signal,
+					});
+				} catch (cause) {
+					answer = { error: CliError.Internal({ cause }).error };
+				}
+				if (stopped.signal.aborted) return;
+				controller.enqueue(line({ answer }));
+				controller.close();
+			})();
+		},
+		cancel() {
+			stopped.abort();
+		},
+	});
+	return new Response(body, {
+		headers: {
+			'content-type': 'application/x-ndjson',
+			'cache-control': 'no-store',
+		},
+	});
+}
 
 const notFound = () => new Response('Not found', { status: 404 });
 
@@ -216,17 +280,10 @@ function createSite(
 			const apps = await Promise.all(
 				(await homeEntries()).map(async (entry) => {
 					if (!(await uiFile(entry.entry, 'index.html')).ok) return undefined;
-					// Read in a child, as tools/list is: serve never imports an app.
-					const listed = (await runChild(
-						[entry.entry, '--json'],
-						'ignore',
-					)) as {
-						description?: unknown;
-					};
+					const { data: located } = await loadHomeApp(entry.entry);
 					return {
 						name: entry.entry,
-						description:
-							typeof listed.description === 'string' ? listed.description : '',
+						description: located?.ok ? located.app.description : '',
 						icon: (await uiFile(entry.entry, 'icon.png')).ok,
 					};
 				}),
@@ -263,6 +320,7 @@ function createSite(
 			}
 			return uiFile(app, match[2]);
 		},
+		call: callResponse,
 	};
 }
 
@@ -360,10 +418,9 @@ export function startHttpServer(host: string, port: number) {
 				return forbidden();
 		}
 		const { pathname } = new URL(request.url);
-		if (pathname === '/')
-			return request.method === 'POST'
-				? site.mcp(request)
-				: site.launcher(request);
+		if (request.method === 'POST')
+			return pathname === '/' ? site.mcp(request) : site.call(request);
+		if (pathname === '/') return site.launcher(request);
 		return site.ui(request);
 	};
 	const server = Bun.serve({
