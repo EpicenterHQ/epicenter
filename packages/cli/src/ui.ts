@@ -1,40 +1,52 @@
 /**
  * An app's view (ADR-0860): what its `ui/` builds to, in `ui/dist/`, which
- * `epicenter serve` serves at `/<app>/`. `epicenter build`, `new --from`, and
- * `update` build it with the Bun that runs `epicenter`; the compiled
- * `epicenter` is Bun itself when `BUN_BE_BUN=1` is set, so a computer needs no
- * other program.
+ * `epicenter serve` serves at `/<app>/`. `ui/dist/` is a cache of the code
+ * repository's `HEAD`: it is stamped with the commit it was built from, and
+ * `serve` rebuilds it in the background when `HEAD` moves, serving the last
+ * view meanwhile. So a change to the view shows once it is committed, by
+ * whoever made it or by `serve`'s snapshot, and nobody has to remember to
+ * build. `epicenter build` builds now and shows the build's errors.
  *
- * - When `ui/package.json` has a `build` script, the app's code (what Git
- *   tracks or would track, minus `data/`) is copied to a staging folder,
- *   `ui/` installs there from its committed `bun.lock`, and the script runs
- *   there with `EPICENTER_BASE=/<app>`, the path the view is served at. It
- *   must write `ui/dist/`.
+ * A build checks out `HEAD` into a detached worktree beside the app, as
+ * `.<app>-build-*`, which no listing reads as an app. It builds exactly the
+ * commit, with Git LFS files as files, and never the working tree:
+ *
+ * - When `ui/package.json` has a `build` script, `ui/` installs from its
+ *   committed `bun.lock` and the script runs with `EPICENTER_BASE=/<app>`,
+ *   the path the view is served at. It must write `ui/dist/`.
  * - Otherwise, when `ui/index.html` exists, Bun's bundler bundles it, with
  *   `@epicenter/app/client` supplied by this command, so one `index.html`
  *   and the files beside it are a view with no `package.json`.
  *
- * The staging folder sits beside the app as `.<app>-build-*`, which no
- * listing reads as an app, on the same volume so the finished `dist/`
- * replaces the last one by rename. `serve` never answers from half a build,
- * a failed build leaves the last view in place, and nothing appears in the
- * app's folder while it builds.
+ * Both run with the Bun that runs `epicenter`; the compiled `epicenter` is
+ * Bun itself when `BUN_BE_BUN=1` is set. The finished `dist/` replaces
+ * `ui/dist/` by rename, on the same volume, so `serve` never answers from half
+ * a build, and a failed build leaves the last view in place.
  */
 import {
-	copyFile,
-	mkdir,
 	mkdtemp,
 	readFile,
 	rename,
 	rm,
 	stat,
+	writeFile,
 } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
+import { extractErrorMessage } from 'wellcrafted/error';
+import packageJson from '../package.json' with { type: 'json' };
 import { COMPILED } from './child.ts';
-import { checkedGit } from './git.ts';
+import { checkedGit, git } from './git.ts';
+import { writeErr } from './output.ts';
 
 /** Where an app's view lives, relative to its folder. */
 export const VIEW = join('ui', 'dist');
+
+/**
+ * The stamp inside `ui/dist/`: the commit the view was built from and the
+ * `epicenter` that built it, whose client a bundled view carries. `serve`
+ * never serves a name that starts with `.`.
+ */
+const STAMP = '.epicenter-build';
 
 async function exists(path: string) {
 	try {
@@ -45,16 +57,27 @@ async function exists(path: string) {
 	}
 }
 
-/** Whether `ui/package.json` has a `build` script; a missing file has none. */
-async function hasBuildScript(ui: string): Promise<boolean> {
-	let text: string;
-	try {
-		text = await readFile(join(ui, 'package.json'), 'utf8');
-	} catch {
-		return false;
+/**
+ * How `commit`'s `ui/` builds, read from the commit without checking it out:
+ * by its `build` script, by bundling its `index.html`, or not at all.
+ */
+async function viewSource(
+	folder: string,
+	commit: string,
+): Promise<'script' | 'index' | undefined> {
+	const manifest = await git(folder, ['show', `${commit}:ui/package.json`]);
+	if (manifest.code === 0) {
+		const parsed: { scripts?: { build?: unknown } } | null = JSON.parse(
+			manifest.stdout,
+		);
+		if (typeof parsed?.scripts?.build === 'string') return 'script';
 	}
-	const manifest: { scripts?: { build?: unknown } } | null = JSON.parse(text);
-	return typeof manifest?.scripts?.build === 'string';
+	const index = await git(folder, [
+		'cat-file',
+		'-e',
+		`${commit}:ui/index.html`,
+	]);
+	return index.code === 0 ? 'index' : undefined;
 }
 
 /**
@@ -89,43 +112,8 @@ async function runBun(
 		);
 }
 
-/**
- * Copy the app's code into `to`: every file Git tracks or would track, so
- * ignored output such as `node_modules/` and `ui/dist/` stays behind, and
- * nothing under `data/`, which is records (ADR-0876).
- */
-async function copyCode(folder: string, to: string) {
-	const listed = await checkedGit(folder, [
-		'ls-files',
-		'-z',
-		'--cached',
-		'--others',
-		'--exclude-standard',
-	]);
-	const paths = new Set(listed.split('\0').filter(Boolean));
-	for (const path of paths) {
-		if (path.startsWith('data/')) continue;
-		await mkdir(dirname(join(to, path)), { recursive: true });
-		try {
-			await copyFile(join(folder, path), join(to, path));
-		} catch (error) {
-			// Tracked but deleted, or a submodule's folder: not code to build.
-			const code = (error as NodeJS.ErrnoException).code;
-			if (code !== 'ENOENT' && code !== 'EISDIR') throw error;
-		}
-	}
-}
-
-/**
- * Install `ui/` in the staged copy and run its `build` with `EPICENTER_BASE`
- * set to `/<app>`, the path `serve` serves the view at, since a build whose
- * page names its assets absolutely (SvelteKit's hash router) cannot learn it
- * from a staged folder's name; returns its `dist/`.
- */
-async function runBuildScript(app: string, folder: string, staging: string) {
-	const code = join(staging, 'code');
-	await copyCode(folder, code);
-	const ui = join(code, 'ui');
+/** Install `ui/` and run its `build`; returns the `dist/` it wrote. */
+async function runBuildScript(app: string, ui: string) {
 	await runBun(
 		ui,
 		(await exists(join(ui, 'bun.lock')))
@@ -136,14 +124,13 @@ async function runBuildScript(app: string, folder: string, staging: string) {
 	return join(ui, 'dist');
 }
 
-/** Bundle `ui/index.html` with Bun into the staging folder; returns its output. */
-async function bundleIndex(folder: string, staging: string) {
+/** Bundle `ui/index.html` with Bun; returns the folder it wrote. */
+async function bundleIndex(ui: string, outdir: string) {
 	const client = Bun.fileURLToPath(
 		import.meta.resolve('@epicenter/app/client'),
 	);
-	const outdir = join(staging, 'dist');
 	const result = await Bun.build({
-		entrypoints: [join(folder, 'ui', 'index.html')],
+		entrypoints: [join(ui, 'index.html')],
 		outdir,
 		minify: true,
 		throw: false,
@@ -165,27 +152,58 @@ async function bundleIndex(folder: string, staging: string) {
 	return outdir;
 }
 
+/** The code repository's `HEAD`, or undefined before its first commit. */
+async function headOf(folder: string): Promise<string | undefined> {
+	const head = await git(folder, ['rev-parse', '--verify', '-q', 'HEAD']);
+	return head.code === 0 ? head.stdout : undefined;
+}
+
+const stampFor = (commit: string) => `${commit}\n${packageJson.version}\n`;
+
+/** Whether `ui/dist/` was built from `commit` by this `epicenter`. */
+async function builtFrom(folder: string, commit: string) {
+	try {
+		return (
+			(await readFile(join(folder, VIEW, STAMP), 'utf8')) === stampFor(commit)
+		);
+	} catch {
+		return false;
+	}
+}
+
 /**
- * Build the view of the app `app`, whose folder is `folder`, into `ui/dist/`.
- * Returns false when `ui/` has neither a `build` script nor an `index.html`,
- * so there is nothing to build; throws with the build's own message when it
- * fails, leaving the last view in place.
+ * Build the view of `HEAD` for the app `app`, whose folder is `folder`, into
+ * `ui/dist/`, and answer the commit it was built from. Answers undefined when
+ * there is nothing to build: no commit yet, or a `ui/` with neither a `build`
+ * script nor an `index.html` at that commit. Throws with the build's own
+ * message when it fails, leaving the last view in place.
  */
-export async function buildUi(app: string, folder: string): Promise<boolean> {
-	const ui = join(folder, 'ui');
-	const script = await hasBuildScript(ui);
-	if (!script && !(await exists(join(ui, 'index.html')))) return false;
+export async function buildView(
+	app: string,
+	folder: string,
+): Promise<string | undefined> {
+	const commit = await headOf(folder);
+	if (!commit) return undefined;
+	const source = await viewSource(folder, commit);
+	if (!source) return undefined;
 	const staging = await mkdtemp(
 		join(dirname(folder), `.${basename(folder)}-build-`),
 	);
+	const code = join(staging, 'code');
 	try {
-		const built = script
-			? await runBuildScript(app, folder, staging)
-			: await bundleIndex(folder, staging);
+		// A build stopped by a crash leaves a worktree Git still lists.
+		await git(folder, ['worktree', 'prune']);
+		await checkedGit(folder, ['worktree', 'add', '--detach', code, commit]);
+		const ui = join(code, 'ui');
+		const built =
+			source === 'script'
+				? await runBuildScript(app, ui)
+				: await bundleIndex(ui, join(staging, 'dist'));
 		if (!(await exists(join(built, 'index.html'))))
 			throw new Error(
 				`ui/'s build wrote no ui/dist/index.html; its build must write ui/dist/`,
 			);
+		await writeFile(join(built, STAMP), stampFor(commit));
 		const view = join(folder, VIEW);
 		const last = join(staging, 'last');
 		const hadView = await exists(view);
@@ -196,8 +214,42 @@ export async function buildUi(app: string, folder: string): Promise<boolean> {
 			if (hadView) await rename(last, view);
 			throw error;
 		}
+		return commit;
 	} finally {
+		await git(folder, ['worktree', 'remove', '--force', code]);
 		await rm(staging, { recursive: true, force: true });
 	}
-	return true;
+}
+
+/**
+ * `serve`'s rebuilding: `refresh(app, folder)` builds in the background when
+ * `ui/dist/` was not built from `HEAD`. One build runs per app at a time, and
+ * a commit whose build failed is not tried again; its failure is written to
+ * stderr once, and `epicenter build` shows it again.
+ */
+export function createViewRefresher() {
+	const running = new Map<string, Promise<void>>();
+	const failed = new Map<string, string>();
+	const refresh = async (app: string, folder: string) => {
+		const commit = await headOf(folder);
+		if (!commit || failed.get(folder) === commit) return;
+		if (await builtFrom(folder, commit)) return;
+		try {
+			if (!(await viewSource(folder, commit))) return;
+			await buildView(app, folder);
+			failed.delete(folder);
+		} catch (error) {
+			failed.set(folder, commit);
+			writeErr(
+				`${app}: the view of ${commit.slice(0, 7)} did not build, so the last one is served: ${extractErrorMessage(error)}\nRun: epicenter build ${app}`,
+			);
+		}
+	};
+	return (app: string, folder: string): Promise<void> => {
+		const now = running.get(folder);
+		if (now) return now;
+		const next = refresh(app, folder).finally(() => running.delete(folder));
+		running.set(folder, next);
+		return next;
+	};
 }

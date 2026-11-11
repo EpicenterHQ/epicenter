@@ -13,25 +13,22 @@
  *    merge the branch `<remote>/HEAD` names, as `<app>: update from
  *    <remote>`; a conflict aborts the merge, leaving the app as it was, and
  *    names the command that resolves it;
- * 3. check that the merged `epicenter.ts` loads;
- * 4. build the UI, keeping the last one that built if this build fails.
+ * 3. check that the merged `epicenter.ts` loads.
  *
- * Neither the fetch nor the build holds the lock, so the network and a build
- * never keep a call from writing the app.
+ * The fetch does not hold the lock, so the network never keeps a call from
+ * writing the app. `serve` rebuilds the view from the merged `HEAD`.
  *
  * Git merges code and does not migrate data: a field the merge renames or
  * tightens is repaired in the data by an action or an agent, in data commits
  * that name the merged code. An app without the remote is reported and left
  * alone. One app's failure never stops the others.
  */
-import { extractErrorMessage } from 'wellcrafted/error';
 import { misuse, parseWords } from './commands.ts';
 import { git, gitMessage } from './git.ts';
 import { chooseApps, loadHomeApp } from './home.ts';
 import { LOCK_WAIT_MS, locked } from './lock.ts';
 import { fail, writeJson } from './output.ts';
 import { failureOf, snapshotApp } from './snapshot.ts';
-import { buildUi } from './ui.ts';
 
 /** What update did for one app. */
 type Updated = {
@@ -43,8 +40,6 @@ type Updated = {
 	found: boolean;
 	/** The merge commit, or `null` when the app already had everything. */
 	merged: string | null;
-	/** Whether a UI was built; `false` when `ui/package.json` has no `build` script. */
-	built: boolean;
 	/** Why this app did not finish updating, and the command that resolves it. */
 	error?: { message: string; next?: string };
 };
@@ -60,7 +55,6 @@ async function updateOne(
 		remote,
 		found: false,
 		merged: null,
-		built: false,
 	};
 	if ((await git(folder, ['remote', 'get-url', remote])).code !== 0)
 		return updated;
@@ -134,13 +128,6 @@ async function updateOne(
 	const { data: located, error } = await loadHomeApp(app);
 	if (error) return stop(error.message);
 	if (!located.ok) return stop(located.problems.join('; '));
-	try {
-		updated.built = await buildUi(app, folder);
-	} catch (error) {
-		return stop(
-			`the UI did not build, so the last one that did is kept: ${extractErrorMessage(error)}`,
-		);
-	}
 	return updated;
 }
 
@@ -154,10 +141,7 @@ function render(apps: Updated[]) {
 			continue;
 		}
 		stdout.push(
-			`${app.app}: ${[
-				app.merged ? `merged ${app.merged}` : 'already up to date',
-				...(app.built ? ['UI built'] : []),
-			].join('; ')}`,
+			`${app.app}: ${app.merged ? `merged ${app.merged}` : 'already up to date'}`,
 		);
 		if (app.error)
 			stderr.push(

@@ -1,14 +1,19 @@
-/** Build one app's UI or every app's UI, preserving each last good build. */
+/**
+ * `epicenter build [<app>]`: build each view from its code's `HEAD` now and
+ * show the build's errors. `serve` rebuilds on its own when `HEAD` moves; this
+ * is for seeing a build through, or its failure, without waiting.
+ */
 import { extractErrorMessage } from 'wellcrafted/error';
 import { misuse, parseWords } from './commands.ts';
 import { chooseApps } from './home.ts';
 import { fail, writeJson } from './output.ts';
-import { buildUi } from './ui.ts';
+import { buildView } from './ui.ts';
 
 type Built = {
 	app: string;
 	folder: string;
-	built: boolean;
+	/** The commit the view was built from, or `null` when there was nothing to build. */
+	built: string | null;
 	error?: { message: string };
 };
 
@@ -22,9 +27,9 @@ export async function buildCommand(
 	if (error) return fail(error, json);
 	const apps: Built[] = [];
 	for (const { entry, realPath } of chosen) {
-		const result: Built = { app: entry, folder: realPath, built: false };
+		const result: Built = { app: entry, folder: realPath, built: null };
 		try {
-			result.built = await buildUi(entry, realPath);
+			result.built = (await buildView(entry, realPath)) ?? null;
 		} catch (error) {
 			result.error = { message: extractErrorMessage(error) };
 		}
@@ -36,7 +41,7 @@ export async function buildCommand(
 			if (app.error) process.stderr.write(`${app.app}: ${app.error.message}\n`);
 			else
 				process.stdout.write(
-					`${app.app}: ${app.built ? 'UI built' : 'nothing to build'}\n`,
+					`${app.app}: ${app.built ? `view built from ${app.built.slice(0, 7)}` : 'nothing to build'}\n`,
 				);
 		}
 	return apps.some((app) => app.error) ? 1 : 0;

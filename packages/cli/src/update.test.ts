@@ -4,7 +4,7 @@
  */
 import { afterEach, expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';
-import { readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fixture, gitIn, gitignore, header } from './runner.test-support.ts';
 
@@ -58,7 +58,7 @@ async function starterFixture() {
 	return { ...f, starter, app: join(f.home, 'vocab') };
 }
 
-test('new --from clones a starter as upstream, tracking nothing, and builds its UI', async () => {
+test('new --from clones a starter as upstream, tracking nothing, and builds nothing itself', async () => {
 	const f = await starterFixture();
 	const made = await f.run('new', 'vocab', '--from', f.starter, '--json');
 	expect(made.code).toBe(0);
@@ -69,9 +69,7 @@ test('new --from clones a starter as upstream, tracking nothing, and builds its 
 	expect(
 		await gitIn(f.app, 'config', '--get-regexp', '^branch\\.').catch(() => ''),
 	).toBe('');
-	expect(await readFile(join(f.app, 'ui', 'dist', 'index.html'), 'utf8')).toBe(
-		'one\n',
-	);
+	expect(existsSync(join(f.app, 'ui', 'dist'))).toBe(false);
 	expect(await gitIn(f.app, 'status', '--porcelain')).toBe('');
 
 	const inside = await f.run(
@@ -106,7 +104,7 @@ test('new --from refuses a starter whose epicenter.ts does not load, and leaves 
 	expect(existsSync(f.app)).toBe(false);
 });
 
-test('update merges the starter and builds; a file that no longer fits says so when read', async () => {
+test('update merges the starter; a file that no longer fits says so when read', async () => {
 	const f = await starterFixture();
 	expect((await f.run('new', 'vocab', '--from', f.starter)).code).toBe(0);
 	expect(
@@ -118,7 +116,6 @@ test('update merges the starter and builds; a file that no longer fits says so w
 		remote: 'upstream',
 		found: true,
 		merged: null,
-		built: true,
 	});
 	await writeFile(join(f.app, 'LOCAL.md'), 'my notes\n');
 	await commitAll(f.app, 'my code notes');
@@ -131,12 +128,9 @@ test('update merges the starter and builds; a file that no longer fits says so w
 	await commitAll(f.starter, 'require a reading');
 	const updated = await f.run('update');
 	expect(updated.code).toBe(0);
-	expect(updated.stdout).toMatch(/^vocab: merged [0-9a-f]+; UI built\n$/);
+	expect(updated.stdout).toMatch(/^vocab: merged [0-9a-f]+\n$/);
 	expect(await gitIn(f.app, 'log', '-1', '--format=%s')).toBe(
 		'vocab: update from upstream',
-	);
-	expect(await readFile(join(f.app, 'ui', 'dist', 'index.html'), 'utf8')).toBe(
-		'two\n',
 	);
 	expect(await gitIn(f.app, 'status', '--porcelain')).toBe('');
 	const read = await f.run(
@@ -193,101 +187,6 @@ test('an app without a starter is left alone by update', async () => {
 	expect(updated.stdout).toBe('garden: no upstream; left alone\n');
 });
 
-test('a failed build keeps the last UI that built', async () => {
-	const f = await starterFixture();
-	expect((await f.run('new', 'vocab', '--from', f.starter)).code).toBe(0);
-	await writeFile(join(f.starter, 'ui', 'package.json'), uiPackage('exit 7'));
-	await commitAll(f.starter, 'break the build');
-	const updated = await f.run('update', 'vocab');
-	expect(updated.code).toBe(1);
-	expect(updated.stderr).toContain('the last one that did is kept');
-	expect(await readFile(join(f.app, 'ui', 'dist', 'index.html'), 'utf8')).toBe(
-		'one\n',
-	);
-});
-
-test('a build that removes its output keeps the last UI and names the required index', async () => {
-	const f = await starterFixture();
-	expect((await f.run('new', 'vocab', '--from', f.starter)).code).toBe(0);
-	await writeFile(
-		join(f.starter, 'ui', 'package.json'),
-		uiPackage('rm -rf dist'),
-	);
-	await commitAll(f.starter, 'empty the build');
-	const updated = await f.run('update', 'vocab');
-	expect(updated.code).toBe(1);
-	expect(updated.stderr).toContain('ui/dist/index.html');
-	expect(await readFile(join(f.app, 'ui', 'dist', 'index.html'), 'utf8')).toBe(
-		'one\n',
-	);
-});
-
-test('a build script runs on a copy of the code without data/, and its dist replaces the last', async () => {
-	const f = await fixture();
-	roots.push(f.root);
-	const app = await f.folder(join(f.home, 'vocab'), {
-		'.gitignore': gitignore,
-		'epicenter.ts': wordsApp({ reading: 'optional' }),
-		'data/words/neko.md': '---\nmeaning: cat\n---\n',
-		'ui/.gitignore': 'dist/\nnode_modules/\n',
-		'ui/package.json': uiPackage(
-			'test -f ../epicenter.ts && test ! -e ../data && mkdir -p dist && pwd > dist/index.html',
-		),
-	});
-	await f.folder(
-		join(app, 'ui', 'dist'),
-		{ 'index.html': 'last\n' },
-		{ git: false },
-	);
-	const built = await f.run('build', 'vocab');
-	expect(built.stderr).toBe('');
-	expect(built.stdout).toBe('vocab: UI built\n');
-	const where = (
-		await readFile(join(app, 'ui', 'dist', 'index.html'), 'utf8')
-	).trim();
-	expect(where.startsWith(`${app}/`)).toBe(false);
-	expect(await gitIn(app, 'status', '--porcelain')).toBe('');
-	expect(
-		(await readdir(f.home)).filter((name) => name.startsWith('.')),
-	).toEqual([]);
-});
-
-test('a build script is told the path its view is served at, whatever folder it runs in', async () => {
-	const f = await fixture();
-	roots.push(f.root);
-	const app = await f.folder(join(f.home, 'vocab'), {
-		'.gitignore': gitignore,
-		'epicenter.ts': wordsApp({ reading: 'optional' }),
-		'ui/.gitignore': 'dist/\nnode_modules/\n',
-		'ui/package.json': uiPackage(
-			'mkdir -p dist && echo "$EPICENTER_BASE" > dist/index.html',
-		),
-	});
-	expect((await f.run('build', 'vocab')).code).toBe(0);
-	expect(
-		(await readFile(join(app, 'ui', 'dist', 'index.html'), 'utf8')).trim(),
-	).toBe('/vocab');
-});
-
-test('a ui/ with no build script is bundled from its index.html, with relative paths', async () => {
-	const f = await fixture();
-	roots.push(f.root);
-	const app = await f.folder(join(f.home, 'vocab'), {
-		'.gitignore': `${gitignore}ui/dist/\n`,
-		'epicenter.ts': wordsApp({ reading: 'optional' }),
-		'ui/index.html':
-			'<!doctype html><html><body><script type="module" src="./main.ts"></script></body></html>\n',
-		'ui/main.ts':
-			"import { connect } from '@epicenter/app/client';\ndocument.body.dataset.client = typeof connect;\n",
-	});
-	const built = await f.run('build', 'vocab');
-	expect(built.stderr).toBe('');
-	expect(built.stdout).toBe('vocab: UI built\n');
-	const html = await readFile(join(app, 'ui', 'dist', 'index.html'), 'utf8');
-	expect(html).toMatch(/src="\.\/[^"]+\.js"/);
-	expect(html).not.toContain('main.ts');
-});
-
 test('sync pushes to origin, never to the starter', async () => {
 	const f = await starterFixture();
 	expect((await f.run('new', 'vocab', '--from', f.starter)).code).toBe(0);
@@ -318,31 +217,6 @@ test('sync pushes to origin, never to the starter', async () => {
 		await gitIn(f.app, 'rev-parse', 'HEAD'),
 	);
 	expect(await gitIn(f.starter, 'rev-parse', 'HEAD')).toBe(starterHead);
-});
-
-test('new --from whose UI does not build makes the app, exits 1, and names build', async () => {
-	const f = await starterFixture();
-	await writeFile(join(f.starter, 'ui', 'package.json'), uiPackage('exit 7'));
-	await commitAll(f.starter, 'break the build');
-	const made = await f.run('new', 'vocab', '--from', f.starter, '--json');
-	expect(made.code).toBe(1);
-	expect(JSON.parse(made.stdout)).toEqual({
-		name: 'vocab',
-		folder: f.app,
-		error: {
-			message: expect.stringContaining('vocab: the UI did not build: '),
-			next: 'epicenter build vocab',
-		},
-	});
-	expect(await gitIn(f.app, 'remote')).toBe('upstream');
-
-	const human = await f.run('new', 'words', '--from', f.starter);
-	expect(human.code).toBe(1);
-	expect(human.stdout).toBe(`${join(f.home, 'words')}\n`);
-	expect(human.stderr).toStartWith('words: the UI did not build: ');
-	expect(human.stderr).toEndWith(
-		`\nRun: epicenter build words\nnot backed up\nRun: git -C ${join(f.home, 'words')} remote add origin <url> and git -C ${join(f.home, 'words')}/data remote add origin <url>, each a private repository, then epicenter sync words\n`,
-	);
 });
 
 test('update from a named remote finds its default branch when remote HEAD is missing', async () => {

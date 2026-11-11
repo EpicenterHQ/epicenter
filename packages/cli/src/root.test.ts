@@ -2,7 +2,7 @@ import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { bareApp, fixture } from './runner.test-support.ts';
+import { bareApp, fixture, gitIn } from './runner.test-support.ts';
 
 setDefaultTimeout(30_000);
 const roots: string[] = [];
@@ -213,7 +213,7 @@ test('the marker is matched by its exact name, and a byte order mark before its 
 	expect((await f.run('--json')).code).toBe(0);
 });
 
-test('build reports each app and keeps the last good UI after failure', async () => {
+test('build reports each app and keeps the last good view after a failed commit', async () => {
 	const f = await setup();
 	await f.folder(join(f.home, 'capture'), {
 		'epicenter.ts': bareApp('capture'),
@@ -231,7 +231,10 @@ test('build reports each app and keeps the last good UI after failure', async ()
 	expect(first.code).toBe(0);
 	expect(
 		JSON.parse(first.stdout).apps.map(
-			(app: { app: string; built: boolean }) => [app.app, app.built],
+			(app: { app: string; built: string | null }) => [
+				app.app,
+				app.built !== null,
+			],
 		),
 	).toEqual([
 		['capture', false],
@@ -244,6 +247,7 @@ test('build reports each app and keeps the last good UI after failure', async ()
 		join(tasks, 'ui/build.ts'),
 		`throw new Error('build broke');\n`,
 	);
+	await gitIn(tasks, 'commit', '-q', '--no-verify', '-am', 'break the build');
 	const failed = await f.run('build', 'tasks', '--json');
 	expect(failed.code).toBe(1);
 	expect(JSON.parse(failed.stdout).apps[0].error.message).toContain(

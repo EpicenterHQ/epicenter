@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-11-09
 - **Relates:** [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) (your server, and reach from vendors' clouds), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (programs that have the folder or ask), [ADR-0853](0853-collections-give-five-actions-and-programs-without-the-folder-ask-over-mcp.md) (MCP, the view client), [ADR-0857](0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md) (`epicenter.ts`, and the client typed by it), [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (one copy, and `serve` at `/<app>/` and `/`).
-- **Unbuilt:** HTTPS is not `serve`'s: it comes from `tailscale serve` on the tailnet and from an HTTPS tunnel to the public listener. Built: `epicenter serve` serving the view at `/<app>/` and MCP at `/` (`packages/cli/src/http.ts`); the view client `connect`, typed by the app (`packages/app/src/client.ts`); Capture's, Reading's, Tasks', and Vocab's views in `apps/<app>/ui/`, which `epicenter new --from`, `update`, and `build` build into `ui/dist/` (ADR-0866), by a `build` script run on a staged copy of the app's code or by Bun bundling `ui/index.html`, replacing the last view only once complete, with `EPICENTER_BASE=/<app>` given to a `build` script (`packages/cli/src/ui.ts`); records under `data/` (ADR-0876); the public listener, behind a sign-in, for an HTTPS tunnel (ADR-0871).
+- **Unbuilt:** HTTPS is not `serve`'s: it comes from `tailscale serve` on the tailnet and from an HTTPS tunnel to the public listener. Built: `epicenter serve` serving the view at `/<app>/` and MCP at `/` (`packages/cli/src/http.ts`); the view client `connect`, typed by the app (`packages/app/src/client.ts`); Capture's, Reading's, Tasks', and Vocab's views in `apps/<app>/ui/`, which `serve` builds into `ui/dist/` from the code repository's `HEAD` when a page load or its clock finds the view stamped with another commit, and `epicenter build` builds on demand, by a `build` script in a detached worktree of `HEAD` or by Bun bundling `ui/index.html`, replacing the last view only once complete, with `EPICENTER_BASE=/<app>` given to a `build` script (`packages/cli/src/ui.ts`); records under `data/` (ADR-0876); the public listener, behind a sign-in, for an HTTPS tunnel (ADR-0871).
 
 ## Context
 
@@ -35,13 +35,24 @@ nothing for a view.
 **A view is what `ui/` builds to, and it is always built.** `epicenter serve`
 serves `ui/dist/` at `/<app>/` and looks nowhere else. `ui/dist/` is
 rebuildable, ignored by `ui/.gitignore`, and never committed (ADR-0854).
-`epicenter build`, `new --from`, and `update` build it:
 
-- When `ui/package.json` has a `build` script, they install from the UI's
+**`ui/dist/` is a cache of the code's last commit.** It is stamped with the
+commit it was built from. When a page load or `serve`'s clock finds that
+`HEAD` has moved, `serve` builds the new commit in the background and serves
+the last view until the build is done; a commit whose build fails is not
+retried, and `epicenter build` builds now and shows why. A build checks out
+`HEAD` into a detached worktree, so it builds exactly the commit, with Git LFS
+files as files, and never a half-edited working tree: a change to the view
+shows once it is committed, by whoever made it or by `serve`'s snapshot within
+5 minutes. Nobody has to remember to build, and `new` and `update` do not.
+Seeing a change live while making it is the build tool's job (`vite dev`), not
+`serve`'s.
+
+- When `ui/package.json` has a `build` script, it installs from the UI's
   committed `bun.lock` and run it. `dist` is the default output of Vite,
   Astro, Parcel, and Rsbuild; SvelteKit's static adapter is pointed at it with
   `adapter({ pages: 'dist', assets: 'dist' })`.
-- Otherwise they bundle `ui/index.html` with Bun's bundler, which `epicenter`
+- Otherwise it bundles `ui/index.html` with Bun's bundler, which `epicenter`
   carries, so a single `index.html`, with TypeScript, TSX, and CSS beside it,
   is a view with no `package.json` and no setting.
 
@@ -51,7 +62,7 @@ view in place. A view routes with the hash. It refers to its own files by
 relative paths where its build can, as Bun's bundler and Vite's `base: './'`
 do. A build that cannot is told the path the view is served at:
 `epicenter` runs a `build` script with `EPICENTER_BASE=/<app>`, since the
-staged copy's folder name is not the app's. SvelteKit's hash router is such
+worktree's folder name is not the app's. SvelteKit's hash router is such
 a build: its `index.html` names its assets from `paths.base` whatever
 `paths.relative` says, so the starters set `base` from `EPICENTER_BASE`. Any build that
 produces static files works; SvelteKit with Epicenter's components is the
@@ -125,6 +136,14 @@ served from somewhere other than the server passes the server's address to
   one.** A hand-written view would sit at the top of `ui/`, but `serve` would
   choose between two folders, and a project not yet built would serve its
   source `index.html` as a broken page instead of no view.
+- **Committing `ui/dist/`, built by whoever changes the UI.** The view would
+  work the moment someone takes the app, with no install. But a forgotten build
+  ships a view that does not match its source, every merge in which both sides
+  rebuilt conflicts, and a hash-routed SvelteKit build names its assets from
+  the folder name, so it breaks under any other name.
+- **Building in `new`, `update`, and `build` only.** An agent commits code
+  with Git, and `serve`'s snapshot commits it too; neither ran a build, so the
+  view fell behind its code until someone remembered.
 - **`ui/build/`.** SvelteKit's static adapter writes there by default, but
   Vite and most other tools write `dist/`, and the default starter is the one
   project that changes a setting.
