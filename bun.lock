@@ -106,7 +106,6 @@
       "dependencies": {
         "@epicenter/app": "workspace:*",
         "markdown-it": "^14.0.0",
-        "wellcrafted": "catalog:",
       },
       "devDependencies": {
         "@epicenter/ui": "workspace:*",

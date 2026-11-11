@@ -13,8 +13,7 @@
 	},
 	"dependencies": {
 		"@epicenter/app": "workspace:*",
-		"markdown-it": "^14.0.0",
-		"wellcrafted": "catalog:"
+		"markdown-it": "^14.0.0"
 	},
 	"devDependencies": {
 		"@epicenter/ui": "workspace:*",
