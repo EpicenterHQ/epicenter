@@ -193,6 +193,16 @@ test('a message sent while the store is out of reach is asked once it lands, and
 	await context.settle();
 	expect(context.folder.files.paths('messages')).toHaveLength(3);
 	expect(context.requests).toBe(1);
+	const saved = expectOk(await context.folder.other().messages.list()).items;
+	expect(
+		saved
+			.sort((a, b) => a.createdAt - b.createdAt)
+			.map(({ role, parts }) => ({ role, parts })),
+	).toEqual([
+		{ role: 'assistant', parts: [{ type: 'text', text: 'Welcome.' }] },
+		{ role: 'user', parts: [{ type: 'text', text: 'Is this lucid?' }] },
+		{ role: 'assistant', parts: [{ type: 'text', text: 'Nice.' }] },
+	]);
 	context.chat[Symbol.dispose]();
 	context.folder[Symbol.dispose]();
 });
@@ -278,4 +288,3 @@ test('an opening is not asked twice over a chat that already has one', async () 
 	context.chat[Symbol.dispose]();
 	context.folder[Symbol.dispose]();
 });
-

@@ -110,8 +110,10 @@ test('a message sent while the store is out of reach shows, and lands once it is
 	using folder = await openVocabFolder();
 	const back = folder.files.refuse('offline', { under: 'messages' });
 	const conversation = conversationOf(folder, 'chat-a');
-	expectOk(await conversation.send('x'));
-	expect(conversation.snapshot().messages).toHaveLength(1);
+	expectOk(await conversation.send('queued while offline'));
+	expect(conversation.snapshot().messages[0]?.parts).toEqual([
+		{ type: 'text', text: 'queued while offline' },
+	]);
 	await Bun.sleep(20);
 	expect(folder.lists.saving()).toBe(true);
 	expect(folder.files.paths('messages')).toEqual([]);
@@ -119,6 +121,13 @@ test('a message sent while the store is out of reach shows, and lands once it is
 	await settle(conversation, folder.lists);
 	expect(folder.files.paths('messages')).toEqual([
 		`messages/chat-a/${conversation.snapshot().messages[0]?.id}.md`,
+	]);
+	expect(expectOk(await folder.other().messages.list()).items).toMatchObject([
+		{
+			chat: 'chat-a',
+			role: 'user',
+			parts: [{ type: 'text', text: 'queued while offline' }],
+		},
 	]);
 	conversation[Symbol.dispose]();
 });
@@ -186,7 +195,11 @@ test('a message another program saves is heard', async () => {
 	const stop = conversation.subscribe(() => changes++);
 	await folder.other().messages.set(
 		{ chat: 'chat-a', id: 'one' },
-		{ role: 'user', createdAt: 1, parts: [{ type: 'text', text: 'outside' }] },
+		{
+			role: 'user',
+			createdAt: 1,
+			parts: [{ type: 'text', text: 'outside' }],
+		},
 	);
 	await until(() => conversation.snapshot().messages.length === 1);
 	stop();
