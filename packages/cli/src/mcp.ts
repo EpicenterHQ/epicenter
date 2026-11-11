@@ -9,7 +9,7 @@
  * code and declaration on disk when a call arrives are what runs, an edit
  * between two calls is seen by the second, and a call's result is the same
  * object `--json` prints: `structuredContent` on success, and with
- * `isError` on failure. The call's process commits the paths it wrote,
+ * `isError` on failure. The call's process commits pending data,
  * named for it, before it answers (ADR-0850, `run.ts`). Diagnostics go to
  * stderr.
  */

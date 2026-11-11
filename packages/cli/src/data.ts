@@ -43,6 +43,28 @@ export async function codeHead(app: string): Promise<string | undefined> {
 	return head.code === 0 ? head.stdout : undefined;
 }
 
+/** The code on disk before an action loads. */
+export type CodeState = { head?: string; dirty: boolean };
+
+/** Read the code commit and whether the app has uncommitted code. */
+export async function codeStateOf(app: string): Promise<CodeState> {
+	const head = await codeHead(app);
+	const dirty =
+		head !== undefined &&
+		(await git(app, ['status', '--porcelain', '--untracked-files=normal']))
+			.stdout !== '';
+	return { head, dirty };
+}
+
+/** The trailers naming the code captured before an action loads. */
+export function codeTrailers(state: CodeState): string[] {
+	if (state.head === undefined) return [];
+	return [
+		`Code-Commit: ${state.head}`,
+		...(state.dirty ? ['Code-Dirty: true'] : []),
+	];
+}
+
 /** The trailer a data commit carries: the code it was written under, when the code has a commit. */
 export async function codeTrailer(app: string) {
 	const head = await codeHead(app);

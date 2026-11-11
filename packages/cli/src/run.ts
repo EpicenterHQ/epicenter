@@ -1,28 +1,20 @@
 /**
- * One call, for the command line and both MCP transports (ADR-0850): the
- * action's run and its commit to the app's data repository (ADR-0877), in
- * the one process that runs the action (`child.ts`). Its first write through `folder` takes the app's lock
- * (`lock.ts`), and the call holds it until it has committed exactly the
- * paths it wrote, under the call's name, so no other write and no snapshot
- * comes between its writes and its commit, from any process. A call that
- * writes nothing takes no lock and commits nothing. A read-only run's writes
- * through `folder` throw, except to a `.local` path, which takes the lock
- * like any write and is never committed.
- * The answer is what the action returned or threw.
+ * One call runs in its child process and owns its data commit (ADR-0880).
+ * Its first folder write takes the app's lock and snapshots pending data as
+ * changed outside epicenter. When the action ends, it commits everything
+ * pending in data under the call's name, even when it threw. An opening
+ * snapshot failure leaves everything pending. A call with no folder write
+ * takes no lock and commits nothing. Read-only calls take no lock, including
+ * their .local writes. Commit outcomes never change the action's answer.
  */
 
-import {
-	type Action,
-	type Folder,
-	inRun,
-	isLocalPath,
-	normalizePath,
-} from '@epicenter/app';
+import { type Action, type Folder, inRun } from '@epicenter/app';
 import { extractErrorMessage } from 'wellcrafted/error';
+import type { CodeState } from './data.ts';
 import type { Runnable } from './home.ts';
 import { type Held, hold, LOCK_WAIT_MS } from './lock.ts';
 import type { Answer } from './output.ts';
-import { commitWrites, type Snapshot } from './snapshot.ts';
+import { commitCall, type Snapshot, snapshotData } from './snapshot.ts';
 
 /**
  * What the action threw, as the answer carries it. A thrown tagged error (a
@@ -60,23 +52,19 @@ function callName(app: string, key: string, value: unknown) {
 
 /**
  * `folder` for one call: each write or delete first takes the app's lock,
- * once, through `own`, then is noted in `written`. In a read-only run only a
- * `.local` path takes the lock; `folder` refuses any other path itself, so a
- * refused write never waits on another call.
+ * once, through `own`. A read-only run takes no lock; `folder` refuses
+ * any non-local write itself.
  */
 function forCall(
 	folder: Folder,
 	own: () => Promise<void>,
-	written: Set<string>,
 	readOnly: boolean,
 ): Folder {
 	const writing =
 		<A extends [string, ...unknown[]], R>(method: (...args: A) => Promise<R>) =>
 		async (...args: A) => {
-			if (!readOnly || isLocalPath(normalizePath(args[0]))) await own();
-			const result = await method(...args);
-			written.add(normalizePath(args[0]));
-			return result;
+			if (!readOnly) await own();
+			return method(...args);
 		};
 	return {
 		...folder,
@@ -89,32 +77,35 @@ function forCall(
 
 /**
  * Run `action`, the app's `key`, with its checked input in the app's folder,
- * then commit the paths it wrote through `folder` under the call's name,
+ * then commit everything pending in data under the call's name,
  * whether it returned or threw (`<call> (threw)`), and let the app's lock go.
  * `committed` is the commit's outcome, absent when the call wrote nothing
- * it could commit.
+ * through `folder`.
  */
 export async function runAction(
 	located: Runnable,
 	key: string,
 	action: Action,
 	input: Record<string, unknown>,
+	code: CodeState,
 ): Promise<{
 	answer: Exclude<Answer, { error: unknown }>;
 	committed?: Snapshot;
 }> {
 	const readOnly = action.annotations?.readOnlyHint === true;
-	const written = new Set<string>();
+	let opening: Snapshot | undefined;
+	let owning: Promise<void> | undefined;
 	let held: Held | undefined;
-	const own = async () => {
-		if (held) return;
-		held = await hold(located.realPath, LOCK_WAIT_MS);
-		if (!held)
-			throw new Error(
-				`${located.name} is busy: another write held it for ${LOCK_WAIT_MS / 1000} seconds`,
-			);
-	};
-	const folder = forCall(located.context.folder, own, written, readOnly);
+	const own = () =>
+		(owning ??= (async () => {
+			held = await hold(located.realPath, LOCK_WAIT_MS);
+			if (!held)
+				throw new Error(
+					`${located.name} is busy: another write held it for ${LOCK_WAIT_MS / 1000} seconds`,
+				);
+			opening = await snapshotData(located.name, located.realPath);
+		})());
+	const folder = forCall(located.context.folder, own, readOnly);
 	const context = readOnly
 		? { ...located.context, folder, readOnly: { action: key } }
 		: { ...located.context, folder };
@@ -125,11 +116,13 @@ export async function runAction(
 		answer = { threw: threwOf(error) };
 	}
 	try {
-		if (readOnly || written.size === 0) return { answer };
-		const committed = await commitWrites(located.name, located.realPath, {
-			call: callName(located.name, key, input[action.positional?.[0] ?? '']),
-			paths: [...written].sort(),
-			...('threw' in answer ? { threw: true as const } : {}),
+		if (!held) return { answer };
+		if (opening && 'failed' in opening) return { answer, committed: opening };
+		const committed = await commitCall(located.name, located.realPath, {
+			subject:
+				callName(located.name, key, input[action.positional?.[0] ?? '']) +
+				('threw' in answer ? ' (threw)' : ''),
+			code,
 		});
 		return { answer, committed };
 	} finally {

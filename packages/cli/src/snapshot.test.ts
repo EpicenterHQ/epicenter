@@ -1,6 +1,6 @@
 /**
- * A call commits exactly the paths it wrote, holding the app's lock from its
- * first write, and a snapshot with no call commits what is pending as an
+ * A call snapshots pending data before its first write and commits everything
+ * pending when it ends, holding the lock throughout. Other snapshots commit an
  * outside change (ADR-0850). The app code and data have separate repositories
  * (ADR-0877). Status names a repository with no backup and one whose backup
  * has never received its branch. In process, against real temporary repos.
@@ -23,12 +23,13 @@ import {
 	field,
 	folder,
 } from '@epicenter/app';
+import { codeCommitOf, codeStateOf } from './data.ts';
 import { folderOnDisk } from './disk.ts';
 import type { Runnable } from './home.ts';
 import { hold } from './lock.ts';
 import { runAction } from './run.ts';
 import { gitIn } from './runner.test-support.ts';
-import { snapshotApp, statusOf } from './snapshot.ts';
+import { nothingToBackUp, snapshotApp, statusOf } from './snapshot.ts';
 import { syncOne } from './sync.ts';
 
 const roots: string[] = [];
@@ -36,6 +37,23 @@ afterEach(async () => {
 	await Promise.all(
 		roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
 	);
+});
+
+test('backup skips clean repositories but takes pending data and never-pushed branches', async () => {
+	const f = await setup();
+	expect(await nothingToBackUp(f.dir)).toBe(true);
+	await writeFile(join(f.data, 'pending.md'), 'pending');
+	expect(await nothingToBackUp(f.dir)).toBe(false);
+	await snapshotApp('notes', f.dir);
+	expect(await nothingToBackUp(f.dir)).toBe(true);
+	await gitIn(f.data, 'remote', 'add', 'origin', join(f.dir, 'backup.git'));
+	expect(await nothingToBackUp(f.dir)).toBe(false);
+});
+
+test('backup takes data that has no repository of its own yet', async () => {
+	const f = await setup();
+	await rm(join(f.data, '.git'), { recursive: true });
+	expect(await nothingToBackUp(f.dir)).toBe(false);
 });
 
 /** What `pause` waits for between its writes; each test that runs it makes a new one. */
@@ -113,8 +131,14 @@ async function setup() {
 		actions: actions as Record<string, Action>,
 		context: { folder: folderOnDisk(dir) },
 	} as Runnable;
-	const run = (key: keyof typeof actions, page: string) =>
-		runAction(located, key, actions[key] as Action, { page });
+	const run = async (key: keyof typeof actions, page: string) =>
+		runAction(
+			located,
+			key,
+			actions[key] as Action,
+			{ page },
+			await codeStateOf(dir),
+		);
 	const head = () => gitIn(data, 'rev-parse', 'HEAD');
 	const message = () => gitIn(data, 'log', '-1', '--format=%B');
 	const files = () => gitIn(data, 'show', '--name-only', '--format=', 'HEAD');
@@ -124,7 +148,7 @@ async function setup() {
 		staged: await gitIn(data, 'diff', '--cached', '--name-only'),
 		untracked: await gitIn(data, 'ls-files', '--others', '--exclude-standard'),
 	});
-	return { dir, data, run, head, message, files, left };
+	return { dir, data, located, run, head, message, files, left };
 }
 
 test('a call commits what it wrote, named for the call, before it answers', async () => {
@@ -183,7 +207,7 @@ test('status names an origin that has never received the branch, and counts once
 	expect(await statusOf(f.data)).toEqual({ pending: 0, unpushed: 0 });
 });
 
-test("a call's commit holds only its paths; a hand edit and a staged file stay pending", async () => {
+test('pending hand edits and staged data get a snapshot before the call', async () => {
 	const f = await setup();
 	await writeFile(join(f.dir, 'data/a.md'), 'by hand\n');
 	await writeFile(join(f.dir, 'data/staged.md'), 'staged\n');
@@ -196,12 +220,18 @@ test("a call's commit holds only its paths; a hand edit and a staged file stay p
 	expect(await f.message()).toContain('notes: write star*');
 	expect(await f.files()).toBe('star*.md');
 	expect(await f.left()).toEqual({
-		changed: 'a.md',
-		staged: 'staged.md',
+		changed: '',
+		staged: '',
 		untracked: '',
 	});
 	expect(await gitIn(f.dir, 'ls-files', '--others', '--exclude-standard')).toBe(
 		'stars.md',
+	);
+	expect(await gitIn(f.data, 'log', '--format=%s', '-3')).toBe(
+		'notes: write star*\nnotes: changed outside epicenter\nnotes: start its data',
+	);
+	expect(await gitIn(f.data, 'show', '--name-only', '--format=', 'HEAD~')).toBe(
+		'a.md\nstaged.md',
 	);
 });
 
@@ -219,7 +249,7 @@ test('a run that throws after writing commits its writes as the call that threw'
 	expect(await f.message()).toContain('notes: half tuesday (threw)');
 	expect(await f.files()).toBe('tuesday.md');
 	expect(await f.left()).toEqual({
-		changed: 'a.md',
+		changed: '',
 		staged: '',
 		untracked: '',
 	});
@@ -430,4 +460,137 @@ test("snapshots from several processes, each holding the app's lock, commit what
 	expect(await gitIn(f.data, 'log', '--format=%s')).toBe(
 		'notes: changed outside epicenter\nnotes: start its data',
 	);
+});
+
+test('writes outside folder after the first write belong to the call', async () => {
+	const f = await setup();
+	gate = Promise.withResolvers<void>();
+	const running = f.run('pause', 'monday');
+	while (!(await Bun.file(join(f.data, 'monday.md')).exists()))
+		await Bun.sleep(5);
+	await writeFile(join(f.data, 'by-library.md'), 'library');
+	gate.resolve();
+	expect((await running).committed).toEqual({
+		committed: { subject: 'notes: pause monday', files: 3 },
+	});
+	expect(await f.files()).toBe('by-library.md\nmonday-after.md\nmonday.md');
+});
+
+test('concurrent first writes take the lock once', async () => {
+	const f = await setup();
+	const action = defineAction({
+		description: 'Write concurrently',
+		input: {},
+		run: () =>
+			Promise.all([
+				folder.write('data/one.md', 'one'),
+				folder.write('data/two.md', 'two'),
+			]),
+	});
+	const ran = await runAction(
+		f.located,
+		'pair',
+		action,
+		{},
+		await codeStateOf(f.dir),
+	);
+	expect(ran.answer).toHaveProperty('returned');
+	expect(ran.committed).toEqual({
+		committed: { subject: 'notes: pair', files: 2 },
+	});
+});
+
+test('a call with no folder write takes no lock and leaves hand edits pending', async () => {
+	const f = await setup();
+	await writeFile(join(f.data, 'a.md'), 'pending');
+	const held = await hold(f.dir, 0);
+	expect(held).toBeDefined();
+	try {
+		const action = defineAction({
+			description: 'Read',
+			input: {},
+			run: () => 'read',
+		});
+		expect(
+			await runAction(f.located, 'read', action, {}, await codeStateOf(f.dir)),
+		).toEqual({ answer: { returned: 'read' } });
+		expect((await f.left()).changed).toBe('a.md');
+	} finally {
+		held?.release();
+	}
+});
+
+test('a read-only local write takes no lock and commits nothing', async () => {
+	const f = await setup();
+	const paused = Promise.withResolvers<void>();
+	const resume = Promise.withResolvers<void>();
+	const before = await f.head();
+	const action = defineAction({
+		description: 'Refresh',
+		input: {},
+		annotations: { readOnlyHint: true },
+		run: async () => {
+			await folder.write('data/token.local', 'secret');
+			paused.resolve();
+			await resume.promise;
+		},
+	});
+	const running = runAction(
+		f.located,
+		'refresh',
+		action,
+		{},
+		await codeStateOf(f.dir),
+	);
+	await paused.promise;
+	try {
+		expect(await syncOne('notes', f.dir, { wait: 0 })).not.toHaveProperty(
+			'busy',
+		);
+	} finally {
+		resume.resolve();
+	}
+	expect(await running).toEqual({ answer: { returned: null } });
+	expect(await f.head()).toBe(before);
+});
+
+test('an opening snapshot failure never gives pre-existing edits the call name', async () => {
+	const f = await setup();
+	await writeFile(join(f.data, '.gitignore'), '');
+	await writeFile(join(f.data, 'token.local'), 'secret');
+	const before = await f.head();
+	const ran = await f.run('write', 'monday');
+	expect(ran.answer).toEqual({ returned: 'monday' });
+	expect(ran.committed).toHaveProperty('failed');
+	expect(await f.head()).toBe(before);
+	expect((await f.left()).untracked).toBe('monday.md\ntoken.local');
+});
+
+test('a data commit carries Code-Dirty when the captured code is uncommitted', async () => {
+	const f = await setup();
+	await writeFile(join(f.dir, 'changed.ts'), 'export const changed = true;');
+	const head = await gitIn(f.dir, 'rev-parse', 'HEAD');
+	await f.run('write', 'monday');
+	expect(await f.message()).toBe(
+		`notes: write monday\n\nCode-Commit: ${head}\nCode-Dirty: true`,
+	);
+	expect(codeCommitOf(await f.message())).toBe(head);
+});
+
+test('a data commit names the code captured before HEAD moves during the action', async () => {
+	const f = await setup();
+	const before = await gitIn(f.dir, 'rev-parse', 'HEAD');
+	gate = Promise.withResolvers<void>();
+	const running = f.run('pause', 'monday');
+	while (!(await Bun.file(join(f.data, 'monday.md')).exists()))
+		await Bun.sleep(5);
+	await writeFile(join(f.dir, 'changed.ts'), 'export const changed = true;');
+	await gitIn(f.dir, 'add', 'changed.ts');
+	await gitIn(f.dir, 'commit', '-qm', 'changed code');
+	gate.resolve();
+	await running;
+	expect(await f.message()).toBe(
+		`notes: pause monday\n\nCode-Commit: ${before}`,
+	);
+	expect(await gitIn(f.dir, 'rev-parse', 'HEAD')).not.toBe(before);
 });

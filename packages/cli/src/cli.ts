@@ -2,11 +2,12 @@
  * The epicenter command runs apps from the selected Epicenter
  * (ADR-0841). It parses words, shows what can run, checks input, and prints the
  * answer. Its exit code is 0 when the action returned, 1 when it threw, and 2
- * when nothing ran (ADR-0867). A call that wrote commits the paths it wrote,
- * named for the call (ADR-0850); a commit that fails changes neither the
+ * when nothing ran (ADR-0867). A call that wrote commits everything pending
+ * in data, named for the call (ADR-0850); a commit that fails changes neither the
  * answer nor the exit code: why, and its next step, go to stderr, and the
  * paths stay pending.
  */
+import { join } from 'node:path';
 import { isName } from '@epicenter/app';
 import packageJson from '../package.json' with { type: 'json' };
 import { accessCommand } from './access.ts';
@@ -20,6 +21,7 @@ import {
 	parseWords,
 	portOf,
 } from './commands.ts';
+import { codeStateOf } from './data.ts';
 import { CliError } from './errors.ts';
 import { historyCommand, undoCommand } from './history.ts';
 import { discoverAll, loadHomeApp } from './home.ts';
@@ -43,7 +45,7 @@ import {
 	writeJson,
 	writeOut,
 } from './output.ts';
-import { epicenterRoot, RootUsageError } from './root.ts';
+import { epicenterDir, epicenterRoot, RootUsageError } from './root.ts';
 import { runAction } from './run.ts';
 import { serviceCommand } from './service.ts';
 import { appStatusOf } from './snapshot.ts';
@@ -195,6 +197,10 @@ export async function runCli(argv: string[]): Promise<number> {
 		// Running an action is two processes: the child owns the whole call, commit and all, and this one relays its answer.
 		if (!reportArg && words.length > 0 && !help)
 			return presentAnswer((await runChild(argv, 'inherit')) as Answer, json);
+		const code =
+			reportArg && words.length > 0 && !help && isName(name)
+				? await codeStateOf(join(epicenterDir(), name))
+				: { dirty: false };
 		const { data: located, error: notFound } = await loadHomeApp(name);
 		if (notFound) return fail(notFound, json);
 		if (!located.ok)
@@ -248,6 +254,7 @@ export async function runCli(argv: string[]): Promise<number> {
 			matched.key,
 			action,
 			given.input,
+			code,
 		);
 		if (committed && 'failed' in committed)
 			writeErr(

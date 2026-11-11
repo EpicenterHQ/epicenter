@@ -1,9 +1,8 @@
 /**
  * Acceptance, stage 2: commits (ADR-0850). Black-box runs of the real
- * `epicenter` against a temporary HOME. A write call commits exactly the
- * paths it wrote, named for the call, holding the app's lock from its first
- * write, and leaves everything else pending until `epicenter sync` snapshots
- * it as changed outside epicenter, or as the message an agent gives. A
+ * `epicenter` against a temporary HOME. A write call snapshots data pending
+ * before its first folder write, then commits everything pending in data
+ * under its name. `epicenter sync` snapshots later outside edits. A
  * read-only action cannot write through `folder`, except to a `.local` path,
  * which no commit takes. The answer is
  * `{ returned }`, `{ threw }`, or `{ error }`, exit 0, 1, or 2, whatever
@@ -152,6 +151,27 @@ const status = (folder: string) =>
 	gitIn(folder, 'status', '--porcelain', '--untracked-files=all');
 const subjects = (folder: string) => gitIn(folder, 'log', '--format=%s');
 
+test('the call captures clean code before epicenter.ts moves HEAD while loading', async () => {
+	const f = await setup();
+	const moving = `const moved = Bun.spawnSync(['git', '-C', import.meta.dir, 'commit', '-q', '--allow-empty', '-m', 'moved while loading']);
+if (moved.exitCode !== 0) throw new Error(new TextDecoder().decode(moved.stderr));
+`;
+	await writeFile(
+		join(f.dir, 'epicenter.ts'),
+		notesCode.replace('export default', `${moving}export default`),
+	);
+	await gitIn(f.dir, 'add', 'epicenter.ts');
+	await gitIn(f.dir, 'commit', '-qm', 'move code while loading');
+	const before = await gitIn(f.dir, 'rev-parse', 'HEAD');
+	const ran = await f.json('notes', 'write', 'monday');
+	expect(ran.code).toBe(0);
+	expect(ran.stderr).toBe('');
+	expect(await gitIn(f.data, 'log', '-1', '--format=%B')).toBe(
+		`notes: write monday\n\nCode-Commit: ${before}`,
+	);
+	expect(await gitIn(f.dir, 'rev-parse', 'HEAD')).not.toBe(before);
+});
+
 test('C1 a write call commits what it wrote as one commit named for the call', async () => {
 	const f = await setup();
 	const ran = await f.json('notes', 'write', 'monday');
@@ -176,7 +196,7 @@ test('C1 a write call commits what it wrote as one commit named for the call', a
 	);
 });
 
-test("C2 a call's data commit holds only the paths it wrote; other staged and unstaged changes stay pending", async () => {
+test('C2 a call snapshots pre-existing staged and unstaged data before its own commit', async () => {
 	const f = await setup();
 	await writeFile(join(f.dir, 'data/a.md'), 'edited by hand\n');
 	await writeFile(join(f.dir, 'data/staged.md'), 'staged\n');
@@ -189,7 +209,13 @@ test("C2 a call's data commit holds only the paths it wrote; other staged and un
 	expect(await gitIn(f.data, 'show', '--name-only', '--format=', 'HEAD')).toBe(
 		'monday.md\nnode_modules/seen.txt',
 	);
-	expect(await status(f.data)).toBe('M a.md\nA  staged.md');
+	expect(await status(f.data)).toBe('');
+	expect(await gitIn(f.data, 'show', '--name-only', '--format=', 'HEAD~')).toBe(
+		'a.md\nstaged.md',
+	);
+	expect(await subjects(f.data)).toBe(
+		'notes: write monday\nnotes: changed outside epicenter\nnotes: start its data',
+	);
 	expect(await gitIn(f.data, 'ls-files', 'node_modules')).toBe(
 		'node_modules/seen.txt',
 	);
@@ -204,21 +230,22 @@ test('C2b a data snapshot refuses exposed *.local files and takes pending nonloc
 	const ran = await f.json('notes', 'write', 'monday');
 	expect(ran.code).toBe(0);
 	expect(await gitIn(f.data, 'show', '--name-only', '--format=', 'HEAD')).toBe(
-		'monday.md',
+		'.gitignore',
 	);
+	expect(ran.stderr).toContain('not yet in history');
 	const refused = await f.json('sync', 'notes');
 	expect(refused.code).toBe(1);
 	expect(refused.answer.apps[0].data.error.message).toBe(
 		'notes/data: device.local would be committed; add *.local and *.local.* to notes/data/.gitignore',
 	);
 	expect(await subjects(f.data)).toBe(
-		'notes: write monday\na .gitignore without .local\nnotes: start its data',
+		'a .gitignore without .local\nnotes: start its data',
 	);
 	await writeFile(join(f.data, '.gitignore'), '*.local\n*.local.*\n');
 	const synced = await f.json('sync', 'notes');
 	expect(synced.code).toBe(0);
 	expect(await gitIn(f.data, 'show', '--name-only', '--format=', 'HEAD')).toBe(
-		'.gitignore\nnode_modules/seen.txt',
+		'.gitignore\nmonday.md\nnode_modules/seen.txt',
 	);
 	expect(await gitIn(f.data, 'ls-files', '*.local*')).toBe('');
 	expect(JSON.parse((await f.run('notes', '--json')).stdout).status).toEqual({
@@ -277,6 +304,9 @@ test('C4 an app inside a larger repository leaves that repository untouched and 
 	expect(await gitIn(vault, 'rev-parse', 'HEAD')).toBe(vaultHead);
 	expect(
 		await gitIn(join(app, 'data'), 'show', '--name-only', '--format=', 'HEAD'),
+	).toBe('monday.md\nnode_modules/seen.txt');
+	expect(
+		await gitIn(join(app, 'data'), 'show', '--name-only', '--format=', 'HEAD~'),
 	).toBe('a.md');
 	expect(await status(vault)).toBe('A  journal/staged.md\n M journal/today.md');
 });
@@ -483,7 +513,10 @@ test('C12 runs leave no temporary file and no lock file, and hold no lock once t
 		run('notes', 'write', 'tuesday'),
 		run('notes', 'half', 'wednesday'),
 	]);
-	expect(await readdir(temp)).toEqual([]);
+	// macOS Git's launcher keeps its own cache in TMPDIR.
+	expect((await readdir(temp)).filter((name) => name !== 'xcrun_db')).toEqual(
+		[],
+	);
 	expect(
 		(await readdir(join(f.data, '.git'))).filter((name) =>
 			name.endsWith('.lock'),

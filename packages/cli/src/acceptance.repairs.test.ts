@@ -202,7 +202,7 @@ export default defineApp({ description: 'The loud app', collections: {}, actions
 test('F9 one table owns the vocabulary; --json goes anywhere; defaulted fields are not required', async () => {
 	const f = await setup();
 	await notes(f);
-	for (const word of ['install', 'open', 'types', 'setup', 'help']) {
+	for (const word of ['open', 'types', 'setup', 'help']) {
 		const result = await f.json(word);
 		expect(result.code).toBe(2);
 		expect(result.report.error.message).toContain(`Unknown app "${word}"`);
@@ -215,12 +215,7 @@ test('F9 one table owns the vocabulary; --json goes anywhere; defaulted fields a
 	expect(help).toContain(
 		'Exit codes: 0 done, 1 threw or an app did not sync, 2 did not run.',
 	);
-	for (const gone of [
-		'epicenter install',
-		'epicenter types',
-		'setup',
-		'epicenter help',
-	])
+	for (const gone of ['epicenter types', 'setup', 'epicenter help'])
 		expect(help).not.toContain(gone);
 
 	const leading = await f.run('--json', 'notes', 'two', 'Ada');

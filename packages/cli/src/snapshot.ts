@@ -1,18 +1,13 @@
 /**
- * An app's history is commits, each with a boundary its writer knew
- * (ADR-0850), in two repositories (ADR-0877): the app's folder holds its
- * code, and `data/` its data (`data.ts`).
- *
- * A call's commit goes to the data repository and holds exactly the paths
- * its run wrote, among those that changed, and nothing else pending
- * (`run.ts`); a run writes only under `data/` (ADR-0876). A snapshot with no
- * call commits everything pending in both repositories: `epicenter sync`
- * before it pushes (with `--message`, for an agent naming its own edits),
- * `epicenter undo` before it reverts, `epicenter update` before it merges,
- * and `serve`'s backup clock. Every data commit carries `Code-Commit: <sha>`,
- * the code's `HEAD` when it was made. Whoever commits holds the app's lock
- * (`lock.ts`), so a snapshot never takes part of what a running call has
- * written, from any process.
+ * An app's code and data have separate histories (ADR-0877). A call's first
+ * write snapshots pending data as changed outside epicenter; its ending
+ * commits everything then pending in data under the call's name (ADR-0880).
+ * A snapshot with no call commits everything pending in both repositories:
+ * epicenter sync, with --message for an agent naming its edits; undo before
+ * it reverts; update before it merges; and serve's backup clock. Whoever
+ * commits holds the app's lock, so a snapshot never takes part of what a
+ * running call wrote. Call trailers name the code captured before loading
+ * the action; other data snapshots name the current code HEAD.
  */
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
@@ -20,18 +15,16 @@ import { join, resolve } from 'node:path';
 import { isLocalPath } from '@epicenter/app';
 import { extractErrorMessage } from 'wellcrafted/error';
 import {
+	type CodeState,
 	codeCommitOf,
 	codeTrailer,
+	codeTrailers,
 	DATA,
 	dataFolder,
 	dataRepository,
-	inData,
 	isRepositoryTop,
 } from './data.ts';
 import { checkedGit, git, gitMessage, originOf } from './git.ts';
-
-/** The write run that led to a commit: its call, the paths it wrote through `folder`, and whether it threw. */
-export type Wrote = { call: string; paths: string[]; threw?: true };
 
 /** Git state that must finish before a snapshot may stage or commit. */
 const UNDERWAY = [
@@ -144,7 +137,7 @@ async function refuseLocal(label: string, folder: string, status: string) {
 		throw new Refused(
 			`${inFolder} would be committed; add *.local and *.local.* to ${label}/.gitignore`,
 		);
-	// A commit of named paths takes a file's bytes from the folder even once
+	// A commit with a pathspec takes a file's bytes from the folder even once
 	// it is out of the index, so its removal is committed by Git alone.
 	const commit = `git -C ${folder} commit -m "${label.split('/')[0]}: stop tracking ${inFolder}"`;
 	throw new Refused(
@@ -175,10 +168,10 @@ export async function statusOf(
 	return { pending, unpushed: origin.ahead };
 }
 
-/** One repository to commit in: its folder, how messages name it (`vocab`, `vocab/data`), and the trailer its commits carry. */
-type Repository = { folder: string; label: string; trailer?: string };
+/** One repository to commit in: its folder, how messages name it (`vocab`, `vocab/data`), and the trailers its commits carry. */
+type Repository = { folder: string; label: string; trailers: string[] };
 
-/** `git commit`'s arguments for `subject`, with the repository's trailer, of `pathspec`. */
+/** `git commit`'s arguments for `subject`, with the repository's trailers, of `pathspec`. */
 const commitArgs = (
 	repository: Repository,
 	subject: string,
@@ -188,7 +181,7 @@ const commitArgs = (
 	'-q',
 	'-m',
 	subject,
-	...(repository.trailer ? ['--trailer', repository.trailer] : []),
+	...repository.trailers.flatMap((trailer) => ['--trailer', trailer]),
 	'--',
 	...pathspec,
 ];
@@ -229,34 +222,8 @@ export async function appStatusOf(folder: string): Promise<{
 	};
 }
 
-/**
- * Commit exactly the paths `wrote` reports that have changed, named for its
- * call: one `git status` of those paths drops what is unchanged, ignored, or
- * created and then deleted; `git add -A` and `git commit` of what is left
- * leave every other pending or staged change as it was. `null` when none
- * changed. The paths are inside `repository`.
- */
-async function commitCall(repository: Repository, wrote: Wrote) {
-	const { folder } = repository;
-	if (wrote.paths.length === 0) return null;
-	const subject = wrote.threw ? `${wrote.call} (threw)` : wrote.call;
-	const written = wrote.paths.map((path) => `:(literal)${path}`);
-	const status = await gitWaitingForIndex(folder, statusArgs(written));
-	const paths = statusPaths(status);
-	if (paths.length === 0) return null;
-	await refuseLocal(repository.label, folder, status);
-	const changed = paths.map((path) => `:(top,literal)${path}`);
-	await gitWaitingForIndex(folder, ['add', '-A', '--', ...changed]);
-	await gitWaitingForIndex(folder, commitArgs(repository, subject, changed));
-	return { subject, files: changed.length };
-}
-
 /** Stage and commit everything pending, as `<app>: <message>`; `null` when nothing was. */
-async function commitPending(
-	app: string,
-	repository: Repository,
-	message: string,
-) {
+async function commitPending(repository: Repository, subject: string) {
 	const { folder } = repository;
 	await refuseLocal(
 		repository.label,
@@ -276,31 +243,14 @@ async function commitPending(
 	]);
 	const files = staged.split('\0').filter(Boolean).length;
 	if (files === 0) return null;
-	const subject = `${app}: ${message}`;
 	await gitWaitingForIndex(folder, commitArgs(repository, subject, TAKEN));
 	return { subject, files };
 }
 
-/**
- * Whose boundary a commit has: a call's, which takes only the paths it
- * wrote, or none, which takes everything pending under `message` (default
- * `changed outside epicenter`).
- */
-type Boundary = { wrote: Wrote } | { message?: string };
-
-/**
- * Commit in one repository: with `{ wrote }`, exactly the call's changed
- * paths, named for the call (`<call> (threw)` when it threw), with no body;
- * otherwise everything pending that Git does not ignore, as
- * `<app>: changed outside epicenter` or `<app>: <message>`. Refused before
- * staging when what it would take holds a `*.local` or `*.local.*` file, when
- * `.gitattributes` routes files through LFS and this computer has no filter,
- * or when a Git operation is underway. Never throws: a failure is returned.
- */
+/** Commit everything pending, refusing unsafe Git state before staging. Never throws. */
 async function commitIn(
-	app: string,
 	repository: Repository,
-	boundary: Boundary,
+	subject: string,
 ): Promise<Snapshot> {
 	const { folder } = repository;
 	try {
@@ -321,16 +271,7 @@ async function commitIn(
 				''
 		)
 			return { failed: LFS_MISSING };
-		return {
-			committed:
-				'wrote' in boundary
-					? await commitCall(repository, boundary.wrote)
-					: await commitPending(
-							app,
-							repository,
-							boundary.message ?? 'changed outside epicenter',
-						),
-		};
+		return { committed: await commitPending(repository, subject) };
 	} catch (error) {
 		return failedWith(error);
 	}
@@ -350,36 +291,70 @@ function failedWith(error: unknown): Snapshot {
  * The data repository of the app `app` at `folder`, as a commit takes it,
  * made when `make` and missing; `undefined` when there is none.
  */
-async function dataOf(app: string, folder: string, make: boolean) {
+async function dataOf(
+	app: string,
+	folder: string,
+	make: boolean,
+	trailers?: string[],
+) {
 	const data = await dataRepository(app, folder, { make });
 	if (data === undefined) return undefined;
 	return {
 		folder: data,
 		label: `${app}/${DATA}`,
-		trailer: await codeTrailer(folder),
+		trailers:
+			trailers ??
+			[await codeTrailer(folder)].filter(
+				(trailer): trailer is string => trailer !== undefined,
+			),
 	} satisfies Repository;
 }
 
-/**
- * Commit a call's writes, `wrote.paths` from the app's folder, all under
- * `data/` (ADR-0876), to the app's data repository, making it first when it
- * has none (`data.ts`). Its caller holds the app's lock.
- */
-export async function commitWrites(
+/** Snapshot pending data before a call's first write. Its caller holds the lock. Never throws. */
+export async function snapshotData(
 	app: string,
 	folder: string,
-	wrote: Wrote,
 ): Promise<Snapshot> {
 	try {
 		const data = await dataOf(app, folder, true);
-		if (data === undefined) return { committed: null };
-		const paths = wrote.paths
-			.filter((path) => path.startsWith(`${DATA}/`))
-			.map(inData);
-		return commitIn(app, data, { wrote: { ...wrote, paths } });
+		return data
+			? await commitIn(data, `${app}: changed outside epicenter`)
+			: { committed: null };
 	} catch (error) {
 		return failedWith(error);
 	}
+}
+
+/** Commit everything pending in data under the call's name. Its caller holds the lock. Never throws. */
+export async function commitCall(
+	app: string,
+	folder: string,
+	{ subject, code }: { subject: string; code: CodeState },
+): Promise<Snapshot> {
+	try {
+		const data = await dataOf(app, folder, true, codeTrailers(code));
+		return data ? await commitIn(data, subject) : { committed: null };
+	} catch (error) {
+		return failedWith(error);
+	}
+}
+
+/** Whether both repositories have nothing pending or waiting for their origin. */
+export async function nothingToBackUp(folder: string): Promise<boolean> {
+	const data = dataFolder(folder);
+	if (existsSync(data) && !(await isRepositoryTop(data))) return false;
+	for (const path of [folder, data]) {
+		if (!(await isRepositoryTop(path))) continue;
+		const status = await statusOf(path);
+		if (
+			!status ||
+			status.pending > 0 ||
+			(status.unpushed ?? 0) > 0 ||
+			status.backup === 'never'
+		)
+			return false;
+	}
+	return true;
 }
 
 /** What a snapshot of an app did in each repository; `null` for one the app does not have. */
@@ -409,7 +384,12 @@ export async function snapshotApp(
 			folder,
 			existsSync(dataFolder(folder)),
 		);
-		data = repository ? await commitIn(app, repository, { message }) : null;
+		data = repository
+			? await commitIn(
+					repository,
+					`${app}: ${message ?? 'changed outside epicenter'}`,
+				)
+			: null;
 	} catch (error) {
 		data = failedWith(error);
 	}
@@ -440,7 +420,10 @@ async function snapshotCode(
 				next: `printf '${DATA}/\n' >> ${join(folder, '.gitignore')}`,
 			},
 		};
-	return commitIn(app, { folder, label: app }, { message });
+	return commitIn(
+		{ folder, label: app, trailers: [] },
+		`${app}: ${message ?? 'changed outside epicenter'}`,
+	);
 }
 
 /** The first failure in an app's snapshot, naming the repository it came from. */

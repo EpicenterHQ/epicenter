@@ -186,7 +186,7 @@ test('the browser client calls a tool without initialize and a write makes one n
 	);
 });
 
-test('a read-only action makes no commit, and one that throws after writing commits its paths as the call that threw', async () => {
+test('a read-only action makes no commit, and one that throws after writing commits pending data as the call that threw', async () => {
 	const f = await setup((f) => f.folder(join(f.home, 'reading'), readingApp));
 	const folder = f.made;
 	const client = connect<Reading>({ app: 'reading', url: `${f.base}/` });
@@ -249,7 +249,7 @@ test('concurrent writes through update both land, and both are in history', asyn
 	).toMatch(/^[23]$/);
 });
 
-test('two calls at once on different files each commit only their own file', async () => {
+test('two calls at once on different files take turns and make separate data commits', async () => {
 	const f = await setup((f) =>
 		f.app(
 			'notes',
@@ -296,9 +296,13 @@ test('two calls at once on different files each commit only their own file', asy
 			),
 		).toBe(`${subject.slice('notes: write '.length)}.md`);
 	}
-	expect(await gitIn(join(folder, 'data'), 'status', '--porcelain')).toBe(
-		'?? by-hand.md',
+	expect(await gitIn(join(folder, 'data'), 'log', '-1', '--format=%s', 'HEAD~2')).toBe(
+		'notes: changed outside epicenter',
 	);
+	expect(await gitIn(join(folder, 'data'), 'show', '--name-only', '--format=', 'HEAD~2')).toBe(
+		'by-hand.md',
+	);
+	expect(await gitIn(join(folder, 'data'), 'status', '--porcelain')).toBe('');
 });
 
 test("a backup that runs during a call leaves the call's writes to the call's one commit", async () => {
