@@ -54,6 +54,16 @@ commit not in the app's history and a revert Git refuses (a merge), or that
 conflicts or changes nothing, leaving the folder as it was. It never pushes;
 sync does.`,
 	},
+	query: {
+		usage: 'epicenter query <app> [<sql>] [--params <json>]',
+		help: `Reads an app's collections with one SQL SELECT (or WITH/VALUES).
+Each collection is a table named by its key; each Markdown file is a row,
+with its path as primary key. Columns: path, placeholders, fields, body,
+problems, other. Arrays and objects are JSON text; switches are 0/1.
+Without <sql>, lists each table's columns. --params gives values for ? or
+$name as a JSON array or object. Anything that would write is refused.
+.local collections are not tables.`,
+	},
 	serve: {
 		usage: 'epicenter serve [--port <n>] [--host <address>] [--stdio]',
 		help: `Offers every app's actions over MCP at / and each app's UI at /<app>/, on

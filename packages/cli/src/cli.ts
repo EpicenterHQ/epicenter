@@ -42,6 +42,7 @@ import {
 	writeJson,
 	writeOut,
 } from './output.ts';
+import { queryCommand } from './query.js';
 import { epicenterRoot, RootUsageError } from './root.ts';
 import { runAction } from './run.ts';
 import { statusOf } from './snapshot.ts';
@@ -75,6 +76,7 @@ const HANDLERS: { [K in Command]: Handler } = {
 	sync: syncCommand,
 	history: historyCommand,
 	undo: undoCommand,
+	query: queryCommand,
 	async serve(words, json) {
 		if (json)
 			return fail(

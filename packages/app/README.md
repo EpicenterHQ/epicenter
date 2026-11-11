@@ -217,6 +217,64 @@ A path's case is its own: on a disk that ignores case, such as macOS's,
 `words/Hello.md` and `words/hello.md` name one file, and `get` answers under
 the path it was asked for, while `list` gives the name on disk.
 
+### Querying collections with SQL
+
+`query(collections, sql, params?)` reads collections as SQL tables. A table's
+name is its key in `collections`; each existing matching Markdown file is one
+row. `queryTables(collections)` describes the tables without reading files.
+Columns follow this order:
+
+```txt
+path, placeholders in template order, fields in declared order, body, problems, other
+```
+
+`path` is the app-relative primary key. Tables have no hidden `rowid`. A missing
+one-file collection has zero rows, even though its `get()` gives defaults.
+Placeholders stay text, including a year such as `'2026'`. Declared fields use
+the same fitting value, default, or absence as `get()`. An absent value is SQL
+NULL. `problems` is a JSON array of projection problems, NULL when none;
+`other` is a JSON object of undeclared or invalid front matter, NULL when empty.
+Handwritten keys cannot replace the path, placeholders, or body.
+
+Strings and selects are text, integers and numbers are numeric, switches are
+INTEGER 0/1, and arrays and objects are JSON text. Use `json_each` and
+`json_extract` to read JSON. `.local` collections are not tables, and a
+non-local collection never includes `.local` files. Column names must differ
+ignoring ASCII case; a collision throws an error asking you to rename one.
+
+```ts
+import { defineAction, defineApp, field, query } from '@epicenter/app';
+
+const collections = { books, settings };
+const unread = defineAction({
+  description: 'Books I have not finished',
+  input: { rating: field.integer({ optional: true }) },
+  annotations: { readOnlyHint: true },
+  run: ({ rating }) => query(collections,
+    'select path, title from books where finished is null and coalesce(rating, 0) >= ? order by title',
+    [rating ?? 0]),
+});
+export default defineApp({ description: 'Books', collections, actions: { books: books.actions(), unread } });
+
+// Named parameters take bare keys; positional parameters take an array.
+await query(collections, 'select path from books where title = $title', { title: 'Dune' });
+```
+
+Every parameter needs a value; missing values throw `QueryError.Failed`, never
+silently bind NULL.
+
+Queries run inside an action's run. Each call rereads every file of every table
+into an in-memory SQLite database and discards it afterward. There is no cache
+or atomic snapshot of the folder: files can change between reads.
+
+SQL only reads. The engine runs a read-only deserialized database with
+`query_only` enabled. Supplementary lexical checks admit one SELECT, WITH, or
+VALUES statement and keep out PRAGMA, whose preparation can change process
+state. The statement must return distinct column names; use `AS` for names
+that repeat. `QueryError.Refused` names a refused statement or result;
+`QueryError.Failed` carries SQLite's error message. This runs in a trusted local
+environment; it is not a sandbox for hostile SQL.
+
 ### What a definition may say
 
 `defineCollection` refuses:

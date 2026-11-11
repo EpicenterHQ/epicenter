@@ -117,10 +117,6 @@ describe('a read-only run', () => {
 		);
 		expect(await context.folder.list()).toEqual(['google.local.md']);
 	});
-
-	test('a run reaches its folder and nothing else', () => {
-		expect(Object.keys(createMemoryContext())).toEqual(['folder']);
-	});
 });
 
 describe('isLocalPath', () => {

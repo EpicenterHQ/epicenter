@@ -31,4 +31,13 @@ export { field, type TSwitch, type TTags, whatFits } from './field.ts';
 export { readMarkdown } from './front-matter.ts';
 export { createMemoryContext } from './memory.ts';
 export type { Placeholders } from './path.ts';
+export {
+	QueryError,
+	type QueryParams,
+	type QueryRow,
+	type QueryTable,
+	type QueryValue,
+	query,
+	queryTables,
+} from './query.js';
 export { localDay, localTime } from './time.ts';

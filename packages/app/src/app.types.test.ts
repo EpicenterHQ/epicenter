@@ -19,6 +19,8 @@ import {
 	defineCollection,
 	field,
 	inRun,
+	type QueryRow,
+	query,
 } from './index.ts';
 
 type Equal<X, Y> =
@@ -309,3 +311,12 @@ describe('an app author', () => {
 		() => vocabUi.then;
 	});
 });
+
+// SQL rows are returned values an action and its client can carry.
+const sqlRead = defineAction({
+	description: 'Read words with SQL',
+	input: {},
+	annotations: { readOnlyHint: true },
+	run: () => query({ words }, 'select path from words'),
+});
+assertType<Equal<Awaited<ReturnType<typeof sqlRead>>, QueryRow[]>>();

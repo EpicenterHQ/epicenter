@@ -42,7 +42,7 @@
  * A collection does not know its name: an app names it by its key in
  * `collections`, and everything a collection says names its path instead.
  */
-import { WriteError } from './errors.ts';
+
 import {
 	type Static,
 	type TObject,
@@ -53,6 +53,7 @@ import {
 import { Value } from 'typebox/value';
 import { type Action, type ActionMeta, RESERVED_FIELDS } from './action.ts';
 import { folder, isLocalPath } from './context.ts';
+import { WriteError } from './errors.ts';
 import { whatFits } from './field.ts';
 import {
 	type FieldValues,
@@ -221,7 +222,10 @@ export type ManyHandle<D extends CollectionDef> = {
 	 * await words.update({ path }, (word) => ({ reps: (word?.reps ?? 0) + 1 }));
 	 * ```
 	 */
-	update(at: PathIn, revise: Revise<D, FileOf<D> | undefined>): Promise<FileOf<D>>;
+	update(
+		at: PathIn,
+		revise: Revise<D, FileOf<D> | undefined>,
+	): Promise<FileOf<D>>;
 	/** Delete the file; `true` when there was one. */
 	delete(at: PathIn): Promise<boolean>;
 	/** The path `add` would write for these placeholder values: `pathOf({ word: '你好' })` is `words/你好.md`. */
@@ -306,6 +310,12 @@ export type Collection<D extends CollectionDef = CollectionDef> = Readonly<D> &
 		): CollectionActions<D, V>;
 	};
 
+/** The projected record reader owned by each collection. */
+const readers = new WeakMap<
+	AnyCollection,
+	() => Promise<Record<string, unknown>[]>
+>();
+
 /**
  * Define a collection: where its files are, and what their front matter holds.
  *
@@ -358,7 +368,7 @@ export function defineCollection<const D extends CollectionDef>(
 		: unaddable.length
 			? VERBS.filter((verb) => verb !== 'add')
 			: VERBS;
-	return {
+	const collection = {
 		...definition,
 		...methods,
 		...(single ? {} : { pathOf: files.pathOf }),
@@ -384,6 +394,16 @@ export function defineCollection<const D extends CollectionDef>(
 			);
 		},
 	} as unknown as Collection<D>;
+	readers.set(collection, files.records);
+	return collection;
+}
+
+/** The full projected records of a collection, for SQL; not part of its public methods. */
+export function recordsOf(collection: AnyCollection, name: string) {
+	const read = readers.get(collection);
+	if (!read)
+		throw new Error(`collections.${name} is not defineCollection(...)`);
+	return read;
 }
 
 const VERBS: readonly Verb[] = ['list', 'get', 'add', 'set', 'edit', 'delete'];
@@ -697,6 +717,14 @@ function createFiles(layout: Template, fields: Fields) {
 	}
 
 	return {
+		async records() {
+			const records = [];
+			for (const path of single ? [layout.text] : await paths()) {
+				const found = await read(path);
+				if (found) records.push(project(path, found));
+			}
+			return records;
+		},
 		async list() {
 			const rows = [];
 			for (const path of await paths()) {
