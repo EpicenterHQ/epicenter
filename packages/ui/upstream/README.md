@@ -43,7 +43,7 @@ These are the exact distributed registry responses compared during the Vega migr
 
 The shadcn-svelte-extras responses come from their own registry, not the Vega registry. Epicenter-owned components have no claimed upstream match.
 
-The saved dependency metadata is evidence for a refresh, not an upgrade command. In this checkout `bits-ui` is 2.20.6 and `vaul-svelte` is 1.0.0-next.7. The migrated code uses their installed APIs. Vaul already prevents autofocus when its root uses the default `autoFocus=false`; the redundant local guard was removed after browser checks.
+The saved dependency metadata is evidence for a refresh, not an upgrade command. In this checkout `bits-ui` is 2.21.0 and `vaul-svelte` is 1.0.0-next.7. The migrated code uses their installed APIs. Vaul already prevents autofocus when its root uses the default `autoFocus=false`; the redundant local guard was removed after browser checks.
 
 The intentional Epicenter differences and their reasons are recorded below. Subsequent refreshes replace a snapshot only as part of a reviewed component change.
 

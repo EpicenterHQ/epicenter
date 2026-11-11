@@ -49,7 +49,7 @@
 			"clsx": "^2.1.1",
 			"tailwind-merge": "^3.4.0",
 			"tailwind-variants": "^3.2.2",
-			"bits-ui": "~2.20.6",
+			"bits-ui": "~2.21.0",
 			"mode-watcher": "^1.1.0",
 			"svelte-sonner": "^1.0.6",
 			"runed": "^0.36.0",
