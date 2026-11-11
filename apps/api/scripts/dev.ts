@@ -1,7 +1,7 @@
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import type { Unstable_RawConfig as WranglerConfig } from 'wrangler';
-import { localPublicOrigin, localWranglerConfig } from './dev-config.ts';
+import { localPublicOrigin } from './dev-config.ts';
 
 const apiRoot = resolve(import.meta.dir, '..');
 const uiBuild = resolve(apiRoot, 'ui/build');
@@ -45,7 +45,7 @@ if (auth.exitCode !== 0 || !auth.stdout.toString().trim()) {
 const config = Bun.JSONC.parse(
 	await Bun.file(resolve(apiRoot, 'wrangler.jsonc')).text(),
 ) as WranglerConfig;
-await writeFile(localConfig, JSON.stringify(localWranglerConfig(config)));
+await writeFile(localConfig, JSON.stringify({ ...config, routes: [] }));
 let exitCode: number;
 try {
 	const wrangler =
