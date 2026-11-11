@@ -7,6 +7,7 @@
 - **Relates:** [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) (reaching the home), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (snapshots), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (`origin`), [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (one copy).
 - **Built:** `epicenter sync` (`packages/cli/src/sync.ts`) and `serve`'s backup clock (`packages/cli/src/http.ts`). 2026-11-11: an app's status saying `not backed up` (no `origin`) or `never backed up` (an `origin` that has not received the branch), with the step that settles it, and `epicenter new` saying so (`packages/cli/src/snapshot.ts`, `listing.ts`, `new.ts`).
 - **Unbuilt:** access to home actions from programs on other devices, such as Whispering.
+- **Unbuilt:** two repositories per app, each with its own private `origin` that `sync` and the clock push ([ADR-0877](0877-an-apps-code-and-its-data-are-two-repositories-and-sharing-an-app-shares-its-code.md)).
 
 ## Context
 
