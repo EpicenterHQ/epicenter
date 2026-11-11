@@ -7,19 +7,18 @@
 	import { onDestroy } from 'svelte';
 	import { toast } from 'svelte-sonner';
 	import { extractErrorMessage } from 'wellcrafted/error';
-	import { billingKeys } from '$lib/billing/queries';
 	import CreditBalance from '$lib/components/CreditBalance.svelte';
 	import PlanComparison from '$lib/components/PlanComparison.svelte';
 	import { getDashboard } from '$lib/dashboard/context';
-	const { billing, billingApi, queryClient, signal } = getDashboard();
+	const { billingQueries, billingMutations, billingApi, signal } = getDashboard();
 	// Sibling dashboard routes share the Account, but not this page's redirects.
 	let pageDisposed = false;
 	onDestroy(() => {
 		pageDisposed = true;
 	});
 
-	const overview = createQuery(() => billing.overview.options);
-	const plans = createQuery(() => billing.plans.options);
+	const overview = createQuery(() => billingQueries.overview());
+	const plans = createQuery(() => billingQueries.plans());
 	const isOnTrial = $derived(overview.data?.trial != null);
 
 	const topUpLabel = $derived(
@@ -42,7 +41,7 @@
 		}
 	}
 
-	const topUp = createMutation(() => billing.topUp.options);
+	const topUp = createMutation(() => billingMutations.checkoutTopUp);
 </script>
 
 <svelte:head><title>Credits: Epicenter</title></svelte:head>
@@ -72,14 +71,13 @@
 <section aria-label="Credit purchases" class="flex flex-wrap gap-3">
 	<Button
 		onclick={() => {
-			topUp.mutate(window.location.href, {
+			topUp.mutate({ successUrl: window.location.href }, {
 				onSuccess: (data) => {
 					if (pageDisposed || signal.aborted) return;
 					if (data.checkoutUrl) {
 						window.location.href = data.checkoutUrl;
 					} else {
 						toast.success('Credits added to your account');
-						queryClient.invalidateQueries({ queryKey: billingKeys.all });
 					}
 				},
 				onError: (error) => {

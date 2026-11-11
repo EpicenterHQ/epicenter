@@ -5,15 +5,15 @@
 	import * as Table from '@epicenter/ui/table';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { getDashboard } from '$lib/dashboard/context';
-	const { billing } = getDashboard();
+	const { billingQueries } = getDashboard();
 
 	const usage = createQuery(
 		() =>
-			billing.usage({
+			billingQueries.usage({
 				range: '30d',
 				binSize: 'day',
 				groupBy: 'model',
-			}).options,
+			}),
 	);
 
 	/** Aggregate per-model totals across all time periods. */

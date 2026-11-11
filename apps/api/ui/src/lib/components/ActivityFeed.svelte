@@ -5,9 +5,9 @@
 	import * as Table from '@epicenter/ui/table';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { getDashboard } from '$lib/dashboard/context';
-	const { billing } = getDashboard();
+	const { billingQueries } = getDashboard();
 
-	const events = createQuery(() => billing.events({ limit: 50 }).options);
+	const events = createQuery(() => billingQueries.events({ limit: 50 }));
 
 	function formatTimestamp(ms: number): string {
 		return new Date(ms).toLocaleDateString('en-US', {

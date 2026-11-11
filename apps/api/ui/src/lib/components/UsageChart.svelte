@@ -9,7 +9,7 @@
 	import { curveMonotoneX } from 'd3-shape';
 	import { AreaChart } from 'layerchart';
 	import { getDashboard } from '$lib/dashboard/context';
-	const { billing } = getDashboard();
+	const { billingQueries } = getDashboard();
 
 	type Range = '7d' | '30d' | '90d';
 
@@ -29,12 +29,12 @@
 
 	const usage = createQuery(
 		() =>
-			billing.usage({
+			billingQueries.usage({
 				range: selectedRange,
 				binSize: selectedRange === '7d' ? 'hour' : 'day',
 				groupBy: 'model',
 				maxGroups: 8,
-			}).options,
+			}),
 	);
 
 	const rangeOptions = [

@@ -12,9 +12,9 @@
 	import { getDashboard } from '$lib/dashboard/context';
 	import { auth } from '$lib/platform/auth';
 
-	const { billing, accountQueries } = getDashboard();
-	const session = createQuery(() => accountQueries.session.options);
-	const overview = createQuery(() => billing.overview.options);
+	const { billingQueries, accountQueries } = getDashboard();
+	const session = createQuery(() => accountQueries.session());
+	const overview = createQuery(() => billingQueries.overview());
 
 	const planName = $derived(overview.data?.planDisplayName);
 	const isOnTrial = $derived(overview.data?.trial != null);

@@ -10,17 +10,16 @@
 	import { toast } from 'svelte-sonner';
 	import { onDestroy } from 'svelte';
 	import { extractErrorMessage } from 'wellcrafted/error';
-	import { billingKeys } from '$lib/billing/queries';
 	import { getDashboard } from '$lib/dashboard/context';
-	const { billing, queryClient, signal } = getDashboard();
+	const { billingQueries, billingMutations, signal } = getDashboard();
 	let disposed = false;
 	onDestroy(() => { disposed = true; });
 
 	let isAnnual = $state(false);
 	let confirmDialog = $state.raw<{ card: BillingPlanCard } | null>(null);
 
-	const overview = createQuery(() => billing.overview.options);
-	const plans = createQuery(() => billing.plans.options);
+	const overview = createQuery(() => billingQueries.overview());
+	const plans = createQuery(() => billingQueries.plans());
 
 	const visibleCards = $derived<BillingPlanCard[]>(
 		isAnnual
@@ -42,9 +41,9 @@
 	);
 
 	const previewPlanChange = createMutation(
-		() => billing.previewPlanChange.options,
+		() => billingMutations.previewPlanChange,
 	);
-	const checkoutPlan = createMutation(() => billing.checkoutPlan.options);
+	const checkoutPlan = createMutation(() => billingMutations.checkoutPlan);
 
 	const previewSummary = $derived(
 		previewPlanChange.data?.displayedSummary ?? null,
@@ -203,7 +202,6 @@
 								} else {
 									toast.success('Plan updated successfully');
 									confirmDialog = null;
-									queryClient.invalidateQueries({ queryKey: billingKeys.all });
 								}
 							},
 							onError: (error) => {
