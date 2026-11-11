@@ -1,8 +1,9 @@
 /**
  * Tutor opening tests.
  * Real conversations over Vocab's notes in a folder in memory add a
- * transient opening prompt without saving a learner turn, do not repeat on
- * remount, and discard a stopped partial opening before retry.
+ * transient opening prompt without saving a learner turn, read the saved
+ * reply back into a new conversation, and discard a stopped partial opening
+ * before retry.
  */
 import '../../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { expect, test } from 'bun:test';
@@ -46,7 +47,7 @@ function open(
 	});
 }
 
-test('empty tutor opening supplies model content without storing a learner message or restarting on remount', async () => {
+test('empty tutor opening saves the reply and reloads it without a learner message', async () => {
 	using folder = await openVocabFolder();
 	const requests: ChatRequest[] = [];
 	const respond = (request: ChatRequest) => {
@@ -63,12 +64,15 @@ test('empty tutor opening supplies model content without storing a learner messa
 	expect(chat.snapshot().messages.map((message) => message.role)).toEqual([
 		'assistant',
 	]);
+	const [path] = folder.files.paths('messages');
 	expect(folder.files.paths('messages')).toHaveLength(1);
+	expect(folder.files.read(path ?? '')).toContain('Welcome!');
 	chat[Symbol.dispose]();
 	const reopened = open(folder, respond);
-	expect(requests).toHaveLength(1);
-	expect(reopened.snapshot().messages.map((message) => message.role)).toEqual([
-		'assistant',
+	expect(
+		reopened.snapshot().messages.map(({ role, parts }) => ({ role, parts })),
+	).toEqual([
+		{ role: 'assistant', parts: [{ type: 'text', text: 'Welcome!' }] },
 	]);
 	reopened[Symbol.dispose]();
 });
