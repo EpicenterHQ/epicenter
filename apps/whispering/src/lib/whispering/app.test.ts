@@ -3,19 +3,19 @@
  *
  * The device document opens for every page lifetime and holds this machine's
  * settings; the boot auth snapshot chooses whether an account replica also
- * opens and takes over the portable work (ADR-0233). These tests pin the split,
- * which is the whole of what this app's composition decides.
+ * opens and takes over the portable work (ADR-0233). These tests cover that
+ * boot choice and which document supplies work and settings.
  *
  * Key behaviors:
- * - A signed-out boot has one document and never dials
+ * - Signed-out work uses one device document without account traffic
  * - Settings recover application defaults and survive a restart
  * - Settings remain readable from the device document after an account opens
  * - Recordings written signed out stay on the device and are not shown to a
  *   signed-in generation, which reads the account replica instead
- * - An aborted boot rejects with the abort and leaves nothing open
+ * - A pre-aborted boot rejects before creating a database
  *
- * `fake-indexeddb` supplies the browser store's storage; the socket is a fake
- * whose frames come from the real sync protocol (`encodeFrame`).
+ * Fake IndexedDB supplies browser storage. The signed-in socket fake opens,
+ * but discards outgoing frames, so these tests do not prove server delivery.
  */
 import 'fake-indexeddb/auto';
 import { installTestLocks } from '@epicenter/data/test-locks';
@@ -40,7 +40,6 @@ import { InstantString } from '@epicenter/field';
 
 import type { AuthClient } from '@epicenter/auth';
 import type { BlobStore } from '@epicenter/blobs';
-import { encodeFrame } from '@epicenter/data/sync';
 import { Ok } from 'wellcrafted/result';
 import { whisperingDefinition } from '../workspace';
 import { openWhisperingApp, type WhisperingAppDependencies } from './app';
@@ -78,9 +77,7 @@ async function resetStorage(): Promise<void> {
 }
 
 /**
- * A socket the test scripts: listeners attach through the same
- * `addEventListener` surface the real driver uses, and `deliver` hands the
- * client a real protocol frame.
+ * A socket that opens for signed-in boot. Its outgoing frames are ignored.
  */
 function createFakeSocket() {
 	const listeners = new Map<string, Set<(event: unknown) => void>>();
@@ -100,9 +97,6 @@ function createFakeSocket() {
 	return {
 		socket: socket as unknown as WebSocket,
 		open: () => dispatch('open', {}),
-		deliver(frame: Parameters<typeof encodeFrame>[0]) {
-			dispatch('message', { data: encodeFrame(frame).slice().buffer });
-		},
 	};
 }
 
@@ -114,12 +108,14 @@ function createFakeSocket() {
 function createFakeAuth({
 	status,
 	principalId = 'principal-under-test',
+	onFetch = () => undefined,
 	openWebSocket = () => {
 		throw new Error('this generation must not dial');
 	},
 }: {
 	status: 'signed-out' | 'signed-in';
 	principalId?: string;
+	onFetch?: () => void;
 	openWebSocket?: () => Promise<WebSocket>;
 }): AuthClient {
 	const unused = () => {
@@ -137,6 +133,7 @@ function createFakeAuth({
 		input: Request | string | URL,
 		init?: RequestInit,
 	): Promise<Response> => {
+		onFetch();
 		const url = new URL(String(input instanceof Request ? input.url : input));
 		const item = /\/generations\/(\d+)$/.exec(url.pathname);
 		if (init?.method === 'POST') {
@@ -210,22 +207,36 @@ function recordingFields(title: string) {
 	};
 }
 
-test('a signed-out boot opens one document and never dials', async () => {
+test('signed-out work uses only device storage without account traffic', async () => {
 	await resetStorage();
-	await using app = await openWhisperingApp(
-		dependencies(createFakeAuth({ status: 'signed-out' })),
-	);
+	let requests = 0;
+	let dials = 0;
+	const auth = createFakeAuth({
+		status: 'signed-out',
+		onFetch: () => {
+			requests += 1;
+		},
+		openWebSocket: async () => {
+			dials += 1;
+			throw new Error('signed-out boot must not dial');
+		},
+	});
+	await using app = await openWhisperingApp(dependencies(auth));
 
-	// `createFakeAuth` throws on any dial, so reaching here is the assertion.
 	expect(app.syncStatus()).toBeUndefined();
 	expect(app.recordings.count).toBe(0);
 	expect(app.recipes.count).toBe(0);
+	app.recordings.create(recordingFields('device only'));
+	await Bun.sleep(10);
+	expect(app.recordings.count).toBe(1);
 
 	const names = (await indexedDB.databases()).map(({ name }) => name);
 	expect(names).toContain(
 		`epicenter/v2/${whisperingDefinition.id}/local/gen/1`,
 	);
 	expect(names.some((name) => name?.includes('/account/'))).toBe(false);
+	expect(requests).toBe(0);
+	expect(dials).toBe(0);
 });
 
 test('settings recover application defaults and survive a restart', async () => {
@@ -273,7 +284,7 @@ test('device settings remain readable when an account opens', async () => {
 	// Signing in still reads the setting written while signed out.
 	expect(signedIn.settings.get('recordingAutoUpload')).toBe(true);
 	// The work is portable, so a signed-in generation reads the account replica.
-	// The device recording is retained but hidden; nothing copied it across.
+	// The account replica has no local copy of the device recording.
 	expect(signedIn.recordings.count).toBe(0);
 });
 
@@ -302,14 +313,15 @@ test('device work is still there after signing back out', async () => {
 	]);
 });
 
-test('an aborted boot rejects with the abort', async () => {
+test('a pre-aborted boot rejects before creating a database', async () => {
 	await resetStorage();
 	const controller = new AbortController();
 	controller.abort(new Error('root unmounted'));
 
-	expect(
+	await expect(
 		openWhisperingApp(dependencies(createFakeAuth({ status: 'signed-out' })), {
 			signal: controller.signal,
 		}),
 	).rejects.toThrow('root unmounted');
+	expect(await indexedDB.databases()).toEqual([]);
 });
