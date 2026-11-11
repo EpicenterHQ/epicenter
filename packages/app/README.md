@@ -417,11 +417,13 @@ answer came back. Whatever becomes of the snapshot after a call, the
 call resolves; the app's status on the computer that serves it says when one
 failed.
 
-A view hands these calls to TanStack Query through Wellcrafted's
+A UI hands these calls to TanStack Query through Wellcrafted's
 `resultQueries` and `resultMutations` (ADR-0661), and makes its one
-QueryClient with `createQueryClient()`: every write refreshes every read the
-page shows before it counts as done, and reads refresh when the view is shown
-again (its tab or app comes back). Nothing refreshes on a timer.
+QueryClient in its own `src/lib/query-client.ts`, from its own
+`@tanstack/svelte-query`, so the bundle carries one TanStack Query: every
+write refreshes every read the page shows before it counts as done, and reads
+refresh when the UI is shown again (its tab or app comes back). Nothing
+refreshes on a timer. This package does not depend on TanStack Query.
 
 ```ts
 import { resultMutations, resultQueries } from 'wellcrafted/query';

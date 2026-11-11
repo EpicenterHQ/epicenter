@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-21; revised 2026-11-11 for the merged helper shape
-- **Built:** the dashboard (`apps/api/ui/src/lib/dashboard/runtime.ts`) composes billing and account through `resultQueries` and `resultMutations` from Wellcrafted 0.47, with the client-wide invalidation rule. The views of Capture, Reading, Tasks, and Vocab do the same over `connect()`, whose calls return `Result<Out, ActionError>` (`Changed`, `Missing`, `Threw`, `Refused`, `Unreachable`): each view's `ui/src/lib/app.ts` lists its `reads` and `writes`, and its layout makes the QueryClient with `createQueryClient()` from `@epicenter/app/client`, which carries the rule.
+- **Built:** the dashboard (`apps/api/ui/src/lib/dashboard/runtime.ts`) composes billing and account through `resultQueries` and `resultMutations` from Wellcrafted 0.47, with the client-wide invalidation rule. The UIs of Capture, Reading, Tasks, and Vocab do the same over `connect()`, whose calls return `Result<Out, ActionError>` (`Changed`, `Missing`, `Threw`, `Refused`, `Unreachable`): each UI's `ui/src/lib/app.ts` lists its `reads` and `writes`, and its layout makes the QueryClient with `createQueryClient()` from its own `ui/src/lib/query-client.ts`, which carries the rule and builds on the UI's own `@tanstack/svelte-query`, so a bundle holds one TanStack Query. `@epicenter/app` does not depend on TanStack Query (2026-11-11).
 <!-- doc-path-check: ignore-next-line (the ADR path belongs to the external Wellcrafted repository) -->
 - **Relates:** [Wellcrafted](https://github.com/wellcrafted-dev/wellcrafted) and its own proposed ADR, `docs/adr/0001-result-namespaces-produce-native-tanstack-options.md`, for the library-owned conversion contract.
 

@@ -456,7 +456,6 @@
       "name": "@epicenter/app",
       "version": "0.1.0",
       "dependencies": {
-        "@tanstack/query-core": "catalog:",
         "nanoid": "catalog:",
         "typebox": "catalog:",
         "wellcrafted": "catalog:",
