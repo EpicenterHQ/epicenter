@@ -37,11 +37,13 @@ describe('readApiSession', () => {
 		);
 	});
 
-	test('maps a rejected bearer (401/403) to Rejected', async () => {
-		const fetch: AuthFetch = async () => json({}, 401);
-		const { error } = await readApiSession({ baseURL, token: 'bad', fetch });
-		expect(error?.name).toBe('Rejected');
-	});
+	for (const status of [401, 403] as const) {
+		test(`maps a rejected bearer (${status}) to Rejected`, async () => {
+			const fetch: AuthFetch = async () => json({}, status);
+			const { error } = await readApiSession({ baseURL, token: 'bad', fetch });
+			expect(error).toMatchObject({ name: 'Rejected', status });
+		});
+	}
 
 	test('maps a thrown fetch to Unreachable', async () => {
 		const fetch: AuthFetch = async () => {
