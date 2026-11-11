@@ -148,7 +148,11 @@ describe('readPack', () => {
 				});
 			}
 			const head = (await box.ok(dir, ['rev-parse', 'HEAD'])).trim();
-			expect(objects.get(head)?.bytes).not.toBeNull();
+			expect(objects.get(head)).toMatchObject({
+				oid: head,
+				kind: 'commit',
+				bytes: expect.any(Uint8Array),
+			});
 		});
 
 	test('refuses a thin pack, whose delta base is outside it', async () => {
