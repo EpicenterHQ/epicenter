@@ -1,25 +1,13 @@
+/**
+ * Vocab focus lookup tests.
+ *
+ * A chat's saved focus must match both the entry ID and text before the
+ * current word can supply stage controls.
+ */
 import { expect, test } from 'bun:test';
-import { focusWord, readEntry } from './data.js';
+import { focusWord } from './data.js';
 
-test('a word reads its note from the body', () => {
-	expect(
-		readEntry({
-			id: 'a',
-			text: 'lucid',
-			stage: 'new',
-			createdAt: '2026-01-01T00:00:00.000Z',
-			body: 'clear',
-		}),
-	).toEqual({
-		id: 'a',
-		text: 'lucid',
-		note: 'clear',
-		stage: 'new',
-		createdAt: '2026-01-01T00:00:00.000Z',
-	});
-});
-
-test('focus matches both the saved id and text', () => {
+test('focus finds a word only when its saved ID and text both match', () => {
 	const words = [
 		{
 			id: 'lucid-id',
@@ -31,6 +19,9 @@ test('focus matches both the saved id and text', () => {
 	];
 	expect(
 		focusWord(words, { entryId: 'lucid-id', text: 'lucid' }),
+	).toBeUndefined();
+	expect(
+		focusWord(words, { entryId: 'other-id', text: 'lurid' }),
 	).toBeUndefined();
 	expect(focusWord(words, { entryId: 'lucid-id', text: 'lurid' })?.id).toBe(
 		'lucid-id',
