@@ -88,7 +88,6 @@ Implementation fit:
   @epicenter/ui owns primitives.
   styling owns Tailwind/CSS mechanics.
   svelte owns component lifecycle and state mechanics.
-  tanstack-table owns table state when tables are involved.
 ```
 
 ## Exceptions

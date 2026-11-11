@@ -111,7 +111,6 @@ details that serve the chosen direction.
 
 - `styling` owns CSS, Tailwind, spacing, wrappers, overflow, and scroll traps.
 - `svelte` owns component structure, runes, lifecycle, and state mechanics.
-- `tanstack-table` owns table state, columns, sorting, and row identity.
 - `writing-voice` owns visible interface copy and tone.
 
 For an explicit external standards or accessibility audit, WebFetch the Vercel

@@ -57,7 +57,6 @@
 			"@tanstack/query-core": "5.107.1",
 			"@tanstack/svelte-query": "^6.4.1",
 			"@tanstack/svelte-query-devtools": "^6.4.1",
-			"@tanstack/svelte-table": "9.0.0-alpha.10",
 			"arkregex": "^0.0.5",
 			"arktype": "^2.1.29",
 			"drizzle-arktype": "^0.1.3",

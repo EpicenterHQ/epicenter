@@ -40,7 +40,6 @@
 		"@fontsource-variable/geist": "^5.2.9",
 		"@fontsource-variable/geist-mono": "^5.2.8",
 		"@lucide/svelte": "^1.7.0",
-		"@tanstack/svelte-table": "catalog:",
 		"bits-ui": "^2.16.5",
 		"clsx": "^2.1.1",
 		"marked": "catalog:",
