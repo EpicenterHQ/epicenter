@@ -41,9 +41,12 @@ describe('composeRomanizers', () => {
 });
 
 describe('resolveRomanizer', () => {
-	test('Chinese text resolves to a romanizer that reads Han', async () => {
+	test('Chinese text resolves to the pinyin romanizer', async () => {
 		const romanize = await resolveRomanizer('你好');
-		expect(romanize('你好').find((s) => s.text === '你')?.reading).toBeTruthy();
+		expect(romanize('你好')).toEqual([
+			{ text: '你', reading: 'nǐ' },
+			{ text: '好', reading: 'hǎo' },
+		]);
 	});
 
 	test('all-Latin text resolves to identity (no readings)', async () => {

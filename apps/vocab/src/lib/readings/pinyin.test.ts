@@ -14,15 +14,13 @@ describe('pinyinRomanizer', () => {
 		).toBe(input);
 	});
 
-	test('Chinese characters get a reading; everything else does not', () => {
-		const segments = pinyinRomanizer('你 a');
-		expect(segments.find((s) => s.text === '你')?.reading).toBeTruthy();
+	test('Chinese characters get their pinyin; everything else stays plain', () => {
+		const segments = pinyinRomanizer('你好 a');
+		expect(segments.slice(0, 2)).toEqual([
+			{ text: '你', reading: 'nǐ' },
+			{ text: '好', reading: 'hǎo' },
+		]);
 		expect(segments.find((s) => s.text.includes('a'))?.reading).toBeUndefined();
-	});
-
-	test('one segment per Chinese character (per-character ruby)', () => {
-		const chinese = pinyinRomanizer('你好').filter((s) => s.reading);
-		expect(chinese).toHaveLength(2);
 	});
 
 	test('Japanese text (kana present) gets no readings, so shared Han never gets Mandarin', () => {

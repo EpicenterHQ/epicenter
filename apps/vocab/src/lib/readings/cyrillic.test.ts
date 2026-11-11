@@ -18,10 +18,7 @@ describe('cyrillicRomanizer', () => {
 		const segments = romanize('Привет world');
 		const cyrillic = segments.find((s) => s.text === 'Привет');
 		const latin = segments.find((s) => s.text.includes('world'));
-		// Assert it romanized to ASCII rather than pin the exact scheme.
-		expect(cyrillic?.reading && /^[\x20-\x7e]+$/.test(cyrillic.reading)).toBe(
-			true,
-		);
+		expect(cyrillic?.reading).toBe('Privet');
 		expect(latin?.reading).toBeUndefined();
 	});
 });
