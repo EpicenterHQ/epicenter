@@ -3,7 +3,7 @@
  * backup status shown until origins receive the app's branches.
  */
 import { afterEach, expect, test } from 'bun:test';
-import { mkdir, readFile, rm } from 'node:fs/promises';
+import { mkdir, readFile, realpath, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fixture, gitIn } from './runner.test-support.ts';
 
@@ -52,8 +52,11 @@ test('new commits its template and link is a valid app name', async () => {
 		'garden: start its data',
 	);
 	expect(await gitIn(join(garden, 'data'), 'ls-files')).toBe('.gitignore');
-	expect(await gitIn(garden, 'ls-files')).toBe('.gitignore\nepicenter.ts');
+	expect(await gitIn(garden, 'ls-files')).toBe('.gitignore\nepicenter.ts\npackage.json');
 	expect(await gitIn(garden, 'status', '--porcelain')).toBe('');
+	expect(await realpath(join(garden, 'node_modules/@epicenter/app'))).toBe(
+		await realpath(join(import.meta.dir, '../../app')),
+	);
 
 	expect((await f.run('new', 'link')).code).toBe(0);
 	expect(await gitIn(join(f.home, 'link'), 'log', '--format=%s')).toBe(

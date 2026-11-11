@@ -4,7 +4,7 @@
  */
 import { afterEach, expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';
-import { readFile, rm, writeFile } from 'node:fs/promises';
+import { readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fixture, gitIn, gitignore, header } from './runner.test-support.ts';
 
@@ -111,7 +111,11 @@ test('update merges the starter; a file that no longer fits says so when read', 
 		(await f.run('vocab', 'words', 'add', 'neko', '--meaning', 'cat')).code,
 	).toBe(0);
 
+	await rm(join(f.app, 'node_modules/@epicenter/app'));
 	const quiet = JSON.parse((await f.run('update', 'vocab', '--json')).stdout);
+	expect(await realpath(join(f.app, 'node_modules/@epicenter/app'))).toBe(
+		await realpath(join(import.meta.dir, '../../app')),
+	);
 	expect(quiet.apps[0]).toMatchObject({
 		remote: 'upstream',
 		found: true,

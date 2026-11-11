@@ -28,6 +28,7 @@ import { discoverAll, loadHomeApp } from './home.ts';
 import { serveHttp } from './http.ts';
 import { initCommand } from './init.ts';
 import { matchAction, readInput, usageLine } from './input.ts';
+import { installCommand } from './install.ts';
 import {
 	actionHelp,
 	actionTool,
@@ -77,6 +78,7 @@ const isLoopbackHost = (host: string) =>
 /** What each command in `COMMANDS` does. */
 const HANDLERS: { [K in Command]: Handler } = {
 	init: initCommand,
+	install: installCommand,
 	new: newCommand,
 	update: updateCommand,
 	build: buildCommand,

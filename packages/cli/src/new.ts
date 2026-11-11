@@ -9,6 +9,8 @@
  *   changes.
  * - `new <name>` makes the folder from the built-in template, makes it a
  *   repository, commits the template, and makes the data repository.
+ * Both install the app's locked packages and link @epicenter/app before
+ * loading epicenter.ts. An install failure keeps the app for repair.
  * The app's name is its child entry in the Epicenter.
  */
 import { mkdir, readdir, realpath, rm, writeFile } from 'node:fs/promises';
@@ -19,6 +21,7 @@ import { dataRepository } from './data.ts';
 import { CliError } from './errors.ts';
 import { checkedGit, git } from './git.ts';
 import { loadHomeApp } from './home.ts';
+import { installApp } from './install.ts';
 import { fail, writeErr, writeJson, writeOut } from './output.ts';
 import { epicenterDir, folderPath } from './root.ts';
 
@@ -37,6 +40,7 @@ function isUrl(source: string) {
  */
 function template(name: string) {
 	return {
+		'package.json': `${JSON.stringify({ name, private: true }, null, 2)}\n`,
 		'epicenter.ts': `import { defineApp } from '@epicenter/app';
 
 export default defineApp({
@@ -110,10 +114,14 @@ export async function newCommand(
 		} catch (error) {
 			return fail(CliError.GitFailed({ cause: error }).error, json);
 		}
+		const installed = await installApp(join(epicenterDir(), name), name);
+		if ('error' in installed) return installFailed(name, installed.error, json);
 		return made(name, json);
 	}
 	const folder = join(epicenterDir(), name);
 	const cloned = await cloneStarter(from, folder);
+	if ('installError' in cloned)
+		return installFailed(name, cloned.installError, json);
 	if ('error' in cloned) {
 		await rm(folder, { recursive: true, force: true });
 		return fail(cloned.error, json);
@@ -130,7 +138,11 @@ export async function newCommand(
 async function cloneStarter(
 	from: string,
 	folder: string,
-): Promise<{ ok: true } | { error: CliError }> {
+): Promise<
+	| { ok: true }
+	| { error: CliError }
+	| { installError: { message: string; next?: string } }
+> {
 	let source = from;
 	if (!isUrl(from)) {
 		source = folderPath(from);
@@ -154,6 +166,8 @@ async function cloneStarter(
 	} catch (error) {
 		return { error: CliError.GitFailed({ cause: error }).error };
 	}
+	const installed = await installApp(folder);
+	if ('error' in installed) return { installError: installed.error };
 	const { data: located, error } = await loadHomeApp(basename(folder));
 	if (error) return { error };
 	if (!located.ok)
@@ -178,4 +192,18 @@ async function makeApp(name: string) {
 	await checkedGit(folder, ['add', '-A']);
 	await checkedGit(folder, ['commit', '-q', '-m', `new ${name}`]);
 	await dataRepository(name, folder, { make: true });
+}
+
+/** Keep the app on disk so its packages can be repaired and installed again. */
+function installFailed(
+	name: string,
+	error: { message: string; next?: string },
+	json: boolean,
+) {
+	if (json) writeJson({ name, folder: join(epicenterDir(), name), error });
+	else {
+		writeErr(`${name}: ${error.message}`);
+		if (error.next) writeErr(`Run: ${error.next}`);
+	}
+	return 1;
 }

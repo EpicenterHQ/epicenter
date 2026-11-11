@@ -201,6 +201,7 @@ test('a misused command answers its usage line, with its help as the next step',
 		['new'],
 		['new', 'garden', '--from'],
 		['build', 'reading', 'vault'],
+		['install', 'reading', 'vault'],
 		['update', '--nope'],
 		['init', '--port'],
 	] as const;
@@ -302,6 +303,10 @@ test('app and action views include locations, schemas, field help and version', 
 		version: '0.0.1',
 	});
 	expect((await f.run('--help')).stdout).toContain('Exit codes:');
+	expect((await f.run('--help')).stdout).toContain('epicenter install [<app>]');
+	expect((await f.run('install', '--help')).stdout).toBe(
+		`${COMMANDS.install.usage}\n${COMMANDS.install.help}\n`,
+	);
 });
 
 test('an empty Epicenter lists its next step and a missing marker suggests init', async () => {

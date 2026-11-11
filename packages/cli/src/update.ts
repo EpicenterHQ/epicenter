@@ -13,7 +13,8 @@
  *    merge the branch `<remote>/HEAD` names, as `<app>: update from
  *    <remote>`; a conflict aborts the merge, leaving the app as it was, and
  *    names the command that resolves it;
- * 3. check that the merged `epicenter.ts` loads.
+ * 3. outside the lock, install the app's locked packages and link
+ *    @epicenter/app, then check that the merged epicenter.ts loads.
  *
  * The fetch does not hold the lock, so the network never keeps a call from
  * writing the app. `serve` rebuilds the view from the merged `HEAD`.
@@ -26,6 +27,7 @@
 import { misuse, parseWords } from './commands.ts';
 import { git, gitMessage } from './git.ts';
 import { chooseApps, loadHomeApp } from './home.ts';
+import { installApp } from './install.ts';
 import { LOCK_WAIT_MS, locked } from './lock.ts';
 import { fail, writeJson } from './output.ts';
 import { failureOf, snapshotApp } from './snapshot.ts';
@@ -125,6 +127,9 @@ async function updateOne(
 		);
 	if ('stopped' in ran.done) return ran.done.stopped;
 	updated.merged = ran.done.merged;
+	const installed = await installApp(folder, app);
+	if ('error' in installed)
+		return stop(installed.error.message, installed.error.next);
 	const { data: located, error } = await loadHomeApp(app);
 	if (error) return stop(error.message);
 	if (!located.ok) return stop(located.problems.join('; '));

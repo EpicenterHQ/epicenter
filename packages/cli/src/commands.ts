@@ -28,6 +28,14 @@ from an epicenter.ts and a .gitignore. serve builds the view when it is opened.`
 it snapshots what is pending first and undoes a merge that stops on a conflict.
 The data is never merged; serve rebuilds the view from the merged code.`,
 	},
+	install: {
+		usage: 'epicenter install [<app>]',
+		help: `Installs each app's top-level package.json, or one app's, with bun install
+(--frozen-lockfile when bun.lock exists), then links node_modules/@epicenter/app
+to this epicenter's own copy, which no app lists. new and update run it;
+a call never installs. After bun add, run epicenter install <app> to restore
+the supplied link if Bun removed it.`,
+	},
 	build: {
 		usage: 'epicenter build [<app>]',
 		help: `Builds the view of every app, or one app, from its code's last commit now,
