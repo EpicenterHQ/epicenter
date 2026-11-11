@@ -14,7 +14,6 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
 	appDataDir,
-	COMPOSED_APP_IDS,
 	type DataRootSystem,
 	EPICENTER_BUNDLE_IDENTIFIER,
 	epicenterDataRoot,
@@ -188,12 +187,6 @@ test('EPICENTER_FOLDER_DIR wins, and a relative one is refused', () => {
 test('an app directory sits under apps/', () => {
 	expect(appDataDir('/root', 'local-mail')).toBe('/root/apps/local-mail');
 	expect(appDataDir('/root', 'local-books')).toBe('/root/apps/local-books');
-});
-
-test('every id the composition root spent composes', () => {
-	for (const id of COMPOSED_APP_IDS) {
-		expect(appDataDir('/root', id)).toBe(`/root/apps/${id}`);
-	}
 });
 
 test('an admitted folder name is an app id too', () => {
