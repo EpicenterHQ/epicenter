@@ -86,7 +86,10 @@ const HANDLERS: { [K in Command]: Handler } = {
 	service: serviceCommand,
 	async serve(words, json) {
 		if (json)
-			return fail(misuse('serve', 'serve prints no answer; --json does not apply'), json);
+			return fail(
+				misuse('serve', 'serve prints no answer; --json does not apply'),
+				json,
+			);
 		const given = parseWords(
 			words,
 			{ port: { type: 'string' }, host: { type: 'string' } },
@@ -97,13 +100,13 @@ const HANDLERS: { [K in Command]: Handler } = {
 		const root = epicenterRoot();
 		const listen = port === undefined ? root.port : portOf(port);
 		if (listen === undefined) return fail(misuse('serve', BAD_PORT), json);
-		// With a public address, the tailnet reaches the private listener only
+		// With connectors, the tailnet reaches the private listener only
 		// through a proxy on this computer, such as tailscale serve.
-		if (root.public && host !== undefined && !isLoopbackHost(host))
+		if (root.connectors && host !== undefined && !isLoopbackHost(host))
 			return fail(
 				misuse(
 					'serve',
-					`With a public address, serve listens only on a loopback address, not ${host}`,
+					`With connectors, serve listens only on a loopback address, not ${host}`,
 				),
 				json,
 			);

@@ -1,38 +1,39 @@
 /**
- * The public listener as `serve` runs it, with real apps, and `epicenter
- * access` beside it. Runs the real CLI against a temporary HOME whose
- * `EPICENTER.md` has a public address.
+ * Connectors as `serve` runs them, with real apps, and `epicenter access`
+ * beside it. Runs the real CLI against a temporary HOME whose `EPICENTER.md`
+ * has a `connectors` block.
  *
- * The OAuth browser leg runs in this test process, on the same
+ * Claude's authorize request runs in this test process, on the same
  * `access.local.sqlite` that `serve` holds open, through the public handler
  * with a stubbed CIMD fetch: serve's own fetch would go to claude.ai. The
- * tokens and cookies it produces are then used against serve's public port,
- * which checks them against the shared keys and sessions, as a second process
- * such as `epicenter access` does. The public address is
- * `https://localhost:9/`, where nothing listens.
+ * approval then goes to serve's real private listener at `/.allow`, and the
+ * tokens it yields are used against serve's public port. The public address
+ * is `https://localhost:9`, where nothing listens.
  */
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
 import { readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { openAuthorizationServer } from './authorization-server.ts';
-import type { Site } from './http.ts';
-import { publicHandler } from './public.ts';
-import { fixture, gitIn, readingApp } from './runner.test-support.ts';
 import {
-	browser,
+	answerAllow,
+	authorizeQuery,
 	CLAUDE_ID,
 	claudeOnly,
 	connectClaude,
 	mcpRequest,
+	reachAllow,
 	refresh,
 	type Send,
-	softwarePasskey,
-} from './sign-in.test-support.ts';
+	type Sides,
+} from './connectors.test-support.ts';
+import { publicHandler } from './public.ts';
+import { fixture, gitIn, readingApp } from './runner.test-support.ts';
 
 setDefaultTimeout(60_000);
 
-const PUBLIC_URL = 'https://localhost:9/';
 const ORIGIN = 'https://localhost:9';
+const TAILNET = 'https://studio.tailnet.ts.net:4747';
+const MARKER = `---\nport: 4747\nconnectors:\n  url: ${ORIGIN}\n  port: 0\n  tailnet: ${TAILNET}\n---\n`;
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -58,7 +59,7 @@ async function serve(f: Awaited<ReturnType<typeof fixture>>) {
 			const local = /Serving your apps at (http:\/\/127\.0\.0\.1:\d+)\./.exec(
 				output,
 			)?.[1];
-			const open = / at (http:\/\/127\.0\.0\.1:\d+): an HTTPS tunnel/.exec(
+			const open = / from (http:\/\/127\.0\.0\.1:\d+): an HTTPS tunnel/.exec(
 				output,
 			)?.[1];
 			if (local && open) ready.resolve({ local, public: open });
@@ -78,34 +79,24 @@ async function serve(f: Awaited<ReturnType<typeof fixture>>) {
 	return { ...bases, stderr: () => output };
 }
 
-/** A fixture whose Epicenter has a public address, `reading` in it, and serve running. */
+/** A fixture whose Epicenter takes connectors, `reading` in it, and serve running. */
 async function setup() {
 	const f = await fixture();
-	await writeFile(
-		join(f.home, 'EPICENTER.md'),
-		`---\nport: 4747\npublic: ${PUBLIC_URL}\npublicPort: 0\n---\n`,
-	);
+	await writeFile(join(f.home, 'EPICENTER.md'), MARKER);
 	const reading = await f.folder(join(f.home, 'reading'), readingApp);
 	const served = await serve(f);
 	cleanups.push(() => rm(f.root, { recursive: true, force: true }));
-	// This process's own view of the same sign-in, for the browser leg.
+	// This process's own view of the same server, for Claude's authorize.
 	const authorization = await openAuthorizationServer(
 		f.home,
-		PUBLIC_URL,
+		{ url: ORIGIN, port: 0, tailnet: TAILNET },
 		claudeOnly(),
 	);
 	cleanups.unshift(async () => authorization.close());
-	const unreachable = async () => {
-		throw new Error('the browser leg never reaches the site');
-	};
-	const site: Site = {
-		mcp: unreachable,
-		launcher: unreachable,
-		ui: unreachable,
-		call: unreachable,
-	};
-	const inProcess = publicHandler(authorization, site);
-	/** The browser leg, in this process. */
+	const inProcess = publicHandler(authorization, async () => {
+		throw new Error("Claude's authorize never reaches the site");
+	});
+	/** Claude's authorize and token calls, in this process. */
 	const send: Send = (request) => inProcess(request);
 	/** A request to serve's public listener, as the tunnel delivers it. */
 	const toPublic: Send = async (request) => {
@@ -117,23 +108,22 @@ async function setup() {
 			redirect: 'manual',
 		});
 	};
-	/** A device that registers a passkey from `token`, signing it in. */
-	const device = async (token: string) => {
-		const made = {
-			browser: browser(ORIGIN, send),
-			passkey: await softwarePasskey(ORIGIN),
-		};
-		expect((await made.browser.register(made.passkey, token)).status).toBe(200);
-		return made;
+	/**
+	 * A request to the approval page, delivered to serve's private listener
+	 * as `tailscale serve` would, naming the tailnet host it was sent to.
+	 */
+	const tailnetSend: Send = async (request) => {
+		const { pathname, search } = new URL(request.url);
+		const headers = new Headers(request.headers);
+		headers.set('host', new URL(TAILNET).host);
+		return fetch(`${served.local}${pathname}${search}`, {
+			method: request.method,
+			headers,
+			body: request.method === 'GET' ? undefined : await request.text(),
+			redirect: 'manual',
+		});
 	};
-	/** An invite made by `epicenter access invite`, as its token. */
-	const invite = async (name: string) => {
-		const made = await f.run('access', 'invite', name, '--json');
-		expect(made.code).toBe(0);
-		const { url } = JSON.parse(made.stdout) as { url: string };
-		expect(url.startsWith(`${ORIGIN}/.sign-in?invite=`)).toBe(true);
-		return new URL(url).searchParams.get('invite') as string;
-	};
+	const sides: Sides = { origin: ORIGIN, send, tailnet: TAILNET, tailnetSend };
 	return {
 		...f,
 		...served,
@@ -141,8 +131,8 @@ async function setup() {
 		authorization,
 		send,
 		toPublic,
-		device,
-		invite,
+		tailnetSend,
+		sides,
 	};
 }
 
@@ -156,9 +146,15 @@ async function toolNames(response: Response) {
 	return body.result.tools;
 }
 
-test('serve names the public address and its port, and the private listener still needs nothing', async () => {
+const bearer = (token: string | undefined) => ({
+	authorization: `Bearer ${token}`,
+});
+
+test('serve names where connectors reach it and where they are approved; the public address serves no page', async () => {
 	const t = await setup();
-	expect(t.stderr()).toContain(`Serving ${PUBLIC_URL} at ${t.public}`);
+	expect(t.stderr()).toContain(
+		`Serving connectors at ${ORIGIN}/ from ${t.public}: an HTTPS tunnel from that address must forward to this port. They are approved at ${TAILNET}/.allow.`,
+	);
 	const local = await fetch(mcpRequest(t.local, 'tools/list'));
 	expect(local.status).toBe(200);
 	expect((await toolNames(local)).length).toBe(10);
@@ -168,31 +164,55 @@ test('serve names the public address and its port, and the private listener stil
 	expect(open.headers.get('www-authenticate')).toBe(
 		`Bearer resource_metadata="${ORIGIN}/.well-known/oauth-protected-resource"`,
 	);
-	const page = await t.toPublic(new Request(`${ORIGIN}/reading/`));
-	expect(page.status).toBe(302);
-	expect(page.headers.get('location')).toBe(
-		`/.sign-in?next=${encodeURIComponent('/reading/')}`,
-	);
+	for (const path of ['/', '/reading/', '/.allow', '/.sign-in'])
+		expect([
+			path,
+			(await t.toPublic(new Request(`${ORIGIN}${path}`))).status,
+		]).toEqual([path, 404]);
 	const metadata = await t.toPublic(
 		new Request(`${ORIGIN}/.well-known/oauth-protected-resource`),
 	);
 	expect(((await metadata.json()) as { resource: string }).resource).toBe(
-		PUBLIC_URL,
+		`${ORIGIN}/`,
 	);
+});
+
+test('the approval page on the private listener approves only from its own pages', async () => {
+	const t = await setup();
+	const { query } = await authorizeQuery(`${ORIGIN}/`, 'read offline_access');
+	const allow = await reachAllow(ORIGIN, t.send, TAILNET, query);
+	const page = await t.tailnetSend(new Request(allow));
+	expect(page.status).toBe(200);
+	expect(await page.text()).toContain('Allow claude.ai to use your apps?');
+	const foreign = await t.tailnetSend(
+		new Request(`${TAILNET}/.allow`, {
+			method: 'POST',
+			headers: {
+				'content-type': 'application/json',
+				origin: 'https://evil.example',
+			},
+			body: JSON.stringify({
+				accept: true,
+				scope: 'read offline_access',
+				oauth_query: allow.search.slice(1),
+			}),
+		}),
+	);
+	expect(foreign.status).toBe(403);
+	expect(
+		JSON.parse((await t.run('access', '--json')).stdout).connectors,
+	).toEqual([]);
+	const own = await answerAllow(t.tailnetSend, allow, {
+		accept: true,
+		scope: 'read offline_access',
+	});
+	expect(own.status).toBe(200);
+	expect(((await own.json()) as { url: string }).url).toContain('code=');
 });
 
 test('a read token lists only read-only actions and its call to a write action is refused; a write token can call it', async () => {
 	const t = await setup();
-	const person = await t.device(await t.invite('phone'));
-	const read = await connectClaude(
-		ORIGIN,
-		t.send,
-		person,
-		'read offline_access',
-	);
-	const bearer = (token: string | undefined) => ({
-		authorization: `Bearer ${token}`,
-	});
+	const read = await connectClaude(t.sides, 'read offline_access');
 	const all = await toolNames(await fetch(mcpRequest(t.local, 'tools/list')));
 	const listed = await t.toPublic(
 		mcpRequest(ORIGIN, 'tools/list', {}, bearer(read.access_token)),
@@ -236,12 +256,7 @@ test('a read token lists only read-only actions and its call to a write action i
 	expect(await Bun.file(join(t.reading, 'data/2026.csv')).exists()).toBe(false);
 	expect(await gitIn(t.reading, 'rev-list', '--count', 'HEAD')).toBe('1');
 
-	const write = await connectClaude(
-		ORIGIN,
-		t.send,
-		person,
-		'read write offline_access',
-	);
+	const write = await connectClaude(t.sides, 'read write offline_access');
 	const logged = await t.toPublic(
 		mcpRequest(
 			ORIGIN,
@@ -259,123 +274,51 @@ test('a read token lists only read-only actions and its call to a write action i
 	);
 });
 
-test("a person's session reaches the site from the public origin's own pages only", async () => {
+test('epicenter access lists connectors and revokes one while serve runs', async () => {
 	const t = await setup();
-	const person = await t.device(await t.invite('phone'));
-	const cookie = person.browser.cookie();
-	const call = (origin: string) =>
-		t.toPublic(
-			mcpRequest(
-				ORIGIN,
-				'tools/call',
-				{ name: 'reading_log', arguments: { minutes: 7 } },
-				{ cookie, origin },
-			),
-		);
-	expect((await call('https://evil.example')).status).toBe(401);
-	expect(await Bun.file(join(t.reading, 'data/2026.csv')).exists()).toBe(false);
-	expect((await call(ORIGIN)).status).toBe(200);
-	expect(await readFile(join(t.reading, 'data/2026.csv'), 'utf8')).toBe(
-		'minutes,book\n7,\n',
-	);
-	const launcher = await t.toPublic(
-		new Request(`${ORIGIN}/`, { headers: { cookie } }),
-	);
-	expect(launcher.status).toBe(200);
-	expect(await launcher.text()).toContain('<title>Epicenter</title>');
-});
-
-test('epicenter access lists grants, invites, and revokes a grant, a connector, and a person while serve runs', async () => {
-	const t = await setup();
-	const phone = await t.device(await t.invite('phone'));
-	const laptop = await t.device(await t.invite('laptop'));
-	const fromPhone = await connectClaude(
-		ORIGIN,
-		t.send,
-		phone,
-		'read write offline_access',
-	);
-	const fromLaptop = await connectClaude(
-		ORIGIN,
-		t.send,
-		laptop,
-		'read offline_access',
-	);
-	const bearer = (token: string | undefined) => ({
-		authorization: `Bearer ${token}`,
-	});
+	const tokens = await connectClaude(t.sides, 'read write offline_access');
 	const listCall = (token: string | undefined) =>
 		t.toPublic(mcpRequest(ORIGIN, 'tools/list', {}, bearer(token)));
 	const listed = await t.run('access', '--json');
 	expect(listed.code).toBe(0);
-	expect(JSON.parse(listed.stdout).access).toMatchObject([
-		{ kind: 'person', name: 'phone' },
-		{ kind: 'person', name: 'laptop' },
+	expect(JSON.parse(listed.stdout).connectors).toMatchObject([
 		{
-			kind: 'grant',
 			clientId: CLAUDE_ID,
 			name: 'Claude',
 			host: 'claude.ai',
-			person: 'phone',
 			scope: 'read write offline_access',
 			families: 1,
 		},
-		{ kind: 'grant', clientId: CLAUDE_ID, person: 'laptop', families: 1 },
 	]);
 	const text = await t.run('access');
-	expect(text.stdout).toContain('People\n  phone  approved ');
 	expect(text.stdout).toContain(
-		`  claude.ai  ${CLAUDE_ID}, which calls itself Claude\n    approved by phone: reads and changes, approved `,
+		`claude.ai  ${CLAUDE_ID}, which calls itself Claude\n  reads and changes, approved `,
 	);
-	expect(text.stdout).toContain('    approved by laptop: reads, approved ');
 	expect(text.stdout).toContain('1 connection');
 	expect((await t.run('access', 'invite', 'phone')).code).toBe(2);
+	expect((await listCall(tokens.access_token)).status).toBe(200);
 
-	// One grant: the phone's approval of Claude.
-	const grant = await t.run('access', 'revoke', 'claude.ai', 'phone');
-	expect(grant.code).toBe(0);
-	expect(grant.stdout).toContain('1 grant of claude.ai ended');
-	expect((await listCall(fromPhone.access_token)).status).toBe(401);
-	expect((await listCall(fromLaptop.access_token)).status).toBe(200);
-	const refused = await refresh(ORIGIN, t.send, fromPhone.refresh_token);
+	const revoked = await t.run('access', 'revoke', 'claude.ai');
+	expect(revoked.code).toBe(0);
+	expect(revoked.stdout).toContain('claude.ai can no longer reach your apps');
+	expect((await listCall(tokens.access_token)).status).toBe(401);
+	const refused = await refresh(ORIGIN, t.send, tokens.refresh_token);
 	expect(refused.status).toBe(400);
 	expect(refused.body.error).toBe('invalid_grant');
-
-	// The connector: every grant left.
-	expect((await t.run('access', 'revoke', 'Claude')).code).toBe(0);
-	expect((await listCall(fromLaptop.access_token)).status).toBe(401);
-	expect((await refresh(ORIGIN, t.send, fromLaptop.refresh_token)).status).toBe(
-		400,
-	);
-
-	// A person: signed out everywhere.
-	const cookie = phone.browser.cookie();
 	expect(
-		(await t.toPublic(new Request(`${ORIGIN}/`, { headers: { cookie } })))
-			.status,
-	).toBe(200);
-	const person = await t.run('access', 'revoke', 'phone');
-	expect(person.code).toBe(0);
-	expect(person.stdout).toContain('phone is signed out');
-	expect(
-		(await t.toPublic(new Request(`${ORIGIN}/`, { headers: { cookie } })))
-			.status,
-	).toBe(302);
-	expect(
-		JSON.parse((await t.run('access', '--json')).stdout).access,
-	).toMatchObject([{ kind: 'person', name: 'laptop' }]);
-	const missing = await t.run('access', 'revoke', 'nobody', '--json');
-	expect(missing.code).toBe(2);
+		JSON.parse((await t.run('access', '--json')).stdout).connectors,
+	).toEqual([]);
+	expect((await t.run('access', 'revoke', 'nobody', '--json')).code).toBe(2);
 });
 
-test('epicenter access without a public address says what to add', async () => {
+test('epicenter access without a connectors block says what to add', async () => {
 	const f = await fixture();
 	cleanups.push(() => rm(f.root, { recursive: true, force: true }));
 	const result = await f.run('access', '--json');
 	expect(result.code).toBe(2);
 	const { error } = JSON.parse(result.stdout);
-	expect(error.message).toContain('has no public address');
-	expect(error.next).toContain('publicPort');
+	expect(error.message).toContain('has no connectors block');
+	expect(error.next).toContain('tailnet');
 	expect(await Bun.file(join(f.home, 'access.local.sqlite')).exists()).toBe(
 		false,
 	);
@@ -383,7 +326,7 @@ test('epicenter access without a public address says what to add', async () => {
 
 test('a tool name that is an epicenter command runs nothing', async () => {
 	const t = await setup();
-	for (const name of ['access_invite', 'sync_reading', 'history_reading']) {
+	for (const name of ['access_revoke', 'sync_reading', 'history_reading']) {
 		const response = await fetch(
 			`${t.local}/`,
 			mcpRequest(t.local, 'tools/call', { name, arguments: {} }),
@@ -394,9 +337,9 @@ test('a tool name that is an epicenter command runs nothing', async () => {
 		expect(body.result.isError).toBe(true);
 		expect(body.result.content[0]?.text).toContain(`Unknown tool ${name}`);
 	}
-	expect(JSON.parse((await t.run('access', '--json')).stdout).access).toEqual(
-		[],
-	);
+	expect(
+		JSON.parse((await t.run('access', '--json')).stdout).connectors,
+	).toEqual([]);
 });
 
 test('the private listener answers only this computer and the tailnet, never a tunnel', async () => {
@@ -424,18 +367,15 @@ test('the private listener answers only this computer and the tailnet, never a t
 	}
 });
 
-test('serve with a public address refuses a --host that is not loopback', async () => {
+test('serve with connectors refuses a --host that is not loopback', async () => {
 	const f = await fixture();
 	cleanups.push(() => rm(f.root, { recursive: true, force: true }));
-	await writeFile(
-		join(f.home, 'EPICENTER.md'),
-		`---\nport: 4747\npublic: ${PUBLIC_URL}\npublicPort: 0\n---\n`,
-	);
+	await writeFile(join(f.home, 'EPICENTER.md'), MARKER);
 	for (const host of ['0.0.0.0', '100.101.102.103']) {
 		const refused = await f.run('serve', '--host', host, '--port', '0');
 		expect(refused.code).toBe(2);
 		expect(refused.stderr).toContain(
-			`With a public address, serve listens only on a loopback address, not ${host}`,
+			`With connectors, serve listens only on a loopback address, not ${host}`,
 		);
 	}
 });

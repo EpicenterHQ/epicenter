@@ -190,17 +190,18 @@ your server.
 ssh studio                                   you, then `epicenter …` there
 ssh studio epicenter serve --stdio           an agent's MCP server, from any computer
 epicenter serve, over your tailnet           your devices: UIs and MCP
-epicenter serve, at its public address       claude.ai, ChatGPT, and your browser anywhere: signed in
+epicenter serve, at its public address       claude.ai and ChatGPT connectors only
 ```
 
 A command always means the computer it is typed on. `serve` speaks MCP and
-serves UIs, and runs each call in a fresh process, so code you just changed is
-what runs. Adding claude.ai or ChatGPT as a connector opens a page on your
-server where you approve it with a passkey, and the client receives a token
-you can revoke with `epicenter access revoke`. The public address is any HTTPS
-tunnel, such as Tailscale Funnel, to a second listener that signs everyone in
-(ADR-0871). Nothing guards your sign-ins from another program running as you
-except your agents' permission rules.
+serves UIs, and runs each app as its files are on disk, so code you just
+changed is what runs (ADR-0880). Adding claude.ai or ChatGPT as a connector
+opens a page on your tailnet where you approve it, and the client receives a
+token you can revoke with `epicenter access revoke`. The public address is any
+HTTPS tunnel, such as Tailscale Funnel, to a second listener that answers only
+what a connector needs (ADR-0871, ADR-0881); you reach your apps over the
+tailnet, never there. Nothing guards your approvals from another program
+running as you except your agents' permission rules.
 
 ## UIs
 

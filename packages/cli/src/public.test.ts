@@ -1,42 +1,36 @@
 /**
- * The public listener's handler with the real authorization server, in
- * process: every request goes in as the tunnel delivers it, to
- * `http://127.0.0.1:<publicPort>`, and the site behind it is a stand-in that
- * records what reached it. Passkeys are a software authenticator running
- * Better Auth's real WebAuthn endpoints; the CIMD fetch returns Claude's
- * document. Nothing here touches the network.
+ * The public listener's handler and the approval page with the real
+ * authorization server, in process. Every public request goes in as the
+ * tunnel delivers it, to `http://127.0.0.1:<port>`, and the MCP site behind
+ * it is a stand-in that records what reached it. The approval page is the
+ * route the private listener answers; that listener's own rules are tested
+ * in `acceptance.public.test.ts`. The CIMD fetch returns Claude's document.
+ * Nothing here touches the network.
  *
  * Key behaviors:
- * - each path answers by credential, and the metadata names only routes served
- * - every authorization asks for a passkey and shows /.allow, and keeps offline_access
- * - a grant is (connector, person), listed with its connections
+ * - the public address answers only what a connector needs, by its token
+ * - every authorization goes to the approval page on the tailnet, and keeps offline_access
+ * - an approval is the owner's, and a token for anyone else is refused
  * - a revoke ends refresh and live access tokens at once, and no code exchange
  *   or rotation in flight across a revoke and re-approval yields a token
  * - text from a connector's metadata document is cleaned before it is shown
- *
- * See also `acceptance.public.test.ts` for serve, its private listener, and
- * `epicenter access` as processes.
  */
 import { afterEach, describe, expect, setDefaultTimeout, test } from 'bun:test';
 import { mkdtemp, realpath, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { allowRoute } from './allow-page.ts';
 import {
 	ACCESS_DATABASE,
 	ACCESS_KEY,
 	type AuthorizationServer,
-	type Grant,
-	listAccess,
+	listGrants,
 	openAuthorizationServer,
-	type Person,
-	revokeAccess,
+	revokeConnector,
 } from './authorization-server.ts';
-import type { Site } from './http.ts';
-import { publicHandler } from './public.ts';
 import {
+	answerAllow,
 	approve,
-	type Browser,
-	browser,
 	CLAUDE_ID,
 	claimsOf,
 	claudeOnly,
@@ -44,20 +38,22 @@ import {
 	exchangeCode,
 	mcpRequest as jsonRpc,
 	NAVIGATE,
-	type Passkey,
+	pendingCode as pending,
 	authorizeQuery as query,
 	REDIRECT_URI,
 	reachAllow,
 	refresh as refreshWith,
 	type Send,
-	softwarePasskey,
-} from './sign-in.test-support.ts';
+	type Sides,
+} from './connectors.test-support.ts';
+import { publicHandler } from './public.ts';
 
 setDefaultTimeout(30_000);
 
-const PUBLIC_URL = 'https://studio.example.test:10000/';
 const ORIGIN = 'https://studio.example.test:10000';
 const RESOURCE = `${ORIGIN}/`;
+const TAILNET = 'https://studio.example.test:4747';
+const CONNECTORS = { url: ORIGIN, port: 4757, tailnet: TAILNET };
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -71,34 +67,18 @@ async function setup(changes: Parameters<typeof claudeOnly>[1] = {}) {
 	const fetched: string[] = [];
 	const authorization = await openAuthorizationServer(
 		folder,
-		PUBLIC_URL,
+		CONNECTORS,
 		claudeOnly(fetched, changes),
 	);
-	/** What reached the site: each MCP request, and whether it was read-only. */
-	const reached: {
-		mcp?: { readOnly: boolean; body: unknown };
-		page?: string;
-		call?: string;
-	}[] = [];
-	const site: Site = {
-		async mcp(request, readOnly = false) {
-			reached.push({ mcp: { readOnly, body: await request.json() } });
+	/** What reached the MCP site, and whether it was read-only. */
+	const reached: { readOnly: boolean; body: unknown }[] = [];
+	const handle = publicHandler(
+		authorization,
+		async (request, readOnly = false) => {
+			reached.push({ readOnly, body: await request.json() });
 			return Response.json({ readOnly });
 		},
-		async launcher() {
-			reached.push({ page: 'launcher' });
-			return new Response('launcher');
-		},
-		async ui(request) {
-			reached.push({ page: new URL(request.url).pathname });
-			return new Response('view');
-		},
-		async call(request) {
-			reached.push({ call: new URL(request.url).pathname });
-			return new Response('called');
-		},
-	};
-	const handle = publicHandler(authorization, site);
+	);
 	// Better Auth's in-memory rate limit is shared by every server in this
 	// process, so each test is a different client, as the tunnel says with
 	// X-Forwarded-For.
@@ -113,60 +93,28 @@ async function setup(changes: Parameters<typeof claudeOnly>[1] = {}) {
 		delivered.headers.set('x-forwarded-for', client);
 		return handle(delivered);
 	};
+	/** Deliver a request to the approval page, as the private listener routes it. */
+	const tailnetSend: Send = async (request) =>
+		allowRoute(authorization, request);
 	cleanups.push(async () => {
 		authorization.close();
 		await rm(folder, { recursive: true, force: true });
 	});
-	/** A new device: a browser and the passkey on it. */
-	const device = async () => ({
-		browser: browser(ORIGIN, send),
-		passkey: await softwarePasskey(ORIGIN),
-	});
-	/** An invite's token, as `epicenter access invite` prints it in a link. */
-	const invite = async (name = 'phone') =>
-		new URL((await authorization.invite(name)).url).searchParams.get(
-			'invite',
-		) as string;
-	/** A device that has registered its passkey from an invite, and so is signed in. */
-	const signedIn = async (name = 'phone') => {
-		const made = await device();
-		const registered = await made.browser.register(
-			made.passkey,
-			await invite(name),
-		);
-		expect(registered.status).toBe(200);
-		return made;
-	};
-	return {
-		folder,
-		authorization,
-		send,
-		reached,
-		fetched,
-		device,
-		invite,
-		signedIn,
-	};
+	const sides: Sides = { origin: ORIGIN, send, tailnet: TAILNET, tailnetSend };
+	return { folder, authorization, send, tailnetSend, sides, reached, fetched };
 }
 
 type Setup = Awaited<ReturnType<typeof setup>>;
-type Device = { browser: Browser; passkey: Passkey };
 
 const authorizeQuery = (scope?: string) => query(RESOURCE, scope);
-const connectClaude = (t: { send: Send }, device: Device, grant: string) =>
-	connect(ORIGIN, t.send, device, grant);
-const refresh = (t: { send: Send }, refreshToken: string | undefined) =>
+const connectClaude = (t: Setup, grant: string) => connect(t.sides, grant);
+const pendingCode = (t: Setup, grant: string, asked?: string) =>
+	pending(t.sides, grant, asked);
+const refresh = (t: Setup, refreshToken: string | undefined) =>
 	refreshWith(ORIGIN, t.send, refreshToken);
-/** Authorize and allow `grant`, leaving the code unexchanged. */
-async function pendingCode(device: Device, grant: string, asked?: string) {
-	const { query, verifier } = await authorizeQuery(asked);
-	const code = await approve(
-		device,
-		await reachAllow(ORIGIN, device, query),
-		grant,
-	);
-	return { code, verifier };
-}
+/** The approval page an authorization of Claude asking `scope` lands on. */
+const allowFor = async (t: Setup, scope?: string) =>
+	reachAllow(ORIGIN, t.send, TAILNET, (await authorizeQuery(scope)).query);
 /** Claude's MCP request, with its access token when there is one. */
 const mcpRequest = (
 	send: Send,
@@ -182,21 +130,17 @@ const mcpRequest = (
 			accessToken ? { authorization: `Bearer ${accessToken}` } : {},
 		),
 	);
-
-const people = (t: Setup) =>
-	listAccess(t.authorization.db).filter(
-		(entry): entry is Person => entry.kind === 'person',
-	);
-const grants = (t: Setup) =>
-	listAccess(t.authorization.db).filter(
-		(entry): entry is Grant => entry.kind === 'grant',
-	);
-/** The one grant `person` made, as `epicenter access` lists it. */
-function grantOf(t: Setup, name: string) {
-	const found = grants(t).filter((grant) => grant.person === name);
+/** The one grant, as `epicenter access` lists it. */
+function onlyGrant(t: Setup) {
+	const found = listGrants(t.authorization.db);
 	expect(found).toHaveLength(1);
-	return found[0] as Grant;
+	return found[0] as NonNullable<(typeof found)[0]>;
 }
+const ownerId = (t: Setup) =>
+	t.authorization.db
+		.query<{ id: string }, []>('select id from user')
+		.all()
+		.map((row) => row.id);
 
 /** Wait into the next second, so a token issued now is later than a revoke made before. */
 const nextSecond = () => Bun.sleep(1005 - (Date.now() % 1000));
@@ -227,43 +171,24 @@ async function holdNextRefreshInsert(authorization: AuthorizationServer) {
 	return { reached: reached.promise, release: () => released.resolve() };
 }
 
-/** The rows that still name `userId`, by table. */
-function rowsNaming(t: Setup, userId: string) {
-	const count = (sql: string) =>
-		t.authorization.db.query<{ n: number }, [string]>(sql).get(userId)?.n;
-	return {
-		user: count('select count(*) as n from user where id = ?'),
-		passkey: count('select count(*) as n from passkey where userId = ?'),
-		session: count('select count(*) as n from session where userId = ?'),
-		consent: count('select count(*) as n from oauthConsent where userId = ?'),
-		refresh: count(
-			'select count(*) as n from oauthRefreshToken where userId = ?',
-		),
-		access: count(
-			'select count(*) as n from oauthAccessToken where userId = ?',
-		),
-		code: count(
-			`select count(*) as n from verification
-			  where json_valid(value) and json_extract(value, '$.userId') = ?`,
-		),
-	};
-}
-
 // ============================================================================
 // The authorization server
 // ============================================================================
 
 describe('the authorization server', () => {
-	test('keeps its secret and database readable only by this user, and opens again unchanged', async () => {
+	test('keeps its secret and database readable only by this user, and opens again with the same owner', async () => {
 		const t = await setup();
 		expect((await stat(join(t.folder, ACCESS_KEY))).mode & 0o777).toBe(0o600);
 		expect((await stat(join(t.folder, ACCESS_DATABASE))).mode & 0o777).toBe(
 			0o600,
 		);
 		const secret = await Bun.file(join(t.folder, ACCESS_KEY)).text();
-		const again = await openAuthorizationServer(t.folder, PUBLIC_URL);
+		const owners = ownerId(t);
+		expect(owners).toHaveLength(1);
+		const again = await openAuthorizationServer(t.folder, CONNECTORS);
 		again.close();
 		expect(await Bun.file(join(t.folder, ACCESS_KEY)).text()).toBe(secret);
+		expect(ownerId(t)).toEqual(owners);
 	});
 
 	test('publishes metadata for a resource with its slash, CIMD, revocation, and no registration or introspection', async () => {
@@ -317,8 +242,7 @@ describe('the authorization server', () => {
 				)
 				.get()?.n,
 		).toBe(2);
-		const person = await t.signedIn();
-		const [{ id: userId } = { id: '' }] = people(t);
+		const [userId] = ownerId(t);
 		await expect(
 			internalAdapter.createVerificationValue({
 				identifier: 'a-code-with-no-consent',
@@ -330,189 +254,112 @@ describe('the authorization server', () => {
 				expiresAt,
 			}),
 		).rejects.toThrow('no consent');
-		// Once the person approves, codes issue as before, and a revoke runs
-		// beside rows that are not JSON.
-		await connectClaude(t, person, 'read offline_access');
-		revokeAccess(t.authorization.db, { kind: 'person', id: userId });
-		expect(listAccess(t.authorization.db)).toEqual([]);
+		// Once approved, codes issue as before, and a revoke runs beside rows
+		// that are not JSON.
+		await connectClaude(t, 'read offline_access');
+		revokeConnector(t.authorization.db, CLAUDE_ID);
+		expect(listGrants(t.authorization.db)).toEqual([]);
 	});
 });
 
 // ============================================================================
-// The path table
+// The public address
 // ============================================================================
 
-describe('the path table', () => {
-	test('each path answers by credential: none, a session, a token', async () => {
+describe('the public address', () => {
+	test('answers only what a connector needs; everything else is 404, with a token or without', async () => {
 		const t = await setup();
-		const person = await t.signedIn();
-		const token = (await connectClaude(t, person, 'read write offline_access'))
+		const token = (await connectClaude(t, 'read write offline_access'))
 			.access_token as string;
-		const none = browser(ORIGIN, t.send);
 		const bearer = { authorization: `Bearer ${token}` };
 		const status = async (
-			who: ReturnType<typeof browser>,
 			method: string,
 			path: string,
 			headers: Record<string, string> = {},
 		) =>
 			(
-				await (method === 'GET'
-					? who.get(path, headers)
-					: who.post(path, {}, headers))
+				await t.send(
+					new Request(`${ORIGIN}${path}`, {
+						method,
+						headers: { 'content-type': 'application/json', ...headers },
+						...(method === 'POST' ? { body: '{}' } : {}),
+					}),
+				)
 			).status;
-		const cases: [string, string, number, number, number][] = [
-			// method, path, no credential, a session, a token
-			['GET', '/.well-known/oauth-protected-resource', 200, 200, 200],
-			['GET', '/.well-known/oauth-authorization-server/.auth', 200, 200, 200],
-			['GET', '/.well-known/oauth-authorization-server', 404, 404, 404],
-			['GET', '/.auth/jwks', 200, 200, 200],
-			['GET', '/.auth/get-session', 404, 404, 404],
-			['POST', '/.auth/sign-out', 404, 404, 404],
-			['POST', '/.auth/sign-up/email', 404, 404, 404],
-			['POST', '/.auth/update-user', 404, 404, 404],
-			['GET', '/.auth/list-sessions', 404, 404, 404],
-			['GET', '/.auth/passkey/list-user-passkeys', 404, 404, 404],
-			[
-				'GET',
-				`/.auth/oauth2/public-client?client_id=${CLAUDE_ID}`,
-				404,
-				404,
-				404,
-			],
-			['GET', '/.auth/oauth2/get-consents', 404, 404, 404],
-			['POST', '/.auth/oauth2/register', 404, 404, 404],
-			['POST', '/.auth/oauth2/introspect', 404, 404, 404],
+		const cases: [string, string, number][] = [
+			['GET', '/.well-known/oauth-protected-resource', 200],
+			['GET', '/.well-known/oauth-authorization-server/.auth', 200],
+			['GET', '/.well-known/oauth-authorization-server', 404],
+			['GET', '/.auth/jwks', 200],
 			// Reaches Better Auth, which takes RFC 7009's form body only.
-			['POST', '/.auth/oauth2/revoke', 415, 415, 415],
-			['POST', '/.auth/oauth2/create-client', 404, 404, 404],
-			['GET', '/.auth/admin/oauth2/resources/x', 404, 404, 404],
-			['GET', '/.auth/.well-known/oauth-authorization-server', 404, 404, 404],
-			['GET', '/.sign-in', 200, 302, 200],
-			['GET', '/.allow', 302, 400, 302],
-			['GET', '/.anything', 404, 404, 404],
-			['GET', '/', 302, 200, 302],
-			['GET', '/reading/', 302, 200, 302],
+			['POST', '/.auth/oauth2/revoke', 415],
+			['POST', '/.auth/oauth2/consent', 404],
+			['POST', '/.auth/oauth2/continue', 404],
+			['GET', '/.auth/get-session', 404],
+			['POST', '/.auth/sign-out', 404],
+			['POST', '/.auth/sign-up/email', 404],
+			['GET', '/.auth/passkey/generate-authenticate-options', 404],
+			['GET', `/.auth/oauth2/public-client?client_id=${CLAUDE_ID}`, 404],
+			['GET', '/.auth/oauth2/get-consents', 404],
+			['POST', '/.auth/oauth2/register', 404],
+			['POST', '/.auth/oauth2/introspect', 404],
+			['POST', '/.auth/oauth2/create-client', 404],
+			['GET', '/.auth/.well-known/oauth-authorization-server', 404],
+			['GET', '/.sign-in', 404],
+			['GET', '/.allow', 404],
+			['POST', '/.allow', 404],
+			['GET', '/.anything', 404],
+			['GET', '/', 404],
+			['GET', '/reading/', 404],
+			['POST', '/reading/log', 404],
 		];
 		const rows = [];
-		for (const [method, path, ...expected] of cases)
+		for (const [method, path, expected] of cases)
 			rows.push({
 				route: `${method} ${path}`,
 				statuses: [
-					await status(none, method, path),
-					await status(person.browser, method, path),
-					await status(none, method, path, bearer),
+					await status(method, path),
+					await status(method, path, bearer),
 				],
-				expected,
+				expected: [expected, expected],
 			});
 		expect(rows.map((row) => [row.route, row.statuses])).toEqual(
 			rows.map((row) => [row.route, row.expected]),
 		);
-		// POST / is MCP: a session counts only from the public origin's own pages.
-		expect((await mcpRequest(t.send, undefined, 'tools/list')).status).toBe(
-			401,
-		);
-		expect(
-			(
-				await person.browser.post('/', {
-					jsonrpc: '2.0',
-					id: 1,
-					method: 'tools/list',
-				})
-			).status,
-		).toBe(200);
 		expect((await mcpRequest(t.send, token, 'tools/list')).status).toBe(200);
 	});
 
-	test('without a credential, POST / names only the resource metadata, and a page redirects to sign in', async () => {
+	test('without a token, POST / names only the resource metadata', async () => {
 		const t = await setup();
 		const response = await mcpRequest(t.send, undefined, 'tools/list');
 		expect(response.status).toBe(401);
 		expect(response.headers.get('www-authenticate')).toBe(
 			`Bearer resource_metadata="${ORIGIN}/.well-known/oauth-protected-resource"`,
 		);
-		const page = await t.send(new Request(`${ORIGIN}/reading/books?x=1`));
-		expect(page.status).toBe(302);
-		expect(page.headers.get('location')).toBe(
-			`/.sign-in?next=${encodeURIComponent('/reading/books?x=1')}`,
-		);
 		expect(t.reached).toEqual([]);
 	});
 
-	test('a session cookie on POST / with a foreign Origin, or none, is refused', async () => {
+	test("the owner's session, as a bearer token or a cookie, approves nothing at the public address", async () => {
 		const t = await setup();
-		const person = await t.signedIn();
-		const call = { jsonrpc: '2.0', id: 1, method: 'tools/list' };
-		const foreign = await person.browser.post('/', call, {
-			origin: 'https://evil.example',
-		});
-		expect(foreign.status).toBe(401);
-		const sameHostOtherPort = await person.browser.post('/', call, {
-			origin: 'https://studio.example.test',
-		});
-		expect(sameHostOtherPort.status).toBe(401);
-		const noOrigin = await t.send(
-			new Request(`${ORIGIN}/`, {
-				method: 'POST',
-				headers: {
-					'content-type': 'application/json',
-					cookie: person.browser.cookie(),
-				},
-				body: JSON.stringify(call),
-			}),
-		);
-		expect(noOrigin.status).toBe(401);
-		expect(t.reached).toEqual([]);
-		const own = await person.browser.post('/', call);
-		expect(own.status).toBe(200);
-		expect(t.reached).toEqual([{ mcp: { readOnly: false, body: call } }]);
-	});
-
-	test("an action's own address answers only a session from this Origin, never a token", async () => {
-		const t = await setup();
-		const person = await t.signedIn();
-		const input = { minutes: 5 };
-		expect(
-			(
-				await person.browser.post('/reading/log', input, {
-					origin: 'https://evil.example',
-				})
-			).status,
-		).toBe(403);
-		const token = await t.send(
-			new Request(`${ORIGIN}/reading/log`, {
-				method: 'POST',
-				headers: { authorization: 'Bearer anything', origin: ORIGIN },
-				body: JSON.stringify(input),
-			}),
-		);
-		expect(token.status).toBe(403);
-		expect(t.reached).toEqual([]);
-		const own = await person.browser.post('/reading/log', input);
-		expect(own.status).toBe(200);
-		expect(t.reached).toEqual([{ call: '/reading/log' }]);
-	});
-
-	test('Better Auth refuses a consent posted from a foreign Origin', async () => {
-		const t = await setup();
-		const person = await t.signedIn();
-		const { query } = await authorizeQuery('read offline_access');
-		const allow = await reachAllow(ORIGIN, person, query);
-		const consent = {
-			accept: true,
-			scope: 'read offline_access',
-			oauth_query: allow.search.slice(1),
-		};
-		const foreign = await person.browser.post(
-			'/.auth/oauth2/consent',
-			consent,
-			{
-				origin: 'https://evil.example',
-			},
-		);
-		expect(foreign.status).toBe(403);
-		const own = await person.browser.post('/.auth/oauth2/consent', consent);
-		expect(own.status).toBe(200);
+		await connectClaude(t, 'read write offline_access');
+		const context = await t.authorization.auth.$context;
+		const [userId = ''] = ownerId(t);
+		const session = await context.internalAdapter.createSession(userId);
+		const { query } = await authorizeQuery();
+		const credentials: Record<string, string>[] = [
+			{ authorization: `Bearer ${session.token}` },
+			{ cookie: `__Secure-epicenter.session_token=${session.token}` },
+		];
+		for (const credential of credentials) {
+			const authorized = await t.send(
+				new Request(`${ORIGIN}/.auth/oauth2/authorize?${query}`, {
+					headers: { ...NAVIGATE, ...credential },
+				}),
+			);
+			const location = authorized.headers.get('location') ?? '';
+			expect(location).toStartWith(`${TAILNET}/.allow?`);
+			expect(location).not.toContain('code=');
+		}
 	});
 });
 
@@ -521,12 +368,9 @@ describe('the path table', () => {
 // ============================================================================
 
 describe('authorizing a connector', () => {
-	test('the whole flow: authorize, sign in with a passkey, allow reading, a token for the resource, refresh', async () => {
+	test('the whole flow: authorize, the approval page on the tailnet, a token for the resource, refresh', async () => {
 		const t = await setup();
-		const person = await t.signedIn();
-		// The same passkey in a browser with no session, as a synced passkey is.
-		const fresh = { browser: browser(ORIGIN, t.send), passkey: person.passkey };
-		const tokens = await connectClaude(t, fresh, 'read offline_access');
+		const tokens = await connectClaude(t, 'read offline_access');
 		expect(t.fetched).toEqual([CLAUDE_ID]);
 		expect(tokens.scope).toBe('read offline_access');
 		expect(tokens.expires_in).toBe(900 as unknown as string);
@@ -536,6 +380,7 @@ describe('authorizing a connector', () => {
 			aud: RESOURCE,
 			iss: `${ORIGIN}/.auth`,
 			azp: CLAUDE_ID,
+			sub: ownerId(t)[0],
 			scope: 'read offline_access',
 		});
 		expect(claims.exp - claims.iat).toBe(900);
@@ -551,145 +396,175 @@ describe('authorizing a connector', () => {
 		).toBe(200);
 	});
 
-	test('a stored consent does not let an authorization someone else started finish: it stops at a passkey, then /.allow', async () => {
+	test("an approval's session lasts only as long as its code, and the next approval clears expired ones", async () => {
 		const t = await setup();
-		const owner = await t.signedIn();
-		await connectClaude(t, owner, 'read write offline_access');
-		// An attacker's authorization request for Claude, with their own PKCE
-		// and state, loaded in the owner's signed-in browser.
-		const { query } = await authorizeQuery('read write offline_access');
-		const loaded = await owner.browser.get(
-			`/.auth/oauth2/authorize?${query}`,
-			NAVIGATE,
-		);
-		expect(loaded.status).toBe(302);
-		const signIn = new URL(loaded.headers.get('location') ?? '', ORIGIN);
-		expect(`${signIn.origin}${signIn.pathname}`).toBe(`${ORIGIN}/.sign-in`);
-		expect(signIn.searchParams.get('prompt')).toBe('login consent');
-		// A script with only the owner's session posts the approval itself.
-		const planted = await owner.browser.post('/.auth/oauth2/consent', {
-			accept: true,
-			scope: 'read write offline_access',
-			oauth_query: signIn.search.slice(1),
-		});
-		const answer = (await planted.json()) as { url?: string };
-		expect(answer.url ?? '').not.toStartWith(REDIRECT_URI);
-		// With the owner's passkey, it reaches /.allow and still waits there.
-		const allow = await reachAllow(ORIGIN, owner, query);
-		expect(allow.pathname).toBe('/.allow');
+		await connectClaude(t, 'read offline_access');
+		const sessions = () =>
+			t.authorization.db
+				.query<{ expiresAt: string | number; createdAt: string | number }, []>(
+					'select expiresAt, createdAt from session',
+				)
+				.all()
+				.map(
+					(row) =>
+						new Date(row.expiresAt).getTime() -
+						new Date(row.createdAt).getTime(),
+				);
+		const [lasts = 0] = sessions();
+		expect(sessions()).toHaveLength(1);
+		expect(Math.abs(lasts - 10 * 60_000)).toBeLessThan(2_000);
+		t.authorization.db.run(`update session set expiresAt = ?`, [
+			new Date(Date.now() - 1000).toISOString(),
+		]);
+		await connectClaude(t, 'read offline_access');
+		expect(sessions()).toHaveLength(1);
+	});
+
+	test('a stored consent never finishes an authorization on its own: each goes to the approval page', async () => {
+		const t = await setup();
+		await connectClaude(t, 'read write offline_access');
+		// Someone else's authorization request for Claude, with their own PKCE
+		// and state.
+		const allow = await allowFor(t, 'read write offline_access');
 		expect(allow.searchParams.get('prompt')).toBe('consent');
+		expect(allow.searchParams.has('sig')).toBe(true);
 	});
 
 	test('every authorization asks for offline_access, and an approval without it is refused', async () => {
 		const t = await setup();
-		const person = await t.signedIn();
-		const { query } = await authorizeQuery('read write');
-		const allow = await reachAllow(ORIGIN, person, query);
+		const allow = await allowFor(t, 'read write');
 		expect(allow.searchParams.get('scope')).toBe('read write offline_access');
-		const html = await (
-			await person.browser.get(`${allow.pathname}${allow.search}`)
-		).text();
+		const html = await (await t.tailnetSend(new Request(allow))).text();
 		expect(html).toContain('data-scope="read offline_access"');
-		const oauth_query = allow.search.slice(1);
 		for (const body of [
-			{ accept: true, scope: 'read write', oauth_query },
-			{ accept: true, oauth_query },
+			{ accept: true, scope: 'read write' },
+			{ accept: true },
 		]) {
-			const refused = await person.browser.post('/.auth/oauth2/consent', body);
+			const refused = await answerAllow(t.tailnetSend, allow, body);
 			expect(refused.status).toBe(400);
-			expect(((await refused.json()) as { error: string }).error).toBe(
-				'invalid_scope',
+			expect(((await refused.json()) as { message: string }).message).toBe(
+				'An approval must include offline_access',
 			);
 		}
-		expect(grants(t)).toEqual([]);
+		expect(listGrants(t.authorization.db)).toEqual([]);
 		// Denying needs no scope.
-		const denied = await person.browser.post('/.auth/oauth2/consent', {
-			accept: false,
-			oauth_query,
-		});
+		const denied = await answerAllow(t.tailnetSend, allow, { accept: false });
 		expect(denied.status).toBe(200);
-		expect(((await denied.json()) as { url: string }).url).toContain(
-			'error=access_denied',
-		);
+		const url = ((await denied.json()) as { url: string }).url;
+		expect(url).toStartWith(REDIRECT_URI);
+		expect(url).toContain('error=access_denied');
 	});
 
 	test('a grant can only narrow what was asked', async () => {
 		const t = await setup();
-		const person = await t.signedIn();
-		const { query } = await authorizeQuery('read write offline_access');
-		const allow = await reachAllow(ORIGIN, person, query);
-		const wider = await person.browser.post('/.auth/oauth2/consent', {
+		const allow = await allowFor(t, 'read offline_access');
+		const wider = await answerAllow(t.tailnetSend, allow, {
 			accept: true,
-			scope: 'read write admin offline_access',
-			oauth_query: allow.search.slice(1),
+			scope: 'read write offline_access',
 		});
 		expect(wider.status).toBe(400);
+		expect(listGrants(t.authorization.db)).toEqual([]);
+	});
+
+	test('a query that is changed, unsigned, or missing approves nothing', async () => {
+		const t = await setup();
+		const allow = await allowFor(t, 'read offline_access');
+		const answer = (oauth_query: string) =>
+			answerAllow(t.tailnetSend, allow, {
+				accept: true,
+				scope: 'read offline_access',
+				oauth_query,
+			});
+		const changed = allow.search
+			.slice(1)
+			.replace(
+				encodeURIComponent(REDIRECT_URI),
+				encodeURIComponent('https://evil.example/cb'),
+			);
+		expect(changed).not.toBe(allow.search.slice(1));
+		expect((await answer(changed)).status).toBe(400);
+		const unsigned = new URLSearchParams(allow.search);
+		unsigned.delete('sig');
+		expect((await answer(unsigned.toString())).status).toBe(400);
+		const missing = await t.tailnetSend(
+			new Request(`${TAILNET}/.allow`, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ accept: true, scope: 'read offline_access' }),
+			}),
+		);
+		expect(missing.status).toBe(400);
+		expect(listGrants(t.authorization.db)).toEqual([]);
+		const page = await t.tailnetSend(
+			new Request(`${TAILNET}/.allow?client_id=${CLAUDE_ID}`),
+		);
+		expect(page.status).toBe(400);
 	});
 
 	test('a connector whose document lists only authorization_code still starts a refresh family', async () => {
 		// Better Auth lets any client allowed authorization_code refresh, so its
 		// exchange inserts a refresh row and passes the generation trigger.
 		const t = await setup({ grant_types: ['authorization_code'] });
-		const person = await t.signedIn();
-		const tokens = await connectClaude(t, person, 'read offline_access');
+		const tokens = await connectClaude(t, 'read offline_access');
 		expect(tokens.refresh_token).toBeString();
 		expect((await refresh(t, tokens.refresh_token)).status).toBe(200);
-		expect(grants(t)).toHaveLength(1);
+		expect(listGrants(t.authorization.db)).toHaveLength(1);
 	});
 
-	test('/.allow leads with the host and full client_id, and strips control characters from the name the document claims', async () => {
+	test('the approval page leads with the host and full client_id, and strips control characters from the name the document claims', async () => {
 		const t = await setup({
-			client_name: 'Cl\u001b[2Jaude\u202etxt.exe\u0085\u2066',
+			client_name: 'Cl\u001b[2Jaude‮txt.exe\u0085⁦',
 		});
-		const person = await t.signedIn();
-		const { query } = await authorizeQuery();
-		const allow = await reachAllow(ORIGIN, person, query);
-		const html = await (
-			await person.browser.get(`${allow.pathname}${allow.search}`)
-		).text();
+		const allow = await allowFor(t);
+		const html = await (await t.tailnetSend(new Request(allow))).text();
 		expect(html).toContain('<h1>Allow claude.ai to use your apps?</h1>');
 		expect(html).toContain(`<code>${CLAUDE_ID}</code>`);
 		expect(html).toContain('It calls itself <strong>Cl[2Jaudetxt.exe</strong>');
 		expect(html).toContain('only if you just started connecting it yourself');
-		expect(html).not.toContain('change nothing');
 		// biome-ignore lint/suspicious/noControlCharactersInRegex: finding them is the point.
-		expect(html).not.toMatch(/[\u0000-\u0008\u001b\u0085\u202e\u2066]/);
-		await approve(person, allow, 'read offline_access');
-		expect(grantOf(t, 'phone').name).toBe('Cl[2Jaudetxt.exe');
+		expect(html).not.toMatch(/[\u0000-\u0008\u001b\u0085‮⁦]/);
+		await approve(t.tailnetSend, allow, 'read offline_access');
+		expect(onlyGrant(t).name).toBe('Cl[2Jaudetxt.exe');
 	});
 
 	test('a read token lists and calls only through the read-only site', async () => {
 		const t = await setup();
-		const person = await t.signedIn();
-		const token = (await connectClaude(t, person, 'read offline_access'))
+		const token = (await connectClaude(t, 'read offline_access'))
 			.access_token as string;
 		const listed = await mcpRequest(t.send, token, 'tools/list');
 		expect(listed.status).toBe(200);
 		expect(await listed.json()).toEqual({ readOnly: true });
-		// The read-only site's child refuses a write action
-		// (acceptance.public.test.ts); the handler only routes the call there.
+		// The read-only site refuses a write action (acceptance.public.test.ts);
+		// the handler only routes the call there.
 		const call = await mcpRequest(t.send, token, 'tools/call', {
 			name: 'reading_log',
 			arguments: {},
 		});
 		expect(await call.json()).toEqual({ readOnly: true });
-		expect(t.reached.map((each) => each.mcp?.readOnly)).toEqual([true, true]);
+		expect(t.reached.map((each) => each.readOnly)).toEqual([true, true]);
 	});
 
 	test('a write token reaches the whole site, and a forged token reaches nothing', async () => {
 		const t = await setup();
-		const person = await t.signedIn();
-		const write = (await connectClaude(t, person, 'read write offline_access'))
+		const write = (await connectClaude(t, 'read write offline_access'))
 			.access_token as string;
 		expect(
 			await (await mcpRequest(t.send, write, 'tools/list')).json(),
-		).toEqual({
-			readOnly: false,
-		});
+		).toEqual({ readOnly: false });
 		expect(
 			(await mcpRequest(t.send, 'eyJhbGciOiJFZERTQSJ9.e30.AAAA', 'tools/list'))
 				.status,
 		).toBe(401);
+	});
+
+	test("a grant is live only for the owner: a token whose subject is anyone else's is refused", async () => {
+		const t = await setup();
+		const tokens = await connectClaude(t, 'read offline_access');
+		const claims = claimsOf(tokens.access_token ?? '');
+		expect(t.authorization.isGrantLive(claims)).toBe(true);
+		expect(
+			t.authorization.isGrantLive({ ...claims, sub: 'someone-else' }),
+		).toBe(false);
 	});
 });
 
@@ -698,44 +573,27 @@ describe('authorizing a connector', () => {
 // ============================================================================
 
 describe('grants', () => {
-	test('one connector two people approved is two grants, each counting its connections', async () => {
+	test('a connector is one grant, counting each connection under it', async () => {
 		const t = await setup();
-		const phone = await t.signedIn('phone');
-		const laptop = await t.signedIn('laptop');
-		await connectClaude(t, phone, 'read offline_access');
-		// A second connection under the phone's approval, as an attacker's
-		// silent re-authorization once made.
-		await connectClaude(t, phone, 'read offline_access');
-		await connectClaude(t, laptop, 'read write offline_access');
-		const [{ id: phoneId } = { id: '' }, { id: laptopId } = { id: '' }] =
-			people(t);
-		expect(grants(t)).toMatchObject([
+		await connectClaude(t, 'read offline_access');
+		await connectClaude(t, 'read offline_access');
+		expect(listGrants(t.authorization.db)).toMatchObject([
 			{
 				clientId: CLAUDE_ID,
 				host: 'claude.ai',
 				name: 'Claude',
-				userId: phoneId,
-				person: 'phone',
 				scope: 'read offline_access',
 				families: 2,
 			},
-			{
-				clientId: CLAUDE_ID,
-				userId: laptopId,
-				person: 'laptop',
-				scope: 'read write offline_access',
-				families: 1,
-			},
 		]);
-		expect(grantOf(t, 'phone').lastRefresh).toBeString();
+		expect(onlyGrant(t).lastRefresh).toBeString();
 	});
 
 	test('approving narrower scopes deletes the families that hold more, and refuses their access tokens', async () => {
 		const t = await setup();
-		const person = await t.signedIn();
-		const broad = await connectClaude(t, person, 'read write offline_access');
-		const narrow = await connectClaude(t, person, 'read offline_access');
-		expect(grantOf(t, 'phone')).toMatchObject({
+		const broad = await connectClaude(t, 'read write offline_access');
+		const narrow = await connectClaude(t, 'read offline_access');
+		expect(onlyGrant(t)).toMatchObject({
 			scope: 'read offline_access',
 			families: 1,
 		});
@@ -753,9 +611,8 @@ describe('grants', () => {
 
 	test('POST /.auth/oauth2/revoke revokes the refresh token presented and leaves the grant', async () => {
 		const t = await setup();
-		const person = await t.signedIn();
-		const first = await connectClaude(t, person, 'read offline_access');
-		const second = await connectClaude(t, person, 'read offline_access');
+		const first = await connectClaude(t, 'read offline_access');
+		const second = await connectClaude(t, 'read offline_access');
 		const revoked = await t.send(
 			new Request(`${ORIGIN}/.auth/oauth2/revoke`, {
 				method: 'POST',
@@ -768,9 +625,9 @@ describe('grants', () => {
 			}),
 		);
 		expect(revoked.status).toBe(200);
-		expect(grantOf(t, 'phone').families).toBe(1);
+		expect(onlyGrant(t).families).toBe(1);
 		expect((await refresh(t, second.refresh_token)).status).toBe(200);
-		expect(grantOf(t, 'phone').families).toBe(1);
+		expect(onlyGrant(t).families).toBe(1);
 	});
 });
 
@@ -779,21 +636,11 @@ describe('grants', () => {
 // ============================================================================
 
 describe('revoking', () => {
-	test('revoking a person ends their refresh, deletes every row naming them, and refuses their live access token', async () => {
+	test('revoking a connector ends its refresh, its live access tokens, and its pending codes, and keeps the owner', async () => {
 		const t = await setup();
-		const person = await t.signedIn('phone');
-		const tokens = await connectClaude(t, person, 'read write offline_access');
-		await pendingCode(person, 'read write offline_access');
-		const [entry] = people(t);
-		if (!entry) throw new Error('no person');
-		expect(rowsNaming(t, entry.id)).toMatchObject({
-			user: 1,
-			passkey: 1,
-			consent: 1,
-			refresh: 1,
-			code: 1,
-		});
-		revokeAccess(t.authorization.db, entry);
+		const tokens = await connectClaude(t, 'read write offline_access');
+		const code = await pendingCode(t, 'read write offline_access');
+		revokeConnector(t.authorization.db, CLAUDE_ID);
 		const refreshed = await refresh(t, tokens.refresh_token);
 		expect(refreshed.status).toBe(400);
 		expect(refreshed.body.access_token).toBeUndefined();
@@ -802,89 +649,34 @@ describe('revoking', () => {
 		expect(call.headers.get('www-authenticate')).toContain(
 			'error="invalid_token"',
 		);
-		expect(rowsNaming(t, entry.id)).toEqual({
-			user: 0,
-			passkey: 0,
-			session: 0,
-			consent: 0,
-			refresh: 0,
-			access: 0,
-			code: 0,
-		});
-		expect((await person.browser.get('/')).status).toBe(302);
-		expect((await person.browser.signIn(person.passkey)).status).toBe(401);
-		expect(listAccess(t.authorization.db)).toEqual([]);
+		expect(
+			(await exchangeCode(ORIGIN, t.send, code.code, code.verifier)).status,
+		).toBe(400);
+		expect(listGrants(t.authorization.db)).toEqual([]);
+		expect(ownerId(t)).toHaveLength(1);
 		expect(t.reached).toEqual([]);
 	});
 
-	test("revoking one grant refuses that grant's live access token and refresh, and no other's; re-approving starts a new generation", async () => {
+	test('approving again after a revoke starts a new generation; the old token stays refused', async () => {
 		const t = await setup();
-		const phone = await t.signedIn('phone');
-		const laptop = await t.signedIn('laptop');
-		const fromPhone = await connectClaude(t, phone, 'read offline_access');
-		const fromLaptop = await connectClaude(t, laptop, 'read offline_access');
-		revokeAccess(t.authorization.db, grantOf(t, 'phone'));
-		expect(
-			(await mcpRequest(t.send, fromPhone.access_token, 'tools/list')).status,
-		).toBe(401);
-		expect((await refresh(t, fromPhone.refresh_token)).status).toBe(400);
-		expect(
-			(await mcpRequest(t.send, fromLaptop.access_token, 'tools/list')).status,
-		).toBe(200);
-		expect((await refresh(t, fromLaptop.refresh_token)).status).toBe(200);
-		// Approved again with a passkey: the old token stays refused, a new one works.
+		const before = await connectClaude(t, 'read offline_access');
+		revokeConnector(t.authorization.db, CLAUDE_ID);
 		await nextSecond();
-		const again = await connectClaude(t, phone, 'read offline_access');
+		const again = await connectClaude(t, 'read offline_access');
 		expect(
-			(await mcpRequest(t.send, fromPhone.access_token, 'tools/list')).status,
+			(await mcpRequest(t.send, before.access_token, 'tools/list')).status,
 		).toBe(401);
+		expect((await refresh(t, before.refresh_token)).status).toBe(400);
 		expect(
 			(await mcpRequest(t.send, again.access_token, 'tools/list')).status,
 		).toBe(200);
 		expect((await refresh(t, again.refresh_token)).status).toBe(200);
 	});
 
-	test('revoking a connector ends every grant of it, and its pending codes', async () => {
-		const t = await setup();
-		const phone = await t.signedIn('phone');
-		const laptop = await t.signedIn('laptop');
-		const fromPhone = await connectClaude(t, phone, 'read offline_access');
-		const fromLaptop = await connectClaude(
-			t,
-			laptop,
-			'read write offline_access',
-		);
-		const pending = await pendingCode(phone, 'read offline_access');
-		revokeAccess(t.authorization.db, {
-			kind: 'connector',
-			clientId: CLAUDE_ID,
-		});
-		for (const tokens of [fromPhone, fromLaptop]) {
-			expect((await refresh(t, tokens.refresh_token)).status).toBe(400);
-			expect(
-				(await mcpRequest(t.send, tokens.access_token, 'tools/list')).status,
-			).toBe(401);
-		}
-		const exchanged = await exchangeCode(
-			ORIGIN,
-			t.send,
-			pending.code,
-			pending.verifier,
-		);
-		expect(exchanged.status).toBe(400);
-		expect(grants(t)).toEqual([]);
-		expect(people(t).map((person) => person.name)).toEqual(['phone', 'laptop']);
-	});
-
 	for (const asked of ['read write offline_access', 'read write'])
 		test(`a code exchange paused across a revoke and re-approval returns no token (connector asked for ${asked})`, async () => {
 			const t = await setup();
-			const person = await t.signedIn();
-			const paused = await pendingCode(
-				person,
-				'read write offline_access',
-				asked,
-			);
+			const paused = await pendingCode(t, 'read write offline_access', asked);
 			const hold = await holdNextRefreshInsert(t.authorization);
 			const exchange = exchangeCode(
 				ORIGIN,
@@ -894,13 +686,9 @@ describe('revoking', () => {
 			);
 			await Promise.race([hold.reached, exchange]);
 			// The code is consumed; the family row has not landed.
-			revokeAccess(t.authorization.db, grantOf(t, 'phone'));
+			revokeConnector(t.authorization.db, CLAUDE_ID);
 			await nextSecond();
-			const fresh = await pendingCode(
-				person,
-				'read write offline_access',
-				asked,
-			);
+			const fresh = await pendingCode(t, 'read write offline_access', asked);
 			hold.release();
 			const old = await exchange;
 			expect(old.status).toBe(400);
@@ -918,20 +706,19 @@ describe('revoking', () => {
 			expect(
 				(await mcpRequest(t.send, now.body.access_token, 'tools/list')).status,
 			).toBe(200);
-			expect(grantOf(t, 'phone').families).toBe(1);
+			expect(onlyGrant(t).families).toBe(1);
 		});
 
 	test('a rotation paused across a revoke and re-approval returns no token', async () => {
 		const t = await setup();
-		const person = await t.signedIn();
-		const tokens = await connectClaude(t, person, 'read write offline_access');
+		const tokens = await connectClaude(t, 'read write offline_access');
 		const hold = await holdNextRefreshInsert(t.authorization);
 		const rotation = refresh(t, tokens.refresh_token);
 		await Promise.race([hold.reached, rotation]);
 		// The old token is retired; its successor has not landed.
-		revokeAccess(t.authorization.db, grantOf(t, 'phone'));
+		revokeConnector(t.authorization.db, CLAUDE_ID);
 		await nextSecond();
-		const fresh = await pendingCode(person, 'read write offline_access');
+		const fresh = await pendingCode(t, 'read write offline_access');
 		hold.release();
 		const rotated = await rotation;
 		expect(rotated.status).toBe(400);
@@ -942,139 +729,6 @@ describe('revoking', () => {
 		expect(
 			(await exchangeCode(ORIGIN, t.send, fresh.code, fresh.verifier)).status,
 		).toBe(200);
-		expect(grantOf(t, 'phone').families).toBe(1);
-	});
-});
-
-// ============================================================================
-// People
-// ============================================================================
-
-describe('people', () => {
-	test('an invite registers one passkey once, as a new person, and signs that device in', async () => {
-		const t = await setup();
-		const token = await t.invite('phone');
-		const first = await t.device();
-		const registered = await first.browser.register(first.passkey, token);
-		expect(registered.status).toBe(200);
-		expect((await first.browser.get('/')).status).toBe(200);
-		const second = await t.device();
-		expect((await second.browser.register(second.passkey, token)).status).toBe(
-			401,
-		);
-		expect(listAccess(t.authorization.db)).toMatchObject([
-			{ kind: 'person', name: 'phone' },
-		]);
-		const email = t.authorization.db
-			.query<{ email: string }, []>('select email from user')
-			.get()?.email;
-		expect(email).toEndWith('@epicenter.invalid');
-	});
-
-	test('two registrations begun from one invite end with one passkey', async () => {
-		const t = await setup();
-		const token = await t.invite();
-		const a = await t.device();
-		const b = await t.device();
-		const optionsA = await a.browser.get(
-			`/.auth/passkey/generate-register-options?context=${token}`,
-		);
-		const optionsB = await b.browser.get(
-			`/.auth/passkey/generate-register-options?context=${token}`,
-		);
-		expect([optionsA.status, optionsB.status]).toEqual([200, 200]);
-		const [verifiedA, verifiedB] = await Promise.all([
-			a.browser.post('/.auth/passkey/verify-registration', {
-				createSession: true,
-				response: await a.passkey.register(await optionsA.json()),
-			}),
-			b.browser.post('/.auth/passkey/verify-registration', {
-				createSession: true,
-				response: await b.passkey.register(await optionsB.json()),
-			}),
-		]);
-		expect([verifiedA.status, verifiedB.status].sort()).toEqual([200, 401]);
-		expect(
-			t.authorization.db
-				.query<{ n: number }, []>('select count(*) as n from passkey')
-				.get()?.n,
-		).toBe(1);
-	});
-
-	test('an invite expires after 15 minutes, even between its options and its verification', async () => {
-		const t = await setup();
-		const before = Date.now();
-		const { expiresAt } = await t.authorization.invite('phone');
-		expect(expiresAt.getTime() - before).toBeGreaterThanOrEqual(
-			15 * 60 * 1000 - 1000,
-		);
-		expect(expiresAt.getTime() - before).toBeLessThanOrEqual(
-			15 * 60 * 1000 + 1000,
-		);
-		const expire = () =>
-			t.authorization.db
-				.query('update verification set expiresAt = ? where identifier like ?')
-				.run(new Date(Date.now() - 1000).toISOString(), 'epicenter-invite:%');
-		const token = await t.invite();
-		expire();
-		const late = await t.device();
-		expect((await late.browser.register(late.passkey, token)).status).toBe(401);
-		const token2 = await t.invite();
-		const slow = await t.device();
-		const options = await slow.browser.get(
-			`/.auth/passkey/generate-register-options?context=${token2}`,
-		);
-		expect(options.status).toBe(200);
-		expire();
-		const verified = await slow.browser.post(
-			'/.auth/passkey/verify-registration',
-			{
-				createSession: true,
-				response: await slow.passkey.register(await options.json()),
-			},
-		);
-		expect(verified.status).toBe(401);
-		expect(listAccess(t.authorization.db)).toEqual([]);
-	});
-
-	test('without an invite, or from a signed-in device, no passkey is registered', async () => {
-		const t = await setup();
-		const nobody = await t.device();
-		expect(
-			(await nobody.browser.get('/.auth/passkey/generate-register-options'))
-				.status,
-		).toBe(401);
-		const person = await t.signedIn();
-		const token = await t.invite('second');
-		const extra = await softwarePasskey(ORIGIN);
-		expect((await person.browser.register(extra, token)).status).toBe(403);
-		expect(listAccess(t.authorization.db).length).toBe(1);
-		// The refused registration did not use the invite up.
-		const other = await t.device();
-		expect((await other.browser.register(other.passkey, token)).status).toBe(
-			200,
-		);
-	});
-
-	test('a passkey signs a device in, and the sign-in page then sends it on', async () => {
-		const t = await setup();
-		const person = await t.signedIn();
-		const laptop = {
-			browser: browser(ORIGIN, t.send),
-			passkey: person.passkey,
-		};
-		expect((await laptop.browser.get('/')).status).toBe(302);
-		const signed = await laptop.browser.signIn(laptop.passkey);
-		expect(signed.status).toBe(200);
-		expect((await laptop.browser.get('/')).status).toBe(200);
-		const page = await laptop.browser.get('/.sign-in?next=/reading/');
-		expect(page.status).toBe(302);
-		expect(page.headers.get('location')).toBe(`${ORIGIN}/reading/`);
-		const away = await laptop.browser.get('/.sign-in?next=//evil.example/x');
-		expect(away.headers.get('location')).toBe(`${ORIGIN}/`);
-		const dotted = await laptop.browser.get(
-			'/.sign-in?next=/.//evil.example/x',
-		);
-		expect(new URL(dotted.headers.get('location') ?? '').origin).toBe(ORIGIN);
+		expect(onlyGrant(t).families).toBe(1);
 	});
 });
