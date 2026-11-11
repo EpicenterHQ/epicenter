@@ -10,17 +10,18 @@
  *
  * Key behaviors:
  * - T1: different fields both land; one sentence both edited is one whole-line block
- * - T2: one field both set takes the later arrival's value, with no block
  * - T2b: the side named incoming wins, so the driver's rebase swap keeps the later arrival
- * - T3: an edit beats a delete, in both directions
- * - ADR-0771: of two binary writes, the later one wins
+ * - a merged note is written in house style, while an unchanged note keeps its bytes
+ *
+ * `settle.test.ts` covers field clashes, edit/delete races, binary pointers,
+ * and malformed headers directly; this file keeps the distinct composite
+ * scenario and formatting rules from spike 7.
  */
 import { describe, expect, test } from 'bun:test';
 import { expectOk } from 'wellcrafted/testing';
 import { formatNote, parseRowSource } from '../note/index.js';
 import { findConflicts } from './conflict.js';
-import { lfsOid } from './hash.js';
-import { settle, settlePointer } from './settle.js';
+import { settle } from './settle.js';
 
 const parties = {
 	current: { author: 'alice', time: '2026-10-30T10:00:00Z' },
@@ -79,17 +80,6 @@ describe('spike 7 cases', () => {
 		expect(expectOk(formatNote(text, KEYS))).toBe(text);
 	});
 
-	test('T2: the later arrival takes a field both set, with no block', () => {
-		const alice = edit(SEED, 'title: Weekly sync', 'title: From Alice');
-		const bob = edit(SEED, 'title: Weekly sync', 'title: From Bob');
-		const settled = settle(SEED, alice, bob, { parties, keys: KEYS });
-		expect(settled).toEqual({
-			text: edit(SEED, 'title: Weekly sync', 'title: From Bob'),
-			blocks: false,
-		});
-		expect(findConflicts(settled.text ?? '')).toEqual([]);
-	});
-
 	test('T2b: the side named incoming wins, so a driver that swaps sides on rebase keeps the later arrival', () => {
 		const alice = edit(SEED, 'title: Weekly sync', 'title: Alice again');
 		const bob = edit(SEED, 'title: Weekly sync', 'title: Bob by rebase');
@@ -100,22 +90,6 @@ describe('spike 7 cases', () => {
 		expect(settle(SEED, bob, alice, { parties }).text).toContain(
 			'title: Alice again',
 		);
-	});
-
-	test('T3: an edit beats a delete, in both directions', () => {
-		const kept =
-			'---\ntitle: Kept\n---\nA note one side edits and the other deletes.\n';
-		const edited = edit(kept, 'deletes.', 'deletes. Edited by Alice.');
-		expect(settle(kept, edited, null, { parties })).toEqual({
-			text: edited,
-			blocks: false,
-		});
-		const gone = '---\ntitle: Gone\n---\nThe mirror case.\n';
-		const mirrored = edit(gone, 'case.', 'case. Edited by Bob.');
-		expect(settle(gone, null, mirrored, { parties })).toEqual({
-			text: mirrored,
-			blocks: false,
-		});
 	});
 });
 
@@ -140,24 +114,4 @@ describe('house style on what settle writes', () => {
 		);
 		expect(settle(base, loose, base, { parties }).text).toBe(loose);
 	});
-
-	test('a merged header that does not parse is left as merged', () => {
-		const base = '---\na: [\n---\nbody\n';
-		const settled = settle(
-			base,
-			'---\na: [\ndone: true\n---\nbody\n',
-			'---\na: [\ndone: false\n---\nbody\n',
-			{ parties },
-		);
-		expect(settled.text).toBe('---\na: [\ndone: false\n---\nbody\n');
-	});
-});
-
-test('ADR-0771: of two binary writes from one base, the later one wins', async () => {
-	const earlier = new TextEncoder().encode('webm bytes from Alice');
-	const later = new TextEncoder().encode('webm bytes from Bob');
-	const base = await lfsOid(new Uint8Array([0]));
-	const current = await lfsOid(earlier);
-	const incoming = await lfsOid(later);
-	expect(settlePointer(base, current, incoming)).toBe(incoming);
 });

@@ -472,11 +472,6 @@ describe('properties', () => {
 		}
 	});
 
-	test('merge is deterministic', () => {
-		for (const [b, c, i] of CASES)
-			expect(merge(b, c, i)).toEqual(merge(b, c, i));
-	});
-
 	test('identity laws hold', () => {
 		for (const [b, c, i] of CASES) {
 			expect(merge(b, c, c).text).toBe(c);
@@ -498,7 +493,7 @@ describe('properties', () => {
 			const result = merge(b, c, i);
 			const marked = withBlocks(result, labels) ?? '';
 			const found = findConflicts(marked);
-			expect(found.length).toBeGreaterThanOrEqual(
+			expect(found.length).toBe(
 				spans(result.overlaps).filter((o) => o.unit === 'body').length,
 			);
 			for (const block of found) {

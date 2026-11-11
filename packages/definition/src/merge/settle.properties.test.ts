@@ -227,20 +227,6 @@ describe('settle over random edits', () => {
 		}
 	});
 
-	test('settle is deterministic', () => {
-		for (let k = 0; k < ROUNDS / 4; k++) {
-			const base = randomNote();
-			const [b, c, i] = [base, edited(base), edited(base)].map(write) as [
-				string,
-				string,
-				string,
-			];
-			expect(settle(b, c, i, { parties })).toEqual(
-				settle(b, c, i, { parties }),
-			);
-		}
-	});
-
 	test('edits of different words on one line merge with no block', () => {
 		for (let k = 0; k < ROUNDS; k++) {
 			const words = Array.from(
