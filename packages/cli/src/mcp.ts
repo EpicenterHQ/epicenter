@@ -53,17 +53,6 @@ async function appTools(entry: string): Promise<Tool[]> {
 /** Whether a tool says it changes nothing (`readOnlyHint`): all the `read` scope may list and call. */
 const isReadOnly = (tool: Tool) => tool.annotations?.readOnlyHint === true;
 
-/** Whether `name` is a tool its app lists now as read-only. */
-export async function isReadOnlyTool(name: unknown): Promise<boolean> {
-	if (typeof name !== 'string') return false;
-	const [app = ''] = name.split('_');
-	if (nameProblem(app) !== undefined) return false;
-	if (!(await homeEntries()).some((entry) => entry.entry === app)) return false;
-	return (await appTools(app)).some(
-		(tool) => tool.name === name && isReadOnly(tool),
-	);
-}
-
 /**
  * A child's answer as an MCP result: the same value `--json` prints, as
  * `structuredContent`, and `isError` exactly when the action threw or did not

@@ -127,17 +127,19 @@ temp folder is not kept.
 Built. ADR-0871 describes the result. Code: `packages/cli/src/`
 `authorization-server.ts` (Better Auth, the generation tables and triggers,
 `listAccess`, `revokeAccess`), `public.ts` (the router), `sign-in-pages.ts`,
-`access.ts`, `http.ts` (both listeners and the public address check). Tests:
+`access.ts`, `http.ts` (both listeners). Tests:
 `public.test.ts` and `acceptance.public.test.ts`, which hold the review's
 attacks as regressions (silent re-authorization, revoke across an in-flight
-code exchange or rotation, tunnel headers, Host rebinding, the self-check).
+code exchange or rotation, tunnel headers, Host rebinding).
 
 The adversarial review (two Codex seats, one Opus seat) changed the first build:
 grants are per (connector, person); a revoke ends a grant at once through
 generation triggers; every authorization needs a passkey and `/.allow`; the
 private listener allowlists `Host`, refuses tunnel headers, and is checked from
 `public`; revoke is routed and introspection unadvertised; CIMD text is
-cleaned. Its accepted risks are listed in ADR-0871.
+cleaned. Its accepted risks are listed in ADR-0871. A later collapse pass
+removed the check from `public` and the router's check of each read call: the
+tunnel headers and the read-only child already enforce both.
 
 Unverified until Wave 5: WebAuthn in a real browser, what claude.ai and
 ChatGPT send, and the headers Funnel and Cloudflare add.

@@ -68,12 +68,14 @@ tunnel aimed at the wrong port, or a DNS rebinding page, would otherwise reach
 a listener that trusts everything. So it answers only a `Host` that is a
 loopback name, an IP literal, or a `*.ts.net` name (Tailscale controls that
 DNS), and refuses any request carrying `Tailscale-Funnel-Request` or
-`Cf-Connecting-IP`. Host rules cannot stop a tunnel that rewrites `Host`, so
-every private-listener response carries `Epicenter-Listener: private`, and
-`serve` fetches `<public>/.well-known/oauth-protected-resource` at start and
-every 5 minutes. If that answer carries the private header, the private
-listener answers only 503 until `serve` restarts, and `serve` says to point the
-tunnel at `publicPort`.
+`Cf-Connecting-IP`. Those headers, not `Host`, are what stops a supported
+tunnel aimed at the wrong port. Funnel sets its header on every request and
+deletes a copy the client sent, and Cloudflare Tunnel sets its own, so neither
+delivers a request without one. Tailscale picks the route by the TLS server
+name and forwards the client's `Host`, so a request through Funnel can name
+`127.0.0.1`; a rule on `Host` stops only an honest browser. The Funnel behavior
+is read from Tailscale's source (`ipn/ipnlocal/serve.go`) and is confirmed on
+the live Funnel during setup.
 
 **On the public listener:**
 
@@ -149,8 +151,10 @@ a grant there.
 
 **Two scopes, plus `offline_access`.** `read` lists and calls only actions with
 `readOnlyHint: true`, each in a child started to refuse every command and
-any other action (`packages/cli/src/child.ts`); a call to any other answers
-403 with an `insufficient_scope` challenge naming `write`. A read-only call
+any other action (`packages/cli/src/child.ts`). The router does not read the
+call; a call to any other action gets the child's refusal as a tool error. A
+token without `read` gets 403 with an `insufficient_scope` challenge. A
+read-only call
 commits nothing, and takes its app's lock only to write a `.local` file, as
 any write does (ADR-0850). `write` allows every action.
 The router adds `offline_access` to every authorization and refuses an
@@ -225,8 +229,8 @@ own disconnect: it revokes the refresh token presented, not the grant.
   not closed:
   - a revoke and a passkey re-approval of the same grant both landing between
     two awaited database writes of one in-flight request (milliseconds);
-  - a second tunnel, at an address other than `public`, aimed at the private
-    port and rewriting `Host` to a loopback name without tunnel headers; the
+  - a tunnel other than Funnel or Cloudflare Tunnel, aimed at the private
+    port, that adds no tunnel header and forwards an allowed `Host`; the
     private port is never tunneled;
   - `read` relies on each action's honest `readOnlyHint`;
   - invites are not listed or cancellable before they expire;
@@ -245,6 +249,13 @@ own disconnect: it revokes the refresh token presented, not the grant.
 - **Approval by tailnet identity (this record's first version).** No
   registration step, but it trusts headers only Funnel strips, so it ties the
   sign-in to Funnel, and approving needs a device on the tailnet.
+- **`serve` probing its own public address.** The first build fetched
+  `public` every 5 minutes and stopped the private listener when the answer
+  came from it. The tunnel headers already refuse a supported tunnel aimed
+  there, and the probe saw only the address in `EPICENTER.md`, so it caught
+  only an unsupported tunnel at that one address, up to 5 minutes late. A
+  collapse pass removed it, with the router's own check of each read call,
+  which repeated the child's.
 - **One listener that tells tunnel requests apart by header.** It depends on
   each tunnel adding and stripping the right headers. A second listener makes
   the boundary the socket, which no request can forge.

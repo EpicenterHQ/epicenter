@@ -628,7 +628,7 @@ describe('authorizing a connector', () => {
 		expect(grantOf(t, 'phone').name).toBe('Cl[2Jaudetxt.exe');
 	});
 
-	test('a read token lists and calls only through the read-only site, and anything else asks for write', async () => {
+	test('a read token lists and calls only through the read-only site', async () => {
 		const t = await setup();
 		const person = await t.signedIn();
 		const token = (await connectClaude(t, person, 'read offline_access'))
@@ -636,16 +636,14 @@ describe('authorizing a connector', () => {
 		const listed = await mcpRequest(t.send, token, 'tools/list');
 		expect(listed.status).toBe(200);
 		expect(await listed.json()).toEqual({ readOnly: true });
-		// A tool name that is not an app's read-only action: here, a command.
+		// The read-only site's child refuses a write action
+		// (acceptance.public.test.ts); the handler only routes the call there.
 		const call = await mcpRequest(t.send, token, 'tools/call', {
-			name: 'access_revoke_claude',
+			name: 'reading_log',
 			arguments: {},
 		});
-		expect(call.status).toBe(403);
-		const challenge = call.headers.get('www-authenticate') ?? '';
-		expect(challenge).toContain('error="insufficient_scope"');
-		expect(challenge).toContain('scope="write"');
-		expect(t.reached.map((each) => each.mcp?.readOnly)).toEqual([true]);
+		expect(await call.json()).toEqual({ readOnly: true });
+		expect(t.reached.map((each) => each.mcp?.readOnly)).toEqual([true, true]);
 	});
 
 	test('a write token reaches the whole site, and a forged token reaches nothing', async () => {

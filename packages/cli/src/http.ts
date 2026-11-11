@@ -15,15 +15,12 @@
  * answers: only this computer and the tailnet reach it. It answers only a
  * `Host` that is a loopback name, an IP literal, or a `*.ts.net` name, which
  * a DNS rebinding name is not, and refuses a request a Tailscale Funnel or
- * Cloudflare Tunnel delivered. When `EPICENTER.md` has a `public` address, a
+ * Cloudflare Tunnel delivered. Both set their header on every request, and
+ * Funnel removes a copy the client sent, so a tunnel aimed at this port by
+ * mistake reaches only refusals. When `EPICENTER.md` has a `public` address, a
  * second listener on 127.0.0.1 and `publicPort` offers the same site to the
  * internet through a tunnel, behind a sign-in (`public.ts`, ADR-0871); then
  * `--host` must be a loopback address.
- *
- * Host rules cannot see a tunnel that rewrites `Host`, so every response
- * here names this listener in a header, and `serve` fetches its own public
- * address at start and every 5 minutes. If the public address reaches this
- * listener, it stops answering until `serve` restarts.
  *
  * A write call commits the paths it wrote before it answers (`run.ts`).
  * Everything else reaches history and the backup on the server's clock: when
@@ -56,12 +53,6 @@ const BACKUP_EVERY_MS = 5 * 60_000;
 
 /** How long `serve` waits for the backup it runs when it stops. */
 const BACKUP_WAIT_MS = 10_000;
-
-/** How often `serve` checks what its public address reaches. */
-const PUBLIC_CHECK_MS = 5 * 60_000;
-
-/** The header on every private-listener response, so `serve` can see its public address reach it. */
-export const LISTENER_HEADER = 'epicenter-listener';
 
 /** Headers a tunnel adds: Tailscale Funnel's, and Cloudflare Tunnel's. */
 const TUNNEL_HEADERS = ['tailscale-funnel-request', 'cf-connecting-ip'];
@@ -318,14 +309,7 @@ export function startHttpServer(
 	};
 	void tickLogged().finally(schedule);
 	const site = createSite(instructions);
-	/** Set once the public address reached this listener; it holds until serve restarts. */
-	let reachedFromPublic = false;
 	const answer = async (request: Request) => {
-		if (reachedFromPublic)
-			return new Response(
-				'This listener stopped because the public address reaches it. Restart epicenter serve.',
-				{ status: 503 },
-			);
 		if (TUNNEL_HEADERS.some((name) => request.headers.has(name)))
 			return forbidden();
 		if (!isPrivateHost(request.headers.get('host'))) return forbidden();
@@ -353,21 +337,12 @@ export function startHttpServer(
 		hostname: host,
 		port,
 		idleTimeout: 0,
-		async fetch(request) {
-			const response = await answer(request);
-			const named = new Response(response.body, response);
-			named.headers.set(LISTENER_HEADER, 'private');
-			return named;
-		},
+		fetch: answer,
 	});
 	return {
 		port: server.port as number,
 		site,
 		tick,
-		/** Refuse everything from now on: the public address reaches this listener. */
-		stopAnswering() {
-			reachedFromPublic = true;
-		},
 		/**
 		 * Stop listening and the clock, then run the last backup, waiting for
 		 * it at most 10 seconds; `false` when it gave up waiting.
@@ -379,72 +354,6 @@ export function startHttpServer(
 			return within(BACKUP_WAIT_MS, tickLogged());
 		},
 	};
-}
-
-/**
- * What `resource`, the public address, reaches: this serve's public
- * listener, its private listener, something else, or nothing.
- */
-async function publicReach(resource: string) {
-	let response: Response;
-	try {
-		response = await fetch(
-			new URL('/.well-known/oauth-protected-resource', resource),
-			{ redirect: 'manual', signal: AbortSignal.timeout(15_000) },
-		);
-	} catch {
-		return 'nothing';
-	}
-	if (response.headers.get(LISTENER_HEADER) === 'private') return 'private';
-	const document = (await response.json().catch(() => undefined)) as
-		| { resource?: unknown }
-		| undefined;
-	return response.ok && document?.resource === resource ? 'public' : 'other';
-}
-
-/**
- * Check what the public address reaches now and every `PUBLIC_CHECK_MS`,
- * saying so whenever it changes. Reaching the private listener stops it.
- */
-function watchPublicAddress(
-	resource: string,
-	publicPort: number,
-	privateListener: { stopAnswering(): void },
-) {
-	const forward = `an HTTPS tunnel from that address must forward to 127.0.0.1:${publicPort}`;
-	let last: Awaited<ReturnType<typeof publicReach>> = 'public';
-	const check = async () => {
-		const reach = await publicReach(resource);
-		if (reach === last) return;
-		last = reach;
-		switch (reach) {
-			case 'private':
-				privateListener.stopAnswering();
-				writeErr(
-					`${resource} reaches this computer's private listener, which asks no one to sign in, so it now refuses every request. Point the tunnel at 127.0.0.1:${publicPort} and restart epicenter serve.`,
-				);
-				return;
-			case 'nothing':
-				writeErr(`${resource} does not answer: ${forward}.`);
-				return;
-			case 'other':
-				writeErr(
-					`${resource} answers with something other than this serve: ${forward}.`,
-				);
-				return;
-			case 'public':
-				writeErr(`${resource} reaches this serve's sign-in again.`);
-				return;
-			default:
-				reach satisfies never;
-		}
-	};
-	const schedule = () => {
-		setTimeout(() => {
-			void check().finally(schedule);
-		}, PUBLIC_CHECK_MS).unref();
-	};
-	void check().finally(schedule);
 }
 
 /**
@@ -467,7 +376,6 @@ export async function serveHttp(host: string, port: number): Promise<number> {
 		writeErr(
 			`Serving ${authorization.resource} at http://127.0.0.1:${publicServer.port}: an HTTPS tunnel from that address must forward to this port.`,
 		);
-		watchPublicAddress(authorization.resource, publicServer.port ?? 0, server);
 	}
 	await new Promise<void>((resolve) => {
 		process.once('SIGINT', resolve);

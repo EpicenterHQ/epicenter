@@ -8,15 +8,11 @@
  * with a stubbed CIMD fetch: serve's own fetch would go to claude.ai. The
  * tokens and cookies it produces are then used against serve's public port,
  * which checks them against the shared keys and sessions, as a second process
- * such as `epicenter access` does.
- *
- * The public address is `https://localhost:9/`, where nothing listens, so
- * serve's check of its own public address finds nothing without leaving this
- * computer. The test of a tunnel aimed at the private port runs its own
- * HTTPS forwarder there instead.
+ * such as `epicenter access` does. The public address is
+ * `https://localhost:9/`, where nothing listens.
  */
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openAuthorizationServer } from './authorization-server.ts';
@@ -45,19 +41,13 @@ afterEach(async () => {
 });
 
 /** Start `serve` and wait for both of its listeners. */
-async function serve(
-	f: Awaited<ReturnType<typeof fixture>>,
-	{ port = 0, env = {} }: { port?: number; env?: Record<string, string> } = {},
-) {
-	const child = Bun.spawn(
-		[process.execPath, f.bin, 'serve', '--port', String(port)],
-		{
-			cwd: f.root,
-			env: { ...f.env, ...env },
-			stdout: 'ignore',
-			stderr: 'pipe',
-		},
-	);
+async function serve(f: Awaited<ReturnType<typeof fixture>>) {
+	const child = Bun.spawn([process.execPath, f.bin, 'serve', '--port', '0'], {
+		cwd: f.root,
+		env: f.env,
+		stdout: 'ignore',
+		stderr: 'pipe',
+	});
 	const ready = Promise.withResolvers<{ local: string; public: string }>();
 	let output = '';
 	void (async () => {
@@ -76,14 +66,6 @@ async function serve(
 		}
 		ready.reject(new Error(output || 'serve exited before listening'));
 	})();
-	/** Wait until serve has written `text`. */
-	const said = async (text: string) => {
-		for (let waited = 0; !output.includes(text); waited += 50) {
-			if (waited > 15_000)
-				throw new Error(`serve never said ${text}: ${output}`);
-			await Bun.sleep(50);
-		}
-	};
 	cleanups.push(async () => {
 		child.kill('SIGTERM');
 		await child.exited;
@@ -94,7 +76,7 @@ async function serve(
 			throw new Error(`serve did not listen: ${output}`);
 		}),
 	]);
-	return { ...bases, stderr: () => output, said };
+	return { ...bases, stderr: () => output };
 }
 
 /** A fixture whose Epicenter has a public address, `reading` in it, and serve running. */
@@ -174,10 +156,9 @@ async function toolNames(response: Response) {
 	return body.result.tools;
 }
 
-test('serve names the public address and its port, says the address does not answer, and the private listener still needs nothing', async () => {
+test('serve names the public address and its port, and the private listener still needs nothing', async () => {
 	const t = await setup();
 	expect(t.stderr()).toContain(`Serving ${PUBLIC_URL} at ${t.public}`);
-	await t.said(`${PUBLIC_URL} does not answer`);
 	const local = await fetch(mcpRequest(t.local, 'tools/list'));
 	expect(local.status).toBe(200);
 	expect((await toolNames(local)).length).toBe(10);
@@ -200,7 +181,7 @@ test('serve names the public address and its port, says the address does not ans
 	);
 });
 
-test('a read token lists only read-only actions and cannot call a write action; a write token can', async () => {
+test('a read token lists only read-only actions and its call to a write action is refused; a write token can call it', async () => {
 	const t = await setup();
 	const person = await t.device(await t.invite('phone'));
 	const read = await connectClaude(
@@ -244,9 +225,13 @@ test('a read token lists only read-only actions and cannot call a write action; 
 			bearer(read.access_token),
 		),
 	);
-	expect(refused.status).toBe(403);
-	expect(refused.headers.get('www-authenticate')).toContain(
-		'error="insufficient_scope", scope="write"',
+	expect(refused.status).toBe(200);
+	const { result } = (await refused.json()) as {
+		result: { isError?: boolean; content: { text: string }[] };
+	};
+	expect(result.isError).toBe(true);
+	expect(result.content[0]?.text).toContain(
+		'reading log changes files, and this call may only read',
 	);
 	expect(await Bun.file(join(t.reading, '2026.csv')).exists()).toBe(false);
 	expect(await gitIn(t.reading, 'rev-list', '--count', 'HEAD')).toBe('1');
@@ -441,7 +426,7 @@ test('a tool name that is an epicenter command runs nothing', async () => {
 	);
 });
 
-test('the private listener answers only this computer and the tailnet, never a tunnel, and names itself', async () => {
+test('the private listener answers only this computer and the tailnet, never a tunnel', async () => {
 	const t = await setup();
 	const call = (headers: Record<string, string>) =>
 		fetch(mcpRequest(t.local, 'tools/list', {}, headers));
@@ -454,7 +439,6 @@ test('the private listener answers only this computer and the tailnet, never a t
 	for (const headers of refused) {
 		const response = await call(headers);
 		expect([headers, response.status]).toEqual([headers, 403]);
-		expect(response.headers.get('epicenter-listener')).toBe('private');
 	}
 	for (const host of [
 		'localhost',
@@ -464,13 +448,7 @@ test('the private listener answers only this computer and the tailnet, never a t
 	]) {
 		const response = await call({ host });
 		expect([host, response.status]).toEqual([host, 200]);
-		expect(response.headers.get('epicenter-listener')).toBe('private');
 	}
-	// The public listener does not carry it.
-	const open = await t.toPublic(
-		new Request(`${ORIGIN}/.well-known/oauth-protected-resource`),
-	);
-	expect(open.headers.get('epicenter-listener')).toBeNull();
 });
 
 test('serve with a public address refuses a --host that is not loopback', async () => {
@@ -487,80 +465,4 @@ test('serve with a public address refuses a --host that is not loopback', async 
 			`With a public address, serve listens only on a loopback address, not ${host}`,
 		);
 	}
-});
-
-test('when the public address reaches the private listener, serve stops it and says why', async () => {
-	const f = await fixture();
-	cleanups.push(() => rm(f.root, { recursive: true, force: true }));
-	await f.folder(join(f.home, 'reading'), readingApp);
-	// A self-signed certificate for localhost, so this test's forwarder can
-	// stand at an https public address.
-	const certs = await mkdtemp(join(tmpdir(), 'epicenter-tls-'));
-	cleanups.push(() => rm(certs, { recursive: true, force: true }));
-	const made = Bun.spawnSync(
-		[
-			'openssl',
-			'req',
-			'-x509',
-			'-newkey',
-			'rsa:2048',
-			'-nodes',
-			'-subj',
-			'/CN=localhost',
-			'-days',
-			'1',
-			'-keyout',
-			join(certs, 'key.pem'),
-			'-out',
-			join(certs, 'cert.pem'),
-		],
-		{ stdout: 'ignore', stderr: 'ignore' },
-	);
-	expect(made.exitCode).toBe(0);
-	const free = Bun.serve({ port: 0, fetch: () => new Response() });
-	const privatePort = free.port ?? 0;
-	free.stop(true);
-	// A tunnel aimed at the wrong port: it rewrites Host to a loopback name
-	// and adds no header of its own, which only the self-check can catch.
-	const tunnel = Bun.serve({
-		port: 0,
-		tls: {
-			cert: Bun.file(join(certs, 'cert.pem')),
-			key: Bun.file(join(certs, 'key.pem')),
-		},
-		async fetch(request) {
-			const { pathname, search } = new URL(request.url);
-			const headers = new Headers(request.headers);
-			headers.set('host', `localhost:${privatePort}`);
-			return fetch(`http://127.0.0.1:${privatePort}${pathname}${search}`, {
-				method: request.method,
-				headers,
-				body: request.method === 'GET' ? undefined : await request.text(),
-				redirect: 'manual',
-			});
-		},
-	});
-	cleanups.push(async () => {
-		tunnel.stop(true);
-	});
-	const publicUrl = `https://localhost:${tunnel.port}/`;
-	await writeFile(
-		join(f.home, 'EPICENTER.md'),
-		`---\nport: 4747\npublic: ${publicUrl}\npublicPort: 0\n---\n`,
-	);
-	const served = await serve(f, {
-		port: privatePort,
-		// Trust the forwarder's certificate for serve's own check.
-		env: { NODE_TLS_REJECT_UNAUTHORIZED: '0' },
-	});
-	await served.said(
-		`${publicUrl} reaches this computer's private listener, which asks no one to sign in, so it now refuses every request.`,
-	);
-	const local = await fetch(mcpRequest(served.local, 'tools/list'));
-	expect(local.status).toBe(503);
-	expect((await fetch(`${served.local}/reading/`)).status).toBe(503);
-	const throughTunnel = await fetch(`${publicUrl}reading/`, {
-		tls: { rejectUnauthorized: false },
-	});
-	expect(throughTunnel.status).toBe(503);
 });

@@ -36,7 +36,6 @@ import {
 	SIGN_IN_PATH,
 } from './authorization-server.ts';
 import type { Site } from './http.ts';
-import { isReadOnlyTool } from './mcp.ts';
 import { allowPage, signInPage } from './sign-in-pages.ts';
 
 /**
@@ -142,24 +141,6 @@ async function offeredMetadata(response: Response) {
 	return Response.json(metadata, { status: response.status, headers });
 }
 
-/** The names of the tools an MCP request body calls, in one message or a batch. */
-async function calledTools(request: Request): Promise<unknown[]> {
-	let body: unknown;
-	try {
-		body = await request.clone().json();
-	} catch {
-		return [];
-	}
-	return (Array.isArray(body) ? body : [body])
-		.filter(
-			(message): message is { params?: { name?: unknown } } =>
-				typeof message === 'object' &&
-				message !== null &&
-				(message as { method?: unknown }).method === 'tools/call',
-		)
-		.map((message) => message.params?.name);
-}
-
 /** The public listener's request handler, for `startPublicServer` and tests. */
 export function publicHandler(authorization: AuthorizationServer, site: Site) {
 	const { auth, origin, resource, issuer, handle } = authorization;
@@ -200,9 +181,8 @@ export function publicHandler(authorization: AuthorizationServer, site: Site) {
 			);
 			if (scopes.has('write')) return site.mcp(request);
 			if (!scopes.has('read')) throw createInsufficientScopeError(['read']);
-			for (const name of await calledTools(request))
-				if (!(await isReadOnlyTool(name)))
-					throw createInsufficientScopeError(['write']);
+			// A read-only connection lists only reading tools, and its child
+			// refuses any other call (`--read-only-call`).
 			return site.mcp(request, true);
 		},
 	);
