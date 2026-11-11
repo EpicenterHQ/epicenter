@@ -10,11 +10,12 @@ Add Wellcrafted option namespace helpers for regular Result-service calls,
 adopt them in the dashboard, and rebuild Whispering's observation boundary
 around Result commands and explicit recording/run owners.
 
-The helper runtime is implemented in [Wellcrafted PR #145](https://github.com/wellcrafted-dev/wellcrafted/pull/145),
-with a minor changeset and passing CI. Epicenter still uses Wellcrafted 0.44.0
-and query-core 5.96.2. The helpers are not yet adopted here; completion requires a tested library
-release, a compatible dependency set, migrated legacy consumers, and preserved
-dashboard isolation and Whispering lifecycle behavior.
+The helpers, `resultQueries` and `resultMutations`, are merged in
+[Wellcrafted PR #145](https://github.com/wellcrafted-dev/wellcrafted/pull/145)
+with a minor changeset, and not yet released. Epicenter still uses Wellcrafted
+0.44.0 and query-core 5.96.2. Completion requires the library release, a
+compatible dependency set, migrated legacy consumers, and preserved dashboard
+isolation and Whispering lifecycle behavior.
 
 The durable proposals are [Epicenter's composition decision](../docs/adr/0661-apps-compose-result-services-through-wellcrafted-option-namespaces.md)
 and Wellcrafted's `docs/adr/0001-result-namespaces-produce-native-tanstack-options.md`
@@ -30,7 +31,9 @@ The inspected production legacy imports are concentrated in these owners:
 | --- | --- | --- |
 | `apps/api/ui/src/lib/billing/queries.ts` | Key map, forwarding functions, client-bound definitions | Selected query/mutation maps composed directly in the existing dashboard runtime |
 | `apps/api/ui/src/lib/account/queries.ts` | Key map and fixed/nested auth-client reads | Selected read closures; shared invalidation for unlink/passkey writes where adopted |
-| `apps/api/ui/src/lib/dashboard/runtime.ts` | Account, transports, fresh QueryClient, injected factories | Retain lifetime; replace factories-only plumbing with native options namespaces |
+| `apps/api/ui/src/lib/dashboard/runtime.ts` | Account, transports, fresh QueryClient, injected factories | Retain lifetime; compose the maps here and give the fresh client the invalidation rule and key defaults |
+| Billing and account components | `invalidateQueries` after writes in `PlanComparison.svelte`, the dashboard page, and the account page | Delete; the client rule refreshes after every write |
+| Epicenter app views (Reading, then Capture, Tasks, Vocab) | Hand-built reactive state over `connect()` | `resultQueries`/`resultMutations` over `connect()` methods once they return Results |
 | `apps/whispering/src/lib/library.svelte.ts` | Scope-keyed `track`, fenced `action`, accepted-work draining | Remove internal mutation wrappers; expose Result commands and domain activity with one registry for accepted local stages |
 | `packages/svelte/src/folder-queries.ts` | Path/representation keys and context-aware generic readers | Replace removed `defineKeys` with plain tuple data/functions; keep reader API and key layout |
 | Capture and other consumers of `resultMutationOptions` | Explicit local observation of app actions | Keep explicit options unless a real repeated service namespace appears |
@@ -50,11 +53,14 @@ could disappear while recorder and run owners retain the necessary behavior.
 Shutdown admission and draining remain necessary; merely renaming `hold` to
 another lifecycle helper would not establish a simplification.
 
-Retain the two-helper proposal within its small mapping contract. The strongest
-library disagreement remains whether a mutation namespace saves enough beyond
-plain `resultMutationOptions`; an isolated or customized mutation can use the
-explicit adapter. Do not add a lifecycle registry, callback merging, automatic
-invalidation, or per-domain wrapper factories to justify namespace helpers.
+Retain the two-helper proposal within its small mapping contract. A later
+review of #145 removed descriptors and thunk mutation entries: the maps take
+functions only, a mutation entry is the options object itself, and other
+behavior composes by spreading an entry or by client defaults keyed by prefix.
+Invalidation became one client rule that refreshes every query after any write,
+after a key-slicing variant was rejected for missing reads in other namespaces.
+Do not add a lifecycle registry, callback merging, an invalidation dispatcher,
+or per-domain wrapper factories.
 
 | Decision | Basis | Consequence |
 | --- | --- | --- |
@@ -65,6 +71,8 @@ invalidation, or per-domain wrapper factories to justify namespace helpers.
 | Keep explicit Folder readers | Actual readers and refresh protocol | No generic namespace wrapper around resource/context arguments |
 | Remove Whispering's internal mutation wrappers | Actual state consumers and greenfield review | Domain owners report activity; one lifecycle registry admits complete local stages |
 | Retain a small mutation helper | Design choice | Saves operation-key and forwarding declarations; explicit adapters remain a valid alternative |
+| One invalidation rule per QueryClient | #145 review; only observed queries refetch | Component invalidation calls disappear; `meta.invalidates` narrows a write, `[]` opts it out |
+| Functions only in the maps | #145 review | Per-method settings move to `setQueryDefaults(entry.key, ...)` or a spread |
 
 ### Query identity correction
 
@@ -104,7 +112,7 @@ Registry metadata checked on October 21, 2026 supplies a compatible baseline:
 
 | Package | Verified version or requirement |
 | --- | --- |
-| Published `wellcrafted` | 0.45.0; query-core peer `^5.102.0`; no namespace helpers |
+| Published `wellcrafted` | 0.46.0 (November 8, 2026); query-core peer `^5.102.0`; helpers merged after it, unreleased |
 | `@tanstack/svelte-query` | 6.3.5; depends on query-core 5.104.5 |
 | `@tanstack/svelte-query-devtools` | 6.3.5; peers with Svelte Query `^6.3.5` |
 | `@tanstack/query-core` | 5.104.5 |
@@ -123,50 +131,58 @@ and resolve the actual importing paths.
 ## Dashboard composition
 
 Construct account-bound maps directly inside `createDashboardRuntime(account)`.
-Expose `billingQueries`, `billingMutations`, `accountQueries`, and, when shared
-write policy is moved, `accountMutations` through its existing context.
+Expose `billingQueries`, `billingMutations`, `accountQueries`, and
+`accountMutations` through its existing context.
 
 ```ts
-const billingKey = ['billing'] as const;
-const billingQueries = createQueries(billingKey, {
-  overview: {
-    queryFn: billingApi.overview,
-    refetchOnWindowFocus: 'always',
-  },
+const billingQueries = resultQueries(['billing'], {
+  overview: billingApi.overview,
   usage: billingApi.usage,
   events: billingApi.events,
   plans: billingApi.plans,
 });
 
-const billingMutations = createMutations(billingKey, {
+const billingMutations = resultMutations(['billing'], {
   previewPlanChange: billingApi.previewPlanChange,
-  checkoutPlan: {
-    mutationFn: billingApi.checkoutPlan,
-    onSuccess: (result, _input, _rollback, { client }) => {
-      if (result.checkoutUrl) return;
-      return client.invalidateQueries({ queryKey: billingKey });
-    },
-  },
-  checkoutTopUp: {
-    mutationFn: billingApi.checkoutTopUp,
-    onSuccess: (result, _input, _rollback, { client }) => {
-      if (result.checkoutUrl) return;
-      return client.invalidateQueries({ queryKey: billingKey });
-    },
-  },
+  checkoutPlan: billingApi.checkoutPlan,
+  checkoutTopUp: billingApi.checkoutTopUp,
+});
+
+const queryClient = new QueryClient({
+  mutationCache: new MutationCache({
+    onSettled: (_data, _error, _variables, _rollback, mutation, { client }) =>
+      client.invalidateQueries({
+        predicate: (query) =>
+          mutation.meta?.invalidates?.some((queryKey) => matchQuery({ queryKey }, query)) ?? true,
+      }),
+  }),
+});
+queryClient.setQueryDefaults(billingQueries.overview.key, {
+  refetchOnWindowFocus: 'always',
+});
+
+// Components observe the preview with this variant: it changes no billing state.
+export const previewPlanChange = mutationOptions({
+  ...billingMutations.previewPlanChange,
+  meta: { invalidates: [] },
 });
 ```
+
+Type `meta.invalidates` once through Svelte Query's `Register` interface.
 
 Keep the account service captures, fresh attachment-owned client, lifetime
 signal, provider, and disposal. A late mutation uses its executing client and
 cannot populate a successor attachment, including one for the same principal.
 No cache is keyed or memoized solely by principal identity.
 
-Shared billing invalidation moves out of component callbacks. Redirects,
-toasts, and dialog state retain their component departure guards. Awaiting the
-definition callback's invalidation extends mutation pending through that
-refresh; verify this intended timing in the billing UI. `portal` can remain a
-direct Result-returning interaction with its existing guards.
+Component invalidation calls disappear: the client rule refreshes after every
+checkout, top-up, unlink, and passkey change. A checkout that returns a payment
+URL refetches billing reads that still show the unchanged plan; the refetch
+reports server state and claims no completed purchase. Redirects, toasts, and
+dialog state keep their component departure guards. Returning the rule's
+promise extends mutation pending through the refresh; verify this timing in
+the billing UI. `portal` can remain a direct Result-returning interaction with
+its existing guards.
 
 Account read closures still fix `disableCookieCache: true` and select nested
 passkey methods. Do not detach arbitrary Better Auth proxy methods or pass
@@ -211,15 +227,14 @@ topUp.mutate(window.location.href, callbacks);
 Target:
 
 ```ts
-const topUp = createMutation(() => billingMutations.checkoutTopUp());
+const topUp = createMutation(() => billingMutations.checkoutTopUp);
 // Inside the button handler:
 topUp.mutate({ successUrl: window.location.href }, callbacks);
 ```
 
 The object input is the service's real input. The old adapter reshapes a string.
-Keep component callbacks for local effects; remove their duplicate invalidation
-after the shared definition owns it. The same success callback must run when a
-component observer has gone away.
+Keep component callbacks for local effects and delete their invalidation; the
+client rule runs even when the component's observer has gone away.
 
 ## Whispering workflow redesign
 
@@ -250,13 +265,13 @@ The following is a proposed caller shape, not an existing export. These are
 application commands, not direct aliases for low-level transport methods:
 
 ```ts
-const mutations = createMutations(['whispering'], {
+const mutations = resultMutations(['whispering'], {
   createTransformation: app.createTransformation,
   saveConnection: app.saveConnection,
 });
 
 // Component:
-const create = createMutation(() => mutations.createTransformation());
+const create = createMutation(() => mutations.createTransformation);
 create.mutate(starter, {
   onSuccess: ({ path }) => openTransformation(path),
 });
@@ -331,31 +346,28 @@ publication retries that reuse a received answer rather than resend a request.
 
 ### 1. Prove and implement the library contract
 
-- [x] Add `createQueries` and `createMutations` beside the existing adapters,
-  with no client capture, proxy, callback-merging overload, or invalidation DSL.
-- [x] Generate bounded query keys and ordinary operation mutation keys; prevent
-  descriptors from replacing the generated identity or Result conversion.
-- [x] Prove heterogeneous shorthand/descriptor inference, zero/optional/multiple
-  query arguments, void/unary mutation inputs, `select`, cache `DataTag`,
-  `initialData` compatibility, and optimistic callback context. Rollback inference
-  requires annotations on every parameter declared by namespace `onMutate`;
-  the explicit adapter retains full unannotated optimistic inference. Reject
-  unsupported multi-argument mutation functions with an explicit-adapter path.
+- [x] Add `resultQueries` and `resultMutations` beside the existing adapters,
+  taking functions only, with no client capture, proxy, descriptor, or
+  invalidation DSL. A mutation entry is the options object itself.
+- [x] Generate bounded query keys and ordinary operation mutation keys.
+- [x] Prove per-method inference, zero/optional/multiple query arguments,
+  void/unary mutation inputs, cache `DataTag`, `select` added by spread, and
+  optimistic rollback inferred without annotations when callbacks are spread
+  onto an entry. Reject multi-argument mutation functions.
 - [x] Test construction without execution, exact and prefix keys across nested
-  namespaces, receiver handling, Result conversion, mutation callback ordering,
-  observer departure, and shared policy through `runMutation`.
-- [x] Update the library query README and distributable TanStack skill,
-  validate the package, and open a PR with a minor changeset.
+  namespaces, receiver handling, Result conversion, defaults set by a factory's
+  `.key`, observer departure, the unfiltered invalidation rule keeping a write
+  pending until it settles, and `meta.invalidates` narrowing it.
+- [x] Document the rule and composition by spread in the library README,
+  integration doc, distributable skill, and ADR; merge #145 with a minor
+  changeset.
 - [ ] Release the helpers through Wellcrafted's existing release workflow before
   upgrading Epicenter's dependency.
 
-The library checkpoint passes 183 tests, typecheck, build, and query-module
-Biome checks. Packed declarations pass real React Query 5.104.5 and Svelte
-Query 6.3.5 consumer checks; query-core 5.102.0 also passes a packed type/runtime
-check. Review repaired fixed-hash identity overrides, prototype-named method
-mapping, and unannotated service wrappers accepting arbitrary inputs. The
-namespace helpers add no per-entry builder to hide the optimistic inference
-limit. Whispering implementation remains the next phase.
+The merged library passes 181 tests, typecheck, build, and query-module Biome
+checks. The earlier packed-declaration checks against React Query 5.104.5 and
+Svelte Query 6.3.5 ran on the descriptor revision; repeat them against the
+release. Whispering implementation remains the next phase.
 
 The source runner already catches thrown work. An executed check confirmed
 `Err` with the same thrown value and no success callback. Another check found
@@ -405,10 +417,13 @@ The namespace helper is not a prerequisite for establishing domain ownership.
 
 ### 4. Establish shared app policy and prove behavior
 
-- [ ] Move conditional checkout/top-up invalidation into shared definitions,
-  retaining local UI effects and departure guards.
-- [ ] Move repeated account invalidation into selected mutation definitions
-  executed by existing handlers, preserving their Result and dialog semantics.
+- [ ] Give each dashboard attachment's QueryClient the invalidation rule, type
+  `meta.invalidates` through `Register`, and opt `previewPlanChange` out with
+  an empty list. Delete component invalidation calls, retaining local UI
+  effects and departure guards.
+- [ ] Run account unlink and passkey writes through selected mutation entries
+  in the existing handlers (`runMutation`), preserving their Result and dialog
+  semantics, so the rule refreshes after them.
 - [ ] Prove isolation for a different principal and a new attachment of the same
   principal, including late mutation callbacks and every exact cache assertion.
 - [ ] Run Folder refresh/lifecycle tests, Whispering lifecycle and mounted tests,
@@ -416,6 +431,19 @@ The namespace helper is not a prerequisite for establishing domain ownership.
 - [ ] Update current package documentation and the repo query-layer guidance
   after exports and callers establish the supported names. Retire this spec
   after implementation; preserve the ADRs without assigning acceptance status.
+
+### 5. Compose Epicenter app views
+
+- [ ] Make `connect()` methods return `Result<Out, CallError>`, with `CallError`
+  from `defineErrors` covering a thrown action, a refused call, and an
+  unreachable serve.
+- [ ] Give Reading's view a `queries.ts`: `resultQueries` and `resultMutations`
+  over its `connect()` methods, and one QueryClient with the invalidation rule.
+  Replace `books.svelte.ts`, then repeat for Capture, Tasks, and Vocab.
+- [ ] Keep the rule as the only invalidation. Writes made outside the view
+  (agents, the CLI, another device, the clock) need a change signal from
+  `serve`; design it separately, and have it trigger the same unfiltered
+  invalidation.
 
 Native `fetchQuery` remains a deprecated alias in the inspected newer core.
 Unrelated native callsites need no mechanical rename to adopt these helpers.
@@ -429,8 +457,9 @@ The implementation is done when these checks pass on its own baseline:
 - Library `bun test`, `bun run typecheck`, and `bun run build`, including public
   type usage against the supported framework adapters.
 - Dashboard runtime tests cover late old reads/mutations, fresh clients, and
-  exact generated keys. New policy coverage proves invalidation after observer
-  removal and no completed-purchase claim for a returned checkout URL.
+  exact generated keys. New policy coverage proves the rule refreshes billing
+  reads after a write whose component observer is gone, and that a preview
+  refreshes nothing.
 - Folder tests cover refresh after writes, active-reader polling, and close
   ordering with unchanged positional key matching.
 - Whispering tests cover capture completion/cancellation, command refusal after
@@ -459,8 +488,12 @@ changes need their own baseline before attributing a failure to this migration.
   key, and close behavior.
 - `packages/svelte/src/folder-{queries,context}.ts` establish path/representation
   keys, change-driven refresh, and query-context consumers.
-- Wellcrafted `src/query/{index.ts,utils.ts,utils.test.ts}` establishes the
-  0.45 exports, runner signatures, and Result conversion.
+- Wellcrafted `src/query/{index.ts,utils.ts,namespaces.ts}` and their tests on
+  `main` establish the exports, runner signatures, Result conversion, and the
+  documented invalidation rule.
+- `@tanstack/query-core` `invalidateQueries` refetches only active queries by
+  default and skips `staleTime: 'static'` ones (`queryClient.js` in 5.96.2 and
+  5.104.2).
 - Public package metadata: [Svelte Query 6.3.5](https://registry.npmjs.org/@tanstack%2Fsvelte-query/6.3.5),
   [Svelte Query devtools 6.3.5](https://registry.npmjs.org/@tanstack%2Fsvelte-query-devtools/6.3.5),
   and [Wellcrafted 0.45.0](https://registry.npmjs.org/wellcrafted/0.45.0).
