@@ -14,21 +14,27 @@
  * - When `ui/package.json` has a `build` script, `ui/` installs from its
  *   committed `bun.lock` and the script runs with `EPICENTER_BASE=/<app>`,
  *   the path the view is served at. It must write `ui/dist/`.
- * - Otherwise, when `ui/index.html` exists, Bun's bundler bundles it, with
- *   `@epicenter/app/client` supplied by this command, so one `index.html`
- *   and the files beside it are a view with no `package.json`.
+ * - Otherwise, when `ui/index.html` exists, Bun's bundler bundles it, so
+ *   one `index.html` and the files beside it are a view with no
+ *   `package.json`.
  *
+ * Before either, `node_modules/@epicenter/app` in the worktree and in the app's
+ * folder links to this command's own copy (`linkAppPackage`), so a view never
+ * installs it and its client always matches the `serve` that answers it.
  * Both run with the Bun that runs `epicenter`; the compiled `epicenter` is
  * Bun itself when `BUN_BE_BUN=1` is set. The finished `dist/` replaces
  * `ui/dist/` by rename, on the same volume, so `serve` never answers from half
  * a build, and a failed build leaves the last view in place.
  */
 import {
+	mkdir,
 	mkdtemp,
 	readFile,
+	readlink,
 	rename,
 	rm,
 	stat,
+	symlink,
 	writeFile,
 } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
@@ -37,6 +43,30 @@ import packageJson from '../package.json' with { type: 'json' };
 import { COMPILED } from './child.ts';
 import { checkedGit, git } from './git.ts';
 import { writeErr } from './output.ts';
+
+/**
+ * The `@epicenter/app` this command runs, whose `/client` a view must speak
+ * to the `serve` that answers it: its package folder, two up from its entry.
+ */
+const APP_PACKAGE = dirname(
+	dirname(Bun.fileURLToPath(import.meta.resolve('@epicenter/app'))),
+);
+
+/**
+ * Make `folder/node_modules/@epicenter/app` this command's own, as `epicenter`
+ * supplies it to every `epicenter.ts` it runs (ADR-0857), so a view's build,
+ * `bun run dev` in `ui/`, and an editor's types all resolve it to the copy
+ * that `serve` speaks, and no app installs it. `node_modules/` is ignored.
+ */
+export async function linkAppPackage(folder: string) {
+	const link = join(folder, 'node_modules', '@epicenter', 'app');
+	try {
+		if ((await readlink(link)) === APP_PACKAGE) return;
+	} catch {}
+	await rm(link, { recursive: true, force: true });
+	await mkdir(dirname(link), { recursive: true });
+	await symlink(APP_PACKAGE, link, 'dir');
+}
 
 /** Where an app's view lives, relative to its folder. */
 export const VIEW = join('ui', 'dist');
@@ -124,26 +154,16 @@ async function runBuildScript(app: string, ui: string) {
 	return join(ui, 'dist');
 }
 
-/** Bundle `ui/index.html` with Bun; returns the folder it wrote. */
+/**
+ * Bundle `ui/index.html` with Bun; returns the folder it wrote. Its
+ * `@epicenter/app/client` resolves through the linked `node_modules`.
+ */
 async function bundleIndex(ui: string, outdir: string) {
-	const client = Bun.fileURLToPath(
-		import.meta.resolve('@epicenter/app/client'),
-	);
 	const result = await Bun.build({
 		entrypoints: [join(ui, 'index.html')],
 		outdir,
 		minify: true,
 		throw: false,
-		plugins: [
-			{
-				name: '@epicenter/app/client',
-				setup(build) {
-					build.onResolve({ filter: /^@epicenter\/app\/client$/ }, () => ({
-						path: client,
-					}));
-				},
-			},
-		],
 	});
 	if (!result.success)
 		throw new Error(
@@ -194,6 +214,8 @@ export async function buildView(
 		// A build stopped by a crash leaves a worktree Git still lists.
 		await git(folder, ['worktree', 'prune']);
 		await checkedGit(folder, ['worktree', 'add', '--detach', code, commit]);
+		await linkAppPackage(code);
+		await linkAppPackage(folder);
 		const ui = join(code, 'ui');
 		const built =
 			source === 'script'

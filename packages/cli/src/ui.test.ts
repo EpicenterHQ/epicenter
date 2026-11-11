@@ -5,7 +5,7 @@
  * `acceptance.http.test.ts`.
  */
 import { afterEach, expect, test } from 'bun:test';
-import { readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fixture, gitIn, gitignore, header } from './runner.test-support.ts';
 
@@ -71,6 +71,22 @@ test('a build script is told the path its view is served at', async () => {
 	});
 	expect((await f.run('build', 'vocab')).code).toBe(0);
 	expect(await f.view()).toBe('/vocab\n');
+});
+
+test("a build resolves @epicenter/app to this command's own, in the build and the app's folder", async () => {
+	const f = await vocab({
+		'package.json': uiPackage(
+			`mkdir -p dist && bun -e "console.log(Bun.fileURLToPath(import.meta.resolve('@epicenter/app/client')))" > dist/index.html`,
+		),
+	});
+	const built = await f.run('build', 'vocab');
+	expect(built.stderr).toBe('');
+	const own = join(import.meta.dir, '..', '..', 'app', 'src', 'client.ts');
+	expect(await realpath((await f.view()).trim())).toBe(await realpath(own));
+	expect(await realpath(join(f.app, 'node_modules', '@epicenter', 'app'))).toBe(
+		await realpath(join(import.meta.dir, '..', '..', 'app')),
+	);
+	expect(await gitIn(f.app, 'status', '--porcelain')).toBe('');
 });
 
 test('a ui/ with no build script is bundled from its index.html, with relative paths', async () => {
