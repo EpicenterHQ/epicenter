@@ -1,38 +1,52 @@
 ---
 name: epicenter-app
-description: Make or change an app that lives in an Epicenter (such as ~/Epicenter), or the starter it comes from: its collections, its actions, and its UI. Use when asked to build a new personal app (a tracker, a log, a list), add a field or action to Capture, Reading, Tasks, or Vocab, change an app's UI, set up an Epicenter, or make or update an app from a starter on the computer that runs epicenter serve.
+description: Make or change an app that lives in an Epicenter (such as ~/Epicenter): its collections, its actions, its UI, and its two repositories, code and data. Use when asked to build a new personal app (a tracker, a log, a list), add a field or action to Capture, Reading, Tasks, or Vocab, change an app's UI, set up an Epicenter, share an app or take one from someone, or update an app from the app it came from on the computer that runs epicenter serve.
 ---
 
 # Epicenter apps
 
 An Epicenter is a folder holding `EPICENTER.md`; its apps are the folders
-directly inside it with an `epicenter.ts`, each a Git repository of its own
-(ADR-0868). `epicenter` works on the Epicenter you stand in (walking up from
-the current folder), else `EPICENTER_ROOT`, else `~/Epicenter`; a computer may
-hold several, such as one per person. `epicenter serve` offers one
-Epicenter's actions over MCP at `/` and each app's UI at `/<app>/`, on the
-`port` in its `EPICENTER.md` front matter (4747 when absent).
+directly inside it with an `epicenter.ts` (ADR-0868). `epicenter` works on the
+Epicenter you stand in (walking up from the current folder), else
+`EPICENTER_ROOT`, else `~/Epicenter`; a computer may hold several, such as one
+per person. `epicenter serve` offers one Epicenter's actions over MCP at `/`
+and each app's UI at `/<app>/`, on the `port` in its `EPICENTER.md` front
+matter (4747 when absent).
 
-An app can start from a starter, a repository with no data, which it keeps as
-its `upstream` remote; `epicenter update` merges the starter's later changes
-and builds the UI (ADR-0866). Capture, Reading, Tasks, and Vocab are starters' source
-in `apps/<app>/`; `apps/tasks` is the smallest whole example. Read
-`apps/README.md`, `packages/app/README.md`, and one existing app before
-starting.
-
-Change an app where the change belongs. A change for one person's app is
-made in the app's folder in its Epicenter and committed there; Git merges it with the
-starter's on the next update. A change for every app made from a starter is
-made in the starter.
+An app is two Git repositories (ADR-0877). The app's folder is its code
+repository, which ignores `data/`; `data/` is its data repository, holding
+every record and every file the app keeps (ADR-0876). The code travels: it is
+what someone else takes, and what they change comes back by a merge. The data
+never travels: its history records every write, so it is backed up privately
+and shared with no one.
 
 ```txt
-<app>/
-  epicenter.ts     the app: its collections and actions, composed by defineApp
+<app>/                 the code repository
+  .gitignore           data/  node_modules/
+  epicenter.ts         the app: its collections and actions, composed by defineApp
   epicenter.test.ts, package.json   the actions' tests and what they need
-  ui/              the UI, a SvelteKit project of its own
-  ui/dist/         the view serve shows at /<app>/: built, and ignored by ui/.gitignore
-  data/            records and other files the app keeps; a starter has none
+  README.md
+  ui/                  the UI, a SvelteKit project of its own
+  ui/dist/             the view serve shows at /<app>/: built, ignored by ui/.gitignore
+  data/                the data repository
+    .gitignore         *.local  *.local.*
+    .gitattributes     binary files through LFS (ADR-0856)
+    tasks/<time>.md    records
+    google.local.md    kept on this computer, never committed
 ```
+
+An app can start from another app's code, which it keeps as its `upstream`
+remote; `epicenter update` merges that code's later changes and builds the UI
+(ADR-0866). Capture, Reading, Tasks, and Vocab are developed in the
+person's own Epicenter, each code repository a private GitHub repository;
+`apps/<app>/` in the monorepo keeps a copy that the platform's tests use. Read
+`@epicenter/app`'s README (`packages/app/README.md` in the monorepo) and one
+existing app before starting; Tasks is the smallest whole example.
+
+Change an app where the change belongs. A change for one person's app is made
+in its folder and committed to its code repository; Git merges it with
+`upstream`'s on the next update. A change for everyone who took the app is
+made in the app it came from and reaches them when they update.
 
 ## Decide the files first
 
@@ -89,15 +103,20 @@ starting with `.`. A field or placeholder may not be named `path`,
   (ADR-0869). An empty `old` fills an empty body.
 - A secret, such as a sign-in token, is a one-file collection at a
   `.local.md` path (`data/google.local.md`), its fields declared like any other
-  (ADR-0870). A `.local` file stays on the computer that runs the app: the
-  app's `.gitignore` leaves it out of every commit, `folder` makes it `0600`,
+  (ADR-0870). A `.local` file stays on the computer that runs the app:
+  `data/.gitignore` leaves it out of every commit, `folder` makes it `0600`,
   and its `actions()` throws, so no generated verb hands it to an MCP client.
   Read it in an action with `google.get()` and write it with `google.set(...)`.
   A fresh clone has none, so the person signs in again.
-- The collections are the contract between a starter and the data. A starter
-  that renames or tightens a field changes existing files itself: Git merges
-  code and does not migrate data, and a file that no longer fits says so in
-  the `problems` of every read.
+- The collections are the contract between the code and the data, and they
+  live in different repositories, so nothing checks that they agree: a key no
+  field declares goes to `other`, and a missing optional field is no problem.
+  Rename or tighten a field in two steps. Commit the code first; then rewrite
+  the records, by an action or by hand, so each data commit names the code it
+  was written for. Then read every record's `other` and `problems` to find any
+  the rewrite missed. Someone who takes the change with `update` gets the code
+  only: their records change when they run the same rewrite, so ship it as an
+  action, or say in the README what to run.
 
 ## Write actions only for what the verbs cannot do
 
@@ -157,8 +176,9 @@ call `words.pathOf({ word })`, giving `epicenter vocab review 你好 good`.
 
 Annotate honestly. An action never commits; after a run that is not
 `readOnlyHint: true`, `epicenter` commits exactly the files it wrote through
-`folder`, named for the call (`<app>: <words> <first positional>`, with
-` (threw)` when it threw). A read-only run never commits, and its writes
+`folder` to the data repository, named for the call (`<app>: <words> <first
+positional>`, with ` (threw)` when it threw) and carrying a `Code-Commit:
+<sha>` trailer, the code's `HEAD` when it ran. A read-only run never commits, and its writes
 through `folder` throw, so an action that writes a file is not read-only. A
 `.local` file under `data/` is the exception: it is never in history, so a
 read-only action may refresh the token it keeps there.
@@ -170,35 +190,63 @@ after writing: the inner call waits for the lock its own caller holds, and
 fails after 30 seconds.
 
 When you edit an app's files yourself rather than through its actions, commit
-your own edits when you finish, saying what you did:
-`epicenter sync <app> -m "<what you did>"` commits everything pending in the
-app under that message and backs it up. A plain `git commit` in the app's
-folder is safe too, since the app's `.gitignore` keeps `*.local` and
-`*.local.*` out; never add one with `git add -f`. Edits nobody commits are
-committed by `epicenter serve` within 5 minutes as
-`<app>: changed outside epicenter`.
+your edits when you finish, each to its own repository:
+
+- Code: `git commit` in the app's folder, with a message that says what the
+  code does now. Whoever takes the app reads that history, so a code message
+  never names or quotes a record.
+- Records: `epicenter sync <app> -m "<what you did>"` commits everything
+  pending in the app under that message and backs it up. Commit the code
+  first, so the data commit names the code it was written for, and so the
+  message, which `sync` gives both repositories, lands only on the data.
+  `git commit` inside `data/` is safe too, since `data/.gitignore` keeps
+  `*.local` and `*.local.*` out; never add one with `git add -f`.
+
+Edits nobody commits are committed by `epicenter serve` within 5 minutes as
+`<app>: changed outside epicenter`, in whichever repository holds them.
+
+Never run `git clean -ffdx` or `git clean -x` in the app's folder: `data/` is
+ignored there, so Git deletes it, with any history not yet pushed.
 
 An agent can read and reverse that history. `epicenter history <app>` lists
-the commits, newest first, each with its commit, local time, subject, and the
-paths it changed (`--json` gives `{ commit, date, subject, changed, undid? }`). `epicenter undo
-<app>` snapshots what is pending, then reverts the newest snapshot that is not
-an undo and not undone, as `<app>: undid <subject>`; run it again to go further
-back, `epicenter undo <app> <commit>` to undo that commit, and undo an undo to
-bring it back. It refuses a commit not in the app's history, a revert Git
-refuses (a merge), and one that conflicts or changes nothing, leaving the
-folder as it was. After a write that went
+both repositories' commits together, newest first, each with its commit, local
+time, `code` or `data`, subject, and the paths it changed (`--json` gives
+`{ commit, date, repository, subject, changed, code?, undid? }`, `code` being
+a data commit's `Code-Commit`). `epicenter undo <app>` snapshots what is
+pending, then reverts the newest data snapshot that is not an undo and not
+undone, as `<app>: undid <subject>`; run it again to go further back,
+`epicenter undo <app> <commit>` to undo that data commit, and undo an undo to
+bring it back. When the code changed after the commit it undid, its answer
+lists the code commits since (`codeSince`): a record rewrite undone may need
+the field change it went with undone too. Undo reverts data only; revert a
+code commit with `git -C <app folder> revert <sha>`. It refuses a commit not
+in the data's history, a revert Git refuses (a merge), and one that conflicts
+or changes nothing, leaving the folder as it was. After a write that went
 wrong, undo it rather than rewriting the file by hand, so history says what
 happened.
 
 ## Build the UI as a client
 
-Copy an existing app's `ui/`: SvelteKit with the hash router, `@epicenter/ui`
-and its `app.css`, a manifest and icons in `static/`, and its
-`svelte.config.js`, which builds into `ui/dist/` with the app's folder
-name as the base. `serve` serves `ui/dist/` and looks nowhere else. A tiny
-view needs no build: with no `build` script in `ui/package.json`, write
-`ui/dist/index.html` by hand and commit it. The UI keeps nothing of its own:
-it shows what serve answers and sends what the person changes.
+Copy an existing app's `ui/`: SvelteKit with the hash router, a manifest and
+icons in `static/`, and its `svelte.config.js`. The UI builds on its own from
+npm: it depends on the published `@epicenter/app`, never on `workspace:` or
+`catalog:` versions, and owns its components, copied into
+`src/lib/components/ui/` with `components.json`, `src/lib/utils.ts`, and the
+theme in `src/app.css` (ADR-0874). Add a component by copying it whole,
+dependencies and tests included, and change it in place.
+
+`svelte.config.js` builds into `ui/dist/` with
+`paths.base: process.env.EPICENTER_BASE ?? \`/${basename(resolve('..'))}\``.
+SvelteKit's hash router writes absolute asset URLs whatever `paths.relative`
+says, so the build must know where the view is served: `epicenter` installs
+`ui/` (from its committed `bun.lock` when there is one) and runs its `build`
+script with `EPICENTER_BASE=/<app>`, and a build run by hand falls back to
+the folder's name. Commit `ui/bun.lock`, so the server builds what you
+tested. `serve` serves `ui/dist/` and looks nowhere else. A tiny view needs
+no build: with no `build` script in `ui/package.json`, write
+`ui/dist/index.html` by hand, with relative URLs, and commit it. The UI keeps
+nothing of its own: it shows what serve answers and sends what the person
+changes.
 
 `src/lib/app.ts` is the one place the UI names the app's actions. It calls
 `connect<typeof app>()` from `@epicenter/app/client`, importing the app
@@ -259,40 +307,53 @@ types with `ActionInput<typeof app.actions.set>` and
 ## Verify without touching the person's data
 
 Never run anything against the real `~/Epicenter` until the person asks.
-`HOME` decides `~`, so try an app in a temporary home. In the monorepo, build
-the UI in place, then copy the app into the temporary home as a repository of
-its own, since `epicenter` commits every write into the app's repository:
+`HOME` decides `~`, so try an app in a temporary home. Take the app from its
+code repository with `new --from`, which clones it, makes its empty data
+repository, and builds its UI as the server would; for an app with
+uncommitted changes, commit them on a branch first, or clone from a copy:
 
 ```sh
-bun test ./epicenter.test.ts               # in apps/<app>: actions over createMemoryContext
-(cd apps/<app>/ui && bun run build)        # writes apps/<app>/ui/dist/
+bun test ./epicenter.test.ts               # in the app: actions over createMemoryContext
 T=$(mktemp -d)
 printf '[user]\n\tname = Test\n\temail = test@example.com\n' > $T/.gitconfig
-HOME=$T bun packages/cli/src/bin.ts init $T/Epicenter   # writes EPICENTER.md and AGENTS.md
-rsync -a --exclude node_modules --exclude .svelte-kit apps/<app>/ $T/Epicenter/<app>/
-git -C $T/Epicenter/<app> init -q && git -C $T/Epicenter/<app> add -A && git -C $T/Epicenter/<app> commit -qm start
-HOME=$T bun packages/cli/src/bin.ts <app> <words> ...
-HOME=$T bun packages/cli/src/bin.ts serve --port 4799   # then drive http://localhost:4799/<app>/
+HOME=$T epicenter init $T/Epicenter        # writes EPICENTER.md and AGENTS.md
+cd $T/Epicenter
+HOME=$T epicenter new <app> --from <app's code repository>
+HOME=$T epicenter <app> <words> ...
+HOME=$T epicenter serve --port 4799        # then drive http://localhost:4799/<app>/
 ```
 
-The temporary `.gitconfig` keeps the person's own, which may sign commits,
-out of the test. Run `bun run typecheck` in the app and in its `ui/`. Run
-tests one file or package at a time.
+In the monorepo, run the CLI from source as `bun <repo>/packages/cli/src/bin.ts`.
+The monorepo's `apps/<app>` is not a repository's root, so `new --from`
+refuses it: copy it into the temporary Epicenter, make sure its `.gitignore`
+lists `data/`, and `git init` and commit it there. The temporary `.gitconfig`
+keeps the person's own, which may sign commits, out of the test. Run
+`bun run typecheck` in the app and in its `ui/`. Run tests one file or
+package at a time.
 
 ## Put an app on the server
 
 Only when the person asks, on the computer that runs `epicenter serve`:
 
-- `epicenter new <app> --from <git url|path>` clones a starter, keeps it as
-  `upstream`, and builds the UI. The path must be a repository's root, so a
-  folder inside the monorepo is not a starter; Capture, Reading, Tasks, and Vocab
-  become starters when each moves to a repository of its own.
-- `epicenter update [<app>]` snapshots what is pending, merges the starter's
-  changes, and builds. It undoes a merge that conflicts, naming the command
-  that resolves it.
-- Backups go to `origin`: add the remote, and `epicenter sync` pushes there
-  by name at once, and `serve` every 5 minutes, never to `upstream`. Nothing
-  else pushes, `undo` included.
+- `epicenter new <app> --from <git url|path>` clones another app's code
+  repository, keeps it as `upstream`, makes an empty data repository, and
+  builds the UI. The path must be a repository's root.
+- `epicenter update <app> [<remote>]` snapshots what is pending, merges the
+  remote's branch into the code, `upstream` by default, and builds; the data
+  is never merged. It undoes a merge that conflicts, naming the command that
+  resolves it. An author takes a change back from someone who took the app
+  the same way: `git -C <app> remote add brother <url>`, then
+  `epicenter update <app> brother`.
+- Backups go to each repository's `origin`, a private remote: add one to the
+  app's folder and one to `data/`, and `epicenter sync` pushes both there at
+  once, and `serve` every 5 minutes, never anywhere else. Nothing else pushes,
+  `undo` included. Restoring is two clones: the code's backup, then the data's
+  into `data/`.
+- Sharing an app is pushing its code repository to a remote the person
+  chooses, which only they or an agent they ask does: `git -C <app> push
+  <remote> main`. What is shared is the code's real history, every code
+  commit included, so check it for anything private before the first push.
+  Never push `data/` anywhere but its own `origin`.
 - `epicenter build [<app>]` rebuilds a UI after a local edit, keeping the last
   one that built; the UI project's own `bun run build` empties `ui/dist/`
   first, so a page served meanwhile is missing.
