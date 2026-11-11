@@ -32,9 +32,19 @@ committed, and commits only what the person or an agent decided.**
     proposals/<time>.md                what an agent wants done to mail; committed
 ```
 
-- **`epicenter mail connect`** opens Google's consent page for the person's own
-  OAuth client (ADR-0847) with the `gmail.modify` scope and writes the refresh
-  token to `data/google.local.md`.
+- **`epicenter mail connect`** signs the person's Gmail in on the computer that
+  runs `serve`, once. It starts Google's consent for the person's own OAuth
+  client (ADR-0847), a Desktop-app client, with the `gmail.modify` scope and a
+  PKCE verifier it keeps, and redirects to `http://127.0.0.1:<port>/`. When the
+  browser runs on that computer, or reaches it through `ssh -L`, `connect`
+  receives the code on that port. From any other browser the redirect fails to
+  load, and the person pastes the address it landed on, which carries the
+  code, into `connect` or Mail's UI ("Paste the address Google sent you to").
+  `connect` exchanges the code and writes the client and the refresh token to
+  `data/google.local.md`; after that every action renews its access token
+  itself. The author's client is the Desktop-app client in Infisical at
+  `/apps/local-mail` (`VITE_GMAIL_CLIENT_ID`, `VITE_GMAIL_CLIENT_SECRET`),
+  copied into `data/google.local.md`; nothing reads Infisical at run time.
 - **`epicenter mail sync`** fills `data/mail.local.sqlite`: the first run copies
   the mail Gmail lists, and each later run asks Gmail's history for what
   changed since the `historyId` the cache holds. `serve`'s clock runs it every
