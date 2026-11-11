@@ -115,6 +115,7 @@
         "@sveltejs/kit": "catalog:",
         "@sveltejs/vite-plugin-svelte": "catalog:",
         "@tailwindcss/vite": "catalog:",
+        "@tanstack/svelte-query": "catalog:",
         "@types/bun": "catalog:",
         "@types/markdown-it": "^14.0.0",
         "mode-watcher": "catalog:",
@@ -124,6 +125,7 @@
         "tailwindcss": "catalog:",
         "typescript": "catalog:",
         "vite": "catalog:",
+        "wellcrafted": "catalog:",
       },
     },
     "apps/honeycrisp": {
@@ -292,6 +294,7 @@
         "@sveltejs/kit": "catalog:",
         "@sveltejs/vite-plugin-svelte": "catalog:",
         "@tailwindcss/vite": "catalog:",
+        "@tanstack/svelte-query": "catalog:",
         "@types/bun": "catalog:",
         "mode-watcher": "catalog:",
         "svelte": "catalog:",
@@ -300,6 +303,7 @@
         "tailwindcss": "catalog:",
         "typescript": "catalog:",
         "vite": "catalog:",
+        "wellcrafted": "catalog:",
       },
     },
     "apps/tasks": {
@@ -324,6 +328,7 @@
         "@sveltejs/kit": "catalog:",
         "@sveltejs/vite-plugin-svelte": "catalog:",
         "@tailwindcss/vite": "catalog:",
+        "@tanstack/svelte-query": "catalog:",
         "@types/bun": "catalog:",
         "mode-watcher": "catalog:",
         "svelte": "catalog:",
@@ -332,6 +337,7 @@
         "tailwindcss": "catalog:",
         "typescript": "catalog:",
         "vite": "catalog:",
+        "wellcrafted": "catalog:",
       },
     },
     "apps/vocab": {
@@ -356,6 +362,7 @@
         "@sveltejs/kit": "catalog:",
         "@sveltejs/vite-plugin-svelte": "catalog:",
         "@tailwindcss/vite": "catalog:",
+        "@tanstack/svelte-query": "catalog:",
         "@types/bun": "catalog:",
         "mode-watcher": "catalog:",
         "svelte": "catalog:",
@@ -364,6 +371,7 @@
         "tailwindcss": "catalog:",
         "typescript": "catalog:",
         "vite": "catalog:",
+        "wellcrafted": "catalog:",
       },
     },
     "apps/whispering": {
@@ -452,6 +460,7 @@
       "name": "@epicenter/app",
       "version": "0.1.0",
       "dependencies": {
+        "@tanstack/query-core": "catalog:",
         "nanoid": "catalog:",
         "typebox": "catalog:",
         "wellcrafted": "catalog:",

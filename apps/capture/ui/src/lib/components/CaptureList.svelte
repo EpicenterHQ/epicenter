@@ -9,17 +9,39 @@
 	import * as Empty from '@epicenter/ui/empty';
 	import * as Item from '@epicenter/ui/item';
 	import { Skeleton } from '@epicenter/ui/skeleton';
-	import { captures, hrefOf } from '$lib/captures.svelte.js';
+	import { hrefOf, type Row } from '$lib/app.js';
 	import { byDay, instantOf } from '$lib/days.js';
 
+	let {
+		rows,
+		more,
+		matching,
+		loading,
+		failed,
+		showMore,
+	}: {
+		/** The captures to list, newest first. */
+		rows: Row[];
+		/** How many more captures match than are listed. */
+		more: number;
+		/** The search they answer, trimmed. */
+		matching: string;
+		/** Whether the first answer has not come. */
+		loading: boolean;
+		/** Whether the last answer failed; the page says why. */
+		failed: boolean;
+		/** Ask for the next captures. */
+		showMore: () => void;
+	} = $props();
+
 	const time = new Intl.DateTimeFormat(undefined, { timeStyle: 'short' });
-	const days = $derived(byDay(captures.rows()));
+	const days = $derived(byDay(rows));
 
 	/** Asks for the next captures as `node` scrolls into view. */
 	function showMoreWhenSeen(node: HTMLElement) {
 		const observer = new IntersectionObserver(
 			(entries) => {
-				if (entries.some((entry) => entry.isIntersecting)) captures.showMore();
+				if (entries.some((entry) => entry.isIntersecting)) showMore();
 			},
 			{ rootMargin: '400px' },
 		);
@@ -28,10 +50,10 @@
 	}
 </script>
 
-{#if !captures.isLoaded()}
+{#if loading}
 	<!-- Until the first answer; when it fails, the page says why above. -->
 	<div
-		class={['flex flex-col gap-3', captures.problem() && 'invisible']}
+		class={['flex flex-col gap-3', failed && 'invisible']}
 		aria-busy="true" aria-label="Loading captures">
 		<Skeleton class="h-4 w-20" />
 		{#each [0, 1, 2, 3] as index (index)}
@@ -41,8 +63,8 @@
 {:else if days.length === 0}
 	<Empty.Root class="border-0">
 		<Empty.Header>
-			{#if captures.matching()}
-				<Empty.Title>Nothing matches “{captures.matching()}”</Empty.Title>
+			{#if matching}
+				<Empty.Title>Nothing matches “{matching}”</Empty.Title>
 				<Empty.Description>The search looks through every capture's text and thoughts.</Empty.Description>
 			{:else}
 				<Empty.Title>Nothing captured yet</Empty.Title>
@@ -94,11 +116,11 @@
 			</section>
 		{/each}
 
-		{#if captures.more() > 0}
-			{#key captures.rows().length}
+		{#if more > 0}
+			{#key rows.length}
 				<div {@attach showMoreWhenSeen} class="flex justify-center">
-					<Button variant="ghost" size="sm" onclick={() => captures.showMore()}>
-						Show {Math.min(50, captures.more())} more
+					<Button variant="ghost" size="sm" onclick={showMore}>
+						Show {Math.min(50, more)} more
 					</Button>
 				</div>
 			{/key}

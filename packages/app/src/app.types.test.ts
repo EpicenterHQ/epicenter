@@ -4,7 +4,13 @@
  */
 import { describe, test } from 'bun:test';
 import { Type } from 'typebox';
-import type { ActionInput, ActionOutput, AppClient } from './client.ts';
+import type { Result } from 'wellcrafted/result';
+import type {
+	ActionError,
+	ActionInput,
+	ActionOutput,
+	AppClient,
+} from './client.ts';
 import type { JsonValue } from './front-matter.ts';
 import {
 	createMemoryContext,
@@ -275,13 +281,13 @@ describe('an app author', () => {
 		});
 	});
 
-	test('a UI calls under the same words, typed by the app', () => {
+	test('a UI calls under the same words, typed by the app, and gets a Result', () => {
 		const vocabUi = {} as AppClient<Actions>;
 		const call = () => vocabUi.words.set({ path: 'words/a.md', meaning: 'x' });
 		assertType<
 			Equal<
 				Awaited<ReturnType<typeof call>>,
-				{
+				Result<{
 					path: string;
 					word: string;
 					meaning?: string;
@@ -290,7 +296,7 @@ describe('an app author', () => {
 					body: string;
 					problems?: string[];
 					other?: Record<string, JsonValue>;
-				}
+				}, ActionError>
 			>
 		>();
 		// @ts-expect-error due is written only by Vocab's own actions

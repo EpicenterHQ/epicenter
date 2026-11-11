@@ -1,4 +1,10 @@
+<!--
+	Every page of Vocab: the client that keeps what pages show current, the
+	tabs with the count of words due, the toasts, the delete confirmation, and
+	the system's light or dark mode.
+-->
 <script lang="ts">
+	import { createQueryClient } from '@epicenter/app/client';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import { ConfirmationDialog } from '@epicenter/ui/confirmation-dialog';
@@ -7,13 +13,17 @@
 	import BookOpenIcon from '@lucide/svelte/icons/book-open';
 	import LayersIcon from '@lucide/svelte/icons/layers';
 	import PlusIcon from '@lucide/svelte/icons/plus';
+	import { QueryClientProvider, createQuery } from '@tanstack/svelte-query';
 	import { ModeWatcher } from 'mode-watcher';
-	import { vocab } from '$lib/vocab.svelte.js';
+	import { reads } from '$lib/app.js';
 	import '../app.css';
 
 	let { children } = $props();
 
-	void vocab.refresh();
+	const queryClient = createQueryClient();
+	// The layout makes the client, so it is not yet in context here.
+	const due = createQuery(() => reads.due(), () => queryClient);
+	const dueCount = $derived(due.data?.length ?? 0);
 
 	const tabs = [
 		{ href: resolve('/'), label: 'Review', icon: LayersIcon, routes: ['/'] },
@@ -23,12 +33,6 @@
 </script>
 
 <svelte:head><title>Vocab</title></svelte:head>
-
-<svelte:document
-	onvisibilitychange={() => {
-		if (document.visibilityState === 'visible') void vocab.refresh();
-	}}
-/>
 
 <div
 	class="flex min-h-dvh flex-col pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)]"
@@ -52,18 +56,18 @@
 				>
 					<span class="relative">
 						<tab.icon class="size-5 md:size-4" aria-hidden="true" />
-						{#if tab.label === 'Review' && vocab.due().length > 0}
+						{#if tab.label === 'Review' && dueCount > 0}
 							<span
 								class="absolute -top-1.5 left-3.5 min-w-4 rounded-full bg-primary px-1 text-center text-[0.625rem] leading-4 text-primary-foreground md:hidden"
-								aria-hidden="true">{vocab.due().length}</span
+								aria-hidden="true">{dueCount}</span
 							>
 						{/if}
 					</span>
 					{tab.label}
-					{#if tab.label === 'Review' && vocab.due().length > 0}
-						<span class="sr-only">, {vocab.due().length} due</span>
+					{#if tab.label === 'Review' && dueCount > 0}
+						<span class="sr-only">, {dueCount} due</span>
 						<span class="hidden text-muted-foreground tabular-nums md:inline" aria-hidden="true"
-							>{vocab.due().length}</span
+							>{dueCount}</span
 						>
 					{/if}
 				</a>
@@ -72,7 +76,9 @@
 	</nav>
 
 	<main class="flex flex-1 flex-col pb-[calc(3.5rem+env(safe-area-inset-bottom))] md:pb-0">
-		{@render children()}
+		<QueryClientProvider client={queryClient}>
+			{@render children()}
+		</QueryClientProvider>
 	</main>
 </div>
 

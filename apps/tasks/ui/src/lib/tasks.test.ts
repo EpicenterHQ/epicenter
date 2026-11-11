@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import type { Task } from './store.svelte.js';
+import type { Task } from './app.js';
 import { addDays, completed, dayOf, dueLabel, groupOpen, hrefOf, labelOf } from './tasks.js';
 
 const task = (time: string, fields: Partial<Task> = {}): Task => ({

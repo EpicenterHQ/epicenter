@@ -12,28 +12,40 @@
 	import { Spinner } from '@epicenter/ui/spinner';
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
+	import { createMutation, createQuery } from '@tanstack/svelte-query';
 	import Stars from '$lib/Stars.svelte';
-	import { app, type Book, shelf } from '$lib/books.svelte.js';
+	import type { ActionError } from '@epicenter/app/client';
+	import { type Book, reads, writes } from '$lib/app.js';
 	import { dayLabel, hrefOf, shelves } from '$lib/shelves.js';
+
+	const books = createQuery(() => reads.list());
+	const addBook = createMutation(() => writes.add);
+	const startBook = createMutation(() => writes.start);
+	const finishBook = createMutation(() => writes.finish);
 
 	let title = $state('');
 
-	async function add() {
+	function add() {
 		const typed = title.trim();
 		if (typed === '') return;
 		title = '';
-		try {
-			await shelf.write(app.add({ title: typed }));
-		} catch (error) {
-			if (title === '') title = typed;
-			toast.error('Could not add the book', { description: String(error) });
-		}
+		addBook.mutate(
+			{ title: typed },
+			{
+				onError: (error) => {
+					if (title === '') title = typed;
+					toast.error('Could not add the book', { description: error.message });
+				},
+			},
+		);
 	}
 
+	/** Each row's move settles its own promise, so two quick taps each get their toast. */
 	function move(book: Book, to: 'start' | 'finish') {
-		shelf.write(app[to]({ title: book.title })).then(
+		const write = to === 'start' ? startBook : finishBook;
+		write.mutateAsync({ title: book.title }).then(
 			() => toast(to === 'start' ? `Started ${book.title}` : `Finished ${book.title}`),
-			(error) => toast.error(`Could not change ${book.title}`, { description: String(error) }),
+			(error: ActionError) => toast.error(`Could not change ${book.title}`, { description: error.message }),
 		);
 	}
 </script>
@@ -48,7 +60,7 @@
 				class="flex gap-2"
 				onsubmit={(event) => {
 					event.preventDefault();
-					void add();
+					add();
 				}}
 			>
 				<Input
@@ -73,24 +85,24 @@
 	</header>
 
 	<main class="mx-auto max-w-xl px-4 pt-2 pb-[calc(env(safe-area-inset-bottom)+6rem)]">
-		{#if shelf.problem()}
+		{#if books.error}
 			<Alert.Root variant="destructive" class="mt-3">
 				<Alert.Title>Epicenter did not answer</Alert.Title>
 				<Alert.Description>
-					<p>{shelf.problem()}</p>
-					<Button variant="outline" size="sm" class="mt-2" onclick={() => shelf.refresh()}>
+					<p>{books.error.message}</p>
+					<Button variant="outline" size="sm" class="mt-2" onclick={() => books.refetch()}>
 						Try again
 					</Button>
 				</Alert.Description>
 			</Alert.Root>
 		{/if}
 
-		{#if !shelf.loaded()}
+		{#if books.isPending}
 			<div class="flex justify-center py-16" role="status" aria-label="Loading books">
 				<Spinner class="size-5 text-muted-foreground" />
 			</div>
 		{:else}
-			{#each shelves(shelf.rows()) as group (group.key)}
+			{#each shelves(books.data ?? []) as group (group.key)}
 				<section class="mt-4" aria-labelledby="shelf-{group.key}">
 					<h2
 						id="shelf-{group.key}"
@@ -138,7 +150,7 @@
 					</ul>
 				</section>
 			{:else}
-				{#if !shelf.problem()}
+				{#if !books.error}
 					<Empty.Root class="py-16">
 						<Empty.Title>No books yet</Empty.Title>
 						<Empty.Description>Add one above, or ask your agent to.</Empty.Description>

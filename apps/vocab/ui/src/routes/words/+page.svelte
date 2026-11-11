@@ -6,8 +6,11 @@
 	import { Input } from '@epicenter/ui/input';
 	import { Loading } from '@epicenter/ui/loading';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
+	import { createQuery } from '@tanstack/svelte-query';
+	import { hrefOf, reads } from '$lib/app.js';
 	import { langOf, matches, untilLabel } from '$lib/text.js';
-	import { hrefOf, vocab } from '$lib/vocab.svelte.js';
+
+	const words = createQuery(() => reads.list());
 
 	let search = $state('');
 
@@ -19,8 +22,7 @@
 
 	/** Every word matching the search, the newest first. */
 	const shown = $derived(
-		vocab
-			.words()
+		(words.data ?? [])
 			.filter((word) => matches(word, search))
 			.sort((a, b) => {
 				const [atA, atB] = [added(a.createdAt), added(b.createdAt)];
@@ -29,29 +31,26 @@
 			}),
 	);
 	/** The time the words were last asked for, which their due labels count from. */
-	const now = $derived.by(() => {
-		vocab.refreshes();
-		return new Date();
-	});
+	const now = $derived(new Date(words.dataUpdatedAt));
 </script>
 
 <div class="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-3 p-4">
 	<div class="flex items-baseline justify-between">
 		<h1 class="text-2xl font-semibold">Words</h1>
-		{#if vocab.words().length > 0}
-			<p class="text-sm text-muted-foreground tabular-nums">{vocab.words().length}</p>
+		{#if words.data?.length}
+			<p class="text-sm text-muted-foreground tabular-nums">{words.data.length}</p>
 		{/if}
 	</div>
 	<Input type="search" aria-label="Search words" placeholder="Search by word, reading, or meaning" bind:value={search} />
 
-	{#if !vocab.loaded()}
+	{#if words.isPending}
 		<Loading class="flex-1" />
-	{:else if vocab.problem()}
+	{:else if words.isError}
 		<Alert.Root variant="destructive">
 			<Alert.Title>Vocab could not reach your Epicenter</Alert.Title>
-			<Alert.Description>{vocab.problem()}</Alert.Description>
+			<Alert.Description>{words.error.message}</Alert.Description>
 		</Alert.Root>
-	{:else if vocab.words().length === 0}
+	{:else if words.data.length === 0}
 		<Empty.Root>
 			<Empty.Header>
 				<Empty.Title>No words yet</Empty.Title>

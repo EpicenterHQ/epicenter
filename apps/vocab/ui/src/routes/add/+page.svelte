@@ -5,33 +5,28 @@
 	import { Input } from '@epicenter/ui/input';
 	import { toast } from '@epicenter/ui/sonner';
 	import { Textarea } from '@epicenter/ui/textarea';
+	import { createMutation } from '@tanstack/svelte-query';
+	import { hrefOf, writes } from '$lib/app.js';
 	import { langOf } from '$lib/text.js';
-	import { app, hrefOf, vocab } from '$lib/vocab.svelte.js';
+
+	const addWord = createMutation(() => writes.add);
 
 	const empty = { word: '', reading: '', meaning: '', body: '' };
 	let draft = $state({ ...empty });
-	let saving = $state(false);
 	let wordInput = $state<HTMLInputElement | null>(null);
 
-	async function add() {
-		if (saving || !draft.word.trim()) return;
-		saving = true;
-		try {
-			const added = await app.add(draft);
-			const { word, path } = added;
-			const open = { label: 'Open', onClick: () => goto(hrefOf(path)) };
-			if (added.added) toast.success(`Added ${word}`, { action: open });
-			else toast.info(`${word} is already saved`, { description: 'Nothing was changed.', action: open });
-			draft = { ...empty };
-			wordInput?.focus();
-			void vocab.refresh();
-		} catch (error) {
-			toast.error(`${draft.word.trim()} was not added`, {
-				description: error instanceof Error ? error.message : String(error),
-			});
-		} finally {
-			saving = false;
-		}
+	function add() {
+		if (addWord.isPending || !draft.word.trim()) return;
+		addWord.mutate(draft, {
+			onSuccess: ({ word, path, added }) => {
+				const open = { label: 'Open', onClick: () => goto(hrefOf(path)) };
+				if (added) toast.success(`Added ${word}`, { action: open });
+				else toast.info(`${word} is already saved`, { description: 'Nothing was changed.', action: open });
+				draft = { ...empty };
+				wordInput?.focus();
+			},
+			onError: (error) => toast.error(`${draft.word.trim()} was not added`, { description: error.message }),
+		});
 	}
 </script>
 
@@ -39,7 +34,7 @@
 	class="mx-auto flex w-full max-w-2xl flex-col gap-5 p-4"
 	onsubmit={(event) => {
 		event.preventDefault();
-		void add();
+		add();
 	}}
 >
 	<h1 class="text-2xl font-semibold">Add a word</h1>
@@ -79,7 +74,7 @@
 			<Textarea id="examples" bind:value={draft.body} rows={3} placeholder="One per line" />
 		</Field.Field>
 	</Field.Group>
-	<Button type="submit" class="h-12 text-base" disabled={saving || !draft.word.trim()}>
-		{saving ? 'Adding…' : 'Add'}
+	<Button type="submit" class="h-12 text-base" disabled={addWord.isPending || !draft.word.trim()}>
+		{addWord.isPending ? 'Adding…' : 'Add'}
 	</Button>
 </form>

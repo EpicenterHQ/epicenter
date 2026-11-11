@@ -25,6 +25,7 @@
 		"test": "bun test"
 	},
 	"dependencies": {
+		"@tanstack/query-core": "catalog:",
 		"nanoid": "catalog:",
 		"typebox": "catalog:",
 		"wellcrafted": "catalog:"

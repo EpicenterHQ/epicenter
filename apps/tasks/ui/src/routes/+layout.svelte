@@ -1,22 +1,25 @@
 <!--
-	Every page of Tasks: the toasts, the delete confirmation, the system's
-	light or dark mode, and the list kept current while the page is visible.
+	Every page of Tasks: the client that keeps what pages show current, the
+	toasts, the delete confirmation, and the system's light or dark mode.
 -->
 <script lang="ts">
+	import { createQueryClient } from '@epicenter/app/client';
 	import { ConfirmationDialog } from '@epicenter/ui/confirmation-dialog';
 	import { Toaster } from '@epicenter/ui/sonner';
+	import { QueryClientProvider } from '@tanstack/svelte-query';
 	import { ModeWatcher } from 'mode-watcher';
-	import { tasks } from '$lib/store.svelte.js';
 	import '../app.css';
 
 	let { children } = $props();
 
-	$effect(() => tasks.watch());
+	const queryClient = createQueryClient();
 </script>
 
 <svelte:head><title>Tasks</title></svelte:head>
 
-{@render children()}
+<QueryClientProvider client={queryClient}>
+	{@render children()}
+</QueryClientProvider>
 
 <ConfirmationDialog />
 <Toaster

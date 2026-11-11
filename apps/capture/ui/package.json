@@ -23,6 +23,7 @@
 		"@sveltejs/kit": "catalog:",
 		"@sveltejs/vite-plugin-svelte": "catalog:",
 		"@tailwindcss/vite": "catalog:",
+		"@tanstack/svelte-query": "catalog:",
 		"@types/bun": "catalog:",
 		"@types/markdown-it": "^14.0.0",
 		"mode-watcher": "catalog:",
@@ -31,7 +32,8 @@
 		"svelte-sonner": "catalog:",
 		"tailwindcss": "catalog:",
 		"typescript": "catalog:",
-		"vite": "catalog:"
+		"vite": "catalog:",
+		"wellcrafted": "catalog:"
 	},
 	"license": "AGPL-3.0-or-later"
 }

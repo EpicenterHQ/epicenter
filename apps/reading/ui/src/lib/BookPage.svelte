@@ -1,11 +1,11 @@
 <!--
 	One book: its author, its days, my rating, and my notes. A field is saved
 	through `set` as soon as it changes; the notes are saved through `edit`
-	when they lose focus or the page is hidden, quoting them as loaded, so
-	notes an agent changed meanwhile are not overwritten without asking.
--->
-<script lang="ts">
-	import { ActionError, changedElsewhere } from '@epicenter/app/client';
+	when they lose focus or the page is hidden, quoting the notes they were
+	typed over, so notes an agent changed meanwhile are not overwritten without
+	asking. Until then the notes typed here show over the book as last read.
+--><script lang="ts">
+	import { type ActionError, changedElsewhere } from '@epicenter/app/client';
 	import { goto } from '$app/navigation';
 	import { Button } from '@epicenter/ui/button';
 	import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
@@ -16,80 +16,74 @@
 	import { Spinner } from '@epicenter/ui/spinner';
 	import { Textarea } from '@epicenter/ui/textarea';
 	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
+	import { createMutation, createQuery } from '@tanstack/svelte-query';
 	import { untrack } from 'svelte';
 	import Stars from '$lib/Stars.svelte';
-	import { app, type BookFile, shelf } from '$lib/books.svelte.js';
+	import { reads, writes } from '$lib/app.js';
 
 	let { path: given }: { path: string } = $props();
 	// The route keys this page by its path, so it is fixed.
 	const path = untrack(() => given);
 
-	let book = $state<BookFile>();
-	let phase = $state<'loading' | 'ready' | 'gone' | 'failed'>('loading');
-	let problem = $state('');
-	let notes = $state('');
-	/** The notes as the server last returned them, which an edit quotes. */
+	const book = createQuery(() => reads.get({ path }));
+	const setBook = createMutation(() => writes.set);
+	const editBook = createMutation(() => writes.edit);
+	const startBook = createMutation(() => writes.start);
+	const finishBook = createMutation(() => writes.finish);
+	const deleteBook = createMutation(() => writes.delete);
+
+	/** The notes as typed, while they are not saved. */
+	let draft = $state<string>();
+	/** The body `draft` was typed over, which the edit quotes. */
 	let base = '';
 
-	async function load() {
-		phase = 'loading';
-		try {
-			book = await app.get({ path });
-			base = book.body;
-			notes = base.replace(/\r?\n$/, '');
-			phase = 'ready';
-		} catch (error) {
-			problem = error instanceof Error ? error.message : String(error);
-			phase = error instanceof ActionError && error.kind === 'transport' ? 'failed' : 'gone';
+	const shown = (body: string) => body.replace(/\r?\n$/, '');
+
+	const toastError = (failed: string) => (error: ActionError) =>
+		toast.error(failed, { description: error.message });
+
+	/** Save the notes typed over `base`, quoting it, unless a save is already on its way. */
+	function saveNotes() {
+		if (draft === undefined || editBook.isPending) return;
+		const sent = draft;
+		const typed = sent === '' || sent.endsWith('\n') ? sent : `${sent}\n`;
+		if (typed === base) {
+			draft = undefined;
+			return;
 		}
-	}
-	void load();
-
-	/** Show what a write answered, keeping the notes as typed. */
-	async function wrote(call: Promise<BookFile>, failed: string) {
-		try {
-			book = await shelf.write(call);
-		} catch (error) {
-			toast.error(failed, { description: String(error) });
-			void load();
-		}
-	}
-
-	const set = (fields: Omit<Parameters<typeof app.set>[0], 'path'>) =>
-		wrote(app.set({ path, ...fields }), 'Could not save the book');
-
-	async function saveNotes() {
-		const typed = notes === '' || notes.endsWith('\n') ? notes : `${notes}\n`;
-		if (phase !== 'ready' || typed === base) return;
-		try {
-			const file = await shelf.write(app.edit({ path, old: base, new: typed }));
-			base = file.body;
-		} catch (error) {
-			if (!changedElsewhere(error)) {
-				toast.error('Could not save the notes', { description: String(error) });
-				return;
-			}
-			toast.error('The notes changed elsewhere', {
-				description: 'Yours were not saved.',
-				action: {
-					label: 'Keep mine',
-					onClick: async () => {
-						base = (await app.get({ path })).body;
-						void saveNotes();
-					},
+		editBook.mutate(
+			{ path, old: base, new: typed },
+			{
+				onSuccess: () => {
+					if (draft === sent) draft = undefined;
+					else base = typed;
 				},
-			});
-		}
+				onError: (error) => {
+					if (!changedElsewhere(error)) return toastError('Could not save the notes')(error);
+					toast.error('The notes changed elsewhere', {
+						description: 'Yours were not saved.',
+						action: {
+							label: 'Keep mine',
+							onClick: () => {
+								// The failed edit refreshed the book, so this is the body to replace.
+								base = book.data?.body ?? base;
+								saveNotes();
+							},
+						},
+					});
+				},
+			},
+		);
 	}
 
 	function confirmDelete() {
 		confirmationDialog.open({
-			title: `Delete ${book?.title}?`,
+			title: `Delete ${book.data?.title}?`,
 			description: 'This deletes the book and my notes on it.',
 			confirm: { text: 'Delete', variant: 'destructive' },
 			async onConfirm() {
-				phase = 'gone';
-				await shelf.remove(path);
+				draft = undefined;
+				await deleteBook.mutateAsync({ path });
 				toast('Book deleted');
 				await goto('#/');
 			},
@@ -97,10 +91,10 @@
 	}
 </script>
 
-<svelte:window onpagehide={() => void saveNotes()} />
+<svelte:window onpagehide={saveNotes} />
 <svelte:document
 	onvisibilitychange={() => {
-		if (document.visibilityState === 'hidden') void saveNotes();
+		if (document.visibilityState === 'hidden') saveNotes();
 	}}
 />
 
@@ -117,50 +111,52 @@
 	</header>
 
 	<main class="mx-auto max-w-xl px-4 pt-4 pb-[calc(env(safe-area-inset-bottom)+2rem)]">
-		{#if phase === 'loading'}
+		{#if book.isPending}
 			<div class="flex justify-center py-16" role="status" aria-label="Loading the book">
 				<Spinner class="size-5 text-muted-foreground" />
 			</div>
-		{:else if phase === 'gone' || !book}
-			<Empty.Root class="py-16">
-				<Empty.Title>No book here</Empty.Title>
-				<Empty.Description>{problem || 'It was deleted, here or elsewhere.'}</Empty.Description>
-				<Button variant="outline" href="#/">Back to reading</Button>
-			</Empty.Root>
-		{:else if phase === 'failed'}
+		{:else if !book.data && book.error?.name === 'Unreachable'}
 			<Empty.Root class="py-16">
 				<Empty.Title>Epicenter did not answer</Empty.Title>
-				<Empty.Description>{problem}</Empty.Description>
-				<Button variant="outline" onclick={load}>Try again</Button>
+				<Empty.Description>{book.error.message}</Empty.Description>
+				<Button variant="outline" onclick={() => book.refetch()}>Try again</Button>
+			</Empty.Root>
+		{:else if !book.data}
+			<Empty.Root class="py-16">
+				<Empty.Title>No book here</Empty.Title>
+				<Empty.Description>{book.error?.message || 'It was deleted, here or elsewhere.'}</Empty.Description>
+				<Button variant="outline" href="#/">Back to reading</Button>
 			</Empty.Root>
 		{:else}
-			<h1 class="text-2xl font-semibold tracking-tight break-anywhere">{book.title}</h1>
+			{@const file = book.data}
+			<h1 class="text-2xl font-semibold tracking-tight break-anywhere">{file.title}</h1>
 			<Input
 				class="mt-2 h-11 text-base"
 				placeholder="Author"
 				aria-label="Author"
-				value={book.author ?? ''}
+				value={file.author ?? ''}
 				onchange={(event) => {
 					const author = event.currentTarget.value.trim();
-					if (author !== (book?.author ?? '')) void set({ author: author || null });
+					if (author !== (file.author ?? ''))
+						setBook.mutate({ path, author: author || null }, { onError: toastError('Could not save the book') });
 				}}
 			/>
 
 			<div class="mt-4 flex flex-wrap gap-2">
-				{#if !book.started || book.finished}
+				{#if !file.started || file.finished}
 					<Button
-						variant={book.started ? 'outline' : 'default'}
+						variant={file.started ? 'outline' : 'default'}
 						class="h-11"
-						onclick={() => wrote(app.start({ title: book?.title ?? '' }), 'Could not start the book')}
+						onclick={() => startBook.mutate({ title: file.title }, { onError: toastError('Could not start the book') })}
 					>
-						{book.finished ? 'Read it again' : 'Start reading'}
+						{file.finished ? 'Read it again' : 'Start reading'}
 					</Button>
 				{/if}
-				{#if !book.finished}
+				{#if !file.finished}
 					<Button
-						variant={book.started ? 'default' : 'outline'}
+						variant={file.started ? 'default' : 'outline'}
 						class="h-11"
-						onclick={() => wrote(app.finish({ title: book?.title ?? '' }), 'Could not finish the book')}
+						onclick={() => finishBook.mutate({ title: file.title }, { onError: toastError('Could not finish the book') })}
 					>
 						Finished
 					</Button>
@@ -177,10 +173,13 @@
 							id={day.key}
 							type="date"
 							class="mt-2 h-11"
-							value={book[day.key] ?? ''}
+							value={file[day.key] ?? ''}
 							onchange={(event) => {
 								const value = event.currentTarget.value;
-								void set({ [day.key]: value === '' ? null : value });
+								setBook.mutate(
+									{ path, [day.key]: value === '' ? null : value },
+									{ onError: toastError('Could not save the book') },
+								);
 							}}
 						/>
 					</div>
@@ -190,7 +189,11 @@
 			<section class="mt-6">
 				<p class="text-xs font-medium tracking-wide text-muted-foreground uppercase">Rating</p>
 				<div class="mt-1 -ml-2.5">
-					<Stars rating={book.rating} size="size-6" onRate={(rating) => void set({ rating })} />
+					<Stars
+						rating={file.rating}
+						size="size-6"
+						onRate={(rating) => setBook.mutate({ path, rating }, { onError: toastError('Could not save the book') })}
+					/>
 				</div>
 			</section>
 
@@ -202,16 +205,22 @@
 					id="notes"
 					class="mt-2 min-h-48 resize-none text-base"
 					placeholder="Thoughts, quotes, where I left off, in Markdown"
-					bind:value={notes}
-					onblur={() => void saveNotes()}
+					bind:value={
+						() => draft ?? shown(file.body),
+						(value) => {
+							if (draft === undefined) base = file.body;
+							draft = value;
+						}
+					}
+					onblur={saveNotes}
 				/>
 			</section>
 
-			{#if book.problems}
+			{#if file.problems}
 				<div class="mt-8 text-xs text-muted-foreground" role="note">
 					<p>Some of this book's file could not be read:</p>
 					<ul class="mt-1 list-disc pl-4 font-mono break-anywhere">
-						{#each book.problems as line (line)}
+						{#each file.problems as line (line)}
 							<li>{line}</li>
 						{/each}
 					</ul>

@@ -403,17 +403,32 @@ import type reading from '../../epicenter.ts';
 const app = connect<typeof reading>('reading');
 type Book = ActionOutput<typeof reading.actions.books.get>;
 
-const [first] = await app.books.list();
-if (first) await app.books.set({ path: first.path, finished: '2026-11-10' });
+const { data: books, error } = await app.books.list();
 ```
 
-A call resolves to what the action returned, in its JSON form, and rejects
-with an `ActionError` when it threw or did not run; `changedElsewhere(error)`
-says a call was refused with `WriteError.Changed` (`{ name: 'Changed', path,
-why }`): an `edit` whose passage changed, or an `update` of a file that kept
-changing. Whatever becomes of the
-snapshot after a call, the call resolves; the app's status on the computer
-that serves it says when one failed.
+A call resolves to a Result: what the action returned, in its JSON form, or
+an `ActionError` saying why not. `Threw` carries the action's message and the
+tagged error it threw, whole, as `thrown`; `Refused` means nothing ran, with
+serve's `next` when it has one; `Unreachable` means no answer came back.
+`changedElsewhere(error)` says a call threw `WriteError.Changed` (`{ name:
+'Changed', path, why }`): an `edit` whose passage changed, or an `update` of
+a file that kept changing. Whatever becomes of the snapshot after a call, the
+call resolves; the app's status on the computer that serves it says when one
+failed.
+
+A view hands these calls to TanStack Query through Wellcrafted's
+`resultQueries` and `resultMutations` (ADR-0661), and makes its one
+QueryClient with `createQueryClient()`: every write refreshes every read the
+page shows before it counts as done, and reads refresh every 15 seconds while
+the page is visible and when it is shown again.
+
+```ts
+import { resultMutations, resultQueries } from 'wellcrafted/query';
+
+export const reads = resultQueries(['reading'], { list: app.books.list });
+export const writes = resultMutations(['reading'], { set: app.books.set });
+// In a component: createQuery(() => reads.list()), createMutation(() => writes.set)
+```
 
 `ActionInput<A>` and `ActionOutput<A>` name what action `A` takes from a
 caller and returns to a client: `ActionInput<typeof app.actions.set>`. A field

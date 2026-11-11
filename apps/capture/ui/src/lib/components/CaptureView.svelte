@@ -15,7 +15,7 @@
 	The parent keys this view by `path`.
 -->
 <script lang="ts">
-	import { ActionError, changedElsewhere } from '@epicenter/app/client';
+	import { type ActionError, changedElsewhere } from '@epicenter/app/client';
 	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
 	import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
@@ -28,20 +28,25 @@
 	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
 	import EllipsisIcon from '@lucide/svelte/icons/ellipsis';
 	import PlusIcon from '@lucide/svelte/icons/plus';
+	import { createMutation, createQuery, useQueryClient } from '@tanstack/svelte-query';
 	import { untrack } from 'svelte';
 	import { goto } from '$app/navigation';
+	import { reads, writes } from '$lib/app.js';
 	import { type CaptureBody, type CaptureBodyReading, captureBody } from '$lib/body/document.js';
-	import { app, type CaptureFile, captures, messageOf } from '$lib/captures.svelte.js';
 	import { instantOf } from '$lib/days.js';
 	import { hasKeyboard } from '$lib/keys.js';
-	import { whileVisible } from '$lib/visible.js';
 
 	let { path }: { path: string } = $props();
 	const args = untrack(() => ({ path }));
 
-	let file = $state.raw<CaptureFile>();
-	let status = $state<'loading' | 'ready' | 'gone' | 'refused' | 'failed'>('loading');
-	let problem = $state<string>();
+	const queryClient = useQueryClient();
+	const capture = createQuery(() => reads.get(args));
+	const editCapture = createMutation(() => writes.edit);
+	const deleteCapture = createMutation(() => writes.delete);
+
+	/** The body as the changes on their way will leave it, shown over the file as last read. */
+	let changed = $state<string>();
+	const file = $derived(capture.data && changed !== undefined ? { ...capture.data, body: changed } : capture.data);
 
 	const reading = $derived(file && captureBody.decode(file.body));
 	const current = $derived(reading?.data ?? undefined);
@@ -57,35 +62,21 @@
 	let editing = $state<{ index: number; text: string; shown: string[] }>();
 	let changes = $state(0);
 
-	async function load() {
-		try {
-			file = await app.get(args);
-			status = 'ready';
-			problem = undefined;
-		} catch (error) {
-			if (error instanceof ActionError && error.kind === 'threw' && error.message.includes('There is no'))
-				status = 'gone';
-			else if (error instanceof ActionError && error.kind !== 'transport' && file === undefined) {
-				status = 'refused';
-				problem = messageOf(error);
-			} else if (file === undefined) {
-				status = 'failed';
-				problem = messageOf(error);
-			}
-		}
-	}
-
-	// Ask again while the page is visible, unless something here is being typed or saved.
-	$effect(() =>
-		whileVisible(() => {
-			if (changes === 0 && !isTextChanged && editing === undefined && markdown === undefined) void load();
-		}),
-	);
-
 	/** The text shown when the file changed elsewhere while it was being changed here. */
 	const CHANGED = 'It changed elsewhere while you were editing. It now shows the latest version; try again.';
 
 	let queue: Promise<unknown> = Promise.resolve();
+
+	/** Runs `write` after the changes before it, counting it as saving until it settles. */
+	function inTurn<T>(write: () => Promise<T>): Promise<T> {
+		changes += 1;
+		const run = queue.then(write).finally(() => {
+			changes -= 1;
+			if (changes === 0) changed = undefined;
+		});
+		queue = run;
+		return run;
+	}
 
 	/**
 	 * Shows `next` applied to the capture now, then, after the changes before
@@ -97,48 +88,35 @@
 		if (file && current) {
 			const value = next(current);
 			const shown = typeof value === 'string' ? undefined : captureBody.encode(value, file.body).data;
-			if (shown) file = { ...file, body: shown };
+			if (shown) changed = shown;
 		}
-		changes += 1;
-		const run = queue.then(async () => {
-			let latest: CaptureFile | undefined;
+		const notSaved = (description: string) => {
+			changed = undefined;
+			toast.error(`${what} not saved`, { description });
+			return false;
+		};
+		return inTurn(async () => {
 			try {
 				// edit quotes the body it read, so a change landing in between refuses it; read again and reapply.
 				for (let attempt = 1; ; attempt++) {
-					latest = await app.get(args);
+					const latest = await queryClient.query({ ...reads.get(args), staleTime: 0 });
 					const read = captureBody.decode(latest.body);
 					const value = read.error ? read.error.message : next(read.data);
-					if (typeof value === 'string') {
-						file = latest;
-						toast.error(`${what} not saved`, { description: value });
-						return false;
-					}
+					if (typeof value === 'string') return notSaved(value);
 					const encoded = captureBody.encode(value, latest.body);
-					if (encoded.error) {
-						file = latest;
-						toast.error(`${what} not saved`, { description: encoded.error.message });
-						return false;
-					}
+					if (encoded.error) return notSaved(encoded.error.message);
 					try {
-						file = await app.edit({ ...args, old: latest.body, new: encoded.data });
+						await editCapture.mutateAsync({ ...args, old: latest.body, new: encoded.data });
+						return true;
 					} catch (error) {
-						if (changedElsewhere(error) && attempt < 3) continue;
+						if (changedElsewhere(error as ActionError) && attempt < 3) continue;
 						throw error;
 					}
-					captures.saved(args.path, value.text.trim(), value.thoughts.length);
-					return true;
 				}
 			} catch (error) {
-				toast.error(`${what} not saved`, { description: messageOf(error) });
-				if (latest) file = latest;
-				else void load();
-				return false;
-			} finally {
-				changes -= 1;
+				return notSaved((error as ActionError).message);
 			}
 		});
-		queue = run;
-		return run;
 	}
 
 	const same = (a: readonly string[], b: readonly string[]) =>
@@ -192,30 +170,19 @@
 		const typed = markdown;
 		const base = file?.body;
 		if (typed === undefined || base === undefined) return;
-		changes += 1;
-		const run = queue.then(async () => {
+		await inTurn(async () => {
 			try {
-				try {
-					file = await app.edit({ ...args, old: base, new: typed });
-				} catch (error) {
-					if (!changedElsewhere(error)) throw error;
-					file = await app.get(args);
-					toast.error('Not saved', {
-						description: 'The file changed elsewhere while you were editing. Your version is still in the box; save again to replace what is there now.',
-					});
-					return;
-				}
-				const read = captureBody.decode(file.body);
-				if (read.data) captures.saved(args.path, read.data.text.trim(), read.data.thoughts.length);
+				await editCapture.mutateAsync({ ...args, old: base, new: typed });
 				if (markdown === typed) markdown = undefined;
 			} catch (error) {
-				toast.error('Not saved', { description: messageOf(error) });
-			} finally {
-				changes -= 1;
+				// A refused edit refreshed the file, so saving again replaces what is there now.
+				toast.error('Not saved', {
+					description: changedElsewhere(error as ActionError)
+						? 'The file changed elsewhere while you were editing. Your version is still in the box; save again to replace what is there now.'
+						: (error as ActionError).message,
+				});
 			}
 		});
-		queue = run;
-		await run;
 	}
 
 	async function copy(value: string) {
@@ -234,9 +201,9 @@
 			confirm: { text: 'Delete', variant: 'destructive' },
 			async onConfirm() {
 				try {
-					await captures.delete(args.path);
+					await deleteCapture.mutateAsync(args);
 				} catch (error) {
-					toast.error('Not deleted', { description: messageOf(error) });
+					toast.error('Not deleted', { description: (error as ActionError).message });
 					throw error;
 				}
 				await goto('#/');
@@ -275,7 +242,7 @@
 		<span class="ml-auto text-xs text-muted-foreground" aria-live="polite">
 			{#if changes > 0}Saving…{/if}
 		</span>
-		{#if status === 'ready'}
+		{#if file}
 			<DropdownMenu.Root>
 				<DropdownMenu.Trigger>
 					{#snippet child({ props })}
@@ -294,36 +261,32 @@
 		{/if}
 	</div>
 
-	{#if status === 'loading'}
+	{#if capture.isPending}
 		<div class="flex flex-col gap-4" aria-busy="true" aria-label="Loading capture">
 			<Skeleton class="h-5 w-56" />
 			<Skeleton class="h-32 w-full" />
 		</div>
-	{:else if status === 'gone'}
-		<Empty.Root>
-			<Empty.Header>
-				<Empty.Title>This capture is gone</Empty.Title>
-				<Empty.Description>It was deleted, here or elsewhere.</Empty.Description>
-			</Empty.Header>
-			<Empty.Content><Button href="#/" variant="outline" size="sm">Back to captures</Button></Empty.Content>
-		</Empty.Root>
-	{:else if status === 'refused'}
-		<Empty.Root>
-			<Empty.Header>
-				<Empty.Title>No capture here</Empty.Title>
-				<Empty.Description>{problem}</Empty.Description>
-			</Empty.Header>
-			<Empty.Content><Button href="#/" variant="outline" size="sm">Back to captures</Button></Empty.Content>
-		</Empty.Root>
-	{:else if status === 'failed'}
+	{:else if !file && capture.error?.name === 'Unreachable'}
 		<Alert.Root variant="destructive">
 			<Alert.Title>Can't reach Epicenter</Alert.Title>
 			<Alert.Description>
-				<p>{problem}</p>
-				<Button variant="outline" size="sm" class="mt-2" onclick={() => void load()}>Try again</Button>
+				<p>{capture.error.message}</p>
+				<Button variant="outline" size="sm" class="mt-2" onclick={() => capture.refetch()}>Try again</Button>
 			</Alert.Description>
 		</Alert.Root>
-	{:else if file}
+	{:else if !file}
+		<Empty.Root>
+			<Empty.Header>
+				<Empty.Title>No capture here</Empty.Title>
+				<Empty.Description>
+					{!capture.error || capture.error.message.startsWith('There is no')
+						? 'It was deleted, here or elsewhere.'
+						: capture.error.message}
+				</Empty.Description>
+			</Empty.Header>
+			<Empty.Content><Button href="#/" variant="outline" size="sm">Back to captures</Button></Empty.Content>
+		</Empty.Root>
+	{:else}
 		<h1 class="text-sm text-muted-foreground">
 			{#if capturedAt}
 				<time datetime={capturedAt.toISOString()}>{when.format(capturedAt)}</time>

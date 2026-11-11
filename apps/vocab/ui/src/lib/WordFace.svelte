@@ -1,7 +1,7 @@
 <!-- A word's answer: its reading, its meaning, and its examples, one per line. -->
 <script lang="ts">
 	import { langOf } from './text.js';
-	import type { Word } from './vocab.svelte.js';
+	import type { Word } from './app.js';
 
 	let { word }: { word: Pick<Word, 'reading' | 'meaning' | 'body'> } = $props();
 

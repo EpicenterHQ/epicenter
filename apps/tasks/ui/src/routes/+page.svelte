@@ -12,9 +12,24 @@
 	import { Spinner } from '@epicenter/ui/spinner';
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
 	import PlusIcon from '@lucide/svelte/icons/plus';
+	import type { ActionError } from '@epicenter/app/client';
+	import { createMutation, createQuery } from '@tanstack/svelte-query';
+	import { type Task, reads, sendingSets, writes } from '$lib/app.js';
 	import TaskRow from '$lib/components/TaskRow.svelte';
-	import { type Task, tasks } from '$lib/store.svelte.js';
 	import { completed, dayOf, groupOpen, labelOf } from '$lib/tasks.js';
+
+	const tasks = createQuery(() => reads.list());
+	const addTask = createMutation(() => writes.add);
+	const setTask = createMutation(() => writes.set);
+
+	/** The `set`s still on their way, shown over what was last read. */
+	const sending = sendingSets();
+	const rows = $derived(
+		(tasks.data ?? []).map((task) => {
+			const done = sending.findLast((input) => input.path === task.path && input.done != null)?.done;
+			return done == null ? task : { ...task, done };
+		}),
+	);
 
 	let title = $state('');
 	let showCompleted = $state(false);
@@ -27,33 +42,37 @@
 	});
 	const today = $derived(dayOf(now));
 
-	const groups = $derived(groupOpen(tasks.rows(), today));
-	const done = $derived(completed(tasks.rows()));
+	const groups = $derived(groupOpen(rows, today));
+	const done = $derived(completed(rows));
 
-	async function add() {
+	function add() {
 		const typed = title.trim();
 		if (typed === '') return;
 		// The input clears at once and keeps focus, so the next task can follow.
 		title = '';
-		try {
-			await tasks.add(typed);
-		} catch (error) {
-			if (title === '') title = typed;
-			toast.error('Could not add the task', { description: String(error) });
-		}
+		addTask.mutate(
+			{ title: typed },
+			{
+				onError: (error) => {
+					if (title === '') title = typed;
+					toast.error('Could not add the task', { description: error.message });
+				},
+			},
+		);
 	}
 
+	/** Each row's change settles its own promise, so quick ticks on several rows each get their toast. */
 	function toggle(task: Task, isDone: boolean) {
 		const label = labelOf(task);
-		tasks.setDone(task.path, isDone).then(
+		setTask.mutateAsync({ path: task.path, done: isDone }).then(
 			() => {
 				if (!isDone) return;
 				toast(`Done: ${label}`, {
 					action: { label: 'Undo', onClick: () => toggle(task, false) },
 				});
 			},
-			(error) =>
-				toast.error(`Could not change “${label}”`, { description: String(error) }),
+			(error: ActionError) =>
+				toast.error(`Could not change “${label}”`, { description: error.message }),
 		);
 	}
 </script>
@@ -68,7 +87,7 @@
 				class="flex gap-2"
 				onsubmit={(event) => {
 					event.preventDefault();
-					void add();
+					add();
 				}}
 			>
 				<Input
@@ -93,19 +112,19 @@
 	</header>
 
 	<main class="mx-auto max-w-xl px-4 pt-2 pb-[calc(env(safe-area-inset-bottom)+6rem)]">
-		{#if tasks.problem()}
+		{#if tasks.error}
 			<Alert.Root variant="destructive" class="mt-3">
 				<Alert.Title>Epicenter did not answer</Alert.Title>
 				<Alert.Description>
-					<p>{tasks.problem()}</p>
-					<Button variant="outline" size="sm" class="mt-2" onclick={() => tasks.refresh()}>
+					<p>{tasks.error.message}</p>
+					<Button variant="outline" size="sm" class="mt-2" onclick={() => tasks.refetch()}>
 						Try again
 					</Button>
 				</Alert.Description>
 			</Alert.Root>
 		{/if}
 
-		{#if !tasks.loaded()}
+		{#if tasks.isPending}
 			<div class="flex justify-center py-16" role="status" aria-label="Loading tasks">
 				<Spinner class="size-5 text-muted-foreground" />
 			</div>
@@ -127,7 +146,7 @@
 					</ul>
 				</section>
 			{:else}
-				{#if !tasks.problem()}
+				{#if !tasks.error}
 					<Empty.Root class="py-16">
 						<Empty.Title>Nothing to do</Empty.Title>
 						<Empty.Description>Add a task above, or ask your agent to.</Empty.Description>

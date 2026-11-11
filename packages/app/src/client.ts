@@ -1,51 +1,67 @@
 /**
  * How an app's UI asks `epicenter serve` to run its actions (ADR-0860,
- * ADR-0866). A UI is a web page built from an app's `ui/` into `.cache/ui/`
+ * ADR-0866). A UI is a web page built from an app's `ui/` into `ui/dist/`
  * and served at `/<app>/`; it asks over MCP like any agent, at the same
  * origin's `/`.
  *
+ * The client has the app's actions under the same words as the app. Each
+ * call checks its input, types what it returns in its JSON form, and resolves
+ * to a Result: what the action returned, or an `ActionError` saying why not.
+ * A view lists the actions it watches and makes with Wellcrafted
+ * (ADR-0661), and the layout's `createQueryClient` refreshes what it shows:
+ *
  * ```ts
  * import { connect } from '@epicenter/app/client';
- * import type tasks from '../../epicenter.ts';
+ * import { resultMutations, resultQueries } from 'wellcrafted/query';
+ * import type tasks from '../../../epicenter.ts';
  *
  * const app = connect<typeof tasks>('tasks');
- * const [first] = await app.list();
- * if (first) await app.set({ path: first.path, done: true });
+ * export const taskReads = resultQueries(['tasks'], { list: app.list, get: app.get });
+ * export const taskWrites = resultMutations(['tasks'], { set: app.set });
+ *
+ * const list = createQuery(() => taskReads.list());
+ * const setTask = createMutation(() => taskWrites.set);
+ * setTask.mutate({ path, done: true });
  * ```
  *
- * The client has the app's actions under the same words as the app: each
- * call checks its input and types what it returns in its JSON form, and
- * resolves to what the action returned or rejects with an `ActionError` when
- * it threw or did not run. The app is imported as a type, and this file imports only types, so the UI's bundle
- * carries no app code.
+ * The app is imported as a type, so the UI's bundle carries no app code.
  */
+import { MutationCache, QueryClient } from '@tanstack/query-core';
+import { defineErrors, type InferErrors } from 'wellcrafted/error';
+import { Ok, type Result } from 'wellcrafted/result';
 import type { JsonValue } from './front-matter.ts';
 
-/** Why a call did not return: the action threw, nothing ran, or the server did not answer. */
-export class ActionError extends Error {
-	override name = 'ActionError';
-	constructor(
-		message: string,
-		/** `threw` when the action threw, `error` when nothing ran, `transport` when no answer came back. */
-		readonly kind: 'threw' | 'error' | 'transport',
-		/** The answer's whole object, when there was one: `{ error }` or `{ threw }`. */
-		readonly answer?: unknown,
-	) {
-		super(message);
-	}
-}
+/** Why a call did not return, one variant for each way serve can answer, or not. */
+export const ActionError = defineErrors({
+	/**
+	 * The action ran and threw. `thrown` is the tagged error it threw, kept
+	 * whole (`{ name: 'Changed', path, why }`), when it threw one.
+	 */
+	Threw: ({
+		message,
+		thrown,
+	}: {
+		message: string;
+		thrown?: { name: string; message: string } & Record<string, unknown>;
+	}) => ({ message, thrown }),
+	/** Nothing ran: the action, its input, or the app was wrong. `next` says what to do instead, when serve knows. */
+	Refused: ({ message, next }: { message: string; next?: string }) => ({
+		message,
+		next,
+	}),
+	/** No answer came back: serve could not be reached, or answered something other than an answer. */
+	Unreachable: ({ message }: { message: string }) => ({ message }),
+});
+export type ActionError = InferErrors<typeof ActionError>;
 
 /**
  * Whether a call was refused with `WriteError.Changed` because what it
  * changes changed since it was read: a collection's `edit` whose quoted text
  * is gone, or a `folder.update` of a file that kept changing. A UI says so
- * and reloads rather than overwriting the other change.
+ * and shows the latest rather than overwriting the other change.
  */
-export function changedElsewhere(error: unknown): boolean {
-	const answer = error instanceof ActionError ? error.answer : undefined;
-	const thrown = (answer as { threw?: { thrown?: { name?: unknown } } })?.threw
-		?.thrown;
-	return thrown?.name === 'Changed';
+export function changedElsewhere(error: ActionError): boolean {
+	return error.name === 'Threw' && error.thrown?.name === 'Changed';
 }
 
 /** `T` flattened into one object type. */
@@ -95,7 +111,7 @@ export type AppClient<A> = {
 				...input: Record<string, never> extends ActionInput<A[K]>
 					? [input?: ActionInput<A[K]>]
 					: [input: ActionInput<A[K]>]
-			) => Promise<ActionOutput<A[K]>>
+			) => Promise<Result<ActionOutput<A[K]>, ActionError>>
 		: AppClient<A[K]>;
 };
 
@@ -124,12 +140,29 @@ export function connect<App extends { actions: object }>(
 	return at([]) as AppClient<App['actions']>;
 }
 
+/**
+ * The QueryClient for an app's view, made once where the page starts. Every
+ * write refreshes every read the page shows, and the write is done only once
+ * they are. Reads also refresh when the page is shown again and every 15
+ * seconds while it is visible, so what an agent or another device changed
+ * appears. A read that fails is not retried; the next refresh asks again.
+ */
+export function createQueryClient(): QueryClient {
+	const client: QueryClient = new QueryClient({
+		defaultOptions: { queries: { refetchInterval: 15_000, retry: false } },
+		mutationCache: new MutationCache({
+			onSettled: () => client.invalidateQueries(),
+		}),
+	});
+	return client;
+}
+
 /** Ask the server at `url` to run the MCP tool `name`, and return what its action returned. */
 async function call(
 	url: string,
 	name: string,
 	input: Record<string, unknown>,
-): Promise<unknown> {
+): Promise<Result<unknown, ActionError>> {
 	let response: Response;
 	try {
 		response = await fetch(url, {
@@ -146,31 +179,36 @@ async function call(
 			}),
 		});
 	} catch (cause) {
-		throw new ActionError(
-			`Could not reach Epicenter: ${String(cause)}`,
-			'transport',
-		);
+		return ActionError.Unreachable({
+			message: `Could not reach Epicenter: ${String(cause)}`,
+		});
 	}
 	if (!response.ok)
-		throw new ActionError(
-			`Epicenter answered ${response.status} ${response.statusText}`,
-			'transport',
-		);
+		return ActionError.Unreachable({
+			message: `Epicenter answered ${response.status} ${response.statusText}`,
+		});
 	const message = (await response.json()) as {
-		result?: {
-			isError?: boolean;
-			content?: { type: string; text?: string }[];
-			structuredContent?: Record<string, unknown>;
-		};
+		result?: { structuredContent?: Record<string, unknown> };
 		error?: { message: string };
 	};
 	if (message.error)
-		throw new ActionError(message.error.message, 'transport', message);
-	const result = message.result ?? {};
-	const answer = result.structuredContent ?? {};
-	if (!result.isError && 'returned' in answer) return answer.returned;
-	const text =
-		result.content?.find((part) => part.type === 'text')?.text ??
-		JSON.stringify(answer);
-	throw new ActionError(text, 'threw' in answer ? 'threw' : 'error', answer);
+		return ActionError.Unreachable({ message: message.error.message });
+	const answer = (message.result?.structuredContent ?? {}) as {
+		returned?: unknown;
+		threw?: {
+			message: string;
+			thrown?: { name: string; message: string } & Record<string, unknown>;
+		};
+		error?: { message: string; next?: string };
+	};
+	if ('returned' in answer) return Ok(answer.returned);
+	if (answer.threw) return ActionError.Threw(answer.threw);
+	if (answer.error)
+		return ActionError.Refused({
+			message: answer.error.message,
+			next: answer.error.next,
+		});
+	return ActionError.Unreachable({
+		message: `Epicenter answered without an answer: ${JSON.stringify(answer)}`,
+	});
 }

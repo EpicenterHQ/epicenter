@@ -9,26 +9,38 @@
 -->
 <script lang="ts">
 	import * as InputGroup from '@epicenter/ui/input-group';
+	import { toast } from '@epicenter/ui/sonner';
 	import ArrowUpIcon from '@lucide/svelte/icons/arrow-up';
-	import { captures } from '$lib/captures.svelte.js';
+	import { createMutation } from '@tanstack/svelte-query';
+	import { writes } from '$lib/app.js';
 	import { hasKeyboard } from '$lib/keys.js';
+
+	const addCapture = createMutation(() => writes.add);
 
 	let text = $state('');
 	// SvelteKit focuses an `autofocus` element after each navigation; a phone would open its keyboard.
 	const autofocus = hasKeyboard();
 
-	async function add() {
+	function add() {
 		const submitted = text;
 		if (submitted.trim() === '') return;
 		text = '';
-		if (!(await captures.add(submitted)) && text === '') text = submitted;
+		addCapture.mutate(
+			{ text: submitted },
+			{
+				onError: (error) => {
+					toast.error('Not captured', { description: error.message });
+					if (text === '') text = submitted;
+				},
+			},
+		);
 	}
 </script>
 
 <form
 	onsubmit={(event) => {
 		event.preventDefault();
-		void add();
+		add();
 	}}
 >
 	<InputGroup.Root class="bg-background">
@@ -43,7 +55,7 @@
 				if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return;
 				if (!(event.metaKey || event.ctrlKey || hasKeyboard())) return;
 				event.preventDefault();
-				void add();
+				add();
 			}}
 		/>
 		<InputGroup.Addon align="block-end" class="justify-between">

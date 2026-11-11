@@ -6,7 +6,7 @@
 	import { Checkbox } from '@epicenter/ui/checkbox';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import { slide } from 'svelte/transition';
-	import type { Task } from '$lib/store.svelte.js';
+	import type { Task } from '$lib/app.js';
 	import { dueLabel, hrefOf, isOverdue, labelOf } from '$lib/tasks.js';
 
 	let {

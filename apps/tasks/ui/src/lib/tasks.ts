@@ -4,7 +4,7 @@
  * sort as text in the order they fall. A task with no `due`, including one
  * whose file has a `due` that is not a day, has none.
  */
-import type { Task } from './store.svelte.js';
+import type { Task } from './app.js';
 
 /**
  * The page of the task at `path`: the hash route is the path itself,

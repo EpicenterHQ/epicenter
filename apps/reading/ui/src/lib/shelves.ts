@@ -4,7 +4,7 @@
  * and `finished` one I have read. Days are `YYYY-MM-DD`, which sort as text
  * in the order they fall.
  */
-import type { Book } from './books.svelte.js';
+import type { Book } from './app.js';
 
 export type Shelf = {
 	key: 'reading' | 'next' | 'read';

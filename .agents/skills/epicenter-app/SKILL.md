@@ -194,13 +194,29 @@ happened.
 Copy an existing app's `ui/`: SvelteKit with the hash router, `@epicenter/ui`
 and its `app.css`, a manifest and icons in `static/`, and its
 `svelte.config.js`, which builds into `../.cache/ui/` with the app's folder
-name as the base. Ask for everything through
-`connect<typeof app>('<app>')` from
-`@epicenter/app/client`, importing the app as a type
-(`import type app from '../../../epicenter.js'`): `app.set({ path, done: true
-})` calls the action under the same words, typed by the app. Name types with
-`ActionInput<typeof app.actions.set>` and
-`ActionOutput<typeof app.actions.get>`. The UI keeps nothing of its own.
+name as the base. The UI keeps nothing of its own: it shows what serve
+answers and sends what the person changes.
+
+`src/lib/app.ts` is the one place the UI names the app's actions. It calls
+`connect<typeof app>('<app>')` from `@epicenter/app/client`, importing the app
+as a type (`import type app from '../../../epicenter.js'`), and lists what the
+pages watch and what they change with Wellcrafted (see `query-layer`):
+
+```ts
+const app = connect<typeof tasksApp>('tasks');
+export const reads = resultQueries(['tasks'], { list: app.list, get: app.get });
+export const writes = resultMutations(['tasks'], { add: app.add, set: app.set });
+```
+
+Each call answers a Result: what the action returned, or an `ActionError`
+(`Threw`, `Refused`, `Unreachable`). The layout makes one
+`createQueryClient()` and puts it in `<QueryClientProvider>`; pages read with
+`createQuery(() => reads.get({ path }))` and write with
+`createMutation(() => writes.set)`. That client refreshes every read after
+each write, before the write counts as done, every 15 s while the page is
+visible, and when it is shown again, so a page never refreshes by hand. Name
+types with `ActionInput<typeof app.actions.set>` and
+`ActionOutput<typeof app.actions.get>`.
 
 - Route a record by its whole path: a rest route `src/routes/[...path]`, so the
   page is at `#/tasks/<time>.md`, linked with each part URL-encoded
@@ -217,15 +233,21 @@ name as the base. Ask for everything through
 - Send `set` only the fields that changed, and `null` for one emptied, so a
   save never writes back a value read before someone else changed it. Skip a
   save with nothing to send.
-- Save a changed body with `edit`, quoting the body as it was loaded
-  (`old: loaded, new: draft`), after `set` has saved the fields. When
-  `changedElsewhere(error)` from `@epicenter/app/client` is true, get the
-  file again: reapply a small change to the new body (Capture's checkbox), or
-  keep what was typed and say it was not saved, letting the person save over
-  the other change on purpose (Tasks' "Keep mine").
-- Update optimistically and say a failed write in a toast. Refresh on
-  visibility and every 15 s while visible, and drop a refresh that began
-  before a write, so it cannot undo what the screen shows.
+- Keep what is typed as a draft over the query's data
+  (`bind:value={() => draft ?? file.body, (value) => (draft = value)}`), and
+  clear it once it is saved, so a refresh never overwrites typing.
+- Save a changed body with `edit`, quoting the body the draft was typed over
+  (`old: base, new: draft`), after `set` has saved the fields. When
+  `changedElsewhere(error)` from `@epicenter/app/client` is true, the failed
+  write has already refreshed the file: reapply a small change to the new body
+  (Capture's thoughts), or keep what was typed and say it was not saved,
+  letting the person save over the other change on purpose (Tasks' "Keep
+  mine").
+- Show a write before it lands from the mutations still pending:
+  `useMutationState({ filters: { mutationKey: writes.set.mutationKey, status:
+  'pending' } })` (Tasks' done, Vocab's review queue, Capture's adds). When the
+  write settles, the refreshed read takes over. Say a failed write in a toast
+  with `error.message`.
 - Every write is a commit in the app's history. Save on blur, on a pause,
   or on an explicit action, never on each keystroke.
 

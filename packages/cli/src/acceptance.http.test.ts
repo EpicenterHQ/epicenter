@@ -14,7 +14,8 @@ import {
 	writeFile,
 } from 'node:fs/promises';
 import { join } from 'node:path';
-import { ActionError, connect } from '@epicenter/app/client';
+import { connect } from '@epicenter/app/client';
+import { expectErr, expectOk } from 'wellcrafted/testing';
 import { fixture, gitIn, readingApp } from './runner.test-support.ts';
 
 /** Reading's actions as its UI calls them, for `connect`. */
@@ -160,7 +161,7 @@ test('the browser client calls a tool without initialize and a write makes one n
 	const client = connect<Reading>('reading', {
 		url: `${f.base}/`,
 	});
-	expect(await client.log({ minutes: 30 })).toEqual({
+	expect(expectOk(await client.log({ minutes: 30 }))).toEqual({
 		minutes: 30,
 		book: null,
 	});
@@ -178,14 +179,13 @@ test('a read-only action makes no commit, and one that throws after writing comm
 	const folder = f.made;
 	const client = connect<Reading>('reading', { url: `${f.base}/` });
 	// Nothing is pending, so serve's startup backup commits nothing whenever it runs.
-	expect(await client.week.show()).toBe(210);
-	expect(await client.week.show()).toBe(210);
+	expect(expectOk(await client.week.show())).toBe(210);
+	expect(expectOk(await client.week.show())).toBe(210);
 	expect(await gitIn(folder, 'rev-list', '--count', 'HEAD')).toBe('1');
-	const threw = await client.explode().catch((error: unknown) => error);
-	expect(threw).toBeInstanceOf(ActionError);
-	expect((threw as ActionError).message).toBe('line 4 is not a number');
-	expect((threw as ActionError).answer).toEqual({
-		threw: { message: 'line 4 is not a number' },
+	expect(expectErr(await client.explode())).toEqual({
+		name: 'Threw',
+		message: 'line 4 is not a number',
+		thrown: undefined,
 	});
 	expect(await gitIn(folder, 'log', '-1', '--format=%B')).toBe(
 		'reading: explode (threw)',
@@ -204,7 +204,10 @@ test('a call whose snapshot fails still resolves, and the app says why', async (
 	});
 	const folder = f.made;
 	const client = connect<Reading>('reading', { url: `${f.base}/` });
-	expect(await client.log({ minutes: 5 })).toEqual({ minutes: 5, book: null });
+	expect(expectOk(await client.log({ minutes: 5 }))).toEqual({
+		minutes: 5,
+		book: null,
+	});
 	expect(await gitIn(folder, 'rev-list', '--count', 'HEAD')).toBe('1');
 	expect(JSON.parse((await f.run('reading', '--json')).stdout).status).toEqual({
 		pending: 2,
@@ -215,7 +218,11 @@ test('concurrent writes through update both land, and both are in history', asyn
 	const f = await setup((f) => f.folder(join(f.home, 'reading'), readingApp));
 	const folder = f.made;
 	const client = connect<Reading>('reading', { url: `${f.base}/` });
-	await Promise.all([client.log({ minutes: 10 }), client.log({ minutes: 20 })]);
+	for (const result of await Promise.all([
+		client.log({ minutes: 10 }),
+		client.log({ minutes: 20 }),
+	]))
+		expectOk(result);
 	expect(await readFile(join(folder, '2026.csv'), 'utf8')).toMatch(
 		/^minutes,book\n(?:10,\n20,|20,\n10,)\n$/,
 	);
@@ -240,12 +247,13 @@ test('two calls at once on different files each commit only their own file', asy
 		actions: { write: (input: { page: string }) => string };
 	}>('notes', { url: `${f.base}/` });
 	// After a call, the backup serve started with has passed this app.
-	await client.write({ page: 'sunday' });
+	expectOk(await client.write({ page: 'sunday' }));
 	await writeFile(join(folder, 'by-hand.md'), 'by hand\n');
-	await Promise.all([
+	for (const result of await Promise.all([
 		client.write({ page: 'monday' }),
 		client.write({ page: 'tuesday' }),
-	]);
+	]))
+		expectOk(result);
 	const commits = (await gitIn(folder, 'log', '-2', '--format=%s')).split('\n');
 	expect(commits.sort()).toEqual([
 		'notes: write monday',
@@ -281,9 +289,11 @@ test("a backup that runs during a call leaves the call's writes to the call's on
 		);
 	});
 	const folder = f.made;
-	await connect<{ actions: { pair: () => boolean } }>('notes', {
-		url: `${f.base}/`,
-	}).pair();
+	expectOk(
+		await connect<{ actions: { pair: () => boolean } }>('notes', {
+			url: `${f.base}/`,
+		}).pair(),
+	);
 	expect(await gitIn(folder, 'log', '--format=%s')).toBe(
 		'notes: pair\ninitial',
 	);
@@ -315,7 +325,9 @@ test('serve reports a refused backup push and leaves both histories intact', asy
 	await gitIn(peer, 'add', 'peer.md');
 	await gitIn(peer, 'commit', '-q', '-m', 'peer');
 	await gitIn(peer, 'push', '-q');
-	await connect<Reading>('reading', { url: `${f.base}/` }).log({ minutes: 42 });
+	expectOk(
+		await connect<Reading>('reading', { url: `${f.base}/` }).log({ minutes: 42 }),
+	);
 	expect(await f.stop()).toBe(0);
 	expect(f.stderr()).toContain(
 		'the backup at origin has changes this computer does not; nothing was overwritten',
@@ -333,9 +345,11 @@ test('serve reports a refused backup push and leaves both histories intact', asy
 test('a write call is pushed by the backup clock, not by the call; serve backs up once more when it stops', async () => {
 	const f = await setup(backedUpReading);
 	const { folder, remote } = f.made;
-	await connect<Reading>('reading', {
-		url: `${f.base}/`,
-	}).log({ minutes: 42 });
+	expectOk(
+		await connect<Reading>('reading', {
+			url: `${f.base}/`,
+		}).log({ minutes: 42 }),
+	);
 	expect(await gitIn(folder, 'log', '-1', '--format=%s')).toBe(
 		'reading: log 42',
 	);
@@ -360,12 +374,14 @@ test('commit subjects use the first positional value on one line, capped at 60 c
 	);
 	const folder = f.made;
 	const text = `Fear is the mind-killer ${'x'.repeat(80)}\nsecond line`;
-	await connect<{ actions: { add: (input: { text: string }) => string } }>(
-		'notes',
-		{
-			url: `${f.base}/`,
-		},
-	).add({ text });
+	expectOk(
+		await connect<{ actions: { add: (input: { text: string }) => string } }>(
+			'notes',
+			{
+				url: `${f.base}/`,
+			},
+		).add({ text }),
+	);
 	expect(await gitIn(folder, 'log', '-1', '--format=%B')).toBe(
 		`notes: add ${text.replace(/\s+/g, ' ').slice(0, 60)}`,
 	);

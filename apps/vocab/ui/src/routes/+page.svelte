@@ -1,4 +1,10 @@
+<!--
+	Review: the words due now, one at a time. A graded word leaves the queue at
+	once and comes back if its review is not saved; a word graded `again`
+	returns at the end of this sitting.
+-->
 <script lang="ts">
+	import type { ActionError } from '@epicenter/app/client';
 	import { resolve } from '$app/paths';
 	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
@@ -6,9 +12,10 @@
 	import { Loading } from '@epicenter/ui/loading';
 	import { toast } from '@epicenter/ui/sonner';
 	import PencilIcon from '@lucide/svelte/icons/pencil';
+	import { createMutation, createQuery, useMutationState } from '@tanstack/svelte-query';
 	import type { Grade } from '../../../epicenter.js';
+	import { type DueWord, hrefOf, reads, writes } from '$lib/app.js';
 	import { langOf, untilLabel } from '$lib/text.js';
-	import { hrefOf, vocab } from '$lib/vocab.svelte.js';
 	import WordFace from '$lib/WordFace.svelte';
 
 	const LABELS = {
@@ -26,15 +33,30 @@
 		easy: 'secondary',
 	} as const satisfies Record<Grade, string>;
 
-	const word = $derived(vocab.due()[0]);
+	const due = createQuery(() => reads.due());
+	const words = createQuery(() => reads.list());
+	const review = createMutation(() => writes.review);
+
+	/** The words whose reviews are on their way, which leave the queue at once. */
+	const grading = useMutationState({
+		filters: { mutationKey: writes.review.mutationKey, status: 'pending' },
+		select: (mutation) => (mutation.state.variables as { path: string }).path,
+	});
+	/** Words graded `again` this sitting, with their new schedule, last in the queue until they are due. */
+	let again = $state.raw<DueWord[]>([]);
+	const queue = $derived.by(() => {
+		const server = due.data ?? [];
+		const queued = [...server, ...again.filter((word) => !server.some((other) => other.path === word.path))];
+		return queued.filter((word) => !grading.includes(word.path));
+	});
+	const word = $derived(queue[0]);
 	/** The word whose answer is showing; another word starts hidden. */
 	let revealed = $state<string>();
 	const isRevealed = $derived(word !== undefined && revealed === word.path);
 
 	/** When the next word is due, once nothing is. */
 	const nextDue = $derived(
-		vocab
-			.words()
+		(words.data ?? [])
 			.map((row) => row.due)
 			.filter((due) => due !== undefined)
 			.sort()[0],
@@ -43,11 +65,15 @@
 	function grade(grade: Grade) {
 		if (!word) return;
 		const graded = word;
-		vocab.grade(graded, grade).catch((error: unknown) => {
-			toast.error(`Your review of ${graded.word} was not saved`, {
-				description: error instanceof Error ? error.message : String(error),
-			});
-		});
+		const others = () => again.filter((other) => other.path !== graded.path);
+		// Each review settles its own promise, so quick grades of several words each land.
+		review.mutateAsync({ path: graded.path, grade }).then(
+			({ due: when, interval, ease, reps, next }) => {
+				again = grade === 'again' ? [...others(), { ...graded, due: when, interval, ease, reps, next }] : others();
+			},
+			(error: ActionError) =>
+				toast.error(`Your review of ${graded.word} was not saved`, { description: error.message }),
+		);
 	}
 
 	function onkeydown(event: KeyboardEvent) {
@@ -68,25 +94,25 @@
 
 <svelte:window {onkeydown} />
 
-{#if !vocab.loaded()}
+{#if due.isPending}
 	<Loading class="flex-1" />
-{:else if vocab.problem()}
+{:else if due.isError}
 	<div class="mx-auto w-full max-w-2xl p-4">
 		<Alert.Root variant="destructive">
 			<Alert.Title>Vocab could not reach your Epicenter</Alert.Title>
-			<Alert.Description>{vocab.problem()}</Alert.Description>
+			<Alert.Description>{due.error.message}</Alert.Description>
 		</Alert.Root>
-		<Button class="mt-3" variant="outline" onclick={() => vocab.refresh()}>Try again</Button>
+		<Button class="mt-3" variant="outline" onclick={() => due.refetch()}>Try again</Button>
 	</div>
 {:else if !word}
 	<Empty.Root class="flex-1">
 		<Empty.Header>
-			<Empty.Title>{vocab.words().length === 0 ? 'No words yet' : 'All caught up'}</Empty.Title>
+			<Empty.Title>{words.data?.length === 0 ? 'No words yet' : 'All caught up'}</Empty.Title>
 			<Empty.Description>
-				{#if vocab.words().length === 0}
+				{#if words.data?.length === 0}
 					Add a word, or ask your agent to add some while you chat.
 				{:else if nextDue}
-					{vocab.words().length} words saved. The next is due in {untilLabel(nextDue, new Date())}.
+					{words.data?.length} words saved. The next is due in {untilLabel(nextDue, new Date())}.
 				{/if}
 			</Empty.Description>
 		</Empty.Header>
@@ -98,7 +124,7 @@
 	{@const text = word.word}
 	<div class="mx-auto flex w-full max-w-2xl flex-1 flex-col px-4 pt-4 pb-4">
 		<div class="flex items-center justify-between text-sm text-muted-foreground">
-			<p aria-live="polite"><span class="tabular-nums">{vocab.due().length}</span> due</p>
+			<p aria-live="polite"><span class="tabular-nums">{queue.length}</span> due</p>
 			<Button
 				variant="ghost"
 				size="icon-sm"

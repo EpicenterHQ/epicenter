@@ -1,14 +1,15 @@
 <!--
 	One task to edit: whether it is done, its title, its due day, and its
-	notes, each saved shortly after it changes, when a field loses focus, and
-	when the page is left: the fields through `set`, and the notes through
-	`edit`, quoting the notes as loaded, so notes an agent changed meanwhile
-	are not overwritten without asking. Delete asks first. When the file has
-	something that does not fit a task, such as a due day that is not a day,
-	a note at the bottom quotes it.
+	notes. Done and the due day are saved through `set` as soon as they change
+	and show at once; the title and notes are saved shortly after typing stops,
+	when they lose focus, and when the page is hidden or left. The notes go
+	through `edit`, quoting the notes they were typed over, so notes an agent
+	changed meanwhile are not overwritten without asking. Delete asks first.
+	When the file has something that does not fit a task, such as a due day
+	that is not a day, a note at the bottom quotes it.
 -->
 <script lang="ts">
-	import { ActionError, changedElsewhere } from '@epicenter/app/client';
+	import { type ActionError, changedElsewhere } from '@epicenter/app/client';
 	import { goto } from '$app/navigation';
 	import { Button } from '@epicenter/ui/button';
 	import { Checkbox } from '@epicenter/ui/checkbox';
@@ -21,126 +22,113 @@
 	import { Textarea } from '@epicenter/ui/textarea';
 	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
 	import XIcon from '@lucide/svelte/icons/x';
+	import { createMutation, createQuery } from '@tanstack/svelte-query';
 	import { onDestroy, untrack } from 'svelte';
-	import { app, type TaskChanges, tasks } from '$lib/store.svelte.js';
+	import { type TaskChanges, reads, sendingSets, writes } from '$lib/app.js';
 	import { addDays, dayOf, dueLabel, labelOf } from '$lib/tasks.js';
 
 	let { path: given }: { path: string } = $props();
 	// The parent keys this editor by its path, so it is fixed.
 	const path = untrack(() => given);
 
-	let phase = $state<'loading' | 'ready' | 'missing' | 'refused' | 'failed'>('loading');
-	let problem = $state('');
-	let title = $state('');
-	let done = $state(false);
-	let due = $state('');
-	let notes = $state('');
-	/** What in the file does not fit a task, one line each, as the last read said. */
-	let problems = $state<string[]>();
-	/** The notes as the server last returned them, which an edit quotes. */
+	const task = createQuery(() => reads.get({ path }));
+	const setTask = createMutation(() => writes.set);
+	const editTask = createMutation(() => writes.edit);
+	const deleteTask = createMutation(() => writes.delete);
+
+	/** The `set`s still on their way, shown over what was last read. */
+	const sending = sendingSets();
+	const fields = $derived(
+		Object.assign({}, task.data, ...sending.filter((input) => input?.path === path)) as TaskChanges,
+	);
+
+	/** The title as typed, while it is not sent. */
+	let title = $state<string>();
+	/** The notes as typed, while they are not saved. */
+	let notes = $state<string>();
+	/** The body `notes` was typed over, which the edit quotes. */
 	let base = '';
-	let saving = $state(0);
-	let unsaved = $state(false);
 	let saved = $state(false);
 
 	const today = dayOf(new Date());
+	const shown = (body: string) => body.replace(/\r?\n$/, '');
+	const saving = $derived(setTask.isPending || editTask.isPending);
 
-	async function load() {
-		phase = 'loading';
-		try {
-			const file = await app.get({ path });
-			title = file.title ?? '';
-			done = file.done;
-			due = file.due ?? '';
-			base = file.body;
-			notes = base.replace(/\r?\n$/, '');
-			problems = file.problems;
-			phase = 'ready';
-		} catch (error) {
-			problem = error instanceof Error ? error.message : String(error);
-			phase =
-				error instanceof ActionError && error.kind === 'transport'
-					? 'failed'
-					: problem.startsWith('There is no')
-						? 'missing'
-						: 'refused';
-		}
+	function set(changes: TaskChanges) {
+		setTask.mutate(
+			{ path, ...changes },
+			{
+				onSuccess: () => (saved = true),
+				onError: (error) => toast.error('Could not save the task', { description: error.message }),
+			},
+		);
 	}
-	void load();
 
-	/** Changes typed and not yet sent: fields as `set` takes them, and the notes. */
-	type Changes = TaskChanges & { body?: string };
-	let queued: Changes = {};
 	let timer: ReturnType<typeof setTimeout> | undefined;
-
-	function change(fields: Changes, wait = 700) {
-		Object.assign(queued, fields);
-		unsaved = true;
+	function saveSoon() {
 		clearTimeout(timer);
-		timer = setTimeout(save, wait);
+		timer = setTimeout(save, 700);
 	}
 
-	async function save() {
+	/** Send the title and notes typed and not yet sent. */
+	function save() {
 		clearTimeout(timer);
-		if (Object.keys(queued).length === 0) return;
-		const sent = queued;
-		queued = {};
-		saving++;
-		const { body, ...fields } = sent;
-		let left: Changes = sent;
-		try {
-			// Fields merge; the notes are an edit quoting what was loaded, so notes changed elsewhere are never overwritten.
-			if (Object.keys(fields).length > 0) {
-				const file = await app.set({ path, ...fields });
-				problems = file.problems;
-				tasks.changed(file);
-				left = body === undefined ? {} : { body };
-			}
-			if (body !== undefined && body !== base) {
-				const file = await app.edit({ path, old: base, new: body });
-				base = file.body;
-				problems = file.problems;
-				tasks.changed(file);
-			}
-			left = {};
-			unsaved = Object.keys(queued).length > 0;
-			saved = true;
-		} catch (error) {
-			if (changedElsewhere(error)) {
-				toast.error('The notes changed elsewhere', {
-					description: 'Your notes were not saved.',
-					action: { label: 'Keep mine', onClick: () => void keepMine(body as string) },
-				});
-			} else {
-				queued = { ...left, ...queued };
-				toast.error('Could not save the task', { description: String(error) });
-			}
-		} finally {
-			saving--;
+		if (title !== undefined) {
+			const typed = title.trim();
+			title = undefined;
+			// The sent title shows until the task is read again.
+			if (typed !== '' && typed !== task.data?.title) set({ title: typed });
 		}
+		saveNotes();
 	}
 
-	/** Replace notes changed elsewhere with the ones typed here, after the person chose to. */
-	async function keepMine(body: string) {
-		try {
-			base = (await app.get({ path })).body;
-			change({ body }, 0);
-		} catch (error) {
-			toast.error('Could not save the task', { description: String(error) });
+	/** Save the notes typed over `base`, quoting it, unless a save is already on its way. */
+	function saveNotes() {
+		if (notes === undefined || editTask.isPending) return;
+		const sent = notes;
+		const typed = sent === '' || sent.endsWith('\n') ? sent : `${sent}\n`;
+		if (typed === base) {
+			notes = undefined;
+			return;
 		}
+		editTask.mutate(
+			{ path, old: base, new: typed },
+			{
+				onSuccess: () => {
+					saved = true;
+					if (notes === sent) notes = undefined;
+					else base = typed;
+				},
+				onError: (error: ActionError) => {
+					if (!changedElsewhere(error))
+						return toast.error('Could not save the task', { description: error.message });
+					toast.error('The notes changed elsewhere', {
+						description: 'Your notes were not saved.',
+						action: {
+							label: 'Keep mine',
+							onClick: () => {
+								// The failed edit refreshed the task, so this is the body to replace.
+								base = task.data?.body ?? base;
+								saveNotes();
+							},
+						},
+					});
+				},
+			},
+		);
 	}
 
-	onDestroy(() => void save());
+	onDestroy(save);
 
 	function confirmDelete() {
 		confirmationDialog.open({
-			title: `Delete “${labelOf({ path, title })}”?`,
+			title: `Delete “${labelOf({ path, title: fields.title ?? undefined })}”?`,
 			description: 'This deletes the task and its notes.',
 			confirm: { text: 'Delete', variant: 'destructive' },
 			async onConfirm() {
 				clearTimeout(timer);
-				queued = {};
-				await tasks.remove(path);
+				title = notes = undefined;
+				await deleteTask.mutateAsync({ path });
 				toast('Task deleted');
 				await goto('#/');
 			},
@@ -148,10 +136,10 @@
 	}
 </script>
 
-<svelte:window onpagehide={() => void save()} />
+<svelte:window onpagehide={save} />
 <svelte:document
 	onvisibilitychange={() => {
-		if (document.visibilityState === 'hidden') void save();
+		if (document.visibilityState === 'hidden') save();
 	}}
 />
 
@@ -165,44 +153,37 @@
 				Tasks
 			</Button>
 			<span class="ml-auto pr-2 text-xs text-muted-foreground" role="status" aria-live="polite">
-				{#if saving > 0}Saving…{:else if saved && !unsaved}Saved{/if}
+				{#if saving}Saving…{:else if saved && title === undefined && notes === undefined}Saved{/if}
 			</span>
 		</div>
 	</header>
 
 	<main class="mx-auto max-w-xl px-4 pt-4 pb-[calc(env(safe-area-inset-bottom)+2rem)]">
-		{#if phase === 'loading'}
+		{#if task.isPending}
 			<div class="flex justify-center py-16" role="status" aria-label="Loading the task">
 				<Spinner class="size-5 text-muted-foreground" />
 			</div>
-		{:else if phase === 'missing'}
-			<Empty.Root class="py-16">
-				<Empty.Title>This task is gone</Empty.Title>
-				<Empty.Description>It was deleted, here or elsewhere.</Empty.Description>
-				<Button variant="outline" href="#/">Back to tasks</Button>
-			</Empty.Root>
-		{:else if phase === 'refused'}
-			<Empty.Root class="py-16">
-				<Empty.Title>No task here</Empty.Title>
-				<Empty.Description>{problem}</Empty.Description>
-				<Button variant="outline" href="#/">Back to tasks</Button>
-			</Empty.Root>
-		{:else if phase === 'failed'}
+		{:else if !task.data && task.error?.name === 'Unreachable'}
 			<Empty.Root class="py-16">
 				<Empty.Title>Epicenter did not answer</Empty.Title>
-				<Empty.Description>{problem}</Empty.Description>
-				<Button variant="outline" onclick={load}>Try again</Button>
+				<Empty.Description>{task.error.message}</Empty.Description>
+				<Button variant="outline" onclick={() => task.refetch()}>Try again</Button>
+			</Empty.Root>
+		{:else if !task.data}
+			<Empty.Root class="py-16">
+				<Empty.Title>No task here</Empty.Title>
+				<Empty.Description>{task.error?.message || 'It was deleted, here or elsewhere.'}</Empty.Description>
+				<Button variant="outline" href="#/">Back to tasks</Button>
 			</Empty.Root>
 		{:else}
+			{@const file = task.data}
+			{@const done = fields.done ?? false}
+			{@const due = fields.due ?? ''}
 			<div class="flex items-start gap-3">
 				<Checkbox
 					class="mt-3 size-6 rounded-full border-muted-foreground/40"
 					aria-label={done ? 'Mark not done' : 'Mark done'}
-					bind:checked={() => done,
-					(value) => {
-						done = value;
-						change({ done: value }, 0);
-					}}
+					bind:checked={() => done, (value) => set({ done: value })}
 				/>
 				<Textarea
 					class="min-h-0 resize-none border-transparent bg-transparent px-1 text-xl font-semibold shadow-none md:text-xl dark:bg-transparent {done
@@ -212,11 +193,11 @@
 					placeholder="Title"
 					aria-label="Title"
 					enterkeyhint="done"
-					bind:value={() => title,
+					bind:value={() => title ?? fields.title ?? '',
 					(value) => {
 						// The title is one line: Enter ends it rather than adding a line.
 						title = value.replace(/\r?\n/g, ' ');
-						if (title.trim() !== '') change({ title: title.trim() });
+						saveSoon();
 					}}
 					onkeydown={(event) => {
 						if (event.key === 'Enter') {
@@ -224,7 +205,7 @@
 							event.currentTarget.blur();
 						}
 					}}
-					onblur={() => void save()}
+					onblur={save}
 				/>
 			</div>
 
@@ -240,8 +221,8 @@
 							class="h-10 w-auto"
 							value={due}
 							onchange={(event) => {
-								due = event.currentTarget.value;
-								change({ due: due === '' ? null : due }, 0);
+								const day = event.currentTarget.value;
+								set({ due: day === '' ? null : day });
 							}}
 						/>
 						{#if due}
@@ -250,10 +231,7 @@
 								size="icon"
 								class="size-10"
 								aria-label="Clear the due day"
-								onclick={() => {
-									due = '';
-									change({ due: null }, 0);
-								}}
+								onclick={() => set({ due: null })}
 							>
 								<XIcon />
 							</Button>
@@ -265,10 +243,7 @@
 							size="sm"
 							class="h-10"
 							aria-pressed={due === choice.day}
-							onclick={() => {
-								due = choice.day;
-								change({ due: choice.day }, 0);
-							}}
+							onclick={() => set({ due: choice.day })}
 						>
 							{choice.label}
 						</Button>
@@ -287,20 +262,21 @@
 					id="notes"
 					class="mt-2 min-h-40 resize-none"
 					placeholder="Anything else, in Markdown"
-					bind:value={() => notes,
+					bind:value={() => notes ?? shown(file.body),
 					(value) => {
+						if (notes === undefined) base = file.body;
 						notes = value;
-						change({ body: value === '' || value.endsWith('\n') ? value : `${value}\n` });
+						saveSoon();
 					}}
-					onblur={() => void save()}
+					onblur={save}
 				/>
 			</section>
 
-			{#if problems}
+			{#if file.problems}
 				<div class="mt-8 text-xs text-muted-foreground" role="note">
 					<p>Some of this task's file could not be read:</p>
 					<ul class="mt-1 list-disc pl-4 font-mono break-anywhere">
-						{#each problems as line (line)}
+						{#each file.problems as line (line)}
 							<li>{line}</li>
 						{/each}
 					</ul>
