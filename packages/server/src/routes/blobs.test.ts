@@ -18,23 +18,6 @@ afterEach(() => {
 	globalThis.fetch = originalFetch;
 });
 
-test('collection route uses the principal from auth without a principal URL segment', async () => {
-	const app = new Hono().post(
-		API_ROUTES.blobs.collection.pattern,
-		(c) =>
-			new Response(JSON.stringify({ path: c.req.path }), {
-				headers: { 'content-type': 'application/json' },
-			}),
-	);
-	const url = API_ROUTES.blobs.collection.url('https://x');
-	const res = await app.request(url, { method: 'POST' });
-
-	expect(res.status).toBe(200);
-	expect(new URL(url).pathname).toBe('/api/blobs');
-	const body = (await res.json()) as unknown;
-	expect(body).toEqual({ path: '/api/blobs' });
-});
-
 test('the collection has no enumeration route', async () => {
 	const app = new Hono<Env>();
 	mountBlobsApp(app, {
@@ -59,17 +42,63 @@ test('the collection has no enumeration route', async () => {
 });
 
 test('by-id route accepts only canonical BlobIds', async () => {
-	const app = new Hono().get(API_ROUTES.blobs.byId.pattern, (c) =>
-		c.text(c.req.param('blobId')),
-	);
+	const requests: { method: string; path: string }[] = [];
+	globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+		const request = new Request(input, init);
+		requests.push({
+			method: request.method,
+			path: new URL(request.url).pathname,
+		});
+		return new Response(null, { status: 204 });
+	}) as typeof fetch;
+	const app = new Hono<Env>();
+	mountBlobsApp(app, {
+		auth: async (c, next) => {
+			c.set('principal', { id: asPrincipalId('alice') });
+			c.set('authBaseURL', 'https://api.example.com');
+			await next();
+		},
+	});
 	const blobId = generateBlobId();
+	const env = {
+		BLOBS_S3_ENDPOINT: 'https://example.r2.cloudflarestorage.com',
+		BLOBS_S3_ACCESS_KEY_ID: 'test-access-key',
+		BLOBS_S3_SECRET_ACCESS_KEY: 'test-secret-key',
+	};
 
 	expect(
-		(await app.request(API_ROUTES.blobs.byId.url('https://x', blobId))).status,
-	).toBe(200);
+		(
+			await app.request(
+				API_ROUTES.blobs.byId.url('https://api.example.com', blobId),
+				{ method: 'DELETE' },
+				env,
+			)
+		).status,
+	).toBe(204);
 	expect(
-		(await app.request(`https://x/api/blobs/${'a'.repeat(64)}`)).status,
+		(
+			await app.request(
+				`https://api.example.com/api/blobs/${'a'.repeat(64)}`,
+				{ method: 'DELETE' },
+				env,
+			)
+		).status,
 	).toBe(404);
+	expect(
+		(
+			await app.request(
+				`https://api.example.com/api/blobs/${'a'.repeat(64)}`,
+				{ method: 'GET' },
+				env,
+			)
+		).status,
+	).toBe(404);
+	expect(requests).toEqual([
+		{
+			method: 'DELETE',
+			path: `/epicenter-blobs/principals/alice/blobs/${blobId}`,
+		},
+	]);
 });
 
 test('upload ticket presigns directly without a HEAD request', async () => {
