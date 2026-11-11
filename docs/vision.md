@@ -171,12 +171,13 @@ action.** That is true for Claude Desktop, an agent on another computer,
 claude.ai, ChatGPT, and a UI.
 
 **History is snapshots, named for the calls** (`tasks: add Call the bank`):
-after each write, however it arrives, `epicenter` commits what is pending in
-the app's folder, and `epicenter serve` pushes it to the app's optional backup
-([ADR-0850], [ADR-0851]). A snapshot that fails leaves the changes pending and
-shows in the app's status. Writes to one app run at once; a change that
-depends on what it read goes through `folder.update`, so two at once never
-lose a change. Exit codes tell an agent what happened: 0 returned, 1 threw,
+a write call, however it arrives, commits exactly the paths it wrote, holding
+the app's lock from its first write to its commit, and `epicenter serve`
+snapshots what else is pending and pushes to the app's optional backup every
+5 minutes ([ADR-0850], [ADR-0851]). A snapshot that fails leaves the changes
+pending and shows in the app's status. Writes to one app take turns at its
+lock; a change that depends on what it read goes through `folder.update`, so
+two at once never lose a change. Exit codes tell an agent what happened: 0 returned, 1 threw,
 2 did not run ([ADR-0867]).
 
 ## Where code runs, and how to reach it
@@ -189,16 +190,17 @@ your server.
 ssh studio                                   you, then `epicenter …` there
 ssh studio epicenter serve --stdio           an agent's MCP server, from any computer
 epicenter serve, over your tailnet           your devices: UIs and MCP
-epicenter serve, through Tailscale Funnel    claude.ai and ChatGPT, signed in with OAuth
+epicenter serve, at its public address       claude.ai, ChatGPT, and your browser anywhere: signed in
 ```
 
 A command always means the computer it is typed on. `serve` speaks MCP and
 serves UIs, and runs each call in a fresh process, so code you just changed is
 what runs. Adding claude.ai or ChatGPT as a connector opens a page on your
-server where you approve it from a device on your tailnet, and the client
-receives a token you can revoke with `epicenter connections revoke`. Nothing
-guards your sign-ins from another program running as you except your agents'
-permission rules.
+server where you approve it with a passkey, and the client receives a token
+you can revoke with `epicenter access revoke`. The public address is any HTTPS
+tunnel, such as Tailscale Funnel, to a second listener that signs everyone in
+(ADR-0871). Nothing guards your sign-ins from another program running as you
+except your agents' permission rules.
 
 ## UIs
 
@@ -220,9 +222,10 @@ The home holds each app's only working copy. Other devices call its actions.
 The home keeps snapshots in Git. `epicenter sync` snapshots pending changes
 and pushes to the optional `origin` backup, without pulling or rebasing. A
 refused push leaves the backup untouched and appears in the app's status
-([ADR-0851]). `epicenter serve` also pushes after snapshots. An app made from
-a starter has `upstream`, which only `epicenter update` fetches; nothing pushes
-to it. Binary files a folder tracks go through Git LFS: text is history,
+([ADR-0851]), as does an app with no backup or one that has never received
+it. `epicenter serve` does what `sync` does for every app every 5 minutes. An
+app made from a starter has `upstream`, which only `epicenter update` fetches;
+nothing pushes to it. Binary files a folder tracks go through Git LFS: text is history,
 binaries are content. Rebuilt files and `.local` sign-ins stay on the home.
 
 ## One ladder

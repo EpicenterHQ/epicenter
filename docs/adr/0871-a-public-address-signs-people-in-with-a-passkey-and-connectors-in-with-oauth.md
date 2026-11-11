@@ -148,8 +148,11 @@ owner visits could start one for an attacker's own claude.ai account and land
 a grant there.
 
 **Two scopes, plus `offline_access`.** `read` lists and calls only actions with
-`readOnlyHint: true`; a call to any other answers 403 with an
-`insufficient_scope` challenge naming `write`. `write` allows every action.
+`readOnlyHint: true`, each in a child started to refuse every command and
+any other action (`packages/cli/src/child.ts`); a call to any other answers
+403 with an `insufficient_scope` challenge naming `write`. A read-only call
+commits nothing, and takes its app's lock only to write a `.local` file, as
+any write does (ADR-0850). `write` allows every action.
 The router adds `offline_access` to every authorization and refuses an
 approval without it, so every code exchange starts a refresh family, which the
 generation rule below can check. Better Auth lets any connector allowed the
