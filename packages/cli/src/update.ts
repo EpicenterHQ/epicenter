@@ -16,7 +16,7 @@
  * 3. check that the merged `epicenter.ts` loads.
  *
  * The fetch does not hold the lock, so the network never keeps a call from
- * writing the app. `serve` rebuilds the view from the merged `HEAD`.
+ * writing the app. `serve` rebuilds the UI from the merged code.
  *
  * Git merges code and does not migrate data: a field the merge renames or
  * tightens is repaired in the data by an action or an agent, in data commits

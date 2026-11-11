@@ -102,7 +102,7 @@ async function setup() {
 	const site: Site = {
 		mcp: unreachable,
 		launcher: unreachable,
-		view: unreachable,
+		ui: unreachable,
 	};
 	const inProcess = publicHandler(authorization, site);
 	/** The browser leg, in this process. */

@@ -20,19 +20,19 @@ The folder defaults to the current directory. Epicenters cannot nest.`,
 		help: `Makes <Epicenter>/<name>, two Git repositories: the folder holds the app's code,
 and data/ inside it the app's data. With --from, it clones a starter (another
 app's code) and keeps it as the app's upstream remote; without it, it starts
-from an epicenter.ts and a .gitignore. serve builds the view when it is opened.`,
+from an epicenter.ts and a .gitignore. serve builds the UI when it is opened.`,
 	},
 	update: {
 		usage: 'epicenter update [<app> [<remote>]]',
 		help: `Merges each app's upstream into its code, or one app's, or from the remote named:
 it snapshots what is pending first and undoes a merge that stops on a conflict.
-The data is never merged; serve rebuilds the view from the merged code.`,
+The data is never merged; serve rebuilds the UI from the merged code.`,
 	},
 	build: {
 		usage: 'epicenter build [<app>]',
-		help: `Builds the view of every app, or one app, from its code's last commit now,
-and shows the build's errors. serve rebuilds a view on its own once the code's
-last commit changes, and keeps serving the last view until a build succeeds.`,
+		help: `Builds the UI of every app, or one app, from its ui/ as it is on disk now,
+and shows the build's errors. serve rebuilds a UI on its own when a page opens
+after its sources changed, and keeps serving the last good build meanwhile.`,
 	},
 	sync: {
 		usage: 'epicenter sync [<app> [-m <message>]]',

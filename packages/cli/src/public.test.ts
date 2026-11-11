@@ -88,7 +88,7 @@ async function setup(changes: Parameters<typeof claudeOnly>[1] = {}) {
 			reached.push({ page: 'launcher' });
 			return new Response('launcher');
 		},
-		async view(request) {
+		async ui(request) {
 			reached.push({ page: new URL(request.url).pathname });
 			return new Response('view');
 		},

@@ -1,80 +1,55 @@
 /**
- * An app's view (ADR-0860): what its `ui/` builds to, in `ui/dist/`, which
- * `epicenter serve` serves at `/<app>/`. `ui/dist/` is a cache of the code
- * repository's `HEAD`: it is stamped with the commit it was built from, and
- * `serve` rebuilds it in the background when `HEAD` moves, serving the last
- * view meanwhile. So a change to the view shows once it is committed, by
- * whoever made it or by `serve`'s snapshot, and nobody has to remember to
- * build. `epicenter build` builds now and shows the build's errors.
+ * An app's UI (ADR-0860, ADR-0880): what its `ui/` builds to, in `ui/dist/`,
+ * which `epicenter serve` serves at `/<app>/`. A UI runs as it sits on disk,
+ * as the app's actions do: `ui/dist/` is a cache of `ui/`'s sources, stamped
+ * with their fingerprint, and `serve` rebuilds it in the background when the
+ * fingerprint changes, serving the last good build meanwhile. Committed or
+ * not, an edit shows on the next page load after its build. `epicenter build`
+ * builds now and shows the build's errors.
  *
- * A build checks out `HEAD` into a detached worktree beside the app, as
- * `.<app>-build-*`, which no listing reads as an app. It builds exactly the
- * commit, with Git LFS files as files, and never the working tree:
+ * The fingerprint is the path, size and modified time of every file under
+ * `ui/` (but `ui/dist/`, any `node_modules/`, and names starting with `.`),
+ * with the app's `package.json` and `bun.lock` and this `epicenter`'s version,
+ * so an upgraded `epicenter` rebuilds every UI against its own client.
  *
- * - When `ui/package.json` has a `build` script, `ui/` installs from its
- *   committed `bun.lock` and the script runs with `EPICENTER_BASE=/<app>`,
- *   the path the view is served at. It must write `ui/dist/`.
- * - Otherwise, when `ui/index.html` exists, Bun's bundler bundles it, so
- *   one `index.html` and the files beside it are a view with no
- *   `package.json`.
+ * An app is one Bun project, so a UI builds in the app's folder:
  *
- * Before either, `node_modules/@epicenter/app` in the worktree and in the app's
- * folder links to this command's own copy (`linkAppPackage`), so a view never
- * installs it and its client always matches the `serve` that answers it.
- * Both run with the Bun that runs `epicenter`; the compiled `epicenter` is
- * Bun itself when `BUN_BE_BUN=1` is set. The finished `dist/` replaces
- * `ui/dist/` by rename, on the same volume, so `serve` never answers from half
- * a build, and a failed build leaves the last view in place.
+ * - When the app's `package.json` has a `build` script, it runs with
+ *   `EPICENTER_OUT` naming the folder to build into.
+ * - Otherwise, when `ui/index.html` exists, Bun's bundler bundles it, so one
+ *   `index.html` and the files beside it are a UI with no `package.json`.
+ *
+ * Either writes relative URLs, so a build is never told where it is served.
+ * Neither installs: an app whose `package.json` names packages and that has
+ * no `node_modules/` is not built until `epicenter install` installs them.
+ * Before either, `node_modules/@epicenter/app` links to this command's own
+ * (`linkAppPackage`), so a UI's client always matches the `serve` that
+ * answers it. Both run with the Bun that runs `epicenter`. The finished build
+ * replaces `ui/dist/` by rename, on the same volume, so `serve` never answers
+ * from half a build, and a failed build leaves the last one in place.
  */
 import {
-	mkdir,
 	mkdtemp,
+	readdir,
 	readFile,
-	readlink,
 	rename,
 	rm,
 	stat,
-	symlink,
 	writeFile,
 } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { extractErrorMessage } from 'wellcrafted/error';
 import packageJson from '../package.json' with { type: 'json' };
+import { linkAppPackage } from './app-package.ts';
 import { COMPILED } from './child.ts';
-import { checkedGit, git } from './git.ts';
 import { writeErr } from './output.ts';
 
-/**
- * The `@epicenter/app` this command runs, whose `/client` a view must speak
- * to the `serve` that answers it: its package folder, two up from its entry.
- */
-const APP_PACKAGE = dirname(
-	dirname(Bun.fileURLToPath(import.meta.resolve('@epicenter/app'))),
-);
+/** Where an app's built UI lives, relative to its folder. */
+export const UI_DIST = join('ui', 'dist');
 
 /**
- * Make `folder/node_modules/@epicenter/app` this command's own, as `epicenter`
- * supplies it to every `epicenter.ts` it runs (ADR-0857), so a view's build,
- * `bun run dev` in `ui/`, and an editor's types all resolve it to the copy
- * that `serve` speaks, and no app installs it. `node_modules/` is ignored.
- */
-export async function linkAppPackage(folder: string) {
-	const link = join(folder, 'node_modules', '@epicenter', 'app');
-	try {
-		if ((await readlink(link)) === APP_PACKAGE) return;
-	} catch {}
-	await rm(link, { recursive: true, force: true });
-	await mkdir(dirname(link), { recursive: true });
-	await symlink(APP_PACKAGE, link, 'dir');
-}
-
-/** Where an app's view lives, relative to its folder. */
-export const VIEW = join('ui', 'dist');
-
-/**
- * The stamp inside `ui/dist/`: the commit the view was built from and the
- * `epicenter` that built it, whose client a bundled view carries. `serve`
- * never serves a name that starts with `.`.
+ * The stamp inside `ui/dist/`: the fingerprint of the sources it was built
+ * from. `serve` never serves a name that starts with `.`.
  */
 const STAMP = '.epicenter-build';
 
@@ -87,27 +62,97 @@ async function exists(path: string) {
 	}
 }
 
-/**
- * How `commit`'s `ui/` builds, read from the commit without checking it out:
- * by its `build` script, by bundling its `index.html`, or not at all.
- */
-async function viewSource(
-	folder: string,
-	commit: string,
-): Promise<'script' | 'index' | undefined> {
-	const manifest = await git(folder, ['show', `${commit}:ui/package.json`]);
-	if (manifest.code === 0) {
-		const parsed: { scripts?: { build?: unknown } } | null = JSON.parse(
-			manifest.stdout,
-		);
-		if (typeof parsed?.scripts?.build === 'string') return 'script';
+/** The app's `package.json`, or undefined when it has none or it is not JSON. */
+async function manifestOf(folder: string): Promise<
+	| {
+			scripts?: Record<string, unknown>;
+			dependencies?: Record<string, unknown>;
+			devDependencies?: Record<string, unknown>;
+	  }
+	| undefined
+> {
+	try {
+		return JSON.parse(await readFile(join(folder, 'package.json'), 'utf8'));
+	} catch {
+		return undefined;
 	}
-	const index = await git(folder, [
-		'cat-file',
-		'-e',
-		`${commit}:ui/index.html`,
-	]);
-	return index.code === 0 ? 'index' : undefined;
+}
+
+/**
+ * How the app's UI builds: by its `build` script, by bundling
+ * `ui/index.html`, or not at all, when it has no `ui/` or neither.
+ */
+async function uiSource(folder: string): Promise<'script' | 'index' | undefined> {
+	if (!(await exists(join(folder, 'ui')))) return undefined;
+	const manifest = await manifestOf(folder);
+	if (typeof manifest?.scripts?.build === 'string') return 'script';
+	return (await exists(join(folder, 'ui', 'index.html'))) ? 'index' : undefined;
+}
+
+/** Why the app's UI cannot build until its packages are installed, or undefined when it can. */
+async function missingPackages(app: string, folder: string) {
+	const manifest = await manifestOf(folder);
+	const names = {
+		...manifest?.dependencies,
+		...manifest?.devDependencies,
+	};
+	if (Object.keys(names).length === 0) return undefined;
+	if (await exists(join(folder, 'node_modules'))) return undefined;
+	return `the UI needs ${app}'s packages, which are not installed\nRun: epicenter install ${app}`;
+}
+
+/** Every file under `dir` the fingerprint covers, as `path size mtime` lines. */
+async function sourceLines(dir: string, prefix: string): Promise<string[]> {
+	const lines: string[] = [];
+	let entries: import('node:fs').Dirent[];
+	try {
+		entries = await readdir(dir, { withFileTypes: true });
+	} catch {
+		return lines;
+	}
+	for (const entry of entries) {
+		const path = `${prefix}${entry.name}`;
+		if (
+			entry.name.startsWith('.') ||
+			entry.name === 'node_modules' ||
+			path === 'ui/dist'
+		)
+			continue;
+		if (entry.isDirectory())
+			lines.push(...(await sourceLines(join(dir, entry.name), `${path}/`)));
+		else lines.push(await statLine(join(dir, entry.name), path));
+	}
+	return lines;
+}
+
+async function statLine(file: string, path: string) {
+	try {
+		const { size, mtimeMs } = await stat(file);
+		return `${path}\0${size}\0${mtimeMs}`;
+	} catch {
+		return `${path}\0gone`;
+	}
+}
+
+/** The fingerprint of the app's UI sources, as the stamp in `ui/dist/` records it. */
+async function fingerprintOf(folder: string): Promise<string> {
+	const lines = [
+		...(await sourceLines(join(folder, 'ui'), 'ui/')),
+		await statLine(join(folder, 'package.json'), 'package.json'),
+		await statLine(join(folder, 'bun.lock'), 'bun.lock'),
+	].sort();
+	const hasher = new Bun.CryptoHasher('sha256');
+	hasher.update(`${packageJson.version}\n${lines.join('\n')}`);
+	return hasher.digest('hex');
+}
+
+/** Whether `ui/dist/` was built from sources with `fingerprint`. */
+async function builtFrom(folder: string, fingerprint: string) {
+	try {
+		return (await readFile(join(folder, UI_DIST, STAMP), 'utf8')) === fingerprint;
+	} catch {
+		return false;
+	}
 }
 
 /**
@@ -142,25 +187,10 @@ async function runBun(
 		);
 }
 
-/** Install `ui/` and run its `build`; returns the `dist/` it wrote. */
-async function runBuildScript(app: string, ui: string) {
-	await runBun(
-		ui,
-		(await exists(join(ui, 'bun.lock')))
-			? ['install', '--frozen-lockfile']
-			: ['install'],
-	);
-	await runBun(ui, ['--bun', 'run', 'build'], { EPICENTER_BASE: `/${app}` });
-	return join(ui, 'dist');
-}
-
-/**
- * Bundle `ui/index.html` with Bun; returns the folder it wrote. Its
- * `@epicenter/app/client` resolves through the linked `node_modules`.
- */
-async function bundleIndex(ui: string, outdir: string) {
+/** Bundle `ui/index.html` with Bun into `outdir`. */
+async function bundleIndex(folder: string, outdir: string) {
 	const result = await Bun.build({
-		entrypoints: [join(ui, 'index.html')],
+		entrypoints: [join(folder, 'ui', 'index.html')],
 		outdir,
 		minify: true,
 		throw: false,
@@ -169,101 +199,84 @@ async function bundleIndex(ui: string, outdir: string) {
 		throw new Error(
 			`bundling ui/index.html failed: ${result.logs.map(String).join('\n')}`,
 		);
-	return outdir;
-}
-
-/** The code repository's `HEAD`, or undefined before its first commit. */
-async function headOf(folder: string): Promise<string | undefined> {
-	const head = await git(folder, ['rev-parse', '--verify', '-q', 'HEAD']);
-	return head.code === 0 ? head.stdout : undefined;
-}
-
-const stampFor = (commit: string) => `${commit}\n${packageJson.version}\n`;
-
-/** Whether `ui/dist/` was built from `commit` by this `epicenter`. */
-async function builtFrom(folder: string, commit: string) {
-	try {
-		return (
-			(await readFile(join(folder, VIEW, STAMP), 'utf8')) === stampFor(commit)
-		);
-	} catch {
-		return false;
-	}
 }
 
 /**
- * Build the view of `HEAD` for the app `app`, whose folder is `folder`, into
- * `ui/dist/`, and answer the commit it was built from. Answers undefined when
- * there is nothing to build: no commit yet, or a `ui/` with neither a `build`
- * script nor an `index.html` at that commit. Throws with the build's own
- * message when it fails, leaving the last view in place.
+ * Build the UI of the app `app`, whose folder is `folder`, into `ui/dist/`
+ * now, and answer whether there was one to build: false for an app with no
+ * `ui/`, or a `ui/` with no `index.html` and no `build` script. Throws with
+ * the build's own message when it fails, or when its packages are not
+ * installed, leaving the last build in place.
  */
-export async function buildView(
-	app: string,
-	folder: string,
-): Promise<string | undefined> {
-	const commit = await headOf(folder);
-	if (!commit) return undefined;
-	const source = await viewSource(folder, commit);
-	if (!source) return undefined;
+export async function buildUi(app: string, folder: string): Promise<boolean> {
+	const source = await uiSource(folder);
+	if (!source) return false;
+	const missing = await missingPackages(app, folder);
+	if (missing) throw new Error(missing);
+	const fingerprint = await fingerprintOf(folder);
 	const staging = await mkdtemp(
 		join(dirname(folder), `.${basename(folder)}-build-`),
 	);
-	const code = join(staging, 'code');
+	const built = join(staging, 'dist');
 	try {
-		// A build stopped by a crash leaves a worktree Git still lists.
-		await git(folder, ['worktree', 'prune']);
-		await checkedGit(folder, ['worktree', 'add', '--detach', code, commit]);
-		await linkAppPackage(code);
 		await linkAppPackage(folder);
-		const ui = join(code, 'ui');
-		const built =
-			source === 'script'
-				? await runBuildScript(app, ui)
-				: await bundleIndex(ui, join(staging, 'dist'));
+		if (source === 'script')
+			await runBun(folder, ['--bun', 'run', 'build'], {
+				EPICENTER_OUT: built,
+			});
+		else await bundleIndex(folder, built);
 		if (!(await exists(join(built, 'index.html'))))
 			throw new Error(
-				`ui/'s build wrote no ui/dist/index.html; its build must write ui/dist/`,
+				'the build wrote no index.html into the folder EPICENTER_OUT names',
 			);
-		await writeFile(join(built, STAMP), stampFor(commit));
-		const view = join(folder, VIEW);
+		await writeFile(join(built, STAMP), fingerprint);
+		const dist = join(folder, UI_DIST);
 		const last = join(staging, 'last');
-		const hadView = await exists(view);
-		if (hadView) await rename(view, last);
+		const hadBuild = await exists(dist);
+		if (hadBuild) await rename(dist, last);
 		try {
-			await rename(built, view);
+			await rename(built, dist);
 		} catch (error) {
-			if (hadView) await rename(last, view);
+			if (hadBuild) await rename(last, dist);
 			throw error;
 		}
-		return commit;
+		return true;
 	} finally {
-		await git(folder, ['worktree', 'remove', '--force', code]);
 		await rm(staging, { recursive: true, force: true });
 	}
 }
 
 /**
  * `serve`'s rebuilding: `refresh(app, folder)` builds in the background when
- * `ui/dist/` was not built from `HEAD`. One build runs per app at a time, and
- * a commit whose build failed is not tried again; its failure is written to
- * stderr once, and `epicenter build` shows it again.
+ * `ui/dist/` was not built from the UI's sources as they are now. One build
+ * runs per app at a time. Sources whose build failed are not tried again
+ * until they change; the failure is written to stderr once, and
+ * `epicenter build` shows it again. An app whose packages are not installed
+ * is skipped, not failed, so `epicenter install` is all it takes.
  */
-export function createViewRefresher() {
+export function createUiRefresher() {
 	const running = new Map<string, Promise<void>>();
-	const failed = new Map<string, string>();
+	/** Each folder's fingerprint whose build failed, or that waits for an install. */
+	const told = new Map<string, string>();
 	const refresh = async (app: string, folder: string) => {
-		const commit = await headOf(folder);
-		if (!commit || failed.get(folder) === commit) return;
-		if (await builtFrom(folder, commit)) return;
+		if (!(await uiSource(folder))) return;
+		const fingerprint = await fingerprintOf(folder);
+		if (await builtFrom(folder, fingerprint)) return;
+		const missing = await missingPackages(app, folder);
+		if (missing) {
+			if (told.get(folder) !== `missing ${fingerprint}`)
+				writeErr(`${app}: ${missing}`);
+			told.set(folder, `missing ${fingerprint}`);
+			return;
+		}
+		if (told.get(folder) === fingerprint) return;
 		try {
-			if (!(await viewSource(folder, commit))) return;
-			await buildView(app, folder);
-			failed.delete(folder);
+			await buildUi(app, folder);
+			told.delete(folder);
 		} catch (error) {
-			failed.set(folder, commit);
+			told.set(folder, fingerprint);
 			writeErr(
-				`${app}: the view of ${commit.slice(0, 7)} did not build, so the last one is served: ${extractErrorMessage(error)}\nRun: epicenter build ${app}`,
+				`${app}: the UI did not build, so the last build is served: ${extractErrorMessage(error)}\nRun: epicenter build ${app}`,
 			);
 		}
 	};

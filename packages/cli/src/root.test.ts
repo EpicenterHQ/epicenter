@@ -2,7 +2,7 @@ import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { bareApp, fixture, gitIn } from './runner.test-support.ts';
+import { bareApp, fixture } from './runner.test-support.ts';
 
 setDefaultTimeout(30_000);
 const roots: string[] = [];
@@ -213,28 +213,25 @@ test('the marker is matched by its exact name, and a byte order mark before its 
 	expect((await f.run('--json')).code).toBe(0);
 });
 
-test('build reports each app and keeps the last good view after a failed commit', async () => {
+test('build reports each app and keeps the last good UI after a failed build', async () => {
 	const f = await setup();
 	await f.folder(join(f.home, 'capture'), {
 		'epicenter.ts': bareApp('capture'),
 	});
 	const tasks = await f.folder(join(f.home, 'tasks'), {
 		'epicenter.ts': bareApp('tasks'),
-		'ui/package.json': JSON.stringify({
+		'.gitignore': 'data/\nnode_modules/\nui/dist/\n',
+		'package.json': JSON.stringify({
 			private: true,
-			scripts: { build: 'bun build.ts' },
+			scripts: { build: 'bun ui/build.ts' },
 		}),
-		'ui/.gitignore': 'dist/\nnode_modules/\n',
-		'ui/build.ts': `await Bun.write('dist/index.html', 'good');\n`,
+		'ui/build.ts': `await Bun.write(\`\${process.env.EPICENTER_OUT}/index.html\`, 'good');\n`,
 	});
 	const first = await f.run('build', '--json');
 	expect(first.code).toBe(0);
 	expect(
 		JSON.parse(first.stdout).apps.map(
-			(app: { app: string; built: string | null }) => [
-				app.app,
-				app.built !== null,
-			],
+			(app: { app: string; built: boolean }) => [app.app, app.built],
 		),
 	).toEqual([
 		['capture', false],
@@ -247,7 +244,6 @@ test('build reports each app and keeps the last good view after a failed commit'
 		join(tasks, 'ui/build.ts'),
 		`throw new Error('build broke');\n`,
 	);
-	await gitIn(tasks, 'commit', '-q', '--no-verify', '-am', 'break the build');
 	const failed = await f.run('build', 'tasks', '--json');
 	expect(failed.code).toBe(1);
 	expect(JSON.parse(failed.stdout).apps[0].error.message).toContain(
@@ -259,7 +255,7 @@ test('build reports each app and keeps the last good view after a failed commit'
 	expect((await f.run('build', 'capture')).stdout).toBe(
 		'capture: nothing to build\n',
 	);
-	// A view written by hand has no build script, and building leaves it alone.
+	// A UI written by hand has no build script, and building leaves it alone.
 	const capture = join(f.home, 'capture');
 	await mkdir(join(capture, 'ui', 'dist'), { recursive: true });
 	await writeFile(

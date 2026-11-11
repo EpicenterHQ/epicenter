@@ -26,8 +26,8 @@ and shared with no one.
   epicenter.ts         the app: its collections and actions, composed by defineApp
   epicenter.test.ts, package.json   the actions' tests and what they need
   README.md
-  ui/                  the UI, a SvelteKit project of its own
-  ui/dist/             the view serve shows at /<app>/: built, ignored by ui/.gitignore
+  ui/                  the UI's source
+  ui/dist/             the UI serve shows at /<app>/: built from ui/, never committed
   data/                the data repository
     .gitignore         *.local  *.local.*
     .gitattributes     binary files through LFS (ADR-0856)
@@ -235,24 +235,22 @@ npm: it depends on the published `@epicenter/app`, never on `workspace:` or
 theme in `src/app.css` (ADR-0874). Add a component by copying it whole,
 dependencies and tests included, and change it in place.
 
-`svelte.config.js` builds into `ui/dist/` with
-`paths.base: process.env.EPICENTER_BASE ?? \`/${basename(resolve('..'))}\``.
-SvelteKit's hash router writes absolute asset URLs whatever `paths.relative`
-says, so the build must know where the view is served: `serve` builds the
-view itself, installing `ui/` (from its committed `bun.lock` when there is
-one) and running its `build` script with `EPICENTER_BASE=/<app>`; a build run
-by hand falls back to the folder's name. Commit `ui/bun.lock`, so the server
-builds what you tested. `serve` serves `ui/dist/` and looks nowhere else.
+`serve` builds the UI itself from `ui/` as it sits on disk, committed or
+not (ADR-0880). An app is one Bun project, so the build runs in the app's
+folder: when the app's `package.json` has a `build` script, `serve` runs it
+with `EPICENTER_OUT` naming the folder to write; otherwise it bundles
+`ui/index.html` and the TypeScript and CSS beside it, so a tiny UI needs no
+`package.json`. Either way the build writes relative URLs and is never told
+where it is served, and `@epicenter/app` comes from `epicenter`, linked into
+`node_modules/` before every build; never list it. `serve` serves `ui/dist/`
+and looks nowhere else. A build never installs: after adding a package, run
+`epicenter install <app>`.
 
-`serve` builds the code's last commit, never the working tree: a UI change
-shows at `/<app>/` once it is committed, by you or by `serve`'s snapshot
-within 5 minutes, after a build of a few seconds, and the last view stays up
-meanwhile. While you work on the UI, see it live with `bun run dev` in `ui/`.
-Run `epicenter build <app>` after committing to build now and see the
-build's errors; a commit whose build failed keeps the last view. Never commit
-`ui/dist/`. A tiny view needs no `package.json`: with no `build` script,
-`serve` bundles `ui/index.html` and the TypeScript and CSS beside it, with
-`@epicenter/app/client` supplied. The UI keeps
+A change under `ui/` shows at `/<app>/` on the next page load after its
+build, and the last good build stays up meanwhile. A build that fails is not
+tried again until a file under `ui/`, `package.json`, or `bun.lock` changes;
+run `epicenter build <app>` to build now and see the build's errors. Never
+commit `ui/dist/`. The UI keeps
 nothing of its own: it shows what serve answers and sends what the person
 changes.
 
@@ -271,10 +269,13 @@ Each call answers a Result: what the action returned, or an `ActionError`
 told apart by `name`: `Changed` and `Missing` (the `FileError` the action
 threw), `Threw`, `Refused`, `Unreachable`. Check the name, never the message:
 a page for one record shows "it was deleted" when its read is `Missing`. The layout makes one
-`createQueryClient()` and puts it in `<QueryClientProvider>`; pages read with
+QueryClient with `createQueryClient()` from the UI's own
+`src/lib/query-client.ts` (copy it from an existing app; it builds on the UI's
+own `@tanstack/svelte-query`, so the bundle has one TanStack Query) and puts it
+in `<QueryClientProvider>`; pages read with
 `createQuery(() => reads.get({ path }))` and write with
 `createMutation(() => writes.set)`. That client refreshes every read after
-each write, before the write counts as done, and when the view is shown
+each write, before the write counts as done, and when the UI is shown
 again, so a page never refreshes by hand or on a timer. Name
 types with `ActionInput<typeof app.actions.set>` and
 `ActionOutput<typeof app.actions.get>`.
