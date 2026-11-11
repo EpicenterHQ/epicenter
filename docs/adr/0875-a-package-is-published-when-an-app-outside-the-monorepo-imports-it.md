@@ -2,6 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-11-11
+- **Unbuilt:** the deprecations, and `"private": true` on the packages this rule keeps unpublished.
 - **Relates:** [ADR-0873](0873-the-command-is-epicenter-cli-and-an-app-builds-against-epicenter-app-released-together.md) (the two packages published now), [ADR-0874](0874-the-ui-kit-is-a-shadcn-svelte-registry-an-app-copies-from.md) (the UI kit ships as a registry, not a package), `docs/licensing/licensing-strategy.md` (AGPL, and what an MIT package needs).
 
 ## Context

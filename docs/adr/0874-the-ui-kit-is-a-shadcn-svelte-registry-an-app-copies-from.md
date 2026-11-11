@@ -2,6 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-11-11
+- **Unbuilt:** no `registry.json`, build script, or `/r/` route exists, and `app.css` still holds the monorepo `@source` lines.
 - **Relates:** [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (an app's view), [ADR-0866](0866-an-app-starts-from-a-starter-kept-as-its-upstream-and-update-merges-the-starters-changes.md) (starters), [ADR-0873](0873-the-command-is-epicenter-cli-and-an-app-builds-against-epicenter-app-released-together.md) (`@epicenter/app` on npm), [ADR-0875](0875-a-package-is-published-when-an-app-outside-the-monorepo-imports-it.md) (`@epicenter/ui` is not published).
 
 ## Context

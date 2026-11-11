@@ -2,6 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-11-11
+- **Unbuilt:** nothing is published; `@epicenter/cli` is `private` at 0.0.1, and `epicenter` has no version check.
 - **Relates:** [ADR-0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md) (an app's `epicenter.ts`), [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (a view reaches actions through `@epicenter/app/client`), [ADR-0866](0866-an-app-starts-from-a-starter-kept-as-its-upstream-and-update-merges-the-starters-changes.md) (starters), [ADR-0875](0875-a-package-is-published-when-an-app-outside-the-monorepo-imports-it.md) (what gets published).
 
 ## Context
