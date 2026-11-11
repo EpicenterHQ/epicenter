@@ -143,15 +143,16 @@ export function connect<App extends { actions: object }>(
 }
 
 /**
- * The QueryClient for an app's view, made once where the page starts. Every
- * write refreshes every read the page shows, and the write is done only once
- * they are. Reads also refresh when the page is shown again and every 15
- * seconds while it is visible, so what an agent or another device changed
- * appears. A read that fails is not retried; the next refresh asks again.
+ * The QueryClient for an app's view, made once where the view starts. Every
+ * write refreshes every read the view shows, and the write is done only once
+ * they are. Reads also refresh when the view is shown again (its tab or app
+ * comes back), so what an agent or another device changed appears when you
+ * look. Nothing refreshes on a timer. A read that fails is not retried; the
+ * next refresh asks again.
  */
 export function createQueryClient(): QueryClient {
 	const client: QueryClient = new QueryClient({
-		defaultOptions: { queries: { refetchInterval: 15_000, retry: false } },
+		defaultOptions: { queries: { retry: false } },
 		mutationCache: new MutationCache({
 			onSettled: () => client.invalidateQueries(),
 		}),

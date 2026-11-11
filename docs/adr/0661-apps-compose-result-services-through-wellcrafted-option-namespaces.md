@@ -3,7 +3,6 @@
 - **Status:** Proposed
 - **Date:** 2026-10-21; revised 2026-11-11 for the merged helper shape
 - **Built:** the dashboard (`apps/api/ui/src/lib/dashboard/runtime.ts`) composes billing and account through `resultQueries` and `resultMutations` from Wellcrafted 0.47, with the client-wide invalidation rule. The views of Capture, Reading, Tasks, and Vocab do the same over `connect()`, whose calls return `Result<Out, ActionError>` (`Changed`, `Missing`, `Threw`, `Refused`, `Unreachable`): each view's `ui/src/lib/app.ts` lists its `reads` and `writes`, and its layout makes the QueryClient with `createQueryClient()` from `@epicenter/app/client`, which carries the rule.
-- **Unbuilt:** a change signal from `serve` for writes made outside a view. Until then `createQueryClient()` refetches every 15 seconds while the page is visible and when it is shown again.
 <!-- doc-path-check: ignore-next-line (the ADR path belongs to the external Wellcrafted repository) -->
 - **Relates:** [Wellcrafted](https://github.com/wellcrafted-dev/wellcrafted) and its own proposed ADR, `docs/adr/0001-result-namespaces-produce-native-tanstack-options.md`, for the library-owned conversion contract.
 
@@ -144,9 +143,11 @@ so through the rule. Direct service calls remain available and bypass the cache.
   refetch, a checkout's redirect and a top-up's success toast now wait until
   active billing reads are fresh.
 - An app's view refreshes after its own writes. Writes made elsewhere (agents,
-  the CLI, another device, the clock) appear on the next 15-second refetch or
-  when the page is shown again; a change signal from `serve`, when one exists,
-  triggers the same unfiltered invalidation instead.
+  the CLI, another device, the clock) appear when the view is shown again; no
+  timer polls. A view left open beside an agent shows its change on the next
+  write or tab switch. A change stream from `serve` (`/.changes/<app>`, a
+  folder watch) was built and set aside on `claude/change-stream` until a view
+  needs to update while it is watched.
 - An app's view shows a write before it lands by reading the pending
   mutations with `useMutationState`, not by writing to the cache, so there is
   no rollback to keep: when the write settles, the refreshed read takes over.

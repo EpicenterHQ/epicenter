@@ -1,8 +1,7 @@
 <!--
 	Capture's front page: the box to capture into, then a search, then every
-	capture newest first. The layout's client asks again every 15 seconds
-	while the page is visible and whenever it comes back, so captures an agent
-	adds appear.
+	capture newest first. The layout's client asks again whenever the view
+	comes back, so captures an agent added meanwhile appear.
 -->
 <script lang="ts">
 	import * as Alert from '@epicenter/ui/alert';

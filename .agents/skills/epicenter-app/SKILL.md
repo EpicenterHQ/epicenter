@@ -217,8 +217,8 @@ a page for one record shows "it was deleted" when its read is `Missing`. The lay
 `createQueryClient()` and puts it in `<QueryClientProvider>`; pages read with
 `createQuery(() => reads.get({ path }))` and write with
 `createMutation(() => writes.set)`. That client refreshes every read after
-each write, before the write counts as done, every 15 s while the page is
-visible, and when it is shown again, so a page never refreshes by hand. Name
+each write, before the write counts as done, and when the view is shown
+again, so a page never refreshes by hand or on a timer. Name
 types with `ActionInput<typeof app.actions.set>` and
 `ActionOutput<typeof app.actions.get>`.
 
