@@ -20,18 +20,23 @@ async function sent(context: ReturnType<typeof createMemoryContext>) {
 	return state.messages;
 }
 
-test('two sessions share one draft and refuse a stale previous value', async () => {
-	const { context, run: sessionA } = setup();
-	const sessionB = <T>(work: () => T) =>
-		inRun({ folder: context.folder }, work);
-	await sessionA(() => draft({ chat, text: 'See you at ten' }));
-	expect((await sessionB(() => read({ chat }))).draft).toBe('See you at ten');
+test('a fresh context reads the saved draft and refuses a stale previous value', async () => {
+	const { context, run } = setup();
+	await run(() => draft({ chat, text: 'See you at ten' }));
+	const restarted = setup(await snapshot(context));
+	expect((await restarted.run(() => read({ chat }))).draft).toBe(
+		'See you at ten',
+	);
 	await expect(
-		sessionB(() => draft({ chat, text: 'Stale reply', previous: '' })),
+		restarted.run(() => draft({ chat, text: 'Stale reply', previous: '' })),
 	).rejects.toMatchObject({ name: 'Changed' });
-	expect((await sessionA(() => read({ chat }))).draft).toBe('See you at ten');
+	expect((await restarted.run(() => read({ chat }))).draft).toBe(
+		'See you at ten',
+	);
 	expect(
-		readMarkdown((await context.folder.read('drafts/maya-chen.md'))!).body,
+		readMarkdown(
+			(await restarted.context.folder.read('drafts/maya-chen.md')) ?? '',
+		).body,
 	).toBe('See you at ten\n');
 });
 
