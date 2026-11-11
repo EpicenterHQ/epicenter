@@ -22,16 +22,17 @@
  * internet through a tunnel, behind a sign-in (`public.ts`, ADR-0871); then
  * `--host` must be a loopback address.
  *
- * A write call commits the paths it wrote before it answers (`run.ts`).
+ * A write call commits pending data before it answers (`run.ts`).
  * Everything else reaches history and the backup on the server's clock: when
  * it starts, every 5 minutes, and when it stops, it does for each app what
  * `epicenter sync <app>` does, snapshotting what is pending as changed
  * outside epicenter and pushing to `origin` when there is something to push.
  * The clock's interval is how old an unbacked change can get, not a guess at
- * when an edit is done. A tick never waits for a call: it skips an app whose
- * lock a call holds (`lock.ts`), and the call's commit, or the next tick,
- * takes what the call wrote.
+ * when an edit is done. A tick skips an idle app and never waits for a call:
+ * it skips an app whose lock a call holds (`lock.ts`). The call's commit,
+ * or the next tick, takes what the call wrote.
  */
+
 import { realpath, stat } from 'node:fs/promises';
 import { isIP } from 'node:net';
 import { basename, isAbsolute, join, sep } from 'node:path';
@@ -45,6 +46,7 @@ import { createMcpServer } from './mcp.ts';
 import { writeErr } from './output.ts';
 import { startPublicServer } from './public.ts';
 import { epicenterDir, epicenterRoot } from './root.ts';
+import { nothingToBackUp } from './snapshot.ts';
 import { type Synced, syncFailures, syncOne } from './sync.ts';
 import { createViewRefresher, VIEW } from './ui.ts';
 
@@ -276,11 +278,14 @@ export function startHttpServer(host: string, port: number) {
 	const backUpAll = async () => {
 		const backedUp: Synced[] = [];
 		for (const { entry, realPath } of await homeEntries()) {
-			const synced = await syncOne(entry, realPath, { wait: 0 });
+			const idle = await nothingToBackUp(realPath);
+			const synced = idle
+				? undefined
+				: await syncOne(entry, realPath, { wait: 0 });
 			// What the snapshot just committed reaches the view without a visit.
 			void refreshView(entry, realPath);
 			// A call to it is running: its commit, or the next tick, takes what it wrote.
-			if (synced.busy) continue;
+			if (!synced || synced.busy) continue;
 			backedUp.push(synced);
 			const failure = syncFailures(synced)
 				.map(({ message, next }) => `${message}${next ? `\nRun: ${next}` : ''}`)

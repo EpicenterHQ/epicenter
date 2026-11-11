@@ -21,6 +21,7 @@ const stops: (() => Promise<unknown>)[] = [];
 afterEach(async () => {
 	for (const stop of stops.splice(0)) await stop();
 	await rm(join(f.home, 'reading'), { recursive: true, force: true });
+	await rm(join(f.home, 'idle'), { recursive: true, force: true });
 	await rm(join(f.root, 'remote.git'), { recursive: true, force: true });
 });
 
@@ -64,7 +65,7 @@ test('serve backs up once when it starts: outside edits are snapshotted and push
 	const server = serve();
 	// A tick waits for the backup serve started with, which left it nothing to do.
 	const [after] = await server.tick();
-	expect(after?.data).toMatchObject({ committed: null, pushed: false });
+	expect(after).toBeUndefined();
 	expect(await gitIn(remote, 'log', '-1', '--format=%s')).toBe(
 		'reading: changed outside epicenter',
 	);
@@ -99,8 +100,7 @@ test('a tick commits outside edits and pushes them, and pushes only when somethi
 		join(f.root, 'gone.git'),
 	);
 	const [idle] = await server.tick();
-	expect(idle?.data).toMatchObject({ committed: null, pushed: false });
-	expect(idle?.data?.error).toBeUndefined();
+	expect(idle).toBeUndefined();
 
 	// A commit made by hand is unpushed, so the next tick pushes it.
 	await gitIn(join(folder, 'data'), 'remote', 'set-url', 'origin', remote);
@@ -144,4 +144,22 @@ test('a tick logs an unchanged failure once, and again when it changes', async (
 	expect(await gitIn(join(folder, 'data'), 'rev-list', '--count', 'HEAD')).toBe(
 		'1',
 	);
+});
+
+test('a tick skips an idle app while backing up an app with pending data', async () => {
+	const { folder } = await reading();
+	const idle = await f.folder(join(f.home, 'idle'), readingApp);
+	await mkdir(join(idle, 'data'));
+	await f.run('sync', 'idle');
+	const server = serve();
+	await server.tick();
+	const before = await gitIn(join(idle, 'data'), 'rev-parse', 'HEAD');
+	await writeFile(join(folder, 'data/changed.md'), 'changed');
+	const tick = await server.tick();
+	expect(tick.map((app) => app.app)).toEqual(['reading']);
+	expect(tick[0]?.data).toMatchObject({
+		committed: { subject: 'reading: changed outside epicenter', files: 1 },
+		pushed: true,
+	});
+	expect(await gitIn(join(idle, 'data'), 'rev-parse', 'HEAD')).toBe(before);
 });
