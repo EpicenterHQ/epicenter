@@ -379,3 +379,17 @@ test('serve with connectors refuses a --host that is not loopback', async () => 
 		);
 	}
 });
+
+test('serve refuses a --port that is also connectors.port', async () => {
+	const f = await fixture();
+	cleanups.push(() => rm(f.root, { recursive: true, force: true }));
+	await writeFile(
+		join(f.home, 'EPICENTER.md'),
+		MARKER.replace('  port: 0', '  port: 4757'),
+	);
+	const refused = await f.run('serve', '--port', '4757');
+	expect(refused.code).toBe(2);
+	expect(refused.stderr).toContain(
+		'--port 4757 is also connectors.port; the public listener needs a port of its own',
+	);
+});

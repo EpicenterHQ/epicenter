@@ -477,10 +477,18 @@ export async function serveHttp(host: string, port: number): Promise<number> {
 		: undefined;
 	const server = startHttpServer(host, port, authorization);
 	writeErr(`Serving your apps at http://${host}:${server.port}.`);
-	const publicServer =
-		authorization && connectors
-			? startPublicServer(authorization, connectors.port, server.site.mcp)
-			: undefined;
+	let publicServer: ReturnType<typeof startPublicServer> | undefined;
+	try {
+		publicServer =
+			authorization && connectors
+				? startPublicServer(authorization, connectors.port, server.site.mcp)
+				: undefined;
+	} catch (error) {
+		// A port already taken: stop what started, so the process can exit.
+		await server.stop();
+		authorization?.close();
+		throw error;
+	}
 	if (connectors && publicServer)
 		writeErr(
 			`Serving connectors at ${connectors.url}/ from http://127.0.0.1:${publicServer.port}: an HTTPS tunnel from that address must forward to this port. They are approved at ${connectors.tailnet}/.allow.`,

@@ -110,6 +110,15 @@ const HANDLERS: { [K in Command]: Handler } = {
 				),
 				json,
 			);
+		// Port 0 asks for any free port, so two of them never collide.
+		if (listen !== 0 && root.connectors?.port === listen)
+			return fail(
+				misuse(
+					'serve',
+					`--port ${listen} is also connectors.port; the public listener needs a port of its own`,
+				),
+				json,
+			);
 		return serveHttp(host ?? '127.0.0.1', listen);
 	},
 };
