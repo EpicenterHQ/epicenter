@@ -121,23 +121,25 @@ for known content shapes rather than rebuilding them in an app.
 
 ## Updating upstream components
 
-The [upstream baseline and customization register](upstream/README.md) records
-saved registry responses and intentional differences. The source ownership
-decision is in [ADR-0455](../../docs/adr/0455-epicenter-ui-tracks-distributed-shadcn-svelte-components-with-explicit-deltas.md).
+A stock component is what the shadcn-svelte CLI installs for the `vega` style,
+plus at most one patch that says why it differs. [`upstream/README.md`](upstream/README.md)
+explains the snapshots, the check, and the differences not yet recorded as
+patches. The source ownership decision is in
+[ADR-0455](../../docs/adr/0455-epicenter-ui-tracks-distributed-shadcn-svelte-components-with-explicit-deltas.md).
 
-1. Fetch the distributed component for the chosen style and save its exact
-   registry response. Extras use their separate registry.
-2. Compare it with the maintained component and real callers. Adapt import
-   and icon placeholders; review requested dependency versions.
-3. Adopt upstream defaults. Retain a local difference only when a workflow or
-   shared decision establishes its need. Record the change and reason in the
-   customization register; track unverified differences in the PR or an issue.
+1. Run `bun scripts/upstream.ts refresh` and read `git diff upstream/` for what
+   upstream changed and which dependency versions it now expects.
+2. Run `bun scripts/upstream.ts apply` for the changed components. A patch that
+   no longer applies is the decision: drop it if upstream now covers its reason,
+   or edit `src/<name>` and record it with `bun scripts/upstream.ts diff <name>`.
+3. Adopt upstream defaults. Keep a difference only when a workflow or shared
+   decision establishes its need, and put that reason at the top of its patch.
 4. Check a consuming app at desktop and narrow widths, including keyboard
    behavior and long content. Remove obsolete caller overrides and build the app.
 
-Do not run the CLI against the live package as an automatic overwrite or create
-separate component copies in each app. Preserving the previous appearance alone
-is not a reason to reject an upstream update.
+The CLI runs in a scratch project, never against this package or an app.
+Preserving the previous appearance alone is not a reason to reject an upstream
+update.
 
 ## Verification
 

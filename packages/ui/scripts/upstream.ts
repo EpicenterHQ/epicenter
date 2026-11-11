@@ -1,14 +1,18 @@
 /**
- * The kit's stock components against shadcn-svelte's `vega` registry.
+ * The kit's stock components against shadcn-svelte's `vega` style.
  *
- * A component with a saved response in `upstream/shadcn-svelte/vega/` is
- * stock: its files in `src/<name>/` are upstream's text with our import paths,
- * plus at most one patch, `upstream/patches/<name>.diff`. A patch opens with
- * the reason for the change, a line starting `Epicenter:`, before its diff.
- * A component with no saved response is the kit's own.
+ * A component with a snapshot in `upstream/shadcn-svelte/vega/<name>/` is
+ * stock: its files in `src/<name>/` are what the shadcn-svelte CLI installs,
+ * with our import paths, plus at most one patch, `upstream/patches/<name>.diff`.
+ * A patch opens with the reason for the change, a line starting `Epicenter:`,
+ * before its diff. A component with no snapshot is the kit's own.
+ *
+ * A snapshot is the CLI's output rather than the registry's response because
+ * the CLI finishes the text: it resolves icon placeholders to the configured
+ * icon library and drops style hooks the project does not define.
  *
  * ```sh
- * bun scripts/upstream.ts refresh [<name>...]   # save the registry's current responses
+ * bun scripts/upstream.ts refresh [<name>...]   # install the CLI's current output as snapshots
  * bun scripts/upstream.ts diff <name>           # record src/<name> as a patch, keeping its reason
  * bun scripts/upstream.ts apply <name>...       # rewrite src/<name> as upstream plus its patch
  * ```
@@ -17,6 +21,7 @@
  * patch.
  */
 import {
+	cpSync,
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
@@ -32,17 +37,54 @@ const PACKAGE = join(import.meta.dir, '..');
 export const SRC = join(PACKAGE, 'src');
 const VEGA = join(PACKAGE, 'upstream/shadcn-svelte/vega');
 const PATCHES = join(PACKAGE, 'upstream/patches');
-const REGISTRY = 'https://shadcn-svelte.com/registry/styles/vega';
+const CLI = 'shadcn-svelte@1.8.0';
 
-/** A file a registry response installs: its path under the component, and its text. */
-type RegistryFile = { target: string; content: string };
+/**
+ * The project `refresh` installs into. The CLI writes imports through these
+ * aliases; `upstreamFiles` turns them into the kit's relative paths.
+ */
+const COMPONENTS_JSON = {
+	$schema: 'https://shadcn-svelte.com/schema.json',
+	style: 'vega',
+	iconLibrary: 'lucide',
+	tailwind: { css: 'src/app.css', baseColor: 'neutral' },
+	aliases: {
+		components: '$lib/components',
+		utils: '$lib/utils',
+		ui: '$lib/components/ui',
+		hooks: '$lib/hooks',
+		lib: '$lib',
+	},
+	typescript: true,
+	registry: 'https://shadcn-svelte.com/registry',
+};
 
-/** The components with a saved `vega` response. */
+/** The components with a snapshot. */
 export function stockNames(): string[] {
-	return readdirSync(VEGA)
-		.filter((file) => file.endsWith('.json'))
-		.map((file) => file.slice(0, -'.json'.length))
+	return readdirSync(VEGA, { withFileTypes: true })
+		.filter((entry) => entry.isDirectory())
+		.map((entry) => entry.name)
 		.sort();
+}
+
+/** Every file under `dir`, keyed by its path relative to `root`. */
+function readTree(root: string, dir = root): Map<string, string> {
+	const files = new Map<string, string>();
+	for (const entry of readdirSync(dir, { withFileTypes: true })) {
+		const path = join(dir, entry.name);
+		if (entry.isDirectory())
+			for (const [key, content] of readTree(root, path))
+				files.set(key, content);
+		else files.set(relative(root, path), readFileSync(path, 'utf8'));
+	}
+	return files;
+}
+
+function writeTree(root: string, files: Map<string, string>) {
+	for (const [path, content] of files) {
+		mkdirSync(dirname(join(root, path)), { recursive: true });
+		writeFileSync(join(root, path), content);
+	}
 }
 
 /**
@@ -69,35 +111,26 @@ function asCommitted(path: string, content: string): string {
 
 /** Upstream's files for `name`, keyed by path under `src/`, with our import paths, as committed. */
 export function upstreamFiles(name: string): Map<string, string> {
-	const response = JSON.parse(
-		readFileSync(join(VEGA, `${name}.json`), 'utf8'),
-	) as { files: RegistryFile[] };
-	return new Map(
-		response.files.map((file) => [
-			file.target,
+	const files = new Map<string, string>();
+	for (const [path, content] of readTree(VEGA, join(VEGA, name)))
+		files.set(
+			path,
 			asCommitted(
-				file.target,
-				file.content
-					.replaceAll('$UTILS$', '../utils')
-					.replaceAll('$UI$', '..')
-					.replaceAll('$HOOKS$', '../hooks'),
+				path,
+				content
+					.replaceAll('$lib/components/ui/', '../')
+					.replaceAll('$lib/utils', '../utils')
+					.replaceAll('$lib/hooks/', '../hooks/'),
 			),
-		]),
-	);
+		);
+	return files;
 }
 
 /** Our files for `name`, keyed by path under `src/`; tests are ours alone and left out. */
 export function ourFiles(name: string): Map<string, string> {
-	const files = new Map<string, string>();
-	const walk = (dir: string) => {
-		for (const entry of readdirSync(dir, { withFileTypes: true })) {
-			const path = join(dir, entry.name);
-			if (entry.isDirectory()) walk(path);
-			else if (!/\.test\.ts$|\.mounted\.test\.ts$/.test(entry.name))
-				files.set(relative(SRC, path), readFileSync(path, 'utf8'));
-		}
-	};
-	walk(join(SRC, name));
+	const files = readTree(SRC, join(SRC, name));
+	for (const path of files.keys())
+		if (path.endsWith('.test.ts')) files.delete(path);
 	return files;
 }
 
@@ -113,28 +146,31 @@ export function reasonOf(patch: string): string {
 	return (start === -1 ? patch : patch.slice(0, start)).trim();
 }
 
-function writeTree(root: string, files: Map<string, string>) {
-	for (const [path, content] of files) {
-		mkdirSync(dirname(join(root, path)), { recursive: true });
-		writeFileSync(join(root, path), content);
-	}
-}
-
 /**
- * Run git in a scratch folder. The ceiling stops git from finding a
+ * Run a command in a scratch folder. The ceiling stops git from finding a
  * repository above it (a TMPDIR inside one), where `git apply` would apply
  * paths relative to that repository instead.
  */
-function git(args: string[], cwd: string) {
-	const run = Bun.spawnSync(['git', ...args], {
+function run(command: string[], cwd: string) {
+	const result = Bun.spawnSync(command, {
 		cwd,
 		env: { ...process.env, GIT_CEILING_DIRECTORIES: dirname(cwd) },
 	});
 	return {
-		code: run.exitCode,
-		out: run.stdout.toString(),
-		err: run.stderr.toString(),
+		code: result.exitCode,
+		out: result.stdout.toString(),
+		err: result.stderr.toString(),
 	};
+}
+
+/** A scratch folder for `use`, removed afterwards. */
+function inScratch<T>(use: (work: string) => T): T {
+	const work = mkdtempSync(join(tmpdir(), 'epicenter-upstream-'));
+	try {
+		return use(work);
+	} finally {
+		rmSync(work, { recursive: true, force: true });
+	}
 }
 
 /** Upstream's files for `name` with its patch applied; the patch's failure when it does not apply. */
@@ -144,38 +180,28 @@ export function patchedUpstream(
 	const patch = readPatch(name);
 	const upstream = upstreamFiles(name);
 	if (patch === undefined) return { files: upstream };
-	const work = mkdtempSync(join(tmpdir(), 'epicenter-upstream-'));
-	try {
-		writeTree(work, upstream);
-		writeFileSync(join(work, '.patch'), patch);
-		const applied = git(['apply', '--whitespace=nowarn', '.patch'], work);
+	return inScratch((work) => {
+		writeTree(join(work, 'tree'), upstream);
+		writeFileSync(join(work, 'tree/.patch'), patch);
+		const applied = run(
+			['git', 'apply', '--whitespace=nowarn', '.patch'],
+			join(work, 'tree'),
+		);
 		if (applied.code !== 0) return { error: applied.err.trim() };
-		rmSync(join(work, '.patch'));
-		const files = new Map<string, string>();
-		const walk = (dir: string) => {
-			for (const entry of readdirSync(dir, { withFileTypes: true })) {
-				const path = join(dir, entry.name);
-				if (entry.isDirectory()) walk(path);
-				else files.set(relative(work, path), readFileSync(path, 'utf8'));
-			}
-		};
-		walk(work);
-		return { files };
-	} finally {
-		rmSync(work, { recursive: true, force: true });
-	}
+		rmSync(join(work, 'tree/.patch'));
+		return { files: readTree(join(work, 'tree')) };
+	});
 }
 
 /** The diff from upstream's files for `name` to ours, as `git apply` reads it from `src/`. */
 export function diffFromUpstream(name: string): string {
-	const work = mkdtempSync(join(tmpdir(), 'epicenter-upstream-'));
-	try {
+	return inScratch((work) => {
 		writeTree(join(work, 'up'), upstreamFiles(name));
 		writeTree(join(work, 'ours'), ourFiles(name));
 		mkdirSync(join(work, 'up', name), { recursive: true });
 		mkdirSync(join(work, 'ours', name), { recursive: true });
-		const diffed = git(
-			['diff', '--no-index', '--no-color', `up/${name}`, `ours/${name}`],
+		const diffed = run(
+			['git', 'diff', '--no-index', '--no-color', `up/${name}`, `ours/${name}`],
 			work,
 		);
 		if (diffed.code > 1) throw new Error(diffed.err);
@@ -184,21 +210,58 @@ export function diffFromUpstream(name: string): string {
 			.replaceAll(`b/ours/${name}/`, `b/${name}/`)
 			.replaceAll(` up/${name}/`, ` ${name}/`)
 			.replaceAll(` ours/${name}/`, ` ${name}/`);
-	} finally {
-		rmSync(work, { recursive: true, force: true });
-	}
+	});
 }
 
-async function refresh(names: string[]) {
-	for (const name of names.length ? names : stockNames()) {
-		const response = await fetch(`${REGISTRY}/${name}.json`);
-		if (!response.ok) {
-			console.error(`${name}: ${response.status}`);
-			continue;
+/**
+ * Install `names` with the CLI into a scratch project and save its output.
+ * The CLI refuses a project without Svelte and Tailwind, so the scratch
+ * project installs both; the components' own dependencies are skipped.
+ */
+function refresh(names: string[]) {
+	const chosen = names.length ? names : stockNames();
+	inScratch((work) => {
+		writeFileSync(
+			join(work, 'package.json'),
+			JSON.stringify({
+				private: true,
+				type: 'module',
+				devDependencies: { svelte: '^5', tailwindcss: '^4' },
+			}),
+		);
+		writeFileSync(
+			join(work, 'tsconfig.json'),
+			JSON.stringify({
+				compilerOptions: {
+					baseUrl: '.',
+					paths: { $lib: ['./src/lib'], '$lib/*': ['./src/lib/*'] },
+				},
+			}),
+		);
+		writeFileSync(
+			join(work, 'components.json'),
+			JSON.stringify(COMPONENTS_JSON),
+		);
+		mkdirSync(join(work, 'src'));
+		writeFileSync(join(work, 'src/app.css'), '@import "tailwindcss";\n');
+		for (const command of [
+			['bun', 'install'],
+			['bun', 'x', CLI, 'add', ...chosen, '--yes', '--overwrite', '--no-deps'],
+		]) {
+			const result = run(command, work);
+			if (result.code !== 0)
+				throw new Error(
+					`${command.join(' ')} failed:\n${result.out}${result.err}`,
+				);
 		}
-		writeFileSync(join(VEGA, `${name}.json`), await response.text());
-		console.log(`${name}: saved`);
-	}
+		for (const name of chosen) {
+			rmSync(join(VEGA, name), { recursive: true, force: true });
+			cpSync(join(work, 'src/lib/components/ui', name), join(VEGA, name), {
+				recursive: true,
+			});
+			console.log(`${name}: saved`);
+		}
+	});
 }
 
 function recordPatch(name: string) {
@@ -233,7 +296,7 @@ function applyPatch(name: string) {
 if (import.meta.main) {
 	const [command, ...names] = process.argv.slice(2);
 	const [only] = names;
-	if (command === 'refresh') await refresh(names);
+	if (command === 'refresh') refresh(names);
 	else if (command === 'diff' && only !== undefined && names.length === 1)
 		recordPatch(only);
 	else if (command === 'apply' && names.length > 0)

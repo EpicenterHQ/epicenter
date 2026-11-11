@@ -1,8 +1,7 @@
 <script lang="ts">
-	import CheckIcon from "@lucide/svelte/icons/check";
-	import MinusIcon from "@lucide/svelte/icons/minus";
 	import { Checkbox as CheckboxPrimitive } from "bits-ui";
-	// Epicenter: Tasks and Whispering use checkboxes; the registry's app-local icon placeholder is unavailable in this package.
+	import CheckIcon from '@lucide/svelte/icons/check';
+	import MinusIcon from '@lucide/svelte/icons/minus';
 	import { cn, type WithoutChildrenOrChild } from "../utils.js";
 
 	let {
@@ -31,9 +30,9 @@
 			class="[&>svg]:size-3.5 grid place-content-center text-current transition-none"
 		>
 			{#if checked}
-				<CheckIcon />
+				<CheckIcon  />
 			{:else if indeterminate}
-				<MinusIcon />
+				<MinusIcon  />
 			{/if}
 		</div>
 	{/snippet}

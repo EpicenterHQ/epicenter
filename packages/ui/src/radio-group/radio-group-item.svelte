@@ -1,7 +1,6 @@
 <script lang="ts">
-	import CircleIcon from "@lucide/svelte/icons/circle";
 	import { RadioGroup as RadioGroupPrimitive } from "bits-ui";
-	// Epicenter: Whispering's microphone and post-processing selectors need a package-local icon.
+	import CircleIcon from '@lucide/svelte/icons/circle';
 	import { cn, type WithoutChildrenOrChild } from "../utils.js";
 
 	let {

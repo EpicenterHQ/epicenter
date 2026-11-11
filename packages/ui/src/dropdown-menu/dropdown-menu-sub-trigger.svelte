@@ -1,7 +1,6 @@
 <script lang="ts">
-	import ChevronRightIcon from "@lucide/svelte/icons/chevron-right";
 	import { DropdownMenu as DropdownMenuPrimitive } from "bits-ui";
-	// Epicenter: Capture and Whispering use dropdown menus; this package cannot import the registry's app-local icon placeholder.
+	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
 	import { cn } from "../utils.js";
 
 	let {
