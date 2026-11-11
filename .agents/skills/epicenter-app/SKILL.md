@@ -211,7 +211,9 @@ export const writes = resultMutations(['tasks'], { add: app.add, set: app.set })
 ```
 
 Each call answers a Result: what the action returned, or an `ActionError`
-(`Threw`, `Refused`, `Unreachable`). The layout makes one
+told apart by `name`: `Changed` and `Missing` (the `FileError` the action
+threw), `Threw`, `Refused`, `Unreachable`. Check the name, never the message:
+a page for one record shows "it was deleted" when its read is `Missing`. The layout makes one
 `createQueryClient()` and puts it in `<QueryClientProvider>`; pages read with
 `createQuery(() => reads.get({ path }))` and write with
 `createMutation(() => writes.set)`. That client refreshes every read after
@@ -239,8 +241,8 @@ types with `ActionInput<typeof app.actions.set>` and
   (`bind:value={() => draft ?? file.body, (value) => (draft = value)}`), and
   clear it once it is saved, so a refresh never overwrites typing.
 - Save a changed body with `edit`, quoting the body the draft was typed over
-  (`old: base, new: draft`), after `set` has saved the fields. When
-  `changedElsewhere(error)` from `@epicenter/app/client` is true, the failed
+  (`old: base, new: draft`), after `set` has saved the fields. When the
+  error's `name` is `Changed`, the failed
   write has already refreshed the file: reapply a small change to the new body
   (Capture's thoughts), or keep what was typed and say it was not saved,
   letting the person save over the other change on purpose (Tasks' "Keep

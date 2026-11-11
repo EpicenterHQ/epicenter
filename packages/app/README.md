@@ -119,8 +119,8 @@ gives the same operations as verbs to expose, each taking the same object:
 | `delete({ path })`: deletes the file; `true` when there was one | |
 | `pathOf({ ...placeholders })`: the path `add` would write | |
 
-The exposed `get` throws `There is no <path>` where the method answers
-`undefined`. `pathOf` fills the template, `{time}` included, as `add` does:
+The exposed `get`, `set`, and `edit` throw `FileError.Missing` (`There is no
+<path>`) where the method answers `undefined`. `pathOf` fills the template, `{time}` included, as `add` does:
 it names the file by the value as NFC, trimmed, with each run of whitespace
 one space, so `" 你好 "` and `"你好"` name one file, and it throws for a value
 that is then empty, holds `/` or `\`, starts with `.`, or is over 200 bytes.
@@ -152,7 +152,7 @@ at once both count, and refuses a word that is not there:
 
 ```ts
 await words.update({ path }, (word) => {
-  if (!word) throw new Error(`There is no ${path}`);
+  if (!word) throw FileError.Missing({ path }).error;
   return schedule(word, grade, now);
 });
 ```
@@ -313,7 +313,7 @@ the file, calls `change` with its text (`undefined` when there is none), and
 writes what `change` returns, nothing when that is what is there. A writer
 outside epicenter, such as an editor, may change the file between the read
 and the write; then `update` calls `change` again on what is there now, and
-after 10 tries it throws `WriteError.Changed`. A `change` that
+after 10 tries it throws `FileError.Changed`. A `change` that
 throws writes nothing. It returns the text written. Every collection write (`add`, `set`, `edit`, `update`)
 goes through it, so two `set`s of different fields of one file both land, and
 two `update`s of one field each see the other's.
@@ -407,12 +407,13 @@ const { data: books, error } = await app.books.list();
 ```
 
 A call resolves to a Result: what the action returned, in its JSON form, or
-an `ActionError` saying why not. `Threw` carries the action's message and the
-tagged error it threw, whole, as `thrown`; `Refused` means nothing ran, with
-serve's `next` when it has one; `Unreachable` means no answer came back.
-`changedElsewhere(error)` says a call threw `WriteError.Changed` (`{ name:
-'Changed', path, why }`): an `edit` whose passage changed, or an `update` of
-a file that kept changing. Whatever becomes of the snapshot after a call, the
+an `ActionError` saying why not, told apart by `name`. The action's
+`FileError`s arrive as themselves: `Changed` (`{ path, why }`) for an `edit`
+whose passage changed or an `update` of a file that kept changing, and
+`Missing` (`{ path }`) for a file that is not there. `Threw` carries anything
+else the action threw, with a tagged error whole as `thrown`; `Refused` means
+nothing ran, with serve's `next` when it has one; `Unreachable` means no
+answer came back. Whatever becomes of the snapshot after a call, the
 call resolves; the app's status on the computer that serves it says when one
 failed.
 

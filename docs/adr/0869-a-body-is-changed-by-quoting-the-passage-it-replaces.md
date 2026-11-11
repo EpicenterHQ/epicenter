@@ -49,7 +49,7 @@ UI      call('edit', { id: 'a', old: loadedBody, new: draft })
   toggling a checkbox) or says the text was not saved and keeps it for the
   person to save over the other change on purpose (Tasks' "Keep mine", Vocab
   saving again).
-  `changedElsewhere(error)` in `@epicenter/app/client` names the case.
+  A view's client answers the case as an `ActionError` named `Changed`.
 
 **`set` gives a body only to a file it makes.** `set --body` on a file that
 already has a body is refused: "already has a body, which set does not

@@ -28,14 +28,15 @@
  */
 import { MutationCache, QueryClient } from '@tanstack/query-core';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
-import { Ok, type Result } from 'wellcrafted/result';
+import { Err, Ok, type Result } from 'wellcrafted/result';
+import type { FileError } from './errors.ts';
 import type { JsonValue } from './front-matter.ts';
 
-/** Why a call did not return, one variant for each way serve can answer, or not. */
-export const ActionError = defineErrors({
+/** The ways serve answers without a value, or does not answer. */
+const CallError = defineErrors({
 	/**
-	 * The action ran and threw. `thrown` is the tagged error it threw, kept
-	 * whole (`{ name: 'Changed', path, why }`), when it threw one.
+	 * The action ran and threw something other than a `FileError`. `thrown`
+	 * is the tagged error it threw, kept whole, when it threw one.
 	 */
 	Threw: ({
 		message,
@@ -52,17 +53,18 @@ export const ActionError = defineErrors({
 	/** No answer came back: serve could not be reached, or answered something other than an answer. */
 	Unreachable: ({ message }: { message: string }) => ({ message }),
 });
-export type ActionError = InferErrors<typeof ActionError>;
 
 /**
- * Whether a call was refused with `WriteError.Changed` because what it
- * changes changed since it was read: a collection's `edit` whose quoted text
- * is gone, or a `folder.update` of a file that kept changing. A UI says so
- * and shows the latest rather than overwriting the other change.
+ * Why a call did not return, told apart by `name`:
+ *
+ * - `Changed`: what the call changes changed since it was read (a collection
+ *   `edit` whose quoted text is gone). Show the latest rather than overwrite it.
+ * - `Missing`: there is no file at the path asked for; it was deleted, here or elsewhere.
+ * - `Threw`: the action threw anything else.
+ * - `Refused`: nothing ran, because the call was wrong.
+ * - `Unreachable`: serve did not answer.
  */
-export function changedElsewhere(error: ActionError): boolean {
-	return error.name === 'Threw' && error.thrown?.name === 'Changed';
-}
+export type ActionError = InferErrors<typeof CallError> | FileError;
 
 /** `T` flattened into one object type. */
 type Flat<T> = { [K in keyof T]: T[K] } & {};
@@ -179,12 +181,12 @@ async function call(
 			}),
 		});
 	} catch (cause) {
-		return ActionError.Unreachable({
+		return CallError.Unreachable({
 			message: `Could not reach Epicenter: ${String(cause)}`,
 		});
 	}
 	if (!response.ok)
-		return ActionError.Unreachable({
+		return CallError.Unreachable({
 			message: `Epicenter answered ${response.status} ${response.statusText}`,
 		});
 	const message = (await response.json()) as {
@@ -192,7 +194,7 @@ async function call(
 		error?: { message: string };
 	};
 	if (message.error)
-		return ActionError.Unreachable({ message: message.error.message });
+		return CallError.Unreachable({ message: message.error.message });
 	const answer = (message.result?.structuredContent ?? {}) as {
 		returned?: unknown;
 		threw?: {
@@ -202,13 +204,18 @@ async function call(
 		error?: { message: string; next?: string };
 	};
 	if ('returned' in answer) return Ok(answer.returned);
-	if (answer.threw) return ActionError.Threw(answer.threw);
+	if (answer.threw) {
+		const { thrown } = answer.threw;
+		if (thrown?.name === 'Changed' || thrown?.name === 'Missing')
+			return Err(thrown as FileError);
+		return CallError.Threw(answer.threw);
+	}
 	if (answer.error)
-		return ActionError.Refused({
+		return CallError.Refused({
 			message: answer.error.message,
 			next: answer.error.next,
 		});
-	return ActionError.Unreachable({
+	return CallError.Unreachable({
 		message: `Epicenter answered without an answer: ${JSON.stringify(answer)}`,
 	});
 }

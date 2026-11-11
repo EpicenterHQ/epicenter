@@ -15,7 +15,7 @@
 	The parent keys this view by `path`.
 -->
 <script lang="ts">
-	import { type ActionError, changedElsewhere } from '@epicenter/app/client';
+	import type { ActionError } from '@epicenter/app/client';
 	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
 	import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
@@ -109,7 +109,7 @@
 						await editCapture.mutateAsync({ ...args, old: latest.body, new: encoded.data });
 						return true;
 					} catch (error) {
-						if (changedElsewhere(error as ActionError) && attempt < 3) continue;
+						if ((error as ActionError).name === 'Changed' && attempt < 3) continue;
 						throw error;
 					}
 				}
@@ -177,7 +177,7 @@
 			} catch (error) {
 				// A refused edit refreshed the file, so saving again replaces what is there now.
 				toast.error('Not saved', {
-					description: changedElsewhere(error as ActionError)
+					description: (error as ActionError).name === 'Changed'
 						? 'The file changed elsewhere while you were editing. Your version is still in the box; save again to replace what is there now.'
 						: (error as ActionError).message,
 				});
@@ -279,7 +279,7 @@
 			<Empty.Header>
 				<Empty.Title>No capture here</Empty.Title>
 				<Empty.Description>
-					{!capture.error || capture.error.message.startsWith('There is no')
+					{!capture.error || capture.error.name === 'Missing'
 						? 'It was deleted, here or elsewhere.'
 						: capture.error.message}
 				</Empty.Description>

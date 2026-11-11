@@ -165,9 +165,9 @@ describe('a collection of many files', () => {
 
 	test('set changes a file that is there and refuses one that is not', async () => {
 		const context = createMemoryContext();
-		expect(
+		await expect(
 			run('items set', { path: 'items/nope.md', kind: 'link' }, context),
-		).rejects.toThrow('There is no items/nope.md');
+		).rejects.toMatchObject({ name: 'Missing', path: 'items/nope.md' });
 		expect(await context.folder.list()).toEqual([]);
 	});
 
@@ -257,9 +257,9 @@ describe('a collection of many files', () => {
 		expect(
 			run('items edit', { ...at, old: '', new: 'x' }, context),
 		).rejects.toMatchObject({ name: 'Changed' });
-		expect(
+		await expect(
 			run('items edit', { path: 'items/nope.md', old: 'a', new: 'b' }, context),
-		).rejects.toThrow('There is no items/nope.md');
+		).rejects.toMatchObject({ name: 'Missing', path: 'items/nope.md' });
 	});
 
 	test('edit with an empty old fills an empty body, in YAML front matter too', async () => {

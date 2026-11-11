@@ -140,7 +140,7 @@ rename alone lost 5 of 50 concurrent `set`s of one file, since another process
 can rename between the reread and the rename. It still writes the new text
 beside the target and renames it over only if the file is still what `change`
 saw, since a writer outside epicenter (an editor) may have changed it; then it
-reads and changes it again, and after 10 tries throws `WriteError.Changed`. A
+reads and changes it again, and after 10 tries throws `FileError.Changed`. A
 `change` that throws writes nothing. Every collection write (`add`,
 `set`, `edit`, and the first write of a one-file collection) goes through it,
 so the action, by way of its collections, owns the correctness of a

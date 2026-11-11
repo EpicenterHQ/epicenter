@@ -5,7 +5,7 @@
 	typed over, so notes an agent changed meanwhile are not overwritten without
 	asking. Until then the notes typed here show over the book as last read.
 --><script lang="ts">
-	import { type ActionError, changedElsewhere } from '@epicenter/app/client';
+	import type { ActionError } from '@epicenter/app/client';
 	import { goto } from '$app/navigation';
 	import { Button } from '@epicenter/ui/button';
 	import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
@@ -59,7 +59,7 @@
 					else base = typed;
 				},
 				onError: (error) => {
-					if (!changedElsewhere(error)) return toastError('Could not save the notes')(error);
+					if (error.name !== 'Changed') return toastError('Could not save the notes')(error);
 					toast.error('The notes changed elsewhere', {
 						description: 'Yours were not saved.',
 						action: {
@@ -124,7 +124,7 @@
 		{:else if !book.data}
 			<Empty.Root class="py-16">
 				<Empty.Title>No book here</Empty.Title>
-				<Empty.Description>{book.error?.message || 'It was deleted, here or elsewhere.'}</Empty.Description>
+				<Empty.Description>{!book.error || book.error.name === 'Missing' ? 'It was deleted, here or elsewhere.' : book.error.message}</Empty.Description>
 				<Button variant="outline" href="#/">Back to reading</Button>
 			</Empty.Root>
 		{:else}

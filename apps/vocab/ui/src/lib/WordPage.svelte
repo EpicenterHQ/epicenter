@@ -7,7 +7,7 @@
 	overwritten without saving again.
 -->
 <script lang="ts">
-	import { type ActionError, changedElsewhere } from '@epicenter/app/client';
+	import type { ActionError } from '@epicenter/app/client';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import * as Alert from '@epicenter/ui/alert';
@@ -76,7 +76,7 @@
 			draft = {};
 			toast.success('Saved');
 		} catch (error) {
-			if (changedElsewhere(error as ActionError)) {
+			if ((error as ActionError).name === 'Changed') {
 				// The fields are saved and the word read again; the examples typed stay, and saving again replaces what is there now.
 				draft = { body: draft.body };
 				toast.error('Examples not saved', {
@@ -118,8 +118,8 @@
 			<Empty.Header>
 				<Empty.Title>No word here</Empty.Title>
 				<Empty.Description>
-					{!word.error || word.error.message.startsWith('There is no')
-						? 'It may have been deleted elsewhere.'
+					{!word.error || word.error.name === 'Missing'
+						? 'It was deleted, here or elsewhere.'
 						: word.error.message}
 				</Empty.Description>
 			</Empty.Header>

@@ -1,8 +1,8 @@
 /**
- * The failures a folder or collection write throws on purpose, as tagged
- * errors (wellcrafted's `defineErrors`). A run keeps a thrown tagged error
- * whole in its answer, so a UI tells them apart by `name` through
- * `changedElsewhere`.
+ * The failures a folder or collection throws on purpose when a file is not
+ * as the call needs it, as tagged errors (wellcrafted's `defineErrors`). A run
+ * keeps a thrown tagged error whole in its answer, and a UI's client answers
+ * each as its own `ActionError`, so a page tells them apart by `name`.
  */
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 
@@ -12,7 +12,7 @@ const WHY = {
 	kept: ' kept changing while it was updated',
 } as const;
 
-export const WriteError = defineErrors({
+export const FileError = defineErrors({
 	/**
 	 * What the write depended on is no longer in the file: the passage an
 	 * `edit` quoted (`quote`), the empty body it filled (`empty`), or, for
@@ -23,5 +23,10 @@ export const WriteError = defineErrors({
 		path,
 		why,
 	}),
+	/** There is no file at `path` to read or change: it was never made, or it was deleted. */
+	Missing: ({ path }: { path: string }) => ({
+		message: `There is no ${path}`,
+		path,
+	}),
 });
-export type WriteError = InferErrors<typeof WriteError>;
+export type FileError = InferErrors<typeof FileError>;

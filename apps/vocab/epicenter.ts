@@ -2,6 +2,7 @@ import {
 	defineAction,
 	defineApp,
 	defineCollection,
+	FileError,
 	field,
 	localTime,
 } from '@epicenter/app';
@@ -210,7 +211,7 @@ const review = defineAction({
 		// reviews at once both count; `scheduled` is the schedule it wrote.
 		let scheduled!: Schedule;
 		await words.update({ path }, (word) => {
-			if (!word) throw new Error(`There is no ${path}`);
+			if (!word) throw FileError.Missing({ path }).error;
 			scheduled = schedule(word, grade, now);
 			return scheduled;
 		});

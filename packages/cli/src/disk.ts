@@ -28,7 +28,7 @@ import {
 	type Folder,
 	isLocalPath,
 	normalizePath,
-	WriteError,
+	FileError,
 } from '@epicenter/app';
 
 /** How many times `update` tries a file that a writer outside epicenter (an editor) keeps changing before it gives up. */
@@ -148,7 +148,7 @@ export function folderOnDisk(dir: string): Folder {
 				}
 				rmSync(temp, { force: true });
 				if (tries === UPDATE_TRIES)
-					throw WriteError.Changed({ path: normalizePath(path), why: 'kept' })
+					throw FileError.Changed({ path: normalizePath(path), why: 'kept' })
 						.error;
 			}
 		},

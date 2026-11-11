@@ -42,7 +42,7 @@
  * A collection does not know its name: an app names it by its key in
  * `collections`, and everything a collection says names its path instead.
  */
-import { WriteError } from './errors.ts';
+import { FileError } from './errors.ts';
 import {
 	type Static,
 	type TObject,
@@ -213,7 +213,7 @@ export type ManyHandle<D extends CollectionDef> = {
 	 * written only over the record it was given, and makes the file, as `add`
 	 * would, when there was none. When the file changed meanwhile, `revise`
 	 * runs again on what is there now, so keep it a pure function of the
-	 * record; after 10 tries it throws `WriteError.Changed`. A `revise` that
+	 * record; after 10 tries it throws `FileError.Changed`. A `revise` that
 	 * throws writes nothing, and one that returns `{}` for a file leaves it as
 	 * it is. Returns the record written.
 	 *
@@ -627,7 +627,7 @@ function createFiles(layout: Template, fields: Fields) {
 		const { old } = change;
 		const at = body.indexOf(old);
 		if (old === '' ? body !== '' : at < 0)
-			throw WriteError.Changed({ path, why: old === '' ? 'empty' : 'quote' })
+			throw FileError.Changed({ path, why: old === '' ? 'empty' : 'quote' })
 				.error;
 		if (old !== '' && body.indexOf(old, at + 1) >= 0)
 			throw new Error(
@@ -727,14 +727,14 @@ function createFiles(layout: Template, fields: Fields) {
 			if (Object.values(given).every((value) => value === undefined))
 				throw new Error(`Nothing to set in ${at}: give a field`);
 			return rewrite(at, (record) => {
-				if (!record) throw new Error(`There is no ${at}`);
+				if (!record) throw FileError.Missing({ path: at }).error;
 				return { fields: given };
 			});
 		},
 		async edit({ path, ...quoted }: PathIn & Change) {
 			const at = own(path);
 			return rewrite(at, (record) => {
-				if (!record) throw new Error(`There is no ${at}`);
+				if (!record) throw FileError.Missing({ path: at }).error;
 				return { fields: {}, body: edited(at, record.body, quoted) };
 			});
 		},
@@ -831,7 +831,7 @@ function verbActions(
 				if (single) return call.get?.();
 				const found = await call.get?.(input);
 				if (!found)
-					throw new Error(`There is no ${(input as Partial<PathIn>).path}`);
+					throw FileError.Missing({ path: (input as PathIn).path }).error;
 				return found;
 			},
 			{

@@ -8,7 +8,7 @@ import { afterEach, expect, test } from 'bun:test';
 import { MutationObserver, QueryObserver } from '@tanstack/query-core';
 import { resultMutations, resultQueries } from 'wellcrafted/query';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { changedElsewhere, connect, createQueryClient } from './client.ts';
+import { connect, createQueryClient } from './client.ts';
 import { defineApp, defineCollection, field } from './index.ts';
 
 const books = defineCollection({
@@ -60,25 +60,43 @@ test('each way serve answers without a value is its own error', async () => {
 				name: 'Changed',
 				message: 'books/Dune.md changed',
 				path: 'books/Dune.md',
+				why: 'quote',
 			},
 		},
 	}));
-	const threw = expectErr(
-		await app.edit({ path: 'books/Dune.md', old: 'a', new: 'b' }),
-	);
-	expect(threw.name).toBe('Threw');
-	expect(changedElsewhere(threw)).toBe(true);
+	expect(
+		expectErr(await app.edit({ path: 'books/Dune.md', old: 'a', new: 'b' })),
+	).toMatchObject({ name: 'Changed', path: 'books/Dune.md', why: 'quote' });
+
+	answer(() => ({
+		threw: {
+			message: 'There is no books/Dune.md',
+			thrown: {
+				name: 'Missing',
+				message: 'There is no books/Dune.md',
+				path: 'books/Dune.md',
+			},
+		},
+	}));
+	expect(expectErr(await app.get({ path: 'books/Dune.md' }))).toMatchObject({
+		name: 'Missing',
+		path: 'books/Dune.md',
+	});
+
+	answer(() => ({ threw: { message: 'boom' } }));
+	expect(expectErr(await app.list())).toMatchObject({
+		name: 'Threw',
+		message: 'boom',
+	});
 
 	answer(() => ({
 		error: { name: 'InputError', message: 'path is required', next: 'Give a path' },
 	}));
-	const refused = expectErr(await app.list());
-	expect(refused).toMatchObject({
+	expect(expectErr(await app.list())).toMatchObject({
 		name: 'Refused',
 		message: 'path is required',
 		next: 'Give a path',
 	});
-	expect(changedElsewhere(refused)).toBe(false);
 
 	globalThis.fetch = (async () =>
 		new Response('', {

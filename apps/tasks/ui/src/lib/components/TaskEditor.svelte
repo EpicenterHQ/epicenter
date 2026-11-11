@@ -9,7 +9,7 @@
 	that is not a day, a note at the bottom quotes it.
 -->
 <script lang="ts">
-	import { type ActionError, changedElsewhere } from '@epicenter/app/client';
+	import type { ActionError } from '@epicenter/app/client';
 	import { goto } from '$app/navigation';
 	import { Button } from '@epicenter/ui/button';
 	import { Checkbox } from '@epicenter/ui/checkbox';
@@ -100,7 +100,7 @@
 					else base = typed;
 				},
 				onError: (error: ActionError) => {
-					if (!changedElsewhere(error))
+					if (error.name !== 'Changed')
 						return toast.error('Could not save the task', { description: error.message });
 					toast.error('The notes changed elsewhere', {
 						description: 'Your notes were not saved.',
@@ -172,7 +172,7 @@
 		{:else if !task.data}
 			<Empty.Root class="py-16">
 				<Empty.Title>No task here</Empty.Title>
-				<Empty.Description>{task.error?.message || 'It was deleted, here or elsewhere.'}</Empty.Description>
+				<Empty.Description>{!task.error || task.error.name === 'Missing' ? 'It was deleted, here or elsewhere.' : task.error.message}</Empty.Description>
 				<Button variant="outline" href="#/">Back to tasks</Button>
 			</Empty.Root>
 		{:else}
