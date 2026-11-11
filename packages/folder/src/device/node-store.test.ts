@@ -20,13 +20,13 @@
 import { expect, mock, test } from 'bun:test';
 import * as fs from 'node:fs/promises';
 import { join } from 'node:path';
+import type { Result } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
+import { blobIdOf, pointerBlobId } from '../hash.js';
 import { scratch } from '../scratch.test-support.js';
 import { savesDirectory } from '../state.js';
-import { blobIdOf } from '../hash.js';
 import { HASHES_PATH } from './stamp-cache.js';
 import type { BlobId, Moved, Unavailable } from './store.js';
-import type { Result } from 'wellcrafted/result';
 
 /** Whether the next link or rename fails as one to another file system does. */
 let crossDevice = false;
@@ -343,7 +343,11 @@ test('an attachment is named by its pointer, hashed once, and again when it chan
 			}),
 		);
 		const [trusted] = expectOk(await nodeStore(root).list(['']));
-		expect(trusted?.version).not.toBe(await blobIdOf('take.webm', text('two')));
+		expect(trusted).toEqual({
+			path: 'take.webm',
+			version: await pointerBlobId('f'.repeat(64), 3),
+			size: 3,
+		});
 	} finally {
 		await rm(root, { recursive: true, force: true });
 	}
