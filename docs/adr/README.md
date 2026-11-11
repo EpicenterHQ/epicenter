@@ -1082,4 +1082,4 @@ When you add an ADR, add its row here.
 | [0875](0875-a-package-is-published-when-an-app-outside-the-monorepo-imports-it.md) | A package is published when an app outside the monorepo imports it | Proposed |
 | [0876](0876-an-apps-records-live-under-data-and-everything-else-in-it-is-code.md) | An app's records live under `data/`, and everything else in it is code | Proposed |
 | [0877](0877-a-starter-is-published-from-its-app-as-the-apps-files-outside-data.md) | A starter is published from its app, as the app's files outside `data/` | Proposed |
-| [0878](0878-the-os-keeps-epicenter-serve-running-under-a-job-the-person-installs.md) | The OS keeps `epicenter serve` running, under a job the person installs | Proposed |
+| [0878](0878-the-os-keeps-epicenter-serve-running-under-a-job-the-person-installs.md) | The OS keeps `epicenter serve` running, under a job the person installs | Accepted |
