@@ -21,7 +21,7 @@ patch that opens with its reason. The kit on 2026-11-11:
 | Kind | Count | Items |
 | --- | --- | --- |
 | Stock, upstream's text | 23 | `button`, `checkbox`, `dropdown-menu`, `field`, `input`, `item`, `textarea`, … |
-| Stock with one patch | 3 | `tooltip` (300 ms delay), `sonner` (rich colors), `chart` (a type guard for `noUncheckedIndexedAccess`) |
+| Stock with one patch | 2 | `tooltip` (300 ms delay), `sonner` (rich colors) |
 | Stock, not yet rebased | 7 | `command`, `context-menu`, `dialog`, `popover`, `select`, `sidebar`, `tabs`; only apps that wait (ADR-0840) import them |
 | Ours | 8 | `icon-button`, `confirmation-dialog`, `loading`, `section-header`, `copy-button`, `toast-on-error`, and `light-switch` and `link` from shadcn-svelte-extras |
 
@@ -96,7 +96,7 @@ capture/
 ## Considered alternatives
 
 - **Only our items in the registry, with stock components as bare-name
-  `registryDependencies`.** With three patches left the registry would be
+  `registryDependencies`.** With two patches left the registry would be
   small, but an outside app would get upstream's text of the day for
   twenty-three components, while our items such as `IconButton` were built
   and checked against the snapshot. The kit would stop being one checked set.

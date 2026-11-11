@@ -50,20 +50,13 @@
 		"wellcrafted": "catalog:"
 	},
 	"peerDependencies": {
-		"layerchart": "2.0.0-next.48",
 		"mode-watcher": "^1.1.0",
 		"svelte": "^5.33.0",
 		"tailwindcss": "^4.1.0"
 	},
-	"peerDependenciesMeta": {
-		"layerchart": {
-			"optional": true
-		}
-	},
 	"devDependencies": {
 		"@types/bun": "catalog:",
 		"jsrepo": "catalog:",
-		"layerchart": "2.0.0-next.48",
 		"mode-watcher": "catalog:",
 		"svelte": "catalog:",
 		"svelte-check": "catalog:",
