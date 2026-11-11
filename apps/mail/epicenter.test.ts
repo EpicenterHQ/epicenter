@@ -125,6 +125,9 @@ test('unknown labels and overlapping add/remove refuse the entire assertion', as
 // Delivery and sequence ownership.
 test('a systemic failure retains all rows and still pulls; a later pass delivers', async () => {
 	const { store, gmail } = await mirrored();
+	const remoteId = messages[2]!.id;
+	gmail.modifyMessage(remoteId, { addLabelIds: ['STARRED'] });
+	expect(store.show(remoteId).starred).toBe(false);
 	store.assert([
 		{ id, label: 'STARRED', want: true },
 		{ id: messages[1]!.id, label: 'UNREAD', want: true },
@@ -137,7 +140,7 @@ test('a systemic failure retains all rows and still pulls; a later pass delivers
 		},
 	});
 	expect(result.failure).toBe('offline');
-	expect(result.refreshedAt).toBeString();
+	expect(store.show(remoteId).starred).toBe(true);
 	expect(store.pendingRows()).toEqual(rows);
 	const retried = await reconcilePass(store, gmail);
 	expect(retried.delivered).toHaveLength(2);
