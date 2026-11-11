@@ -43,7 +43,7 @@ These are the exact distributed registry responses compared during the Vega migr
 
 The shadcn-svelte-extras responses come from their own registry, not the Vega registry. Epicenter-owned components have no claimed upstream match.
 
-The saved dependency metadata is evidence for a refresh, not an upgrade command. In this checkout `bits-ui` is 2.17.2 and `vaul-svelte` is 1.0.0-next.7. The migrated code uses their installed APIs. Vaul already prevents autofocus when its root uses the default `autoFocus=false`; the redundant local guard was removed after browser checks.
+The saved dependency metadata is evidence for a refresh, not an upgrade command. In this checkout `bits-ui` is 2.20.6 and `vaul-svelte` is 1.0.0-next.7. The migrated code uses their installed APIs. Vaul already prevents autofocus when its root uses the default `autoFocus=false`; the redundant local guard was removed after browser checks.
 
 The intentional Epicenter differences and their reasons are recorded below. Subsequent refreshes replace a snapshot only as part of a reviewed component change.
 
@@ -55,17 +55,36 @@ responses. The other 34 Vega families were compared and their distributed
 source was unchanged. Exact raw responses remain review inputs, not runtime
 code or a promise to preserve older behavior.
 
+## Patches and the check
+
+A stock component is upstream's text with our import paths, plus at most one
+patch, `patches/<name>.diff`, which opens with its reason (`Epicenter: …`).
+Upstream's `.ts` files are compared as Biome commits them; `.svelte` files
+are compared as upstream wrote them, inert `cn-*` hooks included.
+`scripts/upstream.test.ts` fails when a component differs from upstream plus
+its patch. The kit's own components (`icon-button`, `confirmation-dialog`,
+`loading` and the rest without a saved response) are not checked.
+
+```sh
+bun scripts/upstream.ts refresh [<name>...]   # save the registry's current responses
+bun scripts/upstream.ts diff <name>           # record src/<name> as its patch, keeping the reason
+bun scripts/upstream.ts apply <name>...       # rewrite src/<name> as upstream plus its patch
+```
+
+A refresh is `refresh`, then `apply` for every component; a patch that no
+longer applies is the review. The test's `NOT_YET_REBASED` list names the
+components still carrying their differences from before the check. Each is
+rebased by reverting what has no reason and recording what does, and its row
+below moves into its patch.
+
 ## Intentional upstream differences
 
-Record the maintained change and the caller or shared decision that needs it.
-Reconsider each reason during a refresh. This register covers reviewed
-customizations; it does not establish that every source difference is intentional
-or that every component matches its saved baseline. Unresolved omissions belong
-in the refresh PR or an issue, not in this register as accepted behavior.
+The reasons for components not yet rebased. Reconsider each when its
+component is rebased; a difference without a reason is reverted.
 
 | Component | Epicenter difference | Reason |
 | --- | --- | --- |
-| Button, IconButton, and Link | `IconButton` owns icon labels and tooltips; Link keeps its `tooltip` prop | Icon-only controls need an accessible name. `IconButton` composes trigger props when nested in popovers. `ghost-destructive` remains for quiet destructive actions. Standard Button sizes and `buttonVariants` follow upstream. |
+| IconButton and Link | `IconButton` owns icon labels and tooltips; Link keeps its `tooltip` prop | Icon-only controls need an accessible name. `IconButton` composes trigger props when nested in popovers. Both are the kit's own; Button is rebased, with its patch in `patches/button.diff`. |
 | Dialog and Drawer | Viewport scrolling and Drawer content scroll wrapper | Long recording details remain usable, and mobile content can scroll without losing drag behavior. Installed Vaul `1.0.0-next.7` already suppresses autofocus by default. |
 | Modal | Extras-based responsive composition with simplified context access | Forms use Dialog on desktop and a draggable Drawer below 768px. The root owns the live media query; children read that root directly. |
 | Menu callers | Honeycrisp caps its Move to folder submenu height and scrolls it | Every folder remains reachable. Shared menu selection defaults follow upstream. |
