@@ -7,8 +7,8 @@
  * The client has the app's actions under the same words as the app. Each
  * call checks its input, types what it returns in its JSON form, and resolves
  * to a Result: what the action returned, or an `ActionError` saying why not.
- * A view lists the actions it watches and makes with Wellcrafted
- * (ADR-0661), and the layout's `createQueryClient` refreshes what it shows:
+ * A UI lists the actions it watches and makes with Wellcrafted (ADR-0661),
+ * and the QueryClient its layout makes refreshes what it shows:
  *
  * ```ts
  * import { connect } from '@epicenter/app/client';
@@ -26,7 +26,6 @@
  *
  * The app is imported as a type, so the UI's bundle carries no app code.
  */
-import { MutationCache, QueryClient } from '@tanstack/query-core';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { FileError } from './errors.ts';
@@ -158,24 +157,6 @@ function appOfPage(): string {
 			'connect() needs a UI served at /<app>/ or an explicit { app }',
 		);
 	return segment;
-}
-
-/**
- * The QueryClient for an app's view, made once where the view starts. Every
- * write refreshes every read the view shows, and the write is done only once
- * they are. Reads also refresh when the view is shown again (its tab or app
- * comes back), so what an agent or another device changed appears when you
- * look. Nothing refreshes on a timer. A read that fails is not retried; the
- * next refresh asks again.
- */
-export function createQueryClient(): QueryClient {
-	const client: QueryClient = new QueryClient({
-		defaultOptions: { queries: { retry: false } },
-		mutationCache: new MutationCache({
-			onSettled: () => client.invalidateQueries(),
-		}),
-	});
-	return client;
 }
 
 /** Ask the server at `url` to run the MCP tool `name`, and return what its action returned. */

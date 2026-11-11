@@ -10,7 +10,7 @@ import { COMPILED } from './child.ts';
 import { misuse, parseWords } from './commands.ts';
 import { chooseApps } from './home.ts';
 import { fail, writeErr, writeJson, writeOut } from './output.ts';
-import { linkAppPackage } from './ui.ts';
+import { linkAppPackage } from './app-package.ts';
 
 /** Install the locked packages, when present, and link the command's app package. */
 export async function installApp(

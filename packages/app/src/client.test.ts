@@ -1,15 +1,11 @@
 /**
- * A view's client asks serve to run an action and answers a Result: what it
- * returned, or which of serve's answers said why not. Wellcrafted's maps turn
- * those calls into TanStack options, and the view's one QueryClient refreshes
- * every read after any write. The client finds its app from the UI's URL or
- * accepts an explicit app when there is no UI.
+ * A UI's client asks serve to run an action and answers a Result: what it
+ * returned, or which of serve's answers said why not. The client finds its app
+ * from the UI's URL or accepts an explicit app when there is no UI.
  */
 import { afterEach, expect, test } from 'bun:test';
-import { MutationObserver, QueryObserver } from '@tanstack/query-core';
-import { resultMutations, resultQueries } from 'wellcrafted/query';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { connect, createQueryClient } from './client.ts';
+import { connect } from './client.ts';
 import { defineApp, defineCollection, field } from './index.ts';
 
 const books = defineCollection({
@@ -163,30 +159,4 @@ test('each way serve answers without a value is its own error', async () => {
 		name: 'Unreachable',
 		message: 'Epicenter answered 502 Bad Gateway',
 	});
-});
-
-test('every write refreshes every read the page shows, before the write is done', async () => {
-	let lists = 0;
-	answer((name) => ({
-		returned: name === 'reading_list' ? [{ list: ++lists }] : true,
-	}));
-	const bookReads = resultQueries(['reading'], { list: app.list });
-	const bookWrites = resultMutations(['reading'], { delete: app.delete });
-	const client = createQueryClient();
-	const stop = new QueryObserver(client, bookReads.list()).subscribe(() => {});
-	try {
-		await client.query(bookReads.list());
-		expect<unknown>(client.getQueryData(bookReads.list().queryKey)).toEqual([
-			{ list: 1 },
-		]);
-		await new MutationObserver(client, bookWrites.delete).mutate({
-			path: 'data/books/Dune.md',
-		});
-		expect<unknown>(client.getQueryData(bookReads.list().queryKey)).toEqual([
-			{ list: 2 },
-		]);
-	} finally {
-		stop();
-		client.clear();
-	}
 });

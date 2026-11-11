@@ -500,18 +500,17 @@ test('a built UI serves files and refuses traversal and symlinks outside it', as
 	expect((await fetch(`${f.base}/linked/`)).status).toBe(404);
 });
 
-test('serve builds the view of the last commit when opened, and again after a commit', async () => {
-	const writes = (label: string) =>
-		`${JSON.stringify({ scripts: { build: `mkdir -p dist && echo ${label} > dist/index.html` } })}\n`;
+test('serve builds the UI as it sits on disk when a page opens, and keeps the last good build through a failure', async () => {
 	const f = await setup((f) =>
 		f.folder(join(f.home, 'reading'), {
 			...readingApp,
-			'ui/.gitignore': 'dist/\nnode_modules/\n',
-			'ui/package.json': writes('one'),
+			'.gitignore': `${readingApp['.gitignore']}ui/dist/\n`,
+			'package.json': `${JSON.stringify({ scripts: { build: 'mkdir -p "$EPICENTER_OUT" && cp ui/page.txt "$EPICENTER_OUT/index.html" && grep -qv broken ui/page.txt' } })}\n`,
+			'ui/page.txt': 'one\n',
 		}),
 	);
 	const folder = f.made;
-	/** The view's page once it reads `text`, opening it until it does. */
+	/** The UI's page once it reads `text`, opening it until it does. */
 	const opened = async (text: string) => {
 		for (let tries = 0; tries < 100; tries++) {
 			const response = await fetch(`${f.base}/reading/`);
@@ -521,10 +520,17 @@ test('serve builds the view of the last commit when opened, and again after a co
 		return false;
 	};
 	expect(await opened('one\n')).toBe(true);
-	await writeFile(join(folder, 'ui', 'package.json'), writes('two'));
-	expect(await opened('one\n')).toBe(true);
-	await gitIn(folder, 'commit', '-q', '--no-verify', '-am', 'a new view');
+	// Uncommitted: the UI runs as it sits on disk.
+	await writeFile(join(folder, 'ui', 'page.txt'), 'two\n');
 	expect(await opened('two\n')).toBe(true);
+	await writeFile(join(folder, 'ui', 'page.txt'), 'broken\n');
+	await fetch(`${f.base}/reading/`);
+	for (let tries = 0; tries < 100 && !f.stderr().includes('did not build'); tries++)
+		await Bun.sleep(100);
+	expect(f.stderr()).toContain('reading: the UI did not build');
+	expect(await (await fetch(`${f.base}/reading/`)).text()).toBe('two\n');
+	await writeFile(join(folder, 'ui', 'page.txt'), 'three\n');
+	expect(await opened('three\n')).toBe(true);
 	expect((await fetch(`${f.base}/reading/.epicenter-build`)).status).toBe(404);
 });
 

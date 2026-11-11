@@ -4,7 +4,7 @@
 	the system's light or dark mode.
 -->
 <script lang="ts">
-	import { createQueryClient } from '@epicenter/app/client';
+	import { createQueryClient } from '$lib/query-client.js';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import { ConfirmationDialog } from '@epicenter/ui/confirmation-dialog';

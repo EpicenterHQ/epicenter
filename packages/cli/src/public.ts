@@ -234,7 +234,7 @@ export function publicHandler(authorization: AuthorizationServer, site: Site) {
 					location: `${SIGN_IN_PATH}?${new URLSearchParams({ next: `${pathname}${search}` })}`,
 				},
 			});
-		return pathname === '/' ? site.launcher(request) : site.view(request);
+		return pathname === '/' ? site.launcher(request) : site.ui(request);
 	};
 }
 

@@ -4,7 +4,7 @@
  *
  * - `new <name> --from <git url|path>` clones a starter, another app's code,
  *   keeps it as the app's `upstream` remote with the branch tracking nothing,
- *   and makes an empty data repository (ADR-0866); `serve` builds its view
+ *   and makes an empty data repository (ADR-0866); `serve` builds its UI
  *   when it is first opened. `epicenter update` later merges the starter's
  *   changes.
  * - `new <name>` makes the folder from the built-in template, makes it a

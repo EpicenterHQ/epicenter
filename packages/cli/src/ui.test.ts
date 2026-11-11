@@ -1,11 +1,10 @@
 /**
- * View build tests: `epicenter build` builds an app's view from its code's
- * `HEAD` into `ui/dist/`, never from the working tree, and a failed build
- * leaves the last view in place. `serve`'s rebuilding is in
- * `acceptance.http.test.ts`.
+ * UI build tests: `epicenter build` builds an app's UI from its sources as
+ * they sit on disk into `ui/dist/`, and a failed build leaves the last one in
+ * place. `serve`'s rebuilding is in `acceptance.http.test.ts`.
  */
 import { afterEach, expect, test } from 'bun:test';
-import { readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fixture, gitIn, gitignore, header } from './runner.test-support.ts';
 
@@ -16,114 +15,116 @@ afterEach(async () => {
 	);
 });
 
-/** A `ui/package.json` whose `build` runs `script`, with no dependency to install. */
-function uiPackage(script: string) {
-	return `${JSON.stringify({ name: 'ui', private: true, scripts: { build: script } })}\n`;
+/** An app's `package.json` whose `build` runs `script`, with no dependency to install. */
+function appPackage(script: string) {
+	return `${JSON.stringify({ name: 'vocab', private: true, scripts: { build: script } })}\n`;
 }
 const writes = (label: string) =>
-	uiPackage(`mkdir -p dist && echo ${label} > dist/index.html`);
+	appPackage(`mkdir -p "$EPICENTER_OUT" && echo ${label} > "$EPICENTER_OUT/index.html"`);
 
-/** A committed app `vocab` whose `ui/` holds `files`. */
+/** A committed app `vocab` holding `files`, with a `ui/` folder. */
 async function vocab(files: Record<string, string>) {
 	const f = await fixture();
 	roots.push(f.root);
 	const app = await f.folder(join(f.home, 'vocab'), {
 		'.gitignore': `${gitignore}ui/dist/\n`,
 		'epicenter.ts': `${header}export default defineApp({ description: 'Words', collections: {}, actions: {} });\n`,
-		...Object.fromEntries(
-			Object.entries(files).map(([path, text]) => [`ui/${path}`, text]),
-		),
+		...files,
 	});
-	const view = () => readFile(join(app, 'ui', 'dist', 'index.html'), 'utf8');
-	const commit = async (path: string, text: string, message: string) => {
-		await writeFile(join(app, 'ui', path), text);
-		await gitIn(app, 'add', '--', `ui/${path}`);
-		await gitIn(app, 'commit', '-q', '--no-verify', '-m', message);
-	};
-	return { ...f, app, view, commit };
+	await mkdir(join(app, 'ui'), { recursive: true });
+	const ui = () => readFile(join(app, 'ui', 'dist', 'index.html'), 'utf8');
+	return { ...f, app, ui };
 }
 
-test('build builds the last commit, not the working tree, and leaves nothing behind', async () => {
+test('build builds the sources as they sit on disk, committed or not, and leaves nothing behind', async () => {
 	const f = await vocab({ 'package.json': writes('one') });
-	await writeFile(join(f.app, 'ui', 'package.json'), writes('uncommitted'));
+	await writeFile(join(f.app, 'package.json'), writes('uncommitted'));
 	const built = await f.run('build', 'vocab');
 	expect(built.stderr).toBe('');
-	const head = await gitIn(f.app, 'rev-parse', 'HEAD');
-	expect(built.stdout).toBe(`vocab: view built from ${head.slice(0, 7)}\n`);
-	expect(await f.view()).toBe('one\n');
+	expect(built.stdout).toBe('vocab: UI built\n');
+	expect(await f.ui()).toBe('uncommitted\n');
 	expect(
 		await readFile(join(f.app, 'ui', 'dist', '.epicenter-build'), 'utf8'),
-	).toStartWith(`${head}\n`);
-	expect(await gitIn(f.app, 'status', '--porcelain')).toBe('M ui/package.json');
-	expect(await gitIn(f.app, 'worktree', 'list', '--porcelain')).not.toContain(
-		'detached',
-	);
+	).toMatch(/^[0-9a-f]{64}$/);
+	expect(await gitIn(f.app, 'status', '--porcelain')).toBe('M package.json');
 	expect(
 		(await readdir(f.home)).filter((name) => name.startsWith('.')),
 	).toEqual([]);
 });
 
-test('a build script is told the path its view is served at', async () => {
+test('a build script runs in the app folder and is never told where its UI is served', async () => {
 	const f = await vocab({
-		'package.json': uiPackage(
-			'mkdir -p dist && echo "$EPICENTER_BASE" > dist/index.html',
+		'package.json': appPackage(
+			'mkdir -p "$EPICENTER_OUT" && { pwd; echo "${EPICENTER_BASE:-none}"; } > "$EPICENTER_OUT/index.html"',
 		),
 	});
 	expect((await f.run('build', 'vocab')).code).toBe(0);
-	expect(await f.view()).toBe('/vocab\n');
+	expect(await f.ui()).toBe(`${await realpath(f.app)}\nnone\n`);
 });
 
-test("a build resolves @epicenter/app to this command's own, in the build and the app's folder", async () => {
+test("a build resolves @epicenter/app to this command's own", async () => {
 	const f = await vocab({
-		'package.json': uiPackage(
-			`mkdir -p dist && bun -e "console.log(Bun.fileURLToPath(import.meta.resolve('@epicenter/app/client')))" > dist/index.html`,
+		'package.json': appPackage(
+			`mkdir -p "$EPICENTER_OUT" && bun -e "console.log(Bun.fileURLToPath(import.meta.resolve('@epicenter/app/client')))" > "$EPICENTER_OUT/index.html"`,
 		),
 	});
 	const built = await f.run('build', 'vocab');
 	expect(built.stderr).toBe('');
 	const own = join(import.meta.dir, '..', '..', 'app', 'src', 'client.ts');
-	expect(await realpath((await f.view()).trim())).toBe(await realpath(own));
-	expect(await realpath(join(f.app, 'node_modules', '@epicenter', 'app'))).toBe(
-		await realpath(join(import.meta.dir, '..', '..', 'app')),
-	);
+	expect(await realpath((await f.ui()).trim())).toBe(await realpath(own));
 	expect(await gitIn(f.app, 'status', '--porcelain')).toBe('');
 });
 
 test('a ui/ with no build script is bundled from its index.html, with relative paths', async () => {
 	const f = await vocab({
-		'index.html':
+		'ui/index.html':
 			'<!doctype html><html><body><script type="module" src="./main.ts"></script></body></html>\n',
-		'main.ts':
+		'ui/main.ts':
 			"import { connect } from '@epicenter/app/client';\ndocument.body.dataset.client = typeof connect;\n",
 	});
 	const built = await f.run('build', 'vocab');
 	expect(built.stderr).toBe('');
-	const html = await f.view();
+	const html = await f.ui();
 	expect(html).toMatch(/src="\.\/[^"]+\.js"/);
 	expect(html).not.toContain('main.ts');
 });
 
-test('a failed build keeps the last view and says why', async () => {
+test('a failed build keeps the last UI and says why', async () => {
 	const f = await vocab({ 'package.json': writes('one') });
 	expect((await f.run('build', 'vocab')).code).toBe(0);
-	await f.commit('package.json', uiPackage('exit 7'), 'break the build');
+	await writeFile(join(f.app, 'package.json'), appPackage('exit 7'));
 	const failed = await f.run('build', 'vocab');
 	expect(failed.code).toBe(1);
 	expect(failed.stderr).toContain('exited 7');
-	expect(await f.view()).toBe('one\n');
+	expect(await f.ui()).toBe('one\n');
 
-	await f.commit('package.json', uiPackage('true'), 'write nothing');
+	await writeFile(join(f.app, 'package.json'), appPackage('true'));
 	const empty = await f.run('build', 'vocab');
 	expect(empty.code).toBe(1);
-	expect(empty.stderr).toContain('ui/dist/index.html');
-	expect(await f.view()).toBe('one\n');
+	expect(empty.stderr).toContain('EPICENTER_OUT');
+	expect(await f.ui()).toBe('one\n');
 });
 
-test('an app whose last commit has no view source has nothing to build', async () => {
-	const f = await vocab({});
+test('an app whose packages are not installed is not built, and is told to install them', async () => {
+	const f = await vocab({
+		'package.json': `${JSON.stringify({ name: 'vocab', dependencies: { 'left-pad': '1.3.0' }, scripts: { build: 'exit 9' } })}\n`,
+	});
+	const built = await f.run('build', 'vocab');
+	expect(built.code).toBe(1);
+	expect(built.stderr).toContain('epicenter install vocab');
+	expect(built.stderr).not.toContain('exited 9');
+});
+
+test('an app with no ui/ has nothing to build', async () => {
+	const f = await fixture();
+	roots.push(f.root);
+	const app = await f.folder(join(f.home, 'vocab'), {
+		'.gitignore': gitignore,
+		'epicenter.ts': `${header}export default defineApp({ description: 'Words', collections: {}, actions: {} });\n`,
+	});
 	const built = await f.run('build', 'vocab', '--json');
 	expect(built.code).toBe(0);
 	expect(JSON.parse(built.stdout).apps).toEqual([
-		{ app: 'vocab', folder: f.app, built: null },
+		{ app: 'vocab', folder: app, built: false },
 	]);
 });

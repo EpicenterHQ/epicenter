@@ -4,7 +4,7 @@
  * ```txt
  * POST /             MCP, stateless JSON
  * GET  /             the launcher; 405 when asked for an event stream (MCP)
- * GET  /<app>/...    the app's view, ui/dist/, as static files
+ * GET  /<app>/...    the app's UI, ui/dist/, as static files
  * GET  /<app>        308 to /<app>/
  * ```
  *
@@ -48,7 +48,7 @@ import { startPublicServer } from './public.ts';
 import { epicenterDir, epicenterRoot } from './root.ts';
 import { nothingToBackUp } from './snapshot.ts';
 import { type Synced, syncFailures, syncOne } from './sync.ts';
-import { createViewRefresher, VIEW } from './ui.ts';
+import { createUiRefresher, UI_DIST } from './ui.ts';
 
 /** How often `serve` backs up every app. */
 const BACKUP_EVERY_MS = 5 * 60_000;
@@ -109,15 +109,15 @@ export type Site = {
 	mcp(request: Request, readOnly?: boolean): Promise<Response>;
 	/** The launcher at `GET /`, or 405 when MCP asks for an event stream. */
 	launcher(request: Request): Promise<Response>;
-	/** `GET /<app>` and `/<app>/<path>`: the app's view, or 404. */
-	view(request: Request): Promise<Response>;
+	/** `GET /<app>` and `/<app>/<path>`: the app's UI, or 404. */
+	ui(request: Request): Promise<Response>;
 };
 
 const notFound = () => new Response('Not found', { status: 404 });
 
-/** The site both listeners serve: MCP, the launcher, and each app's view. */
+/** The site both listeners serve: MCP, the launcher, and each app's UI. */
 function createSite(
-	refreshView: (app: string, folder: string) => unknown,
+	refreshUi: (app: string, folder: string) => unknown,
 ): Site {
 	const uiFile = async (app: string, path: string) => {
 		if (!isName(app)) return notFound();
@@ -132,16 +132,16 @@ function createSite(
 		if (
 			decoded.includes('\\') ||
 			isAbsolute(decoded) ||
-			// `.` and `..`, and the build's own stamp: never part of a view.
+			// `.` and `..`, and the build's own stamp: never part of a UI.
 			decoded.split('/').some((part) => part.startsWith('.'))
 		)
 			return notFound();
-		// A page load, not each of its files, checks that the view is of `HEAD`.
+		// A page load, not each of its files, checks that the UI is of its sources now.
 		if (decoded === '' || decoded === 'index.html')
-			void refreshView(entry.entry, entry.realPath);
+			void refreshUi(entry.entry, entry.realPath);
 		try {
-			// The view in ui/dist/ is the only thing served (ADR-0860).
-			const root = await realpath(join(entry.realPath, VIEW));
+			// The UI in ui/dist/ is the only thing served (ADR-0860).
+			const root = await realpath(join(entry.realPath, UI_DIST));
 			if (!root.startsWith(`${entry.realPath}${sep}`)) return notFound();
 			const candidate = join(root, decoded || 'index.html');
 			const file = await realpath(
@@ -219,7 +219,7 @@ function createSite(
 				},
 			);
 		},
-		async view(request) {
+		async ui(request) {
 			if (request.method !== 'GET' && request.method !== 'HEAD')
 				return notFound();
 			const match = /^\/([^/]+)(?:\/(.*))?$/.exec(
@@ -274,7 +274,7 @@ const forbidden = () => new Response('Forbidden', { status: 403 });
 export function startHttpServer(host: string, port: number) {
 	/** Each app's last backup failure as logged, so an unchanged one is logged once. */
 	const lastFailure = new Map<string, string>();
-	const refreshView = createViewRefresher();
+	const refreshUi = createUiRefresher();
 	const backUpAll = async () => {
 		const backedUp: Synced[] = [];
 		for (const { entry, realPath } of await homeEntries()) {
@@ -282,8 +282,6 @@ export function startHttpServer(host: string, port: number) {
 			const synced = idle
 				? undefined
 				: await syncOne(entry, realPath, { wait: 0 });
-			// What the snapshot just committed reaches the view without a visit.
-			void refreshView(entry, realPath);
 			// A call to it is running: its commit, or the next tick, takes what it wrote.
 			if (!synced || synced.busy) continue;
 			backedUp.push(synced);
@@ -318,7 +316,7 @@ export function startHttpServer(host: string, port: number) {
 		clock.unref();
 	};
 	void tickLogged().finally(schedule);
-	const site = createSite(refreshView);
+	const site = createSite(refreshUi);
 	const answer = async (request: Request) => {
 		if (TUNNEL_HEADERS.some((name) => request.headers.has(name)))
 			return forbidden();
@@ -341,7 +339,7 @@ export function startHttpServer(host: string, port: number) {
 			return request.method === 'POST'
 				? site.mcp(request)
 				: site.launcher(request);
-		return site.view(request);
+		return site.ui(request);
 	};
 	const server = Bun.serve({
 		hostname: host,

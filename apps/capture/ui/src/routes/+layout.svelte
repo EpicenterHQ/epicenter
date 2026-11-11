@@ -3,7 +3,7 @@
 	toasts, the delete confirmation, and the system's light or dark mode.
 -->
 <script lang="ts">
-	import { createQueryClient } from '@epicenter/app/client';
+	import { createQueryClient } from '$lib/query-client.js';
 	import { ConfirmationDialog } from '@epicenter/ui/confirmation-dialog';
 	import { Toaster } from '@epicenter/ui/sonner';
 	import * as Tooltip from '@epicenter/ui/tooltip';
