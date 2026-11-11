@@ -25,10 +25,8 @@ const NOT_YET_REBASED = new Set([
 	'command',
 	'context-menu',
 	'dialog',
-	'drawer',
 	'popover',
 	'select',
-	'sheet',
 	'sidebar',
 	'tabs',
 ]);

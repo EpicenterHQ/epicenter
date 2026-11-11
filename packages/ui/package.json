@@ -42,14 +42,11 @@
 		"@lucide/svelte": "^1.7.0",
 		"bits-ui": "catalog:",
 		"clsx": "^2.1.1",
-		"marked": "catalog:",
 		"paneforge": "^1.0.2",
-		"runed": "catalog:",
 		"svelte-sonner": "catalog:",
 		"tailwind-merge": "^3.5.0",
 		"tailwind-variants": "^3.2.2",
 		"tw-animate-css": "^1.3.5",
-		"vaul-svelte": "^1.0.0-next.7",
 		"wellcrafted": "catalog:"
 	},
 	"peerDependencies": {

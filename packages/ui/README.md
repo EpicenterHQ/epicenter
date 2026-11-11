@@ -55,16 +55,14 @@ apps.
 ## Choosing components
 
 - Use `ConfirmationDialog` for reusable confirmations and `AlertDialog` for
-  composed confirmations. Use `Dialog` for other simple overlays.
-- Use `Modal` for forms and input workflows. It renders a Dialog on desktop
-  and a Drawer below 768px. Use `Sheet` or `Drawer` for secondary panels.
+  composed confirmations. Use `Dialog` for other overlays.
 - Use `Command` for filtered actions and search.
 - Use `Field` and shared input components for forms. Put Select options inside
   `Select.Group`, which owns their padding.
 - Use `Item`, `SectionHeader`, `InputGroup`, and `Sidebar` for repeated rows,
   sections, grouped controls, and navigation.
 
-Dialog, Modal, Sheet, and Drawer need accessible titles. Use an `sr-only` title
+Dialogs need accessible titles. Use an `sr-only` title
 when the visual design already supplies equivalent context. Keep interaction
 policy with the caller: for example, the API user menu's theme toggle sets
 `closeOnSelect={false}` so the menu stays open, while ordinary items keep the
@@ -146,9 +144,6 @@ bun run check:ui-boundary
 ```
 
 The check in `scripts/check-ui-boundary.ts` enforces the public import boundary.
-For scrolling regression checks, run `bun scripts/ui-scroll.browser.mjs` with
-Playwright’s Chromium installed. It checks chat cleanup, streaming updates,
-reading position, and long folder submenus, and prints its artifact directory.
 
 For styling conflicts, inspect the component’s `cn()` call and caller classes
 at the rendered viewport and state. A responsive utility such as `sm:max-w-md`
