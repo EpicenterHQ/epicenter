@@ -4,7 +4,7 @@
 - **Date:** 2026-11-10
 - **Amended:** 2026-11-11: `update` snapshots what is pending before it merges, as `undo` does, instead of refusing an app with uncommitted changes, and no longer lists files that do not fit their collection's fields, since every read of such a file says so in its `problems`.
 - **Relates:** [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (one copy; the install rules this replaces), [ADR-0851](0851-an-app-has-one-home-and-an-optional-push-only-backup.md) (`origin`), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (`new`, `link`), [ADR-0854](0854-an-apps-cache-is-the-files-it-gitignores.md) (rebuilt files, ignored where their tool writes them), [ADR-0857](0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md) (`epicenter.ts`), [ADR-0858](0858-where-a-file-lives-decides-whether-it-travels-survives-or-dies-with-its-program.md) (`*.local`), [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (the UI).
-- **Unbuilt:** starters in repositories of their own, published from the Studio's apps (ADR-0877): Capture, Tasks, and Vocab have the layout in `apps/<app>/`, which builds only inside this repository until `@epicenter/app` is published (ADR-0873). Records under `data/` (ADR-0876).
+- **Unbuilt:** an app's code and data as two repositories, with the first-party apps developed on the Studio ([ADR-0877](0877-an-apps-code-and-its-data-are-two-repositories-and-sharing-an-app-shares-its-code.md)): Capture, Tasks, and Vocab have the layout in `apps/<app>/`, which builds only inside this repository until `@epicenter/app` is published (ADR-0873). Records under `data/` (ADR-0876). `update` taking a remote other than `upstream`.
 
 ## Context
 
@@ -21,7 +21,7 @@ someone else's changes with one's own: a fork and its upstream.
 
 ## Decision
 
-**An app is a Git repository of three kinds of file, each with one author.**
+**An app's code is a Git repository of three kinds of file, each with one author, and its data is a repository of its own under `data/` (ADR-0877).**
 
 ```txt
 ~/Epicenter/vocab/
@@ -29,15 +29,16 @@ someone else's changes with one's own: a fork and its upstream.
   package.json     what the actions' types and tests need      from upstream
   ui/              the UI's source, a project of its own       from upstream; yours to change
   README.md        what the app is, for people and agents      from upstream
-  .gitignore  .gitattributes                                   from upstream
-  data/words/*.md  data                                        yours alone
+  .gitignore                                                   from upstream; lists data/
+  data/            the data repository: words/*.md             yours alone (ADR-0877)
   ui/dist/        the built UI, served at /vocab/             built on this computer, ignored by ui/.gitignore
   node_modules/    installed packages                          ignored (ADR-0854)
   *.local          kept on this computer                       ignored (ADR-0858)
 ```
 
-- **A starter is an app with no data.** It is a repository of its own whose
-  root is the app's root. It holds no `data/` (ADR-0876).
+- **A starter is an app's code repository.** Any app is a starter for
+  whoever takes it, and it holds no data, which is a repository of its own
+  (ADR-0876, ADR-0877).
 - The UI is called the UI, and its folder `ui/`: a project with its own
   `package.json`, whose `build` writes `ui/dist/` (ADR-0860). `epicenter
   serve` serves `ui/dist/` at `/<app>/` and nothing else. The UI refers to its
@@ -49,18 +50,19 @@ someone else's changes with one's own: a fork and its upstream.
 
 **`epicenter new <name> --from <git url|path>` makes an app from a starter.**
 It clones the starter into `~/Epicenter/<name>`, renames the clone's remote to
-`upstream`, leaves the branch tracking nothing, installs the UI's packages, and
-builds it. Making an app from a starter runs the starter's `epicenter.ts`; it
+`upstream`, leaves the branch tracking nothing, makes an empty data
+repository in `data/`, installs the UI's packages, and builds it. Making an app from a starter runs the starter's `epicenter.ts`; it
 is the decision to trust it, as cloning and running any repository is.
 `epicenter new <name>` without `--from` uses the built-in starter, as now.
 
-**`epicenter update [<app>]` brings in the starter's changes.** For each app
-with an `upstream`, it:
+**`epicenter update [<app>] [<remote>]` brings in the starter's changes.**
+For each app with an `upstream`, or for one app from the remote it names, it
+works in the code repository and:
 
-1. runs `git fetch upstream`;
+1. fetches the remote;
 2. holding the app's lock (ADR-0850), snapshots what is pending as
    `<app>: changed outside epicenter`, so the merge never mixes with an edit
-   not yet in history, and merges `upstream`'s branch; on a conflict it
+   not yet in history, and merges the remote's branch; on a conflict it
    aborts the merge, leaves the app as it was, and prints
    `git -C ~/Epicenter/vocab merge upstream/main` for whoever resolves it;
 3. builds the UI, keeping the last `ui/dist/` that built if this build
@@ -70,12 +72,12 @@ with an `upstream`, it:
 
 The merge commit records what came in; nothing writes trailers.
 
-**Backups go to `origin` only.** `epicenter sync` and `epicenter serve` push
-`HEAD` to `origin` by name and never to `upstream` or a tracked branch. A
-change made in someone's app reaches its starter as any fork's does: a
-cherry-pick or a pull request in the starter's repository. The starter's
-author publishes their own app's changes with `epicenter publish`
-(ADR-0877).
+**Backups go to `origin` only.** Each of an app's two repositories has a
+private `origin`, and `epicenter sync` and `epicenter serve` push `HEAD` to it
+by name, never to `upstream` or a tracked branch. Sharing an app is pushing its
+code repository to a remote its author chooses (ADR-0877). A change made in
+someone's copy reaches the author as any fork's does: they push it where the
+author can fetch it, and the author runs `epicenter update <app> <remote>`.
 
 **The collections are the contract between a starter and the data.** A starter
 that renames or tightens a field owns the change to existing files: every
@@ -93,12 +95,12 @@ the computer repairs them, or the starter ships an action that does. Git merges 
   same lines. A person who never changes an app's code never meets one, because
   a starter holds no data.
 - An app's history includes its starter's commits.
-- First-party starters are published from the Studio's apps (ADR-0877) into
-  repositories of their own, and build against the published `@epicenter/app`
-  (ADR-0873) and the components they copied (ADR-0874), as anyone else's do.
-- The Studio's apps are their starters' source, so they have no `upstream`.
+- First-party apps are developed on the Studio, and their code repositories
+  are the first-party starters (ADR-0877). They build against the published
+  `@epicenter/app` (ADR-0873) and the components they copied (ADR-0874), as
+  anyone else's do, and have no `upstream`.
 - `epicenter sync` is no longer the only command that touches a remote:
-  `update` fetches `upstream`.
+  `update` fetches a remote.
 - The word "view" in the code, the records, and the `epicenter-app` skill
   becomes "UI" when the code is renamed.
 

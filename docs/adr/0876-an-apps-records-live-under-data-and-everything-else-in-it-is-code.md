@@ -1,9 +1,9 @@
 # 0876. An app's records live under `data/`, and everything else in it is code
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-11-11)
 - **Date:** 2026-11-11
-- **Unbuilt:** all of it: collection paths sit at the app's top (`tasks/{time}.md`), `folder` writes anywhere in the app, and the Studio's apps keep their records at the top.
-- **Relates:** [ADR-0857](0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md) (collections and `folder`), [ADR-0858](0858-where-a-file-lives-decides-whether-it-travels-survives-or-dies-with-its-program.md) (where a file lives decides what happens to it), [ADR-0866](0866-an-app-starts-from-a-starter-kept-as-its-upstream-and-update-merges-the-starters-changes.md) (starters hold no data), [ADR-0870](0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md) (`*.local`), [ADR-0877](0877-a-starter-is-published-from-its-app-as-the-apps-files-outside-data.md) (publishing a starter).
+- **Unbuilt:** all of it: collection paths sit at the app's top (`tasks/{time}.md`), `folder` writes anywhere in the app, `*.local` files sit wherever an app keeps them, and the Studio's apps keep their records at the top.
+- **Relates:** [ADR-0857](0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md) (collections and `folder`), [ADR-0858](0858-where-a-file-lives-decides-whether-it-travels-survives-or-dies-with-its-program.md) (where a file lives decides what happens to it), [ADR-0866](0866-an-app-starts-from-a-starter-kept-as-its-upstream-and-update-merges-the-starters-changes.md) (starters hold no data), [ADR-0870](0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md) (`*.local`), [ADR-0877](0877-an-apps-code-and-its-data-are-two-repositories-and-sharing-an-app-shares-its-code.md) (`data/` is a repository of its own).
 
 ## Context
 
@@ -19,15 +19,16 @@ declares.
 
 ## Decision
 
-**Every app has the same layout: its code at the top, its records under
-`data/`.**
+**Every app has the same layout: its code at the top, everything it keeps
+under `data/`.**
 
 ```txt
 ~/Epicenter/tasks/
   epicenter.ts  README.md  package.json  .gitignore      code
   ui/                                                    code: the UI's source
-  data/                                                  records
-    tasks/<time>.md
+  data/                                                  what the app keeps
+    tasks/<time>.md                                      records, tracked
+    google.local.md                                      kept on this computer, never tracked
 ```
 
 - **A collection's path starts with `data/`.** `defineCollection` refuses one
@@ -35,12 +36,15 @@ declares.
 - **A record's path is the same everywhere:** the file's path from the app's
   folder (`data/tasks/<time>.md`), in what actions return, on the command line,
   over MCP, and in a UI's routes.
-- **A run writes only under `data/` or to a `*.local` file.** `folder.write`,
-  `writeBytes`, `update`, and `delete` throw for any other path, naming the
-  action and the path. A run cannot change its own app's code.
-- **Everything tracked outside `data/` is code.** That is what a starter holds
-  (ADR-0877) and what `update` merges (ADR-0866). `*.local` files are never
-  tracked (ADR-0870), wherever they sit.
+- **`*.local` files live under `data/` too** (ADR-0870): secrets, tokens, and
+  state kept on one computer. They are never tracked.
+- **A run writes only under `data/`.** `folder.write`, `writeBytes`,
+  `update`, and `delete` throw for any other path, naming the action and the
+  path. Nothing outside `data/` changes while the app runs: a run cannot
+  change its own app's code.
+- **Everything outside `data/` is code,** changed only by whoever edits it.
+  It is the app's code repository, which others take and `update` merges
+  (ADR-0866, ADR-0877).
 
 ## Consequences
 
@@ -51,6 +55,8 @@ declares.
   sees `data/` beside the app's code, one folder deeper than today.
 - An action that wrote a file beside its code (an export, a report) writes it
   under `data/` instead, where it is a record like any other.
+- A secret a person adds by hand goes in `data/` as a `*.local` file; the
+  error for a missing one names that path.
 - Each existing app moves its records once, a `git mv` into `data/`, and
   prefixes each collection's path. A UI's hash routes gain the prefix
   (`#/data/tasks/<time>.md`).
