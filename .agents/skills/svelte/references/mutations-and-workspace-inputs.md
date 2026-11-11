@@ -10,9 +10,9 @@ In `.svelte` files, use `createMutation` for user-triggered async operations whe
 
 `createMutation` is the component operation lifecycle primitive. It is not reserved for cache invalidation, retry policy, or shared mutation keys.
 
-Use `defineMutation` in `$lib/queries` when the operation has shared query-layer identity: multiple consumers, cache invalidation, optimistic updates, or `useIsMutating`. For a one-off Result-returning component action whose lifecycle the template observes, keep the operation as a plain function in `$lib/operations`, `$lib/services`, or a focused module, then wrap it locally with `createMutation(() => resultMutationOptions({ mutationKey, mutationFn }))`.
+Use a shared `resultMutations` entry (see `query-layer`) when the operation has shared identity: multiple consumers, optimistic updates, or `useIsMutating`. Refreshing reads after a write is the QueryClient's invalidation rule, not a reason to share a definition. For a one-off Result-returning component action whose lifecycle the template observes, keep the operation as a plain function in `$lib/operations`, `$lib/services`, or a focused module, then wrap it locally with `createMutation(() => resultMutationOptions({ mutationKey, mutationFn }))`.
 
-Use direct `await` when no template lifecycle state is observed, when the code runs outside component context, or when a sequential workflow would become harder to read as mutation callbacks. Shared Wellcrafted mutations are callable, so imperative query mutation usage is `await queries.thing(input)`.
+Use direct `await` when no template lifecycle state is observed, when the code runs outside component context, or when a sequential workflow would become harder to read as mutation callbacks. Run a shared entry imperatively with `await runMutation(queryClient, mutations.thing, input)`, which returns a Result.
 
 ## Async Button Pattern
 

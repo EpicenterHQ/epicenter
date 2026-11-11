@@ -6,18 +6,16 @@ That distinction matters in Svelte components because local UI state lives at th
 
 ## The Two Callback Layers
 
-Use an options accessor when wiring a shared RPC mutation:
+Use an options accessor when wiring a shared mutation entry:
 
 ```typescript
-const deleteSessionMutation = createMutation(
-	() => rpc.sessions.deleteSession.options,
-);
+const deleteSession = createMutation(() => sessionMutations.deleteSession);
 ```
 
 Then pass UI-specific callbacks when triggering the mutation:
 
 ```typescript
-deleteSessionMutation.mutate(
+deleteSession.mutate(
 	{ sessionId },
 	{
 		onSuccess: () => {
@@ -35,15 +33,15 @@ The mutation definition stays reusable. The call site keeps access to local stat
 If every call site needs the same behavior, compose that behavior into the hook options accessor:
 
 ```typescript
-const deleteSessionMutation = createMutation(() => ({
-	...rpc.sessions.deleteSession.options,
+const deleteSession = createMutation(() => ({
+	...sessionMutations.deleteSession,
 	onSuccess: (data) => {
 		logAuditEvent('session_deleted', data.id);
 	},
 }));
 ```
 
-This is still component-level TanStack setup. The shared RPC definition remains the plain Wellcrafted mutation definition, and `.options` stays a property.
+This is still component-level TanStack setup. The shared entry stays the plain options object `resultMutations` produced.
 
 ## Local Callback Behavior
 
@@ -51,9 +49,7 @@ Prefer call-site callbacks for UI consequences:
 
 ```svelte
 <script lang="ts">
-	const copyToClipboard = createMutation(
-		() => rpc.text.copyToClipboard.options,
-	);
+	const copyToClipboard = createMutation(() => textMutations.copyToClipboard);
 
 	let isDialogOpen = $state(false);
 	let selectedText = $state('');
@@ -84,28 +80,28 @@ Each interaction can do exactly what its UI context needs. A table row can show 
 
 ## Hook-Local Result Mutations
 
-When the operation is one-off and returns a Wellcrafted `Result`, use `mutationOptions` directly at the hook call site:
+When the operation is one-off and returns a Wellcrafted `Result`, use `resultMutationOptions` directly at the hook call site:
 
 ```typescript
 import { createMutation } from '@tanstack/svelte-query';
-import { mutationOptions } from 'wellcrafted/query';
+import { resultMutationOptions } from 'wellcrafted/query';
 
 const startRecording = createMutation(() =>
-	mutationOptions({
+	resultMutationOptions({
 		mutationKey: ['recording', 'startManual'],
 		mutationFn: startManualRecording,
 	}),
 );
 ```
 
-Use a shared `defineMutation` only when the mutation belongs in `$lib/rpc` or `$lib/query` with reusable identity, cache invalidation, or multiple observers.
+Use a shared `resultMutations` entry only when the mutation has reusable identity or several observers. Refreshing reads after a write is the QueryClient's invalidation rule, not a reason to share one.
 
 ## Rule
 
-- Shared RPC mutation hook: `createMutation(() => rpc.thing.options)`
-- Shared callback for every call: `createMutation(() => ({ ...rpc.thing.options, onSuccess }))`
+- Shared mutation hook: `createMutation(() => mutations.thing)`
+- Shared callback for every call: `createMutation(() => ({ ...mutations.thing, onSuccess }))`
 - Local UI callback: `mutation.mutate(input, { onSuccess, onError })`
-- Hook-local Result operation: `createMutation(() => mutationOptions({ mutationKey, mutationFn }))`
-- Imperative shared mutation outside hooks: `await rpc.thing(input)`
+- Hook-local Result operation: `createMutation(() => resultMutationOptions({ mutationKey, mutationFn }))`
+- Imperative shared mutation outside hooks: `await runMutation(queryClient, mutations.thing, input)`
 
-Do not use `createMutation(rpc.thing.options)` directly. Svelte Query expects an accessor so reactive options can be tracked consistently.
+Do not use `createMutation(mutations.thing)` directly. Svelte Query expects an accessor so reactive options can be tracked consistently.

@@ -881,7 +881,7 @@ When you add an ADR, add its row here.
 | [0658](0658-capture-compositions-are-durable-markdown-records.md) | Capture compositions are durable Markdown records from Add, not before | Accepted |
 | [0659](0659-whispering-audio-lives-beside-its-markdown.md) | Whispering audio lives beside its Markdown | Accepted |
 | [0660](0660-native-apps-default-authored-work-to-the-epicenter-root.md) | Native apps default authored work to the Epicenter root | Accepted (amends 0636, 0644, and 0647; restores the native default of 0539; standalone fixed default built) |
-| [0661](0661-apps-compose-result-services-through-wellcrafted-option-namespaces.md) | Apps compose Result services through Wellcrafted option namespaces | Proposed (Wellcrafted's `resultQueries` and `resultMutations` merged, unreleased; adoption unbuilt) |
+| [0661](0661-apps-compose-result-services-through-wellcrafted-option-namespaces.md) | Apps compose Result services through Wellcrafted option namespaces | Proposed (dashboard built on Wellcrafted 0.47; app views over `connect()` unbuilt) |
 | [0662](0662-one-path-edit-exposes-text-and-structured-changes-through-one-interface.md) | One path edit exposes text and structured changes through one interface | Superseded by 0700 (0689 rejected) |
 | [0663](0663-one-native-question-before-a-window-or-epicenter-leaves.md) | One native question before a window or Epicenter leaves | Accepted (window Close amended by 0700 twice, the second time to close at once; application Quit alert deleted by 0701) |
 | [0664](0664-folder-close-drains-admitted-work-through-one-owner.md) | Folder close drains admitted work through one owner | Superseded by 0700 (0689 rejected) |

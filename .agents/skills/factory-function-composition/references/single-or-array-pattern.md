@@ -71,33 +71,26 @@ delete: async (recordingOrRecordings) => {
 },
 ```
 
-### RPC Mutation
+### Mutation entry
 
 ```typescript
-export const recordingKeys = defineKeys({
-	delete: ['recordings', 'delete'],
-});
-
 type DeleteRecordingsInput = Recording | Recording[];
 
-export const recordings = {
-	delete: defineMutation({
-		mutationKey: recordingKeys.delete,
-		mutationFn: async (recordings: DeleteRecordingsInput) => {
-			const recordingsArray = Array.isArray(recordings)
-				? recordings
-				: [recordings];
+export const recordingMutations = resultMutations(['recordings'], {
+	delete: async (recordings: DeleteRecordingsInput) => {
+		const recordingsArray = Array.isArray(recordings)
+			? recordings
+			: [recordings];
 
-			for (const recording of recordingsArray) {
-				services.blobs.audio.revokePlaybackUrl(recording.id);
-			}
+		for (const recording of recordingsArray) {
+			services.blobs.audio.revokePlaybackUrl(recording.id);
+		}
 
-			const { error } = await services.recordings.delete(recordingsArray);
-			if (error) return Err(error);
-			return Ok(undefined);
-		},
-	}),
-};
+		const { error } = await services.recordings.delete(recordingsArray);
+		if (error) return Err(error);
+		return Ok(undefined);
+	},
+});
 ```
 
 ## Anti-Patterns

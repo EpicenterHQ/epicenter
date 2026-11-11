@@ -2,7 +2,8 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-21; revised 2026-11-11 for the merged helper shape
-- **Unbuilt:** Adoption of Wellcrafted's `resultQueries` and `resultMutations` (merged in wellcrafted-dev/wellcrafted#145, not yet released), the client-wide invalidation rule, and migration of the dashboard's read definitions and invalidation calls.
+- **Built:** the dashboard (`apps/api/ui/src/lib/dashboard/runtime.ts`) composes billing and account through `resultQueries` and `resultMutations` from Wellcrafted 0.47, with the client-wide invalidation rule.
+- **Unbuilt:** app views over `connect()`. Its methods first return `Result<Out, CallError>`, with `CallError` covering a thrown action, a refused call, and an unreachable serve. Reading's view then gets a `queries.ts` of `resultQueries` and `resultMutations` over those methods, replacing `books.svelte.ts`, followed by Capture, Tasks, and Vocab. Writes made outside a view need a change signal from `serve`, designed separately.
 <!-- doc-path-check: ignore-next-line (the ADR path belongs to the external Wellcrafted repository) -->
 - **Relates:** [Wellcrafted](https://github.com/wellcrafted-dev/wellcrafted) and its own proposed ADR, `docs/adr/0001-result-namespaces-produce-native-tanstack-options.md`, for the library-owned conversion contract.
 
@@ -40,7 +41,7 @@ layer is the same composition as the dashboard's.
 `resultQueries` for reads and `resultMutations` for writes, and composes
 everything else with TanStack's own mechanisms.** The application owns
 selection and cache policy; Wellcrafted owns key generation and Result
-conversion. The helpers are not in Epicenter's installed Wellcrafted 0.44.
+conversion. Wellcrafted 0.47 provides both helpers.
 
 ```ts
 const books = resultQueries(['reading'], { list: app.list, get: app.get });
@@ -56,18 +57,11 @@ A query entry takes the method's arguments and returns options keyed
 variant. A mutation entry is the options object itself, keyed
 `[...namespace, method]`.
 
-Folder's `createFolderQueries` and file-representation readers keep their
-explicit options: their keys describe paths and representations, and their
-functions use query context or resource objects.
-
-Whispering's `track` and `action` wrappers are not boundaries to preserve.
-They manufacture internal mutations for work whose lifetime and activity
-already have application owners. Replace that machinery with Result-returning
-application commands and explicit recorder/run state. Commands remain safe to
-call directly: admission, accepted local work, and finalization belong below
-the options adapter. A mutation observer describes a call; it does not own an
-active microphone or an answer awaiting persistence. The implementation plan
-must establish the shutdown boundary before removing the wrappers.
+A read whose key describes something other than a method and its arguments,
+or whose function needs TanStack's query context, keeps explicit options
+through `resultQueryOptions`. Work whose lifetime and activity already have an
+application owner, such as an active recording, is not a mutation; an observer
+describes a call, it does not own the work.
 
 **Services keep their Result-returning API without TanStack annotations.**
 Membership in a map states the app's observation choice. A selected function
@@ -132,8 +126,8 @@ replaces attachment identity. An Epicenter app's view has one page and one
 QueryClient, so the rule's scope is that app.
 
 Workflows that need Results run the same options through Wellcrafted's
-`runQuery` or `runMutation`, which go through the mutation cache and so through
-the rule. Direct service calls remain available and bypass the cache.
+`runQuery` or `runMutation`; `runMutation` goes through the mutation cache and
+so through the rule. Direct service calls remain available and bypass the cache.
 
 ## Consequences
 
@@ -143,16 +137,13 @@ the rule. Direct service calls remain available and bypass the cache.
   follow with refetches opts out or narrows with `meta.invalidates`.
 - Stable, serializable read arguments and method names determine generated
   identity. Custom keys or normalization use Wellcrafted's explicit adapters.
-- A Wellcrafted release containing the helpers precedes adoption. Align the
-  framework adapter and direct query-core dependencies in the same upgrade:
-  Wellcrafted's runners require query-core 5.102 or later, and Epicenter pins
-  5.96.2.
-- Migration preserves mutation pending/error state, checkout redirects, and the
-  dashboard's late-result isolation tests. The proposal does not replace
-  Folder's edit lifecycle with service mutations.
-- Whispering loses its internal mutation fabrication and mutation-cache checks
-  for recording activity. Its recorder and inference workflows retain their own
-  state, request safeguards, and accepted-write lifecycle.
+- Wellcrafted's runners require query-core 5.102 or later. Epicenter's catalog
+  moved Wellcrafted, query-core, and the Svelte adapter together (0.47, 5.107,
+  6.4); keep them aligned in later upgrades.
+- The dashboard migration kept mutation pending/error state, checkout
+  redirects, and the late-result isolation tests. Because the rule awaits the
+  refetch, a checkout's redirect and a top-up's success toast now wait until
+  active billing reads are fresh.
 - An app's view refreshes after its own writes. Writes made elsewhere (agents,
   the CLI, another device, the clock) need a change signal from `serve`; when
   one exists, it triggers the same unfiltered invalidation.

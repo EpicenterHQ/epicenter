@@ -380,12 +380,12 @@ When building interactive components (especially with dialogs/modals), create se
 <!-- DeleteItemButton.svelte -->
 <script lang="ts">
 	import { createMutation } from '@tanstack/svelte-query';
-	import { rpc } from '$lib/query';
+	import { itemMutations } from '$lib/query';
 
 	let { item }: { item: Item } = $props();
 	let open = $state(false);
 
-	const deleteItem = createMutation(() => rpc.items.delete.options);
+	const deleteItem = createMutation(() => itemMutations.delete);
 </script>
 
 <AlertDialog.Root bind:open>
