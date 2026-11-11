@@ -74,21 +74,10 @@ TanStack's context, such as its abort signal. Namespace entries never see it.
 Give each QueryClient one `MutationCache` rule, where the client is created:
 
 ```ts
-declare module '@tanstack/svelte-query' {
-	interface Register {
-		mutationMeta: { invalidates?: QueryKey[] };
-	}
-}
-
 const queryClient = new QueryClient({
 	mutationCache: new MutationCache({
-		onSettled: (_data, _error, _variables, _rollback, mutation, { client }) =>
-			client.invalidateQueries({
-				predicate: (query) =>
-					mutation.meta?.invalidates?.some((queryKey) =>
-						matchQuery({ queryKey }, query),
-					) ?? true,
-			}),
+		onSettled: (_data, _error, _variables, _rollback, _mutation, { client }) =>
+			client.invalidateQueries(),
 	}),
 });
 ```
@@ -100,11 +89,14 @@ an entry's own callbacks, so a spread cannot drop it. Returning the promise
 keeps the write pending until what is on screen is fresh.
 
 So do not call `invalidateQueries` after a write in a component or a mutation
-callback. A write that changes nothing lists no keys:
-`{ ...billingMutations.previewPlanChange, meta: { invalidates: [] } }`. Narrow
-a write to specific prefixes only for a measured cost; a precise list goes stale
-silently when a new read starts depending on the write. Do not derive a write's
-scope from its mutation key.
+callback. An operation that changes nothing is a read, whatever its HTTP
+method: the dashboard's plan-change preview is a POST, and it is a query keyed
+by plan, enabled while its dialog is open. Modelling it as a mutation would need
+a reset before each use, a guard that its answer is for the open plan, and an
+exception to the rule. If one write's refetches ever cost too much, Wellcrafted
+documents a `meta.invalidates` opt-in; a precise list goes stale silently when a
+new read starts depending on the write, so adopt it only for that measured cost.
+Do not derive a write's scope from its mutation key.
 
 The rule's scope is the client. The dashboard creates one per attachment, so
 its rule never touches another attachment's cache.

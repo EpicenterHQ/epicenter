@@ -1,20 +1,8 @@
 import type { Account } from '@epicenter/account';
-import {
-	MutationCache,
-	matchQuery,
-	QueryClient,
-	type QueryKey,
-} from '@tanstack/svelte-query';
+import { MutationCache, QueryClient } from '@tanstack/svelte-query';
 import { resultMutations, resultQueries } from 'wellcrafted/query';
 import { createAccountManagementClient } from '../auth/client.js';
 import { createBillingApi } from '../billing/api.js';
-
-declare module '@tanstack/svelte-query' {
-	interface Register {
-		/** The reads a write refreshes. Absent means every read; `[]` means none. */
-		mutationMeta: { invalidates?: QueryKey[] };
-	}
-}
 
 /**
  * One mounted dashboard attachment owns its transport clients and all caches.
@@ -22,8 +10,8 @@ declare module '@tanstack/svelte-query' {
  * Reads and writes are native TanStack options over the captured clients,
  * keyed `[domain, method, args]`. Better Auth already answers `{ data, error }`,
  * so account reads expose its rows unmapped. The attachment's QueryClient
- * refreshes what is on screen after every write; a write that changes nothing
- * says so with `meta: { invalidates: [] }`.
+ * refreshes what is on screen after every write. A plan-change preview is a
+ * read: it changes nothing, and its answer depends on the current plan.
  */
 export function createDashboardRuntime(account: Account) {
 	const lifetime = new AbortController();
@@ -32,13 +20,8 @@ export function createDashboardRuntime(account: Account) {
 			queries: { staleTime: 30_000, refetchOnWindowFocus: true },
 		},
 		mutationCache: new MutationCache({
-			onSettled: (_data, _error, _variables, _rollback, mutation, { client }) =>
-				client.invalidateQueries({
-					predicate: (query) =>
-						mutation.meta?.invalidates?.some((queryKey) =>
-							matchQuery({ queryKey }, query),
-						) ?? true,
-				}),
+			onSettled: (_data, _error, _variables, _rollback, _mutation, { client }) =>
+				client.invalidateQueries(),
 		}),
 	});
 	const management = createAccountManagementClient(account);
@@ -49,15 +32,10 @@ export function createDashboardRuntime(account: Account) {
 		usage: billingApi.usage,
 		events: billingApi.events,
 		plans: billingApi.plans,
+		previewPlanChange: billingApi.previewPlanChange,
 	});
 	queryClient.setQueryDefaults(billingQueries.overview.key, {
 		refetchOnWindowFocus: 'always',
-	});
-
-	const billingWrites = resultMutations(['billing'], {
-		previewPlanChange: billingApi.previewPlanChange,
-		checkoutPlan: billingApi.checkoutPlan,
-		checkoutTopUp: billingApi.checkoutTopUp,
 	});
 
 	return {
@@ -67,14 +45,10 @@ export function createDashboardRuntime(account: Account) {
 		management,
 		billingApi,
 		billingQueries,
-		billingMutations: {
-			...billingWrites,
-			/** A preview changes no billing state, so it refreshes nothing. */
-			previewPlanChange: {
-				...billingWrites.previewPlanChange,
-				meta: { invalidates: [] },
-			},
-		},
+		billingMutations: resultMutations(['billing'], {
+			checkoutPlan: billingApi.checkoutPlan,
+			checkoutTopUp: billingApi.checkoutTopUp,
+		}),
 		accountQueries: resultQueries(['account'], {
 			session: () =>
 				management.getSession({ query: { disableCookieCache: true } }),

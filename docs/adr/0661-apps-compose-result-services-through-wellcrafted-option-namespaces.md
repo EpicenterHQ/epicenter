@@ -22,9 +22,9 @@ knows whether an operation belongs in its query cache and which reads must be
 fresh after a write.
 
 Billing shows why those decisions cannot come from HTTP methods or Result
-types. `usage` and `events` are reads sent as POST. `portal` uses GET to open a
-billing interaction. `previewPlanChange` reads information but uses mutation
-state. Checkout can return a payment URL before a purchase completes.
+types. `usage`, `events`, and `previewPlanChange` are reads sent as POST.
+`portal` uses GET to open a billing interaction. Checkout can return a payment
+URL before a purchase completes.
 
 `createDashboardRuntime(account)` also owns a boundary that the mapping must
 preserve: one captured Account, its transport clients, and a fresh QueryClient
@@ -78,11 +78,8 @@ invalidate every query.**
 ```ts
 new QueryClient({
   mutationCache: new MutationCache({
-    onSettled: (_data, _error, _variables, _rollback, mutation, { client }) =>
-      client.invalidateQueries({
-        predicate: (query) =>
-          mutation.meta?.invalidates?.some((queryKey) => matchQuery({ queryKey }, query)) ?? true,
-      }),
+    onSettled: (_data, _error, _variables, _rollback, _mutation, { client }) =>
+      client.invalidateQueries(),
   }),
 });
 ```
@@ -93,12 +90,15 @@ another namespace, and a component spreading an entry cannot drop it. Returning
 the promise keeps the write pending until what is on screen is fresh. The
 component invalidation calls in billing and account disappear.
 
-A write that should refresh less lists the keys it affects in `meta.invalidates`,
-typed through TanStack's `Register`. An empty list refreshes nothing:
-`previewPlanChange` reads a preview and changes no billing state, so it carries
-`meta: { invalidates: [] }`. Checkout needs no exception. A returned checkout
-URL refetches billing reads, which still show the unchanged plan; a refetch
-reports server state and makes no claim that a purchase completed.
+The rule has no exceptions. An operation that changes nothing is a read, so it
+belongs in `resultQueries` whatever its HTTP method: `previewPlanChange` is a
+query keyed by plan, enabled while its dialog is open, and a write refreshes
+it because proration depends on the current plan. Checkout needs no exception
+either. A returned checkout URL refetches billing reads, which still show the
+unchanged plan; a refetch reports server state and makes no claim that a
+purchase completed. If following one write with refetches ever costs too much,
+Wellcrafted documents a `meta.invalidates` opt-in; adopt it for that measured
+cost, not by default.
 
 ### Other behavior composes by spread
 
@@ -133,8 +133,7 @@ so through the rule. Direct service calls remain available and bypass the cache.
 
 - Regular reads lose duplicated key maps, argument annotations, and forwarding
   functions. Component invalidation calls disappear into one rule per client.
-- Invalidation errs toward refreshing too much. A write that is expensive to
-  follow with refetches opts out or narrows with `meta.invalidates`.
+- Invalidation errs toward refreshing too much; only observed reads refetch.
 - Stable, serializable read arguments and method names determine generated
   identity. Custom keys or normalization use Wellcrafted's explicit adapters.
 - Wellcrafted's runners require query-core 5.102 or later. Epicenter's catalog

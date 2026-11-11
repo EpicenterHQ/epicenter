@@ -273,7 +273,7 @@ for (const successor of ['bob', 'alice']) {
 	});
 }
 
-test('every billing write refreshes reads, except a preview, which changes nothing', async () => {
+test('a write refreshes every read, including a plan-change preview', async () => {
 	const account: Account = {
 		authorityId: 'test-authority',
 		principalId: asPrincipalId('alice'),
@@ -285,22 +285,21 @@ test('every billing write refreshes reads, except a preview, which changes nothi
 	const dashboard = createDashboardRuntime(account);
 	const { queryClient, billingQueries, billingMutations } = dashboard;
 	const overview = billingQueries.overview();
-	const invalidated = () =>
-		queryClient.getQueryState(overview.queryKey)?.isInvalidated;
+	const preview = billingQueries.previewPlanChange({ planId: 'pro' });
+	const invalidated = () => [
+		queryClient.getQueryState(overview.queryKey)?.isInvalidated,
+		queryClient.getQueryState(preview.queryKey)?.isInvalidated,
+	];
 	try {
 		expectOk(await runQuery(queryClient, overview));
-		expectOk(
-			await runMutation(queryClient, billingMutations.previewPlanChange, {
-				planId: 'pro',
-			}),
-		);
-		expect(invalidated()).toBe(false);
+		expectOk(await runQuery(queryClient, preview));
+		expect(invalidated()).toEqual([false, false]);
 		expectOk(
 			await runMutation(queryClient, billingMutations.checkoutTopUp, {
 				successUrl: 'https://app.example.test',
 			}),
 		);
-		expect(invalidated()).toBe(true);
+		expect(invalidated()).toEqual([true, true]);
 	} finally {
 		dashboard[Symbol.dispose]();
 	}

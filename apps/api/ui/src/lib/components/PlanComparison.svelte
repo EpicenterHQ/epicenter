@@ -40,20 +40,12 @@
 			: null,
 	);
 
-	const previewPlanChange = createMutation(
-		() => billingMutations.previewPlanChange,
-	);
+	/** What changing to the plan in the open dialog would cost; keyed by plan. */
+	const preview = createQuery(() => ({
+		...billingQueries.previewPlanChange({ planId: confirmDialog?.card.id ?? '' }),
+		enabled: confirmDialog !== null,
+	}));
 	const checkoutPlan = createMutation(() => billingMutations.checkoutPlan);
-
-	const previewSummary = $derived(
-		previewPlanChange.data?.displayedSummary ?? null,
-	);
-
-	function handleUpgradeClick(card: BillingPlanCard) {
-		confirmDialog = { card };
-		previewPlanChange.reset();
-		previewPlanChange.mutate({ planId: card.id });
-	}
 </script>
 
 <section class="mt-10 mb-8">
@@ -129,7 +121,7 @@
 							<Button
 								class="w-full"
 								variant={card.cta === 'Upgrade' ? 'default' : 'secondary'}
-								onclick={() => handleUpgradeClick(card)}
+								onclick={() => (confirmDialog = { card })}
 							>
 								{card.cta}
 								to {card.displayName}
@@ -167,20 +159,20 @@
 					: ''}
 			</Dialog.Title>
 			<Dialog.Description>
-				{#if previewPlanChange.isPending}
+				{#if preview.isPending}
 					Calculating cost...
-				{:else if previewPlanChange.isError}
+				{:else if preview.isError}
 					Could not preview this plan change.
-				{:else if previewSummary}
-					{previewSummary}
+				{:else if preview.data.displayedSummary}
+					{preview.data.displayedSummary}
 				{:else}
 					Confirm your plan change.
 				{/if}
 			</Dialog.Description>
 		</Dialog.Header>
-		{#if previewPlanChange.isError}
-			<p role="alert" class="text-sm text-destructive">{extractErrorMessage(previewPlanChange.error)}</p>
-			<Button variant="outline" onclick={() => { if (confirmDialog) previewPlanChange.mutate({ planId: confirmDialog.card.id }); }}>Retry preview</Button>
+		{#if preview.isError}
+			<p role="alert" class="text-sm text-destructive">{extractErrorMessage(preview.error)}</p>
+			<Button variant="outline" disabled={preview.isFetching} onclick={() => preview.refetch()}>Retry preview</Button>
 		{/if}
 		<Dialog.Footer>
 			<Button variant="outline" onclick={() => (confirmDialog = null)}>
@@ -188,7 +180,7 @@
 			</Button>
 			<Button
 				onclick={() => {
-					if (!confirmDialog || !previewPlanChange.isSuccess || previewPlanChange.variables?.planId !== confirmDialog.card.id || disposed || signal.aborted) return;
+					if (!confirmDialog || !preview.isSuccess || disposed || signal.aborted) return;
 					checkoutPlan.mutate(
 						{
 							planId: confirmDialog.card.id,
@@ -211,7 +203,7 @@
 						},
 					);
 				}}
-				disabled={checkoutPlan.isPending || !previewPlanChange.isSuccess || previewPlanChange.variables?.planId !== confirmDialog?.card.id}
+				disabled={checkoutPlan.isPending || !preview.isSuccess}
 			>
 				{#if checkoutPlan.isPending}
 					<Spinner class="size-3.5" /> Updating plan…
