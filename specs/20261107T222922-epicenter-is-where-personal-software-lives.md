@@ -130,8 +130,8 @@ library, when an app needs one, is new code that copies the front-matter rule;
    reading actions by command prefix (`Bash(epicenter mail search *)`) and ask on
    destructive ones; never allow `Bash(epicenter *)`. Claude Desktop adds
    `epicenter serve --stdio` to its MCP settings. Claude and ChatGPT on the phone
-   reach apps through `serve`'s public address and its passkey sign-in
-   (ADR-0849, ADR-0864).
+   reach apps as connectors through `serve`'s public address, approved once
+   on the tailnet (ADR-0849, ADR-0881).
 6. **A second computer.** Nothing to set up: it reaches your server by `ssh` or
    through `serve`. Only Whispering keeps a copy there, with your server as its
    remote (ADR-0851).

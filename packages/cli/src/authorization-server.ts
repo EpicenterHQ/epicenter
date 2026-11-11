@@ -1,18 +1,20 @@
 /**
- * The authorization server for an Epicenter's public address (ADR-0871).
+ * The authorization server for an Epicenter's connectors (ADR-0871, ADR-0881).
  *
- * Better Auth signs people in with passkeys and connectors in with OAuth.
- * Its state is `access.local.sqlite` and its secret is `access.local.key`,
- * both beside `EPICENTER.md` and `.local`, so nothing commits them
- * (ADR-0870). `serve` and `epicenter access` open the same file at once:
- * WAL lets one write while the other reads, and the busy timeout makes a
- * writer wait for the other instead of failing.
+ * Better Auth signs connectors in with OAuth. Its state is
+ * `connectors.local.sqlite` and its secret is `connectors.local.key`, both beside
+ * `EPICENTER.md` and `.local`, so nothing commits them (ADR-0870). `serve`
+ * and `epicenter connectors` open the same file at once: WAL lets one write while
+ * the other reads, and the busy timeout makes a writer wait for the other
+ * instead of failing.
  *
- * A person exists once a passkey is registered from an invite, and the
- * passkey is the account: each invite makes one person, with a placeholder
- * email Better Auth requires. A grant is one connector (a CIMD client) as
- * one person approved it: their consent, and the refresh families its code
- * exchanges started.
+ * There is one person, the owner, a `user` row this creates once. People
+ * reach the Epicenter over the tailnet, so no one signs in: a connector's
+ * authorization goes to the approval page on the tailnet listener, and
+ * `approve` grants it as the owner through Better Auth's consent endpoint,
+ * with a session made for that approval. A grant is one connector (a CIMD
+ * client) the owner approved: their consent, and the refresh families its
+ * code exchanges started.
  *
  * A grant has generations, and only the current one works. Better Auth's
  * refresh grant never reads consent and its access tokens are JWTs, so
@@ -23,9 +25,9 @@
  *
  * ```txt
  * codeIssued          each authorization code, when SQLite's clock issued it
- * grantRevocation     each revoke of a (client, person), when SQLite's clock ended it
+ * grantRevocation     each revoke of a (client, user), when SQLite's clock ended it
  * verification        a code inserts only under a live consent
- * oauthRefreshToken   a row inserts only under a consent, from a code issued after the last revoke
+ * oauthRefreshToken   a row inserts only under a consent that covers its scopes, from a code issued after the last revoke
  * oauthConsent        approving narrower scopes deletes the families that hold more
  * ```
  *
@@ -34,52 +36,48 @@
  * expires.
  */
 import { Database } from 'bun:sqlite';
-import { createHash, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { closeSync, openSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { cimd } from '@better-auth/cimd';
 import { mcp } from '@better-auth/mcp';
-import { passkey } from '@better-auth/passkey';
 import { type BetterAuthOptions, betterAuth } from 'better-auth';
-import { APIError, getSessionFromCtx } from 'better-auth/api';
 import { getMigrations } from 'better-auth/db/migration';
-import { jwt } from 'better-auth/plugins';
+import { bearer, jwt } from 'better-auth/plugins';
 import { fetchClientMetadataResource } from './cimd-fetch.ts';
 import { writeErr } from './output.ts';
+import type { Connectors } from './root.ts';
 
-export const ACCESS_DATABASE = 'access.local.sqlite';
-export const ACCESS_KEY = 'access.local.key';
+export const CONNECTORS_DATABASE = 'connectors.local.sqlite';
+export const CONNECTORS_KEY = 'connectors.local.key';
 
-/** Where `serve` sends a browser to sign in, and to approve a connector. */
-export const SIGN_IN_PATH = '/.sign-in';
+/** The approval page's path on the tailnet listener. */
 export const ALLOW_PATH = '/.allow';
-/** Better Auth's routes live under this path on the public address. */
-export const AUTH_BASE_PATH = '/.auth';
 
 /** The scopes a connector can hold: `read` runs read-only actions, `write` every action. */
 export const SCOPES = ['read', 'write', 'offline_access'] as const;
 
 /** How long an access token lasts; a revoked connector keeps one at most this long. */
 const ACCESS_TOKEN_SECONDS = 15 * 60;
-/** How long a person's session lasts; it is not extended by use. */
-const SESSION_SECONDS = 7 * 24 * 60 * 60;
-/** How long an invite link works. */
-export const INVITE_SECONDS = 15 * 60;
+/**
+ * How long an authorization code lasts, Better Auth's default, and so the
+ * session an approval makes: the code's exchange needs it, and refresh does not.
+ */
+const CODE_SECONDS = 10 * 60;
 
-/** A verification row that holds an invite: the token's digest, never the token. */
-const inviteIdentifier = (token: string) =>
-	`epicenter-invite:${createHash('sha256').update(token).digest('base64url')}`;
+/** The owner's placeholder email; Better Auth requires one on a user. */
+const OWNER_EMAIL = 'owner@epicenter.invalid';
 
 /** The public address as Better Auth and MCP name it. */
-export function publicNames(url: string) {
+function publicNames(url: string) {
 	const origin = new URL(url).origin;
 	return {
-		/** `https://host:port`, the origin every page and cookie belongs to. */
+		/** `https://host:port`, the public origin. */
 		origin,
 		/** The MCP resource: the origin with its `/`, matched exactly by Better Auth. */
 		resource: `${origin}/`,
-		/** The token issuer, Better Auth's base URL. */
-		issuer: `${origin}${AUTH_BASE_PATH}`,
+		/** The token issuer, Better Auth's base URL: the origin, with no path. */
+		issuer: origin,
 	};
 }
 
@@ -161,6 +159,12 @@ when not exists (
 		   and c.issuedAt > coalesce(
 		       (select max(g.revokedAt) from grantRevocation g
 		         where g.clientId = new.clientId and g.userId = new.userId), -1))
+	or exists (
+		select 1 from json_each(new.scopes) s
+		 where s.value not in (
+		       select value from json_each(
+		              (select k.scopes from oauthConsent k
+		                where k.clientId = new.clientId and k.userId = new.userId))))
 begin
 	select raise(abort, '${REVOKED_GRANT}');
 end;
@@ -193,46 +197,46 @@ function readOrCreateSecret(path: string) {
 }
 
 /** Open the database file, created readable only by this user, in WAL with a busy timeout. */
-export function openAccessDatabase(folder: string) {
-	const path = join(folder, ACCESS_DATABASE);
+function openAccessDatabase(folder: string) {
+	const path = join(folder, CONNECTORS_DATABASE);
 	closeSync(openSync(path, 'a', 0o600));
 	const db = new Database(path);
 	db.exec('PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;');
 	return db;
 }
 
-/** Better Auth's configuration: the passkey, MCP, and CIMD plugins over this database. */
+/** Better Auth's configuration: the MCP, CIMD, and bearer plugins over this database. */
 function authOptions(
 	folder: string,
-	url: string,
+	connectors: Connectors,
 	db: Database,
 	fetchMetadata: typeof fetchClientMetadataResource,
 ) {
-	const { origin, resource } = publicNames(url);
+	const { origin, resource } = publicNames(connectors.url);
+	const allow = `${new URL(connectors.tailnet).origin}${ALLOW_PATH}`;
 	return {
 		appName: 'Epicenter',
 		baseURL: origin,
-		basePath: AUTH_BASE_PATH,
-		secret: readOrCreateSecret(join(folder, ACCESS_KEY)),
+		basePath: '/',
+		secret: readOrCreateSecret(join(folder, CONNECTORS_KEY)),
 		database: db,
 		telemetry: { enabled: false },
 		// Better Auth warns at every start that SQLite stores arrays as text.
 		logger: {
 			level: 'error',
-			log: (_level, message) => writeErr(`Sign-in: ${message}`),
+			log: (_level, message) => writeErr(`Connectors: ${message}`),
 		},
 		// Better Auth still answers its own API errors; any other error an
 		// endpoint throws leaves `auth.handler`, for `handle` to answer.
 		onAPIError: { throw: true },
 		rateLimit: { enabled: true, storage: 'memory' },
-		session: { expiresIn: SESSION_SECONDS, disableSessionRefresh: true },
+		// Every session is one `approve` made, and its code's exchange needs it.
+		session: { expiresIn: CODE_SECONDS, disableSessionRefresh: true },
 		advanced: {
 			// Better Auth skips its Origin check when NODE_ENV is `test` or TEST is
-			// set, and decides more from NODE_ENV; this sign-in decides each itself.
+			// set, and decides more from NODE_ENV; this server decides each itself.
 			disableOriginCheck: false,
 			disableCSRFCheck: false,
-			useSecureCookies: true,
-			cookiePrefix: 'epicenter',
 			// Every request comes through the tunnel from 127.0.0.1, so the client
 			// the rate limit counts is the address the tunnel adds last to
 			// X-Forwarded-For.
@@ -242,77 +246,25 @@ function authOptions(
 			},
 		},
 		plugins: [
+			// How `approve` presents the session it made for an approval, which
+			// never reaches a browser. First, so its hook turns the header into
+			// a session before any other plugin's hook looks for one.
+			bearer(),
 			jwt(),
 			mcp({
 				resource,
-				loginPage: SIGN_IN_PATH,
-				consentPage: ALLOW_PATH,
+				// No one signs in: with no session, an authorization goes straight
+				// to the approval page on the tailnet listener.
+				loginPage: allow,
+				consentPage: allow,
 				scopes: [...SCOPES],
 				accessTokenExpiresIn: ACCESS_TOKEN_SECONDS,
+				codeExpiresIn: CODE_SECONDS,
 				grantTypes: ['authorization_code', 'refresh_token'],
 			}),
 			cimd({
 				fetchClientMetadataResource: fetchMetadata,
 				metadataProfile: 'mcp-2026-07-28',
-			}),
-			passkey({
-				// A passkey belongs to this hostname; another one means a new invite.
-				rpID: new URL(origin).hostname,
-				rpName: 'Epicenter',
-				origin,
-				// Discoverable, so signing in needs no name; verified, so a found
-				// device is not a signed-in one.
-				authenticatorSelection: {
-					residentKey: 'required',
-					userVerification: 'required',
-				},
-				registration: {
-					// The invite is the credential that registers a passkey. With a
-					// session, Better Auth registers to that person instead, and
-					// `afterVerification` refuses it, so every passkey is a new person.
-					requireSession: false,
-					resolveUser: async ({ ctx, context }) => {
-						const invite = context
-							? await ctx.context.internalAdapter.findVerificationValue(
-									inviteIdentifier(context),
-								)
-							: null;
-						if (!invite || invite.expiresAt < new Date())
-							throw new APIError('UNAUTHORIZED', {
-								message: 'This invite is used or expired',
-							});
-						const { name } = JSON.parse(invite.value) as { name: string };
-						// The person is created when the passkey is verified.
-						return { id: 'invited', name, displayName: name };
-					},
-					afterVerification: async ({ ctx, context }) => {
-						if (await getSessionFromCtx(ctx))
-							throw new APIError('FORBIDDEN', {
-								message: 'This device is already signed in',
-							});
-						// One use: the first verification consumes the invite, and any
-						// other registration begun from it fails here.
-						const invite = context
-							? await ctx.context.internalAdapter.consumeVerificationValue(
-									inviteIdentifier(context),
-								)
-							: null;
-						if (!invite)
-							throw new APIError('UNAUTHORIZED', {
-								message: 'This invite is used or expired',
-							});
-						const { name } = JSON.parse(invite.value) as { name: string };
-						const person = await ctx.context.internalAdapter.createUser(
-							{
-								name,
-								email: `${crypto.randomUUID()}@epicenter.invalid`,
-								emailVerified: false,
-							},
-							{ method: 'epicenter-invite' },
-						);
-						return { userId: person.id, name };
-					},
-				},
 			}),
 		],
 	} satisfies BetterAuthOptions;
@@ -322,22 +274,25 @@ export type AuthorizationServer = Awaited<
 	ReturnType<typeof openAuthorizationServer>
 >;
 
+/** Why an approval did not happen, from Better Auth's own answer. */
+export class ApprovalError extends Error {}
+
 /**
- * Open the authorization server for the Epicenter at `folder` whose public
- * address is `url`, creating its tables and its signing key on first use.
- * Better Auth's own environment variables are cleared first: the sign-in is
- * configured only by `EPICENTER.md` and these files.
+ * Open the authorization server for the Epicenter at `folder` with these
+ * `connectors`, creating its tables, its signing key, and its owner on first
+ * use. Better Auth's own environment variables are cleared first: the server
+ * is configured only by `EPICENTER.md` and these files.
  */
 export async function openAuthorizationServer(
 	folder: string,
-	url: string,
+	connectors: Connectors,
 	fetchMetadata = fetchClientMetadataResource,
 ) {
 	for (const name of Object.keys(process.env))
 		if (name.startsWith('BETTER_AUTH_') || name === 'AUTH_SECRET')
 			delete process.env[name];
 	const db = openAccessDatabase(folder);
-	const options = authOptions(folder, url, db, fetchMetadata);
+	const options = authOptions(folder, connectors, db, fetchMetadata);
 	// Tables first: Better Auth checks the schema as soon as it is created.
 	await (await getMigrations(options)).runMigrations();
 	// The generation triggers name Better Auth's tables, so they come after.
@@ -347,23 +302,66 @@ export async function openAuthorizationServer(
 	// closes the database at once does not cut that work off.
 	const context = await auth.$context;
 	await (context as { checkSchema?: () => Promise<unknown> }).checkSchema?.();
+	const owner =
+		(await context.internalAdapter.findUserByEmail(OWNER_EMAIL))?.user ??
+		(await context.internalAdapter.createUser(
+			{ name: 'owner', email: OWNER_EMAIL, emailVerified: false },
+			{ method: 'epicenter-owner' },
+		));
 	const liveGrants = db.query<
-		{ scopes: string; hasPasskey: number; revokedAt: number | null },
+		{ scopes: string; revokedAt: number | null },
 		[string, string]
 	>(
 		`select k.scopes,
-		        exists (select 1 from passkey p where p.userId = k.userId) as hasPasskey,
 		        (select max(g.revokedAt) from grantRevocation g
 		          where g.clientId = k.clientId and g.userId = k.userId) as revokedAt
 		   from oauthConsent k
 		  where k.clientId = ?1 and k.userId = ?2`,
 	);
+	/**
+	 * Answer the authorization whose signed query is `oauth_query` as the
+	 * owner, through Better Auth's consent endpoint, which checks the
+	 * signature and that `scope` narrows what was asked. The session it needs
+	 * lasts as long as the code, whose exchange needs it (`session.expiresIn`);
+	 * expired ones go first.
+	 */
+	const consent = async (body: {
+		accept: boolean;
+		scope?: string;
+		oauth_query: string;
+	}) => {
+		await context.adapter.deleteMany({
+			model: 'session',
+			where: [{ field: 'expiresAt', operator: 'lt', value: new Date() }],
+		});
+		const session = await context.internalAdapter.createSession(owner.id);
+		let answer: { url?: unknown };
+		try {
+			answer = (await auth.api.oauth2Consent({
+				body,
+				headers: new Headers({ authorization: `Bearer ${session.token}` }),
+			})) as { url?: unknown };
+		} catch (error) {
+			const said = (
+				error as { body?: { error_description?: unknown; message?: unknown } }
+			).body;
+			const why = said?.error_description || said?.message;
+			throw new ApprovalError(
+				typeof why === 'string'
+					? why
+					: 'This request expired or was changed. Start connecting again.',
+			);
+		}
+		if (typeof answer.url !== 'string')
+			throw new ApprovalError('Better Auth answered with no address');
+		return answer.url;
+	};
 	return {
-		/** The Epicenter's folder; its name is what the sign-in pages call it. */
+		/** The Epicenter's folder; its name is what the approval page calls it. */
 		folder,
 		auth,
 		db,
-		...publicNames(url),
+		...publicNames(connectors.url),
 		/**
 		 * The public signing keys, read from the database for each check. A copy
 		 * kept in memory would miss a key another process created first.
@@ -388,14 +386,29 @@ export async function openAuthorizationServer(
 						},
 						{ status: 400, headers: { 'cache-control': 'no-store' } },
 					);
-				writeErr(`Sign-in: ${message}`);
+				writeErr(`Connectors: ${message}`);
 				return new Response(null, { status: 500 });
 			}
 		},
 		/**
+		 * Grant the authorization whose signed query is `oauthQuery` with
+		 * `scope`, which must keep `offline_access` so its code exchange starts
+		 * a refresh family the generation trigger checks. Answers the
+		 * connector's callback with its code; throws `ApprovalError`.
+		 */
+		approve(oauthQuery: string, scope: string) {
+			if (!scope.split(' ').includes('offline_access'))
+				throw new ApprovalError('An approval must include offline_access');
+			return consent({ accept: true, scope, oauth_query: oauthQuery });
+		},
+		/** Refuse the authorization: the connector's callback with `access_denied`. */
+		deny(oauthQuery: string) {
+			return consent({ accept: false, oauth_query: oauthQuery });
+		},
+		/**
 		 * Whether a verified access token's grant is still the one that issued
-		 * it: a consent for (`azp`, `sub`) covering its scopes, a passkey for
-		 * `sub`, and issued in a later second than the grant's last revoke. A
+		 * it: the owner's, under a consent for (`azp`, `sub`) covering its
+		 * scopes, and issued in a later second than the grant's last revoke. A
 		 * token issued in the revoke's own second is refused; the connector
 		 * authorizes again and gets a later one.
 		 */
@@ -408,33 +421,19 @@ export async function openAuthorizationServer(
 			const { azp, sub, scope, iat } = claims;
 			if (
 				typeof azp !== 'string' ||
-				typeof sub !== 'string' ||
+				sub !== owner.id ||
 				typeof iat !== 'number'
 			)
 				return false;
 			const scopes =
 				typeof scope === 'string' ? scope.split(' ').filter(Boolean) : [];
-			return liveGrants.all(azp, sub).some((grant) => {
+			return liveGrants.all(azp, owner.id).some((grant) => {
 				const consented = new Set(parseScopes(grant.scopes));
 				return (
-					grant.hasPasskey === 1 &&
 					scopes.every((each) => consented.has(each)) &&
 					(grant.revokedAt === null || iat > Math.floor(grant.revokedAt / 1000))
 				);
 			});
-		},
-		/** A one-time link that registers a passkey as a new person named `name`. */
-		async invite(name: string) {
-			const token = randomBytes(32).toString('base64url');
-			const expiresAt = new Date(Date.now() + INVITE_SECONDS * 1000);
-			await (await auth.$context).internalAdapter.createVerificationValue({
-				identifier: inviteIdentifier(token),
-				value: JSON.stringify({ name }),
-				expiresAt,
-			});
-			const link = new URL(SIGN_IN_PATH, publicNames(url).origin);
-			link.searchParams.set('invite', token);
-			return { url: link.href, expiresAt };
 		},
 		close: () => db.close(),
 	};
@@ -443,48 +442,29 @@ export async function openAuthorizationServer(
 /** C0 and C1 controls, which a terminal reads as escapes, and bidirectional controls, which reorder text. */
 const CONTROLS =
 	// biome-ignore lint/suspicious/noControlCharactersInRegex: finding them is the point.
-	/[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/gu;
+	/[\u0000-\u001f\u007f-\u009f؜‎‏‪-‮⁦-⁩]/gu;
 
 /** Text a connector's metadata document supplied, safe to print or render. */
 export const cleanText = (text: string) => text.replace(CONTROLS, '');
 
-/** A person: the passkey an invite registered, and the name it was given. */
-export type Person = {
-	kind: 'person';
-	/** Better Auth's user id. */
-	id: string;
-	name: string;
-	approved: string;
-	lastUsed?: string;
-};
-
 /**
- * A grant: one connector as one person approved it. Each code exchange
- * starts a refresh family, so `families` above one means the connector holds
- * more than one connection under this approval.
+ * A grant: one connector the owner approved. Each code exchange starts a
+ * refresh family, so `families` above one means the connector holds more
+ * than one connection under this approval.
  */
 export type Grant = {
-	kind: 'grant';
 	/** The connector's client_id, the URL of its metadata document. */
 	clientId: string;
 	/** The host serving that document: who the connector is. */
 	host: string;
 	/** What the document calls the connector, cleaned; any connector can claim any name. */
 	name: string;
-	userId: string;
-	person: string;
 	scope: string;
-	/** When the person last approved it. */
+	/** When it was last approved. */
 	approved: string;
 	lastRefresh?: string;
 	families: number;
 };
-
-/** What `revokeAccess` ends: a person, one grant, or every grant of a connector. */
-export type AccessTarget =
-	| Pick<Person, 'kind' | 'id'>
-	| Pick<Grant, 'kind' | 'clientId' | 'userId'>
-	| { kind: 'connector'; clientId: string };
 
 const hostOf = (clientId: string) => {
 	try {
@@ -503,100 +483,67 @@ const parseScopes = (text: string | null) => {
 	}
 };
 
-/** Everyone who can sign in, and every grant a person made. */
-export function listAccess(db: Database): (Person | Grant)[] {
-	const people = db
-		.query<
-			{ id: string; name: string; approved: string; lastUsed: string | null },
-			[]
-		>(
-			`select u.id, u.name,
-			        coalesce((select min(p.createdAt) from passkey p where p.userId = u.id), u.createdAt) as approved,
-			        (select max(s.createdAt) from session s where s.userId = u.id) as lastUsed
-			   from user u
-			  order by approved`,
-		)
-		.all()
-		.map(
-			({ lastUsed, ...person }): Person => ({
-				kind: 'person',
-				...person,
-				...(lastUsed ? { lastUsed } : {}),
-			}),
-		);
-	const grants = db
+/**
+ * Every grant of the owner's, oldest first. A grant a person made before
+ * ADR-0881 is not the owner's, never works again, and is not listed;
+ * revoking its connector still deletes it.
+ */
+export function listGrants(db: Database): Grant[] {
+	return db
 		.query<
 			{
 				clientId: string;
 				name: string | null;
-				userId: string;
-				person: string | null;
 				scopes: string | null;
 				approved: string;
 				lastRefresh: string | null;
 				families: number;
 			},
-			[string]
+			[string, string]
 		>(
-			`select k.clientId, c.name, k.userId, u.name as person, k.scopes,
-			        k.updatedAt as approved,
+			`select k.clientId, c.name, k.scopes, k.updatedAt as approved,
 			        (select max(r.createdAt) from oauthRefreshToken r
 			          where r.clientId = k.clientId and r.userId = k.userId) as lastRefresh,
 			        (select count(distinct r.authorizationCodeId) from oauthRefreshToken r
 			          where r.clientId = k.clientId and r.userId = k.userId
 			            and r.revoked is null and r.expiresAt > ?1) as families
 			   from oauthConsent k
+			   join "user" u on u.id = k.userId and u.email = ?2
 			   left join oauthClient c on c.clientId = k.clientId
-			   left join user u on u.id = k.userId
-			  where k.userId is not null
 			  order by k.createdAt`,
 		)
-		.all(new Date().toISOString())
-		.map(({ clientId, name, person, scopes, lastRefresh, ...grant }): Grant => {
+		.all(new Date().toISOString(), OWNER_EMAIL)
+		.map(({ clientId, name, scopes, lastRefresh, ...grant }): Grant => {
 			const held = new Set(parseScopes(scopes));
 			const host = cleanText(hostOf(clientId));
 			return {
-				kind: 'grant',
 				clientId: cleanText(clientId),
 				host,
 				name: cleanText(name ?? '') || host,
-				person: person ?? grant.userId,
 				scope: SCOPES.filter((known) => held.has(known)).join(' '),
 				...grant,
 				...(lastRefresh ? { lastRefresh } : {}),
 			};
 		});
-	return [...people, ...grants];
 }
 
 /**
- * End `target`'s access in one transaction. Each grant it ends gets a
+ * End every grant of the connector `clientId` in one transaction. Each gets a
  * `grantRevocation` row, so no code or refresh family from before it works
  * again and an access token issued before it fails its next call. Its
  * consent, refresh tokens, access-token rows, and pending codes are deleted
  * as cleanup; correctness rests on the revocation row, so a row missed here
- * fails closed. A person also loses their passkeys, sessions, any pending
- * code, and their user row.
+ * fails closed.
  */
-export function revokeAccess(db: Database, target: AccessTarget) {
-	const grantsOf = (sql: string, id: string) =>
-		db.query<{ clientId: string; userId: string }, [string]>(sql).all(id);
+export function revokeConnector(db: Database, clientId: string) {
 	db.transaction(() => {
-		const grants =
-			target.kind === 'grant'
-				? [{ clientId: target.clientId, userId: target.userId }]
-				: target.kind === 'connector'
-					? grantsOf(
-							`select clientId, userId from oauthConsent where clientId = ?1 and userId is not null
-							  union select clientId, userId from oauthRefreshToken where clientId = ?1`,
-							target.clientId,
-						)
-					: grantsOf(
-							`select clientId, userId from oauthConsent where userId = ?1
-							  union select clientId, userId from oauthRefreshToken where userId = ?1`,
-							target.id,
-						);
-		for (const { clientId, userId } of grants) {
+		const holders = db
+			.query<{ userId: string }, [string]>(
+				`select userId from oauthConsent where clientId = ?1 and userId is not null
+				  union select userId from oauthRefreshToken where clientId = ?1`,
+			)
+			.all(clientId);
+		for (const { userId } of holders) {
 			db.query(
 				`insert into grantRevocation (clientId, userId, revokedAt) values (?, ?, ${NOW_MS})`,
 			).run(clientId, userId);
@@ -616,14 +563,5 @@ export function revokeAccess(db: Database, target: AccessTarget) {
 				    and ${codeField('verification', '$.userId')} = ?`,
 			).run(clientId, userId);
 		}
-		if (target.kind !== 'person') return;
-		db.query(
-			`delete from verification
-			  where ${IS_CODE('verification')}
-			    and ${codeField('verification', '$.userId')} = ?`,
-		).run(target.id);
-		for (const table of ['session', 'passkey'])
-			db.query(`delete from ${table} where userId = ?`).run(target.id);
-		db.query('delete from user where id = ?').run(target.id);
 	})();
 }

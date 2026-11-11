@@ -3,7 +3,8 @@
 - **Status:** Proposed
 - **Date:** 2026-11-10
 - **Relates:** [ADR-0840](0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md) (one person's software), [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) (your server), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (who commits), [ADR-0851](0851-an-app-has-one-home-and-an-optional-push-only-backup.md) (the remote), [ADR-0853](0853-collections-give-five-actions-and-programs-without-the-folder-ask-over-mcp.md) (the collection verbs, MCP), [ADR-0857](0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md) (`epicenter.ts`), [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (views), [ADR-0861](0861-whats-yours-is-everywhere-and-everything-else-is-used-where-it-is.md), [ADR-0862](0862-notes-merge-field-by-field-and-every-conflict-is-listed-for-repair.md) (the merge).
-- **Unbuilt:** the typed client `open()`, Whispering's Git sync, and the `push-to-checkout` hook. Built: each collection's `list`, `get`, `add`, `set`, `edit`, and `delete` from the command line and over MCP (`packages/app/src/collection.ts`); `epicenter serve` over HTTP, serving MCP at `/` and views at `/<app>/`, with one commit per write call and a push to `origin` every 5 minutes (`packages/cli/src/http.ts`); a public listener for an HTTPS tunnel, signing people in with a passkey and connectors with OAuth (ADR-0871, `packages/cli/src/public.ts`).
+- **Unbuilt:** the typed client `open()`, Whispering's Git sync, and the `push-to-checkout` hook. Built: each collection's `list`, `get`, `add`, `set`, `edit`, and `delete` from the command line and over MCP (`packages/app/src/collection.ts`); `epicenter serve` over HTTP, serving MCP at `/` and views at `/<app>/`, with one commit per write call and a push to `origin` every 5 minutes (`packages/cli/src/http.ts`); a public listener for an HTTPS tunnel, serving only connectors, signed in with OAuth and approved on the tailnet (ADR-0871, ADR-0881, `packages/cli/src/public.ts`).
+- **Amended by:** [ADR-0881](0881-people-reach-an-epicenter-over-the-tailnet-and-its-public-address-serves-only-connectors.md): people reach `serve` only over the tailnet, and the public address serves only connectors.
 
 ## Context
 
@@ -68,14 +69,14 @@ must go on offline keeps a copy and syncs it with Git.**
   commits as in any repository, or names the edits with
   `epicenter sync <app> -m`; `serve` commits what is left every 5 minutes, as
   changed outside epicenter, and pushes to the mirror (ADR-0850).
-- Who may ask is `epicenter serve`'s sign-in; who may pull and push is SSH's
-  `authorized_keys`.
+- Who may ask is the tailnet, and on the public address a connector the owner
+  approved; who may pull and push is SSH's `authorized_keys`.
 - `epicenter serve` serves an app's built UI, `ui/dist/`, at `/<app>/` and MCP at `/`, one
   origin and one address for people and agents, so a view asks with no sign-in
   of its own beyond the server's. A `GET /` from a browser is the launcher. A
   view is static files with hash routes (`#/c/<id>`); the server routes
   nothing. The server's own paths start with `.` (`/.well-known/`,
-  `/.auth/`, `/.sign-in`, and `/.allow` for the public sign-in), which no app name can, so no app name is reserved
+  and `/.allow`, where the owner approves a connector), which no app name can, so no app name is reserved
   for it.
 
 **3. Code runs where its owner trusts it.** `epicenter serve` runs the
@@ -90,8 +91,9 @@ that runs Mail's actions (ADR-0870), and Epicenter holds only its own sign-in.
 reach it over your tailnet. Claude.ai and ChatGPT connect from their companies'
 servers, so `epicenter serve` also has one public HTTPS address, through
 any HTTPS tunnel such as Tailscale Funnel, and signs a client in with OAuth, as
-MCP requires: adding the connector opens a page on the Studio where you approve
-it with a passkey, and the client receives a token you can revoke (ADR-0871).
+MCP requires: adding the connector opens a page on your tailnet where you
+approve it, and the client receives a token you can revoke (ADR-0871,
+ADR-0881).
 Another person's Epicenter is the same program on their own computer; without a
 terminal, it is the Epicenter Mac app, which runs `epicenter serve` (ADR-0865).
 

@@ -75,11 +75,11 @@ it was. It never pushes; sync does.`,
 action to its UI at POST /<app>/<action>, on 127.0.0.1 and the Epicenter's port
 (default 4747) unless --port or --host says otherwise. It runs every call itself,
 from the app's code as it is on disk then. It backs up every app as sync does when it starts, every 5 minutes, and when it
-stops. When EPICENTER.md has public and publicPort, it also offers them on
-127.0.0.1:<publicPort> to a person signed in with a passkey and to a connector
-such as Claude signed in with OAuth; an HTTPS tunnel from public to that port is
-yours to run. Then --host must be a loopback address, and serve checks every 5
-minutes that public reaches that port, never this one.`,
+stops. When EPICENTER.md has a connectors block, it also offers MCP on
+127.0.0.1:<connectors.port> to a connector such as Claude, signed in with OAuth;
+an HTTPS tunnel from connectors.url to that port is yours to run. A connector is
+approved at connectors.tailnet/.allow, which only the tailnet reaches. Then
+--host must be a loopback address.`,
 	},
 	service: {
 		usage: 'epicenter service <install|uninstall|restart|status>',
@@ -87,15 +87,12 @@ minutes that public reaches that port, never this one.`,
 The person runs install and uninstall. Agents may safely run restart and status.
 status --json reports whether the job is installed and running, its pid, and port.`,
 	},
-	access: {
-		usage:
-			'epicenter access [invite [<name>] | revoke <person or connector> [<person>]]',
-		help: `Lists the people (passkeys) who can reach the public address, and each grant:
-a connector one person approved. invite makes a link that registers a passkey
-on one device, once, within 15 minutes. revoke ends a person (their passkey,
-sessions, and grants), a connector (all its grants), or a connector and a
-person (that grant); the next call it makes is refused. It works while serve
-runs.`,
+	connectors: {
+		usage: 'epicenter connectors [revoke <connector>]',
+		help: `Lists the connectors you approved, such as Claude, with what each may do.
+revoke ends a connector's access, named by its client_id, host, or name; the
+next call it makes is refused, and it connects again only when you approve it
+on the tailnet. It works while serve runs.`,
 	},
 } as const;
 

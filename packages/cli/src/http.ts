@@ -7,13 +7,14 @@
  * GET  /<app>/...       the app's UI, ui/dist/, as static files
  * GET  /<app>           308 to /<app>/
  * POST /<app>/<action>  run the action for the UI; JSON lines (`callResponse`)
+ * GET, POST /.allow     approve a connector, with a `connectors` block
  * ```
  *
  * `serve` runs every call itself, from the app's code as it is on disk when
  * the call arrives (`home.ts`, `run.ts`).
  *
- * Any later path of the server's own starts with `.`, which no app name can,
- * so no name is reserved for the server.
+ * Every path of the server's own starts with `.`, which no app name can, so
+ * no name is reserved for the server.
  *
  * This listener is on 127.0.0.1 (or `--host`) and trusts every request it
  * answers: only this computer and the tailnet reach it. It answers only a
@@ -21,9 +22,10 @@
  * a DNS rebinding name is not, and refuses a request a Tailscale Funnel or
  * Cloudflare Tunnel delivered. Both set their header on every request, and
  * Funnel removes a copy the client sent, so a tunnel aimed at this port by
- * mistake reaches only refusals. When `EPICENTER.md` has a `public` address, a
- * second listener on 127.0.0.1 and `publicPort` offers the same site to the
- * internet through a tunnel, behind a sign-in (`public.ts`, ADR-0871); then
+ * mistake reaches only refusals. When `EPICENTER.md` has a `connectors`
+ * block, this listener also answers the approval page at `/.allow`
+ * (`allow-page.ts`), and a second listener on 127.0.0.1 and the block's port
+ * offers MCP to connectors through a tunnel (`public.ts`, ADR-0881); then
  * `--host` must be a loopback address.
  *
  * A write call commits pending data before it answers (`run.ts`).
@@ -43,8 +45,13 @@ import { basename, isAbsolute, join, sep } from 'node:path';
 import { isName } from '@epicenter/app';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { extractErrorMessage } from 'wellcrafted/error';
+import { allowRoute } from './allow-page.ts';
 import { linkAppPackage } from './app-package.ts';
-import { openAuthorizationServer } from './authorization-server.ts';
+import {
+	ALLOW_PATH,
+	type AuthorizationServer,
+	openAuthorizationServer,
+} from './authorization-server.ts';
 import { CliError } from './errors.ts';
 import { chooseApps, homeEntries, loadHomeApp } from './home.ts';
 import { createMcpServer } from './mcp.ts';
@@ -109,7 +116,7 @@ p{color:var(--muted)}
 </style></head><body><main><h1>${escapeHtml(name)}</h1>${items ? `<ul>${items}</ul>` : '<p>No app here has a UI yet.</p>'}</main></body></html>`;
 }
 
-/** What both listeners offer; each decides who may reach it. */
+/** What the private listener serves; the public listener offers only `mcp`, to a connector's token. */
 export type Site = {
 	/** Answer an MCP request. With `readOnly`, list and run only read-only actions. */
 	mcp(request: Request, readOnly?: boolean): Promise<Response>;
@@ -192,10 +199,8 @@ async function exists(path: string) {
 	}
 }
 
-/** The site both listeners serve: MCP, the launcher, and each app's UI. */
-function createSite(
-	refreshUi: (app: string, folder: string) => unknown,
-): Site {
+/** The private listener's site: MCP, the launcher, and each app's UI and actions. */
+function createSite(refreshUi: (app: string, folder: string) => unknown): Site {
 	const uiFile = async (app: string, path: string) => {
 		if (!isName(app)) return notFound();
 		const [entry] = (await chooseApps(app)).data ?? [];
@@ -353,9 +358,14 @@ const forbidden = () => new Response('Forbidden', { status: 403 });
  * from this computer or the tailnet whose `Origin`, if any, is its own host.
  * The caller owns its lifetime and ends it with `stop`. Port 0 asks Bun for a
  * free port. `tick` runs one backup now, after any already running, and
- * answers what it did per app; `site` is what a public listener offers too.
+ * answers what it did per app; `site.mcp` is what the public listener offers
+ * too. With `authorization`, it also answers the approval page at `/.allow`.
  */
-export function startHttpServer(host: string, port: number) {
+export function startHttpServer(
+	host: string,
+	port: number,
+	authorization?: AuthorizationServer,
+) {
 	/** Each app's last backup failure as logged, so an unchanged one is logged once. */
 	const lastFailure = new Map<string, string>();
 	const refreshUi = createUiRefresher();
@@ -419,6 +429,8 @@ export function startHttpServer(host: string, port: number) {
 				return forbidden();
 		}
 		const { pathname } = new URL(request.url);
+		if (pathname === ALLOW_PATH)
+			return authorization ? allowRoute(authorization, request) : notFound();
 		if (request.method === 'POST')
 			return pathname === '/' ? site.mcp(request) : site.call(request);
 		if (pathname === '/') return site.launcher(request);
@@ -449,8 +461,8 @@ export function startHttpServer(host: string, port: number) {
 
 /**
  * Serve until the process receives SIGINT or SIGTERM, then back up once
- * more. With a public address, the sign-in opens before either listener, so
- * one that cannot start stops serve.
+ * more. With `connectors`, the authorization server opens before either
+ * listener, so one that cannot start stops serve.
  */
 export async function serveHttp(host: string, port: number): Promise<number> {
 	const root = epicenterRoot();
@@ -459,20 +471,28 @@ export async function serveHttp(host: string, port: number): Promise<number> {
 	for (const { realPath } of await homeEntries())
 		if (await exists(join(realPath, 'node_modules')))
 			await linkAppPackage(realPath);
-	const authorization = root.public
-		? await openAuthorizationServer(root.folder, root.public.url)
+	const { connectors } = root;
+	const authorization = connectors
+		? await openAuthorizationServer(root.folder, connectors)
 		: undefined;
-	const server = startHttpServer(host, port);
+	const server = startHttpServer(host, port, authorization);
 	writeErr(`Serving your apps at http://${host}:${server.port}.`);
-	const publicServer =
-		authorization && root.public
-			? startPublicServer(authorization, root.public.port, server.site)
-			: undefined;
-	if (authorization && publicServer) {
-		writeErr(
-			`Serving ${authorization.resource} at http://127.0.0.1:${publicServer.port}: an HTTPS tunnel from that address must forward to this port.`,
-		);
+	let publicServer: ReturnType<typeof startPublicServer> | undefined;
+	try {
+		publicServer =
+			authorization && connectors
+				? startPublicServer(authorization, connectors.port, server.site.mcp)
+				: undefined;
+	} catch (error) {
+		// A port already taken: stop what started, so the process can exit.
+		await server.stop();
+		authorization?.close();
+		throw error;
 	}
+	if (connectors && publicServer)
+		writeErr(
+			`Serving connectors at ${connectors.url}/ from http://127.0.0.1:${publicServer.port}: an HTTPS tunnel from that address must forward to this port. They are approved at ${connectors.tailnet}/.allow.`,
+		);
 	await new Promise<void>((resolve) => {
 		process.once('SIGINT', resolve);
 		process.once('SIGTERM', resolve);

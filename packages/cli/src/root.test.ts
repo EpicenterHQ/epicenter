@@ -127,7 +127,7 @@ test('the marker is found from inside an app, and its front matter is checked fi
 	expect(refused.code).toBe(2);
 	expect(JSON.parse(refused.stdout).error.message.split('\n')).toEqual([
 		`${marker}: port: 70000 is not a whole number from 0 to 65535`,
-		`${marker}: prot is not a field; the fields are port, public, and publicPort`,
+		`${marker}: prot is not a field; the fields are port and connectors`,
 	]);
 	await writeFile(marker, '---\nport: [unclosed\n---\n');
 	expect(JSON.parse((await listed()).stdout).error.message).toBe(
@@ -135,49 +135,86 @@ test('the marker is found from inside an app, and its front matter is checked fi
 	);
 });
 
-test('the marker takes public and publicPort together, an https origin and a port of its own', async () => {
+test('the marker takes connectors as one block: a public url, a port of its own, and a tailnet address', async () => {
 	const f = await setup();
 	const marker = join(f.home, 'EPICENTER.md');
+	const block = (fields: string) =>
+		`---\nport: 4747\nconnectors:\n${fields}---\n`;
+	const URL_LINE = '  url: https://studio.example.com:10000\n';
+	const PORT_LINE = '  port: 10000\n';
+	const TAILNET_LINE = '  tailnet: https://studio.tailnet.ts.net:4747\n';
+	await writeFile(marker, block(URL_LINE + PORT_LINE + TAILNET_LINE));
+	expect((await f.run('--json')).code).toBe(0);
+	// The same block as one key: <JSON> line.
 	await writeFile(
 		marker,
-		'---\nport: 4747\npublic: https://studio.example.com:10000\npublicPort: 10000\n---\n',
+		'---\nconnectors: {"url": "https://studio.example.com:10000", "port": 10000, "tailnet": "https://studio.tailnet.ts.net:4747"}\n---\n',
 	);
 	expect((await f.run('--json')).code).toBe(0);
-	for (const [contents, problem] of [
+	for (const [contents, problems] of [
 		[
-			'---\npublic: http://studio.example.com\npublicPort: 10000\n---\n',
-			'public: "http://studio.example.com" is not an https origin with no path, such as https://host:10000',
+			block(`  url: http://studio.example.com\n${PORT_LINE}${TAILNET_LINE}`),
+			[
+				'connectors.url: "http://studio.example.com" is not an https origin with no path, such as https://host:10000',
+			],
 		],
 		[
-			'---\npublic: https://studio.example.com/epicenter/\npublicPort: 10000\n---\n',
-			'public: "https://studio.example.com/epicenter/" is not an https origin with no path, such as https://host:10000',
+			block(
+				`  url: https://studio.example.com/epicenter/\n${PORT_LINE}${TAILNET_LINE}`,
+			),
+			[
+				'connectors.url: "https://studio.example.com/epicenter/" is not an https origin with no path, such as https://host:10000',
+			],
 		],
 		[
-			'---\npublic: https://studio.example.com/?a=1\npublicPort: 10000\n---\n',
-			'public: "https://studio.example.com/?a=1" is not an https origin with no path, such as https://host:10000',
+			block(URL_LINE + TAILNET_LINE),
+			['connectors.port is missing: a whole number from 0 to 65535'],
 		],
 		[
-			'---\npublic: https://studio.example.com\n---\n',
-			'public and publicPort come together: give both or neither',
+			block(URL_LINE + PORT_LINE),
+			[
+				'connectors.tailnet is missing: an https origin with no path, such as https://host.tailnet.ts.net:4747',
+			],
 		],
 		[
-			'---\npublicPort: 10000\n---\n',
-			'public and publicPort come together: give both or neither',
+			block(`${URL_LINE}  port: 4747\n${TAILNET_LINE}`),
+			[
+				'connectors.port: 4747 is also the port; the public listener needs a port of its own',
+			],
 		],
 		[
-			'---\npublic: https://studio.example.com\npublicPort: 4747\n---\n',
-			'publicPort: 4747 is also the port; the public listener needs a port of its own',
+			block(
+				`${URL_LINE}${PORT_LINE}  tailnet: https://studio.example.com:10000\n`,
+			),
+			[
+				'connectors.tailnet is the public url; a connector is approved only where the tailnet reaches',
+			],
 		],
 		[
-			'---\npublic: https://studio.example.com\npublicPort: 1.5\n---\n',
-			'publicPort: 1.5 is not a whole number from 0 to 65535',
+			block(`${URL_LINE}${PORT_LINE}${TAILNET_LINE}  publicPort: 4757\n`),
+			[
+				'connectors.publicPort is not a field; the fields are url, port, and tailnet',
+			],
+		],
+		[
+			'---\nconnectors: https://studio.example.com\n---\n',
+			[
+				'connectors: "https://studio.example.com" is not a block of url, port, and tailnet',
+			],
+		],
+		[
+			'---\npublic: https://studio.example.com\npublicPort: 10000\n---\n',
+			[
+				'public is not a field; the fields are port and connectors',
+				'publicPort is not a field; the fields are port and connectors',
+			],
 		],
 	] as const) {
 		await writeFile(marker, contents);
 		const result = await f.run('--json');
 		expect(result.code).toBe(2);
 		expect(JSON.parse(result.stdout).error.message).toBe(
-			`${marker}: ${problem}`,
+			problems.map((problem) => `${marker}: ${problem}`).join('\n'),
 		);
 	}
 });
@@ -207,7 +244,7 @@ test('the marker is matched by its exact name, and a byte order mark before its 
 	const marker = join(f.home, 'EPICENTER.md');
 	await writeFile(marker, '\uFEFF---\nprot: 4748\n---\n');
 	expect(JSON.parse((await f.run('--json')).stdout).error.message).toBe(
-		`${marker}: prot is not a field; the fields are port, public, and publicPort`,
+		`${marker}: prot is not a field; the fields are port and connectors`,
 	);
 	await writeFile(marker, '\uFEFF---\nport: 4800\n---\n');
 	expect((await f.run('--json')).code).toBe(0);

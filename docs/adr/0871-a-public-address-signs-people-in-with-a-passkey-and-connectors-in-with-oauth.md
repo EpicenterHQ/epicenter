@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-11-11
+- **Amended by:** [ADR-0881](0881-people-reach-an-epicenter-over-the-tailnet-and-its-public-address-serves-only-connectors.md), which withdraws how people sign in (passkeys, invites, sessions, `/.sign-in`), the UIs and launcher on the public address, where a connector is approved, the `public` and `publicPort` fields, and revoking a person.
 - **Relates:** [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (one public address, with OAuth), [ADR-0868](0868-an-epicenter-is-any-folder-that-says-it-is-one-and-a-computer-runs-as-many-as-it-has.md) (`EPICENTER.md`, a port per Epicenter), [ADR-0870](0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md) (`.local` files), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (`readOnlyHint`, which the `read` scope follows), [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (views at `/<app>/`).
 - **Unbuilt:** nothing in code (`packages/cli/src/authorization-server.ts`, `public.ts`, `sign-in-pages.ts`, `access.ts`, `http.ts`). Not yet run live: WebAuthn in a real browser, a claude.ai or ChatGPT connection, and whether Funnel and Cloudflare send the headers the private listener refuses and the forwarded address rate limits key on.
 

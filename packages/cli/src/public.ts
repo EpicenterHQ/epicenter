@@ -1,69 +1,58 @@
 /**
- * The public listener (ADR-0871): the site of `http.ts` for the internet,
- * reached through an HTTPS tunnel to 127.0.0.1 and `publicPort`. Every
- * request carries a person's session or a connector's token, except the
- * paths that let either get one.
+ * The public listener (ADR-0871, ADR-0881): what a connector needs from the
+ * internet, reached through an HTTPS tunnel to 127.0.0.1 and the `connectors`
+ * port. People reach an Epicenter over the tailnet, so nothing here is a page.
  *
  * ```txt
- * GET  /.well-known/oauth-protected-resource             nothing: RFC 9728 metadata
- * GET  /.well-known/oauth-authorization-server/.auth     nothing: RFC 8414 metadata
- *      /.auth/...                                        Better Auth, only the routes below
- * GET  /.sign-in                                         nothing: sign in, or register from an invite
- * GET  /.allow                                           a session: approve a connector
- * POST /                                                 a token, or a session with this Origin: MCP
- * GET  /, /<app>/...                                     a session, else a redirect to /.sign-in
- * POST /<app>/<action>                                  a session with this Origin: run the action
+ * GET  /.well-known/oauth-protected-resource      RFC 9728 metadata
+ * GET  /.well-known/oauth-authorization-server    RFC 8414 metadata
+ * GET  /oauth2/authorize                          redirects to the approval page on the tailnet
+ * POST /oauth2/token, /oauth2/revoke              a connector's tokens
+ * GET  /jwks                                      the signing keys
+ * POST /                                          MCP, with a connector's token
  * ```
  *
- * The boundary is the socket: this listener never trusts a header to say
- * where a request came from. Each request's URL is rewritten to the public
- * origin before Better Auth or the token check reads it, since the tunnel
- * delivers `http://127.0.0.1:<publicPort>/...`.
+ * The issuer is the public origin itself: no app is served here, so these
+ * paths need no `.` to stay clear of app names (ADR-0881). Anything else is
+ * 404. The boundary is the socket: this listener never
+ * trusts a header to say where a request came from. Each request's URL is
+ * rewritten to the public origin before Better Auth or the token check reads
+ * it, since the tunnel delivers `http://127.0.0.1:<port>/...`.
  *
- * Every authorization asks for a passkey and shows `/.allow`, and carries
- * `offline_access`, whatever the connector asked: the router forces
- * `prompt=login consent` and adds the scope, and refuses an approval
- * without it. A stored consent then never lets a request someone else
- * started finish on its own, and every code exchange starts a refresh
- * family the generation trigger checks (`authorization-server.ts`).
+ * Every authorization shows the approval page and carries `offline_access`,
+ * whatever the connector asked: the router forces `prompt=consent` and adds
+ * the scope. A browser here has no session, so an authorization goes to the
+ * approval page anyway; `prompt=consent` keeps it there if one of the
+ * sessions `approve` makes ever reached this listener, since a stored consent
+ * would otherwise let an authorization someone else started finish on its
+ * own. Every code exchange starts a refresh family the generation trigger
+ * checks (`authorization-server.ts`).
  */
 import { createMcpProtectedRequestHandler } from '@better-auth/mcp';
 import { createInsufficientScopeError } from 'better-auth/oauth2';
-import {
-	ALLOW_PATH,
-	AUTH_BASE_PATH,
-	type AuthorizationServer,
-	SCOPES,
-	SIGN_IN_PATH,
-} from './authorization-server.ts';
+import { type AuthorizationServer, SCOPES } from './authorization-server.ts';
 import type { Site } from './http.ts';
-import { allowPage, signInPage } from './sign-in-pages.ts';
 
 /**
- * The Better Auth routes the sign-in uses, by method and path under `/.auth`;
- * every other route Better Auth or its plugins define answers 404. An
- * allowlist here, rather than Better Auth's `disabledPaths`, which matches
- * exact paths only and so cannot name a route with a parameter.
+ * The Better Auth routes a connector uses, by method and path; every other
+ * route Better Auth or its plugins define answers 404. An allowlist here,
+ * rather than Better Auth's `disabledPaths`, which matches exact paths only
+ * and so cannot name a route with a parameter.
  */
 const AUTH_ROUTES = new Set([
 	'GET /oauth2/authorize',
 	'POST /oauth2/token',
-	'POST /oauth2/consent',
 	// RFC 7009, with Better Auth's client checks: a connector's "disconnect".
 	// It revokes the refresh token presented, not the grant; one presented
 	// again after that ends every refresh token of the grant, as reuse does.
 	'POST /oauth2/revoke',
 	'GET /jwks',
-	'GET /passkey/generate-register-options',
-	'POST /passkey/verify-registration',
-	'GET /passkey/generate-authenticate-options',
-	'POST /passkey/verify-authentication',
 ]);
 
-/** The metadata documents, answered by Better Auth outside `/.auth`. */
+/** The metadata documents. */
 const METADATA_PATHS = new Set([
 	'/.well-known/oauth-protected-resource',
-	`/.well-known/oauth-authorization-server${AUTH_BASE_PATH}`,
+	'/.well-known/oauth-authorization-server',
 ]);
 
 /**
@@ -78,21 +67,15 @@ const UNOFFERED_METADATA = [
 
 const notFound = () => new Response('Not found', { status: 404 });
 
-const refuse = (status: number, error: string, description: string) =>
-	Response.json(
-		{ error, error_description: description },
-		{ status, headers: { 'cache-control': 'no-store' } },
-	);
-
 /**
- * The authorization request as the router lets it reach Better Auth: a
- * passkey and `/.allow` every time, and `offline_access` always among the
- * scopes asked for. A request with no scope asks for all of them; the person
- * narrows on `/.allow`.
+ * The authorization request as the router lets it reach Better Auth: the
+ * approval page every time, and `offline_access` always among the scopes
+ * asked for. A request with no scope asks for all of them; the approval
+ * narrows.
  */
 function forcedAuthorization(request: Request) {
 	const url = new URL(request.url);
-	url.searchParams.set('prompt', 'login consent');
+	url.searchParams.set('prompt', 'consent');
 	const scopes = (url.searchParams.get('scope') ?? SCOPES.join(' '))
 		.split(' ')
 		.filter(Boolean);
@@ -101,35 +84,6 @@ function forcedAuthorization(request: Request) {
 		[...new Set([...scopes, 'offline_access'])].join(' '),
 	);
 	return new Request(url, request);
-}
-
-/**
- * Why a consent POST cannot approve, or nothing when it may reach Better
- * Auth. An approval must keep `offline_access`, so every grant's code exchange
- * starts a refresh family. A connector's declared `grant_types` need no check:
- * Better Auth lets any client allowed `authorization_code` refresh
- * (`clientAllowsGrant` in `@better-auth/oauth-provider`).
- */
-async function refusedConsent(request: Request) {
-	let body: unknown;
-	try {
-		body = await request.clone().json();
-	} catch {
-		// `/.allow` posts JSON; a body this cannot read is not checked, so it stops.
-		return refuse(400, 'invalid_request', 'An approval is a JSON body');
-	}
-	const { accept, scope } = (body ?? {}) as {
-		accept?: unknown;
-		scope?: unknown;
-	};
-	if (accept === false) return undefined;
-	if (typeof scope !== 'string' || !scope.split(' ').includes('offline_access'))
-		return refuse(
-			400,
-			'invalid_scope',
-			'An approval must include offline_access',
-		);
-	return undefined;
 }
 
 /** Better Auth's authorization server metadata, less what this server does not offer. */
@@ -143,10 +97,11 @@ async function offeredMetadata(response: Response) {
 }
 
 /** The public listener's request handler, for `startPublicServer` and tests. */
-export function publicHandler(authorization: AuthorizationServer, site: Site) {
-	const { auth, origin, resource, issuer, handle } = authorization;
-	const isGet = (request: Request) =>
-		request.method === 'GET' || request.method === 'HEAD';
+export function publicHandler(
+	authorization: AuthorizationServer,
+	mcp: Site['mcp'],
+) {
+	const { origin, resource, issuer, handle } = authorization;
 	/** RFC 6750's answer to a token whose grant was revoked or narrowed. */
 	const revokedToken = () =>
 		Response.json(
@@ -180,15 +135,13 @@ export function publicHandler(authorization: AuthorizationServer, site: Site) {
 			const scopes = new Set(
 				typeof claims.scope === 'string' ? claims.scope.split(' ') : [],
 			);
-			if (scopes.has('write')) return site.mcp(request);
+			if (scopes.has('write')) return mcp(request);
 			if (!scopes.has('read')) throw createInsufficientScopeError(['read']);
 			// A read-only connection lists only reading tools, and any other
 			// call is refused where the action is found (`run.ts`).
-			return site.mcp(request, true);
+			return mcp(request, true);
 		},
 	);
-	const signedIn = async (request: Request) =>
-		(await auth.api.getSession({ headers: request.headers })) !== null;
 	return async (incoming: Request): Promise<Response> => {
 		const { pathname, search } = new URL(incoming.url);
 		const request = new Request(`${origin}${pathname}${search}`, incoming);
@@ -196,53 +149,16 @@ export function publicHandler(authorization: AuthorizationServer, site: Site) {
 			return pathname === '/.well-known/oauth-protected-resource'
 				? handle(request)
 				: offeredMetadata(await handle(request));
-		if (pathname.startsWith(`${AUTH_BASE_PATH}/`)) {
-			const route = `${request.method} ${pathname.slice(AUTH_BASE_PATH.length)}`;
-			if (!AUTH_ROUTES.has(route)) return notFound();
-			if (route === 'GET /oauth2/authorize')
-				return handle(forcedAuthorization(request));
-			if (route === 'POST /oauth2/consent')
-				return (await refusedConsent(request)) ?? handle(request);
-			return handle(request);
-		}
-		if (pathname === SIGN_IN_PATH && isGet(request))
-			return signInPage(authorization, request);
-		if (pathname === ALLOW_PATH && isGet(request))
-			return allowPage(authorization, request);
-		if (pathname === '/' && request.method === 'POST') {
-			// A person's own pages send their session; a cookie with any other
-			// Origin, or none, counts for nothing.
-			if (
-				!request.headers.has('authorization') &&
-				request.headers.get('origin') === origin &&
-				(await signedIn(request))
-			)
-				return site.mcp(request);
+		const route = `${request.method} ${pathname}`;
+		if (AUTH_ROUTES.has(route))
+			return handle(
+				route === 'GET /oauth2/authorize'
+					? forcedAuthorization(request)
+					: request,
+			);
+		if (pathname === '/' && request.method === 'POST')
 			return withToken(request);
-		}
-		if (pathname.startsWith('/.')) return notFound();
-		// An action called by a person's own page, never by a connector:
-		// connectors call through MCP with their token.
-		if (request.method === 'POST' && pathname !== '/')
-			return request.headers.get('origin') === origin &&
-				(await signedIn(request))
-				? site.call(request)
-				: new Response('Forbidden', { status: 403 });
-		if (!isGet(request))
-			return pathname === '/' ? site.launcher(request) : notFound();
-		if (
-			pathname === '/' &&
-			request.headers.get('accept')?.includes('text/event-stream')
-		)
-			return site.launcher(request);
-		if (!(await signedIn(request)))
-			return new Response(null, {
-				status: 302,
-				headers: {
-					location: `${SIGN_IN_PATH}?${new URLSearchParams({ next: `${pathname}${search}` })}`,
-				},
-			});
-		return pathname === '/' ? site.launcher(request) : site.ui(request);
+		return notFound();
 	};
 }
 
@@ -250,8 +166,8 @@ export function publicHandler(authorization: AuthorizationServer, site: Site) {
 export function startPublicServer(
 	authorization: AuthorizationServer,
 	port: number,
-	site: Site,
+	mcp: Site['mcp'],
 ) {
-	const fetch = publicHandler(authorization, site);
+	const fetch = publicHandler(authorization, mcp);
 	return Bun.serve({ hostname: '127.0.0.1', port, idleTimeout: 0, fetch });
 }

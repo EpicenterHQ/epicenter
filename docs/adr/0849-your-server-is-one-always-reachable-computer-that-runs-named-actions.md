@@ -5,7 +5,8 @@
 - **Supersedes:** [ADR-0846](0846-epicenter-owns-no-infrastructure-and-each-repository-has-one-meeting-point.md): schedules and `epicenter tick`, the front door and its OS timer, a meeting point per app, the door into a box branch, the backup check, and the secrets experiment.
 - **Amends:** [ADR-0844](0844-one-runner-runs-anywhere-and-every-surface-is-a-view-over-it.md) at who runs a named action (your server only), the laptop's own runner (a folder path instead), and the browser runner (refused). [ADR-0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md) at discovery: `~/Epicenter` exists on your server and is not moved by an environment variable, and another computer lists your server's apps.
 - **Relates:** [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (the commit rule), [ADR-0851](0851-an-app-has-one-home-and-an-optional-push-only-backup.md) (the remote), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (programs that have the folder or ask), [ADR-0853](0853-collections-give-five-actions-and-programs-without-the-folder-ask-over-mcp.md) (MCP), [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (one copy, the server's; its address and sign-in).
-- **Unbuilt:** `epicenter setup`, and `epicenter serve` over HTTPS with its sign-in. Built: `epicenter serve --stdio`, which replaced `epicenter mcp`, and the home at `$HOME/Epicenter` with `EPICENTER_HOME` removed.
+- **Amended by:** [ADR-0881](0881-people-reach-an-epicenter-over-the-tailnet-and-its-public-address-serves-only-connectors.md): a connector is approved on a page on the tailnet, with no passkey.
+- **Unbuilt:** `epicenter setup`. Built: `epicenter serve --stdio`, which replaced `epicenter mcp`; the home at `$HOME/Epicenter` with `EPICENTER_HOME` removed; and `epicenter serve`'s public HTTPS address for connectors (ADR-0881).
 
 ## Context
 
@@ -45,9 +46,9 @@ ago is what runs.
 Your own devices reach it over your tailnet. Claude.ai and ChatGPT connect from
 their vendors' servers, so `serve` also has one public HTTPS address, through
 any HTTPS tunnel such as Tailscale Funnel, and signs a client in with OAuth, as
-MCP requires: adding the connector opens a page on your server where you
-approve it with a passkey, and the client receives a token you can revoke
-(ADR-0871).
+MCP requires: adding the connector opens a page on your tailnet where you
+approve it, and the client receives a token you can revoke (ADR-0871,
+ADR-0881).
 
 **A command means this computer.** `epicenter vocab define serendipity` runs
 the Vocab folder on the computer it is typed on, and never forwards.
