@@ -1,12 +1,13 @@
 /**
- * `epicenter new` makes an app in the selected Epicenter.
+ * `epicenter new` makes an app in the selected Epicenter: two repositories,
+ * the app's folder for its code and `data/` for its data (ADR-0877).
  *
- * - `new <name> --from <git url|path>` clones a starter, a repository with no
- *   data, keeps it as the app's `upstream` remote with the branch tracking
- *   nothing, and builds its UI (ADR-0866). `epicenter update` later merges
- *   the starter's changes.
+ * - `new <name> --from <git url|path>` clones a starter, another app's code,
+ *   keeps it as the app's `upstream` remote with the branch tracking nothing,
+ *   makes an empty data repository, and builds its UI (ADR-0866). `epicenter
+ *   update` later merges the starter's changes.
  * - `new <name>` makes the folder from the built-in template, makes it a
- *   repository, and commits the template.
+ *   repository, commits the template, and makes the data repository.
  * The app's name is its child entry in the Epicenter.
  */
 import { mkdir, readdir, realpath, rm, writeFile } from 'node:fs/promises';
@@ -14,11 +15,12 @@ import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { misuse, nameProblem, parseWords } from './commands.ts';
+import { dataRepository } from './data.ts';
 import { CliError } from './errors.ts';
 import { checkedGit, git } from './git.ts';
 import { loadHomeApp } from './home.ts';
-import { epicenterDir, folderPath } from './root.ts';
 import { fail, writeErr, writeJson, writeOut } from './output.ts';
+import { epicenterDir, folderPath } from './root.ts';
 import { buildUi } from './ui.ts';
 
 /** A Git URL rather than a folder path: a scheme, or `user@host:path`. */
@@ -30,8 +32,9 @@ function isUrl(source: string) {
 
 /**
  * The built-in template: an app with no collections or actions yet, and what
- * Git ignores. It routes nothing through Git LFS; an app that comes to hold
- * binary files adds its own `.gitattributes` (ADR-0856).
+ * its code's Git ignores, starting with its data, a repository of its own. It
+ * routes nothing through Git LFS; an app that comes to hold binary files adds
+ * its own `.gitattributes` (ADR-0856).
  */
 function template(name: string) {
 	return {
@@ -43,7 +46,7 @@ export default defineApp({
 	actions: {},
 });
 `,
-		'.gitignore': 'node_modules/\n*.local\n*.local.*\n',
+		'.gitignore': 'data/\nnode_modules/\n',
 	};
 }
 
@@ -79,7 +82,7 @@ function made(
 		);
 		// A new app has no origin: a starter's remote is its upstream (ADR-0851).
 		writeErr(
-			`not backed up\nRun: git -C ${folder} remote add origin <url>, then epicenter sync ${name}`,
+			`not backed up\nRun: git -C ${folder} remote add origin <url> and git -C ${folder}/data remote add origin <url>, each a private repository, then epicenter sync ${name}`,
 		);
 	}
 	return error ? 1 : 0;
@@ -163,6 +166,7 @@ async function cloneStarter(
 		await checkedGit(tmpdir(), ['clone', '-q', source, folder]);
 		await checkedGit(folder, ['remote', 'rename', 'origin', 'upstream']);
 		await checkedGit(folder, ['branch', '--unset-upstream']);
+		await dataRepository(basename(folder), folder, { make: true });
 	} catch (error) {
 		return { error: CliError.GitFailed({ cause: error }).error };
 	}
@@ -189,4 +193,5 @@ async function makeApp(name: string) {
 	await checkedGit(folder, ['init', '-q']);
 	await checkedGit(folder, ['add', '-A']);
 	await checkedGit(folder, ['commit', '-q', '-m', `new ${name}`]);
+	await dataRepository(name, folder, { make: true });
 }

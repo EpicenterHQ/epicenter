@@ -254,7 +254,7 @@ test('a read token lists only read-only actions and its call to a write action i
 	expect(await readFile(join(t.reading, 'data/2026.csv'), 'utf8')).toBe(
 		'minutes,book\n5,\n',
 	);
-	expect(await gitIn(t.reading, 'log', '-1', '--format=%s')).toBe(
+	expect(await gitIn(join(t.reading, 'data'), 'log', '-1', '--format=%s')).toBe(
 		'reading: log 5',
 	);
 });

@@ -115,7 +115,7 @@ test('F1 new puts the next step on stderr; a broken root is a usage error', asyn
 	expect(made.code).toBe(0);
 	expect(made.stdout).toBe(`${join(f.home, 'garden')}\n`);
 	expect(made.stderr).toBe(
-		`Run: epicenter garden\nnot backed up\nRun: git -C ${join(f.home, 'garden')} remote add origin <url>, then epicenter sync garden\n`,
+		`Run: epicenter garden\nnot backed up\nRun: git -C ${join(f.home, 'garden')} remote add origin <url> and git -C ${join(f.home, 'garden/data')} remote add origin <url>, each a private repository, then epicenter sync garden\n`,
 	);
 
 	await rm(f.home, { recursive: true });

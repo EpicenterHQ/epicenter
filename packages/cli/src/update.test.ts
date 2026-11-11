@@ -1,10 +1,10 @@
 /**
  * Starter update tests: cloning, merging, and UI builds. Sync coverage
- * checks that an origin receives only home pushes.
+ * checks that code and data push to their own origins, never the starter.
  */
 import { afterEach, expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fixture, gitIn, gitignore, header } from './runner.test-support.ts';
 
@@ -63,6 +63,9 @@ test('new --from clones a starter as upstream, tracking nothing, and builds its 
 	const made = await f.run('new', 'vocab', '--from', f.starter, '--json');
 	expect(made.code).toBe(0);
 	expect(await gitIn(f.app, 'remote')).toBe('upstream');
+	expect(await gitIn(join(f.app, 'data'), 'log', '-1', '--format=%s')).toBe(
+		'vocab: start its data',
+	);
 	expect(
 		await gitIn(f.app, 'config', '--get-regexp', '^branch\\.').catch(() => ''),
 	).toBe('');
@@ -96,7 +99,9 @@ test('new --from refuses a starter whose epicenter.ts does not load, and leaves 
 	expect(made.code).toBe(2);
 	expect(JSON.parse(made.stdout).error).toMatchObject({
 		name: 'AppProblems',
-		problems: ['epicenter.ts: The collection path data/words/ is not a .md path'],
+		problems: [
+			'epicenter.ts: The collection path data/words/ is not a .md path',
+		],
 	});
 	expect(existsSync(f.app)).toBe(false);
 });
@@ -110,10 +115,13 @@ test('update merges the starter and builds; a file that no longer fits says so w
 
 	const quiet = JSON.parse((await f.run('update', 'vocab', '--json')).stdout);
 	expect(quiet.apps[0]).toMatchObject({
-		upstream: true,
+		remote: 'upstream',
+		found: true,
 		merged: null,
 		built: true,
 	});
+	await writeFile(join(f.app, 'LOCAL.md'), 'my notes\n');
+	await commitAll(f.app, 'my code notes');
 
 	await writeFile(
 		join(f.starter, 'epicenter.ts'),
@@ -131,7 +139,13 @@ test('update merges the starter and builds; a file that no longer fits says so w
 		'two\n',
 	);
 	expect(await gitIn(f.app, 'status', '--porcelain')).toBe('');
-	const read = await f.run('vocab', 'words', 'get', 'data/words/neko.md', '--json');
+	const read = await f.run(
+		'vocab',
+		'words',
+		'get',
+		'data/words/neko.md',
+		'--json',
+	);
 	expect(JSON.parse(read.stdout).returned.problems).toEqual([
 		'reading is missing',
 	]);
@@ -141,8 +155,8 @@ test('update snapshots pending changes before it merges, and undoes a merge that
 	const f = await starterFixture();
 	expect((await f.run('new', 'vocab', '--from', f.starter)).code).toBe(0);
 
-	await mkdir(join(f.app, 'data'));
 	await writeFile(join(f.app, 'data/notes.md'), 'unsaved\n');
+	await writeFile(join(f.app, 'LOCAL.md'), 'my notes\n');
 	await writeFile(join(f.starter, 'README.md'), 'about vocab\n');
 	await commitAll(f.starter, 'add a readme');
 	const pending = await f.run('update', 'vocab');
@@ -150,7 +164,12 @@ test('update snapshots pending changes before it merges, and undoes a merge that
 	expect(await gitIn(f.app, 'log', '--first-parent', '-2', '--format=%s')).toBe(
 		'vocab: update from upstream\nvocab: changed outside epicenter',
 	);
-	expect(await readFile(join(f.app, 'data/notes.md'), 'utf8')).toBe('unsaved\n');
+	expect(await gitIn(join(f.app, 'data'), 'log', '-1', '--format=%s')).toBe(
+		'vocab: changed outside epicenter',
+	);
+	expect(await readFile(join(f.app, 'data/notes.md'), 'utf8')).toBe(
+		'unsaved\n',
+	);
 	expect(await gitIn(f.app, 'status', '--porcelain')).toBe('');
 
 	await writeFile(join(f.app, 'ui', 'package.json'), builds('mine'));
@@ -209,7 +228,8 @@ test('sync pushes to origin, never to the starter', async () => {
 	const starterHead = await gitIn(f.starter, 'rev-parse', 'HEAD');
 
 	const alone = JSON.parse((await f.run('sync', 'vocab', '--json')).stdout);
-	expect(alone.apps[0]).toMatchObject({ pushed: false, origin: null });
+	expect(alone.apps[0].code).toMatchObject({ pushed: false, origin: null });
+	expect(alone.apps[0].data).toMatchObject({ pushed: false, origin: null });
 
 	const backup = join(f.root, 'backup.git');
 	await gitIn(f.root, 'init', '-q', '--bare', backup);
@@ -218,12 +238,12 @@ test('sync pushes to origin, never to the starter', async () => {
 		(await f.run('vocab', 'words', 'add', 'neko', '--meaning', 'cat')).code,
 	).toBe(0);
 	expect(JSON.parse((await f.run('vocab', '--json')).stdout).status).toEqual({
-		pending: 0,
-		backup: 'never',
+		code: { pending: 0, backup: 'never' },
+		data: { pending: 0, backup: 'none' },
 	});
 	const synced = await f.run('sync', 'vocab', '--json');
 	expect(synced.code).toBe(0);
-	expect(JSON.parse(synced.stdout).apps[0]).toMatchObject({
+	expect(JSON.parse(synced.stdout).apps[0].code).toMatchObject({
 		pushed: true,
 		origin: { ahead: 0 },
 	});
@@ -255,6 +275,37 @@ test('new --from whose UI does not build makes the app, exits 1, and names build
 	expect(human.stdout).toBe(`${join(f.home, 'words')}\n`);
 	expect(human.stderr).toStartWith('words: the UI did not build: ');
 	expect(human.stderr).toEndWith(
-		`\nRun: epicenter build words\nnot backed up\nRun: git -C ${join(f.home, 'words')} remote add origin <url>, then epicenter sync words\n`,
+		`\nRun: epicenter build words\nnot backed up\nRun: git -C ${join(f.home, 'words')} remote add origin <url> and git -C ${join(f.home, 'words')}/data remote add origin <url>, each a private repository, then epicenter sync words\n`,
+	);
+});
+
+test('update from a named remote finds its default branch when remote HEAD is missing', async () => {
+	const f = await starterFixture();
+	expect((await f.run('new', 'vocab', '--from', f.starter)).code).toBe(0);
+	await gitIn(f.app, 'remote', 'rename', 'upstream', 'source');
+	await gitIn(f.app, 'remote', 'set-head', 'source', '--delete').catch(
+		() => '',
+	);
+	expect(
+		await gitIn(f.app, 'symbolic-ref', 'refs/remotes/source/HEAD').catch(
+			() => '',
+		),
+	).toBe('');
+	await writeFile(join(f.app, 'LOCAL.md'), 'my notes\n');
+	await commitAll(f.app, 'my code notes');
+	await writeFile(join(f.starter, 'README.md'), 'new starter text\n');
+	await commitAll(f.starter, 'new starter text');
+	const updated = await f.run('update', 'vocab', 'source', '--json');
+	expect(updated.code).toBe(0);
+	expect(JSON.parse(updated.stdout).apps[0]).toMatchObject({
+		remote: 'source',
+		found: true,
+		merged: expect.any(String),
+	});
+	expect(
+		await gitIn(f.app, 'symbolic-ref', 'refs/remotes/source/HEAD'),
+	).toMatch(/^refs\/remotes\/source\//);
+	expect(await gitIn(f.app, 'log', '-1', '--format=%s')).toBe(
+		'vocab: update from source',
 	);
 });

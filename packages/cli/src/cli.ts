@@ -45,7 +45,7 @@ import {
 } from './output.ts';
 import { epicenterRoot, RootUsageError } from './root.ts';
 import { runAction } from './run.ts';
-import { statusOf } from './snapshot.ts';
+import { appStatusOf } from './snapshot.ts';
 import { syncCommand } from './sync.ts';
 import { updateCommand } from './update.ts';
 
@@ -163,7 +163,8 @@ export async function runCli(argv: string[]): Promise<number> {
 				const histories = new Map(
 					await Promise.all(
 						found.apps.map(
-							async (app) => [app.name, await statusOf(app.realPath)] as const,
+							async (app) =>
+								[app.name, await appStatusOf(app.realPath)] as const,
 						),
 					),
 				);
@@ -200,7 +201,7 @@ export async function runCli(argv: string[]): Promise<number> {
 				json,
 			);
 		if (!words.length) {
-			print(oneAppListing(located, json, await statusOf(located.realPath)));
+			print(oneAppListing(located, json, await appStatusOf(located.realPath)));
 			return 0;
 		}
 		const matched = matchAction(located.actions, words);

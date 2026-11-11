@@ -6,7 +6,7 @@ import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
 import { mkdir, readFile, rm, symlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { COMMANDS } from './commands.ts';
-import { fixture, reading, vault } from './runner.test-support.ts';
+import { fixture, gitIn, reading, vault } from './runner.test-support.ts';
 
 // Each test runs the real command several times as separate processes.
 setDefaultTimeout(30_000);
@@ -24,6 +24,27 @@ async function setup() {
 	await f.app('vault', vault);
 	return f;
 }
+
+test("listing warns when the data's code commit is absent from the code's history", async () => {
+	const f = await setup();
+	const app = join(f.home, 'reading');
+	const writtenUnder = await gitIn(app, 'rev-parse', 'HEAD');
+	expect((await f.run('reading', 'log', '30')).code).toBe(0);
+	const tree = await gitIn(app, 'rev-parse', 'HEAD^{tree}');
+	const unrelated = await gitIn(
+		app,
+		'commit-tree',
+		tree,
+		'-m',
+		'unrelated code',
+	);
+	await gitIn(app, 'reset', '--soft', unrelated);
+	const listed = JSON.parse((await f.run('reading', '--json')).stdout);
+	expect(listed.status.data.otherCode).toBe(writtenUnder.slice(0, 12));
+	expect((await f.run('reading')).stdout).toContain(
+		`data: written under code ${writtenUnder.slice(0, 12)}, which this code's history does not have`,
+	);
+});
 
 test('listing isolates broken imports, invalid apps and folders that cannot name an app, and shows linked apps', async () => {
 	const f = await setup();

@@ -17,15 +17,16 @@ The folder defaults to the current directory. Epicenters cannot nest.`,
 	},
 	new: {
 		usage: 'epicenter new <name> [--from <git url|path>]',
-		help: `Makes <Epicenter>/<name>, a Git repository. With --from, it clones a starter (a
-repository with no data), keeps it as the app's upstream remote, and builds its
-UI; without it, it starts from an epicenter.ts and a .gitignore.`,
+		help: `Makes <Epicenter>/<name>, two Git repositories: the folder holds the app's code,
+and data/ inside it the app's data. With --from, it clones a starter (another
+app's code), keeps it as the app's upstream remote, and builds its UI; without
+it, it starts from an epicenter.ts and a .gitignore.`,
 	},
 	update: {
-		usage: 'epicenter update [<app>]',
-		help: `Merges each app's upstream, or one app's: it snapshots what is pending first,
-undoes a merge that stops on a conflict, and builds the UI, keeping the last one
-that built.`,
+		usage: 'epicenter update [<app> [<remote>]]',
+		help: `Merges each app's upstream into its code, or one app's, or from the remote named:
+it snapshots what is pending first, undoes a merge that stops on a conflict, and
+builds the UI, keeping the last one that built. The data is never merged.`,
 	},
 	build: {
 		usage: 'epicenter build [<app>]',
@@ -33,26 +34,27 @@ that built.`,
 	},
 	sync: {
 		usage: 'epicenter sync [<app> [-m <message>]]',
-		help: `Takes a snapshot of what is pending in each app, or one app, then pushes to
-origin when it exists and the branch is ahead of it. It never pushes to
-upstream. The snapshot reads "<app>: changed outside epicenter", or with -m
+		help: `Takes a snapshot of what is pending in each app's code and data, or one app's,
+then pushes each to its own origin when it exists and the branch is ahead of
+it. It never pushes anywhere else. The snapshot reads "<app>: changed outside epicenter", or with -m
 (--message), "<app>: <message>": an agent that edited an app's files itself
 names what it did this way.`,
 	},
 	history: {
 		usage: 'epicenter history <app> [--limit <n>]',
-		help: `Lists the app's snapshots, newest first, 20 unless --limit says how many: each
-one's commit, local time, subject, and the paths it changed. An undo reads as
-"undid <subject>".`,
+		help: `Lists the app's snapshots of its code and its data together, newest first, 20
+unless --limit says how many: each one's commit, local time, code or data,
+subject, and the paths it changed. An undo reads as "undid <subject>".`,
 	},
 	undo: {
 		usage: 'epicenter undo <app> [<commit>]',
-		help: `Snapshots what is pending, then reverts the app's most recent snapshot that is
-not an undo and is not undone, or the commit named, as "<app>: undid <subject>".
-Run it again to go further back; undo an undo to bring it back. It refuses a
-commit not in the app's history and a revert Git refuses (a merge), or that
-conflicts or changes nothing, leaving the folder as it was. It never pushes;
-sync does.`,
+		help: `Snapshots what is pending, then reverts the app's most recent data snapshot that
+is not an undo and is not undone, or the data commit named, as "<app>: undid
+<subject>". When the code has changed since that snapshot, it lists the code
+commits since. Run it again to go further back; undo an undo to bring it back.
+Code is reverted with git. It refuses a commit not in the app's data history and
+a revert Git refuses, or that conflicts or changes nothing, leaving the folder as
+it was. It never pushes; sync does.`,
 	},
 	serve: {
 		usage: 'epicenter serve [--port <n>] [--host <address>] [--stdio]',

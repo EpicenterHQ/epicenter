@@ -22,26 +22,39 @@ app. Run \`epicenter\` here to list them.
 `;
 
 const STARTER_AGENTS = `This folder is an Epicenter.
-Each child folder with an epicenter.ts is an app and its own Git repository.
+Each child folder with an epicenter.ts is an app. An app is two Git
+repositories: its folder holds its code (epicenter.ts, ui/, README.md), and
+data/ inside it holds its data, a repository of its own that the code's
+.gitignore leaves out.
 
 Prefer \`epicenter <app> <verb>\` to change an app's data: it checks each value
-against the app's fields and commits each call's files into the app's history,
-named for the call. \`epicenter <app>\` lists the verbs. \`set\` changes fields;
-\`edit --old <text> --new <text>\` changes one passage of a file's body, and is
-refused if that passage changed since you read it.
+against the app's fields and commits each call's files into the app's data
+history, named for the call. \`epicenter <app>\` lists the verbs. \`set\` changes
+fields; \`edit --old <text> --new <text>\` changes one passage of a file's body,
+and is refused if that passage changed since you read it. An action writes only
+under data/.
 
-You may edit an app's files with your own tools instead. When you finish, say
-what you did: \`epicenter sync <app> -m "<what you did>"\` commits what is
-pending under that message and backs it up. A plain \`git commit\` in the app's
-folder is safe too. Otherwise \`epicenter serve\` commits it within 5 minutes as
-"changed outside epicenter".
+You may edit an app's files with your own tools instead: its code, or its data.
+When you finish, say what you did: \`epicenter sync <app> -m "<what you did>"\`
+commits what is pending in both repositories under that message and backs each
+up to its own origin. A plain \`git commit\` in the app's folder or in its data/
+is safe too. Otherwise \`epicenter serve\` commits it within 5 minutes as
+"changed outside epicenter". A code commit's message describes the code, never
+a record: the code may be shared, and the data never is.
 
-\`epicenter history <app>\` lists what changed, newest first. \`epicenter undo
-<app>\` reverts the most recent change as a new commit; run it again to go
-further back, or name a commit from history to undo that one.
+When you change a field, change the code first, then the data that no longer
+fits, with an action or by hand; each data commit names the code it was written
+under. A file whose front matter no field declares, or that lacks an optional
+field, reads without any problem, so check the data yourself.
 
-Files named *.local or *.local.* stay on this computer: each app's .gitignore
-ignores them, and epicenter refuses to snapshot one that is not ignored.
+\`epicenter history <app>\` lists what changed in the code and the data, newest
+first. \`epicenter undo <app>\` reverts the most recent data change as a new
+commit; run it again to go further back, or name a commit from history to undo
+that one. Code is reverted with \`git -C <app> revert <commit>\`.
+
+Files named *.local or *.local.* stay on this computer and live under data/:
+data/.gitignore ignores them, and epicenter refuses to snapshot one that is not
+ignored. Never run \`git clean -ffdx\` in an app's folder: it deletes data/.
 `;
 
 function actualFolder(path: string): string {

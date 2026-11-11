@@ -16,46 +16,73 @@ import {
 	requiredKeys,
 	usageLine,
 } from './input.ts';
-import type { statusOf } from './snapshot.ts';
+import type { appStatusOf, RepositoryStatus } from './snapshot.ts';
 
-/** Git's pending count and backup status; `undefined` for a folder in no repository. */
-type Status = Awaited<ReturnType<typeof statusOf>>;
+/** What Git says of the app's code and its data (ADR-0877); each absent when the app has no such repository. */
+type Status = Awaited<ReturnType<typeof appStatusOf>> | undefined;
+
+/** Whether a repository has nothing pending and a backup that has everything. */
+const settled = (status: RepositoryStatus | undefined) =>
+	!status || (status.pending === 0 && !status.unpushed && !status.backup);
 
 /**
- * Git-derived status as `--json` gives it: pending paths, commits not backed
- * up, and a backup that is missing or has never received the branch; absent
- * when nothing is pending and the backup has everything.
+ * Git-derived status as `--json` gives it, for the code and the data:
+ * pending paths, commits not backed up, a backup that is missing or has
+ * never received the branch, and data written under code this code does not
+ * have; absent when both are settled.
  */
 function listingStatus(status: Status) {
-	if (!status || (status.pending === 0 && !status.unpushed && !status.backup))
+	if (
+		!status ||
+		(settled(status.code) && settled(status.data) && !status.data?.otherCode)
+	)
 		return {};
 	return { status };
 }
 
-/** An app's history and backup status in a few words each. */
+/** One repository's history and backup status in a few words each, each starting with which repository. */
+function repositoryMarks(which: 'code' | 'data', status?: RepositoryStatus) {
+	if (!status) return [];
+	return [
+		...(status.pending
+			? [
+					`${which}: ${status.pending} ${status.pending === 1 ? 'change' : 'changes'} not yet in history`,
+				]
+			: []),
+		...(status.unpushed
+			? [
+					`${which}: ${status.unpushed} ${status.unpushed === 1 ? 'snapshot' : 'snapshots'} not backed up`,
+				]
+			: []),
+		...(status.backup === 'none' ? [`${which}: not backed up`] : []),
+		...(status.backup === 'never' ? [`${which}: never backed up`] : []),
+	];
+}
+
+/** An app's history and backup status, for its code and its data. */
 function statusMarks(status: Status) {
 	return [
-		...(status?.pending
+		...repositoryMarks('code', status?.code),
+		...repositoryMarks('data', status?.data),
+		...(status?.data?.otherCode
 			? [
-					`${status.pending} ${status.pending === 1 ? 'change' : 'changes'} not yet in history`,
+					`data: written under code ${status.data.otherCode}, which this code's history does not have`,
 				]
 			: []),
-		...(status?.unpushed
-			? [
-					`${status.unpushed} ${status.unpushed === 1 ? 'snapshot' : 'snapshots'} not backed up`,
-				]
-			: []),
-		...(status?.backup === 'none' ? ['not backed up'] : []),
-		...(status?.backup === 'never' ? ['never backed up'] : []),
 	];
 }
 
 /** The step that settles an app's status, or nothing when it is settled. */
 function syncStep(name: string, folder: string, status: Status) {
-	if (status?.backup === 'none')
-		return `Run: git -C ${folder} remote add origin <url>, then epicenter sync ${name}`;
-	if (status?.backup || status?.pending || status?.unpushed)
+	const remotes = [
+		...(status?.code?.backup === 'none' ? [folder] : []),
+		...(status?.data?.backup === 'none' ? [`${folder}/data`] : []),
+	];
+	if (remotes.length)
+		return `Run: ${remotes.map((at) => `git -C ${at} remote add origin <url>`).join(' and ')}, then epicenter sync ${name}`;
+	if (!settled(status?.code) || !settled(status?.data))
 		return `Run: epicenter sync ${name}`;
+	if (status?.data?.otherCode) return `Run: epicenter history ${name}`;
 	return undefined;
 }
 

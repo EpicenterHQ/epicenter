@@ -95,17 +95,27 @@ async function withOrigin(f: Awaited<ReturnType<typeof setup>>, name: string) {
 	const seed = await f.folder(join(f.root, `${name}-seed`), {
 		'.gitignore': gitignore,
 		'epicenter.ts': bareApp(name),
-		'data/page.md': 'base\n',
 	});
-	const bare = join(f.root, `${name}.git`);
-	await gitIn(f.root, 'clone', '-q', '--bare', seed, bare);
+	const codeBare = join(f.root, `${name}-code.git`);
+	await gitIn(f.root, 'clone', '-q', '--bare', seed, codeBare);
+	const seedData = join(seed, 'data');
+	await mkdir(seedData);
+	await writeFile(join(seedData, '.gitignore'), '*.local\n*.local.*\n');
+	await writeFile(join(seedData, 'page.md'), 'base\n');
+	await gitIn(seedData, 'init', '-q');
+	await gitIn(seedData, 'add', '.');
+	await gitIn(seedData, 'commit', '-q', '-m', `${name}: start its data`);
+	const bare = join(f.root, `${name}-data.git`);
+	await gitIn(f.root, 'clone', '-q', '--bare', seedData, bare);
 	const folder = join(f.home, name);
-	await gitIn(f.root, 'clone', '-q', bare, folder);
+	await gitIn(f.root, 'clone', '-q', codeBare, folder);
+	await gitIn(f.root, 'clone', '-q', bare, join(folder, 'data'));
 	const peer = join(f.root, `${name}-peer`);
 	await gitIn(f.root, 'clone', '-q', bare, peer);
 	const peerCommits = async (path: string, text: string) => {
-		await writeFile(join(peer, path), text);
-		await gitIn(peer, 'add', path);
+		const inData = path.replace(/^data\//, '');
+		await writeFile(join(peer, inData), text);
+		await gitIn(peer, 'add', inData);
 		await gitIn(peer, 'commit', '-q', '-m', `peer ${path}`);
 		await gitIn(peer, 'push', '-q');
 	};
@@ -131,27 +141,38 @@ test('W2 epicenter sync snapshots and pushes to a bare origin without fetching',
 			{
 				app: 'journal',
 				folder: journal.folder,
-				committed: { subject: 'journal: changed outside epicenter', files: 2 },
-				pushed: true,
-				origin: { ahead: 0 },
+				code: { committed: null, pushed: false, origin: { ahead: 0 } },
+				data: {
+					committed: {
+						subject: 'journal: changed outside epicenter',
+						files: 2,
+					},
+					pushed: true,
+					origin: { ahead: 0 },
+				},
 			},
 			{
 				app: 'notes',
 				folder: join(f.home, 'notes'),
-				committed: { subject: 'notes: changed outside epicenter', files: 1 },
-				pushed: false,
-				origin: null,
+				code: { committed: null, pushed: false, origin: null },
+				data: {
+					committed: { subject: 'notes: changed outside epicenter', files: 1 },
+					pushed: false,
+					origin: null,
+				},
 			},
 		],
 	});
 	expect(await gitIn(journal.bare, 'log', '--format=%s')).toBe(
-		'journal: changed outside epicenter\ninitial',
+		'journal: changed outside epicenter\njournal: start its data',
 	);
 	expect(await gitIn(join(f.home, 'notes'), 'status', '--porcelain')).toBe('');
 
 	const again = await f.run('sync', 'journal');
 	expect(again.code).toBe(0);
-	expect(again.stdout).toBe('journal: nothing to commit; 0 ahead of origin\n');
+	expect(again.stdout).toBe(
+		'journal: nothing to commit; 0 ahead of origin\njournal/data: nothing to commit; 0 ahead of origin\n',
+	);
 	expect(again.stderr).toBe('');
 	expect((await f.run('sync', 'nope', '--json')).code).toBe(2);
 
@@ -168,7 +189,7 @@ test('W3 a refused push leaves both sides unchanged and other apps still sync', 
 	const offline = await withOrigin(f, 'offline');
 	await writeFile(join(offline.folder, 'data/note.md'), 'written offline\n');
 	await gitIn(
-		offline.folder,
+		join(offline.folder, 'data'),
 		'remote',
 		'set-url',
 		'--push',
@@ -192,62 +213,67 @@ test('W3 a refused push leaves both sides unchanged and other apps still sync', 
 		]),
 	);
 	expect(apps.clash).toMatchObject({
-		committed: { subject: 'clash: changed outside epicenter' },
-		pushed: false,
-		origin: { ahead: 1 },
-		error: {
-			message: expect.stringContaining('nothing was overwritten'),
-			next: `git -C ${clash.folder} fetch origin && git -C ${clash.folder} log HEAD..origin/main`,
+		data: {
+			committed: { subject: 'clash: changed outside epicenter' },
+			pushed: false,
+			origin: { ahead: 1 },
+			error: {
+				message: expect.stringContaining('nothing was overwritten'),
+				next: `git -C ${clash.folder}/data fetch origin && git -C ${clash.folder}/data log HEAD..origin/main`,
+			},
 		},
 	});
 	expect(
-		await gitIn(clash.folder, 'rev-parse', 'refs/remotes/origin/main'),
-	).toBe(await gitIn(clash.folder, 'rev-parse', 'HEAD~1'));
+		await gitIn(
+			join(clash.folder, 'data'),
+			'rev-parse',
+			'refs/remotes/origin/main',
+		),
+	).toBe(await gitIn(join(clash.folder, 'data'), 'rev-parse', 'HEAD~1'));
 	expect(await gitIn(clash.bare, 'log', '-1', '--format=%s')).toBe(
 		'peer data/page.md',
 	);
-	expect(await gitIn(clash.folder, 'log', '-1', '--format=%s')).toBe(
-		'clash: changed outside epicenter',
-	);
+	expect(
+		await gitIn(join(clash.folder, 'data'), 'log', '-1', '--format=%s'),
+	).toBe('clash: changed outside epicenter');
 	expect(await readFile(join(clash.folder, 'data/page.md'), 'utf8')).toBe(
 		'the desk says\n',
 	);
 	expect(await gitIn(clash.folder, 'status', '--porcelain')).toBe('');
 	expect(apps.offline).toMatchObject({
-		committed: { files: 1 },
-		pushed: false,
-		error: {
-			message: expect.stringContaining('not pushed'),
-			next: `git -C ${offline.folder} push origin HEAD:main`,
+		data: {
+			committed: { files: 1 },
+			pushed: false,
+			error: {
+				message: expect.stringContaining('not pushed'),
+				next: `git -C ${offline.folder}/data push origin HEAD:main`,
+			},
 		},
 	});
 	expect(apps.loose).toMatchObject({
-		committed: null,
-		pushed: false,
-		origin: null,
-		error: { message: expect.stringContaining('not a git repository') },
+		code: null,
+		data: null,
 	});
 	expect(apps.fine).toMatchObject({
-		pushed: true,
-		origin: { ahead: 0 },
+		data: { pushed: true, origin: { ahead: 0 } },
 	});
 	await writeFile(join(clash.folder, 'data/still-pending.md'), 'pending\n');
 	const status = JSON.parse((await f.run('clash', '--json')).stdout);
-	expect(status.status).toEqual({ pending: 1, unpushed: 1 });
+	expect(status.status).toMatchObject({ data: { pending: 1, unpushed: 1 } });
 	const listed = await f.run();
 	expect(listed.stdout).toContain(
-		'(1 change not yet in history; 1 snapshot not backed up)',
+		'data: 1 change not yet in history; data: 1 snapshot not backed up',
 	);
 	expect(listed.stdout).toContain('Run: epicenter sync clash');
 
 	const human = await f.run('sync');
 	expect(human.code).toBe(1);
 	expect(human.stderr).toContain(
-		`Run: git -C ${clash.folder} fetch origin && git -C ${clash.folder} log HEAD..origin/main`,
+		`Run: git -C ${clash.folder}/data fetch origin && git -C ${clash.folder}/data log HEAD..origin/main`,
 	);
 });
 
-test('W3 sync of an app inside a larger repository snapshots only its folder', async () => {
+test('W3 sync of an app inside a larger repository commits data without touching the larger repository', async () => {
 	const f = await setup();
 	const seed = await f.folder(join(f.root, 'vault-seed'), {
 		'journal/today.md': 'today\n',
@@ -261,18 +287,34 @@ test('W3 sync of an app inside a larger repository snapshots only its folder', a
 	await symlink(join(vault, 'recipes'), join(f.home, 'recipes'));
 	await writeFile(join(vault, 'journal/today.md'), 'changed beside\n');
 	await writeFile(join(vault, 'recipes/bread.md'), 'bread\n');
+	await mkdir(join(vault, 'recipes', 'data'));
+	await writeFile(join(vault, 'recipes', 'data', 'page.md'), 'page\n');
+	const head = await gitIn(vault, 'rev-parse', 'HEAD');
 	const synced = await f.run('sync', 'recipes', '--json');
 	expect(synced.code).toBe(0);
 	expect(JSON.parse(synced.stdout).apps[0]).toMatchObject({
-		committed: { subject: 'recipes: changed outside epicenter' },
-		pushed: true,
+		code: null,
+		data: {
+			committed: { subject: 'recipes: changed outside epicenter' },
+			pushed: false,
+		},
 	});
-	expect(await gitIn(bare, 'show', '--name-only', '--format=', 'HEAD')).toBe(
-		'recipes/bread.md',
-	);
+	expect(
+		await gitIn(
+			join(vault, 'recipes', 'data'),
+			'show',
+			'--name-only',
+			'--format=',
+			'HEAD',
+		),
+	).toBe('page.md');
+	expect(await gitIn(vault, 'rev-parse', 'HEAD')).toBe(head);
+	expect(await gitIn(bare, 'rev-parse', 'HEAD')).toBe(head);
 	expect(await gitIn(vault, 'diff', '--name-only')).toBe('journal/today.md');
 	expect(await gitIn(vault, 'diff', '--cached', '--name-only')).toBe('');
-	expect(existsSync(join(vault, 'peer.md'))).toBe(false);
+	expect(await readFile(join(vault, 'recipes', 'bread.md'), 'utf8')).toBe(
+		'bread\n',
+	);
 });
 
 test('W4 epicenter new writes the template and runs git init', async () => {
@@ -295,6 +337,9 @@ export default defineApp({
 	expect(await readFile(join(folder, '.gitignore'), 'utf8')).toBe(gitignore);
 	expect(existsSync(join(folder, '.gitattributes'))).toBe(false);
 	expect(await gitIn(folder, 'log', '--format=%s')).toBe('new garden');
+	expect(await gitIn(join(folder, 'data'), 'log', '--format=%s')).toBe(
+		'garden: start its data',
+	);
 	expect(await gitIn(folder, 'status', '--porcelain')).toBe('');
 	const listed = JSON.parse((await f.run('--json')).stdout);
 	expect(listed.apps).toMatchObject([
@@ -336,7 +381,7 @@ test('W5 a symlinked entry loads an app where it lives', async () => {
 	expect((await f.run('loose', '--json')).code).toBe(0);
 });
 
-test('W3 a refused push leaves changes beside the app and creates no stash', async () => {
+test('W3 a divergent parent remote leaves data sync and changes beside the app alone', async () => {
 	const f = await setup();
 	const seed = await f.folder(join(f.root, 'vault-seed'), {
 		'journal/today.md': 'today\n',
@@ -355,14 +400,29 @@ test('W3 a refused push leaves changes beside the app and creates no stash', asy
 
 	await writeFile(join(vault, 'journal/today.md'), 'the desk\n');
 	await writeFile(join(vault, 'recipes/bread.md'), 'bread\n');
+	await mkdir(join(vault, 'recipes', 'data'));
+	await writeFile(join(vault, 'recipes', 'data', 'page.md'), 'page\n');
+	const head = await gitIn(vault, 'rev-parse', 'HEAD');
 	const synced = await f.run('sync', 'recipes', '--json');
-	expect(synced.code).toBe(1);
+	expect(synced.code).toBe(0);
 	expect(JSON.parse(synced.stdout).apps[0]).toMatchObject({
-		pushed: false,
-		error: {
-			message: expect.stringContaining('nothing was overwritten'),
+		code: null,
+		data: {
+			committed: { subject: 'recipes: changed outside epicenter' },
+			pushed: false,
 		},
 	});
+	expect(
+		await gitIn(
+			join(vault, 'recipes', 'data'),
+			'show',
+			'--name-only',
+			'--format=',
+			'HEAD',
+		),
+	).toBe('page.md');
+	expect(await gitIn(vault, 'rev-parse', 'HEAD')).toBe(head);
+	expect(await gitIn(vault, 'diff', '--cached', '--name-only')).toBe('');
 	expect(await gitIn(vault, 'stash', 'list')).toBe('');
 	expect(await readFile(join(vault, 'journal/today.md'), 'utf8')).toBe(
 		'the desk\n',

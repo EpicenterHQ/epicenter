@@ -28,10 +28,11 @@ afterEach(async () => {
 async function reading() {
 	const folder = await f.folder(join(f.home, 'reading'), readingApp);
 	await mkdir(join(folder, 'data'));
+	await f.run('sync', 'reading');
 	const remote = join(f.root, 'remote.git');
 	await gitIn(f.root, 'init', '--bare', '-q', remote);
-	await gitIn(folder, 'remote', 'add', 'origin', remote);
-	await gitIn(folder, 'push', '-q', '-u', 'origin', 'HEAD');
+	await gitIn(join(folder, 'data'), 'remote', 'add', 'origin', remote);
+	await gitIn(join(folder, 'data'), 'push', '-q', '-u', 'origin', 'HEAD');
 	return { folder, remote };
 }
 
@@ -63,12 +64,12 @@ test('serve backs up once when it starts: outside edits are snapshotted and push
 	const server = serve();
 	// A tick waits for the backup serve started with, which left it nothing to do.
 	const [after] = await server.tick();
-	expect(after).toMatchObject({ committed: null, pushed: false });
-	expect(await gitIn(remote, 'log', '-1', '--format=%B')).toBe(
+	expect(after?.data).toMatchObject({ committed: null, pushed: false });
+	expect(await gitIn(remote, 'log', '-1', '--format=%s')).toBe(
 		'reading: changed outside epicenter',
 	);
 	expect(await gitIn(remote, 'show', '--name-only', '--format=', 'HEAD')).toBe(
-		'data/notes.md',
+		'notes.md',
 	);
 	expect(await gitIn(folder, 'status', '--porcelain')).toBe('');
 });
@@ -80,29 +81,40 @@ test('a tick commits outside edits and pushes them, and pushes only when somethi
 
 	await writeFile(join(folder, 'data/notes.md'), 'by hand\n');
 	const [pushed] = await server.tick();
-	expect(pushed).toMatchObject({
-		app: 'reading',
+	expect(pushed?.data).toMatchObject({
 		committed: { subject: 'reading: changed outside epicenter', files: 1 },
 		pushed: true,
 		origin: { ahead: 0 },
 	});
 	expect(await gitIn(remote, 'rev-parse', 'HEAD')).toBe(
-		await gitIn(folder, 'rev-parse', 'HEAD'),
+		await gitIn(join(folder, 'data'), 'rev-parse', 'HEAD'),
 	);
 
 	// Nothing pending or unpushed: no push, so an origin that is gone is never reached.
-	await gitIn(folder, 'remote', 'set-url', 'origin', join(f.root, 'gone.git'));
+	await gitIn(
+		join(folder, 'data'),
+		'remote',
+		'set-url',
+		'origin',
+		join(f.root, 'gone.git'),
+	);
 	const [idle] = await server.tick();
-	expect(idle).toMatchObject({ committed: null, pushed: false });
-	expect(idle?.error).toBeUndefined();
+	expect(idle?.data).toMatchObject({ committed: null, pushed: false });
+	expect(idle?.data?.error).toBeUndefined();
 
 	// A commit made by hand is unpushed, so the next tick pushes it.
-	await gitIn(folder, 'remote', 'set-url', 'origin', remote);
+	await gitIn(join(folder, 'data'), 'remote', 'set-url', 'origin', remote);
 	await writeFile(join(folder, 'data/agent.md'), 'by an agent\n');
-	await gitIn(folder, 'add', 'data/agent.md');
-	await gitIn(folder, 'commit', '-q', '-m', 'reading: an agent added a page');
+	await gitIn(join(folder, 'data'), 'add', 'agent.md');
+	await gitIn(
+		join(folder, 'data'),
+		'commit',
+		'-q',
+		'-m',
+		'reading: an agent added a page',
+	);
 	const [unpushed] = await server.tick();
-	expect(unpushed).toMatchObject({ committed: null, pushed: true });
+	expect(unpushed?.data).toMatchObject({ committed: null, pushed: true });
 	expect(await gitIn(remote, 'log', '-1', '--format=%s')).toBe(
 		'reading: an agent added a page',
 	);
@@ -112,7 +124,7 @@ test('a tick logs an unchanged failure once, and again when it changes', async (
 	const { folder } = await reading();
 	const server = serve();
 	await server.tick();
-	await writeFile(join(folder, '.gitignore'), 'node_modules/\n');
+	await writeFile(join(folder, 'data/.gitignore'), '');
 	await writeFile(join(folder, 'data/token.local'), 'secret\n');
 	const logged = await stderrOf(async () => {
 		await server.tick();
@@ -124,10 +136,12 @@ test('a tick logs an unchanged failure once, and again when it changes', async (
 	});
 	expect(logged).toBe(
 		[
-			'reading: data/token.local would be committed; add *.local and *.local.* to reading/.gitignore',
-			'reading: data/device.local would be committed; add *.local and *.local.* to reading/.gitignore',
+			'reading/data: token.local would be committed; add *.local and *.local.* to reading/data/.gitignore',
+			'reading/data: device.local would be committed; add *.local and *.local.* to reading/data/.gitignore',
 			'',
 		].join('\n'),
 	);
-	expect(await gitIn(folder, 'rev-list', '--count', 'HEAD')).toBe('1');
+	expect(await gitIn(join(folder, 'data'), 'rev-list', '--count', 'HEAD')).toBe(
+		'1',
+	);
 });

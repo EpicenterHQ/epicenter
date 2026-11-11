@@ -7,6 +7,13 @@ const bin = resolve(import.meta.dir, 'bin.ts');
 /** Run git in `dir`, throwing with its stderr when it fails. */
 export async function gitIn(dir: string, ...args: string[]) {
 	const child = Bun.spawn(['git', '-C', dir, ...args], {
+		env: {
+			...process.env,
+			GIT_AUTHOR_NAME: 'Epicenter Test',
+			GIT_AUTHOR_EMAIL: 'epicenter-test@example.com',
+			GIT_COMMITTER_NAME: 'Epicenter Test',
+			GIT_COMMITTER_EMAIL: 'epicenter-test@example.com',
+		},
 		stdout: 'pipe',
 		stderr: 'pipe',
 	});
@@ -92,7 +99,7 @@ export async function fixture() {
 }
 
 /** The ignore file every test app carries, as `epicenter new` writes it. */
-export const gitignore = 'node_modules/\n*.local\n*.local.*\n';
+export const gitignore = 'data/\nnode_modules/\n';
 
 /** The import every test app's `epicenter.ts` starts with. */
 export const header = `import { defineAction, defineApp, defineCollection, field, folder } from '@epicenter/app';\n`;

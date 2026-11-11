@@ -1,6 +1,6 @@
 /**
- * New app tests cover template commits, name validation, and the backup
- * status shown until an origin receives the app's branch.
+ * New app tests cover both initial repositories, name validation, and the
+ * backup status shown until origins receive the app's branches.
  */
 import { afterEach, expect, test } from 'bun:test';
 import { mkdir, readFile, rm } from 'node:fs/promises';
@@ -39,12 +39,19 @@ test('new commits its template and link is a valid app name', async () => {
 	expect(made.code).toBe(0);
 	const garden = join(f.home, 'garden');
 	expect(made.stderr).toBe(
-		`Run: epicenter garden\nnot backed up\nRun: git -C ${garden} remote add origin <url>, then epicenter sync garden\n`,
+		`Run: epicenter garden\nnot backed up\nRun: git -C ${garden} remote add origin <url> and git -C ${garden}/data remote add origin <url>, each a private repository, then epicenter sync garden\n`,
 	);
 	expect(await readFile(join(garden, '.gitignore'), 'utf8')).toBe(
-		'node_modules/\n*.local\n*.local.*\n',
+		'data/\nnode_modules/\n',
+	);
+	expect(await readFile(join(garden, 'data', '.gitignore'), 'utf8')).toBe(
+		'*.local\n*.local.*\n',
 	);
 	expect(await gitIn(garden, 'log', '--format=%s')).toBe('new garden');
+	expect(await gitIn(join(garden, 'data'), 'log', '--format=%s')).toBe(
+		'garden: start its data',
+	);
+	expect(await gitIn(join(garden, 'data'), 'ls-files')).toBe('.gitignore');
 	expect(await gitIn(garden, 'ls-files')).toBe('.gitignore\nepicenter.ts');
 	expect(await gitIn(garden, 'status', '--porcelain')).toBe('');
 
@@ -60,31 +67,30 @@ test('listings distinguish no origin, an origin never pushed to, and a pushed ba
 	expect((await f.run('new', 'garden')).code).toBe(0);
 	const garden = join(f.home, 'garden');
 	expect((await f.run('garden')).stdout).toContain(
-		`not backed up\nRun: git -C ${garden} remote add origin <url>, then epicenter sync garden`,
+		`data: not backed up\nRun: git -C ${garden} remote add origin <url> and git -C ${garden}/data remote add origin <url>, then epicenter sync garden`,
 	);
 	expect(JSON.parse((await f.run('--json')).stdout).apps[0].status).toEqual({
-		pending: 0,
-		backup: 'none',
+		code: { pending: 0, backup: 'none' },
+		data: { pending: 0, backup: 'none' },
 	});
 	expect((await f.run()).stdout).toContain(
-		`(not backed up)\n\nRun: epicenter <app>\nRun: git -C ${garden} remote add origin <url>, then epicenter sync garden`,
+		`(code: not backed up; data: not backed up)\n\nRun: epicenter <app>\nRun: git -C ${garden} remote add origin <url> and git -C ${garden}/data remote add origin <url>, then epicenter sync garden`,
 	);
 
 	const backup = join(f.root, 'backup.git');
 	await gitIn(f.root, 'init', '-q', '--bare', backup);
 	await gitIn(garden, 'remote', 'add', 'origin', backup);
-	expect((await f.run('garden')).stdout).toContain(
-		'never backed up\nRun: epicenter sync garden',
-	);
+	expect((await f.run('garden')).stdout).toContain('code: never backed up');
 	expect(JSON.parse((await f.run('garden', '--json')).stdout).status).toEqual({
-		pending: 0,
-		backup: 'never',
+		code: { pending: 0, backup: 'never' },
+		data: { pending: 0, backup: 'none' },
 	});
-	expect((await f.run()).stdout).toContain('(never backed up)');
+	expect((await f.run()).stdout).toContain('code: never backed up');
 
 	expect((await f.run('sync', 'garden')).code).toBe(0);
-	expect(
-		JSON.parse((await f.run('garden', '--json')).stdout),
-	).not.toHaveProperty('status');
-	expect((await f.run()).stdout).not.toContain('backed up');
+	expect(JSON.parse((await f.run('garden', '--json')).stdout)).toHaveProperty(
+		'status.data.backup',
+		'none',
+	);
+	expect((await f.run()).stdout).toContain('data: not backed up');
 });

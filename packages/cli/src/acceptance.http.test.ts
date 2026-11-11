@@ -166,10 +166,16 @@ test('the browser client calls a tool without initialize and a write makes one n
 		minutes: 30,
 		book: null,
 	});
-	expect(await gitIn(folder, 'rev-list', '--count', 'HEAD')).toBe('2');
-	expect(await gitIn(folder, 'log', '-1', '--format=%s')).toBe(
+	expect(await gitIn(folder, 'rev-list', '--count', 'HEAD')).toBe('1');
+	expect(await gitIn(join(folder, 'data'), 'rev-list', '--count', 'HEAD')).toBe(
+		'2',
+	);
+	expect(await gitIn(join(folder, 'data'), 'log', '-1', '--format=%s')).toBe(
 		'reading: log 30',
 	);
+	expect(
+		await gitIn(join(folder, 'data'), 'log', '-1', '--format=%B'),
+	).toContain(`Code-Commit: ${await gitIn(folder, 'rev-parse', 'HEAD')}`);
 	expect(await readFile(join(folder, 'data/2026.csv'), 'utf8')).toBe(
 		'minutes,book\n30,\n',
 	);
@@ -188,7 +194,7 @@ test('a read-only action makes no commit, and one that throws after writing comm
 		message: 'line 4 is not a number',
 		thrown: undefined,
 	});
-	expect(await gitIn(folder, 'log', '-1', '--format=%B')).toBe(
+	expect(await gitIn(join(folder, 'data'), 'log', '-1', '--format=%s')).toBe(
 		'reading: explode (threw)',
 	);
 	expect(await gitIn(folder, 'status', '--porcelain')).toBe('');
@@ -210,9 +216,11 @@ test('a call whose snapshot fails still resolves, and the app says why', async (
 		book: null,
 	});
 	expect(await gitIn(folder, 'rev-list', '--count', 'HEAD')).toBe('1');
-	expect(JSON.parse((await f.run('reading', '--json')).stdout).status).toEqual({
-		pending: 2,
-		backup: 'none',
+	expect(
+		JSON.parse((await f.run('reading', '--json')).stdout).status,
+	).toMatchObject({
+		code: { pending: 1, backup: 'none' },
+		data: { pending: 1, backup: 'none' },
 	});
 });
 
@@ -229,9 +237,11 @@ test('concurrent writes through update both land, and both are in history', asyn
 		/^minutes,book\n(?:10,\n20,|20,\n10,)\n$/,
 	);
 	expect(await gitIn(folder, 'status', '--porcelain')).toBe('');
-	const history = await gitIn(folder, 'log', '--format=%s');
+	const history = await gitIn(join(folder, 'data'), 'log', '--format=%s');
 	expect(history).toMatch(/reading: log (10|20)/);
-	expect(await gitIn(folder, 'rev-list', '--count', 'HEAD')).toMatch(/^[23]$/);
+	expect(
+		await gitIn(join(folder, 'data'), 'rev-list', '--count', 'HEAD'),
+	).toMatch(/^[23]$/);
 });
 
 test('two calls at once on different files each commit only their own file', async () => {
@@ -256,18 +266,34 @@ test('two calls at once on different files each commit only their own file', asy
 		client.write({ page: 'tuesday' }),
 	]))
 		expectOk(result);
-	const commits = (await gitIn(folder, 'log', '-2', '--format=%s')).split('\n');
+	const commits = (
+		await gitIn(join(folder, 'data'), 'log', '-2', '--format=%s')
+	).split('\n');
 	expect(commits.sort()).toEqual([
 		'notes: write monday',
 		'notes: write tuesday',
 	]);
 	for (const rev of ['HEAD', 'HEAD~1']) {
-		const subject = await gitIn(folder, 'log', '-1', '--format=%s', rev);
-		expect(await gitIn(folder, 'show', '--name-only', '--format=', rev)).toBe(
-			`data/${subject.slice('notes: write '.length)}.md`,
+		const subject = await gitIn(
+			join(folder, 'data'),
+			'log',
+			'-1',
+			'--format=%s',
+			rev,
 		);
+		expect(
+			await gitIn(
+				join(folder, 'data'),
+				'show',
+				'--name-only',
+				'--format=',
+				rev,
+			),
+		).toBe(`${subject.slice('notes: write '.length)}.md`);
 	}
-	expect(await gitIn(folder, 'status', '--porcelain')).toBe('?? data/by-hand.md');
+	expect(await gitIn(join(folder, 'data'), 'status', '--porcelain')).toBe(
+		'?? by-hand.md',
+	);
 });
 
 test("a backup that runs during a call leaves the call's writes to the call's one commit", async () => {
@@ -280,6 +306,7 @@ test("a backup that runs during a call leaves the call's writes to the call's on
 		);
 		await mkdir(join(slow, 'data'));
 		await writeFile(join(slow, 'data/pending.md'), 'pending\n');
+		await writeFile(join(slow, 'pending-code.md'), 'pending\n');
 		const hook = join(slow, '.git', 'hooks', 'pre-commit');
 		await writeFile(hook, '#!/bin/sh\nsleep 2\n');
 		await chmod(hook, 0o755);
@@ -298,25 +325,33 @@ test("a backup that runs during a call leaves the call's writes to the call's on
 			url: `${f.base}/`,
 		}).pair(),
 	);
-	expect(await gitIn(folder, 'log', '--format=%s')).toBe(
-		'notes: pair\ninitial',
+	expect(await gitIn(join(folder, 'data'), 'log', '--format=%s')).toBe(
+		'notes: pair\nnotes: start its data',
 	);
-	expect(await gitIn(folder, 'show', '--name-only', '--format=', 'HEAD')).toBe(
-		'data/a.md\ndata/b.md',
-	);
+	expect(
+		await gitIn(
+			join(folder, 'data'),
+			'show',
+			'--name-only',
+			'--format=',
+			'HEAD',
+		),
+	).toBe('a.md\nb.md');
 	expect(await gitIn(folder, 'status', '--porcelain')).toBe('');
-	expect(await gitIn(join(f.home, 'aaa'), 'log', '-1', '--format=%s')).toBe(
-		'aaa: changed outside epicenter',
-	);
+	expect(
+		await gitIn(join(f.home, 'aaa', 'data'), 'log', '-1', '--format=%s'),
+	).toBe('aaa: changed outside epicenter');
 });
 
 /** Reading, backed up to a bare `origin` it has pushed to. */
 async function backedUpReading(f: Fixture) {
 	const folder = await f.folder(join(f.home, 'reading'), readingApp);
+	await mkdir(join(folder, 'data'));
+	await f.run('sync', 'reading');
 	const remote = join(f.root, 'remote.git');
 	await gitIn(f.root, 'init', '--bare', '-q', remote);
-	await gitIn(folder, 'remote', 'add', 'origin', remote);
-	await gitIn(folder, 'push', '-q', '-u', 'origin', 'HEAD');
+	await gitIn(join(folder, 'data'), 'remote', 'add', 'origin', remote);
+	await gitIn(join(folder, 'data'), 'push', '-q', '-u', 'origin', 'HEAD');
 	return { folder, remote };
 }
 
@@ -330,18 +365,25 @@ test('serve reports a refused backup push and leaves both histories intact', asy
 	await gitIn(peer, 'commit', '-q', '-m', 'peer');
 	await gitIn(peer, 'push', '-q');
 	expectOk(
-		await connect<Reading>({ app: 'reading', url: `${f.base}/` }).log({ minutes: 42 }),
+		await connect<Reading>({ app: 'reading', url: `${f.base}/` }).log({
+			minutes: 42,
+		}),
 	);
 	expect(await f.stop()).toBe(0);
 	expect(f.stderr()).toContain(
 		'the backup at origin has changes this computer does not; nothing was overwritten',
 	);
-	const branch = await gitIn(folder, 'symbolic-ref', '--short', 'HEAD');
+	const branch = await gitIn(
+		join(folder, 'data'),
+		'symbolic-ref',
+		'--short',
+		'HEAD',
+	);
 	expect(f.stderr()).toContain(
-		`git -C ${folder} fetch origin && git -C ${folder} log HEAD..origin/${branch}`,
+		`git -C ${folder}/data fetch origin && git -C ${folder}/data log HEAD..origin/${branch}`,
 	);
 	expect(await gitIn(remote, 'log', '-1', '--format=%s')).toBe('peer');
-	expect(await gitIn(folder, 'log', '-1', '--format=%s')).toBe(
+	expect(await gitIn(join(folder, 'data'), 'log', '-1', '--format=%s')).toBe(
 		'reading: log 42',
 	);
 });
@@ -355,14 +397,16 @@ test('a write call is pushed by the backup clock, not by the call; serve backs u
 			url: `${f.base}/`,
 		}).log({ minutes: 42 }),
 	);
-	expect(await gitIn(folder, 'log', '-1', '--format=%s')).toBe(
+	expect(await gitIn(join(folder, 'data'), 'log', '-1', '--format=%s')).toBe(
 		'reading: log 42',
 	);
-	expect(await gitIn(remote, 'log', '-1', '--format=%s')).toBe('initial');
+	expect(await gitIn(remote, 'log', '-1', '--format=%s')).toBe(
+		'reading: start its data',
+	);
 	await writeFile(join(folder, 'data/notes.md'), 'by hand\n');
 	expect(await f.stop()).toBe(0);
 	expect(await gitIn(remote, 'log', '--format=%s')).toBe(
-		'reading: changed outside epicenter\nreading: log 42\ninitial',
+		'reading: changed outside epicenter\nreading: log 42\nreading: start its data',
 	);
 	expect(await gitIn(folder, 'status', '--porcelain')).toBe('');
 });
@@ -380,14 +424,12 @@ test('commit subjects use the first positional value on one line, capped at 60 c
 	const folder = f.made;
 	const text = `Fear is the mind-killer ${'x'.repeat(80)}\nsecond line`;
 	expectOk(
-		await connect<{ actions: { add: (input: { text: string }) => string } }>(
-			{
-				app: 'notes',
-				url: `${f.base}/`,
-			},
-		).add({ text }),
+		await connect<{ actions: { add: (input: { text: string }) => string } }>({
+			app: 'notes',
+			url: `${f.base}/`,
+		}).add({ text }),
 	);
-	expect(await gitIn(folder, 'log', '-1', '--format=%B')).toBe(
+	expect(await gitIn(join(folder, 'data'), 'log', '-1', '--format=%s')).toBe(
 		`notes: add ${text.replace(/\s+/g, ' ').slice(0, 60)}`,
 	);
 });

@@ -45,7 +45,7 @@ import { createMcpServer } from './mcp.ts';
 import { writeErr } from './output.ts';
 import { startPublicServer } from './public.ts';
 import { epicenterDir, epicenterRoot, rootInstructions } from './root.ts';
-import { type Synced, syncOne } from './sync.ts';
+import { type Synced, syncFailures, syncOne } from './sync.ts';
 import { VIEW } from './ui.ts';
 
 /** How often `serve` backs up every app. */
@@ -275,11 +275,11 @@ export function startHttpServer(
 		for (const { entry, realPath } of await homeEntries()) {
 			const synced = await syncOne(entry, realPath, { wait: 0 });
 			// A call to it is running: its commit, or the next tick, takes what it wrote.
-			if (synced.error?.busy) continue;
+			if (synced.busy) continue;
 			backedUp.push(synced);
-			const failure =
-				synced.error &&
-				`${synced.error.message}${synced.error.next ? `\nRun: ${synced.error.next}` : ''}`;
+			const failure = syncFailures(synced)
+				.map(({ message, next }) => `${message}${next ? `\nRun: ${next}` : ''}`)
+				.join('\n');
 			if (!failure) lastFailure.delete(realPath);
 			else if (lastFailure.get(realPath) !== failure) {
 				writeErr(failure);

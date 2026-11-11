@@ -31,30 +31,40 @@ async function setup() {
 	const f = await fixture();
 	roots.push(f.root);
 	const app = await f.app('notes', notes);
-	const head = () => gitIn(app, 'rev-parse', 'HEAD');
-	const subject = (rev = 'HEAD') => gitIn(app, 'log', '-1', '--format=%s', rev);
+	const data = join(app, 'data');
+	const head = () => gitIn(data, 'rev-parse', 'HEAD');
+	const subject = (rev = 'HEAD') =>
+		gitIn(data, 'log', '-1', '--format=%s', rev);
 	const log = async () =>
 		existsSync(join(app, 'data/log.md'))
 			? await readFile(join(app, 'data/log.md'), 'utf8')
 			: undefined;
-	/** Commit `files` by hand with `message`, as a snapshot would name them. */
+	/** Commit data files by hand with `message`, as a snapshot would name them. */
 	async function commit(files: Record<string, string>, message: string) {
+		for (const [path, text] of Object.entries(files))
+			await writeFile(join(app, path), text);
+		await gitIn(data, 'add', '-A');
+		await gitIn(data, 'commit', '-q', '-m', message);
+		return head();
+	}
+	async function codeCommit(files: Record<string, string>, message: string) {
 		for (const [path, text] of Object.entries(files))
 			await writeFile(join(app, path), text);
 		await gitIn(app, 'add', '-A');
 		await gitIn(app, 'commit', '-q', '-m', message);
-		return head();
+		return gitIn(app, 'rev-parse', 'HEAD');
 	}
 	/** HEAD, the folder's status, and `data/log.md`: what a refusal must leave alone. */
 	const state = async () => ({
 		head: await head(),
-		status: await gitIn(app, 'status', '--porcelain'),
+		status: await gitIn(data, 'status', '--porcelain'),
+		codeStatus: await gitIn(app, 'status', '--porcelain'),
 		log: await log(),
 		reverting: existsSync(
-			join(app, await gitIn(app, 'rev-parse', '--git-path', 'REVERT_HEAD')),
+			join(data, await gitIn(data, 'rev-parse', '--git-path', 'REVERT_HEAD')),
 		),
 	});
-	return { ...f, app, head, subject, log, commit, state };
+	return { ...f, app, data, head, subject, log, commit, codeCommit, state };
 }
 
 test('history lists calls, an outside change, and an undo, newest first', async () => {
@@ -62,63 +72,78 @@ test('history lists calls, an outside change, and an undo, newest first', async 
 	expect((await f.run('notes', 'put', 'one')).code).toBe(0);
 	const one = await f.head();
 	const outside = await f.commit(
-		{ 'outside.md': 'by hand\n' },
+		{ 'data/outside.md': 'by hand\n' },
 		'notes: changed outside epicenter',
 	);
 	const two = await f.commit({ 'data/log.md': 'two\n' }, 'notes: put two');
 	expect((await f.run('undo', 'notes')).code).toBe(0);
 	const undo = await f.head();
+	const codeHead = await gitIn(f.app, 'rev-parse', 'HEAD');
 
 	const listed = await f.run('history', 'notes', '--json');
 	expect(listed.code).toBe(0);
 	const snapshots = JSON.parse(listed.stdout);
-	expect(snapshots).toEqual([
+	expect(
+		snapshots.filter(
+			(item: { repository: string }) => item.repository === 'data',
+		),
+	).toEqual([
 		{
+			repository: 'data',
 			commit: undo,
 			date: expect.any(String),
 			subject: 'notes: undid notes: put two',
 			changed: ['data/log.md'],
+			code: codeHead,
 			undid: two,
 		},
 		{
+			repository: 'data',
 			commit: two,
 			date: expect.any(String),
 			subject: 'notes: put two',
 			changed: ['data/log.md'],
 		},
 		{
+			repository: 'data',
 			commit: outside,
 			date: expect.any(String),
 			subject: 'notes: changed outside epicenter',
-			changed: ['outside.md'],
+			changed: ['data/outside.md'],
 		},
 		{
+			repository: 'data',
 			commit: one,
 			date: expect.any(String),
 			subject: 'notes: put one',
 			changed: ['data/log.md'],
+			code: codeHead,
 		},
 		{
+			repository: 'data',
 			commit: expect.any(String),
 			date: expect.any(String),
-			subject: 'initial',
-			changed: ['.gitignore', 'epicenter.ts'],
+			subject: 'notes: start its data',
+			changed: ['data/.gitignore'],
+			code: codeHead,
 		},
 	]);
+	expect(
+		snapshots.find(
+			(item: { repository: string }) => item.repository === 'code',
+		),
+	).toMatchObject({
+		commit: codeHead,
+		subject: 'initial',
+		changed: ['.gitignore', 'epicenter.ts'],
+	});
 	expect(snapshots[0].date).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d[+-Z]/);
 
 	const human = await f.run('history', 'notes');
 	expect(human.code).toBe(0);
-	const lines = human.stdout.trimEnd().split('\n');
-	expect(lines[0]).toMatch(
-		new RegExp(
-			`^${undo.slice(0, 7)} {2}\\d{4}-\\d\\d-\\d\\d \\d\\d:\\d\\d {2}undid notes: put two$`,
-		),
-	);
-	expect(lines[1]).toBe(`${' '.repeat(27)}data/log.md`);
-	expect(lines[2]).toMatch(/ {2}notes: put two$/);
-	expect(lines[4]).toMatch(/ {2}notes: changed outside epicenter$/);
-	expect(lines[5]).toBe(`${' '.repeat(27)}outside.md`);
+	expect(human.stdout).toMatch(/ {2}data {2}undid notes: put two/);
+	expect(human.stdout).toMatch(/ {2}code {2}initial/);
+	expect(human.stdout).toContain('data/outside.md');
 	expect(human.stdout).not.toContain('This reverts commit');
 
 	const limited = await f.run('history', 'notes', '--limit', '2', '--json');
@@ -130,20 +155,20 @@ test('history lists calls, an outside change, and an undo, newest first', async 
 		'--limit=99999999999',
 		'--json',
 	);
-	expect(JSON.parse(every.stdout)).toHaveLength(5);
+	expect(JSON.parse(every.stdout)).toHaveLength(6);
 	expect((await f.run('history', 'notes', '--limit', '0')).code).toBe(2);
 	expect((await f.run('history', 'nothing')).code).toBe(2);
 });
 
 test("history takes each commit's paths from Git, whatever they hold, and a merge's from its first parent", async () => {
 	const f = await setup();
-	await f.commit(
+	await f.codeCommit(
 		{ 'a,b.md': 'comma\n', 'line\nbreak.md': 'newline\n' },
 		'any message at all',
 	);
 	const main = await gitIn(f.app, 'symbolic-ref', '--short', 'HEAD');
 	await gitIn(f.app, 'checkout', '-q', '-b', 'starter');
-	await f.commit({ 'starter.md': 's\n' }, 'starter change');
+	await f.codeCommit({ 'starter.md': 's\n' }, 'starter change');
 	await gitIn(f.app, 'checkout', '-q', main);
 	await gitIn(f.app, 'merge', '-q', '--no-ff', '-m', 'merged', 'starter');
 	const listed = JSON.parse((await f.run('history', 'notes', '--json')).stdout);
@@ -172,7 +197,7 @@ test('undo twice goes back twice, and undoing an undo redoes it', async () => {
 	expect(await f.subject(undid)).toBe('notes: put one');
 	expect(commit).toBe(await f.head());
 	expect(await f.log()).toBeUndefined();
-	expect(await gitIn(f.app, 'log', '-1', '--format=%b')).toBe(
+	expect(await gitIn(f.data, 'log', '-1', '--format=%b')).toContain(
 		`This reverts commit ${undid}.`,
 	);
 
@@ -212,25 +237,57 @@ test('undoing a commit already undone changes nothing, so it is refused', async 
 	expect(await f.state()).toEqual(before);
 });
 
+test('undo reports code commits made after the data it reverts', async () => {
+	const f = await setup();
+	expect((await f.run('notes', 'put', 'one')).code).toBe(0);
+	const code = await f.codeCommit(
+		{ 'README.md': 'New instructions\n' },
+		'explain the records',
+	);
+	const undone = await f.run('undo', 'notes', '--json');
+	expect(undone.code).toBe(0);
+	expect(JSON.parse(undone.stdout).codeSince).toEqual([
+		{ commit: code, subject: 'explain the records' },
+	]);
+});
+
+test('undo refuses a code commit and names the Git revert command', async () => {
+	const f = await setup();
+	expect((await f.run('notes', 'put', 'one')).code).toBe(0);
+	const code = await f.codeCommit(
+		{ 'README.md': 'New instructions\n' },
+		'explain the records',
+	);
+	const before = await f.state();
+	const refused = await f.run('undo', 'notes', code, '--json');
+	expect(refused.code).toBe(2);
+	expect(JSON.parse(refused.stdout).error).toEqual({
+		name: 'Refused',
+		message: expect.stringContaining("is a commit in notes's code"),
+		next: `git -C ${f.app} revert ${code}`,
+	});
+	expect(await f.state()).toEqual(before);
+});
+
 test('undo refuses while Git is in the middle of a revert, changing nothing', async () => {
 	const f = await setup();
 	expect((await f.run('notes', 'put', 'one')).code).toBe(0);
 	const reverting = await gitIn(
-		f.app,
+		f.data,
 		'rev-parse',
 		'--git-path',
 		'REVERT_HEAD',
 	);
-	await writeFile(join(f.app, reverting), `${await f.head()}\n`);
+	await writeFile(join(f.data, reverting), `${await f.head()}\n`);
 	const before = await f.state();
 	const refused = await f.run('undo', 'notes', '--json');
 	expect(refused.code).toBe(2);
 	expect(JSON.parse(refused.stdout).error).toEqual({
 		name: 'Refused',
 		message: expect.stringContaining(
-			'nothing was undone, since what is pending could not be snapshotted first: the repository is in the middle of a merge, rebase, revert, or cherry-pick',
+			'nothing was undone, since what is pending could not be snapshotted first: notes/data is in the middle of a merge, rebase, revert, or cherry-pick',
 		),
-		next: `git -C ${f.app} status`,
+		next: `git -C ${f.data} status`,
 	});
 	expect(await f.state()).toEqual(before);
 });
@@ -243,11 +300,11 @@ test('undo snapshots pending changes first, so undoing them loses nothing', asyn
 	const undone = await f.run('undo', 'notes', '--json');
 	expect(undone.code).toBe(0);
 	const { undid } = JSON.parse(undone.stdout);
-	expect(undid).toBe(await gitIn(f.app, 'rev-parse', 'HEAD~1'));
-	expect(await gitIn(f.app, 'show', `${undid}:data/log.md`)).toBe('edited by hand');
+	expect(undid).toBe(await gitIn(f.data, 'rev-parse', 'HEAD~1'));
+	expect(await gitIn(f.data, 'show', `${undid}:log.md`)).toBe('edited by hand');
 	expect(await f.subject(undid)).toStartWith('notes: ');
 	expect(await f.log()).toBe('one\n');
-	expect(await gitIn(f.app, 'status', '--porcelain')).toBe('');
+	expect(await gitIn(f.data, 'status', '--porcelain')).toBe('');
 });
 
 test("undo waits while a call holds the app's lock, then snapshots and reverts in one hold", async () => {
@@ -271,12 +328,15 @@ test("undo waits while a call holds the app's lock, then snapshots and reverts i
 test("undo of a merge stops where Git refuses it, and a commit not in the app's history is refused, changing nothing", async () => {
 	const f = await setup();
 	expect((await f.run('notes', 'put', 'one')).code).toBe(0);
-	const main = await gitIn(f.app, 'symbolic-ref', '--short', 'HEAD');
-	await gitIn(f.app, 'checkout', '-q', '-b', 'starter', 'HEAD~1');
-	const elsewhere = await f.commit({ 'starter.md': 's\n' }, 'starter change');
-	await gitIn(f.app, 'checkout', '-q', main);
+	const main = await gitIn(f.data, 'symbolic-ref', '--short', 'HEAD');
+	await gitIn(f.data, 'checkout', '-q', '-b', 'starter', 'HEAD~1');
+	const elsewhere = await f.commit(
+		{ 'data/starter.md': 's\n' },
+		'starter change',
+	);
+	await gitIn(f.data, 'checkout', '-q', main);
 	await gitIn(
-		f.app,
+		f.data,
 		'merge',
 		'-q',
 		'--no-ff',
@@ -292,7 +352,7 @@ test("undo of a merge stops where Git refuses it, and a commit not in the app's 
 	expect(latest.stderr).toContain('notes: could not undo');
 	expect(latest.stderr).toContain('is a merge but no -m option was given');
 	expect(latest.stderr).toContain('the folder is as it was');
-	expect(latest.stderr).toContain(`Run: git -C ${f.app} revert -m 1 ${merge}`);
+	expect(latest.stderr).toContain(`Run: git -C ${f.data} revert -m 1 ${merge}`);
 	expect(await f.state()).toEqual(before);
 
 	const named = await f.run('undo', 'notes', merge, '--json');
@@ -301,14 +361,14 @@ test("undo of a merge stops where Git refuses it, and a commit not in the app's 
 		'is a merge but no -m option was given',
 	);
 	expect(JSON.parse(named.stdout).error.next).toBe(
-		`git -C ${f.app} revert -m 1 ${merge}`,
+		`git -C ${f.data} revert -m 1 ${merge}`,
 	);
 	expect(await f.state()).toEqual(before);
 
-	await gitIn(f.app, 'branch', 'other', elsewhere);
-	await gitIn(f.app, 'checkout', '-q', '-b', 'side', 'HEAD~1');
-	const side = await f.commit({ 'side.md': 's\n' }, 'notes: side');
-	await gitIn(f.app, 'checkout', '-q', main);
+	await gitIn(f.data, 'branch', 'other', elsewhere);
+	await gitIn(f.data, 'checkout', '-q', '-b', 'side', 'HEAD~1');
+	const side = await f.commit({ 'data/side.md': 's\n' }, 'notes: side');
+	await gitIn(f.data, 'checkout', '-q', main);
 	for (const missing of [side, 'abc1234', 'no-such-commit']) {
 		const refused = await f.run('undo', 'notes', missing);
 		expect(refused.code).toBe(2);
@@ -319,7 +379,7 @@ test("undo of a merge stops where Git refuses it, and a commit not in the app's 
 	}
 
 	// An older snapshot below the merge can still be named.
-	const one = (await gitIn(f.app, 'log', '--first-parent', '--format=%H %s'))
+	const one = (await gitIn(f.data, 'log', '--first-parent', '--format=%H %s'))
 		.split('\n')
 		.find((line) => line.slice(41) === 'notes: put one')
 		?.split(' ')[0] as string;
@@ -332,18 +392,18 @@ test('undo refuses a revert that conflicts, and leaves the folder as it was', as
 	expect((await f.run('notes', 'put', 'one')).code).toBe(0);
 	const one = await f.head();
 	expect((await f.run('notes', 'put', 'two')).code).toBe(0);
-	await writeFile(join(f.app, 'scratch.local'), 'never committed\n');
+	await writeFile(join(f.data, 'scratch.local'), 'never committed\n');
 	const before = await f.state();
 
 	const conflicted = await f.run('undo', 'notes', one, '--json');
 	expect(conflicted.code).toBe(2);
 	const { error } = JSON.parse(conflicted.stdout);
 	expect(error).toMatchObject({ name: 'Refused' });
-	expect(error.message).toContain('conflicts with later changes to data/log.md');
+	expect(error.message).toContain('conflicts with later changes to log.md');
 	expect(error.message).toContain('the folder is as it was');
 	expect(await f.state()).toEqual(before);
 	expect(before.log).toBe('two\n');
-	expect(await readFile(join(f.app, 'scratch.local'), 'utf8')).toBe(
+	expect(await readFile(join(f.data, 'scratch.local'), 'utf8')).toBe(
 		'never committed\n',
 	);
 });
@@ -352,9 +412,9 @@ test('undo never pushes; sync backs up the undo', async () => {
 	const f = await setup();
 	const backup = join(f.root, 'backup.git');
 	await gitIn(f.root, 'init', '-q', '--bare', backup);
-	await gitIn(f.app, 'remote', 'add', 'origin', backup);
-	const branch = await gitIn(f.app, 'symbolic-ref', '--short', 'HEAD');
 	expect((await f.run('notes', 'put', 'one')).code).toBe(0);
+	await gitIn(f.data, 'remote', 'add', 'origin', backup);
+	const branch = await gitIn(f.data, 'symbolic-ref', '--short', 'HEAD');
 	expect((await f.run('sync', 'notes')).code).toBe(0);
 	const pushed = await gitIn(backup, 'rev-parse', branch);
 
@@ -362,8 +422,8 @@ test('undo never pushes; sync backs up the undo', async () => {
 	expect(undone).toMatchObject({ code: 0, stderr: '' });
 	expect(await gitIn(backup, 'rev-parse', branch)).toBe(pushed);
 
-	expect((await f.run('sync', 'notes')).stdout).toBe(
-		'notes: nothing to commit; pushed; 0 ahead of origin\n',
+	expect((await f.run('sync', 'notes')).stdout).toContain(
+		'notes/data: nothing to commit; pushed; 0 ahead of origin\n',
 	);
 	expect(await gitIn(backup, 'rev-parse', branch)).toBe(await f.head());
 });

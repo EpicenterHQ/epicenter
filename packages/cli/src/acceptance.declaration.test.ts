@@ -76,7 +76,10 @@ export default defineApp({ description: 'The malformed app', collections: { word
 export default defineApp({ description: 'The misplaced app', collections: {}, actions: { show } });
 `,
 	);
-	await f.app('badpath', `defineCollection({ path: 'data/words/', fields: {} });\n`);
+	await f.app(
+		'badpath',
+		`defineCollection({ path: 'data/words/', fields: {} });\n`,
+	);
 	await f.app(
 		'unchecked',
 		`export default defineApp({ description: 'The unchecked app', collections: {}, actions: { show: { description: 'Show', input: {}, run: () => 1 } } });\n`,
@@ -113,7 +116,9 @@ export default defineApp({ description: 'The misplaced app', collections: {}, ac
 	);
 	expect(problems).toEqual({
 		// Each line of what a define call throws is one problem.
-		badpath: ['epicenter.ts: The collection path data/words/ is not a .md path'],
+		badpath: [
+			'epicenter.ts: The collection path data/words/ is not a .md path',
+		],
 		malformed: [
 			'epicenter.ts: The collection at data/words/{word}.md has a field "word", which its path gives as {word}; the file\'s name holds it',
 			'epicenter.ts: The collection at data/words/{word}.md has a field "path", which is the file\'s address',
@@ -140,7 +145,9 @@ export default defineApp({ description: 'The misplaced app', collections: {}, ac
 	expect(JSON.stringify(listing)).not.toContain('json-only');
 
 	const human = await f.run();
-	expect(human.stdout).toMatch(/^vocab +The vocab app \(not backed up\)$/m);
+	expect(human.stdout).toMatch(
+		/^vocab +The vocab app \(code: not backed up\)$/m,
+	);
 	expect(human.stdout).toContain(`-> ${linked}`);
 	expect(human.stdout).toContain('Problems:');
 	expect(human.stdout).toContain(
@@ -307,7 +314,7 @@ test('D6 serve --stdio answers initialize, lists the same tools as --json, and r
 			arguments: { minutes: 30 },
 		});
 		expect(called.isError).toBeFalsy();
-		expect(await gitIn(folder, 'log', '-1', '--format=%s')).toBe(
+		expect(await gitIn(join(folder, 'data'), 'log', '-1', '--format=%s')).toBe(
 			'reading: log 30',
 		);
 		expect(await readFile(join(folder, 'data/2026.csv'), 'utf8')).toBe(
@@ -432,7 +439,11 @@ test("D8 an app of one collection's verbs adds, reads, changes, and deletes its 
 			2,
 			'--kind does not take null',
 		],
-		[['set', '--input', '{"path":"data/items/dune.md","added":null}'], 2, 'added'],
+		[
+			['set', '--input', '{"path":"data/items/dune.md","added":null}'],
+			2,
+			'added',
+		],
 	] as const;
 	for (const [args, code, message] of refused) {
 		const result = await json(...args);
@@ -444,8 +455,14 @@ test("D8 an app of one collection's verbs adds, reads, changes, and deletes its 
 	);
 
 	expect(
-		(await json('set', 'data/items/dune.md', '--url', 'https://example.com/dune'))
-			.code,
+		(
+			await json(
+				'set',
+				'data/items/dune.md',
+				'--url',
+				'https://example.com/dune',
+			)
+		).code,
 	).toBe(0);
 	expect(
 		(
@@ -536,14 +553,14 @@ test("D8 an app of one collection's verbs adds, reads, changes, and deletes its 
 		},
 	});
 	// Every write is its own commit, named for the call, from the terminal and MCP alike.
-	expect(await gitIn(folder, 'log', '--format=%s')).toBe(
+	expect(await gitIn(join(folder, 'data'), 'log', '--format=%s')).toBe(
 		[
 			'capture: delete data/items/dune.md',
 			'capture: add petrichor',
 			'capture: edit data/items/dune.md',
 			'capture: set data/items/dune.md',
 			'capture: add dune',
-			'initial',
+			'capture: start its data',
 		].join('\n'),
 	);
 });

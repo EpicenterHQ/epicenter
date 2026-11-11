@@ -1,7 +1,7 @@
 /**
  * One call, for the command line and both MCP transports (ADR-0850): the
- * action's run and its commit, in the one process that runs the action
- * (`child.ts`). Its first write through `folder` takes the app's lock
+ * action's run and its commit to the app's data repository (ADR-0877), in
+ * the one process that runs the action (`child.ts`). Its first write through `folder` takes the app's lock
  * (`lock.ts`), and the call holds it until it has committed exactly the
  * paths it wrote, under the call's name, so no other write and no snapshot
  * comes between its writes and its commit, from any process. A call that
@@ -22,7 +22,7 @@ import { extractErrorMessage } from 'wellcrafted/error';
 import type { Runnable } from './home.ts';
 import { type Held, hold, LOCK_WAIT_MS } from './lock.ts';
 import type { Answer } from './output.ts';
-import { type Snapshot, snapshot } from './snapshot.ts';
+import { commitWrites, type Snapshot } from './snapshot.ts';
 
 /**
  * What the action threw, as the answer carries it. A thrown tagged error (a
@@ -126,12 +126,10 @@ export async function runAction(
 	}
 	try {
 		if (readOnly || written.size === 0) return { answer };
-		const committed = await snapshot(located.name, located.realPath, {
-			wrote: {
-				call: callName(located.name, key, input[action.positional?.[0] ?? '']),
-				paths: [...written].sort(),
-				...('threw' in answer ? { threw: true as const } : {}),
-			},
+		const committed = await commitWrites(located.name, located.realPath, {
+			call: callName(located.name, key, input[action.positional?.[0] ?? '']),
+			paths: [...written].sort(),
+			...('threw' in answer ? { threw: true as const } : {}),
 		});
 		return { answer, committed };
 	} finally {

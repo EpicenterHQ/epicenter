@@ -47,8 +47,10 @@ test('init writes EPICENTER.md and starter guidance, keeps existing guidance, an
 	);
 	const starter = await readFile(join(fresh, 'AGENTS.md'), 'utf8');
 	expect(starter).toContain('epicenter sync <app> -m "<what you did>"');
+	expect(starter).toContain('An app is two Git');
+	expect(starter).toContain('data/.gitignore ignores them');
 	expect(starter).toContain(
-		'epicenter refuses to snapshot one that is not ignored',
+		'epicenter refuses to snapshot one that is not\nignored',
 	);
 	expect(starter).toContain('Each child folder with an epicenter.ts is an app');
 	const shown = await f.run('init', join(f.root, 'shown'));
