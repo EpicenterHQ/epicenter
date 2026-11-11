@@ -26,14 +26,11 @@ const NOT_YET_REBASED = new Set([
 	'context-menu',
 	'dialog',
 	'drawer',
-	'input',
 	'popover',
 	'select',
 	'sheet',
 	'sidebar',
 	'tabs',
-	'textarea',
-	'tooltip',
 ]);
 
 const stock = stockNames();

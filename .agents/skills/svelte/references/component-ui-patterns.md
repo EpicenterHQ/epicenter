@@ -246,9 +246,9 @@ mounting, so do not repeat `tab === value` inside each panel. A disabled trigger
 does not establish valid fields for a later event. Use forceMount only for a
 named retained lifetime.
 
-Shared `Textarea` and `Input` retire destroyed value bindings. Use their binding
-API instead of app-local forwarding wrappers or paired get/set props. Native
-controls and delayed commands retain their own lifetime and current-data checks.
+Bind shared `Textarea` and `Input` directly, with a function binding when the
+value is derived, instead of app-local forwarding wrappers or paired get/set
+props. Delayed commands keep their own lifetime and current-data checks.
 Inline components that only forward bindings; keep substantial UI, resources,
 format rules and real editing lifetimes.
 

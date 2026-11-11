@@ -50,9 +50,6 @@ component is rebased; a difference without a reason is reverted.
 | Dialog and Drawer | Viewport scrolling and Drawer content scroll wrapper | Long recording details remain usable, and mobile content can scroll without losing drag behavior. Installed Vaul `1.0.0-next.7` already suppresses autofocus by default. |
 | Modal | Extras-based responsive composition with simplified context access | Forms use Dialog on desktop and a draggable Drawer below 768px. The root owns the live media query; children read that root directly. |
 | Sidebar | The same offcanvas Sidebar at narrow widths | Collapsed offcanvas sidebars are inert so hidden navigation cannot receive keyboard focus. Sidebar preserves the existing navigation structure instead of adopting upstream’s separate mobile Sheet. |
-| Tooltip provider | Fixed 300 ms opening delay and 150 ms skip delay | App-root providers share one hover group and timing across controls. |
-| Input | File-input binding alongside normal value binding | File pickers need access to the selected files through the shared component. |
-| Input and Textarea | Value bindings retire on destruction | Capture and Whispering retained DOM controls must never read or overwrite later input. |
 | Tabs.Content | Inactive children unmount; `forceMount` retains them explicitly | Editor panels share one selection and disposable controls; the main app shell preserves its chat and settings state. |
 | Theme | Geist fonts and seven dark Neutral token adjustments | The accepted soft charcoal direction uses existing semantic variables; component geometry remains Vega’s. |
 

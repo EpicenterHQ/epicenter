@@ -85,11 +85,7 @@ triggers or richer content.
 ### Editor control and panel lifetimes
 
 `Textarea` and `Input` expose `bind:value`, including function bindings for values
-read from an editor. Once a component is destroyed, its native value binding
-stops reading the caller and stops writing, even if something still holds its DOM
-element and dispatches input on it. The last displayed value is retained only for
-that retired control. Other event handlers, file bindings, and controls own their
-separate eligibility rules.
+read from an editor.
 
 Default editor composition needs no tabs: render structured controls for valid
 rows and a text editor for invalid rows. Bind to current editor values and submit
