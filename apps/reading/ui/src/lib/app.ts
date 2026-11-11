@@ -11,7 +11,7 @@ import type readingApp from '../../../epicenter.js';
 
 type Actions = (typeof readingApp)['actions'];
 
-const app = connect<typeof readingApp>('reading');
+const app = connect<typeof readingApp>();
 
 export const reads = resultQueries(['reading'], { list: app.list, get: app.get });
 

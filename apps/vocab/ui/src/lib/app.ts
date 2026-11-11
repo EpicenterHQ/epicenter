@@ -12,7 +12,7 @@ import type vocabApp from '../../../epicenter.js';
 
 type Actions = (typeof vocabApp)['actions'];
 
-const app = connect<typeof vocabApp>('vocab');
+const app = connect<typeof vocabApp>();
 
 export const reads = resultQueries(['vocab'], { list: app.list, due: app.due, get: app.get });
 

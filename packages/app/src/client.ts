@@ -15,7 +15,7 @@
  * import { resultMutations, resultQueries } from 'wellcrafted/query';
  * import type tasks from '../../../epicenter.ts';
  *
- * const app = connect<typeof tasks>('tasks');
+ * const app = connect<typeof tasks>();
  * export const taskReads = resultQueries(['tasks'], { list: app.list, get: app.get });
  * export const taskWrites = resultMutations(['tasks'], { set: app.set });
  *
@@ -120,13 +120,16 @@ export type AppClient<A> = {
 let nextId = 1;
 
 /**
- * A client for app `app` on the server at `url`: by default this origin's
- * `/`, where `epicenter serve` answers the UIs it serves.
+ * A client for the app served at this page's first path segment. A page at
+ * `/<app>/` uses `app` without repeating its name; pass `{ app }` when the
+ * page does not identify it. Without either name, `connect` throws. `url`
+ * defaults to this origin's `/`, where `epicenter serve` answers the UIs it
+ * serves.
  */
 export function connect<App extends { actions: object }>(
-	app: string,
-	{ url = '/' }: { url?: string } = {},
+	{ app, url = '/' }: { app?: string; url?: string } = {},
 ): AppClient<App['actions']> {
+	const name = app ?? appOfPage();
 	const at = (words: string[]): unknown =>
 		new Proxy(() => {}, {
 			get: (_, key) =>
@@ -135,11 +138,26 @@ export function connect<App extends { actions: object }>(
 					: undefined,
 			apply: async (_, __, [input]) => {
 				if (words.length === 0)
-					throw new Error(`Call one of ${app}'s actions, not the app`);
-				return call(url, [app, ...words].join('_'), input ?? {});
+					throw new Error(`Call one of ${name}'s actions, not the app`);
+				return call(url, [name, ...words].join('_'), input ?? {});
 			},
 		});
 	return at([]) as AppClient<App['actions']>;
+}
+
+/** The app whose `/<app>/` serves this page. */
+function appOfPage(): string {
+	const page = globalThis as {
+		document?: { baseURI: string };
+		location?: { href: string };
+	};
+	const href = page.document?.baseURI ?? page.location?.href;
+	const segment = href && new URL(href).pathname.split('/')[1];
+	if (!segment)
+		throw new Error(
+			'connect() needs a UI served at /<app>/ or an explicit { app }',
+		);
+	return segment;
 }
 
 /**

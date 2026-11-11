@@ -94,12 +94,12 @@ verbs are its own:
 import { connect } from '@epicenter/app/client';
 import type vocab from '../../../epicenter.js';
 
-const app = connect<typeof vocab>('vocab');
+const app = connect<typeof vocab>();
 await app.get({ path: 'words/你好.md' });                    // the tool vocab_get
 await app.review({ path: 'words/你好.md', grade: 'good' });  // the tool vocab_review
 ```
 
-The app's name is written once, as `connect`'s argument, because
+The client reads the app's name from the first path segment of the UI's URL;
 `import type` leaves no name at run time. One name has three spellings:
 `vocab review` in a terminal, `vocab_review` over MCP, `app.review` in the
 client.

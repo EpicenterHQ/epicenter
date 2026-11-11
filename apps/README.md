@@ -31,7 +31,7 @@ repository of its own, which waits on publishing `@epicenter/app` and
 the app's root `package.json` is only for whoever edits the actions. `ui/`
 has its own `package.json` and `.gitignore`; its `build` writes `ui/dist/`.
 `epicenter serve` serves `ui/dist/` at `/<app>/`, and MCP at `/`. A UI asks
-for everything through `connect<typeof app>('<app>')` from
+for everything through `connect<typeof app>()` from
 `@epicenter/app/client`, typed by the app it imports as a type, and keeps
 nothing of its own. Its `src/lib/app.ts` lists the actions its pages read and
 write as TanStack Query options (ADR-0661), and its layout's QueryClient

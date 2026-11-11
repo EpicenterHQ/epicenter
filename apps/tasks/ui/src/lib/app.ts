@@ -12,7 +12,7 @@ import type tasksApp from '../../../epicenter.js';
 
 type Actions = (typeof tasksApp)['actions'];
 
-const app = connect<typeof tasksApp>('tasks');
+const app = connect<typeof tasksApp>();
 
 export const reads = resultQueries(['tasks'], { list: app.list, get: app.get });
 

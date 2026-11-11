@@ -131,7 +131,7 @@ anything. A `.local` path is let through, since it is never in the app's
 history, so a read-only action may refresh a token (ADR-0870). A raw
 `node:fs` write or an outside service remains the author's promise.
 
-**A UI calls the same tree.** `connect<typeof app>('vocab')` gives
+**A UI calls the same tree.** `connect<typeof app>()` on `/vocab/` gives
 `vocab.add({ word })` and `vocab.review({ path, grade })`, typed by the app,
 which the UI imports as a type only, with returns in their JSON form. A call
 resolves to what the action returned, whatever became of the snapshot after it

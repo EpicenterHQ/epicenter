@@ -400,7 +400,7 @@ code:
 import { type ActionOutput, connect } from '@epicenter/app/client';
 import type reading from '../../epicenter.ts';
 
-const app = connect<typeof reading>('reading');
+const app = connect<typeof reading>();
 type Book = ActionOutput<typeof reading.actions.books.get>;
 
 const { data: books, error } = await app.books.list();

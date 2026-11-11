@@ -11,7 +11,7 @@ import type capture from '../../../epicenter.js';
 
 type Actions = (typeof capture)['actions'];
 
-const app = connect<typeof capture>('capture');
+const app = connect<typeof capture>();
 
 export const reads = resultQueries(['capture'], { recent: app.recent, get: app.get });
 

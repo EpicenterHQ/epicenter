@@ -158,7 +158,8 @@ test('a crafted tool name cannot run an app outside the home', async () => {
 test('the browser client calls a tool without initialize and a write makes one named commit', async () => {
 	const f = await setup((f) => f.folder(join(f.home, 'reading'), readingApp));
 	const folder = f.made;
-	const client = connect<Reading>('reading', {
+	const client = connect<Reading>({
+		app: 'reading',
 		url: `${f.base}/`,
 	});
 	expect(expectOk(await client.log({ minutes: 30 }))).toEqual({
@@ -177,7 +178,7 @@ test('the browser client calls a tool without initialize and a write makes one n
 test('a read-only action makes no commit, and one that throws after writing commits its paths as the call that threw', async () => {
 	const f = await setup((f) => f.folder(join(f.home, 'reading'), readingApp));
 	const folder = f.made;
-	const client = connect<Reading>('reading', { url: `${f.base}/` });
+	const client = connect<Reading>({ app: 'reading', url: `${f.base}/` });
 	// Nothing is pending, so serve's startup backup commits nothing whenever it runs.
 	expect(expectOk(await client.week.show())).toBe(210);
 	expect(expectOk(await client.week.show())).toBe(210);
@@ -203,7 +204,7 @@ test('a call whose snapshot fails still resolves, and the app says why', async (
 		return folder;
 	});
 	const folder = f.made;
-	const client = connect<Reading>('reading', { url: `${f.base}/` });
+	const client = connect<Reading>({ app: 'reading', url: `${f.base}/` });
 	expect(expectOk(await client.log({ minutes: 5 }))).toEqual({
 		minutes: 5,
 		book: null,
@@ -218,7 +219,7 @@ test('a call whose snapshot fails still resolves, and the app says why', async (
 test('concurrent writes through update both land, and both are in history', async () => {
 	const f = await setup((f) => f.folder(join(f.home, 'reading'), readingApp));
 	const folder = f.made;
-	const client = connect<Reading>('reading', { url: `${f.base}/` });
+	const client = connect<Reading>({ app: 'reading', url: `${f.base}/` });
 	for (const result of await Promise.all([
 		client.log({ minutes: 10 }),
 		client.log({ minutes: 20 }),
@@ -246,7 +247,7 @@ test('two calls at once on different files each commit only their own file', asy
 	const folder = f.made;
 	const client = connect<{
 		actions: { write: (input: { page: string }) => string };
-	}>('notes', { url: `${f.base}/` });
+	}>({ app: 'notes', url: `${f.base}/` });
 	// After a call, the backup serve started with has passed this app.
 	expectOk(await client.write({ page: 'sunday' }));
 	await writeFile(join(folder, 'by-hand.md'), 'by hand\n');
@@ -291,7 +292,8 @@ test("a backup that runs during a call leaves the call's writes to the call's on
 	});
 	const folder = f.made;
 	expectOk(
-		await connect<{ actions: { pair: () => boolean } }>('notes', {
+		await connect<{ actions: { pair: () => boolean } }>({
+			app: 'notes',
 			url: `${f.base}/`,
 		}).pair(),
 	);
@@ -327,7 +329,7 @@ test('serve reports a refused backup push and leaves both histories intact', asy
 	await gitIn(peer, 'commit', '-q', '-m', 'peer');
 	await gitIn(peer, 'push', '-q');
 	expectOk(
-		await connect<Reading>('reading', { url: `${f.base}/` }).log({ minutes: 42 }),
+		await connect<Reading>({ app: 'reading', url: `${f.base}/` }).log({ minutes: 42 }),
 	);
 	expect(await f.stop()).toBe(0);
 	expect(f.stderr()).toContain(
@@ -347,7 +349,8 @@ test('a write call is pushed by the backup clock, not by the call; serve backs u
 	const f = await setup(backedUpReading);
 	const { folder, remote } = f.made;
 	expectOk(
-		await connect<Reading>('reading', {
+		await connect<Reading>({
+			app: 'reading',
 			url: `${f.base}/`,
 		}).log({ minutes: 42 }),
 	);
@@ -377,8 +380,8 @@ test('commit subjects use the first positional value on one line, capped at 60 c
 	const text = `Fear is the mind-killer ${'x'.repeat(80)}\nsecond line`;
 	expectOk(
 		await connect<{ actions: { add: (input: { text: string }) => string } }>(
-			'notes',
 			{
+				app: 'notes',
 				url: `${f.base}/`,
 			},
 		).add({ text }),
