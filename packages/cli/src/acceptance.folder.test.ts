@@ -8,6 +8,7 @@ import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
 import { existsSync } from 'node:fs';
 import {
 	lstat,
+	mkdir,
 	readFile,
 	readlink,
 	rm,
@@ -47,7 +48,7 @@ export default defineApp({
 			input: { page: field.text() },
 			positional: ['page'],
 			run: async ({ page }) => {
-				await folder.write(page + '.md', page);
+				await folder.write('data/' + page + '.md', page);
 			},
 		}),
 		context: defineAction({
@@ -55,8 +56,8 @@ export default defineApp({
 			input: {},
 			run: async () => {
 				const { Database } = await import('bun:sqlite');
-				await folder.write('seen.local.txt', 'local');
-				const db = new Database(folder.path + '/index.local.sqlite');
+				await folder.write('data/seen.local.txt', 'local');
+				const db = new Database(folder.path + '/data/index.local.sqlite');
 				db.run('CREATE TABLE IF NOT EXISTS pages (name TEXT)');
 				db.close();
 				return folder.path;
@@ -77,7 +78,7 @@ test("W1 local files stay in the folder, and folder.path is the app's folder on 
 	const result = await f.run('journal', 'context', '--json');
 	expect(result.code).toBe(0);
 	expect(JSON.parse(result.stdout)).toEqual({ returned: folder });
-	expect(existsSync(join(folder, 'index.local.sqlite'))).toBe(true);
+	expect(existsSync(join(folder, 'data/index.local.sqlite'))).toBe(true);
 	expect(await gitIn(folder, 'status', '--porcelain')).toBe('');
 	// Bun keeps its own transpiler cache under ~/Library/Caches/bun; epicenter keeps none there.
 	expect(existsSync(join(f.root, 'Library/Caches/so.epicenter.apps'))).toBe(
@@ -94,7 +95,7 @@ async function withOrigin(f: Awaited<ReturnType<typeof setup>>, name: string) {
 	const seed = await f.folder(join(f.root, `${name}-seed`), {
 		'.gitignore': gitignore,
 		'epicenter.ts': bareApp(name),
-		'page.md': 'base\n',
+		'data/page.md': 'base\n',
 	});
 	const bare = join(f.root, `${name}.git`);
 	await gitIn(f.root, 'clone', '-q', '--bare', seed, bare);
@@ -114,13 +115,14 @@ async function withOrigin(f: Awaited<ReturnType<typeof setup>>, name: string) {
 test('W2 epicenter sync snapshots and pushes to a bare origin without fetching', async () => {
 	const f = await setup();
 	const journal = await withOrigin(f, 'journal');
-	await writeFile(join(journal.folder, 'monday.md'), 'monday\n');
-	await writeFile(join(journal.folder, 'tuesday.md'), 'tuesday\n');
+	await writeFile(join(journal.folder, 'data/monday.md'), 'monday\n');
+	await writeFile(join(journal.folder, 'data/tuesday.md'), 'tuesday\n');
 	await f.folder(join(f.home, 'notes'), {
 		'.gitignore': gitignore,
 		'epicenter.ts': bareApp('notes'),
 	});
-	await writeFile(join(f.home, 'notes', 'kept.md'), 'kept\n');
+	await mkdir(join(f.home, 'notes', 'data'));
+	await writeFile(join(f.home, 'notes', 'data/kept.md'), 'kept\n');
 
 	const synced = await f.run('sync', '--json');
 	expect(synced.code).toBe(0);
@@ -161,10 +163,10 @@ test('W2 epicenter sync snapshots and pushes to a bare origin without fetching',
 test('W3 a refused push leaves both sides unchanged and other apps still sync', async () => {
 	const f = await setup();
 	const clash = await withOrigin(f, 'clash');
-	await clash.peerCommits('page.md', 'the laptop says\n');
-	await writeFile(join(clash.folder, 'page.md'), 'the desk says\n');
+	await clash.peerCommits('data/page.md', 'the laptop says\n');
+	await writeFile(join(clash.folder, 'data/page.md'), 'the desk says\n');
 	const offline = await withOrigin(f, 'offline');
-	await writeFile(join(offline.folder, 'note.md'), 'written offline\n');
+	await writeFile(join(offline.folder, 'data/note.md'), 'written offline\n');
 	await gitIn(
 		offline.folder,
 		'remote',
@@ -179,7 +181,7 @@ test('W3 a refused push leaves both sides unchanged and other apps still sync', 
 		{ git: false },
 	);
 	const fine = await withOrigin(f, 'fine');
-	await writeFile(join(fine.folder, 'new.md'), 'new\n');
+	await writeFile(join(fine.folder, 'data/new.md'), 'new\n');
 
 	const synced = await f.run('sync', '--json');
 	expect(synced.code).toBe(1);
@@ -202,12 +204,12 @@ test('W3 a refused push leaves both sides unchanged and other apps still sync', 
 		await gitIn(clash.folder, 'rev-parse', 'refs/remotes/origin/main'),
 	).toBe(await gitIn(clash.folder, 'rev-parse', 'HEAD~1'));
 	expect(await gitIn(clash.bare, 'log', '-1', '--format=%s')).toBe(
-		'peer page.md',
+		'peer data/page.md',
 	);
 	expect(await gitIn(clash.folder, 'log', '-1', '--format=%s')).toBe(
 		'clash: changed outside epicenter',
 	);
-	expect(await readFile(join(clash.folder, 'page.md'), 'utf8')).toBe(
+	expect(await readFile(join(clash.folder, 'data/page.md'), 'utf8')).toBe(
 		'the desk says\n',
 	);
 	expect(await gitIn(clash.folder, 'status', '--porcelain')).toBe('');
@@ -229,7 +231,7 @@ test('W3 a refused push leaves both sides unchanged and other apps still sync', 
 		pushed: true,
 		origin: { ahead: 0 },
 	});
-	await writeFile(join(clash.folder, 'still-pending.md'), 'pending\n');
+	await writeFile(join(clash.folder, 'data/still-pending.md'), 'pending\n');
 	const status = JSON.parse((await f.run('clash', '--json')).stdout);
 	expect(status.status).toEqual({ pending: 1, unpushed: 1 });
 	const listed = await f.run();
@@ -304,7 +306,7 @@ test('W5 a symlinked entry loads an app where it lives', async () => {
 	const f = await setup();
 	const loose = await f.folder(
 		join(f.root, 'Code', 'loose'),
-		{ 'epicenter.ts': bareApp('loose'), 'notes/a.md': 'a\n' },
+		{ 'epicenter.ts': bareApp('loose'), 'data/notes/a.md': 'a\n' },
 		{ git: false },
 	);
 	await symlink(loose, join(f.home, 'loose'));

@@ -21,10 +21,10 @@ afterEach(async () => {
 	);
 });
 
-/** Notes: an action that writes `log.md`. */
+/** Notes: an action that writes `data/log.md`. */
 const notes = `
 export default defineApp({ description: 'Notes', collections: {}, actions: {
-	put: defineAction({ description: 'Write the log', input: { text: field.text() }, positional: ['text'], run: async ({ text }) => { await folder.write('log.md', text + '\\n'); return text; } }),
+	put: defineAction({ description: 'Write the log', input: { text: field.text() }, positional: ['text'], run: async ({ text }) => { await folder.write('data/log.md', text + '\\n'); return text; } }),
 } });`;
 
 async function setup() {
@@ -34,8 +34,8 @@ async function setup() {
 	const head = () => gitIn(app, 'rev-parse', 'HEAD');
 	const subject = (rev = 'HEAD') => gitIn(app, 'log', '-1', '--format=%s', rev);
 	const log = async () =>
-		existsSync(join(app, 'log.md'))
-			? await readFile(join(app, 'log.md'), 'utf8')
+		existsSync(join(app, 'data/log.md'))
+			? await readFile(join(app, 'data/log.md'), 'utf8')
 			: undefined;
 	/** Commit `files` by hand with `message`, as a snapshot would name them. */
 	async function commit(files: Record<string, string>, message: string) {
@@ -45,7 +45,7 @@ async function setup() {
 		await gitIn(app, 'commit', '-q', '-m', message);
 		return head();
 	}
-	/** HEAD, the folder's status, and `log.md`: what a refusal must leave alone. */
+	/** HEAD, the folder's status, and `data/log.md`: what a refusal must leave alone. */
 	const state = async () => ({
 		head: await head(),
 		status: await gitIn(app, 'status', '--porcelain'),
@@ -65,7 +65,7 @@ test('history lists calls, an outside change, and an undo, newest first', async 
 		{ 'outside.md': 'by hand\n' },
 		'notes: changed outside epicenter',
 	);
-	const two = await f.commit({ 'log.md': 'two\n' }, 'notes: put two');
+	const two = await f.commit({ 'data/log.md': 'two\n' }, 'notes: put two');
 	expect((await f.run('undo', 'notes')).code).toBe(0);
 	const undo = await f.head();
 
@@ -77,14 +77,14 @@ test('history lists calls, an outside change, and an undo, newest first', async 
 			commit: undo,
 			date: expect.any(String),
 			subject: 'notes: undid notes: put two',
-			changed: ['log.md'],
+			changed: ['data/log.md'],
 			undid: two,
 		},
 		{
 			commit: two,
 			date: expect.any(String),
 			subject: 'notes: put two',
-			changed: ['log.md'],
+			changed: ['data/log.md'],
 		},
 		{
 			commit: outside,
@@ -96,7 +96,7 @@ test('history lists calls, an outside change, and an undo, newest first', async 
 			commit: one,
 			date: expect.any(String),
 			subject: 'notes: put one',
-			changed: ['log.md'],
+			changed: ['data/log.md'],
 		},
 		{
 			commit: expect.any(String),
@@ -115,7 +115,7 @@ test('history lists calls, an outside change, and an undo, newest first', async 
 			`^${undo.slice(0, 7)} {2}\\d{4}-\\d\\d-\\d\\d \\d\\d:\\d\\d {2}undid notes: put two$`,
 		),
 	);
-	expect(lines[1]).toBe(`${' '.repeat(27)}log.md`);
+	expect(lines[1]).toBe(`${' '.repeat(27)}data/log.md`);
 	expect(lines[2]).toMatch(/ {2}notes: put two$/);
 	expect(lines[4]).toMatch(/ {2}notes: changed outside epicenter$/);
 	expect(lines[5]).toBe(`${' '.repeat(27)}outside.md`);
@@ -238,13 +238,13 @@ test('undo refuses while Git is in the middle of a revert, changing nothing', as
 test('undo snapshots pending changes first, so undoing them loses nothing', async () => {
 	const f = await setup();
 	expect((await f.run('notes', 'put', 'one')).code).toBe(0);
-	await writeFile(join(f.app, 'log.md'), 'edited by hand\n');
+	await writeFile(join(f.app, 'data/log.md'), 'edited by hand\n');
 
 	const undone = await f.run('undo', 'notes', '--json');
 	expect(undone.code).toBe(0);
 	const { undid } = JSON.parse(undone.stdout);
 	expect(undid).toBe(await gitIn(f.app, 'rev-parse', 'HEAD~1'));
-	expect(await gitIn(f.app, 'show', `${undid}:log.md`)).toBe('edited by hand');
+	expect(await gitIn(f.app, 'show', `${undid}:data/log.md`)).toBe('edited by hand');
 	expect(await f.subject(undid)).toStartWith('notes: ');
 	expect(await f.log()).toBe('one\n');
 	expect(await gitIn(f.app, 'status', '--porcelain')).toBe('');
@@ -253,7 +253,7 @@ test('undo snapshots pending changes first, so undoing them loses nothing', asyn
 test("undo waits while a call holds the app's lock, then snapshots and reverts in one hold", async () => {
 	const f = await setup();
 	expect((await f.run('notes', 'put', 'one')).code).toBe(0);
-	await writeFile(join(f.app, 'log.md'), 'edited by hand\n');
+	await writeFile(join(f.app, 'data/log.md'), 'edited by hand\n');
 	// As a call writing the app would, from its first write to its commit.
 	const call = await hold(f.app, 0);
 	expect(call).toBeDefined();
@@ -339,7 +339,7 @@ test('undo refuses a revert that conflicts, and leaves the folder as it was', as
 	expect(conflicted.code).toBe(2);
 	const { error } = JSON.parse(conflicted.stdout);
 	expect(error).toMatchObject({ name: 'Refused' });
-	expect(error.message).toContain('conflicts with later changes to log.md');
+	expect(error.message).toContain('conflicts with later changes to data/log.md');
 	expect(error.message).toContain('the folder is as it was');
 	expect(await f.state()).toEqual(before);
 	expect(before.log).toBe('two\n');

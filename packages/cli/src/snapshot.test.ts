@@ -6,7 +6,7 @@
  * repository in a temporary folder.
  */
 import { afterEach, expect, test } from 'bun:test';
-import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -40,7 +40,7 @@ const actions = {
 		input: { page: field.text() },
 		positional: ['page'],
 		run: async ({ page }) => {
-			await folder.write(`${page}.md`, page);
+			await folder.write(`data/${page}.md`, page);
 			return page;
 		},
 	}),
@@ -49,7 +49,7 @@ const actions = {
 		input: { page: field.text() },
 		positional: ['page'],
 		run: async ({ page }) => {
-			await folder.write(`${page}.md`, page);
+			await folder.write(`data/${page}.md`, page);
 			throw new Error('stopped halfway');
 		},
 	}),
@@ -58,9 +58,9 @@ const actions = {
 		input: { page: field.text() },
 		positional: ['page'],
 		run: async ({ page }) => {
-			await folder.write(`${page}.md`, page);
+			await folder.write(`data/${page}.md`, page);
 			await gate.promise;
-			await folder.write(`${page}-after.md`, page);
+			await folder.write(`data/${page}-after.md`, page);
 		},
 	}),
 	scratch: defineAction({
@@ -68,11 +68,11 @@ const actions = {
 		input: { page: field.text() },
 		positional: ['page'],
 		run: async ({ page }) => {
-			await folder.write(`${page}.md`, page);
-			await folder.write('gone.md', 'gone');
-			await folder.delete('gone.md');
-			await folder.write('node_modules/seen.txt', page);
-			await folder.write('token.local', 'secret');
+			await folder.write(`data/${page}.md`, page);
+			await folder.write('data/gone.md', 'gone');
+			await folder.delete('data/gone.md');
+			await folder.write('data/node_modules/seen.txt', page);
+			await folder.write('data/token.local', 'secret');
 		},
 	}),
 };
@@ -81,7 +81,8 @@ const actions = {
 async function setup() {
 	const dir = await realpath(await mkdtemp(join(tmpdir(), 'epicenter-snap-')));
 	roots.push(dir);
-	await writeFile(join(dir, 'a.md'), 'a\n');
+	await mkdir(join(dir, 'data'));
+	await writeFile(join(dir, 'data/a.md'), 'a\n');
 	await writeFile(
 		join(dir, '.gitignore'),
 		'node_modules/\n*.local\n*.local.*\n',
@@ -123,7 +124,7 @@ test('a call commits what it wrote, named for the call, before it answers', asyn
 		committed: { committed: { subject: 'notes: write monday', files: 1 } },
 	});
 	expect(await f.message()).toBe('notes: write monday');
-	expect(await f.files()).toBe('monday.md');
+	expect(await f.files()).toBe('data/monday.md');
 	expect(await snapshot('notes', f.dir)).toEqual({ committed: null });
 	expect(await statusOf(f.dir)).toEqual({ pending: 0, backup: 'none' });
 });
@@ -141,36 +142,36 @@ test('status names an origin that has never received the branch, and counts once
 
 test("a call's commit holds only its paths; a hand edit and a staged file stay pending", async () => {
 	const f = await setup();
-	await writeFile(join(f.dir, 'a.md'), 'by hand\n');
-	await writeFile(join(f.dir, 'staged.md'), 'staged\n');
-	await gitIn(f.dir, 'add', 'staged.md');
+	await writeFile(join(f.dir, 'data/a.md'), 'by hand\n');
+	await writeFile(join(f.dir, 'data/staged.md'), 'staged\n');
+	await gitIn(f.dir, 'add', 'data/staged.md');
 	// A path is a path, never a pattern: `star*.md` does not take `stars.md`.
 	await writeFile(join(f.dir, 'stars.md'), 'by hand\n');
 	expect((await f.run('write', 'star*')).committed).toEqual({
 		committed: { subject: 'notes: write star*', files: 1 },
 	});
 	expect(await f.message()).toBe('notes: write star*');
-	expect(await f.files()).toBe('star*.md');
+	expect(await f.files()).toBe('data/star*.md');
 	expect(await f.left()).toEqual({
-		changed: 'a.md',
-		staged: 'staged.md',
+		changed: 'data/a.md',
+		staged: 'data/staged.md',
 		untracked: 'stars.md',
 	});
 });
 
 test('a run that throws after writing commits its writes as the call that threw', async () => {
 	const f = await setup();
-	await writeFile(join(f.dir, 'a.md'), 'by hand\n');
+	await writeFile(join(f.dir, 'data/a.md'), 'by hand\n');
 	const run = await f.run('half', 'tuesday');
 	expect(run.answer).toEqual({ threw: { message: 'stopped halfway' } });
-	expect(await readFile(join(f.dir, 'tuesday.md'), 'utf8')).toBe('tuesday');
+	expect(await readFile(join(f.dir, 'data/tuesday.md'), 'utf8')).toBe('tuesday');
 	expect(run.committed).toEqual({
 		committed: { subject: 'notes: half tuesday (threw)', files: 1 },
 	});
 	expect(await f.message()).toBe('notes: half tuesday (threw)');
-	expect(await f.files()).toBe('tuesday.md');
+	expect(await f.files()).toBe('data/tuesday.md');
 	expect(await f.left()).toEqual({
-		changed: 'a.md',
+		changed: 'data/a.md',
 		staged: '',
 		untracked: '',
 	});
@@ -178,11 +179,11 @@ test('a run that throws after writing commits its writes as the call that threw'
 
 test('a call skips what it created and deleted and what is ignored, without an error', async () => {
 	const f = await setup();
-	// It wrote node_modules/seen.txt, gone.md, kept.md, and token.local.
+	// It wrote data/node_modules/seen.txt, data/gone.md, data/kept.md, and data/token.local.
 	expect((await f.run('scratch', 'kept')).committed).toEqual({
 		committed: { subject: 'notes: scratch kept', files: 1 },
 	});
-	expect(await f.files()).toBe('kept.md');
+	expect(await f.files()).toBe('data/kept.md');
 	const before = await f.head();
 	// The same call again changes nothing it would take, so it commits nothing.
 	expect((await f.run('scratch', 'kept')).committed).toEqual({
@@ -193,17 +194,17 @@ test('a call skips what it created and deleted and what is ignored, without an e
 
 test('a snapshot with no call takes everything pending, named changed outside epicenter or by its message', async () => {
 	const f = await setup();
-	await writeFile(join(f.dir, 'b.md'), 'b\n');
+	await writeFile(join(f.dir, 'data/b.md'), 'b\n');
 	await snapshot('notes', f.dir);
 	expect(await f.message()).toBe('notes: changed outside epicenter');
-	expect(await f.files()).toBe('b.md');
-	await writeFile(join(f.dir, 'a.md'), 'tidied\n');
-	await writeFile(join(f.dir, 'c.md'), 'c\n');
+	expect(await f.files()).toBe('data/b.md');
+	await writeFile(join(f.dir, 'data/a.md'), 'tidied\n');
+	await writeFile(join(f.dir, 'data/c.md'), 'c\n');
 	expect(await snapshot('notes', f.dir, { message: 'tidy the pages' })).toEqual(
 		{ committed: { subject: 'notes: tidy the pages', files: 2 } },
 	);
 	expect(await f.message()).toBe('notes: tidy the pages');
-	expect(await f.files()).toBe('a.md\nc.md');
+	expect(await f.files()).toBe('data/a.md\ndata/c.md');
 });
 
 test('snapshot refuses a revert in progress without staging or committing', async () => {
@@ -211,7 +212,7 @@ test('snapshot refuses a revert in progress without staging or committing', asyn
 	const before = await f.head();
 	const gitPath = await gitIn(f.dir, 'rev-parse', '--git-path', 'REVERT_HEAD');
 	await writeFile(join(f.dir, gitPath), `${before}\n`);
-	await writeFile(join(f.dir, 'pending.md'), 'pending\n');
+	await writeFile(join(f.dir, 'data/pending.md'), 'pending\n');
 	expect(await snapshot('notes', f.dir)).toEqual({
 		failed: {
 			message: expect.stringContaining(
@@ -223,7 +224,7 @@ test('snapshot refuses a revert in progress without staging or committing', asyn
 	expect(await f.head()).toBe(before);
 	expect(await gitIn(f.dir, 'diff', '--cached', '--name-only')).toBe('');
 	expect(await gitIn(f.dir, 'status', '--porcelain')).toContain(
-		'?? pending.md',
+		'?? data/pending.md',
 	);
 });
 
@@ -235,7 +236,7 @@ test('a *.local file the .gitignore lets through is refused before anything is s
 	const refused = {
 		failed: {
 			message:
-				'token.local would be committed; add *.local and *.local.* to notes/.gitignore',
+				'data/token.local would be committed; add *.local and *.local.* to notes/.gitignore',
 		},
 	};
 	expect((await f.run('scratch', 'kept')).committed).toEqual(refused);
@@ -244,44 +245,44 @@ test('a *.local file the .gitignore lets through is refused before anything is s
 	expect(await f.left()).toEqual({
 		changed: '',
 		staged: '',
-		untracked: 'kept.md\ntoken.local',
+		untracked: 'data/kept.md\ndata/token.local',
 	});
 });
 
 test('a *.local file Git already tracks is refused, naming the command that untracks it', async () => {
 	const f = await setup();
-	await writeFile(join(f.dir, 'token.local'), 'first\n');
-	await gitIn(f.dir, 'add', '-f', 'token.local');
+	await writeFile(join(f.dir, 'data/token.local'), 'first\n');
+	await gitIn(f.dir, 'add', '-f', 'data/token.local');
 	await gitIn(f.dir, 'commit', '-qm', 'a token, committed by mistake');
-	await writeFile(join(f.dir, 'token.local'), 'second\n');
+	await writeFile(join(f.dir, 'data/token.local'), 'second\n');
 	const before = await f.head();
 	const message =
-		'token.local would be committed: Git already tracks it, so notes/.gitignore cannot keep it out';
-	const commit = `git -C ${f.dir} commit -m "notes: stop tracking token.local"`;
+		'data/token.local would be committed: Git already tracks it, so notes/.gitignore cannot keep it out';
+	const commit = `git -C ${f.dir} commit -m "notes: stop tracking data/token.local"`;
 	expect(await snapshot('notes', f.dir)).toEqual({
 		failed: {
 			message,
-			next: `git -C ${f.dir} rm --cached -- token.local && ${commit}`,
+			next: `git -C ${f.dir} rm --cached -- data/token.local && ${commit}`,
 		},
 	});
 	expect(await f.head()).toBe(before);
 	// Out of the index, it is still refused: a commit here would take its bytes again.
-	await gitIn(f.dir, 'rm', '-q', '--cached', '--', 'token.local');
+	await gitIn(f.dir, 'rm', '-q', '--cached', '--', 'data/token.local');
 	expect(await snapshot('notes', f.dir)).toEqual({
 		failed: { message, next: commit },
 	});
 	expect(await f.head()).toBe(before);
-	await gitIn(f.dir, 'commit', '-q', '-m', 'notes: stop tracking token.local');
+	await gitIn(f.dir, 'commit', '-q', '-m', 'notes: stop tracking data/token.local');
 	expect(await snapshot('notes', f.dir)).toEqual({ committed: null });
-	expect(await gitIn(f.dir, 'ls-files', 'token.local')).toBe('');
-	expect(await readFile(join(f.dir, 'token.local'), 'utf8')).toBe('second\n');
+	expect(await gitIn(f.dir, 'ls-files', 'data/token.local')).toBe('');
+	expect(await readFile(join(f.dir, 'data/token.local'), 'utf8')).toBe('second\n');
 });
 
 test("a call holds the app's lock from its first write to its commit: sync waits for it, or says it is busy", async () => {
 	const f = await setup();
 	gate = Promise.withResolvers<void>();
 	const running = f.run('pause', 'monday');
-	while (!(await Bun.file(join(f.dir, 'monday.md')).exists()))
+	while (!(await Bun.file(join(f.dir, 'data/monday.md')).exists()))
 		await Bun.sleep(5);
 	expect((await syncOne('notes', f.dir, { wait: 0 })).error).toEqual({
 		message: 'notes: a call is still writing it',

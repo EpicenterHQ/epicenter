@@ -141,7 +141,7 @@ test('a crafted tool name cannot run an app outside the home', async () => {
 	const f = await setup((f) =>
 		f.app(
 			'outside',
-			`export default defineApp({ description: 'Outside', collections: {}, actions: { run: defineAction({ description: 'Run', input: {}, run: async () => { await folder.write('ran.txt', 'yes'); return true; } }) } });`,
+			`export default defineApp({ description: 'Outside', collections: {}, actions: { run: defineAction({ description: 'Run', input: {}, run: async () => { await folder.write('data/ran.txt', 'yes'); return true; } }) } });`,
 			f.root,
 		),
 	);
@@ -152,7 +152,7 @@ test('a crafted tool name cannot run an app outside the home', async () => {
 	});
 	const body = (await response.json()) as { result: { isError?: boolean } };
 	expect(body.result.isError).toBe(true);
-	expect(await Bun.file(join(outside, 'ran.txt')).exists()).toBe(false);
+	expect(await Bun.file(join(outside, 'data/ran.txt')).exists()).toBe(false);
 });
 
 test('the browser client calls a tool without initialize and a write makes one named commit', async () => {
@@ -169,7 +169,7 @@ test('the browser client calls a tool without initialize and a write makes one n
 	expect(await gitIn(folder, 'log', '-1', '--format=%s')).toBe(
 		'reading: log 30',
 	);
-	expect(await readFile(join(folder, '2026.csv'), 'utf8')).toBe(
+	expect(await readFile(join(folder, 'data/2026.csv'), 'utf8')).toBe(
 		'minutes,book\n30,\n',
 	);
 });
@@ -224,7 +224,7 @@ test('concurrent writes through update both land, and both are in history', asyn
 		client.log({ minutes: 20 }),
 	]))
 		expectOk(result);
-	expect(await readFile(join(folder, '2026.csv'), 'utf8')).toMatch(
+	expect(await readFile(join(folder, 'data/2026.csv'), 'utf8')).toMatch(
 		/^minutes,book\n(?:10,\n20,|20,\n10,)\n$/,
 	);
 	expect(await gitIn(folder, 'status', '--porcelain')).toBe('');
@@ -239,7 +239,7 @@ test('two calls at once on different files each commit only their own file', asy
 			'notes',
 			`export default defineApp({ description: 'Notes', collections: {}, actions: {
 		write: defineAction({ description: 'Write a page', input: { page: field.text() }, positional: ['page'],
-			run: async ({ page }) => { await folder.write(page + '.md', page); return page; } }),
+			run: async ({ page }) => { await folder.write('data/' + page + '.md', page); return page; } }),
 	} });`,
 		),
 	);
@@ -249,7 +249,7 @@ test('two calls at once on different files each commit only their own file', asy
 	}>('notes', { url: `${f.base}/` });
 	// After a call, the backup serve started with has passed this app.
 	expectOk(await client.write({ page: 'sunday' }));
-	await writeFile(join(folder, 'by-hand.md'), 'by hand\n');
+	await writeFile(join(folder, 'data/by-hand.md'), 'by hand\n');
 	for (const result of await Promise.all([
 		client.write({ page: 'monday' }),
 		client.write({ page: 'tuesday' }),
@@ -263,10 +263,10 @@ test('two calls at once on different files each commit only their own file', asy
 	for (const rev of ['HEAD', 'HEAD~1']) {
 		const subject = await gitIn(folder, 'log', '-1', '--format=%s', rev);
 		expect(await gitIn(folder, 'show', '--name-only', '--format=', rev)).toBe(
-			`${subject.slice('notes: write '.length)}.md`,
+			`data/${subject.slice('notes: write '.length)}.md`,
 		);
 	}
-	expect(await gitIn(folder, 'status', '--porcelain')).toBe('?? by-hand.md');
+	expect(await gitIn(folder, 'status', '--porcelain')).toBe('?? data/by-hand.md');
 });
 
 test("a backup that runs during a call leaves the call's writes to the call's one commit", async () => {
@@ -277,7 +277,8 @@ test("a backup that runs during a call leaves the call's writes to the call's on
 			'aaa',
 			"export default defineApp({ description: 'Slow to commit', collections: {}, actions: {} });\n",
 		);
-		await writeFile(join(slow, 'pending.md'), 'pending\n');
+		await mkdir(join(slow, 'data'));
+		await writeFile(join(slow, 'data/pending.md'), 'pending\n');
 		const hook = join(slow, '.git', 'hooks', 'pre-commit');
 		await writeFile(hook, '#!/bin/sh\nsleep 2\n');
 		await chmod(hook, 0o755);
@@ -285,7 +286,7 @@ test("a backup that runs during a call leaves the call's writes to the call's on
 			'notes',
 			`export default defineApp({ description: 'Notes', collections: {}, actions: {
 		pair: defineAction({ description: 'Write two pages, apart', input: {},
-			run: async () => { await folder.write('a.md', 'a'); await Bun.sleep(3000); await folder.write('b.md', 'b'); return true; } }),
+			run: async () => { await folder.write('data/a.md', 'a'); await Bun.sleep(3000); await folder.write('data/b.md', 'b'); return true; } }),
 	} });`,
 		);
 	});
@@ -299,7 +300,7 @@ test("a backup that runs during a call leaves the call's writes to the call's on
 		'notes: pair\ninitial',
 	);
 	expect(await gitIn(folder, 'show', '--name-only', '--format=', 'HEAD')).toBe(
-		'a.md\nb.md',
+		'data/a.md\ndata/b.md',
 	);
 	expect(await gitIn(folder, 'status', '--porcelain')).toBe('');
 	expect(await gitIn(join(f.home, 'aaa'), 'log', '-1', '--format=%s')).toBe(
@@ -355,7 +356,7 @@ test('a write call is pushed by the backup clock, not by the call; serve backs u
 		'reading: log 42',
 	);
 	expect(await gitIn(remote, 'log', '-1', '--format=%s')).toBe('initial');
-	await writeFile(join(folder, 'notes.md'), 'by hand\n');
+	await writeFile(join(folder, 'data/notes.md'), 'by hand\n');
 	expect(await f.stop()).toBe(0);
 	expect(await gitIn(remote, 'log', '--format=%s')).toBe(
 		'reading: changed outside epicenter\nreading: log 42\ninitial',
@@ -369,7 +370,7 @@ test('commit subjects use the first positional value on one line, capped at 60 c
 			'notes',
 			`export default defineApp({ description: 'The notes app', collections: {}, actions: {
 		add: defineAction({ description: 'Add a note', input: { text: field.text() }, positional: ['text'],
-			run: async ({ text }) => { await folder.write('note.txt', text); return text; } }),
+			run: async ({ text }) => { await folder.write('data/note.txt', text); return text; } }),
 	} });`,
 		),
 	);

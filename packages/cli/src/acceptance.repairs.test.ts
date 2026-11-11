@@ -42,18 +42,18 @@ export default defineApp({
 			input: { text: field.text() },
 			positional: ['text'],
 			run: async ({ text }) => {
-				await folder.write('a.md', text);
-				await folder.write('b.md', text);
+				await folder.write('data/a.md', text);
+				await folder.write('data/b.md', text);
 				return text;
 			},
 		}),
 		orphan: defineAction({
-			description: 'Leave the parent pid, wait for a signal, then write a.md',
+			description: 'Leave the parent pid, wait for a signal, then write data/a.md',
 			input: { signals: field.text() },
 			run: async ({ signals }) => {
 				await Bun.write(signals + '/parent', String(process.ppid));
 				await until(signals + '/go');
-				await folder.write('a.md', 'finished without a parent');
+				await folder.write('data/a.md', 'finished without a parent');
 			},
 		}),
 		flags: defineAction({
@@ -74,7 +74,7 @@ export default defineApp({
 
 const repairsApp = {
 	'.gitignore': gitignore,
-	'a.md': 'base a\n',
+	'data/a.md': 'base a\n',
 	'epicenter.ts': repairsCode,
 };
 
@@ -141,12 +141,12 @@ test('F6 the child finishes the run when its parent dies', async () => {
 	await f.go();
 	const deadline = Date.now() + 15_000;
 	while (
-		(await readFile(join(folder, 'a.md'), 'utf8')) !==
+		(await readFile(join(folder, 'data/a.md'), 'utf8')) !==
 			'finished without a parent' &&
 		Date.now() < deadline
 	)
 		await Bun.sleep(50);
-	expect(await readFile(join(folder, 'a.md'), 'utf8')).toBe(
+	expect(await readFile(join(folder, 'data/a.md'), 'utf8')).toBe(
 		'finished without a parent',
 	);
 });

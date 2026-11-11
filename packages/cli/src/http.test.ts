@@ -5,7 +5,7 @@
  * waits on the clock's 5 minutes.
  */
 import { afterAll, afterEach, expect, setDefaultTimeout, test } from 'bun:test';
-import { rm, writeFile } from 'node:fs/promises';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { startHttpServer } from './http.ts';
 import { fixture, gitIn, readingApp } from './runner.test-support.ts';
@@ -27,6 +27,7 @@ afterEach(async () => {
 /** Reading, backed up to a bare `origin` it has pushed to. */
 async function reading() {
 	const folder = await f.folder(join(f.home, 'reading'), readingApp);
+	await mkdir(join(folder, 'data'));
 	const remote = join(f.root, 'remote.git');
 	await gitIn(f.root, 'init', '--bare', '-q', remote);
 	await gitIn(folder, 'remote', 'add', 'origin', remote);
@@ -58,7 +59,7 @@ async function stderrOf(work: () => Promise<unknown>) {
 
 test('serve backs up once when it starts: outside edits are snapshotted and pushed', async () => {
 	const { folder, remote } = await reading();
-	await writeFile(join(folder, 'notes.md'), 'by hand\n');
+	await writeFile(join(folder, 'data/notes.md'), 'by hand\n');
 	const server = serve();
 	// A tick waits for the backup serve started with, which left it nothing to do.
 	const [after] = await server.tick();
@@ -67,7 +68,7 @@ test('serve backs up once when it starts: outside edits are snapshotted and push
 		'reading: changed outside epicenter',
 	);
 	expect(await gitIn(remote, 'show', '--name-only', '--format=', 'HEAD')).toBe(
-		'notes.md',
+		'data/notes.md',
 	);
 	expect(await gitIn(folder, 'status', '--porcelain')).toBe('');
 });
@@ -77,7 +78,7 @@ test('a tick commits outside edits and pushes them, and pushes only when somethi
 	const server = serve();
 	await server.tick();
 
-	await writeFile(join(folder, 'notes.md'), 'by hand\n');
+	await writeFile(join(folder, 'data/notes.md'), 'by hand\n');
 	const [pushed] = await server.tick();
 	expect(pushed).toMatchObject({
 		app: 'reading',
@@ -97,8 +98,8 @@ test('a tick commits outside edits and pushes them, and pushes only when somethi
 
 	// A commit made by hand is unpushed, so the next tick pushes it.
 	await gitIn(folder, 'remote', 'set-url', 'origin', remote);
-	await writeFile(join(folder, 'agent.md'), 'by an agent\n');
-	await gitIn(folder, 'add', 'agent.md');
+	await writeFile(join(folder, 'data/agent.md'), 'by an agent\n');
+	await gitIn(folder, 'add', 'data/agent.md');
 	await gitIn(folder, 'commit', '-q', '-m', 'reading: an agent added a page');
 	const [unpushed] = await server.tick();
 	expect(unpushed).toMatchObject({ committed: null, pushed: true });
@@ -112,19 +113,19 @@ test('a tick logs an unchanged failure once, and again when it changes', async (
 	const server = serve();
 	await server.tick();
 	await writeFile(join(folder, '.gitignore'), 'node_modules/\n');
-	await writeFile(join(folder, 'token.local'), 'secret\n');
+	await writeFile(join(folder, 'data/token.local'), 'secret\n');
 	const logged = await stderrOf(async () => {
 		await server.tick();
 		await server.tick();
-		await rm(join(folder, 'token.local'));
-		await writeFile(join(folder, 'device.local'), 'this computer\n');
+		await rm(join(folder, 'data/token.local'));
+		await writeFile(join(folder, 'data/device.local'), 'this computer\n');
 		await server.tick();
 		await server.tick();
 	});
 	expect(logged).toBe(
 		[
-			'reading: token.local would be committed; add *.local and *.local.* to reading/.gitignore',
-			'reading: device.local would be committed; add *.local and *.local.* to reading/.gitignore',
+			'reading: data/token.local would be committed; add *.local and *.local.* to reading/.gitignore',
+			'reading: data/device.local would be committed; add *.local and *.local.* to reading/.gitignore',
 			'',
 		].join('\n'),
 	);

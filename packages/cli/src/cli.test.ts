@@ -115,7 +115,7 @@ test('commands write disk data and return one JSON answer without diagnostics', 
 	});
 	expect(
 		JSON.parse(
-			await readFile(join(f.home, 'reading/records/log.json'), 'utf8'),
+			await readFile(join(f.home, 'reading/data/records/log.json'), 'utf8'),
 		),
 	).toEqual({ minutes: 30, book: 'Dune' });
 	const human = await f.run('reading', 'log', '15');
@@ -245,7 +245,7 @@ test('runs use the selected Epicenter and their own local files', async () => {
 	const value = JSON.parse(result.stdout).returned;
 	expect(value.folder).toBe(join(f.home, 'reading'));
 	expect(
-		await Bun.file(join(f.home, 'reading', 'index.local.json')).exists(),
+		await Bun.file(join(f.home, 'reading', 'data/index.local.json')).exists(),
 	).toBe(true);
 	const target = await f.app(
 		'linked',
@@ -261,7 +261,7 @@ test('runs use the selected Epicenter and their own local files', async () => {
 	).returned;
 	expect(homeRun.folder).toBe(join(f.home, 'reading'));
 	expect(
-		await Bun.file(join(f.home, 'reading/index.local.json')).exists(),
+		await Bun.file(join(f.home, 'reading/data/index.local.json')).exists(),
 	).toBe(true);
 });
 

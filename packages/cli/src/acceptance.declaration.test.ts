@@ -26,7 +26,7 @@ async function setup() {
 }
 
 /** Vocab's words collection, as epicenter.ts source. */
-const words = `const words = defineCollection({ path: 'words/{stem}.md', fields: { stage: field.select(['new', 'known']) } });\n`;
+const words = `const words = defineCollection({ path: 'data/words/{stem}.md', fields: { stage: field.select(['new', 'known']) } });\n`;
 
 const MCP_DEFAULTS = {
 	readOnlyHint: false,
@@ -66,7 +66,7 @@ test('D1 the listing shows folders with an epicenter.ts, ignores the rest, and n
 	);
 	await f.app(
 		'malformed',
-		`const words = defineCollection({ path: 'words/{word}.md', fields: { word: field.text(), path: field.text() } });
+		`const words = defineCollection({ path: 'data/words/{word}.md', fields: { word: field.text(), path: field.text() } });
 export default defineApp({ description: 'The malformed app', collections: { words }, actions: {} });
 `,
 	);
@@ -76,7 +76,7 @@ export default defineApp({ description: 'The malformed app', collections: { word
 export default defineApp({ description: 'The misplaced app', collections: {}, actions: { show } });
 `,
 	);
-	await f.app('badpath', `defineCollection({ path: 'words/', fields: {} });\n`);
+	await f.app('badpath', `defineCollection({ path: 'data/words/', fields: {} });\n`);
 	await f.app(
 		'unchecked',
 		`export default defineApp({ description: 'The unchecked app', collections: {}, actions: { show: { description: 'Show', input: {}, run: () => 1 } } });\n`,
@@ -113,10 +113,10 @@ export default defineApp({ description: 'The misplaced app', collections: {}, ac
 	);
 	expect(problems).toEqual({
 		// Each line of what a define call throws is one problem.
-		badpath: ['epicenter.ts: The collection path words/ is not a .md path'],
+		badpath: ['epicenter.ts: The collection path data/words/ is not a .md path'],
 		malformed: [
-			'epicenter.ts: The collection at words/{word}.md has a field "word", which its path gives as {word}; the file\'s name holds it',
-			'epicenter.ts: The collection at words/{word}.md has a field "path", which is the file\'s address',
+			'epicenter.ts: The collection at data/words/{word}.md has a field "word", which its path gives as {word}; the file\'s name holds it',
+			'epicenter.ts: The collection at data/words/{word}.md has a field "path", which is the file\'s address',
 		],
 		misplaced: [
 			'epicenter.ts: The action "Show" has the positional "nope", which is not one of its fields',
@@ -144,7 +144,7 @@ export default defineApp({ description: 'The misplaced app', collections: {}, ac
 	expect(human.stdout).toContain(`-> ${linked}`);
 	expect(human.stdout).toContain('Problems:');
 	expect(human.stdout).toContain(
-		'    epicenter.ts: The collection path words/ is not a .md path',
+		'    epicenter.ts: The collection path data/words/ is not a .md path',
 	);
 });
 
@@ -165,7 +165,7 @@ test('D2 --json prints the app from epicenter.ts, each action an MCP tool', asyn
 		folder: join(f.home, 'reading'),
 		collections: {
 			books: {
-				path: 'books/{slug}.md',
+				path: 'data/books/{slug}.md',
 				fields: { properties: { title: { type: 'string' } } },
 			},
 		},
@@ -199,7 +199,7 @@ test('D2 --json prints the app from epicenter.ts, each action an MCP tool', asyn
 		openWorldHint: false,
 	});
 	expect(reading.actions[0].description).toBe(
-		'Every books/{slug}.md file: its path and fields, and the problems of one that does not fit them',
+		'Every data/books/{slug}.md file: its path and fields, and the problems of one that does not fit them',
 	);
 	expect(JSON.stringify(listing)).not.toContain('positional');
 	const vocab = listing.apps.find(
@@ -207,7 +207,7 @@ test('D2 --json prints the app from epicenter.ts, each action an MCP tool', asyn
 	);
 	expect(vocab.collections).toEqual({
 		words: {
-			path: 'words/{stem}.md',
+			path: 'data/words/{stem}.md',
 			fields: {
 				type: 'object',
 				properties: {
@@ -236,7 +236,7 @@ test("D3 positionals come from the action's ordered list; flags always work", as
 	const logged = await f.run('reading', 'log', '30', '--book', 'Dune');
 	expect(logged.code).toBe(0);
 	expect(logged.stdout).toBe('minutes: 30\nbook: Dune\n');
-	expect(await readFile(join(f.home, 'reading/2026.csv'), 'utf8')).toBe(
+	expect(await readFile(join(f.home, 'reading/data/2026.csv'), 'utf8')).toBe(
 		'minutes,book\n30,Dune\n',
 	);
 	const both = await f.run('reading', 'between', '2026-11-01', '2026-11-08');
@@ -278,7 +278,7 @@ test('D5 an epicenter.ts importing @epicenter/app loads from a folder with no no
 	const result = await f.runIn(folder, 'reading', 'log', '12');
 	expect(result.code).toBe(0);
 	expect(result.stdout).toBe('minutes: 12\nbook: null\n');
-	expect(await readFile(join(folder, '2026.csv'), 'utf8')).toBe(
+	expect(await readFile(join(folder, 'data/2026.csv'), 'utf8')).toBe(
 		'minutes,book\n12,\n',
 	);
 });
@@ -310,7 +310,7 @@ test('D6 serve --stdio answers initialize, lists the same tools as --json, and r
 		expect(await gitIn(folder, 'log', '-1', '--format=%s')).toBe(
 			'reading: log 30',
 		);
-		expect(await readFile(join(folder, '2026.csv'), 'utf8')).toBe(
+		expect(await readFile(join(folder, 'data/2026.csv'), 'utf8')).toBe(
 			'minutes,book\n30,\n',
 		);
 	} finally {
@@ -339,7 +339,7 @@ test('D7 discovery defaults to $HOME/Epicenter and ignores EPICENTER_HOME', asyn
 
 /** Capture: an app whose actions are only its one collection's verbs. */
 const capture = `const items = defineCollection({
-	path: 'items/{id}.md',
+	path: 'data/items/{id}.md',
 	fields: {
 		kind: field.select(['thought', 'link', 'quote']),
 		url: field.text({ optional: true }),
@@ -382,7 +382,7 @@ test("D8 an app of one collection's verbs adds, reads, changes, and deletes its 
 		code: 0,
 		answer: {
 			returned: {
-				path: 'items/dune.md',
+				path: 'data/items/dune.md',
 				id: 'dune',
 				kind: 'quote',
 				added: '2026-11-09',
@@ -390,19 +390,19 @@ test("D8 an app of one collection's verbs adds, reads, changes, and deletes its 
 			},
 		},
 	});
-	expect(await readFile(join(folder, 'items/dune.md'), 'utf8')).toBe(
+	expect(await readFile(join(folder, 'data/items/dune.md'), 'utf8')).toBe(
 		'---\nkind: "quote"\nadded: "2026-11-09"\n---\nFear is the mind-killer.\n',
 	);
 
 	// Refused before anything is written: by the command line (2) or by the collection (1).
 	const refused = [
 		[
-			['set', 'items/dune.md', '--kind', 'poem'],
+			['set', 'data/items/dune.md', '--kind', 'poem'],
 			2,
 			'--kind must be one of thought, link, quote',
 		],
 		[
-			['set', 'items/dune.md', '--added', '2026-13-45'],
+			['set', 'data/items/dune.md', '--added', '2026-13-45'],
 			2,
 			'--added must be a day like 2026-11-12',
 		],
@@ -410,48 +410,48 @@ test("D8 an app of one collection's verbs adds, reads, changes, and deletes its 
 		[
 			['add', 'dune', '--kind', 'link', '--added', '2026-11-09'],
 			1,
-			'items/dune.md is already there',
+			'data/items/dune.md is already there',
 		],
 		[
 			['add', '..', '--kind', 'link', '--added', '2026-11-09'],
 			2,
-			"<id> must be a file's name for {id} in items/{id}.md: no / or \\\\, and not starting with .",
+			"<id> must be a file's name for {id} in data/items/{id}.md: no / or \\\\, and not starting with .",
 		],
 		[
-			['set', 'items/new-one.md', '--kind', 'link'],
+			['set', 'data/items/new-one.md', '--kind', 'link'],
 			1,
-			'There is no items/new-one.md',
+			'There is no data/items/new-one.md',
 		],
 		[
 			['set', 'notes/dune.md', '--kind', 'link'],
 			1,
-			'notes/dune.md is not a file at items/{id}.md',
+			'notes/dune.md is not a file at data/items/{id}.md',
 		],
 		[
-			['set', 'items/dune.md', '--kind', 'null'],
+			['set', 'data/items/dune.md', '--kind', 'null'],
 			2,
 			'--kind does not take null',
 		],
-		[['set', '--input', '{"path":"items/dune.md","added":null}'], 2, 'added'],
+		[['set', '--input', '{"path":"data/items/dune.md","added":null}'], 2, 'added'],
 	] as const;
 	for (const [args, code, message] of refused) {
 		const result = await json(...args);
 		expect(result.code).toBe(code);
 		expect(JSON.stringify(result.answer)).toContain(message);
 	}
-	expect(await readFile(join(folder, 'items/dune.md'), 'utf8')).toContain(
+	expect(await readFile(join(folder, 'data/items/dune.md'), 'utf8')).toContain(
 		'kind: "quote"',
 	);
 
 	expect(
-		(await json('set', 'items/dune.md', '--url', 'https://example.com/dune'))
+		(await json('set', 'data/items/dune.md', '--url', 'https://example.com/dune'))
 			.code,
 	).toBe(0);
 	expect(
 		(
 			await json(
 				'edit',
-				'items/dune.md',
+				'data/items/dune.md',
 				'--old',
 				'mind-killer',
 				'--new',
@@ -464,7 +464,7 @@ test("D8 an app of one collection's verbs adds, reads, changes, and deletes its 
 		answer: {
 			returned: [
 				{
-					path: 'items/dune.md',
+					path: 'data/items/dune.md',
 					id: 'dune',
 					kind: 'quote',
 					url: 'https://example.com/dune',
@@ -473,8 +473,8 @@ test("D8 an app of one collection's verbs adds, reads, changes, and deletes its 
 			],
 		},
 	});
-	expect((await f.run('capture', 'get', 'items/dune.md')).stdout).toBe(
-		'path: items/dune.md\nid: dune\nkind: quote\nurl: https://example.com/dune\nadded: 2026-11-09\nbody: |\n  Fear is the little-death.\n',
+	expect((await f.run('capture', 'get', 'data/items/dune.md')).stdout).toBe(
+		'path: data/items/dune.md\nid: dune\nkind: quote\nurl: https://example.com/dune\nadded: 2026-11-09\nbody: |\n  Fear is the little-death.\n',
 	);
 
 	const transport = new StdioClientTransport({
@@ -509,12 +509,12 @@ test("D8 an app of one collection's verbs adds, reads, changes, and deletes its 
 		expect(added.isError).toBeFalsy();
 		const bad = await client.callTool({
 			name: 'capture_set',
-			arguments: { path: 'items/petrichor.md', kind: 'poem' },
+			arguments: { path: 'data/items/petrichor.md', kind: 'poem' },
 		});
 		expect(bad.isError).toBe(true);
 		const deleted = await client.callTool({
 			name: 'capture_delete',
-			arguments: { path: 'items/dune.md' },
+			arguments: { path: 'data/items/dune.md' },
 		});
 		expect(deleted.structuredContent).toEqual({
 			returned: true,
@@ -527,7 +527,7 @@ test("D8 an app of one collection's verbs adds, reads, changes, and deletes its 
 		answer: {
 			returned: [
 				{
-					path: 'items/petrichor.md',
+					path: 'data/items/petrichor.md',
 					id: 'petrichor',
 					kind: 'thought',
 					added: '2026-11-09',
@@ -538,10 +538,10 @@ test("D8 an app of one collection's verbs adds, reads, changes, and deletes its 
 	// Every write is its own commit, named for the call, from the terminal and MCP alike.
 	expect(await gitIn(folder, 'log', '--format=%s')).toBe(
 		[
-			'capture: delete items/dune.md',
+			'capture: delete data/items/dune.md',
 			'capture: add petrichor',
-			'capture: edit items/dune.md',
-			'capture: set items/dune.md',
+			'capture: edit data/items/dune.md',
+			'capture: set data/items/dune.md',
 			'capture: add dune',
 			'initial',
 		].join('\n'),

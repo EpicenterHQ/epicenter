@@ -4,7 +4,7 @@
  */
 import { afterEach, expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';
-import { readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fixture, gitIn, gitignore, header } from './runner.test-support.ts';
 
@@ -21,7 +21,7 @@ function wordsApp({ reading }: { reading: 'required' | 'optional' }) {
 		reading === 'required' ? 'field.text()' : 'field.text({ optional: true })';
 	return `${header}
 const words = defineCollection({
-	path: 'words/{word}.md',
+	path: 'data/words/{word}.md',
 	fields: { meaning: field.text(), reading: ${field} },
 });
 
@@ -89,14 +89,14 @@ test('new --from refuses a starter whose epicenter.ts does not load, and leaves 
 	const f = await starterFixture();
 	await writeFile(
 		join(f.starter, 'epicenter.ts'),
-		`${header}defineCollection({ path: 'words/', fields: {} });\n`,
+		`${header}defineCollection({ path: 'data/words/', fields: {} });\n`,
 	);
 	await commitAll(f.starter, 'break the app');
 	const made = await f.run('new', 'vocab', '--from', f.starter, '--json');
 	expect(made.code).toBe(2);
 	expect(JSON.parse(made.stdout).error).toMatchObject({
 		name: 'AppProblems',
-		problems: ['epicenter.ts: The collection path words/ is not a .md path'],
+		problems: ['epicenter.ts: The collection path data/words/ is not a .md path'],
 	});
 	expect(existsSync(f.app)).toBe(false);
 });
@@ -131,7 +131,7 @@ test('update merges the starter and builds; a file that no longer fits says so w
 		'two\n',
 	);
 	expect(await gitIn(f.app, 'status', '--porcelain')).toBe('');
-	const read = await f.run('vocab', 'words', 'get', 'words/neko.md', '--json');
+	const read = await f.run('vocab', 'words', 'get', 'data/words/neko.md', '--json');
 	expect(JSON.parse(read.stdout).returned.problems).toEqual([
 		'reading is missing',
 	]);
@@ -141,7 +141,8 @@ test('update snapshots pending changes before it merges, and undoes a merge that
 	const f = await starterFixture();
 	expect((await f.run('new', 'vocab', '--from', f.starter)).code).toBe(0);
 
-	await writeFile(join(f.app, 'notes.md'), 'unsaved\n');
+	await mkdir(join(f.app, 'data'));
+	await writeFile(join(f.app, 'data/notes.md'), 'unsaved\n');
 	await writeFile(join(f.starter, 'README.md'), 'about vocab\n');
 	await commitAll(f.starter, 'add a readme');
 	const pending = await f.run('update', 'vocab');
@@ -149,7 +150,7 @@ test('update snapshots pending changes before it merges, and undoes a merge that
 	expect(await gitIn(f.app, 'log', '--first-parent', '-2', '--format=%s')).toBe(
 		'vocab: update from upstream\nvocab: changed outside epicenter',
 	);
-	expect(await readFile(join(f.app, 'notes.md'), 'utf8')).toBe('unsaved\n');
+	expect(await readFile(join(f.app, 'data/notes.md'), 'utf8')).toBe('unsaved\n');
 	expect(await gitIn(f.app, 'status', '--porcelain')).toBe('');
 
 	await writeFile(join(f.app, 'ui', 'package.json'), builds('mine'));

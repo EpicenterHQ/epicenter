@@ -106,7 +106,7 @@ export function bareApp(name: string) {
 export const readingApp = {
 	'.gitignore': gitignore,
 	'epicenter.ts': `${header}
-const books = defineCollection({ path: 'books/{slug}.md', fields: { title: field.text() } });
+const books = defineCollection({ path: 'data/books/{slug}.md', fields: { title: field.text() } });
 
 export default defineApp({
 	description: 'How much I read each week',
@@ -118,7 +118,7 @@ export default defineApp({
 			input: { minutes: field.number(), book: field.text({ optional: true }) },
 			positional: ['minutes'],
 			run: async ({ minutes, book }) => {
-				await folder.update('2026.csv', (before = 'minutes,book\\n') => \`\${before}\${minutes},\${book ?? ''}\\n\`);
+				await folder.update('data/2026.csv', (before = 'minutes,book\\n') => \`\${before}\${minutes},\${book ?? ''}\\n\`);
 				return { minutes, book: book ?? null };
 			},
 		}),
@@ -141,7 +141,7 @@ export default defineApp({
 			description: 'Write, then throw',
 			input: {},
 			run: async () => {
-				await folder.write('2026.csv', 'minutes,book\\n1,\\n');
+				await folder.write('data/2026.csv', 'minutes,book\\n1,\\n');
 				throw new Error('line 4 is not a number');
 			},
 		}),
@@ -152,11 +152,11 @@ export default defineApp({
 
 /** The source of an app with many kinds of input, for `fixture().app`. */
 export const reading = `export default defineApp({ description: 'The reading app', collections: {}, actions: {
-	log: defineAction({ description: 'Record reading', input: { minutes: field.number(), book: field.text({optional:true}) }, positional: ['minutes'], run: async (input) => { await folder.write('records/log.json', JSON.stringify(input)); return input; } }),
+	log: defineAction({ description: 'Record reading', input: { minutes: field.number(), book: field.text({optional:true}) }, positional: ['minutes'], run: async (input) => { await folder.write('data/records/log.json', JSON.stringify(input)); return input; } }),
 	week: { summary: defineAction({ description: 'Weekly minutes', input: {}, annotations: { readOnlyHint: true }, run: () => ({minutes:210}) }) },
 	tag: defineAction({ description:'Tag records', input: { tags: field.tags(), done: field.boolean() }, run: (input) => input }),
 	collect: defineAction({ description:'Collect tags', input: { tags: field.tags() }, positional: ['tags'], run: (input) => input }),
-	inspect: defineAction({ description:'Inspect the context', input:{}, run: async () => { await folder.write('index.local.json', '{}'); return {folder:folder.path}; } }),
+	inspect: defineAction({ description:'Inspect the context', input:{}, run: async () => { await folder.write('data/index.local.json', '{}'); return {folder:folder.path}; } }),
 	explode: defineAction({ description:'Throw an error', input:{}, run: () => {throw new Error('action exploded');} }),
 } });`;
 
