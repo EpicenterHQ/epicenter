@@ -1077,4 +1077,4 @@ When you add an ADR, add its row here.
 | [0869](0869-a-body-is-changed-by-quoting-the-passage-it-replaces.md) | A body is changed by quoting the passage it replaces | Proposed |
 | [0870](0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md) | An app's secrets are `.local` files, and a `.local` file never leaves its computer | Proposed |
 | [0871](0871-a-public-address-signs-clients-in-with-better-auths-mcp-plugin-and-the-owner-approves-from-the-tailnet.md) | A public address signs clients in with Better Auth's MCP plugin, and the owner approves from the tailnet | Proposed |
-| [0872](0872-an-apps-collections-are-read-with-sql-through-a-throwaway-read-only-sqlite-database.md) | An app's collections are read with SQL through a throwaway read-only SQLite database | Accepted |
+| [0872](0872-an-apps-collections-are-read-with-sql-through-a-throwaway-read-only-sqlite-database.md) | An app's collections are read with SQL through a throwaway read-only SQLite database | Proposed |

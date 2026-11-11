@@ -1,6 +1,7 @@
 # 0872. An app's collections are read with SQL through a throwaway read-only SQLite database
 
-- **Status:** Accepted
+- **Status:** Proposed
+- **Parked:** 2026-11-11, on this branch, unmerged. Only `epicenter query` reaches it, where an agent already has a shell and `list --json`; `serve` cannot offer it, because the engine is not a sandbox and `serve` has a public address (ADR-0871). Tables and filters a person looks at are a view feature over rows a view already gets. Restore the deleted test "a run reaches its folder and nothing else" before landing this.
 - **Date:** 2026-11-11
 - **Relates:** [ADR-0857](0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md) defines collections and actions; [ADR-0870](0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md) keeps `.local` files on their computer.
 
