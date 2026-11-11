@@ -496,18 +496,32 @@ test('a built UI serves files and refuses traversal and symlinks outside it', as
 	expect((await fetch(`${f.base}/linked/`)).status).toBe(404);
 });
 
-test('only the view in ui/dist/ is served, never the ui/ source', async () => {
+test('serve builds the view of the last commit when opened, and again after a commit', async () => {
+	const writes = (label: string) =>
+		`${JSON.stringify({ scripts: { build: `mkdir -p dist && echo ${label} > dist/index.html` } })}\n`;
 	const f = await setup((f) =>
 		f.folder(join(f.home, 'reading'), {
 			...readingApp,
-			'ui/index.html': 'source',
+			'ui/.gitignore': 'dist/\nnode_modules/\n',
+			'ui/package.json': writes('one'),
 		}),
 	);
 	const folder = f.made;
-	expect((await fetch(`${f.base}/reading/`)).status).toBe(404);
-	await mkdir(join(folder, 'ui', 'dist'), { recursive: true });
-	await writeFile(join(folder, 'ui', 'dist', 'index.html'), 'built');
-	expect(await (await fetch(`${f.base}/reading/`)).text()).toBe('built');
+	/** The view's page once it reads `text`, opening it until it does. */
+	const opened = async (text: string) => {
+		for (let tries = 0; tries < 100; tries++) {
+			const response = await fetch(`${f.base}/reading/`);
+			if (response.ok && (await response.text()) === text) return true;
+			await Bun.sleep(100);
+		}
+		return false;
+	};
+	expect(await opened('one\n')).toBe(true);
+	await writeFile(join(folder, 'ui', 'package.json'), writes('two'));
+	expect(await opened('one\n')).toBe(true);
+	await gitIn(folder, 'commit', '-q', '--no-verify', '-am', 'a new view');
+	expect(await opened('two\n')).toBe(true);
+	expect((await fetch(`${f.base}/reading/.epicenter-build`)).status).toBe(404);
 });
 
 test('mismatched Origin is forbidden, and / refuses an event stream and other methods', async () => {

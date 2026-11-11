@@ -4,8 +4,9 @@
  *
  * - `new <name> --from <git url|path>` clones a starter, another app's code,
  *   keeps it as the app's `upstream` remote with the branch tracking nothing,
- *   makes an empty data repository, and builds its UI (ADR-0866). `epicenter
- *   update` later merges the starter's changes.
+ *   and makes an empty data repository (ADR-0866); `serve` builds its view
+ *   when it is first opened. `epicenter update` later merges the starter's
+ *   changes.
  * - `new <name>` makes the folder from the built-in template, makes it a
  *   repository, commits the template, and makes the data repository.
  * The app's name is its child entry in the Epicenter.
@@ -13,7 +14,6 @@
 import { mkdir, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
-import { extractErrorMessage } from 'wellcrafted/error';
 import { misuse, nameProblem, parseWords } from './commands.ts';
 import { dataRepository } from './data.ts';
 import { CliError } from './errors.ts';
@@ -21,7 +21,6 @@ import { checkedGit, git } from './git.ts';
 import { loadHomeApp } from './home.ts';
 import { fail, writeErr, writeJson, writeOut } from './output.ts';
 import { epicenterDir, folderPath } from './root.ts';
-import { buildUi } from './ui.ts';
 
 /** A Git URL rather than a folder path: a scheme, or `user@host:path`. */
 function isUrl(source: string) {
@@ -65,27 +64,20 @@ async function taken(name: string) {
 /**
  * Say what `new` made: the folder on stdout and the next step on stderr, then
  * that it is not backed up and how to back it up, or with `--json`, one
- * object. An app made whose UI did not build is still made, so it exits 1,
- * not 2, naming `epicenter build <name>`.
+ * object.
  */
-function made(
-	name: string,
-	json: boolean,
-	error?: { message: string; next: string },
-) {
+function made(name: string, json: boolean) {
 	const folder = join(epicenterDir(), name);
-	if (json) writeJson({ name, folder, ...(error ? { error } : {}) });
+	if (json) writeJson({ name, folder });
 	else {
 		writeOut(folder);
-		writeErr(
-			error ? `${error.message}\nRun: ${error.next}` : `Run: epicenter ${name}`,
-		);
+		writeErr(`Run: epicenter ${name}`);
 		// A new app has no origin: a starter's remote is its upstream (ADR-0851).
 		writeErr(
 			`not backed up\nRun: git -C ${folder} remote add origin <url> and git -C ${folder}/data remote add origin <url>, each a private repository, then epicenter sync ${name}`,
 		);
 	}
-	return error ? 1 : 0;
+	return 0;
 }
 
 /**
@@ -125,14 +117,6 @@ export async function newCommand(
 	if ('error' in cloned) {
 		await rm(folder, { recursive: true, force: true });
 		return fail(cloned.error, json);
-	}
-	try {
-		await buildUi(name, folder);
-	} catch (error) {
-		return made(name, json, {
-			message: `${name}: the UI did not build: ${extractErrorMessage(error)}`,
-			next: `epicenter build ${name}`,
-		});
 	}
 	return made(name, json);
 }

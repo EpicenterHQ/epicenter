@@ -46,7 +46,7 @@ import { writeErr } from './output.ts';
 import { startPublicServer } from './public.ts';
 import { epicenterDir, epicenterRoot } from './root.ts';
 import { type Synced, syncFailures, syncOne } from './sync.ts';
-import { VIEW } from './ui.ts';
+import { createViewRefresher, VIEW } from './ui.ts';
 
 /** How often `serve` backs up every app. */
 const BACKUP_EVERY_MS = 5 * 60_000;
@@ -114,7 +114,9 @@ export type Site = {
 const notFound = () => new Response('Not found', { status: 404 });
 
 /** The site both listeners serve: MCP, the launcher, and each app's view. */
-function createSite(): Site {
+function createSite(
+	refreshView: (app: string, folder: string) => unknown,
+): Site {
 	const uiFile = async (app: string, path: string) => {
 		if (!isName(app)) return notFound();
 		const [entry] = (await chooseApps(app)).data ?? [];
@@ -128,9 +130,13 @@ function createSite(): Site {
 		if (
 			decoded.includes('\\') ||
 			isAbsolute(decoded) ||
-			decoded.split('/').some((part) => part === '.' || part === '..')
+			// `.` and `..`, and the build's own stamp: never part of a view.
+			decoded.split('/').some((part) => part.startsWith('.'))
 		)
 			return notFound();
+		// A page load, not each of its files, checks that the view is of `HEAD`.
+		if (decoded === '' || decoded === 'index.html')
+			void refreshView(entry.entry, entry.realPath);
 		try {
 			// The view in ui/dist/ is the only thing served (ADR-0860).
 			const root = await realpath(join(entry.realPath, VIEW));
@@ -266,10 +272,13 @@ const forbidden = () => new Response('Forbidden', { status: 403 });
 export function startHttpServer(host: string, port: number) {
 	/** Each app's last backup failure as logged, so an unchanged one is logged once. */
 	const lastFailure = new Map<string, string>();
+	const refreshView = createViewRefresher();
 	const backUpAll = async () => {
 		const backedUp: Synced[] = [];
 		for (const { entry, realPath } of await homeEntries()) {
 			const synced = await syncOne(entry, realPath, { wait: 0 });
+			// What the snapshot just committed reaches the view without a visit.
+			void refreshView(entry, realPath);
 			// A call to it is running: its commit, or the next tick, takes what it wrote.
 			if (synced.busy) continue;
 			backedUp.push(synced);
@@ -304,7 +313,7 @@ export function startHttpServer(host: string, port: number) {
 		clock.unref();
 	};
 	void tickLogged().finally(schedule);
-	const site = createSite();
+	const site = createSite(refreshView);
 	const answer = async (request: Request) => {
 		if (TUNNEL_HEADERS.some((name) => request.headers.has(name)))
 			return forbidden();

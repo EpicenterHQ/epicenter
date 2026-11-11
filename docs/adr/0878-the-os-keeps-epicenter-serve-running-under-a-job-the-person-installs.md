@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-11-11
-- **Unbuilt:** a Linux user unit and the Mac app's registration; the Studio's `serve` still runs from a monorepo worktree until `@epicenter/cli` is installed there and the person runs `epicenter service install`. Built: `epicenter service install|uninstall|restart|status` as a macOS LaunchAgent (`packages/cli/src/service.ts`), and `AGENTS.md` read on each MCP initialize (`packages/cli/src/mcp.ts`).
+- **Unbuilt:** a Linux user unit and the Mac app's registration; the Studio's `serve` still runs from a monorepo worktree until the person runs `epicenter service install` there. Built: `epicenter service install|uninstall|restart|status` as a macOS LaunchAgent with the installing shell's `PATH` (`packages/cli/src/service.ts`), and `AGENTS.md` read on each MCP initialize (`packages/cli/src/mcp.ts`).
 - **Relates:** [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (your server is the computer that runs `serve`), [ADR-0865](0865-the-epicenter-mac-app-runs-epicenter-serve-so-the-computer-it-is-on-is-your-server.md) (the Mac app), [ADR-0868](0868-an-epicenter-is-any-folder-that-says-it-is-one-and-a-computer-runs-as-many-as-it-has.md) (several Epicenters on one computer), [ADR-0873](0873-the-command-is-epicenter-cli-and-it-supplies-epicenter-app-to-every-app.md) (the installed command).
 
 ## Context
@@ -30,9 +30,9 @@ Epicenter.**
 
 - On macOS it is a LaunchAgent in `~/Library/LaunchAgents/`, one per
   Epicenter, labelled from the Epicenter's folder, with `RunAtLoad` and
-  `KeepAlive`. It runs the installed `epicenter` by absolute path (ADR-0873),
-  never a checkout, in the Epicenter's folder. Its `PATH` holds the folders of
-  the `git` and `git-lfs` found when it was installed. It logs to
+  `KeepAlive`. It runs the `epicenter` found on `PATH` by absolute path, or the
+  compiled binary, in the Epicenter's folder. Its `PATH` is the installing
+  shell's `PATH`. It logs to
   `~/Library/Logs/Epicenter/<label>.log`.
 - On Linux the same job is a systemd user unit, when a Linux server needs one.
 - `epicenter service restart` runs `launchctl kickstart -k` on the job;

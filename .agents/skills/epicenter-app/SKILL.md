@@ -36,8 +36,8 @@ and shared with no one.
 ```
 
 An app can start from another app's code, which it keeps as its `upstream`
-remote; `epicenter update` merges that code's later changes and builds the UI
-(ADR-0866). Capture, Reading, Tasks, and Vocab are developed in the
+remote; `epicenter update` merges that code's later changes, and `serve` rebuilds
+the UI from the merged code (ADR-0866). Capture, Reading, Tasks, and Vocab are developed in the
 person's own Epicenter, each code repository a private GitHub repository;
 `apps/<app>/` in the monorepo keeps a copy that the platform's tests use. Read
 `@epicenter/app`'s README (`packages/app/README.md` in the monorepo) and one
@@ -238,13 +238,21 @@ dependencies and tests included, and change it in place.
 `svelte.config.js` builds into `ui/dist/` with
 `paths.base: process.env.EPICENTER_BASE ?? \`/${basename(resolve('..'))}\``.
 SvelteKit's hash router writes absolute asset URLs whatever `paths.relative`
-says, so the build must know where the view is served: `epicenter` installs
-`ui/` (from its committed `bun.lock` when there is one) and runs its `build`
-script with `EPICENTER_BASE=/<app>`, and a build run by hand falls back to
-the folder's name. Commit `ui/bun.lock`, so the server builds what you
-tested. `serve` serves `ui/dist/` and looks nowhere else. A tiny view needs
-no build: with no `build` script in `ui/package.json`, write
-`ui/dist/index.html` by hand, with relative URLs, and commit it. The UI keeps
+says, so the build must know where the view is served: `serve` builds the
+view itself, installing `ui/` (from its committed `bun.lock` when there is
+one) and running its `build` script with `EPICENTER_BASE=/<app>`; a build run
+by hand falls back to the folder's name. Commit `ui/bun.lock`, so the server
+builds what you tested. `serve` serves `ui/dist/` and looks nowhere else.
+
+`serve` builds the code's last commit, never the working tree: a UI change
+shows at `/<app>/` once it is committed, by you or by `serve`'s snapshot
+within 5 minutes, after a build of a few seconds, and the last view stays up
+meanwhile. While you work on the UI, see it live with `bun run dev` in `ui/`.
+Run `epicenter build <app>` after committing to build now and see the
+build's errors; a commit whose build failed keeps the last view. Never commit
+`ui/dist/`. A tiny view needs no `package.json`: with no `build` script,
+`serve` bundles `ui/index.html` and the TypeScript and CSS beside it, with
+`@epicenter/app/client` supplied. The UI keeps
 nothing of its own: it shows what serve answers and sends what the person
 changes.
 
@@ -308,8 +316,8 @@ types with `ActionInput<typeof app.actions.set>` and
 
 Never run anything against the real `~/Epicenter` until the person asks.
 `HOME` decides `~`, so try an app in a temporary home. Take the app from its
-code repository with `new --from`, which clones it, makes its empty data
-repository, and builds its UI as the server would; for an app with
+code repository with `new --from`, which clones it and makes its empty data
+repository, then `epicenter build <app>` builds its UI as the server would; for an app with
 uncommitted changes, commit them on a branch first, or clone from a copy:
 
 ```sh
@@ -319,6 +327,7 @@ printf '[user]\n\tname = Test\n\temail = test@example.com\n' > $T/.gitconfig
 HOME=$T epicenter init $T/Epicenter        # writes EPICENTER.md and AGENTS.md
 cd $T/Epicenter
 HOME=$T epicenter new <app> --from <app's code repository>
+HOME=$T epicenter build <app>              # the UI, as serve builds it
 HOME=$T epicenter <app> <words> ...
 HOME=$T epicenter serve --port 4799        # then drive http://localhost:4799/<app>/
 ```
