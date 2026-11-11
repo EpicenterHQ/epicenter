@@ -1,6 +1,6 @@
 <script lang="ts">
-	import type { HTMLAttributes } from 'svelte/elements';
-	import { cn, type WithElementRef } from '../utils.js';
+	import { cn, type WithElementRef } from "../utils.js";
+	import type { HTMLAttributes } from "svelte/elements";
 
 	let {
 		ref = $bindable(null),
@@ -14,8 +14,8 @@
 	bind:this={ref}
 	data-slot="empty"
 	class={cn(
-		'gap-4 rounded-lg border-dashed p-12 flex w-full min-w-0 flex-1 flex-col items-center justify-center text-center text-balance',
-		className,
+		"gap-4 rounded-lg border-dashed p-12 flex w-full min-w-0 flex-1 flex-col items-center justify-center text-center text-balance",
+		className
 	)}
 	{...restProps}
 >

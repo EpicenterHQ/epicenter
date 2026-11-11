@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { Avatar as AvatarPrimitive } from 'bits-ui';
-	import { cn } from '../utils.js';
+	import { Avatar as AvatarPrimitive } from "bits-ui";
+	import { cn } from "../utils.js";
 
 	let {
 		ref = $bindable(null),
@@ -12,6 +12,6 @@
 <AvatarPrimitive.Image
 	bind:ref
 	data-slot="avatar-image"
-	class={cn('rounded-full aspect-square size-full object-cover', className)}
+	class={cn("rounded-full aspect-square size-full object-cover", className)}
 	{...restProps}
 />

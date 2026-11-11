@@ -1,0 +1,18 @@
+Epicenter: Bits UI 2.20.6 emits data-orientation, so use it for separator sizes.
+Whispering settings and the UI kit's field, item, select, and sidebar separators
+need a visible horizontal rule.
+
+diff --git a/separator/separator.svelte b/separator/separator.svelte
+index 318852e..ee1f0d5 100644
+--- a/separator/separator.svelte
++++ b/separator/separator.svelte
+@@ -14,7 +14,8 @@
+ 	bind:ref
+ 	data-slot={dataSlot}
+ 	class={cn(
+-		"shrink-0 bg-border data-horizontal:h-px data-horizontal:w-full data-vertical:w-px data-vertical:self-stretch",
++		// Epicenter: Bits UI 2.20.6 emits data-orientation for separators used by Whispering and the UI kit.
++		"shrink-0 bg-border data-[orientation=horizontal]:h-px data-[orientation=horizontal]:w-full data-[orientation=vertical]:w-px data-[orientation=vertical]:self-stretch",
+ 		className
+ 	)}
+ 	{...restProps}

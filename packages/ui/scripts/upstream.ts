@@ -120,8 +120,16 @@ function writeTree(root: string, files: Map<string, string>) {
 	}
 }
 
+/**
+ * Run git in a scratch folder. The ceiling stops git from finding a
+ * repository above it (a TMPDIR inside one), where `git apply` would apply
+ * paths relative to that repository instead.
+ */
 function git(args: string[], cwd: string) {
-	const run = Bun.spawnSync(['git', ...args], { cwd });
+	const run = Bun.spawnSync(['git', ...args], {
+		cwd,
+		env: { ...process.env, GIT_CEILING_DIRECTORIES: dirname(cwd) },
+	});
 	return {
 		code: run.exitCode,
 		out: run.stdout.toString(),

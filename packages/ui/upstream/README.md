@@ -88,10 +88,7 @@ component is rebased; a difference without a reason is reverted.
 | Dialog and Drawer | Viewport scrolling and Drawer content scroll wrapper | Long recording details remain usable, and mobile content can scroll without losing drag behavior. Installed Vaul `1.0.0-next.7` already suppresses autofocus by default. |
 | Modal | Extras-based responsive composition with simplified context access | Forms use Dialog on desktop and a draggable Drawer below 768px. The root owns the live media query; children read that root directly. |
 | Menu callers | Honeycrisp caps its Move to folder submenu height and scrolls it | Every folder remains reachable. Shared menu selection defaults follow upstream. |
-| Table cells | `bg-clip-padding`, logical header alignment, and checkbox padding | Sticky and status cells keep their own backgrounds. Row hover follows upstream. |
 | Item and Sidebar | Truncation, inset shrink behavior, and the same offcanvas Sidebar at narrow widths | Rows and sidebars fit narrow flex layouts. Collapsed offcanvas sidebars are inert so hidden navigation cannot receive keyboard focus. Sidebar preserves the existing navigation structure instead of adopting upstream’s separate mobile Sheet. |
-| Alert and Badge | Warning, ID, status, and success variants | Apps use these semantic states. |
-| Resizable | Spacing between panes | Adjacent panes need separation in current app layouts. |
 | Tooltip provider | Fixed 300 ms opening delay and 150 ms skip delay | App-root providers share one hover group and timing across controls. |
 | Input | File-input binding alongside normal value binding | File pickers need access to the selected files through the shared component. |
 | Input and Textarea | Value bindings retire on destruction | Capture and Whispering retained DOM controls must never read or overwrite later input. |
@@ -100,12 +97,12 @@ component is rebased; a difference without a reason is reverted.
 | Theme | Geist fonts and seven dark Neutral token adjustments | The accepted soft charcoal direction uses existing semantic variables; component geometry remains Vega’s. |
 
 Other structural choices with live callers remain in their components: the
-Resizable handle and the standard Loading shell. Badge’s span-or-anchor
+standard Loading shell. Badge’s span-or-anchor
 rendering and Tooltip’s arrow customization follow upstream. `alert-dialog`
 emits `data-size`; sidebar menu controls emit `data-active` only when active.
 These attributes feed the Vega state selectors.
 
 The distributed registry still includes unresolved `cn-font-heading` and
-`cn-menu-*` hooks in some files. The maintained package omits those inert hooks;
+`cn-menu-*` hooks in some files. Unrebased components may omit those inert hooks;
 `shadcn-base.css` retains the upstream data variants, utilities, and animations
 used by the components.

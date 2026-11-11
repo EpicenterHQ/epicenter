@@ -1,37 +1,33 @@
 <script lang="ts" module>
-	import { tv, type VariantProps } from 'tailwind-variants';
+	import { tv, type VariantProps } from "tailwind-variants";
 
 	export const emptyMediaVariants = tv({
-		base: 'mb-2 flex shrink-0 items-center justify-center [&_svg]:pointer-events-none [&_svg]:shrink-0',
+		base: "mb-2 flex shrink-0 items-center justify-center [&_svg]:pointer-events-none [&_svg]:shrink-0",
 		variants: {
 			variant: {
-				default: 'bg-transparent',
+				default: "bg-transparent",
 				icon: "bg-muted text-foreground flex size-10 shrink-0 items-center justify-center rounded-lg [&_svg:not([class*='size-'])]:size-6",
 			},
 		},
 		defaultVariants: {
-			variant: 'default',
+			variant: "default",
 		},
 	});
 
-	export type EmptyMediaVariant = VariantProps<
-		typeof emptyMediaVariants
-	>['variant'];
+	export type EmptyMediaVariant = VariantProps<typeof emptyMediaVariants>["variant"];
 </script>
 
 <script lang="ts">
-	import type { HTMLAttributes } from 'svelte/elements';
-	import { cn, type WithElementRef } from '../utils.js';
+	import { cn, type WithElementRef } from "../utils.js";
+	import type { HTMLAttributes } from "svelte/elements";
 
 	let {
 		ref = $bindable(null),
 		class: className,
 		children,
-		variant = 'default',
+		variant = "default",
 		...restProps
-	}: WithElementRef<HTMLAttributes<HTMLDivElement>> & {
-		variant?: EmptyMediaVariant;
-	} = $props();
+	}: WithElementRef<HTMLAttributes<HTMLDivElement>> & { variant?: EmptyMediaVariant } = $props();
 </script>
 
 <div

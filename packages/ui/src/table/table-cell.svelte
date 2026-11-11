@@ -1,6 +1,6 @@
 <script lang="ts">
-	import type { HTMLTdAttributes } from 'svelte/elements';
-	import { cn, type WithElementRef } from '../utils.js';
+	import { cn, type WithElementRef } from "../utils.js";
+	import type { HTMLTdAttributes } from "svelte/elements";
 
 	let {
 		ref = $bindable(null),
@@ -10,15 +10,6 @@
 	}: WithElementRef<HTMLTdAttributes> = $props();
 </script>
 
-<td
-	bind:this={ref}
-	data-slot="table-cell"
-	class={cn(
-		'p-2 align-middle whitespace-nowrap [&:has([role=checkbox])]:pr-0',
-		'bg-clip-padding [&:has([role=checkbox])]:pe-0',
-		className,
-	)}
-	{...restProps}
->
+<td bind:this={ref} data-slot="table-cell" class={cn("p-2 align-middle whitespace-nowrap [&:has([role=checkbox])]:pr-0", className)} {...restProps}>
 	{@render children?.()}
 </td>

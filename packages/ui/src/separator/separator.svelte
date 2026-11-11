@@ -1,11 +1,11 @@
 <script lang="ts">
-	import { Separator as SeparatorPrimitive } from 'bits-ui';
-	import { cn } from '../utils.js';
+	import { Separator as SeparatorPrimitive } from "bits-ui";
+	import { cn } from "../utils.js";
 
 	let {
 		ref = $bindable(null),
 		class: className,
-		'data-slot': dataSlot = 'separator',
+		"data-slot": dataSlot = "separator",
 		...restProps
 	}: SeparatorPrimitive.RootProps = $props();
 </script>
@@ -14,10 +14,9 @@
 	bind:ref
 	data-slot={dataSlot}
 	class={cn(
-		'bg-border shrink-0 data-[orientation=horizontal]:h-px data-[orientation=horizontal]:w-full data-[orientation=vertical]:w-px',
-		// this is different in shadcn/ui but self-stretch breaks things for us
-		'data-[orientation=vertical]:h-full',
-		className,
+		// Epicenter: Bits UI 2.20.6 emits data-orientation for separators used by Whispering and the UI kit.
+		"shrink-0 bg-border data-[orientation=horizontal]:h-px data-[orientation=horizontal]:w-full data-[orientation=vertical]:w-px data-[orientation=vertical]:self-stretch",
+		className
 	)}
 	{...restProps}
 />

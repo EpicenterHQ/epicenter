@@ -1,0 +1,33 @@
+Epicenter: use a package-local Lucide circle because the registry's $lib icon
+placeholder cannot resolve in @epicenter/ui. Whispering's microphone and
+post-processing selectors need the selected indicator.
+
+diff --git a/radio-group/radio-group-item.svelte b/radio-group/radio-group-item.svelte
+index 775f183..6c42eb8 100644
+--- a/radio-group/radio-group-item.svelte
++++ b/radio-group/radio-group-item.svelte
+@@ -1,6 +1,7 @@
+ <script lang="ts">
++	import CircleIcon from "@lucide/svelte/icons/circle";
+ 	import { RadioGroup as RadioGroupPrimitive } from "bits-ui";
+-	import IconPlaceholder from "$lib/components/icon-placeholder/icon-placeholder.svelte";
++	// Epicenter: Whispering's microphone and post-processing selectors need a package-local icon.
+ 	import { cn, type WithoutChildrenOrChild } from "../utils.js";
+ 
+ 	let {
+@@ -22,14 +23,7 @@
+ 	{#snippet children({ checked })}
+ 		<div data-slot="radio-group-indicator" class="flex size-4 items-center justify-center">
+ 			{#if checked}
+-				<IconPlaceholder
+-					lucide="CircleIcon"
+-					tabler="IconCircle"
+-					hugeicons="CircleIcon"
+-					phosphor="CircleIcon"
+-					remixicon="RiCircleLine"
+-					class="bg-primary-foreground absolute top-1/2 left-1/2 size-2 -translate-x-1/2 -translate-y-1/2 rounded-full"
+-				/>
++				<CircleIcon class="bg-primary-foreground absolute top-1/2 left-1/2 size-2 -translate-x-1/2 -translate-y-1/2 rounded-full" />
+ 			{/if}
+ 		</div>
+ 	{/snippet}

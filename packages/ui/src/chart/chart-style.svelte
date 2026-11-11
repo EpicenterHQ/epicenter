@@ -1,14 +1,10 @@
 <script lang="ts">
-	import { type ChartConfig, THEMES } from './chart-utils.js';
+	import { THEMES, type ChartConfig } from "./chart-utils.js";
 
 	let { id, config }: { id: string; config: ChartConfig } = $props();
 
 	const colorConfig = $derived(
-		config
-			? Object.entries(config).filter(
-					([, config]) => config.theme || config.color,
-				)
-			: null,
+		config ? Object.entries(config).filter(([, config]) => config.theme || config.color) : null
 	);
 
 	const themeContents = $derived.by(() => {
@@ -23,17 +19,19 @@
 				return color ? `\t--color-${key}: ${color};` : null;
 			});
 
-			content += color.join('\n') + '\n}';
+			content += color.join("\n") +"\n}";
 
 			themeContents.push(content);
 		}
 
-		return themeContents.join('\n');
+		return themeContents.join("\n");
 	});
 </script>
 
 {#if themeContents}
 	{#key id}
-		<svelte:element this={"style"}> {themeContents} </svelte:element>
+		<svelte:element this={"style"}>
+			{themeContents}
+		</svelte:element>
 	{/key}
 {/if}
