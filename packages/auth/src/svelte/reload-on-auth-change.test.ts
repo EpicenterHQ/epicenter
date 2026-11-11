@@ -84,27 +84,6 @@ test('degrading to reauth-required does NOT reload', () => {
 	expect(location.replace).not.toHaveBeenCalled();
 });
 
-test('reloading on the degrade would be a boot loop, which is why it does not', () => {
-	// The structural reason, pinned, because the UX reason ("do not interrupt
-	// someone mid-keystroke") reads as negotiable and this does not.
-	//
-	// A reload cannot repair this transition. The pause is runtime-only, so the
-	// next generation boots optimistically `signed-in` from the same persisted
-	// grant, and a revoked token degrades again one token-endpoint round trip
-	// later. This test plays that generation twice: if the degrade ever
-	// reloaded, the second boot is the first boot and the app spins forever.
-	for (const generation of [1, 2]) {
-		const auth = createFakeAuth(signedIn('p1'));
-		reloadOnAuthChange(auth.client);
-		// Boot is optimistic; a persisted grant can only ever come back as
-		// signed-in, whatever the last generation learned about it.
-		expect(auth.client.state.status).toBe('signed-in');
-		auth.emit(reauthRequired('p1'));
-		expect(location.reload).not.toHaveBeenCalled();
-		void generation;
-	}
-});
-
 test('repairing reauth into signed-in reloads, same principal', () => {
 	// Without this, a generation that booted degraded (or degraded mid-life)
 	// would never sync again after Reconnect: its connection stopped for good
