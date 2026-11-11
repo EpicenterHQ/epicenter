@@ -634,18 +634,14 @@
         "wellcrafted": "catalog:",
       },
       "devDependencies": {
-        "@sveltejs/vite-plugin-svelte": "catalog:",
-        "@tailwindcss/vite": "catalog:",
         "@types/bun": "catalog:",
         "jsrepo": "catalog:",
         "layerchart": "2.0.0-next.48",
         "mode-watcher": "catalog:",
-        "playwright": "^1.61.1",
         "svelte": "catalog:",
         "svelte-check": "catalog:",
         "tailwindcss": "catalog:",
         "typescript": "catalog:",
-        "vite": "catalog:",
       },
       "peerDependencies": {
         "layerchart": "2.0.0-next.48",
