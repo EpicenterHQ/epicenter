@@ -4,7 +4,7 @@
 - **Date:** 2026-11-10
 - **Amended:** 2026-11-11: `update` snapshots what is pending before it merges, as `undo` does, instead of refusing an app with uncommitted changes, and no longer lists files that do not fit their collection's fields, since every read of such a file says so in its `problems`.
 - **Relates:** [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (one copy; the install rules this replaces), [ADR-0851](0851-an-app-has-one-home-and-an-optional-push-only-backup.md) (`origin`), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (`new`, `link`), [ADR-0854](0854-an-apps-cache-is-the-files-it-gitignores.md) (rebuilt files, ignored where their tool writes them), [ADR-0857](0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md) (`epicenter.ts`), [ADR-0858](0858-where-a-file-lives-decides-whether-it-travels-survives-or-dies-with-its-program.md) (`*.local`), [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (the UI).
-- **Unbuilt:** starters in repositories of their own: Capture, Tasks, and Vocab have the layout in `apps/<app>/`, and move out once `@epicenter/app` and `@epicenter/ui` are published. Refusing a collection path under `ui/` or named `epicenter.*`: a path part that starts with `.`, as `.cache/` does, is refused already.
+- **Unbuilt:** starters in repositories of their own, published from the Studio's apps (ADR-0877): Capture, Tasks, and Vocab have the layout in `apps/<app>/`, which builds only inside this repository until `@epicenter/app` is published (ADR-0873). Records under `data/` (ADR-0876).
 
 ## Context
 
@@ -30,21 +30,22 @@ someone else's changes with one's own: a fork and its upstream.
   ui/              the UI's source, a project of its own       from upstream; yours to change
   README.md        what the app is, for people and agents      from upstream
   .gitignore  .gitattributes                                   from upstream
-  words/*.md       data                                        yours alone
+  data/words/*.md  data                                        yours alone
   ui/dist/        the built UI, served at /vocab/             built on this computer, ignored by ui/.gitignore
   node_modules/    installed packages                          ignored (ADR-0854)
   *.local          kept on this computer                       ignored (ADR-0858)
 ```
 
 - **A starter is an app with no data.** It is a repository of its own whose
-  root is the app's root. It holds no file its collections' paths match.
+  root is the app's root. It holds no `data/` (ADR-0876).
 - The UI is called the UI, and its folder `ui/`: a project with its own
   `package.json`, whose `build` writes `ui/dist/` (ADR-0860). `epicenter
-  serve` serves `ui/dist/` at `/<app>/` and nothing else. The UI's base is `/` and the
-  app's folder name, so a build by hand and one by `epicenter update` agree.
+  serve` serves `ui/dist/` at `/<app>/` and nothing else. The UI refers to its
+  files by relative paths, so it builds the same under any folder name.
 - `epicenter` supplies `@epicenter/app` to `epicenter.ts` when it runs it; the
   root `package.json` serves only whoever edits or tests the actions.
-- A collection's path may not start with `ui/` or `epicenter.`.
+- Records live under `data/`, and everything tracked outside it is code
+  (ADR-0876), so `update` merges code and never a record.
 
 **`epicenter new <name> --from <git url|path>` makes an app from a starter.**
 It clones the starter into `~/Epicenter/<name>`, renames the clone's remote to
@@ -71,8 +72,10 @@ The merge commit records what came in; nothing writes trailers.
 
 **Backups go to `origin` only.** `epicenter sync` and `epicenter serve` push
 `HEAD` to `origin` by name and never to `upstream` or a tracked branch. A
-change made in an app reaches its starter as any fork's does: a cherry-pick or
-a pull request in the starter's repository.
+change made in someone's app reaches its starter as any fork's does: a
+cherry-pick or a pull request in the starter's repository. The starter's
+author publishes their own app's changes with `epicenter publish`
+(ADR-0877).
 
 **The collections are the contract between a starter and the data.** A starter
 that renames or tightens a field owns the change to existing files: every
@@ -90,12 +93,10 @@ the computer repairs them, or the starter ships an action that does. Git merges 
   same lines. A person who never changes an app's code never meets one, because
   a starter holds no data.
 - An app's history includes its starter's commits.
-- First-party starters (`apps/capture`, `apps/tasks`, `apps/vocab`) move to
-  repositories of their own and build against the published `@epicenter/app`
-  and `@epicenter/ui`, as anyone else's do. A change to `@epicenter/ui`
-  reaches a starter through a release.
-- The Studio's installed apps join their starters once: `git remote add
-  upstream <starter>`, then a merge with `--allow-unrelated-histories`.
+- First-party starters are published from the Studio's apps (ADR-0877) into
+  repositories of their own, and build against the published `@epicenter/app`
+  (ADR-0873) and the components they copied (ADR-0874), as anyone else's do.
+- The Studio's apps are their starters' source, so they have no `upstream`.
 - `epicenter sync` is no longer the only command that touches a remote:
   `update` fetches `upstream`.
 - The word "view" in the code, the records, and the `epicenter-app` skill

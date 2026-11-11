@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-11-09
 - **Relates:** [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) (your server, and reach from vendors' clouds), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (programs that have the folder or ask), [ADR-0853](0853-collections-give-five-actions-and-programs-without-the-folder-ask-over-mcp.md) (MCP, the view client), [ADR-0857](0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md) (`epicenter.ts`, and the client typed by it), [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (one copy, and `serve` at `/<app>/` and `/`).
-- **Unbuilt:** nothing in `serve` itself: HTTPS comes from `tailscale serve` on the tailnet and from an HTTPS tunnel to the public listener. Built: `epicenter serve` serving the view at `/<app>/` and MCP at `/` (`packages/cli/src/http.ts`); the view client `connect`, typed by the app (`packages/app/src/client.ts`); Capture's, Reading's, Tasks', and Vocab's views in `apps/<app>/ui/`, which `epicenter new --from`, `update`, and `build` build into `ui/dist/` (ADR-0866), and a hand-written `ui/dist/` when `ui/package.json` has no `build` script (`packages/cli/src/ui.ts`); the public listener, behind a sign-in, for an HTTPS tunnel (ADR-0871).
+- **Unbuilt:** `epicenter build` bundling `ui/index.html` with Bun when `ui/package.json` has no `build` script (today such a `ui/dist/` is written by hand and committed); a build that replaces the last one only once it is complete; relative asset paths (the starters' base is `/<folder name>/`); records under `data/` (ADR-0876). HTTPS is not `serve`'s: it comes from `tailscale serve` on the tailnet and from an HTTPS tunnel to the public listener. Built: `epicenter serve` serving the view at `/<app>/` and MCP at `/` (`packages/cli/src/http.ts`); the view client `connect`, typed by the app (`packages/app/src/client.ts`); Capture's, Reading's, Tasks', and Vocab's views in `apps/<app>/ui/`, which `epicenter new --from`, `update`, and `build` build into `ui/dist/` (ADR-0866), and a hand-written `ui/dist/` when `ui/package.json` has no `build` script (`packages/cli/src/ui.ts`); the public listener, behind a sign-in, for an HTTPS tunnel (ADR-0871).
 
 ## Context
 
@@ -27,22 +27,30 @@ nothing for a view.
 ```txt
 ~/Epicenter/capture/
   epicenter.ts        its collections and actions
-  ui/                 the view's source: SvelteKit, Svelte 5, and @epicenter/ui
+  ui/                 the view's source: any build, or one index.html
   ui/dist/            the built view, served at /capture/, ignored by ui/.gitignore
-  captures/<time>.md
+  data/captures/<time>.md
 ```
 
-**A view is what is in `ui/dist/`.** `epicenter serve` serves `ui/dist/` at
-`/<app>/` and looks nowhere else. When `ui/package.json` has a `build` script,
-`ui/dist/` is its output: rebuildable, ignored by `ui/.gitignore`, never
-committed (ADR-0854). `epicenter build`, `new --from`, and `update` run that
-script and keep the last `ui/dist/` that built (ADR-0866). When there is no
-`build` script, `ui/dist/` holds files written by hand, committed like any
-other: a single `index.html` is a view. `dist` is the default output of Vite,
-Astro, Parcel, and Rsbuild, so most projects need no setting; SvelteKit's
-static adapter is pointed at it with `adapter({ pages: 'dist', assets: 'dist' })`.
-Any build that produces static files works; SvelteKit with Epicenter's
-components is the default starter, not a requirement.
+**A view is what `ui/` builds to, and it is always built.** `epicenter serve`
+serves `ui/dist/` at `/<app>/` and looks nowhere else. `ui/dist/` is
+rebuildable, ignored by `ui/.gitignore`, and never committed (ADR-0854).
+`epicenter build`, `new --from`, and `update` build it:
+
+- When `ui/package.json` has a `build` script, they install from the UI's
+  committed `bun.lock` and run it. `dist` is the default output of Vite,
+  Astro, Parcel, and Rsbuild; SvelteKit's static adapter is pointed at it with
+  `adapter({ pages: 'dist', assets: 'dist' })`.
+- Otherwise they bundle `ui/index.html` with Bun's bundler, which `epicenter`
+  carries, so a single `index.html`, with TypeScript, TSX, and CSS beside it,
+  is a view with no `package.json` and no setting.
+
+A build writes beside the last view and replaces it only once it is complete,
+so `serve` never answers from half a build, and a failed build leaves the last
+view in place. A view refers to its own files by relative paths and routes
+with the hash, so the same build works under any folder name. Any build that
+produces static files works; SvelteKit with Epicenter's components is the
+default starter, not a requirement.
 
 **A view follows four rules.**
 

@@ -420,8 +420,8 @@ failed.
 A view hands these calls to TanStack Query through Wellcrafted's
 `resultQueries` and `resultMutations` (ADR-0661), and makes its one
 QueryClient with `createQueryClient()`: every write refreshes every read the
-page shows before it counts as done, and reads refresh every 15 seconds while
-the page is visible and when it is shown again.
+page shows before it counts as done, and reads refresh when the view is shown
+again (its tab or app comes back). Nothing refreshes on a timer.
 
 ```ts
 import { resultMutations, resultQueries } from 'wellcrafted/query';

@@ -1,0 +1,69 @@
+# 0878. The OS keeps `epicenter serve` running, under a job the person installs
+
+- **Status:** Accepted
+- **Date:** 2026-11-11
+- **Unbuilt:** all of it: there is no `epicenter service`, `serve` reads `AGENTS.md` once when it starts, and the Studio's `serve` runs from a monorepo worktree with nothing to restart it.
+- **Relates:** [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (your server is the computer that runs `serve`), [ADR-0865](0865-the-epicenter-mac-app-runs-epicenter-serve-so-the-computer-it-is-on-is-your-server.md) (the Mac app), [ADR-0868](0868-an-epicenter-is-any-folder-that-says-it-is-one-and-a-computer-runs-as-many-as-it-has.md) (several Epicenters on one computer), [ADR-0873](0873-the-command-is-epicenter-cli-and-an-app-builds-against-epicenter-app-released-together.md) (the installed command).
+
+## Context
+
+`serve` must outlive the terminal or agent that started it and come back after
+a reboot or a crash. On the Studio today it is
+`bun <worktree>/packages/cli/src/bin.ts serve`, started by an agent: deleting
+that worktree stops the server, switching its branch changes it, and nothing
+starts it again. An agent asked to install a LaunchAgent was stopped by its
+permission checks; a program that starts at every login is the person's
+decision.
+
+`serve` needs restarting less than it seems. Each action runs in a fresh
+child process and each UI file is read when asked for, so changing an app or
+rebuilding its UI needs no restart. What does: a new `epicenter`, a changed
+`EPICENTER.md`, and today a changed `AGENTS.md`, which `serve` reads once.
+
+## Decision
+
+**`epicenter serve` is a foreground process, and the operating system keeps it
+running.** It stops cleanly on `SIGINT` and `SIGTERM` and supervises nothing.
+
+**`epicenter service install` writes the job; the person runs it, once per
+Epicenter.**
+
+- On macOS it is a LaunchAgent in `~/Library/LaunchAgents/`, one per
+  Epicenter, labelled from the Epicenter's folder, with `RunAtLoad` and
+  `KeepAlive`. It runs the installed `epicenter` by absolute path (ADR-0873),
+  never a checkout, in the Epicenter's folder. Its `PATH` holds the folders of
+  the `git` and `git-lfs` found when it was installed. It logs to
+  `~/Library/Logs/Epicenter/<label>.log`.
+- On Linux the same job is a systemd user unit, when a Linux server needs one.
+- `epicenter service restart` runs `launchctl kickstart -k` on the job;
+  `status` says whether it runs and its port. Agents may run both.
+  `install` and `uninstall` are the person's.
+- Upgrading is installing the new `@epicenter/cli`, then
+  `epicenter service restart`.
+
+**`serve` reads `AGENTS.md` when each MCP client initializes,** as it reads a
+UI's files when asked. Only a new `epicenter` or a changed `EPICENTER.md`
+needs a restart.
+
+## Consequences
+
+- After a reboot `serve` returns once the person's session starts, so an
+  always-on Mac logs in automatically. With FileVault on, a reboot after a
+  power loss waits at the unlock screen.
+- No agent finds a port or a process to stop: restarting is one command.
+- `epicenter init` writes nothing that starts at login; tests and agents run it
+  in throwaway folders.
+- The Mac app's "Run Epicenter" registers this same job (ADR-0865), so there is
+  one supervisor whichever way `serve` was set up.
+
+## Considered alternatives
+
+- **The Mac app as the supervisor.** A second program to keep alive, and only
+  for people who install the app; launchd already does this on every Mac.
+- **`serve` daemonizing itself, with a pid file and `epicenter stop`.** It
+  reinvents what launchd and systemd do, and still cannot start after a reboot.
+- **Installing the job in `epicenter init`.** `init` is run in temporary
+  folders by tests and agents, and starting a program at every login is not
+  setup a person should get without asking for it.
+</content>
+</invoke>

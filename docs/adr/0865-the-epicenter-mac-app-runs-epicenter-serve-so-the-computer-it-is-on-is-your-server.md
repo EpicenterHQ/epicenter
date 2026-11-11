@@ -2,8 +2,8 @@
 
 - **Status:** Proposed
 - **Date:** 2026-11-10
-- **Relates:** [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (one copy, clients that ask), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (`epicenter` runs Git's porcelain), [ADR-0856](0856-binary-files-go-through-git-lfs.md) (LFS), [ADR-0851](0851-an-app-has-one-home-and-an-optional-push-only-backup.md) (the remote).
-- **Unbuilt:** all of it: the app in `apps/epicenter/` (only Tauri's generated `src-tauri/gen/` exists, untracked), its bundled `epicenter`, `git`, and `git-lfs`, the menu bar item, and "Open at login".
+- **Relates:** [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (one copy, clients that ask), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (`epicenter` runs Git's porcelain), [ADR-0856](0856-binary-files-go-through-git-lfs.md) (LFS), [ADR-0851](0851-an-app-has-one-home-and-an-optional-push-only-backup.md) (the remote), [ADR-0878](0878-the-os-keeps-epicenter-serve-running-under-a-job-the-person-installs.md) (the job that keeps `serve` running).
+- **Unbuilt:** all of it: the app in `apps/epicenter/` (only Tauri's generated `src-tauri/gen/` exists, untracked), its bundled `epicenter`, `git`, and `git-lfs`, the menu bar item, and registering ADR-0878's job.
 
 ## Context
 
@@ -31,14 +31,15 @@ Epicenter.app/Contents/MacOS/
   git, git-lfs       the Git it runs
 ```
 
-- Opening the app starts `epicenter serve` on `~/Epicenter`, unless a server
-  already answers on its port, which the app then shows instead of starting a
-  second.
+- The app starts no process of its own. `serve` runs under the LaunchAgent of
+  ADR-0878, which the app registers for `~/Epicenter` through
+  `SMAppService.agent`, the job `epicenter service install` writes. If that
+  job is already registered, the app shows it.
 - The window shows the launcher at `http://localhost:<port>/`, the page a phone
   sees at `/`.
-- A menu bar item keeps `serve` running when the window closes; "Quit
-  Epicenter" stops it.
-- Its one setting is "Open at login", a macOS login item (`SMAppService`).
+- A menu bar item shows whether `serve` is running and restarts it; closing
+  the window or quitting the app leaves it running.
+- Its one setting is "Run Epicenter", which registers or unregisters the job.
 
 **The app carries its own Git.** It puts its bundled `git` and `git-lfs` first
 on the `PATH` of the `serve` it starts, and sets LFS's filter for that Git in
@@ -50,7 +51,7 @@ its `origin` or `.lfsconfig` (ADR-0856).
 
 **The computer the app is on is your server.** On a Mac that is the only
 computer, the app is all of Epicenter: the apps, their actions and views, and
-MCP for agents on that Mac. With "Open at login" on and the Mac left on, it is
+MCP for agents on that Mac. With "Run Epicenter" on and the Mac left on, it is
 the server every device reaches (ADR-0864). A phone is always a client.
 
 **It is a notarized download, not a Mac App Store app.** The store's sandbox
@@ -66,8 +67,8 @@ reaches only folders a person picks and confines every program the app starts;
   tailnet until `serve` has sign-in (ADR-0864). A person whose phone must work
   while their only Mac sleeps needs a computer that stays on.
 - The app ships Git and Git LFS, and their updates, with each release.
-- The author's Studio can run the app instead of a shell, and `serve` survives
-  a restart.
+- The author's Studio can run the app or `epicenter service install`; either
+  way one launchd job keeps `serve` running across restarts.
 - A second Mac holding its own copy and pushing to your server is not part of
   this decision; until something needs it, a second Mac uses a browser.
 
