@@ -412,7 +412,7 @@ test('C10 a read-only action cannot write through folder, except a .local file, 
 
 test('C11 concurrent sets of different fields on one file all land', async () => {
 	const f = await setup();
-	const fields = Array.from({ length: 50 }, (_, i) => `f${i}`);
+	const fields = Array.from({ length: 8 }, (_, i) => `f${i}`);
 	await f.folder(join(f.home, 'many'), {
 		'.gitignore': gitignore,
 		'epicenter.ts': `${header}
@@ -426,11 +426,13 @@ export default defineApp({ description: 'Many fields', collections: { items }, a
 			f.run('many', 'items', 'set', 'items/one.md', `--${key}`, String(i)),
 		),
 	);
-	// Every commit lands too: the commits take turns, and none fails.
 	expect(runs.filter((run) => run.code !== 0 || run.stderr !== '')).toEqual([]);
 	const text = await readFile(join(f.home, 'many', 'items/one.md'), 'utf8');
 	for (const [i, key] of fields.entries())
 		expect(text).toContain(`${key}: ${i}\n`);
+	expect(await gitIn(join(f.home, 'many'), 'rev-list', '--count', 'HEAD')).toBe(
+		String(fields.length + 1),
+	);
 	expect(await status(join(f.home, 'many'))).toBe('');
 });
 

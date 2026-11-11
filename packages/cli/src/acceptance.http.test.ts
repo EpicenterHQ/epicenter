@@ -221,9 +221,10 @@ test('concurrent writes through update both land, and both are in history', asyn
 		/^minutes,book\n(?:10,\n20,|20,\n10,)\n$/,
 	);
 	expect(await gitIn(folder, 'status', '--porcelain')).toBe('');
-	const history = await gitIn(folder, 'log', '--format=%s');
-	expect(history).toMatch(/reading: log (10|20)/);
-	expect(await gitIn(folder, 'rev-list', '--count', 'HEAD')).toMatch(/^[23]$/);
+	expect(
+		(await gitIn(folder, 'log', '-2', '--format=%s')).split('\n').sort(),
+	).toEqual(['reading: log 10', 'reading: log 20']);
+	expect(await gitIn(folder, 'rev-list', '--count', 'HEAD')).toBe('3');
 });
 
 test('two calls at once on different files each commit only their own file', async () => {
