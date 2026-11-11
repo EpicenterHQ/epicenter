@@ -96,7 +96,7 @@ async function setup({
 	remote?: BlobRemote | null;
 	seed?: ReturnType<typeof recording>[];
 } = {}) {
-	const data = openMemory(whisperingDefinition);
+	const data = await openMemory(whisperingDefinition);
 	const table = data.tables.recordings;
 	for (const row of seed) expectOk(table.create(storedRow(row)));
 	const domain = createWhisperingRecordings({
