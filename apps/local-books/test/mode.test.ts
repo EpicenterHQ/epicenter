@@ -38,14 +38,14 @@ describe('decideMode', () => {
 		).toBe('FULL');
 	});
 
-	test('no cursor is FULL', () => {
-		expect(
-			decideMode({
-				...base,
-				forceFull: false,
-				realmState: state({ cdcCursor: null }),
-			}).mode,
-		).toBe('FULL');
+	test('no cursor is FULL even with a recent recorded full pull', () => {
+		const decision = decideMode({
+			...base,
+			forceFull: false,
+			realmState: state({ lastFullPullAt: daysAgo(1) }),
+		});
+		expect(decision.mode).toBe('FULL');
+		expect(decision.reason).toContain('no cursor');
 	});
 
 	test('recent cursor + recent full pull is INCREMENTAL', () => {
