@@ -391,7 +391,10 @@ test('C9 a write that throws is committed as the call that threw', async () => {
 test('C10 a read-only action cannot write through folder, except a .local file, and makes no commit', async () => {
 	const f = await setup();
 	await writeFile(join(f.dir, 'b.md'), 'by hand\n');
+	// A refused write is refused at once, not after waiting on another call's lock.
+	const held = await hold(f.dir, 0);
 	const peek = await f.json('notes', 'peek');
+	held?.release();
 	expect(peek.code).toBe(1);
 	expect(peek.answer).toEqual({
 		threw: {
