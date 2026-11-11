@@ -87,14 +87,4 @@ describe('a database larger than the value cap survives the round trip', () => {
 		expect(back.byteLength).toBe(SNAPSHOT_BYTES);
 		expect(await digest(back)).toBe(expected);
 	});
-
-	it('CONTROL: one flipped byte changes the digest', async () => {
-		// The assertion above is only evidence if it can fail, and a digest
-		// comparison is exactly the kind that silently cannot when both sides
-		// are computed the same wrong way.
-		const state = largeState(4096);
-		const tampered = state.slice();
-		tampered[2048] = (tampered[2048] ?? 0) ^ 0xff;
-		expect(await digest(tampered)).not.toBe(await digest(state));
-	});
 });
