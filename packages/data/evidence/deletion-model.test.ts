@@ -1,10 +1,10 @@
 /**
  * Whether clear-and-flag buys anything a reader can see.
  *
- * `deleteRow` clears a row's fields and flags it absent rather than removing it
- * from the table root, and its own comment gives the reason: "Deleting the row's
- * attribute instead destroys a concurrent edit; clearing fields and flagging
- * converges with the tombstone held and the peer's edit retained."
+ * The former `deleteRow` cleared a row's fields and flagged it absent rather
+ * than removing it from the table root. The proposed benefit was retaining a
+ * concurrent edit on the deleted row. The current implementation drops the
+ * root attribute; these tests preserve the comparison that led to that choice.
  *
  * That costs about 8 items per dead row against 2 for removal, which is 458 MB
  * against 100 MB over a decade of ordinary churn (`evidence/bench/tombstones.ts`).

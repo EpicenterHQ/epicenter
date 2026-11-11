@@ -15,8 +15,8 @@
  * the record, not about the lens.
  *
  * So: **when you need a value, ask the store, not the table.** `store.stored()`
- * for everything and `store.rowFile(table, id)` for one row both answer in
- * plain JSON, and both are faithful where the lens narrows.
+ * gives faithful plain data. `store.rowFile(table, id)` gives faithful scalars
+ * alongside live types for the artifact codec.
  */
 import { describe, expect, test } from 'bun:test';
 import * as Y from '@y/y';
@@ -87,13 +87,13 @@ describe('a row is a read, not a value', () => {
 		expect(held?.body.toString()).toContain('and eggs');
 	});
 
-	test('rowFile answers in plain JSON, for one row', async () => {
+	test('rowFile returns faithful scalars and the live type for one row', async () => {
 		const { phone, id } = await convergedPair();
 		const row = phone.store.rowFile('notes', id);
 		if (row === undefined) throw new Error('the row is gone');
-		// Faithful and untyped: every stored scalar, and the live types beside
-		// them for a codec. The scalars alone are what a value comparison wants.
-		const { body: _body, ...scalars } = row;
+		const { body, ...scalars } = row;
 		expect(scalars).toEqual({ id, title: 'Groceries' });
+		expect(body).toBeInstanceOf(Y.Type);
+		expect(body).toBe(phone.tables.notes.get(id)?.body);
 	});
 });
