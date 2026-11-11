@@ -71,12 +71,12 @@ describe('storage ownership', () => {
 		expect(Object.keys(imports)).not.toContain('#platform/application');
 	});
 
-	test('the host owns the deployment choice its build reads', async () => {
-		expect(await leafSource('#platform/instance', 'epicenter-host')).toContain(
-			'createDesktopInstanceSetting',
+	test('the host leaves export settings and auth from desktop factories', async () => {
+		expect(await leafSource('#platform/instance', 'epicenter-host')).toMatch(
+			/export const instanceSetting\s*=\s*createDesktopInstanceSetting\s*\(/,
 		);
-		expect(await leafSource('#platform/auth', 'epicenter-host')).toContain(
-			'createDesktopBrokerAuth',
+		expect(await leafSource('#platform/auth', 'epicenter-host')).toMatch(
+			/export const auth\s*=\s*createDesktopBrokerAuth\s*\(/,
 		);
 	});
 });
