@@ -500,7 +500,7 @@ test('a built UI serves files and refuses traversal and symlinks outside it', as
 	expect((await fetch(`${f.base}/linked/`)).status).toBe(404);
 });
 
-test('serve builds the UI as it sits on disk when a page opens, and keeps the last good build through a failure', async () => {
+test('serve builds the UI as it sits on disk when a page opens, waits only for the first build, and keeps the last good build through a failure', async () => {
 	const f = await setup((f) =>
 		f.folder(join(f.home, 'reading'), {
 			...readingApp,
@@ -519,7 +519,9 @@ test('serve builds the UI as it sits on disk when a page opens, and keeps the la
 		}
 		return false;
 	};
-	expect(await opened('one\n')).toBe(true);
+	// The first page load waits for the UI's first build rather than answering 404.
+	const first = await fetch(`${f.base}/reading/`);
+	expect([first.status, await first.text()]).toEqual([200, 'one\n']);
 	// Uncommitted: the UI runs as it sits on disk.
 	await writeFile(join(folder, 'ui', 'page.txt'), 'two\n');
 	expect(await opened('two\n')).toBe(true);

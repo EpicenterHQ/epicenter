@@ -115,6 +115,18 @@ export type Site = {
 
 const notFound = () => new Response('Not found', { status: 404 });
 
+/** How long a page load waits for a UI's first build before answering 404. */
+const FIRST_BUILD_WAIT_MS = 60_000;
+
+async function exists(path: string) {
+	try {
+		await stat(path);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
 /** The site both listeners serve: MCP, the launcher, and each app's UI. */
 function createSite(
 	refreshUi: (app: string, folder: string) => unknown,
@@ -137,8 +149,21 @@ function createSite(
 		)
 			return notFound();
 		// A page load, not each of its files, checks that the UI is of its sources now.
-		if (decoded === '' || decoded === 'index.html')
-			void refreshUi(entry.entry, entry.realPath);
+		// A UI that has never built waits for its first build, up to a minute;
+		// after that, the last good build answers while the next one runs.
+		if (decoded === '' || decoded === 'index.html') {
+			const refreshed = refreshUi(entry.entry, entry.realPath);
+			if (!(await exists(join(entry.realPath, UI_DIST, 'index.html')))) {
+				let timer: Timer | undefined;
+				await Promise.race([
+					refreshed,
+					new Promise((resolve) => {
+						timer = setTimeout(resolve, FIRST_BUILD_WAIT_MS);
+					}),
+				]);
+				clearTimeout(timer);
+			}
+		}
 		try {
 			// The UI in ui/dist/ is the only thing served (ADR-0860).
 			const root = await realpath(join(entry.realPath, UI_DIST));
