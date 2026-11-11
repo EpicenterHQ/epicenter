@@ -332,11 +332,13 @@ test("a call's first write waits while another process holds the app's lock, and
 	expect(await hold(f.dir, 0)).toBeDefined();
 });
 
-test('snapshots from several processes at once commit what is pending once, and none fails', async () => {
+test("snapshots from several processes, each holding the app's lock, commit what is pending once, and none fails", async () => {
 	const f = await setup();
 	for (const page of ['b', 'c', 'd'])
 		await writeFile(join(f.dir, `${page}.md`), page);
-	const script = `const { snapshot } = await import(${JSON.stringify(join(import.meta.dir, 'snapshot.ts'))}); console.log(JSON.stringify(await snapshot('notes', ${JSON.stringify(f.dir)})));`;
+	const dir = JSON.stringify(f.dir);
+	// As every caller does: `snapshot` runs inside the app's lock.
+	const script = `const { snapshot } = await import(${JSON.stringify(join(import.meta.dir, 'snapshot.ts'))}); const { locked, LOCK_WAIT_MS } = await import(${JSON.stringify(join(import.meta.dir, 'lock.ts'))}); const held = await locked(${dir}, LOCK_WAIT_MS, () => snapshot('notes', ${dir})); console.log(JSON.stringify('done' in held ? held.done : held));`;
 	const answers = await Promise.all(
 		Array.from({ length: 6 }, async () => {
 			const child = Bun.spawn([process.execPath, '-e', script], {
