@@ -36,6 +36,7 @@ import { realpath, stat } from 'node:fs/promises';
 import { isIP } from 'node:net';
 import { basename, isAbsolute, join, sep } from 'node:path';
 import { isName } from '@epicenter/app';
+import { YIELDS_META } from '@epicenter/app/client';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { openAuthorizationServer } from './authorization-server.ts';
@@ -101,6 +102,54 @@ p{color:var(--muted)}
 </style></head><body><main><h1>${escapeHtml(name)}</h1>${items ? `<ul>${items}</ul>` : '<p>No app here has a UI yet.</p>'}</main></body></html>`;
 }
 
+/**
+ * Whether `request` is a call that asks for its action's yields (ADR-0879):
+ * one `tools/call` whose `_meta` sets `epicenter/yields`. Only the view
+ * client asks; every other request gets one JSON body.
+ */
+async function wantsYields(request: Request): Promise<boolean> {
+	if (request.method !== 'POST') return false;
+	try {
+		const message = (await request.clone().json()) as {
+			method?: unknown;
+			params?: { _meta?: Record<string, unknown> };
+		};
+		return (
+			message.method === 'tools/call' &&
+			message.params?._meta?.[YIELDS_META] === true
+		);
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * `response` with `body` passed through, calling `close` once the body ends
+ * or its reader goes away. A streamed call's MCP server lives until then, and
+ * closing it early stops the call's child, so a page closed mid-reply leaves
+ * nothing saved.
+ */
+function closingWith(
+	response: Response,
+	body: ReadableStream<Uint8Array>,
+	close: () => Promise<void>,
+): Response {
+	const reader = body.getReader();
+	const passed = new ReadableStream<Uint8Array>({
+		async pull(controller) {
+			const { done, value } = await reader.read();
+			if (!done) return controller.enqueue(value);
+			controller.close();
+			await close();
+		},
+		async cancel(reason) {
+			await reader.cancel(reason);
+			await close();
+		},
+	});
+	return new Response(passed, response);
+}
+
 /** What both listeners offer; each decides who may reach it. */
 export type Site = {
 	/** Answer an MCP request. With `readOnly`, list and run only read-only actions. */
@@ -163,15 +212,23 @@ function createSite(
 	return {
 		async mcp(request, readOnly = false) {
 			const server = await createMcpServer({ readOnly });
+			const streams = await wantsYields(request);
 			const transport = new WebStandardStreamableHTTPServerTransport({
-				enableJsonResponse: true,
+				enableJsonResponse: !streams,
 			});
+			let response: Response;
 			try {
 				await server.connect(transport);
-				return await transport.handleRequest(request);
-			} finally {
+				response = await transport.handleRequest(request);
+			} catch (error) {
 				await server.close();
+				throw error;
 			}
+			if (!streams || !response.body) {
+				await server.close();
+				return response;
+			}
+			return closingWith(response, response.body, () => server.close());
 		},
 		async launcher(request) {
 			// MCP's GET for a server-sent stream: stateless, so there is none.

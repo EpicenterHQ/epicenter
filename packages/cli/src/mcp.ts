@@ -12,9 +12,15 @@
  * `isError` on failure. The call's process commits the paths it wrote,
  * named for it, before it answers (ADR-0850, `run.ts`). Diagnostics go to
  * stderr.
+ *
+ * A call whose `_meta` sets `epicenter/yields` and gives a `progressToken`
+ * (the view client's, ADR-0879) is also sent each value its action yields,
+ * as a progress notification with the value in `_meta["epicenter/yield"]`.
+ * No other call is; a connector gets only the result.
  */
 
 import { isName } from '@epicenter/app';
+import { YIELD_META, YIELDS_META } from '@epicenter/app/client';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
@@ -78,12 +84,21 @@ function toolResult(answer: Answer) {
  * does; the child commits what it wrote. App names and action words hold no
  * underscores, and the first word must be able to name an app, so a tool name
  * never runs one of `epicenter`'s own commands. With `readOnly`, the child
- * runs the action only when it is read-only.
+ * runs the action only when it is read-only. With `onYield`, its yields go
+ * there, and `signal` stops the child.
  */
 async function callTool(
 	name: string,
 	args: Record<string, unknown>,
-	readOnly: boolean,
+	{
+		readOnly,
+		onYield,
+		signal,
+	}: {
+		readOnly: boolean;
+		onYield?: (value: unknown) => unknown;
+		signal?: AbortSignal;
+	},
 ) {
 	const [app = '', ...words] = name.split('_');
 	if (
@@ -98,7 +113,7 @@ async function callTool(
 		(await runChild(
 			[app, ...words, '--input', JSON.stringify(args), '--json'],
 			'ignore',
-			{ readOnly },
+			{ readOnly, onYield, signal },
 		)) as Answer,
 	);
 }
@@ -124,9 +139,26 @@ export async function createMcpServer({
 		const tools = await listTools();
 		return { tools: readOnly ? tools.filter(isReadOnly) : tools };
 	});
-	server.setRequestHandler(CallToolRequestSchema, (request) =>
-		callTool(request.params.name, request.params.arguments ?? {}, readOnly),
-	);
+	server.setRequestHandler(CallToolRequestSchema, (request, extra) => {
+		const { name, arguments: args = {}, _meta } = request.params;
+		const progressToken = _meta?.progressToken;
+		if (_meta?.[YIELDS_META] !== true || progressToken === undefined)
+			return callTool(name, args, { readOnly });
+		let progress = 0;
+		return callTool(name, args, {
+			readOnly,
+			signal: extra.signal,
+			onYield: (value) =>
+				extra.sendNotification({
+					method: 'notifications/progress',
+					params: {
+						progressToken,
+						progress: ++progress,
+						_meta: { [YIELD_META]: value },
+					},
+				}),
+		});
+	});
 	return server;
 }
 

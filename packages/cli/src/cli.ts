@@ -243,11 +243,14 @@ export async function runCli(argv: string[]): Promise<number> {
 		const given = await readInput(action, matched.rest);
 		if ('error' in given)
 			return fail(CliError.Usage({ message: given.error, next }).error, json);
+		// A parent that opened an IPC channel wants the action's yields (child.ts).
+		const sends = reportArg !== undefined && process.send !== undefined;
 		const { answer, committed } = await runAction(
 			located,
 			matched.key,
 			action,
 			given.input,
+			sends ? (yielded) => process.send?.({ yielded }) : undefined,
 		);
 		if (committed && 'failed' in committed)
 			writeErr(

@@ -18,6 +18,11 @@
  * The child owns the whole call: it takes the app's lock, runs the action,
  * and commits what it wrote (`run.ts`), so it finishes the call, commit and
  * all, even when its parent dies.
+ *
+ * A parent that wants an action's yields (ADR-0879) opens Bun's IPC channel
+ * to the child, and the child sends each yield over it as `{ yielded }`. Bun
+ * delivers every message before the child's exit is seen, so the yields all
+ * arrive before the answer is read. A child with no channel sends nothing.
  */
 import { randomUUID } from 'node:crypto';
 import { readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
@@ -61,34 +66,58 @@ export function writeReport(path: string, record: Report) {
  * answered: for a call, an `Answer`, after the child has committed what it
  * wrote; for a listing, the listing. The command line and both MCP
  * transports run every call this way. With `readOnly`, the child runs an
- * action only when it is read-only, and no command at all.
+ * action only when it is read-only, and no command at all. With `onYield`,
+ * each value the action yields goes to it in order, each delivery awaited
+ * before the next and all before the answer returns; when `signal` aborts,
+ * the child is stopped, so a call nobody is waiting for ends unanswered.
  */
 export async function runChild(
 	args: string[],
 	stdin: 'inherit' | 'ignore',
-	{ readOnly = false }: { readOnly?: boolean } = {},
+	{
+		readOnly = false,
+		onYield,
+		signal,
+	}: {
+		readOnly?: boolean;
+		onYield?: (value: unknown) => unknown;
+		signal?: AbortSignal;
+	} = {},
 ): Promise<unknown> {
 	const path = join(tmpdir(), `epicenter-report-${randomUUID()}.json`);
 	const flags = [
 		`${REPORT_FLAG}${path}`,
 		...(readOnly ? [READ_ONLY_FLAG] : []),
 	];
+	let delivered: Promise<unknown> = Promise.resolve();
 	const child = Bun.spawn([...self(), ...flags, ...args], {
 		cwd: epicenterDir(),
 		stdio: [stdin, 2, 2],
+		...(onYield && {
+			serialization: 'json' as const,
+			ipc(message: { yielded?: unknown }) {
+				delivered = delivered
+					.then(() => onYield(message.yielded))
+					.catch(() => {});
+			},
+		}),
 	});
 	const forward = (signal: NodeJS.Signals) => child.kill(signal);
+	const stop = () => child.kill('SIGTERM');
 	process.on('SIGINT', forward);
 	process.on('SIGTERM', forward);
+	signal?.addEventListener('abort', stop, { once: true });
 	let record: Partial<Report> = {};
 	try {
 		await child.exited;
+		await delivered;
 		try {
 			record = JSON.parse(readFileSync(path, 'utf8'));
 		} catch {}
 	} finally {
 		process.off('SIGINT', forward);
 		process.off('SIGTERM', forward);
+		signal?.removeEventListener('abort', stop);
 		rmSync(path, { force: true });
 	}
 	if ('answer' in record) return record.answer;

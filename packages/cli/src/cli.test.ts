@@ -147,6 +147,24 @@ test('commands write disk data and return one JSON answer without diagnostics', 
 	).toBe('{"returned":{"day":"2026-11-08"}}\n');
 });
 
+test('a yielding action answers the terminal with its return alone, and commits once', async () => {
+	const f = await setup();
+	await f.app(
+		'talk',
+		`export default defineApp({ description: 'Talk', collections: {}, actions: {
+	say: defineAction({ description: 'Say', input: { message: field.text() }, positional: ['message'], async *run({ message }) { yield 'one'; yield { step: 2 }; await folder.write('data/said.md', message); return { reply: message }; } }),
+} });\n`,
+	);
+	expect(await f.run('talk', 'say', 'hi', '--json')).toEqual({
+		code: 0,
+		stdout: '{"returned":{"reply":"hi"}}\n',
+		stderr: '',
+	});
+	expect(
+		await gitIn(join(f.home, 'talk', 'data'), 'log', '-1', '--format=%s'),
+	).toBe('talk: say hi');
+});
+
 test('negative numbers work as positional, separate flag and inline flag values', async () => {
 	const f = await setup();
 	for (const args of [['-3'], ['--minutes', '-3'], ['--minutes=-3']]) {

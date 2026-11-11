@@ -1,4 +1,11 @@
-export { type Action, defineAction, type Input, isAction } from './action.ts';
+export {
+	type Action,
+	type ActionYield,
+	defineAction,
+	type Input,
+	isAction,
+	runYielding,
+} from './action.ts';
 export {
 	type Actions,
 	type App,

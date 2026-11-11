@@ -17,6 +17,7 @@ import {
 	inRun,
 	isLocalPath,
 	normalizePath,
+	runYielding,
 } from '@epicenter/app';
 import { extractErrorMessage } from 'wellcrafted/error';
 import type { Runnable } from './home.ts';
@@ -92,13 +93,15 @@ function forCall(
  * then commit the paths it wrote through `folder` under the call's name,
  * whether it returned or threw (`<call> (threw)`), and let the app's lock go.
  * `committed` is the commit's outcome, absent when the call wrote nothing
- * it could commit.
+ * it could commit. Each value the action yields goes to `onYield`, when
+ * given, as it runs; only its return is the answer (ADR-0879).
  */
 export async function runAction(
 	located: Runnable,
 	key: string,
 	action: Action,
 	input: Record<string, unknown>,
+	onYield: (value: unknown) => unknown = () => {},
 ): Promise<{
 	answer: Exclude<Answer, { error: unknown }>;
 	committed?: Snapshot;
@@ -120,7 +123,11 @@ export async function runAction(
 		: { ...located.context, folder };
 	let answer: Exclude<Answer, { error: unknown }>;
 	try {
-		answer = { returned: (await inRun(context, () => action(input))) ?? null };
+		answer = {
+			returned:
+				(await inRun(context, () => runYielding(action, input, onYield))) ??
+				null,
+		};
 	} catch (error) {
 		answer = { threw: threwOf(error) };
 	}

@@ -25,12 +25,27 @@
  * ```
  *
  * The app is imported as a type, so the UI's bundle carries no app code.
+ *
+ * An action whose `run` yields (ADR-0879) takes `{ onYield }` after its input;
+ * each value it yields reaches `onYield` as it runs, and the call resolves
+ * with the same Result as without it:
+ *
+ * ```ts
+ * const said = await vocab.chat.say({ message }, { onYield: (token) => (draft += token) });
+ * ```
  */
 import { MutationCache, QueryClient } from '@tanstack/query-core';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Err, Ok, type Result } from 'wellcrafted/result';
+import type { ActionYield } from './action.ts';
 import type { FileError } from './errors.ts';
 import type { JsonValue } from './front-matter.ts';
+
+/** The `_meta` key a call sets to `true` to be sent its action's yields as it runs. */
+export const YIELDS_META = 'epicenter/yields';
+
+/** The `_meta` key of a progress notification that holds one value the action yielded. */
+export const YIELD_META = 'epicenter/yield';
 
 /** The ways serve answers without a value, or does not answer. */
 const CallError = defineErrors({
@@ -106,13 +121,21 @@ export type ActionOutput<A> = A extends (input: never) => infer Out
 	? JsonOf<Awaited<Out>>
 	: never;
 
+/** What a call of action `A` may take after its input: `onYield`, when `A` yields. */
+type CallOptions<A> = [ActionYield<A>] extends [never]
+	? []
+	: [options?: { onYield?: (value: JsonOf<ActionYield<A>>) => void }];
+
 /** The client for actions `A`: each action a function of its input, each group under its word. */
 export type AppClient<A> = {
 	readonly [K in keyof A]: A[K] extends (input: never) => unknown
 		? (
-				...input: Record<string, never> extends ActionInput<A[K]>
-					? [input?: ActionInput<A[K]>]
-					: [input: ActionInput<A[K]>]
+				...args: [
+					...(Record<string, never> extends ActionInput<A[K]>
+						? [input?: ActionInput<A[K]>]
+						: [input: ActionInput<A[K]>]),
+					...CallOptions<A[K]>,
+				]
 			) => Promise<Result<ActionOutput<A[K]>, ActionError>>
 		: AppClient<A[K]>;
 };
@@ -136,10 +159,15 @@ export function connect<App extends { actions: object }>(
 				typeof key === 'string' && key !== 'then'
 					? at([...words, key])
 					: undefined,
-			apply: async (_, __, [input]) => {
+			apply: async (_, __, [input, options]) => {
 				if (words.length === 0)
 					throw new Error(`Call one of ${name}'s actions, not the app`);
-				return call(url, [name, ...words].join('_'), input ?? {});
+				return call(
+					url,
+					[name, ...words].join('_'),
+					input ?? {},
+					options?.onYield,
+				);
 			},
 		});
 	return at([]) as AppClient<App['actions']>;
@@ -178,12 +206,19 @@ export function createQueryClient(): QueryClient {
 	return client;
 }
 
-/** Ask the server at `url` to run the MCP tool `name`, and return what its action returned. */
+/**
+ * Ask the server at `url` to run the MCP tool `name`, and return what its
+ * action returned. With `onYield`, the call asks for the action's yields:
+ * serve answers with an event stream, a progress notification per yield and
+ * the result last, and `onYield` gets each yield in order.
+ */
 async function call(
 	url: string,
 	name: string,
 	input: Record<string, unknown>,
+	onYield?: (value: unknown) => void,
 ): Promise<Result<unknown, ActionError>> {
+	const id = nextId++;
 	let response: Response;
 	try {
 		response = await fetch(url, {
@@ -194,9 +229,15 @@ async function call(
 			},
 			body: JSON.stringify({
 				jsonrpc: '2.0',
-				id: nextId++,
+				id,
 				method: 'tools/call',
-				params: { name, arguments: input },
+				params: {
+					name,
+					arguments: input,
+					...(onYield && {
+						_meta: { progressToken: id, [YIELDS_META]: true },
+					}),
+				},
 			}),
 		});
 	} catch (cause) {
@@ -208,10 +249,22 @@ async function call(
 		return CallError.Unreachable({
 			message: `Epicenter answered ${response.status} ${response.statusText}`,
 		});
-	const message = (await response.json()) as {
-		result?: { structuredContent?: Record<string, unknown> };
-		error?: { message: string };
-	};
+	let message: Reply | undefined;
+	try {
+		message = response.headers
+			.get('content-type')
+			?.startsWith('text/event-stream')
+			? await readEvents(response, id, onYield)
+			: ((await response.json()) as Reply);
+	} catch (cause) {
+		return CallError.Unreachable({
+			message: `Epicenter stopped answering: ${String(cause)}`,
+		});
+	}
+	if (!message)
+		return CallError.Unreachable({
+			message: 'Epicenter stopped answering before the action returned',
+		});
 	if (message.error)
 		return CallError.Unreachable({ message: message.error.message });
 	const answer = (message.result?.structuredContent ?? {}) as {
@@ -237,4 +290,55 @@ async function call(
 	return CallError.Unreachable({
 		message: `Epicenter answered without an answer: ${JSON.stringify(answer)}`,
 	});
+}
+
+/** A JSON-RPC message serve sends back: the call's response, or a notification while it runs. */
+type Reply = {
+	id?: number;
+	method?: string;
+	params?: { _meta?: Record<string, unknown> };
+	result?: { structuredContent?: Record<string, unknown> };
+	error?: { message: string };
+};
+
+/**
+ * Read serve's event stream for call `id`: give each yield in a progress
+ * notification to `onYield`, in order, and return the response, or nothing
+ * when the stream ends first. Each event's data is one JSON-RPC message.
+ */
+async function readEvents(
+	response: Response,
+	id: number,
+	onYield?: (value: unknown) => void,
+): Promise<Reply | undefined> {
+	if (!response.body) return undefined;
+	// A reader, not `for await`, which Safari's streams lack.
+	const reader = response.body.getReader();
+	const decoder = new TextDecoder();
+	let buffer = '';
+	for (;;) {
+		const { done, value } = await reader.read();
+		buffer += decoder.decode(value, { stream: !done });
+		let end = buffer.indexOf('\n\n');
+		while (end !== -1) {
+			const data = buffer
+				.slice(0, end)
+				.split('\n')
+				.filter((line) => line.startsWith('data:'))
+				.map((line) => line.slice(line.startsWith('data: ') ? 6 : 5))
+				.join('\n');
+			buffer = buffer.slice(end + 2);
+			end = buffer.indexOf('\n\n');
+			if (!data) continue;
+			const message = JSON.parse(data) as Reply;
+			if (message.id === id) {
+				void reader.cancel();
+				return message;
+			}
+			const meta = message.params?._meta;
+			if (message.method === 'notifications/progress' && meta && YIELD_META in meta)
+				onYield?.(meta[YIELD_META]);
+		}
+		if (done) return undefined;
+	}
 }

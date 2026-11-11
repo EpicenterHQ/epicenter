@@ -14,9 +14,16 @@ import {
 	writeFile,
 } from 'node:fs/promises';
 import { join } from 'node:path';
+import type { Action } from '@epicenter/app';
 import { connect } from '@epicenter/app/client';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { fixture, gitIn, readingApp } from './runner.test-support.ts';
+import {
+	fixture,
+	gitIn,
+	gitignore,
+	header,
+	readingApp,
+} from './runner.test-support.ts';
 
 /** Reading's actions as its UI calls them, for `connect`. */
 type Reading = {
@@ -183,6 +190,144 @@ test('the browser client calls a tool without initialize and a write makes one n
 	).toContain(`Code-Commit: ${await gitIn(folder, 'rev-parse', 'HEAD')}`);
 	expect(await readFile(join(folder, 'data/2026.csv'), 'utf8')).toBe(
 		'minutes,book\n30,\n',
+	);
+});
+
+/** Tokens chosen to break a framing that is not JSON's: lines, event fields, quotes, nothing. */
+const tokens = ['你好', '\n\n', 'data: x\n', '"q" \\', '', '🐈', '\r\n'];
+
+/** Talk, an app whose `say` yields while it runs and whose `wait` yields its pid, then waits a minute. */
+const talkApp = {
+	'.gitignore': gitignore,
+	'epicenter.ts': `${header}
+export default defineApp({
+	description: 'Talk',
+	collections: {},
+	actions: {
+		say: defineAction({
+			description: 'Say something',
+			input: { message: field.text() },
+			positional: ['message'],
+			async *run({ message }) {
+				for (const token of ${JSON.stringify(tokens)}) yield token;
+				yield { step: 2, of: 2 };
+				await folder.write('data/said.md', message);
+				return { reply: message };
+			},
+		}),
+		wait: defineAction({
+			description: 'Wait a minute',
+			input: {},
+			async *run() {
+				yield process.pid;
+				await Bun.sleep(60_000);
+				await folder.write('data/never.md', 'x');
+			},
+		}),
+	},
+});
+`,
+};
+
+/** Talk's actions as its UI calls them, for \`connect\`. */
+type Talk = {
+	actions: {
+		say: Action<
+			{ message: string },
+			Promise<{ reply: string }>,
+			string | { step: number; of: number }
+		>;
+		wait: Action<Record<string, never>, Promise<void>, number>;
+	};
+};
+
+test("a view's call gets each yield in order and the same result; any other call gets one JSON body", async () => {
+	const f = await setup((f) => f.folder(join(f.home, 'talk'), talkApp));
+	const talk = connect<Talk>({ app: 'talk', url: `${f.base}/` });
+	const seen: unknown[] = [];
+	expect(
+		expectOk(
+			await talk.say({ message: 'hi' }, { onYield: (value) => seen.push(value) }),
+		),
+	).toEqual({ reply: 'hi' });
+	expect(seen).toEqual([...tokens, { step: 2, of: 2 }]);
+	expect(await gitIn(join(f.made, 'data'), 'log', '-1', '--format=%s')).toBe(
+		'talk: say hi',
+	);
+
+	expect(expectOk(await talk.say({ message: 'again' }))).toEqual({
+		reply: 'again',
+	});
+	const connector = await fetch(`${f.base}/`, {
+		method: 'POST',
+		headers: {
+			'content-type': 'application/json',
+			accept: 'application/json, text/event-stream',
+		},
+		body: JSON.stringify({
+			jsonrpc: '2.0',
+			id: 1,
+			method: 'tools/call',
+			params: {
+				name: 'talk_say',
+				arguments: { message: 'yo' },
+				_meta: { progressToken: 'p' },
+			},
+		}),
+	});
+	expect(connector.headers.get('content-type')).toStartWith('application/json');
+	expect((await connector.json()).result.structuredContent).toEqual({
+		returned: { reply: 'yo' },
+	});
+});
+
+test('a call whose page goes away stops its child, and nothing is saved', async () => {
+	const f = await setup((f) => f.folder(join(f.home, 'talk'), talkApp));
+	const leave = new AbortController();
+	const response = await fetch(`${f.base}/`, {
+		method: 'POST',
+		signal: leave.signal,
+		headers: {
+			'content-type': 'application/json',
+			accept: 'application/json, text/event-stream',
+		},
+		body: JSON.stringify({
+			jsonrpc: '2.0',
+			id: 1,
+			method: 'tools/call',
+			params: {
+				name: 'talk_wait',
+				arguments: {},
+				_meta: { progressToken: 1, 'epicenter/yields': true },
+			},
+		}),
+	});
+	expect(response.headers.get('content-type')).toBe('text/event-stream');
+	const reader = response.body!.getReader();
+	let text = '';
+	while (!text.includes('epicenter/yield')) {
+		const { value, done } = await reader.read();
+		if (done) throw new Error(`the stream ended: ${text}`);
+		text += new TextDecoder().decode(value);
+	}
+	const pid = Number(
+		/"epicenter\/yield":(\d+)/.exec(text)?.[1] ?? Number.NaN,
+	);
+	expect(pid).toBeGreaterThan(0);
+	leave.abort();
+	const alive = () => {
+		try {
+			process.kill(pid, 0);
+			return true;
+		} catch {
+			return false;
+		}
+	};
+	for (let waited = 0; alive() && waited < 5000; waited += 50)
+		await Bun.sleep(50);
+	expect(alive()).toBe(false);
+	expect(await gitIn(f.made, 'status', '--porcelain', '--ignored')).not.toContain(
+		'never.md',
 	);
 });
 

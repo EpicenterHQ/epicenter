@@ -1,9 +1,13 @@
 # 0879. An action may yield values while it runs, and only its return is the answer
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-11-11)
 - **Date:** 2026-11-11
-- **Unbuilt:** all of it. A spike ran every layer end to end (below); none of
-  it is in `packages/app` or `packages/cli`.
+- **Built:** 2026-11-11: `run` as an `async function*` and `runYielding`
+  (`packages/app/src/action.ts`), `onYield` on the view client
+  (`packages/app/src/client.ts`), yields from the child over IPC
+  (`packages/cli/src/child.ts`, `cli.ts`, `run.ts`), progress notifications
+  for a marked call (`mcp.ts`), and its event stream and stop (`http.ts`).
+- **Unbuilt:** Vocab's chat, the first action that yields.
 - **Relates:** [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (a view calls only actions), [ADR-0861](0861-whats-yours-is-everywhere-and-everything-else-is-used-where-it-is.md) (an action runs where what it uses is), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (a call commits what it wrote), [ADR-0853](0853-collections-give-five-actions-and-programs-without-the-folder-ask-over-mcp.md) (MCP and the view client).
 
 ## Context
@@ -88,32 +92,39 @@ const said = await vocab.chat.say({ message }, { onYield: (token) => (draft += t
 - **Called anywhere else, an action is a promise of its return.** The function
   `defineAction` returns drains the generator and resolves with what `run`
   returned, so a test, another action, and the CLI call it as they call any
-  action. Only the runner that `serve` starts with `--yields` reads the
-  generator step by step.
+  action. Only `runYielding`, which the child runs every call through, reads
+  the generator step by step.
 - **Yields go to the caller and nowhere else.** No page watches a call another
   device or a connector made; a conversation another caller continued shows
   when its turn is saved and the page reads it again.
-- **Between `serve` and its child,** `serve` runs the action with
-  `--yields`: the child writes each yield as one JSON line on stdout as it
-  happens and the answer as the last line. JSON escapes every character a
-  value holds, so a newline in a token is never a line break.
-- **The view client** sends a `progressToken` when the call passes `onYield`,
-  reads the event stream, calls `onYield` with each value in order, and
-  resolves with the same `Result` a call without it would.
-- **A call abandoned is a call that never returned.** When the request ends
-  early, `serve` stops the child; a generator that saves before it returns
-  has then saved nothing, and nothing is committed. A conversation turn the
-  person closed mid-reply leaves no half a turn behind.
+- **Between `serve` and its child,** `serve` opens Bun's IPC channel only for
+  a call that wants yields, and the child sends each yield over it as a JSON
+  message when it has a channel, and nothing when it has none, so no flag
+  says so. The answer still comes back in the report file (`child.ts`).
+  Bun delivers every message before the child's exit is seen, so the last
+  yield always arrives before the answer is read. The child's stdout is
+  already its stderr, and an extra descriptor failed under `Bun.spawn`, so
+  the spike's lines on stdout gave way to the channel.
+- **The view client** sends the marker and a `progressToken` when the call
+  passes `onYield`, reads the event stream, calls `onYield` with each value in
+  order, and resolves with the same `Result` a call without it would. Its
+  type offers `onYield` only on an action that yields.
+- **A call abandoned is a call that never returned.** When the page stops
+  reading the stream, `serve` closes the call's MCP server, which aborts the
+  call, and the child gets `SIGTERM`; a generator that saves before it
+  returns has then saved nothing, and nothing is committed. A conversation
+  turn the person closed mid-reply leaves no half a turn behind. A call that
+  did not ask for yields runs to its end, as every call did before.
 
 ## Consequences
 
 - Vocab's chat streams from a model on the Studio with no route but MCP, no
   model reachable from the phone, and its prompt, word choice, and history in
   an action Claude can also call.
-- The protocol between `serve` and its child gains one flag and one line
-  format, `serve`'s tool handler stops forcing one JSON body for a request
-  with a `progressToken`, and `connect` reads an event stream. Every app gets
-  it at once; any slow action can report progress the same way.
+- The protocol between `serve` and its child gains an IPC channel, opened only
+  for a call that wants yields; `serve` answers that one call with an event
+  stream instead of one JSON body; and `connect` reads an event stream. Every
+  app gets it at once; any slow action can report progress the same way.
 - Yields are not validated by a schema, as inputs are. They reach only a view
   the same app wrote, so a wrong shape is that app's bug, caught by its types.
 - A `readOnlyHint` action that yields still commits nothing. A writing action
