@@ -19,10 +19,11 @@ const facade = readFileSync(
 );
 
 /** The `transcription` namespace block of the Tauri facade. */
-const transcriptionNamespace = facade.slice(
-	facade.indexOf('const transcription = {'),
-	facade.indexOf('};', facade.indexOf('const transcription = {')),
-);
+const namespaceStart = facade.indexOf('const transcription = {');
+if (namespaceStart < 0) throw new Error('transcription namespace is missing');
+const namespaceEnd = facade.indexOf('};', namespaceStart);
+if (namespaceEnd < 0) throw new Error('transcription namespace is incomplete');
+const transcriptionNamespace = facade.slice(namespaceStart, namespaceEnd);
 
 describe('the local transcription boundary Whispering sits behind', () => {
 	it('reaches no administration or identity command', () => {
@@ -62,10 +63,13 @@ describe('the local transcription boundary Whispering sits behind', () => {
 			fileURLToPath(new URL('./commands.types.ts', import.meta.url)),
 			'utf8',
 		);
-		const block = hints.slice(
-			hints.indexOf('export type TranscriptionHints'),
-			hints.indexOf('};', hints.indexOf('export type TranscriptionHints')),
-		);
+		const hintsStart = hints.indexOf('export type TranscriptionHints = {');
+		expect(hintsStart).toBeGreaterThanOrEqual(0);
+		const hintsEnd = hints.indexOf('};', hintsStart);
+		expect(hintsEnd).toBeGreaterThan(hintsStart);
+		const block = hints.slice(hintsStart, hintsEnd);
+		expect(block).toContain('language?');
+		expect(block).toContain('initialPrompt?');
 		expect(block).not.toMatch(/model/i);
 	});
 });
