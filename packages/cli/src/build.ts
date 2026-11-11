@@ -24,7 +24,7 @@ export async function buildCommand(
 	for (const { entry, realPath } of chosen) {
 		const result: Built = { app: entry, folder: realPath, built: false };
 		try {
-			result.built = await buildUi(realPath);
+			result.built = await buildUi(entry, realPath);
 		} catch (error) {
 			result.error = { message: extractErrorMessage(error) };
 		}

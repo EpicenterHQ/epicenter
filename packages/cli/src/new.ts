@@ -127,7 +127,7 @@ export async function newCommand(
 		return fail(cloned.error, json);
 	}
 	try {
-		await buildUi(folder);
+		await buildUi(name, folder);
 	} catch (error) {
 		return made(name, json, {
 			message: `${name}: the UI did not build: ${extractErrorMessage(error)}`,

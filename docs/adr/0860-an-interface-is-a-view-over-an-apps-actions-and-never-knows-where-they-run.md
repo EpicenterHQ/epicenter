@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-11-09
 - **Relates:** [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) (your server, and reach from vendors' clouds), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (programs that have the folder or ask), [ADR-0853](0853-collections-give-five-actions-and-programs-without-the-folder-ask-over-mcp.md) (MCP, the view client), [ADR-0857](0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md) (`epicenter.ts`, and the client typed by it), [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (one copy, and `serve` at `/<app>/` and `/`).
-- **Unbuilt:** relative asset paths in the starters (their base is `/<folder name>/`); records under `data/` (ADR-0876). HTTPS is not `serve`'s: it comes from `tailscale serve` on the tailnet and from an HTTPS tunnel to the public listener. Built: `epicenter serve` serving the view at `/<app>/` and MCP at `/` (`packages/cli/src/http.ts`); the view client `connect`, typed by the app (`packages/app/src/client.ts`); Capture's, Reading's, Tasks', and Vocab's views in `apps/<app>/ui/`, which `epicenter new --from`, `update`, and `build` build into `ui/dist/` (ADR-0866), by a `build` script run on a staged copy of the app's code or by Bun bundling `ui/index.html`, replacing the last view only once complete (`packages/cli/src/ui.ts`); the public listener, behind a sign-in, for an HTTPS tunnel (ADR-0871).
+- **Unbuilt:** HTTPS is not `serve`'s: it comes from `tailscale serve` on the tailnet and from an HTTPS tunnel to the public listener. Built: `epicenter serve` serving the view at `/<app>/` and MCP at `/` (`packages/cli/src/http.ts`); the view client `connect`, typed by the app (`packages/app/src/client.ts`); Capture's, Reading's, Tasks', and Vocab's views in `apps/<app>/ui/`, which `epicenter new --from`, `update`, and `build` build into `ui/dist/` (ADR-0866), by a `build` script run on a staged copy of the app's code or by Bun bundling `ui/index.html`, replacing the last view only once complete, with `EPICENTER_BASE=/<app>` given to a `build` script (`packages/cli/src/ui.ts`); records under `data/` (ADR-0876); the public listener, behind a sign-in, for an HTTPS tunnel (ADR-0871).
 
 ## Context
 
@@ -47,8 +47,13 @@ rebuildable, ignored by `ui/.gitignore`, and never committed (ADR-0854).
 
 A build writes beside the last view and replaces it only once it is complete,
 so `serve` never answers from half a build, and a failed build leaves the last
-view in place. A view refers to its own files by relative paths and routes
-with the hash, so the same build works under any folder name. Any build that
+view in place. A view routes with the hash. It refers to its own files by
+relative paths where its build can, as Bun's bundler and Vite's `base: './'`
+do. A build that cannot is told the path the view is served at:
+`epicenter` runs a `build` script with `EPICENTER_BASE=/<app>`, since the
+staged copy's folder name is not the app's. SvelteKit's hash router is such
+a build: its `index.html` names its assets from `paths.base` whatever
+`paths.relative` says, so the starters set `base` from `EPICENTER_BASE`. Any build that
 produces static files works; SvelteKit with Epicenter's components is the
 default starter, not a requirement.
 

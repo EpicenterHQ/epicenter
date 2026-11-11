@@ -8,7 +8,8 @@
  * - When `ui/package.json` has a `build` script, the app's code (what Git
  *   tracks or would track, minus `data/`) is copied to a staging folder,
  *   `ui/` installs there from its committed `bun.lock`, and the script runs
- *   there. It must write `ui/dist/`.
+ *   there with `EPICENTER_BASE=/<app>`, the path the view is served at. It
+ *   must write `ui/dist/`.
  * - Otherwise, when `ui/index.html` exists, Bun's bundler bundles it, with
  *   `@epicenter/app/client` supplied by this command, so one `index.html`
  *   and the files beside it are a view with no `package.json`.
@@ -58,12 +59,21 @@ async function hasBuildScript(ui: string): Promise<boolean> {
 
 /**
  * Run Bun, the program running now (itself when compiled, else the `bun` it
- * runs under), with `args` in `cwd`, throwing with its output when it fails.
+ * runs under), with `args` in `cwd` and `env` added to this process's,
+ * throwing with its output when it fails.
  */
-async function runBun(cwd: string, args: string[]) {
+async function runBun(
+	cwd: string,
+	args: string[],
+	env: Record<string, string> = {},
+) {
 	const child = Bun.spawn([process.execPath, ...args], {
 		cwd,
-		env: { ...process.env, ...(COMPILED ? { BUN_BE_BUN: '1' } : {}) },
+		env: {
+			...process.env,
+			...env,
+			...(COMPILED ? { BUN_BE_BUN: '1' } : {}),
+		},
 		stdin: 'ignore',
 		stdout: 'pipe',
 		stderr: 'pipe',
@@ -106,8 +116,13 @@ async function copyCode(folder: string, to: string) {
 	}
 }
 
-/** Install `ui/` in the staged copy and run its `build`; returns its `dist/`. */
-async function runBuildScript(folder: string, staging: string) {
+/**
+ * Install `ui/` in the staged copy and run its `build` with `EPICENTER_BASE`
+ * set to `/<app>`, the path `serve` serves the view at, since a build whose
+ * page names its assets absolutely (SvelteKit's hash router) cannot learn it
+ * from a staged folder's name; returns its `dist/`.
+ */
+async function runBuildScript(app: string, folder: string, staging: string) {
 	const code = join(staging, 'code');
 	await copyCode(folder, code);
 	const ui = join(code, 'ui');
@@ -117,13 +132,15 @@ async function runBuildScript(folder: string, staging: string) {
 			? ['install', '--frozen-lockfile']
 			: ['install'],
 	);
-	await runBun(ui, ['--bun', 'run', 'build']);
+	await runBun(ui, ['--bun', 'run', 'build'], { EPICENTER_BASE: `/${app}` });
 	return join(ui, 'dist');
 }
 
 /** Bundle `ui/index.html` with Bun into the staging folder; returns its output. */
 async function bundleIndex(folder: string, staging: string) {
-	const client = Bun.fileURLToPath(import.meta.resolve('@epicenter/app/client'));
+	const client = Bun.fileURLToPath(
+		import.meta.resolve('@epicenter/app/client'),
+	);
 	const outdir = join(staging, 'dist');
 	const result = await Bun.build({
 		entrypoints: [join(folder, 'ui', 'index.html')],
@@ -149,11 +166,12 @@ async function bundleIndex(folder: string, staging: string) {
 }
 
 /**
- * Build `folder`'s view into `ui/dist/`. Returns false when `ui/` has neither
- * a `build` script nor an `index.html`, so there is nothing to build; throws
- * with the build's own message when it fails, leaving the last view in place.
+ * Build the view of the app `app`, whose folder is `folder`, into `ui/dist/`.
+ * Returns false when `ui/` has neither a `build` script nor an `index.html`,
+ * so there is nothing to build; throws with the build's own message when it
+ * fails, leaving the last view in place.
  */
-export async function buildUi(folder: string): Promise<boolean> {
+export async function buildUi(app: string, folder: string): Promise<boolean> {
 	const ui = join(folder, 'ui');
 	const script = await hasBuildScript(ui);
 	if (!script && !(await exists(join(ui, 'index.html')))) return false;
@@ -162,7 +180,7 @@ export async function buildUi(folder: string): Promise<boolean> {
 	);
 	try {
 		const built = script
-			? await runBuildScript(folder, staging)
+			? await runBuildScript(app, folder, staging)
 			: await bundleIndex(folder, staging);
 		if (!(await exists(join(built, 'index.html'))))
 			throw new Error(

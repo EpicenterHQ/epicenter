@@ -234,14 +234,39 @@ test('a build script runs on a copy of the code without data/, and its dist repl
 			'test -f ../epicenter.ts && test ! -e ../data && mkdir -p dist && pwd > dist/index.html',
 		),
 	});
-	await f.folder(join(app, 'ui', 'dist'), { 'index.html': 'last\n' }, { git: false });
+	await f.folder(
+		join(app, 'ui', 'dist'),
+		{ 'index.html': 'last\n' },
+		{ git: false },
+	);
 	const built = await f.run('build', 'vocab');
 	expect(built.stderr).toBe('');
 	expect(built.stdout).toBe('vocab: UI built\n');
-	const where = (await readFile(join(app, 'ui', 'dist', 'index.html'), 'utf8')).trim();
+	const where = (
+		await readFile(join(app, 'ui', 'dist', 'index.html'), 'utf8')
+	).trim();
 	expect(where.startsWith(`${app}/`)).toBe(false);
 	expect(await gitIn(app, 'status', '--porcelain')).toBe('');
-	expect((await readdir(f.home)).filter((name) => name.startsWith('.'))).toEqual([]);
+	expect(
+		(await readdir(f.home)).filter((name) => name.startsWith('.')),
+	).toEqual([]);
+});
+
+test('a build script is told the path its view is served at, whatever folder it runs in', async () => {
+	const f = await fixture();
+	roots.push(f.root);
+	const app = await f.folder(join(f.home, 'vocab'), {
+		'.gitignore': gitignore,
+		'epicenter.ts': wordsApp({ reading: 'optional' }),
+		'ui/.gitignore': 'dist/\nnode_modules/\n',
+		'ui/package.json': uiPackage(
+			'mkdir -p dist && echo "$EPICENTER_BASE" > dist/index.html',
+		),
+	});
+	expect((await f.run('build', 'vocab')).code).toBe(0);
+	expect(
+		(await readFile(join(app, 'ui', 'dist', 'index.html'), 'utf8')).trim(),
+	).toBe('/vocab');
 });
 
 test('a ui/ with no build script is bundled from its index.html, with relative paths', async () => {

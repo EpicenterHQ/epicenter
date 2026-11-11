@@ -135,7 +135,7 @@ async function updateOne(
 	if (error) return stop(error.message);
 	if (!located.ok) return stop(located.problems.join('; '));
 	try {
-		updated.built = await buildUi(folder);
+		updated.built = await buildUi(app, folder);
 	} catch (error) {
 		return stop(
 			`the UI did not build, so the last one that did is kept: ${extractErrorMessage(error)}`,
