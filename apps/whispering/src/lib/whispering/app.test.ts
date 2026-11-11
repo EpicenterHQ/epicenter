@@ -12,10 +12,11 @@
  * - Settings remain readable from the device document after an account opens
  * - Recordings written signed out stay on the device and are not shown to a
  *   signed-in generation, which reads the account replica instead
+ * - Signed-in recording writes produce an outbound sync push
  * - A pre-aborted boot rejects before creating a database
  *
- * Fake IndexedDB supplies browser storage. The signed-in socket fake opens,
- * but discards outgoing frames, so these tests do not prove server delivery.
+ * Fake IndexedDB supplies browser storage. The signed-in write test captures
+ * outgoing socket frames, but the fake has no server to prove delivery.
  */
 import 'fake-indexeddb/auto';
 import { installTestLocks } from '@epicenter/data/test-locks';
@@ -23,6 +24,7 @@ import { installTestLocks } from '@epicenter/data/test-locks';
 installTestLocks();
 
 import { expect, test } from 'bun:test';
+import { decodeFrame } from '@epicenter/data/sync';
 import { InstantString } from '@epicenter/field';
 
 // The recipes domain IS reactive state, so the runes are shimmed to their
@@ -41,6 +43,7 @@ import { InstantString } from '@epicenter/field';
 import type { AuthClient } from '@epicenter/auth';
 import type { BlobStore } from '@epicenter/blobs';
 import { Ok } from 'wellcrafted/result';
+import { expectOk } from 'wellcrafted/testing';
 import { whisperingDefinition } from '../workspace';
 import { openWhisperingApp, type WhisperingAppDependencies } from './app';
 
@@ -77,9 +80,11 @@ async function resetStorage(): Promise<void> {
 }
 
 /**
- * A socket that opens for signed-in boot. Its outgoing frames are ignored.
+ * A socket that opens for signed-in boot and reports its outgoing frames.
  */
-function createFakeSocket() {
+function createFakeSocket(
+	onSend: (bytes: Uint8Array) => void = () => undefined,
+) {
 	const listeners = new Map<string, Set<(event: unknown) => void>>();
 	const socket = {
 		binaryType: 'blob' as BinaryType,
@@ -88,7 +93,7 @@ function createFakeSocket() {
 			set.add(listener);
 			listeners.set(type, set);
 		},
-		send: () => undefined,
+		send: onSend,
 		close: () => dispatch('close', {}),
 	};
 	function dispatch(type: string, event: unknown): void {
@@ -174,12 +179,15 @@ function createFakeAuth({
  * unavailable until the authority named the document it belonged to, and the
  * generation is in the address now (ADR-0292).
  */
-function announcingAuth(principalId: string): AuthClient {
+function announcingAuth(
+	principalId: string,
+	onSend?: (bytes: Uint8Array) => void,
+): AuthClient {
 	return createFakeAuth({
 		status: 'signed-in',
 		principalId,
 		openWebSocket: async () => {
-			const fake = createFakeSocket();
+			const fake = createFakeSocket(onSend);
 			setTimeout(() => fake.open(), 0);
 			return fake.socket;
 		},
@@ -311,6 +319,31 @@ test('device work is still there after signing back out', async () => {
 	expect(signedOutAgain.recordings.sorted.map(({ title }) => title)).toEqual([
 		'written on this device',
 	]);
+});
+
+test('signed-in recording writes send a sync push after the socket opens', async () => {
+	await resetStorage();
+	const sent: Uint8Array[] = [];
+	const outgoing = Promise.withResolvers<Uint8Array>();
+	await using app = await openWhisperingApp(
+		dependencies(
+			announcingAuth('alice', (bytes) => {
+				sent.push(bytes);
+				outgoing.resolve(bytes);
+			}),
+		),
+	);
+	await Bun.sleep(10);
+	expect(app.syncStatus()?.connected).toBe(true);
+	expect(sent).toEqual([]);
+
+	app.recordings.create(recordingFields('portable recording'));
+	await outgoing.promise;
+	const pushes = sent
+		.map((bytes) => expectOk(decodeFrame(bytes)))
+		.filter((frame) => frame.kind === 'push');
+	expect(pushes).toHaveLength(1);
+	expect(pushes[0]?.bytes.length).toBeGreaterThan(0);
 });
 
 test('a pre-aborted boot rejects before creating a database', async () => {
