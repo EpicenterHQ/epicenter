@@ -8,6 +8,7 @@
 -->
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
+	import { IconButton } from '@epicenter/ui/icon-button';
 	import * as Empty from '@epicenter/ui/empty';
 	import { Input } from '@epicenter/ui/input';
 	import PinIcon from '@lucide/svelte/icons/pin';
@@ -58,16 +59,15 @@
 					<option value={optionOf(folderId)}>A deleted folder</option>
 				{/if}
 			</select>
-			<Button
+			<IconButton
+				label="Pin"
+				size="sm"
 				variant={edit.fields.pinned ? 'secondary' : 'ghost'}
-				size="icon-sm"
-				aria-label={edit.fields.pinned ? 'Unpin' : 'Pin'}
 				aria-pressed={edit.fields.pinned ?? false}
-				tooltip={edit.fields.pinned ? 'Unpin' : 'Pin'}
 				onclick={() => (edit.fields.pinned = !edit.fields.pinned)}
 			>
 				<PinIcon class={edit.fields.pinned ? 'fill-current' : ''} />
-			</Button>
+			</IconButton>
 		</div>
 		<div class="min-h-0 flex-1">
 			<NoteEditor body={edit.fields.body ?? ''} onEdit={(text) => (edit.fields.body = text)} autofocus={isNew} />

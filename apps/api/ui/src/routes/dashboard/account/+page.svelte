@@ -12,6 +12,7 @@
 	import * as Alert from '@epicenter/ui/alert';
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
+	import { IconButton } from '@epicenter/ui/icon-button';
 	import * as Card from '@epicenter/ui/card';
 	import {
 		ConfirmationDialog,
@@ -428,24 +429,22 @@
 									</span>
 								</div>
 								<div class="flex items-center gap-1">
-									<Button
+									<IconButton
+										label="Rename passkey"
 										variant="ghost"
-										size="icon"
 										class="size-8"
-										title="Rename passkey"
 										onclick={() => startRename(passkey)}
 									>
 										<PencilIcon class="size-4" />
-									</Button>
-									<Button
+									</IconButton>
+									<IconButton
+										label="Remove passkey"
 										variant="ghost"
-										size="icon"
 										class="size-8 text-muted-foreground hover:text-destructive"
-										title="Remove passkey"
 										onclick={() => deletePasskey(passkey)}
 									>
 										<Trash2Icon class="size-4" />
-									</Button>
+									</IconButton>
 								</div>
 							{/if}
 						</li>

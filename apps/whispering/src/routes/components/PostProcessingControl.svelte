@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
+	import { IconButton } from '@epicenter/ui/icon-button';
 	import { Label } from '@epicenter/ui/label';
 	import * as Popover from '@epicenter/ui/popover';
 	import * as RadioGroup from '@epicenter/ui/radio-group';
-	import * as Tooltip from '@epicenter/ui/tooltip';
 	import SparklesIcon from '@lucide/svelte/icons/sparkles';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import WandIcon from '@lucide/svelte/icons/wand';
@@ -38,48 +38,38 @@
 	const summary = $derived(
 		`Post-processing: ${name}${choice.kind === 'repair' ? `. It cannot run: ${choice.reason}` : choice.kind === 'missing' ? '. The chosen transformation was deleted or moved.' : ''}`,
 	);
-	let hinting = $state(false);
 
 	// A row path always has a slash, so it never equals None's value.
 	const NONE = 'none';
 </script>
 
 <Popover.Root bind:open>
-	<!-- The hint is composed here, not through the button's own tooltip, so it can be held shut while the popover is open and never takes its Escape. -->
-	<Tooltip.Root disabled={open} bind:open={() => hinting && !open, (next) => (hinting = next)}>
-		<Tooltip.Trigger>
-			{#snippet child({ props: hint })}
-				<Popover.Trigger {...hint}>
-					{#snippet child({ props })}
-						<!--
-							None is the amber wand: that is this control's own color, not a warning. A chosen transformation is sparkles,
-							green when it can run. One that cannot, or is gone, stays shown as chosen, with a warning mark on it.
-						-->
-						<Button
-							{...props}
-							bind:ref={trigger}
-							variant="ghost"
-							size="icon"
-							aria-label={summary}
-							data-testid="post-processing-control"
-						>
-							{#if choice.kind === 'none'}
-								<WandIcon class="text-warning" />
-							{:else if choice.kind === 'ready'}
-								<SparklesIcon class="text-success brightness-75 dark:brightness-100" />
-							{:else}
-								<span class="relative flex">
-									<SparklesIcon class="text-muted-foreground" />
-									<TriangleAlertIcon class="absolute -top-1.5 -right-1.5 size-3 fill-background text-warning" />
-								</span>
-							{/if}
-						</Button>
-					{/snippet}
-				</Popover.Trigger>
-			{/snippet}
-		</Tooltip.Trigger>
-		<Tooltip.Content side="bottom" class="max-w-xs text-center">{summary}</Tooltip.Content>
-	</Tooltip.Root>
+	<Popover.Trigger>
+		{#snippet child({ props })}
+			<!--
+				None is the amber wand: that is this control's own color, not a warning. A chosen transformation is sparkles,
+				green when it can run. One that cannot, or is gone, stays shown as chosen, with a warning mark on it.
+			-->
+			<IconButton
+				label={summary}
+				{...props}
+				bind:ref={trigger}
+				variant="ghost"
+				data-testid="post-processing-control"
+			>
+				{#if choice.kind === 'none'}
+					<WandIcon class="text-warning" />
+				{:else if choice.kind === 'ready'}
+					<SparklesIcon class="text-success brightness-75 dark:brightness-100" />
+				{:else}
+					<span class="relative flex">
+						<SparklesIcon class="text-muted-foreground" />
+						<TriangleAlertIcon class="absolute -top-1.5 -right-1.5 size-3 fill-background text-warning" />
+					</span>
+				{/if}
+			</IconButton>
+		{/snippet}
+	</Popover.Trigger>
 	<Popover.Content
 		bind:ref={content}
 		onCloseAutoFocus={(event) => returnFocusToTrigger(event, trigger, content)}

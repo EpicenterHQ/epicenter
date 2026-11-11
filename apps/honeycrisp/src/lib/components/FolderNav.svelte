@@ -5,7 +5,7 @@
 -->
 <script lang="ts">
 	import { describeIssues } from '@epicenter/definition/contract';
-	import { Button } from '@epicenter/ui/button';
+	import { IconButton } from '@epicenter/ui/icon-button';
 	import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
 	import * as DropdownMenu from '@epicenter/ui/dropdown-menu';
 	import { Input } from '@epicenter/ui/input';
@@ -102,15 +102,14 @@
 
 	<div class="mt-2 flex items-center justify-between px-2">
 		<h2 class="text-xs font-medium text-muted-foreground">Folders</h2>
-		<Button
+		<IconButton
+			label="New folder"
+			size="sm"
 			variant="ghost"
-			size="icon-sm"
-			aria-label="New folder"
-			tooltip="New folder"
 			onclick={() => (naming = { id: undefined, value: 'New Folder' })}
 		>
 			<PlusIcon />
-		</Button>
+		</IconButton>
 	</div>
 	{#if naming && naming.id === undefined}{@render nameInput()}{/if}
 	{#each folders.items().toSorted(byName) as folder (folder.id)}
@@ -135,9 +134,9 @@
 				<DropdownMenu.Root>
 					<DropdownMenu.Trigger>
 						{#snippet child({ props })}
-							<Button {...props} variant="ghost" size="icon-sm" aria-label="Actions for {folderLabel(folder)}">
+							<IconButton label="Actions for {folderLabel(folder)}" size="sm" {...props} variant="ghost">
 								<EllipsisIcon />
-							</Button>
+							</IconButton>
 						{/snippet}
 					</DropdownMenu.Trigger>
 					<DropdownMenu.Content align="start" class="w-40">

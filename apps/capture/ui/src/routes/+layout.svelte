@@ -6,6 +6,7 @@
 	import { createQueryClient } from '@epicenter/app/client';
 	import { ConfirmationDialog } from '@epicenter/ui/confirmation-dialog';
 	import { Toaster } from '@epicenter/ui/sonner';
+	import * as Tooltip from '@epicenter/ui/tooltip';
 	import { QueryClientProvider } from '@tanstack/svelte-query';
 	import { ModeWatcher } from 'mode-watcher';
 	import '../app.css';
@@ -17,15 +18,17 @@
 
 <svelte:head><title>Capture</title></svelte:head>
 
-<!-- Behind the iPhone's status bar, so scrolled text does not show through it. -->
-<div aria-hidden="true" class="fixed inset-x-0 top-0 z-20 h-[env(safe-area-inset-top)] bg-background"></div>
+<Tooltip.Provider>
+	<!-- Behind the iPhone's status bar, so scrolled text does not show through it. -->
+	<div aria-hidden="true" class="fixed inset-x-0 top-0 z-20 h-[env(safe-area-inset-top)] bg-background"></div>
 
-<main class="safe-area mx-auto flex w-full max-w-2xl flex-col">
-	<QueryClientProvider client={queryClient}>
-		{@render children()}
-	</QueryClientProvider>
-</main>
+	<main class="safe-area mx-auto flex w-full max-w-2xl flex-col">
+		<QueryClientProvider client={queryClient}>
+			{@render children()}
+		</QueryClientProvider>
+	</main>
 
-<Toaster offset={16} closeButton position="bottom-center" />
-<ConfirmationDialog />
-<ModeWatcher />
+	<Toaster offset={16} closeButton position="bottom-center" />
+	<ConfirmationDialog />
+	<ModeWatcher />
+</Tooltip.Provider>

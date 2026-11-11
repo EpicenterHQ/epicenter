@@ -8,6 +8,7 @@
 -->
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
+	import { IconButton } from '@epicenter/ui/icon-button';
 	import * as Popover from '@epicenter/ui/popover';
 	import { Spinner } from '@epicenter/ui/spinner';
 	import SettingsIcon from '@lucide/svelte/icons/settings';
@@ -50,9 +51,9 @@
 			{whispering.recorder.phase === 'starting' ? 'Starting…' : 'Stopping…'}
 		</span>
 	{:else if !onHome}
-		<Button variant="ghost" size="icon-sm" tooltip="Start recording" aria-label="Start recording" onclick={() => void whispering.startRecording()} data-testid="header-start-recording">
+		<IconButton label="Start recording" size="sm" variant="ghost" onclick={() => void whispering.startRecording()} data-testid="header-start-recording">
 			<MicIcon />
-		</Button>
+		</IconButton>
 	{/if}
 	{#if whispering.recorderError && !onHome}
 		<span class="min-w-0 truncate text-xs text-destructive" role="alert" title={whispering.recorderError}>{whispering.recorderError}</span>
@@ -64,9 +65,9 @@
 		<Popover.Root>
 			<Popover.Trigger>
 				{#snippet child({ props })}
-					<Button {...props} variant="ghost" size="icon-sm" tooltip="Models and sign-in" aria-label="Settings" data-testid="settings">
+					<IconButton label="Models and sign-in" size="sm" {...props} variant="ghost" data-testid="settings">
 						<SettingsIcon />
-					</Button>
+					</IconButton>
 				{/snippet}
 			</Popover.Trigger>
 			<Popover.Content

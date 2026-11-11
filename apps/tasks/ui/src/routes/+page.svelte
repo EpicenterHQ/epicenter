@@ -5,6 +5,7 @@
 <script lang="ts">
 	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
+	import { IconButton } from '@epicenter/ui/icon-button';
 	import * as Collapsible from '@epicenter/ui/collapsible';
 	import * as Empty from '@epicenter/ui/empty';
 	import { Input } from '@epicenter/ui/input';
@@ -98,15 +99,15 @@
 					enterkeyhint="done"
 					autocomplete="off"
 				/>
-				<Button
+				<IconButton
+					label="Add task"
+					size="lg"
 					type="submit"
-					size="icon-lg"
 					class="size-11"
-					aria-label="Add task"
 					disabled={title.trim() === ''}
 				>
 					<PlusIcon />
-				</Button>
+				</IconButton>
 			</form>
 		</div>
 	</header>

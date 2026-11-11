@@ -1,11 +1,11 @@
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
+	import { IconButton } from '@epicenter/ui/icon-button';
 	import { Label } from '@epicenter/ui/label';
 	import * as Popover from '@epicenter/ui/popover';
 	import { Progress } from '@epicenter/ui/progress';
 	import * as RadioGroup from '@epicenter/ui/radio-group';
 	import { Spinner } from '@epicenter/ui/spinner';
-	import * as Tooltip from '@epicenter/ui/tooltip';
 	import { cn } from '@epicenter/ui/utils';
 	import MicIcon from '@lucide/svelte/icons/mic';
 	import RefreshCwIcon from '@lucide/svelte/icons/refresh-cw';
@@ -55,7 +55,6 @@
 	);
 	/** The trigger is an icon, so this is its whole name: what it is, what is chosen, and what is wrong. */
 	const summary = $derived(`Microphone input: ${name}${warning ? `. ${warning}.` : ''}`);
-	let hinting = $state(false);
 
 	// Radio values: a listed ID never equals the system default's value.
 	const SYSTEM = 'system';
@@ -79,28 +78,19 @@
 </script>
 
 <Popover.Root bind:open>
-	<!-- The hint is composed here, not through the button's own tooltip, so it can be held shut while the popover is open and never takes its Escape. -->
-	<Tooltip.Root disabled={open} bind:open={() => hinting && !open, (next) => (hinting = next)}>
-		<Tooltip.Trigger>
-			{#snippet child({ props: hint })}
-				<Popover.Trigger {...hint}>
-					{#snippet child({ props })}
-						<Button
-							{...props}
-							bind:ref={trigger}
-							variant="ghost"
-							size="icon"
-							aria-label={summary}
-							data-testid="microphone-control"
-						>
-							<MicIcon class={cn('text-muted-foreground', !warning && whispering.input.choice && whispering.input.choiceListed === true && 'text-success brightness-75 dark:brightness-100', warning && 'text-warning')} />
-						</Button>
-					{/snippet}
-				</Popover.Trigger>
-			{/snippet}
-		</Tooltip.Trigger>
-		<Tooltip.Content side="bottom" class="max-w-xs text-center">{summary}</Tooltip.Content>
-	</Tooltip.Root>
+	<Popover.Trigger>
+		{#snippet child({ props })}
+			<IconButton
+				label={summary}
+				{...props}
+				bind:ref={trigger}
+				variant="ghost"
+				data-testid="microphone-control"
+			>
+				<MicIcon class={cn('text-muted-foreground', !warning && whispering.input.choice && whispering.input.choiceListed === true && 'text-success brightness-75 dark:brightness-100', warning && 'text-warning')} />
+			</IconButton>
+		{/snippet}
+	</Popover.Trigger>
 	<Popover.Content
 		bind:ref={content}
 		onCloseAutoFocus={(event) => returnFocusToTrigger(event, trigger, content)}
@@ -111,17 +101,16 @@
 	>
 		<div class="flex items-center gap-2">
 			<p class="flex-1 font-medium" id="microphone-input-heading">Microphone input</p>
-			<!-- No tooltip: this takes focus when the popover opens, and a tooltip there would take the first Escape. -->
-			<Button
+			<IconButton
+				label="List inputs again"
+				size="xs"
 				variant="ghost"
-				size="icon-xs"
-				aria-label="List inputs again"
 				disabled={whispering.input.listing}
 				onclick={() => void whispering.input.refresh()}
 				data-testid="microphone-refresh"
 			>
 				{#if whispering.input.listing}<Spinner />{:else}<RefreshCwIcon />{/if}
-			</Button>
+			</IconButton>
 		</div>
 
 		<RadioGroup.Root {value} onValueChange={choose} disabled={locked} aria-labelledby="microphone-input-heading" class="gap-2">
@@ -202,7 +191,9 @@
 				Test microphone
 			</Button>
 		{/if}
-		{#if !locked}
+		{#if unnamed && whispering.input.canAllow && !locked}
+			<p class="text-xs text-muted-foreground">Enabling asks for microphone access. Nothing is recorded.</p>
+		{:else if !locked}
 			<p class="text-xs text-muted-foreground">Applies to the next recording.</p>
 		{/if}
 	</Popover.Content>

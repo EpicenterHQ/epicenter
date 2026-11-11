@@ -8,6 +8,7 @@
 -->
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
+	import { IconButton } from '@epicenter/ui/icon-button';
 	import * as Command from '@epicenter/ui/command';
 	import { Input } from '@epicenter/ui/input';
 	import { Label } from '@epicenter/ui/label';
@@ -427,15 +428,15 @@
 		{:else}
 			<fieldset class="space-y-3 p-3" disabled={saveConnection.isPending}>
 				<div class="flex items-center gap-2">
-					<Button
+					<IconButton
+						label="Back to models"
+						size="sm"
 						variant="ghost"
-						size="icon-sm"
 						disabled={saveConnection.isPending}
 						onclick={() => (view = 'list')}
-						aria-label="Back to models"
 					>
 						<ArrowLeft class="size-4" />
-					</Button>
+					</IconButton>
 					<p class="text-sm font-medium">Connect a provider</p>
 				</div>
 
@@ -481,18 +482,19 @@
 								disabled={saveConnection.isPending || removeApiKey}
 								placeholder={savedConnection?.hasApiKey ? 'Leave blank to keep saved key' : 'sk-...'}
 							/>
-							<Button
+							<IconButton
+								label="Show key"
+								size="sm"
+								aria-pressed={showKey}
 								variant="ghost"
-								size="icon-sm"
 								onclick={() => (showKey = !showKey)}
-								aria-label={showKey ? 'Hide key' : 'Show key'}
 							>
 								{#if showKey}
 									<EyeOff class="size-4" />
 								{:else}
 									<Eye class="size-4" />
 								{/if}
-							</Button>
+							</IconButton>
 						</div>
 					</div>
 
