@@ -39,9 +39,11 @@ in the notification's `_meta`, arrived intact.
 
 ## Decision
 
-**An action's `run` may be an `async function*`. What it yields goes to
-whoever is watching as it runs; what it returns is the answer, as now; and
-only its writes are saved, committed once when it returns (ADR-0850).**
+**An action's `run` may be an `async function*`. What it yields goes only to
+the view that called it, as it runs; what it returns is the answer, as now; and
+only its writes are saved, committed once when it returns (ADR-0850).** Yields
+are for a person watching a page. Claude, ChatGPT, the terminal, a test, and
+another action never see them, and lose nothing.
 
 ```ts
 // vocab/epicenter.ts
@@ -76,11 +78,21 @@ const said = await vocab.chat.say({ message }, { onYield: (token) => (draft += t
   prints the answer, `--json` prints one answer as now, and Claude or ChatGPT
   get the tool result. An action whose meaning lives only in its yields is
   wrong; its return must carry what the call produced.
-- **Over MCP, each yield is a progress notification** for the request's
-  `progressToken`, with `progress` counting yields and the value in
-  `_meta["epicenter/yield"]`. It carries no `message`, so a connector shows at
-  most a progress indicator, never a stream of tokens as status text. A request
-  without a `progressToken` gets the one JSON body, as now.
+- **Only the view client asks for yields.** `connect` marks a call with
+  `_meta: { "epicenter/yields": true }` and a `progressToken` when it passes
+  `onYield`. `serve` streams only then: each yield is a progress notification
+  with `progress` counting yields and the value in `_meta["epicenter/yield"]`.
+  Every other request, a connector's included even when it sends its own
+  `progressToken`, gets the one JSON body as now, so no connector ever shows
+  a yield.
+- **Called anywhere else, an action is a promise of its return.** The function
+  `defineAction` returns drains the generator and resolves with what `run`
+  returned, so a test, another action, and the CLI call it as they call any
+  action. Only the runner that `serve` starts with `--yields` reads the
+  generator step by step.
+- **Yields go to the caller and nowhere else.** No page watches a call another
+  device or a connector made; a conversation another caller continued shows
+  when its turn is saved and the page reads it again.
 - **Between `serve` and its child,** `serve` runs the action with
   `--yields`: the child writes each yield as one JSON line on stdout as it
   happens and the answer as the last line. JSON escapes every character a
@@ -107,10 +119,8 @@ const said = await vocab.chat.say({ message }, { onYield: (token) => (draft += t
 - A `readOnlyHint` action that yields still commits nothing. A writing action
   takes its lock at its first write (ADR-0850), so a stream of yields before
   the first write keeps no other call waiting.
-- Unknown until a connector is tried: whether claude.ai shows anything for a
-  progress notification with no `message`. If it shows the count as noise,
-  connectors' requests can be sent without yields by not forwarding them when
-  the request came from a connector.
+- A connector never receives a yield, so how claude.ai or ChatGPT would show
+  one never needs an answer.
 
 ## Considered alternatives
 
@@ -119,8 +129,15 @@ const said = await vocab.chat.say({ message }, { onYield: (token) => (draft += t
   `serve` route that proxies a model or a tailnet port with no sign-in, and
   the prompt and word choice move into the browser, out of Claude's reach.
 - **A streaming endpoint for views beside MCP.** Its own framing and no
-  stretched use of progress notifications, but two protocols to keep for one
-  action, and a connector could never see a yield at all.
+  stretched use of progress notifications, but the view already calls every
+  action over MCP, and a second protocol would carry the same call, its
+  errors, and its sign-in twice.
+- **A callback in `run`'s input, `run(input, { emit })`.** It nests into
+  helpers without `yield*`, but `return` and `yield` already say "the answer"
+  and "while it runs", and a generator stops when its caller goes away.
+- **Broadcasting yields to every open page of the app.** A second device could
+  watch a reply being written, at the cost of a channel, its subscribers, and
+  what each may see. A saved turn reaches every page when it reads again.
 - **Yields as text in the progress `message`.** Works today, but a connector
   that shows `message` would flicker single tokens as status, and a value
   other than text would be flattened into a string.
