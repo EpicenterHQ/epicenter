@@ -8,6 +8,7 @@
 	import { resolve } from '$app/paths';
 	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
+	import { IconButton } from '@epicenter/ui/icon-button';
 	import * as Empty from '@epicenter/ui/empty';
 	import { Loading } from '@epicenter/ui/loading';
 	import { toast } from '@epicenter/ui/sonner';
@@ -125,14 +126,14 @@
 	<div class="mx-auto flex w-full max-w-2xl flex-1 flex-col px-4 pt-4 pb-4">
 		<div class="flex items-center justify-between text-sm text-muted-foreground">
 			<p aria-live="polite"><span class="tabular-nums">{queue.length}</span> due</p>
-			<Button
+			<IconButton
+				label="Edit {text}"
+				size="sm"
 				variant="ghost"
-				size="icon-sm"
 				href={hrefOf(word.path)}
-				aria-label="Edit {text}"
 			>
 				<PencilIcon />
-			</Button>
+			</IconButton>
 		</div>
 
 		{#if isRevealed}

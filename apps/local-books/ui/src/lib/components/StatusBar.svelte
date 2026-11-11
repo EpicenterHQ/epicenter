@@ -86,7 +86,6 @@
 			variant="outline"
 			onclick={onRefresh}
 			disabled={syncing}
-			tooltip="Refresh the mirror from QuickBooks (POST /api/sync)"
 		>
 			{#if syncing}
 				<Spinner class="size-3.5" />

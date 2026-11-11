@@ -5,7 +5,7 @@
 -->
 <script lang="ts">
 	import { describeIssues } from '@epicenter/definition/contract';
-	import { Button } from '@epicenter/ui/button';
+	import { IconButton } from '@epicenter/ui/icon-button';
 	import * as ContextMenu from '@epicenter/ui/context-menu';
 	import PinIcon from '@lucide/svelte/icons/pin';
 	import PlusIcon from '@lucide/svelte/icons/plus';
@@ -53,9 +53,9 @@
 			<h2 class="text-sm font-semibold">{heading}</h2>
 			<span class="text-xs text-muted-foreground">{visible.length}</span>
 		</div>
-		<Button variant="ghost" size="icon-sm" tooltip="New note (⌘N)" aria-label="New note" onclick={onCreate}>
+		<IconButton label="New note" shortcut="⌘N" size="sm" variant="ghost" onclick={onCreate}>
 			<PlusIcon />
-		</Button>
+		</IconButton>
 	</div>
 
 	<div class="min-h-0 flex-1 overflow-y-auto p-2">

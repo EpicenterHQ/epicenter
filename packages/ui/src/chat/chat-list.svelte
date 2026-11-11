@@ -5,7 +5,7 @@
 <script lang="ts">
 	import ArrowDownIcon from '@lucide/svelte/icons/arrow-down';
 	import { scale } from 'svelte/transition';
-	import { Button } from '../button/index.js';
+	import { IconButton } from '../icon-button/index.js';
 	import { UseAutoScroll } from '../hooks/use-auto-scroll.svelte.js';
 	import { cn } from '../utils.js';
 
@@ -38,15 +38,14 @@
 			in:scale={{ delay: 250, duration: 100, start: 0.85 }}
 			out:scale={{ duration: 100, start: 0.85 }}
 		>
-			<Button
-				aria-label="Scroll to latest message"
+			<IconButton
+				label="Scroll to latest message"
 				onclick={() => autoScroll.scrollToBottom()}
 				variant="outline"
-				size="icon"
 				class="absolute bottom-2 left-1/2 inline-flex -translate-x-1/2 transform rounded-full shadow-md"
 			>
 				<ArrowDownIcon />
-			</Button>
+			</IconButton>
 		</div>
 	{/if}
 </div>

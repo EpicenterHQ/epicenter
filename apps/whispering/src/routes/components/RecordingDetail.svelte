@@ -7,6 +7,7 @@
 -->
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
+	import { IconButton } from '@epicenter/ui/icon-button';
 	import { Spinner } from '@epicenter/ui/spinner';
 	import { Textarea } from '@epicenter/ui/textarea';
 	import * as Collapsible from '@epicenter/ui/collapsible';
@@ -69,9 +70,9 @@
 <section class="flex h-full min-h-0 flex-col" aria-label="Recording" data-testid="recording-detail" data-recording-id={own}>
 	<div class="flex items-center gap-2 border-b px-3 py-3 sm:px-4">
 		{#if onBack}
-			<Button variant="ghost" size="icon-sm" aria-label="Back to recordings" onclick={onBack} {@attach (node: HTMLElement) => node.focus()}>
+			<IconButton label="Back to recordings" size="sm" variant="ghost" onclick={onBack} {@attach (node: HTMLElement) => node.focus()}>
 				<ArrowLeftIcon />
-			</Button>
+			</IconButton>
 		{/if}
 		{#if recording.exists()}
 			<Input
@@ -84,9 +85,9 @@
 			<h2 class="min-w-0 flex-1 truncate text-base font-medium" data-testid="recording-title-text">{own}</h2>
 		{/if}
 		{#if onClose}
-			<Button variant="ghost" size="icon-sm" tooltip="Close details" aria-label="Close details" onclick={onClose} data-testid="close-detail">
+			<IconButton label="Close details" size="sm" variant="ghost" onclick={onClose} data-testid="close-detail">
 				<XIcon />
-			</Button>
+			</IconButton>
 		{/if}
 	</div>
 	{#if repair}

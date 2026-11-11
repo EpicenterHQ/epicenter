@@ -12,6 +12,7 @@
 	import type { ActionError } from '@epicenter/app/client';
 	import { goto } from '$app/navigation';
 	import { Button } from '@epicenter/ui/button';
+	import { IconButton } from '@epicenter/ui/icon-button';
 	import { Checkbox } from '@epicenter/ui/checkbox';
 	import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
 	import * as Empty from '@epicenter/ui/empty';
@@ -226,15 +227,14 @@
 							}}
 						/>
 						{#if due}
-							<Button
+							<IconButton
+								label="Clear the due day"
 								variant="ghost"
-								size="icon"
 								class="size-10"
-								aria-label="Clear the due day"
 								onclick={() => set({ due: null })}
 							>
 								<XIcon />
-							</Button>
+							</IconButton>
 						{/if}
 					</div>
 					{#each [{ label: 'Today', day: today }, { label: 'Tomorrow', day: addDays(today, 1) }] as choice (choice.label)}

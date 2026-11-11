@@ -6,6 +6,7 @@
 -->
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
+	import { IconButton } from '@epicenter/ui/icon-button';
 	import * as Collapsible from '@epicenter/ui/collapsible';
 	import * as Field from '@epicenter/ui/field';
 	import * as Popover from '@epicenter/ui/popover';
@@ -186,9 +187,9 @@
 <section bind:this={editor} class="flex h-full min-h-0 flex-col" aria-label="Transformation" data-testid="transformation-detail">
 	<div class="flex items-center gap-2 border-b px-3 py-3 sm:px-4">
 		{#if onBack}
-			<Button variant="ghost" size="icon-sm" aria-label="Back to transformations" onclick={onBack} {@attach (node: HTMLElement) => node.focus()}>
+			<IconButton label="Back to transformations" size="sm" variant="ghost" onclick={onBack} {@attach (node: HTMLElement) => node.focus()}>
 				<ArrowLeftIcon />
-			</Button>
+			</IconButton>
 		{/if}
 		{#if recipe.exists()}
 			<Input

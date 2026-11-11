@@ -256,7 +256,6 @@
 						size="sm"
 						variant="outline"
 						disabled={busy || selection.rows.length === 0}
-						tooltip="Sends each selected recording shown here that has no transcript, one at a time, with {whispering.choice('transcription')?.model ?? 'the transcription model chosen in Settings'}"
 						onclick={() => void transcribeSelected()}
 						data-testid="transcribe-selected"
 					>
@@ -271,7 +270,6 @@
 					<Button
 						size="sm"
 						variant="ghost"
-						tooltip="Clears every selected recording, including any the search hides"
 						onclick={() => (ui.recordingSelected = [])}
 						data-testid="clear-selection"
 					>

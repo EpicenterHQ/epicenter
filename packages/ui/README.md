@@ -76,8 +76,11 @@ Place one `Tooltip.Provider` around each app’s root content. It shares the
 300 ms opening delay and 150 ms skip delay across controls. Nesting another
 provider creates a separate hover group.
 
-Use Button or Link’s `tooltip` prop for a simple label. Compose `Tooltip.Root`,
-`Tooltip.Trigger`, and `Tooltip.Content` for other triggers or richer content.
+Use `IconButton` for an icon-only button. Its required `label` is both its
+accessible name and its tooltip; `shortcut` adds a keyboard shortcut to the
+tooltip. Buttons with visible words need no tooltip. Link keeps its `tooltip`
+prop. Compose `Tooltip.Root`, `Tooltip.Trigger`, and `Tooltip.Content` for other
+triggers or richer content.
 
 ### Editor control and panel lifetimes
 

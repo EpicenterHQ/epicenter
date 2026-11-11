@@ -18,6 +18,7 @@
 	import type { ActionError } from '@epicenter/app/client';
 	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
+	import { IconButton } from '@epicenter/ui/icon-button';
 	import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
 	import * as DropdownMenu from '@epicenter/ui/dropdown-menu';
 	import * as Empty from '@epicenter/ui/empty';
@@ -246,9 +247,9 @@
 			<DropdownMenu.Root>
 				<DropdownMenu.Trigger>
 					{#snippet child({ props })}
-						<Button {...props} variant="ghost" size="icon-sm" aria-label="More for this capture">
+						<IconButton label="More for this capture" size="sm" {...props} variant="ghost">
 							<EllipsisIcon />
-						</Button>
+						</IconButton>
 					{/snippet}
 				</DropdownMenu.Trigger>
 				<DropdownMenu.Content align="end" class="w-52">
@@ -405,9 +406,9 @@
 										<DropdownMenu.Root>
 											<DropdownMenu.Trigger>
 												{#snippet child({ props })}
-													<Button {...props} variant="ghost" size="icon-sm" class="text-muted-foreground" aria-label="More for thought {index + 1}">
+													<IconButton label="More for thought {index + 1}" size="sm" {...props} variant="ghost" class="text-muted-foreground">
 														<EllipsisIcon />
-													</Button>
+													</IconButton>
 												{/snippet}
 											</DropdownMenu.Trigger>
 											<DropdownMenu.Content align="end" class="w-44">

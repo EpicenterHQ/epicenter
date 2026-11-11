@@ -6,6 +6,7 @@
 	import { createQueryClient } from '@epicenter/app/client';
 	import { ConfirmationDialog } from '@epicenter/ui/confirmation-dialog';
 	import { Toaster } from '@epicenter/ui/sonner';
+	import * as Tooltip from '@epicenter/ui/tooltip';
 	import { QueryClientProvider } from '@tanstack/svelte-query';
 	import { ModeWatcher } from 'mode-watcher';
 	import '../app.css';
@@ -17,14 +18,16 @@
 
 <svelte:head><title>Tasks</title></svelte:head>
 
-<QueryClientProvider client={queryClient}>
-	{@render children()}
-</QueryClientProvider>
+<Tooltip.Provider>
+	<QueryClientProvider client={queryClient}>
+		{@render children()}
+	</QueryClientProvider>
 
-<ConfirmationDialog />
-<Toaster
-	position="bottom-center"
-	offset={{ bottom: 'calc(env(safe-area-inset-bottom) + 16px)' }}
-	mobileOffset={{ bottom: 'calc(env(safe-area-inset-bottom) + 16px)' }}
-/>
-<ModeWatcher />
+	<ConfirmationDialog />
+	<Toaster
+		position="bottom-center"
+		offset={{ bottom: 'calc(env(safe-area-inset-bottom) + 16px)' }}
+		mobileOffset={{ bottom: 'calc(env(safe-area-inset-bottom) + 16px)' }}
+	/>
+	<ModeWatcher />
+</Tooltip.Provider>
