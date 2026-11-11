@@ -68,6 +68,21 @@ test('GET /sign-in with a session and safe callbackURL redirects to callbackURL'
 	expect(response.headers.get('Location')).toBe('/dashboard');
 });
 
+test('GET /sign-in refuses callbackURLs that resolve to another origin', async () => {
+	const app = createAuthRouteApp({
+		session: { user: { name: 'Ada', email: 'ada@example.com' } },
+	});
+
+	for (const callbackURL of ['//evil.example', '/\\evil.example']) {
+		const response = await app.request(
+			`/sign-in?callbackURL=${encodeURIComponent(callbackURL)}`,
+		);
+		expect(response.status).toBe(200);
+		expect(response.headers.get('Location')).toBeNull();
+		expect(await response.text()).toContain('Svelte auth shell');
+	}
+});
+
 test('GET /sign-in with no redirect case serves the auth UI shell', async () => {
 	const app = createAuthRouteApp({
 		session: { user: { name: 'Ada', email: 'ada@example.com' } },

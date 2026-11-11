@@ -51,8 +51,13 @@ export const authApp = new Hono<CloudEnv>()
 				return c.redirect(`${OAUTH_ROUTES.authorize.pattern}${url.search}`);
 			}
 			const callbackURL = url.searchParams.get('callbackURL');
-			if (callbackURL?.startsWith('/')) {
-				return c.redirect(callbackURL);
+			const callback = callbackURL?.startsWith('/')
+				? URL.parse(callbackURL, url)
+				: null;
+			if (callback?.origin === url.origin) {
+				return c.redirect(
+					`${callback.pathname}${callback.search}${callback.hash}`,
+				);
 			}
 		}
 		return c.var.authUiShell(c);
