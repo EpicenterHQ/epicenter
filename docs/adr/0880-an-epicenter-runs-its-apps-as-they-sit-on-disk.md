@@ -2,7 +2,8 @@
 
 - **Status:** Proposed
 - **Date:** 2026-11-11
-- **Unbuilt:** the UI fingerprint build and serving; removal of the detached worktree, commit stamp, `EPICENTER_BASE`, and `ui/package.json`; starters off SvelteKit and Vite; a compiled epicenter writing its own copy of `@epicenter/app`. Call commits, captured Code-Commit and Code-Dirty, idle clock skips, and app package installation are built.
+- **Built:** a call's commit of what it left in `data/`, `Code-Commit` with `Code-Dirty`, the clock's idle skip, and `epicenter install` (`packages/cli/src/run.ts`, `snapshot.ts`, `http.ts`, `install.ts`); the UI's fingerprint build into `EPICENTER_OUT` (`ui.ts`); the compiled command's copy of `@epicenter/app` and `linkAppPackage` (`app-package.ts`, `scripts/compile.ts`).
+- **Unbuilt:** the first-party apps as one Bun project each on Bun's bundler: converted outside this repository, not yet their own repositories or the Studio's apps; this repository's `apps/<app>` still hold SvelteKit UIs with their own `ui/package.json`, which `serve` no longer builds.
 - **Relates:** [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (a call's commit; the lock; the clock), [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (an app's UI), [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (code runs where its owner trusts it), [ADR-0873](0873-the-command-is-epicenter-cli-and-it-supplies-epicenter-app-to-every-app.md) (the command supplies `@epicenter/app`), [ADR-0876](0876-an-apps-records-live-under-data-and-everything-else-in-it-is-code.md) (`data/`), [ADR-0877](0877-an-apps-code-and-its-data-are-two-repositories-and-sharing-an-app-shares-its-code.md) (two repositories, `Code-Commit`).
 
 ## Context
