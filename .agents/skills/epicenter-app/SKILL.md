@@ -121,9 +121,15 @@ starting with `.`. A field or placeholder may not be named `path`,
 ## Write actions only for what the verbs cannot do
 
 `epicenter.ts` default-exports `defineApp({ description, collections,
-actions })` and may import only `@epicenter/app`, which `epicenter` supplies
-when it runs the file, and Node's built-ins: nothing installs the app's own
-packages. Write each action with `defineAction`, which types its
+actions })`. An app is one Bun project, with `package.json`, `bun.lock`, and
+`node_modules` at the app's top. Its actions may import anything its
+`package.json` names, plus Node's
+built-ins. Add packages with `bun add` in the app's folder, then run
+`epicenter install <app>` to restore the supplied link, which Bun can remove.
+`@epicenter/app` comes from epicenter and is never listed in the app's
+`package.json`. `epicenter new`, `update`, and `install [<app>]` install from
+the app's top-level `package.json` (`--frozen-lockfile` when `bun.lock` exists) and link that package;
+a call never installs. Write each action with `defineAction`, which types its
 `run` from its `input`. Add one when the caller cannot do the job with the
 verbs: a rule on making a file (Tasks' `add` splits a title from its notes),
 a rule across fields (Vocab's `review` scheduling), or a read shaped for a
@@ -131,10 +137,18 @@ screen (Capture's `recent`). Replace a verb by key, as in any object:
 `{ ...words.actions(), add: learn }`. Inside `run`, read and write through the
 collection's methods (`words.get({ path })`, `words.set({ path, ...fields })`,
 `words.edit({ path, old, new })`, `words.update({ path }, change)`) instead of
-parsing front matter again, and through the imported `folder` for any other
-file. Build a path with `words.pathOf({ word })`, never by hand.
-Write any other file through `folder` under `data/`. Reads may reach the app's
-code. A run refuses a write outside `data/` or through a `.git*` path segment.
+parsing front matter again. For other files, the imported `folder` supplies
+atomic writes and updates. Build a path with `words.pathOf({ word })`, never by hand.
+Make the first write through `folder` or a collection, so the call takes
+the app's lock and snapshots pending data separately. After that, writes may
+go any way: `folder`, `node:fs`, or a library. The call commits everything
+pending in `data/` that Git does not ignore when it ends. A call with no
+`folder` write takes no lock and commits nothing; its writes stay pending.
+`folder` refuses a write outside `data/` or through a `.git*` path segment.
+Reads may reach the whole Epicenter, including another app's records by a
+path like `../tasks/data/tasks/<time>.md`, using `node:fs` or a library.
+Change another app's data through that app's actions, so its history names
+what happened; this is guidance, not enforced.
 
 Writes to one app run at once: a phone, an agent, and the command line can
 all call the app at the same moment, and an agent may edit its files
@@ -175,13 +189,16 @@ should take what they type: Vocab's `review` could take `{ word, grade }` and
 call `words.pathOf({ word })`, giving `epicenter vocab review 你好 good`.
 
 Annotate honestly. An action never commits; after a run that is not
-`readOnlyHint: true`, `epicenter` commits exactly the files it wrote through
-`folder` to the data repository, named for the call (`<app>: <words> <first
-positional>`, with ` (threw)` when it threw) and carrying a `Code-Commit:
-<sha>` trailer, the code's `HEAD` when it ran. A read-only run never commits, and its writes
-through `folder` throw, so an action that writes a file is not read-only. A
-`.local` file under `data/` is the exception: it is never in history, so a
-read-only action may refresh the token it keeps there.
+`readOnlyHint: true`, epicenter commits everything pending in `data/`,
+named for the call (`<app>: <words> <first positional>`, with ` (threw)`
+when it threw). Edits pending before the first write get their own
+`<app>: changed outside epicenter` snapshot. If that snapshot fails, the
+call leaves everything pending and reports the failure. The call's data
+commit carries `Code-Commit: <sha>`, the code HEAD read before `epicenter.ts`
+loads, and `Code-Dirty: true` when the code then had uncommitted changes.
+A read-only run takes no lock and commits nothing. Its writes through
+`folder` throw except to a `.local` file under `data/`: a read-only action
+may refresh its token there without taking the lock, and no commit takes it.
 
 Write last. A call holds its app's lock from its first write until its
 commit, and other writes to the app wait for it, so fetch from a service or
