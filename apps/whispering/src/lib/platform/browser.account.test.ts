@@ -1,4 +1,4 @@
-/** Browser hosted inference uses the same Account.fetch contract as the desktop route. */
+/** Browser inference uses the selected account or custom endpoint for each request. */
 import { afterEach, expect, test } from 'bun:test';
 import { epicenterCloud, selfHostedServer } from '@epicenter/auth';
 import { APPS, resolveOAuthAudiences } from '@epicenter/constants/apps';
@@ -84,7 +84,7 @@ afterEach(() => {
 	sent.length = 0;
 });
 
-test('a selected account captures its bearer, and switching back restores the custom endpoint', async () => {
+test('switching from the account back to a custom endpoint restores its request credential', async () => {
 	const browser = createServices(client);
 	expectOk(
 		await browser.connections.set('text', {
@@ -125,8 +125,24 @@ test('a selected account captures its bearer, and switching back restores the cu
 	expect(refused.error?.name).toBe('ConnectionUnavailable');
 	expect(sent).toEqual([]);
 	const custom = expectOk(await browser.connections.useCustom!('text'));
-	expect(custom.text?.baseUrl).toBe('https://custom.test/v1');
-	expect(custom.text?.source).toBeUndefined();
+	const customText = custom.text;
+	if (!customText) throw new Error('Expected a custom text endpoint');
+	expect(customText.baseUrl).toBe('https://custom.test/v1');
+	expect(customText.source).toBeUndefined();
+	expectOk(
+		await browser.transform({
+			expectedBaseUrl: customText.baseUrl,
+			model: customText.model,
+			prompt: 'Fix it.',
+			input: 'some text',
+		}),
+	);
+	expect(sent).toEqual([
+		{
+			url: 'https://custom.test/v1/chat/completions',
+			authorization: 'Bearer custom-key',
+		},
+	]);
 	getAuth()[Symbol.dispose]();
 });
 
