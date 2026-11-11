@@ -28,7 +28,7 @@ type Equal<X, Y> =
 const assertType = <T extends true>(): T | undefined => undefined;
 
 const words = defineCollection({
-	path: 'words/{word}.md',
+	path: 'data/words/{word}.md',
 	fields: {
 		meaning: field.text({ optional: true }),
 		createdAt: field.datetime({ readOnly: true }),
@@ -37,7 +37,7 @@ const words = defineCollection({
 });
 
 const settings = defineCollection({
-	path: 'settings.md',
+	path: 'data/settings.md',
 	fields: { dailyGoal: field.integer({ optional: true }) },
 });
 
@@ -132,13 +132,13 @@ describe('an app author', () => {
 	});
 
 	test('a collection is what it was defined with, plus its methods', () => {
-		assertType<Equal<typeof words.path, 'words/{word}.md'>>();
+		assertType<Equal<typeof words.path, 'data/words/{word}.md'>>();
 		assertType<Equal<typeof settings.holds, (path: string) => boolean>>();
 	});
 
 	test('a read has a defaulted field always, every other field maybe, and every placeholder', () => {
 		const tasks = defineCollection({
-			path: 'tasks/{year}/{id}.md',
+			path: 'data/tasks/{year}/{id}.md',
 			fields: {
 				title: field.text(),
 				done: field.boolean(),
@@ -176,7 +176,7 @@ describe('an app author', () => {
 		// @ts-expect-error words has a required readOnly createdAt, so no add
 		() => words.actions('add');
 		const flags = defineCollection({
-			path: 'flags/{id}.md',
+			path: 'data/flags/{id}.md',
 			fields: {
 				pinned: field.boolean({ readOnly: true }),
 				labels: field.tags({ readOnly: true }),
@@ -230,14 +230,14 @@ describe('an app author', () => {
 		>();
 		assertType<Equal<ReturnType<typeof words.update>, Promise<Found>>>();
 		() =>
-			words.update({ path: 'words/a.md' }, (word) => ({
+			words.update({ path: 'data/words/a.md' }, (word) => ({
 				due: word?.due ?? null,
 				body: `${word?.body ?? ''}more\n`,
 			}));
 		// @ts-expect-error createdAt is required, so it cannot be removed
-		() => words.update({ path: 'words/a.md' }, () => ({ createdAt: null }));
+		() => words.update({ path: 'data/words/a.md' }, () => ({ createdAt: null }));
 		// @ts-expect-error a path is not a field
-		() => words.update({ path: 'words/a.md' }, () => ({ path: 'b' }));
+		() => words.update({ path: 'data/words/a.md' }, () => ({ path: 'b' }));
 		// @ts-expect-error a collection of many files updates one path
 		() => words.update(() => ({ meaning: 'x' }));
 		() => settings.update((file) => ({ dailyGoal: (file.dailyGoal ?? 0) + 1 }));
@@ -246,15 +246,15 @@ describe('an app author', () => {
 	});
 
 	test('a one-file collection has no list, add, or delete', () => {
-		// @ts-expect-error settings.md is one file
+		// @ts-expect-error data/settings.md is one file
 		() => settings.actions('list');
-		// @ts-expect-error settings.md is one file
+		// @ts-expect-error data/settings.md is one file
 		() => settings.delete;
 	});
 
 	test('add takes every placeholder but {time}', () => {
 		const notes = defineCollection({
-			path: 'notes/{year}/{time}.md',
+			path: 'data/notes/{year}/{time}.md',
 			fields: { title: field.text() },
 		});
 		type AddIn = In<ReturnType<typeof notes.actions<'add'>>['add']>;
@@ -266,7 +266,7 @@ describe('an app author', () => {
 		() =>
 			defineCollection({
 				// @ts-expect-error a second layout is a second collection
-				path: ['entries/{time}.md', 'entries/archive/{slug}.md'],
+				path: ['data/entries/{time}.md', 'data/entries/archive/{slug}.md'],
 				fields: {},
 			});
 	});
@@ -283,7 +283,7 @@ describe('an app author', () => {
 
 	test('a UI calls under the same words, typed by the app, and gets a Result', () => {
 		const vocabUi = {} as AppClient<Actions>;
-		const call = () => vocabUi.words.set({ path: 'words/a.md', meaning: 'x' });
+		const call = () => vocabUi.words.set({ path: 'data/words/a.md', meaning: 'x' });
 		assertType<
 			Equal<
 				Awaited<ReturnType<typeof call>>,
@@ -300,11 +300,11 @@ describe('an app author', () => {
 			>
 		>();
 		// @ts-expect-error due is written only by Vocab's own actions
-		() => vocabUi.words.set({ path: 'words/a.md', due: 'x' });
+		() => vocabUi.words.set({ path: 'data/words/a.md', due: 'x' });
 		// @ts-expect-error settings has no list
 		() => vocabUi.settings.list();
 		() => vocabUi.words.list();
-		() => vocabUi.review({ path: 'words/a.md' });
+		() => vocabUi.review({ path: 'data/words/a.md' });
 		// @ts-expect-error no action is named then
 		() => vocabUi.then;
 	});

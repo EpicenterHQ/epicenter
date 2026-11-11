@@ -12,7 +12,7 @@ and an MCP tool for their agent, and its UI calls the same actions.
 import { defineAction, defineApp, defineCollection, field, folder } from '@epicenter/app';
 
 const books = defineCollection({
-  path: 'books/{slug}.md',
+  path: 'data/books/{slug}.md',
   description: 'book I am reading',
   fields: { title: field.text(), finished: field.date({ optional: true }) },
 });
@@ -23,7 +23,7 @@ const log = defineAction({
   positional: ['minutes'],
   annotations: { destructiveHint: false },
   run: async ({ minutes, book }) => {
-    await folder.update('2026.csv', (before = 'minutes,book\n') => `${before}${minutes},${book ?? ''}\n`);
+    await folder.update('data/2026.csv', (before = 'minutes,book\n') => `${before}${minutes},${book ?? ''}\n`);
     return { minutes };
   },
 });
@@ -36,7 +36,7 @@ export default defineApp({
 ```
 
 `epicenter reading log 30 --book Dune` runs `log`;
-`epicenter reading books set books/dune.md --finished 2026-11-10` runs a verb
+`epicenter reading books set data/books/dune.md --finished 2026-11-10` runs a verb
 the collection gives. The `epicenter` command supplies `@epicenter/app` when it
 loads `epicenter.ts`, so the folder needs a `package.json` only for its own
 dependencies and for types in an editor. An app's name is its folder's.
@@ -86,14 +86,14 @@ that says which files belong, a record's address, and where `add` writes:
 
 | `path` | Files | `add` takes |
 | --- | --- | --- |
-| `words/{word}.md` | every `.md` file in `words/` | `word` |
-| `captures/{time}.md` | the same, named by the time | nothing; `{time}` is made |
-| `notes/{year}/{time}.md` | one folder per year | `year` |
-| `settings.md` | that one file | (no `add`) |
+| `data/words/{word}.md` | every `.md` file in `data/words/` | `word` |
+| `data/captures/{time}.md` | the same, named by the time | nothing; `{time}` is made |
+| `data/notes/{year}/{time}.md` | one folder per year | `year` |
+| `data/settings.md` | that one file | (no `add`) |
 
 A placeholder matches one path segment, and two in one segment are refused.
-A record's address is its path inside the app: `words/你好.md`. Files in a
-second layout, such as `entries/archive/{slug}.md` beside `entries/{time}.md`,
+A record's address is its path inside the app: `data/words/你好.md`. Files in a
+second layout, such as `data/entries/archive/{slug}.md` beside `data/entries/{time}.md`,
 are a second collection, so membership, reading, making, and addressing each
 have one answer.
 
@@ -108,7 +108,7 @@ hand, and a read says so in `problems`.
 An action reads and writes through the collection's methods. `actions()`
 gives the same operations as verbs to expose, each taking the same object:
 
-| Many files (`words/{word}.md`) | One file (`settings.md`) |
+| Many files (`data/words/{word}.md`) | One file (`data/settings.md`) |
 | --- | --- |
 | `list()`: every file as a row, sorted by path | |
 | `get({ path })`: the file, or `undefined` when there is none | `get()`: the file, or its defaults while there is none |
@@ -124,7 +124,7 @@ The exposed `get`, `set`, and `edit` throw `FileError.Missing` (`There is no
 it names the file by the value as NFC, trimmed, with each run of whitespace
 one space, so `" 你好 "` and `"你好"` name one file, and it throws for a value
 that is then empty, holds `/` or `\`, starts with `.`, or is over 200 bytes.
-So an action never writes `words/${word}.md` itself:
+So an action never writes `data/words/${word}.md` itself:
 
 ```ts
 const found = await words.get({ path: words.pathOf({ word }) });
@@ -191,7 +191,7 @@ A read never trusts the file. `list`, `get`, and the file `add`, `set`, and
 - else absent.
 
 `path`, each placeholder's value from the path, and `body` come from the
-file itself, after the fields, so front matter never replaces them: `words/你好.md` reads as `{ path: 'words/你好.md', word: '你好', ... }`.
+file itself, after the fields, so front matter never replaces them: `data/words/你好.md` reads as `{ path: 'data/words/你好.md', word: '你好', ... }`.
 
 A file that does not fit has `problems`, one line per problem, quoting the
 value it dropped as JSON: `due: "next week" is not a day like 2026-11-12`, `title is missing`,
@@ -214,19 +214,17 @@ have `problems?: string[]`; files have `other?: Record<string, JsonValue>`.
 Read code handles an absent field rather than trusting the declaration.
 
 A path's case is its own: on a disk that ignores case, such as macOS's,
-`words/Hello.md` and `words/hello.md` name one file, and `get` answers under
+`data/words/Hello.md` and `data/words/hello.md` name one file, and `get` answers under
 the path it was asked for, while `list` gives the name on disk.
 
 ### What a definition may say
 
 `defineCollection` refuses:
 
+- a path outside `data/`, naming the path with that prefix;
 - a path that is not a relative `.md` template, has an empty part or one
   starting with `.`, has a placeholder twice, or a brace
   that is not a placeholder;
-- a path whose first part is a placeholder (`{day}.md` would hold
-  `README.md`), is `ui` or `node_modules`, or starts with `epicenter.`: start
-  it with a folder of its own, as `days/{day}.md`;
 - a list of paths: a second layout is a second collection;
 - a field or placeholder named `path`, `body`, `problems`, or `other`, which
   a read gives itself, or `json`, `help`, or `input`, which `epicenter` reads
@@ -319,13 +317,13 @@ goes through it, so two `set`s of different fields of one file both land, and
 two `update`s of one field each see the other's.
 
 ```ts
-await folder.update('2026.csv', (before = 'minutes,book\n') => `${before}${minutes},\n`);
+await folder.update('data/2026.csv', (before = 'minutes,book\n') => `${before}${minutes},\n`);
 ```
 
 A run of an action marked `readOnlyHint: true` is never snapshotted. Its
 context carries `readOnly: { action }`, and in it `folder.write`,
 `folder.writeBytes`, `folder.update`, and `folder.delete` throw before doing
-anything, unless the path is `.local`: `The action "<words>" is read-only, so
+anything, unless the path is `.local` under `data/`: `The action "<words>" is read-only, so
 it cannot write <path>`. A raw `node:fs` write, or a change made through an
 outside service, is the action's own promise.
 
@@ -334,6 +332,8 @@ outside service, is the action's own promise.
 gitignores inside its folder, such as `ui/dist/`; they are never committed.
 Paths are relative to the folder with `/` between parts, and `read` gives
 `undefined` for a missing file.
+Every write through `folder` stays under `data/`. A path with a `.git*` segment
+is refused at any depth. Reads may reach code files.
 
 ## Secrets are `.local` files
 
@@ -357,7 +357,7 @@ fields declared like any other:
 
 ```ts
 const google = defineCollection({
-  path: 'google.local.md',
+  path: 'data/google.local.md',
   description: "this computer's Google sign-in",
   fields: {
     account: field.text({ optional: true }),
@@ -370,7 +370,7 @@ const { refreshToken } = await google.get();
 await google.set({ refreshToken: fresh });
 ```
 
-Its `actions()` throws `google.local.md never leaves this computer, so it
+Its `actions()` throws `data/google.local.md never leaves this computer, so it
 offers no actions`, so no generated verb hands a token to an MCP client. An
 action the app writes may still return what it reads. A fresh clone of the
 app has no `.local` files: the person signs in again.
@@ -381,14 +381,14 @@ app has no `.local` files: the person signs in again.
 import { createMemoryContext, inRun } from '@epicenter/app';
 import reading from './epicenter.ts';
 
-const context = createMemoryContext({ '2026.csv': 'minutes,book\n' });
+const context = createMemoryContext({ 'data/2026.csv': 'minutes,book\n' });
 await inRun(context, () => reading.actions.log({ minutes: 30 }));
-expect(await context.folder.read('2026.csv')).toBe('minutes,book\n30,\n');
+expect(await context.folder.read('data/2026.csv')).toBe('minutes,book\n30,\n');
 ```
 
 The memory context has no Git, so a test checks the files an action wrote. A
 test seeds a secret as it seeds any file:
-`createMemoryContext({ 'google.local.md': '---\nrefreshToken: "t"\n---\n' })`.
+`createMemoryContext({ 'data/google.local.md': '---\nrefreshToken: "t"\n---\n' })`.
 
 ## A UI
 
@@ -437,4 +437,4 @@ with a default is optional in `ActionInput`.
 
 A UI routes to a record by its whole path, each part URL-encoded, so no UI
 needs code that knows the app's templates. Capture, Tasks, and Vocab put a
-record's page at its path: `#/tasks/<time>.md`.
+record's page at its path: `#/data/tasks/<time>.md`.

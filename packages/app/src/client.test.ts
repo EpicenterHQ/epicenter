@@ -12,7 +12,7 @@ import { connect, createQueryClient } from './client.ts';
 import { defineApp, defineCollection, field } from './index.ts';
 
 const books = defineCollection({
-	path: 'books/{title}.md',
+	path: 'data/books/{title}.md',
 	fields: { rating: field.integer({ optional: true }) },
 });
 
@@ -43,44 +43,44 @@ function answer(content: (name: string) => unknown) {
 const app = connect<typeof reading>('reading');
 
 test('a call asks for its MCP tool and answers what the action returned', async () => {
-	answer(() => ({ returned: { path: 'books/Dune.md' } }));
-	expect<unknown>(expectOk(await app.get({ path: 'books/Dune.md' }))).toEqual({
-		path: 'books/Dune.md',
+	answer(() => ({ returned: { path: 'data/books/Dune.md' } }));
+	expect<unknown>(expectOk(await app.get({ path: 'data/books/Dune.md' }))).toEqual({
+		path: 'data/books/Dune.md',
 	});
 	expect(sent).toEqual([
-		{ name: 'reading_get', arguments: { path: 'books/Dune.md' } },
+		{ name: 'reading_get', arguments: { path: 'data/books/Dune.md' } },
 	]);
 });
 
 test('each way serve answers without a value is its own error', async () => {
 	answer(() => ({
 		threw: {
-			message: 'books/Dune.md changed',
+			message: 'data/books/Dune.md changed',
 			thrown: {
 				name: 'Changed',
-				message: 'books/Dune.md changed',
-				path: 'books/Dune.md',
+				message: 'data/books/Dune.md changed',
+				path: 'data/books/Dune.md',
 				why: 'quote',
 			},
 		},
 	}));
 	expect(
-		expectErr(await app.edit({ path: 'books/Dune.md', old: 'a', new: 'b' })),
-	).toMatchObject({ name: 'Changed', path: 'books/Dune.md', why: 'quote' });
+		expectErr(await app.edit({ path: 'data/books/Dune.md', old: 'a', new: 'b' })),
+	).toMatchObject({ name: 'Changed', path: 'data/books/Dune.md', why: 'quote' });
 
 	answer(() => ({
 		threw: {
-			message: 'There is no books/Dune.md',
+			message: 'There is no data/books/Dune.md',
 			thrown: {
 				name: 'Missing',
-				message: 'There is no books/Dune.md',
-				path: 'books/Dune.md',
+				message: 'There is no data/books/Dune.md',
+				path: 'data/books/Dune.md',
 			},
 		},
 	}));
-	expect(expectErr(await app.get({ path: 'books/Dune.md' }))).toMatchObject({
+	expect(expectErr(await app.get({ path: 'data/books/Dune.md' }))).toMatchObject({
 		name: 'Missing',
-		path: 'books/Dune.md',
+		path: 'data/books/Dune.md',
 	});
 
 	answer(() => ({ threw: { message: 'boom' } }));
@@ -124,7 +124,7 @@ test('every write refreshes every read the page shows, before the write is done'
 			{ list: 1 },
 		]);
 		await new MutationObserver(client, bookWrites.delete).mutate({
-			path: 'books/Dune.md',
+			path: 'data/books/Dune.md',
 		});
 		expect<unknown>(client.getQueryData(bookReads.list().queryKey)).toEqual([
 			{ list: 2 },

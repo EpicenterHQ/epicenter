@@ -12,7 +12,7 @@ import {
 } from './index.ts';
 
 const books = defineCollection({
-	path: 'books/{slug}.md',
+	path: 'data/books/{slug}.md',
 	fields: { title: field.text() },
 });
 
@@ -21,8 +21,8 @@ const log = defineAction({
 	input: { minutes: field.number() },
 	positional: ['minutes'],
 	run: async ({ minutes }) => {
-		const before = (await folder.read('2026.csv')) ?? 'minutes\n';
-		await folder.write('2026.csv', `${before}${minutes}\n`);
+		const before = (await folder.read('data/2026.csv')) ?? 'minutes\n';
+		await folder.write('data/2026.csv', `${before}${minutes}\n`);
 		return { minutes };
 	},
 });
@@ -35,12 +35,12 @@ const reading = defineApp({
 
 describe('createMemoryContext', () => {
 	test('an action runs against a folder in memory', async () => {
-		const context = createMemoryContext({ '2026.csv': 'minutes\n10\n' });
+		const context = createMemoryContext({ 'data/2026.csv': 'minutes\n10\n' });
 		expect(
 			await inRun(context, () => reading.actions.log({ minutes: 30 })),
 		).toEqual({ minutes: 30 });
-		expect(await context.folder.read('2026.csv')).toBe('minutes\n10\n30\n');
-		expect(await context.folder.list()).toEqual(['2026.csv']);
+		expect(await context.folder.read('data/2026.csv')).toBe('minutes\n10\n30\n');
+		expect(await context.folder.list()).toEqual(['data/2026.csv']);
 	});
 
 	test('a missing file reads as undefined, and a deleted one is gone', async () => {
@@ -52,70 +52,102 @@ describe('createMemoryContext', () => {
 	});
 
 	test('the ambient folder is read only inside a run', () => {
-		expect(() => folder.read('2026.csv')).toThrow(
+		expect(() => folder.read('data/2026.csv')).toThrow(
 			"An app's collections and folder are read only inside an action's run",
 		);
+	});
+});
+
+describe('writes in a run', () => {
+	test('refuses every folder write outside data/ while leaving reads open', async () => {
+		const context = createMemoryContext({ 'README.md': 'code' });
+		const attempts = [
+			() => folder.write('report.md', 'text'),
+			() => folder.writeBytes('report.md', new Uint8Array([1])),
+			() => folder.update('report.md', () => 'text'),
+			() => folder.delete('report.md'),
+		];
+		for (const attempt of attempts)
+			await expect(inRun(context, attempt)).rejects.toThrow(
+				'report.md is outside data/, and an action writes only there',
+			);
+		expect(await inRun(context, () => folder.read('README.md'))).toBe('code');
+		expect(await context.folder.list()).toEqual(['README.md']);
+	});
+
+	test('refuses every folder write into a .git* path segment', async () => {
+		const context = createMemoryContext();
+		for (const path of ['data/.git/hooks/x', 'data/.gitignore', 'data/nested/.gitattributes']) {
+			for (const attempt of [
+				() => folder.write(path, 'text'),
+				() => folder.writeBytes(path, new Uint8Array([1])),
+				() => folder.update(path, () => 'text'),
+				() => folder.delete(path),
+			])
+				await expect(inRun(context, attempt)).rejects.toThrow('.git* path segment');
+		}
+		expect(await context.folder.list()).toEqual([]);
 	});
 });
 
 describe('a read-only run', () => {
 	test('refuses every write through folder and collections before it happens, and still reads', async () => {
 		const memory = createMemoryContext({
-			'2026.csv': 'minutes\n',
-			'books/dune.md': '---\ntitle: "Dune"\n---\n',
+			'data/2026.csv': 'minutes\n',
+			'data/books/dune.md': '---\ntitle: "Dune"\n---\n',
 		});
 		const context = { ...memory, readOnly: { action: 'week show' } };
 		const refused = (doing: string) =>
 			`The action "week show" is read-only, so it cannot ${doing}`;
 		const tries: [() => Promise<unknown>, string][] = [
-			[() => folder.write('2026.csv', 'x'), refused('write 2026.csv')],
+			[() => folder.write('data/2026.csv', 'x'), refused('write data/2026.csv')],
 			[
-				() => folder.writeBytes('a.bin', new Uint8Array([1])),
-				refused('write a.bin'),
+				() => folder.writeBytes('data/a.bin', new Uint8Array([1])),
+				refused('write data/a.bin'),
 			],
 			[
-				() => folder.update('2026.csv', (text) => `${text}x`),
-				refused('write 2026.csv'),
+				() => folder.update('data/2026.csv', (text) => `${text}x`),
+				refused('write data/2026.csv'),
 			],
-			[() => folder.delete('2026.csv'), refused('delete 2026.csv')],
+			[() => folder.delete('data/2026.csv'), refused('delete data/2026.csv')],
 			[
-				() => books.set({ path: 'books/dune.md', title: 'Other' }),
-				refused('write books/dune.md'),
+				() => books.set({ path: 'data/books/dune.md', title: 'Other' }),
+				refused('write data/books/dune.md'),
 			],
 			[
-				() => books.delete({ path: 'books/dune.md' }),
-				refused('delete books/dune.md'),
+				() => books.delete({ path: 'data/books/dune.md' }),
+				refused('delete data/books/dune.md'),
 			],
 		];
 		for (const [attempt, message] of tries)
 			await expect(inRun(context, attempt)).rejects.toThrow(message);
-		expect(await context.folder.list()).toEqual(['2026.csv', 'books/dune.md']);
-		expect(await context.folder.read('2026.csv')).toBe('minutes\n');
+		expect(await context.folder.list()).toEqual(['data/2026.csv', 'data/books/dune.md']);
+		expect(await context.folder.read('data/2026.csv')).toBe('minutes\n');
 		expect(
-			await inRun(context, () => books.get({ path: 'books/dune.md' })),
+			await inRun(context, () => books.get({ path: 'data/books/dune.md' })),
 		).toMatchObject({ title: 'Dune' });
 	});
 
 	test('writes and deletes a .local file, as a token refresh does', async () => {
 		const google = defineCollection({
-			path: 'google.local.md',
+			path: 'data/google.local.md',
 			fields: { refreshToken: field.text({ optional: true }) },
 		});
 		const context = {
 			...createMemoryContext({
-				'google.local.md': '---\nrefreshToken: "old"\n---\n',
+				'data/google.local.md': '---\nrefreshToken: "old"\n---\n',
 			}),
 			readOnly: { action: 'mail list' },
 		};
 		await inRun(context, async () => {
 			await google.set({ refreshToken: 'new' });
-			await folder.write('cache.local', 'x');
-			await folder.delete('cache.local');
+			await folder.write('data/cache.local', 'x');
+			await folder.delete('data/cache.local');
 		});
-		expect(await context.folder.read('google.local.md')).toBe(
+		expect(await context.folder.read('data/google.local.md')).toBe(
 			'---\nrefreshToken: "new"\n---\n',
 		);
-		expect(await context.folder.list()).toEqual(['google.local.md']);
+		expect(await context.folder.list()).toEqual(['data/google.local.md']);
 	});
 
 	test('a run reaches its folder and nothing else', () => {
@@ -125,12 +157,12 @@ describe('a read-only run', () => {
 
 describe('isLocalPath', () => {
 	test.each([
-		'google.local.md',
+		'data/google.local.md',
 		'x.local',
 		'tokens.local/google.md',
 		'a/b.local.json',
 		'Token.LOCAL',
-		'notes/Google.Local.md',
+		'data/notes/Google.Local.md',
 	])('%p stays on this computer', (path) => {
 		expect(isLocalPath(path)).toBe(true);
 	});
@@ -200,7 +232,7 @@ describe('defineApp', () => {
 		});
 		const context = createMemoryContext();
 		await inRun(context, () => twice({ minutes: 5 }));
-		expect(await context.folder.read('2026.csv')).toBe('minutes\n5\n5\n');
+		expect(await context.folder.read('data/2026.csv')).toBe('minutes\n5\n5\n');
 	});
 
 	test('needs a description, collections, and actions', () => {
@@ -245,17 +277,17 @@ describe('defineApp', () => {
 				defineApp({
 					description: 'Clash',
 					collections: {
-						words: at('words/{word}.md'),
-						quizzes: at('words/{word}.md'),
-						pinned: at('words/pinned.md'),
+						words: at('data/words/{word}.md'),
+						quizzes: at('data/words/{word}.md'),
+						pinned: at('data/words/pinned.md'),
 					},
 					actions: {},
 				}),
 			),
 		).toEqual([
-			'collections "words" and "quizzes" would both hold words/{word}.md',
-			'collections "words" and "pinned" would both hold words/pinned.md',
-			'collections "quizzes" and "pinned" would both hold words/pinned.md',
+			'collections "words" and "quizzes" would both hold data/words/{word}.md',
+			'collections "words" and "pinned" would both hold data/words/pinned.md',
+			'collections "quizzes" and "pinned" would both hold data/words/pinned.md',
 		]);
 	});
 
@@ -294,39 +326,32 @@ describe('defineApp', () => {
 });
 
 describe('defineCollection', () => {
+	test('requires a data/ path and names the accepted path', () => {
+		expect(problems(() => defineCollection({ path: 'tasks/{time}.md', fields: {} }))).toEqual([
+			'the path "tasks/{time}.md" must start with data/: data/tasks/{time}.md',
+		]);
+	});
+
+	test('allows names reserved for code when they are under data/', () => {
+		for (const path of ['data/ui/{page}.md', 'data/node_modules/{id}.md', 'data/epicenter.md'])
+			expect(problems(() => defineCollection({ path, fields: {} }))).toEqual([]);
+	});
+
 	test.each([
-		['../x.md', '../x.md has a part that starts with "."'],
-		['./{id}.md', './{id}.md has a part that starts with "."'],
-		['a//{id}.md', 'a//{id}.md is not a relative path'],
-		['/abs/{id}.md', '/abs/{id}.md is not a relative path'],
-		['words/', 'words/ is not a .md path'],
-		['photos/{id}.jpg', 'photos/{id}.jpg is not a .md path'],
+		['data/../x.md', 'data/../x.md has a part that starts with "."'],
+		['data/./{id}.md', 'data/./{id}.md has a part that starts with "."'],
+		['data/a//{id}.md', 'data/a//{id}.md is not a relative path'],
+		['data//abs/{id}.md', 'data//abs/{id}.md is not a relative path'],
+		['data/words/', 'data/words/ is not a .md path'],
+		['data/photos/{id}.jpg', 'data/photos/{id}.jpg is not a .md path'],
 		[
-			'words/{a}-{b}.md',
-			'words/{a}-{b}.md has two placeholders in "{a}-{b}.md", so a name could not be split between them',
+			'data/words/{a}-{b}.md',
+			'data/words/{a}-{b}.md has two placeholders in "{a}-{b}.md", so a name could not be split between them',
 		],
-		['a/{a}/{a}.md', 'a/{a}/{a}.md has {a} twice'],
+		['data/a/{a}/{a}.md', 'data/a/{a}/{a}.md has {a} twice'],
 		[
-			'{day}.md',
-			'{day}.md starts with a placeholder, so it would hold files the app keeps for itself, such as README.md; start it with a folder, as days/{day}.md',
-		],
-		[
-			'{year}/{day}.md',
-			'{year}/{day}.md starts with a placeholder, so it would hold files the app keeps for itself, such as README.md; start it with a folder, as days/{day}.md',
-		],
-		['ui/{page}.md', "ui/{page}.md is inside ui/, which holds the app's UI"],
-		[
-			'node_modules/{id}.md',
-			'node_modules/{id}.md is inside node_modules/, which holds installed packages',
-		],
-		[
-			'epicenter.md',
-			'epicenter.md starts with "epicenter.", which names epicenter\'s own files',
-		],
-		['.cache/{id}.md', '.cache/{id}.md has a part that starts with "."'],
-		[
-			'words/{a.md',
-			'words/{a.md has a brace that is not a placeholder such as {word}',
+			'data/words/{a.md',
+			'data/words/{a.md has a brace that is not a placeholder such as {word}',
 		],
 	])('refuses the path %p', (path, problem) => {
 		expect(problems(() => defineCollection({ path, fields: {} }))).toEqual([
@@ -338,7 +363,7 @@ describe('defineCollection', () => {
 		expect(
 			problems(() =>
 				defineCollection({
-					path: 'words/{word}.md',
+					path: 'data/words/{word}.md',
 					fields: {
 						word: field.text(),
 						body: field.text(),
@@ -351,13 +376,13 @@ describe('defineCollection', () => {
 				}),
 			),
 		).toEqual([
-			'The collection at words/{word}.md has a field "word", which its path gives as {word}; the file\'s name holds it',
-			'The collection at words/{word}.md has a field "body", which is the file\'s text after its front matter',
-			'The collection at words/{word}.md has a field "path", which is the file\'s address',
-			'The collection at words/{word}.md has a field "problems", which a read uses to say what does not fit',
-			'The collection at words/{word}.md has a field "other", which a read uses for front matter that is not a field',
-			'The collection at words/{word}.md has a field "json", which epicenter reads itself',
-			'The collection at words/{word}.md has a field "two words", which a front matter line cannot name',
+			'The collection at data/words/{word}.md has a field "word", which its path gives as {word}; the file\'s name holds it',
+			'The collection at data/words/{word}.md has a field "body", which is the file\'s text after its front matter',
+			'The collection at data/words/{word}.md has a field "path", which is the file\'s address',
+			'The collection at data/words/{word}.md has a field "problems", which a read uses to say what does not fit',
+			'The collection at data/words/{word}.md has a field "other", which a read uses for front matter that is not a field',
+			'The collection at data/words/{word}.md has a field "json", which epicenter reads itself',
+			'The collection at data/words/{word}.md has a field "two words", which a front matter line cannot name',
 		]);
 	});
 
@@ -365,16 +390,16 @@ describe('defineCollection', () => {
 		expect(
 			problems(() =>
 				defineCollection({
-					path: 'notes/{body}/{path}/{problems}/{other}/{input}.md',
+					path: 'data/notes/{body}/{path}/{problems}/{other}/{input}.md',
 					fields: {},
 				}),
 			),
 		).toEqual([
-			"The collection at notes/{body}/{path}/{problems}/{other}/{input}.md has the placeholder {body}, which is the file's text after its front matter",
-			"The collection at notes/{body}/{path}/{problems}/{other}/{input}.md has the placeholder {path}, which is the file's address",
-			'The collection at notes/{body}/{path}/{problems}/{other}/{input}.md has the placeholder {problems}, which a read uses to say what does not fit',
-			'The collection at notes/{body}/{path}/{problems}/{other}/{input}.md has the placeholder {other}, which a read uses for front matter that is not a field',
-			'The collection at notes/{body}/{path}/{problems}/{other}/{input}.md has the placeholder {input}, which epicenter reads itself',
+			"The collection at data/notes/{body}/{path}/{problems}/{other}/{input}.md has the placeholder {body}, which is the file's text after its front matter",
+			"The collection at data/notes/{body}/{path}/{problems}/{other}/{input}.md has the placeholder {path}, which is the file's address",
+			'The collection at data/notes/{body}/{path}/{problems}/{other}/{input}.md has the placeholder {problems}, which a read uses to say what does not fit',
+			'The collection at data/notes/{body}/{path}/{problems}/{other}/{input}.md has the placeholder {other}, which a read uses for front matter that is not a field',
+			'The collection at data/notes/{body}/{path}/{problems}/{other}/{input}.md has the placeholder {input}, which epicenter reads itself',
 		]);
 	});
 
@@ -382,7 +407,7 @@ describe('defineCollection', () => {
 		expect(
 			problems(() =>
 				defineCollection({
-					path: 'settings.md',
+					path: 'data/settings.md',
 					fields: {
 						voice: field.select(['female', 'male']),
 						goal: field.integer({ optional: true }),
@@ -391,18 +416,18 @@ describe('defineCollection', () => {
 				}),
 			),
 		).toEqual([
-			'The collection at settings.md has the required field "voice" with no default; one file reads as its defaults before its first set, so make it optional or give it a default',
+			'The collection at data/settings.md has the required field "voice" with no default; one file reads as its defaults before its first set, so make it optional or give it a default',
 		]);
 	});
 
 	test('a collection has one path, and a list is refused', () => {
-		const path = ['entries/{time}.md', 'entries/archive/{slug}.md'];
+		const path = ['data/entries/{time}.md', 'data/entries/archive/{slug}.md'];
 		expect(
 			problems(() =>
 				defineCollection({ path: path as unknown as string, fields: {} }),
 			),
 		).toEqual([
-			'A collection has one path, not a list ("entries/{time}.md", "entries/archive/{slug}.md"); declare a second collection for a second layout',
+			'A collection has one path, not a list ("data/entries/{time}.md", "data/entries/archive/{slug}.md"); declare a second collection for a second layout',
 		]);
 	});
 });

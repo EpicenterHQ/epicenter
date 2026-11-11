@@ -5,13 +5,14 @@
  * run, the app's collections and `folder` reach it, however deep the call,
  * and an action that calls another stays in the same run; outside any run
  * they throw. What an app can rebuild lives in files it gitignores inside the
- * folder, such as `ui/dist/`, and is never committed.
+ * folder, such as `ui/dist/`, and is never committed. A run writes only under
+ * `data/`; reads may reach any app file.
  *
  * An action changes files and never commits: whatever runs it takes snapshots
  * of the folder into its history (ADR-0850). A change that depends on what it
  * read goes through a collection's `update`, or `folder.update` for any other
  * file. A run of a read-only action refuses every write through `folder`,
- * except to a `.local` path (ADR-0870).
+ * except to a `.local` path under `data/` (ADR-0870).
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
 
@@ -19,7 +20,8 @@ import { AsyncLocalStorage } from 'node:async_hooks';
  * An app's folder as an object. Paths are relative to the folder, with `/`
  * between parts; one that is absolute, climbs out with `..`, or reaches into
  * `.git` throws. It is a convenience, not a sandbox: an action may use `path`
- * and `node:fs` directly.
+ * and `node:fs` directly. A run writes only under `data/` and never into a
+ * path with a `.git*` segment; reads may reach other app files.
  */
 export type Folder = {
 	/** The text at `path`, or `undefined` when no file is there. */
@@ -40,7 +42,7 @@ export type Folder = {
 	 * throws `FileError.Changed`. A `change` that throws writes nothing.
 	 *
 	 * ```ts
-	 * await folder.update('2026.csv', (text = 'day,minutes\n') => `${text}${day},${minutes}\n`);
+	 * await folder.update('data/2026.csv', (text = 'day,minutes\n') => `${text}${day},${minutes}\n`);
 	 * ```
 	 */
 	update(
@@ -62,8 +64,8 @@ export type Context = {
 	/**
 	 * The run is of a read-only action (`readOnlyHint: true`), named `action`:
 	 * `folder.write`, `writeBytes`, `update`, and `delete` throw in it before
-	 * doing anything, unless the path is `.local`. A `.local` file is never in
-	 * the app's history, so writing one changes nothing a read-only action
+	 * doing anything, unless the path is `.local` under `data/`. Such a file
+	 * never enters the app's history, so writing one changes nothing a read-only action
 	 * promised to keep, and an action that only reads may still refresh a
 	 * token. A raw `node:fs` write or an outside service is the action's own
 	 * promise.
@@ -93,10 +95,16 @@ function currentRun(): Context {
 
 /**
  * The folder of the run this code is in, to write or delete `path` in; throws
- * in a read-only run unless `path` is `.local`.
+ * in a read-only run unless `path` is `.local` under `data/`. Every write stays
+ * under `data/` and avoids `.git*` path segments.
  */
 function writableFolder(verb: 'write' | 'delete', path: string): Folder {
 	const context = currentRun();
+	const normal = normalizePath(path);
+	if (!normal.startsWith('data/'))
+		throw new Error(`${path} is outside data/, and an action writes only there`);
+	if (normal.split('/').some((part) => part.startsWith('.git')))
+		throw new Error(`${path} has a .git* path segment, and an action cannot ${verb} there`);
 	if (context.readOnly && !isLocalPath(path))
 		throw new Error(
 			`The action "${context.readOnly.action}" is read-only, so it cannot ${verb} ${path}`,
