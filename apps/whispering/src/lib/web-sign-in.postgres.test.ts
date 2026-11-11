@@ -1,12 +1,11 @@
 /**
- * Whispering's browser sign-in holds its repository and its hosted models
- * (ADR-0786): one sign-in through `connectAccount`, as `app.ts` asks for
- * it, against the real authorization server on a disposable Postgres
- * cluster and a `Bun.serve` listener, with this deployment's first-party
- * registrations. It asks for the API audience first and the Git audience,
- * with `ai` and the `folders:*` scopes; the Account sends a transcription
- * over the API, and its first sync makes the folder attached to Whispering
- * (ADR-0811), which its token reaches. No refresh token is left in the browser's storage.
+ * Whispering's registered browser client signs in against the real
+ * authorization server on a disposable Postgres cluster and `Bun.serve`.
+ * This test composes the account with `home` and `hosted`, as `app.ts` does:
+ * sign-in requests the API and Git audiences with `ai` and `folders:*`
+ * scopes. The hosted endpoint sends a transcription request, and the
+ * signed-in account can create and read a folder through Git. No refresh
+ * token is left in the browser's storage.
  *
  * The browser is played by in-memory storage and a location whose `assign`
  * the test answers as the authorization server would for a signed-in person.
@@ -131,7 +130,7 @@ afterAll(async () => {
 	if (scratch) await rm(scratch, { recursive: true, force: true });
 });
 
-test('one Whispering sign-in transcribes over the API and reaches the person’s repository', async () => {
+test('Whispering’s registered browser client can call hosted AI and Git after sign-in', async () => {
 	const person = await oauth.person('whispering-web');
 	const storage = memoryStorage();
 	const attempts = memoryStorage();
@@ -160,16 +159,19 @@ test('one Whispering sign-in transcribes over the API and reaches the person’s
 		automaticRenewal: false,
 	});
 	if (!isCallbackAuthClient(auth)) throw new Error('a browser sign-in');
-	// What `app.ts` gives the account to, each saying what it needs.
+	// Reproduce the needs registered by `app.ts` without importing its
+	// page-wide capabilities into this server integration test.
 	const { home } = await import('@epicenter/folder');
 	const { hosted } = await import('@epicenter/ai');
 	home({ site: APPS.WHISPERING.url, account: auth });
-	hosted(auth);
+	const hostedModels = hosted(auth);
 
 	expectOk(await auth.startSignIn());
 	expect(navigations).toHaveLength(1);
 	// The authorization server answers for the signed-in person.
-	const authorize = new URL(navigations[0]!);
+	const authorizationUrl = navigations[0];
+	if (!authorizationUrl) throw new Error('Expected an authorization URL');
+	const authorize = new URL(authorizationUrl);
 	expect(authorize.searchParams.getAll('resource')).toEqual([
 		origin,
 		`${origin}/git`,
@@ -194,18 +196,18 @@ test('one Whispering sign-in transcribes over the API and reaches the person’s
 	for (const cells of [storage.cells, attempts.cells])
 		for (const value of cells.values()) expect(value).not.toContain('ep_rt_');
 
-	const transcribed = await state.account.fetch(
-		`${origin}/v1/audio/transcriptions`,
-		{ method: 'POST', body: new FormData() },
-	);
+	const transcribed = await hostedModels.fetch('audio/transcriptions', {
+		method: 'POST',
+		body: new FormData(),
+	});
 	expect(transcribed.status).toBe(200);
 	expect(await transcribed.json()).toEqual({ text: 'heard over Epicenter' });
 	expect(reached).toEqual([
 		{ path: '/v1/audio/transcriptions', principal: person.id },
 	]);
 
-	// The sign-in's first sync makes Whispering's folder, attached to it,
-	// and its token reaches that folder.
+	// The Git token can create and read a folder. This does not exercise
+	// Whispering's app-owned folder or its first sync.
 	const joined = await state.account.fetch(`${origin}/git/folders`, {
 		method: 'POST',
 		headers: { 'content-type': 'application/json' },
