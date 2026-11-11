@@ -150,9 +150,19 @@ test('build reports each app and keeps the last good UI after failure', async ()
 
 test('serve reads the root port when no command port is given', async () => {
 	const f = await setup();
+	let port = 4747;
+	while (port === 4747) {
+		const probe = Bun.serve({
+			hostname: '127.0.0.1',
+			port: 0,
+			fetch: () => new Response(),
+		});
+		port = probe.port;
+		probe.stop(true);
+	}
 	await writeFile(
 		join(f.home, 'epicenter.root.json'),
-		JSON.stringify({ id: TEST_ROOT_ID, port: 0 }),
+		JSON.stringify({ id: TEST_ROOT_ID, port }),
 	);
 	const child = Bun.spawn([process.execPath, f.bin, 'serve'], {
 		cwd: f.root,
@@ -168,16 +178,20 @@ test('serve reads the root port when no command port is given', async () => {
 				const { value, done } = await reader.read();
 				if (done) throw new Error(output || 'serve exited before listening');
 				output += new TextDecoder().decode(value);
-				if (/Serving your apps at http:\/\/127\.0\.0\.1:\d+\./.test(output))
-					return;
+				const listening = output.match(
+					/Serving your apps at http:\/\/127\.0\.0\.1:(\d+)\./,
+				);
+				if (listening) return Number(listening[1]);
 			}
 		})();
-		await Promise.race([
+		const announcedPort = await Promise.race([
 			started,
 			Bun.sleep(10_000).then(() => {
 				throw new Error('serve did not start');
 			}),
 		]);
+		expect(announcedPort).toBe(port);
+		expect((await fetch(`http://127.0.0.1:${port}/`)).status).toBe(200);
 	} finally {
 		child.kill('SIGTERM');
 		await child.exited;
