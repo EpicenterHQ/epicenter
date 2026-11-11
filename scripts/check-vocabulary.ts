@@ -107,7 +107,6 @@ const RULES: readonly Rule[] = [
 			'packages/server/workers/',
 			'apps/honeycrisp/',
 			'apps/whispering/',
-			'apps/vocab/',
 			'.agents/skills/yjs/',
 			'.agents/skills/svelte/',
 			'.agents/skills/collapse-pass/',

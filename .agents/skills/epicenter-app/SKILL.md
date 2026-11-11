@@ -37,11 +37,12 @@ and shared with no one.
 
 An app can start from another app's code, which it keeps as its `upstream`
 remote; `epicenter update` merges that code's later changes, and `serve` rebuilds
-the UI from the merged code (ADR-0866). Capture, Reading, Tasks, and Vocab are developed in the
-person's own Epicenter, each code repository a private GitHub repository;
-`apps/<app>/` in the monorepo keeps a copy that the platform's tests use. Read
-`@epicenter/app`'s README (`packages/app/README.md` in the monorepo) and one
-existing app before starting; Tasks is the smallest whole example.
+the UI from the merged code (ADR-0866). An app has one home: its folder in an
+Epicenter, backed up to its code repository. Capture, Reading, Tasks, and Vocab
+live in their author's Epicenter, each a private GitHub repository; the
+monorepo holds the platform and no apps (ADR-0877). Read `@epicenter/app`'s
+README (`packages/app/README.md` in the monorepo) and one existing app before
+starting; Tasks is the smallest whole example.
 
 Change an app where the change belongs. A change for one person's app is made
 in its folder and committed to its code repository; Git merges it with
@@ -244,10 +245,13 @@ happened.
 
 ## Build the UI as a client
 
-Copy an existing app's `ui/`: SvelteKit with the hash router, a manifest and
-icons in `static/`, and its `svelte.config.js`. The UI builds on its own from
-npm: it depends on the published `@epicenter/app`, never on `workspace:` or
-`catalog:` versions, and owns its components, copied into
+Copy an existing app's `ui/`: Svelte on Bun's bundler, with `ui/build.ts`,
+the Svelte plugin beside it (`ui/svelte-plugin.ts`), the hash router in
+`src/lib/router.svelte.ts`, and a manifest and icons in `static/`; copy
+`bunfig.toml` with it, whose `peer = false` keeps a peer named `bun` from
+shadowing Bun. The app's `package.json` names every package the UI imports,
+from npm, never `workspace:` or `catalog:`. The UI imports Epicenter only
+through `@epicenter/app/client`. It owns its components, copied into
 `src/lib/components/ui/` with `components.json`, `src/lib/utils.ts`, and the
 theme in `src/app.css` (ADR-0874). Add a component by copying it whole,
 dependencies and tests included, and change it in place.
@@ -297,13 +301,11 @@ again, so a page never refreshes by hand or on a timer. Name
 types with `ActionInput<typeof app.actions.set>` and
 `ActionOutput<typeof app.actions.get>`.
 
-- Route a record by its whole path: a rest route `src/routes/[...path]`, so the
-  page is at `#/data/tasks/<time>.md`, linked with each part URL-encoded
-  (`path.split('/').map(encodeURIComponent).join('/')`) and read back from
-  `page.params.path`. Write no code that knows the app's templates; show a
-  record's name from its read (`row.word`). SvelteKit decodes the hash once
-  when the page loads, so a name holding `?`, `#`, or `%` survives a link
-  inside the UI but not a reload.
+- Route a record by its whole path: the page is at `#/data/tasks/<time>.md`,
+  linked with each part URL-encoded
+  (`path.split('/').map(encodeURIComponent).join('/')`) and read back with the
+  router's `currentPath()`. Write no code that knows the app's templates; show
+  a record's name from its read (`row.word`).
 - Show a record's `problems` quietly where the record is shown, and never
   crash on a field that is absent.
 
@@ -351,12 +353,9 @@ HOME=$T epicenter serve --port 4799        # then drive http://localhost:4799/<a
 ```
 
 In the monorepo, run the CLI from source as `bun <repo>/packages/cli/src/bin.ts`.
-The monorepo's `apps/<app>` is not a repository's root, so `new --from`
-refuses it: copy it into the temporary Epicenter, make sure its `.gitignore`
-lists `data/`, and `git init` and commit it there. The temporary `.gitconfig`
-keeps the person's own, which may sign commits, out of the test. Run
-`bun run typecheck` in the app and in its `ui/`. Run tests one file or
-package at a time.
+The temporary `.gitconfig` keeps the person's own, which may sign commits,
+out of the test. Run `bun run typecheck` in the app; it checks the actions and
+the UI. Run tests one file or package at a time.
 
 ## Put an app on the server
 

@@ -1,53 +1,13 @@
 # Apps
 
-Two kinds of app live here: Epicenter's own apps for `~/Epicenter`, and the
-apps frozen on the folder sync product, which waits.
+The apps here are frozen on the folder sync product, which waits.
 
-## Apps for ~/Epicenter
-
-Capture, Reading, Tasks, and Vocab are the source of starters for apps in
-`~/Epicenter`
-([ADR-0864](../docs/adr/0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md),
-[ADR-0866](../docs/adr/0866-an-app-starts-from-a-starter-kept-as-its-upstream-and-update-merges-the-starters-changes.md)).
-Each folder is laid out as the app is:
-
-```txt
-apps/vocab/
-  epicenter.ts          the app: its collections and actions, composed by defineApp
-  epicenter.test.ts     the actions' tests, in memory
-  package.json          what the actions' types and tests need
-  ui/                   the UI, a SvelteKit project of its own
-  ui/dist/              the built UI, ignored by ui/.gitignore
-```
-
-A starter is a repository of its own whose root is the app's root, and
-`epicenter new vocab --from <git url|path>` makes an app from it, keeping it
-as the app's `upstream`; `epicenter update` merges its later changes and
-builds the UI. These folders become starters when each moves to a
-repository of its own, which waits on publishing `@epicenter/app` and
-`@epicenter/ui`: here their packages are `workspace:*` and `catalog:`.
-
-`epicenter` supplies `@epicenter/app` to an `epicenter.ts` when it runs it, so
-the app's root `package.json` is only for whoever edits the actions. `ui/`
-has its own `package.json` and `.gitignore`; its `build` writes `ui/dist/`.
-`epicenter serve` serves `ui/dist/` at `/<app>/`, and MCP at `/`. A UI asks
-for everything through `connect<typeof app>()` from
-`@epicenter/app/client`, typed by the app it imports as a type, and keeps
-nothing of its own. Its `src/lib/app.ts` lists the actions its pages read and
-write as TanStack Query options (ADR-0661), and its layout's QueryClient
-refreshes every read after each write.
-
-A UI is a static SvelteKit build with hash routes, a record's page at its
-path (`#/tasks/<time>.md`), so the server serves files and routes nothing. Its base is `/<the app's folder name>`, the
-path `epicenter serve` mounts it at. In development, `bun run dev` in `ui/`
-sends a POST to `/` (MCP) to a running `epicenter serve` (`EPICENTER_URL`,
-default `http://127.0.0.1:4747`).
-
-| App | Collections | Its own actions |
-| --- | --- | --- |
-| [Capture](capture) | `captures` | `add`, `recent` |
-| [Tasks](tasks/README.md) | `tasks` | `add` |
-| [Vocab](vocab) | `words` | `add`, `review`, `due` |
+Epicenter's own apps (Capture, Reading, Tasks, Vocab) are not in this
+repository. Each is a repository of its own, developed where it runs in its
+author's `~/Epicenter`, and taken with `epicenter new <app> --from <git url>`
+([ADR-0877](../docs/adr/0877-an-apps-code-and-its-data-are-two-repositories-and-sharing-an-app-shares-its-code.md),
+[ADR-0880](../docs/adr/0880-an-epicenter-runs-its-apps-as-they-sit-on-disk.md)).
+The `epicenter-app` skill says how to make and change one.
 
 ## Apps frozen on the folder sync product
 

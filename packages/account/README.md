@@ -204,10 +204,7 @@ export const auth = reactive(client);
 The package has no Svelte code of its own: framework-independent packages
 and CLIs use the same client and call `state()`. The callback route,
 components, and app-owned services share the one adapted client, and
-`isCallbackAuthClient(auth)` accepts it. Vocab's
-[`auth.ts`](../../apps/vocab/src/lib/auth.ts) and Whispering's
-[`#platform/auth`](../../apps/whispering/src/lib/platform/auth.ts) show the
-single-export pattern.
+`isCallbackAuthClient(auth)` accepts it.
 
 Ordinary persistence runs during use. Browser departures remove working UI and
 replace the document without awaiting application drains. Failed navigation and browser history

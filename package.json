@@ -28,7 +28,6 @@
 	"workspaces": {
 		"packages": [
 			"apps/*",
-			"apps/*/ui",
 			".agents/skills/consult-claude",
 			"ops",
 			"packages/*",
