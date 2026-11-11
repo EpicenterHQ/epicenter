@@ -14,7 +14,7 @@
 import { afterEach, expect, test } from 'bun:test';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import type { BeeperAnswer } from '../src/lib/beeper-protocol.ts';
 import { messagesFolder, serveMessages } from './serve.ts';
 
@@ -26,6 +26,8 @@ afterEach(async () => {
 async function start() {
 	const root = await mkdtemp(join(tmpdir(), 'messages-serve-'));
 	await writeFile(join(root, 'index.html'), '<p>Messages</p>');
+	const outside = `${root}-outside.txt`;
+	await writeFile(outside, 'outside the build');
 	await writeFile(
 		join(root, 'contract.json'),
 		'{"collections":{"messages":{"path":"messages/{id}.md"}}}',
@@ -44,14 +46,15 @@ async function start() {
 	cleanup.push(async () => {
 		await server.stop();
 		await rm(root, { recursive: true, force: true });
+		await rm(outside, { force: true });
 		await rm(folder, { recursive: true, force: true });
 	});
 	const origin = `http://127.0.0.1:${server.port}`;
-	return { origin, asked, folder };
+	return { origin, asked, folder, outside: basename(outside) };
 }
 
 test('the build is served, any other route gets the app, and nothing outside the build is reachable', async () => {
-	const { origin } = await start();
+	const { origin, outside } = await start();
 	expect(await (await fetch(`${origin}/`)).text()).toBe('<p>Messages</p>');
 	expect(await (await fetch(`${origin}/contract.json`)).json()).toEqual({
 		collections: { messages: { path: 'messages/{id}.md' } },
@@ -59,7 +62,9 @@ test('the build is served, any other route gets the app, and nothing outside the
 	expect(await (await fetch(`${origin}/chats/anything`)).text()).toBe(
 		'<p>Messages</p>',
 	);
-	expect(await (await fetch(`${origin}/%2e%2e/%2e%2e/etc/hosts`)).text()).toBe(
+	// Encoded slashes survive URL normalization, so this reaches the server's
+	// path guard and would serve the sibling file if that guard were removed.
+	expect(await (await fetch(`${origin}/%2e%2e%2f${outside}`)).text()).toBe(
 		'<p>Messages</p>',
 	);
 	expect((await fetch(`${origin}/`, { method: 'DELETE' })).status).toBe(405);
