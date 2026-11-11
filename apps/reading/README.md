@@ -54,5 +54,5 @@ starts with one tap, and one being read finishes with one. A book's page is
 at its path (`#/data/books/Dune.md`): it edits the author, the two days, and the
 rating, each saved when it changes, and the notes, saved with `edit` when
 they lose focus or the page is hidden, quoting them as loaded, so notes an
-agent changed meanwhile are not overwritten without asking. The list asks
-again every 15 seconds while the page is visible and whenever it is shown.
+agent changed meanwhile are not overwritten without asking. The list reads
+again after every write and whenever it is shown.
