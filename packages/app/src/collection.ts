@@ -265,23 +265,24 @@ type VerbOf<D extends CollectionDef> =
 type VerbAction<D extends CollectionDef, V extends Verb> =
 	IsSingle<D['path']> extends true
 		? {
-				get: Action<Record<string, never>, Promise<FileOf<D>>>;
-				set: Action<Patch<D['fields'], Writable<D>>, Promise<FileOf<D>>>;
-				edit: Action<Change, Promise<FileOf<D>>>;
+				get: Action<Record<string, never>, Promise<FileOf<D>>, never>;
+				set: Action<Patch<D['fields'], Writable<D>>, Promise<FileOf<D>>, never>;
+				edit: Action<Change, Promise<FileOf<D>>, never>;
 				list: never;
 				add: never;
 				delete: never;
 			}[V]
 		: {
-				list: Action<Record<string, never>, Promise<Row<D>[]>>;
-				get: Action<PathIn, Promise<FileOf<D>>>;
-				add: Action<AddInput<D, Writable<D>>, Promise<FileOf<D>>>;
+				list: Action<Record<string, never>, Promise<Row<D>[]>, never>;
+				get: Action<PathIn, Promise<FileOf<D>>, never>;
+				add: Action<AddInput<D, Writable<D>>, Promise<FileOf<D>>, never>;
 				set: Action<
 					Simplify<PathIn & Patch<D['fields'], Writable<D>>>,
-					Promise<FileOf<D>>
+					Promise<FileOf<D>>,
+					never
 				>;
-				edit: Action<Simplify<PathIn & Change>, Promise<FileOf<D>>>;
-				delete: Action<PathIn, Promise<boolean>>;
+				edit: Action<Simplify<PathIn & Change>, Promise<FileOf<D>>, never>;
+				delete: Action<PathIn, Promise<boolean>, never>;
 			}[V];
 
 /** What `.actions(...)` returns: each verb's action under the verb. */

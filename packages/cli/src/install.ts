@@ -6,7 +6,7 @@
 import { existsSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { extractErrorMessage } from 'wellcrafted/error';
-import { COMPILED } from './child.ts';
+import { COMPILED } from './commands.ts';
 import { misuse, parseWords } from './commands.ts';
 import { chooseApps } from './home.ts';
 import { fail, writeErr, writeJson, writeOut } from './output.ts';

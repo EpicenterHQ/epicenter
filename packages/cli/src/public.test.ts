@@ -78,6 +78,7 @@ async function setup(changes: Parameters<typeof claudeOnly>[1] = {}) {
 	const reached: {
 		mcp?: { readOnly: boolean; body: unknown };
 		page?: string;
+		call?: string;
 	}[] = [];
 	const site: Site = {
 		async mcp(request, readOnly = false) {
@@ -91,6 +92,10 @@ async function setup(changes: Parameters<typeof claudeOnly>[1] = {}) {
 		async ui(request) {
 			reached.push({ page: new URL(request.url).pathname });
 			return new Response('view');
+		},
+		async call(request) {
+			reached.push({ call: new URL(request.url).pathname });
+			return new Response('called');
 		},
 	};
 	const handle = publicHandler(authorization, site);
@@ -461,6 +466,31 @@ describe('the path table', () => {
 		const own = await person.browser.post('/', call);
 		expect(own.status).toBe(200);
 		expect(t.reached).toEqual([{ mcp: { readOnly: false, body: call } }]);
+	});
+
+	test("an action's own address answers only a session from this Origin, never a token", async () => {
+		const t = await setup();
+		const person = await t.signedIn();
+		const input = { minutes: 5 };
+		expect(
+			(
+				await person.browser.post('/reading/log', input, {
+					origin: 'https://evil.example',
+				})
+			).status,
+		).toBe(403);
+		const token = await t.send(
+			new Request(`${ORIGIN}/reading/log`, {
+				method: 'POST',
+				headers: { authorization: 'Bearer anything', origin: ORIGIN },
+				body: JSON.stringify(input),
+			}),
+		);
+		expect(token.status).toBe(403);
+		expect(t.reached).toEqual([]);
+		const own = await person.browser.post('/reading/log', input);
+		expect(own.status).toBe(200);
+		expect(t.reached).toEqual([{ call: '/reading/log' }]);
 	});
 
 	test('Better Auth refuses a consent posted from a foreign Origin', async () => {

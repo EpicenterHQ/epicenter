@@ -15,7 +15,7 @@
 import { mkdir, mkdtemp, readlink, rename, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { COMPILED } from './child.ts';
+import { COMPILED } from './commands.ts';
 
 /** What `scripts/compile.ts` puts in the binary: the package's files under one key per build. */
 export type AppPackageFiles = {

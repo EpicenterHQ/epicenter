@@ -7,9 +7,12 @@ import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
 import { existsSync } from 'node:fs';
 import { readFile, rm, symlink } from 'node:fs/promises';
 import { join } from 'node:path';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { fixture, gitIn, readingApp } from './runner.test-support.ts';
+import {
+	connectMcp,
+	fixture,
+	gitIn,
+	readingApp,
+} from './runner.test-support.ts';
 
 setDefaultTimeout(30_000);
 
@@ -290,20 +293,12 @@ test('D5 an epicenter.ts importing @epicenter/app loads from a folder with no no
 	);
 });
 
-test('D6 serve --stdio answers initialize, lists the same tools as --json, and runs a call', async () => {
+test('D6 serve answers initialize, lists the same tools as --json, and runs a call', async () => {
 	const f = await setup();
 	const folder = await f.folder(join(f.home, 'reading'), readingApp);
 	const listing = JSON.parse((await f.run('--json')).stdout);
-	const transport = new StdioClientTransport({
-		command: process.execPath,
-		args: [f.bin, 'serve', '--stdio'],
-		cwd: f.root,
-		env: f.env as Record<string, string>,
-		stderr: 'pipe',
-	});
-	const client = new Client({ name: 'acceptance', version: '1' });
+	const { client, close } = await connectMcp(f);
 	try {
-		await client.connect(transport);
 		expect(client.getServerVersion()?.name).toBe('epicenter');
 		const { tools } = await client.listTools();
 		expect(tools).toEqual(
@@ -321,7 +316,7 @@ test('D6 serve --stdio answers initialize, lists the same tools as --json, and r
 			'minutes,book\n30,\n',
 		);
 	} finally {
-		await client.close();
+		await close();
 	}
 	expect((await f.run('mcp')).code).toBe(2);
 });
@@ -494,16 +489,8 @@ test("D8 an app of one collection's verbs adds, reads, changes, and deletes its 
 		'path: data/items/dune.md\nid: dune\nkind: quote\nurl: https://example.com/dune\nadded: 2026-11-09\nbody: |\n  Fear is the little-death.\n',
 	);
 
-	const transport = new StdioClientTransport({
-		command: process.execPath,
-		args: [f.bin, 'serve', '--stdio'],
-		cwd: f.root,
-		env: f.env as Record<string, string>,
-		stderr: 'pipe',
-	});
-	const client = new Client({ name: 'acceptance', version: '1' });
+	const { client, close } = await connectMcp(f);
 	try {
-		await client.connect(transport);
 		const { tools } = await client.listTools();
 		expect(tools.map((tool) => tool.name)).toEqual([
 			'capture_list',
@@ -537,7 +524,7 @@ test("D8 an app of one collection's verbs adds, reads, changes, and deletes its 
 			returned: true,
 		});
 	} finally {
-		await client.close();
+		await close();
 	}
 	expect(await json('list')).toEqual({
 		code: 0,

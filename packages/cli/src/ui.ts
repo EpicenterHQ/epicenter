@@ -41,7 +41,7 @@ import { basename, dirname, join } from 'node:path';
 import { extractErrorMessage } from 'wellcrafted/error';
 import packageJson from '../package.json' with { type: 'json' };
 import { linkAppPackage } from './app-package.ts';
-import { COMPILED } from './child.ts';
+import { COMPILED } from './commands.ts';
 import { writeErr } from './output.ts';
 
 /** Where an app's built UI lives, relative to its folder. */

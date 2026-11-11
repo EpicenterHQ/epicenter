@@ -1,19 +1,30 @@
 /**
- * One call runs in its child process and owns its data commit (ADR-0880).
- * Its first folder write takes the app's lock and snapshots pending data as
- * changed outside epicenter. When the action ends, it commits everything
+ * A call runs in the process that received it, the command line's or
+ * `serve`'s, from the app's code as it is on disk now (`home.ts`), and owns
+ * its data commit (ADR-0850, ADR-0880). Its first folder write takes the
+ * app's lock and snapshots pending data as changed outside epicenter. When the action ends, it commits everything
  * pending in data under the call's name, even when it threw. An opening
  * snapshot failure leaves everything pending. A call with no folder write
  * takes no lock and commits nothing. Read-only calls take no lock, including
  * their .local writes. Commit outcomes never change the action's answer.
  */
 
-import { type Action, type Folder, inRun } from '@epicenter/app';
+import { join } from 'node:path';
+import {
+	type Action,
+	type Folder,
+	inRun,
+	isName,
+	runYielding,
+} from '@epicenter/app';
 import { extractErrorMessage } from 'wellcrafted/error';
-import type { CodeState } from './data.ts';
-import type { Runnable } from './home.ts';
+import { type CodeState, codeStateOf } from './data.ts';
+import { CliError } from './errors.ts';
+import { loadHomeApp, type Runnable } from './home.ts';
+import { checkInput } from './input.ts';
 import { type Held, hold, LOCK_WAIT_MS } from './lock.ts';
-import type { Answer } from './output.ts';
+import { type Answer, writeErr } from './output.ts';
+import { epicenterDir } from './root.ts';
 import { commitCall, type Snapshot, snapshotData } from './snapshot.ts';
 
 /**
@@ -88,6 +99,7 @@ export async function runAction(
 	action: Action,
 	input: Record<string, unknown>,
 	code: CodeState,
+	{ onYield, signal }: Following = {},
 ): Promise<{
 	answer: Exclude<Answer, { error: unknown }>;
 	committed?: Snapshot;
@@ -111,7 +123,13 @@ export async function runAction(
 		: { ...located.context, folder };
 	let answer: Exclude<Answer, { error: unknown }>;
 	try {
-		answer = { returned: (await inRun(context, () => action(input))) ?? null };
+		const returned = await inRun(context, () =>
+			runYielding(action, input, async (value) => {
+				if (signal?.aborted) throw new Error('The caller stopped the call');
+				await onYield?.(value);
+			}),
+		);
+		answer = { returned: returned ?? null };
 	} catch (error) {
 		answer = { threw: threwOf(error) };
 	}
@@ -128,4 +146,69 @@ export async function runAction(
 	} finally {
 		held?.release();
 	}
+}
+
+/** Who follows a call as it runs: each value it yields, and when they stop listening. */
+export type Following = {
+	/** Each value the action yields, in order; the action waits for it. */
+	onYield?: (value: unknown) => unknown;
+	/** Aborted when the caller stops listening: the action is stopped at its next yield, and the call commits what it wrote. */
+	signal?: AbortSignal;
+};
+
+/**
+ * Run the app `name`'s action `key` (its words one space apart) with `raw`,
+ * one JSON object holding its whole input, as MCP and a UI give it: the app's
+ * code is loaded as it is now, the input checked, and what the call wrote
+ * committed before it answers. With `readOnly`, only a read-only action runs.
+ * A commit that fails is written to stderr; it never changes the answer.
+ */
+export async function callAction(
+	name: string,
+	key: string,
+	raw: unknown,
+	{ readOnly = false, ...following }: Following & { readOnly?: boolean } = {},
+): Promise<Answer> {
+	const refused = (message: string, next?: string): Answer => ({
+		error: CliError.Usage({ message, next }).error,
+	});
+	// The code a call ran is the code before loading it: an epicenter.ts may move HEAD as it loads.
+	const code = isName(name)
+		? await codeStateOf(join(epicenterDir(), name))
+		: { dirty: false };
+	const { data: located, error: notFound } = await loadHomeApp(name);
+	if (notFound) return { error: notFound };
+	if (!located.ok)
+		return {
+			error: CliError.AppProblems({ app: name, problems: located.problems })
+				.error,
+		};
+	const action = Object.hasOwn(located.actions, key)
+		? located.actions[key]
+		: undefined;
+	if (!action) return refused(`${name} has no action "${key}"`, `epicenter ${name}`);
+	if (readOnly && action.annotations?.readOnlyHint !== true)
+		return {
+			error: CliError.Refused({
+				message: `${name} ${key} changes files, and this call may only read`,
+			}).error,
+		};
+	if (typeof raw !== 'object' || raw === null || Array.isArray(raw))
+		return refused('The input is not a JSON object');
+	const checked = checkInput(action, raw, (field) => field);
+	if ('error' in checked)
+		return refused(checked.error, `epicenter ${name} ${key} --help`);
+	const { answer, committed } = await runAction(
+		located,
+		key,
+		action,
+		checked.input,
+		code,
+		following,
+	);
+	if (committed && 'failed' in committed)
+		writeErr(
+			`${name}: not yet in history: ${committed.failed.message}\nRun: ${committed.failed.next ?? `epicenter sync ${name}`}`,
+		);
+	return answer;
 }

@@ -1,6 +1,8 @@
 import { mkdir, mkdtemp, realpath, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 
 const bin = resolve(import.meta.dir, 'bin.ts');
 
@@ -96,6 +98,81 @@ export async function fixture() {
 	}
 	const run = (...args: string[]) => runIn(root, ...args);
 	return { root, home, env, bin, folder, app, run, runIn };
+}
+
+/**
+ * Start `epicenter serve` on a free port for the fixture `f`, with Bun's
+ * `execArgv` before the entry, and wait until it listens. `base` is its
+ * address; `stop` sends SIGTERM and resolves with its exit code; `stderr` is
+ * what it has written so far.
+ */
+export async function startServe(
+	f: Awaited<ReturnType<typeof fixture>>,
+	execArgv: string[] = [],
+) {
+	const child = Bun.spawn(
+		[process.execPath, ...execArgv, f.bin, 'serve', '--port', '0'],
+		{ cwd: f.root, env: f.env, stdout: 'ignore', stderr: 'pipe' },
+	);
+	const ready = Promise.withResolvers<string>();
+	let output = '';
+	void (async () => {
+		const reader = child.stderr.getReader();
+		for (;;) {
+			const { value: chunk, done } = await reader.read();
+			if (done) break;
+			output += new TextDecoder().decode(chunk);
+			const port = /Serving your apps at http:\/\/127\.0\.0\.1:(\d+)\./.exec(
+				output,
+			)?.[1];
+			if (port) ready.resolve(`http://127.0.0.1:${port}`);
+		}
+		ready.reject(new Error(output || 'serve exited before listening'));
+	})();
+	const stop = async () => {
+		child.kill('SIGTERM');
+		return child.exited;
+	};
+	try {
+		const base = await Promise.race([
+			ready.promise,
+			Bun.sleep(10_000).then(() => {
+				throw new Error('serve did not listen');
+			}),
+		]);
+		return { base, stop, stderr: () => output };
+	} catch (error) {
+		await stop();
+		throw error;
+	}
+}
+
+/**
+ * An MCP client connected to a new `epicenter serve` for `f`, as an agent
+ * connects. `close` closes the client and stops serve.
+ */
+export async function connectMcp(
+	f: Awaited<ReturnType<typeof fixture>>,
+	execArgv: string[] = [],
+) {
+	const served = await startServe(f, execArgv);
+	const client = new Client({ name: 'acceptance', version: '1' });
+	try {
+		await client.connect(
+			new StreamableHTTPClientTransport(new URL(`${served.base}/`)),
+		);
+	} catch (error) {
+		await served.stop();
+		throw error;
+	}
+	return {
+		client,
+		served,
+		close: async () => {
+			await client.close();
+			await served.stop();
+		},
+	};
 }
 
 /** The ignore file every test app carries, as `epicenter new` writes it. */

@@ -11,6 +11,7 @@ import type {
 	ActionOutput,
 	AppClient,
 } from './client.ts';
+import type { ActionYield } from './action.ts';
 import type { JsonValue } from './front-matter.ts';
 import {
 	createMemoryContext,
@@ -204,12 +205,43 @@ describe('an app author', () => {
 		>();
 		const nothing = defineAction({ description: 'n', input: {}, run() {} });
 		assertType<Equal<ActionOutput<typeof nothing>, null>>();
+		// @ts-expect-error a Date is not a value JSON carries
 		defineAction({
 			description: 'Now',
 			input: {},
-			// @ts-expect-error a Date is not a value JSON carries
 			run: () => ({ at: new Date() }),
 		});
+		const say = defineAction({
+			description: 'Say',
+			input: { message: field.text() },
+			async *run({ message }) {
+				yield message;
+				yield { step: 1 };
+				return { reply: message };
+			},
+		});
+		assertType<Equal<ActionInput<typeof say>, { message: string }>>();
+		assertType<Equal<ActionOutput<typeof say>, { reply: string }>>();
+		assertType<Equal<ActionYield<typeof say>, string | { step: number }>>();
+		assertType<Equal<ActionYield<typeof tag>, never>>();
+		assertType<Equal<ActionYield<Actions['words']['set']>, never>>();
+		const chat = defineApp({ description: 'Chat', collections: {}, actions: { say } });
+		assertType<
+			Equal<ActionYield<typeof chat.actions.say>, string | { step: number }>
+		>();
+		const chatUi = {} as AppClient<typeof chat.actions>;
+		() =>
+			chatUi.say(
+				{ message: 'hi' },
+				{
+					onYield: (value) => {
+						assertType<Equal<typeof value, string | { step: number }>>();
+					},
+				},
+			);
+		const vocabUi = {} as AppClient<Actions>;
+		// @ts-expect-error an action that only returns takes no onYield
+		() => vocabUi.review({ path: 'a' }, { onYield: () => {} });
 	});
 
 	test('update gives the record as get does, undefined when there is none, and takes what set takes, without path and with body', () => {

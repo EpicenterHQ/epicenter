@@ -6,6 +6,7 @@
 - **Amends:** [ADR-0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md) at "an action is a commit": a run makes no commit of its own, nothing is undone, exit codes are 0, 1, and 2, and a refusal to run is `{ error: { name, message, next? } }` without `code`. [ADR-0868](0868-an-epicenter-is-any-folder-that-says-it-is-one-and-a-computer-runs-as-many-as-it-has.md) at how a commit leaves out `*.local`: the app's `.gitignore` does, and a commit refuses one it lets through.
 - **Relates:** [ADR-0851](0851-an-app-has-one-home-and-an-optional-push-only-backup.md) (`epicenter sync`), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (programs that write a folder), [ADR-0856](0856-binary-files-go-through-git-lfs.md) (LFS), [ADR-0858](0858-where-a-file-lives-decides-whether-it-travels-survives-or-dies-with-its-program.md) (what each path becomes), [ADR-0859](0859-an-action-changes-the-folder-or-the-world-and-a-world-verb-is-safe-to-repeat.md) (the folder and the world), [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (the snapshots `serve` takes).
 - **Amended:** 2026-11-10: a write commits itself, named for the call, however it arrives, and writes to one app take turns; `folder.commit` is removed. 2026-11-11: runs never commit, history is snapshots, a change that depends on what it read says so with `folder.update`, and the write lock is deleted. The commit per call held a lock for the whole run, so a slow action blocked every other write to its app, and it still swept a hand edit pending in the folder into the call's commit under the call's name. 2026-11-11, later: each writer gets its own commit boundary. A call commits exactly the paths it wrote; an agent names its own edits with `epicenter sync <app> -m`; `serve` backs up on a 5-minute clock instead of guessing when outside edits have gone quiet, and pushes only on that clock. The app's `.gitignore` alone keeps `*.local` out of commits, and a commit refuses one it lets through. 2026-11-11, last: only `sync` and `serve`'s clock push, by one rule (ahead of the tracking ref, or none yet), so `undo` no longer pushes; a snapshot's message is its subject alone, and `history` reads each commit's paths from Git; a failed commit names its next step; `update` snapshots before it merges. 2026-11-11, after that: a kernel lock per repository, which calls share and a snapshot with no call holds alone, replaces `serve`'s count of the calls running in its own process, so a snapshot from any process waits for a running call's commit; a second lock makes commits take turns instead of retrying. 2026-11-11, last of all: one lock per app, the kernel's lock on the app's folder itself, held by a call from its first write until its commit, which the call's own process makes; a snapshot with no call holds it while it commits. It replaces both locks in `.git` and `folder.update`'s own lock, and the parent that started a call only relays its answer. `undo` holds it from its snapshot through its revert, and `update`, which now fetches first, through its snapshot and merge, so no call writes between them.
+- **Amended:** 2026-11-11, ADR-0880, later: a call runs in the process it arrived at, which makes its commit before it answers; a call no longer finishes its commit when the process that started it dies, and the clock's snapshot takes what it left. `serve --stdio` is removed.
 - **Amended:** 2026-11-11, ADR-0880: a call snapshots pending `data/` at its first `folder` write, then commits everything pending in `data/` under its name; a read-only `.local` write takes no lock, and a call's code trailers describe the code loaded.
 - **Built:** `folder.update` (`packages/cli/src/disk.ts`, `packages/app/src/memory.ts`), the app's lock (`packages/cli/src/lock.ts`), a call's run and commit (`run.ts`), snapshots (`snapshot.ts`), `sync` and `sync -m`, `serve`'s backup clock (`http.ts`), the app's status, and the answer as `{ returned }`, `{ threw }`, or `{ error }` with exit codes 0, 1, and 2. The first draft is recoverable at `9943c668db`; the commit per call and its lock at `965f4873c4`; snapshots with `Also changed:` and the quiet check at `3e6f1fca38`.
 - **Unbuilt:** an app's code and data as two repositories ([ADR-0877](0877-an-apps-code-and-its-data-are-two-repositories-and-sharing-an-app-shares-its-code.md)): calls commit to the data repository with a `Code-Commit` trailer, snapshots and the lock cover both, `undo` reverts data and names the code commits since, and `history` shows both.
@@ -98,11 +99,10 @@ everything pending, so one taken while a call runs would commit what the call
 had written so far as changed outside epicenter, and the call's commit would
 hold the rest. And two calls' commits at once meet at Git's `index.lock`. So
 each app has one lock, the kernel's `flock` on the app's folder itself, which
-every process takes: the command line, `serve`, and `serve --stdio`. A call
-takes it at its first write through `folder` and holds it until its commit has
-finished; the call's own process makes that commit, so the call finishes,
-commit and all, even if the process that started it dies. A call that writes
-nothing never takes it, so reads, and an action's work before its first
+every process takes: the command line and `serve`. A call takes it at its
+first write through `folder` and holds it until its commit has finished, and
+the process running the call makes that commit before it answers. A call that
+writes nothing never takes it, so reads, and an action's work before its first
 write, never wait. Whoever makes a snapshot with no call holds the lock for
 the work that must not meet a call's writes, and never across the network or
 a build: `sync` while it snapshots, not while it pushes; `undo` from its
@@ -174,9 +174,9 @@ import `node:fs`; what it writes that way is a change from outside epicenter.
 { "error": { "name", "message", "next"? } }  exit 2, nothing ran
 ```
 
-`--json` prints it and MCP returns it as `structuredContent`. Each run still
-happens in its own process (`child.ts`), so nothing an action prints reaches the
-answer.
+`--json` prints it and MCP returns it as `structuredContent`. A run happens
+in the process the call arrived at (ADR-0880); on the command line, what an
+action prints goes to stderr while it runs, so none of it reaches the answer.
 
 ## Why each layer is here
 

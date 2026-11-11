@@ -1,39 +1,34 @@
 /**
- * Shared MCP tools for `epicenter serve` over HTTP and stdio (ADR-0849,
- * ADR-0853): every app's actions, and nothing else.
+ * MCP tools for `epicenter serve` (ADR-0849, ADR-0853): every app's actions,
+ * and nothing else.
  *
- * The server never imports an app. `tools/list` runs `epicenter <app> --json`
- * for each app entry and offers the actions each lists; `tools/call` decodes
- * the tool name and runs `epicenter <app> <words> --input <json>` in a fresh
- * process, which checks the app, the action, and the input. So the
- * code and declaration on disk when a call arrives are what runs, an edit
- * between two calls is seen by the second, and a call's result is the same
- * object `--json` prints: `structuredContent` on success, and with
- * `isError` on failure. The call's process commits pending data,
- * named for it, before it answers (ADR-0850, `run.ts`). Diagnostics go to
- * stderr.
+ * Each request loads the apps it needs as they are on disk now (`home.ts`),
+ * so an edit between two calls is seen by the second. `tools/list` offers
+ * each app's actions; an app that cannot load loses only its own tools, and
+ * why goes to stderr. `tools/call` decodes the tool name and runs the action
+ * in this process (`run.ts`), which checks the app, the action, and the
+ * input, and commits what the call wrote before it answers. A call's result
+ * is the same object `--json` prints: `structuredContent` on success, and
+ * with `isError` on failure. What an action yields is not sent: an MCP
+ * client reads only the answer.
  */
 
 import { isName } from '@epicenter/app';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
 	CallToolRequestSchema,
 	ListToolsRequestSchema,
 	type Tool,
 } from '@modelcontextprotocol/sdk/types.js';
 import packageJson from '../package.json' with { type: 'json' };
-import { runChild } from './child.ts';
 import { nameProblem } from './commands.ts';
-import { homeEntries } from './home.ts';
+import { homeEntries, loadHomeApp } from './home.ts';
+import { actionTool } from './listing.ts';
 import { type Answer, renderAnswer, writeErr } from './output.ts';
 import { rootInstructions } from './root.ts';
+import { callAction } from './run.ts';
 
-/**
- * The tools the Epicenter offers now. Each entry is listed by its own child, so an
- * app that fails to import, or prints while importing, loses only its own
- * tools; why is written to stderr.
- */
+/** The tools the Epicenter offers now. */
 async function listTools(): Promise<Tool[]> {
 	const listed = await Promise.all(
 		(await homeEntries()).map(({ entry }) => appTools(entry)),
@@ -41,20 +36,27 @@ async function listTools(): Promise<Tool[]> {
 	return listed.flat();
 }
 
-/** One app's tools, as its own child lists them; none when it cannot load, and why goes to stderr. */
+/** One app's tools; none when it cannot load, and why goes to stderr. */
 async function appTools(entry: string): Promise<Tool[]> {
-	const answer = await runChild([entry, '--json'], 'ignore');
-	const value = answer as { actions?: Tool[]; error?: { message: string } };
-	if (value.actions) return value.actions;
-	writeErr(`${entry}: ${value.error?.message ?? JSON.stringify(answer)}`);
-	return [];
+	const { data: located, error } = await loadHomeApp(entry);
+	if (error) {
+		writeErr(`${entry}: ${error.message}`);
+		return [];
+	}
+	if (!located.ok) {
+		writeErr(`${entry}: ${located.problems.join('; ')}`);
+		return [];
+	}
+	return Object.entries(located.actions).map(([key, action]) =>
+		actionTool(located.name, key, action),
+	);
 }
 
 /** Whether a tool says it changes nothing (`readOnlyHint`): all the `read` scope may list and call. */
 const isReadOnly = (tool: Tool) => tool.annotations?.readOnlyHint === true;
 
 /**
- * A child's answer as an MCP result: the same value `--json` prints, as
+ * An answer as an MCP result: the same value `--json` prints, as
  * `structuredContent`, and `isError` exactly when the action threw or did not
  * run. A failure's text is what a person would read on stderr.
  */
@@ -74,11 +76,10 @@ function toolResult(answer: Answer) {
 }
 
 /**
- * Run the action `<app>_<word>_<word>` names in a child, as the command line
- * does; the child commits what it wrote. App names and action words hold no
- * underscores, and the first word must be able to name an app, so a tool name
- * never runs one of `epicenter`'s own commands. With `readOnly`, the child
- * runs the action only when it is read-only.
+ * Run the action `<app>_<word>_<word>` names. App names and action words hold
+ * no underscores, and the first word must be able to name an app, so a tool
+ * name never runs one of `epicenter`'s own commands. With `readOnly`, only a
+ * read-only action runs.
  */
 async function callTool(
 	name: string,
@@ -94,17 +95,11 @@ async function callTool(
 		return toolResult({
 			error: { name: 'Usage', message: `Unknown tool ${name}` },
 		});
-	return toolResult(
-		(await runChild(
-			[app, ...words, '--input', JSON.stringify(args), '--json'],
-			'ignore',
-			{ readOnly },
-		)) as Answer,
-	);
+	return toolResult(await callAction(app, words.join(' '), args, { readOnly }));
 }
 
 /**
- * Register the shared tool handlers on a fresh MCP server. It reads the
+ * Register the tool handlers on a fresh MCP server. It reads the
  * Epicenter's `AGENTS.md` now, so each initialize sends what the file says
  * then (ADR-0878). With `readOnly`, for a connector with only the `read`
  * scope (ADR-0871), it lists and runs only read-only actions.
@@ -128,23 +123,4 @@ export async function createMcpServer({
 		callTool(request.params.name, request.params.arguments ?? {}, readOnly),
 	);
 	return server;
-}
-
-/** Serve every healthy app in the Epicenter until the client ends stdin. */
-export async function serveStdio(): Promise<number> {
-	const server = await createMcpServer();
-	const transport = new StdioServerTransport();
-	const { promise: closed, resolve: closeNow } = Promise.withResolvers<void>();
-	server.onclose = closeNow;
-	// The SDK's stdio transport does not close itself when stdin ends.
-	process.stdin.once('end', closeNow);
-	try {
-		await server.connect(transport);
-		writeErr('Serving your apps over MCP.');
-		await closed;
-		return 0;
-	} finally {
-		process.stdin.off('end', closeNow);
-		await server.close();
-	}
 }

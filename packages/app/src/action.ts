@@ -13,6 +13,10 @@
  *
  * await learn({ word: '你好' });
  * ```
+ *
+ * `run` may be an `async function*`: what it yields reaches only the UI that
+ * called it, as it runs, and what it returns is the answer (ADR-0879). Called
+ * as a function, such an action resolves with its return, its yields unread.
  */
 import { type Static, type TObject, type TSchema, Type } from 'typebox';
 import { Value } from 'typebox/value';
@@ -47,8 +51,25 @@ export type ActionMeta = {
 	readonly annotations?: Annotations;
 };
 
-/** An action: a function of its input, with what callers read to call it. */
-export type Action<In = any, Out = unknown> = ((input: In) => Out) & ActionMeta;
+/** Where an action's type keeps what it yields; nothing is there at runtime. */
+declare const yields: unique symbol;
+
+/**
+ * An action: a function of its input, with what callers read to call it.
+ * `Yield` is what it yields while it runs, `never` for one that only returns;
+ * a bare `Action` is any action, as its input and output are any.
+ */
+export type Action<In = any, Out = unknown, Yield = unknown> = ((
+	input: In,
+) => Out) &
+	ActionMeta & { readonly [yields]?: Yield };
+
+/** What the action `A` yields while it runs, `never` when it only returns. */
+export type ActionYield<A> = A extends { readonly [yields]?: infer Y }
+	? [Y] extends [undefined]
+		? never
+		: Exclude<Y, undefined>
+	: never;
 
 /**
  * What an action may return: a value that survives JSON, which is how the CLI,
@@ -85,18 +106,76 @@ type CallerInput<I extends Input> = Simplify<
 	}
 >;
 
-/** An action as an app writes it: `run` receives its input, typed by its fields. */
-export type ActionDef<
-	I extends Input,
-	Out extends Returned | Promise<Returned> = Returned | Promise<Returned>,
-> = {
+/** What an action is besides its `run`, as an app writes it. */
+type ActionFields<I extends Input> = {
 	description: string;
 	input: I;
 	positional?: readonly (keyof I & string)[];
 	annotations?: Annotations;
+};
+
+/** An action as an app writes it: `run` receives its input, typed by its fields. */
+export type ActionDef<
+	I extends Input,
+	Out extends Returned | Promise<Returned> = Returned | Promise<Returned>,
+> = ActionFields<I> & {
 	/** Returns what the caller sees, and what `--json` prints: a value that survives JSON. */
 	run(input: InputOf<I>): Out;
 };
+
+/** An action whose `run` yields values that survive JSON while it runs, then returns its answer. */
+export type YieldingActionDef<
+	I extends Input,
+	Y extends Returned,
+	R extends Returned,
+> = ActionFields<I> & {
+	run(input: InputOf<I>): AsyncGenerator<Y, R, undefined>;
+};
+
+/** The undefaulted `run`, kept on the action for `runYielding`. */
+const RUN = Symbol('run');
+
+function isAsyncGenerator(
+	value: unknown,
+): value is AsyncGenerator<unknown, unknown, undefined> {
+	return (
+		typeof value === 'object' &&
+		value !== null &&
+		typeof (value as AsyncGenerator).next === 'function' &&
+		typeof (value as AsyncGenerator)[Symbol.asyncIterator] === 'function'
+	);
+}
+
+/**
+ * Run `action` with `input`, giving each value it yields to `onYield` in
+ * order, and resolve with what it returned. `onYield` may return a promise,
+ * which the next step waits for; when it throws, the action is stopped where
+ * it yielded, its `finally` blocks run, and the call throws that. An action
+ * that only returns just returns. This is the one place an action's yields
+ * are read (ADR-0879).
+ */
+export async function runYielding(
+	action: Action,
+	input: unknown,
+	onYield: (value: unknown) => unknown,
+): Promise<unknown> {
+	const run = (action as { [RUN]?: (input: unknown) => unknown })[RUN];
+	const result = run ? run(input) : action(input);
+	if (!isAsyncGenerator(result)) return result;
+	let finished = false;
+	try {
+		for (;;) {
+			const step = await result.next();
+			if (step.done) {
+				finished = true;
+				return step.value;
+			}
+			await onYield(step.value);
+		}
+	} finally {
+		if (!finished) await result.return(undefined);
+	}
+}
 
 /**
  * Define an action from its fields and its `run`, typing `run`'s input by
@@ -107,8 +186,16 @@ export type ActionDef<
  */
 export function defineAction<
 	const I extends Input,
+	Y extends Returned,
+	R extends Returned,
+>(def: YieldingActionDef<I, Y, R>): Action<CallerInput<I>, Promise<R>, Y>;
+export function defineAction<
+	const I extends Input,
 	Out extends Returned | Promise<Returned>,
->(def: ActionDef<I, Out>): Action<CallerInput<I>, Out> {
+>(def: ActionDef<I, Out>): Action<CallerInput<I>, Out, never>;
+export function defineAction(
+	def: ActionDef<Input> | YieldingActionDef<Input, Returned, Returned>,
+): Action {
 	const problems = actionProblems(def);
 	if (problems.length)
 		throw new Error(
@@ -118,11 +205,17 @@ export function defineAction<
 		);
 	const { run, ...meta } = def;
 	const schema = Type.Object(def.input);
-	return Object.assign(
-		(input: CallerInput<I>) =>
-			run(Value.Default(schema, { ...input }) as InputOf<I>),
-		meta,
-	);
+	const start = (input: unknown) =>
+		(run as (input: unknown) => unknown)(
+			Value.Default(schema, { ...(input as object) }),
+		);
+	const action = (input: unknown) => {
+		const result = start(input);
+		return isAsyncGenerator(result)
+			? runYielding(action as Action, input, () => undefined)
+			: result;
+	};
+	return Object.assign(action, meta, { [RUN]: start });
 }
 
 /**

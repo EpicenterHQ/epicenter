@@ -1,8 +1,9 @@
 /**
  * How an app's UI asks `epicenter serve` to run its actions (ADR-0860,
  * ADR-0866). A UI is a web page built from an app's `ui/` into `ui/dist/`
- * and served at `/<app>/`; it asks over MCP like any agent, at the same
- * origin's `/`.
+ * and served at `/<app>/`; it runs an action at `POST /<app>/<action>` on the
+ * same origin, and reads the response's JSON lines: each value the action
+ * yields, then its answer (ADR-0879). Agents ask over MCP instead.
  *
  * The client has the app's actions under the same words as the app. Each
  * call checks its input, types what it returns in its JSON form, and resolves
@@ -28,6 +29,7 @@
  */
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Err, Ok, type Result } from 'wellcrafted/result';
+import type { ActionYield } from './action.ts';
 import type { FileError } from './errors.ts';
 import type { JsonValue } from './front-matter.ts';
 
@@ -105,40 +107,56 @@ export type ActionOutput<A> = A extends (input: never) => infer Out
 	? JsonOf<Awaited<Out>>
 	: never;
 
-/** The client for actions `A`: each action a function of its input, each group under its word. */
+/** What a call of action `A` may take after its input: `onYield`, when `A` yields. */
+type CallOptions<A> = [ActionYield<A>] extends [never]
+	? []
+	: [options?: { onYield?: (value: JsonOf<ActionYield<A>>) => void }];
+
+/**
+ * The client for actions `A`: each action a function of its input, each
+ * group under its word. An action that yields also takes `{ onYield }`,
+ * which receives each value as the action yields it; the call still
+ * resolves to what the action returned.
+ */
 export type AppClient<A> = {
 	readonly [K in keyof A]: A[K] extends (input: never) => unknown
 		? (
-				...input: Record<string, never> extends ActionInput<A[K]>
-					? [input?: ActionInput<A[K]>]
-					: [input: ActionInput<A[K]>]
+				...args: [
+					...(Record<string, never> extends ActionInput<A[K]>
+						? [input?: ActionInput<A[K]>]
+						: [input: ActionInput<A[K]>]),
+					...CallOptions<A[K]>,
+				]
 			) => Promise<Result<ActionOutput<A[K]>, ActionError>>
 		: AppClient<A[K]>;
 };
-
-let nextId = 1;
 
 /**
  * A client for the app served at this page's first path segment. A page at
  * `/<app>/` uses `app` without repeating its name; pass `{ app }` when the
  * page does not identify it. Without either name, `connect` throws. `url`
  * defaults to this origin's `/`, where `epicenter serve` answers the UIs it
- * serves.
+ * serves: an action is `POST <url><app>/<words joined by .>`.
  */
 export function connect<App extends { actions: object }>(
 	{ app, url = '/' }: { app?: string; url?: string } = {},
 ): AppClient<App['actions']> {
 	const name = app ?? appOfPage();
+	const base = url.endsWith('/') ? url : `${url}/`;
 	const at = (words: string[]): unknown =>
 		new Proxy(() => {}, {
 			get: (_, key) =>
 				typeof key === 'string' && key !== 'then'
 					? at([...words, key])
 					: undefined,
-			apply: async (_, __, [input]) => {
+			apply: async (_, __, [input, options]) => {
 				if (words.length === 0)
 					throw new Error(`Call one of ${name}'s actions, not the app`);
-				return call(url, [name, ...words].join('_'), input ?? {});
+				return call(
+					`${base}${encodeURIComponent(name)}/${words.join('.')}`,
+					input ?? {},
+					options?.onYield,
+				);
 			},
 		});
 	return at([]) as AppClient<App['actions']>;
@@ -159,43 +177,67 @@ function appOfPage(): string {
 	return segment;
 }
 
-/** Ask the server at `url` to run the MCP tool `name`, and return what its action returned. */
+/**
+ * Each JSON value in a response of JSON lines, as its line arrives. Read with
+ * `getReader`, since Safari cannot iterate a stream with `for await`.
+ */
+async function* jsonLines(body: ReadableStream<Uint8Array>) {
+	const reader = body.getReader();
+	const decoder = new TextDecoder();
+	let buffered = '';
+	try {
+		for (;;) {
+			const { done, value } = await reader.read();
+			buffered += decoder.decode(value, { stream: !done });
+			let end = buffered.indexOf('\n');
+			while (end >= 0) {
+				const text = buffered.slice(0, end);
+				buffered = buffered.slice(end + 1);
+				if (text.trim()) yield JSON.parse(text) as unknown;
+				end = buffered.indexOf('\n');
+			}
+			if (done) return;
+		}
+	} finally {
+		reader.releaseLock();
+	}
+}
+
+/**
+ * Ask serve to run the action at `url` (`POST /<app>/<action>`), giving each
+ * value it yields to `onYield`, and return what it returned.
+ */
 async function call(
 	url: string,
-	name: string,
 	input: Record<string, unknown>,
+	onYield?: (value: unknown) => void,
 ): Promise<Result<unknown, ActionError>> {
-	let response: Response;
+	let message: { answer?: unknown } = {};
 	try {
-		response = await fetch(url, {
+		const response = await fetch(url, {
 			method: 'POST',
-			headers: {
-				'content-type': 'application/json',
-				accept: 'application/json, text/event-stream',
-			},
-			body: JSON.stringify({
-				jsonrpc: '2.0',
-				id: nextId++,
-				method: 'tools/call',
-				params: { name, arguments: input },
-			}),
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify(input),
 		});
+		if (!response.ok || !response.body)
+			return CallError.Unreachable({
+				message: `Epicenter answered ${response.status} ${response.statusText}`,
+			});
+		for await (const line of jsonLines(response.body)) {
+			const value = line as { yielded?: unknown; answer?: unknown };
+			if ('yielded' in value) onYield?.(value.yielded);
+			else if ('answer' in value) message = value;
+		}
 	} catch (cause) {
 		return CallError.Unreachable({
 			message: `Could not reach Epicenter: ${String(cause)}`,
 		});
 	}
-	if (!response.ok)
+	if (!('answer' in message))
 		return CallError.Unreachable({
-			message: `Epicenter answered ${response.status} ${response.statusText}`,
+			message: 'Epicenter stopped answering before the action finished',
 		});
-	const message = (await response.json()) as {
-		result?: { structuredContent?: Record<string, unknown> };
-		error?: { message: string };
-	};
-	if (message.error)
-		return CallError.Unreachable({ message: message.error.message });
-	const answer = (message.result?.structuredContent ?? {}) as {
+	const answer = (message.answer ?? {}) as {
 		returned?: unknown;
 		threw?: {
 			message: string;

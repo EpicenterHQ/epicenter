@@ -9,6 +9,7 @@ import {
 	inRun,
 	isLocalPath,
 	normalizePath,
+	runYielding,
 } from './index.ts';
 
 const books = defineCollection({
@@ -433,6 +434,32 @@ describe('defineCollection', () => {
 });
 
 describe('defineAction', () => {
+	test('a yielding action called directly resolves with its return; runYielding also reads its yields in order', async () => {
+		const say = defineAction({
+			description: 'Say',
+			input: { message: field.text(), loud: field.boolean() },
+			async *run({ message, loud }) {
+				yield message;
+				yield { loud };
+				await folder.write('data/said.md', message);
+				return { said: message };
+			},
+		});
+		const context = createMemoryContext();
+		expect(await inRun(context, () => say({ message: 'hi' }))).toEqual({
+			said: 'hi',
+		});
+		const seen: unknown[] = [];
+		const returned = await inRun(context, () =>
+			runYielding(say, { message: '猫' }, (value) => {
+				seen.push(value);
+			}),
+		);
+		expect(seen).toEqual(['猫', { loud: false }]);
+		expect(returned).toEqual({ said: '猫' });
+		expect(await context.folder.read('data/said.md')).toBe('猫');
+	});
+
 	test('a direct call fills the defaults a call through the CLI or MCP would', async () => {
 		const tag = defineAction({
 			description: 'Tag',

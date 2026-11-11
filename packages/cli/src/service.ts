@@ -4,7 +4,7 @@ import { existsSync, realpathSync } from 'node:fs';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { homedir, userInfo } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
-import { COMPILED } from './child.ts';
+import { COMPILED } from './commands.ts';
 import { misuse, parseWords } from './commands.ts';
 import { fail, writeErr, writeJson, writeOut } from './output.ts';
 import { epicenterRoot } from './root.ts';

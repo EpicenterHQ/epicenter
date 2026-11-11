@@ -20,10 +20,14 @@ import {
 	writeFile,
 } from 'node:fs/promises';
 import { join } from 'node:path';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { hold } from './lock.ts';
-import { fixture, gitIn, gitignore, header } from './runner.test-support.ts';
+import {
+	connectMcp,
+	fixture,
+	gitIn,
+	gitignore,
+	header,
+} from './runner.test-support.ts';
 
 setDefaultTimeout(300_000);
 
@@ -403,7 +407,7 @@ test('C6 a snapshot waits for a held index lock, and after about 2 seconds leave
 	});
 });
 
-test('C7 exit codes: 0 returned, 1 threw or ended without an answer, 2 did not run', async () => {
+test('C7 exit codes: 0 returned, 1 threw, 2 did not run; an action that exits the process ends the command', async () => {
 	const f = await setup();
 	const tagged = await f.json('notes', 'tagged');
 	expect(tagged.code).toBe(1);
@@ -413,11 +417,8 @@ test('C7 exit codes: 0 returned, 1 threw or ended without an answer, 2 did not r
 			thrown: { name: 'NotFound', message: 'no such page', page: 'x' },
 		},
 	});
-	const exited = await f.json('notes', 'exit');
-	expect(exited.code).toBe(1);
-	expect(exited.answer).toEqual({
-		threw: { message: 'The run ended without an answer (exit code 7)' },
-	});
+	const exited = await f.run('notes', 'exit', '--json');
+	expect(exited).toMatchObject({ code: 7, stdout: '' });
 	const unknown = await f.json('notes', 'nope');
 	expect(unknown.code).toBe(2);
 	expect(unknown.answer.error).toMatchObject({ name: 'Usage' });
@@ -586,24 +587,15 @@ test("C14 a sync in another process while a call runs leaves the call's writes t
 	expect(await status(f.data)).toBe('');
 });
 
-test('C8 stdout belongs to epicenter: an action that logs does not corrupt --json or serve --stdio', async () => {
+test('C8 stdout belongs to epicenter: an action that logs does not corrupt --json or an MCP answer', async () => {
 	const f = await setup();
 	const json = await f.json('notes', 'chatty');
 	expect(json.code).toBe(0);
 	expect(json.answer).toEqual({ returned: 'answer' });
 	for (const line of ['hello from log', 'hello from info', 'raw stdout'])
 		expect(json.stderr).toContain(line);
-	const client = new Client({ name: 'acceptance', version: '1' });
+	const { client, close } = await connectMcp(f);
 	try {
-		await client.connect(
-			new StdioClientTransport({
-				command: process.execPath,
-				args: [f.bin, 'serve', '--stdio'],
-				cwd: f.root,
-				env: f.env as Record<string, string>,
-				stderr: 'pipe',
-			}),
-		);
 		const called = await client.callTool({
 			name: 'notes_chatty',
 			arguments: {},
@@ -611,6 +603,6 @@ test('C8 stdout belongs to epicenter: an action that logs does not corrupt --jso
 		expect(called.isError).toBeFalsy();
 		expect(called.structuredContent).toEqual({ returned: 'answer' });
 	} finally {
-		await client.close();
+		await close();
 	}
 });
