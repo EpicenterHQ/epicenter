@@ -400,7 +400,11 @@ test('refresh catches a missed storage event before a new request', async () => 
 	expect(second.state().account).toBe(oldAccount);
 	await second.refresh();
 	expect(second.state().status).toBe('signed-out');
-	await expect(oldAccount.fetch('/api/thing')).rejects.toBeDefined();
+	const requestsBefore = world.requests.length;
+	await expect(oldAccount.fetch('/api/thing')).rejects.toMatchObject({
+		code: 'reauth-required',
+	});
+	expect(world.requests).toHaveLength(requestsBefore);
 	first[Symbol.dispose]();
 });
 
@@ -433,7 +437,11 @@ test('a missed sign-out followed by the same person signing in retires the old A
 	// and signs back in. Its next request must not borrow the new attachment.
 	expectOk(await first.signOut());
 	await signIn(world);
-	await expect(oldAccount.fetch('/api/thing')).rejects.toBeDefined();
+	const requestsBefore = world.requests.length;
+	await expect(oldAccount.fetch('/api/thing')).rejects.toMatchObject({
+		code: 'reauth-required',
+	});
+	expect(world.requests).toHaveLength(requestsBefore);
 	expect(second.state().account).not.toBe(oldAccount);
 });
 
@@ -448,7 +456,11 @@ test('another person signing in from another tab retires the earlier Account', a
 	world.notify();
 
 	expect(second.state().account?.principalId).toBe(asPrincipalId('bob'));
-	await expect(alice.fetch('/api/thing')).rejects.toBeDefined();
+	const requestsBefore = world.requests.length;
+	await expect(alice.fetch('/api/thing')).rejects.toMatchObject({
+		code: 'reauth-required',
+	});
+	expect(world.requests).toHaveLength(requestsBefore);
 	expect(alice.signal.aborted).toBe(true);
 	first[Symbol.dispose]();
 });
@@ -697,7 +709,9 @@ test("Account.fetch attaches the bearer only for its own server and its token's 
 	await expect(account.fetch('https://folders.test.evil/x')).rejects.toThrow(
 		TypeError,
 	);
-	await expect(account.fetch('http://folders.test/x')).rejects.toThrow(TypeError);
+	await expect(account.fetch('http://folders.test/x')).rejects.toThrow(
+		TypeError,
+	);
 	await expect(account.fetch('https://user:pass@api.test/x')).rejects.toThrow(
 		TypeError,
 	);
@@ -747,7 +761,11 @@ test('sign-out revokes the access token and clears storage', async () => {
 	expect(revocation.init?.credentials).toBe('omit');
 	expect(auth.state().status).toBe('signed-out');
 	expect(world.storage.getItem(TOKEN_KEY)).toBeNull();
-	await expect(account.fetch('/api/thing')).rejects.toBeDefined();
+	const requestsBefore = world.requests.length;
+	await expect(account.fetch('/api/thing')).rejects.toMatchObject({
+		code: 'reauth-required',
+	});
+	expect(world.requests).toHaveLength(requestsBefore);
 	auth[Symbol.dispose]();
 });
 
@@ -894,8 +912,14 @@ describe('one sign-in for several resources', () => {
 
 		expectOk(await auth.signOut());
 		expect(account.signal.aborted).toBe(true);
-		await expect(account.fetch(`${API}/ai`)).rejects.toBeDefined();
-		await expect(account.fetch(`${FOLDERS}/x`)).rejects.toBeDefined();
+		const requestsBefore = world.requests.length;
+		await expect(account.fetch(`${API}/ai`)).rejects.toMatchObject({
+			code: 'reauth-required',
+		});
+		await expect(account.fetch(`${FOLDERS}/x`)).rejects.toMatchObject({
+			code: 'reauth-required',
+		});
+		expect(world.requests).toHaveLength(requestsBefore);
 		expect(world.revoked.map((form) => form.get('token')).sort()).toEqual([
 			'token-1',
 			'token-2',
