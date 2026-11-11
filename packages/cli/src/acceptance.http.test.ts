@@ -116,15 +116,20 @@ test('the browser client calls a tool without initialize and a write makes one n
 	);
 });
 
-test('read-only and thrown actions make no commit', async () => {
+test('read-only actions make no commit, and a thrown write stays pending', async () => {
 	const f = await setup();
 	const folder = await f.folder(join(f.home, 'reading'), readingApp);
 	const client = connect('reading', { url: `${f.base}/` });
 	expect(await client.call<number>('week show')).toBe(210);
 	expect(await gitIn(folder, 'rev-list', '--count', 'HEAD')).toBe('1');
+	expect(await gitIn(folder, 'status', '--porcelain')).toBe('');
 	await expect(client.call('explode')).rejects.toThrow(
 		'line 4 is not a number',
 	);
+	expect(await readFile(join(folder, '2026.csv'), 'utf8')).toBe(
+		'minutes,book\n1,\n',
+	);
+	expect(await gitIn(folder, 'status', '--porcelain')).toBe('?? 2026.csv');
 	expect(await gitIn(folder, 'rev-list', '--count', 'HEAD')).toBe('1');
 });
 
