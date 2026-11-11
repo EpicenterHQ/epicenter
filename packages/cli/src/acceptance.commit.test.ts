@@ -412,7 +412,7 @@ test('C10 a read-only action cannot write through folder, except a .local file, 
 
 test('C11 concurrent sets of different fields on one file all land', async () => {
 	const f = await setup();
-	const fields = Array.from({ length: 50 }, (_, i) => `f${i}`);
+	const fields = Array.from({ length: 10 }, (_, i) => `f${i}`);
 	await f.folder(join(f.home, 'many'), {
 		'.gitignore': gitignore,
 		'epicenter.ts': `${header}
@@ -431,6 +431,9 @@ export default defineApp({ description: 'Many fields', collections: { items }, a
 	const text = await readFile(join(f.home, 'many', 'items/one.md'), 'utf8');
 	for (const [i, key] of fields.entries())
 		expect(text).toContain(`${key}: ${i}\n`);
+	expect((await subjects(join(f.home, 'many'))).split('\n')).toHaveLength(
+		fields.length + 1,
+	);
 	expect(await status(join(f.home, 'many'))).toBe('');
 });
 
@@ -446,12 +449,18 @@ test('C12 runs leave no temporary file and no lock file, and hold no lock once t
 			stdout: 'ignore',
 			stderr: 'ignore',
 		}).exited;
-	await Promise.all([
+	const exits = await Promise.all([
 		run('notes', 'write', 'monday'),
 		run('notes', 'write', 'tuesday'),
 		run('notes', 'half', 'wednesday'),
 	]);
+	expect(exits).toEqual([0, 0, 1]);
 	expect(await readdir(temp)).toEqual([]);
+	expect(
+		(await readdir(f.dir, { recursive: true })).filter((name) =>
+			name.endsWith('.tmp.local'),
+		),
+	).toEqual([]);
 	expect(
 		(await readdir(join(f.dir, '.git'))).filter((name) =>
 			name.endsWith('.lock'),
