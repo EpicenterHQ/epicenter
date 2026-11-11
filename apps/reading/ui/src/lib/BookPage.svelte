@@ -12,7 +12,7 @@
 	import * as Empty from '@epicenter/ui/empty';
 	import { Input } from '@epicenter/ui/input';
 	import { Label } from '@epicenter/ui/label';
-	import { toast } from '@epicenter/ui/sonner';
+	import { toast } from 'svelte-sonner';
 	import { Spinner } from '@epicenter/ui/spinner';
 	import { Textarea } from '@epicenter/ui/textarea';
 	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
@@ -229,7 +229,7 @@
 
 			<div class="mt-10 flex items-center gap-2 border-t pt-4">
 				<span class="min-w-0 truncate font-mono text-xs text-muted-foreground">{path}</span>
-				<Button variant="ghost-destructive" class="ml-auto" onclick={confirmDelete}>Delete</Button>
+				<Button variant="destructive" class="ml-auto" onclick={confirmDelete}>Delete</Button>
 			</div>
 		{/if}
 	</main>

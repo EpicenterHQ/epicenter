@@ -9,7 +9,7 @@
 -->
 <script lang="ts">
 	import * as InputGroup from '@epicenter/ui/input-group';
-	import { toast } from '@epicenter/ui/sonner';
+	import { toast } from 'svelte-sonner';
 	import ArrowUpIcon from '@lucide/svelte/icons/arrow-up';
 	import { createMutation } from '@tanstack/svelte-query';
 	import { writes } from '$lib/app.js';

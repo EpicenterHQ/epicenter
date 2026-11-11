@@ -77,7 +77,7 @@
 			<Button
 				class="ml-auto"
 				size="sm"
-				variant="ghost-destructive"
+				variant="destructive"
 				onclick={() => confirmDeleteNote(app, { id, label: noteLabel({ title: edit.fields.title, body: edit.fields.body ?? '' }) })}
 			>
 				Delete

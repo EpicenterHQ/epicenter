@@ -8,7 +8,7 @@
 	import StatusPopover from '@epicenter/svelte/status-popover';
 	import StatusRow from '@epicenter/svelte/status-row';
 	import { Button } from '@epicenter/ui/button';
-	import { toast } from '@epicenter/ui/sonner';
+	import { toast } from 'svelte-sonner';
 	import { account, folder } from '../app.js';
 
 	const status = $derived.by((): StatusLine => {

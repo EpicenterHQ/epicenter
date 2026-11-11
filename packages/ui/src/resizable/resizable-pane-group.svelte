@@ -1,6 +1,6 @@
 <script lang="ts">
-	import * as ResizablePrimitive from 'paneforge';
-	import { cn } from '../utils.js';
+	import * as ResizablePrimitive from "paneforge";
+	import { cn } from "../utils.js";
 
 	let {
 		ref = $bindable(null),
@@ -13,11 +13,12 @@
 </script>
 
 <ResizablePrimitive.PaneGroup
+	bind:ref
 	bind:this={paneGroup}
 	data-slot="resizable-pane-group"
 	class={cn(
-		' gap-2 flex h-full w-full data-[direction=vertical]:flex-col',
-		className,
+		"flex h-full w-full data-[direction=vertical]:flex-col",
+		className
 	)}
 	{...restProps}
 />

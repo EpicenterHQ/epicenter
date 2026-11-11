@@ -58,7 +58,7 @@
 {#if !ui.showingDetail}
 	<RecordingList onOpen={() => (ui.showingDetail = true)} />
 {:else if wide.current}
-	<Resizable.PaneGroup direction="horizontal" class="min-h-0 flex-1">
+	<Resizable.PaneGroup direction="horizontal" class="min-h-0 flex-1 gap-2">
 		<Resizable.Pane id="list" order={1} defaultSize={42} minSize={25}>
 			<RecordingList onOpen={() => (ui.showingDetail = true)} />
 		</Resizable.Pane>

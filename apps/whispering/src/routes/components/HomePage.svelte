@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
 	import * as SectionHeader from '@epicenter/ui/section-header';
-	import { toast } from '@epicenter/ui/sonner';
+	import { toast } from 'svelte-sonner';
 	import { Spinner } from '@epicenter/ui/spinner';
 	import WandSparklesIcon from '@lucide/svelte/icons/wand-sparkles';
 	import { goto } from '$app/navigation';

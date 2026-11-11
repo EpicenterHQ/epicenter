@@ -40,42 +40,28 @@
 		"@fontsource-variable/geist": "^5.2.9",
 		"@fontsource-variable/geist-mono": "^5.2.8",
 		"@lucide/svelte": "^1.7.0",
-		"bits-ui": "^2.16.5",
+		"bits-ui": "catalog:",
 		"clsx": "^2.1.1",
-		"marked": "catalog:",
 		"paneforge": "^1.0.2",
-		"runed": "catalog:",
 		"svelte-sonner": "catalog:",
 		"tailwind-merge": "^3.5.0",
 		"tailwind-variants": "^3.2.2",
 		"tw-animate-css": "^1.3.5",
-		"vaul-svelte": "^1.0.0-next.7",
 		"wellcrafted": "catalog:"
 	},
 	"peerDependencies": {
-		"layerchart": "2.0.0-next.48",
 		"mode-watcher": "^1.1.0",
 		"svelte": "^5.33.0",
 		"tailwindcss": "^4.1.0"
 	},
-	"peerDependenciesMeta": {
-		"layerchart": {
-			"optional": true
-		}
-	},
 	"devDependencies": {
-		"@sveltejs/vite-plugin-svelte": "catalog:",
-		"@tailwindcss/vite": "catalog:",
 		"@types/bun": "catalog:",
 		"jsrepo": "catalog:",
-		"layerchart": "2.0.0-next.48",
 		"mode-watcher": "catalog:",
-		"playwright": "^1.61.1",
 		"svelte": "catalog:",
 		"svelte-check": "catalog:",
 		"tailwindcss": "catalog:",
-		"typescript": "catalog:",
-		"vite": "catalog:"
+		"typescript": "catalog:"
 	},
 	"license": "AGPL-3.0-or-later"
 }

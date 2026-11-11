@@ -34,7 +34,7 @@
 	<div class="flex items-center gap-1">
 		<Button
 			size="sm"
-			variant="ghost-destructive"
+			variant="destructive"
 			onclick={() => confirmDelete(library, { collection: repair.collection, id: repair.id })}
 			data-testid="repair-delete"
 		>

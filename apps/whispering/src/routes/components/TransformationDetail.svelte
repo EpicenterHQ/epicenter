@@ -11,7 +11,7 @@
 	import * as Field from '@epicenter/ui/field';
 	import * as Popover from '@epicenter/ui/popover';
 	import * as Select from '@epicenter/ui/select';
-	import { toast } from '@epicenter/ui/sonner';
+	import { toast } from 'svelte-sonner';
 	import { Spinner } from '@epicenter/ui/spinner';
 	import * as Tabs from '@epicenter/ui/tabs';
 	import { Textarea } from '@epicenter/ui/textarea';
@@ -410,7 +410,7 @@
 	<div class="flex flex-wrap items-center gap-2 border-t px-4 py-2 text-xs text-muted-foreground">
 		<span><code class="font-mono">transformations/{own}.md</code></span>
 		{#if recipe.exists()}
-			<Button class="ml-auto" size="sm" variant="ghost-destructive" onclick={() => confirmDelete(library, { collection: 'transformations', id: own })} data-testid="delete-transformation">
+			<Button class="ml-auto" size="sm" variant="destructive" onclick={() => confirmDelete(library, { collection: 'transformations', id: own })} data-testid="delete-transformation">
 				Delete transformation
 			</Button>
 		{/if}

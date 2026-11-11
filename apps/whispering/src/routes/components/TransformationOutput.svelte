@@ -46,7 +46,7 @@
 		<span>{formatTime(note.createdAt) || 'Unknown time'} · {note.model}</span>
 		<span class="ml-auto flex items-center gap-1">
 			<Button size="xs" variant="ghost" onclick={() => void copyText(note.body, 'the result')}>Copy</Button>
-			<Button size="xs" variant="ghost-destructive" onclick={() => confirmDelete(library, { collection, id: note.id })}>Delete</Button>
+			<Button size="xs" variant="destructive" onclick={() => confirmDelete(library, { collection, id: note.id })}>Delete</Button>
 		</span>
 	</footer>
 </article>

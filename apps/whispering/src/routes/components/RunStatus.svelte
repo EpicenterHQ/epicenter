@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
-	import { toast } from '@epicenter/ui/sonner';
+	import { toast } from 'svelte-sonner';
 	import { Spinner } from '@epicenter/ui/spinner';
 	import { getLibrary, type Run } from '$lib/library.svelte.js';
 

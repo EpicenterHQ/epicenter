@@ -1,6 +1,6 @@
 <script lang="ts">
-	import type { HTMLAttributes } from 'svelte/elements';
-	import { cn, type WithElementRef } from '../utils.js';
+	import { cn, type WithElementRef } from "../utils.js";
+	import type { HTMLAttributes } from "svelte/elements";
 
 	let {
 		ref = $bindable(null),
@@ -13,10 +13,7 @@
 <div
 	bind:this={ref}
 	data-slot="field-content"
-	class={cn(
-		'gap-1 group/field-content flex flex-1 flex-col leading-snug',
-		className,
-	)}
+	class={cn("gap-1 group/field-content flex flex-1 flex-col leading-snug", className)}
 	{...restProps}
 >
 	{@render children?.()}

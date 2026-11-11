@@ -4,7 +4,7 @@
  */
 import { afterEach, expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';
-import { readFile, rm, writeFile } from 'node:fs/promises';
+import { readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fixture, gitIn, gitignore, header } from './runner.test-support.ts';
 
@@ -220,6 +220,47 @@ test('a build that removes its output keeps the last UI and names the required i
 	expect(await readFile(join(f.app, 'ui', 'dist', 'index.html'), 'utf8')).toBe(
 		'one\n',
 	);
+});
+
+test('a build script runs on a copy of the code without data/, and its dist replaces the last', async () => {
+	const f = await fixture();
+	roots.push(f.root);
+	const app = await f.folder(join(f.home, 'vocab'), {
+		'.gitignore': gitignore,
+		'epicenter.ts': wordsApp({ reading: 'optional' }),
+		'data/words/neko.md': '---\nmeaning: cat\n---\n',
+		'ui/.gitignore': 'dist/\nnode_modules/\n',
+		'ui/package.json': uiPackage(
+			'test -f ../epicenter.ts && test ! -e ../data && mkdir -p dist && pwd > dist/index.html',
+		),
+	});
+	await f.folder(join(app, 'ui', 'dist'), { 'index.html': 'last\n' }, { git: false });
+	const built = await f.run('build', 'vocab');
+	expect(built.stderr).toBe('');
+	expect(built.stdout).toBe('vocab: UI built\n');
+	const where = (await readFile(join(app, 'ui', 'dist', 'index.html'), 'utf8')).trim();
+	expect(where.startsWith(`${app}/`)).toBe(false);
+	expect(await gitIn(app, 'status', '--porcelain')).toBe('');
+	expect((await readdir(f.home)).filter((name) => name.startsWith('.'))).toEqual([]);
+});
+
+test('a ui/ with no build script is bundled from its index.html, with relative paths', async () => {
+	const f = await fixture();
+	roots.push(f.root);
+	const app = await f.folder(join(f.home, 'vocab'), {
+		'.gitignore': `${gitignore}ui/dist/\n`,
+		'epicenter.ts': wordsApp({ reading: 'optional' }),
+		'ui/index.html':
+			'<!doctype html><html><body><script type="module" src="./main.ts"></script></body></html>\n',
+		'ui/main.ts':
+			"import { connect } from '@epicenter/app/client';\ndocument.body.dataset.client = typeof connect;\n",
+	});
+	const built = await f.run('build', 'vocab');
+	expect(built.stderr).toBe('');
+	expect(built.stdout).toBe('vocab: UI built\n');
+	const html = await readFile(join(app, 'ui', 'dist', 'index.html'), 'utf8');
+	expect(html).toMatch(/src="\.\/[^"]+\.js"/);
+	expect(html).not.toContain('main.ts');
 });
 
 test('sync pushes to origin, never to the starter', async () => {

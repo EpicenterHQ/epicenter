@@ -1,6 +1,5 @@
 import Root from './item.svelte';
 import Actions from './item-actions.svelte';
-import Button from './item-button.svelte';
 import Content from './item-content.svelte';
 import Description from './item-description.svelte';
 import Footer from './item-footer.svelte';
@@ -13,8 +12,6 @@ import Title from './item-title.svelte';
 export {
 	Actions,
 	Actions as ItemActions,
-	Button,
-	Button as ItemButton,
 	Content,
 	Content as ItemContent,
 	Description,

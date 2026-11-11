@@ -102,18 +102,23 @@ function mcp(base: string, method: string, params: object = {}) {
 	});
 }
 
-test('HTTP initialize includes the Epicenter AGENTS.md', async () => {
+test('HTTP initialize sends the Epicenter AGENTS.md as it reads now', async () => {
 	const f = await setup(undefined, 'Use these apps through their actions.\n');
-	const response = await mcp(f.base, 'initialize', {
-		protocolVersion: '2025-06-18',
-		capabilities: {},
-		clientInfo: { name: 'test', version: '1' },
-	});
-	expect(response.status).toBe(200);
-	const body = (await response.json()) as { result: { instructions?: string } };
-	expect(body.result.instructions).toBe(
-		'Use these apps through their actions.\n',
-	);
+	const initialize = async () => {
+		const response = await mcp(f.base, 'initialize', {
+			protocolVersion: '2025-06-18',
+			capabilities: {},
+			clientInfo: { name: 'test', version: '1' },
+		});
+		expect(response.status).toBe(200);
+		const body = (await response.json()) as {
+			result: { instructions?: string };
+		};
+		return body.result.instructions;
+	};
+	expect(await initialize()).toBe('Use these apps through their actions.\n');
+	await writeFile(join(f.home, 'AGENTS.md'), 'Ask before deleting.\n');
+	expect(await initialize()).toBe('Ask before deleting.\n');
 });
 
 test('HTTP tools/list offers app actions', async () => {

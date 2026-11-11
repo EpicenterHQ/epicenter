@@ -2,8 +2,7 @@
 	import * as Tabs from '@epicenter/ui/tabs';
 	import ActivityFeed from '$lib/components/ActivityFeed.svelte';
 	import ModelCostGuide from '$lib/components/ModelCostGuide.svelte';
-	import TopModels from '$lib/components/TopModels.svelte';
-	import UsageChart from '$lib/components/UsageChart.svelte';
+	import UsageOverview from '$lib/components/UsageOverview.svelte';
 </script>
 
 <svelte:head><title>Usage: Epicenter</title></svelte:head>
@@ -20,8 +19,7 @@
 		<Tabs.Trigger value="activity">Activity</Tabs.Trigger>
 	</Tabs.List>
 	<Tabs.Content value="overview" class="pt-6">
-		<UsageChart />
-		<TopModels />
+		<UsageOverview />
 	</Tabs.Content>
 	<Tabs.Content value="models" class="pt-6"><ModelCostGuide /></Tabs.Content>
 	<Tabs.Content value="activity" class="pt-6"><ActivityFeed /></Tabs.Content>

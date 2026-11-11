@@ -1,6 +1,6 @@
 <script lang="ts">
-	import type { HTMLFieldsetAttributes } from 'svelte/elements';
-	import { cn, type WithElementRef } from '../utils.js';
+	import { cn, type WithElementRef } from "../utils.js";
+	import type { HTMLFieldsetAttributes } from "svelte/elements";
 
 	let {
 		ref = $bindable(null),
@@ -13,10 +13,7 @@
 <fieldset
 	bind:this={ref}
 	data-slot="field-set"
-	class={cn(
-		'gap-6 has-[>[data-slot=checkbox-group]]:gap-3 has-[>[data-slot=radio-group]]:gap-3 flex flex-col',
-		className,
-	)}
+	class={cn("gap-6 has-[>[data-slot=checkbox-group]]:gap-3 has-[>[data-slot=radio-group]]:gap-3 flex flex-col", className)}
 	{...restProps}
 >
 	{@render children?.()}

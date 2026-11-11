@@ -17,7 +17,7 @@
 	import * as Field from '@epicenter/ui/field';
 	import { Input } from '@epicenter/ui/input';
 	import { Loading } from '@epicenter/ui/loading';
-	import { toast } from '@epicenter/ui/sonner';
+	import { toast } from 'svelte-sonner';
 	import { Textarea } from '@epicenter/ui/textarea';
 	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
 	import { createMutation, createQuery } from '@tanstack/svelte-query';
@@ -216,7 +216,7 @@
 			</div>
 		{/if}
 
-		<Button variant="ghost-destructive" class="self-start" onclick={() => confirmDelete(saved)}>
+		<Button variant="destructive" class="self-start" onclick={() => confirmDelete(saved)}>
 			Delete word
 		</Button>
 	{/if}

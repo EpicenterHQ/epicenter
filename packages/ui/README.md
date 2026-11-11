@@ -55,16 +55,14 @@ apps.
 ## Choosing components
 
 - Use `ConfirmationDialog` for reusable confirmations and `AlertDialog` for
-  composed confirmations. Use `Dialog` for other simple overlays.
-- Use `Modal` for forms and input workflows. It renders a Dialog on desktop
-  and a Drawer below 768px. Use `Sheet` or `Drawer` for secondary panels.
+  composed confirmations. Use `Dialog` for other overlays.
 - Use `Command` for filtered actions and search.
 - Use `Field` and shared input components for forms. Put Select options inside
   `Select.Group`, which owns their padding.
 - Use `Item`, `SectionHeader`, `InputGroup`, and `Sidebar` for repeated rows,
   sections, grouped controls, and navigation.
 
-Dialog, Modal, Sheet, and Drawer need accessible titles. Use an `sr-only` title
+Dialogs need accessible titles. Use an `sr-only` title
 when the visual design already supplies equivalent context. Keep interaction
 policy with the caller: for example, the API user menu's theme toggle sets
 `closeOnSelect={false}` so the menu stays open, while ordinary items keep the
@@ -85,11 +83,7 @@ triggers or richer content.
 ### Editor control and panel lifetimes
 
 `Textarea` and `Input` expose `bind:value`, including function bindings for values
-read from an editor. Once a component is destroyed, its native value binding
-stops reading the caller and stops writing, even if something still holds its DOM
-element and dispatches input on it. The last displayed value is retained only for
-that retired control. Other event handlers, file bindings, and controls own their
-separate eligibility rules.
+read from an editor.
 
 Default editor composition needs no tabs: render structured controls for valid
 rows and a text editor for invalid rows. Bind to current editor values and submit
@@ -121,23 +115,25 @@ for known content shapes rather than rebuilding them in an app.
 
 ## Updating upstream components
 
-The [upstream baseline and customization register](upstream/README.md) records
-saved registry responses and intentional differences. The source ownership
-decision is in [ADR-0455](../../docs/adr/0455-epicenter-ui-tracks-distributed-shadcn-svelte-components-with-explicit-deltas.md).
+A stock component is what the shadcn-svelte CLI installs for the `vega` style,
+plus at most one patch that says why it differs. [`upstream/README.md`](upstream/README.md)
+explains the snapshots, the check, and the differences not yet recorded as
+patches. The source ownership decision is in
+[ADR-0455](../../docs/adr/0455-epicenter-ui-tracks-distributed-shadcn-svelte-components-with-explicit-deltas.md).
 
-1. Fetch the distributed component for the chosen style and save its exact
-   registry response. Extras use their separate registry.
-2. Compare it with the maintained component and real callers. Adapt import
-   and icon placeholders; review requested dependency versions.
-3. Adopt upstream defaults. Retain a local difference only when a workflow or
-   shared decision establishes its need. Record the change and reason in the
-   customization register; track unverified differences in the PR or an issue.
+1. Run `bun scripts/upstream.ts refresh` and read `git diff upstream/` for what
+   upstream changed and which dependency versions it now expects.
+2. Run `bun scripts/upstream.ts apply` for the changed components. A patch that
+   no longer applies is the decision: drop it if upstream now covers its reason,
+   or edit `src/<name>` and record it with `bun scripts/upstream.ts diff <name>`.
+3. Adopt upstream defaults. Keep a difference only when a workflow or shared
+   decision establishes its need, and put that reason at the top of its patch.
 4. Check a consuming app at desktop and narrow widths, including keyboard
    behavior and long content. Remove obsolete caller overrides and build the app.
 
-Do not run the CLI against the live package as an automatic overwrite or create
-separate component copies in each app. Preserving the previous appearance alone
-is not a reason to reject an upstream update.
+The CLI runs in a scratch project, never against this package or an app.
+Preserving the previous appearance alone is not a reason to reject an upstream
+update.
 
 ## Verification
 
@@ -148,9 +144,6 @@ bun run check:ui-boundary
 ```
 
 The check in `scripts/check-ui-boundary.ts` enforces the public import boundary.
-For scrolling regression checks, run `bun scripts/ui-scroll.browser.mjs` with
-Playwright’s Chromium installed. It checks chat cleanup, streaming updates,
-reading position, and long folder submenus, and prints its artifact directory.
 
 For styling conflicts, inspect the component’s `cn()` call and caller classes
 at the rendered viewport and state. A responsive utility such as `sm:max-w-md`

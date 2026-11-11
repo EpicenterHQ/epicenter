@@ -8,7 +8,7 @@
 	import { Link } from '@epicenter/ui/link';
 	import * as SectionHeader from '@epicenter/ui/section-header';
 	import * as Select from '@epicenter/ui/select';
-	import { toast } from '@epicenter/ui/sonner';
+	import { toast } from 'svelte-sonner';
 	import { Spinner } from '@epicenter/ui/spinner';
 	import * as Table from '@epicenter/ui/table';
 	import { cn } from '@epicenter/ui/utils';
@@ -264,7 +264,7 @@
 					<Button size="sm" variant="outline" disabled={selection.rows.length === 0} onclick={() => void copySelected()} data-testid="copy-selected">
 						Copy {selection.rows.length === 1 ? 'transcript' : 'transcripts'}
 					</Button>
-					<Button size="sm" variant="ghost-destructive" disabled={busy || selection.rows.length === 0} onclick={() => void deleteSelected()} data-testid="delete-selected">
+					<Button size="sm" variant="destructive" disabled={busy || selection.rows.length === 0} onclick={() => void deleteSelected()} data-testid="delete-selected">
 						Delete {selection.rows.length}
 					</Button>
 					<Button

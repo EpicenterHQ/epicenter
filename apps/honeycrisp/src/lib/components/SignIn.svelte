@@ -7,7 +7,7 @@
 	import type { AuthClient } from '@epicenter/account';
 	import { Button } from '@epicenter/ui/button';
 	import * as Empty from '@epicenter/ui/empty';
-	import { toast } from '@epicenter/ui/sonner';
+	import { toast } from 'svelte-sonner';
 
 	let { account }: { account: AuthClient } = $props();
 

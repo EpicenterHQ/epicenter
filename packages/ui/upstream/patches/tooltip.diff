@@ -1,0 +1,20 @@
+Epicenter: a tooltip opens after 300 ms, and for 150 ms after one closes the
+next opens at once. Upstream opens at 0 ms, so every pointer pass over an
+IconButton flashes its label. Every app's root layout holds one provider,
+which makes the app one hover group; a nested provider would cut its subtree
+out of the skip window.
+
+diff --git a/tooltip/tooltip-provider.svelte b/tooltip/tooltip-provider.svelte
+index 6dba9a6..0d56a6b 100644
+--- a/tooltip/tooltip-provider.svelte
++++ b/tooltip/tooltip-provider.svelte
+@@ -1,7 +1,7 @@
+ <script lang="ts">
+ 	import { Tooltip as TooltipPrimitive } from "bits-ui";
+ 
+-	let { delayDuration = 0, ...restProps }: TooltipPrimitive.ProviderProps = $props();
++	let { delayDuration = 300, skipDelayDuration = 150, ...restProps }: TooltipPrimitive.ProviderProps = $props();
+ </script>
+ 
+-<TooltipPrimitive.Provider {delayDuration} {...restProps} />
++<TooltipPrimitive.Provider {delayDuration} {skipDelayDuration} {...restProps} />

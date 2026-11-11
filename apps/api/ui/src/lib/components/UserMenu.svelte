@@ -2,7 +2,7 @@
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
 	import * as DropdownMenu from '@epicenter/ui/dropdown-menu';
-	import { toastOnError } from '@epicenter/ui/sonner';
+	import { toastOnError } from '@epicenter/ui/toast-on-error';
 	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
 	import LogOutIcon from '@lucide/svelte/icons/log-out';
 	import MoonIcon from '@lucide/svelte/icons/moon';
