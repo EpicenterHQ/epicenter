@@ -45,6 +45,7 @@ import {
 } from './output.ts';
 import { epicenterRoot, RootUsageError } from './root.ts';
 import { runAction } from './run.ts';
+import { serviceCommand } from './service.ts';
 import { statusOf } from './snapshot.ts';
 import { syncCommand } from './sync.ts';
 import { updateCommand } from './update.ts';
@@ -81,6 +82,7 @@ const HANDLERS: { [K in Command]: Handler } = {
 	history: historyCommand,
 	undo: undoCommand,
 	access: accessCommand,
+	service: serviceCommand,
 	async serve(words, json) {
 		if (json)
 			return fail(
@@ -185,7 +187,7 @@ export async function runCli(argv: string[]): Promise<number> {
 				print(`${COMMANDS[command].usage}\n${COMMANDS[command].help}`);
 				return 0;
 			}
-			if (command !== 'init') epicenterRoot();
+			if (command !== 'init' && command !== 'service') epicenterRoot();
 			return HANDLERS[command](words, json);
 		}
 		epicenterRoot();

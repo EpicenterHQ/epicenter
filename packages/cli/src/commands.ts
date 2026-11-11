@@ -66,6 +66,12 @@ such as Claude signed in with OAuth; an HTTPS tunnel from public to that port is
 yours to run. Then --host must be a loopback address, and serve checks every 5
 minutes that public reaches that port, never this one.`,
 	},
+	service: {
+		usage: 'epicenter service <install|uninstall|restart|status>',
+		help: `Installs a macOS login job that keeps serve running for this Epicenter.
+The person runs install and uninstall. Agents may safely run restart and status.
+status --json reports whether the job is installed and running, its pid, and port.`,
+	},
 	access: {
 		usage:
 			'epicenter access [invite [<name>] | revoke <person or connector> [<person>]]',
