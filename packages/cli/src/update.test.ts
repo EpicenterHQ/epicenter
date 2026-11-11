@@ -66,9 +66,9 @@ test('new --from clones a starter as upstream, tracking nothing, and builds its 
 	expect(
 		await gitIn(f.app, 'config', '--get-regexp', '^branch\\.').catch(() => ''),
 	).toBe('');
-	expect(
-		await readFile(join(f.app, 'ui', 'dist', 'index.html'), 'utf8'),
-	).toBe('one\n');
+	expect(await readFile(join(f.app, 'ui', 'dist', 'index.html'), 'utf8')).toBe(
+		'one\n',
+	);
 	expect(await gitIn(f.app, 'status', '--porcelain')).toBe('');
 
 	const inside = await f.run(
@@ -127,9 +127,9 @@ test('update merges the starter and builds; a file that no longer fits says so w
 	expect(await gitIn(f.app, 'log', '-1', '--format=%s')).toBe(
 		'vocab: update from upstream',
 	);
-	expect(
-		await readFile(join(f.app, 'ui', 'dist', 'index.html'), 'utf8'),
-	).toBe('two\n');
+	expect(await readFile(join(f.app, 'ui', 'dist', 'index.html'), 'utf8')).toBe(
+		'two\n',
+	);
 	expect(await gitIn(f.app, 'status', '--porcelain')).toBe('');
 	const read = await f.run('vocab', 'words', 'get', 'words/neko.md', '--json');
 	expect(JSON.parse(read.stdout).returned.problems).toEqual([
@@ -146,9 +146,9 @@ test('update snapshots pending changes before it merges, and undoes a merge that
 	await commitAll(f.starter, 'add a readme');
 	const pending = await f.run('update', 'vocab');
 	expect(pending.code).toBe(0);
-	expect(
-		await gitIn(f.app, 'log', '--first-parent', '-2', '--format=%s'),
-	).toBe('vocab: update from upstream\nvocab: changed outside epicenter');
+	expect(await gitIn(f.app, 'log', '--first-parent', '-2', '--format=%s')).toBe(
+		'vocab: update from upstream\nvocab: changed outside epicenter',
+	);
 	expect(await readFile(join(f.app, 'notes.md'), 'utf8')).toBe('unsaved\n');
 	expect(await gitIn(f.app, 'status', '--porcelain')).toBe('');
 
@@ -181,9 +181,9 @@ test('a failed build keeps the last UI that built', async () => {
 	const updated = await f.run('update', 'vocab');
 	expect(updated.code).toBe(1);
 	expect(updated.stderr).toContain('the last one that did is kept');
-	expect(
-		await readFile(join(f.app, 'ui', 'dist', 'index.html'), 'utf8'),
-	).toBe('one\n');
+	expect(await readFile(join(f.app, 'ui', 'dist', 'index.html'), 'utf8')).toBe(
+		'one\n',
+	);
 });
 
 test('a build that removes its output keeps the last UI and names the required index', async () => {
@@ -197,9 +197,9 @@ test('a build that removes its output keeps the last UI and names the required i
 	const updated = await f.run('update', 'vocab');
 	expect(updated.code).toBe(1);
 	expect(updated.stderr).toContain('ui/dist/index.html');
-	expect(
-		await readFile(join(f.app, 'ui', 'dist', 'index.html'), 'utf8'),
-	).toBe('one\n');
+	expect(await readFile(join(f.app, 'ui', 'dist', 'index.html'), 'utf8')).toBe(
+		'one\n',
+	);
 });
 
 test('sync pushes to origin, never to the starter', async () => {

@@ -384,10 +384,7 @@ test('a built UI serves files and refuses traversal and symlinks outside it', as
 	await mkdir(join(folder, 'ui', 'dist', '_app', 'immutable'), {
 		recursive: true,
 	});
-	await writeFile(
-		join(folder, 'ui', 'dist', 'index.html'),
-		'<h1>Reading</h1>',
-	);
+	await writeFile(join(folder, 'ui', 'dist', 'index.html'), '<h1>Reading</h1>');
 	await writeFile(
 		join(folder, 'ui', 'dist', '_app', 'immutable', 'asset.js'),
 		'export {};',

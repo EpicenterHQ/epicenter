@@ -81,7 +81,10 @@ async function setup() {
 	const dir = await realpath(await mkdtemp(join(tmpdir(), 'epicenter-snap-')));
 	roots.push(dir);
 	await writeFile(join(dir, 'a.md'), 'a\n');
-	await writeFile(join(dir, '.gitignore'), 'node_modules/\n*.local\n*.local.*\n');
+	await writeFile(
+		join(dir, '.gitignore'),
+		'node_modules/\n*.local\n*.local.*\n',
+	);
 	await gitIn(dir, 'init', '-q');
 	await gitIn(dir, 'config', 'user.name', 'Epicenter Test');
 	await gitIn(dir, 'config', 'user.email', 'epicenter-test@example.com');

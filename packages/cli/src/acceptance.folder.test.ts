@@ -149,9 +149,7 @@ test('W2 epicenter sync snapshots and pushes to a bare origin without fetching',
 
 	const again = await f.run('sync', 'journal');
 	expect(again.code).toBe(0);
-	expect(again.stdout).toBe(
-		'journal: nothing to commit; 0 ahead of origin\n',
-	);
+	expect(again.stdout).toBe('journal: nothing to commit; 0 ahead of origin\n');
 	expect(again.stderr).toBe('');
 	expect((await f.run('sync', 'nope', '--json')).code).toBe(2);
 

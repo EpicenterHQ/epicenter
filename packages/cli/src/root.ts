@@ -121,7 +121,8 @@ function markerProblems(fields: Record<string, unknown>): string[] {
 		problems.push('public and publicPort come together: give both or neither');
 	problems.push(
 		...Object.keys(rest).map(
-			(key) => `${key} is not a field; the fields are port, public, and publicPort`,
+			(key) =>
+				`${key} is not a field; the fields are port, public, and publicPort`,
 		),
 	);
 	return problems;
@@ -143,7 +144,11 @@ function readRoot(folder: string): EpicenterRoot {
 		throw new RootUsageError(
 			problems.map((problem) => `${marker}: ${problem}`).join('\n'),
 		);
-	const { port, public: publicUrl, publicPort } = read.fields as {
+	const {
+		port,
+		public: publicUrl,
+		publicPort,
+	} = read.fields as {
 		port?: number;
 		public?: string;
 		publicPort?: number;

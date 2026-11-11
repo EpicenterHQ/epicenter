@@ -151,9 +151,10 @@ async function refuseLocal(app: string, folder: string, status: string) {
  * `'never'` when `origin` has no tracking ref for the branch, so it has never
  * received it; otherwise `unpushed` counts the commits not yet backed up.
  */
-export async function statusOf(folder: string): Promise<
-	| { pending: number; backup?: 'none' | 'never'; unpushed?: number }
-	| undefined
+export async function statusOf(
+	folder: string,
+): Promise<
+	{ pending: number; backup?: 'none' | 'never'; unpushed?: number } | undefined
 > {
 	const status = await git(folder, statusArgs(TAKEN), true);
 	if (status.code !== 0) return undefined;

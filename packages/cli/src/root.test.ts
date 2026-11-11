@@ -118,10 +118,7 @@ test('the marker is found from inside an app, and its front matter is checked fi
 	});
 	const marker = join(f.home, 'EPICENTER.md');
 	const listed = async () => f.runIn(join(inside, 'notes'), '--json');
-	await writeFile(
-		marker,
-		'---\nport: 4800\n---\nNotes for people.\n',
-	);
+	await writeFile(marker, '---\nport: 4800\n---\nNotes for people.\n');
 	expect(JSON.parse((await listed()).stdout).epicenter).toBe(f.home);
 	await writeFile(marker, '---\nport: 70000\nprot: 4748\n---\n');
 	const refused = await listed();
