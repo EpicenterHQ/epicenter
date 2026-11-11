@@ -60,7 +60,21 @@ sync does.`,
 127.0.0.1 and the Epicenter's port (default 4747) unless --port or --host says
 otherwise. With --stdio, it speaks MCP on stdin and stdout instead. Over HTTP it
 backs up every app as sync does when it starts, every 5 minutes, and when it
-stops.`,
+stops. When EPICENTER.md has public and publicPort, it also offers them on
+127.0.0.1:<publicPort> to a person signed in with a passkey and to a connector
+such as Claude signed in with OAuth; an HTTPS tunnel from public to that port is
+yours to run. Then --host must be a loopback address, and serve checks every 5
+minutes that public reaches that port, never this one.`,
+	},
+	access: {
+		usage:
+			'epicenter access [invite [<name>] | revoke <person or connector> [<person>]]',
+		help: `Lists the people (passkeys) who can reach the public address, and each grant:
+a connector one person approved. invite makes a link that registers a passkey
+on one device, once, within 15 minutes. revoke ends a person (their passkey,
+sessions, and grants), a connector (all its grants), or a connector and a
+person (that grant); the next call it makes is refused. It works while serve
+runs.`,
 	},
 } as const;
 

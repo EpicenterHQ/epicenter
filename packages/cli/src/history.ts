@@ -150,8 +150,8 @@ function snapshotOf(commit: Commit) {
 	};
 }
 
-/** `seconds` as local time, plainly: `2026-11-11 09:30`. */
-function localTime(seconds: number) {
+/** `seconds` as local time, plainly: `2026-11-11 09:30`; for a person reading, not a field (`localTime` in `@epicenter/app` is that). */
+export function plainTime(seconds: number) {
 	const at = new Date(seconds * 1000);
 	const two = (n: number) => String(n).padStart(2, '0');
 	return `${at.getFullYear()}-${two(at.getMonth() + 1)}-${two(at.getDate())} ${two(at.getHours())}:${two(at.getMinutes())}`;
@@ -166,7 +166,7 @@ function renderHistory(app: string, commits: Commit[]) {
 	const undoPrefix = `${app}: undid `;
 	return commits
 		.map((commit) => {
-			const head = `${commit.short}  ${localTime(commit.time)}  `;
+			const head = `${commit.short}  ${plainTime(commit.time)}  `;
 			const subject = commit.subject.startsWith(undoPrefix)
 				? `undid ${commit.subject.slice(undoPrefix.length)}`
 				: commit.subject;

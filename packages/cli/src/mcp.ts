@@ -24,6 +24,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import packageJson from '../package.json' with { type: 'json' };
 import { runChild } from './child.ts';
+import { nameProblem } from './commands.ts';
 import { homeEntries } from './home.ts';
 import { type Answer, renderAnswer, writeErr } from './output.ts';
 import { rootInstructions } from './root.ts';
@@ -35,16 +36,22 @@ import { rootInstructions } from './root.ts';
  */
 async function listTools(): Promise<Tool[]> {
 	const listed = await Promise.all(
-		(await homeEntries()).map(async ({ entry }) => {
-			const answer = await runChild([entry, '--json'], 'ignore');
-			const value = answer as { actions?: Tool[]; error?: { message: string } };
-			if (value.actions) return value.actions;
-			writeErr(`${entry}: ${value.error?.message ?? JSON.stringify(answer)}`);
-			return [];
-		}),
+		(await homeEntries()).map(({ entry }) => appTools(entry)),
 	);
 	return listed.flat();
 }
+
+/** One app's tools, as its own child lists them; none when it cannot load, and why goes to stderr. */
+async function appTools(entry: string): Promise<Tool[]> {
+	const answer = await runChild([entry, '--json'], 'ignore');
+	const value = answer as { actions?: Tool[]; error?: { message: string } };
+	if (value.actions) return value.actions;
+	writeErr(`${entry}: ${value.error?.message ?? JSON.stringify(answer)}`);
+	return [];
+}
+
+/** Whether a tool says it changes nothing (`readOnlyHint`): all the `read` scope may list and call. */
+const isReadOnly = (tool: Tool) => tool.annotations?.readOnlyHint === true;
 
 /**
  * A child's answer as an MCP result: the same value `--json` prints, as
@@ -69,11 +76,21 @@ function toolResult(answer: Answer) {
 /**
  * Run the action `<app>_<word>_<word>` names in a child, as the command line
  * does; the child commits what it wrote. App names and action words hold no
- * underscores.
+ * underscores, and the first word must be able to name an app, so a tool name
+ * never runs one of `epicenter`'s own commands. With `readOnly`, the child
+ * runs the action only when it is read-only.
  */
-async function callTool(name: string, args: Record<string, unknown>) {
+async function callTool(
+	name: string,
+	args: Record<string, unknown>,
+	readOnly: boolean,
+) {
 	const [app = '', ...words] = name.split('_');
-	if (!isName(app) || words.length === 0 || !words.every(isName))
+	if (
+		nameProblem(app) !== undefined ||
+		words.length === 0 ||
+		!words.every(isName)
+	)
 		return toolResult({
 			error: { name: 'Usage', message: `Unknown tool ${name}` },
 		});
@@ -81,12 +98,20 @@ async function callTool(name: string, args: Record<string, unknown>) {
 		(await runChild(
 			[app, ...words, '--input', JSON.stringify(args), '--json'],
 			'ignore',
+			{ readOnly },
 		)) as Answer,
 	);
 }
 
-/** Register the shared tool handlers on a fresh MCP server. */
-export function createMcpServer(instructions?: string) {
+/**
+ * Register the shared tool handlers on a fresh MCP server. With `readOnly`,
+ * for a connector with only the `read` scope (ADR-0871), it lists and runs
+ * only read-only actions.
+ */
+export function createMcpServer(
+	instructions: string | undefined,
+	{ readOnly = false }: { readOnly?: boolean } = {},
+) {
 	const server = new Server(
 		{ name: 'epicenter', version: packageJson.version },
 		{
@@ -94,11 +119,12 @@ export function createMcpServer(instructions?: string) {
 			...(instructions === undefined ? {} : { instructions }),
 		},
 	);
-	server.setRequestHandler(ListToolsRequestSchema, async () => ({
-		tools: await listTools(),
-	}));
+	server.setRequestHandler(ListToolsRequestSchema, async () => {
+		const tools = await listTools();
+		return { tools: readOnly ? tools.filter(isReadOnly) : tools };
+	});
 	server.setRequestHandler(CallToolRequestSchema, (request) =>
-		callTool(request.params.name, request.params.arguments ?? {}),
+		callTool(request.params.name, request.params.arguments ?? {}, readOnly),
 	);
 	return server;
 }

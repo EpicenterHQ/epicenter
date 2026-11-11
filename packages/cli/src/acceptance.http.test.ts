@@ -211,6 +211,7 @@ test('a call whose snapshot fails still resolves, and the app says why', async (
 	expect(await gitIn(folder, 'rev-list', '--count', 'HEAD')).toBe('1');
 	expect(JSON.parse((await f.run('reading', '--json')).stdout).status).toEqual({
 		pending: 2,
+		backup: 'none',
 	});
 });
 
@@ -396,26 +397,23 @@ test('a built UI serves files and refuses traversal and symlinks outside it', as
 		),
 	}));
 	const { folder, linked } = f.made;
-	await mkdir(join(folder, '.cache', 'ui', '_app', 'immutable'), {
+	await mkdir(join(folder, 'ui', 'dist', '_app', 'immutable'), {
 		recursive: true,
 	});
+	await writeFile(join(folder, 'ui', 'dist', 'index.html'), '<h1>Reading</h1>');
 	await writeFile(
-		join(folder, '.cache', 'ui', 'index.html'),
-		'<h1>Reading</h1>',
-	);
-	await writeFile(
-		join(folder, '.cache', 'ui', '_app', 'immutable', 'asset.js'),
+		join(folder, 'ui', 'dist', '_app', 'immutable', 'asset.js'),
 		'export {};',
 	);
 	await symlink(
 		join(folder, 'epicenter.ts'),
-		join(folder, '.cache', 'ui', 'outside.ts'),
+		join(folder, 'ui', 'dist', 'outside.ts'),
 	);
 	const outsideUi = join(f.root, 'outside-ui');
 	await mkdir(outsideUi);
 	await writeFile(join(outsideUi, 'index.html'), 'outside');
-	await mkdir(join(linked, '.cache'));
-	await symlink(outsideUi, join(linked, '.cache', 'ui'));
+	await mkdir(join(linked, 'ui'));
+	await symlink(outsideUi, join(linked, 'ui', 'dist'));
 	expect(await (await fetch(`${f.base}/`)).text()).toContain(
 		'href="/reading/"',
 	);
@@ -447,7 +445,7 @@ test('a built UI serves files and refuses traversal and symlinks outside it', as
 	expect((await fetch(`${f.base}/linked/`)).status).toBe(404);
 });
 
-test('only the built UI in .cache/ui/ is served, never the ui/ source', async () => {
+test('only the view in ui/dist/ is served, never the ui/ source', async () => {
 	const f = await setup((f) =>
 		f.folder(join(f.home, 'reading'), {
 			...readingApp,
@@ -456,8 +454,8 @@ test('only the built UI in .cache/ui/ is served, never the ui/ source', async ()
 	);
 	const folder = f.made;
 	expect((await fetch(`${f.base}/reading/`)).status).toBe(404);
-	await mkdir(join(folder, '.cache', 'ui'), { recursive: true });
-	await writeFile(join(folder, '.cache', 'ui', 'index.html'), 'built');
+	await mkdir(join(folder, 'ui', 'dist'), { recursive: true });
+	await writeFile(join(folder, 'ui', 'dist', 'index.html'), 'built');
 	expect(await (await fetch(`${f.base}/reading/`)).text()).toBe('built');
 });
 

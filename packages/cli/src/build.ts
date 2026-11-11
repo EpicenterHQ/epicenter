@@ -36,7 +36,7 @@ export async function buildCommand(
 			if (app.error) process.stderr.write(`${app.app}: ${app.error.message}\n`);
 			else
 				process.stdout.write(
-					`${app.app}: ${app.built ? 'UI built' : 'no ui/'}\n`,
+					`${app.app}: ${app.built ? 'UI built' : 'nothing to build'}\n`,
 				);
 		}
 	return apps.some((app) => app.error) ? 1 : 0;

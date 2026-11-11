@@ -70,7 +70,7 @@ starter, a repository with no data, and keeps it as the app's `upstream`
 remote, whose changes `epicenter update` merges (ADR-0866).
 `epicenter new <name>` alone makes the folder from a built-in template:
 an `epicenter.ts` with no collections or actions yet, and a `.gitignore` with `node_modules/`,
-`.cache/`, `*.local`, and `*.local.*` (ADR-0858); it makes the folder a
+`*.local`, and `*.local.*` (ADR-0858, ADR-0854); it makes the folder a
 repository and commits the template. An app that comes to hold binary files
 adds its own `.gitattributes`, and Git LFS's filter is set up once per
 computer (`git lfs install`), never per repository (ADR-0856). Sharing an app is sharing its Git URL; there is no

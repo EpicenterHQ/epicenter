@@ -3,9 +3,9 @@
 - **Status:** Proposed
 - **Date:** 2026-11-10
 - **Supersedes:** [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) at "`~/Epicenter` exists on your server and is not moved by an environment variable": the Epicenter is found from where you stand, and `~/Epicenter` is only the fallback. [ADR-0857](0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md) at a folder run by path, and `epicenter link`: every app runs inside an Epicenter.
-- **Amends:** [ADR-0853](0853-collections-give-five-actions-and-programs-without-the-folder-ask-over-mcp.md) at the verbs' names: an app with one collection has them as its own. [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) at the public HTTPS address through Funnel: `serve` signs no one in, so it stays on the tailnet until a sign-in is built. [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) at what a commit takes: never `*.local` or `*.local.*` (since amended by ADR-0850: the app's `.gitignore` leaves them out, and a commit refuses one it lets through).
-- **Relates:** [ADR-0870](0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md) (secrets are `.local` files, so the marker carries no `id`), [ADR-0871](0871-a-public-address-signs-clients-in-with-better-auths-mcp-plugin-and-the-owner-approves-from-the-tailnet.md) (the sign-in for a public address, and `owners`), [ADR-0857](0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md) (an app is its `epicenter.ts`, which places its verbs), [ADR-0866](0866-an-app-starts-from-a-starter-kept-as-its-upstream-and-update-merges-the-starters-changes.md) (starters, `update`), [ADR-0867](0867-the-command-line-spells-an-actions-json-input-and-null-removes-a-field-there-as-everywhere.md) (the command line's input), [ADR-0865](0865-the-epicenter-mac-app-runs-epicenter-serve-so-the-computer-it-is-on-is-your-server.md) (the Mac app that would start each `serve`).
-- **Unbuilt:** `public` and `owners`, the fields ADR-0871 adds to `EPICENTER.md`; the marker refuses them until that sign-in is built, so no field is checked that nothing reads. (The sign-in for a public address was settled 2026-11-11 by ADR-0871. Whether a write in an app outside any Git repository exits 3 was settled 2026-11-11 by ADR-0850: no run commits, and such an app is never snapshotted, so it exits 0.)
+- **Amends:** [ADR-0853](0853-collections-give-five-actions-and-programs-without-the-folder-ask-over-mcp.md) at the verbs' names: an app with one collection has them as its own. [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) at the public HTTPS address through Funnel: it is any HTTPS tunnel to a second listener that signs everyone in (ADR-0871). [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) at what a commit takes: never `*.local` or `*.local.*` (since amended by ADR-0850: the app's `.gitignore` leaves them out, and a commit refuses one it lets through).
+- **Relates:** [ADR-0870](0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md) (secrets are `.local` files, so the marker carries no `id`), [ADR-0871](0871-a-public-address-signs-people-in-with-a-passkey-and-connectors-in-with-oauth.md) (the public listener and its sign-in, and `public` and `publicPort`), [ADR-0857](0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md) (an app is its `epicenter.ts`, which places its verbs), [ADR-0866](0866-an-app-starts-from-a-starter-kept-as-its-upstream-and-update-merges-the-starters-changes.md) (starters, `update`), [ADR-0867](0867-the-command-line-spells-an-actions-json-input-and-null-removes-a-field-there-as-everywhere.md) (the command line's input), [ADR-0865](0865-the-epicenter-mac-app-runs-epicenter-serve-so-the-computer-it-is-on-is-your-server.md) (the Mac app that would start each `serve`).
+- **Built:** 2026-11-11: `public` and `publicPort`, the fields ADR-0871 adds to `EPICENTER.md` (`packages/cli/src/root.ts`), read by `serve` and `epicenter access`. (The sign-in for a public address was settled 2026-11-11 by ADR-0871. Whether a write in an app outside any Git repository exits 3 was settled 2026-11-11 by ADR-0850: no run commits, and such an app is never snapshotted, so it exits 0.)
 
 ## Context
 
@@ -33,10 +33,10 @@ as many as it has folders; a folder that holds several is only a grouping.
     AGENTS.md                        guidance for agents; serve sends it as MCP instructions
     tasks/                           an app: its own Git repository
       .git/                          history; remotes upstream (its starter) and origin (its backup)
-      .gitignore                     node_modules/  .cache/  *.local  *.local.*
+      .gitignore                     node_modules/  *.local  *.local.*
       epicenter.ts                   its collections and actions
       ui/                            its UI project (optional)
-      .cache/ui/                     the built UI; rebuildable, never committed
+      ui/dist/                      the built UI; ignored by ui/.gitignore (ADR-0854)
       tasks/<time>.md                data, committed
       google.local.md                this computer only; Epicenter never commits it (ADR-0870)
     capture/  vocab/  mail/
@@ -55,11 +55,13 @@ naming `epicenter init <folder>`. Epicenters do not nest.
 **The marker is `EPICENTER.md`, a note for people with optional front
 matter.** Its name sits beside `AGENTS.md` and `README.md` as a file to read
 first, and its case keeps it apart from an app's `epicenter.ts`. The front
-matter has one optional field, `port` (4747 when absent; `--port`
-overrides it); ADR-0871's `public` and `owners`, which make the Epicenter
-public and say who may approve a client there, join it when that sign-in is
-built. An empty file is a valid marker. A value that does not fit, or any other field, is refused with a line
-naming the field, so a misspelled `port` is never served on 4747 unnoticed.
+matter has three optional fields: `port` (4747 when absent; `--port`
+overrides it), and `public` and `publicPort`, which come together: the
+Epicenter's public https origin, and the port on `127.0.0.1`, other than
+`port`, that a tunnel to it targets (ADR-0871). An empty file is a valid
+marker. A value that does not fit, or any other field, is refused with a
+line naming the field, so a misspelled `port` is never served on 4747
+unnoticed.
 The display name is the folder's name. `epicenter init` writes:
 
 ```md
@@ -96,9 +98,9 @@ its own pathspec, which only its own commits honored). A person can still
 `.gitignore` of `epicenter new` (ADR-0858) is the default, and a starter
 carries the same lines, since a starter is developed in ordinary clones
 outside any Epicenter. Epicenter writes nothing into a clone's `.git/`:
-no `info/exclude`, hooks, or config. A starter that leaves `node_modules/` or
-`.cache/` out of its `.gitignore` gets them committed, the same as in any
-repository.
+no `info/exclude`, hooks, or config. A starter whose `.gitignore` leaves out
+`node_modules/` or its UI's built `dist/` gets them committed, the same as
+in any repository.
 
 **The command line.**
 
@@ -112,16 +114,18 @@ epicenter update [<app>]                   snapshot, merge the starter, build
 epicenter build [<app>]                    build the UI, keeping the last one that built
 epicenter sync [<app>]                     snapshot what is pending, push to origin (ADR-0851)
 epicenter serve [--port <n>] [--host <address>] [--stdio]
+epicenter access [invite [<name>] | revoke <person or connector> [<person>]]   who reaches the public address (ADR-0871)
 epicenter --help | --version
 ```
 
 `build` is its own verb because the UI project's own `bun run build` empties
-`.cache/ui/` before writing it, so a page served meanwhile is missing, and a
+`ui/dist/` before writing it, so a page served meanwhile is missing, and a
 failed build leaves none; `epicenter build` keeps the last one that built.
 
 **On the tailnet, separation is ports, not sign-in.** Each Epicenter is
 served on its own port, and the tailnet's access rules say who reaches which
-port; a public address signs clients in (ADR-0871). Everyone on one computer
+port. A public address is a second listener, and it signs in every person
+and connector (ADR-0871). Everyone on one computer
 under one user can read every Epicenter's files, `.local` ones included:
 separating people from each other's devices and agents is this design;
 separating them from the computer's administrator is a separate OS user or a

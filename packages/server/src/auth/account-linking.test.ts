@@ -3,8 +3,9 @@
  * principal, and ten-minute freshness. An `Authorization` header is never a
  * credential here. Account deletion passes the same checks and then refuses
  * before any destructive work.
- * Explicit callbacks retain their protected target after sign-out/replacement;
- * implicit linking follows verified email. Only upstream token exchange and
+ * Explicit callbacks link only the account that started them, whatever account
+ * the callback carries, and only while that starting session lives; implicit
+ * linking follows verified email. Only upstream token exchange and
  * user-info responses are stubbed; these tests make no live provider claims.
  */
 import { expect, spyOn, test } from 'bun:test';
@@ -297,34 +298,54 @@ for (const [path, body, admitted] of routes) {
 }
 
 // Real OAuth state and callbacks; no provider network requests.
-for (const replacement of [false, true]) {
-	test(`explicit callback links Alice after source sign-out${replacement ? ' and Bob replacement' : ''}`, async () => {
-		const { db, alice, bob, request, stubProvider, callback } = await setup();
-		stubProvider('google', 'different@example.test', true);
-		const start = await request(
-			'/link-social',
-			{ provider: 'google', callbackURL: baseURL },
-			{
-				cookie: alice.cookie,
-				'x-epicenter-principal': alice.user.id,
-			},
-		);
-		expect(
-			(await request('/sign-out', {}, { cookie: alice.cookie })).status,
-		).toBe(200);
-		expect(db.session!.some((row) => row.id === alice.session.id)).toBe(false);
-		const response = await callback(
-			start,
-			'google',
-			replacement ? bob.cookie : '',
-		);
-		expect(response.status).toBe(302);
-		expect(response.headers.get('location')).toBe(baseURL);
-		expect(
-			db.account!.filter((row) => row.accountId === 'new-provider-identity'),
-		).toMatchObject([{ userId: alice.user.id }]);
-		expect(response.headers.get('set-auth-token')).toBeNull();
-	});
+for (const signedOut of [false, true]) {
+	for (const ambient of ['none', 'bob'] as const) {
+		const outcome = signedOut ? 'refuses after source sign-out' : 'links Alice';
+		test(`explicit callback ${outcome} with ${ambient} ambient account`, async () => {
+			const { db, alice, bob, request, stubProvider, callback } = await setup();
+			stubProvider('google', 'different@example.test', true);
+			const start = await request(
+				'/link-social',
+				{ provider: 'google', callbackURL: baseURL },
+				{
+					cookie: alice.cookie,
+					'x-epicenter-principal': alice.user.id,
+				},
+			);
+			if (signedOut) {
+				expect(
+					(await request('/sign-out', {}, { cookie: alice.cookie })).status,
+				).toBe(200);
+				expect(db.session!.some((row) => row.id === alice.session.id)).toBe(
+					false,
+				);
+			}
+			const before = structuredClone({ sessions: db.session, users: db.user });
+			const response = await callback(
+				start,
+				'google',
+				ambient === 'bob' ? bob.cookie : '',
+			);
+			expect(response.status).toBe(302);
+			const linked = db.account!.filter(
+				(row) => row.accountId === 'new-provider-identity',
+			);
+			if (signedOut) {
+				// Better Auth 1.8 refuses a link whose starting session has ended,
+				// so neither Alice nor the ambient account gains the provider.
+				expect(
+					new URL(response.headers.get('location')!).searchParams.get('error'),
+				).toBe('unable_to_link_account');
+				expect(linked).toEqual([]);
+			} else {
+				expect(response.headers.get('location')).toBe(baseURL);
+				expect(linked).toMatchObject([{ userId: alice.user.id }]);
+			}
+			// The callback never signs anyone in or changes who is signed in.
+			expect({ sessions: db.session, users: db.user }).toEqual(before);
+			expect(response.headers.get('set-auth-token')).toBeNull();
+		});
+	}
 }
 for (const provider of ['google', 'github'] as const) {
 	for (const ambient of ['none', 'bob'] as const) {

@@ -51,12 +51,12 @@ export default defineApp({
 			},
 		}),
 		context: defineAction({
-			description: 'Name where the folder is, and keep an index in the cache',
+			description: 'Name where the folder is, and keep a local index',
 			input: {},
 			run: async () => {
 				const { Database } = await import('bun:sqlite');
-				await folder.write('.cache/seen.txt', 'cache');
-				const db = new Database(folder.path + '/.cache/index.sqlite');
+				await folder.write('seen.local.txt', 'local');
+				const db = new Database(folder.path + '/index.local.sqlite');
 				db.run('CREATE TABLE IF NOT EXISTS pages (name TEXT)');
 				db.close();
 				return folder.path;
@@ -71,13 +71,13 @@ const journal = {
 	'epicenter.ts': journalCode,
 };
 
-test("W1 the cache is .cache/ in the folder, and folder.path is the app's folder on disk", async () => {
+test("W1 local files stay in the folder, and folder.path is the app's folder on disk", async () => {
 	const f = await setup();
 	const folder = await f.folder(join(f.home, 'journal'), journal);
 	const result = await f.run('journal', 'context', '--json');
 	expect(result.code).toBe(0);
 	expect(JSON.parse(result.stdout)).toEqual({ returned: folder });
-	expect(existsSync(join(folder, '.cache/index.sqlite'))).toBe(true);
+	expect(existsSync(join(folder, 'index.local.sqlite'))).toBe(true);
 	expect(await gitIn(folder, 'status', '--porcelain')).toBe('');
 	// Bun keeps its own transpiler cache under ~/Library/Caches/bun; epicenter keeps none there.
 	expect(existsSync(join(f.root, 'Library/Caches/so.epicenter.apps'))).toBe(
@@ -149,9 +149,7 @@ test('W2 epicenter sync snapshots and pushes to a bare origin without fetching',
 
 	const again = await f.run('sync', 'journal');
 	expect(again.code).toBe(0);
-	expect(again.stdout).toBe(
-		'journal: nothing to commit; 0 ahead of origin\n',
-	);
+	expect(again.stdout).toBe('journal: nothing to commit; 0 ahead of origin\n');
 	expect(again.stderr).toBe('');
 	expect((await f.run('sync', 'nope', '--json')).code).toBe(2);
 

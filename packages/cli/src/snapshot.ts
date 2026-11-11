@@ -144,18 +144,23 @@ async function refuseLocal(app: string, folder: string, status: string) {
 }
 
 /**
- * What Git says is pending and, when the branch has an `origin` tracking ref,
- * how many commits are not yet backed up; `undefined` for a folder in no
- * repository.
+ * What Git says is pending and how the app is backed up; `undefined` for a
+ * folder in no repository. `backup` is `'none'` with no `origin` remote and
+ * `'never'` when `origin` has no tracking ref for the branch, so it has never
+ * received it; otherwise `unpushed` counts the commits not yet backed up.
  */
-export async function statusOf(folder: string) {
+export async function statusOf(
+	folder: string,
+): Promise<
+	{ pending: number; backup?: 'none' | 'never'; unpushed?: number } | undefined
+> {
 	const status = await git(folder, statusArgs(TAKEN), true);
 	if (status.code !== 0) return undefined;
-	const unpushed = (await originOf(folder))?.ahead;
-	return {
-		pending: statusPaths(status.stdout).length,
-		...(unpushed === undefined ? {} : { unpushed }),
-	};
+	const pending = statusPaths(status.stdout).length;
+	const origin = await originOf(folder);
+	if (origin === null) return { pending, backup: 'none' };
+	if (origin.ahead === undefined) return { pending, backup: 'never' };
+	return { pending, unpushed: origin.ahead };
 }
 
 /**

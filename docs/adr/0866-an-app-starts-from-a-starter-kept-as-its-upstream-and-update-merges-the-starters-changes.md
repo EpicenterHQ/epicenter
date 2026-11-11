@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-11-10
 - **Amended:** 2026-11-11: `update` snapshots what is pending before it merges, as `undo` does, instead of refusing an app with uncommitted changes, and no longer lists files that do not fit their collection's fields, since every read of such a file says so in its `problems`.
-- **Relates:** [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (one copy; the install rules this replaces), [ADR-0851](0851-an-app-has-one-home-and-an-optional-push-only-backup.md) (`origin`), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (`new`, `link`), [ADR-0854](0854-an-apps-cache-is-the-files-it-gitignores.md) (`.cache/`), [ADR-0857](0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md) (`epicenter.ts`), [ADR-0858](0858-where-a-file-lives-decides-whether-it-travels-survives-or-dies-with-its-program.md) (`*.local`), [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (the UI).
+- **Relates:** [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (one copy; the install rules this replaces), [ADR-0851](0851-an-app-has-one-home-and-an-optional-push-only-backup.md) (`origin`), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (`new`, `link`), [ADR-0854](0854-an-apps-cache-is-the-files-it-gitignores.md) (rebuilt files, ignored where their tool writes them), [ADR-0857](0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md) (`epicenter.ts`), [ADR-0858](0858-where-a-file-lives-decides-whether-it-travels-survives-or-dies-with-its-program.md) (`*.local`), [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (the UI).
 - **Unbuilt:** starters in repositories of their own: Capture, Tasks, and Vocab have the layout in `apps/<app>/`, and move out once `@epicenter/app` and `@epicenter/ui` are published. Refusing a collection path under `ui/` or named `epicenter.*`: a path part that starts with `.`, as `.cache/` does, is refused already.
 
 ## Context
@@ -31,20 +31,20 @@ someone else's changes with one's own: a fork and its upstream.
   README.md        what the app is, for people and agents      from upstream
   .gitignore  .gitattributes                                   from upstream
   words/*.md       data                                        yours alone
-  .cache/ui/       the built UI, served at /vocab/             built on this computer, ignored
-  .cache/          installed packages, anything rebuilt        ignored (ADR-0854)
+  ui/dist/        the built UI, served at /vocab/             built on this computer, ignored by ui/.gitignore
+  node_modules/    installed packages                          ignored (ADR-0854)
   *.local          kept on this computer                       ignored (ADR-0858)
 ```
 
 - **A starter is an app with no data.** It is a repository of its own whose
   root is the app's root. It holds no file its collections' paths match.
 - The UI is called the UI, and its folder `ui/`: a project with its own
-  `package.json`, whose `build` writes `../.cache/ui/`. `epicenter serve` serves
-  `.cache/ui/` at `/<app>/` and nothing else. The UI's base is `/` and the
+  `package.json`, whose `build` writes `ui/dist/` (ADR-0860). `epicenter
+  serve` serves `ui/dist/` at `/<app>/` and nothing else. The UI's base is `/` and the
   app's folder name, so a build by hand and one by `epicenter update` agree.
 - `epicenter` supplies `@epicenter/app` to `epicenter.ts` when it runs it; the
   root `package.json` serves only whoever edits or tests the actions.
-- A collection's path may not start with `ui/`, `.cache/`, or `epicenter.`.
+- A collection's path may not start with `ui/` or `epicenter.`.
 
 **`epicenter new <name> --from <git url|path>` makes an app from a starter.**
 It clones the starter into `~/Epicenter/<name>`, renames the clone's remote to
@@ -62,7 +62,7 @@ with an `upstream`, it:
    not yet in history, and merges `upstream`'s branch; on a conflict it
    aborts the merge, leaves the app as it was, and prints
    `git -C ~/Epicenter/vocab merge upstream/main` for whoever resolves it;
-3. builds the UI, keeping the last `.cache/ui/` that built if this build
+3. builds the UI, keeping the last `ui/dist/` that built if this build
    fails. The build installs from the starter's committed `ui/bun.lock`, or
    writes no lockfile when it has none, so it never leaves the app with
    uncommitted changes.

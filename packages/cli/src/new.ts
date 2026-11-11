@@ -43,7 +43,7 @@ export default defineApp({
 	actions: {},
 });
 `,
-		'.gitignore': 'node_modules/\n.cache/\n*.local\n*.local.*\n',
+		'.gitignore': 'node_modules/\n*.local\n*.local.*\n',
 	};
 }
 
@@ -60,9 +60,10 @@ async function taken(name: string) {
 }
 
 /**
- * Say what `new` made: the folder on stdout and the next step on stderr, or
- * with `--json`, one object. An app made whose UI did not build is still
- * made, so it exits 1, not 2, naming `epicenter build <name>`.
+ * Say what `new` made: the folder on stdout and the next step on stderr, then
+ * that it is not backed up and how to back it up, or with `--json`, one
+ * object. An app made whose UI did not build is still made, so it exits 1,
+ * not 2, naming `epicenter build <name>`.
  */
 function made(
 	name: string,
@@ -75,6 +76,10 @@ function made(
 		writeOut(folder);
 		writeErr(
 			error ? `${error.message}\nRun: ${error.next}` : `Run: epicenter ${name}`,
+		);
+		// A new app has no origin: a starter's remote is its upstream (ADR-0851).
+		writeErr(
+			`not backed up\nRun: git -C ${folder} remote add origin <url>, then epicenter sync ${name}`,
 		);
 	}
 	return error ? 1 : 0;

@@ -1,21 +1,26 @@
 /**
- * Building an app's UI (ADR-0860, ADR-0866). An app's `ui/` is a project of
- * its own whose `build` script writes `../.cache/ui/`, which `epicenter serve`
- * serves at `/<app>/`. `epicenter new --from` and `epicenter update` build it
- * with the Bun that runs `epicenter`: the compiled `epicenter` is Bun itself
- * when `BUN_BE_BUN=1` is set, so a computer needs no other program.
+ * An app's view (ADR-0860, ADR-0866): whatever is in its `ui/dist/`, which
+ * `epicenter serve` serves at `/<app>/`. When `ui/package.json` has a `build`
+ * script, `ui/dist/` is that build's output; otherwise it holds files written
+ * by hand, and there is nothing to build. `epicenter build`, `new --from`, and
+ * `update` build it with the Bun that runs `epicenter`: the compiled
+ * `epicenter` is Bun itself when `BUN_BE_BUN=1` is set, so a computer needs no
+ * other program.
  *
- * A build that fails leaves the last UI that built in place, so a broken
- * update never takes a working UI away. A build changes nothing Git tracks:
- * it installs from `ui/bun.lock` when the starter commits one, and writes no
- * lockfile otherwise, so the app stays clean for the next update.
+ * A build that fails leaves the last view that built in place, so a broken
+ * update never takes a working view away. The last view waits in a copy
+ * outside the app, so nothing beside `ui/dist/` appears in the app while it
+ * builds. A build changes nothing Git tracks: it installs from `ui/bun.lock`
+ * when the starter commits one, and writes no lockfile otherwise, so the app
+ * stays clean for the next update.
  */
-import { rename, rm, stat } from 'node:fs/promises';
-import { join } from 'node:path';
+import { cp, mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import { COMPILED } from './child.ts';
 
-/** Where an app's built UI lives, relative to its folder. */
-export const BUILT_UI = join('.cache', 'ui');
+/** Where an app's view lives, relative to its folder. */
+export const VIEW = join('ui', 'dist');
 
 async function exists(path: string) {
 	try {
@@ -24,6 +29,18 @@ async function exists(path: string) {
 	} catch {
 		return false;
 	}
+}
+
+/** Whether `ui/package.json` has a `build` script; a missing file has none. */
+async function hasBuildScript(ui: string): Promise<boolean> {
+	let text: string;
+	try {
+		text = await readFile(join(ui, 'package.json'), 'utf8');
+	} catch {
+		return false;
+	}
+	const manifest: { scripts?: { build?: unknown } } | null = JSON.parse(text);
+	return typeof manifest?.scripts?.build === 'string';
 }
 
 /**
@@ -50,18 +67,19 @@ async function runBun(cwd: string, args: string[]) {
 }
 
 /**
- * Install the packages of `folder`'s `ui/` and build it into `.cache/ui/`.
- * Returns false when the app has no `ui/package.json`, so nothing was built;
- * throws with the build's own message when it fails, after putting the last
- * built UI back.
+ * Install the packages of `folder`'s `ui/` and run its `build`, which must
+ * write `ui/dist/index.html`. Returns false when `ui/package.json` has no
+ * `build` script, so there is nothing to build; throws with the build's own
+ * message when it fails, after putting the last view back.
  */
 export async function buildUi(folder: string): Promise<boolean> {
 	const ui = join(folder, 'ui');
-	if (!(await exists(join(ui, 'package.json')))) return false;
-	const built = join(folder, BUILT_UI);
-	const last = `${built}.last`;
-	await rm(last, { recursive: true, force: true });
-	if (await exists(built)) await rename(built, last);
+	if (!(await hasBuildScript(ui))) return false;
+	const view = join(folder, VIEW);
+	const kept = (await exists(view))
+		? join(await mkdtemp(join(tmpdir(), 'epicenter-view-')), 'dist')
+		: undefined;
+	if (kept) await cp(view, kept, { recursive: true });
 	try {
 		// Installing never changes the app's files: the starter's committed
 		// lockfile is followed exactly, and without one none is written.
@@ -70,15 +88,16 @@ export async function buildUi(folder: string): Promise<boolean> {
 			(await exists(join(ui, 'bun.lock'))) ? '--frozen-lockfile' : '--no-save',
 		]);
 		await runBun(ui, ['--bun', 'run', 'build']);
-		if (!(await exists(join(built, 'index.html'))))
+		if (!(await exists(join(view, 'index.html'))))
 			throw new Error(
-				`ui/'s build wrote no ${BUILT_UI}/index.html; its build must write ../.cache/ui/`,
+				`ui/'s build wrote no ${VIEW}/index.html; its build must write ui/dist/`,
 			);
 	} catch (error) {
-		await rm(built, { recursive: true, force: true });
-		if (await exists(last)) await rename(last, built);
+		await rm(view, { recursive: true, force: true });
+		if (kept) await cp(kept, view, { recursive: true });
 		throw error;
+	} finally {
+		if (kept) await rm(dirname(kept), { recursive: true, force: true });
 	}
-	await rm(last, { recursive: true, force: true });
 	return true;
 }

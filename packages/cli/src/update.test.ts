@@ -33,12 +33,12 @@ export default defineApp({
 `;
 }
 
-/** A `ui/` whose build writes `label` to `../.cache/ui/index.html`, without a dependency to install. */
+/** A `ui/` whose build writes `label` to `dist/index.html`, without a dependency to install. */
 function uiPackage(build: string) {
 	return `${JSON.stringify({ name: 'ui', private: true, scripts: { build } })}\n`;
 }
 const builds = (label: string) =>
-	uiPackage(`mkdir -p ../.cache/ui && echo ${label} > ../.cache/ui/index.html`);
+	uiPackage(`mkdir -p dist && echo ${label} > dist/index.html`);
 
 /** Commit every change in `dir` as `message`. */
 async function commitAll(dir: string, message: string) {
@@ -53,6 +53,7 @@ async function starterFixture() {
 		'.gitignore': gitignore,
 		'epicenter.ts': wordsApp({ reading: 'optional' }),
 		'ui/package.json': builds('one'),
+		'ui/.gitignore': 'dist/\nnode_modules/\n',
 	});
 	return { ...f, starter, app: join(f.home, 'vocab') };
 }
@@ -65,9 +66,9 @@ test('new --from clones a starter as upstream, tracking nothing, and builds its 
 	expect(
 		await gitIn(f.app, 'config', '--get-regexp', '^branch\\.').catch(() => ''),
 	).toBe('');
-	expect(
-		await readFile(join(f.app, '.cache', 'ui', 'index.html'), 'utf8'),
-	).toBe('one\n');
+	expect(await readFile(join(f.app, 'ui', 'dist', 'index.html'), 'utf8')).toBe(
+		'one\n',
+	);
 	expect(await gitIn(f.app, 'status', '--porcelain')).toBe('');
 
 	const inside = await f.run(
@@ -126,9 +127,9 @@ test('update merges the starter and builds; a file that no longer fits says so w
 	expect(await gitIn(f.app, 'log', '-1', '--format=%s')).toBe(
 		'vocab: update from upstream',
 	);
-	expect(
-		await readFile(join(f.app, '.cache', 'ui', 'index.html'), 'utf8'),
-	).toBe('two\n');
+	expect(await readFile(join(f.app, 'ui', 'dist', 'index.html'), 'utf8')).toBe(
+		'two\n',
+	);
 	expect(await gitIn(f.app, 'status', '--porcelain')).toBe('');
 	const read = await f.run('vocab', 'words', 'get', 'words/neko.md', '--json');
 	expect(JSON.parse(read.stdout).returned.problems).toEqual([
@@ -145,9 +146,9 @@ test('update snapshots pending changes before it merges, and undoes a merge that
 	await commitAll(f.starter, 'add a readme');
 	const pending = await f.run('update', 'vocab');
 	expect(pending.code).toBe(0);
-	expect(
-		await gitIn(f.app, 'log', '--first-parent', '-2', '--format=%s'),
-	).toBe('vocab: update from upstream\nvocab: changed outside epicenter');
+	expect(await gitIn(f.app, 'log', '--first-parent', '-2', '--format=%s')).toBe(
+		'vocab: update from upstream\nvocab: changed outside epicenter',
+	);
 	expect(await readFile(join(f.app, 'notes.md'), 'utf8')).toBe('unsaved\n');
 	expect(await gitIn(f.app, 'status', '--porcelain')).toBe('');
 
@@ -180,9 +181,25 @@ test('a failed build keeps the last UI that built', async () => {
 	const updated = await f.run('update', 'vocab');
 	expect(updated.code).toBe(1);
 	expect(updated.stderr).toContain('the last one that did is kept');
-	expect(
-		await readFile(join(f.app, '.cache', 'ui', 'index.html'), 'utf8'),
-	).toBe('one\n');
+	expect(await readFile(join(f.app, 'ui', 'dist', 'index.html'), 'utf8')).toBe(
+		'one\n',
+	);
+});
+
+test('a build that removes its output keeps the last UI and names the required index', async () => {
+	const f = await starterFixture();
+	expect((await f.run('new', 'vocab', '--from', f.starter)).code).toBe(0);
+	await writeFile(
+		join(f.starter, 'ui', 'package.json'),
+		uiPackage('rm -rf dist'),
+	);
+	await commitAll(f.starter, 'empty the build');
+	const updated = await f.run('update', 'vocab');
+	expect(updated.code).toBe(1);
+	expect(updated.stderr).toContain('ui/dist/index.html');
+	expect(await readFile(join(f.app, 'ui', 'dist', 'index.html'), 'utf8')).toBe(
+		'one\n',
+	);
 });
 
 test('sync pushes to origin, never to the starter', async () => {
@@ -199,9 +216,10 @@ test('sync pushes to origin, never to the starter', async () => {
 	expect(
 		(await f.run('vocab', 'words', 'add', 'neko', '--meaning', 'cat')).code,
 	).toBe(0);
-	expect(
-		JSON.parse((await f.run('vocab', '--json')).stdout),
-	).not.toHaveProperty('status');
+	expect(JSON.parse((await f.run('vocab', '--json')).stdout).status).toEqual({
+		pending: 0,
+		backup: 'never',
+	});
 	const synced = await f.run('sync', 'vocab', '--json');
 	expect(synced.code).toBe(0);
 	expect(JSON.parse(synced.stdout).apps[0]).toMatchObject({
@@ -235,5 +253,7 @@ test('new --from whose UI does not build makes the app, exits 1, and names build
 	expect(human.code).toBe(1);
 	expect(human.stdout).toBe(`${join(f.home, 'words')}\n`);
 	expect(human.stderr).toStartWith('words: the UI did not build: ');
-	expect(human.stderr).toEndWith('\nRun: epicenter build words\n');
+	expect(human.stderr).toEndWith(
+		`\nRun: epicenter build words\nnot backed up\nRun: git -C ${join(f.home, 'words')} remote add origin <url>, then epicenter sync words\n`,
+	);
 });

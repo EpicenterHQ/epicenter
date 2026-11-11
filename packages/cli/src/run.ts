@@ -11,7 +11,13 @@
  * The answer is what the action returned or threw.
  */
 
-import { type Action, type Folder, inRun, normalizePath } from '@epicenter/app';
+import {
+	type Action,
+	type Folder,
+	inRun,
+	isLocalPath,
+	normalizePath,
+} from '@epicenter/app';
 import { extractErrorMessage } from 'wellcrafted/error';
 import type { Runnable } from './home.ts';
 import { type Held, hold, LOCK_WAIT_MS } from './lock.ts';
@@ -54,17 +60,20 @@ function callName(app: string, key: string, value: unknown) {
 
 /**
  * `folder` for one call: each write or delete first takes the app's lock,
- * once, through `own`, then is noted in `written`.
+ * once, through `own`, then is noted in `written`. In a read-only run only a
+ * `.local` path takes the lock; `folder` refuses any other path itself, so a
+ * refused write never waits on another call.
  */
 function forCall(
 	folder: Folder,
 	own: () => Promise<void>,
 	written: Set<string>,
+	readOnly: boolean,
 ): Folder {
 	const writing =
 		<A extends [string, ...unknown[]], R>(method: (...args: A) => Promise<R>) =>
 		async (...args: A) => {
-			await own();
+			if (!readOnly || isLocalPath(normalizePath(args[0]))) await own();
 			const result = await method(...args);
 			written.add(normalizePath(args[0]));
 			return result;
@@ -105,7 +114,7 @@ export async function runAction(
 				`${located.name} is busy: another write held it for ${LOCK_WAIT_MS / 1000} seconds`,
 			);
 	};
-	const folder = forCall(located.context.folder, own, written);
+	const folder = forCall(located.context.folder, own, written, readOnly);
 	const context = readOnly
 		? { ...located.context, folder, readOnly: { action: key } }
 		: { ...located.context, folder };

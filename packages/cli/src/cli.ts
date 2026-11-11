@@ -9,8 +9,9 @@
  */
 import { isName } from '@epicenter/app';
 import packageJson from '../package.json' with { type: 'json' };
+import { accessCommand } from './access.ts';
 import { buildCommand } from './build.ts';
-import { REPORT_FLAG, runChild } from './child.ts';
+import { READ_ONLY_FLAG, REPORT_FLAG, runChild } from './child.ts';
 import {
 	BAD_PORT,
 	COMMANDS,
@@ -66,6 +67,10 @@ const GLOBALS = new Set(['--json', '--help', '-h', '--version', '-V']);
 
 type Handler = (words: string[], json: boolean) => Promise<number>;
 
+/** Whether `host` is a loopback address or name, reachable only from this computer. */
+const isLoopbackHost = (host: string) =>
+	host === 'localhost' || host === '::1' || /^127(\.\d{1,3}){3}$/.test(host);
+
 /** What each command in `COMMANDS` does. */
 const HANDLERS: { [K in Command]: Handler } = {
 	init: initCommand,
@@ -75,6 +80,7 @@ const HANDLERS: { [K in Command]: Handler } = {
 	sync: syncCommand,
 	history: historyCommand,
 	undo: undoCommand,
+	access: accessCommand,
 	async serve(words, json) {
 		if (json)
 			return fail(
@@ -93,8 +99,19 @@ const HANDLERS: { [K in Command]: Handler } = {
 		if (!given) return fail(misuse('serve'), json);
 		const { port, host, stdio } = given.values;
 		if (stdio) return port || host ? fail(misuse('serve'), json) : serveStdio();
-		const listen = port === undefined ? epicenterRoot().port : portOf(port);
+		const root = epicenterRoot();
+		const listen = port === undefined ? root.port : portOf(port);
 		if (listen === undefined) return fail(misuse('serve', BAD_PORT), json);
+		// With a public address, the tailnet reaches the private listener only
+		// through a proxy on this computer, such as tailscale serve.
+		if (root.public && host !== undefined && !isLoopbackHost(host))
+			return fail(
+				misuse(
+					'serve',
+					`With a public address, serve listens only on a loopback address, not ${host}`,
+				),
+				json,
+			);
 		return serveHttp(host ?? '127.0.0.1', listen);
 	},
 };
@@ -107,6 +124,9 @@ export async function runCli(argv: string[]): Promise<number> {
 		answerInto(reportArg.slice(REPORT_FLAG.length));
 		argv = argv.slice(1);
 	}
+	// A child may be limited to read-only actions (child.ts).
+	const onlyReadOnly = reportArg !== undefined && argv[0] === READ_ONLY_FLAG;
+	if (onlyReadOnly) argv = argv.slice(1);
 	// --version is read only on its own, so an action's --version stays its own flag.
 	const onlyGlobals = argv.every((token) => GLOBALS.has(token));
 	const tokens: string[] = [];
@@ -153,6 +173,13 @@ export async function runCli(argv: string[]): Promise<number> {
 		}
 		const [name, ...words] = tokens as [string, ...string[]];
 		if (Object.hasOwn(HANDLERS, name)) {
+			if (onlyReadOnly)
+				return fail(
+					CliError.Refused({
+						message: `epicenter ${name} is not an action, and this call may only read`,
+					}).error,
+					json,
+				);
 			const command = name as keyof typeof HANDLERS;
 			if (help) {
 				print(`${COMMANDS[command].usage}\n${COMMANDS[command].help}`);
@@ -194,6 +221,13 @@ export async function runCli(argv: string[]): Promise<number> {
 				json,
 			);
 		}
+		if (onlyReadOnly && action.annotations?.readOnlyHint !== true)
+			return fail(
+				CliError.Refused({
+					message: `${name} ${matched.key} changes files, and this call may only read`,
+				}).error,
+				json,
+			);
 		if (help) {
 			print(
 				json

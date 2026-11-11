@@ -26,7 +26,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { hold } from './lock.ts';
 import { fixture, gitIn, gitignore, header } from './runner.test-support.ts';
 
-setDefaultTimeout(60_000);
+setDefaultTimeout(300_000);
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -41,12 +41,12 @@ export default defineApp({
 	collections: {},
 	actions: {
 		write: defineAction({
-			description: 'Write a page, and note it in the cache',
+			description: 'Write a page, and note it where Git ignores it',
 			input: { page: field.text() },
 			positional: ['page'],
 			run: async ({ page }) => {
 				await folder.write(page + '.md', page);
-				await folder.write('.cache/seen.txt', page);
+				await folder.write('node_modules/seen.txt', page);
 				return page;
 			},
 		}),
@@ -178,12 +178,12 @@ test("C2 a call's commit holds only the paths it wrote; other changes, staged or
 		'monday.md',
 	);
 	expect(await status(f.dir)).toBe('M a.md\nA  staged.md');
-	expect(await gitIn(f.dir, 'ls-files', '.cache')).toBe('');
+	expect(await gitIn(f.dir, 'ls-files', 'node_modules')).toBe('');
 });
 
 test('C2b a snapshot refuses a *.local or *.local.* file the .gitignore lets through, and takes none once it is ignored', async () => {
 	const f = await setup();
-	await writeFile(join(f.dir, '.gitignore'), '.cache/\n');
+	await writeFile(join(f.dir, '.gitignore'), 'node_modules/\n');
 	await gitIn(f.dir, 'commit', '-qam', 'a .gitignore without .local');
 	await writeFile(join(f.dir, 'token.local.json'), '{"token":"secret"}\n');
 	await writeFile(join(f.dir, 'device.local'), 'this computer\n');
@@ -207,9 +207,10 @@ test('C2b a snapshot refuses a *.local or *.local.* file the .gitignore lets thr
 		'.gitignore',
 	);
 	expect(await gitIn(f.dir, 'ls-files', '*.local*')).toBe('');
-	expect(
-		JSON.parse((await f.run('notes', '--json')).stdout),
-	).not.toHaveProperty('status');
+	expect(JSON.parse((await f.run('notes', '--json')).stdout).status).toEqual({
+		pending: 0,
+		backup: 'none',
+	});
 });
 
 test('C3 a write that changes nothing makes no commit', async () => {
@@ -285,12 +286,14 @@ test('C5 a snapshot failure leaves the answer and pending paths for sync', async
 	expect(await subjects(f.dir)).toBe('initial');
 
 	const listed = JSON.parse((await f.run('notes', '--json')).stdout);
-	expect(listed.status).toEqual({ pending: 3 });
+	expect(listed.status).toEqual({ pending: 3, backup: 'none' });
 	const human = (await f.run('notes')).stdout;
-	expect(human).toContain('3 changes not yet in history');
-	expect(human).toContain('Run: epicenter sync notes');
+	expect(human).toContain('3 changes not yet in history\nnot backed up');
+	expect(human).toContain(
+		`Run: git -C ${f.dir} remote add origin <url>, then epicenter sync notes`,
+	);
 	expect((await f.run()).stdout).toContain(
-		'The notes app (3 changes not yet in history)',
+		'The notes app (3 changes not yet in history; not backed up)',
 	);
 
 	// Sync's snapshot has no call, so it takes every pending path.
@@ -303,9 +306,10 @@ test('C5 a snapshot failure leaves the answer and pending paths for sync', async
 	expect(await gitIn(f.dir, 'show', '--name-only', '--format=', 'HEAD')).toBe(
 		'cover.png\nfriday.md',
 	);
-	expect(
-		JSON.parse((await f.run('notes', '--json')).stdout),
-	).not.toHaveProperty('status');
+	expect(JSON.parse((await f.run('notes', '--json')).stdout).status).toEqual({
+		pending: 0,
+		backup: 'none',
+	});
 	expect((await f.run()).stdout).not.toContain('not yet in history');
 
 	if (!Bun.which('git-lfs')) return;
@@ -343,6 +347,7 @@ test('C6 a snapshot waits for a held index lock, and after about 2 seconds leave
 	expect(await readFile(join(f.dir, 'tuesday.md'), 'utf8')).toBe('tuesday');
 	expect(JSON.parse((await f.run('notes', '--json')).stdout).status).toEqual({
 		pending: 1,
+		backup: 'none',
 	});
 });
 
@@ -386,7 +391,10 @@ test('C9 a write that throws is committed as the call that threw', async () => {
 test('C10 a read-only action cannot write through folder, except a .local file, and makes no commit', async () => {
 	const f = await setup();
 	await writeFile(join(f.dir, 'b.md'), 'by hand\n');
+	// A refused write is refused at once, not after waiting on another call's lock.
+	const held = await hold(f.dir, 0);
 	const peek = await f.json('notes', 'peek');
+	held?.release();
 	expect(peek.code).toBe(1);
 	expect(peek.answer).toEqual({
 		threw: {

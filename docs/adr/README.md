@@ -1076,4 +1076,7 @@ When you add an ADR, add its row here.
 | [0868](0868-an-epicenter-is-any-folder-that-says-it-is-one-and-a-computer-runs-as-many-as-it-has.md) | An Epicenter is any folder that says it is one, and a computer runs as many as it has | Proposed |
 | [0869](0869-a-body-is-changed-by-quoting-the-passage-it-replaces.md) | A body is changed by quoting the passage it replaces | Proposed |
 | [0870](0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md) | An app's secrets are `.local` files, and a `.local` file never leaves its computer | Proposed |
-| [0871](0871-a-public-address-signs-clients-in-with-better-auths-mcp-plugin-and-the-owner-approves-from-the-tailnet.md) | A public address signs clients in with Better Auth's MCP plugin, and the owner approves from the tailnet | Proposed |
+| [0871](0871-a-public-address-signs-people-in-with-a-passkey-and-connectors-in-with-oauth.md) | A public address signs people in with a passkey and connectors in with OAuth | Accepted |
+| [0873](0873-the-command-is-epicenter-cli-and-an-app-builds-against-epicenter-app-released-together.md) | The command is `@epicenter/cli`, an app builds against `@epicenter/app`, and both release together | Proposed |
+| [0874](0874-the-ui-kit-is-a-shadcn-svelte-registry-an-app-copies-from.md) | The UI kit is a shadcn-svelte registry an app copies from | Proposed |
+| [0875](0875-a-package-is-published-when-an-app-outside-the-monorepo-imports-it.md) | A package is published when an app outside the monorepo imports it | Proposed |
