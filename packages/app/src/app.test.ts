@@ -328,7 +328,7 @@ describe('defineApp', () => {
 describe('defineCollection', () => {
 	test('requires a data/ path and names the accepted path', () => {
 		expect(problems(() => defineCollection({ path: 'tasks/{time}.md', fields: {} }))).toEqual([
-			'the path "tasks/{time}.md" must start with data/: data/tasks/{time}.md',
+			'The collection path "tasks/{time}.md" must start with data/: data/tasks/{time}.md',
 		]);
 	});
 

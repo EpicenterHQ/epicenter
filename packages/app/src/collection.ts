@@ -413,7 +413,9 @@ function collectionProblems(def: CollectionDef): string[] {
 		];
 	if (typeof path !== 'string') return ['A collection needs a path'];
 	if (!path.startsWith('data/'))
-		return [`the path ${JSON.stringify(path)} must start with data/: data/${path}`];
+		return [
+			`The collection path ${JSON.stringify(path)} must start with data/: data/${path}`,
+		];
 	const wrong = templateProblem(path);
 	if (wrong) return [`The collection path ${wrong}`];
 	const keys = new Set(template(path).placeholders);
