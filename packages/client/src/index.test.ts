@@ -224,11 +224,14 @@ describe('createBrowserBlobRemote', () => {
 
 	test('download consumes an immutable local collision as idempotent success', async () => {
 		const id = generateBlobId();
-		const original = new Blob(['original']);
-		const stored = original;
+		let putId: typeof id | undefined;
+		let putBody: Blob | undefined;
 		const local = stubLocalStore({
-			put: async () => BlobStoreError.BlobAlreadyExists({ id }),
-			get: async () => Ok(stored),
+			put: async (candidateId, blob) => {
+				putId = candidateId;
+				putBody = blob;
+				return BlobStoreError.BlobAlreadyExists({ id });
+			},
 		});
 		const client = createEpicenterClient({
 			baseURL,
@@ -239,7 +242,8 @@ describe('createBrowserBlobRemote', () => {
 		const { error } = await remote.download(id);
 
 		expect(error).toBeNull();
-		expect(stored).toBe(original);
+		expect(putId).toBe(id);
+		expect(await putBody?.text()).toBe('remote');
 	});
 
 	test('download skips the remote when immutable local bytes already exist', async () => {
