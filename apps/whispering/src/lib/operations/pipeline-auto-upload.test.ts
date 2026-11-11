@@ -16,6 +16,7 @@ import type { RecordingId } from '$lib/workspace';
 
 let autoUpload = true;
 let willPolish = false;
+let createdRows = 0;
 const uploadAudio = mock(async () => Ok(undefined));
 const deliverTranscriptionResult = mock(async () => ({
 	outcome: { reach: 'output' } as const,
@@ -72,12 +73,18 @@ const { processRecordingPipeline } = await import('./pipeline.js');
 type WhisperingApp = import('$lib/whispering/app').WhisperingApp;
 
 const app = {
-	settings: { get: () => autoUpload },
+	settings: {
+		get: (key: string) =>
+			key === 'recordingAutoUpload' ? autoUpload : undefined,
+	},
 	recordings: {
 		// Synchronous, like the domain it stands in for: the store commits before
 		// `create` returns, so there is no promise for the pipeline to await.
 		create(fields: Record<string, unknown>) {
-			return { ...fields, id: 'recording-1' as RecordingId };
+			return {
+				...fields,
+				id: `recording-${++createdRows}` as RecordingId,
+			};
 		},
 		uploadAudio,
 		update: mock(async () => Ok(undefined)),
@@ -87,6 +94,7 @@ const app = {
 afterEach(() => {
 	autoUpload = true;
 	willPolish = false;
+	createdRows = 0;
 	historyError = null;
 	polishedHistoryError = null;
 });
@@ -109,6 +117,16 @@ test('auto-upload attempts once for each new row only when enabled', async () =>
 	});
 	await Promise.resolve();
 	expect(uploadAudio).toHaveBeenCalledTimes(1);
+
+	autoUpload = true;
+	await processRecordingPipeline(app, {
+		audioBlobId: generateBlobId(),
+		durationMs: 100,
+		deliverySource: 'import',
+	});
+	await Promise.resolve();
+	expect(uploadAudio).toHaveBeenCalledTimes(2);
+	expect(uploadAudio).toHaveBeenLastCalledWith('recording-3');
 });
 
 test('history failure warns after delivering the usable transcription', async () => {
@@ -118,12 +136,29 @@ test('history failure warns after delivering the usable transcription', async ()
 	};
 	const deliveriesBefore = deliverTranscriptionResult.mock.calls.length;
 	const noticesBefore = reportInfo.mock.calls.length;
+	let deliveryStarted!: () => void;
+	const started = new Promise<void>((resolve) => {
+		deliveryStarted = resolve;
+	});
+	let finishDelivery!: () => void;
+	const held = new Promise<void>((resolve) => {
+		finishDelivery = resolve;
+	});
+	deliverTranscriptionResult.mockImplementationOnce(async () => {
+		deliveryStarted();
+		await held;
+		return { outcome: { reach: 'output' as const }, notice: { title: 'done' } };
+	});
 
-	await processRecordingPipeline(app, {
+	const processing = processRecordingPipeline(app, {
 		audioBlobId: generateBlobId(),
 		durationMs: 100,
 		deliverySource: 'recording',
 	});
+	await started;
+	expect(reportInfo).toHaveBeenCalledTimes(noticesBefore);
+	finishDelivery();
+	await processing;
 
 	expect(deliverTranscriptionResult).toHaveBeenCalledTimes(
 		deliveriesBefore + 1,
