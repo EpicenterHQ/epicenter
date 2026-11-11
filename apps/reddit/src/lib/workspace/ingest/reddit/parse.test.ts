@@ -55,7 +55,7 @@ describe('batched file parsing', () => {
 
 		const result = await parseRedditZip(zip);
 
-		expect(result.post_votes).toHaveLength(2);
+		expect(result.post_votes.map(({ id }) => id)).toEqual(['1', '2']);
 	});
 });
 
