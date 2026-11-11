@@ -7,7 +7,6 @@
 	import { page } from '$app/state';
 	import { Button } from '@epicenter/ui/button';
 	import UserMenu from '$lib/components/UserMenu.svelte';
-	import { billingKeys } from '$lib/billing/queries';
 	import { setDashboard } from './context.js';
 	import { createDashboardRuntime } from './runtime.js';
 
@@ -20,7 +19,7 @@
 	onDestroy(() => dashboard[Symbol.dispose]());
 </script>
 
-<svelte:window onfocus={() => dashboard.queryClient.refetchQueries({ queryKey: billingKeys.overview, exact: true, type: 'active' })} />
+<svelte:window onfocus={() => dashboard.queryClient.refetchQueries({ queryKey: dashboard.billingQueries.overview().queryKey, exact: true, type: 'active' })} />
 
 <QueryClientProvider client={dashboard.queryClient}>
 	<header class="border-b bg-background/95 backdrop-blur">

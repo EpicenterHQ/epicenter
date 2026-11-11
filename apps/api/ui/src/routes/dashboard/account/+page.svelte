@@ -20,6 +20,7 @@
 	import { Input } from '@epicenter/ui/input';
 	import { Separator } from '@epicenter/ui/separator';
 	import { toast } from '@epicenter/ui/sonner';
+	import { runMutation } from 'wellcrafted/query';
 	import { Spinner } from '@epicenter/ui/spinner';
 	import CircleAlertIcon from '@lucide/svelte/icons/circle-alert';
 	import FingerprintIcon from '@lucide/svelte/icons/fingerprint';
@@ -27,7 +28,6 @@
 	import Trash2Icon from '@lucide/svelte/icons/trash-2';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { onDestroy, onMount } from 'svelte';
-	import { accountKeys } from '$lib/account/queries';
 	import {
 		type AuthError,
 		isPasskeyCancellation,
@@ -43,7 +43,7 @@
 	import UserIdentity from '$lib/auth/UserIdentity.svelte';
 	import { auth } from '$lib/platform/auth';
 	import { getDashboard } from '$lib/dashboard/context';
-	const { accountQueries, management: authClient, queryClient, signal } = getDashboard();
+	const { accountQueries, accountMutations, management: authClient, queryClient, signal } = getDashboard();
 	// Leaving account settings does not retire the shared dashboard Account.
 	let pageDisposed = false;
 	let ownedDialog: typeof confirmationDialog.options = null;
@@ -53,9 +53,9 @@
 			confirmationDialog.close();
 	});
 
-	const sessionQuery = createQuery(() => accountQueries.session.options);
-	const linkedQuery = createQuery(() => accountQueries.linked.options);
-	const passkeysQuery = createQuery(() => accountQueries.passkeys.options);
+	const sessionQuery = createQuery(() => accountQueries.session());
+	const linkedQuery = createQuery(() => accountQueries.linked());
+	const passkeysQuery = createQuery(() => accountQueries.passkeys());
 
 	const profile = $derived(sessionQuery.data?.user ?? null);
 	const linkedAccounts = $derived(linkedQuery.data ?? []);
@@ -94,10 +94,6 @@
 			month: 'short',
 			day: 'numeric',
 		});
-	}
-
-	function invalidate(queryKey: readonly unknown[]) {
-		queryClient.invalidateQueries({ queryKey });
 	}
 
 	// A failed OAuth link returns here (errorCallbackURL) with Better Auth's
@@ -181,9 +177,9 @@
 			onConfirm: async () => {
 				if (pageDisposed || signal.aborted) return;
 				// Better Auth 1.7 names the account row, not the provider identity.
-				const { error } = await authClient.unlinkAccount({
+				const { error } = await runMutation(queryClient, accountMutations.unlinkAccount, {
 					accountId: linkedAccount.id,
-				});
+					});
 				if (pageDisposed || signal.aborted) return;
 				if (error) {
 					if (reportError(error, `Could not disconnect ${label}.`).terminal) {
@@ -192,7 +188,6 @@
 					throw error; // retryable: keep the dialog open
 				}
 				toast.success(`${label} disconnected`);
-				invalidate(accountKeys.linked);
 			},
 		});
 		ownedDialog = confirmationDialog.options;
@@ -200,7 +195,11 @@
 
 	async function addPasskey() {
 		if (pageDisposed || signal.aborted) return;
-		const { error } = await authClient.passkey.addPasskey();
+		const { error } = await runMutation(
+			queryClient,
+			accountMutations.addPasskey,
+			undefined,
+		);
 		if (pageDisposed || signal.aborted) return;
 		if (error) {
 			if (isPasskeyCancellation(error)) return;
@@ -212,7 +211,6 @@
 			return;
 		}
 		toast.success('Passkey added');
-		invalidate(accountKeys.passkeys);
 	}
 
 	function startRename(passkey: Passkey) {
@@ -233,7 +231,7 @@
 			return;
 		}
 		renaming = true;
-		const { error } = await authClient.passkey.updatePasskey({
+		const { error } = await runMutation(queryClient, accountMutations.updatePasskey, {
 			id: passkey.id,
 			name,
 		});
@@ -244,7 +242,6 @@
 			return;
 		}
 		cancelRename();
-		invalidate(accountKeys.passkeys);
 	}
 
 
@@ -256,7 +253,7 @@
 			confirm: { text: 'Remove', variant: 'destructive' },
 			onConfirm: async () => {
 				if (pageDisposed || signal.aborted) return;
-				const { error } = await authClient.passkey.deletePasskey({
+				const { error } = await runMutation(queryClient, accountMutations.deletePasskey, {
 					id: passkey.id,
 				});
 				if (pageDisposed || signal.aborted) return;
@@ -267,7 +264,6 @@
 					throw error; // retryable: keep the dialog open
 				}
 				toast.success('Passkey removed');
-				invalidate(accountKeys.passkeys);
 			},
 		});
 		ownedDialog = confirmationDialog.options;

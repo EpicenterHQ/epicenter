@@ -7,11 +7,10 @@
 import { expect, test } from 'bun:test';
 import type { Account } from '@epicenter/account';
 import { asPrincipalId } from '@epicenter/account';
+import { runMutation, runQuery } from 'wellcrafted/query';
 import { Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
-import { accountKeys } from '../account/queries.js';
 import { createCookieSessionAuth } from '../auth/cookie-session.js';
-import { billingKeys } from '../billing/queries.js';
 import { createDashboardRuntime } from './runtime.js';
 
 function setup(principalId: string) {
@@ -63,22 +62,28 @@ for (const successor of ['bob', 'alice']) {
 		} = setup(successor);
 		try {
 			const oldWork = Promise.all([
-				old.billing.overview.fetch(),
-				old.accountQueries.session.fetch(),
-				old.accountQueries.linked.fetch(),
-				old.accountQueries.passkeys.fetch(),
-				old.billing.checkoutPlan({ planId: 'old-plan' }),
+				runQuery(old.queryClient, old.billingQueries.overview()),
+				runQuery(old.queryClient, old.accountQueries.session()),
+				runQuery(old.queryClient, old.accountQueries.linked()),
+				runQuery(old.queryClient, old.accountQueries.passkeys()),
+				runMutation(old.queryClient, old.billingMutations.checkoutPlan, {
+					planId: 'old-plan',
+				}),
 			]);
 			await oldStarted;
 			expect(oldRequests).toHaveLength(5);
 			old[Symbol.dispose]();
 			expect(old.signal.aborted).toBe(true);
 			const currentWork = Promise.all([
-				current.billing.overview.fetch(),
-				current.accountQueries.session.fetch(),
-				current.accountQueries.linked.fetch(),
-				current.accountQueries.passkeys.fetch(),
-				current.billing.checkoutPlan({ planId: 'current-plan' }),
+				runQuery(current.queryClient, current.billingQueries.overview()),
+				runQuery(current.queryClient, current.accountQueries.session()),
+				runQuery(current.queryClient, current.accountQueries.linked()),
+				runQuery(current.queryClient, current.accountQueries.passkeys()),
+				runMutation(
+					current.queryClient,
+					current.billingMutations.checkoutPlan,
+					{ planId: 'current-plan' },
+				),
 			]);
 			await currentStarted;
 			expect(currentRequests).toHaveLength(5);
@@ -101,17 +106,25 @@ for (const successor of ['bob', 'alice']) {
 					.getAll()
 					.map((query) => query.state.data),
 			).toEqual(cacheBefore);
-			expect(
-				current.queryClient.getQueryData<unknown>(billingKeys.overview),
+			expect<unknown>(
+				current.queryClient.getQueryData(
+					current.billingQueries.overview().queryKey,
+				),
 			).toEqual({ marker: 'current' });
-			expect(
-				current.queryClient.getQueryData<unknown>(accountKeys.session),
+			expect<unknown>(
+				current.queryClient.getQueryData(
+					current.accountQueries.session().queryKey,
+				),
 			).toEqual({ marker: 'current' });
-			expect(
-				current.queryClient.getQueryData<unknown>(accountKeys.linked),
+			expect<unknown>(
+				current.queryClient.getQueryData(
+					current.accountQueries.linked().queryKey,
+				),
 			).toEqual([{ id: 'current' }]);
-			expect(
-				current.queryClient.getQueryData<unknown>(accountKeys.passkeys),
+			expect<unknown>(
+				current.queryClient.getQueryData(
+					current.accountQueries.passkeys().queryKey,
+				),
 			).toEqual([{ id: 'current' }]);
 			expect(
 				current.queryClient
@@ -210,7 +223,7 @@ for (const successor of ['bob', 'alice']) {
 			if (oldState.status === 'signed-out') throw new Error('Expected Alice');
 			const old = createDashboardRuntime(oldState.account);
 			dashboards.push(old);
-			const pending = old.billing.overview.fetch();
+			const pending = runQuery(old.queryClient, old.billingQueries.overview());
 			await oldStarted.promise;
 			expectOk(await auth.signOut());
 			expect(auth.state().status).toBe('signed-out');
@@ -223,7 +236,9 @@ for (const successor of ['bob', 'alice']) {
 			expect(newState.account).not.toBe(oldState.account);
 			const current = createDashboardRuntime(newState.account);
 			dashboards.push(current);
-			expectOk(await current.billing.overview.fetch());
+			expectOk(
+				await runQuery(current.queryClient, current.billingQueries.overview()),
+			);
 			expect((await current.management.getSession()).error).toBeNull();
 			expect(sent.at(-1)).toEqual({
 				path: '/auth/get-session',
@@ -235,15 +250,19 @@ for (const successor of ['bob', 'alice']) {
 			await pending;
 			const requestsBefore = sent.length;
 			const retired = await Promise.all([
-				old.accountQueries.session.fetch(),
-				old.accountQueries.linked.fetch(),
-				old.accountQueries.passkeys.fetch(),
-				old.billing.checkoutPlan({ planId: 'retired' }),
+				runQuery(old.queryClient, old.accountQueries.session()),
+				runQuery(old.queryClient, old.accountQueries.linked()),
+				runQuery(old.queryClient, old.accountQueries.passkeys()),
+				runMutation(old.queryClient, old.billingMutations.checkoutPlan, {
+					planId: 'retired',
+				}),
 			]);
 			for (const result of retired) expect(result.error).not.toBeNull();
 			expect(sent).toHaveLength(requestsBefore);
-			expect(
-				current.queryClient.getQueryData<unknown>(billingKeys.overview),
+			expect<unknown>(
+				current.queryClient.getQueryData(
+					current.billingQueries.overview().queryKey,
+				),
 			).toEqual({ marker: 'new attachment' });
 			expect(current.queryClient.getMutationCache().getAll()).toHaveLength(0);
 		} finally {
@@ -253,3 +272,36 @@ for (const successor of ['bob', 'alice']) {
 		}
 	});
 }
+
+test('every billing write refreshes reads, except a preview, which changes nothing', async () => {
+	const account: Account = {
+		authorityId: 'test-authority',
+		principalId: asPrincipalId('alice'),
+		baseURL: 'https://api.example.test',
+		signal: new AbortController().signal,
+		fetch: async () => Response.json({ marker: 'answer' }),
+		getProfile: async () => Ok({ id: asPrincipalId('alice') }),
+	};
+	const dashboard = createDashboardRuntime(account);
+	const { queryClient, billingQueries, billingMutations } = dashboard;
+	const overview = billingQueries.overview();
+	const invalidated = () =>
+		queryClient.getQueryState(overview.queryKey)?.isInvalidated;
+	try {
+		expectOk(await runQuery(queryClient, overview));
+		expectOk(
+			await runMutation(queryClient, billingMutations.previewPlanChange, {
+				planId: 'pro',
+			}),
+		);
+		expect(invalidated()).toBe(false);
+		expectOk(
+			await runMutation(queryClient, billingMutations.checkoutTopUp, {
+				successUrl: 'https://app.example.test',
+			}),
+		);
+		expect(invalidated()).toBe(true);
+	} finally {
+		dashboard[Symbol.dispose]();
+	}
+});

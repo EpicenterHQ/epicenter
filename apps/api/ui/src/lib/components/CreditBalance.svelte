@@ -6,9 +6,9 @@
 	import { Skeleton } from '@epicenter/ui/skeleton';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { getDashboard } from '$lib/dashboard/context';
-	const { billing } = getDashboard();
+	const { billingQueries } = getDashboard();
 
-	const overview = createQuery(() => billing.overview.options);
+	const overview = createQuery(() => billingQueries.overview());
 
 	const credits = $derived(overview.data?.credits ?? null);
 	const trial = $derived(overview.data?.trial ?? null);
