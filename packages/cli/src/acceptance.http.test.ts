@@ -129,7 +129,7 @@ test('read-only and thrown actions make no commit', async () => {
 	expect(await gitIn(folder, 'rev-list', '--count', 'HEAD')).toBe('1');
 });
 
-test('concurrent writes make separate commits in call order', async () => {
+test('concurrent writes each commit their own CSV change', async () => {
 	const f = await setup();
 	const folder = await f.folder(join(f.home, 'reading'), readingApp);
 	const client = connect('reading', { url: `${f.base}/mcp` });
@@ -138,11 +138,20 @@ test('concurrent writes make separate commits in call order', async () => {
 		client.call('log', { minutes: 20 }),
 	]);
 	expect(await gitIn(folder, 'rev-list', '--count', 'HEAD')).toBe('3');
-	expect(
-		(await gitIn(folder, 'log', '-2', '--format=%s')).split('\n').sort(),
-	).toEqual(['reading: log 10', 'reading: log 20']);
-	expect(await readFile(join(folder, '2026.csv'), 'utf8')).toMatch(
-		/^minutes,book\n(?:10,\n20,|20,\n10,)\n$/,
+	const [latestSubject = '', firstSubject = ''] = (
+		await gitIn(folder, 'log', '-2', '--format=%s')
+	).split('\n');
+	expect([latestSubject, firstSubject].sort()).toEqual([
+		'reading: log 10',
+		'reading: log 20',
+	]);
+	const firstMinutes = firstSubject.slice('reading: log '.length);
+	const latestMinutes = latestSubject.slice('reading: log '.length);
+	expect(await gitIn(folder, 'show', 'HEAD~1:2026.csv')).toBe(
+		`minutes,book\n${firstMinutes},`,
+	);
+	expect(await readFile(join(folder, '2026.csv'), 'utf8')).toBe(
+		`minutes,book\n${firstMinutes},\n${latestMinutes},\n`,
 	);
 });
 
