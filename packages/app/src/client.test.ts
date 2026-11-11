@@ -90,7 +90,11 @@ test('each way serve answers without a value is its own error', async () => {
 	});
 
 	answer(() => ({
-		error: { name: 'InputError', message: 'path is required', next: 'Give a path' },
+		error: {
+			name: 'InputError',
+			message: 'path is required',
+			next: 'Give a path',
+		},
 	}));
 	expect(expectErr(await app.list())).toMatchObject({
 		name: 'Refused',
@@ -109,28 +113,39 @@ test('each way serve answers without a value is its own error', async () => {
 	});
 });
 
-test('every write refreshes every read the page shows, before the write is done', async () => {
+test("a write refreshes the page's active reads before the mutation resolves", async () => {
 	let lists = 0;
+	let gets = 0;
 	answer((name) => ({
-		returned: name === 'reading_list' ? [{ list: ++lists }] : true,
+		returned:
+			name === 'reading_list'
+				? [{ list: ++lists }]
+				: name === 'reading_get'
+					? { get: ++gets }
+					: true,
 	}));
-	const bookReads = resultQueries(['reading'], { list: app.list });
+	const bookReads = resultQueries(['reading'], {
+		list: app.list,
+		get: app.get,
+	});
 	const bookWrites = resultMutations(['reading'], { delete: app.delete });
 	const client = createQueryClient();
-	const stop = new QueryObserver(client, bookReads.list()).subscribe(() => {});
+	const list = bookReads.list();
+	const get = bookReads.get({ path: 'books/Dune.md' });
+	const stopList = new QueryObserver(client, list).subscribe(() => {});
+	const stopGet = new QueryObserver(client, get).subscribe(() => {});
 	try {
-		await client.query(bookReads.list());
-		expect<unknown>(client.getQueryData(bookReads.list().queryKey)).toEqual([
-			{ list: 1 },
-		]);
+		await Promise.all([client.query(list), client.query(get)]);
+		expect<unknown>(client.getQueryData(list.queryKey)).toEqual([{ list: 1 }]);
+		expect<unknown>(client.getQueryData(get.queryKey)).toEqual({ get: 1 });
 		await new MutationObserver(client, bookWrites.delete).mutate({
 			path: 'books/Dune.md',
 		});
-		expect<unknown>(client.getQueryData(bookReads.list().queryKey)).toEqual([
-			{ list: 2 },
-		]);
+		expect<unknown>(client.getQueryData(list.queryKey)).toEqual([{ list: 2 }]);
+		expect<unknown>(client.getQueryData(get.queryKey)).toEqual({ get: 2 });
 	} finally {
-		stop();
+		stopList();
+		stopGet();
 		client.clear();
 	}
 });
