@@ -22,6 +22,8 @@ import { EPICENTER_OAUTH_SCOPES } from '@epicenter/constants/oauth-clients';
 import { betterAuth } from 'better-auth';
 import { type MemoryDB, memoryAdapter } from 'better-auth/adapters/memory';
 import { jwt } from 'better-auth/plugins';
+import type { SQL } from 'drizzle-orm';
+import { PgDialect } from 'drizzle-orm/pg-core';
 import { Hono } from 'hono';
 import { Ok } from 'wellcrafted/result';
 import { JWT_SIGNING_ALG } from '../auth/base-config.js';
@@ -47,6 +49,13 @@ test('requireBearerPrincipal resolves a valid API-audience token to c.var.princi
 			email: 'middleware-test@example.com',
 			name: 'Middleware Test',
 		});
+		const tokenUser = setup.db.user?.[0];
+		if (!tokenUser) throw new Error('Expected the OAuth token user');
+		setup.db.user?.unshift({
+			...tokenUser,
+			id: 'different-user-id',
+			email: 'different@example.com',
+		});
 
 		const response = await setup.app.request('/protected', {
 			headers: { authorization: `Bearer ${accessToken}` },
@@ -55,8 +64,8 @@ test('requireBearerPrincipal resolves a valid API-audience token to c.var.princi
 		expect(response.status).toBe(200);
 		const body = (await response.json()) as { id: string; email: string };
 		expect(body).toEqual({
-			id: expect.any(String),
-			email: 'middleware-test@example.com',
+			id: tokenUser.id,
+			email: tokenUser.email,
 		});
 	} finally {
 		setup.server.stop(true);
@@ -349,17 +358,28 @@ function createMiddlewareTestServer() {
  * Stub `c.var.db` shaped for the one Drizzle query the middleware makes.
  *
  * The middleware reads `db.query.user.findFirst({ where: eq(user.id, id) })`.
- * Tests issue exactly one user per setup, so the stub returns the lone row
- * (or null when the test mutates `db.user = []`). The `where` clause is
- * ignored, which is fine: a missing-user assertion only needs the empty
- * branch. The signing keys are read separately through `c.var.auth.api`, so
- * the stub does not model the `jwks` table.
+ * Compile the predicate with the Postgres dialect and select by its bound id.
+ * The success test puts a different user first, so ignoring or changing the
+ * subject predicate cannot return the token's principal by accident. The
+ * signing keys are read separately through `c.var.auth.api`, so the stub does
+ * not model the `jwks` table.
  */
 function createFakeDb(memoryDb: MemoryDB) {
+	const dialect = new PgDialect();
 	return {
 		query: {
 			user: {
-				findFirst: async () => memoryDb.user?.[0] ?? null,
+				findFirst: async ({ where }: { where: SQL }) => {
+					const { sql, params } = dialect.sqlToQuery(where);
+					if (
+						sql !== '"user"."id" = $1' ||
+						params.length !== 1 ||
+						typeof params[0] !== 'string'
+					) {
+						throw new Error(`Unexpected user lookup: ${sql}`);
+					}
+					return memoryDb.user?.find((user) => user.id === params[0]) ?? null;
+				},
 			},
 		},
 	} as unknown as CloudEnv['Variables']['db'];
