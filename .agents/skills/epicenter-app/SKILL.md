@@ -31,7 +31,7 @@ made in the starter.
   epicenter.test.ts, package.json   the actions' tests and what they need
   ui/              the UI, a SvelteKit project of its own
   ui/dist/         the view serve shows at /<app>/: built, and ignored by ui/.gitignore
-  <data>           files the collections' paths match; never in a starter
+  data/            records and other files the app keeps; a starter has none
 ```
 
 ## Decide the files first
@@ -44,18 +44,17 @@ in `epicenter.ts`: a path template and the fields of each file's front matter
 `.actions()`. An app with one collection spreads them at the top, so they are
 its own (`epicenter tasks set`, MCP `tasks_set`); an app with several nests
 each under its name (`epicenter mail messages list`). A record's address is
-its path: `tasks/2026-11-10T09-30-00-000Z-k3x9a2f8.md`.
-A path is one relative `.md` template that starts with a folder of its own
-(`days/{day}.md`, not `{day}.md`); files in a second layout are a second
-collection. `defineCollection` refuses a list of paths, a part starting with
-`.`, a first part of `ui` or `node_modules`, and one
-starting with `epicenter.`. A field or placeholder may not be named `path`,
+its path: `data/tasks/2026-11-10T09-30-00-000Z-k3x9a2f8.md`.
+A path is one relative `.md` template under `data/`, such as
+`data/days/{day}.md`; files in a second layout are a second collection.
+`defineCollection` refuses a path outside `data/`, a list of paths, or a part
+starting with `.`. A field or placeholder may not be named `path`,
 `body`, `problems`, `other`, `json`, `help`, or `input`.
 
 - Choose the path by how people and agents will name a file. `{time}` suits
-  things made in passing (`captures/{time}.md`, `tasks/{time}.md`): `add`
+  things made in passing (`data/captures/{time}.md`, `data/tasks/{time}.md`): `add`
   names the file by the time. A placeholder `add` takes suits things named by
-  what they are (`words/{word}.md`, `books/{title}.md`), at the cost of
+  what they are (`data/words/{word}.md`, `data/books/{title}.md`), at the cost of
   characters a file name cannot hold. `add` and `pathOf` name the file by the
   value as NFC, trimmed, with single spaces, so an action passes what the
   person typed.
@@ -89,7 +88,7 @@ starting with `epicenter.`. A field or placeholder may not be named `path`,
   before someone else changed it is never written back over theirs
   (ADR-0869). An empty `old` fills an empty body.
 - A secret, such as a sign-in token, is a one-file collection at a
-  `.local.md` path (`google.local.md`), its fields declared like any other
+  `.local.md` path (`data/google.local.md`), its fields declared like any other
   (ADR-0870). A `.local` file stays on the computer that runs the app: the
   app's `.gitignore` leaves it out of every commit, `folder` makes it `0600`,
   and its `actions()` throws, so no generated verb hands it to an MCP client.
@@ -115,6 +114,8 @@ collection's methods (`words.get({ path })`, `words.set({ path, ...fields })`,
 `words.edit({ path, old, new })`, `words.update({ path }, change)`) instead of
 parsing front matter again, and through the imported `folder` for any other
 file. Build a path with `words.pathOf({ word })`, never by hand.
+Write any other file through `folder` under `data/`. Reads may reach the app's
+code. A run refuses a write outside `data/` or through a `.git*` path segment.
 
 Writes to one app run at once: a phone, an agent, and the command line can
 all call the app at the same moment, and an agent may edit its files
@@ -142,7 +143,7 @@ so Reading's `start` returns `{}` for a book already started; throw in it
 when the record must already be there.
 
 ```ts
-await folder.update('2026.csv', (text = 'day,minutes\n') => `${text}${day},${minutes}\n`);
+await folder.update('data/2026.csv', (text = 'day,minutes\n') => `${text}${day},${minutes}\n`);
 ```
 
 Every collection write goes through `folder.update`. `set` writes the values
@@ -159,8 +160,8 @@ Annotate honestly. An action never commits; after a run that is not
 `folder`, named for the call (`<app>: <words> <first positional>`, with
 ` (threw)` when it threw). A read-only run never commits, and its writes
 through `folder` throw, so an action that writes a file is not read-only. A
-`.local` file is the exception: it is never in history, so a read-only action
-may refresh the token it keeps there.
+`.local` file under `data/` is the exception: it is never in history, so a
+read-only action may refresh the token it keeps there.
 
 Write last. A call holds its app's lock from its first write until its
 commit, and other writes to the app wait for it, so fetch from a service or
@@ -223,7 +224,7 @@ types with `ActionInput<typeof app.actions.set>` and
 `ActionOutput<typeof app.actions.get>`.
 
 - Route a record by its whole path: a rest route `src/routes/[...path]`, so the
-  page is at `#/tasks/<time>.md`, linked with each part URL-encoded
+  page is at `#/data/tasks/<time>.md`, linked with each part URL-encoded
   (`path.split('/').map(encodeURIComponent).join('/')`) and read back from
   `page.params.path`. Write no code that knows the app's templates; show a
   record's name from its read (`row.word`). SvelteKit decodes the hash once
