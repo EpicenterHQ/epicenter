@@ -2,7 +2,8 @@
 
 - **Status:** Accepted (2026-11-11)
 - **Date:** 2026-11-11 (first drafted the same day as "A starter is published from its app, as the app's files outside `data/`")
-- **Unbuilt:** all of it: each app is one repository holding its code and its records; `snapshot`, `history`, `undo`, `sync`, and the lock act on the app folder; and the first-party apps' source is this repository's `apps/<app>`, copied to the Studio by hand with their built UI committed.
+- **Built:** 2026-11-11 in `packages/cli`: the data repository (`src/data.ts`), made by `new`, `new --from`, or the first commit to it (not by `build`); calls committing there with `Code-Commit`; snapshots of both, refusing code while `data/` is not ignored; `sync` and the clock pushing each to its own `origin`; `history` of both; `undo` of data with `codeSince`; `update <app> [<remote>]`; the listing's warning.
+- **Unbuilt:** the first-party apps developed on the Studio: their source is still this repository's `apps/<app>`, copied to the Studio by hand with their built UI committed.
 - **Relates:** [ADR-0876](0876-an-apps-records-live-under-data-and-everything-else-in-it-is-code.md) (`data/`), [ADR-0866](0866-an-app-starts-from-a-starter-kept-as-its-upstream-and-update-merges-the-starters-changes.md) (starters, `upstream`, `update`), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (snapshots, the app's lock, `undo`), [ADR-0851](0851-an-app-has-one-home-and-an-optional-push-only-backup.md) (`origin`, `sync`), [ADR-0856](0856-binary-files-go-through-git-lfs.md) (LFS), [ADR-0870](0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md) (`*.local`), [ADR-0873](0873-the-command-is-epicenter-cli-and-an-app-builds-against-epicenter-app-released-together.md) (what an app builds against).
 
 ## Context

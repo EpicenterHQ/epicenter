@@ -2,7 +2,8 @@
 
 - **Status:** Accepted (2026-11-11)
 - **Date:** 2026-11-11
-- **Unbuilt:** all of it: collection paths sit at the app's top (`tasks/{time}.md`), `folder` writes anywhere in the app, `*.local` files sit wherever an app keeps them, and the Studio's apps keep their records at the top.
+- **Built:** 2026-11-11. `defineCollection` refuses a path outside `data/`, and a run's writes through `folder` or a collection refuse any path outside `data/` or with a `.git` segment (`packages/app/src/collection.ts`, `context.ts`); the first-party apps' collections are under `data/`.
+- **Unbuilt:** the Studio's apps keep their records at the top until they move to the two repositories of ADR-0877.
 - **Relates:** [ADR-0857](0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md) (collections and `folder`), [ADR-0858](0858-where-a-file-lives-decides-whether-it-travels-survives-or-dies-with-its-program.md) (where a file lives decides what happens to it), [ADR-0866](0866-an-app-starts-from-a-starter-kept-as-its-upstream-and-update-merges-the-starters-changes.md) (starters hold no data), [ADR-0870](0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md) (`*.local`), [ADR-0877](0877-an-apps-code-and-its-data-are-two-repositories-and-sharing-an-app-shares-its-code.md) (`data/` is a repository of its own).
 
 ## Context
