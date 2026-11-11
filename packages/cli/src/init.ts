@@ -27,6 +27,14 @@ repositories: its folder holds its code (epicenter.ts, ui/, README.md), and
 data/ inside it holds its data, a repository of its own that the code's
 .gitignore leaves out.
 
+An app is one Bun project: its package.json names everything epicenter.ts and
+ui/ import, except @epicenter/app, which epicenter supplies. After \`bun add\`,
+run \`epicenter install <app>\`. An app runs as it sits on disk: an action uses
+the epicenter.ts that is there, and a UI in ui/ rebuilds within about a second
+of a change to its files, committed or not. An action may read any file in
+this Epicenter, another app's records included (\`../tasks/data/tasks/...\`);
+change another app's data only through that app's actions.
+
 Prefer \`epicenter <app> <verb>\` to change an app's data: it checks each value
 against the app's fields and commits each call's files into the app's data
 history, named for the call. \`epicenter <app>\` lists the verbs. \`set\` changes
@@ -38,7 +46,8 @@ You may edit an app's files with your own tools instead: its code, or its data.
 When you finish, say what you did: \`epicenter sync <app> -m "<what you did>"\`
 commits what is pending in both repositories under that message and backs each
 up to its own origin. A plain \`git commit\` in the app's folder or in its data/
-is safe too. Otherwise \`epicenter serve\` commits it within 5 minutes as
+is safe too; commit code with its own message before \`sync -m\`, which gives
+both repositories the same one. Otherwise \`epicenter serve\` commits it within 5 minutes as
 "changed outside epicenter". A code commit's message describes the code, never
 a record: the code may be shared, and the data never is.
 
