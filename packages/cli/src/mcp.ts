@@ -104,14 +104,15 @@ async function callTool(
 }
 
 /**
- * Register the shared tool handlers on a fresh MCP server. With `readOnly`,
- * for a connector with only the `read` scope (ADR-0871), it lists and runs
- * only read-only actions.
+ * Register the shared tool handlers on a fresh MCP server. It reads the
+ * Epicenter's `AGENTS.md` now, so each initialize sends what the file says
+ * then (ADR-0878). With `readOnly`, for a connector with only the `read`
+ * scope (ADR-0871), it lists and runs only read-only actions.
  */
-export function createMcpServer(
-	instructions: string | undefined,
-	{ readOnly = false }: { readOnly?: boolean } = {},
-) {
+export async function createMcpServer({
+	readOnly = false,
+}: { readOnly?: boolean } = {}) {
+	const instructions = await rootInstructions();
 	const server = new Server(
 		{ name: 'epicenter', version: packageJson.version },
 		{
@@ -131,7 +132,7 @@ export function createMcpServer(
 
 /** Serve every healthy app in the Epicenter until the client ends stdin. */
 export async function serveStdio(): Promise<number> {
-	const server = createMcpServer(await rootInstructions());
+	const server = await createMcpServer();
 	const transport = new StdioServerTransport();
 	const { promise: closed, resolve: closeNow } = Promise.withResolvers<void>();
 	server.onclose = closeNow;

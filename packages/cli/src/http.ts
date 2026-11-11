@@ -44,7 +44,7 @@ import { chooseApps, homeEntries } from './home.ts';
 import { createMcpServer } from './mcp.ts';
 import { writeErr } from './output.ts';
 import { startPublicServer } from './public.ts';
-import { epicenterDir, epicenterRoot, rootInstructions } from './root.ts';
+import { epicenterDir, epicenterRoot } from './root.ts';
 import { type Synced, syncOne } from './sync.ts';
 import { VIEW } from './ui.ts';
 
@@ -114,7 +114,7 @@ export type Site = {
 const notFound = () => new Response('Not found', { status: 404 });
 
 /** The site both listeners serve: MCP, the launcher, and each app's view. */
-function createSite(instructions: string | undefined): Site {
+function createSite(): Site {
 	const uiFile = async (app: string, path: string) => {
 		if (!isName(app)) return notFound();
 		const [entry] = (await chooseApps(app)).data ?? [];
@@ -156,7 +156,7 @@ function createSite(instructions: string | undefined): Site {
 	};
 	return {
 		async mcp(request, readOnly = false) {
-			const server = createMcpServer(instructions, { readOnly });
+			const server = await createMcpServer({ readOnly });
 			const transport = new WebStandardStreamableHTTPServerTransport({
 				enableJsonResponse: true,
 			});
@@ -263,11 +263,7 @@ const forbidden = () => new Response('Forbidden', { status: 403 });
  * free port. `tick` runs one backup now, after any already running, and
  * answers what it did per app; `site` is what a public listener offers too.
  */
-export function startHttpServer(
-	host: string,
-	port: number,
-	instructions?: string,
-) {
+export function startHttpServer(host: string, port: number) {
 	/** Each app's last backup failure as logged, so an unchanged one is logged once. */
 	const lastFailure = new Map<string, string>();
 	const backUpAll = async () => {
@@ -308,7 +304,7 @@ export function startHttpServer(
 		clock.unref();
 	};
 	void tickLogged().finally(schedule);
-	const site = createSite(instructions);
+	const site = createSite();
 	const answer = async (request: Request) => {
 		if (TUNNEL_HEADERS.some((name) => request.headers.has(name)))
 			return forbidden();
@@ -366,7 +362,7 @@ export async function serveHttp(host: string, port: number): Promise<number> {
 	const authorization = root.public
 		? await openAuthorizationServer(root.folder, root.public.url)
 		: undefined;
-	const server = startHttpServer(host, port, await rootInstructions());
+	const server = startHttpServer(host, port);
 	writeErr(`Serving your apps at http://${host}:${server.port}.`);
 	const publicServer =
 		authorization && root.public
