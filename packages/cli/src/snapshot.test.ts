@@ -428,7 +428,9 @@ test("a call's first write waits while another process holds the app's lock, and
 		committed: { subject: 'notes: write tuesday', files: 1 },
 	});
 	expect(Date.now() - again).toBeLessThan(1_000);
-	expect(await hold(f.dir, 0)).toBeDefined();
+	const unblocked = await hold(f.dir, 0);
+	expect(unblocked).toBeDefined();
+	unblocked?.release();
 });
 
 test("snapshots from several processes, each holding the app's lock, commit what is pending once, and none fails", async () => {
