@@ -34,7 +34,7 @@ listener that signs people in with passkeys and connectors in with OAuth.
 | 2 backup status | built (`feat(cli): an app says when it is not backed up, or never has been`) |
 | 3 `ui/dist` | built (`feat(cli)!: a view is what is in ui/dist`) |
 | 4 sign-in | built (`feat(cli): a public address signs people in with a passkey and connectors in with OAuth`), on `claude/collections`' run model: the child commits under the app's lock, and `serve`'s 5-minute clock backs up |
-| 5 live Epicenter | not started; the person approves each step |
+| 5 live Epicenter | migrated and serving from `claude/compose` (2026-11-11); Funnel, the passkey, and the connectors wait on the person |
 
 After composing: typecheck `packages/app` and `packages/cli`, run every test
 file one at a time with its own `TMPDIR`, build the four UIs, and run
@@ -144,20 +144,38 @@ ChatGPT send, and the headers Funnel and Cloudflare add.
 
 ## Wave 5: the live Epicenter
 
-The person runs these, or approves each.
+Done on 2026-11-11, with the person's go:
 
-1. `~/Epicenter`: write `EPICENTER.md` (`port: 4747`,
-   `public: https://studio.tail0f84e1.ts.net:10000/`, `publicPort: 4757`),
-   delete `epicenter.root.json`.
-2. Remove `.gitattributes` from `~/Epicenter/tasks` and `~/Epicenter/vocab`
-   (no binaries; ADR-0856); replace each app's `.gitignore`; copy each `ui/`
-   source in and build to `ui/dist/`; snapshot; push.
-3. Restart `serve` from the final commit. `epicenter access invite`, open the
-   link, register a passkey.
-4. `tailscale funnel --bg --https=10000 http://127.0.0.1:4757`. That publishes
-   an address, so it needs the person's go.
-5. Connect claude.ai and ChatGPT. Record in ADR-0871 what each client sent and
-   whether ChatGPT completed CIMD.
+1. `~/Epicenter/EPICENTER.md` holds `port: 4747`,
+   `public: https://studio.tail0f84e1.ts.net:10000`, `publicPort: 4757`. The
+   old JSON marker was already gone.
+2. Capture, Tasks, and Vocab each have the repository's `epicenter.ts`, the
+   template `.gitignore`, and a prebuilt `ui/dist/`, committed. No `.cache/`
+   remains. Each was committed with `epicenter sync <app> -m` and pushed to its
+   `origin`.
+   - A `ui/` source cannot build outside the monorepo until `@epicenter/app`
+     and `@epicenter/ui` are published, so each app keeps the view without a
+     build script, as ADR-0860 allows.
+   - Each keeps its LFS `.gitattributes`, since each view has an `icon.png`
+     (ADR-0856).
+   - When the packages publish, each app becomes a starter and builds its own
+     view.
+3. `serve` runs from a detached worktree pinned at the composed commit, with
+   `~/Epicenter` as its folder. Checked: the private listener serves the
+   launcher, the views, and MCP, on `127.0.0.1` and on the tailnet at `:4747`.
+   It refuses a Funnel header or a foreign Host with 403. The public listener
+   redirects to `/.sign-in`, answers MCP without a token with 401, and serves
+   the metadata for `https://studio.tail0f84e1.ts.net:10000/`.
+
+Left for the person:
+
+4. `tailscale funnel --bg --https=10000 http://127.0.0.1:4757` publishes the
+   address. `serve` sees it on its next 5-minute check.
+5. `epicenter access invite`, then open the link and register a passkey within
+   15 minutes.
+6. Connect claude.ai and ChatGPT. Record in ADR-0871 what each client sent,
+   whether ChatGPT completed CIMD, and whether Funnel sets
+   `Tailscale-Funnel-Request` and `X-Forwarded-For`.
 
 ## Done when
 
