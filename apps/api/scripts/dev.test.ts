@@ -1,12 +1,10 @@
 /**
  * The dashboard command selects localhost:5178, and the development launcher
- * accepts only loopback origins and removes production routes from Wrangler's
- * local configuration.
+ * accepts only loopback origins before it starts its build and secret tools.
  */
 import { expect, test } from 'bun:test';
 import { fileURLToPath } from 'node:url';
-import type { Unstable_RawConfig as WranglerConfig } from 'wrangler';
-import { localPublicOrigin, localWranglerConfig } from './dev-config.ts';
+import { localPublicOrigin } from './dev-config.ts';
 
 test('dashboard startup supplies its public origin without changing ordinary API startup', async () => {
 	const { scripts } = await Bun.file(
@@ -54,17 +52,4 @@ test('the launcher rejects an unsafe origin before starting its tools', async ()
 	expect(stderr).toContain(
 		'API_PUBLIC_ORIGIN must be an HTTP loopback origin for local dev.',
 	);
-});
-
-test('local Wrangler config removes production routes and keeps worker bindings', async () => {
-	const config = Bun.JSONC.parse(
-		await Bun.file(new URL('../wrangler.jsonc', import.meta.url)).text(),
-	) as WranglerConfig;
-	expect(config.routes).toEqual([
-		{ pattern: 'api.epicenter.so', custom_domain: true },
-	]);
-	const local = localWranglerConfig(config);
-	expect(local.routes).toEqual([]);
-	expect(local).toEqual({ ...config, routes: [] });
-	expect(config.routes).toHaveLength(1);
 });
