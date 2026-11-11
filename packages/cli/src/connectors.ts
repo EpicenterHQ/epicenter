@@ -1,12 +1,12 @@
 /**
- * `epicenter access` lists and revokes the connectors the owner approved
- * (ADR-0871, ADR-0881). It opens the same `access.local.sqlite` that `serve`
+ * `epicenter connectors` lists and revokes the connectors the owner approved
+ * (ADR-0871, ADR-0881). It opens the same `connectors.local.sqlite` that `serve`
  * holds open, so it works while `serve` runs, and a revoke takes effect at
  * once: the connector's next MCP call is refused.
  *
  * ```txt
- * epicenter access                      every connector, and what it may do
- * epicenter access revoke <connector>   end that connector's access
+ * epicenter connectors                      every connector, and what it may do
+ * epicenter connectors revoke <connector>   end that connector's access
  * ```
  *
  * A connector is named by its client_id, its host, or the name its metadata
@@ -42,8 +42,8 @@ function render(grants: Grant[]) {
 		.join('\n');
 }
 
-/** `epicenter access [revoke <connector>]`. */
-export async function accessCommand(
+/** `epicenter connectors [revoke <connector>]`. */
+export async function connectorsCommand(
 	words: string[],
 	json: boolean,
 ): Promise<number> {
@@ -53,7 +53,7 @@ export async function accessCommand(
 		given !== undefined &&
 		rest.length === 0 &&
 		(verb === undefined || (verb === 'revoke' && Boolean(connector)));
-	if (!fits) return fail(misuse('access'), json);
+	if (!fits) return fail(misuse('connectors'), json);
 	const root = epicenterRoot();
 	const marker = join(root.folder, MARKER);
 	if (!root.connectors)
@@ -89,7 +89,7 @@ export async function accessCommand(
 			return fail(
 				CliError.Refused({
 					message: `${named.length} connectors match ${connector}:\n${named.join('\n')}`,
-					next: 'epicenter access revoke <client_id>',
+					next: 'epicenter connectors revoke <client_id>',
 				}).error,
 				json,
 			);
@@ -97,7 +97,7 @@ export async function accessCommand(
 			return fail(
 				CliError.Usage({
 					message: `No connector is named ${connector}`,
-					next: 'epicenter access',
+					next: 'epicenter connectors',
 				}).error,
 				json,
 			);

@@ -4,7 +4,7 @@
  * tunnel delivers it, to `http://127.0.0.1:<port>`, and the MCP site behind
  * it is a stand-in that records what reached it. The approval page is the
  * route the private listener answers; that listener's own rules are tested
- * in `acceptance.public.test.ts`. The CIMD fetch returns Claude's document.
+ * in `acceptance.public.test.ts`. The CIMD fetch returns Claude's document, or ChatGPT's shape.
  * Nothing here touches the network.
  *
  * Key behaviors:
@@ -21,8 +21,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { allowRoute } from './allow-page.ts';
 import {
-	ACCESS_DATABASE,
-	ACCESS_KEY,
+	CONNECTORS_DATABASE,
+	CONNECTORS_KEY,
 	type AuthorizationServer,
 	listGrants,
 	openAuthorizationServer,
@@ -60,7 +60,10 @@ afterEach(async () => {
 	for (const cleanup of cleanups.splice(0)) await cleanup();
 });
 
-async function setup(changes: Parameters<typeof claudeOnly>[1] = {}) {
+async function setup(
+	changes: Parameters<typeof claudeOnly>[1] = {},
+	fetchMetadata?: Parameters<typeof openAuthorizationServer>[2],
+) {
 	const folder = await realpath(
 		await mkdtemp(join(tmpdir(), 'epicenter-public-')),
 	);
@@ -68,7 +71,7 @@ async function setup(changes: Parameters<typeof claudeOnly>[1] = {}) {
 	const authorization = await openAuthorizationServer(
 		folder,
 		CONNECTORS,
-		claudeOnly(fetched, changes),
+		fetchMetadata ?? claudeOnly(fetched, changes),
 	);
 	/** What reached the MCP site, and whether it was read-only. */
 	const reached: { readOnly: boolean; body: unknown }[] = [];
@@ -130,7 +133,7 @@ const mcpRequest = (
 			accessToken ? { authorization: `Bearer ${accessToken}` } : {},
 		),
 	);
-/** The one grant, as `epicenter access` lists it. */
+/** The one grant, as `epicenter connectors` lists it. */
 function onlyGrant(t: Setup) {
 	const found = listGrants(t.authorization.db);
 	expect(found).toHaveLength(1);
@@ -178,16 +181,18 @@ async function holdNextRefreshInsert(authorization: AuthorizationServer) {
 describe('the authorization server', () => {
 	test('keeps its secret and database readable only by this user, and opens again with the same owner', async () => {
 		const t = await setup();
-		expect((await stat(join(t.folder, ACCESS_KEY))).mode & 0o777).toBe(0o600);
-		expect((await stat(join(t.folder, ACCESS_DATABASE))).mode & 0o777).toBe(
+		expect((await stat(join(t.folder, CONNECTORS_KEY))).mode & 0o777).toBe(
 			0o600,
 		);
-		const secret = await Bun.file(join(t.folder, ACCESS_KEY)).text();
+		expect((await stat(join(t.folder, CONNECTORS_DATABASE))).mode & 0o777).toBe(
+			0o600,
+		);
+		const secret = await Bun.file(join(t.folder, CONNECTORS_KEY)).text();
 		const owners = ownerId(t);
 		expect(owners).toHaveLength(1);
 		const again = await openAuthorizationServer(t.folder, CONNECTORS);
 		again.close();
-		expect(await Bun.file(join(t.folder, ACCESS_KEY)).text()).toBe(secret);
+		expect(await Bun.file(join(t.folder, CONNECTORS_KEY)).text()).toBe(secret);
 		expect(ownerId(t)).toEqual(owners);
 	});
 
@@ -199,17 +204,17 @@ describe('the authorization server', () => {
 			)
 		).json()) as Record<string, unknown>;
 		expect(resource.resource).toBe(RESOURCE);
-		expect(resource.authorization_servers).toEqual([`${ORIGIN}/.auth`]);
+		expect(resource.authorization_servers).toEqual([ORIGIN]);
 		expect(resource.scopes_supported).toEqual(['read', 'write']);
 		const server = (await (
 			await t.send(
-				new Request(`${ORIGIN}/.well-known/oauth-authorization-server/.auth`),
+				new Request(`${ORIGIN}/.well-known/oauth-authorization-server`),
 			)
 		).json()) as Record<string, unknown>;
-		expect(server.issuer).toBe(`${ORIGIN}/.auth`);
+		expect(server.issuer).toBe(ORIGIN);
 		expect(server.client_id_metadata_document_supported).toBe(true);
 		expect(server.registration_endpoint).toBeUndefined();
-		expect(server.revocation_endpoint).toBe(`${ORIGIN}/.auth/oauth2/revoke`);
+		expect(server.revocation_endpoint).toBe(`${ORIGIN}/oauth2/revoke`);
 		expect(
 			Object.keys(server).filter((field) => field.startsWith('introspection')),
 		).toEqual([]);
@@ -288,23 +293,25 @@ describe('the public address', () => {
 			).status;
 		const cases: [string, string, number][] = [
 			['GET', '/.well-known/oauth-protected-resource', 200],
-			['GET', '/.well-known/oauth-authorization-server/.auth', 200],
-			['GET', '/.well-known/oauth-authorization-server', 404],
-			['GET', '/.auth/jwks', 200],
+			['GET', '/.well-known/oauth-authorization-server', 200],
+			// The paths before the issuer was the bare origin.
+			['GET', '/.well-known/oauth-authorization-server/.auth', 404],
+			['GET', '/.auth/oauth2/authorize', 404],
+			['GET', '/jwks', 200],
 			// Reaches Better Auth, which takes RFC 7009's form body only.
-			['POST', '/.auth/oauth2/revoke', 415],
-			['POST', '/.auth/oauth2/consent', 404],
-			['POST', '/.auth/oauth2/continue', 404],
-			['GET', '/.auth/get-session', 404],
-			['POST', '/.auth/sign-out', 404],
-			['POST', '/.auth/sign-up/email', 404],
-			['GET', '/.auth/passkey/generate-authenticate-options', 404],
-			['GET', `/.auth/oauth2/public-client?client_id=${CLAUDE_ID}`, 404],
-			['GET', '/.auth/oauth2/get-consents', 404],
-			['POST', '/.auth/oauth2/register', 404],
-			['POST', '/.auth/oauth2/introspect', 404],
-			['POST', '/.auth/oauth2/create-client', 404],
-			['GET', '/.auth/.well-known/oauth-authorization-server', 404],
+			['POST', '/oauth2/revoke', 415],
+			['POST', '/oauth2/consent', 404],
+			['POST', '/oauth2/continue', 404],
+			['GET', '/get-session', 404],
+			['POST', '/sign-out', 404],
+			['POST', '/sign-up/email', 404],
+			['GET', '/passkey/generate-authenticate-options', 404],
+			['GET', `/oauth2/public-client?client_id=${CLAUDE_ID}`, 404],
+			['GET', '/oauth2/get-consents', 404],
+			['POST', '/oauth2/register', 404],
+			['POST', '/oauth2/introspect', 404],
+			['POST', '/oauth2/create-client', 404],
+			['GET', '/.well-known/openid-configuration', 404],
 			['GET', '/.sign-in', 404],
 			['GET', '/.allow', 404],
 			['POST', '/.allow', 404],
@@ -352,7 +359,7 @@ describe('the public address', () => {
 		];
 		for (const credential of credentials) {
 			const authorized = await t.send(
-				new Request(`${ORIGIN}/.auth/oauth2/authorize?${query}`, {
+				new Request(`${ORIGIN}/oauth2/authorize?${query}`, {
 					headers: { ...NAVIGATE, ...credential },
 				}),
 			);
@@ -378,7 +385,7 @@ describe('authorizing a connector', () => {
 		const claims = claimsOf(tokens.access_token ?? '');
 		expect(claims).toMatchObject({
 			aud: RESOURCE,
-			iss: `${ORIGIN}/.auth`,
+			iss: ORIGIN,
 			azp: CLAUDE_ID,
 			sub: ownerId(t)[0],
 			scope: 'read offline_access',
@@ -620,12 +627,38 @@ describe('grants', () => {
 		).toBe(200);
 	});
 
-	test('POST /.auth/oauth2/revoke revokes the refresh token presented and leaves the grant', async () => {
+	test('a rotation that read a broad family before a narrowing inserts no family broader than the consent', async () => {
+		const t = await setup();
+		await connectClaude(t, 'read write offline_access');
+		const db = t.authorization.db;
+		const broad = db.query('select * from oauthRefreshToken').get() as Record<
+			string,
+			unknown
+		>;
+		await connectClaude(t, 'read offline_access');
+		// What the in-flight rotation writes after the narrowing: its successor,
+		// still holding write.
+		const successor = {
+			...broad,
+			id: 'in-flight',
+			token: 'in-flight',
+		};
+		const columns = Object.keys(successor);
+		expect(() =>
+			db
+				.query(
+					`insert into oauthRefreshToken (${columns.join(', ')}) values (${columns.map(() => '?').join(', ')})`,
+				)
+				.run(...(Object.values(successor) as string[])),
+		).toThrow('this grant was revoked');
+	});
+
+	test('POST /oauth2/revoke revokes the refresh token presented and leaves the grant', async () => {
 		const t = await setup();
 		const first = await connectClaude(t, 'read offline_access');
 		const second = await connectClaude(t, 'read offline_access');
 		const revoked = await t.send(
-			new Request(`${ORIGIN}/.auth/oauth2/revoke`, {
+			new Request(`${ORIGIN}/oauth2/revoke`, {
 				method: 'POST',
 				headers: { 'content-type': 'application/x-www-form-urlencoded' },
 				body: new URLSearchParams({
@@ -741,5 +774,154 @@ describe('revoking', () => {
 			(await exchangeCode(ORIGIN, t.send, fresh.code, fresh.verifier)).status,
 		).toBe(200);
 		expect(onlyGrant(t).families).toBe(1);
+	});
+});
+
+// ============================================================================
+// ChatGPT: a connector that authenticates with private_key_jwt
+// ============================================================================
+
+describe('a connector that authenticates with private_key_jwt, as ChatGPT does', () => {
+	/** The shape of ChatGPT's metadata document, as chatgpt.com served one on 2026-11-12. */
+	const CHATGPT_ID = 'https://chatgpt.com/oauth/test-instance/client.json';
+	const CHATGPT_REDIRECT = 'https://chatgpt.com/connector/oauth/test-instance';
+	const JWKS_URI = 'https://chatgpt.com/oauth/jwks.json';
+	const CLIENT_ASSERTION_TYPE =
+		'urn:ietf:params:oauth:client-assertion-type:jwt-bearer';
+
+	async function chatgpt() {
+		const keys = (await crypto.subtle.generateKey(
+			{
+				name: 'RSASSA-PKCS1-v1_5',
+				modulusLength: 2048,
+				publicExponent: new Uint8Array([1, 0, 1]),
+				hash: 'SHA-256',
+			},
+			true,
+			['sign', 'verify'],
+		)) as CryptoKeyPair;
+		const jwk = {
+			...(await crypto.subtle.exportKey('jwk', keys.publicKey)),
+			kid: 'chatgpt-1',
+			use: 'sig',
+			alg: 'RS256',
+		};
+		const fetchMetadata = async (input: RequestInfo | URL) => {
+			const url = new Request(input).url;
+			if (url === CHATGPT_ID)
+				return Response.json({
+					client_id: CHATGPT_ID,
+					client_uri: 'https://chatgpt.com/',
+					redirect_uris: [CHATGPT_REDIRECT],
+					token_endpoint_auth_method: 'private_key_jwt',
+					token_endpoint_auth_methods_supported: ['none', 'private_key_jwt'],
+					grant_types: ['authorization_code', 'refresh_token'],
+					response_types: ['code'],
+					client_name: 'ChatGPT',
+					token_endpoint_auth_signing_alg: 'RS256',
+					jwks_uri: JWKS_URI,
+				});
+			if (url === JWKS_URI) return Response.json({ keys: [jwk] });
+			return new Response('Not found', { status: 404 });
+		};
+		/** A client assertion signed with ChatGPT's key, for the token endpoint. */
+		const assertion = async () => {
+			const encode = (value: object) =>
+				Buffer.from(JSON.stringify(value)).toString('base64url');
+			const now = Math.floor(Date.now() / 1000);
+			const input = `${encode({ alg: 'RS256', kid: 'chatgpt-1', typ: 'JWT' })}.${encode(
+				{
+					iss: CHATGPT_ID,
+					sub: CHATGPT_ID,
+					aud: `${ORIGIN}/oauth2/token`,
+					iat: now,
+					exp: now + 300,
+					jti: crypto.randomUUID(),
+				},
+			)}`;
+			const signature = await crypto.subtle.sign(
+				'RSASSA-PKCS1-v1_5',
+				keys.privateKey,
+				new TextEncoder().encode(input),
+			);
+			return `${input}.${Buffer.from(signature).toString('base64url')}`;
+		};
+		return { fetchMetadata, assertion };
+	}
+
+	const token = async (t: Setup, form: Record<string, string>) => {
+		const response = await t.send(
+			new Request(`${ORIGIN}/oauth2/token`, {
+				method: 'POST',
+				headers: { 'content-type': 'application/x-www-form-urlencoded' },
+				body: new URLSearchParams(form),
+			}),
+		);
+		return {
+			status: response.status,
+			body: (await response.json().catch(() => ({}))) as Record<string, string>,
+		};
+	};
+
+	/** ChatGPT's authorization, approved for `grant`: the code and its verifier. */
+	async function approved(t: Setup, grant: string) {
+		const { query: asked, verifier } = await query(RESOURCE, grant);
+		asked.set('client_id', CHATGPT_ID);
+		asked.set('redirect_uri', CHATGPT_REDIRECT);
+		const allow = await reachAllow(ORIGIN, t.send, TAILNET, asked);
+		const page = await t.tailnetSend(new Request(allow));
+		expect(await page.text()).toContain('Allow chatgpt.com to use your apps?');
+		const answered = await answerAllow(t.tailnetSend, allow, {
+			accept: true,
+			scope: grant,
+		});
+		expect(answered.status).toBe(200);
+		const callback = new URL(((await answered.json()) as { url: string }).url);
+		expect(`${callback.origin}${callback.pathname}`).toBe(CHATGPT_REDIRECT);
+		return { code: callback.searchParams.get('code') ?? '', verifier };
+	}
+
+	test('connects with a signed client assertion, calls, and refreshes; without one, its code is refused', async () => {
+		const { fetchMetadata, assertion } = await chatgpt();
+		const t = await setup({}, fetchMetadata);
+		const first = await approved(t, 'read offline_access');
+		const unsigned = await token(t, {
+			grant_type: 'authorization_code',
+			code: first.code,
+			redirect_uri: CHATGPT_REDIRECT,
+			client_id: CHATGPT_ID,
+			code_verifier: first.verifier,
+			resource: RESOURCE,
+		});
+		expect(unsigned.body.error).toBe('invalid_client');
+
+		const { code, verifier } = await approved(t, 'read offline_access');
+		const exchanged = await token(t, {
+			grant_type: 'authorization_code',
+			code,
+			redirect_uri: CHATGPT_REDIRECT,
+			client_id: CHATGPT_ID,
+			code_verifier: verifier,
+			resource: RESOURCE,
+			client_assertion_type: CLIENT_ASSERTION_TYPE,
+			client_assertion: await assertion(),
+		});
+		expect(exchanged.status).toBe(200);
+		expect(
+			(await mcpRequest(t.send, exchanged.body.access_token, 'tools/list'))
+				.status,
+		).toBe(200);
+		const refreshed = await token(t, {
+			grant_type: 'refresh_token',
+			refresh_token: exchanged.body.refresh_token ?? '',
+			client_id: CHATGPT_ID,
+			resource: RESOURCE,
+			client_assertion_type: CLIENT_ASSERTION_TYPE,
+			client_assertion: await assertion(),
+		});
+		expect(refreshed.status).toBe(200);
+		expect(listGrants(t.authorization.db)).toMatchObject([
+			{ clientId: CHATGPT_ID, host: 'chatgpt.com', name: 'ChatGPT' },
+		]);
 	});
 });

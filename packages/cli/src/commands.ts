@@ -87,8 +87,8 @@ approved at connectors.tailnet/.allow, which only the tailnet reaches. Then
 The person runs install and uninstall. Agents may safely run restart and status.
 status --json reports whether the job is installed and running, its pid, and port.`,
 	},
-	access: {
-		usage: 'epicenter access [revoke <connector>]',
+	connectors: {
+		usage: 'epicenter connectors [revoke <connector>]',
 		help: `Lists the connectors you approved, such as Claude, with what each may do.
 revoke ends a connector's access, named by its client_id, host, or name; the
 next call it makes is refused, and it connects again only when you approve it

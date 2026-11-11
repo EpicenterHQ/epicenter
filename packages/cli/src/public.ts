@@ -4,15 +4,17 @@
  * port. People reach an Epicenter over the tailnet, so nothing here is a page.
  *
  * ```txt
- * GET  /.well-known/oauth-protected-resource           RFC 9728 metadata
- * GET  /.well-known/oauth-authorization-server/.auth   RFC 8414 metadata
- * GET  /.auth/oauth2/authorize                         redirects to the approval page on the tailnet
- * POST /.auth/oauth2/token, /.auth/oauth2/revoke       a connector's tokens
- * GET  /.auth/jwks                                     the signing keys
- * POST /                                               MCP, with a connector's token
+ * GET  /.well-known/oauth-protected-resource      RFC 9728 metadata
+ * GET  /.well-known/oauth-authorization-server    RFC 8414 metadata
+ * GET  /oauth2/authorize                          redirects to the approval page on the tailnet
+ * POST /oauth2/token, /oauth2/revoke              a connector's tokens
+ * GET  /jwks                                      the signing keys
+ * POST /                                          MCP, with a connector's token
  * ```
  *
- * Anything else is 404. The boundary is the socket: this listener never
+ * The issuer is the public origin itself: no app is served here, so these
+ * paths need no `.` to stay clear of app names (ADR-0881). Anything else is
+ * 404. The boundary is the socket: this listener never
  * trusts a header to say where a request came from. Each request's URL is
  * rewritten to the public origin before Better Auth or the token check reads
  * it, since the tunnel delivers `http://127.0.0.1:<port>/...`.
@@ -28,18 +30,14 @@
  */
 import { createMcpProtectedRequestHandler } from '@better-auth/mcp';
 import { createInsufficientScopeError } from 'better-auth/oauth2';
-import {
-	AUTH_BASE_PATH,
-	type AuthorizationServer,
-	SCOPES,
-} from './authorization-server.ts';
+import { type AuthorizationServer, SCOPES } from './authorization-server.ts';
 import type { Site } from './http.ts';
 
 /**
- * The Better Auth routes a connector uses, by method and path under `/.auth`;
- * every other route Better Auth or its plugins define answers 404. An
- * allowlist here, rather than Better Auth's `disabledPaths`, which matches
- * exact paths only and so cannot name a route with a parameter.
+ * The Better Auth routes a connector uses, by method and path; every other
+ * route Better Auth or its plugins define answers 404. An allowlist here,
+ * rather than Better Auth's `disabledPaths`, which matches exact paths only
+ * and so cannot name a route with a parameter.
  */
 const AUTH_ROUTES = new Set([
 	'GET /oauth2/authorize',
@@ -51,10 +49,10 @@ const AUTH_ROUTES = new Set([
 	'GET /jwks',
 ]);
 
-/** The metadata documents, answered by Better Auth outside `/.auth`. */
+/** The metadata documents. */
 const METADATA_PATHS = new Set([
 	'/.well-known/oauth-protected-resource',
-	`/.well-known/oauth-authorization-server${AUTH_BASE_PATH}`,
+	'/.well-known/oauth-authorization-server',
 ]);
 
 /**
@@ -151,15 +149,13 @@ export function publicHandler(
 			return pathname === '/.well-known/oauth-protected-resource'
 				? handle(request)
 				: offeredMetadata(await handle(request));
-		if (pathname.startsWith(`${AUTH_BASE_PATH}/`)) {
-			const route = `${request.method} ${pathname.slice(AUTH_BASE_PATH.length)}`;
-			if (!AUTH_ROUTES.has(route)) return notFound();
+		const route = `${request.method} ${pathname}`;
+		if (AUTH_ROUTES.has(route))
 			return handle(
 				route === 'GET /oauth2/authorize'
 					? forcedAuthorization(request)
 					: request,
 			);
-		}
 		if (pathname === '/' && request.method === 'POST')
 			return withToken(request);
 		return notFound();

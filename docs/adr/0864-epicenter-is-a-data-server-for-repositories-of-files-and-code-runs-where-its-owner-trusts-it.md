@@ -76,7 +76,7 @@ must go on offline keeps a copy and syncs it with Git.**
   of its own beyond the server's. A `GET /` from a browser is the launcher. A
   view is static files with hash routes (`#/c/<id>`); the server routes
   nothing. The server's own paths start with `.` (`/.well-known/`,
-  `/.auth/` for connectors, and `/.allow` where the owner approves one), which no app name can, so no app name is reserved
+  and `/.allow`, where the owner approves a connector), which no app name can, so no app name is reserved
   for it.
 
 **3. Code runs where its owner trusts it.** `epicenter serve` runs the

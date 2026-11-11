@@ -58,12 +58,17 @@ checked when the marker is read, with a message naming the field.
 | Path | Needs |
 | --- | --- |
 | `GET /.well-known/oauth-protected-resource` | nothing: RFC 9728 metadata |
-| `GET /.well-known/oauth-authorization-server/.auth` | nothing: RFC 8414 metadata |
-| `GET /.auth/oauth2/authorize` | nothing: redirects to `<tailnet>/.allow` |
-| `POST /.auth/oauth2/token`, `/revoke`; `GET /.auth/jwks` | what OAuth asks of a connector |
+| `GET /.well-known/oauth-authorization-server` | nothing: RFC 8414 metadata |
+| `GET /oauth2/authorize` | nothing: redirects to `<tailnet>/.allow` |
+| `POST /oauth2/token`, `/revoke`; `GET /jwks` | what OAuth asks of a connector |
 | `POST /` | a connector's bearer token: MCP |
 
-Anything else is 404: no UI, launcher, action route, or page.
+Anything else is 404: no UI, launcher, action route, or page. The issuer is
+`url` itself, with no path: the `.` that keeps the server's own paths clear of
+app names (ADR-0864) has nothing to keep them clear of here, so the paths are
+Better Auth's own and the metadata sits where RFC 8414 puts it for an issuer
+without a path. `/.allow` keeps its `.`, since the private listener serves
+apps.
 
 **A connector is approved on the private listener.** Every authorization goes
 to `<tailnet>/.allow` with Better Auth's signed query; the router sets
@@ -76,11 +81,14 @@ that approval that expires with the code, ten minutes later. Better Auth's
 
 **There is one person, the owner.** The `user` table holds one row, created
 when the server opens. A grant is a connector the owner approved, and an MCP
-call needs its token's subject to be the owner. `epicenter access` lists
-connectors and revokes one; it no longer invites or revokes people.
+call needs its token's subject to be the owner. `epicenter connectors`, which
+was `epicenter access`, lists connectors and revokes one; it no longer invites
+or revokes people. Its files are `connectors.local.sqlite` and
+`connectors.local.key`, which were `access.local.*`.
 
-Grants made before this change name a person who is not the owner, so they stop
-working, and each connector is connected again once. Nothing migrates them.
+Grants made before this change are in the old `access.local.sqlite` under an
+issuer that no longer exists, so they stop working, and each connector is
+connected again once. Nothing migrates them; the old files can be deleted.
 
 ## Consequences
 
@@ -93,8 +101,8 @@ working, and each connector is connected again once. Nothing migrates them.
 - A link that starts an attacker's authorization still lands on the approval
   page, as it did with passkeys; the page leads with the connector's host.
 - Deleted: `@better-auth/passkey`, invites, `/.sign-in`, the session routes
-  and redirects on the public listener, `prompt=login`, the people in
-  `epicenter access`, and the rule that `public` and `publicPort` come
+  and redirects on the public listener, `prompt=login`, the `/.auth` base
+  path, the people in `epicenter access`, and the rule that `public` and `publicPort` come
   together, which the `connectors` block makes structural.
 - Added: the `bearer` plugin, and Better Auth's consent call from the private
   listener. Session tokens exist only in `serve`'s memory and the database,
@@ -120,3 +128,16 @@ working, and each connector is connected again once. Nothing migrates them.
   route.
 - **Keep old grants working.** A migration for one connector, which is
   connected again in a minute.
+- **Replace Better Auth with an authorization server Epicenter owns.** With
+  one owner and no sign-in, a connection could be one row Epicenter writes:
+  opaque tokens stored as hashes, revoke as a delete, rotation as one
+  conditional update. That would remove the placeholder owner, the approval
+  sessions and `bearer`, the JWTs and `isGrantLive`, and the generation
+  triggers written against Better Auth's private `verification` encoding,
+  which make a Better Auth upgrade the weak boundary. Refused because
+  ChatGPT's client metadata documents declare `private_key_jwt` with a
+  `jwks_uri` (fetched 2026-11-12), so an owned server would also verify client
+  assertions, fetch and check their keys, and refuse a replayed `jti`, which
+  Better Auth's CIMD and OAuth provider already do. Claude's declares `none`.
+  Revisit if both clients authenticate as public clients, or if a Better Auth
+  upgrade breaks the triggers.

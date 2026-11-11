@@ -2,9 +2,9 @@
  * The authorization server for an Epicenter's connectors (ADR-0871, ADR-0881).
  *
  * Better Auth signs connectors in with OAuth. Its state is
- * `access.local.sqlite` and its secret is `access.local.key`, both beside
+ * `connectors.local.sqlite` and its secret is `connectors.local.key`, both beside
  * `EPICENTER.md` and `.local`, so nothing commits them (ADR-0870). `serve`
- * and `epicenter access` open the same file at once: WAL lets one write while
+ * and `epicenter connectors` open the same file at once: WAL lets one write while
  * the other reads, and the busy timeout makes a writer wait for the other
  * instead of failing.
  *
@@ -27,7 +27,7 @@
  * codeIssued          each authorization code, when SQLite's clock issued it
  * grantRevocation     each revoke of a (client, user), when SQLite's clock ended it
  * verification        a code inserts only under a live consent
- * oauthRefreshToken   a row inserts only under a consent, from a code issued after the last revoke
+ * oauthRefreshToken   a row inserts only under a consent that covers its scopes, from a code issued after the last revoke
  * oauthConsent        approving narrower scopes deletes the families that hold more
  * ```
  *
@@ -48,13 +48,11 @@ import { fetchClientMetadataResource } from './cimd-fetch.ts';
 import { writeErr } from './output.ts';
 import type { Connectors } from './root.ts';
 
-export const ACCESS_DATABASE = 'access.local.sqlite';
-export const ACCESS_KEY = 'access.local.key';
+export const CONNECTORS_DATABASE = 'connectors.local.sqlite';
+export const CONNECTORS_KEY = 'connectors.local.key';
 
 /** The approval page's path on the tailnet listener. */
 export const ALLOW_PATH = '/.allow';
-/** Better Auth's routes live under this path on the public address. */
-export const AUTH_BASE_PATH = '/.auth';
 
 /** The scopes a connector can hold: `read` runs read-only actions, `write` every action. */
 export const SCOPES = ['read', 'write', 'offline_access'] as const;
@@ -78,8 +76,8 @@ function publicNames(url: string) {
 		origin,
 		/** The MCP resource: the origin with its `/`, matched exactly by Better Auth. */
 		resource: `${origin}/`,
-		/** The token issuer, Better Auth's base URL. */
-		issuer: `${origin}${AUTH_BASE_PATH}`,
+		/** The token issuer, Better Auth's base URL: the origin, with no path. */
+		issuer: origin,
 	};
 }
 
@@ -161,6 +159,12 @@ when not exists (
 		   and c.issuedAt > coalesce(
 		       (select max(g.revokedAt) from grantRevocation g
 		         where g.clientId = new.clientId and g.userId = new.userId), -1))
+	or exists (
+		select 1 from json_each(new.scopes) s
+		 where s.value not in (
+		       select value from json_each(
+		              (select k.scopes from oauthConsent k
+		                where k.clientId = new.clientId and k.userId = new.userId))))
 begin
 	select raise(abort, '${REVOKED_GRANT}');
 end;
@@ -194,7 +198,7 @@ function readOrCreateSecret(path: string) {
 
 /** Open the database file, created readable only by this user, in WAL with a busy timeout. */
 function openAccessDatabase(folder: string) {
-	const path = join(folder, ACCESS_DATABASE);
+	const path = join(folder, CONNECTORS_DATABASE);
 	closeSync(openSync(path, 'a', 0o600));
 	const db = new Database(path);
 	db.exec('PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;');
@@ -213,8 +217,8 @@ function authOptions(
 	return {
 		appName: 'Epicenter',
 		baseURL: origin,
-		basePath: AUTH_BASE_PATH,
-		secret: readOrCreateSecret(join(folder, ACCESS_KEY)),
+		basePath: '/',
+		secret: readOrCreateSecret(join(folder, CONNECTORS_KEY)),
 		database: db,
 		telemetry: { enabled: false },
 		// Better Auth warns at every start that SQLite stores arrays as text.
@@ -233,8 +237,6 @@ function authOptions(
 			// set, and decides more from NODE_ENV; this server decides each itself.
 			disableOriginCheck: false,
 			disableCSRFCheck: false,
-			useSecureCookies: true,
-			cookiePrefix: 'epicenter',
 			// Every request comes through the tunnel from 127.0.0.1, so the client
 			// the rate limit counts is the address the tunnel adds last to
 			// X-Forwarded-For.

@@ -197,7 +197,7 @@ A command always means the computer it is typed on. `serve` speaks MCP and
 serves UIs, and runs each app as its files are on disk, so code you just
 changed is what runs (ADR-0880). Adding claude.ai or ChatGPT as a connector
 opens a page on your tailnet where you approve it, and the client receives a
-token you can revoke with `epicenter access revoke`. The public address is any
+token you can revoke with `epicenter connectors revoke`. The public address is any
 HTTPS tunnel, such as Tailscale Funnel, to a second listener that answers only
 what a connector needs (ADR-0871, ADR-0881); you reach your apps over the
 tailnet, never there. Nothing guards your approvals from another program

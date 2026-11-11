@@ -10,7 +10,7 @@
 import { join } from 'node:path';
 import { isName } from '@epicenter/app';
 import packageJson from '../package.json' with { type: 'json' };
-import { accessCommand } from './access.ts';
+import { connectorsCommand } from './connectors.ts';
 import { buildCommand } from './build.ts';
 import {
 	BAD_PORT,
@@ -82,7 +82,7 @@ const HANDLERS: { [K in Command]: Handler } = {
 	sync: syncCommand,
 	history: historyCommand,
 	undo: undoCommand,
-	access: accessCommand,
+	connectors: connectorsCommand,
 	service: serviceCommand,
 	async serve(words, json) {
 		if (json)

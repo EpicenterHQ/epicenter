@@ -80,7 +80,7 @@ async function tokenRequest(
 	form: Record<string, string>,
 ) {
 	const response = await send(
-		new Request(`${origin}/.auth/oauth2/token`, {
+		new Request(`${origin}/oauth2/token`, {
 			method: 'POST',
 			headers: { 'content-type': 'application/x-www-form-urlencoded' },
 			body: new URLSearchParams(form),
@@ -106,7 +106,7 @@ export async function reachAllow(
 	query: URLSearchParams,
 ) {
 	const authorized = await send(
-		new Request(`${origin}/.auth/oauth2/authorize?${query}`, {
+		new Request(`${origin}/oauth2/authorize?${query}`, {
 			headers: NAVIGATE,
 		}),
 	);

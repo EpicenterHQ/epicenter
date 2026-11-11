@@ -1,10 +1,10 @@
 /**
- * Connectors as `serve` runs them, with real apps, and `epicenter access`
+ * Connectors as `serve` runs them, with real apps, and `epicenter connectors`
  * beside it. Runs the real CLI against a temporary HOME whose `EPICENTER.md`
  * has a `connectors` block.
  *
  * Claude's authorize request runs in this test process, on the same
- * `access.local.sqlite` that `serve` holds open, through the public handler
+ * `connectors.local.sqlite` that `serve` holds open, through the public handler
  * with a stubbed CIMD fetch: serve's own fetch would go to claude.ai. The
  * approval then goes to serve's real private listener at `/.allow`, and the
  * tokens it yields are used against serve's public port. The public address
@@ -200,7 +200,7 @@ test('the approval page on the private listener approves only from its own pages
 	);
 	expect(foreign.status).toBe(403);
 	expect(
-		JSON.parse((await t.run('access', '--json')).stdout).connectors,
+		JSON.parse((await t.run('connectors', '--json')).stdout).connectors,
 	).toEqual([]);
 	const own = await answerAllow(t.tailnetSend, allow, {
 		accept: true,
@@ -274,12 +274,12 @@ test('a read token lists only read-only actions and its call to a write action i
 	);
 });
 
-test('epicenter access lists connectors and revokes one while serve runs', async () => {
+test('epicenter connectors lists connectors and revokes one while serve runs', async () => {
 	const t = await setup();
 	const tokens = await connectClaude(t.sides, 'read write offline_access');
 	const listCall = (token: string | undefined) =>
 		t.toPublic(mcpRequest(ORIGIN, 'tools/list', {}, bearer(token)));
-	const listed = await t.run('access', '--json');
+	const listed = await t.run('connectors', '--json');
 	expect(listed.code).toBe(0);
 	expect(JSON.parse(listed.stdout).connectors).toMatchObject([
 		{
@@ -290,15 +290,15 @@ test('epicenter access lists connectors and revokes one while serve runs', async
 			families: 1,
 		},
 	]);
-	const text = await t.run('access');
+	const text = await t.run('connectors');
 	expect(text.stdout).toContain(
 		`claude.ai  ${CLAUDE_ID}, which calls itself Claude\n  reads and changes, approved `,
 	);
 	expect(text.stdout).toContain('1 connection');
-	expect((await t.run('access', 'invite', 'phone')).code).toBe(2);
+	expect((await t.run('connectors', 'invite', 'phone')).code).toBe(2);
 	expect((await listCall(tokens.access_token)).status).toBe(200);
 
-	const revoked = await t.run('access', 'revoke', 'claude.ai');
+	const revoked = await t.run('connectors', 'revoke', 'claude.ai');
 	expect(revoked.code).toBe(0);
 	expect(revoked.stdout).toContain('claude.ai can no longer reach your apps');
 	expect((await listCall(tokens.access_token)).status).toBe(401);
@@ -306,27 +306,27 @@ test('epicenter access lists connectors and revokes one while serve runs', async
 	expect(refused.status).toBe(400);
 	expect(refused.body.error).toBe('invalid_grant');
 	expect(
-		JSON.parse((await t.run('access', '--json')).stdout).connectors,
+		JSON.parse((await t.run('connectors', '--json')).stdout).connectors,
 	).toEqual([]);
-	expect((await t.run('access', 'revoke', 'nobody', '--json')).code).toBe(2);
+	expect((await t.run('connectors', 'revoke', 'nobody', '--json')).code).toBe(2);
 });
 
-test('epicenter access without a connectors block says what to add', async () => {
+test('epicenter connectors without a connectors block says what to add', async () => {
 	const f = await fixture();
 	cleanups.push(() => rm(f.root, { recursive: true, force: true }));
-	const result = await f.run('access', '--json');
+	const result = await f.run('connectors', '--json');
 	expect(result.code).toBe(2);
 	const { error } = JSON.parse(result.stdout);
 	expect(error.message).toContain('has no connectors block');
 	expect(error.next).toContain('tailnet');
-	expect(await Bun.file(join(f.home, 'access.local.sqlite')).exists()).toBe(
+	expect(await Bun.file(join(f.home, 'connectors.local.sqlite')).exists()).toBe(
 		false,
 	);
 });
 
 test('a tool name that is an epicenter command runs nothing', async () => {
 	const t = await setup();
-	for (const name of ['access_revoke', 'sync_reading', 'history_reading']) {
+	for (const name of ['connectors_revoke', 'sync_reading', 'history_reading']) {
 		const response = await fetch(
 			`${t.local}/`,
 			mcpRequest(t.local, 'tools/call', { name, arguments: {} }),
@@ -338,7 +338,7 @@ test('a tool name that is an epicenter command runs nothing', async () => {
 		expect(body.result.content[0]?.text).toContain(`Unknown tool ${name}`);
 	}
 	expect(
-		JSON.parse((await t.run('access', '--json')).stdout).connectors,
+		JSON.parse((await t.run('connectors', '--json')).stdout).connectors,
 	).toEqual([]);
 });
 

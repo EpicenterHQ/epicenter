@@ -108,7 +108,7 @@ function allowPage(authorization: AuthorizationServer, request: Request) {
 	].join('');
 	return page(
 		`Allow ${host}?`,
-		`<h1>Allow ${escapeHtml(host)} to use your apps?</h1><p>A connector from <strong>${escapeHtml(host)}</strong> is asking to use the apps in ${escapeHtml(name)}${calledItself ? `. It calls itself <strong>${escapeHtml(calledItself)}</strong>` : ''}.</p><p><code>${escapeHtml(cleanText(clientId))}</code></p><p>Allow it only if you just started connecting it yourself. Reading runs the actions each app marks as read-only.</p>${buttons}<p>You can remove it later with <code>epicenter access revoke</code> on your computer.</p>`,
+		`<h1>Allow ${escapeHtml(host)} to use your apps?</h1><p>A connector from <strong>${escapeHtml(host)}</strong> is asking to use the apps in ${escapeHtml(name)}${calledItself ? `. It calls itself <strong>${escapeHtml(calledItself)}</strong>` : ''}.</p><p><code>${escapeHtml(cleanText(clientId))}</code></p><p>Allow it only if you just started connecting it yourself. Reading runs the actions each app marks as read-only.</p>${buttons}<p>You can remove it later with <code>epicenter connectors revoke</code> on your computer.</p>`,
 		true,
 	);
 }
