@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-11-11
 - **Unbuilt:** no `registry.json`, build script, or `/r/` route exists, and `app.css` still holds the monorepo `@source` lines. Built: the check that every stock component is upstream's text plus at most one patch (`packages/ui/scripts/upstream.ts`, `packages/ui/upstream/README.md`).
-- **Relates:** [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (an app's view), [ADR-0866](0866-an-app-starts-from-a-starter-kept-as-its-upstream-and-update-merges-the-starters-changes.md) (starters), [ADR-0873](0873-the-command-is-epicenter-cli-and-an-app-builds-against-epicenter-app-released-together.md) (`@epicenter/app` on npm), [ADR-0875](0875-a-package-is-published-when-an-app-outside-the-monorepo-imports-it.md) (`@epicenter/ui` is not published), [ADR-0877](0877-a-starter-is-published-from-its-app-as-the-apps-files-outside-data.md) (starters are published from the Studio's apps).
+- **Relates:** [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (an app's view), [ADR-0866](0866-an-app-starts-from-a-starter-kept-as-its-upstream-and-update-merges-the-starters-changes.md) (starters), [ADR-0873](0873-the-command-is-epicenter-cli-and-an-app-builds-against-epicenter-app-released-together.md) (`@epicenter/app` on npm), [ADR-0875](0875-a-package-is-published-when-an-app-outside-the-monorepo-imports-it.md) (`@epicenter/ui` is not published), [ADR-0877](0877-an-apps-code-and-its-data-are-two-repositories-and-sharing-an-app-shares-its-code.md) (an app's code is its own repository, and the Studio's apps are the source).
 
 ## Context
 
