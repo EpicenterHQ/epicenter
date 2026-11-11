@@ -190,10 +190,11 @@ test('commit subjects use the first positional value on one line, capped at 60 c
 	);
 });
 
-test('views serve files and refuse traversal and symlinks outside views', async () => {
+test('views serve files and refuse encoded traversal and symlinks outside views', async () => {
 	const f = await setup();
 	const folder = await f.folder(join(f.home, 'reading'), readingApp);
 	await mkdir(join(folder, 'views', '_app', 'immutable'), { recursive: true });
+	await mkdir(join(folder, 'views', 'safe'));
 	await writeFile(join(folder, 'views', 'index.html'), '<h1>Reading</h1>');
 	await writeFile(
 		join(folder, 'views', '_app', 'immutable', 'asset.js'),
@@ -231,8 +232,9 @@ test('views serve files and refuse traversal and symlinks outside views', async 
 		),
 	).toBe('public, max-age=31536000, immutable');
 	for (const path of [
-		'../epicenter.json',
-		'%2e%2e/epicenter.json',
+		// The encoded slash survives URL parsing. Without the decoded-segment
+		// guard, this resolves to the valid views/index.html and returns 200.
+		'safe/%2e%2e%2findex.html',
 		'%2e%2e%2fepicenter.json',
 		'outside.json',
 	])
