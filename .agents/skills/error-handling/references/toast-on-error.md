@@ -1,6 +1,6 @@
 # Toast On Error
 
-`toastOnError` from `@epicenter/ui/sonner` accepts either a `Result<T, AnyTaggedError>` or a bare `AnyTaggedError`. It shows the tagged error's message and returns its input unchanged.
+`toastOnError` from `@epicenter/ui/toast-on-error` accepts either a `Result<T, AnyTaggedError>` or a bare `AnyTaggedError`. It shows the tagged error's message and returns its input unchanged.
 
 The call site supplies the short UI title. The error variant owns the detailed description.
 The pass-through return is convenient for expressions; it does not mean a caller

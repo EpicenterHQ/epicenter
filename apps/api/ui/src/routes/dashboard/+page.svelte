@@ -1,7 +1,7 @@
 <script lang="ts">
 	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
-	import { toastOnError } from '@epicenter/ui/sonner';
+	import { toastOnError } from '@epicenter/ui/toast-on-error';
 	import { Spinner } from '@epicenter/ui/spinner';
 	import { createMutation, createQuery } from '@tanstack/svelte-query';
 	import { onDestroy } from 'svelte';
