@@ -24,6 +24,7 @@ test('newest first, undated last, ties by descending path without mutating input
 		{ path: 'notes/d.md', name: 'd', createdAt: '2026-11-10T04:00:00Z' },
 		{ path: 'notes/e.md', name: 'e', createdAt: '2026-11-11T00:00:00Z' },
 	];
+	const original = structuredClone(rows);
 	expect(order(rows).map((row) => row.path)).toEqual([
 		'notes/e.md',
 		'notes/d.md',
@@ -31,7 +32,7 @@ test('newest first, undated last, ties by descending path without mutating input
 		'notes/b.md',
 		'notes/a.md',
 	]);
-	expect(rows[0]?.path).toBe('notes/a.md');
+	expect(rows).toEqual(original);
 });
 
 test('capture time is parsed only from valid timestamp names', () => {
