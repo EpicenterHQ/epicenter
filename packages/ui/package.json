@@ -40,7 +40,7 @@
 		"@fontsource-variable/geist": "^5.2.9",
 		"@fontsource-variable/geist-mono": "^5.2.8",
 		"@lucide/svelte": "^1.7.0",
-		"bits-ui": "^2.16.5",
+		"bits-ui": "catalog:",
 		"clsx": "^2.1.1",
 		"marked": "catalog:",
 		"paneforge": "^1.0.2",
