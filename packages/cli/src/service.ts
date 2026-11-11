@@ -161,12 +161,18 @@ export async function serviceCommand(
 		switch (action) {
 			case 'install': {
 				const which = dependencies.which ?? ((name: string) => Bun.which(name));
+				const compiled = dependencies.compiled ?? COMPILED;
 				const executable = installedEpicenter({
 					which,
-					compiled: dependencies.compiled ?? COMPILED,
+					compiled,
 					execPath: dependencies.execPath ?? process.execPath,
 				});
-				const paths = [which('git'), which('git-lfs')]
+				// An installed script starts with `env bun`, so launchd's PATH
+				// needs Bun's folder unless the command is the compiled binary.
+				const paths = (
+					compiled ? ['git', 'git-lfs'] : ['bun', 'git', 'git-lfs']
+				)
+					.map(which)
 					.filter((path): path is string => path !== null)
 					.map(dirname);
 				const path = [

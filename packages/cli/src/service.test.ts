@@ -38,9 +38,10 @@ async function setup() {
 		which: (name: string): string | null =>
 			({
 				epicenter: executable,
+				bun: '/opt/bun/bin/bun',
 				git: '/opt/git/bin/git',
 				'git-lfs': '/opt/lfs/bin/git-lfs',
-			})[name as 'epicenter' | 'git' | 'git-lfs'] ?? null,
+			})[name as 'epicenter' | 'bun' | 'git' | 'git-lfs'] ?? null,
 		launchctl: async (args: string[]) => {
 			calls.push(args);
 			return replies.shift() ?? { code: 0, stdout: '', stderr: '' };
@@ -117,7 +118,7 @@ test('install writes the escaped plist and replaces a loaded job on every instal
 	expect(plist).toContain('<key>RunAtLoad</key><true/>');
 	expect(plist).toContain('<key>KeepAlive</key><true/>');
 	expect(plist).toContain(
-		'<string>/opt/git/bin:/opt/lfs/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>',
+		'<string>/opt/bun/bin:/opt/git/bin:/opt/lfs/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>',
 	);
 	expect(plist.match(new RegExp(logPath, 'g'))?.length).toBe(2);
 });
