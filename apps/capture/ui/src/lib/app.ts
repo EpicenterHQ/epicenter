@@ -31,7 +31,7 @@ export type Row = ActionOutput<Actions['recent']>['captures'][number] & {
 
 /**
  * The page of the capture at `path`: the hash route is the path itself,
- * `#/captures/<time>.md`, each part encoded so any file name survives.
+ * `#/data/captures/<time>.md`, each part encoded so any file name survives.
  */
 export const hrefOf = (path: string) =>
 	`#/${path.split('/').map(encodeURIComponent).join('/')}`;

@@ -233,7 +233,7 @@ test('a read token lists only read-only actions and its call to a write action i
 	expect(result.content[0]?.text).toContain(
 		'reading log changes files, and this call may only read',
 	);
-	expect(await Bun.file(join(t.reading, '2026.csv')).exists()).toBe(false);
+	expect(await Bun.file(join(t.reading, 'data/2026.csv')).exists()).toBe(false);
 	expect(await gitIn(t.reading, 'rev-list', '--count', 'HEAD')).toBe('1');
 
 	const write = await connectClaude(
@@ -251,7 +251,7 @@ test('a read token lists only read-only actions and its call to a write action i
 		),
 	);
 	expect(logged.status).toBe(200);
-	expect(await readFile(join(t.reading, '2026.csv'), 'utf8')).toBe(
+	expect(await readFile(join(t.reading, 'data/2026.csv'), 'utf8')).toBe(
 		'minutes,book\n5,\n',
 	);
 	expect(await gitIn(t.reading, 'log', '-1', '--format=%s')).toBe(
@@ -273,7 +273,7 @@ test('a child limited to reading refuses a write action and a command', async ()
 		};
 		expect(answer.error?.name).toBe('Refused');
 	}
-	expect(await Bun.file(join(t.reading, '2026.csv')).exists()).toBe(false);
+	expect(await Bun.file(join(t.reading, 'data/2026.csv')).exists()).toBe(false);
 	await t.run(
 		`--report=${report}`,
 		'--read-only-call',
@@ -300,9 +300,9 @@ test("a person's session reaches the site from the public origin's own pages onl
 			),
 		);
 	expect((await call('https://evil.example')).status).toBe(401);
-	expect(await Bun.file(join(t.reading, '2026.csv')).exists()).toBe(false);
+	expect(await Bun.file(join(t.reading, 'data/2026.csv')).exists()).toBe(false);
 	expect((await call(ORIGIN)).status).toBe(200);
-	expect(await readFile(join(t.reading, '2026.csv'), 'utf8')).toBe(
+	expect(await readFile(join(t.reading, 'data/2026.csv'), 'utf8')).toBe(
 		'minutes,book\n7,\n',
 	);
 	const launcher = await t.toPublic(

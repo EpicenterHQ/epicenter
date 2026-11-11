@@ -10,7 +10,7 @@ test('start adds a book I am reading, named by its title as typed', async () => 
 		start({ title: '  Gödel,  Escher, Bach ', author: 'Douglas Hofstadter' }),
 	);
 	expect(started).toMatchObject({
-		path: 'books/Gödel, Escher, Bach.md',
+		path: 'data/books/Gödel, Escher, Bach.md',
 		title: 'Gödel, Escher, Bach',
 		author: 'Douglas Hofstadter',
 		started: localDay(),
@@ -26,7 +26,7 @@ test('a book moves from meaning to read, to reading, to read, and starting it ag
 	setSystemTime(new Date(2026, 10, 1, 9));
 	await run(() => add({ title: 'Dune', author: 'Frank Herbert' }));
 	expect(await run(() => list({}))).toEqual([
-		{ path: 'books/Dune.md', title: 'Dune', author: 'Frank Herbert' },
+		{ path: 'data/books/Dune.md', title: 'Dune', author: 'Frank Herbert' },
 	]);
 
 	setSystemTime(new Date(2026, 10, 2, 9));
@@ -65,11 +65,11 @@ test('finish adds a book I read without logging it first, and keeps a finished d
 
 test('a rating outside 1 to 5 written by hand reads as a problem, not a rating', async () => {
 	const context = createMemoryContext({
-		'books/Dune.md': '---\nrating: 7\n---\n',
+		'data/books/Dune.md': '---\nrating: 7\n---\n',
 	});
 	expect(await inRun(context, () => list({}))).toEqual([
 		{
-			path: 'books/Dune.md',
+			path: 'data/books/Dune.md',
 			title: 'Dune',
 			problems: ['rating: 7 is not a whole number from 1 to 5'],
 		},

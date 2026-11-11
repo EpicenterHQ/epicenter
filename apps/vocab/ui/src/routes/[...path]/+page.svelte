@@ -1,5 +1,5 @@
 <!--
-	One word's page, at the word's path: `#/words/你好.md`. Keyed by the path
+	One word's page, at the word's path: `#/data/words/你好.md`. Keyed by the path
 	so each word gets its own page.
 -->
 <script lang="ts">

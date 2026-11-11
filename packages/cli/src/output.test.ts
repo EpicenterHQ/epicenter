@@ -10,7 +10,7 @@ const returned = (value: unknown) => renderAnswer({ returned: value });
 test('objects keep every defined key in order; a nested object renders beneath its key, and other values as compact JSON', () => {
 	expect(
 		returned({
-			path: 'words/hello.md',
+			path: 'data/words/hello.md',
 			body: 'First line\nSecond line\n',
 			problems: ['one problem'],
 			other: { old: true },
@@ -19,7 +19,7 @@ test('objects keep every defined key in order; a nested object renders beneath i
 		}),
 	).toEqual({
 		stdout:
-			'path: words/hello.md\nbody: |\n  First line\n  Second line\nproblems: ["one problem"]\nother:\n  old: true\nadded: true\n',
+			'path: data/words/hello.md\nbody: |\n  First line\n  Second line\nproblems: ["one problem"]\nother:\n  old: true\nadded: true\n',
 		stderr: '',
 		code: 0,
 	});
@@ -50,21 +50,21 @@ test('a string that could read as something else is quoted, any JSON among them,
 test('arrays of objects use rows unless a string has multiple lines', () => {
 	expect(
 		returned([
-			{ path: 'a.md', done: false },
-			{ path: 'b.md', done: true },
+			{ path: 'data/a.md', done: false },
+			{ path: 'data/b.md', done: true },
 		]),
 	).toEqual({
-		stdout: 'path: a.md  done: false\npath: b.md  done: true\n',
+		stdout: 'path: data/a.md  done: false\npath: data/b.md  done: true\n',
 		stderr: '',
 		code: 0,
 	});
 	expect(
 		returned([
-			{ path: 'a.md', body: 'a\nb' },
-			{ path: 'b.md', body: '' },
+			{ path: 'data/a.md', body: 'a\nb' },
+			{ path: 'data/b.md', body: '' },
 		]),
 	).toEqual({
-		stdout: 'path: a.md\nbody: |\n  a\n  b\n\npath: b.md\nbody: ""\n',
+		stdout: 'path: data/a.md\nbody: |\n  a\n  b\n\npath: data/b.md\nbody: ""\n',
 		stderr: '',
 		code: 0,
 	});
@@ -76,13 +76,13 @@ test('a field holding a list of objects renders its rows beneath its key, as cap
 			total: 2,
 			captures: [
 				{
-					path: 'captures/b.md',
+					path: 'data/captures/b.md',
 					capturedAt: '2026-11-11T09:30:00-08:00',
 					text: 'Call the dentist',
 					thoughts: 0,
 				},
 				{
-					path: 'captures/a.md',
+					path: 'data/captures/a.md',
 					capturedAt: '2026-11-10T21:05:00-08:00',
 					text: 'A line from the book',
 					thoughts: 2,
@@ -93,8 +93,8 @@ test('a field holding a list of objects renders its rows beneath its key, as cap
 		stdout: [
 			'total: 2',
 			'captures:',
-			'  path: captures/b.md  capturedAt: 2026-11-11T09:30:00-08:00  text: Call the dentist  thoughts: 0',
-			'  path: captures/a.md  capturedAt: 2026-11-10T21:05:00-08:00  text: A line from the book  thoughts: 2',
+			'  path: data/captures/b.md  capturedAt: 2026-11-11T09:30:00-08:00  text: Call the dentist  thoughts: 0',
+			'  path: data/captures/a.md  capturedAt: 2026-11-10T21:05:00-08:00  text: A line from the book  thoughts: 2',
 			'',
 		].join('\n'),
 		stderr: '',

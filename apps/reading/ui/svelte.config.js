@@ -4,7 +4,7 @@ import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 
 /**
  * The app's UI: a static single-page app with hash routes, a record's page
- * at its path (`index.html#/books/<title>.md`), built into `ui/dist/`, which
+ * at its path (`index.html#/data/books/<title>.md`), built into `ui/dist/`, which
  * `epicenter serve` serves at `/<app>/` as files with no routing of its
  * own (ADR-0866). The app's folder name is the name it is served under, so the
  * base is that name whoever runs the build.

@@ -35,7 +35,7 @@ export type WordChanges = Omit<ActionInput<Actions['set']>, 'path'>;
 
 /**
  * The page of the word at `path`: the hash route is the path itself,
- * `#/words/你好.md`, each part encoded so any word survives.
+ * `#/data/words/你好.md`, each part encoded so any word survives.
  */
 export const hrefOf = (path: string) =>
 	resolve('/[...path]', { path: path.split('/').map(encodeURIComponent).join('/') });

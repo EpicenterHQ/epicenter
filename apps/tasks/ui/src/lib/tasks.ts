@@ -8,7 +8,7 @@ import type { Task } from './app.js';
 
 /**
  * The page of the task at `path`: the hash route is the path itself,
- * `#/tasks/<time>.md`, each part encoded so any file name survives.
+ * `#/data/tasks/<time>.md`, each part encoded so any file name survives.
  */
 export const hrefOf = (path: string) => `#/${path.split('/').map(encodeURIComponent).join('/')}`;
 

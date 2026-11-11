@@ -3,7 +3,7 @@ import type { Task } from './app.js';
 import { addDays, completed, dayOf, dueLabel, groupOpen, hrefOf, labelOf } from './tasks.js';
 
 const task = (time: string, fields: Partial<Task> = {}): Task => ({
-	path: `tasks/${time}.md`,
+	path: `data/tasks/${time}.md`,
 	time,
 	title: time,
 	done: false,
@@ -70,11 +70,11 @@ test('completed lists done tasks newest first', () => {
 });
 
 test('hrefOf routes to the whole path, encoding each part', () => {
-	expect(hrefOf('tasks/2026-11-10T22-41-05.md')).toBe('#/tasks/2026-11-10T22-41-05.md');
-	expect(hrefOf('tasks/a?b#c%.md')).toBe('#/tasks/a%3Fb%23c%25.md');
+	expect(hrefOf('data/tasks/2026-11-10T22-41-05.md')).toBe('#/data/tasks/2026-11-10T22-41-05.md');
+	expect(hrefOf('data/tasks/a?b#c%.md')).toBe('#/data/tasks/a%3Fb%23c%25.md');
 });
 
 test('labelOf falls back to the file name', () => {
-	expect(labelOf({ path: 'tasks/x.md', title: '  ' })).toBe('x.md');
-	expect(labelOf({ path: 'tasks/x.md', title: 'Buy milk' })).toBe('Buy milk');
+	expect(labelOf({ path: 'data/tasks/x.md', title: '  ' })).toBe('x.md');
+	expect(labelOf({ path: 'data/tasks/x.md', title: 'Buy milk' })).toBe('Buy milk');
 });

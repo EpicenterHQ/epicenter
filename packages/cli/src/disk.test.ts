@@ -171,12 +171,12 @@ test('concurrent updates of one file each land, and leave nothing beside it', as
 test('concurrent updates of one collection file each land, each computed from the record it replaces', async () => {
 	const { root, folder } = await setup();
 	const counters = defineCollection({
-		path: 'counters/{id}.md',
+		path: 'data/counters/{id}.md',
 		fields: { n: field.integer({ optional: true }) },
 	});
-	await folder.write('counters/a.md', '---\nn: 0\n---\n');
+	await folder.write('data/counters/a.md', '---\nn: 0\n---\n');
 	const context = { folder };
-	const at = { path: 'counters/a.md' };
+	const at = { path: 'data/counters/a.md' };
 	await Promise.all(
 		Array.from({ length: 5 }, () =>
 			inRun(context, () =>
@@ -184,8 +184,8 @@ test('concurrent updates of one collection file each land, each computed from th
 			),
 		),
 	);
-	expect(await folder.read('counters/a.md')).toBe('---\nn: 5\n---\n');
-	expect((await readdir(join(root, 'counters'))).sort()).toEqual(['a.md']);
+	expect(await folder.read('data/counters/a.md')).toBe('---\nn: 5\n---\n');
+	expect((await readdir(join(root, 'data/counters'))).sort()).toEqual(['a.md']);
 });
 
 test('an update that changes nothing leaves the file untouched', async () => {

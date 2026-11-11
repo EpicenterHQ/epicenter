@@ -20,13 +20,13 @@
  * by what is in it: it gives the record to a function and writes the patch the
  * function returns over that same record, as `folder.update` does for text, so
  * a value computed from the record is never written over a change made since.
- * A one-file collection (`settings.md`) has `get`, `set`, `edit`, and
+ * A one-file collection (`data/settings.md`) has `get`, `set`, `edit`, and
  * `update`: an absent file reads as its defaults, and its first write makes
  * it, so each of its fields is optional or has a default.
  *
  * A read never trusts the file: each field is its value when it fits, else its
  * default, else absent, and a file that does not fit says why in `problems`.
- * `path`, the placeholders the path holds (`word` in `words/{word}.md`), and
+ * `path`, the placeholders the path holds (`word` in `data/words/{word}.md`), and
  * `body` always come from the file itself. Front matter no field declares is
  * kept by every write, and `get` shows it in `other`.
  *
@@ -34,7 +34,7 @@
  * the app's own actions write it, through the methods. When such a field is
  * required and has no default, the collection exposes no `add` at all.
  *
- * A collection whose path is `.local` (`google.local.md`) holds what stays on
+ * A collection whose path is `.local` (`data/google.local.md`) holds what stays on
  * this computer, such as a sign-in (ADR-0870). Its methods work as any
  * collection's, and a read-only action may write it; `actions()` throws, so
  * no generated verb hands its values to a caller.
@@ -76,7 +76,7 @@ export type Fields = Record<string, TSchema>;
 
 /** What `defineCollection` takes. */
 export type CollectionDef = {
-	/** Its files, as one template: `words/{word}.md`, or `settings.md` for one file. */
+	/** Its files, as one template: `data/words/{word}.md`, or `data/settings.md` for one file. */
 	readonly path: string;
 	/** What one file is, for the descriptions of its actions: "a word I'm learning". */
 	readonly description?: string;
@@ -135,7 +135,7 @@ type ReadValues<F extends Fields> = {
 	>;
 };
 
-/** The placeholder values a read gives, from the file's path: `word` for `words/{word}.md`. */
+/** The placeholder values a read gives, from the file's path: `word` for `data/words/{word}.md`. */
 type PlaceholderValues<P extends string> = { [K in Placeholders<P>]: string };
 
 /** What a read says about a file that does not fit its fields: one line per problem, quoting each value it dropped. */
@@ -224,7 +224,7 @@ export type ManyHandle<D extends CollectionDef> = {
 	update(at: PathIn, revise: Revise<D, FileOf<D> | undefined>): Promise<FileOf<D>>;
 	/** Delete the file; `true` when there was one. */
 	delete(at: PathIn): Promise<boolean>;
-	/** The path `add` would write for these placeholder values: `pathOf({ word: '你好' })` is `words/你好.md`. */
+	/** The path `add` would write for these placeholder values: `pathOf({ word: '你好' })` is `data/words/你好.md`. */
 	pathOf(
 		placeholders: {
 			[P in Placeholders<D['path']>]: string;
@@ -311,7 +311,7 @@ export type Collection<D extends CollectionDef = CollectionDef> = Readonly<D> &
  *
  * ```ts
  * const words = defineCollection({
- *   path: 'words/{word}.md',
+ *   path: 'data/words/{word}.md',
  *   fields: { meaning: field.text(), due: field.datetime({ optional: true, readOnly: true }) },
  * });
  * ```
@@ -412,6 +412,8 @@ function collectionProblems(def: CollectionDef): string[] {
 			`A collection has one path, not a list (${path.map((text) => JSON.stringify(text)).join(', ')}); declare a second collection for a second layout`,
 		];
 	if (typeof path !== 'string') return ['A collection needs a path'];
+	if (!path.startsWith('data/'))
+		return [`the path ${JSON.stringify(path)} must start with data/: data/${path}`];
 	const wrong = templateProblem(path);
 	if (wrong) return [`The collection path ${wrong}`];
 	const keys = new Set(template(path).placeholders);

@@ -14,8 +14,8 @@ due: "2026-11-12"
 The deck is in Drive.
 ```
 
-`tasks/<time>.md`, named by the time it was added, such as
-`tasks/2026-11-10T09-30-00-000Z-k3x9a2f8.md`; that path is the task's address.
+`data/tasks/<time>.md`, named by the time it was added, such as
+`data/tasks/2026-11-10T09-30-00-000Z-k3x9a2f8.md`; that path is the task's address.
 `title` is required and is one line, not blank. `done` is `false` unless set.
 `due` is a day, absent when there is none. The notes are the body, in
 Markdown. This is the earlier Todos app's shape (`todos/<id>.md` with `title`
@@ -38,8 +38,8 @@ carries `problems` quoting what did not fit.
 
 ```sh
 epicenter tasks add "Email Sam the slides" --due 2026-11-12
-epicenter tasks set tasks/2026-11-10T09-30-00-000Z-k3x9a2f8.md --done
-epicenter tasks set tasks/2026-11-10T09-30-00-000Z-k3x9a2f8.md --due null
+epicenter tasks set data/tasks/2026-11-10T09-30-00-000Z-k3x9a2f8.md --done
+epicenter tasks set data/tasks/2026-11-10T09-30-00-000Z-k3x9a2f8.md --due null
 ```
 
 `set` merges as JSON Merge Patch does, so `--due null`, or `due: null` over MCP
@@ -50,7 +50,7 @@ blank one, as `add` does.
 
 `ui/`: the list (`#/`) with a quick add, open tasks grouped as Overdue, Today,
 Upcoming, and No date, and the done ones folded under Completed. A task's page
-is at its path (`#/tasks/<time>.md`): it edits the title, done, due day, and
+is at its path (`#/data/tasks/<time>.md`): it edits the title, done, due day, and
 notes, and deletes the task after asking. A change saves after a short pause,
 when its field loses focus, and when the page is left; the notes save with
 `edit`, quoting them as loaded, so notes an agent changed meanwhile are not

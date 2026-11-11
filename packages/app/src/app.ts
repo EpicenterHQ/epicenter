@@ -5,8 +5,8 @@
  * ```ts
  * import { defineAction, defineApp, defineCollection, field } from '@epicenter/app';
  *
- * const words = defineCollection({ path: 'words/{word}.md', fields: { meaning: field.text() } });
- * const settings = defineCollection({ path: 'settings.md', fields: { dailyGoal: field.integer({ optional: true }) } });
+ * const words = defineCollection({ path: 'data/words/{word}.md', fields: { meaning: field.text() } });
+ * const settings = defineCollection({ path: 'data/settings.md', fields: { dailyGoal: field.integer({ optional: true }) } });
  *
  * const learn = defineAction({
  *   description: 'Learn a word',

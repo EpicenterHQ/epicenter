@@ -1,5 +1,5 @@
 <!--
-	One book's page, at the book's path: `#/books/Dune.md`. Keyed by the path
+	One book's page, at the book's path: `#/data/books/Dune.md`. Keyed by the path
 	so each book gets its own page.
 -->
 <script lang="ts">

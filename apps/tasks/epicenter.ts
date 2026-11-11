@@ -6,7 +6,7 @@ import {
 } from '@epicenter/app';
 
 const tasks = defineCollection({
-	path: 'tasks/{time}.md',
+	path: 'data/tasks/{time}.md',
 	description: 'task',
 	fields: {
 		title: field.text({
@@ -24,7 +24,7 @@ const tasks = defineCollection({
 /** `add`: a title of several lines keeps its first line as the title. */
 const add = defineAction({
 	description:
-		'Add a task to do: a new tasks/<time>.md, named by the time. A title of several lines keeps its first line as the title and the rest as notes',
+		'Add a task to do: a new data/tasks/<time>.md, named by the time. A title of several lines keeps its first line as the title and the rest as notes',
 	input: {
 		title: field.text({ description: 'What to do' }),
 		due: field.date({ optional: true, description: 'The day it is due' }),
