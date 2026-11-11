@@ -4,7 +4,6 @@
 	the system's light or dark mode.
 -->
 <script lang="ts">
-	import { createQueryClient } from '@epicenter/app/client';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import { ConfirmationDialog } from '@epicenter/ui/confirmation-dialog';
@@ -15,13 +14,12 @@
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import { QueryClientProvider, createQuery } from '@tanstack/svelte-query';
 	import { ModeWatcher } from 'mode-watcher';
-	import { reads } from '$lib/app.js';
+	import { queryClient, reads } from '$lib/app.js';
 	import '../app.css';
 
 	let { children } = $props();
 
-	const queryClient = createQueryClient();
-	// The layout makes the client, so it is not yet in context here.
+	// The layout provides the client, so it is not yet in context here.
 	const due = createQuery(() => reads.due(), () => queryClient);
 	const dueCount = $derived(due.data?.length ?? 0);
 

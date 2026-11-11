@@ -3,16 +3,15 @@
 	toasts, the delete confirmation, and the system's light or dark mode.
 -->
 <script lang="ts">
-	import { createQueryClient } from '@epicenter/app/client';
 	import { ConfirmationDialog } from '@epicenter/ui/confirmation-dialog';
 	import { Toaster } from '@epicenter/ui/sonner';
 	import { QueryClientProvider } from '@tanstack/svelte-query';
 	import { ModeWatcher } from 'mode-watcher';
+	import { queryClient } from '$lib/app.js';
 	import '../app.css';
 
 	let { children } = $props();
 
-	const queryClient = createQueryClient();
 </script>
 
 <svelte:head><title>Tasks</title></svelte:head>

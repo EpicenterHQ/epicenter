@@ -116,7 +116,7 @@ test('every write refreshes every read the page shows, before the write is done'
 	}));
 	const bookReads = resultQueries(['reading'], { list: app.list });
 	const bookWrites = resultMutations(['reading'], { delete: app.delete });
-	const client = createQueryClient();
+	const client = createQueryClient('reading');
 	const stop = new QueryObserver(client, bookReads.list()).subscribe(() => {});
 	try {
 		await client.query(bookReads.list());

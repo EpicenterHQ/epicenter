@@ -213,12 +213,14 @@ export const writes = resultMutations(['tasks'], { add: app.add, set: app.set })
 Each call answers a Result: what the action returned, or an `ActionError`
 told apart by `name`: `Changed` and `Missing` (the `FileError` the action
 threw), `Threw`, `Refused`, `Unreachable`. Check the name, never the message:
-a page for one record shows "it was deleted" when its read is `Missing`. The layout makes one
-`createQueryClient()` and puts it in `<QueryClientProvider>`; pages read with
+a page for one record shows "it was deleted" when its read is `Missing`.
+`lib/app.ts` also makes the one `queryClient = createQueryClient('<app>')`,
+which the layout puts in `<QueryClientProvider>`; pages read with
 `createQuery(() => reads.get({ path }))` and write with
 `createMutation(() => writes.set)`. That client refreshes every read after
-each write, before the write counts as done, every 15 s while the page is
-visible, and when it is shown again, so a page never refreshes by hand. Name
+each write, before the write counts as done, and whenever serve says the
+app's files changed (`/.changes/<app>`), by an agent, the CLI, or an editor,
+so a page never refreshes by hand or on a timer. Name
 types with `ActionInput<typeof app.actions.set>` and
 `ActionOutput<typeof app.actions.get>`.
 

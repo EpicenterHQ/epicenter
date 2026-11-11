@@ -2,10 +2,9 @@
  * What Tasks' pages watch and what they change, as TanStack options over the
  * actions `epicenter serve` runs (ADR-0661). A page reads with
  * `createQuery(() => reads.list())` and writes with
- * `createMutation(() => writes.set)`; the layout's QueryClient refreshes
- * every read after each write.
+ * `createMutation(() => writes.set)`.
  */
-import { type ActionInput, type ActionOutput, connect } from '@epicenter/app/client';
+import { type ActionInput, type ActionOutput, connect, createQueryClient } from '@epicenter/app/client';
 import { useMutationState } from '@tanstack/svelte-query';
 import { resultMutations, resultQueries } from 'wellcrafted/query';
 import type tasksApp from '../../../epicenter.js';
@@ -13,6 +12,9 @@ import type tasksApp from '../../../epicenter.js';
 type Actions = (typeof tasksApp)['actions'];
 
 const app = connect<typeof tasksApp>('tasks');
+
+/** The layout's QueryClient: every read refreshes after a write and whenever Tasks' files change. */
+export const queryClient = createQueryClient('tasks');
 
 export const reads = resultQueries(['tasks'], { list: app.list, get: app.get });
 

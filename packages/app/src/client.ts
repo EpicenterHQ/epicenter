@@ -8,7 +8,8 @@
  * call checks its input, types what it returns in its JSON form, and resolves
  * to a Result: what the action returned, or an `ActionError` saying why not.
  * A view lists the actions it watches and makes with Wellcrafted
- * (ADR-0661), and the layout's `createQueryClient` refreshes what it shows:
+ * (ADR-0661), and the layout's `createQueryClient('tasks')` refreshes what it
+ * shows when the app's files change:
  *
  * ```ts
  * import { connect } from '@epicenter/app/client';
@@ -143,19 +144,45 @@ export function connect<App extends { actions: object }>(
 }
 
 /**
- * The QueryClient for an app's view, made once where the page starts. Every
- * write refreshes every read the page shows, and the write is done only once
- * they are. Reads also refresh when the page is shown again and every 15
- * seconds while it is visible, so what an agent or another device changed
- * appears. A read that fails is not retried; the next refresh asks again.
+ * The QueryClient for app `app`'s view, made once where the page starts.
+ * Every write refreshes every read the page shows, and the write is done only
+ * once they are. In a browser it also listens to serve's
+ * `/.changes/<app>` and refreshes every read whenever the app's files change,
+ * by a call, an agent, or an editor, and once more each time the stream
+ * connects again, for what changed while it was away. A read that fails is
+ * not retried; the next change or refresh asks again.
  */
-export function createQueryClient(): QueryClient {
+export function createQueryClient(
+	app: string,
+	{ url = '/' }: { url?: string } = {},
+): QueryClient {
 	const client: QueryClient = new QueryClient({
-		defaultOptions: { queries: { refetchInterval: 15_000, retry: false } },
+		defaultOptions: { queries: { retry: false } },
 		mutationCache: new MutationCache({
 			onSettled: () => client.invalidateQueries(),
 		}),
 	});
+	// A page has both; Bun, which runs tests and builds, has no location.
+	const page = globalThis as {
+		location?: { href: string };
+		EventSource?: new (
+			url: URL,
+		) => { addEventListener(type: string, listener: () => void): void };
+	};
+	if (page.location && page.EventSource) {
+		const changes = new page.EventSource(
+			new URL(
+				`.changes/${encodeURIComponent(app)}`,
+				new URL(url, page.location.href),
+			),
+		);
+		let connected = false;
+		changes.addEventListener('open', () => {
+			if (connected) void client.invalidateQueries();
+			connected = true;
+		});
+		changes.addEventListener('change', () => void client.invalidateQueries());
+	}
 	return client;
 }
 

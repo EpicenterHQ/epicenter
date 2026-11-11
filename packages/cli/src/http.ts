@@ -6,6 +6,7 @@
  * GET  /             the launcher; 405 when asked for an event stream (MCP)
  * GET  /<app>/...    the app's view, ui/dist/, as static files
  * GET  /<app>        308 to /<app>/
+ * GET  /.changes/<app>  an event stream: `change` when the app's files change
  * ```
  *
  * Any later path of the server's own starts with `.`, which no app name can,
@@ -39,6 +40,7 @@ import { isName } from '@epicenter/app';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { openAuthorizationServer } from './authorization-server.ts';
+import { CHANGES, createChanges } from './changes.ts';
 import { runChild } from './child.ts';
 import { chooseApps, homeEntries } from './home.ts';
 import { createMcpServer } from './mcp.ts';
@@ -109,12 +111,17 @@ export type Site = {
 	launcher(request: Request): Promise<Response>;
 	/** `GET /<app>` and `/<app>/<path>`: the app's view, or 404. */
 	view(request: Request): Promise<Response>;
+	/** `GET /.changes/<app>`: the stream that tells the app's view its files changed. */
+	changes(request: Request): Promise<Response>;
 };
 
 const notFound = () => new Response('Not found', { status: 404 });
 
 /** The site both listeners serve: MCP, the launcher, and each app's view. */
-function createSite(instructions: string | undefined): Site {
+function createSite(
+	instructions: string | undefined,
+): Site & { /** End every change stream and stop watching. */ close(): void } {
+	const changes = createChanges();
 	const uiFile = async (app: string, path: string) => {
 		if (!isName(app)) return notFound();
 		const [entry] = (await chooseApps(app)).data ?? [];
@@ -230,6 +237,11 @@ function createSite(instructions: string | undefined): Site {
 			}
 			return uiFile(app, match[2]);
 		},
+		changes: (request) =>
+			request.method === 'GET'
+				? changes.stream(request)
+				: Promise.resolve(notFound()),
+		close: changes.close,
 	};
 }
 
@@ -331,6 +343,7 @@ export function startHttpServer(
 			return request.method === 'POST'
 				? site.mcp(request)
 				: site.launcher(request);
+		if (pathname.startsWith(CHANGES)) return site.changes(request);
 		return site.view(request);
 	};
 	const server = Bun.serve({
@@ -350,6 +363,7 @@ export function startHttpServer(
 		stop() {
 			stopping = true;
 			clearTimeout(clock);
+			site.close();
 			void server.stop();
 			return within(BACKUP_WAIT_MS, tickLogged());
 		},

@@ -92,6 +92,10 @@ async function setup(changes: Parameters<typeof claudeOnly>[1] = {}) {
 			reached.push({ page: new URL(request.url).pathname });
 			return new Response('view');
 		},
+		async changes(request) {
+			reached.push({ page: new URL(request.url).pathname });
+			return new Response('changes');
+		},
 	};
 	const handle = publicHandler(authorization, site);
 	// Better Auth's in-memory rate limit is shared by every server in this
@@ -388,6 +392,8 @@ describe('the path table', () => {
 			['GET', '/.anything', 404, 404, 404],
 			['GET', '/', 302, 200, 302],
 			['GET', '/reading/', 302, 200, 302],
+			// A view's change stream: a person's session only.
+			['GET', '/.changes/reading', 401, 200, 401],
 		];
 		const rows = [];
 		for (const [method, path, ...expected] of cases)

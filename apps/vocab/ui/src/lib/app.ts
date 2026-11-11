@@ -2,10 +2,9 @@
  * What Vocab's pages watch and what they change, as TanStack options over the
  * actions `epicenter serve` runs (ADR-0661). A page reads with
  * `createQuery(() => reads.due())` and writes with
- * `createMutation(() => writes.review)`; the layout's QueryClient refreshes
- * every read after each write.
+ * `createMutation(() => writes.review)`.
  */
-import { type ActionInput, type ActionOutput, connect } from '@epicenter/app/client';
+import { type ActionInput, type ActionOutput, connect, createQueryClient } from '@epicenter/app/client';
 import { resolve } from '$app/paths';
 import { resultMutations, resultQueries } from 'wellcrafted/query';
 import type vocabApp from '../../../epicenter.js';
@@ -13,6 +12,9 @@ import type vocabApp from '../../../epicenter.js';
 type Actions = (typeof vocabApp)['actions'];
 
 const app = connect<typeof vocabApp>('vocab');
+
+/** The layout's QueryClient: every read refreshes after a write and whenever Vocab's files change. */
+export const queryClient = createQueryClient('vocab');
 
 export const reads = resultQueries(['vocab'], { list: app.list, due: app.due, get: app.get });
 

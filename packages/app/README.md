@@ -419,9 +419,10 @@ failed.
 
 A view hands these calls to TanStack Query through Wellcrafted's
 `resultQueries` and `resultMutations` (ADR-0661), and makes its one
-QueryClient with `createQueryClient()`: every write refreshes every read the
-page shows before it counts as done, and reads refresh every 15 seconds while
-the page is visible and when it is shown again.
+QueryClient with `createQueryClient('<app>')`: every write refreshes every
+read the page shows before it counts as done, and in a browser every read
+refreshes when serve's `/.changes/<app>` stream says the app's files changed,
+by anyone, and when the page is shown again.
 
 ```ts
 import { resultMutations, resultQueries } from 'wellcrafted/query';

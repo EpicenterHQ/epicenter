@@ -5,7 +5,7 @@
  * waits on the clock's 5 minutes.
  */
 import { afterAll, afterEach, expect, setDefaultTimeout, test } from 'bun:test';
-import { rm, writeFile } from 'node:fs/promises';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { startHttpServer } from './http.ts';
 import { fixture, gitIn, readingApp } from './runner.test-support.ts';
@@ -129,4 +129,48 @@ test('a tick logs an unchanged failure once, and again when it changes', async (
 		].join('\n'),
 	);
 	expect(await gitIn(folder, 'rev-list', '--count', 'HEAD')).toBe('1');
+});
+
+test("a view's change stream says change when the app's files change, and only then", async () => {
+	const { folder } = await reading();
+	await mkdir(join(folder, 'books'), { recursive: true });
+	const server = serve();
+	await server.tick();
+	const response = await fetch(
+		`http://127.0.0.1:${server.port}/.changes/reading`,
+	);
+	expect(response.headers.get('content-type')).toBe('text/event-stream');
+	const reader = response.body!.pipeThrough(new TextDecoderStream()).getReader();
+	// One read at a time: a read still waiting when `heard` gives up takes the next chunk.
+	let pending = reader.read();
+	/** Everything the stream says within `ms`. */
+	const heard = async (ms: number) => {
+		let text = '';
+		const until = Date.now() + ms;
+		while (Date.now() < until) {
+			const next = await Promise.race([
+				pending,
+				Bun.sleep(until - Date.now()).then(() => undefined),
+			]);
+			if (!next || next.done) break;
+			text += next.value;
+			pending = reader.read();
+		}
+		return text;
+	};
+	// macOS may report writes from just before the watch began: one extra refresh.
+	expect(await heard(500)).toStartWith(': listening\n\n');
+	// A burst of writes is one change.
+	await writeFile(join(folder, 'books', 'a.md'), 'a\n');
+	await writeFile(join(folder, 'books', 'b.md'), 'b\n');
+	expect(await heard(1_000)).toBe('event: change\ndata:\n\n');
+	// What is not the app's records says nothing.
+	await gitIn(folder, 'add', '-A');
+	await gitIn(folder, 'commit', '-q', '-m', 'books');
+	expect(await heard(500)).toBe('');
+	await reader.cancel();
+
+	expect(
+		(await fetch(`http://127.0.0.1:${server.port}/.changes/nope`)).status,
+	).toBe(404);
 });

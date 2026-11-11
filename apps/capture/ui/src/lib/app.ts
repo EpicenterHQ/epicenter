@@ -2,16 +2,18 @@
  * What Capture's pages watch and what they change, as TanStack options over
  * the actions `epicenter serve` runs (ADR-0661). A page reads with
  * `createQuery(() => reads.get({ path }))` and writes with
- * `createMutation(() => writes.add)`; the layout's QueryClient refreshes
- * every read after each write.
+ * `createMutation(() => writes.add)`.
  */
-import { type ActionOutput, connect } from '@epicenter/app/client';
+import { type ActionOutput, connect, createQueryClient } from '@epicenter/app/client';
 import { resultMutations, resultQueries } from 'wellcrafted/query';
 import type capture from '../../../epicenter.js';
 
 type Actions = (typeof capture)['actions'];
 
 const app = connect<typeof capture>('capture');
+
+/** The layout's QueryClient: every read refreshes after a write and whenever Capture's files change. */
+export const queryClient = createQueryClient('capture');
 
 export const reads = resultQueries(['capture'], { recent: app.recent, get: app.get });
 

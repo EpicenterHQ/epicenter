@@ -12,6 +12,7 @@
  * GET  /.allow                                           a session: approve a connector
  * POST /                                                 a token, or a session with this Origin: MCP
  * GET  /, /<app>/...                                     a session, else a redirect to /.sign-in
+ * GET  /.changes/<app>                                   a session: the view's change stream
  * ```
  *
  * The boundary is the socket: this listener never trusts a header to say
@@ -35,6 +36,7 @@ import {
 	SCOPES,
 	SIGN_IN_PATH,
 } from './authorization-server.ts';
+import { CHANGES } from './changes.ts';
 import type { Site } from './http.ts';
 import { allowPage, signInPage } from './sign-in-pages.ts';
 
@@ -219,6 +221,10 @@ export function publicHandler(authorization: AuthorizationServer, site: Site) {
 				return site.mcp(request);
 			return withToken(request);
 		}
+		if (pathname.startsWith(CHANGES) && isGet(request))
+			return (await signedIn(request))
+				? site.changes(request)
+				: new Response('Unauthorized', { status: 401 });
 		if (pathname.startsWith('/.')) return notFound();
 		if (!isGet(request))
 			return pathname === '/' ? site.launcher(request) : notFound();
