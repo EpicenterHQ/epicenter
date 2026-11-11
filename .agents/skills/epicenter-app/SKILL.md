@@ -200,12 +200,12 @@ view needs no build: with no `build` script in `ui/package.json`, write
 it shows what serve answers and sends what the person changes.
 
 `src/lib/app.ts` is the one place the UI names the app's actions. It calls
-`connect<typeof app>('<app>')` from `@epicenter/app/client`, importing the app
+`connect<typeof app>()` from `@epicenter/app/client`, importing the app
 as a type (`import type app from '../../../epicenter.js'`), and lists what the
 pages watch and what they change with Wellcrafted (see `query-layer`):
 
 ```ts
-const app = connect<typeof tasksApp>('tasks');
+const app = connect<typeof tasksApp>();
 export const reads = resultQueries(['tasks'], { list: app.list, get: app.get });
 export const writes = resultMutations(['tasks'], { add: app.add, set: app.set });
 ```
