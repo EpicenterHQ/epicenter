@@ -43,6 +43,7 @@ import { basename, isAbsolute, join, sep } from 'node:path';
 import { isName } from '@epicenter/app';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { extractErrorMessage } from 'wellcrafted/error';
+import { linkAppPackage } from './app-package.ts';
 import { openAuthorizationServer } from './authorization-server.ts';
 import { CliError } from './errors.ts';
 import { chooseApps, homeEntries, loadHomeApp } from './home.ts';
@@ -453,6 +454,11 @@ export function startHttpServer(host: string, port: number) {
  */
 export async function serveHttp(host: string, port: number): Promise<number> {
 	const root = epicenterRoot();
+	// Every installed app's tools resolve the `@epicenter/app` of the `serve`
+	// that answers it, even when the `epicenter` they linked to is gone.
+	for (const { realPath } of await homeEntries())
+		if (await exists(join(realPath, 'node_modules')))
+			await linkAppPackage(realPath);
 	const authorization = root.public
 		? await openAuthorizationServer(root.folder, root.public.url)
 		: undefined;

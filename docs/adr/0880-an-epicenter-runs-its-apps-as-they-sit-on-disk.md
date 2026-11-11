@@ -59,8 +59,12 @@ sharing, never deployment.**
   over its files. When an app has one, `serve` builds it when its fingerprint
   changes and serves `ui/dist/` at `/<app>/`:
   - The fingerprint is the path, size and modified time of every file under
-    `ui/`, with `package.json`, `bun.lock`, and the `epicenter` version, so an
-    upgraded `epicenter` rebuilds every UI against its own client.
+    `ui/`, with `package.json`, `bun.lock`, the `epicenter` version, and where
+    its own `@epicenter/app` is with the files in its `src/`, so an upgraded
+    `epicenter`, one run from another checkout, or an edit to the client
+    rebuilds every UI against the client of the `serve` that answers it.
+    `serve` relinks every installed app to its own `@epicenter/app` when it
+    starts.
   - `serve` checks it on a request for the UI's `index.html`, builds in the
     background, and serves the last good build meanwhile. A failed build is
     remembered by fingerprint and not retried until something changes.

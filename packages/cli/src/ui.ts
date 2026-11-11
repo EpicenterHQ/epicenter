@@ -9,8 +9,11 @@
  *
  * The fingerprint is the path, size and modified time of every file under
  * `ui/` (but `ui/dist/`, any `node_modules/`, and names starting with `.`),
- * with the app's `package.json` and `bun.lock` and this `epicenter`'s version,
- * so an upgraded `epicenter` rebuilds every UI against its own client.
+ * with the app's `package.json` and `bun.lock`, this `epicenter`'s version,
+ * and where its own `@epicenter/app` is with the path, size and modified time
+ * of every file in its `src/`. So an upgraded `epicenter`, one run from
+ * another checkout, or an edit to the client rebuilds every UI against the
+ * client of the `serve` that answers it, and the build relinks the app to it.
  *
  * An app is one Bun project, so a UI builds in the app's folder:
  *
@@ -40,7 +43,7 @@ import {
 import { basename, dirname, join } from 'node:path';
 import { extractErrorMessage } from 'wellcrafted/error';
 import packageJson from '../package.json' with { type: 'json' };
-import { linkAppPackage } from './app-package.ts';
+import { appPackageFolder, linkAppPackage } from './app-package.ts';
 import { COMPILED } from './commands.ts';
 import { writeErr } from './output.ts';
 
@@ -136,13 +139,15 @@ async function statLine(file: string, path: string) {
 
 /** The fingerprint of the app's UI sources, as the stamp in `ui/dist/` records it. */
 async function fingerprintOf(folder: string): Promise<string> {
+	const client = await appPackageFolder();
 	const lines = [
 		...(await sourceLines(join(folder, 'ui'), 'ui/')),
 		await statLine(join(folder, 'package.json'), 'package.json'),
 		await statLine(join(folder, 'bun.lock'), 'bun.lock'),
+		...(await sourceLines(join(client, 'src'), '@epicenter/app/src/')),
 	].sort();
 	const hasher = new Bun.CryptoHasher('sha256');
-	hasher.update(`${packageJson.version}\n${lines.join('\n')}`);
+	hasher.update(`${packageJson.version}\n${client}\n${lines.join('\n')}`);
 	return hasher.digest('hex');
 }
 
@@ -249,7 +254,8 @@ export async function buildUi(app: string, folder: string): Promise<boolean> {
 /**
  * `serve`'s rebuilding: `refresh(app, folder)` builds in the background when
  * `ui/dist/` was not built from the UI's sources as they are now. One build
- * runs per app at a time. Sources whose build failed are not tried again
+ * runs per app at a time; a page load during one checks again after it, so
+ * an edit made meanwhile is never missed. Sources whose build failed are not tried again
  * until they change; the failure is written to stderr once, and
  * `epicenter build` shows it again. An app whose packages are not installed
  * is skipped, not failed, so `epicenter install` is all it takes.
@@ -280,10 +286,20 @@ export function createUiRefresher() {
 			);
 		}
 	};
+	/** Folders asked again while their refresh ran, whose sources may have changed since it looked. */
+	const askedAgain = new Set<string>();
 	return (app: string, folder: string): Promise<void> => {
 		const now = running.get(folder);
-		if (now) return now;
-		const next = refresh(app, folder).finally(() => running.delete(folder));
+		if (now) {
+			askedAgain.add(folder);
+			return now;
+		}
+		const next = (async () => {
+			do {
+				askedAgain.delete(folder);
+				await refresh(app, folder);
+			} while (askedAgain.has(folder));
+		})().finally(() => running.delete(folder));
 		running.set(folder, next);
 		return next;
 	};
