@@ -1,3 +1,7 @@
+/**
+ * Vocab chat runs over saved folder messages and the selected tutor endpoint.
+ * Failed, interrupted, and delayed answers leave only completed messages saved.
+ */
 import '../../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { expect, test } from 'bun:test';
 import { custom, openAi } from '@epicenter/ai';
@@ -222,6 +226,28 @@ test('a failed tutor request saves nothing and can be retried', async () => {
 	expect(context.chat.error).not.toBeNull();
 	expect(context.chat.canAsk).toBe(true);
 	expect(context.folder.files.paths('messages')).toHaveLength(2);
+	context.tutor.status = 200;
+	await context.chat.retry();
+	await context.settle();
+	expect(context.requests).toBe(2);
+	expect(context.chat.error).toBeNull();
+	expect(context.chat.messages.map((message) => message.role)).toEqual([
+		'assistant',
+		'user',
+		'assistant',
+	]);
+	expect(context.folder.files.paths('messages')).toHaveLength(3);
+	const saved = expectOk(await context.folder.other().messages.list()).items;
+	expect(
+		saved
+			.filter(({ chat }) => chat === context.chatId)
+			.sort((a, b) => a.createdAt - b.createdAt)
+			.map(({ role, parts }) => ({ role, parts })),
+	).toEqual([
+		{ role: 'assistant', parts: [{ type: 'text', text: 'Welcome.' }] },
+		{ role: 'user', parts: [{ type: 'text', text: 'Is this right?' }] },
+		{ role: 'assistant', parts: [{ type: 'text', text: 'Nice.' }] },
+	]);
 	context.chat[Symbol.dispose]();
 	context.folder[Symbol.dispose]();
 });
@@ -278,4 +304,3 @@ test('an opening is not asked twice over a chat that already has one', async () 
 	context.chat[Symbol.dispose]();
 	context.folder[Symbol.dispose]();
 });
-

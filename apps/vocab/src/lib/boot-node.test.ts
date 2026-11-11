@@ -3,9 +3,10 @@
  * `src/lib/app.ts` is the one place that opens the store: one folder for
  * the page's life (`openFolder`), the learner's repository on the web and
  * the data folder on the desktop. The `(app)` layout renders the pages over
- * it, or the sign-in while the repository's account is signed out; the
- * callback page and its ancestor layouts mount no app; and no source opens
- * a store of its own. What the web's first load carries is
+ * it, or the sign-in while the repository's account is signed out. The
+ * callback does not render the app, but its account import from app.ts still
+ * evaluates the module and starts the folder. A source scan checks for direct
+ * store openers outside app.ts. What the web's first load carries is
  * `scripts/first-load.test.ts`'s.
  */
 import { describe, expect, test } from 'bun:test';
@@ -49,13 +50,13 @@ async function shippedSources(): Promise<{ path: string; text: string }[]> {
 	);
 }
 
-describe('the callback mounts no app', () => {
+describe('the callback renders no app UI directly', () => {
 	test('the callback page exists and has at least one ancestor layout', () => {
 		expect(existsSync(callback)).toBe(true);
 		expect(ancestorLayouts(callback).length).toBeGreaterThan(0);
 	});
 
-	test('callback and ancestor layouts never open a store of their own or mount the app', async () => {
+	test('callback and ancestor layouts have no direct folder import or app component', async () => {
 		for (const file of [callback, ...ancestorLayouts(callback)]) {
 			const text = await Bun.file(file).text();
 			expect(text).not.toMatch(/@epicenter\/folder/);
@@ -88,10 +89,11 @@ describe('app.ts opens the one store', () => {
 		expect(contract).not.toMatch(/accountKey|@epicenter\/auth/);
 	});
 
-	test('no source opens a store of its own: app.ts’s folder is the only one', async () => {
+	test('no other shipped source names a direct store opener', async () => {
 		const openers = (await shippedSources())
+			.filter(({ path }) => path !== 'lib/app.ts')
 			.filter(({ text }) =>
-				/@epicenter\/app\/(open|store|memory)|@epicenter\/folder\/(browser|remote|tauri|memory|node)|\bopenDevice\b|\bopenRemote\b|\bopenDataFolder\b|\bfolderOf\b|desktop-startup|\bopenLocal\b|\bopenPersonal\b|PersistenceNotice|fromData\b/.test(
+				/@epicenter\/app\/(open|store|memory)|@epicenter\/folder\/(browser|remote|tauri|memory|node)|\bopenFolder\b|\bopenDevice\b|\bopenRemote\b|\bopenDataFolder\b|\bfolderOf\b|desktop-startup|\bopenLocal\b|\bopenPersonal\b|PersistenceNotice|fromData\b/.test(
 					text,
 				),
 			)
