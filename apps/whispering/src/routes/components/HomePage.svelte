@@ -99,20 +99,19 @@
 						{@const chosen = whispering.resolve(postProcessing.entry)}
 						{@const name = transformationName(postProcessing.entry)}
 						<div class="flex flex-wrap items-center gap-2 text-sm">
-							<!-- The visible label stays short: a title can be longer than a narrow window. The name is in the accessible label and the tooltip. -->
+							<!-- The visible label stays short: a title can be longer than a narrow window. The name is in the accessible label, and where it goes is in the line beside it. -->
 							<Button
 								size="sm"
 								variant="outline"
 								disabled={!transcript.body.trim() || postRunning}
 								aria-label="Run post-processing: {name}"
-								tooltip={chosen.kind === 'ready' ? `Runs “${name}”: sends this transcript to ${chosen.target.model} at ${chosen.target.name}` : undefined}
 								onclick={() => void runPostProcessing()}
 								data-testid="run-post-processing"
 							>
 								{#if postRunning}<Spinner class="size-3.5" />{:else}<WandSparklesIcon />{/if}
 								Run post-processing
 							</Button>
-							<span class="text-xs text-muted-foreground">Nothing is sent until you press it.</span>
+							<span class="text-xs text-muted-foreground">{chosen.kind === 'ready' ? `Sends this transcript to ${chosen.target.model} at ${chosen.target.name}, only when you press it.` : 'Nothing is sent until you press it.'}</span>
 						</div>
 					{:else if postProcessing.kind !== 'none'}
 						<p class="text-sm break-words text-warning" role="status" data-testid="post-processing-unavailable">
@@ -158,7 +157,6 @@
 					{#if !transcript}
 						<Button
 							size="sm"
-							tooltip={model ? `Transcribes with ${model}` : undefined}
 							disabled={audio?.kind !== 'here' || transcribing}
 							onclick={() => void transcribe(latest.id)}
 							data-testid="transcribe-latest"

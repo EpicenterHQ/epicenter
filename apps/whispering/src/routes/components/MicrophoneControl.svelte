@@ -190,7 +190,6 @@
 		{:else if unnamed}
 			<Button
 				size="sm"
-				tooltip="Asks for microphone access. Nothing is recorded."
 				disabled={locked || whispering.input.allowing}
 				onclick={() => void whispering.input.allow()}
 				data-testid="microphone-enable"

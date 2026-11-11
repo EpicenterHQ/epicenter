@@ -74,6 +74,24 @@ Keep custom UI app-local only when it owns app-specific behavior or product
 meaning. Move a stable visual contract into `packages/ui` when several apps need
 it or it owns an accessibility or interaction contract.
 
+## Buttons And Tooltips
+
+A tooltip never carries meaning. A phone has no hover, and the phone is one of
+the screens every view serves, so text that only a tooltip shows is text a
+phone never shows.
+
+- A button with words is a `Button` and has no tooltip; its words are its name.
+- A button with only an icon is an `IconButton`, whose required `label` is its
+  accessible name and the tooltip a pointer that can hover shows. Use an icon
+  alone only when the icon reads without the label (close, add, search,
+  settings, theme); otherwise give the button words.
+- A tooltip may add a keyboard shortcut (`IconButton`'s `shortcut`), since
+  shortcuts exist only where hover does.
+- A toggle keeps one label and states its state with `aria-pressed`: "Pin",
+  pressed or not, never "Pin" and "Unpin".
+- What a button sends, deletes, or costs, and why it is disabled, goes in
+  visible text beside it or in its confirmation, never in a tooltip.
+
 ## Human Taste Gate
 
 Ask one focused question when human preference would materially change the

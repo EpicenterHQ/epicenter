@@ -65,7 +65,7 @@ in the refresh PR or an issue, not in this register as accepted behavior.
 
 | Component | Epicenter difference | Reason |
 | --- | --- | --- |
-| Button and Link | `tooltip` prop and composed trigger props | Apps need one-label tooltips on buttons and links, including controls nested in popovers. `ghost-destructive` remains for existing icon actions. Standard sizes and `buttonVariants` follow upstream. |
+| Button, IconButton, and Link | `IconButton` owns icon labels and tooltips; Link keeps its `tooltip` prop | Icon-only controls need an accessible name. `IconButton` composes trigger props when nested in popovers. `ghost-destructive` remains for quiet destructive actions. Standard Button sizes and `buttonVariants` follow upstream. |
 | Dialog and Drawer | Viewport scrolling and Drawer content scroll wrapper | Long recording details remain usable, and mobile content can scroll without losing drag behavior. Installed Vaul `1.0.0-next.7` already suppresses autofocus by default. |
 | Modal | Extras-based responsive composition with simplified context access | Forms use Dialog on desktop and a draggable Drawer below 768px. The root owns the live media query; children read that root directly. |
 | Menu callers | Honeycrisp caps its Move to folder submenu height and scrolls it | Every folder remains reachable. Shared menu selection defaults follow upstream. |
