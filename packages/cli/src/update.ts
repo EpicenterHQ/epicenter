@@ -3,13 +3,17 @@
  * from it (ADR-0866). For each app with an `upstream` remote, or the one
  * named:
  *
- * 1. snapshot what is pending, as `undo` does, so the merge never mixes
- *    with it;
- * 2. `git fetch upstream` and merge the branch `upstream/HEAD` names, as
- *    `<app>: update from upstream`; a conflict aborts the merge, leaving the
- *    app as it was, and names the command that resolves it;
+ * 1. `git fetch upstream`, which touches only Git's own records;
+ * 2. holding the app's lock (`lock.ts`), snapshot what is pending, as `undo`
+ *    does, so the merge never mixes with it, then merge the branch
+ *    `upstream/HEAD` names, as `<app>: update from upstream`; a conflict
+ *    aborts the merge, leaving the app as it was, and names the command that
+ *    resolves it;
  * 3. check that the merged `epicenter.ts` loads;
  * 4. build the UI, keeping the last one that built if this build fails.
+ *
+ * Neither the fetch nor the build holds the lock, so the network and a build
+ * never keep a call from writing the app.
  *
  * Git merges code and does not migrate data: a file that no longer fits its
  * collection's fields says so in the `problems` of every read. An app
@@ -20,6 +24,7 @@ import { extractErrorMessage } from 'wellcrafted/error';
 import { misuse, parseWords } from './commands.ts';
 import { git, gitMessage } from './git.ts';
 import { chooseApps, loadHomeApp } from './home.ts';
+import { LOCK_WAIT_MS, locked } from './lock.ts';
 import { fail, writeJson } from './output.ts';
 import { snapshot } from './snapshot.ts';
 import { buildUi } from './ui.ts';
@@ -53,12 +58,9 @@ async function updateOne(app: string, folder: string): Promise<Updated> {
 		...updated,
 		error: { message: `${app}: ${message}`, ...(next ? { next } : {}) },
 	});
-	const taken = await snapshot(app, folder);
-	if ('failed' in taken)
-		return stop(
-			`nothing was merged, since what is pending could not be snapshotted first: ${taken.failed.message}`,
-			taken.failed.next ?? `epicenter sync ${app}`,
-		);
+	const stopped = (message: string, next?: string) => ({
+		stopped: stop(message, next),
+	});
 	const fetchArgs = ['fetch', '-q', 'upstream'];
 	const fetched = await git(folder, fetchArgs);
 	if (fetched.code !== 0)
@@ -72,28 +74,45 @@ async function updateOne(app: string, folder: string): Promise<Updated> {
 			'upstream names no default branch; set it with git remote set-head upstream --auto',
 			`git -C ${folder} remote set-head upstream --auto`,
 		);
-	const before = (await git(folder, ['rev-parse', 'HEAD'])).stdout;
-	const mergeArgs = [
-		'merge',
-		'-q',
-		'--no-edit',
-		'-m',
-		`${app}: update from upstream`,
-		target,
-	];
-	const merging = await git(folder, mergeArgs);
-	if (merging.code !== 0) {
+	const ran = await locked(folder, LOCK_WAIT_MS, async () => {
+		const taken = await snapshot(app, folder);
+		if ('failed' in taken)
+			return stopped(
+				`nothing was merged, since what is pending could not be snapshotted first: ${taken.failed.message}`,
+				taken.failed.next ?? `epicenter sync ${app}`,
+			);
+		const mergeArgs = [
+			'merge',
+			'-q',
+			'--no-edit',
+			'-m',
+			`${app}: update from upstream`,
+			target,
+		];
+		const before = (await git(folder, ['rev-parse', 'HEAD'])).stdout;
+		const merging = await git(folder, mergeArgs);
+		if (merging.code === 0)
+			return {
+				merged:
+					(await git(folder, ['rev-parse', 'HEAD'])).stdout === before
+						? null
+						: (await git(folder, ['rev-parse', '--short', 'HEAD'])).stdout,
+			};
 		const aborted = (await git(folder, ['merge', '--abort'])).code === 0;
-		return stop(
+		return stopped(
 			aborted
 				? 'the merge stopped on a conflict, so it was undone; the app is as it was'
 				: `could not merge: ${gitMessage(mergeArgs, merging)}`,
 			`git -C ${folder} merge ${target}`,
 		);
-	}
-	const after = (await git(folder, ['rev-parse', '--short', 'HEAD'])).stdout;
-	const moved = (await git(folder, ['rev-parse', 'HEAD'])).stdout !== before;
-	updated.merged = moved ? after : null;
+	});
+	if ('busy' in ran)
+		return stop(
+			'nothing was merged, since a call is still writing it',
+			`epicenter update ${app}`,
+		);
+	if ('stopped' in ran.done) return ran.done.stopped;
+	updated.merged = ran.done.merged;
 	const { data: located, error } = await loadHomeApp(app);
 	if (error) return stop(error.message);
 	if (!located.ok) return stop(located.problems.join('; '));

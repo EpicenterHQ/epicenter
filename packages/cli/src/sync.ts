@@ -7,6 +7,7 @@
 import { misuse, parseWords } from './commands.ts';
 import { git, gitMessage, originOf } from './git.ts';
 import { chooseApps } from './home.ts';
+import { LOCK_WAIT_MS, locked } from './lock.ts';
 import { fail, writeJson } from './output.ts';
 import { snapshot } from './snapshot.ts';
 
@@ -35,8 +36,9 @@ async function aheadOf(folder: string) {
  * there by name if it is ahead of its tracking ref or has none yet. It never
  * fetches, merges, or force pushes, and never pushes to `upstream`
  * (ADR-0851). `epicenter sync` and `serve`'s clock both run it; nothing else
- * touches a remote. The snapshot waits up to `wait` milliseconds for calls
- * to the app to commit (`snapshot.ts`); `serve`'s clock gives 0.
+ * touches a remote. The snapshot holds the app's lock, waiting up to `wait`
+ * milliseconds (30 seconds unless given) for a call writing the app to
+ * commit; `serve`'s clock gives 0. The push holds nothing.
  */
 export async function syncOne(
 	app: string,
@@ -67,7 +69,12 @@ export async function syncOne(
 	const inside = await git(folder, insideArgs);
 	if (inside.code !== 0)
 		return stop({ message: gitMessage(insideArgs, inside) });
-	const taken = await snapshot(app, folder, { message, wait });
+	const ran = await locked(folder, wait ?? LOCK_WAIT_MS, () =>
+		snapshot(app, folder, { message }),
+	);
+	if ('busy' in ran)
+		return stop({ message: 'a call is still writing it', busy: true });
+	const taken = ran.done;
 	if ('failed' in taken) return stop(taken.failed);
 	synced.committed = taken.committed;
 	const origin = await originOf(folder);

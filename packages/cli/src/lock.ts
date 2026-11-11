@@ -1,9 +1,11 @@
 /**
  * An app's lock, the one lock `epicenter` takes (ADR-0850): the kernel's
  * `flock` on the app's folder itself, so there is no lock file to make,
- * leave, or clean up. One holder at a time: a call from its first write until
- * its commit has finished (`run.ts`), and a snapshot with no call while it
- * commits (`snapshot.ts`). A lock belongs to an open descriptor: it is
+ * leave, or clean up. One holder at a time, each for the work that must not
+ * meet another's: a call from its first write until its commit has finished
+ * (`run.ts`), `sync` while it snapshots, `undo` from its snapshot until its
+ * revert is committed, and `update` while it snapshots and merges. None holds
+ * it across the network or a build. A lock belongs to an open descriptor: it is
  * released when that descriptor closes, here or when the process holding it
  * dies, so a crash never leaves it held. Two descriptors conflict even within
  * one process, so `serve`'s clock and a call it relays exclude each other as
@@ -14,7 +16,7 @@
 import { dlopen, FFIType } from 'bun:ffi';
 import { closeSync, openSync } from 'node:fs';
 
-/** How long a write or a snapshot waits for the app's lock before it gives up. */
+/** How long a call's first write, `sync`, `undo`, or `update` waits for the app's lock before it gives up. */
 export const LOCK_WAIT_MS = 30_000;
 
 const LOCK_EX = 2;
@@ -70,5 +72,24 @@ export async function hold(
 		}
 	} finally {
 		if (!held) closeSync(fd);
+	}
+}
+
+/**
+ * Run `work` holding the app's lock on `dir`, waiting up to `waitMs` for it,
+ * and let it go however `work` ends. `{ busy: true }` when another holder
+ * kept it that long, and `work` did not run.
+ */
+export async function locked<T>(
+	dir: string,
+	waitMs: number,
+	work: () => Promise<T>,
+): Promise<{ done: T } | { busy: true }> {
+	const held = await hold(dir, waitMs);
+	if (!held) return { busy: true };
+	try {
+		return { done: await work() };
+	} finally {
+		held.release();
 	}
 }

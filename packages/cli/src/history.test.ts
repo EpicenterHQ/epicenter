@@ -8,6 +8,7 @@ import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
 import { existsSync } from 'node:fs';
 import { readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { hold } from './lock.ts';
 import { fixture, gitIn } from './runner.test-support.ts';
 
 // Each test runs the real command several times as separate processes.
@@ -247,6 +248,24 @@ test('undo snapshots pending changes first, so undoing them loses nothing', asyn
 	expect(await f.subject(undid)).toStartWith('notes: ');
 	expect(await f.log()).toBe('one\n');
 	expect(await gitIn(f.app, 'status', '--porcelain')).toBe('');
+});
+
+test("undo waits while a call holds the app's lock, then snapshots and reverts in one hold", async () => {
+	const f = await setup();
+	expect((await f.run('notes', 'put', 'one')).code).toBe(0);
+	await writeFile(join(f.app, 'log.md'), 'edited by hand\n');
+	// As a call writing the app would, from its first write to its commit.
+	const call = await hold(f.app, 0);
+	expect(call).toBeDefined();
+	const started = Date.now();
+	const undoing = f.run('undo', 'notes');
+	await Bun.sleep(300);
+	expect(await f.subject()).toBe('notes: put one');
+	call?.release();
+	expect((await undoing).code).toBe(0);
+	expect(Date.now() - started).toBeGreaterThanOrEqual(300);
+	expect(await f.subject()).toStartWith('notes: undid ');
+	expect(await f.log()).toBe('one\n');
 });
 
 test("undo of a merge stops where Git refuses it, and a commit not in the app's history is refused, changing nothing", async () => {
