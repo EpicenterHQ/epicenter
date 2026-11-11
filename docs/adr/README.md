@@ -1083,3 +1083,5 @@ When you add an ADR, add its row here.
 | [0876](0876-an-apps-records-live-under-data-and-everything-else-in-it-is-code.md) | An app's records live under `data/`, and everything else in it is code | Accepted |
 | [0877](0877-an-apps-code-and-its-data-are-two-repositories-and-sharing-an-app-shares-its-code.md) | An app's code and its data are two repositories, and sharing an app shares its code | Accepted |
 | [0878](0878-the-os-keeps-epicenter-serve-running-under-a-job-the-person-installs.md) | The OS keeps `epicenter serve` running, under a job the person installs | Accepted |
+| [0879](0879-an-action-may-yield-values-while-it-runs-and-only-its-return-is-the-answer.md) | An action may yield values while it runs, and only its return is the answer | Proposed |
+| [0880](0880-an-epicenter-runs-its-apps-as-they-sit-on-disk.md) | An Epicenter runs its apps as they sit on disk | Proposed |
