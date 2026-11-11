@@ -32,7 +32,7 @@
 <div class="flex h-dvh flex-col overflow-hidden">
 	<AppHeader />
 
-	<Resizable.PaneGroup direction="horizontal" class="min-h-0 flex-1">
+	<Resizable.PaneGroup direction="horizontal" class="min-h-0 flex-1 gap-2">
 		<Resizable.Pane id="folders" order={1} defaultSize={18} minSize={10} maxSize={30}>
 			<FolderNav />
 		</Resizable.Pane>

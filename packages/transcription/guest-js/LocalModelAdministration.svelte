@@ -95,7 +95,7 @@
 			{/if}
 
 			{#if localModels.loaded && chosenId !== null && !chosen?.downloaded}
-				<Alert.Root variant="warning">
+				<Alert.Root class="text-warning *:data-[slot=alert-description]:text-warning/90">
 					<Alert.Title>{chosen?.name ?? chosenId} is in use but not downloaded</Alert.Title>
 					<Alert.Description>
 						Local transcription will fail until you download it again or use

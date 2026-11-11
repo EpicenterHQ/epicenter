@@ -8,7 +8,7 @@
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
 	import * as Empty from '@epicenter/ui/empty';
-	import { toast } from '@epicenter/ui/sonner';
+	import { toast } from 'svelte-sonner';
 	import { account } from '../app.js';
 
 	async function signIn() {

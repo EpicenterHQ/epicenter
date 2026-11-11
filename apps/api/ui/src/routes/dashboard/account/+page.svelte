@@ -20,7 +20,7 @@
 	} from '@epicenter/ui/confirmation-dialog';
 	import { Input } from '@epicenter/ui/input';
 	import { Separator } from '@epicenter/ui/separator';
-	import { toast } from '@epicenter/ui/sonner';
+	import { toast } from 'svelte-sonner';
 	import { runMutation } from 'wellcrafted/query';
 	import { Spinner } from '@epicenter/ui/spinner';
 	import CircleAlertIcon from '@lucide/svelte/icons/circle-alert';

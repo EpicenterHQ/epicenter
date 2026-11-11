@@ -61,7 +61,7 @@
 
 		const [item] = visibleSeries;
 		const tooltipData = chartCtx.tooltip.data;
-		// Epicenter: UsageChart's tooltip needs a defined item for its config lookup.
+		// Epicenter: narrows `item` for noUncheckedIndexedAccess; the length check above already returned.
 		if (!item) return null;
 
 		// Get the x-axis label value from the raw tooltip data (e.g. a Date or month string)

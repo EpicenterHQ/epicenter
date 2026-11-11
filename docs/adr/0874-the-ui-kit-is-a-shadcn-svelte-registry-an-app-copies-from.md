@@ -20,8 +20,8 @@ patch that opens with its reason. The kit on 2026-11-11:
 
 | Kind | Count | Items |
 | --- | --- | --- |
-| Stock, upstream's text | 20 | `checkbox`, `dropdown-menu`, `field`, `input`, `item`, `textarea`, … |
-| Stock with one patch | 6 | `button` (`ghost-destructive`), `alert` (`warning`), `sonner` (exports `toast`; rich colors), `tooltip` (300 ms delay), `chart`, `resizable` |
+| Stock, upstream's text | 23 | `button`, `checkbox`, `dropdown-menu`, `field`, `input`, `item`, `textarea`, … |
+| Stock with one patch | 3 | `tooltip` (300 ms delay), `sonner` (rich colors), `chart` (a type guard for `noUncheckedIndexedAccess`) |
 | Stock, not yet rebased | 7 | `command`, `context-menu`, `dialog`, `popover`, `select`, `sidebar`, `tabs`; only apps that wait (ADR-0840) import them |
 | Ours | 8 | `icon-button`, `confirmation-dialog`, `loading`, `section-header`, `copy-button`, `toast-on-error`, and `light-switch` and `link` from shadcn-svelte-extras |
 
@@ -96,11 +96,10 @@ capture/
 ## Considered alternatives
 
 - **Only our items in the registry, with stock components as bare-name
-  `registryDependencies`.** With six patches left this is a smaller registry
-  than it once was, but an outside app would get upstream's current text for
-  twenty components, and upstream's `button`, `sonner` and `tooltip` without
-  `ghost-destructive`, the `toast` export or the delay. The kit would stop
-  being one checked set.
+  `registryDependencies`.** With three patches left the registry would be
+  small, but an outside app would get upstream's text of the day for
+  twenty-three components, while our items such as `IconButton` were built
+  and checked against the snapshot. The kit would stop being one checked set.
 - **An `@epicenter/ui` alias in every app's view, mapped to its copied
   components** (this record's first form). A view's source was then the same
   in the monorepo and in an Epicenter, which mattered while starters were

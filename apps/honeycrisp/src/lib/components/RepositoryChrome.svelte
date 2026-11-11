@@ -9,7 +9,7 @@
 	import type { StatusLine } from '@epicenter/svelte/status-line';
 	import { Button } from '@epicenter/ui/button';
 	import { LightSwitch } from '@epicenter/ui/light-switch';
-	import { toast } from '@epicenter/ui/sonner';
+	import { toast } from 'svelte-sonner';
 	import { account } from '../app.js';
 
 	let {

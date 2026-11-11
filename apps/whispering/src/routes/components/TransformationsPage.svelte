@@ -49,7 +49,7 @@
 {/snippet}
 
 {#if wide.current}
-	<Resizable.PaneGroup direction="horizontal" class="min-h-0 flex-1">
+	<Resizable.PaneGroup direction="horizontal" class="min-h-0 flex-1 gap-2">
 		<Resizable.Pane id="transformations" order={1} defaultSize={34} minSize={20}>
 			<TransformationList />
 		</Resizable.Pane>

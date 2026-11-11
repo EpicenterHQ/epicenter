@@ -1,15 +1,16 @@
-Epicenter: guard an absent tooltip item while UsageChart in apps/api/ui
-initializes its series; the guard also narrows the value for TypeScript.
+Epicenter: the repository's noUncheckedIndexedAccess types `item` as possibly
+undefined, and getPayloadConfigFromPayload does not accept that. The guard
+never runs: the line above already returns when no series is visible.
 
 diff --git a/chart/chart-tooltip.svelte b/chart/chart-tooltip.svelte
-index 81e12af..b3796f3 100644
+index 81e12af..3ec4414 100644
 --- a/chart/chart-tooltip.svelte
 +++ b/chart/chart-tooltip.svelte
 @@ -61,6 +61,8 @@
  
  		const [item] = visibleSeries;
  		const tooltipData = chartCtx.tooltip.data;
-+		// Epicenter: UsageChart's tooltip needs a defined item for its config lookup.
++		// Epicenter: narrows `item` for noUncheckedIndexedAccess; the length check above already returned.
 +		if (!item) return null;
  
  		// Get the x-axis label value from the raw tooltip data (e.g. a Date or month string)

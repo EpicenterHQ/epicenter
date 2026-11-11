@@ -11,7 +11,7 @@
 	import { IconButton } from '@epicenter/ui/icon-button';
 	import * as Empty from '@epicenter/ui/empty';
 	import { Loading } from '@epicenter/ui/loading';
-	import { toast } from '@epicenter/ui/sonner';
+	import { toast } from 'svelte-sonner';
 	import PencilIcon from '@lucide/svelte/icons/pencil';
 	import { createMutation, createQuery, useMutationState } from '@tanstack/svelte-query';
 	import type { Grade } from '../../../epicenter.js';

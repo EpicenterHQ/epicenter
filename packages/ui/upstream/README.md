@@ -44,7 +44,7 @@ component is rebased; a difference without a reason is reverted.
 
 | Component | Epicenter difference | Reason |
 | --- | --- | --- |
-| IconButton and Link | `IconButton` owns icon labels and tooltips; Link keeps its `tooltip` prop | Icon-only controls need an accessible name. `IconButton` composes trigger props when nested in popovers. Both are the kit's own; Button is rebased, with its patch in `patches/button.diff`. |
+| IconButton and Link | `IconButton` owns icon labels and tooltips; Link keeps its `tooltip` prop | Icon-only controls need an accessible name. `IconButton` composes trigger props when nested in popovers. Both are the kit's own; Button is upstream's text. |
 | Dialog | Viewport scrolling | Long recording details remain usable. |
 | Sidebar | The same offcanvas Sidebar at narrow widths | Collapsed offcanvas sidebars are inert so hidden navigation cannot receive keyboard focus. Sidebar preserves the existing navigation structure instead of adopting upstream’s separate mobile Sheet. |
 | Tabs.Content | Inactive children unmount; `forceMount` retains them explicitly | Editor panels share one selection and disposable controls; the main app shell preserves its chat and settings state. |

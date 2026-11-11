@@ -9,7 +9,7 @@
 	import { IconButton } from '@epicenter/ui/icon-button';
 	import * as Empty from '@epicenter/ui/empty';
 	import { Input } from '@epicenter/ui/input';
-	import { toast } from '@epicenter/ui/sonner';
+	import { toast } from 'svelte-sonner';
 	import { Spinner } from '@epicenter/ui/spinner';
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';

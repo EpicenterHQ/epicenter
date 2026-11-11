@@ -17,8 +17,7 @@
 	bind:this={paneGroup}
 	data-slot="resizable-pane-group"
 	class={cn(
-		// Epicenter: Honeycrisp and Whispering separate adjacent panes.
-		"gap-2 flex h-full w-full data-[direction=vertical]:flex-col",
+		"flex h-full w-full data-[direction=vertical]:flex-col",
 		className
 	)}
 	{...restProps}

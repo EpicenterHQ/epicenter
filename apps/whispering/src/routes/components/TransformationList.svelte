@@ -3,7 +3,7 @@
 	import * as DropdownMenu from '@epicenter/ui/dropdown-menu';
 	import * as Empty from '@epicenter/ui/empty';
 	import * as SectionHeader from '@epicenter/ui/section-header';
-	import { toast } from '@epicenter/ui/sonner';
+	import { toast } from 'svelte-sonner';
 	import { Spinner } from '@epicenter/ui/spinner';
 	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
 	import PlusIcon from '@lucide/svelte/icons/plus';

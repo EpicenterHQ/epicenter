@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { ModelChoice } from '@epicenter/ai';
 	import { ModelPicker } from '@epicenter/ai/picker';
-	import { toast } from '@epicenter/ui/sonner';
+	import { toast } from 'svelte-sonner';
 	import { CAN, getWhispering, type Operation } from '$lib/whispering.svelte.js';
 
 	/**

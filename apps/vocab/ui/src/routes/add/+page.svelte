@@ -3,7 +3,7 @@
 	import { Button } from '@epicenter/ui/button';
 	import * as Field from '@epicenter/ui/field';
 	import { Input } from '@epicenter/ui/input';
-	import { toast } from '@epicenter/ui/sonner';
+	import { toast } from 'svelte-sonner';
 	import { Textarea } from '@epicenter/ui/textarea';
 	import { createMutation } from '@tanstack/svelte-query';
 	import { hrefOf, writes } from '$lib/app.js';

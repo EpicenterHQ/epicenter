@@ -11,7 +11,7 @@
 	import { Spinner } from '@epicenter/ui/spinner';
 	import { Textarea } from '@epicenter/ui/textarea';
 	import * as Collapsible from '@epicenter/ui/collapsible';
-	import { toast } from '@epicenter/ui/sonner';
+	import { toast } from 'svelte-sonner';
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
 	import XIcon from '@lucide/svelte/icons/x';
@@ -179,7 +179,7 @@
 		</div>
 
 		<div class="flex flex-wrap items-center gap-2 border-t px-4 py-2 text-xs text-muted-foreground">
-			<Button class="ml-auto" size="sm" variant="ghost-destructive" onclick={() => confirmDelete(library, { collection: 'recordings', id: own })} data-testid="delete-recording">
+			<Button class="ml-auto" size="sm" variant="destructive" onclick={() => confirmDelete(library, { collection: 'recordings', id: own })} data-testid="delete-recording">
 				Delete recording
 			</Button>
 		</div>

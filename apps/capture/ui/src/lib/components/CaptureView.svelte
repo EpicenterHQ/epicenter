@@ -24,7 +24,7 @@
 	import * as Empty from '@epicenter/ui/empty';
 	import * as InputGroup from '@epicenter/ui/input-group';
 	import { Skeleton } from '@epicenter/ui/skeleton';
-	import { toast } from '@epicenter/ui/sonner';
+	import { toast } from 'svelte-sonner';
 	import { Textarea } from '@epicenter/ui/textarea';
 	import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
 	import EllipsisIcon from '@lucide/svelte/icons/ellipsis';

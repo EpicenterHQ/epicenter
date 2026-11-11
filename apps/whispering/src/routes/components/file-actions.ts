@@ -4,7 +4,7 @@
  */
 
 import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
-import { toast } from '@epicenter/ui/sonner';
+import { toast } from 'svelte-sonner';
 import { describeDeletion, type NoteRef, notePath } from '$lib/deletion.js';
 import type { Library } from '$lib/library.svelte.js';
 

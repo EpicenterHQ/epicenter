@@ -45,6 +45,6 @@
 		</div>
 	{/if}
 	<div class="mt-auto flex shrink-0 items-center gap-2 border-t px-4 py-2">
-		<Button class="ml-auto" size="sm" variant="ghost-destructive" onclick={onDelete}>Delete</Button>
+		<Button class="ml-auto" size="sm" variant="destructive" onclick={onDelete}>Delete</Button>
 	</div>
 </div>

@@ -1,16 +1,6 @@
-Epicenter: `toast` is exported beside `Toaster`, and toasts use rich colors.
-A toast reaches a Toaster only through the same svelte-sonner instance, so
-apps import both from @epicenter/ui/sonner. Every app's errors and successes
-read by color, so rich colors are the kit's default rather than a prop on
-each app's Toaster.
+Epicenter: toasts use rich colors, so every app's errors and successes read
+by color. It is the kit's default rather than a prop on each app's Toaster.
 
-diff --git a/sonner/index.ts b/sonner/index.ts
-index fcaf06b..50e1083 100644
---- a/sonner/index.ts
-+++ b/sonner/index.ts
-@@ -1 +1,2 @@
-+export { toast } from 'svelte-sonner';
- export { default as Toaster } from './sonner.svelte';
 diff --git a/sonner/sonner.svelte b/sonner/sonner.svelte
 index 6ecd652..f0f901c 100644
 --- a/sonner/sonner.svelte
