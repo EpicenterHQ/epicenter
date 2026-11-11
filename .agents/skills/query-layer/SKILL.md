@@ -1,232 +1,173 @@
 ---
 name: query-layer
-description: 'Query boundaries with TanStack Query and Wellcrafted Results. Use when editing createQuery, createMutation, resultQueryOptions, resultMutationOptions, defineQuery, defineMutation, defineKeys, shared cache identity, mutation lifecycle, or service-to-TanStack adapters.'
+description: 'Compose Result-returning services into TanStack Query with Wellcrafted''s resultQueries and resultMutations, one invalidation rule per QueryClient, and composition by spread. Use when editing createQuery, createMutation, resultQueries, resultMutations, resultQueryOptions, resultMutationOptions, runQuery, runMutation, a QueryClient or MutationCache, cache keys, invalidation, or optimistic updates.'
 metadata:
   author: epicenter
-  version: '3.0'
+  version: '4.0'
 ---
 
-# Query Layer Patterns
+# Query layer
 
-## Reference Repositories
+The query layer turns Result-returning services into TanStack Query options
+for UI to observe. Services stay TanStack-free and return Results; the layer
+adds cache identity, observation, and refresh after writes. Everything in it is
+plain TanStack options, so TanStack's own mechanisms do the composing.
 
-- [TanStack Query](https://github.com/tanstack/query): async state management for data fetching
+Related skills: `services-layer` for the services these consume, `svelte` for
+component-level hook use, `error-handling` for presenting a failure.
 
-## Upstream Grounding
+## Ground before relying on memory
 
-When TanStack Query behavior, Svelte adapter types, cache invalidation semantics, optimistic updates, or mutation lifecycle callbacks affect correctness, ask DeepWiki a narrow question against `TanStack/query` before relying on memory. Use it to orient, then verify decisive details against local installed types, source, or official docs before changing code.
+Ground the Wellcrafted side in `wellcrafted/query` as installed (0.47, source
+and README in [wellcrafted-dev/wellcrafted](https://github.com/wellcrafted-dev/wellcrafted/tree/main/src/query)).
+When TanStack behavior affects correctness, such as invalidation, mutation
+callback order, or adapter types, ask DeepWiki a narrow question about
+`TanStack/query`, then confirm the deciding detail in the installed
+`@tanstack/query-core` source. Skip this for the patterns below.
 
-Skip DeepWiki for stable basics and repo-local patterns already documented below.
+## Compose a service in two maps
 
-The query layer is the reactive bridge between UI components and the service layer. It wraps service functions or observable operations with caching, mutation lifecycle state, invalidation, and direct imperative access using TanStack Query and Wellcrafted factories.
+List the reads and the writes a UI observes, under one namespace. The dashboard
+does this for its billing API (`apps/api/ui/src/lib/dashboard/runtime.ts`):
 
-> **Related Skills**: See `services-layer` for the service layer these queries consume. See `svelte` for Svelte-specific TanStack Query patterns. See `error-handling` for toast/report patterns after Results reach the UI boundary.
-
-## Core Architecture
-
-```
-┌─────────────┐     ┌─────────────┐     ┌──────────────┐
-│     UI      │ --> │    Query    │ --> │   Services   │
-│ Components  │     │    Layer    │     │  (UI-free)   │
-└─────────────┘     └─────────────┘     └──────────────┘
-      ↑                    │
-      └────────────────────┘
-         Reactive Updates
-```
-
-**Query Layer Responsibilities:**
-
-- Call services with injected settings/configuration
-- Preserve typed service and operation errors unless the adapter introduces a new local failure
-- Manage TanStack Query cache for optimistic updates
-- Provide hook-ready `.options` for shared definitions and explicit imperative APIs where they exist
-- Own shared cache identity through exported `*Keys` maps
-
-## Wellcrafted Query API Shape
-
-| Scope | Query | Mutation |
-| --- | --- | --- |
-| Hook-local Result adapter | `resultQueryOptions(input)` | `resultMutationOptions(input)` |
-| Reusable definition | `defineQuery(input)` | `defineMutation(input)` |
-
-Use `resultQueryOptions` and `resultMutationOptions` at one hook call site when a Result-returning function needs to enter TanStack's data/error channels and no imperative API or shared query identity is needed.
-
-The adapters unwrap internally (`Ok.data` is returned, `Err.error` is thrown).
-Pass the Result-returning function; do not `unwrap` first.
-
-Use `defineQuery` and `defineMutation` in shared `$lib/queries` modules.
-
-Queries expose `.options`, `.fetch()`, and `.ensure()`. They are not callable.
-
-Mutations expose `.options` and are callable. They do not expose `.execute()`.
-
-## Canonical Whispering Query Module Shape
-
-For Whispering-style `$lib/queries` modules, keep source-of-truth declarations close to the work they describe. Factories receive the session-owned runtime explicitly:
-
-```typescript
-export const audioKeys = defineKeys({
-	availability: (id: string, blobId: string, uploadedAt: string | null) =>
-		['audio', 'availability', id, blobId, uploadedAt] as const,
+```ts
+const billingQueries = resultQueries(['billing'], {
+	overview: billingApi.overview,
+	usage: billingApi.usage,
+	plans: billingApi.plans,
 });
 
-export function createAudioQueries({ defineQuery }: WhisperingQueryRuntime) {
-	return {
-		availability: (recording: Accessor<Recording>) =>
-			defineQuery({
-				queryKey: audioKeys.availability(
-					recording().id,
-					recording().audioBlobId,
-					recording().uploadedAt,
-				),
-				queryFn: () => getRecordingAudioAvailability(recording()),
-			}),
-	};
-}
+const billingMutations = resultMutations(['billing'], {
+	checkoutPlan: billingApi.checkoutPlan,
+	checkoutTopUp: billingApi.checkoutTopUp,
+});
 ```
 
-Rules:
+- A query entry takes the method's own arguments and returns options keyed
+  `[namespace, method, [args]]`. `billingQueries.usage.key` is the prefix of
+  every argument variant; `billingQueries.usage(params).queryKey` is one entry,
+  typed for `getQueryData` and `setQueryData`.
+- A mutation entry is the options object itself, keyed `[namespace, method]`.
+  Its method takes zero arguments or one input object; only that input reaches
+  it.
+- Pass functions only: bound methods or closures, with annotated parameters on
+  a new wrapper. A wrapper that fixes a transport option is fine:
+  `session: () => management.getSession({ query: { disableCookieCache: true } })`.
+- Query arguments become the key. Keep them stable and serializable, and
+  normalize before calling the factory when `f()` and `f(undefined)` should
+  share an entry.
 
-- Export `*Keys = defineKeys({ ... })` beside the adapter or state module that owns the work.
-- Static keys do not need `as const`; key factories use `as const` when literal positions matter.
-- Keep keys in the owning module unless another layer needs the same fallback identity.
-- Inline small single-use input objects. Name an input type only when it is reused, exported, large enough to obscure the function, or carries domain meaning. Put named input types immediately before the adapter namespace that uses them.
-- Keep adapter-local `defineErrors` namespaces local unless another module needs to name that exact union.
-
-## Adapter Boundary: Queries vs Operations
-
-Use `$lib/queries` as the shared TanStack observation surface. It may wrap a direct service/state call, or a `$lib/operations` entry point when UI needs shared mutation identity: multiple consumers, cache invalidation, optimistic updates, `useIsMutating`, or a named mutation key over that operation.
-
-The Whispering query modules these examples came from were removed when
-Whispering became a standalone file-folder app with no query layer. The shape
-is still the convention for a `$lib/queries` module in an app that has one.
-
-Keep orchestration in `$lib/operations`: delivery, reporting, sounds, analytics, clipboard writes, and multi-step workflows. Do not promote a one-component operation into `$lib/queries` merely to observe local pending state. The `svelte` skill owns the component's choice between local `createMutation` and direct `await`.
-
-## Dependency Direction
-
-```txt
-UI -> operations/* -> services/* + state/* + $lib/tauri
-UI -> queries/*    -> services/* or operations/*, plus narrow state reads/writes for observed lifecycle
-```
-
-Query modules receive the session-owned query runtime and import services, state, or operations. They do not import sibling query modules just to sequence work; cross-adapter coordination belongs in operations.
-
-## Error Flow
-
-In Whispering, service and operation errors are already tagged errors. Query adapters pass them through. The UI/report boundary decides how to present them.
-
-```txt
-Service / Operation       ->  Query Adapter     ->  UI / Report
-TaggedError<'Name'>           same error            report.error({ cause: error })
-```
-
-Only define a query-local error when the adapter itself discovers a failure that no lower layer can own, such as a missing recording lookup before calling an operation.
-
-## Reactive And Imperative Use
-
-Query-layer adapters provide reactive hook usage and explicit imperative usage.
-
-### Reactive Interface: `.options`
-
-Shared query adapters expose `.options` as a static object. Svelte hooks read it inside an accessor:
+Hooks take entries directly, with no `.options` hop:
 
 ```svelte
-<script lang="ts">
-	import { createQuery, createMutation } from '@tanstack/svelte-query';
-	import { getWhisperingQueries } from '$lib/whispering/context';
-
-	const queries = getWhisperingQueries();
-	const availability = createQuery(() =>
-		queries.audio.availability(() => recording).options,
-	);
-
-	const transcribeRecording = createMutation(
-		() => queries.transcription.transcribeRecording.options,
-	);
-</script>
-
-{#if availability.isPending}
-	<Spinner />
-{:else if availability.error !== null}
-	<Error message={availability.error.message} />
-{:else}
-	<AvailabilityBadge value={availability.data} />
-{/if}
+const overview = createQuery(() => billingQueries.overview());
+const topUp = createMutation(() => billingMutations.checkoutTopUp);
+topUp.mutate({ successUrl: window.location.href }, { onSuccess, onError });
 ```
 
-### Name handles for what they hold
+Use `resultQueryOptions` or `resultMutationOptions` for one function outside a
+namespace, a key that is not `[namespace, method, args]`, or a query that needs
+TanStack's context, such as its abort signal. Namespace entries never see it.
 
-Name a query handle for its data and a mutation handle for its verb plus noun,
-as the Whispering components above do: `availability` for a query,
-`transcribeRecording` and `downloadRecording` for mutations.
+## One rule refreshes reads after every write
 
-A query holds a value, so `availability.data` reads as the data. A mutation
-performs an action, so `downloadRecording.mutate(recording)` reads as the
-action, and the handle names the option it came from. Keep the action's verb:
-`deleteRecording` for a delete, not `remove` (`delete` alone is reserved; the
-noun makes it legal). Do not suffix handles with `Query` or `Mutation`. Give
-each action its own mutation so each control owns its pending and error state.
+Give each QueryClient one `MutationCache` rule, where the client is created:
 
-### Imperative Interface: Queries Choose Cache Policy, Mutations Are Callable
-
-Use outside component context, or whenever the caller needs a direct Result:
-
-```typescript
-// In an event handler or workflow
-async function handleDownload(recording: Recording) {
-	const { error } = await queries.download.downloadRecording(recording);
-	if (error !== null) {
-		report.error({ cause: error });
-		return;
+```ts
+declare module '@tanstack/svelte-query' {
+	interface Register {
+		mutationMeta: { invalidates?: QueryKey[] };
 	}
-	report.success({ title: 'Recording downloaded' });
 }
 
-// In a sequential workflow
-async function stopAndTranscribe(toastId: string) {
-	const { data: url, error: playbackUrlError } =
-		await queries.audio.availability(() => recording).fetch();
-
-	if (playbackUrlError !== null) {
-		report.error({ cause: playbackUrlError });
-		return;
-	}
-
-	// Continue with transcription...
-}
+const queryClient = new QueryClient({
+	mutationCache: new MutationCache({
+		onSettled: (_data, _error, _variables, _rollback, mutation, { client }) =>
+			client.invalidateQueries({
+				predicate: (query) =>
+					mutation.meta?.invalidates?.some((queryKey) =>
+						matchQuery({ queryKey }, query),
+					) ?? true,
+			}),
+	}),
+});
 ```
 
-Use `.fetch()` when TanStack should evaluate the query's normal staleness policy: fresh cached data may still be returned without a request. Use `.ensure()` when any cached data is acceptable and fetching is only required when the cache is empty.
+After any write, finished or failed, every query goes stale. Only observed
+queries refetch now; the rest refetch when next used. The rule reads nothing
+from the write's key, so it cannot miss a read elsewhere, and it runs alongside
+an entry's own callbacks, so a spread cannot drop it. Returning the promise
+keeps the write pending until what is on screen is fresh.
 
-### When to Use Each
+So do not call `invalidateQueries` after a write in a component or a mutation
+callback. A write that changes nothing lists no keys:
+`{ ...billingMutations.previewPlanChange, meta: { invalidates: [] } }`. Narrow
+a write to specific prefixes only for a measured cost; a precise list goes stale
+silently when a new read starts depending on the write. Do not derive a write's
+scope from its mutation key.
 
-| Adapter surface | Pattern |
-| --------------- | ------- |
-| Shared reactive query | `createQuery(() => queries.thing.options)` |
-| Shared reactive mutation | `createMutation(() => queries.thing.options)` |
-| Imperative query read | `queries.thing(...).fetch()` or `queries.thing(...).ensure()` |
-| Imperative mutation | `queries.thing(input)` |
+The rule's scope is the client. The dashboard creates one per attachment, so
+its rule never touches another attachment's cache.
 
-For local component operation placement and lifecycle decisions, use the
-`svelte` skill's mutation guidance.
+## Compose by spread
 
-## Key Rules
+Behavior goes where its scope is:
 
-1. **Use `defineKeys` for shared cache identity** - Export the key map beside the owner
-2. **Use `.options` (no parentheses)** - It's a static object, wrap in accessor for Svelte
-3. **Do not translate tagged errors by default** - Pass service/operation errors through to the report boundary
-4. **Services receive explicit app inputs** - The consuming edge injects settings and device config
-5. **Keep component lifecycle policy in `svelte`** - This skill owns shared adapter shape and cache behavior
-6. **Update cache deliberately** - Use optimistic writes only when the cache owner and rollback path are explicit; otherwise invalidate or refetch
+| Scope | Where | Example |
+| --- | --- | --- |
+| One use | Spread into the hook's options | `createQuery(() => ({ ...billingQueries.plans(), select: (p) => p.cards }))` |
+| A method or namespace | Client defaults by key prefix | `queryClient.setQueryDefaults(billingQueries.overview.key, { refetchOnWindowFocus: 'always' })` |
+| A variant several components share | Spread into `mutationOptions` and export it | below |
 
-## References
+TanStack infers what a spread adds, including `select`. Matching defaults merge
+in registration order, so register a broad prefix before a narrow one.
 
-Load these on demand based on what you're working on:
+A shared variant reaches the cache through the query factories' keys, so define
+the reads first; writes refer to reads, never the reverse:
 
-- If working with **error pass-through examples and anti-patterns**, read [references/error-transformation-patterns.md](references/error-transformation-patterns.md)
-- If working with **runtime dependency injection and service selection**, read [references/runtime-dependency-injection.md](references/runtime-dependency-injection.md)
-- If working with **cache management, query definitions, RPC namespace, or notify coordination**, read [references/advanced-query-patterns.md](references/advanced-query-patterns.md)
+```ts
+export const updateUser = mutationOptions({
+	...userMutations.update,
+	onSuccess: (saved, _input, _rollback, { client }) =>
+		client.setQueryData(userQueries.get(saved.id).queryKey, saved),
+});
+```
 
-- See the `services-layer` skill for how services are implemented
-- See the `error-handling` skill for trySync/tryAsync patterns and toast-on-error conventions
+For an optimistic change shown in one place, render `mutation.variables` while
+the write is pending and leave the cache alone: there is nothing to roll back.
+Update the cache in `onMutate`, cancel the read first, and restore the snapshot
+in `onError` only when several places must show the change at once.
+
+## Run options imperatively
+
+Outside a hook, or when a handler needs the outcome as a Result, run the same
+options through the client:
+
+```ts
+const { error } = await runMutation(queryClient, accountMutations.deletePasskey, {
+	id: passkey.id,
+});
+if (error) return reportError(error, 'Could not remove this passkey.');
+```
+
+`runMutation` goes through the mutation cache, so the rule, devtools, and
+`useIsMutating` see the write. `runQuery(client, options)` reads through the
+cache and returns `Result<TData, TError | CancelledError>`; pass
+`staleTime: 'static'` to accept any cached value. Call a service directly when
+nothing observes its data.
+
+## Keep errors and choices where they belong
+
+Service errors pass through the query layer unchanged as tagged errors.
+TanStack carries them in `error`, and the component or report boundary decides
+what a person sees. Add a local error only when the adapter discovers a failure
+no lower layer owns. Choosing an implementation from settings or platform
+belongs to the consuming operation (`services-layer`), not to a query entry.
+
+## Name handles for what they hold
+
+Name a query handle for its data and a mutation handle for its verb and noun:
+`overview.data`, `topUp.mutate(...)`, `deletePasskey`. Keep the action's verb;
+`delete` alone is reserved, so add the noun. Do not suffix handles with `Query`
+or `Mutation`. Give each control its own mutation so each owns its pending and
+error state.

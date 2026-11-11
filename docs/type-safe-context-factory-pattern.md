@@ -89,48 +89,19 @@ When you use `bind:value` with a getter and setter function, the type flows thro
 
 ## Query Factories
 
-The Wellcrafted query API has two scopes. Hook-local adapters (`queryOptions` and `mutationOptions`) do not need a client because they only produce hook options. Reusable definitions (`defineQuery` and `defineMutation`) do need a client because their imperative APIs run through TanStack Query.
+Wellcrafted's query API takes no client. `resultQueries` and `resultMutations` turn a service's Result-returning methods into TanStack options; `resultQueryOptions` and `resultMutationOptions` adapt one function. Hooks take their client from the provider, and `runQuery` and `runMutation` take it as an argument.
 
 ```typescript
-import { QueryClient } from '@tanstack/svelte-query';
-import {
-	createQueryFactories,
-	mutationOptions,
-	queryOptions,
-} from 'wellcrafted/query';
+import { resultMutations, resultQueries } from 'wellcrafted/query';
 
-const queryClient = new QueryClient();
+const userQueries = resultQueries(['users'], { get: services.getUser });
+const userMutations = resultMutations(['users'], { save: services.saveUser });
+
+const user = createQuery(() => userQueries.get(userId));
+const save = createMutation(() => userMutations.save);
 ```
 
-Use hook-local adapters at one call site:
-
-```typescript
-const user = createQuery(() =>
-	queryOptions({
-		queryKey: ['user', userId],
-		queryFn: () => services.getUser(userId),
-	}),
-);
-
-const save = createMutation(() =>
-	mutationOptions({
-		mutationKey: ['user', 'save'],
-		mutationFn: (input: SaveUserInput) => services.saveUser(input),
-	}),
-);
-```
-
-Use `createQueryFactories` when a shared query module needs reusable definitions:
-
-```typescript
-import { QueryClient } from '@tanstack/svelte-query';
-import { createQueryFactories } from 'wellcrafted/query';
-
-const queryClient = new QueryClient();
-const { defineQuery, defineMutation } = createQueryFactories(queryClient);
-```
-
-All queries and mutations defined with these functions share the same client. Queries expose `.options`, `.fetch()`, and `.ensure()`; they are not callable. Mutations expose `.options` and are callable; they do not expose `.execute()`.
+A factory still earns its place when the options close over a per-session transport. Build the maps inside the session constructor, beside the QueryClient that session owns, as `createDashboardRuntime(account)` does in `apps/api/ui`. The options and the client then share one lifetime.
 
 ## When to Use It
 

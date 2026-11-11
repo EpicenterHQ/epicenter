@@ -16,7 +16,7 @@
 >
 > **Regenerate (deterministic per ref set, lossless):** `bun scripts/generate-spec-history.ts`. The totals track the refs this clone can see; `--all` is deliberate so the timeline recovers specs that only lived on unmerged or deleted branches.
 
-**1489 specs ever** (4 still in tree, 1485 removed).
+**1489 specs ever** (3 still in tree, 1486 removed).
 
 
 ## 2026
@@ -30,7 +30,7 @@
 | 2026-10-28 | repository-engine-slice-2 | removed | specs/20261028T160000-repository-engine-slice-2.md |
 | 2026-10-28 | repository-engine-slice-1 | removed | specs/20261028T120000-repository-engine-slice-1.md |
 | 2026-10-22 | browser-folder-sync-clean-break | removed | specs/20261022T233737-browser-folder-sync-clean-break.md |
-| 2026-10-21 | result-option-namespaces | in tree | specs/20261021T111102-result-option-namespaces.md |
+| 2026-10-21 | result-option-namespaces | removed | specs/20261021T111102-result-option-namespaces.md |
 | 2026-10-19 | git-lfs-media-sync | removed | specs/20261019T183449-git-lfs-media-sync.md |
 | 2026-10-19 | browser-repository-engine | removed | specs/20261019T190000-browser-repository-engine.md |
 | 2026-10-17 | nested-tables | removed | specs/nested-tables.md |
