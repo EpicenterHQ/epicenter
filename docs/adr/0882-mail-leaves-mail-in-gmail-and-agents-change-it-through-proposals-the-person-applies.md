@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-11-12
-- **Amended:** 2026-11-12: Mail holds several Gmail accounts, one file each, named by address; nothing syncs on `serve`'s clock, and a read catches the caches up from Gmail's history instead (ADR-0849 has no schedules); a full sync builds a new cache and swaps it in whole; `connect` finishes in the terminal it waits in, then copies the account.
+- **Amended:** 2026-11-12: Mail holds several Gmail accounts, one file each, named by address; nothing syncs on `serve`'s clock, and a read catches the caches up from Gmail's history instead (ADR-0849 has no schedules); a full sync fills an account's cache in place, its `meta` saying how complete it is, and no sync removes a message until Gmail says it is gone; every read answers with each account's freshness and never refuses for one account; each account's syncs take turns by its own lock; `connect` finishes in the terminal it waits in, then copies the account, and answers only once it is searchable.
 - **Unbuilt:** proposals, `apply`, `draft`, and the UI. Built: `connect`, `sync`, `status`, `search`, and `thread`, in Mail's own repository (`braden-w/mail`), with plain `fetch` against Google's REST endpoints and tests against a fake Google.
 - **Relates:** [ADR-0847](0847-an-app-brings-its-providers-credentials-with-a-default-in-its-code.md) (the person's own Google client), [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) (`epicenter mail connect` on the server, and no schedules), [ADR-0870](0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md) (`.local` files), [ADR-0876](0876-an-apps-records-live-under-data-and-everything-else-in-it-is-code.md) (`data/`), [ADR-0877](0877-an-apps-code-and-its-data-are-two-repositories-and-sharing-an-app-shares-its-code.md) (the data's private backup), [ADR-0879](0879-an-action-may-yield-values-while-it-runs-and-only-its-return-is-the-answer.md) (yields), [ADR-0880](0880-an-epicenter-runs-its-apps-as-they-sit-on-disk.md) (an app imports any library).
 
@@ -25,24 +25,30 @@ Gmail on every read makes each agent query a network call.
 never committed, and commits only what the person or an agent decided.**
 
 ```txt
-~/Epicenter/mail/
+~/Epicenter/apps/mail/
   epicenter.ts  package.json  ui/            the code repository
   data/
     google.local.md                          the person's OAuth client, one for every account
-    sync.local.lock                          held while a sync runs
     accounts/
       gmail-<address>.local.md               one account's refresh token
-      gmail-<address>.local.sqlite           its cache, always complete, rebuilt from Gmail
-      gmail-<address>.filling.local.sqlite   a cache a full sync is building
+      gmail-<address>.local.sqlite           its cache, rebuilt from Gmail; its meta says how complete
+      gmail-<address>.sync.local.lock        held while a sync of the account runs
     proposals/<time>.md                      what an agent wants done to mail; committed
 ```
 
 Each file is one thing with one lifetime, and which files exist is Mail's
 state. The client lives as long as the person uses Google; an account's
-sign-in until the person removes the account, by deleting its files; its
-cache until the next full sync replaces it. Mail keeps no list of accounts and
+sign-in and its cache until the person removes the account, by deleting its
+files. Mail keeps no list of accounts and
 no state about a sign-in in progress. Every file but the proposals is
 `.local` (ADR-0870), so none is committed.
+
+Every account's cache has the same tables whatever its provider, so search,
+the UI, and an agent's SQL read every account alike, and a provider's sync is
+the only code that knows the provider. Its `meta` says how far to trust it:
+`cursor` is the provider's history point (Gmail's historyId) the cache is
+complete through, and `filling`, present while a full sync runs, is `first`
+(partial) or `refill` (complete through `cursor`, some rows newer).
 
 - **`epicenter mail connect`** signs one Gmail account in on the computer that
   runs `serve`, in a terminal there. It starts Google's consent for the
@@ -54,29 +60,34 @@ no state about a sign-in in progress. Every file but the proposals is
   person pastes the address it landed on into the terminal `connect` waits in.
   `connect` exchanges the code, learns the account's address, and writes the
   refresh token to `data/accounts/gmail-<address>.local.md`, made or replaced;
-  then it syncs that account, so the account is searchable when `connect`
-  ends. Connecting an account again replaces its sign-in and keeps its cache.
+  then it copies that account, and answers only once the account is
+  searchable; a copy that stops keeps the sign-in, and `sync` finishes it. Connecting an account again replaces its sign-in and keeps its cache.
   The author's client is the Desktop-app client in Infisical at
   `/apps/local-mail` (`VITE_GMAIL_CLIENT_ID`, `VITE_GMAIL_CLIENT_SECRET`),
   copied into `data/google.local.md`; nothing reads Infisical at run time.
 - **`epicenter mail sync`** brings each account's cache up to date. An
   account's first sync lists every message and fetches each page's messages
-  as it lists them, into the account's filling file; once that is complete, it
-  is renamed over the cache, so the cache is always complete and a stopped
-  sync goes on in the filling file. Each later sync asks Gmail's history for
-  what changed since the `historyId` the cache holds. When Gmail no longer has
-  that history, the account is filled again the same way while its old cache
-  keeps answering. One sync runs at a time: it holds an exclusive SQLite
-  transaction on `data/sync.local.lock`, which the operating system releases
-  when its process ends. It yields its progress (ADR-0879), reads Gmail, and
-  writes only `.local` files, so it commits nothing.
+  as it lists them, into the cache, so recent mail is searchable first; a
+  stopped sync goes on where it was. Paging a mailbox that changes can skip a
+  message, so it applies the history so far and lists again until a listing
+  finds nothing new. Each later sync asks Gmail's history for what changed
+  since the cache's `cursor`. When Gmail no longer has that history, the
+  account is read again in place, fetching the messages the cache holds by
+  their labels alone. No sync removes a message until Gmail has said it is
+  gone, and it removes them in the transaction that moves `cursor`. Each
+  account's syncs take turns: a sync holds an exclusive SQLite transaction on
+  the account's lock file, which the operating system releases when its
+  process ends, and a second sync of the account waits. It yields its progress
+  (ADR-0879), reads Gmail, and writes only `.local` files, so it commits
+  nothing.
 - **Reads catch up; nothing syncs on a schedule** (ADR-0849).
   `epicenter mail search <query>` and `epicenter mail thread <id>` first apply
   Gmail's history since each account's last sync, one request an account when
   nothing changed, then answer from the caches: every account, or the one
   `--account <address>` names, each row naming its account. A read never
-  starts a full sync; when an account needs one, the read says to run
-  `epicenter mail sync`. An agent may also open an account's cache with any
+  starts a full sync and never refuses because of one account: it answers
+  with each account's freshness, when its cache last synced, whether it is
+  complete, and why it may be behind, with what to run. An agent may also open an account's cache with any
   SQLite library, since reads reach the whole Epicenter (ADR-0880).
 - **A proposal** is one verb applied to many messages, written by an agent as
   `data/proposals/<time>.md`:
@@ -131,8 +142,10 @@ no state about a sign-in in progress. Every file but the proposals is
 - A read needs Gmail reachable to catch up, and says so when it is not. Within
   15 seconds of a sync it asks Gmail nothing, so a burst of reads costs one
   request an account.
-- A full sync renames a new cache over the old one, so an agent that holds a
-  cache open across it gets an I/O error and opens the file again.
+- After Gmail drops an account's history, the next sync reads every message
+  the cache holds again by its labels: about as many requests as the first
+  sync, with no body downloaded twice. While it runs, the cache stays complete
+  through its old `cursor`, and rows it has read again are newer.
 - An address is an account's identity. A Workspace admin renaming an address
   makes it a new account, copied again, and its proposals name the old one.
 - A proposal can go stale between writing and applying. `apply` checks each
@@ -178,9 +191,19 @@ no state about a sign-in in progress. Every file but the proposals is
 - **A lease in the cache, with an expiry.** Outlives a process that dies and
   needs renewing on every write and a takeover; the operating system's lock
   does neither.
-- **A full sync that refreshes the old cache in place.** Needs a mark on every
-  row and leaves the cache half refreshed while it runs; building a new one
-  and swapping it in needs neither.
+- **Search through Gmail's own search, with no copy.** Removes every sync and
+  Gmail's exact syntax comes free, but there is no local SQL across accounts,
+  no shape a second provider's accounts share, and nothing offline.
+- **A full sync that builds a new cache and renames it over the old.** Keeps
+  one consistent snapshot, but needs a second file, a rollback journal so the
+  rename is safe, a reader that reopens after an I/O error, and a download of
+  every body again; filling in place with `meta` saying how complete the cache
+  is tells a reader the same and needs none of them.
+- **One sync lock for every account.** Simpler, but a long copy of one account
+  stops every other from catching up.
+- **Reads that refuse while an account needs a full sync.** Never answers
+  stale, but one account blocks every search; an answer that says how current
+  each account is lets the caller decide.
 - **Finishing a sign-in from a second call** (`connect <address>`). Lets a
   person paste the address anywhere, but keeps the sign-in in progress in a
   file, which needs a compare-and-set between connects. Mail's UI decides how
