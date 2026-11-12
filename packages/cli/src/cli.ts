@@ -42,7 +42,7 @@ import {
 	writeJson,
 	writeOut,
 } from './output.ts';
-import { epicenterDir, epicenterRoot, RootUsageError } from './root.ts';
+import { appsDir, epicenterRoot, RootUsageError } from './root.ts';
 import { runAction } from './run.ts';
 import { serviceCommand } from './service.ts';
 import { appStatusOf } from './snapshot.ts';
@@ -159,7 +159,7 @@ export async function runCli(argv: string[]): Promise<number> {
 		// The code a call ran is the code before loading it: an epicenter.ts may move HEAD as it loads.
 		const code =
 			words.length > 0 && !help && isName(name)
-				? await codeStateOf(join(epicenterDir(), name))
+				? await codeStateOf(join(appsDir(), name))
 				: { dirty: false };
 		const { data: located, error: notFound } = await loadHomeApp(name);
 		if (notFound) return fail(notFound, json);

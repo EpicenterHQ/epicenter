@@ -26,7 +26,7 @@ test('init writes EPICENTER.md and starter guidance, keeps existing guidance, an
 	expect(result.code).toBe(0);
 	expect(JSON.parse(result.stdout)).toEqual({ folder, port: 4748 });
 	expect(await readFile(join(folder, 'EPICENTER.md'), 'utf8')).toBe(
-		'---\nport: 4748\n---\nThis folder is an Epicenter. Each folder in it with an `epicenter.ts` is an\napp. Run `epicenter` here to list them.\n',
+		'---\nport: 4748\n---\nThis folder is an Epicenter. Each folder in its `apps/` with an\n`epicenter.ts` is an app. Run `epicenter` here to list them.\n',
 	);
 	expect(await readFile(join(folder, 'AGENTS.md'), 'utf8')).toBe(
 		'Keep this guidance.\n',
@@ -52,13 +52,15 @@ test('init writes EPICENTER.md and starter guidance, keeps existing guidance, an
 	expect(starter).toContain(
 		'epicenter refuses to snapshot one that is not\nignored',
 	);
-	expect(starter).toContain('Each child folder with an epicenter.ts is an app');
+	expect(starter).toContain(
+		'Each folder in apps/ with an epicenter.ts is an app',
+	);
 	const shown = await f.run('init', join(f.root, 'shown'));
 	expect(shown.stdout).toContain(`Made Epicenter at ${join(f.root, 'shown')}`);
 	expect(shown.stderr).toBe('Run: epicenter new <name>\n');
 	// A folder that already holds an app is pointed at its listing instead.
 	const holding = join(f.root, 'holding');
-	await f.folder(join(holding, 'journal'), {
+	await f.folder(join(holding, 'apps', 'journal'), {
 		'epicenter.ts': bareApp('journal'),
 	});
 	expect((await f.run('init', holding)).stderr).toBe('Run: epicenter\n');
@@ -71,12 +73,12 @@ test('init writes EPICENTER.md and starter guidance, keeps existing guidance, an
 
 test('walk-up wins over EPICENTER_ROOT, which wins over the default', async () => {
 	const f = await setup();
-	await f.folder(join(f.home, 'reading'), {
+	await f.folder(join(f.apps, 'reading'), {
 		'epicenter.ts': bareApp('reading'),
 	});
 	const other = join(f.root, 'other');
 	expect((await f.run('init', other, '--json')).code).toBe(0);
-	await f.folder(join(other, 'tasks'), {
+	await f.folder(join(other, 'apps', 'tasks'), {
 		'epicenter.ts': bareApp('tasks'),
 	});
 	f.env.EPICENTER_ROOT = other;
@@ -87,11 +89,11 @@ test('walk-up wins over EPICENTER_ROOT, which wins over the default', async () =
 		'tasks',
 	]);
 	expect((await f.run('new', 'from-env')).code).toBe(0);
-	expect(await Bun.file(join(other, 'from-env', 'epicenter.ts')).exists()).toBe(
-		true,
-	);
+	expect(
+		await Bun.file(join(other, 'apps', 'from-env', 'epicenter.ts')).exists(),
+	).toBe(true);
 	const fromInside = JSON.parse(
-		(await f.runIn(join(f.home, 'reading'), '--json')).stdout,
+		(await f.runIn(join(f.apps, 'reading'), '--json')).stdout,
 	);
 	expect(fromInside.epicenter).toBe(f.home);
 	expect(fromInside.apps.map((app: { name: string }) => app.name)).toEqual([
@@ -99,7 +101,7 @@ test('walk-up wins over EPICENTER_ROOT, which wins over the default', async () =
 	]);
 	expect((await f.runIn(f.home, 'new', 'from-cwd')).code).toBe(0);
 	expect(
-		await Bun.file(join(f.home, 'from-cwd', 'epicenter.ts')).exists(),
+		await Bun.file(join(f.apps, 'from-cwd', 'epicenter.ts')).exists(),
 	).toBe(true);
 	f.env.EPICENTER_ROOT = join(f.root, 'uninitialized');
 	const missing = await f.run('--json');
@@ -114,7 +116,7 @@ test('walk-up wins over EPICENTER_ROOT, which wins over the default', async () =
 
 test('the marker is found from inside an app, and its front matter is checked field by field', async () => {
 	const f = await setup();
-	const inside = await f.folder(join(f.home, 'reading'), {
+	const inside = await f.folder(join(f.apps, 'reading'), {
 		'epicenter.ts': bareApp('reading'),
 		'notes/today.md': 'x',
 	});
@@ -168,10 +170,10 @@ test('the marker is matched by its exact name, and a byte order mark before its 
 
 test('build reports each app and keeps the last good UI after a failed build', async () => {
 	const f = await setup();
-	await f.folder(join(f.home, 'capture'), {
+	await f.folder(join(f.apps, 'capture'), {
 		'epicenter.ts': bareApp('capture'),
 	});
-	const tasks = await f.folder(join(f.home, 'tasks'), {
+	const tasks = await f.folder(join(f.apps, 'tasks'), {
 		'epicenter.ts': bareApp('tasks'),
 		'.gitignore': 'data/\nnode_modules/\nui/dist/\n',
 		'package.json': JSON.stringify({
@@ -209,7 +211,7 @@ test('build reports each app and keeps the last good UI after a failed build', a
 		'capture: nothing to build\n',
 	);
 	// A UI written by hand has no build script, and building leaves it alone.
-	const capture = join(f.home, 'capture');
+	const capture = join(f.apps, 'capture');
 	await mkdir(join(capture, 'ui', 'dist'), { recursive: true });
 	await writeFile(
 		join(capture, 'ui', 'package.json'),

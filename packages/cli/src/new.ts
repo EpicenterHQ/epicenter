@@ -23,7 +23,7 @@ import { checkedGit, git } from './git.ts';
 import { loadHomeApp } from './home.ts';
 import { installApp } from './install.ts';
 import { fail, writeErr, writeJson, writeOut } from './output.ts';
-import { epicenterDir, folderPath } from './root.ts';
+import { appsDir, folderPath } from './root.ts';
 
 /** A Git URL rather than a folder path: a scheme, or `user@host:path`. */
 function isUrl(source: string) {
@@ -53,10 +53,10 @@ export default defineApp({
 	};
 }
 
-/** Whether `name` is taken in the Epicenter, ignoring case, as macOS does. */
+/** Whether `name` is taken in `apps/`, ignoring case, as macOS does. */
 async function taken(name: string) {
 	try {
-		return (await readdir(epicenterDir())).some(
+		return (await readdir(appsDir())).some(
 			(entry) => entry.toLowerCase() === name.toLowerCase(),
 		);
 	} catch (error) {
@@ -71,7 +71,7 @@ async function taken(name: string) {
  * object.
  */
 function made(name: string, json: boolean) {
-	const folder = join(epicenterDir(), name);
+	const folder = join(appsDir(), name);
 	if (json) writeJson({ name, folder });
 	else {
 		writeOut(folder);
@@ -104,7 +104,7 @@ export async function newCommand(
 		);
 	if (await taken(name))
 		return fail(
-			CliError.Usage({ message: `${name} already exists in ${epicenterDir()}` })
+			CliError.Usage({ message: `${name} already exists in ${appsDir()}` })
 				.error,
 			json,
 		);
@@ -114,11 +114,11 @@ export async function newCommand(
 		} catch (error) {
 			return fail(CliError.GitFailed({ cause: error }).error, json);
 		}
-		const installed = await installApp(join(epicenterDir(), name), name);
+		const installed = await installApp(join(appsDir(), name), name);
 		if ('error' in installed) return installFailed(name, installed.error, json);
 		return made(name, json);
 	}
-	const folder = join(epicenterDir(), name);
+	const folder = join(appsDir(), name);
 	const cloned = await cloneStarter(from, folder);
 	if ('installError' in cloned)
 		return installFailed(name, cloned.installError, json);
@@ -158,7 +158,7 @@ async function cloneStarter(
 			};
 	}
 	try {
-		await mkdir(epicenterDir(), { recursive: true });
+		await mkdir(appsDir(), { recursive: true });
 		await checkedGit(tmpdir(), ['clone', '-q', source, folder]);
 		await checkedGit(folder, ['remote', 'rename', 'origin', 'upstream']);
 		await checkedGit(folder, ['branch', '--unset-upstream']);
@@ -179,12 +179,12 @@ async function cloneStarter(
 }
 
 /**
- * Make `<Epicenter>/<name>` from the built-in template, in its own repository
+ * Make `<Epicenter>/apps/<name>` from the built-in template, in its own repository
  * whose first commit is the template. The caller has checked the name.
  * Throws Git's message when Git fails.
  */
 async function makeApp(name: string) {
-	const folder = join(epicenterDir(), name);
+	const folder = join(appsDir(), name);
 	await mkdir(folder, { recursive: true });
 	for (const [path, text] of Object.entries(template(name)))
 		await writeFile(join(folder, path), text);
@@ -200,7 +200,7 @@ function installFailed(
 	error: { message: string; next?: string },
 	json: boolean,
 ) {
-	if (json) writeJson({ name, folder: join(epicenterDir(), name), error });
+	if (json) writeJson({ name, folder: join(appsDir(), name), error });
 	else {
 		writeErr(`${name}: ${error.message}`);
 		if (error.next) writeErr(`Run: ${error.next}`);

@@ -20,7 +20,7 @@ async function setup() {
 	const f = await fixture();
 	roots.push(f.root);
 	f.env.BUN_INSTALL = join(f.root, 'bun');
-	const app = await f.folder(join(f.home, 'notes'), {
+	const app = await f.folder(join(f.apps, 'notes'), {
 		'.gitignore': 'data/\nnode_modules/\n',
 		'epicenter.ts': bareApp('notes'),
 		'package.json': JSON.stringify({
@@ -91,7 +91,7 @@ test('install without bun.lock only links the supplied package', async () => {
 test('install without bun.lock installs a top-level package.json', async () => {
 	const f = await fixture();
 	roots.push(f.root);
-	const app = await f.folder(join(f.home, 'notes'), {
+	const app = await f.folder(join(f.apps, 'notes'), {
 		'.gitignore': 'data/\nnode_modules/\n',
 		'epicenter.ts': bareApp('notes'),
 		'package.json': JSON.stringify({
@@ -167,7 +167,7 @@ test('new keeps a cloned app when its frozen install fails', async () => {
 	await gitIn(f.dir, 'commit', '-qm', 'mismatched lock');
 	const made = await f.run('new', 'copy', '--from', f.dir, '--json');
 	expect(made.code).toBe(1);
-	const copy = join(f.home, 'copy');
+	const copy = join(f.apps, 'copy');
 	expect(JSON.parse(made.stdout)).toMatchObject({
 		name: 'copy',
 		folder: copy,
@@ -205,7 +205,7 @@ test('update reports a frozen install failure after merging and keeps the app', 
 		merged: expect.any(String),
 		error: {
 			message: expect.stringContaining('copy: '),
-			next: `cd ${join(f.home, 'copy')} && bun install && epicenter install copy`,
+			next: `cd ${join(f.apps, 'copy')} && bun install && epicenter install copy`,
 		},
 	});
 });

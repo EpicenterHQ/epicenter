@@ -20,14 +20,14 @@ afterAll(() => rm(f.root, { recursive: true, force: true }));
 const stops: (() => Promise<unknown>)[] = [];
 afterEach(async () => {
 	for (const stop of stops.splice(0)) await stop();
-	await rm(join(f.home, 'reading'), { recursive: true, force: true });
-	await rm(join(f.home, 'idle'), { recursive: true, force: true });
+	await rm(join(f.apps, 'reading'), { recursive: true, force: true });
+	await rm(join(f.apps, 'idle'), { recursive: true, force: true });
 	await rm(join(f.root, 'remote.git'), { recursive: true, force: true });
 });
 
 /** Reading, backed up to a bare `origin` it has pushed to. */
 async function reading() {
-	const folder = await f.folder(join(f.home, 'reading'), readingApp);
+	const folder = await f.folder(join(f.apps, 'reading'), readingApp);
 	await mkdir(join(folder, 'data'));
 	await f.run('sync', 'reading');
 	const remote = join(f.root, 'remote.git');
@@ -148,7 +148,7 @@ test('a tick logs an unchanged failure once, and again when it changes', async (
 
 test('a tick skips an idle app while backing up an app with pending data', async () => {
 	const { folder } = await reading();
-	const idle = await f.folder(join(f.home, 'idle'), readingApp);
+	const idle = await f.folder(join(f.apps, 'idle'), readingApp);
 	await mkdir(join(idle, 'data'));
 	await f.run('sync', 'idle');
 	const server = serve();

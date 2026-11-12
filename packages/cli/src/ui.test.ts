@@ -4,7 +4,14 @@
  * place. `serve`'s rebuilding is in `acceptance.http.test.ts`.
  */
 import { afterEach, expect, test } from 'bun:test';
-import { mkdir, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import {
+	mkdir,
+	readdir,
+	readFile,
+	realpath,
+	rm,
+	writeFile,
+} from 'node:fs/promises';
 import { join } from 'node:path';
 import { fixture, gitIn, gitignore, header } from './runner.test-support.ts';
 
@@ -20,13 +27,15 @@ function appPackage(script: string) {
 	return `${JSON.stringify({ name: 'vocab', private: true, scripts: { build: script } })}\n`;
 }
 const writes = (label: string) =>
-	appPackage(`mkdir -p "$EPICENTER_OUT" && echo ${label} > "$EPICENTER_OUT/index.html"`);
+	appPackage(
+		`mkdir -p "$EPICENTER_OUT" && echo ${label} > "$EPICENTER_OUT/index.html"`,
+	);
 
 /** A committed app `vocab` holding `files`, with a `ui/` folder. */
 async function vocab(files: Record<string, string>) {
 	const f = await fixture();
 	roots.push(f.root);
-	const app = await f.folder(join(f.home, 'vocab'), {
+	const app = await f.folder(join(f.apps, 'vocab'), {
 		'.gitignore': `${gitignore}ui/dist/\n`,
 		'epicenter.ts': `${header}export default defineApp({ description: 'Words', collections: {}, actions: {} });\n`,
 		...files,
@@ -118,7 +127,7 @@ test('an app whose packages are not installed is not built, and is told to insta
 test('an app with no ui/ has nothing to build', async () => {
 	const f = await fixture();
 	roots.push(f.root);
-	const app = await f.folder(join(f.home, 'vocab'), {
+	const app = await f.folder(join(f.apps, 'vocab'), {
 		'.gitignore': gitignore,
 		'epicenter.ts': `${header}export default defineApp({ description: 'Words', collections: {}, actions: {} });\n`,
 	});

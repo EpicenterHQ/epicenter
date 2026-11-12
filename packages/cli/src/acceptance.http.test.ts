@@ -101,7 +101,7 @@ test('HTTP initialize sends the Epicenter AGENTS.md as it reads now', async () =
 });
 
 test('HTTP tools/list offers app actions', async () => {
-	const f = await setup((f) => f.folder(join(f.home, 'reading'), readingApp));
+	const f = await setup((f) => f.folder(join(f.apps, 'reading'), readingApp));
 	const response = await mcp(f.base, 'tools/list');
 	expect(response.status).toBe(200);
 	const body = (await response.json()) as {
@@ -140,7 +140,7 @@ test('a crafted tool name cannot run an app outside the home', async () => {
 });
 
 test('the browser client calls a tool without initialize and a write makes one named commit', async () => {
-	const f = await setup((f) => f.folder(join(f.home, 'reading'), readingApp));
+	const f = await setup((f) => f.folder(join(f.apps, 'reading'), readingApp));
 	const folder = f.made;
 	const client = connect<Reading>({
 		app: 'reading',
@@ -166,7 +166,7 @@ test('the browser client calls a tool without initialize and a write makes one n
 });
 
 test('a read-only action makes no commit, and one that throws after writing commits pending data as the call that threw', async () => {
-	const f = await setup((f) => f.folder(join(f.home, 'reading'), readingApp));
+	const f = await setup((f) => f.folder(join(f.apps, 'reading'), readingApp));
 	const folder = f.made;
 	const client = connect<Reading>({ app: 'reading', url: `${f.base}/` });
 	// Nothing is pending, so serve's startup backup commits nothing whenever it runs.
@@ -186,7 +186,7 @@ test('a read-only action makes no commit, and one that throws after writing comm
 
 test('a call whose snapshot fails still resolves, and the app says why', async () => {
 	const f = await setup(async (f) => {
-		const folder = await f.folder(join(f.home, 'reading'), readingApp);
+		const folder = await f.folder(join(f.apps, 'reading'), readingApp);
 		await writeFile(
 			join(folder, '.gitattributes'),
 			'*.csv filter=lfs diff=lfs merge=lfs -text\n',
@@ -209,7 +209,7 @@ test('a call whose snapshot fails still resolves, and the app says why', async (
 });
 
 test('concurrent writes through update both land, and both are in history', async () => {
-	const f = await setup((f) => f.folder(join(f.home, 'reading'), readingApp));
+	const f = await setup((f) => f.folder(join(f.apps, 'reading'), readingApp));
 	const folder = f.made;
 	const client = connect<Reading>({ app: 'reading', url: `${f.base}/` });
 	for (const result of await Promise.all([
@@ -275,12 +275,18 @@ test('two calls at once on different files take turns and make separate data com
 			),
 		).toBe(`${subject.slice('notes: write '.length)}.md`);
 	}
-	expect(await gitIn(join(folder, 'data'), 'log', '-1', '--format=%s', 'HEAD~2')).toBe(
-		'notes: changed outside epicenter',
-	);
-	expect(await gitIn(join(folder, 'data'), 'show', '--name-only', '--format=', 'HEAD~2')).toBe(
-		'by-hand.md',
-	);
+	expect(
+		await gitIn(join(folder, 'data'), 'log', '-1', '--format=%s', 'HEAD~2'),
+	).toBe('notes: changed outside epicenter');
+	expect(
+		await gitIn(
+			join(folder, 'data'),
+			'show',
+			'--name-only',
+			'--format=',
+			'HEAD~2',
+		),
+	).toBe('by-hand.md');
 	expect(await gitIn(join(folder, 'data'), 'status', '--porcelain')).toBe('');
 });
 
@@ -327,13 +333,13 @@ test("a backup that runs during a call leaves the call's writes to the call's on
 	).toBe('a.md\nb.md');
 	expect(await gitIn(folder, 'status', '--porcelain')).toBe('');
 	expect(
-		await gitIn(join(f.home, 'aaa', 'data'), 'log', '-1', '--format=%s'),
+		await gitIn(join(f.apps, 'aaa', 'data'), 'log', '-1', '--format=%s'),
 	).toBe('aaa: changed outside epicenter');
 });
 
 /** Reading, backed up to a bare `origin` it has pushed to. */
 async function backedUpReading(f: Fixture) {
-	const folder = await f.folder(join(f.home, 'reading'), readingApp);
+	const folder = await f.folder(join(f.apps, 'reading'), readingApp);
 	await mkdir(join(folder, 'data'));
 	await f.run('sync', 'reading');
 	const remote = join(f.root, 'remote.git');
@@ -424,7 +430,7 @@ test('commit subjects use the first positional value on one line, capped at 60 c
 
 test('a built UI serves files and refuses traversal and symlinks outside it', async () => {
 	const f = await setup(async (f) => ({
-		folder: await f.folder(join(f.home, 'reading'), readingApp),
+		folder: await f.folder(join(f.apps, 'reading'), readingApp),
 		linked: await f.app(
 			'linked',
 			`export default defineApp({ description: 'Linked UI', collections: {}, actions: {} });\n`,
@@ -481,7 +487,7 @@ test('a built UI serves files and refuses traversal and symlinks outside it', as
 
 test('serve builds the UI as it sits on disk when a page opens, waits only for the first build, and keeps the last good build through a failure', async () => {
 	const f = await setup((f) =>
-		f.folder(join(f.home, 'reading'), {
+		f.folder(join(f.apps, 'reading'), {
 			...readingApp,
 			'.gitignore': `${readingApp['.gitignore']}ui/dist/\n`,
 			'package.json': `${JSON.stringify({ scripts: { build: 'mkdir -p "$EPICENTER_OUT" && cp ui/page.txt "$EPICENTER_OUT/index.html" && grep -qv broken ui/page.txt' } })}\n`,
@@ -506,7 +512,11 @@ test('serve builds the UI as it sits on disk when a page opens, waits only for t
 	expect(await opened('two\n')).toBe(true);
 	await writeFile(join(folder, 'ui', 'page.txt'), 'broken\n');
 	await fetch(`${f.base}/reading/`);
-	for (let tries = 0; tries < 100 && !f.stderr().includes('did not build'); tries++)
+	for (
+		let tries = 0;
+		tries < 100 && !f.stderr().includes('did not build');
+		tries++
+	)
 		await Bun.sleep(100);
 	expect(f.stderr()).toContain('reading: the UI did not build');
 	expect(await (await fetch(`${f.base}/reading/`)).text()).toBe('two\n');
@@ -612,7 +622,7 @@ test('a caller that stops reading stops the action at its next yield; its finall
 	const first = new TextDecoder().decode((await reader.read()).value);
 	expect(first).toStartWith('{"yielded":0}\n');
 	stop.abort();
-	const data = join(f.home, 'talk', 'data');
+	const data = join(f.apps, 'talk', 'data');
 	const latest = () => gitIn(data, 'log', '-1', '--format=%s');
 	const deadline = Date.now() + 10_000;
 	while (!(await latest()).startsWith('talk: drip') && Date.now() < deadline)
@@ -625,7 +635,7 @@ test('a caller that stops reading stops the action at its next yield; its finall
 
 test('an edit to epicenter.ts, or to a file it imports, reaches the next call without restarting serve', async () => {
 	const f = await setup((f) =>
-		f.folder(join(f.home, 'echo'), {
+		f.folder(join(f.apps, 'echo'), {
 			'.gitignore': gitignore,
 			'word.ts': "export const word = 'one';\n",
 			'epicenter.ts': `${header}import { word } from './word.ts';

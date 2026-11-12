@@ -1,6 +1,7 @@
 # 0884. An Epicenter is a repository that lists the repositories inside it, and `init --from` rebuilds it
 
 - **Status:** Accepted
+- **Amended by:** [ADR-0885](0885-an-epicenters-apps-live-in-apps-which-its-repository-ignores-with-one-line.md): apps live in `apps/`, which the `.gitignore` leaves out with one fixed line; epicenter no longer rewrites ignore lines.
 - **Date:** 2026-11-12
 - **Relates:** [ADR-0883](0883-an-epicenter-is-its-git-repositories-and-serve-and-its-host-keeps-runs-and-guards-them.md) (every file is in Git, a cache, or a renewable credential; a host rebuilds the folder when it is missing), [ADR-0877](0877-an-apps-code-and-its-data-are-two-repositories-and-sharing-an-app-shares-its-code.md) (an app's two repositories), [ADR-0851](0851-an-app-has-one-home-and-an-optional-push-only-backup.md) (a push-only backup), [ADR-0868](0868-an-epicenter-is-any-folder-that-says-it-is-one-and-a-computer-runs-as-many-as-it-has.md) (`EPICENTER.md`), [ADR-0870](0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md) (`.local` files).
 

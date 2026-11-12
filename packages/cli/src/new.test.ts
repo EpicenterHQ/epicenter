@@ -17,7 +17,7 @@ afterEach(async () => {
 test('new refuses duplicate names without regard to case and reserved words', async () => {
 	const f = await fixture();
 	roots.push(f.root);
-	await mkdir(join(f.home, 'Reading'));
+	await mkdir(join(f.apps, 'Reading'));
 	for (const name of [
 		'reading',
 		'serve',
@@ -37,7 +37,7 @@ test('new commits its template and link is a valid app name', async () => {
 	roots.push(f.root);
 	const made = await f.run('new', 'garden');
 	expect(made.code).toBe(0);
-	const garden = join(f.home, 'garden');
+	const garden = join(f.apps, 'garden');
 	expect(made.stderr).toBe(
 		`Run: epicenter garden\nnot backed up\nRun: git -C ${garden} remote add origin <url> and git -C ${garden}/data remote add origin <url>, each a private repository, then epicenter sync garden\n`,
 	);
@@ -52,14 +52,16 @@ test('new commits its template and link is a valid app name', async () => {
 		'garden: start its data',
 	);
 	expect(await gitIn(join(garden, 'data'), 'ls-files')).toBe('.gitignore');
-	expect(await gitIn(garden, 'ls-files')).toBe('.gitignore\nepicenter.ts\npackage.json');
+	expect(await gitIn(garden, 'ls-files')).toBe(
+		'.gitignore\nepicenter.ts\npackage.json',
+	);
 	expect(await gitIn(garden, 'status', '--porcelain')).toBe('');
 	expect(await realpath(join(garden, 'node_modules/@epicenter/app'))).toBe(
 		await realpath(join(import.meta.dir, '../../app')),
 	);
 
 	expect((await f.run('new', 'link')).code).toBe(0);
-	expect(await gitIn(join(f.home, 'link'), 'log', '--format=%s')).toBe(
+	expect(await gitIn(join(f.apps, 'link'), 'log', '--format=%s')).toBe(
 		'new link',
 	);
 });
@@ -68,7 +70,7 @@ test('listings distinguish no origin, an origin never pushed to, and a pushed ba
 	const f = await fixture();
 	roots.push(f.root);
 	expect((await f.run('new', 'garden')).code).toBe(0);
-	const garden = join(f.home, 'garden');
+	const garden = join(f.apps, 'garden');
 	expect((await f.run('garden')).stdout).toContain(
 		`data: not backed up\nRun: git -C ${garden} remote add origin <url> and git -C ${garden}/data remote add origin <url>, then epicenter sync garden`,
 	);

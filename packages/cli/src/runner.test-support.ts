@@ -29,7 +29,8 @@ export async function gitIn(dir: string, ...args: string[]) {
 }
 
 /**
- * A temporary `HOME` whose `Epicenter` folder is the app home, and the real
+ * A temporary `HOME` whose `Epicenter` folder is the app home, its apps in
+ * `apps`, and the real
  * `bin.ts` run against it, so output, exit codes, and the folders on disk are
  * tested together. Nothing here reads the person's own home.
  */
@@ -40,6 +41,8 @@ export async function fixture() {
 	const home = join(root, 'Epicenter');
 	await mkdir(home);
 	await writeFile(join(home, 'EPICENTER.md'), '');
+	const apps = join(home, 'apps');
+	await mkdir(apps);
 	const env: Record<string, string | undefined> = {
 		...process.env,
 		HOME: root,
@@ -72,11 +75,12 @@ export async function fixture() {
 	}
 
 	/**
-	 * An app at `parent/entry`: a `.gitignore`, and an `epicenter.ts` of
-	 * `source` after an import of everything an app defines itself with.
+	 * An app at `<epicenter>/apps/<entry>`: a `.gitignore`, and an
+	 * `epicenter.ts` of `source` after an import of everything an app
+	 * defines itself with.
 	 */
-	async function app(entry: string, source: string, parent = home) {
-		return folder(join(parent, entry), {
+	async function app(entry: string, source: string, epicenter = home) {
+		return folder(join(epicenter, 'apps', entry), {
 			'.gitignore': gitignore,
 			'epicenter.ts': `${header}${source}`,
 		});
@@ -97,7 +101,7 @@ export async function fixture() {
 		return { stdout, stderr, code };
 	}
 	const run = (...args: string[]) => runIn(root, ...args);
-	return { root, home, env, bin, folder, app, run, runIn };
+	return { root, home, apps, env, bin, folder, app, run, runIn };
 }
 
 /**

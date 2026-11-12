@@ -1,7 +1,8 @@
 /**
- * The apps in the selected Epicenter (ADR-0841). A folder is an app when it
- * has an `epicenter.ts` whose default export is `defineApp(...)`. An app's
- * name is its entry in the Epicenter. Each entry loads on its own so a broken
+ * The apps in the selected Epicenter (ADR-0841), each a folder in its `apps/`
+ * (ADR-0884). A folder there is an app when it has an `epicenter.ts` whose
+ * default export is `defineApp(...)`. An app's name is its folder's name in
+ * `apps/`. Each entry loads on its own so a broken
  * app is listed without stopping the others: what its `define*` calls throw
  * while loading, and what is wrong with the shape of what it exports, are its
  * problems. A name that finds no app is a `CliError` with the next command as
@@ -23,7 +24,7 @@ import { Ok, type Result } from 'wellcrafted/result';
 import { nameProblem } from './commands.ts';
 import { folderOnDisk } from './disk.ts';
 import { CliError } from './errors.ts';
-import { epicenterDir, epicenterRoot } from './root.ts';
+import { appsDir, epicenterRoot } from './root.ts';
 
 /** Where an entry is on disk: the same for an app that runs and one with problems. */
 type Place = {
@@ -97,15 +98,20 @@ async function entryAt(folder: string) {
 	}
 }
 
-/** The Epicenter's entries that look like apps, sorted by name, without importing any of them. */
+/** The entries in `apps/` that look like apps, sorted by name, without importing any of them; none when there is no `apps/`. */
 export async function homeEntries() {
-	const names = (await readdir(epicenterDir()))
+	const names = (
+		await readdir(appsDir()).catch((error: NodeJS.ErrnoException) => {
+			if (error.code === 'ENOENT') return [] as string[];
+			throw error;
+		})
+	)
 		.filter((name) => !name.startsWith('.'))
 		.sort();
 	return (
 		await Promise.all(
 			names.map(async (entry) => {
-				const found = await entryAt(join(epicenterDir(), entry));
+				const found = await entryAt(join(appsDir(), entry));
 				return found && { ...found, entry };
 			}),
 		)
@@ -229,7 +235,7 @@ export async function loadHomeApp(
 	name: string,
 ): Promise<Result<Located, CliError>> {
 	if (!isName(name)) return unknownApp(name);
-	const found = await entryAt(join(epicenterDir(), name));
+	const found = await entryAt(join(appsDir(), name));
 	if (found) return Ok(await load(found, name));
 	return unknownApp(name);
 }

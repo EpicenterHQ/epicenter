@@ -27,7 +27,7 @@ async function setup() {
 
 test("listing warns when the data's code commit is absent from the code's history", async () => {
 	const f = await setup();
-	const app = join(f.home, 'reading');
+	const app = join(f.apps, 'reading');
 	const writtenUnder = await gitIn(app, 'rev-parse', 'HEAD');
 	expect((await f.run('reading', 'log', '30')).code).toBe(0);
 	const tree = await gitIn(app, 'rev-parse', 'HEAD^{tree}');
@@ -60,8 +60,8 @@ test('listing isolates broken imports, invalid apps and folders that cannot name
 		`export default defineApp({ description: 'The linked app', collections: {}, actions: {} });`,
 		f.root,
 	);
-	await symlink(linked, join(f.home, 'linked'));
-	await mkdir(join(f.home, '.hidden'));
+	await symlink(linked, join(f.apps, 'linked'));
+	await mkdir(join(f.apps, '.hidden'));
 	const result = await f.run('--json');
 	expect(result.code).toBe(0);
 	expect(result.stderr).toBe('');
@@ -107,7 +107,7 @@ test('listing isolates broken imports, invalid apps and folders that cannot name
 	});
 	expect(value.problems[3]).toMatchObject({
 		entry: 'sync',
-		folder: join(f.home, 'sync'),
+		folder: join(f.apps, 'sync'),
 	});
 	const human = await f.run();
 	expect(human.stdout).toContain('Problems:');
@@ -136,7 +136,7 @@ test('commands write disk data and return one JSON answer without diagnostics', 
 	});
 	expect(
 		JSON.parse(
-			await readFile(join(f.home, 'reading/data/records/log.json'), 'utf8'),
+			await readFile(join(f.apps, 'reading/data/records/log.json'), 'utf8'),
 		),
 	).toEqual({ minutes: 30, book: 'Dune' });
 	const human = await f.run('reading', 'log', '15');
@@ -258,32 +258,32 @@ test('a throwing action returns exit 1 with its message', async () => {
 test('runs use the selected Epicenter and their own local files', async () => {
 	const f = await setup();
 	const result = await f.runIn(
-		join(f.home, 'reading'),
+		join(f.apps, 'reading'),
 		'reading',
 		'inspect',
 		'--json',
 	);
 	expect(result.code).toBe(0);
 	const value = JSON.parse(result.stdout).returned;
-	expect(value.folder).toBe(join(f.home, 'reading'));
+	expect(value.folder).toBe(join(f.apps, 'reading'));
 	expect(
-		await Bun.file(join(f.home, 'reading', 'data/index.local.json')).exists(),
+		await Bun.file(join(f.apps, 'reading', 'data/index.local.json')).exists(),
 	).toBe(true);
 	const target = await f.app(
 		'linked',
 		`export default defineApp({ description: 'The linked app', collections: {}, actions: {} });`,
 		f.root,
 	);
-	await symlink(target, join(f.home, 'linked'));
+	await symlink(target, join(f.apps, 'linked'));
 	expect(JSON.parse((await f.run('linked', '--json')).stdout).link).toBe(
 		target,
 	);
 	const homeRun = JSON.parse(
 		(await f.run('reading', 'inspect', '--json')).stdout,
 	).returned;
-	expect(homeRun.folder).toBe(join(f.home, 'reading'));
+	expect(homeRun.folder).toBe(join(f.apps, 'reading'));
 	expect(
-		await Bun.file(join(f.home, 'reading/data/index.local.json')).exists(),
+		await Bun.file(join(f.apps, 'reading/data/index.local.json')).exists(),
 	).toBe(true);
 });
 

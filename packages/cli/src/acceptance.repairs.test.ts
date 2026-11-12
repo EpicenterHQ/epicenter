@@ -76,16 +76,16 @@ async function setup() {
 
 /** The notes app in the home, as its own repository. */
 function notes(f: Awaited<ReturnType<typeof setup>>) {
-	return f.folder(join(f.home, 'notes'), repairsApp);
+	return f.folder(join(f.apps, 'notes'), repairsApp);
 }
 
 test('F1 new puts the next step on stderr; a broken root is a usage error', async () => {
 	const f = await setup();
 	const made = await f.run('new', 'garden');
 	expect(made.code).toBe(0);
-	expect(made.stdout).toBe(`${join(f.home, 'garden')}\n`);
+	expect(made.stdout).toBe(`${join(f.apps, 'garden')}\n`);
 	expect(made.stderr).toBe(
-		`Run: epicenter garden\nnot backed up\nRun: git -C ${join(f.home, 'garden')} remote add origin <url> and git -C ${join(f.home, 'garden/data')} remote add origin <url>, each a private repository, then epicenter sync garden\n`,
+		`Run: epicenter garden\nnot backed up\nRun: git -C ${join(f.apps, 'garden')} remote add origin <url> and git -C ${join(f.apps, 'garden/data')} remote add origin <url>, each a private repository, then epicenter sync garden\n`,
 	);
 
 	await rm(f.home, { recursive: true });
@@ -97,9 +97,9 @@ test('F1 new puts the next step on stderr; a broken root is a usage error', asyn
 
 test('F7 over MCP a broken app loses only its tools, and a call is decoded from the tool name', async () => {
 	const f = await setup();
-	await f.folder(join(f.home, 'reading'), readingApp);
+	await f.folder(join(f.apps, 'reading'), readingApp);
 	await notes(f);
-	await f.folder(join(f.home, 'broken'), {
+	await f.folder(join(f.apps, 'broken'), {
 		'.gitignore': gitignore,
 		'epicenter.ts': `import 'epicenter-acceptance-not-installed';\nexport default {};\n`,
 	});
@@ -184,7 +184,7 @@ test('F9 one table owns the vocabulary; --json goes anywhere; defaulted fields a
 test('F10 typing waits for its first consumer: no epicenter types, no generated file', async () => {
 	const f = await setup();
 	expect((await f.run('new', 'garden')).code).toBe(0);
-	expect(await readFile(join(f.home, 'garden', '.gitignore'), 'utf8')).toBe(
+	expect(await readFile(join(f.apps, 'garden', '.gitignore'), 'utf8')).toBe(
 		gitignore,
 	);
 	await f.app(
@@ -203,7 +203,7 @@ test('F10 typing waits for its first consumer: no epicenter types, no generated 
 
 test("F12 field.date() carries format: 'date', and the CLI reads the format", async () => {
 	const f = await setup();
-	await f.folder(join(f.home, 'reading'), readingApp);
+	await f.folder(join(f.apps, 'reading'), readingApp);
 	const tool = JSON.parse(
 		(await f.run('reading', 'between', '--help', '--json')).stdout,
 	);

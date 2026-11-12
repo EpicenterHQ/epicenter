@@ -25,7 +25,7 @@ Epicenters cannot nest.`,
 	},
 	new: {
 		usage: 'epicenter new <name> [--from <git url|path>]',
-		help: `Makes <Epicenter>/<name>, two Git repositories: the folder holds the app's code,
+		help: `Makes <Epicenter>/apps/<name>, two Git repositories: the folder holds the app's code,
 and data/ inside it the app's data. With --from, it clones a starter (another
 app's code) and keeps it as the app's upstream remote; without it, it starts
 from an epicenter.ts and a .gitignore. serve builds the UI when it is opened.`,

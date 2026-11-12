@@ -40,7 +40,7 @@ const MCP_DEFAULTS = {
 
 test('D1 the listing shows folders with an epicenter.ts, ignores the rest, and names each problem', async () => {
 	const f = await setup();
-	await f.folder(join(f.home, 'reading'), readingApp);
+	await f.folder(join(f.apps, 'reading'), readingApp);
 	await f.app(
 		'vocab',
 		`${words}export default defineApp({ description: 'The vocab app', collections: { words }, actions: {} });\n`,
@@ -50,9 +50,9 @@ test('D1 the listing shows folders with an epicenter.ts, ignores the rest, and n
 		`export default defineApp({ description: 'The journal app', collections: {}, actions: {} });\n`,
 		join(f.root, 'elsewhere'),
 	);
-	await symlink(linked, join(f.home, 'journal'));
-	await f.folder(join(f.home, 'readme-only'), { 'README.md': 'not an app\n' });
-	await f.folder(join(f.home, 'json-only'), {
+	await symlink(linked, join(f.apps, 'journal'));
+	await f.folder(join(f.apps, 'readme-only'), { 'README.md': 'not an app\n' });
+	await f.folder(join(f.apps, 'json-only'), {
 		'epicenter.json': JSON.stringify({ description: 'Before epicenter.ts' }),
 	});
 	await f.app(
@@ -160,7 +160,7 @@ export default defineApp({ description: 'The misplaced app', collections: {}, ac
 
 test('D2 --json prints the app from epicenter.ts, each action an MCP tool', async () => {
 	const f = await setup();
-	await f.folder(join(f.home, 'reading'), readingApp);
+	await f.folder(join(f.apps, 'reading'), readingApp);
 	await f.app(
 		'vocab',
 		`${words}export default defineApp({ description: 'The vocab app', collections: { words }, actions: {} });\n`,
@@ -172,7 +172,7 @@ test('D2 --json prints the app from epicenter.ts, each action an MCP tool', asyn
 	expect(reading).toMatchObject({
 		name: 'reading',
 		description: 'How much I read each week',
-		folder: join(f.home, 'reading'),
+		folder: join(f.apps, 'reading'),
 		collections: {
 			books: {
 				path: 'data/books/{slug}.md',
@@ -242,11 +242,11 @@ test('D2 --json prints the app from epicenter.ts, each action an MCP tool', asyn
 
 test("D3 positionals come from the action's ordered list; flags always work", async () => {
 	const f = await setup();
-	await f.folder(join(f.home, 'reading'), readingApp);
+	await f.folder(join(f.apps, 'reading'), readingApp);
 	const logged = await f.run('reading', 'log', '30', '--book', 'Dune');
 	expect(logged.code).toBe(0);
 	expect(logged.stdout).toBe('minutes: 30\nbook: Dune\n');
-	expect(await readFile(join(f.home, 'reading/data/2026.csv'), 'utf8')).toBe(
+	expect(await readFile(join(f.apps, 'reading/data/2026.csv'), 'utf8')).toBe(
 		'minutes,book\n30,Dune\n',
 	);
 	const both = await f.run('reading', 'between', '2026-11-01', '2026-11-08');
@@ -283,7 +283,7 @@ test("D3 positionals come from the action's ordered list; flags always work", as
 
 test('D5 an epicenter.ts importing @epicenter/app loads from a folder with no node_modules', async () => {
 	const f = await setup();
-	const folder = await f.folder(join(f.home, 'reading'), readingApp);
+	const folder = await f.folder(join(f.apps, 'reading'), readingApp);
 	expect(existsSync(join(folder, 'node_modules'))).toBe(false);
 	const result = await f.runIn(folder, 'reading', 'log', '12');
 	expect(result.code).toBe(0);
@@ -295,7 +295,7 @@ test('D5 an epicenter.ts importing @epicenter/app loads from a folder with no no
 
 test('D6 serve answers initialize, lists the same tools as --json, and runs a call', async () => {
 	const f = await setup();
-	const folder = await f.folder(join(f.home, 'reading'), readingApp);
+	const folder = await f.folder(join(f.apps, 'reading'), readingApp);
 	const listing = JSON.parse((await f.run('--json')).stdout);
 	const { client, close } = await connectMcp(f);
 	try {
@@ -323,7 +323,7 @@ test('D6 serve answers initialize, lists the same tools as --json, and runs a ca
 
 test('D7 discovery defaults to $HOME/Epicenter and ignores EPICENTER_HOME', async () => {
 	const f = await setup();
-	await f.folder(join(f.home, 'reading'), readingApp);
+	await f.folder(join(f.apps, 'reading'), readingApp);
 	const decoy = join(f.root, 'decoy-home');
 	await f.app(
 		'decoy',

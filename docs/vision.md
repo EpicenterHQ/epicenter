@@ -77,7 +77,7 @@ made from one once it moves to a repository of its own.
   `capture_add` over MCP; your server writes `captures/<time>.md` and snapshots it.
 - **A recording on a plane.** Whispering on the home laptop records,
   transcribes, and pastes with no network. It writes each recording into
-  `~/Epicenter/whispering`. Whispering on another device sends recordings to
+  `~/Epicenter/apps/whispering`. Whispering on another device sends recordings to
   the home through an action when it can reach it.
 - **Adding to someone else's folder.** You ask an agent for a weekly summary of
   your voice notes. It writes an `epicenter.ts` in Whispering's folder with a

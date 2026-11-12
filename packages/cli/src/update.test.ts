@@ -55,7 +55,7 @@ async function starterFixture() {
 		'ui/package.json': builds('one'),
 		'ui/.gitignore': 'dist/\nnode_modules/\n',
 	});
-	return { ...f, starter, app: join(f.home, 'vocab') };
+	return { ...f, starter, app: join(f.apps, 'vocab') };
 }
 
 test('new --from clones a starter as upstream, tracking nothing, and builds nothing itself', async () => {
@@ -83,7 +83,7 @@ test('new --from clones a starter as upstream, tracking nothing, and builds noth
 	expect(JSON.parse(inside.stdout).error.message).toContain(
 		"is not a repository's root",
 	);
-	expect(existsSync(join(f.home, 'nested'))).toBe(false);
+	expect(existsSync(join(f.apps, 'nested'))).toBe(false);
 });
 
 test('new --from refuses a starter whose epicenter.ts does not load, and leaves no folder', async () => {

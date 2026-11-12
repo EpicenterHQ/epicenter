@@ -1,20 +1,21 @@
 /**
- * The Epicenter's own repository (ADR-0884). The folder that holds the apps is
- * a repository too, so what lives beside them, `EPICENTER.md`, `AGENTS.md`,
- * and any folder that is not an app, has history and a backup like an app's
- * records. Every repository inside it, an app's code or its data, stays its
- * own: this one lists them in `repositories.json` with their origins, and its
- * `.gitignore` leaves them out. One walk of the folder writes both, so the
- * list and the ignore lines never disagree, and a clone of this repository
- * says which others to clone (`restoreEpicenter`, run by `init --from`).
+ * The Epicenter's own repository (ADR-0884, ADR-0885). The folder that holds
+ * the apps is a repository too, so what lives beside them, `EPICENTER.md`,
+ * `AGENTS.md`, and any folder that is not an app, has history and a backup
+ * like an app's records. The apps live in `apps/`, each app's code and its
+ * data a repository of its own, and the `.gitignore` leaves `apps/` out
+ * with one fixed line, as an app's leaves out `data/`. `repositories.json`
+ * lists every repository in `apps/` with its origin, so a clone of this
+ * repository says which others to clone (`restoreEpicenter`, run by
+ * `init --from`).
  *
  * ```txt
  * ~/Epicenter/              this repository
  *   EPICENTER.md AGENTS.md  tracked
  *   Zhongwen/               tracked: a folder that is not a repository
- *   repositories.json       { "vocab": "<origin>", "vocab/data": "<origin>" }
- *   .gitignore              *.local, node_modules/, and /vocab/, written by epicenter
- *   vocab/                  a repository of its own, listed and ignored
+ *   repositories.json       { "apps/vocab": "<origin>", "apps/vocab/data": "<origin>" }
+ *   .gitignore              apps/, *.local, node_modules/
+ *   apps/vocab/             a repository of its own, listed
  * ```
  */
 import type { Dirent } from 'node:fs';
@@ -25,19 +26,14 @@ import { extractErrorMessage } from 'wellcrafted/error';
 import { isRepositoryTop } from './data.ts';
 import { checkedGit, git, gitMessage } from './git.ts';
 import { installApp } from './install.ts';
-import { MARKER } from './root.ts';
+import { APPS, MARKER } from './root.ts';
 import { commitIn, failedWith, type Snapshot } from './snapshot.ts';
 
 /** The list of every repository inside an Epicenter, at its top. */
 export const REPOSITORIES = 'repositories.json';
 
-/** The lines that start and end what epicenter writes in the `.gitignore`. */
-const LISTED_START =
-	'# Repositories of their own, listed in repositories.json; epicenter rewrites these lines';
-const LISTED_END = '# End of the repositories epicenter lists';
-
-/** What the Epicenter's repository ignores besides its repositories: what stays on this computer (ADR-0870), and caches. */
-const KEPT_OUT = '*.local\n*.local.*\nnode_modules/\n.DS_Store\n';
+/** What a new Epicenter's repository ignores: the apps, each backed up on its own; what stays on this computer (ADR-0870); and caches. */
+const KEPT_OUT = `${APPS}/\n*.local\n*.local.*\nnode_modules/\n.DS_Store\n`;
 
 /** Binaries a new Epicenter's repository keeps in Git LFS, as an app's starter does (ADR-0856). */
 const LFS_ATTRIBUTES = [
@@ -110,48 +106,23 @@ async function originUrl(folder: string) {
 	return got.code === 0 && got.stdout ? withoutCredentials(got.stdout) : null;
 }
 
-/** A path as one `.gitignore` line that matches only that folder, from the top. */
-const ignoreLine = (path: string) =>
-	`/${path.replace(/[\\*?[\]]/g, '\\$&').replace(/ $/, '\\ ')}/`;
-
-/** `current` with the lines epicenter writes set to ignore `paths`, everything else in it kept. */
-function withListed(current: string, paths: string[]) {
-	const block = [LISTED_START, ...paths.map(ignoreLine), LISTED_END].join('\n');
-	const start = current.indexOf(LISTED_START);
-	const end = current.indexOf(LISTED_END);
-	if (start !== -1 && end > start)
-		return (
-			current.slice(0, start) + block + current.slice(end + LISTED_END.length)
-		);
-	const separator = current === '' || current.endsWith('\n') ? '' : '\n';
-	return `${current}${separator}${block}\n`;
-}
-
 async function writeIfChanged(path: string, text: string) {
 	const current = await readFile(path, 'utf8').catch(() => undefined);
 	if (current !== text) await writeFile(path, text);
 }
 
 /**
- * Write `repositories.json` and the `.gitignore` lines from the repositories
- * inside `root` now: the list names every one with its origin, and the
- * `.gitignore` ignores each that no other one holds, which keeps the ones
- * inside it out too. Each file is written only when it changes.
+ * Write `repositories.json` from the repositories inside `root` now, each
+ * with its origin; written only when it changes.
  */
 export async function recordRepositories(root: string) {
-	const paths = await repositoriesIn(root);
 	const listed: Record<string, string | null> = {};
-	for (const path of paths) listed[path] = await originUrl(join(root, path));
+	for (const path of await repositoriesIn(root))
+		listed[path] = await originUrl(join(root, path));
 	await writeIfChanged(
 		join(root, REPOSITORIES),
 		`${JSON.stringify(listed, null, '\t')}\n`,
 	);
-	const outermost = paths.filter(
-		(path) => !paths.some((other) => path.startsWith(`${other}/`)),
-	);
-	const ignore = join(root, '.gitignore');
-	const current = await readFile(ignore, 'utf8').catch(() => KEPT_OUT);
-	await writeIfChanged(ignore, withListed(current, outermost));
 	return listed;
 }
 
@@ -161,10 +132,11 @@ export const epicenterLabel = (root: string) => basename(root);
 /**
  * Snapshot everything pending in the Epicenter's own repository, as
  * `<Epicenter>: <message>` (default `changed outside epicenter`), after
- * recording the repositories inside it. `null` when the Epicenter's folder is
- * not the top of a repository of its own. It refuses while a repository
- * inside is in the index as one, or would be staged as one, since a clone
- * holds no way to restore it. Never throws.
+ * recording the repositories in `apps/`. `null` when the Epicenter's folder
+ * is not the top of a repository of its own. It refuses while the
+ * `.gitignore` does not leave `apps/` out, while a repository sits outside
+ * `apps/`, or while one is in the index as a repository, since a clone holds
+ * no way to restore it. Never throws.
  */
 export async function snapshotEpicenter(
 	root: string,
@@ -173,6 +145,28 @@ export async function snapshotEpicenter(
 	if (!(await isRepositoryTop(root))) return null;
 	const label = epicenterLabel(root);
 	try {
+		const ignored = await git(
+			root,
+			['check-ignore', '--no-index', '-q', `${APPS}/`],
+			true,
+		);
+		if (ignored.code !== 0)
+			return {
+				failed: {
+					message: `${label}/.gitignore does not list ${APPS}/, so a backup of the Epicenter could take the apps`,
+					next: `printf '${APPS}/\n' >> ${join(root, '.gitignore')}`,
+				},
+			};
+		const outside = (await repositoriesIn(root)).find(
+			(path) => !path.startsWith(`${APPS}/`),
+		);
+		if (outside !== undefined)
+			return {
+				failed: {
+					message: `${label}: ${outside} is a repository outside ${APPS}/, which the Epicenter's backup cannot hold`,
+					next: `mv ${join(root, outside)} ${join(root, APPS)}/`,
+				},
+			};
 		await recordRepositories(root);
 		const embedded = (await checkedGit(root, ['ls-files', '-s', '-z']))
 			.split('\0')
@@ -183,18 +177,6 @@ export async function snapshotEpicenter(
 				failed: {
 					message: `${label} holds ${embedded[0]} as a repository inside it, which a clone cannot restore`,
 					next: `git -C ${root} rm --cached -- ${embedded[0]}`,
-				},
-			};
-		// A repository that appeared since the walk shows as a folder, not its files.
-		const unlisted = (
-			await checkedGit(root, ['status', '--porcelain', '-z', '-uall'])
-		)
-			.split('\0')
-			.find((entry) => entry.startsWith('?? ') && entry.endsWith('/'));
-		if (unlisted !== undefined)
-			return {
-				failed: {
-					message: `${label}: ${unlisted.slice(3)} became a repository while it was backed up; the next backup lists it`,
 				},
 			};
 		return await commitIn(
@@ -209,12 +191,14 @@ export async function snapshotEpicenter(
 /**
  * Make `root` the top of a repository of its own when it is not one yet,
  * with the `.gitignore`, `.gitattributes`, and list the Epicenter's
- * repository keeps, and commit what `init` wrote as
+ * repository keeps (the first two only when absent), and commit what `init` wrote as
  * `<Epicenter>: start the Epicenter`. Files already there are left to the
  * next backup.
  */
 export async function startEpicenterRepository(root: string, wrote: string[]) {
 	if (!(await isRepositoryTop(root))) await checkedGit(root, ['init', '-q']);
+	const ignore = join(root, '.gitignore');
+	if (!existsSync(ignore)) await writeFile(ignore, KEPT_OUT);
 	const attributes = join(root, '.gitattributes');
 	// Binaries go through LFS only where it is installed: routed without its
 	// filter, every backup would be refused.
@@ -329,20 +313,24 @@ export async function restoreEpicenter(
 		if (got.code === 0) restored.cloned.push(path);
 		else restored.failed.push({ path, message: gitMessage(['clone'], got) });
 	}
-	for (const entry of await readdir(folder, { withFileTypes: true })) {
-		const app = join(folder, entry.name);
+	const apps = join(folder, APPS);
+	const entries = existsSync(apps)
+		? await readdir(apps, { withFileTypes: true })
+		: [];
+	for (const entry of entries) {
+		const app = join(apps, entry.name);
 		if (!entry.isDirectory() || !existsSync(join(app, 'epicenter.ts')))
 			continue;
 		try {
 			const installed = await installApp(app, entry.name);
 			if ('error' in installed)
 				restored.failed.push({
-					path: entry.name,
+					path: `${APPS}/${entry.name}`,
 					message: installed.error.message,
 				});
 		} catch (error) {
 			restored.failed.push({
-				path: entry.name,
+				path: `${APPS}/${entry.name}`,
 				message: extractErrorMessage(error),
 			});
 		}

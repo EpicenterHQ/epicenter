@@ -19,7 +19,12 @@ beforeAll(async () => {
 	dir = await mkdtemp(join(tmpdir(), 'epicenter-compiled-'));
 	bin = join(dir, 'epicenter');
 	const compile = Bun.spawn(
-		[process.execPath, join(import.meta.dir, '..', 'scripts', 'compile.ts'), '--outfile', bin],
+		[
+			process.execPath,
+			join(import.meta.dir, '..', 'scripts', 'compile.ts'),
+			'--outfile',
+			bin,
+		],
 		{ stdout: 'pipe', stderr: 'pipe' },
 	);
 	if ((await compile.exited) !== 0)
@@ -30,7 +35,7 @@ afterAll(() => rm(dir, { recursive: true, force: true }));
 test('a compiled epicenter writes out the @epicenter/app it carries and builds a UI against it', async () => {
 	const f = await fixture();
 	try {
-		const app = await f.folder(join(f.home, 'vocab'), {
+		const app = await f.folder(join(f.apps, 'vocab'), {
 			'.gitignore': `${gitignore}ui/dist/\n`,
 			'epicenter.ts': `${header}export default defineApp({ description: 'Words', collections: {}, actions: { hello: defineAction({ description: 'Hello', input: {}, run: () => 'hi' }) } });\n`,
 			'ui/index.html':
@@ -79,7 +84,7 @@ test('a compiled epicenter writes out the @epicenter/app it carries and builds a
 test('serve relinks each app to the @epicenter/app it carries, and a UI built against another one rebuilds on its next page load', async () => {
 	const f = await fixture();
 	try {
-		const app = await f.folder(join(f.home, 'vocab'), {
+		const app = await f.folder(join(f.apps, 'vocab'), {
 			'.gitignore': `${gitignore}ui/dist/\n`,
 			'epicenter.ts': `${header}export default defineApp({ description: 'Words', collections: {}, actions: {} });\n`,
 			'package.json': `${JSON.stringify({ scripts: { build: `mkdir -p "$EPICENTER_OUT" && bun -e "console.log(Bun.fileURLToPath(import.meta.resolve('@epicenter/app/client')))" > "$EPICENTER_OUT/index.html"` } })}\n`,
@@ -113,10 +118,14 @@ test('serve relinks each app to the @epicenter/app it carries, and a UI built ag
 				const { value, done } = await reader.read();
 				if (done) throw new Error(output);
 				output += new TextDecoder().decode(value);
-				base = /Serving your apps at (http:\/\/127\.0\.0\.1:\d+)\./.exec(output)?.[1];
+				base = /Serving your apps at (http:\/\/127\.0\.0\.1:\d+)\./.exec(
+					output,
+				)?.[1];
 			}
 			expect(
-				await realpath(await readlink(join(app, 'node_modules', '@epicenter', 'app'))),
+				await realpath(
+					await readlink(join(app, 'node_modules', '@epicenter', 'app')),
+				),
 			).toStartWith(await realpath(after));
 			await fetch(`${base}/vocab/`);
 			let rebuilt = false;

@@ -24,7 +24,7 @@ import { loadHomeApp, type Runnable } from './home.ts';
 import { checkInput } from './input.ts';
 import { type Held, hold, LOCK_WAIT_MS } from './lock.ts';
 import { type Answer, writeErr } from './output.ts';
-import { epicenterDir } from './root.ts';
+import { appsDir } from './root.ts';
 import { commitCall, type Snapshot, snapshotData } from './snapshot.ts';
 
 /**
@@ -174,7 +174,7 @@ export async function callAction(
 	});
 	// The code a call ran is the code before loading it: an epicenter.ts may move HEAD as it loads.
 	const code = isName(name)
-		? await codeStateOf(join(epicenterDir(), name))
+		? await codeStateOf(join(appsDir(), name))
 		: { dirty: false };
 	const { data: located, error: notFound } = await loadHomeApp(name);
 	if (notFound) return { error: notFound };

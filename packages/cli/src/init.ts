@@ -1,6 +1,7 @@
 /**
  * `epicenter init` writes the marker, `EPICENTER.md`, adds starter guidance
- * (ADR-0868), and makes the folder the Epicenter's own repository (ADR-0884).
+ * (ADR-0868), and makes the folder the Epicenter's own repository, its apps
+ * in `apps/` (ADR-0884, ADR-0885).
  * `epicenter init --from <url>` instead rebuilds an Epicenter from that
  * repository and the repositories it lists.
  */
@@ -17,6 +18,7 @@ import { CliError } from './errors.ts';
 import { fail, writeErr, writeJson, writeOut } from './output.ts';
 import {
 	ancestorWithMarker,
+	APPS,
 	DEFAULT_PORT,
 	folderPath,
 	isMarked,
@@ -27,12 +29,12 @@ import {
 const marker = (port: number) => `---
 port: ${port}
 ---
-This folder is an Epicenter. Each folder in it with an \`epicenter.ts\` is an
-app. Run \`epicenter\` here to list them.
+This folder is an Epicenter. Each folder in its \`apps/\` with an
+\`epicenter.ts\` is an app. Run \`epicenter\` here to list them.
 `;
 
 const STARTER_AGENTS = `This folder is an Epicenter.
-Each child folder with an epicenter.ts is an app. An app is two Git
+Each folder in apps/ with an epicenter.ts is an app. An app is two Git
 repositories: its folder holds its code (epicenter.ts, ui/, README.md), and
 data/ inside it holds its data, a repository of its own that the code's
 .gitignore leaves out.
@@ -69,18 +71,19 @@ field, reads without any problem, so check the data yourself.
 \`epicenter history <app>\` lists what changed in the code and the data, newest
 first. \`epicenter undo <app>\` reverts the most recent data change as a new
 commit; run it again to go further back, or name a commit from history to undo
-that one. Code is reverted with \`git -C <app> revert <commit>\`.
+that one. Code is reverted with \`git -C apps/<app> revert <commit>\`.
 
 Files named *.local or *.local.* stay on this computer and live under data/:
 data/.gitignore ignores them, and epicenter refuses to snapshot one that is not
 ignored. Never run \`git clean -ffdx\` in an app's folder: it deletes data/.
 
 This folder is a Git repository too, backed up on the same clock: it keeps
-what is not in an app, such as this file and folders that are not apps.
-repositories.json lists every repository inside it with its origin, and
-.gitignore leaves each out; epicenter rewrites that list and those lines, so
-edit neither. \`epicenter init --from <this folder's origin>\` rebuilds this
-Epicenter on another computer.
+what is not in apps/, such as this file and folders that are not apps. Its
+.gitignore leaves apps/ out, and repositories.json lists every repository in
+apps/ with its origin; epicenter rewrites that list, so do not edit it. A
+repository anywhere else in this folder stops the backup: move it into apps/.
+\`epicenter init --from <this folder's origin>\` rebuilds this Epicenter on
+another computer.
 `;
 
 function actualFolder(path: string): string {
@@ -150,10 +153,13 @@ export async function initCommand(
 	if (json) writeJson({ folder, port });
 	else {
 		writeOut(`Made Epicenter at ${folder}.`);
-		const hasApps = (await readdir(folder, { withFileTypes: true })).some(
+		const apps = join(folder, APPS);
+		const hasApps = (
+			await readdir(apps, { withFileTypes: true }).catch(() => [])
+		).some(
 			(entry) =>
 				entry.isDirectory() &&
-				existsSync(join(folder, entry.name, 'epicenter.ts')),
+				existsSync(join(apps, entry.name, 'epicenter.ts')),
 		);
 		writeErr(hasApps ? 'Run: epicenter' : 'Run: epicenter new <name>');
 	}

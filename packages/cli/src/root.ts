@@ -134,6 +134,14 @@ export function epicenterDir(): string {
 	return epicenterRoot().folder;
 }
 
+/** The folder in an Epicenter that holds its apps, each a repository of its own (ADR-0884). */
+export const APPS = 'apps';
+
+/** The selected Epicenter's `apps/`. */
+export function appsDir(): string {
+	return join(epicenterDir(), APPS);
+}
+
 /** A folder's optional agent guidance, sent in MCP initialize. */
 export async function rootInstructions(): Promise<string | undefined> {
 	try {

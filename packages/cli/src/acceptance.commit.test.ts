@@ -136,7 +136,7 @@ const notesApp = {
 async function setup({ git = true }: { git?: boolean } = {}) {
 	const f = await fixture();
 	roots.push(f.root);
-	const folder = await f.folder(join(f.home, 'notes'), notesApp, { git });
+	const folder = await f.folder(join(f.apps, 'notes'), notesApp, { git });
 	if (git) {
 		const data = join(folder, 'data');
 		await writeFile(join(data, '.gitignore'), '*.local\n*.local.*\n');
@@ -286,7 +286,7 @@ test('C4 an app inside a larger repository leaves that repository untouched and 
 		),
 	});
 	const app = join(vault, 'notes');
-	await symlink(app, join(f.home, 'notes'));
+	await symlink(app, join(f.apps, 'notes'));
 
 	await writeFile(join(vault, 'journal/today.md'), 'changed beside\n');
 	await writeFile(join(vault, 'journal/staged.md'), 'staged beside\n');
@@ -473,7 +473,7 @@ test('C10 a read-only action cannot write through folder, except a .local file, 
 test('C11 concurrent sets of different fields on one file all land', async () => {
 	const f = await setup();
 	const fields = Array.from({ length: 50 }, (_, i) => `f${i}`);
-	await f.folder(join(f.home, 'many'), {
+	await f.folder(join(f.apps, 'many'), {
 		'.gitignore': gitignore,
 		'epicenter.ts': `${header}
 const items = defineCollection({ path: 'data/items/{id}.md', fields: { ${fields.map((key) => `${key}: field.number({ optional: true })`).join(', ')} } });
@@ -489,12 +489,12 @@ export default defineApp({ description: 'Many fields', collections: { items }, a
 	// Every commit lands too: the commits take turns, and none fails.
 	expect(runs.filter((run) => run.code !== 0 || run.stderr !== '')).toEqual([]);
 	const text = await readFile(
-		join(f.home, 'many', 'data/items/one.md'),
+		join(f.apps, 'many', 'data/items/one.md'),
 		'utf8',
 	);
 	for (const [i, key] of fields.entries())
 		expect(text).toContain(`${key}: ${i}\n`);
-	expect(await status(join(f.home, 'many', 'data'))).toBe('');
+	expect(await status(join(f.apps, 'many', 'data'))).toBe('');
 });
 
 test('C12 runs leave no temporary file and no lock file, and hold no lock once they answer', async () => {

@@ -74,7 +74,7 @@ const journal = {
 
 test("W1 local files stay in the folder, and folder.path is the app's folder on disk", async () => {
 	const f = await setup();
-	const folder = await f.folder(join(f.home, 'journal'), journal);
+	const folder = await f.folder(join(f.apps, 'journal'), journal);
 	const result = await f.run('journal', 'context', '--json');
 	expect(result.code).toBe(0);
 	expect(JSON.parse(result.stdout)).toEqual({ returned: folder });
@@ -107,7 +107,7 @@ async function withOrigin(f: Awaited<ReturnType<typeof setup>>, name: string) {
 	await gitIn(seedData, 'commit', '-q', '-m', `${name}: start its data`);
 	const bare = join(f.root, `${name}-data.git`);
 	await gitIn(f.root, 'clone', '-q', '--bare', seedData, bare);
-	const folder = join(f.home, name);
+	const folder = join(f.apps, name);
 	await gitIn(f.root, 'clone', '-q', codeBare, folder);
 	await gitIn(f.root, 'clone', '-q', bare, join(folder, 'data'));
 	const peer = join(f.root, `${name}-peer`);
@@ -127,12 +127,12 @@ test('W2 epicenter sync snapshots and pushes to a bare origin without fetching',
 	const journal = await withOrigin(f, 'journal');
 	await writeFile(join(journal.folder, 'data/monday.md'), 'monday\n');
 	await writeFile(join(journal.folder, 'data/tuesday.md'), 'tuesday\n');
-	await f.folder(join(f.home, 'notes'), {
+	await f.folder(join(f.apps, 'notes'), {
 		'.gitignore': gitignore,
 		'epicenter.ts': bareApp('notes'),
 	});
-	await mkdir(join(f.home, 'notes', 'data'));
-	await writeFile(join(f.home, 'notes', 'data/kept.md'), 'kept\n');
+	await mkdir(join(f.apps, 'notes', 'data'));
+	await writeFile(join(f.apps, 'notes', 'data/kept.md'), 'kept\n');
 
 	const synced = await f.run('sync', '--json');
 	expect(synced.code).toBe(0);
@@ -153,7 +153,7 @@ test('W2 epicenter sync snapshots and pushes to a bare origin without fetching',
 			},
 			{
 				app: 'notes',
-				folder: join(f.home, 'notes'),
+				folder: join(f.apps, 'notes'),
 				code: { committed: null, pushed: false, origin: null },
 				data: {
 					committed: { subject: 'notes: changed outside epicenter', files: 1 },
@@ -166,7 +166,7 @@ test('W2 epicenter sync snapshots and pushes to a bare origin without fetching',
 	expect(await gitIn(journal.bare, 'log', '--format=%s')).toBe(
 		'journal: changed outside epicenter\njournal: start its data',
 	);
-	expect(await gitIn(join(f.home, 'notes'), 'status', '--porcelain')).toBe('');
+	expect(await gitIn(join(f.apps, 'notes'), 'status', '--porcelain')).toBe('');
 
 	const again = await f.run('sync', 'journal');
 	expect(again.code).toBe(0);
@@ -197,7 +197,7 @@ test('W3 a refused push leaves both sides unchanged and other apps still sync', 
 		join(f.root, 'gone.git'),
 	);
 	await f.folder(
-		join(f.home, 'loose'),
+		join(f.apps, 'loose'),
 		{ 'epicenter.ts': bareApp('loose') },
 		{ git: false },
 	);
@@ -284,7 +284,7 @@ test('W3 sync of an app inside a larger repository commits data without touching
 	await gitIn(f.root, 'clone', '-q', '--bare', seed, bare);
 	const vault = join(f.root, 'vault');
 	await gitIn(f.root, 'clone', '-q', bare, vault);
-	await symlink(join(vault, 'recipes'), join(f.home, 'recipes'));
+	await symlink(join(vault, 'recipes'), join(f.apps, 'recipes'));
 	await writeFile(join(vault, 'journal/today.md'), 'changed beside\n');
 	await writeFile(join(vault, 'recipes/bread.md'), 'bread\n');
 	await mkdir(join(vault, 'recipes', 'data'));
@@ -321,7 +321,7 @@ test('W4 epicenter new writes the template and runs git init', async () => {
 	const f = await setup();
 	const result = await f.run('new', 'garden', '--json');
 	expect(result.code).toBe(0);
-	const folder = join(f.home, 'garden');
+	const folder = join(f.apps, 'garden');
 	expect(JSON.parse(result.stdout)).toEqual({ name: 'garden', folder });
 	expect(await readFile(join(folder, 'epicenter.ts'), 'utf8')).toBe(
 		`import { defineApp } from '@epicenter/app';
@@ -354,9 +354,9 @@ test('W5 a symlinked entry loads an app where it lives', async () => {
 		{ 'epicenter.ts': bareApp('loose'), 'data/notes/a.md': 'a\n' },
 		{ git: false },
 	);
-	await symlink(loose, join(f.home, 'loose'));
-	expect((await lstat(join(f.home, 'loose'))).isSymbolicLink()).toBe(true);
-	expect(await readlink(join(f.home, 'loose'))).toBe(loose);
+	await symlink(loose, join(f.apps, 'loose'));
+	expect((await lstat(join(f.apps, 'loose'))).isSymbolicLink()).toBe(true);
+	expect(await readlink(join(f.apps, 'loose'))).toBe(loose);
 	expect(existsSync(join(loose, '.git'))).toBe(false);
 	expect(existsSync(join(loose, '.gitignore'))).toBe(false);
 
@@ -366,8 +366,8 @@ test('W5 a symlinked entry loads an app where it lives', async () => {
 	});
 	const head = await gitIn(vault, 'rev-parse', 'HEAD');
 	await writeFile(join(vault, 'recipes', 'soup.md'), 'soup\n');
-	await symlink(join(vault, 'recipes'), join(f.home, 'recipes'));
-	expect(await readlink(join(f.home, 'recipes'))).toBe(join(vault, 'recipes'));
+	await symlink(join(vault, 'recipes'), join(f.apps, 'recipes'));
+	expect(await readlink(join(f.apps, 'recipes'))).toBe(join(vault, 'recipes'));
 	expect(await gitIn(vault, 'rev-parse', 'HEAD')).toBe(head);
 	expect(await gitIn(vault, 'status', '--porcelain')).toBe(
 		'?? recipes/soup.md',
@@ -391,7 +391,7 @@ test('W3 a divergent parent remote leaves data sync and changes beside the app a
 	await gitIn(f.root, 'clone', '-q', '--bare', seed, bare);
 	const vault = join(f.root, 'vault');
 	await gitIn(f.root, 'clone', '-q', bare, vault);
-	await symlink(join(vault, 'recipes'), join(f.home, 'recipes'));
+	await symlink(join(vault, 'recipes'), join(f.apps, 'recipes'));
 	const peer = join(f.root, 'vault-peer');
 	await gitIn(f.root, 'clone', '-q', bare, peer);
 	await writeFile(join(peer, 'journal/today.md'), 'the laptop\n');
