@@ -1,7 +1,8 @@
 # 0881. People reach an Epicenter over the tailnet, and its public address serves only connectors
 
-- **Status:** Proposed
+- **Status:** Superseded
 - **Date:** 2026-11-12
+- **Superseded by:** [ADR-0883](0883-an-epicenter-is-its-git-repositories-and-serve-and-its-host-keeps-runs-and-guards-them.md), the same day: the public listener served only connectors its owner does not use, and its approval needed a tailnet a hosted Epicenter would not have, so it was removed.
 - **Amends:** [ADR-0871](0871-a-public-address-signs-people-in-with-a-passkey-and-connectors-in-with-oauth.md), withdrawing how people sign in (passkeys, invites, sessions, `/.sign-in`), the UIs and launcher on the public address, where a connector is approved, the `public` and `publicPort` fields, and revoking a person. Its OAuth, CIMD, scopes, grant generations and revocation stand. Also [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md), [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md), [ADR-0868](0868-an-epicenter-is-any-folder-that-says-it-is-one-and-a-computer-runs-as-many-as-it-has.md) and [ADR-0879](0879-an-action-may-yield-values-while-it-runs-and-only-its-return-is-the-answer.md), where each described sign-in at the public address.
 - **Relates:** [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (the private listener trusts the tailnet), [ADR-0868](0868-an-epicenter-is-any-folder-that-says-it-is-one-and-a-computer-runs-as-many-as-it-has.md) (`EPICENTER.md`), [ADR-0840](0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md) (one person's software).
 

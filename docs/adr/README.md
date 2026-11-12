@@ -1076,7 +1076,7 @@ When you add an ADR, add its row here.
 | [0868](0868-an-epicenter-is-any-folder-that-says-it-is-one-and-a-computer-runs-as-many-as-it-has.md) | An Epicenter is any folder that says it is one, and a computer runs as many as it has | Proposed |
 | [0869](0869-a-body-is-changed-by-quoting-the-passage-it-replaces.md) | A body is changed by quoting the passage it replaces | Proposed |
 | [0870](0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md) | An app's secrets are `.local` files, and a `.local` file never leaves its computer | Proposed |
-| [0871](0871-a-public-address-signs-people-in-with-a-passkey-and-connectors-in-with-oauth.md) | A public address signs people in with a passkey and connectors in with OAuth | Accepted |
+| [0871](0871-a-public-address-signs-people-in-with-a-passkey-and-connectors-in-with-oauth.md) | A public address signs people in with a passkey and connectors in with OAuth | Superseded by 0883 |
 | [0873](0873-the-command-is-epicenter-cli-and-it-supplies-epicenter-app-to-every-app.md) | The command is `@epicenter/cli`, and it supplies `@epicenter/app` to every app | Proposed |
 | [0874](0874-the-ui-kit-is-a-shadcn-svelte-registry-an-app-copies-from.md) | The UI kit is a shadcn-svelte registry an app copies from | Proposed |
 | [0875](0875-a-package-is-published-when-an-app-outside-the-monorepo-imports-it.md) | A package is published when an app outside the monorepo imports it | Proposed |
@@ -1085,4 +1085,5 @@ When you add an ADR, add its row here.
 | [0878](0878-the-os-keeps-epicenter-serve-running-under-a-job-the-person-installs.md) | The OS keeps `epicenter serve` running, under a job the person installs | Accepted |
 | [0879](0879-an-action-may-yield-values-while-it-runs-and-only-its-return-is-the-answer.md) | An action may yield values while it runs, and only its return is the answer | Proposed |
 | [0880](0880-an-epicenter-runs-its-apps-as-they-sit-on-disk.md) | An Epicenter runs its apps as they sit on disk | Proposed |
-| [0881](0881-people-reach-an-epicenter-over-the-tailnet-and-its-public-address-serves-only-connectors.md) | People reach an Epicenter over the tailnet, and its public address serves only connectors | Proposed |
+| [0881](0881-people-reach-an-epicenter-over-the-tailnet-and-its-public-address-serves-only-connectors.md) | People reach an Epicenter over the tailnet, and its public address serves only connectors | Superseded by 0883 |
+| [0883](0883-an-epicenter-is-its-git-repositories-and-serve-and-its-host-keeps-runs-and-guards-them.md) | An Epicenter is its Git repositories and `serve`, and its host keeps, runs, and guards them | Accepted |
