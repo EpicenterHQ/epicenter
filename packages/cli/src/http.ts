@@ -27,7 +27,8 @@
  * A write call commits pending data before it answers (`run.ts`).
  * Everything else reaches history and the backup on the server's clock: when
  * it starts, every 5 minutes, and when it stops, it does for each app what
- * `epicenter sync <app>` does, snapshotting what is pending as changed
+ * `epicenter sync <app>` does, then the same for the Epicenter's own
+ * repository (ADR-0884), snapshotting what is pending as changed
  * outside epicenter and pushing to `origin` when there is something to push.
  * The clock's interval is how old an unbacked change can get, not a guess at
  * when an edit is done. A tick skips an idle app and never waits for a call:
@@ -49,7 +50,7 @@ import { type Answer, writeErr } from './output.ts';
 import { epicenterDir } from './root.ts';
 import { callAction } from './run.ts';
 import { nothingToBackUp } from './snapshot.ts';
-import { type Synced, syncFailures, syncOne } from './sync.ts';
+import { type Synced, syncEpicenter, syncFailures, syncOne } from './sync.ts';
 import { createUiRefresher, UI_DIST } from './ui.ts';
 
 /** How often `serve` backs up every app. */
@@ -353,6 +354,20 @@ export function startHttpServer(host: string, port: number) {
 	/** Each app's last backup failure as logged, so an unchanged one is logged once. */
 	const lastFailure = new Map<string, string>();
 	const refreshUi = createUiRefresher();
+	/** Log `failures` for the repository at `folder`, unless they are what was logged last. */
+	const report = (
+		folder: string,
+		failures: { message: string; next?: string }[],
+	) => {
+		const failure = failures
+			.map(({ message, next }) => `${message}${next ? `\nRun: ${next}` : ''}`)
+			.join('\n');
+		if (!failure) lastFailure.delete(folder);
+		else if (lastFailure.get(folder) !== failure) {
+			writeErr(failure);
+			lastFailure.set(folder, failure);
+		}
+	};
 	const backUpAll = async () => {
 		const backedUp: Synced[] = [];
 		for (const { entry, realPath } of await homeEntries()) {
@@ -363,15 +378,12 @@ export function startHttpServer(host: string, port: number) {
 			// A call to it is running: its commit, or the next tick, takes what it wrote.
 			if (!synced || synced.busy) continue;
 			backedUp.push(synced);
-			const failure = syncFailures(synced)
-				.map(({ message, next }) => `${message}${next ? `\nRun: ${next}` : ''}`)
-				.join('\n');
-			if (!failure) lastFailure.delete(realPath);
-			else if (lastFailure.get(realPath) !== failure) {
-				writeErr(failure);
-				lastFailure.set(realPath, failure);
-			}
+			report(realPath, syncFailures(synced));
 		}
+		// After the apps, so the list it records names the origins they pushed to.
+		const root = epicenterDir();
+		const own = await syncEpicenter(root);
+		if (own) report(root, own.error ? [own.error] : []);
 		return backedUp;
 	};
 	let previous: Promise<unknown> = Promise.resolve();

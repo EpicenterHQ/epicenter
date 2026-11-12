@@ -169,7 +169,7 @@ export async function statusOf(
 }
 
 /** One repository to commit in: its folder, how messages name it (`vocab`, `vocab/data`), and the trailers its commits carry. */
-type Repository = { folder: string; label: string; trailers: string[] };
+export type Repository = { folder: string; label: string; trailers: string[] };
 
 /** `git commit`'s arguments for `subject`, with the repository's trailers, of `pathspec`. */
 const commitArgs = (
@@ -248,7 +248,7 @@ async function commitPending(repository: Repository, subject: string) {
 }
 
 /** Commit everything pending, refusing unsafe Git state before staging. Never throws. */
-async function commitIn(
+export async function commitIn(
 	repository: Repository,
 	subject: string,
 ): Promise<Snapshot> {
@@ -278,7 +278,7 @@ async function commitIn(
 }
 
 /** A thrown failure as a `Snapshot`, keeping a refusal's next step. */
-function failedWith(error: unknown): Snapshot {
+export function failedWith(error: unknown): Snapshot {
 	return {
 		failed: {
 			message: extractErrorMessage(error),

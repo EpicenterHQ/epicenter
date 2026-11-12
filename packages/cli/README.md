@@ -2,7 +2,7 @@
 
 `epicenter` runs the apps in an Epicenter as commands and MCP tools. An Epicenter is a folder with `EPICENTER.md` ([ADR-0868](../../docs/adr/0868-an-epicenter-is-any-folder-that-says-it-is-one-and-a-computer-runs-as-many-as-it-has.md)); its direct child folders with an `epicenter.ts` that default-exports `defineApp(...)` are apps, each with its collections and actions ([ADR-0841](../../docs/adr/0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md), [ADR-0857](../../docs/adr/0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md)).
 
-The command uses the nearest Epicenter at or above the current directory. Otherwise it uses `EPICENTER_ROOT`, then `$HOME/Epicenter`. A chosen folder without `EPICENTER.md` needs `epicenter init <folder>`. The marker is a note for people whose front matter, read as an app's files are, may hold one field: `port`, a whole number from 0 to 65535 that `serve` listens on, 4747 when absent. Any other field, or a value that does not fit, is refused, one line per problem. An empty file is a valid marker. The folder's basename is its display name. `epicenter init [<folder>] [--port <n>]` makes the folder, writes `EPICENTER.md` with the port, and adds starter `AGENTS.md` guidance if there is none. Epicenters cannot nest.
+The command uses the nearest Epicenter at or above the current directory. Otherwise it uses `EPICENTER_ROOT`, then `$HOME/Epicenter`. A chosen folder without `EPICENTER.md` needs `epicenter init <folder>`. The marker is a note for people whose front matter, read as an app's files are, may hold one field: `port`, a whole number from 0 to 65535 that `serve` listens on, 4747 when absent. Any other field, or a value that does not fit, is refused, one line per problem. An empty file is a valid marker. The folder's basename is its display name. `epicenter init [<folder>] [--port <n>]` makes the folder, writes `EPICENTER.md` with the port, adds starter `AGENTS.md` guidance if there is none, and makes the folder the Epicenter's own repository (see [The Epicenter's repository](#the-epicenters-repository)). Epicenters cannot nest.
 
 ```sh
 epicenter
@@ -13,6 +13,7 @@ epicenter reading log --help
 epicenter reading books set books/dune.md --finished null
 epicenter reading books set --input '{"path":"books/dune.md","finished":"2026-11-10"}'
 epicenter init ~/Epicenter
+epicenter init --from https://github.com/you/epicenter ~/Epicenter
 epicenter new notes
 epicenter new recipes --from https://github.com/someone/recipes
 epicenter update
@@ -128,6 +129,16 @@ A refused non-fast-forward push leaves both histories as they were. Sync says th
 ```
 
 `code` and `data` are `null` for a repository the app does not have. In each, `committed` is the snapshot's subject and file count, or `null` when nothing was pending; `origin` is how many commits the branch is ahead of its locally known `origin` tracking ref, or `null` when there is none; `error` is `{ message, next? }` when that repository did not finish syncing, its message starting `<app>:` or `<app>/data:`. `busy: true` says a call was still writing the app, so nothing was snapshotted or pushed. Sync does not fetch, so it cannot say how far a backup is ahead. Without `--json`, stdout has one line per repository, such as `reading/data: committed reading: changed outside epicenter; pushed; 0 ahead of origin`, and stderr has each error with its `Run:` line. Exit 0 when every app synced, 1 when any did not, 2 when the app named is not in the Epicenter.
+
+With no app named, sync then does the same for the Epicenter's own repository, and its JSON adds `epicenter`, one repository's result in the same shape, with messages starting with the Epicenter's name.
+
+## The Epicenter's repository
+
+The Epicenter's folder is a repository of its own ([ADR-0884](../../docs/adr/0884-an-epicenter-is-a-repository-that-lists-the-repositories-inside-it-and-init-from-rebuilds-it.md)). It tracks everything that is not in a repository inside it, such as `EPICENTER.md`, `AGENTS.md`, and a folder that is not an app, and leaves out `*.local`, `*.local.*`, `node_modules/`, and `.DS_Store`. `repositories.json` lists every repository inside it, an app's code and its data, by its path, with its `origin`, or `null` when it has none; an http(s) origin is recorded without a user or password written into its URL. The `.gitignore` ignores each listed repository that no other one holds, between two comment lines epicenter rewrites; lines outside them are the person's. One walk of the folder writes both before each snapshot, never following a link or entering `node_modules`, so they cannot disagree, and the list is current after every backup.
+
+`serve`'s clock and `epicenter sync` snapshot it after the apps, as `<Epicenter>: changed outside epicenter`, and push it to its `origin` by the same rule. The snapshot refuses while Git's index holds a repository inside as one, which a plain `git add` there records and a clone cannot fill in, with `git -C <folder> rm --cached -- <path>` as the step. An Epicenter that is not a repository of its own is skipped. `init` makes the repository and commits what it wrote as `<Epicenter>: start the Epicenter`; where `git-lfs` is installed, it installs LFS in the repository and writes a `.gitattributes` that routes audio, images, video, and PDFs through it.
+
+`epicenter init --from <url> [<folder>]` rebuilds an Epicenter in a folder that is missing or empty. It clones the Epicenter's repository, refuses one with no `EPICENTER.md` at its top, then clones each listed repository into its place, parents first, leaving one already there as it is, and installs each app. It reports each repository listed with no origin and each clone or install that failed, and reminds that `.local` files stay on the computer that made them. `--json` prints `{ folder, cloned, kept, unbacked, failed }`. Exit 0 when nothing failed, 1 when a clone or an install did, 2 when nothing ran.
 
 ## History and undo
 

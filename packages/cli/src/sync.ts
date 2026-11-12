@@ -2,16 +2,20 @@
  * `epicenter sync [<app> [-m <message>]]` snapshots each of the app's two
  * repositories, its code and its data (ADR-0877), and pushes each to its own
  * `origin`, a private backup (ADR-0851). One app's failure never stops the
- * others. `serve`'s backup clock runs the same `syncOne` for each app, and
- * no other command pushes. Sharing an app is pushing its code to a remote
- * its author chooses, which nothing here does.
+ * others. Without an app named, it then does the same for the Epicenter's
+ * own repository (ADR-0884). `serve`'s backup clock runs the same `syncOne`
+ * for each app, then `syncEpicenter`, and no other command pushes. Sharing an
+ * app is pushing its code to a remote its author chooses, which nothing here
+ * does.
  */
 import { misuse, parseWords } from './commands.ts';
 import { dataFolder } from './data.ts';
+import { epicenterLabel, snapshotEpicenter } from './epicenter-repository.ts';
 import { git, gitMessage, originOf } from './git.ts';
 import { chooseApps } from './home.ts';
 import { LOCK_WAIT_MS, locked } from './lock.ts';
 import { fail, writeJson } from './output.ts';
+import { epicenterDir } from './root.ts';
 import { type Snapshot, snapshotApp } from './snapshot.ts';
 
 /** What sync did in one of an app's repositories. */
@@ -84,6 +88,20 @@ export async function syncOne(
 	};
 }
 
+/**
+ * Snapshot the Epicenter's own repository at `root`, recording the
+ * repositories inside it, then push it to its `origin` as `syncOne` pushes an
+ * app's; `null` when the Epicenter's folder is not a repository of its own.
+ * Nothing else writes there, so it takes no lock.
+ */
+export async function syncEpicenter(
+	root: string,
+	message?: string,
+): Promise<RepositorySynced | null> {
+	const taken = await snapshotEpicenter(root, message);
+	return taken && pushTo(epicenterLabel(root), root, taken);
+}
+
 /** After `taken`, push the repository at `folder`, which messages call `label`, to its `origin`. */
 async function pushTo(
 	label: string,
@@ -130,31 +148,42 @@ async function pushTo(
 	});
 }
 
+/** One repository's sync as a person reads it. */
+function syncLine(label: string, synced: RepositorySynced) {
+	const parts = [
+		synced.committed
+			? `committed ${synced.committed.subject}`
+			: 'nothing to commit',
+		...(synced.pushed ? ['pushed'] : []),
+		synced.origin ? `${synced.origin.ahead} ahead of origin` : 'no origin',
+	];
+	return `${label}: ${parts.join('; ')}`;
+}
+
 /** A sync as a person reads it: one line per repository on stdout, and what went wrong on stderr. */
-function renderSync(apps: Synced[]) {
+function renderSync(
+	apps: Synced[],
+	epicenter?: { label: string; synced: RepositorySynced },
+) {
 	const stdout: string[] = [];
 	const stderr: string[] = [];
+	const failed = (failure: { message: string; next?: string }) =>
+		stderr.push(
+			failure.message,
+			...(failure.next ? [`Run: ${failure.next}`] : []),
+		);
 	for (const app of apps) {
 		const repositories = [
 			[app.app, app.code],
 			[`${app.app}/data`, app.data],
 		] as const;
-		for (const [label, synced] of repositories) {
-			if (!synced) continue;
-			const parts = [
-				synced.committed
-					? `committed ${synced.committed.subject}`
-					: 'nothing to commit',
-				...(synced.pushed ? ['pushed'] : []),
-				synced.origin ? `${synced.origin.ahead} ahead of origin` : 'no origin',
-			];
-			stdout.push(`${label}: ${parts.join('; ')}`);
-		}
-		for (const failure of syncFailures(app))
-			stderr.push(
-				failure.message,
-				...(failure.next ? [`Run: ${failure.next}`] : []),
-			);
+		for (const [label, synced] of repositories)
+			if (synced) stdout.push(syncLine(label, synced));
+		for (const failure of syncFailures(app)) failed(failure);
+	}
+	if (epicenter) {
+		stdout.push(syncLine(epicenter.label, epicenter.synced));
+		if (epicenter.synced.error) failed(epicenter.synced.error);
 	}
 	const lines = (all: string[]) => all.map((line) => `${line}\n`).join('');
 	return { stdout: lines(stdout), stderr: lines(stderr) };
@@ -162,8 +191,9 @@ function renderSync(apps: Synced[]) {
 
 /**
  * `epicenter sync [<app> [-m <message>]]`: each app, or the one named, one
- * after another, answering `{ apps }` in name order. 0 when every app
- * synced, 1 when any did not.
+ * after another, answering `{ apps }` in name order; without a name, the
+ * Epicenter's own repository after them, as `epicenter` in the answer when it
+ * is one. 0 when every repository synced, 1 when any did not.
  */
 export async function syncCommand(
 	words: string[],
@@ -191,11 +221,16 @@ export async function syncCommand(
 	const apps: Synced[] = [];
 	for (const { entry, realPath } of chosen)
 		apps.push(await syncOne(entry, realPath, { message }));
-	if (json) writeJson({ apps });
+	const root = epicenterDir();
+	const own = name === undefined ? await syncEpicenter(root) : null;
+	if (json) writeJson({ apps, ...(own ? { epicenter: own } : {}) });
 	else {
-		const { stdout, stderr } = renderSync(apps);
+		const { stdout, stderr } = renderSync(
+			apps,
+			own ? { label: epicenterLabel(root), synced: own } : undefined,
+		);
 		process.stdout.write(stdout);
 		process.stderr.write(stderr);
 	}
-	return apps.some((app) => syncFailures(app).length > 0) ? 1 : 0;
+	return apps.some((app) => syncFailures(app).length > 0) || own?.error ? 1 : 0;
 }

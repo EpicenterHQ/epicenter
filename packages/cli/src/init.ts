@@ -1,8 +1,18 @@
-/** `epicenter init` writes the marker, `EPICENTER.md`, and adds starter guidance (ADR-0868). */
+/**
+ * `epicenter init` writes the marker, `EPICENTER.md`, adds starter guidance
+ * (ADR-0868), and makes the folder the Epicenter's own repository (ADR-0884).
+ * `epicenter init --from <url>` instead rebuilds an Epicenter from that
+ * repository and the repositories it lists.
+ */
 import { existsSync, realpathSync } from 'node:fs';
 import { mkdir, readdir, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve } from 'node:path';
+import { extractErrorMessage } from 'wellcrafted/error';
 import { BAD_PORT, misuse, parseWords, portOf } from './commands.ts';
+import {
+	restoreEpicenter,
+	startEpicenterRepository,
+} from './epicenter-repository.ts';
 import { CliError } from './errors.ts';
 import { fail, writeErr, writeJson, writeOut } from './output.ts';
 import {
@@ -64,6 +74,13 @@ that one. Code is reverted with \`git -C <app> revert <commit>\`.
 Files named *.local or *.local.* stay on this computer and live under data/:
 data/.gitignore ignores them, and epicenter refuses to snapshot one that is not
 ignored. Never run \`git clean -ffdx\` in an app's folder: it deletes data/.
+
+This folder is a Git repository too, backed up on the same clock: it keeps
+what is not in an app, such as this file and folders that are not apps.
+repositories.json lists every repository inside it with its origin, and
+.gitignore leaves each out; epicenter rewrites that list and those lines, so
+edit neither. \`epicenter init --from <this folder's origin>\` rebuilds this
+Epicenter on another computer.
 `;
 
 function actualFolder(path: string): string {
@@ -77,9 +94,19 @@ export async function initCommand(
 	words: string[],
 	json: boolean,
 ): Promise<number> {
-	const given = parseWords(words, { port: { type: 'string' } }, [0, 1]);
+	const given = parseWords(
+		words,
+		{ port: { type: 'string' }, from: { type: 'string' } },
+		[0, 1],
+	);
 	if (!given) return fail(misuse('init'), json);
 	const [path] = given.positionals;
+	const { from } = given.values;
+	if (from !== undefined && given.values.port !== undefined)
+		return fail(
+			misuse('init', '--from takes the port from the restored EPICENTER.md'),
+			json,
+		);
 	const port =
 		given.values.port === undefined ? DEFAULT_PORT : portOf(given.values.port);
 	if (port === undefined) return fail(misuse('init', BAD_PORT), json);
@@ -97,6 +124,7 @@ export async function initCommand(
 			}).error,
 			json,
 		);
+	if (from !== undefined) return restore(from, folder, json);
 	await mkdir(folder, { recursive: true });
 	try {
 		await writeFile(join(folder, MARKER), marker(port), { flag: 'wx' });
@@ -113,8 +141,12 @@ export async function initCommand(
 			json,
 		);
 	}
-	if (!existsSync(join(folder, 'AGENTS.md')))
+	const wrote = [MARKER];
+	if (!existsSync(join(folder, 'AGENTS.md'))) {
 		await writeFile(join(folder, 'AGENTS.md'), STARTER_AGENTS, { flag: 'wx' });
+		wrote.push('AGENTS.md');
+	}
+	await startEpicenterRepository(folder, wrote);
 	if (json) writeJson({ folder, port });
 	else {
 		writeOut(`Made Epicenter at ${folder}.`);
@@ -126,4 +158,35 @@ export async function initCommand(
 		writeErr(hasApps ? 'Run: epicenter' : 'Run: epicenter new <name>');
 	}
 	return 0;
+}
+
+/**
+ * `init --from <url>`: rebuild the Epicenter at `folder` from its repository
+ * and every repository it lists. 0 when everything listed with an origin came
+ * back, 1 when a clone or an install failed, 2 when nothing ran.
+ */
+async function restore(url: string, folder: string, json: boolean) {
+	let restored: Awaited<ReturnType<typeof restoreEpicenter>>;
+	try {
+		restored = await restoreEpicenter(url, folder);
+	} catch (error) {
+		return fail(
+			CliError.Usage({ message: extractErrorMessage(error) }).error,
+			json,
+		);
+	}
+	if (json) writeJson(restored);
+	else {
+		writeOut(
+			`Restored the Epicenter at ${folder}: cloned ${restored.cloned.length} ${restored.cloned.length === 1 ? 'repository' : 'repositories'}.`,
+		);
+		for (const path of restored.unbacked)
+			writeErr(`${path} had no origin, so it was not restored.`);
+		for (const { path, message } of restored.failed)
+			writeErr(`${path}: ${message}`);
+		writeErr(
+			'Files named *.local stay on the computer that made them: connect again any an app needs, such as a sign-in.',
+		);
+	}
+	return restored.failed.length > 0 ? 1 : 0;
 }
