@@ -83,9 +83,9 @@ An Epicenter                          A host
   `connectors.local.key` from the Epicenter's folder.
 - Folders in an Epicenter that are not apps, and its own `EPICENTER.md` and
   `AGENTS.md`, are in no repository yet, so nothing backs them up. The
-  invariant asks for that; the next change makes the Epicenter's folder a
-  repository of its own that lists its apps and their origins, and adds a
-  command that rebuilds an Epicenter from it.
+  invariant asks for that; [ADR-0884](0884-an-epicenter-is-a-repository-that-lists-the-repositories-inside-it-and-init-from-rebuilds-it.md)
+  makes the Epicenter's folder a repository of its own that lists the
+  repositories inside it, and `init --from` rebuilds an Epicenter from it.
 
 ## Considered alternatives
 
@@ -112,8 +112,6 @@ An Epicenter                          A host
 
 ## Open
 
-- What lists an Epicenter's apps when its folder is empty: the Epicenter's
-  own repository, its shape, and when `serve` updates it.
 - How a hosted host tells `serve` what a call may do, if a scope comes back.
 - A hosting service's grace period against the 10 seconds `serve` waits for its
   last backup.
