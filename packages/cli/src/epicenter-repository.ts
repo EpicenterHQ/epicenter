@@ -12,7 +12,7 @@
  * ```txt
  * ~/Epicenter/              this repository
  *   EPICENTER.md AGENTS.md  tracked
- *   Zhongwen/               tracked: a folder that is not a repository
+ *   notes/                  tracked: a folder that is not a repository
  *   repositories.json       { "apps/vocab": "<origin>", "apps/vocab/data": "<origin>" }
  *   .gitignore              apps/, *.local, node_modules/
  *   apps/vocab/             a repository of its own, listed

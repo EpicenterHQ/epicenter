@@ -25,7 +25,7 @@ the Epicenter stops its backup.**
 ```txt
 ~/Epicenter/              the Epicenter's repository
   EPICENTER.md AGENTS.md  tracked
-  Zhongwen/               tracked: not an app
+  notes/                  tracked: a folder that is not an app
   repositories.json       { "apps/vocab": "<origin>", "apps/vocab/data": "<origin>" }
   .gitignore              apps/, *.local, *.local.*, node_modules/, .DS_Store
   apps/
