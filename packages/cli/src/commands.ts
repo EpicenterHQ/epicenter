@@ -74,25 +74,15 @@ it was. It never pushes; sync does.`,
 		help: `Offers every app's actions over MCP at /, each app's UI at /<app>/, and each
 action to its UI at POST /<app>/<action>, on 127.0.0.1 and the Epicenter's port
 (default 4747) unless --port or --host says otherwise. It runs every call itself,
-from the app's code as it is on disk then. It backs up every app as sync does when it starts, every 5 minutes, and when it
-stops. When EPICENTER.md has a connectors block, it also offers MCP on
-127.0.0.1:<connectors.port> to a connector such as Claude, signed in with OAuth;
-an HTTPS tunnel from connectors.url to that port is yours to run. A connector is
-approved at connectors.tailnet/.allow, which only the tailnet reaches. Then
---host must be a loopback address.`,
+from the app's code as it is on disk then. It backs up every app as sync does
+when it starts, every 5 minutes, and when it stops. It has no sign-in: only this
+computer and the tailnet should reach it.`,
 	},
 	service: {
 		usage: 'epicenter service <install|uninstall|restart|status>',
 		help: `Installs a macOS login job that keeps serve running for this Epicenter.
 The person runs install and uninstall. Agents may safely run restart and status.
 status --json reports whether the job is installed and running, its pid, and port.`,
-	},
-	connectors: {
-		usage: 'epicenter connectors [revoke <connector>]',
-		help: `Lists the connectors you approved, such as Claude, with what each may do.
-revoke ends a connector's access, named by its client_id, host, or name; the
-next call it makes is refused, and it connects again only when you approve it
-on the tailnet. It works while serve runs.`,
 	},
 } as const;
 

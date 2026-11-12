@@ -75,8 +75,6 @@
 			"@better-auth/core": "1.8.0-beta.7",
 			"@better-auth/drizzle-adapter": "1.8.0-beta.7",
 			"@better-auth/oauth-provider": "1.8.0-beta.7",
-			"@better-auth/mcp": "1.8.0-beta.7",
-			"@better-auth/cimd": "1.8.0-beta.7",
 			"@better-auth/passkey": "1.8.0-beta.7",
 			"jose": "^6.2.2",
 			"jsrepo": "^3.6.2",

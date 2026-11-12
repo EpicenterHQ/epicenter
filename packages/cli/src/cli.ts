@@ -10,7 +10,6 @@
 import { join } from 'node:path';
 import { isName } from '@epicenter/app';
 import packageJson from '../package.json' with { type: 'json' };
-import { connectorsCommand } from './connectors.ts';
 import { buildCommand } from './build.ts';
 import {
 	BAD_PORT,
@@ -68,10 +67,6 @@ const GLOBALS = new Set(['--json', '--help', '-h', '--version', '-V']);
 
 type Handler = (words: string[], json: boolean) => Promise<number>;
 
-/** Whether `host` is a loopback address or name, reachable only from this computer. */
-const isLoopbackHost = (host: string) =>
-	host === 'localhost' || host === '::1' || /^127(\.\d{1,3}){3}$/.test(host);
-
 /** What each command in `COMMANDS` does. */
 const HANDLERS: { [K in Command]: Handler } = {
 	init: initCommand,
@@ -82,7 +77,6 @@ const HANDLERS: { [K in Command]: Handler } = {
 	sync: syncCommand,
 	history: historyCommand,
 	undo: undoCommand,
-	connectors: connectorsCommand,
 	service: serviceCommand,
 	async serve(words, json) {
 		if (json)
@@ -100,25 +94,6 @@ const HANDLERS: { [K in Command]: Handler } = {
 		const root = epicenterRoot();
 		const listen = port === undefined ? root.port : portOf(port);
 		if (listen === undefined) return fail(misuse('serve', BAD_PORT), json);
-		// With connectors, the tailnet reaches the private listener only
-		// through a proxy on this computer, such as tailscale serve.
-		if (root.connectors && host !== undefined && !isLoopbackHost(host))
-			return fail(
-				misuse(
-					'serve',
-					`With connectors, serve listens only on a loopback address, not ${host}`,
-				),
-				json,
-			);
-		// Port 0 asks for any free port, so two of them never collide.
-		if (listen !== 0 && root.connectors?.port === listen)
-			return fail(
-				misuse(
-					'serve',
-					`--port ${listen} is also connectors.port; the public listener needs a port of its own`,
-				),
-				json,
-			);
 		return serveHttp(host ?? '127.0.0.1', listen);
 	},
 };

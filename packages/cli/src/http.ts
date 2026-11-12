@@ -7,7 +7,6 @@
  * GET  /<app>/...       the app's UI, ui/dist/, as static files
  * GET  /<app>           308 to /<app>/
  * POST /<app>/<action>  run the action for the UI; JSON lines (`callResponse`)
- * GET, POST /.allow     approve a connector, with a `connectors` block
  * ```
  *
  * `serve` runs every call itself, from the app's code as it is on disk when
@@ -16,17 +15,14 @@
  * Every path of the server's own starts with `.`, which no app name can, so
  * no name is reserved for the server.
  *
- * This listener is on 127.0.0.1 (or `--host`) and trusts every request it
- * answers: only this computer and the tailnet reach it. It answers only a
- * `Host` that is a loopback name, an IP literal, or a `*.ts.net` name, which
- * a DNS rebinding name is not, and refuses a request a Tailscale Funnel or
+ * `serve` has no sign-in: who reaches it is its host's decision (ADR-0883).
+ * It listens on 127.0.0.1 (or `--host`) and trusts every request it answers:
+ * only this computer and the tailnet reach it. It answers only a `Host` that
+ * is a loopback name, an IP literal, or a `*.ts.net` name, which a DNS
+ * rebinding name is not, and refuses a request a Tailscale Funnel or
  * Cloudflare Tunnel delivered. Both set their header on every request, and
  * Funnel removes a copy the client sent, so a tunnel aimed at this port by
- * mistake reaches only refusals. When `EPICENTER.md` has a `connectors`
- * block, this listener also answers the approval page at `/.allow`
- * (`allow-page.ts`), and a second listener on 127.0.0.1 and the block's port
- * offers MCP to connectors through a tunnel (`public.ts`, ADR-0881); then
- * `--host` must be a loopback address.
+ * mistake reaches only refusals.
  *
  * A write call commits pending data before it answers (`run.ts`).
  * Everything else reaches history and the backup on the server's clock: when
@@ -45,19 +41,12 @@ import { basename, isAbsolute, join, sep } from 'node:path';
 import { isName } from '@epicenter/app';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { extractErrorMessage } from 'wellcrafted/error';
-import { allowRoute } from './allow-page.ts';
 import { linkAppPackage } from './app-package.ts';
-import {
-	ALLOW_PATH,
-	type AuthorizationServer,
-	openAuthorizationServer,
-} from './authorization-server.ts';
 import { CliError } from './errors.ts';
 import { chooseApps, homeEntries, loadHomeApp } from './home.ts';
 import { createMcpServer } from './mcp.ts';
 import { type Answer, writeErr } from './output.ts';
-import { startPublicServer } from './public.ts';
-import { epicenterDir, epicenterRoot } from './root.ts';
+import { epicenterDir } from './root.ts';
 import { callAction } from './run.ts';
 import { nothingToBackUp } from './snapshot.ts';
 import { type Synced, syncFailures, syncOne } from './sync.ts';
@@ -79,7 +68,7 @@ function within(ms: number, work: Promise<unknown>) {
 	return Promise.race([work.then(() => true as const), late]);
 }
 
-export const escapeHtml = (text: string) =>
+const escapeHtml = (text: string) =>
 	text.replace(
 		/[&<>"']/g,
 		(char) =>
@@ -116,10 +105,10 @@ p{color:var(--muted)}
 </style></head><body><main><h1>${escapeHtml(name)}</h1>${items ? `<ul>${items}</ul>` : '<p>No app here has a UI yet.</p>'}</main></body></html>`;
 }
 
-/** What the private listener serves; the public listener offers only `mcp`, to a connector's token. */
-export type Site = {
-	/** Answer an MCP request. With `readOnly`, list and run only read-only actions. */
-	mcp(request: Request, readOnly?: boolean): Promise<Response>;
+/** What the listener serves. */
+type Site = {
+	/** Answer an MCP request. */
+	mcp(request: Request): Promise<Response>;
 	/** The launcher at `GET /`, or 405 when MCP asks for an event stream. */
 	launcher(request: Request): Promise<Response>;
 	/** `GET /<app>` and `/<app>/<path>`: the app's UI, or 404. */
@@ -258,8 +247,8 @@ function createSite(refreshUi: (app: string, folder: string) => unknown): Site {
 		}
 	};
 	return {
-		async mcp(request, readOnly = false) {
-			const server = await createMcpServer({ readOnly });
+		async mcp(request) {
+			const server = await createMcpServer();
 			const transport = new WebStandardStreamableHTTPServerTransport({
 				enableJsonResponse: true,
 			});
@@ -353,19 +342,14 @@ function isPrivateHost(host: string | null) {
 const forbidden = () => new Response('Forbidden', { status: 403 });
 
 /**
- * Start the private listener and its backup clock, which backs up once now
- * and every 5 minutes after. The listener answers everything for a request
- * from this computer or the tailnet whose `Origin`, if any, is its own host.
- * The caller owns its lifetime and ends it with `stop`. Port 0 asks Bun for a
- * free port. `tick` runs one backup now, after any already running, and
- * answers what it did per app; `site.mcp` is what the public listener offers
- * too. With `authorization`, it also answers the approval page at `/.allow`.
+ * Start the listener and its backup clock, which backs up once now and every
+ * 5 minutes after. The listener answers everything for a request from this
+ * computer or the tailnet whose `Origin`, if any, is its own host. The caller
+ * owns its lifetime and ends it with `stop`. Port 0 asks Bun for a free port.
+ * `tick` runs one backup now, after any already running, and answers what it
+ * did per app.
  */
-export function startHttpServer(
-	host: string,
-	port: number,
-	authorization?: AuthorizationServer,
-) {
+export function startHttpServer(host: string, port: number) {
 	/** Each app's last backup failure as logged, so an unchanged one is logged once. */
 	const lastFailure = new Map<string, string>();
 	const refreshUi = createUiRefresher();
@@ -429,8 +413,6 @@ export function startHttpServer(
 				return forbidden();
 		}
 		const { pathname } = new URL(request.url);
-		if (pathname === ALLOW_PATH)
-			return authorization ? allowRoute(authorization, request) : notFound();
 		if (request.method === 'POST')
 			return pathname === '/' ? site.mcp(request) : site.call(request);
 		if (pathname === '/') return site.launcher(request);
@@ -444,7 +426,6 @@ export function startHttpServer(
 	});
 	return {
 		port: server.port as number,
-		site,
 		tick,
 		/**
 		 * Stop listening and the clock, then run the last backup, waiting for
@@ -461,45 +442,22 @@ export function startHttpServer(
 
 /**
  * Serve until the process receives SIGINT or SIGTERM, then back up once
- * more. With `connectors`, the authorization server opens before either
- * listener, so one that cannot start stops serve.
+ * more: a host stops `serve` with SIGTERM and allows it time for that
+ * backup (ADR-0883).
  */
 export async function serveHttp(host: string, port: number): Promise<number> {
-	const root = epicenterRoot();
 	// Every installed app's tools resolve the `@epicenter/app` of the `serve`
 	// that answers it, even when the `epicenter` they linked to is gone.
 	for (const { realPath } of await homeEntries())
 		if (await exists(join(realPath, 'node_modules')))
 			await linkAppPackage(realPath);
-	const { connectors } = root;
-	const authorization = connectors
-		? await openAuthorizationServer(root.folder, connectors)
-		: undefined;
-	const server = startHttpServer(host, port, authorization);
+	const server = startHttpServer(host, port);
 	writeErr(`Serving your apps at http://${host}:${server.port}.`);
-	let publicServer: ReturnType<typeof startPublicServer> | undefined;
-	try {
-		publicServer =
-			authorization && connectors
-				? startPublicServer(authorization, connectors.port, server.site.mcp)
-				: undefined;
-	} catch (error) {
-		// A port already taken: stop what started, so the process can exit.
-		await server.stop();
-		authorization?.close();
-		throw error;
-	}
-	if (connectors && publicServer)
-		writeErr(
-			`Serving connectors at ${connectors.url}/ from http://127.0.0.1:${publicServer.port}: an HTTPS tunnel from that address must forward to this port. They are approved at ${connectors.tailnet}/.allow.`,
-		);
 	await new Promise<void>((resolve) => {
 		process.once('SIGINT', resolve);
 		process.once('SIGTERM', resolve);
 	});
-	void publicServer?.stop();
 	const finished = await server.stop();
-	authorization?.close();
 	if (!finished) {
 		// A push still waiting on the network would keep the process alive.
 		writeErr('Stopped without waiting longer for the last backup.');

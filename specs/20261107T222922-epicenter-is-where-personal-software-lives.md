@@ -129,9 +129,9 @@ library, when an app needs one, is new code that copies the front-matter rule;
 5. **Agents.** Claude Code runs `epicenter` in the shell. Permission rules allow
    reading actions by command prefix (`Bash(epicenter mail search *)`) and ask on
    destructive ones; never allow `Bash(epicenter *)`. Claude Desktop adds
-   `epicenter serve --stdio` to its MCP settings. Claude and ChatGPT on the phone
-   reach apps as connectors through `serve`'s public address, approved once
-   on the tailnet (ADR-0849, ADR-0881).
+   `epicenter serve --stdio` to its MCP settings. On the phone, Claude Code on
+   the server is driven remotely, and UIs open over the tailnet; `serve` has no
+   public address (ADR-0883).
 6. **A second computer.** Nothing to set up: it reaches your server by `ssh` or
    through `serve`. Only Whispering keeps a copy there, with your server as its
    remote (ADR-0851).

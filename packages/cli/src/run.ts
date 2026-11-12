@@ -160,14 +160,14 @@ export type Following = {
  * Run the app `name`'s action `key` (its words one space apart) with `raw`,
  * one JSON object holding its whole input, as MCP and a UI give it: the app's
  * code is loaded as it is now, the input checked, and what the call wrote
- * committed before it answers. With `readOnly`, only a read-only action runs.
- * A commit that fails is written to stderr; it never changes the answer.
+ * committed before it answers. A commit that fails is written to stderr; it
+ * never changes the answer.
  */
 export async function callAction(
 	name: string,
 	key: string,
 	raw: unknown,
-	{ readOnly = false, ...following }: Following & { readOnly?: boolean } = {},
+	following: Following = {},
 ): Promise<Answer> {
 	const refused = (message: string, next?: string): Answer => ({
 		error: CliError.Usage({ message, next }).error,
@@ -186,13 +186,8 @@ export async function callAction(
 	const action = Object.hasOwn(located.actions, key)
 		? located.actions[key]
 		: undefined;
-	if (!action) return refused(`${name} has no action "${key}"`, `epicenter ${name}`);
-	if (readOnly && action.annotations?.readOnlyHint !== true)
-		return {
-			error: CliError.Refused({
-				message: `${name} ${key} changes files, and this call may only read`,
-			}).error,
-		};
+	if (!action)
+		return refused(`${name} has no action "${key}"`, `epicenter ${name}`);
 	if (typeof raw !== 'object' || raw === null || Array.isArray(raw))
 		return refused('The input is not a JSON object');
 	const checked = checkInput(action, raw, (field) => field);

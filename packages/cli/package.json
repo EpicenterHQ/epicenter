@@ -13,12 +13,8 @@
 		"test": "bun test"
 	},
 	"dependencies": {
-		"@better-auth/cimd": "catalog:",
-		"@better-auth/core": "catalog:",
-		"@better-auth/mcp": "catalog:",
 		"@epicenter/app": "workspace:*",
 		"@modelcontextprotocol/sdk": "catalog:",
-		"better-auth": "catalog:",
 		"typebox": "catalog:",
 		"wellcrafted": "catalog:"
 	},

@@ -52,9 +52,6 @@ async function appTools(entry: string): Promise<Tool[]> {
 	);
 }
 
-/** Whether a tool says it changes nothing (`readOnlyHint`): all the `read` scope may list and call. */
-const isReadOnly = (tool: Tool) => tool.annotations?.readOnlyHint === true;
-
 /**
  * An answer as an MCP result: the same value `--json` prints, as
  * `structuredContent`, and `isError` exactly when the action threw or did not
@@ -78,14 +75,9 @@ function toolResult(answer: Answer) {
 /**
  * Run the action `<app>_<word>_<word>` names. App names and action words hold
  * no underscores, and the first word must be able to name an app, so a tool
- * name never runs one of `epicenter`'s own commands. With `readOnly`, only a
- * read-only action runs.
+ * name never runs one of `epicenter`'s own commands.
  */
-async function callTool(
-	name: string,
-	args: Record<string, unknown>,
-	readOnly: boolean,
-) {
+async function callTool(name: string, args: Record<string, unknown>) {
 	const [app = '', ...words] = name.split('_');
 	if (
 		nameProblem(app) !== undefined ||
@@ -95,18 +87,15 @@ async function callTool(
 		return toolResult({
 			error: { name: 'Usage', message: `Unknown tool ${name}` },
 		});
-	return toolResult(await callAction(app, words.join(' '), args, { readOnly }));
+	return toolResult(await callAction(app, words.join(' '), args));
 }
 
 /**
  * Register the tool handlers on a fresh MCP server. It reads the
  * Epicenter's `AGENTS.md` now, so each initialize sends what the file says
- * then (ADR-0878). With `readOnly`, for a connector with only the `read`
- * scope (ADR-0871), it lists and runs only read-only actions.
+ * then (ADR-0878).
  */
-export async function createMcpServer({
-	readOnly = false,
-}: { readOnly?: boolean } = {}) {
+export async function createMcpServer() {
 	const instructions = await rootInstructions();
 	const server = new Server(
 		{ name: 'epicenter', version: packageJson.version },
@@ -115,12 +104,11 @@ export async function createMcpServer({
 			...(instructions === undefined ? {} : { instructions }),
 		},
 	);
-	server.setRequestHandler(ListToolsRequestSchema, async () => {
-		const tools = await listTools();
-		return { tools: readOnly ? tools.filter(isReadOnly) : tools };
-	});
+	server.setRequestHandler(ListToolsRequestSchema, async () => ({
+		tools: await listTools(),
+	}));
 	server.setRequestHandler(CallToolRequestSchema, (request) =>
-		callTool(request.params.name, request.params.arguments ?? {}, readOnly),
+		callTool(request.params.name, request.params.arguments ?? {}),
 	);
 	return server;
 }

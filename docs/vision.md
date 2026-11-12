@@ -4,8 +4,8 @@ Epicenter is where your personal software lives: small apps that you and your
 agents make and change, whose data is your files, and which you can use from
 every device you own. Each app is a folder in one place, `~/Epicenter`, on a
 computer you keep on; the `epicenter` command runs its actions for you and your
-agents, and `epicenter serve` offers them over MCP to Claude, ChatGPT, and each
-app's UI in a browser.
+agents, and `epicenter serve` offers them over MCP to your agents, and each
+app's UI to a browser, on every device on your tailnet.
 
 This page is the front door. It describes the design proposed on 2026-11-08 in
 [ADR-0849] to [ADR-0857] and reviewed by three independent reviewers before
@@ -39,7 +39,7 @@ each app, and every client asks it ([ADR-0864]).
 | Way in | What it is | Who uses it |
 | --- | --- | --- |
 | `epicenter <app> <action>` | the command, opening the folder directly | you, agents with a shell |
-| `epicenter serve` | MCP over HTTPS at `/`, the launcher there for a browser, and each app's UI at `/<app>/` | Claude, ChatGPT, any agent; UIs in a browser |
+| `epicenter serve` | MCP over HTTPS at `/`, the launcher there for a browser, and each app's UI at `/<app>/` | Claude Code, Claude Desktop, any agent on your tailnet; UIs in a browser |
 
 Capture, Vocab, agents, and UIs keep nothing on a device and see the current
 files when they reach the home. Whispering on another device sends recordings
@@ -167,8 +167,8 @@ changes into Git history. That is true for you in your editor, for Claude Code
 on the home, and for Whispering there.
 
 **If you do not, or the write needs a sign-in or an app's rule, ask for an
-action.** That is true for Claude Desktop, an agent on another computer,
-claude.ai, ChatGPT, and a UI.
+action.** That is true for Claude Desktop, an agent on another computer, and a
+UI.
 
 **History is snapshots, named for the calls** (`tasks: add Call the bank`):
 a write call, however it arrives, commits exactly the paths it wrote, holding
@@ -190,18 +190,14 @@ your server.
 ssh studio                                   you, then `epicenter …` there
 ssh studio epicenter serve --stdio           an agent's MCP server, from any computer
 epicenter serve, over your tailnet           your devices: UIs and MCP
-epicenter serve, at its public address       claude.ai and ChatGPT connectors only
 ```
 
 A command always means the computer it is typed on. `serve` speaks MCP and
 serves UIs, and runs each app as its files are on disk, so code you just
-changed is what runs (ADR-0880). Adding claude.ai or ChatGPT as a connector
-opens a page on your tailnet where you approve it, and the client receives a
-token you can revoke with `epicenter connectors revoke`. The public address is any
-HTTPS tunnel, such as Tailscale Funnel, to a second listener that answers only
-what a connector needs (ADR-0871, ADR-0881); you reach your apps over the
-tailnet, never there. Nothing guards your approvals from another program
-running as you except your agents' permission rules.
+changed is what runs (ADR-0880). It signs no one in. Who reaches it is decided
+by its host, the computer that runs it: for your server, the tailnet
+([ADR-0883]). An agent that changes your apps runs where their files are, such
+as Claude Code on your server, which you can drive from your phone.
 
 ## UIs
 
@@ -213,7 +209,7 @@ own.
 
 | Rung | Interface | Steps up when |
 | --- | --- | --- |
-| 1 | the terminal, Claude, Claude Code, ChatGPT | you want to see or tap, not type |
+| 1 | the terminal, Claude Code, any agent | you want to see or tap, not type |
 | 2 | a UI, in a browser | it needs the device in a way a browser does not give |
 | 3 | a program of its own, such as Whispering | never |
 
@@ -238,7 +234,7 @@ Every app climbs the same ladder, and each rung is optional.
 | 1. Files | nothing | any program reads and writes it |
 | 2. History | Git, `git-lfs`, optional `origin` | local snapshots, optional backup |
 | 3. Actions | `epicenter` | its actions in the terminal and for Claude Code |
-| 4. Everywhere | `epicenter serve` on your server | every device, claude.ai, and ChatGPT reach it; its UIs open in a browser |
+| 4. Everywhere | `epicenter serve` on your server | every device on your tailnet reaches it; its UIs open in a browser |
 
 The Epicenter Mac app installs rungs 2 to 4 at once: it carries its own Git and
 Git LFS and runs `epicenter serve`, so the Mac it is on is your server
@@ -300,3 +296,4 @@ fields are written one `key: <JSON>` line each.
 [ADR-0865]: adr/0865-the-epicenter-mac-app-runs-epicenter-serve-so-the-computer-it-is-on-is-your-server.md
 [ADR-0866]: adr/0866-an-app-starts-from-a-starter-kept-as-its-upstream-and-update-merges-the-starters-changes.md
 [ADR-0867]: adr/0867-the-command-line-spells-an-actions-json-input-and-null-removes-a-field-there-as-everywhere.md
+[ADR-0883]: adr/0883-an-epicenter-is-its-git-repositories-and-serve-and-its-host-keeps-runs-and-guards-them.md
