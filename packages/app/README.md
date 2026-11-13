@@ -378,9 +378,28 @@ await google.set({ refreshToken: fresh });
 ```
 
 Its `actions()` throws `data/google.local.md never leaves this computer, so it
-offers no actions`, so no generated verb hands a token to an MCP client. An
-action the app writes may still return what it reads. A fresh clone of the
-app has no `.local` files: the person signs in again.
+offers no actions`, so no generated verb hands a token to an MCP client. A
+read's `problems` and a refused write name a field that does not fit without
+quoting its value: `refreshToken is not text`. A fresh clone of the app has no
+`.local` files: the person signs in again.
+
+The actions an app writes keep two rules, since `serve` hands an answer and a
+thrown error to its caller whole, and an MCP caller's input sits in its
+transcript:
+
+- **Never return or throw a value read from a `.local` file.** Return what
+  the secret got you: an account name, a count, a result.
+- **Never take a secret as input.** The person writes the `.local` file, or the
+  action runs a flow that brings the secret back to this computer itself. Mail
+  is the model: `connect` takes only a `port`, the person puts the OAuth client
+  in `data/google.local.md`, and Google's code returns on a loopback listener
+  or the terminal.
+
+`.local` means "this computer only", for a cache as much as a sign-in. It is
+not a guard against a shell agent on the same computer: give that agent a
+deny rule for `*.local*` in its own permissions
+([ADR-0870](../../docs/adr/0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md)
+says what each layer defends).
 
 ## Testing an action
 
