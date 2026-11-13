@@ -145,7 +145,7 @@
 		<div class="min-h-0 min-w-0 flex-1 md:block" class:hidden={selected === undefined}>
 			{#if current}
 				{#key `${backend.mode}:${backend.profile}:${current.id}`}<ConversationView {backend} chat={current} onBack={() => { selected = undefined; }} />{/key}
-			{:else}<Empty.Root class="h-full"><Empty.Title>Choose a conversation</Empty.Title><Empty.Description>Read and reply through Beeper.</Empty.Description></Empty.Root>{/if}
+			{:else}<Empty.Root class="h-full"><Empty.Title>Choose a conversation</Empty.Title><Empty.Description>{phase === 'demo' ? 'Read and reply in this fictional demo.' : 'Read and reply through Beeper.'}</Empty.Description></Empty.Root>{/if}
 		</div>
 	</div>
 	{/if}

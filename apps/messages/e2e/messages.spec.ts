@@ -96,6 +96,9 @@ test('0. launch explains a missing connection and the demo is an explicit choice
 		),
 	).toBeVisible();
 	await expect(conversation('Maya Chen')).toBeVisible();
+	await expect(
+		page.getByText('Read and reply in this fictional demo.'),
+	).toBeVisible();
 });
 
 test('1. a draft is a note in Messages’ directory: created by the first keystroke, edited, kept across a reload, and cleared when emptied', async () => {
@@ -250,6 +253,7 @@ test('6. live Beeper goes through the local program', async () => {
 	await page.getByRole('button', { name: 'Connect to live Beeper' }).click();
 	await expect(page.getByText('Live Beeper', { exact: true })).toBeVisible();
 	await expect(conversation('Maya Chen')).toHaveCount(0);
+	await expect(page.getByText('Read and reply through Beeper.')).toBeVisible();
 
 	await conversation('Ada Test').click();
 	await expect(page.getByRole('list', { name: 'Messages' })).toContainText(
