@@ -138,7 +138,7 @@ type ReadValues<F extends Fields> = {
 /** The placeholder values a read gives, from the file's path: `word` for `data/words/{word}.md`. */
 type PlaceholderValues<P extends string> = { [K in Placeholders<P>]: string };
 
-/** What a read says about a file that does not fit its fields: one line per problem, quoting each value it dropped. */
+/** What a read says about a file that does not fit its fields: one line per problem, quoting each value it dropped unless the file is `.local`. */
 type Problems = { problems?: string[] };
 
 /** A row of `list`: the file's path, its placeholders, its fields, and its problems. */
@@ -453,9 +453,19 @@ const isReadOnly = (schema: TSchema) =>
 	(schema as { readOnly?: boolean }).readOnly === true;
 const hasDefault = (schema: TSchema) => Object.hasOwn(schema, 'default');
 
-/** Why `value` does not fit `schema`, quoting it: `due: "next week" is not a day like 2026-11-12`. */
-function misfit(key: string, schema: TSchema, value: unknown): string {
-	const quoted = `${key}: ${JSON.stringify(value)}`;
+/**
+ * Why `value` does not fit `schema`, quoting it: `due: "next week" is not a
+ * day like 2026-11-12`. A `.local` file's value is not quoted (`refreshToken
+ * is not text`), so a problem or a refused write cannot carry a secret to
+ * whoever reads the message.
+ */
+function misfit(
+	key: string,
+	schema: TSchema,
+	value: unknown,
+	local: boolean,
+): string {
+	const quoted = local ? key : `${key}: ${JSON.stringify(value)}`;
 	const words = whatFits(schema, value);
 	if (words) return `${quoted} is not ${words}`;
 	const [error] = Value.Errors(schema, value);
@@ -495,6 +505,7 @@ type Write = { fields: Record<string, unknown>; body?: unknown };
  */
 function createFiles(layout: Template, fields: Fields) {
 	const single = layout.placeholders.length === 0;
+	const local = isLocalPath(layout.text);
 
 	function own(path: unknown): string {
 		if (typeof path !== 'string')
@@ -530,7 +541,7 @@ function createFiles(layout: Template, fields: Fields) {
 				fitting.add(key);
 				continue;
 			}
-			if (present) problems.push(misfit(key, schema, value));
+			if (present) problems.push(misfit(key, schema, value, local));
 			else if (found.writable && !isOptional(schema) && !hasDefault(schema))
 				problems.push(`${key} is missing`);
 			if (hasDefault(schema))
@@ -588,7 +599,7 @@ function createFiles(layout: Template, fields: Fields) {
 			if (!Object.hasOwn(values, key)) {
 				if (whole && !isOptional(schema)) problems.push(`${key} is missing`);
 			} else if (!Value.Check(schema, values[key]))
-				problems.push(misfit(key, schema, values[key]));
+				problems.push(misfit(key, schema, values[key], local));
 		}
 		if (problems.length)
 			throw new Error(
