@@ -22,8 +22,9 @@ expressions had, plus reviews. It has no words yet.
 
 **Vocab gains practice with a tutor that runs on a model the person serves
 themselves. Zhongwen is a clone of Vocab, made with `epicenter new zhongwen
---from apps/vocab`, which adds pinyin and a tutor for Chinese and keeps Vocab
-as its `upstream`.**
+--from <Vocab's origin>`, which adds pinyin and a tutor for Chinese and keeps
+Vocab as its `upstream`.** The upstream is Vocab's origin URL, not the path
+`apps/vocab`, so an Epicenter rebuilt on another computer still merges from it.
 
 ```txt
 apps/vocab/                    gains practice; any language
