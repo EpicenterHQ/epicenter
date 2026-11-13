@@ -1,6 +1,7 @@
 {
 	"name": "@epicenter/app",
 	"version": "0.1.0",
+	"private": true,
 	"description": "What an app's epicenter.ts imports to define its collections, actions, and the app itself, and the client its UI calls them through.",
 	"repository": {
 		"type": "git",
@@ -17,9 +18,6 @@
 		"src",
 		"!src/**/*.test.ts"
 	],
-	"publishConfig": {
-		"access": "public"
-	},
 	"scripts": {
 		"typecheck": "tsc --noEmit -p tsconfig.json",
 		"test": "bun test"

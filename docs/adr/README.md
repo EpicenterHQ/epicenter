@@ -1077,9 +1077,9 @@ When you add an ADR, add its row here.
 | [0869](0869-a-body-is-changed-by-quoting-the-passage-it-replaces.md) | A body is changed by quoting the passage it replaces | Proposed |
 | [0870](0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md) | An app's secrets are `.local` files, and a `.local` file never leaves its computer | Proposed |
 | [0871](0871-a-public-address-signs-people-in-with-a-passkey-and-connectors-in-with-oauth.md) | A public address signs people in with a passkey and connectors in with OAuth | Superseded by 0883 |
-| [0873](0873-the-command-is-epicenter-cli-and-it-supplies-epicenter-app-to-every-app.md) | The command is `@epicenter/cli`, and it supplies `@epicenter/app` to every app | Proposed |
+| [0873](0873-the-command-is-epicenter-cli-and-it-supplies-epicenter-app-to-every-app.md) | The command is `@epicenter/cli`, and it supplies `@epicenter/app` to every app | Accepted |
 | [0874](0874-the-ui-kit-is-a-shadcn-svelte-registry-an-app-copies-from.md) | The UI kit is a shadcn-svelte registry an app copies from | Proposed |
-| [0875](0875-a-package-is-published-when-an-app-outside-the-monorepo-imports-it.md) | A package is published when an app outside the monorepo imports it | Proposed |
+| [0875](0875-a-package-is-published-when-an-app-outside-the-monorepo-imports-it.md) | A package is published when an outside consumer needs to install it | Accepted |
 | [0876](0876-an-apps-records-live-under-data-and-everything-else-in-it-is-code.md) | An app's records live under `data/`, and everything else in it is code | Accepted |
 | [0877](0877-an-apps-code-and-its-data-are-two-repositories-and-sharing-an-app-shares-its-code.md) | An app's code and its data are two repositories, and sharing an app shares its code | Accepted |
 | [0878](0878-the-os-keeps-epicenter-serve-running-under-a-job-the-person-installs.md) | The OS keeps `epicenter serve` running, under a job the person installs | Accepted |

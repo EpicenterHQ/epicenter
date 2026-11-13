@@ -37,9 +37,12 @@ export default defineApp({
 
 `epicenter reading log 30 --book Dune` runs `log`;
 `epicenter reading books set data/books/dune.md --finished 2026-11-10` runs a verb
-the collection gives. The `epicenter` command supplies `@epicenter/app` when it
-loads `epicenter.ts`, so the folder needs a `package.json` only for its own
-dependencies and for types in an editor. An app's name is its folder's.
+the collection gives. `@epicenter/app` is the API of the `epicenter` that runs
+the app, so the command supplies it: to `epicenter.ts` when it loads the file,
+and to the editor, `bun test`, and the UI's build by linking
+`node_modules/@epicenter/app` to its own copy (ADR-0873). The folder's
+`package.json` names only the app's own dependencies. An app's name is its
+folder's.
 
 ## Three values, composed
 
