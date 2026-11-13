@@ -1090,10 +1090,10 @@ When you add an ADR, add its row here.
 | [0884](0884-an-epicenter-is-a-repository-that-lists-the-repositories-inside-it-and-init-from-rebuilds-it.md) | An Epicenter is a repository that lists the repositories inside it, and `init --from` rebuilds it | Accepted |
 | [0885](0885-an-epicenters-apps-live-in-apps-which-its-repository-ignores-with-one-line.md) | An Epicenter's apps live in `apps/`, which its repository ignores with one line | Accepted |
 | [0886](0886-vocab-practises-with-a-tutor-on-the-persons-own-model-and-zhongwen-is-vocab-cloned-for-chinese.md) | Vocab practises with a tutor on the person's own model, and Zhongwen is Vocab cloned for Chinese | Accepted |
-| [0887](0887-a-program-keeps-a-clone-of-an-apps-data-repository-and-the-host-files-what-it-pushes.md) | A program keeps a clone of an app's data repository, and the host files what it pushes | Proposed |
-| [0888](0888-the-host-merges-with-gits-line-merge-and-a-file-it-cannot-merge-takes-the-later-side-whole.md) | The host merges with Git's line merge, and a file it cannot merge takes the later side whole | Proposed |
-| [0889](0889-an-app-runs-on-epicenter-a-program-works-with-it-and-they-meet-at-the-apps-contract.md) | An app runs on Epicenter, a program works with it, and they meet at the app's contract | Proposed |
-| [0890](0890-a-programs-folder-is-its-own-and-holds-only-what-its-apps-contract-declares.md) | A program's folder is its own, and holds only what its app's contract declares | Proposed |
-| [0891](0891-this-repository-holds-the-runtime-and-programs-and-every-starter-is-a-repository-of-its-own.md) | This repository holds the runtime and programs, and every starter is a repository of its own | Proposed |
-| [0892](0892-the-cli-releases-to-npm-and-whispering-8-is-a-new-install-with-its-own-update-address.md) | The CLI releases to npm, and Whispering 8 is a new install with its own update address | Proposed |
-| [0893](0893-a-records-path-is-its-path-in-the-apps-data-repository.md) | A record's path is its path in the app's data repository | Proposed |
+| [0887](0887-a-program-keeps-a-clone-of-an-apps-data-repository-and-the-host-files-what-it-pushes.md) | A program keeps a clone of an app's data repository, and the host files what it pushes | Accepted |
+| [0888](0888-the-host-merges-with-gits-line-merge-and-a-file-it-cannot-merge-takes-the-later-side-whole.md) | The host merges with Git's line merge, and a file it cannot merge takes the later side whole | Accepted |
+| [0889](0889-an-app-runs-on-epicenter-a-program-works-with-it-and-they-meet-at-the-apps-contract.md) | An app runs on Epicenter, a program works with it, and they meet at the app's contract | Accepted |
+| [0890](0890-a-programs-folder-is-its-own-and-holds-only-what-its-apps-contract-declares.md) | A program's folder is its own, and holds only what its app's contract declares | Accepted |
+| [0891](0891-this-repository-holds-the-runtime-and-programs-and-every-starter-is-a-repository-of-its-own.md) | This repository holds the runtime and programs, and every starter is a repository of its own | Accepted |
+| [0892](0892-the-cli-releases-to-npm-and-whispering-8-is-a-new-install-with-its-own-update-address.md) | The CLI releases to npm, and Whispering 8 is a new install with its own update address | Accepted |
+| [0893](0893-a-records-path-is-its-path-in-the-apps-data-repository.md) | A record's path is its path in the app's data repository | Accepted |

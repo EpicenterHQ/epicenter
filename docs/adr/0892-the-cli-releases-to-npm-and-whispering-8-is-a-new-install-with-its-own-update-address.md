@@ -1,6 +1,6 @@
 # 0892. The CLI releases to npm, and Whispering 8 is a new install with its own update address
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-11-13)
 - **Date:** 2026-11-13
 - **Relates:** [ADR-0873](0873-the-command-is-epicenter-cli-and-it-supplies-epicenter-app-to-every-app.md) (`@epicenter/cli`), [ADR-0875](0875-a-package-is-published-when-an-app-outside-the-monorepo-imports-it.md) (what is published), [ADR-0890](0890-a-programs-folder-is-its-own-and-holds-only-what-its-apps-contract-declares.md) (Whispering's folder), [ADR-0891](0891-this-repository-holds-the-runtime-and-programs-and-every-starter-is-a-repository-of-its-own.md) (programs in this repository).
 - **Unbuilt:** all of it: the release workflows, the npm packages per platform, Whispering 8's update manifest, and its import from Whispering 7.

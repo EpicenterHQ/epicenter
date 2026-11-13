@@ -1,6 +1,6 @@
 # 0890. A program's folder is its own, and holds only what its app's contract declares
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-11-13)
 - **Date:** 2026-11-13
 - **Amends:** [ADR-0858](0858-where-a-file-lives-decides-whether-it-travels-survives-or-dies-with-its-program.md) at where Whispering's folder lives (`~/Whispering` by default, not `~/Epicenter/whispering`) and at preferences in the folder: only those the app's contract declares.
 - **Relates:** [ADR-0870](0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md) (`.local` files, the Keychain for a program's sign-ins), [ADR-0887](0887-a-program-keeps-a-clone-of-an-apps-data-repository-and-the-host-files-what-it-pushes.md) (connecting), [ADR-0889](0889-an-app-runs-on-epicenter-a-program-works-with-it-and-they-meet-at-the-apps-contract.md) (programs and contracts).

@@ -19,8 +19,9 @@ which is mostly the earlier product described at the end.
 ## In three laws
 
 1. **What's yours is everywhere.** What you and your agents make is files in an
-   app's folder on your server, the one copy, and every device reaches it
-   there. `*.local` files and rebuilt files stay on the home.
+   app's folder on your server, the one copy that is kept, and every device
+   reaches it there; a program that must work offline keeps a clone and pushes
+   to it. `*.local` files and rebuilt files stay on the home.
 2. **Everything else is used where it is.** A sign-in, a machine's hardware, a
    service that exists on one machine. An action runs where what it uses is.
 3. **Everything you see or ask is an interface to actions.** The terminal and
@@ -40,10 +41,13 @@ each app, and every client asks it ([ADR-0864]).
 | --- | --- | --- |
 | `epicenter <app> <action>` | the command, opening the folder directly | you, agents with a shell |
 | `epicenter serve` | MCP over HTTPS at `/`, the launcher there for a browser, and each app's UI at `/<app>/` | Claude Code, Claude Desktop, any agent on your tailnet; UIs in a browser |
+| Git at `/<app>.git` | a clone of the app's data repository, which pushes to its own branch | a program that works offline: Whispering ([ADR-0887]) |
 
 Capture, Vocab, agents, and UIs keep nothing on a device and see the current
-files when they reach the home. Whispering on another device sends recordings
-to the home through an action when it can reach it. `epicenter serve`
+files when they reach the home. Whispering on another device keeps a clone of
+the `whispering` app's data, commits each recording, and pushes when it can
+reach the home, which files the push into `main` ([ADR-0887], [ADR-0888]).
+`epicenter serve`
 runs the `epicenter.ts` of each app you trust, and Epicenter holds no
 third-party credentials: Mail's Google sign-in is a `.local` file in Mail's
 folder, on the computer that runs Mail's actions, and never leaves it.
@@ -75,14 +79,16 @@ made from one once it moves to a repository of its own.
 - **A capture from the phone.** You open Capture's UI in your phone's browser,
   served by your server at `/capture/`, and save a quote. The UI asks
   `capture_add` over MCP; your server writes `captures/<time>.md` and snapshots it.
-- **A recording on a plane.** Whispering on the home laptop records,
-  transcribes, and pastes with no network. It writes each recording into
-  `~/Epicenter/apps/whispering`. Whispering on another device sends recordings to
-  the home through an action when it can reach it.
+- **A recording on a plane.** Whispering on your laptop records, transcribes,
+  and pastes with no network, and writes each recording into `~/Whispering`.
+  It commits each one; when the laptop reaches your server again, it pushes,
+  and the recordings appear in the `whispering` app for your agents
+  ([ADR-0887]).
 - **Adding to someone else's folder.** You ask an agent for a weekly summary of
-  your voice notes. It writes an `epicenter.ts` in Whispering's folder with a
-  `summaries` collection and a `summarize-week` action that reads the
-  recordings. Whispering keeps writing its recordings and never notices.
+  your voice notes. It adds a `summaries` collection and a `summarize-week`
+  action to the `whispering` app's `epicenter.ts`, which came from
+  Whispering's starter. Whispering keeps writing its recordings and never
+  notices ([ADR-0889]).
 
 ## The pieces
 
@@ -95,12 +101,14 @@ made from one once it moves to a repository of its own.
 | an action | something you can ask an app to do: a collection's verb, or one the author writes with `defineAction` |
 | a UI | a web page built from the app's `ui/` into `ui/dist/`, served at `/<app>/`, that shows its data and calls its actions over MCP |
 | `epicenter` | the program that runs an action in a folder, and `epicenter serve`, which offers every app over MCP |
-| a device program | an app's own program, when it needs the device: Whispering |
+| a program | software that runs on its own and reads and writes a folder whose shape an app's collections declare: Whispering ([ADR-0889]) |
+| a starter | an app's code repository, which someone else takes with `epicenter new --from` |
+| a clone | a program's clone of an app's data repository, which pushes to the home and never merges |
 | your server | the computer that runs `epicenter serve`, from a terminal or as the Epicenter Mac app ([ADR-0865]); it holds the one copy of each app and runs its actions, and every device reaches it while it is on |
 | Git | snapshots on the home, optional `origin` backup, `upstream` for a starter, LFS for binaries |
 
 Programs on the home, including your editor and Claude Code, have the folder.
-Programs on other devices ask for actions.
+Programs on other devices ask for actions, or keep a clone and push.
 
 ## An app
 
@@ -108,14 +116,18 @@ An app is a Git repository of three kinds of file, each with one author
 ([ADR-0866]):
 
 ```txt
-vocab/
+apps/vocab/
   epicenter.ts      the app: its collections and actions          from its starter; yours to change
   ui/               the UI's source, built into ui/dist/        from its starter; yours to change
   README.md         what the app is, for people and agents        from its starter
-  words/你好.md      data: front matter and a body                yours alone
+  data/             the data repository                         yours alone
+    words/你好.md    a record, whose path is `words/你好.md`
   node_modules/     installed packages, ignored
-  .gitignore        .gitattributes too, once it holds binaries
+  .gitignore
 ```
+
+A record's path is its path in the data repository, the same in an action, a
+UI, history, and a clone ([ADR-0893]).
 
 ```ts
 import { defineAction, defineApp, defineCollection, field } from '@epicenter/app';
@@ -170,6 +182,11 @@ on the home, and for Whispering there.
 action.** That is true for Claude Desktop, an agent on another computer, and a
 UI.
 
+**If you are a program that must work offline, commit in your clone and push.**
+The home files the push into `main` as one merge commit: Git merges by line,
+and a file it cannot merge takes the later edit whole, with the other kept in
+history and named in the app's status ([ADR-0888]).
+
 **History is snapshots, named for the calls** (`tasks: add Call the bank`):
 a write call, however it arrives, commits exactly the paths it wrote, holding
 the app's lock from its first write to its commit, and `epicenter serve`
@@ -215,7 +232,8 @@ own.
 
 ## How data moves
 
-The home holds each app's only working copy. Other devices call its actions.
+The home holds each app's one kept copy. Other devices call its actions, or
+keep a clone, push to its own branch, and fast-forward to what the home filed.
 The home keeps snapshots in Git. `epicenter sync` snapshots pending changes
 and pushes to the optional `origin` backup, without pulling or rebasing. A
 refused push leaves the backup untouched and appears in the app's status
@@ -259,7 +277,8 @@ on your server; its files reach every rung.
 | An interface | Claude or the terminal | it needs to be seen: a UI |
 | Run something later | someone asks | never |
 
-**Refused:** a sync engine, schedules, merging into your server's copy, a schema
+**Refused:** a sync engine, schedules, a merge that can stop or that writes
+anything but the merged files, conflict markers or conflict files, a schema
 language of its own, an API beside MCP, programs that ship `epicenter`, an
 Epicenter app on every device holding a copy of each app, a catalog of apps,
 Epicenter holding third-party credentials, a folder kept in a browser, a
@@ -296,4 +315,8 @@ fields are written one `key: <JSON>` line each.
 [ADR-0865]: adr/0865-the-epicenter-mac-app-runs-epicenter-serve-so-the-computer-it-is-on-is-your-server.md
 [ADR-0866]: adr/0866-an-app-starts-from-a-starter-kept-as-its-upstream-and-update-merges-the-starters-changes.md
 [ADR-0867]: adr/0867-the-command-line-spells-an-actions-json-input-and-null-removes-a-field-there-as-everywhere.md
+[ADR-0887]: adr/0887-a-program-keeps-a-clone-of-an-apps-data-repository-and-the-host-files-what-it-pushes.md
+[ADR-0888]: adr/0888-the-host-merges-with-gits-line-merge-and-a-file-it-cannot-merge-takes-the-later-side-whole.md
+[ADR-0889]: adr/0889-an-app-runs-on-epicenter-a-program-works-with-it-and-they-meet-at-the-apps-contract.md
+[ADR-0893]: adr/0893-a-records-path-is-its-path-in-the-apps-data-repository.md
 [ADR-0883]: adr/0883-an-epicenter-is-its-git-repositories-and-serve-and-its-host-keeps-runs-and-guards-them.md

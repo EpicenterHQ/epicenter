@@ -1,6 +1,6 @@
 # 0893. A record's path is its path in the app's data repository
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-11-13)
 - **Date:** 2026-11-13
 - **Amends:** [ADR-0877](0877-an-apps-code-and-its-data-are-two-repositories-and-sharing-an-app-shares-its-code.md) at "A record's path does not change. It is `data/words/<time>.md` in every answer": it is `words/<time>.md`. [ADR-0876](0876-an-apps-records-live-under-data-and-everything-else-in-it-is-code.md) at "A collection's path starts with `data/`" and "A record's path is the same everywhere: the file's path from the app's folder": a path is relative to `data/`, and the rest of ADR-0876 stands.
 - **Relates:** [ADR-0877](0877-an-apps-code-and-its-data-are-two-repositories-and-sharing-an-app-shares-its-code.md) (`data/` is a repository), [ADR-0887](0887-a-program-keeps-a-clone-of-an-apps-data-repository-and-the-host-files-what-it-pushes.md) (a clone is that repository).

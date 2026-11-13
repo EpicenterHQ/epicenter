@@ -1,6 +1,6 @@
 # 0888. The host merges with Git's line merge, and a file it cannot merge takes the later side whole
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-11-13)
 - **Date:** 2026-11-13
 - **Relates:** [ADR-0887](0887-a-program-keeps-a-clone-of-an-apps-data-repository-and-the-host-files-what-it-pushes.md) (filing a push), [ADR-0862](0862-notes-merge-field-by-field-and-every-conflict-is-listed-for-repair.md) (the field merge, superseded), [ADR-0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md) (the loser stays a parent; an edit beats a delete it never saw), [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) and [ADR-0714](0714-a-files-extension-decides-how-every-folder-merges-it.md) (the old product's conflict blocks and sibling files).
 - **Unbuilt:** all of it: the filing merge, the `Replaced:` and `Restored:` trailers, and the status line listing them.
