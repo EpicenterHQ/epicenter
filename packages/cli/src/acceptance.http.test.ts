@@ -627,7 +627,7 @@ test('a caller that stops reading stops the action at its next yield; its finall
 	const deadline = Date.now() + 10_000;
 	while (!(await latest()).startsWith('talk: drip') && Date.now() < deadline)
 		await Bun.sleep(50);
-	expect(await latest()).toBe('talk: drip (threw)');
+	expect(await latest()).toBe('talk: drip (stopped)');
 	expect(
 		(await gitIn(data, 'show', '--name-only', '--format=', 'HEAD')).split('\n'),
 	).toEqual(['started.md', 'stopped.md']);

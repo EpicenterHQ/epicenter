@@ -89,7 +89,8 @@ function forCall(
 /**
  * Run `action`, the app's `key`, with its checked input in the app's folder,
  * then commit everything pending in data under the call's name,
- * whether it returned or threw (`<call> (threw)`), and let the app's lock go.
+ * whether it returned, threw (`<call> (threw)`), or its caller stopped it
+ * (`<call> (stopped)`), and let the app's lock go.
  * `committed` is the commit's outcome, absent when the call wrote nothing
  * through `folder`.
  */
@@ -139,7 +140,7 @@ export async function runAction(
 		const committed = await commitCall(located.name, located.realPath, {
 			subject:
 				callName(located.name, key, input[action.positional?.[0] ?? '']) +
-				('threw' in answer ? ' (threw)' : ''),
+				('threw' in answer ? (signal?.aborted ? ' (stopped)' : ' (threw)') : ''),
 			code,
 		});
 		return { answer, committed };
