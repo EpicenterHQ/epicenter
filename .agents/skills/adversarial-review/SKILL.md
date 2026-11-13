@@ -153,9 +153,16 @@ account with every reviewer. Reviewers exchange findings, question one
 another's claims, answer objections, and revise a single concrete proposed
 direction: retain the design, change it in a stated way, or combine elements of
 competing accounts. Name the claim, model, or product judgment behind each
-consequential disagreement. When the reviewers share a premise responsible for
-substantial machinery, examine its support and what an alternative account
-would make possible.
+consequential disagreement. When a dispute persists or a direction keeps gaining
+exceptions, treat that as a clue that the contested work may be downstream of an
+inherited choice. Reconstruct the work from the desired outcome. Ask what makes
+it necessary: a process that changes live state in place, an ownership boundary,
+a lifetime, or a promise. Consider whether changing that choice makes the
+dispute and its exceptions unnecessary. Give the alternative concrete expression
+and check what disappears, what people or callers must now do, and what it costs.
+Test it against the cases behind the objections before returning to the local
+dispute. Some disagreements turn on a checkable fact, and some exceptions
+protect a necessary distinction; settle those directly.
 
 Reviewers may message one another directly where the available tooling supports
 it. Otherwise the coordinator relays substantive messages: findings, questions,

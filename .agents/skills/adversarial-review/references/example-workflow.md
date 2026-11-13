@@ -57,12 +57,9 @@ The coordinator shares the three accounts with every reviewer and relays their
 replies; Claude receives each exchange in a resumed turn.
 
 Codex reviewer two objects to the reload: an edit still waiting in the upload
-queue would be lost, and Claude's account tag helps only if it is persisted
-with the edit. Reviewer one answers that flushing saves before reloading would
-cover it. Claude replies that a flush keeps the save-before-switch transition
-the reload was meant to remove. The three agree that the disputed claim is
-whether pending edits are already persisted under their account before they
-enter the queue.
+queue would be lost. Claude asks whether pending edits are already persisted
+under their owning account before they enter the queue. The three agree that
+this fact decides whether a reload loses them.
 
 The coordinator traces persistence and runs a focused recovery check. In this
 imagined case, edits are persisted locally under their original account, and
@@ -108,6 +105,22 @@ Had the reviewers divided over whether reloading on every switch is acceptable
 to the people using the app, the evidence could not settle it. The coordinator
 would bring that product question to the user with both options rather than
 report an agreed direction.
+
+## When disagreement points to inherited work
+
+Reviewers disagree over how re-importing a project file should update a live
+workspace. One proposes merging fields, another asks the person about each
+conflict, and a third protects locally deleted records. Testing the proposals
+adds exceptions for renamed folders and attachments still uploading.
+
+The group notices that every proposal assumes import must change the current
+workspace in place. They return to the outcome: the person should be able to
+inspect imported content without losing their edits. Importing into a separate
+workspace could remove the merge rules and partial rollback. Before supporting
+it, the reviewers check whether links or other devices depend on the current
+workspace identity, and whether keeping two copies is acceptable. If that
+check defeats the new process, they return to the merge dispute with its cause
+and cost understood.
 
 ## When the current design wins
 
