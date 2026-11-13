@@ -213,8 +213,11 @@ A read-only run takes no lock and commits nothing. Its writes through
 may refresh its token there without taking the lock, and no commit takes it.
 
 Write last. A call holds its app's lock from its first write until its
-commit, and other writes to the app wait for it, so fetch from a service or
-compute first, then write. Never run `epicenter` against the action's own app
+commit, and other writes to the app wait for it at most 30 seconds, so fetch
+from a service, call a model, or compute first, then write. When the person's
+input must survive a failure, write it after the slow step fails, not before
+it starts: Vocab's `practice reply` asks the model, then saves both turns, or
+saves the learner's turn alone and throws. Never run `epicenter` against the action's own app
 after writing: the inner call waits for the lock its own caller holds, and
 fails after 30 seconds.
 

@@ -43,12 +43,18 @@ apps/zhongwen/                 Vocab's code, upstream = Vocab
   runs `serve`. A call from a phone runs there too, so the conversation
   reaches no other service. Changing the model is an edit to that file. The
   person's agent can call every action, but it is not the tutor.
-- **Practice is two actions and a page.** `practice reply` takes a
-  conversation and the learner's message, saves the message, asks the model,
-  and saves the tutor's reply only when it is complete. `practice finish` asks
-  the model for feedback on how the learner used the chosen words and saves
-  it in the conversation. The Practice page chooses words, shows the
-  conversation, and finishes it. The first version waits for whole replies.
+- **Practice is three actions and a page.** `practice start` asks the model
+  to open and makes the conversation with its first turn. `practice reply`
+  takes a conversation and the learner's message, asks the model, and saves
+  both turns once the reply is complete; when the model fails, it saves the
+  learner's turn alone, so a message is never lost. `practice finish` asks the
+  model for feedback on how the learner used the chosen words and saves it in
+  the conversation. The Practice page chooses words, shows the conversation,
+  and finishes it. The first version waits for whole replies.
+- **No action writes before its model call.** A call holds the app's lock
+  from its first write until it ends, and another writer waits at most 30
+  seconds; a write before a reply that takes 40 would turn a review from the
+  phone into "busy".
 - **A conversation is one Markdown file.** Its front matter holds when it
   started, the words chosen (by their names in `data/words/`), and when it
   finished. Its body holds one `## Learner` or `## Tutor` section per turn, in
