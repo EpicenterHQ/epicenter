@@ -6,7 +6,7 @@
 - **Amends:** [ADR-0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md) at `epicenter sync`: it snapshots pending changes and pushes, without pulling or rebasing.
 - **Relates:** [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) (reaching the home), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (snapshots), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (`origin`), [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (one copy).
 - **Built:** `epicenter sync` (`packages/cli/src/sync.ts`) and `serve`'s backup clock (`packages/cli/src/http.ts`). 2026-11-11: an app's status saying `not backed up` (no `origin`) or `never backed up` (an `origin` that has not received the branch), with the step that settles it, and `epicenter new` saying so (`packages/cli/src/snapshot.ts`, `listing.ts`, `new.ts`).
-- **Unbuilt:** access to home actions from programs on other devices, such as Whispering.
+- **Unbuilt:** a clone's pushes from programs on other devices, such as Whispering ([ADR-0887](0887-a-program-keeps-a-clone-of-an-apps-data-and-pushes-to-it-and-the-host-files-what-it-receives.md)).
 - **Unbuilt:** two repositories per app, each with its own private `origin` that `sync` and the clock push ([ADR-0877](0877-an-apps-code-and-its-data-are-two-repositories-and-sharing-an-app-shares-its-code.md)).
 
 ## Context
@@ -69,14 +69,16 @@ bare repository on a disk or another computer). Apps that hold mail or a
 journal may prefer the latter.
 
 To restore an app, clone its backup onto a computer and make that computer
-the home. A program on another device sends its data to the home through an
-action; this path for Whispering is not built yet. Binary files the app tracks
+the home. A program on another device that must work offline keeps a clone
+of the app's data repository and pushes to its own branch, which the home
+files ([ADR-0887](0887-a-program-keeps-a-clone-of-an-apps-data-and-pushes-to-it-and-the-host-files-what-it-receives.md)); a clone is not the backup, and the home still never pulls. Binary files the app tracks
 use Git LFS. Epicenter adds no encryption; anyone with access to the backup
 can read its history.
 
 ## Consequences
 
-- The home owns the only working copy used in normal operation. A refused
+- The home owns the one working copy that actions and agents use; a
+  program's clone only proposes changes to it (ADR-0887). A refused
   push does not merge remote commits into that copy or overwrite the backup.
 - A remote is optional to run. Without one, `sync` makes a local snapshot,
   and the app's status says `not backed up` until it has one.
@@ -84,8 +86,7 @@ can read its history.
   Epicenter's own `EPICENTER.md` and `AGENTS.md` are in no repository; the
   computer's own backup keeps them.
 - A device that cannot reach the home cannot change its apps through actions.
-  A possible later offline outbox would queue action calls and replay them
-  when the home is reachable.
+  A program that must work offline keeps a clone instead (ADR-0887).
 
 ## Considered alternatives
 

@@ -105,20 +105,14 @@ The client reads the app's name from the first path segment of the UI's URL;
 client.
 
 **A program with the folder writes files and commits them.** Whispering's
-folder is `~/Epicenter/whispering`, created at the first recording after a sheet
-that names it, unless the person picks another, which `~/Epicenter/whispering`
-then links to (ADR-0858). Whispering owns its `.gitattributes`; it ignores
-files it does not know. The folder is an app once someone writes its
-`epicenter.ts`, with collections over the recordings and any actions of their
-own; how Whispering's folder gets one is open (ADR-0857). After a recording
-it writes its note and audio, the audio named `<id>.local.<ext>` when the person
-keeps it on that computer (ADR-0858), and, once the folder is a Git repository,
-commits those paths. On a Mac other than your server it pulls from and pushes
-to your server over SSH when it can (ADR-0851, ADR-0864). It uses the installed
-`git`, because libgit2 does not run Git LFS's filters, and it never needs
-`epicenter`. Once the folder has an `epicenter.ts`, every program that asks
-lists, reads, and edits its recordings on your server without Whispering
-knowing. Recording, the shortcut, and pasting need the device and are never
+folder is `~/Whispering`, and its contract is the `epicenter.ts` of its
+starter, which a person installs as the `whispering` app ([ADR-0889](0889-an-app-and-a-program-meet-at-the-apps-contract-and-a-programs-starter-lives-beside-it.md)). After a
+recording it writes its note and audio, the audio named `<id>.local.<ext>`
+when the person keeps it on that computer (ADR-0858). Once connected, its
+folder is a clone of the app's data repository: it commits those paths and
+pushes them to the Studio when it can ([ADR-0887](0887-a-program-keeps-a-clone-of-an-apps-data-and-pushes-to-it-and-the-host-files-what-it-receives.md)). It never needs `epicenter`.
+Every program that asks lists, reads, and edits its recordings on your
+server without Whispering knowing. Recording, the shortcut, and pasting need the device and are never
 actions.
 
 ## Consequences

@@ -1090,3 +1090,7 @@ When you add an ADR, add its row here.
 | [0884](0884-an-epicenter-is-a-repository-that-lists-the-repositories-inside-it-and-init-from-rebuilds-it.md) | An Epicenter is a repository that lists the repositories inside it, and `init --from` rebuilds it | Accepted |
 | [0885](0885-an-epicenters-apps-live-in-apps-which-its-repository-ignores-with-one-line.md) | An Epicenter's apps live in `apps/`, which its repository ignores with one line | Accepted |
 | [0886](0886-vocab-practises-with-a-tutor-on-the-persons-own-model-and-zhongwen-is-vocab-cloned-for-chinese.md) | Vocab practises with a tutor on the person's own model, and Zhongwen is Vocab cloned for Chinese | Accepted |
+| [0887](0887-a-program-keeps-a-clone-of-an-apps-data-and-pushes-to-it-and-the-host-files-what-it-receives.md) | A program keeps a clone of an app's data and pushes to it, and the host files what it receives | Proposed |
+| [0888](0888-when-a-push-and-the-host-change-the-same-thing-the-later-edit-stays-and-the-other-stays-in-history.md) | When a push and the host change the same thing, the later edit stays and the other stays in history | Proposed |
+| [0889](0889-an-app-and-a-program-meet-at-the-apps-contract-and-a-programs-starter-lives-beside-it.md) | An app and a program meet at the app's contract, and a program's starter lives beside it | Proposed |
+| [0890](0890-github-releases-here-are-whisperings-the-cli-releases-to-npm-and-whispering-8-keeps-its-identity.md) | GitHub Releases here are Whispering's, the CLI releases to npm, and Whispering 8 keeps its identity | Proposed |
