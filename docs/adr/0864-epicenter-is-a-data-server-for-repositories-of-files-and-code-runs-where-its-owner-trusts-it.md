@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-11-10
 - **Relates:** [ADR-0840](0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md) (one person's software), [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) (your server), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (who commits), [ADR-0851](0851-an-app-has-one-home-and-an-optional-push-only-backup.md) (the remote), [ADR-0853](0853-collections-give-five-actions-and-programs-without-the-folder-ask-over-mcp.md) (the collection verbs, MCP), [ADR-0857](0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md) (`epicenter.ts`), [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (views), [ADR-0861](0861-whats-yours-is-everywhere-and-everything-else-is-used-where-it-is.md), [ADR-0862](0862-notes-merge-field-by-field-and-every-conflict-is-listed-for-repair.md) (the merge).
-- **Unbuilt:** the typed client `open()`, and Whispering's clone ([ADR-0887](0887-a-program-keeps-a-clone-of-an-apps-data-and-pushes-to-it-and-the-host-files-what-it-receives.md)). Built: each collection's `list`, `get`, `add`, `set`, `edit`, and `delete` from the command line and over MCP (`packages/app/src/collection.ts`); `epicenter serve` over HTTP, serving MCP at `/` and views at `/<app>/`, with one commit per write call and a push to `origin` every 5 minutes (`packages/cli/src/http.ts`); a public listener for an HTTPS tunnel, serving only connectors, signed in with OAuth and approved on the tailnet (ADR-0871, ADR-0881, `packages/cli/src/public.ts`).
+- **Unbuilt:** the typed client `open()`, and Whispering's clone ([ADR-0887](0887-a-program-keeps-a-clone-of-an-apps-data-repository-and-the-host-files-what-it-pushes.md)). Built: each collection's `list`, `get`, `add`, `set`, `edit`, and `delete` from the command line and over MCP (`packages/app/src/collection.ts`); `epicenter serve` over HTTP, serving MCP at `/` and views at `/<app>/`, with one commit per write call and a push to `origin` every 5 minutes (`packages/cli/src/http.ts`); a public listener for an HTTPS tunnel, serving only connectors, signed in with OAuth and approved on the tailnet (ADR-0871, ADR-0881, `packages/cli/src/public.ts`).
 - **Amended by:** [ADR-0881](0881-people-reach-an-epicenter-over-the-tailnet-and-its-public-address-serves-only-connectors.md): people reach `serve` only over the tailnet, and the public address serves only connectors. Then [ADR-0883](0883-an-epicenter-is-its-git-repositories-and-serve-and-its-host-keeps-runs-and-guards-them.md) removed the public address, its connectors, and the `connectors` block.
 
 ## Context
@@ -59,20 +59,18 @@ must go on offline keeps a clone and pushes to it (ADR-0887).**
 - Whispering keeps a clone of its app's data repository, commits what it
   writes, pushes to its own branch when it can reach the Studio, and
   fast-forwards to what the Studio filed. The Studio merges; a clone never
-  does, and `main` has one writer ([ADR-0887](0887-a-program-keeps-a-clone-of-an-apps-data-and-pushes-to-it-and-the-host-files-what-it-receives.md), [ADR-0888](0888-when-a-push-and-the-host-change-the-same-thing-the-later-edit-stays-and-the-other-stays-in-history.md)).
+  does, and `main` has one writer ([ADR-0887](0887-a-program-keeps-a-clone-of-an-apps-data-repository-and-the-host-files-what-it-pushes.md), [ADR-0888](0888-the-host-merges-with-gits-line-merge-and-a-file-it-cannot-merge-takes-the-later-side-whole.md)).
 - Whoever edits the Studio's files directly (Claude Code over SSH, an editor)
   commits as in any repository, or names the edits with
   `epicenter sync <app> -m`; `serve` commits what is left every 5 minutes, as
   changed outside epicenter, and pushes to the mirror (ADR-0850).
-- Who may ask, clone, and push is the tailnet, and on the public address a
-  connector the owner approved.
+- Who may ask, clone, and push is the tailnet (ADR-0883).
 - `epicenter serve` serves an app's built UI, `ui/dist/`, at `/<app>/` and MCP at `/`, one
   origin and one address for people and agents, so a view asks with no sign-in
   of its own beyond the server's. A `GET /` from a browser is the launcher. A
   view is static files with hash routes (`#/c/<id>`); the server routes
-  nothing. The server's own paths start with `.` (`/.well-known/`,
-  and `/.allow`, where the owner approves a connector), which no app name can, so no app name is reserved
-  for it.
+  nothing. The server's own paths start with `.`, which no app name can, so
+  no app name is reserved for it; Git for a clone is at `/<app>.git` (ADR-0887).
 
 **3. Code runs where its owner trusts it.** `epicenter serve` runs the
 `epicenter.ts` of each repository its operator trusts, and offers its actions as
@@ -110,10 +108,10 @@ terminal, it is the Epicenter Mac app, which runs `epicenter serve` (ADR-0865).
   an `epicenter.ts` a person chooses to trust, or in that author's own MCP
   server. The server enforces shapes only.
 - No app but a program's clone has Git on a device, and only the Studio
-  merges, field by field (ADR-0888).
+  merges (ADR-0888).
 - Everything stops when the Studio is down, including after a power cut, when
   FileVault waits at its unlock screen. A client that asks has nothing offline;
-  a client with a copy keeps working and pushes later.
+  a program with a clone keeps working and pushes later.
 - History has one commit per write through the server.
 - `epicenter serve` answers Git for clones through stock `git http-backend`,
   behind the same door as calls (ADR-0887).

@@ -106,11 +106,11 @@ client.
 
 **A program with the folder writes files and commits them.** Whispering's
 folder is `~/Whispering`, and its contract is the `epicenter.ts` of its
-starter, which a person installs as the `whispering` app ([ADR-0889](0889-an-app-and-a-program-meet-at-the-apps-contract-and-a-programs-starter-lives-beside-it.md)). After a
+starter, which a person installs as the `whispering` app ([ADR-0889](0889-an-app-runs-on-epicenter-a-program-works-with-it-and-they-meet-at-the-apps-contract.md)). After a
 recording it writes its note and audio, the audio named `<id>.local.<ext>`
 when the person keeps it on that computer (ADR-0858). Once connected, its
 folder is a clone of the app's data repository: it commits those paths and
-pushes them to the Studio when it can ([ADR-0887](0887-a-program-keeps-a-clone-of-an-apps-data-and-pushes-to-it-and-the-host-files-what-it-receives.md)). It never needs `epicenter`.
+pushes them to the Studio when it can ([ADR-0887](0887-a-program-keeps-a-clone-of-an-apps-data-repository-and-the-host-files-what-it-pushes.md)). It never needs `epicenter`.
 Every program that asks lists, reads, and edits its recordings on your
 server without Whispering knowing. Recording, the shortcut, and pasting need the device and are never
 actions.

@@ -3,7 +3,7 @@
 - **Status:** Accepted (2026-11-08)
 - **Date:** 2026-11-08
 - **Amends:** [ADR-0844](0844-one-runner-runs-anywhere-and-every-surface-is-a-view-over-it.md) at how the runner is reached: no surface keeps a runner alive between calls, `epicenter mcp` included.
-- **Amended by:** [ADR-0887](0887-a-program-keeps-a-clone-of-an-apps-data-and-pushes-to-it-and-the-host-files-what-it-receives.md): the `incoming/<device>` merge returns as `clone/<name>`, served by `serve` over HTTP, with a merge that never refuses ([ADR-0888](0888-when-a-push-and-the-host-change-the-same-thing-the-later-edit-stays-and-the-other-stays-in-history.md)).
+- **Amended by:** [ADR-0887](0887-a-program-keeps-a-clone-of-an-apps-data-repository-and-the-host-files-what-it-pushes.md): the `incoming/<device>` merge returns as `clone/<name>`, served by `serve` over HTTP, with a merge that never refuses ([ADR-0888](0888-the-host-merges-with-gits-line-merge-and-a-file-it-cannot-merge-takes-the-later-side-whole.md)).
 - **Relates:** [ADR-0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md) (the repository is the sync), [ADR-0848](0848-the-runner-owns-only-what-an-action-wrote.md) (what an action's run may touch).
 - **Unbuilt:** all of it: `epicenter setup`, the front door, `schedules` and `epicenter tick`, `--on <host>`, merging into the box through `merge-tree`, `epicenter sync <app> --from <branch>`, the backup check, and per-call MCP. Before any remote path ships, the secrets experiment below.
 
