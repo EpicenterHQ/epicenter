@@ -5,6 +5,7 @@
 import { afterEach, expect, test } from 'bun:test';
 import { mkdir, readFile, realpath, rm } from 'node:fs/promises';
 import { join } from 'node:path';
+import { VERSION } from './engines.ts';
 import { fixture, gitIn } from './runner.test-support.ts';
 
 const roots: string[] = [];
@@ -55,6 +56,9 @@ test('new commits its template and link is a valid app name', async () => {
 	expect(await gitIn(garden, 'ls-files')).toBe(
 		'.gitignore\nepicenter.ts\npackage.json',
 	);
+	expect(
+		JSON.parse(await readFile(join(garden, 'package.json'), 'utf8')).engines,
+	).toEqual({ epicenter: `>=${VERSION}` });
 	expect(await gitIn(garden, 'status', '--porcelain')).toBe('');
 	expect(await realpath(join(garden, 'node_modules/@epicenter/app'))).toBe(
 		await realpath(join(import.meta.dir, '../../app')),

@@ -114,6 +114,21 @@ test('a failed build keeps the last UI and says why', async () => {
 	expect(await f.ui()).toBe('one\n');
 });
 
+test('an app that asks for a newer epicenter is not built, and keeps its last UI', async () => {
+	const f = await vocab({ 'package.json': writes('one') });
+	expect((await f.run('build', 'vocab')).code).toBe(0);
+	await writeFile(
+		join(f.app, 'package.json'),
+		`${JSON.stringify({ name: 'vocab', private: true, engines: { epicenter: '>=999.0.0' }, scripts: { build: 'exit 9' } })}\n`,
+	);
+	const refused = await f.run('build', 'vocab');
+	expect(refused.code).toBe(1);
+	expect(refused.stderr).toContain(
+		'package.json asks for epicenter ">=999.0.0"',
+	);
+	expect(await f.ui()).toBe('one\n');
+});
+
 test('an app whose packages are not installed is not built, and is told to install them', async () => {
 	const f = await vocab({
 		'package.json': `${JSON.stringify({ name: 'vocab', dependencies: { 'left-pad': '1.3.0' }, scripts: { build: 'exit 9' } })}\n`,

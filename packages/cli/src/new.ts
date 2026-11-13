@@ -18,6 +18,7 @@ import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { misuse, nameProblem, parseWords } from './commands.ts';
 import { dataRepository } from './data.ts';
+import { ENGINES } from './engines.ts';
 import { CliError } from './errors.ts';
 import { checkedGit, git } from './git.ts';
 import { loadHomeApp } from './home.ts';
@@ -40,7 +41,7 @@ function isUrl(source: string) {
  */
 function template(name: string) {
 	return {
-		'package.json': `${JSON.stringify({ name, private: true }, null, 2)}\n`,
+		'package.json': `${JSON.stringify({ name, private: true, engines: ENGINES }, null, 2)}\n`,
 		'epicenter.ts': `import { defineApp } from '@epicenter/app';
 
 export default defineApp({

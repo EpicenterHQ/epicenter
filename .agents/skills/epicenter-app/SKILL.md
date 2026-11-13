@@ -128,7 +128,10 @@ actions })`. An app is one Bun project, with `package.json`, `bun.lock`, and
 built-ins. Add packages with `bun add` in the app's folder, then run
 `epicenter install <app>` to restore the supplied link, which Bun can remove.
 `@epicenter/app` comes from epicenter and is never listed in the app's
-`package.json`. `epicenter new`, `update`, and `install [<app>]` install from
+`package.json`. Its `engines.epicenter` (`">=0.2.0"`) is the oldest
+`epicenter` the app runs on; `epicenter new` writes its own version there.
+Raise it when the app starts using something a newer `@epicenter/app` added,
+always as a floor (`>=`), never a caret. `epicenter new`, `update`, and `install [<app>]` install from
 the app's top-level `package.json` (`--frozen-lockfile` when `bun.lock` exists) and link that package;
 a call never installs. Write each action with `defineAction`, which types its
 `run` from its `input`. Add one when the caller cannot do the job with the

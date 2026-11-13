@@ -20,8 +20,8 @@ import {
 	ListToolsRequestSchema,
 	type Tool,
 } from '@modelcontextprotocol/sdk/types.js';
-import packageJson from '../package.json' with { type: 'json' };
 import { nameProblem } from './commands.ts';
+import { VERSION } from './engines.ts';
 import { homeEntries, loadHomeApp } from './home.ts';
 import { actionTool } from './listing.ts';
 import { type Answer, renderAnswer, writeErr } from './output.ts';
@@ -98,7 +98,7 @@ async function callTool(name: string, args: Record<string, unknown>) {
 export async function createMcpServer() {
 	const instructions = await rootInstructions();
 	const server = new Server(
-		{ name: 'epicenter', version: packageJson.version },
+		{ name: 'epicenter', version: VERSION },
 		{
 			capabilities: { tools: {} },
 			...(instructions === undefined ? {} : { instructions }),

@@ -3,9 +3,10 @@
  * grammar, output, and the folder and cache on disk. Broken apps must not block healthy apps.
  */
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
-import { mkdir, readFile, rm, symlink } from 'node:fs/promises';
+import { mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { COMMANDS } from './commands.ts';
+import { VERSION } from './engines.ts';
 import { fixture, gitIn, reading, vault } from './runner.test-support.ts';
 
 // Each test runs the real command several times as separate processes.
@@ -117,6 +118,30 @@ test('listing isolates broken imports, invalid apps and folders that cannot name
 	expect((await f.run('reading')).stdout).toContain(
 		'epicenter reading week summary\n    Weekly minutes (read-only)',
 	);
+});
+
+test('an app that asks for a newer epicenter is a problem and does not run; one whose floor is met runs', async () => {
+	const f = await setup();
+	const engines = (range: string) =>
+		`${JSON.stringify({ name: 'x', private: true, engines: { epicenter: range } })}\n`;
+	await writeFile(
+		join(f.apps, 'reading', 'package.json'),
+		engines(`>=${VERSION}`),
+	);
+	await writeFile(join(f.apps, 'vault', 'package.json'), engines('>=999.0.0'));
+	const listed = JSON.parse((await f.run('--json')).stdout);
+	expect(listed.apps.map((app: { name: string }) => app.name)).toEqual([
+		'reading',
+	]);
+	expect(listed.problems).toMatchObject([
+		{
+			entry: 'vault',
+			problems: [
+				`package.json asks for epicenter ">=999.0.0", and this is epicenter ${VERSION}; update epicenter`,
+			],
+		},
+	]);
+	expect((await f.run('vault', '--json')).code).not.toBe(0);
 });
 
 test('commands write disk data and return one JSON answer without diagnostics', async () => {

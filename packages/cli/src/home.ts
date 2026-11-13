@@ -23,6 +23,7 @@ import {
 import { Ok, type Result } from 'wellcrafted/result';
 import { nameProblem } from './commands.ts';
 import { folderOnDisk } from './disk.ts';
+import { enginesProblem } from './engines.ts';
 import { CliError } from './errors.ts';
 import { appsDir, epicenterRoot } from './root.ts';
 
@@ -149,6 +150,8 @@ async function load(
 				.split('\n')
 				.map((line) => `${CODE}: ${line}`),
 		);
+	const refused = await enginesProblem(place.realPath);
+	if (refused) return broken([refused]);
 	let module: { default?: unknown };
 	try {
 		forgetModules(place.realPath);

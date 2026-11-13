@@ -42,9 +42,9 @@ import {
 } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { extractErrorMessage } from 'wellcrafted/error';
-import packageJson from '../package.json' with { type: 'json' };
 import { appPackageFolder, linkAppPackage } from './app-package.ts';
 import { COMPILED } from './commands.ts';
+import { enginesProblem, VERSION } from './engines.ts';
 import { writeErr } from './output.ts';
 
 /** Where an app's built UI lives, relative to its folder. */
@@ -85,7 +85,9 @@ async function manifestOf(folder: string): Promise<
  * How the app's UI builds: by its `build` script, by bundling
  * `ui/index.html`, or not at all, when it has no `ui/` or neither.
  */
-async function uiSource(folder: string): Promise<'script' | 'index' | undefined> {
+async function uiSource(
+	folder: string,
+): Promise<'script' | 'index' | undefined> {
 	if (!(await exists(join(folder, 'ui')))) return undefined;
 	const manifest = await manifestOf(folder);
 	if (typeof manifest?.scripts?.build === 'string') return 'script';
@@ -147,14 +149,16 @@ async function fingerprintOf(folder: string): Promise<string> {
 		...(await sourceLines(join(client, 'src'), '@epicenter/app/src/')),
 	].sort();
 	const hasher = new Bun.CryptoHasher('sha256');
-	hasher.update(`${packageJson.version}\n${client}\n${lines.join('\n')}`);
+	hasher.update(`${VERSION}\n${client}\n${lines.join('\n')}`);
 	return hasher.digest('hex');
 }
 
 /** Whether `ui/dist/` was built from sources with `fingerprint`. */
 async function builtFrom(folder: string, fingerprint: string) {
 	try {
-		return (await readFile(join(folder, UI_DIST, STAMP), 'utf8')) === fingerprint;
+		return (
+			(await readFile(join(folder, UI_DIST, STAMP), 'utf8')) === fingerprint
+		);
 	} catch {
 		return false;
 	}
@@ -216,6 +220,8 @@ async function bundleIndex(folder: string, outdir: string) {
 export async function buildUi(app: string, folder: string): Promise<boolean> {
 	const source = await uiSource(folder);
 	if (!source) return false;
+	const refused = await enginesProblem(folder);
+	if (refused) throw new Error(refused);
 	const missing = await missingPackages(app, folder);
 	if (missing) throw new Error(missing);
 	const fingerprint = await fingerprintOf(folder);

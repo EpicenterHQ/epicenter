@@ -9,7 +9,6 @@
  */
 import { join } from 'node:path';
 import { isName } from '@epicenter/app';
-import packageJson from '../package.json' with { type: 'json' };
 import { buildCommand } from './build.ts';
 import {
 	BAD_PORT,
@@ -20,6 +19,7 @@ import {
 	portOf,
 } from './commands.ts';
 import { codeStateOf } from './data.ts';
+import { VERSION } from './engines.ts';
 import { CliError } from './errors.ts';
 import { historyCommand, undoCommand } from './history.ts';
 import { discoverAll, loadHomeApp } from './home.ts';
@@ -124,12 +124,7 @@ export async function runCli(argv: string[]): Promise<number> {
 	};
 	try {
 		if (!tokens.length) {
-			if (version)
-				print(
-					json
-						? { version: packageJson.version }
-						: `epicenter ${packageJson.version}`,
-				);
+			if (version) print(json ? { version: VERSION } : `epicenter ${VERSION}`);
 			else if (help) print(HELP);
 			else {
 				const found = await discoverAll();
