@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-11-12
 - **Amended:** 2026-11-12: Mail holds several Gmail accounts, one file each, named by address; nothing syncs on `serve`'s clock, and a read catches the caches up from Gmail's history instead (ADR-0849 has no schedules); a full sync fills an account's cache in place, its `meta` saying how complete it is, and no sync removes a message until Gmail says it is gone; every read answers with each account's freshness and never refuses for one account; cache writes commute, so syncs and reads apply history at once and only a full sync takes the account's lock; a sync waits out Gmail's quota and a read does not; `connect` finishes in the terminal it waits in, then copies the account, and answers only once it is searchable.
-- **Unbuilt:** proposals, `apply`, `draft`, and the UI. Built: `connect`, `sync`, `status`, `search`, and `thread`, in Mail's own repository (`braden-w/mail`), with plain `fetch` against Google's REST endpoints and tests against a fake Google.
+- **Unbuilt:** `draft` and the UI. Built: `connect`, `sync`, `status`, `search`, `thread`, proposals, and `apply`, in Mail's own repository (`braden-w/mail`), with plain `fetch` against Google's REST endpoints and tests against a fake Google.
 - **Relates:** [ADR-0847](0847-an-app-brings-its-providers-credentials-with-a-default-in-its-code.md) (the person's own Google client), [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) (`epicenter mail connect` on the server, and no schedules), [ADR-0870](0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md) (`.local` files), [ADR-0876](0876-an-apps-records-live-under-data-and-everything-else-in-it-is-code.md) (`data/`), [ADR-0877](0877-an-apps-code-and-its-data-are-two-repositories-and-sharing-an-app-shares-its-code.md) (the data's private backup), [ADR-0879](0879-an-action-may-yield-values-while-it-runs-and-only-its-return-is-the-answer.md) (yields), [ADR-0880](0880-an-epicenter-runs-its-apps-as-they-sit-on-disk.md) (an app imports any library).
 
 ## Context
@@ -81,9 +81,9 @@ complete through, and `filling`, present while a full sync runs, is `first`
   without waiting. Only a full sync takes turns, so two never split Gmail's
   quota: it holds an exclusive SQLite transaction on the account's lock file,
   which the operating system releases when its process ends. When Gmail
-  refuses a request for its per-minute quota, a sync waits, one second
-  doubling to a minute, as long as it takes; a read answers from the cache
-  instead. It yields its progress
+  refuses a request for its per-minute quota, a sync waits with jittered
+  exponential backoff, or for `Retry-After` when Gmail supplies it, and keeps
+  trying; a read answers from the cache instead. It yields its progress
   (ADR-0879), reads Gmail, and writes only `.local` files, so it commits
   nothing.
 - **Reads catch up; nothing syncs on a schedule** (ADR-0849).
@@ -114,8 +114,9 @@ complete through, and `filling`, present while a full sync runs, is `first`
   `label` and `unlabel` take a `label` field. A triage that wants several verbs
   writes one proposal per verb with the same `run`, and the UI shows a run as
   its proposals side by side: "Archive 40 · Label 12 as Receipts · Trash 3".
-  A proposal names one account, whose ids its lines are. A line holds a Gmail
-  message id and nothing else: the UI shows each message's sender and subject
+  A standalone proposal may omit `run`; absent `status` means pending.
+  A proposal names one account, whose ids its lines are. A pending line holds
+  only a Gmail message id: the UI shows each message's sender and subject
   from that account's cache, so no email text is committed and a line cannot
   claim to be a message it is not.
 - **`epicenter mail apply <proposal>`** is the only action that changes Gmail.
@@ -123,8 +124,13 @@ complete through, and `filling`, present while a full sync runs, is `first`
   proposal's account, and refuses a proposal whose account Mail is not
   signed in to. It skips a message whose
   state already matches, writes each line's outcome into the file (`- [x]` done,
-  `- [-] … already archived`), and sets `status: applied`. The person unticks a
-  message in the UI to leave it out, which removes its line before `apply`.
+  `- [-] … already archived`), and sets `status: applied` when every line is
+  resolved. A failed request leaves a `- [!]` outcome and the proposal pending;
+  a retry checks failed and pending lines again and skips resolved lines.
+  Missing messages and drafts are resolved without a change. Concurrent
+  applies take turns under Epicenter's app lock, claimed before contacting
+  Gmail. The person unticks a message in the UI to leave it out, which removes
+  its line before `apply`.
   Rejecting a proposal deletes its file; its commit keeps what was proposed.
 - **Agents never apply.** The `epicenter-app` skill and Mail's README say so;
   `epicenter` does not enforce it, since every action is open to whoever can
@@ -143,8 +149,10 @@ complete through, and `filling`, present while a full sync runs, is `first`
   body, sender, or subject is in it; the person's own addresses are, naming the
   accounts proposals act on.
 - Losing an account's cache loses nothing: the next `sync` rebuilds it. A full
-  sync takes as long as Gmail takes to list and fetch every message, at about
-  40 requests a second.
+  sync takes as long as Gmail takes to list and fetch every message. Gmail's
+  per-user quota and each method's cost in quota units set the rate; a full
+  message fetch costs more than fetching labels alone. The client hard-codes
+  neither the costs nor the quota, and waits when Gmail refuses a request.
 - A read needs Gmail reachable to catch up, and says so when it is not. Within
   15 seconds of a sync it asks Gmail nothing, so a burst of reads costs one
   request an account.
@@ -156,6 +164,10 @@ complete through, and `filling`, present while a full sync runs, is `first`
   makes it a new account, copied again, and its proposals name the old one.
 - A proposal can go stale between writing and applying. `apply` checks each
   message against Gmail, not the cache.
+- A Gmail change and its recorded outcome cannot be atomic. If a run stops
+  between them, a retry checks Gmail and records that the state already
+  matches. Removing a proposal line after its Gmail request starts does not
+  undo the change.
 - Mail needs no composer, no outbox, and no send path; a person sends from
   Gmail.
 - "Agents never apply" is guidance. An agent that calls `apply` changes Gmail
