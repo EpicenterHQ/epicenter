@@ -2,7 +2,7 @@
  * Messages for its end-to-end suite: built into a scratch directory and
  * served by its own local program (`scripts/serve.ts`) on
  * `http://127.0.0.1:5189`, keeping its drafts in `E2E_FOLDER` (made empty
- * here), with a fake Beeper in place of the CLI's connection, so no run
+ * here), with a fake Beeper in place of the real connection, so no run
  * ever reads the keychain, touches the drafts Messages keeps for real, or
  * reaches a real Beeper Desktop. The fake answers like one installation
  * with one test account.

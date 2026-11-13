@@ -5,9 +5,10 @@ Epicenter's own interface. Messages is a program you run on the computer
 where Beeper Desktop runs
 ([ADR-0784](../../docs/adr/0784-whispering-is-the-webs-local-app-and-messages-is-a-program-on-this-computer.md)):
 a small local server serves the page, keeps its drafts in a directory it
-owns, and answers its Beeper requests through the Epicenter CLI, which keeps
-the Beeper token in the device keychain. It always starts with fictional
-demo chats.
+owns, and answers its Beeper requests through the Beeper HTTP SDK. The token
+stays in the device keychain. On launch, Messages tries the saved token and
+opens live conversations when Beeper is available. Otherwise it explains the
+connection problem and offers Retry, token setup, or an explicit fictional demo.
 
 ```sh
 bun run --cwd apps/messages start    # build, then serve http://127.0.0.1:5188
@@ -35,7 +36,7 @@ bun x playwright test -c apps/messages/playwright.config.ts
 
 The end-to-end suite builds Messages and serves it with its own local
 program on port 5189 (which must be free), its drafts in a scratch directory
-(`e2e/folder.ts`) and a fake Beeper in place of the CLI's connection, in
+(`e2e/folder.ts`) and a fake Beeper in place of the real connection, in
 Chromium and WebKit. It covers drafts in the program's directory (created,
 edited, cleared, kept across a reload, and waiting while the program cannot
 be reached, then landing), demo sends and their check, repair of a file
@@ -93,7 +94,7 @@ at once, offline or not. Messages never signs in, and nothing uploads.
 | Conversations, messages, accounts, delivery | Beeper; read into an in-memory query cache, never kept here |
 | The current reply, the latest send | `drafts/`, `attempts/` in Messages' directory on this computer |
 | Beeper access token | The device keychain, through the local program's Beeper connection (`openBeeper` in `scripts/beeper.ts`) |
-| Selection, filter, loaded pages, connection mode | Memory; every launch begins in demo mode |
+| Selection, filter, loaded pages, connection mode | Memory; a production launch checks the saved token, while `bun dev:messages` starts in the fictional demo |
 
 Selecting a conversation creates no file; the first keystroke creates its
 draft (`drafts.edit` with `create`), and each keystroke after updates it.
@@ -116,8 +117,12 @@ With Messages started (`bun run --cwd apps/messages start`), **Connect
 Beeper** takes an access token created under Beeper Settings → Integrations →
 Approved connections. The page sends it once to the local program, which
 stores it in the keychain; Connect again with the field empty uses the saved
-one. Disconnect removes the saved token; it does not revoke the token Beeper
-issued or delete drafts. Beeper must keep running on this computer.
+one. A production launch tries that saved token automatically. If there is no
+token, Beeper is unavailable, the token is refused, or Beeper has no connected
+accounts, Messages shows a disconnected screen. **Retry** checks again and
+**Explore the demo** opens fictional conversations. Disconnect removes the
+saved token; it does not revoke Beeper's token or delete drafts. Beeper must
+keep running on this computer.
 
 The local program (`apps/messages/scripts/serve.ts`) listens on `127.0.0.1` only and
 answers `POST /beeper` and its drafts' directory (`POST /folder/<verb>`,

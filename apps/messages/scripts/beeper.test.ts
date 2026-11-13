@@ -3,6 +3,45 @@ import { expect, test } from 'bun:test';
 import { createBeeperConnection } from './beeper.ts';
 import { createMemorySecrets } from './keychain.ts';
 
+test('connection explains missing token, unavailable Beeper, refused token, and empty accounts', async () => {
+	const missing = createBeeperConnection(createMemorySecrets());
+	expect(await missing.request({ action: 'connect' })).toMatchObject({
+		kind: 'error',
+		reason: 'no-token',
+	});
+
+	for (const [response, reason] of [
+		[
+			() => {
+				throw new TypeError('private network detail');
+			},
+			'unavailable',
+		],
+		[
+			() => Response.json({ message: 'private auth detail' }, { status: 401 }),
+			'token-refused',
+		],
+		[
+			() =>
+				Response.json(
+					{ message: 'private permission detail' },
+					{ status: 403 },
+				),
+			'token-refused',
+		],
+		[() => Response.json([]), 'no-accounts'],
+	] as const) {
+		const secrets = createMemorySecrets();
+		await secrets.set('beeper-desktop', 'fictional-token');
+		const network = (async () => response()) as typeof fetch;
+		const answer = await createBeeperConnection(secrets, network).request({
+			action: 'connect',
+		});
+		expect(answer).toMatchObject({ kind: 'error', reason });
+		expect(JSON.stringify(answer)).not.toContain('private');
+	}
+});
+
 test('connection tokens stay in secrets and sends are attempted once after an ambiguous failure', async () => {
 	const secrets = createMemorySecrets();
 	const calls: { url: string; method: string; token: string | null }[] = [];

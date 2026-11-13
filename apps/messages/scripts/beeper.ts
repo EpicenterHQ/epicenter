@@ -1,5 +1,9 @@
 /** Beeper's device connection. No message history or token is written to a folder. */
-import BeeperDesktop from '@beeper/desktop-api';
+import BeeperDesktop, {
+	APIConnectionError,
+	AuthenticationError,
+	PermissionDeniedError,
+} from '@beeper/desktop-api';
 import { Check } from 'typebox/value';
 import {
 	type BeeperAnswer,
@@ -7,6 +11,8 @@ import {
 	beeperRequest,
 } from '../src/lib/beeper-protocol.ts';
 import { keychain, type SecretStore } from './keychain.ts';
+
+class NoAccountsError extends Error {}
 
 export function createBeeperConnection(
 	secrets: SecretStore,
@@ -24,8 +30,7 @@ export function createBeeperConnection(
 	}
 	async function profile(api: BeeperDesktop) {
 		const accounts = await api.accounts.list();
-		if (accounts.length === 0)
-			throw new Error('No accounts are connected in Beeper.');
+		if (accounts.length === 0) throw new NoAccountsError();
 		return new Bun.CryptoHasher('sha256')
 			.update(
 				accounts
@@ -49,6 +54,7 @@ export function createBeeperConnection(
 				if (!token)
 					return {
 						kind: 'error',
+						reason: 'no-token',
 						message:
 							'Create an access token in Beeper Settings → Integrations → Approved connections, then connect.',
 					};
@@ -120,8 +126,33 @@ export function createBeeperConnection(
 						await api.focus({ chatID: request.chatId });
 						return { kind: 'focused' };
 				}
-			} catch {
+			} catch (error) {
 				// SDK errors may contain request bodies. Never print them or expose them to the page.
+				if (request.action === 'connect') {
+					if (error instanceof NoAccountsError)
+						return {
+							kind: 'error',
+							reason: 'no-accounts',
+							message: 'No accounts are connected in Beeper Desktop.',
+						};
+					if (
+						error instanceof AuthenticationError ||
+						error instanceof PermissionDeniedError
+					)
+						return {
+							kind: 'error',
+							reason: 'token-refused',
+							message:
+								'Beeper refused this access token. Check Approved connections in Beeper Settings.',
+						};
+					if (error instanceof APIConnectionError)
+						return {
+							kind: 'error',
+							reason: 'unavailable',
+							message:
+								'Beeper Desktop is unavailable. Open Beeper on this computer, then retry.',
+						};
+				}
 				return {
 					kind: 'error',
 					message:

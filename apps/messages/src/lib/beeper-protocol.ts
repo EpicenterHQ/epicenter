@@ -44,6 +44,11 @@ export type Message = {
 	status?: string;
 };
 export type Page<T> = { items: T[]; cursor: string | null };
+export type ConnectionReason =
+	| 'no-token'
+	| 'unavailable'
+	| 'token-refused'
+	| 'no-accounts';
 export type BeeperAnswer =
 	| { kind: 'connected'; profile: string }
 	| { kind: 'disconnected' }
@@ -51,4 +56,4 @@ export type BeeperAnswer =
 	| { kind: 'messages'; page: Page<Message> }
 	| { kind: 'accepted'; pendingId: string }
 	| { kind: 'focused' }
-	| { kind: 'error'; message: string };
+	| { kind: 'error'; message: string; reason?: ConnectionReason };

@@ -17,7 +17,7 @@ export const NOT_SERVED_HERE =
 
 /**
  * The live Beeper connection: Messages' local program (`scripts/serve.ts`)
- * answers each operation through the Epicenter CLI, which keeps the Beeper
+ * answers each operation through its Beeper connection, which keeps the Beeper
  * token in the device keychain; the page never sees it. Served any other
  * way (`vite dev`, a static host), nothing answers, and only the fictional
  * demo works.

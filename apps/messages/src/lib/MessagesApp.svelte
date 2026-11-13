@@ -6,12 +6,15 @@
 	import * as Empty from '@epicenter/ui/empty';
 	import { Loading } from '@epicenter/ui/loading';
 	import { QueryClient, createInfiniteQuery, createMutation, setQueryClientContext } from '@tanstack/svelte-query';
+	import { onMount } from 'svelte';
 	import { type Backend, createDemoBackend, requestBeeper } from './backend.js';
 	import ConversationView from './Conversation.svelte';
 	const queryClient = new QueryClient();
 	setQueryClientContext(queryClient);
 	const demo = createDemoBackend();
 	let backend = $state<Backend>(demo);
+	let phase = $state<'checking' | 'disconnected' | 'demo' | 'live'>(import.meta.env.DEV ? 'demo' : 'checking');
+	let connectionMessage = $state('');
 	let selected = $state<string>();
 	let filter = $state('');
 	let showConnect = $state(false);
@@ -19,6 +22,7 @@
 	let notice = $state('');
 	const chats = createInfiniteQuery(() => ({
 		queryKey: ['beeper', backend.mode, backend.profile, 'chats'],
+		enabled: phase === 'demo' || phase === 'live',
 		// SAFETY: the first page has no cursor; later pages use string cursors.
 		initialPageParam: undefined as string | undefined,
 		queryFn: async ({ pageParam }) => {
@@ -47,25 +51,33 @@
 		return previews;
 	});
 	const connect = createMutation(() => ({
-		mutationFn: async () => {
-			const answer = await requestBeeper({ action: 'connect', ...(token.trim() ? { token: token.trim() } : {}) });
+		mutationFn: async (newToken?: string) => {
+			phase = 'checking';
+			const answer = await requestBeeper({ action: 'connect', ...(newToken ? { token: newToken } : {}) });
 			token = '';
-			if (answer.kind !== 'connected') { notice = answer.kind === 'error' ? answer.message : 'Could not connect.'; return; }
+			if (answer.kind !== 'connected') {
+				connectionMessage = answer.kind === 'error' ? answer.message : 'Could not connect to Beeper.';
+				phase = import.meta.env.DEV ? 'demo' : 'disconnected';
+				if (import.meta.env.DEV) notice = connectionMessage;
+				return;
+			}
 			await queryClient.cancelQueries({ queryKey: ['beeper'] });
 			queryClient.removeQueries({ queryKey: ['beeper'] });
 			selected = undefined;
 			backend = { mode: 'live', profile: answer.profile, request: requestBeeper };
-			showConnect = false; notice = '';
+			phase = 'live'; showConnect = false; notice = ''; connectionMessage = '';
 		},
-		onError: () => { token = ''; notice = 'Could not connect to Beeper.'; },
+		onError: () => { token = ''; connectionMessage = 'Could not connect to Beeper.'; phase = import.meta.env.DEV ? 'demo' : 'disconnected'; },
 	}));
+	onMount(() => { if (!import.meta.env.DEV) connect.mutate(); });
 	const disconnect = createMutation(() => ({
 		mutationFn: async () => {
 			const answer = await requestBeeper({ action: 'disconnect' });
 			if (answer.kind !== 'disconnected') { notice = answer.kind === 'error' ? answer.message : 'Could not disconnect.'; return; }
 			await queryClient.cancelQueries({ queryKey: ['beeper'] });
 			queryClient.removeQueries({ queryKey: ['beeper'] });
-			selected = undefined; backend = demo; notice = '';
+			selected = undefined; backend = demo; phase = 'disconnected';
+			connectionMessage = 'No access token is saved. Connect Beeper to see your conversations.'; notice = '';
 		},
 		onError: () => { notice = 'Could not remove the saved Beeper connection.'; },
 	}));
@@ -74,15 +86,18 @@
 <main class="flex h-dvh min-h-0 flex-col overflow-hidden">
 	<header class="flex flex-wrap items-center gap-3 border-b px-4 py-3">
 		<h1 class="font-semibold">Messages</h1>
-		<Badge variant={backend.mode === 'demo' ? 'secondary' : 'default'}>{backend.mode === 'demo' ? 'Demo · fictional conversations' : 'Live Beeper'}</Badge>
+		{#if phase === 'demo'}<Badge variant="secondary">Demo · fictional conversations</Badge>
+		{:else if phase === 'live'}<Badge>Live Beeper</Badge>
+		{:else if phase === 'checking'}<Badge variant="secondary">Checking Beeper</Badge>
+		{:else}<Badge variant="secondary">Beeper disconnected</Badge>{/if}
 		<div class="ml-auto flex gap-2">
-			<Button variant="ghost" size="sm" disabled={chats.isFetching} onclick={() => void queryClient.invalidateQueries({ queryKey: ['beeper'] })}>Refresh</Button>
-			{#if backend.mode === 'demo'}<Button variant="outline" size="sm" onclick={() => { showConnect = !showConnect; token = ''; }}>Connect Beeper</Button>
-			{:else}<Button variant="outline" size="sm" disabled={disconnect.isPending} onclick={() => disconnect.mutate()}>Disconnect</Button>{/if}
+			{#if phase === 'demo' || phase === 'live'}<Button variant="ghost" size="sm" disabled={chats.isFetching} onclick={() => void queryClient.invalidateQueries({ queryKey: ['beeper'] })}>Refresh</Button>{/if}
+			{#if phase === 'demo'}<Button variant="outline" size="sm" onclick={() => { showConnect = !showConnect; token = ''; }}>Connect Beeper</Button>
+			{:else if phase === 'live'}<Button variant="outline" size="sm" disabled={disconnect.isPending} onclick={() => disconnect.mutate()}>Disconnect</Button>{/if}
 		</div>
 	</header>
 	{#if showConnect}
-		<form class="space-y-2 border-b bg-muted/30 p-4" onsubmit={(event) => { event.preventDefault(); connect.mutate(); }}>
+		<form class="space-y-2 border-b bg-muted/30 p-4" onsubmit={(event) => { event.preventDefault(); connect.mutate(token.trim() || undefined); }}>
 			<p class="text-sm">Connect to your real conversations on this device. Create a token in Beeper Settings → Integrations → Approved connections. It is stored in the device keychain.</p>
 			<label for="beeper-token" class="text-sm">Beeper access token</label>
 			<div class="flex gap-2"><Input id="beeper-token" type="password" autocomplete="off" placeholder="Paste a new token, or use your saved connection" bind:value={token} /><Button type="submit" disabled={connect.isPending}>{connect.isPending ? 'Connecting…' : 'Connect to live Beeper'}</Button></div>
@@ -90,13 +105,26 @@
 		</form>
 	{/if}
 	{#if notice}<p role="alert" class="border-b p-3 text-sm text-destructive">{notice}</p>{/if}
-	{#if backend.mode === 'demo'}
+	{#if phase === 'demo'}
 		<div class="flex flex-wrap items-center gap-2 border-b px-4 py-2 text-xs text-muted-foreground">
-			<span>No real accounts are connected. Replies stay in this demo.</span>
+			<span>These are fictional conversations. Replies stay in this demo.</span>
 			<Button variant="ghost" size="sm" onclick={() => { demo.incoming(); void queryClient.invalidateQueries({ queryKey: ['beeper'] }); }}>Simulate incoming</Button>
 			<Button variant="ghost" size="sm" onclick={() => { demo.failNext(); notice = 'The next demo send will have an unknown outcome.'; }}>Simulate send failure</Button>
 		</div>
 	{/if}
+	{#if phase === 'checking'}
+		<Loading label="Checking Beeper connection…" />
+	{:else if phase === 'disconnected'}
+		<Empty.Root class="flex-1">
+			<Empty.Title>Beeper is disconnected</Empty.Title>
+			<Empty.Description>{connectionMessage}</Empty.Description>
+			<div class="flex flex-wrap justify-center gap-2 pt-4">
+				<Button disabled={connect.isPending} onclick={() => connect.mutate()}>Retry</Button>
+				<Button variant="outline" onclick={() => { showConnect = !showConnect; token = ''; }}>Set up token</Button>
+				<Button variant="ghost" onclick={() => { phase = 'demo'; showConnect = false; notice = ''; }}>Explore the demo</Button>
+			</div>
+		</Empty.Root>
+	{:else}
 	<div class="flex min-h-0 flex-1">
 		<aside class="w-full min-w-0 flex-col border-r md:flex md:w-80 md:shrink-0" class:hidden={selected !== undefined} class:flex={selected === undefined} aria-label="Conversations">
 			<div class="p-3"><Input aria-label="Filter conversations" placeholder="Find a conversation…" bind:value={filter} /></div>
@@ -120,4 +148,5 @@
 			{:else}<Empty.Root class="h-full"><Empty.Title>Choose a conversation</Empty.Title><Empty.Description>Read and reply through Beeper.</Empty.Description></Empty.Root>{/if}
 		</div>
 	</div>
+	{/if}
 </main>

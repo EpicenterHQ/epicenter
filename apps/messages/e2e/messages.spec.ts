@@ -22,7 +22,7 @@
  */
 import { createHash } from 'node:crypto';
 import { readdir, readFile, rm, writeFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import {
 	type Browser,
 	type BrowserContext,
@@ -82,11 +82,28 @@ const conversation = (title: string, on = page) =>
 		.getByRole('button', { name: title });
 const composer = () => page.getByLabel('Message', { exact: true });
 
+test('0. launch explains a missing connection and the demo is an explicit choice', async () => {
+	await page.goto(`${app}/`);
+	await expect(page.getByText('Beeper is disconnected')).toBeVisible();
+	await expect(page.getByText('Create an access token first.')).toBeVisible();
+	await expect(conversation('Maya Chen')).toHaveCount(0);
+	await page.getByRole('button', { name: 'Retry' }).click();
+	await expect(page.getByText('Beeper is disconnected')).toBeVisible();
+	await page.getByRole('button', { name: 'Explore the demo' }).click();
+	await expect(
+		page.getByText(
+			'These are fictional conversations. Replies stay in this demo.',
+		),
+	).toBeVisible();
+	await expect(conversation('Maya Chen')).toBeVisible();
+});
+
 test('1. a draft is a note in Messages’ directory: created by the first keystroke, edited, kept across a reload, and cleared when emptied', async () => {
 	// The engines share one program: start from an empty directory.
 	await rm(join(E2E_FOLDER, 'drafts'), { recursive: true, force: true });
 	await rm(join(E2E_FOLDER, 'attempts'), { recursive: true, force: true });
 	await page.goto(`${app}/`);
+	await page.getByRole('button', { name: 'Explore the demo' }).click();
 	await expect(page.getByText('Demo · fictional conversations')).toBeVisible();
 
 	await conversation('Maya Chen').click();
@@ -107,6 +124,7 @@ test('1. a draft is a note in Messages’ directory: created by the first keystr
 	);
 
 	await page.reload();
+	await page.getByRole('button', { name: 'Explore the demo' }).click();
 	await conversation('Maya Chen').click();
 	await expect(composer()).toHaveValue('See you Saturday at ten');
 
@@ -137,6 +155,7 @@ test('2. while the program cannot be reached, a draft waits and lands once it an
 		.toBe(draftNote('Route looks good, see you there', 'demo-noah'));
 	await expect(page.getByTestId('unreachable')).toHaveCount(0);
 	await page.reload();
+	await page.getByRole('button', { name: 'Explore the demo' }).click();
 	await expect(conversation('Noah Patel')).toContainText(
 		'Draft: Route looks good, see you there',
 	);
@@ -185,6 +204,7 @@ test('4. a draft another program broke shows its text, and is repaired', async (
 	const broken = '---\nchatId: [demo-maya\n---\nMaybe eleven?';
 	await writeFile(join(E2E_FOLDER, `drafts/${maya}.md`), broken);
 	await page.reload();
+	await page.getByRole('button', { name: 'Explore the demo' }).click();
 	await conversation('Maya Chen').click();
 
 	const repair = page.getByRole('region', { name: 'Draft to repair' });
@@ -248,9 +268,40 @@ test('6. live Beeper goes through the local program', async () => {
 		'Here now',
 	);
 	expect(await fileText(`attempts/${ada}.md`)).toContain('state: accepted');
+	await composer().fill('Saved for later');
+	await expect
+		.poll(() => fileText(`drafts/${ada}.md`))
+		.toContain('Saved for later');
+	await page.route('**/beeper', async (route) => {
+		if (route.request().postDataJSON().action !== 'connect')
+			return route.continue();
+		await route.fulfill({
+			json: {
+				kind: 'error',
+				reason: 'unavailable',
+				message:
+					'Beeper Desktop is unavailable. Open Beeper on this computer, then retry.',
+			},
+		});
+	});
+	await page.reload();
+	await expect(
+		page.getByText(
+			'Beeper Desktop is unavailable. Open Beeper on this computer, then retry.',
+		),
+	).toBeVisible();
+	await page.unroute('**/beeper');
+	await page.getByRole('button', { name: 'Retry' }).click();
+	await expect(page.getByText('Live Beeper', { exact: true })).toBeVisible();
+	await expect(conversation('Ada Test')).toContainText(
+		'Draft: Saved for later',
+	);
+	await conversation('Ada Test').click();
+	await expect(composer()).toHaveValue('Saved for later');
 
 	await page.getByRole('button', { name: 'Disconnect' }).click();
-	await expect(page.getByText('Demo · fictional conversations')).toBeVisible();
+	await expect(page.getByText('Beeper is disconnected')).toBeVisible();
+	await expect(conversation('Maya Chen')).toHaveCount(0);
 });
 
 test('7. a browser holding none of the site’s data shows the drafts', async ({
@@ -259,6 +310,9 @@ test('7. a browser holding none of the site’s data shows the drafts', async ({
 	const elsewhere = await open(browser);
 	try {
 		await elsewhere.page.goto(`${app}/`);
+		await elsewhere.page
+			.getByRole('button', { name: 'Explore the demo' })
+			.click();
 		await expect(conversation('Noah Patel', elsewhere.page)).toContainText(
 			'Draft: Route looks good, see you there',
 		);
