@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-11-12
-- **Amended:** 2026-11-12: Mail holds several Gmail accounts, one file each, named by address; nothing syncs on `serve`'s clock, and a read catches the caches up from Gmail's history instead (ADR-0849 has no schedules); a full sync fills an account's cache in place, its `meta` saying how complete it is, and no sync removes a message until Gmail says it is gone; every read answers with each account's freshness and never refuses for one account; each account's syncs take turns by its own lock; `connect` finishes in the terminal it waits in, then copies the account, and answers only once it is searchable.
+- **Amended:** 2026-11-12: Mail holds several Gmail accounts, one file each, named by address; nothing syncs on `serve`'s clock, and a read catches the caches up from Gmail's history instead (ADR-0849 has no schedules); a full sync fills an account's cache in place, its `meta` saying how complete it is, and no sync removes a message until Gmail says it is gone; every read answers with each account's freshness and never refuses for one account; cache writes commute, so syncs and reads apply history at once and only a full sync takes the account's lock; a sync waits out Gmail's quota and a read does not; `connect` finishes in the terminal it waits in, then copies the account, and answers only once it is searchable.
 - **Unbuilt:** proposals, `apply`, `draft`, and the UI. Built: `connect`, `sync`, `status`, `search`, and `thread`, in Mail's own repository (`braden-w/mail`), with plain `fetch` against Google's REST endpoints and tests against a fake Google.
 - **Relates:** [ADR-0847](0847-an-app-brings-its-providers-credentials-with-a-default-in-its-code.md) (the person's own Google client), [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) (`epicenter mail connect` on the server, and no schedules), [ADR-0870](0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md) (`.local` files), [ADR-0876](0876-an-apps-records-live-under-data-and-everything-else-in-it-is-code.md) (`data/`), [ADR-0877](0877-an-apps-code-and-its-data-are-two-repositories-and-sharing-an-app-shares-its-code.md) (the data's private backup), [ADR-0879](0879-an-action-may-yield-values-while-it-runs-and-only-its-return-is-the-answer.md) (yields), [ADR-0880](0880-an-epicenter-runs-its-apps-as-they-sit-on-disk.md) (an app imports any library).
 
@@ -32,7 +32,7 @@ never committed, and commits only what the person or an agent decided.**
     accounts/
       gmail-<address>.local.md               one account's refresh token
       gmail-<address>.local.sqlite           its cache, rebuilt from Gmail; its meta says how complete
-      gmail-<address>.sync.local.lock        held while a sync of the account runs
+      gmail-<address>.sync.local.lock        held while a full sync copies the account
     proposals/<time>.md                      what an agent wants done to mail; committed
 ```
 
@@ -74,10 +74,16 @@ complete through, and `filling`, present while a full sync runs, is `first`
   since the cache's `cursor`. When Gmail no longer has that history, the
   account is read again in place, fetching the messages the cache holds by
   their labels alone. No sync removes a message until Gmail has said it is
-  gone, and it removes them in the transaction that moves `cursor`. Each
-  account's syncs take turns: a sync holds an exclusive SQLite transaction on
-  the account's lock file, which the operating system releases when its
-  process ends, and a second sync of the account waits. It yields its progress
+  gone, and it removes them in the transaction that moves `cursor`. Writes to
+  a cache commute: a row keeps Gmail's `historyId` for its message and no
+  older copy overwrites it, a removed message's id stays in `gone`, and
+  `cursor` only moves forward, so syncs and reads apply history at once
+  without waiting. Only a full sync takes turns, so two never split Gmail's
+  quota: it holds an exclusive SQLite transaction on the account's lock file,
+  which the operating system releases when its process ends. When Gmail
+  refuses a request for its per-minute quota, a sync waits, one second
+  doubling to a minute, as long as it takes; a read answers from the cache
+  instead. It yields its progress
   (ADR-0879), reads Gmail, and writes only `.local` files, so it commits
   nothing.
 - **Reads catch up; nothing syncs on a schedule** (ADR-0849).
@@ -201,6 +207,15 @@ complete through, and `filling`, present while a full sync runs, is `first`
   is tells a reader the same and needs none of them.
 - **One sync lock for every account.** Simpler, but a long copy of one account
   stops every other from catching up.
+- **Every sync and catch-up under the account's lock, or committing only when
+  `cursor` is unchanged.** The lock makes a read wait behind a sync; the
+  compare-and-set discards a run's work when another commits first, and still
+  lets a slower run's chunked writes overwrite newer rows. Versioned rows make
+  every order of writes end in the same cache.
+- **Pacing requests by a learned rate, or by a ledger of quota units.** Gmail
+  never says how much quota is left, so either learns the limit from refusals
+  anyway; waiting out a refusal spends a per-minute budget as fully, with
+  nothing to tune.
 - **Reads that refuse while an account needs a full sync.** Never answers
   stale, but one account blocks every search; an answer that says how current
   each account is lets the caller decide.
