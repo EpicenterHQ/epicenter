@@ -26,10 +26,8 @@ the better design.
 ## Establish independence
 
 If you are a reviewer in the group, perform the review yourself and launch no
-child agents; staffing belongs to the coordinator. Exchange findings and
-objections with the other reviewers directly where your tooling supports it,
-and otherwise through the coordinator. The following setup belongs to the
-coordinating agent.
+child agents; staffing belongs to the coordinator. The following setup belongs
+to the coordinating agent.
 
 The coordinator normally staffs three read-only seats. Two are fresh Codex
 subagents using the runtime's available GPT-6 model, each with
@@ -169,8 +167,6 @@ it. Otherwise the coordinator relays substantive messages: findings, questions,
 evidence, objections, and replies, attributed to their author and passed on
 without summarizing away the reasoning. A Claude reviewer receives them at
 completed-turn boundaries by resuming its session; it has no mid-turn channel.
-Communication does not let a reviewer launch another; the coordinator alone
-adds reviewers.
 
 Verify deciding claims against actual artifacts. Prefer a focused caller trace,
 counterexample, or experiment when it can settle a disputed claim directly, and
@@ -212,8 +208,8 @@ Support the recommendation with deciding caller or implementation evidence,
 verification performed, and the next discriminating check for consequential
 uncertainty. Report actual results separately from sketches or proposed checks.
 Use diagrams, file trees, or comparisons where they expose the design. Read
-[the example workflow](references/example-workflow.md) for how a group reaches
-agreement and how retaining the current design can win.
+[the example workflow](references/example-workflow.md) for worked exchanges and
+how to present their outcomes.
 
 Explain accepted findings before editing. Carry repairs within existing
 authorization through implementation and verification; bring changes to the

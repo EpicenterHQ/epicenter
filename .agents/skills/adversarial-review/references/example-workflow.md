@@ -14,42 +14,22 @@ it does not require every review to find a reload or deletion.
 ## Initial accounts
 
 Three fresh reviewers inspect the same evidence: two Codex subagents and a
-Claude Opus reviewer. Each forms its account before seeing the others.
+Claude Opus reviewer. Each uses a distinct starting question from
+[the skill](../SKILL.md#establish-independence) and forms its account before
+seeing the others.
 
-Codex reviewer one asks:
+Codex reviewer one, asked what the system should be from the desired
+experience, proposes reloading on account change: one page lifetime belongs to
+one account.
 
-> From the desired experience and actual use, what should this system be? Develop
-> your own account of its natural operations and responsibilities, then compare
-> it with the design under review. Which problems disappear under that account,
-> and what work, guarantees, or costs remain?
+Codex reviewer two follows people through their work and identifies pending
+edits as the guarantee that matters. Rebinding every subscription may be
+unnecessary, but preserving someone's work is essential.
 
-It proposes reloading on account change: one page lifetime belongs to one
-account.
-
-Codex reviewer two asks:
-
-> Follow actual or intended users through the work this system must support.
-> Read existing callers as evidence of need rather than of the right operations.
-> Develop your own account of what belongs together and what its operations
-> mean. Test that account and the design under review against consequential
-> sequences. Which requirements reflect necessary outcomes, and which reflect
-> an assumed solution? Show the bargain behind your recommendation.
-
-It identifies pending edits as the guarantee that matters. Rebinding every
-subscription may be unnecessary, but preserving someone's work is essential.
-
-The Claude reviewer asks:
-
-> Find the premises the design under review shares with its obvious
-> alternatives: about ownership, lifetime, representation, or what is promised
-> to people. Which premise accounts for the most machinery, and what would you
-> build if it were false? Develop your own account and test it against the
-> strongest case for the current design. If the evidence points to a better
-> question, pursue that instead.
-
-It challenges the premise that a pending save belongs to whichever account is
-current. If each edit records its owning account when it is created, a reload
-cannot send it to the wrong account.
+The Claude reviewer, looking for premises the design shares with its obvious
+alternatives, challenges the premise that a pending save belongs to whichever
+account is current. If each edit records its owning account when it is created,
+a reload cannot send it to the wrong account.
 
 ## Working toward a direction
 
@@ -87,7 +67,7 @@ reconstruct it from four reports and their exchange.
 > reload of every open tab. One page lifetime belongs to one account.
 >
 > The deletion prize is subscription rebinding, cache replacement, intermediate
-> switching states, and the save-before-switch transition.
+> switching states, and moving pending saves to the new account.
 >
 > The guarantee survives: edits are already persisted locally under their
 > original account, and a recovery check passes after a reload, including
