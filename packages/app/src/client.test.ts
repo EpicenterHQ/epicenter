@@ -140,6 +140,45 @@ test('each value the action yields reaches onYield in order, however the lines a
 	});
 });
 
+test('aborting the signal stops reading a yielding call, which resolves as Stopped', async () => {
+	const yielding = defineAction({
+		description: 'Count forever',
+		input: {},
+		async *run() {
+			for (;;) yield 1;
+		},
+	});
+	const counter = connect<{ actions: { count: typeof yielding } }>({
+		app: 'counter',
+	});
+	// Like fetch, the body errors once the request's signal aborts.
+	globalThis.fetch = (async (_url: string, init: RequestInit) =>
+		new Response(
+			new ReadableStream({
+				start(controller) {
+					controller.enqueue(new TextEncoder().encode('{"yielded":1}\n'));
+					init.signal?.addEventListener('abort', () =>
+						controller.error(new DOMException('aborted', 'AbortError')),
+					);
+				},
+			}),
+		)) as typeof fetch;
+	const stop = new AbortController();
+	const heard: number[] = [];
+	const stopped = await counter.count(
+		{},
+		{
+			onYield: (n) => {
+				heard.push(n);
+				stop.abort();
+			},
+			signal: stop.signal,
+		},
+	);
+	expect(expectErr(stopped)).toMatchObject({ name: 'Stopped' });
+	expect(heard).toEqual([1]);
+});
+
 test('each way serve answers without a value is its own error', async () => {
 	answer({
 		threw: {

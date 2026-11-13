@@ -442,11 +442,17 @@ it yields reaches `onYield`, in order, while it runs, and the call resolves
 with the same Result as without it. No other caller sees a yield: not the
 command line, not a connector, not another page. Closing the page mid-call
 stops the action at its next yield, so whatever it would have saved after
-that is not saved.
+that is not saved. A page stops a call on purpose with `{ signal }`: the
+action stops the same way, its `finally` blocks run, and the call resolves
+as the `Stopped` error.
 
 ```ts
 let draft = $state('');
-const said = await vocab.chat.say({ message }, { onYield: (token) => (draft += token) });
+const stop = new AbortController();
+const said = await vocab.chat.say(
+  { message },
+  { onYield: (token) => (draft += token), signal: stop.signal },
+);
 ```
 
 `ActionInput<A>`, `ActionOutput<A>`, and `ActionYield<A>` name what action

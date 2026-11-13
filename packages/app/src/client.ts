@@ -53,6 +53,8 @@ const CallError = defineErrors({
 	}),
 	/** No answer came back: serve could not be reached, or answered something other than an answer. */
 	Unreachable: ({ message }: { message: string }) => ({ message }),
+	/** The caller stopped the call with its `signal`. The action stopped at its next yield, and what it wrote is committed. */
+	Stopped: ({ message }: { message: string }) => ({ message }),
 });
 
 /**
@@ -64,6 +66,7 @@ const CallError = defineErrors({
  * - `Threw`: the action threw anything else.
  * - `Refused`: nothing ran, because the call was wrong.
  * - `Unreachable`: serve did not answer.
+ * - `Stopped`: the caller stopped a yielding call with its `signal`.
  */
 export type ActionError = InferErrors<typeof CallError> | FileError;
 
@@ -107,16 +110,22 @@ export type ActionOutput<A> = A extends (input: never) => infer Out
 	? JsonOf<Awaited<Out>>
 	: never;
 
-/** What a call of action `A` may take after its input: `onYield`, when `A` yields. */
+/** What a call of action `A` may take after its input, when `A` yields: `onYield`, and a `signal` that stops it. */
 type CallOptions<A> = [ActionYield<A>] extends [never]
 	? []
-	: [options?: { onYield?: (value: JsonOf<ActionYield<A>>) => void }];
+	: [
+			options?: {
+				onYield?: (value: JsonOf<ActionYield<A>>) => void;
+				signal?: AbortSignal;
+			},
+		];
 
 /**
  * The client for actions `A`: each action a function of its input, each
  * group under its word. An action that yields also takes `{ onYield }`,
- * which receives each value as the action yields it; the call still
- * resolves to what the action returned.
+ * which receives each value as the action yields it, and `{ signal }`,
+ * which stops it at its next yield; the call still resolves to what the
+ * action returned, or `Stopped`.
  */
 export type AppClient<A> = {
 	readonly [K in keyof A]: A[K] extends (input: never) => unknown
@@ -155,7 +164,7 @@ export function connect<App extends { actions: object }>(
 				return call(
 					`${base}${encodeURIComponent(name)}/${words.join('.')}`,
 					input ?? {},
-					options?.onYield,
+					options,
 				);
 			},
 		});
@@ -205,12 +214,16 @@ async function* jsonLines(body: ReadableStream<Uint8Array>) {
 
 /**
  * Ask serve to run the action at `url` (`POST /<app>/<action>`), giving each
- * value it yields to `onYield`, and return what it returned.
+ * value it yields to `onYield`, and return what it returned. Aborting
+ * `signal` stops reading, which stops the action at its next yield.
  */
 async function call(
 	url: string,
 	input: Record<string, unknown>,
-	onYield?: (value: unknown) => void,
+	{
+		onYield,
+		signal,
+	}: { onYield?: (value: unknown) => void; signal?: AbortSignal } = {},
 ): Promise<Result<unknown, ActionError>> {
 	let message: { answer?: unknown } = {};
 	try {
@@ -218,6 +231,7 @@ async function call(
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
 			body: JSON.stringify(input),
+			signal,
 		});
 		if (!response.ok || !response.body)
 			return CallError.Unreachable({
@@ -229,6 +243,7 @@ async function call(
 			else if ('answer' in value) message = value;
 		}
 	} catch (cause) {
+		if (signal?.aborted) return CallError.Stopped({ message: 'Stopped' });
 		return CallError.Unreachable({
 			message: `Could not reach Epicenter: ${String(cause)}`,
 		});

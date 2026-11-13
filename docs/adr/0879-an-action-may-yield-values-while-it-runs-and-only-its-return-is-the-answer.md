@@ -93,7 +93,10 @@ const said = await vocab.chat.say({ message }, { onYield: (token) => (draft += t
   stream's reader (Safari cannot iterate a stream with `for await`), calls
   `onYield` with each value in order, and resolves with the same `Result` a
   call without it would. Its type offers `onYield` only on an action that
-  yields. A response that ends without an answer is `Unreachable`.
+  yields. A response that ends without an answer is `Unreachable`. The same
+  call takes a `signal`; aborting it stops reading, so the action stops as
+  below, and the call resolves as `Stopped` (added 2026-11-12, for a Stop
+  button on a tutor's reply).
 - **A call abandoned is a call stopped at its next yield.** When the page
   stops reading, `serve` makes the action's next yield throw where it
   stands: its `finally` blocks run, the call answers that it threw, and what
