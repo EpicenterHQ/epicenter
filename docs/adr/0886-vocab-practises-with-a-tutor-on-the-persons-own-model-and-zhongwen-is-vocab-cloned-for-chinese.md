@@ -7,11 +7,9 @@
 ## Context
 
 On the owner's Studio, on 2026-11-12, `~/Epicenter/Zhongwen/` was the data of
-an older app, `~/Code/zhongwen`: six saved expressions, four practice
-conversations with a tutor, one recording, and a `showPinyin` setting. That
-app's code is mostly what Epicenter replaces: storage adapters for the browser
-and Tauri, GitHub sync, hosted sign-in, a demo gateway, and a release
-installer. What it did that no Epicenter app does is practice: a conversation
+an older Chinese app that was not an Epicenter app: six saved expressions,
+four practice conversations with a tutor, one recording, and a `showPinyin`
+setting. What it did that no Epicenter app does is practice: a conversation
 with a tutor about expressions the learner chose, and feedback when it ends.
 Its tutor was Ollama's `qwen3.5:9b` on the learner's own computer.
 
@@ -70,8 +68,7 @@ apps/zhongwen/                 Vocab's code, upstream = Vocab
   changes; a conflict is resolved once where Zhongwen changed the same lines.
 - **The old app is not ported.** Its data moves into `apps/zhongwen/data/`,
   expressions renamed by their text; `~/Epicenter/Zhongwen/` is then removed,
-  and stays in the Epicenter repository's history. `~/Code/zhongwen` and its
-  repository are left as they are.
+  and stays in the Epicenter repository's history.
 
 ## Consequences
 
@@ -90,7 +87,7 @@ apps/zhongwen/                 Vocab's code, upstream = Vocab
   quirks would land in one UI. A clone keeps each app plain.
 - **The person's agent as the tutor.** Stronger, and nothing to build, but it
   leaves the app's page and sends the practice to a hosted model.
-- **Port `~/Code/zhongwen`.** Most of its code solves storage and sync that
+- **Port the old app.** Most of its code solved storage and sync that
   Epicenter already does.
 - **Pinyin stored per word.** It is derived from the characters; storing it
   invites the two to disagree.
