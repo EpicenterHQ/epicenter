@@ -1097,3 +1097,4 @@ When you add an ADR, add its row here.
 | [0891](0891-this-repository-holds-the-runtime-and-programs-and-every-starter-is-a-repository-of-its-own.md) | This repository holds the runtime and programs, and every starter is a repository of its own | Accepted |
 | [0892](0892-the-cli-releases-to-npm-and-whispering-8-is-a-new-install-with-its-own-update-address.md) | The CLI releases to npm, and Whispering 8 is a new install with its own update address | Accepted |
 | [0893](0893-a-records-path-is-its-path-in-the-apps-data-repository.md) | A record's path is its path in the app's data repository | Accepted |
+| [0894](0894-whispering-keeps-its-folder-in-its-own-data-directory-and-connect-takes-an-apps-git-address.md) | Whispering keeps its folder in its own data directory, and Connect takes an app's Git address | Proposed |
