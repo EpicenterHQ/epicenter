@@ -42,14 +42,21 @@ apps/zhongwen/                 Vocab's code, upstream = Vocab
   runs `serve`. A call from a phone runs there too, so the conversation
   reaches no other service. Changing the model is an edit to that file. The
   person's agent can call every action, but it is not the tutor.
-- **Practice is three actions and a page.** `practice start` asks the model
-  to open and makes the conversation with its first turn. `practice reply`
-  takes a conversation and the learner's message, asks the model, and saves
-  both turns once the reply is complete; when the model fails, it saves the
-  learner's turn alone, so a message is never lost. `practice finish` asks the
-  model for feedback on how the learner used the chosen words and saves it in
-  the conversation. The Practice page chooses words, shows the conversation,
-  and finishes it. The first version waits for whole replies.
+- **Practice is three actions and a page, and the tutor's text streams.**
+  Each action yields the model's text as it arrives (ADR-0879), and the page
+  shows it growing with a Stop button. `practice start` makes the
+  conversation once the opening is whole; stopped or failed, it makes
+  nothing. `practice reply` takes a conversation and the learner's message;
+  when the call ends, one write saves the learner's turn with whatever the
+  tutor said: the whole reply, or what it had said when the model failed or
+  the learner pressed Stop, so a message is never lost. Without a message, it
+  answers the last turn, which must be the learner's: the retry after a
+  failure, which never saves that message twice. `practice finish` saves
+  feedback on how the learner used the chosen words once it is whole. The
+  Practice page also suggests up to three words to practise alone (the
+  oldest at Recognize and at Understand, taking turns), keeps an unsent
+  message on the device, and saves a phrase selected in the tutor's text as
+  a word.
 - **No action writes before its model call.** A call holds the app's lock
   from its first write until it ends, and another writer waits at most 30
   seconds; a write before a reply that takes 40 would turn a review from the
