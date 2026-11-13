@@ -40,7 +40,8 @@ directory names say `program`. "Whispering" alone is the program; "the
   the real collections. `epicenter <app> --json` prints the contract as JSON
   Schema for a program in another language. `defineContract` goes.
 - **A program writes records with Epicenter's front matter reader and
-  writer,** bundled from an entry that imports no `node:` module, so a record
+  writer,** bundled from `@epicenter/app/front-matter`, an entry that imports
+  no `node:` module and holds no runtime state, so a record
   it rewrites keeps every line it did not change (ADR-0888).
 - **A starter may carry a `ui/`,** a UI over the app's actions (ADR-0860) for
   other devices. It shares no code with the program except components copied

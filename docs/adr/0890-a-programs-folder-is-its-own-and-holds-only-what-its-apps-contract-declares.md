@@ -26,7 +26,7 @@ the person picks. It holds only files its app's contract declares.**
   transcriptions/p8d2.md
   .git/                             once connected
 
-~/Library/Application Support/so.epicenter.whispering/
+~/Library/Application Support/so.epicenter.whispering/   (macOS; each system's app data directory)
                                     the microphone, the shortcut, window state
 Keychain                            API keys, sign-ins
 ```
@@ -47,6 +47,9 @@ Keychain                            API keys, sign-ins
 - A person and their agents open recordings in Finder or a terminal; nothing
   is hidden in an app data directory.
 - Uninstalling the program leaves the folder.
+- A folder the person picks inside a synced folder, such as iCloud Drive,
+  syncs its `.git` too once connected; Whispering warns when connecting such a
+  folder.
 - Device settings do not follow the person to a second computer unless the
   contract declares them.
 

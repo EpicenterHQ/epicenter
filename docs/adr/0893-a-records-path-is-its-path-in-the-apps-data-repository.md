@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-11-13
-- **Amends:** [ADR-0876](0876-an-apps-records-live-under-data-and-everything-else-in-it-is-code.md) at "A collection's path starts with `data/`" and "A record's path is the same everywhere: the file's path from the app's folder": a path is relative to `data/`, and the rest of ADR-0876 stands.
+- **Amends:** [ADR-0877](0877-an-apps-code-and-its-data-are-two-repositories-and-sharing-an-app-shares-its-code.md) at "A record's path does not change. It is `data/words/<time>.md` in every answer": it is `words/<time>.md`. [ADR-0876](0876-an-apps-records-live-under-data-and-everything-else-in-it-is-code.md) at "A collection's path starts with `data/`" and "A record's path is the same everywhere: the file's path from the app's folder": a path is relative to `data/`, and the rest of ADR-0876 stands.
 - **Relates:** [ADR-0877](0877-an-apps-code-and-its-data-are-two-repositories-and-sharing-an-app-shares-its-code.md) (`data/` is a repository), [ADR-0887](0887-a-program-keeps-a-clone-of-an-apps-data-repository-and-the-host-files-what-it-pushes.md) (a clone is that repository).
 - **Unbuilt:** all of it: `defineCollection`'s paths, a run's `folder`, and the first-party apps' collections, which today start with `data/` (`packages/app/src/collection.ts`, `context.ts`).
 
@@ -29,8 +29,9 @@ result, a run's `folder`, a UI's routes, Git history, and a clone.**
 - **A collection declares `recordings/{id}.md`.** `defineCollection` refuses a
   path that starts with `data/`, saying to drop it.
 - **A run's `folder` is the data repository.** `folder.read('recordings/x.md')`
-  reads `<app>/data/recordings/x.md`; nothing a run writes can reach code, by
-  construction rather than by a check.
+  reads `<app>/data/recordings/x.md`. A run reads and writes only there:
+  reads no longer reach the app's code files, and nothing a run writes can
+  reach code, by construction rather than by a check.
 - **`data/` is where the host mounts the data repository** in an app's
   folder (ADR-0876, ADR-0877). The rest of ADR-0876 stands: records under
   `data/`, code everywhere else.

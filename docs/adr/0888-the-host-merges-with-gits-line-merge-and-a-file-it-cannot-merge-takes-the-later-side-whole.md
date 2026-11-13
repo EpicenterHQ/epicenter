@@ -34,20 +34,23 @@ git merge-tree --write-tree -X no-renames main clone/laptop-k3x9
 - **`-X no-renames`.** Rename detection matched a record the host deleted to
   an unrelated record it created, and applied the clone's edit to the wrong
   file (measured 2026-11-13).
-- **A conflicted file takes the later side whole.** The later side is the one
-  whose last commit touching that file is later, where a commit on `main` is
-  dated by the merge commit that filed it: walking `main`'s first parents
-  reads only dates the host wrote, so a device clock cannot win. A tie goes to
-  the host.
-- **A merged file that no longer parses, where both sides did, takes the later
-  side whole.** Git merges two sides adding the same key at different lines
-  into front matter that holds the key twice (measured 2026-11-13).
+- **A conflicted file takes the later side whole.** Each side is dated by its
+  last commit touching that file. On `main`, that is the first-parent commit
+  that brought the change in, so a filed edit carries the date the host filed
+  it. On the clone's branch, it is that commit's own date, capped at the time
+  of this filing. So a device whose clock runs fast can win only clashes in
+  its own push, never against an edit already filed. A tie goes to the host.
+- **A merged file outside the `key: <JSON>` front matter grammar, where both
+  sides were inside it, takes the later side whole.** Git merges two sides
+  adding the same key at different lines into front matter that holds the key
+  twice (measured 2026-11-13), which the reader would take as all body
+  (`packages/app/src/front-matter.ts`).
 - **An edit beats a deletion,** as in ADR-0622 and as Git already merges
   without renames.
 - **The merge commit names each whole file it replaced or restored,** one
   trailer each:
-  `Replaced: recordings/k3x9.md, by laptop-k3x9 2026-11-13T10:02Z` or
-  `Restored: recordings/k3x9.md, edited on laptop-k3x9 after its deletion`.
+  `Replaced: recordings/k3x9.md, kept laptop-k3x9's edit of 2026-11-13T10:02Z`
+  or `Restored: recordings/k3x9.md, edited on laptop-k3x9 after its deletion`.
   `epicenter <app>` lists the last 7 days of them, read from those trailers;
   nothing stores the list.
 - **Only the host merges.** No merge driver is configured anywhere.
@@ -56,6 +59,8 @@ git merge-tree --write-tree -X no-renames main clone/laptop-k3x9
 
 - Every reader sees files that parse at all times. ADR-0889's rule, that a
   file only has to satisfy its contract, holds through a merge.
+- Between two offline devices that changed the same lines, the one filed
+  first wins unless the other's edit was made after that filing.
 - Two edits to adjacent lines of one file, made while one device was offline,
   keep only the later one. The other is a parent of the merge commit, and the
   status names it.

@@ -41,9 +41,10 @@ host: ~/Epicenter/apps/whispering/data/      laptop: ~/Whispering/
   app's data repository at `<address>/<app>.git` by running stock
   `git http-backend`. Whoever may call the app's actions may clone and push:
   the tailnet on the owner's server, the host's token on a hosted Epicenter
-  (ADR-0883). The data repository sets `receive.hideRefs` to `refs/` and
-  `!refs/heads/clone/`, so Git itself refuses a push to `main` or any other
-  ref.
+  (ADR-0883). `serve` sets `receive.hideRefs` to `refs/` and
+  `!refs/heads/clone/` in each data repository when it starts, so the guard
+  survives a rebuild from backup, and Git itself refuses a push to `main` or
+  any other ref.
 - **A clone's branch is `clone/<device>-<id>`,** where `<id>` is random and
   generated at connect, such as `clone/laptop-k3x9`. A clone pushes without
   force: after it fast-forwards to the host's `main`, every new commit
@@ -61,8 +62,10 @@ host: ~/Epicenter/apps/whispering/data/      laptop: ~/Whispering/
   git push -q epicenter HEAD:refs/heads/clone/laptop-k3x9
   ```
 
-  A file the folder and the host both hold keeps the folder's version, and
-  the host's stays in history. Connecting needs `git` installed on the device.
+  A file the folder and the host both hold keeps the folder's version, the
+  host's stays in history, and the connect commit carries a `Replaced:`
+  trailer for each (ADR-0888), one-file collections such as a settings record
+  included. Connecting needs `git` installed on the device.
 - **The host files a pushed branch at once, under the app's lock** (ADR-0850).
   It snapshots pending edits on the host, merges by ADR-0888, writes one merge
   commit with `main` as its first parent and the clone's tip as its second,
@@ -75,7 +78,10 @@ host: ~/Epicenter/apps/whispering/data/      laptop: ~/Whispering/
   `clone/laptop-k3x9: 3 commits not filed: <reason>`, and `serve` retries on
   its clock and when it starts. `main` is untouched by a failed filing.
 - **`epicenter undo` reverts a filing whole,** to its first parent; the
-  clone's commits stay on its branch and in history.
+  clone's commits stay on its branch and in history, and the clone's next
+  fast-forward removes those files from the device too.
+- **A filing commit carries no `Code-Commit` trailer** (ADR-0850): it runs no
+  app code.
 - **Only data repositories have clones.** An app's code repository keeps one
   writer, the host (ADR-0883).
 
@@ -89,7 +95,9 @@ host: ~/Epicenter/apps/whispering/data/      laptop: ~/Whispering/
 - A pushed file skips the app's actions, as a hand edit on the host does. A
   rule only an action enforces is not enforced for a push; reads report a
   file that does not fit.
-- Every clone is a backup of the text it holds.
+- Every clone is a backup of the text it holds. A branch not yet filed is
+  not in the app's backup, which `sync` pushes from `main` only; it is still
+  on the device that pushed it.
 - The host's files change when a push is filed, as when a phone calls an
   action; an agent with an unsaved buffer on the host sees the file change.
 - Audio travels in no clone yet: until `serve` answers Git LFS, a program

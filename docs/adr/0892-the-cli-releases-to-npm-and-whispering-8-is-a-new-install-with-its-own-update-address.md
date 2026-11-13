@@ -40,10 +40,11 @@ nothing else.**
 - **"Import from Whispering 7"** copies v7.11's Markdown recordings from
   `~/Library/Application Support/com.bradenwong.whispering` (and its
   equivalents) into the program's folder. Settings and API keys are entered
-  again. A person on a v7 older than 7.11 opens 7.11 once first, which moves
-  its recordings into files.
+  again. Recordings v7 still keeps in IndexedDB, from before it wrote files,
+  are not imported.
 - **The CLI never creates a GitHub Release,** so Latest is always
-  Whispering's. It runs on macOS and Linux, on arm64 and x64: `@epicenter/cli`
+  Whispering's. Whispering's release workflow fails if the newest release it
+  would follow is not a Whispering release. It runs on macOS and Linux, on arm64 and x64: `@epicenter/cli`
   holds a `/bin/sh` launcher and names each platform's package as an optional
   dependency with `os` and `cpu` fields, with no postinstall script.
 - **Tags keep the conventions in use:** `v<version>` for Whispering,
