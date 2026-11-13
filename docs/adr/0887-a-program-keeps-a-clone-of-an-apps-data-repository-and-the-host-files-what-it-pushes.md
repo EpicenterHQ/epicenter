@@ -63,8 +63,8 @@ host: ~/Epicenter/apps/whispering/data/      laptop: ~/Whispering/
   ```
 
   A file the folder and the host both hold keeps the folder's version, the
-  host's stays in history, and the connect commit carries a `Replaced:`
-  trailer for each (ADR-0888), one-file collections such as a settings record
+  host's stays in history, and the program adds a `Replaced:` trailer for
+  each to the connect commit with `git commit --trailer` (ADR-0888), one-file collections such as a settings record
   included. Connecting needs `git` installed on the device.
 - **The host files a pushed branch at once, under the app's lock** (ADR-0850).
   It snapshots pending edits on the host, merges by ADR-0888, writes one merge

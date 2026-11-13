@@ -44,7 +44,8 @@ nothing else.**
   are not imported.
 - **The CLI never creates a GitHub Release,** so Latest is always
   Whispering's. Whispering's release workflow fails if the newest release it
-  would follow is not a Whispering release. It runs on macOS and Linux, on arm64 and x64: `@epicenter/cli`
+  would follow is not a Whispering release, so a release made by hand in
+  between is caught at the next Whispering release. It runs on macOS and Linux, on arm64 and x64: `@epicenter/cli`
   holds a `/bin/sh` launcher and names each platform's package as an optional
   dependency with `os` and `cpu` fields, with no postinstall script.
 - **Tags keep the conventions in use:** `v<version>` for Whispering,
