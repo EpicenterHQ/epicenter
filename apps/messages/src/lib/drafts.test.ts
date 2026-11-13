@@ -167,6 +167,23 @@ test('an uncertain attempt holds its text and blocks resending until checked', a
 	expect(attemptOf(folder, id)?.state).toBe('accepted');
 });
 
+test('an attempt stays unconfirmed until its text is restored as a draft', async () => {
+	const { folder, backend, id, files } = await setup();
+	await saveDraft(folder, id, 'Recover after a crash');
+	backend.failNext();
+	expectErr(await send(folder, id, backend, 'Recover after a crash'));
+	const attemptId = attemptOf(folder, id)?.attemptId ?? '';
+	const resume = files.refuse('no disk', { under: 'drafts' });
+	const recovering = check(folder, id, backend, attemptId);
+	await until(() => folder.unavailable() !== null);
+	expect(attemptOf(folder, id)?.state).toBe('sending');
+	expect(files.read(`attempts/${id}.md`)).toContain('state: sending');
+	resume();
+	expectOk(await recovering);
+	expect(draftOf(folder, id)?.body).toBe('Recover after a crash');
+	expect(attemptOf(folder, id)?.state).toBe('acknowledged');
+});
+
 test('demo and live drafts use different IDs', async () => {
 	const demo = createDemoBackend();
 	expect(await draftId(demo, 'same')).not.toBe(

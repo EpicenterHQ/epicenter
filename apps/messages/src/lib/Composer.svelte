@@ -66,7 +66,7 @@
 			<p class="whitespace-pre-wrap break-words text-sm">{attempt.body}</p>
 			<div class="flex flex-wrap gap-2">
 				<Button variant="outline" size="sm" disabled={send.isPending || recover.isPending} onclick={() => recover.mutate({ checkedAttemptId: attempt.attemptId, keep: true })}>I checked: keep as draft</Button>
-				<Button variant="outline" size="sm" disabled={send.isPending || recover.isPending} onclick={() => recover.mutate({ checkedAttemptId: attempt.attemptId, keep: false })}>Already sent: clear draft</Button>
+				<Button variant="outline" size="sm" disabled={send.isPending || recover.isPending} onclick={() => recover.mutate({ checkedAttemptId: attempt.attemptId, keep: false })}>I checked: already sent</Button>
 			</div>
 		{:else}
 			<details class="text-xs text-muted-foreground"><summary>Last send attempt</summary><pre class="whitespace-pre-wrap break-words">{attempt.body}</pre><CopyButton text={attempt.body} size="sm" variant="ghost">Copy</CopyButton></details>

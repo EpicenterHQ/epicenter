@@ -196,13 +196,13 @@ export async function recoverDraft(
 				message:
 					'The send attempt changed. Check the latest attempt before continuing.',
 			});
+		if (keep && composerEmpty() && !folder.drafts.invalid().some(named))
+			await folder.drafts.set(
+				{ id },
+				{ ...fieldsFor(backend, chatId), body: attempt.body },
+			);
+		// Keep the recovery action available until its text is durable.
 		await folder.attempts.set({ id }, { state: 'acknowledged' });
-		if (!keep || !composerEmpty() || folder.drafts.invalid().some(named))
-			return Ok(undefined);
-		await folder.drafts.set(
-			{ id },
-			{ ...fieldsFor(backend, chatId), body: attempt.body },
-		);
 		return Ok(undefined);
 	});
 }
