@@ -4,7 +4,7 @@
 - **Date:** 2026-11-12
 - **Amended:** 2026-11-12: Mail holds several Gmail accounts, one file each, named by address; nothing syncs on `serve`'s clock, and a read catches the caches up from Gmail's history instead (ADR-0849 has no schedules); a full sync fills an account's cache in place, its `meta` saying how complete it is, and no sync removes a message until Gmail says it is gone; every read answers with each account's freshness and never refuses for one account; cache writes commute, so syncs and reads apply history at once and only a full sync takes the account's lock; a sync waits out Gmail's quota and a read does not; `connect` finishes in the terminal it waits in, then copies the account, and answers only once it is searchable.
 - **Amended:** 2026-11-13: the review UI reads account caches, binds approval to the reviewed file and selected ids, and keeps outside edits behind a new review.
-- **Unbuilt:** `draft`. Built: `connect`, `sync`, `status`, `search`, `thread`, proposals, `apply`, and the proposal review UI, in Mail's own repository (`braden-w/mail`), with plain `fetch` against Google's REST endpoints and tests against a fake Google.
+- **Unbuilt:** the mailbox UI (inbox, search, and reader) and `draft`. Built: `connect`, `sync`, `status`, `search`, `thread`, proposals, `apply`, and the proposal review UI, in Mail's own repository (`braden-w/mail`), with plain `fetch` against Google's REST endpoints and tests against a fake Google.
 - **Relates:** [ADR-0847](0847-an-app-brings-its-providers-credentials-with-a-default-in-its-code.md) (the person's own Google client), [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) (`epicenter mail connect` on the server, and no schedules), [ADR-0870](0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md) (`.local` files), [ADR-0876](0876-an-apps-records-live-under-data-and-everything-else-in-it-is-code.md) (`data/`), [ADR-0877](0877-an-apps-code-and-its-data-are-two-repositories-and-sharing-an-app-shares-its-code.md) (the data's private backup), [ADR-0879](0879-an-action-may-yield-values-while-it-runs-and-only-its-return-is-the-answer.md) (yields), [ADR-0880](0880-an-epicenter-runs-its-apps-as-they-sit-on-disk.md) (an app imports any library).
 
 ## Context
@@ -139,7 +139,16 @@ complete through, and `filling`, present while a full sync runs, is `first`
   selection never join that run.
   Rejecting a proposal deletes its file; its commit keeps what was proposed.
   Rejecting does not undo completed Gmail changes.
-- **The review UI** at `/mail/` groups pending proposals by run and folds
+- **Mail is one app with a mailbox and proposal review.** The mailbox is its
+  front door: account choice, inbox and other mail views, search, and full
+  thread reading over the same caches the proposal previews use. Proposals
+  are another view in that app. Opening mail does not mark it read or change
+  Gmail. The mailbox UI is the next slice; the current UI implements proposal
+  review. A proposal's message can open in the reader and return to the same
+  reviewed version and selection. The first reader uses the plain text the
+  cache already holds; formatted HTML and manual triage controls need later
+  decisions.
+- **The proposal review UI** at `/mail/` groups pending proposals by run and folds
   applied records away. `review` and `preview` read local caches only, join
   ids within the named account, and show cache completeness and when it last
   synced. Unidentified messages start unticked; confirmation names the
