@@ -28,6 +28,7 @@ export {
 export {
 	type Context,
 	type Folder,
+	callSignal,
 	folder,
 	inRun,
 	isLocalPath,

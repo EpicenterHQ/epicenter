@@ -525,8 +525,32 @@ test('serve builds the UI as it sits on disk when a page opens, waits only for t
 	expect((await fetch(`${f.base}/reading/.epicenter-build`)).status).toBe(404);
 });
 
-/** Talk: `say` yields each word and returns them joined; `drip` writes, then yields until its caller stops listening. */
-const talk = `export default defineApp({ description: 'Talk', collections: {}, actions: {
+/**
+ * Talk: `say` yields each word and returns them joined; `drip` writes, then
+ * yields until its caller stops listening; `wait` yields once, then waits a
+ * minute unless its call's signal ends the wait.
+ */
+const talk = `import { callSignal } from '@epicenter/app';
+export default defineApp({ description: 'Talk', collections: {}, actions: {
+	wait: defineAction({
+		description: 'Yield, then wait for a stop',
+		input: {},
+		async *run() {
+			yield 'waiting';
+			try {
+				await new Promise((resolve) => {
+					const timer = setTimeout(resolve, 60_000);
+					callSignal().addEventListener('abort', () => {
+						clearTimeout(timer);
+						resolve(undefined);
+					});
+				});
+			} finally {
+				await folder.write('data/waited.md', 'waited');
+			}
+			return 'waited';
+		},
+	}),
 	say: defineAction({
 		description: 'Say words one at a time',
 		input: { words: field.text() },
@@ -631,6 +655,32 @@ test('a caller that stops reading stops the action at its next yield; its finall
 	expect(
 		(await gitIn(data, 'show', '--name-only', '--format=', 'HEAD')).split('\n'),
 	).toEqual(['started.md', 'stopped.md']);
+});
+
+test('a stop reaches an action waiting between yields through callSignal, at once', async () => {
+	const f = await setup((f) => f.app('talk', talk));
+	const stop = new AbortController();
+	const response = await fetch(`${f.base}/talk/wait`, {
+		method: 'POST',
+		body: '{}',
+		signal: stop.signal,
+	});
+	const reader = (response.body as ReadableStream<Uint8Array>).getReader();
+	expect(new TextDecoder().decode((await reader.read()).value)).toStartWith(
+		'{"yielded":"waiting"}\n',
+	);
+	stop.abort();
+	const data = join(f.apps, 'talk', 'data');
+	const latest = () => gitIn(data, 'log', '-1', '--format=%s');
+	// Far less than the minute it would wait: the stop ended it.
+	const deadline = Date.now() + 10_000;
+	while (!(await latest()).startsWith('talk: wait') && Date.now() < deadline)
+		await Bun.sleep(50);
+	// It returned once the wait ended, but its caller had stopped it.
+	expect(await latest()).toBe('talk: wait (stopped)');
+	expect(
+		(await gitIn(data, 'show', '--name-only', '--format=', 'HEAD')).split('\n'),
+	).toEqual(['waited.md']);
 });
 
 test('an edit to epicenter.ts, or to a file it imports, reaches the next call without restarting serve', async () => {

@@ -99,11 +99,14 @@ const said = await vocab.chat.say({ message }, { onYield: (token) => (draft += t
   button on a tutor's reply).
 - **A call abandoned is a call stopped at its next yield.** When the page
   stops reading, `serve` makes the action's next yield throw where it
-  stands: its `finally` blocks run, the call answers that it threw, and what
-  it wrote is committed as the call that threw. A generator that saves only
-  before it returns has then saved nothing. A conversation turn the person
-  closed mid-reply leaves no half a turn behind. An action that does not
-  yield runs to its end.
+  stands: its `finally` blocks run, and what it wrote is committed as
+  `<call> (stopped)`. A generator that saves only before it returns has then
+  saved nothing. An action that waits between yields reads the call's signal
+  with `callSignal()` and passes it to the wait, such as a model's `fetch`,
+  so a stop ends the wait at once instead of at the next yield; an action
+  that never reads it is stopped at its next yield all the same. An action
+  that does not yield runs to its end. (Amended 2026-11-12: `callSignal()`
+  and the `(stopped)` commit, for Vocab's Stop.)
 
 ## Consequences
 

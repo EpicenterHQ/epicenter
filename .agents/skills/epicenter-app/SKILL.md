@@ -156,6 +156,9 @@ chat reply from a model: each yield reaches the page that called it, and no
 one else. Return what the call produced, as any action does, since the
 command line, Claude, and tests see only the return. Save at the end, before
 returning, so a page closed mid-reply leaves nothing half-saved (ADR-0879).
+To offer Stop, pass `callSignal()` from `@epicenter/app` to the wait, such as
+the model's `fetch`, so a stop ends it at once; what must survive a stop, such
+as the person's message, is saved in a `finally`.
 
 Actions run inside `epicenter serve` itself, from the files as they are when
 the call arrives, so an edit takes effect on the next call. Never call
@@ -319,7 +322,9 @@ An action that yields takes `onYield` after its input, to show its work as it
 comes: `app.chat.say({ message }, { onYield: (token) => (draft += token) })`
 resolves with the same Result once the reply is whole. Pass it where the page
 keeps its draft, and make that call the mutation's function, so every read
-still refreshes once it returns.
+still refreshes once it returns. A Stop button passes `{ signal }` too and
+aborts it; the call then resolves as the `Stopped` error, which is not a
+failure to show.
 
 - Route a record by its whole path: the page is at `#/data/tasks/<time>.md`,
   linked with each part URL-encoded

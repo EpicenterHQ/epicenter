@@ -71,9 +71,25 @@ export type Context = {
 	 * promise.
 	 */
 	readOnly?: { action: string };
+	/** Aborted when the call's caller stops it: a page's Stop, or the page closed. */
+	signal?: AbortSignal;
 };
 
 const runs = new AsyncLocalStorage<Context>();
+
+/** A signal that never aborts, for a run whose caller cannot stop it. */
+const UNSTOPPABLE = new AbortController().signal;
+
+/**
+ * The signal of the call this code runs in, aborted when its caller stops it.
+ * A call is otherwise stopped only at its next yield (ADR-0879); pass this to
+ * a slow wait, such as a model's `fetch`, so a stop ends the wait at once and
+ * the action's `finally` runs then. It never aborts for a caller that cannot
+ * stop a call, such as the command line or a connector.
+ */
+export function callSignal(): AbortSignal {
+	return currentRun().signal ?? UNSTOPPABLE;
+}
 
 /**
  * Run `work` with `context` as its run's, so collections and `folder` reach

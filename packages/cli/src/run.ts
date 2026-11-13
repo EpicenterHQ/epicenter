@@ -119,9 +119,12 @@ export async function runAction(
 			opening = await snapshotData(located.name, located.realPath);
 		})());
 	const folder = forCall(located.context.folder, own, readOnly);
-	const context = readOnly
-		? { ...located.context, folder, readOnly: { action: key } }
-		: { ...located.context, folder };
+	const context = {
+		...located.context,
+		folder,
+		signal,
+		...(readOnly ? { readOnly: { action: key } } : {}),
+	};
 	let answer: Exclude<Answer, { error: unknown }>;
 	try {
 		const returned = await inRun(context, () =>
@@ -140,7 +143,7 @@ export async function runAction(
 		const committed = await commitCall(located.name, located.realPath, {
 			subject:
 				callName(located.name, key, input[action.positional?.[0] ?? '']) +
-				('threw' in answer ? (signal?.aborted ? ' (stopped)' : ' (threw)') : ''),
+				(signal?.aborted ? ' (stopped)' : 'threw' in answer ? ' (threw)' : ''),
 			code,
 		});
 		return { answer, committed };
@@ -153,7 +156,7 @@ export async function runAction(
 export type Following = {
 	/** Each value the action yields, in order; the action waits for it. */
 	onYield?: (value: unknown) => unknown;
-	/** Aborted when the caller stops listening: the action is stopped at its next yield, and the call commits what it wrote. */
+	/** Aborted when the caller stops listening: the action is stopped at its next yield, or at once where it reads `callSignal()`, and the call commits what it wrote. */
 	signal?: AbortSignal;
 };
 

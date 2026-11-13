@@ -444,7 +444,13 @@ command line, not a connector, not another page. Closing the page mid-call
 stops the action at its next yield, so whatever it would have saved after
 that is not saved. A page stops a call on purpose with `{ signal }`: the
 action stops the same way, its `finally` blocks run, and the call resolves
-as the `Stopped` error.
+as the `Stopped` error. An action that waits between yields, as on a model,
+passes `callSignal()` to that wait, so a stop ends it at once rather than at
+the next yield:
+
+```ts
+const response = await fetch(endpoint, { body, signal: callSignal() });
+```
 
 ```ts
 let draft = $state('');
