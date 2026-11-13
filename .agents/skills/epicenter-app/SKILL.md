@@ -121,6 +121,11 @@ starting with `.`. A field or placeholder may not be named `path`,
 
 ## Write actions only for what the verbs cannot do
 
+For Mail (ADR-0882), agents prepare and revise proposals; the person runs
+`epicenter mail apply`. Never apply a proposal or call Gmail's mutation
+endpoints on the person's mail as an agent. Exercise the apply path only
+against fake Gmail.
+
 `epicenter.ts` default-exports `defineApp({ description, collections,
 actions })`. An app is one Bun project, with `package.json`, `bun.lock`, and
 `node_modules` at the app's top. Its actions may import anything its
