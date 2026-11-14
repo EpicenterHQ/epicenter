@@ -1117,5 +1117,6 @@ When you add an ADR, add its row here.
 | [0897](0897-hosted-notes-is-a-product-beside-epicenter-and-waits-for-a-month-of-evidence.md) | Hosted Notes is a product beside Epicenter, and waits for a month of evidence | Accepted |
 | [0898](0898-what-arrives-is-cached-what-the-person-decides-is-kept-and-an-item-moves-by-transfer.md) | What arrives is cached, what the person decides is kept, and an item moves by transfer | Accepted |
 | [0899](0899-the-folder-sync-product-is-retired.md) | The folder sync product is retired | Accepted (amends 0840 and 0843; supersedes the folder sync product's records) |
+| [0900](0900-a-program-may-hand-its-new-records-over-to-a-home-which-then-holds-them.md) | A program may hand its new records over to a home, which then holds them | Proposed |
 | [0901](0901-an-app-is-inside-an-epicenter-or-outside-it.md) | An app is inside an Epicenter or outside it | Accepted (amends 0889 and 0891; amended by 0902) |
 | [0902](0902-this-repositorys-outside-apps-stay-in-apps.md) | This repository's outside apps stay in `apps/` | Accepted (amends 0891 and 0901; supersedes the records of Local Books and Honeycrisp) |
