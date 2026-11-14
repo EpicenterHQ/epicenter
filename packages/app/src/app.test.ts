@@ -64,7 +64,7 @@ describe('createMemoryContext', () => {
 describe('writes in a run', () => {
 	test('refuses every folder write outside data/ while leaving reads open', async () => {
 		const context = createMemoryContext({ 'README.md': 'code' });
-		const attempts = [
+		const attempts: (() => Promise<unknown>)[] = [
 			() => folder.write('report.md', 'text'),
 			() => folder.writeBytes('report.md', new Uint8Array([1])),
 			() => folder.update('report.md', () => 'text'),
@@ -85,12 +85,13 @@ describe('writes in a run', () => {
 			'data/.gitignore',
 			'data/nested/.gitattributes',
 		]) {
-			for (const attempt of [
+			const attempts: (() => Promise<unknown>)[] = [
 				() => folder.write(path, 'text'),
 				() => folder.writeBytes(path, new Uint8Array([1])),
 				() => folder.update(path, () => 'text'),
 				() => folder.delete(path),
-			])
+			];
+			for (const attempt of attempts)
 				await expect(inRun(context, attempt)).rejects.toThrow(
 					'.git* path segment',
 				);
@@ -275,6 +276,7 @@ describe('defineApp', () => {
 				defineApp({
 					description: 'Then',
 					collections: {},
+					// biome-ignore lint/suspicious/noThenProperty: the test defines then actions to check defineApp refuses them
 					actions: { then: noop, group: { then: noop, inner: { then: noop } } },
 				}),
 			),

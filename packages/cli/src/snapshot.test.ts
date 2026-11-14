@@ -106,10 +106,6 @@ const actions = {
 async function setup() {
 	const dir = await realpath(await mkdtemp(join(tmpdir(), 'epicenter-snap-')));
 	roots.push(dir);
-	process.env.GIT_AUTHOR_NAME = 'Epicenter Test';
-	process.env.GIT_AUTHOR_EMAIL = 'epicenter-test@example.com';
-	process.env.GIT_COMMITTER_NAME = 'Epicenter Test';
-	process.env.GIT_COMMITTER_EMAIL = 'epicenter-test@example.com';
 	await mkdir(join(dir, 'data'));
 	await writeFile(join(dir, 'data/a.md'), 'a\n');
 	await writeFile(join(dir, '.gitignore'), 'data/\nnode_modules/\n');
@@ -443,6 +439,7 @@ test("snapshots from several processes, each holding the app's lock, commit what
 	const answers = await Promise.all(
 		Array.from({ length: 6 }, async () => {
 			const child = Bun.spawn([process.execPath, '-e', script], {
+				env: process.env,
 				stdout: 'pipe',
 				stderr: 'inherit',
 			});

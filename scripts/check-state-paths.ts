@@ -15,7 +15,8 @@
  *   - Comments, and every file that is not code (docs, ADRs, fixtures).
  *
  * A dotted name that merely contains it, such as `so.epicenter.todos`,
- * `api.epicenter.so` or `.epicenter-todos-demo`, is not the directory.
+ * `api.epicenter.so` or `.epicenter-todos-demo`, is not the directory, and
+ * neither is a property read such as `engines?.epicenter`.
  *
  * Run it with `bun run check:state-paths`.
  */
@@ -44,7 +45,7 @@ const TEST_FILE =
 const TEST_DIRECTORY = /(^|\/)(smoke|e2e|tests|__benchmarks__)\//;
 
 /** The directory itself, not a dotted name that contains it. */
-const STATE_DIRECTORY = /(?<![\w.-])\.epicenter(?![\w-])/;
+const STATE_DIRECTORY = /(?<![\w.?-])\.epicenter(?![\w-])/;
 
 /** A line that is only a comment, or inside a block comment's body. */
 const COMMENT = /^\s*(\/\/|\/\*|\*)/;

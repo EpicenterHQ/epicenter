@@ -1,5 +1,12 @@
 # Epicenter architecture
 
+<!-- doc-path-check: ignore-file (maps the waiting folder sync product) -->
+
+This page maps the folder sync product's code, which waits
+([ADR-0840](adr/0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md)),
+and names some files deleted since. [The vision](vision.md) states the current
+direction.
+
 How Epicenter works in code today. [The vision](vision.md) says what Epicenter
 is and which rules it keeps;
 [ADR-0835](adr/0835-records-from-0802-to-0834-agree-on-files-a-ledger-and-git-at-the-edges.md)

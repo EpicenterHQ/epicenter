@@ -65,7 +65,9 @@ export type ShellRelay = {
 /** `headers` as name and value pairs, read without the iterable DOM types a server build lacks. */
 function entriesOf(headers: Headers): [string, string][] {
 	const entries: [string, string][] = [];
-	headers.forEach((value, name) => entries.push([name, value]));
+	headers.forEach((value, name) => {
+		entries.push([name, value]);
+	});
 	return entries;
 }
 

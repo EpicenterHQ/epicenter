@@ -26,7 +26,11 @@ const carried = await collectAppPackage(
 // entry keeps; the carried package is imported only when it is needed.
 const result = await Bun.build({
 	entrypoints: [join(cli, 'src', 'bin.ts')],
-	compile: { outfile: values.outfile },
+	// An app imports the packages its `package.json` names. A standalone
+	// executable reads no `package.json` unless told to, and then finds only a
+	// package with an `index.js` at its root, never one whose entry `exports`
+	// names.
+	compile: { outfile: values.outfile, autoloadPackageJson: true },
 	target: 'bun',
 	format: 'esm',
 	minify: true,

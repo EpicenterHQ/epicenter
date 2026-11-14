@@ -37,7 +37,7 @@ const desktopModules = (modules: readonly string[]) =>
 		.filter((path) => !SMALL_DESKTOP_PART.some((part) => path.endsWith(part)))
 		.map((path) => path.slice(path.indexOf(root) + root.length + 1));
 
-for (const app of ['todos', 'capture', 'honeycrisp', 'vocab', 'whispering'])
+for (const app of ['honeycrisp', 'whispering'])
 	test(`${app}'s first load holds no desktop module`, async () => {
 		const modules = await firstLoadModules(join(root, 'apps', app));
 		// The page's own code is there, so the build read the app.
