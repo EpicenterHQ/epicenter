@@ -5,7 +5,7 @@ description: Apply Epicenter’s Svelte 5 patterns for runes, components, lifecy
 
 # Svelte Guidelines
 
-Keep the first pass focused on Svelte runes, component lifecycle, workspace-backed state, TanStack Query usage, and local UI composition.
+Use Svelte's ownership, reactivity, and lifecycle rules to carry the intended design through its components.
 
 ## Reference Repositories
 
@@ -34,6 +34,25 @@ Skip DeepWiki for stable basics and repo-local patterns already documented here 
 - `error-handling`: carry Results through operations, then present outcomes at the interaction boundary; includes tagged errors, `$lib/report`, and `extractErrorMessage`
 - `styling`: CSS and Tailwind conventions, including the flex column scroll trap
 - `ui-design`: visual direction plus loading, empty, pending, tooltip, and component selection patterns
+
+## Reconsider the relevant system
+
+Establish what the interaction should make possible before choosing local
+cleanup. Carry forward agreed intent; clarify genuinely unresolved purposes and
+consequential tradeoffs. Read the whole component and follow the relevant
+callers and owners to identify the system responsible for that behavior. The
+relevant whole may extend across components, capabilities, or the app.
+
+Develop a coherent account of how you would organize that system today. Treat
+existing functions, state, effects, ownership, and component boundaries as
+choices you can reconsider. Use [collapse-pass](../collapse-pass/SKILL.md) and
+[rethink](../rethink/SKILL.md) to develop an arrangement that can make several
+local fixes unnecessary. Let that understanding determine the edits. Scale
+investigation to the uncertainty; a local change can still be the best result.
+
+Show interactions or caller code when they make the consequences concrete.
+Preserve required behavior and unfinished input; make intended changes to
+behavior or contracts explicit.
 
 ## Svelte 5 Baseline
 

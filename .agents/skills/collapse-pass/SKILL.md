@@ -8,12 +8,18 @@ metadata:
 
 # Collapse pass
 
-A collapse pass uses recurring complexity as evidence about the system's design.
-Start from the intended outcome and actual use. Trace repeated subsystems,
-duplicated decisions, and coordination back to the choices that produced them.
-Develop a simpler organizing model that makes unnecessary machinery disappear
-together, then carry worthwhile simplifications through implementation and
-verification.
+Start by establishing what the cleanup should make possible. Carry forward
+agreed intent; clarify genuinely unresolved purposes and consequential tradeoffs.
+Use that intent and actual use to identify the relevant system and develop a
+coherent account of how it should work before choosing local transformations.
+
+Be willing to reconsider current boundaries, ownership, and workflows. Trace
+recurring complexity back to the choices that produced it, and consider whether
+a different organizing idea would make several local fixes unnecessary. Use
+[rethink](../rethink/SKILL.md) to develop that idea when needed. Let this
+understanding determine the changes, then carry worthwhile simplifications
+through implementation and verification. Scale investigation to the uncertainty;
+a local edit can be the right result of considering the whole.
 
 Read the relevant [refactoring methods](references/refactoring-methods.md)
 for caller evidence, safe inlining, typed boundaries, or straggler cleanup.
