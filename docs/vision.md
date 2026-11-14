@@ -135,9 +135,12 @@ starter's changes ([ADR-0866]).
   Todoist. Todoist stays near empty, and Tasks is the list.
 - **A recording on a plane.** Whispering on your laptop records, transcribes,
   and pastes with no network, and keeps each recording, with its audio, in
-  its own folder ([ADR-0894], Proposed). It needs no Epicenter. If you point
-  its folder into `~/Epicenter/apps/whispering/data`, or copy new files there
-  with a file syncer, the recordings appear for your agents.
+  its own folder ([ADR-0894], Proposed). It needs no Epicenter, and no
+  account: an Epicenter account only unlocks paid models. If you point its
+  folder into `~/Epicenter/apps/whispering/data`, or copy new files there with
+  a file syncer, the recordings appear for your agents. A later Whispering may
+  hand each new recording over to your home once it can reach it, and from
+  then on every device sees and edits it there ([ADR-0900], Proposed).
 - **A weekly summary.** You ask an agent for a summary of your voice notes. It
   adds a `summaries` collection and a `summarize-week` action to
   Whispering's inside app. Whispering keeps writing recordings and never
@@ -315,8 +318,9 @@ is whole at rung 1.
 5. Which kind of caller wrote, a person or an agent, so an action can be
    refused to agents.
 
-**Not yet; each needs the owner's yes:** a program delivering records to a
-home through actions; an offline queue of adds from a phone; moving a
+**Not yet; each needs the owner's yes:** a program handing its new records
+over to a home, which then holds them ([ADR-0900], Proposed), and a phone
+queueing its adds the same way; moving a
 collection's truth; a published protocol for third parties; `serve` running
 pulls on a clock; Epicenter hosting any service.
 
@@ -367,4 +371,5 @@ fields are written one `key: <JSON>` line each.
 [ADR-0896]: adr/0896-each-collection-has-one-writer-of-record-and-epicenter-never-reconciles-two-writable-copies.md
 [ADR-0897]: adr/0897-hosted-notes-is-a-product-beside-epicenter-and-waits-for-a-month-of-evidence.md
 [ADR-0898]: adr/0898-what-arrives-is-cached-what-the-person-decides-is-kept-and-an-item-moves-by-transfer.md
+[ADR-0900]: adr/0900-a-program-may-hand-its-new-records-over-to-a-home-which-then-holds-them.md
 [ADR-0901]: adr/0901-an-app-is-inside-an-epicenter-or-outside-it.md
