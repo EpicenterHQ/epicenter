@@ -4,6 +4,7 @@
 - **Date:** 2026-11-14
 - **Amends:** [ADR-0889](0889-an-app-runs-on-epicenter-a-program-works-with-it-and-they-meet-at-the-apps-contract.md) at "Records, code, and directory names say `program`": both kinds are apps, an inside app and an outside app, and a program is one kind of outside app. Its contract rules stand.
 - **Amends:** [ADR-0891](0891-this-repository-holds-the-runtime-and-programs-and-every-starter-is-a-repository-of-its-own.md) at "nothing under `programs/` is an app": nothing under `programs/` is an inside app. Its layout stands.
+- **Amended by:** [ADR-0902](0902-this-repositorys-outside-apps-stay-in-apps.md) at "`programs/` in this repository still names what it holds": this repository has no `programs/`.
 - **Relates:** [ADR-0896](0896-each-collection-has-one-writer-of-record-and-epicenter-never-reconciles-two-writable-copies.md) (where a collection's truth is), [ADR-0898](0898-what-arrives-is-cached-what-the-person-decides-is-kept-and-an-item-moves-by-transfer.md) (pull, move, and apply), [ADR-0899](0899-the-folder-sync-product-is-retired.md) (the earlier product's words are retired with it).
 - **Unbuilt:** nothing; this decides words. `docs/vision.md` states them under "The pieces".
 

@@ -51,7 +51,7 @@ tauri::Builder::default()
 ```
 
 The apps on [`epicenter-standalone`](../tauri-epicenter-standalone/README.md)
-(Capture, Honeycrisp, Todos, Vocab, Whispering) name their AppData root and
+(Capture, Todos, Vocab, Whispering) name their AppData root and
 their data folder, `<Epicenter folder>/<site-derived path>`, this way (the
 Epicenter folder is `~/Epicenter`, ADR-0816; the Rust code and its comments
 still call it the library root). Their pages open the named Data root after the

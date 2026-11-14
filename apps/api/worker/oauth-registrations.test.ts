@@ -61,11 +61,6 @@ test('browser clients redirect only to their own production and local callbacks'
 			'http://localhost:1420',
 		],
 		[
-			'so.epicenter.honeycrisp',
-			'https://honeycrisp.epicenter.so',
-			'http://localhost:5175',
-		],
-		[
 			'so.epicenter.capture',
 			'https://capture.epicenter.so',
 			'http://localhost:5179',

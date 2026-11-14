@@ -1,5 +1,0 @@
-{
-	"workspaceId": "<your-personal-infisical-project-id>",
-	"defaultEnvironment": "prod",
-	"gitBranchToEnvironmentMapping": null
-}
