@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-11-08
 - **Relates:** [ADR-0851](0851-an-app-has-one-home-and-an-optional-push-only-backup.md) (the remote), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (the template, and the rule of least power), [ADR-0853](0853-collections-give-five-actions-and-programs-without-the-folder-ask-over-mcp.md) (byte collections and programs that write files), [ADR-0858](0858-where-a-file-lives-decides-whether-it-travels-survives-or-dies-with-its-program.md) (a binary kept on one computer is a `.local` path).
-- **Unbuilt:** `setup`'s check for `git-lfs` and the vault's `.gitattributes`. The Epicenter API's LFS endpoint on R2 comes with Epicenter Cloud. Built 2026-11-09: the refusal, before the write lands, of a path marked for LFS when `git-lfs` is not on `PATH` or its filter is not set up, since Git without the filter stores the whole file.
+- **Unbuilt:** `setup`'s check for `git-lfs` and the vault's `.gitattributes`. Built 2026-11-09: the refusal, before the write lands, of a path marked for LFS when `git-lfs` is not on `PATH` or its filter is not set up, since Git without the filter stores the whole file.
 
 ## Context
 
@@ -50,12 +50,12 @@ LFS quota it would use, running `git lfs migrate import`, force-pushing GitHub's
 copy with the author's approval, and cloning every copy again. Media the vault
 keeps out of Git today could then be tracked, and backed up, through LFS.
 
-**Epicenter Cloud will serve LFS from R2 through the Epicenter API.** When it
-creates an `origin` on Cloudflare Artifacts, it commits a `.lfsconfig` pointing
-LFS at `https://api.epicenter.so/lfs/<repository>`, which answers Git LFS's batch
-API with signed R2 links, as a hosted feature in `apps/api`. A GitHub `origin`
-uses GitHub's LFS. Before Epicenter Cloud relies on it, plain Git with partial
-clone (`--filter=blob:limit=…`) is checked as the less powerful alternative.
+**An `origin` serves LFS from its own host.** A GitHub `origin` uses GitHub's
+LFS. Epicenter Cloud, which was to serve LFS from R2, is withdrawn with the
+product it belonged to (ADR-0899, ADR-0903); an LFS service Epicenter hosted
+would be a service beside Epicenter, which the vision lists under "Not yet".
+Before anything relies on one, plain Git with partial clone
+(`--filter=blob:limit=…`) is checked as the less powerful alternative.
 
 A clone may skip downloading LFS files (`lfs.fetchexclude`, or
 `GIT_LFS_SKIP_SMUDGE=1` when cloning) and fetch one when it is opened. Your
