@@ -1,7 +1,8 @@
 # 0624. Local data reports its synchronization state
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-10-19
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amended by:** [ADR-0633](0633-apps-open-local-data-before-connecting-services.md) with a local state for datasets that have no synchronization destination; the four existing values apply after connection.
 - **Amends:** [ADR-0592](0592-a-folders-gitignore-decides-what-stays-on-one-machine.md) at "Sync still refuses, as `SyncError.Unrepresentable`" and its list: the only refusals are a non-text write from the library, a push that would rewrite history, and what Git cannot represent; a browser clone carries untouched any tree entry it cannot represent, and on a disk clone what its file system cannot represent is a cause of `stuck`.
 - **Amended by:** [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) at the browser's sync states and recovery: a web app reports only files not uploaded yet.

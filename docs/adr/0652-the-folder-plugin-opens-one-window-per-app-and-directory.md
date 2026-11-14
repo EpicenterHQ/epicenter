@@ -1,7 +1,8 @@
 # 0652. The folder plugin opens one window per app and directory
 
-- **Status:** Proposed
+- **Status:** Superseded
 - **Date:** 2026-10-20
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amends:** [ADR-0647](0647-a-native-window-edits-one-directory-bound-before-it-exists.md) at shell-owned window identity and standalone Todos's fixed label. Directory admission, binding before construction, and page storage remain unchanged.
 - **Relates:** [ADR-0701](0701-apps-run-as-separate-programs.md) (each app is its own desktop program; Epicenter opens no folder window).
 

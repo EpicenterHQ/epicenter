@@ -1,9 +1,8 @@
 # 0715. The Epicenter app browses every folder and document a person has
 
-<!-- doc-path-check: ignore-file (cites the waiting folder sync product (ADR-0840), kept at tag folder-sync-product) -->
-
-- **Status:** Accepted (2026-11-03)
+- **Status:** Superseded
 - **Date:** 2026-11-03
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amends:** [ADR-0701](0701-apps-run-as-separate-programs.md) at decision 81 ("Epicenter learns of a folder only through Sync with Epicenter's deep link"): Epicenter also lists the library root's folders; and at the 2026-11-01 revision that deleted the folder editor window ("Epicenter opens no folder's files"): Epicenter shows a folder's or document's items again; [ADR-0635](0635-generic-desktop-data-tools-are-deferred.md) at deferring the desktop data browser.
 - **Amended by:** [ADR-0721](0721-an-apps-folder-is-derived-never-stored.md) at `epicenter.root` marking a synced folder and at the deep link's `path` and `contract`: a folder at its derived path carrying `epicenter.synced` is synced, and both parameters follow from the app's site; [ADR-0736](0736-a-folder-outside-the-library-is-enrolled-through-a-link-the-person-names.md) at "'Add folder…' runs `epicenter link`": the person confirms the link's name, and the name has a space so no app could claim it.
 - **Amended by:** [ADR-0771](0771-plain-files-let-epicenter-refuse-renames-attachment-conflict-copies-and-a-second-store.md) at the document store: the folder is the only kind of store.

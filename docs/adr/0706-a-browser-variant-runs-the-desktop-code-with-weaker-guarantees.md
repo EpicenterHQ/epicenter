@@ -1,9 +1,8 @@
 # 0706. A browser variant runs the desktop code with weaker guarantees
 
-<!-- doc-path-check: ignore-file (cites code that moved since) -->
-
-- **Status:** Accepted (2026-11-03)
+- **Status:** Superseded
 - **Date:** 2026-11-03
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Relates:** [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) (an app's variants and their stores), [ADR-0705](0705-an-apps-data-lives-in-two-kinds-of-store.md) (folder and document stores).
 - **Unbuilt:** Whispering's export of every recording and its audio from the local web variant, and an import of that export into a desktop folder; the browser copy of a document.
 

@@ -1,7 +1,8 @@
 # 0743. Tabs keeps saved tabs as items in a collection
 
-- **Status:** Accepted (2026-11-04)
+- **Status:** Superseded
 - **Date:** 2026-11-04
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Supersedes:** [ADR-0724](0724-a-browser-extension-keeps-its-data-in-a-document.md) (a browser extension keeps its data in a document): a saved tab is kept, so it is an item ([ADR-0742](0742-items-are-what-you-keep-documents-are-whats-live.md)), and the extension writes it through the local engine ([ADR-0745](0745-a-browser-extension-writes-through-the-local-epicenter-engine.md)).
 - **Relates:** [ADR-0722](0722-an-apps-names-derive-from-its-sites-host.md) (names from the site's host), [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) (contracts and `timeId()`), [ADR-0727](0727-json-schema-is-the-field-language.md) (fields are JSON Schema).
 - **Unbuilt:** all of it: `apps/tabs`, its WXT build, its contract, and its site.

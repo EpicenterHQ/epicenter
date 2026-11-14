@@ -1,7 +1,8 @@
 # 0729. A link is followed only at or above a root
 
-- **Status:** Accepted (2026-11-03)
+- **Status:** Superseded
 - **Date:** 2026-11-03
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amends:** [ADR-0725](0725-an-app-reaches-named-roots-through-one-command-per-storage-operation.md) at "Nothing is canonicalized … `root.join(path)` is opened as is": a root is resolved once when it opens, and a link inside it is refused.
 - **Unbuilt:** none.
 

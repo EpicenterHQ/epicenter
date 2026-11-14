@@ -1,7 +1,8 @@
 # 0805. A folder is recognized by `epicenter.json`, which is its contract
 
-- **Status:** Accepted (2026-11-06)
+- **Status:** Superseded
 - **Date:** 2026-11-06
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amends:** [ADR-0802](0802-people-share-spaces-an-app-works-in-one-at-a-time-and-a-folder-carries-its-contract.md) at "`AGENTS.md` names `contract.json` by path": the contract is `epicenter.json`, and `AGENTS.md` names nothing; [ADR-0772](0772-a-folder-says-what-it-is-in-agents-md-and-this-computer-keeps-the-rest.md) at "A folder says what it is in `AGENTS.md`": it says so in `epicenter.json`, and folders are found by that file; [ADR-0804](0804-a-computer-keeps-a-plain-folder-and-every-surface-syncs-with-one-typescript-function.md) at `.epicenter/sync.lock`: no lock guards a sync, and the manifest is written over the version the sync read; [ADR-0711](0711-a-folder-names-its-apps-contract-in-a-committed-agents-md-note.md) at the note's `contract` key: `AGENTS.md` carries no front matter.
 - **Relates:** [ADR-0797](0797-front-matter-is-a-strict-grammar-and-anything-else-is-body.md) (the front-matter grammar), [ADR-0799](0799-a-folders-contract-is-also-an-mcp-server.md) (tools derived from the contract).
 - **Amended by:** [ADR-0810](0810-a-folder-needs-no-app-and-a-repository-is-a-spaces-named-folder.md) at the app writing `epicenter.json`: an app owns it when it names the app's contract; a person owns it otherwise.

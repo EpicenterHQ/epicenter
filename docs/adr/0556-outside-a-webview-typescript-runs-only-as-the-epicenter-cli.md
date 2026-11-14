@@ -1,7 +1,5 @@
 # 0556. Outside a WebView, TypeScript runs only as the epicenter CLI
 
-<!-- doc-path-check: ignore-file (cites the waiting folder sync product (ADR-0840), kept at tag folder-sync-product) -->
-
 - **Status:** Superseded
 - **Date:** 2026-10-16
 - **Supersedes:** [ADR-0323](0323-background-work-runs-in-the-host-and-a-window-is-for-looking-at.md), whose background work runs in a long-lived Bun host: background TypeScript is an `epicenter` command Rust starts and waits for, while 0323's measurement and its withdrawal of [ADR-0273](0273-an-epicenter-app-is-an-spa-with-a-namespace-and-background-work-is-a-hidden-window.md)'s hidden-window background work stand.

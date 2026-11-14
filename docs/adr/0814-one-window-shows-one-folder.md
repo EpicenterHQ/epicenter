@@ -1,7 +1,8 @@
 # 0814. One window shows one folder
 
-- **Status:** Accepted (2026-11-06)
+- **Status:** Superseded
 - **Date:** 2026-11-06
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amends:** [ADR-0811](0811-folders-are-shared-directly-and-an-app-reaches-the-folders-attached-to-it.md) at "An app shows one folder at a time, with a folder picker": a window shows one folder, and another folder opens in another window; [ADR-0802](0802-people-share-spaces-an-app-works-in-one-at-a-time-and-a-folder-carries-its-contract.md) at an app later opening several folders together: no app does, and views across folders are the library's.
 - **Relates:** [ADR-0813](0813-epicenter-is-your-folders-and-apps-are-lenses.md) (apps are lenses), [ADR-0812](0812-an-apps-schema-is-a-view-that-must-fit-a-folders-contract.md) (an app's view), [ADR-0790](0790-the-epicenter-app-is-a-library-over-every-folder-and-the-cli-answers-its-queries.md) (the library queries every folder), [ADR-0780](0780-a-surface-uses-what-its-platform-gives-and-parity-is-not-a-goal.md) (each surface uses what its platform gives).
 - **Unbuilt:** all of it: opening a folder into a window on the desktop, a tab named by the folder's id on the web, and a folder from an app's home on a phone; an app's capabilities made for one folder for the window's life; removing the folder picker.

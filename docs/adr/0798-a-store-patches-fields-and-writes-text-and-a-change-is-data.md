@@ -1,7 +1,8 @@
 # 0798. A store patches fields and writes text, and a change is data
 
-- **Status:** Accepted (2026-11-05)
+- **Status:** Superseded
 - **Date:** 2026-11-05
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amends:** [ADR-0779](0779-a-store-is-four-verbs-and-a-browser-recording-lands-whole.md) at "a store is four verbs": a fifth, `patch`, applies field changes where the file lives; [ADR-0774](0774-one-write-makes-it-so-and-settles-a-change-the-way-sync-does.md) at "A write reads the file just before writing it" for named fields: the store applies them to the file as it is; [ADR-0797](0797-front-matter-is-a-strict-grammar-and-anything-else-is-body.md) at a field set normalizing a note outside the grammar first: the page normalizes, with a write, and no store normalizes.
 - **Relates:** [ADR-0773](0773-a-folder-opens-at-a-place-every-place-is-a-store-and-the-server-never-merges.md) (the server never merges, which this keeps), [ADR-0795](0795-git-merges-a-notes-body-and-epicenter-merges-its-front-matter-by-key.md) and [ADR-0796](0796-a-field-is-a-line-its-value-is-json-and-a-write-patches-only-the-fields-it-changes.md) (fields are lines; bodies merge by lines), [ADR-0775](0775-a-write-never-fails-the-folder-keeps-it-until-it-lands.md) (queued writes), [ADR-0750](0750-sync-is-like-save-any-program-can-sync-a-folder-and-none-owns-it.md) and [ADR-0762](0762-epicenter-is-made-of-standards-and-places.md) (no background service; programs never call each other).
 - **Amended by:** [ADR-0800](0800-a-stores-wire-speaks-http-conditional-requests-and-apps-connect-agents-to-the-cli.md) at each place keeping its own transport: a store reached over HTTP reads and writes one file as HTTP's conditional requests do.

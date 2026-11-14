@@ -1,7 +1,5 @@
 # 0493. Whispering's only desktop shell is Epicenter
 
-<!-- doc-path-check: ignore-file (cites the waiting folder sync product (ADR-0840), kept at tag folder-sync-product) -->
-
 - **Status:** Superseded
 - **Superseded by:** [ADR-0701](0701-apps-run-as-separate-programs.md): Whispering ships no desktop build until it has its own shell; Epicenter hosts no app.
 - **Date:** 2026-10-15

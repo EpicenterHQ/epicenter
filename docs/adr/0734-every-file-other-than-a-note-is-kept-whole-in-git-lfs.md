@@ -1,9 +1,8 @@
 # 0734. Every file other than a note is kept whole in Git LFS
 
-<!-- doc-path-check: ignore-file (cites the waiting folder sync product (ADR-0840), kept at tag folder-sync-product) -->
-
-- **Status:** Accepted (2026-11-04)
+- **Status:** Superseded
 - **Date:** 2026-11-04
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Supersedes:** [ADR-0714](0714-a-files-extension-decides-how-every-folder-merges-it.md) (a file's extension decides how every folder merges it): one rule for every folder, with no binary-extension list, size cap, or migration between lists.
 - **Relates:** [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) (every file that is not a `.md` note and not a hidden path is Git LFS), [ADR-0715](0715-the-epicenter-app-browses-every-folder-and-document-a-person-has.md) (Epicenter syncs folders other programs made), [ADR-0733](0733-your-own-git-in-an-epicenter-folder-is-plain-git.md) (your own git is plain Git).
 - **Amended by:** [ADR-0771](0771-plain-files-let-epicenter-refuse-renames-attachment-conflict-copies-and-a-second-store.md) at conflict copies: the later write to an attached file wins, and the loser stays in history.

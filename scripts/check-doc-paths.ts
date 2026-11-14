@@ -19,11 +19,17 @@
  *     file claims (prose dir mentions and `@scope/pkg` names are not).
  *   - An optional `:42` / `:42:7` / `:42-50` line suffix is allowed and ignored.
  *   - A token containing a `...` path ellipsis is skipped: it is a pattern.
+ *   - A path qualified by a git ref (`folder-sync-product:apps/epicenter/AGENTS.md`)
+ *     is a citation of history, not a claim about the tree, so it is not a file
+ *     token. Its ref may be absent from a shallow CI clone, so it is not checked.
  *
  * Excluded from the scan, because their paths are illustrative or frozen:
  *   - `specs/` and `docs/articles/` at any depth: dated records, kept stale.
  *   - `.agents/` and `.claude/`: skill and agent prompts cite example paths
  *     like `apps/whatever/src/lib/feature.ts` as teaching stand-ins.
+ *   - an ADR whose status is `Superseded`: its paths were true when it was
+ *     written, and it no longer governs (docs/adr/README.md, "Keeping a record
+ *     from going stale"). `Proposed` and `Accepted` records are scanned.
  *   - any doc carrying `<!-- doc-path-check: ignore-file -->`. Mark a historical
  *     doc this way: a living doc that merely *mentions* history stays scanned.
  *
@@ -74,6 +80,12 @@ const FILE_TOKEN =
 // `<!-- doc-path-check: ignore-file (frozen historical record) -->`.
 const IGNORE_FILE = /<!--\s*doc-path-check:\s*ignore-file\b.*?-->/;
 const IGNORE_NEXT_LINE = /<!--\s*doc-path-check:\s*ignore-next-line\b.*?-->/;
+// An ADR's header ends at its first `## ` section; only the header's status
+// line counts, so a record that quotes another's status is still scanned.
+const SUPERSEDED_ADR = /^- \*\*Status:\*\*\s*Superseded\b/m;
+const isSupersededAdr = (file: string, text: string) =>
+	file.startsWith('docs/adr/') &&
+	SUPERSEDED_ADR.test(text.split('\n## ', 1)[0] ?? '');
 
 const docs = tracked.filter((file) => {
 	if (!file.endsWith('.md') || isExcludedDoc(file)) return false;
@@ -86,7 +98,7 @@ const violations: { file: string; line: number; path: string }[] = [];
 
 for (const file of docs) {
 	const text = readFileSync(join(root, file), 'utf8');
-	if (IGNORE_FILE.test(text)) continue;
+	if (IGNORE_FILE.test(text) || isSupersededAdr(file, text)) continue;
 
 	const lines = text.split('\n');
 	lines.forEach((line, i) => {

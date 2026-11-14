@@ -1,7 +1,8 @@
 # 0723. An app's site is found by convention
 
-- **Status:** Accepted (2026-11-03)
+- **Status:** Superseded
 - **Date:** 2026-11-03
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Supersedes:** [ADR-0717](0717-an-epicenter-app-is-a-site-that-publishes-a-contract.md) (an Epicenter app is a site that publishes a contract) at its manifest: the site publishes its contract and an optional skill at fixed paths, and no manifest file exists.
 - **Relates:** [ADR-0614](0614-a-browser-app-is-identified-by-its-origin.md) (an app is identified by its origin); [ADR-0711](0711-a-folder-names-its-apps-contract-in-a-committed-agents-md-note.md) (a folder's `AGENTS.md` names its contract URL); [ADR-0722](0722-an-apps-names-derive-from-its-sites-host.md) (an app's names derive from its site's host).
 - **Unbuilt:** publishing `/SKILL.md` from any app's site; Epicenter copying it to `~/.agents/skills/<name>/`; Epicenter's "Get the app" opening the origin from a folder's `AGENTS.md`.

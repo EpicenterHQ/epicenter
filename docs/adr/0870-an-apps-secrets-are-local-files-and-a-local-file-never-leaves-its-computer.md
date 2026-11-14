@@ -1,7 +1,5 @@
 # 0870. An app's secrets are `.local` files, and a `.local` file never leaves its computer
 
-<!-- doc-path-check: ignore-file (cites the waiting folder sync product (ADR-0840), kept at tag folder-sync-product) -->
-
 - **Status:** Accepted (2026-11-13)
 - **Date:** 2026-11-11
 - **Amends:** [ADR-0840](0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md) at "a place for secrets (the Keychain)": an action's place for secrets is a `.local` file in its folder. [ADR-0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md) at `secrets`: a run reaches `folder` only. [ADR-0844](0844-one-runner-runs-anywhere-and-every-surface-is-a-view-over-it.md) at the `secrets` row of the host table, which is deleted. [ADR-0858](0858-where-a-file-lives-decides-whether-it-travels-survives-or-dies-with-its-program.md) at "Is it a secret? yes → the Keychain" and "a secret is never a file", for an app in an Epicenter; a program's own sign-ins (Whispering's account) stay in the Keychain. Also at "a collection whose path contains `.local.` is refused": such a collection is allowed and offers no actions.
@@ -134,7 +132,7 @@ refreshing at once each write over the text they read.
 
 - `secrets` and `Secrets` from `@epicenter/app` (`packages/app/src/context.ts`,
   `index.ts`), and `createMemorySecrets` from `memory.ts`;
-- `packages/cli/src/secrets.ts`, with `keychain`, `keychainService`, and
+- `afdcba86af^:packages/cli/src/secrets.ts`, with `keychain`, `keychainService`, and
   `EPICENTER_TEST_SECRETS`;
 - the `keychain` field of `epicenter <app> --json`;
 - the `id` in the Epicenter's marker (ADR-0868), which existed only to name

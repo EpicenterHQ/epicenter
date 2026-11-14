@@ -1,9 +1,8 @@
 # 0608. Apps share data through ordinary files
 
-<!-- doc-path-check: ignore-file (cites the waiting folder sync product (ADR-0840), kept at tag folder-sync-product) -->
-
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-10-17
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amends:** [ADR-0546](0546-a-folder-syncs-to-git-epicenter-so-under-its-owners-namespace-and-the-first-push-creates-it.md) at "the person may change it before the first push" and "After the first push the directory may be renamed freely": a folder's directory name is its repository name, made valid when the folder is made, and is never changed. [ADR-0593](0593-the-hosted-git-service-stores-data-repositories-and-offers-no-rename-or-move.md) at the consequence "renaming the folder on disk changes nothing remote": no local rename is offered either.
 - **Amended by:** [ADR-0612](0612-a-repository-is-shared-by-the-people-on-its-access-list.md) at "A folder's directory name is its hosted repository's name, on every device and in every origin": a clone lives in a directory of any name.
 - **Amended by:** [ADR-0626](0626-an-app-reaches-a-repository-only-through-open.md) at "The library resolves paths and lists folders" and "`openFolder` refuses an `id` that names no directory": the library has no `resolve` or `listFolders`, and `open` returns `undefined` when this origin holds no grant.

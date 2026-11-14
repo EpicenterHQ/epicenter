@@ -1,7 +1,8 @@
 # 0649. Folders.json selects this machine's folder locations
 
-- **Status:** Proposed
+- **Status:** Superseded
 - **Date:** 2026-10-20
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amended by:** [ADR-0670](0670-native-shells-share-explicit-machine-local-app-homes.md), which shares explicit home selections across native shells.
 - **Amends:** [ADR-0641](0641-epicenter-remembers-folders-as-machine-local-paths.md) at the array format and list-only purpose of `folders.json`; [ADR-0539](0539-epicenters-own-folder-is-so-epicenter-and-machine-state-splits-by-what-it-costs-to-lose.md) at identifying Epicenter's portable records by the fixed directory name `so.epicenter`; [ADR-0647](0647-a-native-window-edits-one-directory-bound-before-it-exists.md) at Settings' fixed records path and name-based descriptions of protected roots. Window binding and admission checks remain.
 - **Unbuilt:** a UI for choosing or relocating Epicenter's records folder and coordinated changes of that selection while Settings is open.

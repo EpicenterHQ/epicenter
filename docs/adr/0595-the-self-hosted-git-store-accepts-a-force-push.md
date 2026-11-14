@@ -1,7 +1,5 @@
 # 0595. The self-hosted Git store accepts a force push
 
-<!-- doc-path-check: ignore-file (cites the waiting folder sync product (ADR-0840), kept at tag folder-sync-product) -->
-
 - **Status:** Superseded
 - **Date:** 2026-10-17
 - **Superseded by:** [ADR-0620](0620-history-in-a-repository-only-grows.md): no store accepts a force push.

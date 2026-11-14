@@ -1,7 +1,8 @@
 # 0810. A folder needs no app, and a repository is a space's named folder
 
-- **Status:** Accepted (2026-11-06)
+- **Status:** Superseded
 - **Date:** 2026-11-06
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amends:** [ADR-0809](0809-a-repository-is-a-spaces-app-and-bytes-nothing-needs-are-collected-or-purged.md) at `/spaces/<space-id>/apps/<app>` and the manifest's `{ space, app }`: a repository is `/spaces/<space-id>/folders/<name>`, and the manifest stores `{ space, name }`; [ADR-0805](0805-a-folder-is-recognized-by-epicenter-json-which-is-its-contract.md) at the app writing `epicenter.json`: an app owns it when it names the app's contract, and a person owns it otherwise.
 - **Relates:** [ADR-0790](0790-the-epicenter-app-is-a-library-over-every-folder-and-the-cli-answers-its-queries.md) (the library shows every folder as tables), [ADR-0799](0799-a-folders-contract-is-also-an-mcp-server.md) (tools from a folder's contract), [ADR-0797](0797-front-matter-is-a-strict-grammar-and-anything-else-is-body.md) (Normalize), [ADR-0722](0722-an-apps-names-derive-from-its-sites-host.md) (an app's names derive from its site).
 - **Amended by:** [ADR-0811](0811-folders-are-shared-directly-and-an-app-reaches-the-folders-attached-to-it.md) at `/spaces/<space-id>/folders/<name>` and `name` in `epicenter.json`: `/folders/<id>`, and no `name`.

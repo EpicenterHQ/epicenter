@@ -1,7 +1,8 @@
 # 0531. The page runs the folder engine and the shell grants the directory
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-10-14
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Supersedes:** [ADR-0476](0476-whisperings-desktop-folder-uses-one-rust-library-in-both-tauri-shells.md), which chose one Rust folder implementation for desktop shells.
 - **Amended by:** [ADR-0559](0559-all-desktop-git-runs-in-the-epicenter-cli-over-system-git.md) at "history through the system `git`, which the shell runs for it" (`run_git`): the `epicenter` CLI runs whole Git operations for the page, one child each, under the same rules, while files through the shell's read and checked change commands are unchanged; and [ADR-0581](0581-a-desktop-pages-folder-storage-is-one-shell-command-per-storage-method.md) at the read and change commands, reads reaching `.git`, changes to staging files and index copies, the four expectations, and the seven-call directory handle: the page's storage is one shell command per storage method over data paths, and the shell stages and publishes each put.; [ADR-0725](0725-an-app-reaches-named-roots-through-one-command-per-storage-operation.md) at the shell granting the directory: the shell names roots, and nothing is granted.
 - **Amended by:** [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) at history through `run_git` and `hash-object -w`: the page has no history.

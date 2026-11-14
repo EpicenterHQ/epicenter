@@ -1,7 +1,8 @@
 # 0671. The launcher lists directories from all current references
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-10-22
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Related proposal:** ADR-0679 (deleted) grouped the launcher by pin, library membership, and recency (`99dc52aaf6`); the groups, pins, and recents were removed when Epicenter came to list only the folders it syncs (`9c007bccc7`, ADR-0701's amendment below).
 - **Amended by:** [ADR-0701](0701-apps-run-as-separate-programs.md) at the launcher's sources: Epicenter lists only the folders it syncs; library children, bookmarks, and selected homes are not listed. (ADR-0672, deleted, had first removed selected homes.)
 - **Amends:** [ADR-0537](0537-epicenter-opens-to-your-folders-and-home-becomes-settings.md)'s root-only listing, [ADR-0641](0641-epicenter-remembers-folders-as-machine-local-paths.md)'s separate remembered-folder surface, and [ADR-0670](0670-native-shells-share-explicit-machine-local-app-homes.md)'s discovery experience.

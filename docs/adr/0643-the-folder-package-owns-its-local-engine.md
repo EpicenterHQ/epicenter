@@ -1,7 +1,8 @@
 # 0643. The Folder package owns its local engine
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-10-19
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amends:** [ADR-0626](0626-an-app-reaches-a-repository-only-through-open.md) at the planned `@epicenter/data` package boundary; [ADR-0636](0636-an-app-opens-local-files-through-one-folder-handle.md) at implementation ownership behind its public handle.
 - **Implementation:** consolidated into `@epicenter/folder`: one public Folder contract, browser IndexedDB storage, native directory opening, and shared row and merge rules. The former `packages/data` package and declaration-dependent browser opener are removed. See the [Folder README](../../packages/folder/README.md).
 

@@ -1,9 +1,8 @@
 # 0690. Merges happen only where history records the common ancestor
 
-<!-- doc-path-check: ignore-file (cites the waiting folder sync product (ADR-0840), kept at tag folder-sync-product) -->
-
-- **Status:** Proposed
+- **Status:** Superseded
 - **Date:** 2026-10-27
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amends:** [ADR-0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md) at its `a save` role: a local save no longer merges; the sync role is unchanged.
 - **Relates:** [ADR-0689](0689-an-edit-shows-what-you-typed-the-queue-carries-it-the-folder-shows-what-landed.md) for the local write queue; [ADR-0534](0534-data-folders-are-the-only-data-model.md) for folders as the only data model; [ADR-0529](0529-commits-happen-only-on-sync-or-when-a-person-saves-a-version.md) and [ADR-0530](0530-applications-record-a-version-at-natural-moments.md) for when commits happen.
 - **Unbuilt:** no app commits automatically or turns on sync; no merge notice reaches an editor; no capture-only client exists; browser sync does not yet honor `.gitignore` patterns.

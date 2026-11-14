@@ -1,7 +1,5 @@
 # 0827. The CLI and MCP render one table of operations
 
-<!-- doc-path-check: ignore-file (cites the waiting folder sync product (ADR-0840), kept at tag folder-sync-product) -->
-
 - **Status:** Accepted (2026-11-07)
 - **Date:** 2026-11-07
 - **Amends:** [ADR-0817](0817-the-cli-exposes-every-platform-operation-and-an-app-inherits-everything-about-folders.md) at "a command here": an operation is a package function and one description, which the CLI and `epicenter mcp` both render; [ADR-0799](0799-a-folders-contract-is-also-an-mcp-server.md) at its tools: they are named `<folder>_<collection>_<verb>`, the verbs are `query`, `get`, `set`, and `write`, and a field that does not fit is refused before writing; [ADR-0805](0805-a-folder-is-recognized-by-epicenter-json-which-is-its-contract.md) at "Epicenter writes it once": Epicenter writes no `AGENTS.md`; [ADR-0822](0822-only-epicenter-syncs-on-a-computer-and-a-folder-holds-only-its-content.md) at "with a contract that fits the app": the directory's name counts alone where the app's view is unknown or the folder holds no `epicenter.json`; [ADR-0824](0824-a-folders-history-is-a-log-of-versions-and-git-is-how-it-leaves.md) at "notes as blobs and other files as LFS objects": the folder's `epicenter.json` is a blob too (projection v2); [ADR-0826](0826-history-enters-and-leaves-epicenter-as-git.md) at an import that stops midway: it resumes, or is abandoned.
@@ -24,7 +22,7 @@ Git LFS pointer, so a mirror's contract could not be read or diffed as text.
 ## Decision
 
 **Each platform operation is a package function plus one description.**
-`OPERATIONS` in `packages/cli/src/operations.ts` holds, for each, its
+`OPERATIONS` in `53d09c23f2:packages/cli/src/operations.ts` (removed in the CLI rewrite 6342831e92) holds, for each, its
 `name`, `args` (positionals by input key), `options`, `summary`, `details`,
 and a TypeBox `input` and `output` schema; its code is an `Implementation`
 with `run(input)`, which answers its output and prints nothing, and

@@ -1,7 +1,8 @@
 # 0521. A folder syncs over plain Git with a token, to a server the person chooses
 
-- **Status:** Proposed
+- **Status:** Superseded
 - **Date:** 2026-10-14
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Relates:** [ADR-0532](0532-a-folder-is-the-directory-its-id-names-with-its-remote-in-git-configuration.md) keeps the remote in `remote.origin.url`; [ADR-0533](0533-one-folder-handle-opens-in-three-hosts-chosen-by-where-the-code-runs.md) names the three hosts an app runs in; [ADR-0488](0488-cloud-folders-use-independent-git-histories.md) gives each synced folder its own repository; [ADR-0489](0489-folder-transfers-happen-only-when-a-person-syncs.md) keeps transfers explicit; [ADR-0517](0517-a-data-folder-can-live-inside-any-repository.md) syncs only a repository-root data folder.
 - **Unbuilt:** a repository store for `apps/api`'s Bun entry; listing a principal's repositories; LFS routes on the blob stores; the folder engine's LFS client; pushes over the Worker's request limit; hosted sync for installed apps, which comes with moving them to page-engine folders ([ADR-0531](0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md)); a desktop run of Todos syncing with Epicenter.
 

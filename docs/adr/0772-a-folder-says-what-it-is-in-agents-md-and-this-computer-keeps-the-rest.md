@@ -1,7 +1,8 @@
 # 0772. A folder says what it is in AGENTS.md, and this computer keeps the rest
 
-- **Status:** Accepted (2026-11-05)
+- **Status:** Superseded
 - **Date:** 2026-11-05
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amends:** [ADR-0711](0711-a-folder-names-its-apps-contract-in-a-committed-agents-md-note.md) at "The CLI keeps the generated block current": Epicenter writes the note once and never again; [ADR-0721](0721-an-apps-folder-is-derived-never-stored.md) at "An app's folder is always at its derived path": a folder is found by its `AGENTS.md` under `~/Epicenter`, and its name is a label; [ADR-0722](0722-an-apps-names-derive-from-its-sites-host.md) at an app's folder path: the label is the name Epicenter suggests; [ADR-0752](0752-an-apps-folder-sits-under-the-platforms-visible-root-of-app-folders.md) at what sits under `~/Epicenter`: another team's apps sit in that team's folder; [ADR-0770](0770-teams-own-repositories-and-sharing-is-membership.md) at where a team's repositories sit on a computer; [ADR-0715](0715-the-epicenter-app-browses-every-folder-and-document-a-person-has.md) at the library-root scan: it reads each folder's `AGENTS.md`.
 - **Relates:** [ADR-0735](0735-sync-gives-files-a-history-it-never-merges-two.md) (a folder has no history until it first syncs, which this holds the code to), [ADR-0712](0712-an-apps-folder-resolves-against-a-fixed-library-root.md) (the warning about a file-sync service), [ADR-0733](0733-your-own-git-in-an-epicenter-folder-is-plain-git.md) (plain Git), [ADR-0771](0771-plain-files-let-epicenter-refuse-renames-attachment-conflict-copies-and-a-second-store.md) (a folder's name is only a label).
 - **Amended by:** [ADR-0787](0787-records-that-assumed-a-running-engine-or-a-build-time-choice-follow-0750-and-0781.md) at "Epicenter writes the note once": the one write carries the sync instruction.

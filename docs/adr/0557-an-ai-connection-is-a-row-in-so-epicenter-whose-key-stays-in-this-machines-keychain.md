@@ -1,7 +1,5 @@
 # 0557. An AI connection is a row in so.epicenter whose key stays in this machine's keychain
 
-<!-- doc-path-check: ignore-file (cites code that moved since) -->
-
 - **Status:** Superseded
 - **Date:** 2026-10-16
 - **Superseded by:** [ADR-0618](0618-epicenter-hosts-no-ai-service.md), Epicenter's inference: Epicenter runs no inference or transcription gateway, bills no AI credits, and keeps no local model, and an AI connection survives only as the CLI's bring-your-own-key keychain entry.

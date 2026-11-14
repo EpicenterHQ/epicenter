@@ -1,7 +1,8 @@
 # 0685. Hosted Git records browser publication receipts in a protected ref
 
-- **Status:** Rejected
+- **Status:** Superseded
 - **Date:** 2026-10-23
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Rejected:** 2026-10-30, in favor of [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md): the web never syncs; a browser keeps its own files (OPFS through `openDevice`) and uploads new ones through the server, which commits them. No browser submission protocol exists to need an operations ref; the server's write translator keys a capture's receipt by its capture id instead. Never built.
 - **Relates:** [ADR-0620](0620-history-in-a-repository-only-grows.md) (main never rewinds), [ADR-0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md) (merge units and losing candidates).
 - **Unbuilt:** protected native receive-pack gateway, initial operations ref, browser submission publisher, versioned request hashing, paired backup and restore, and real-client Artifacts tests.

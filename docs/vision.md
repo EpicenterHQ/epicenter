@@ -313,9 +313,9 @@ Epicenter it is a cached collection, like Gmail.
 Records [ADR-0802] to [ADR-0839] designed a folder sync product for many
 people: folders kept the same on every device and with everyone they were
 shared with, a server keeping every version, Git at the edges, and web and
-phone apps. [ADR-0835] was its register. It waits, because its one user needed
-something smaller first; the code in this repository today is mostly that
-product. What carried over: files a person can read, Git as history, one table
+phone apps. [ADR-0835] was its register. It stopped because its one user
+needed something smaller first, and it is retired ([ADR-0899]); some of its
+code is still in this repository until nothing imports it. What carried over: files a person can read, Git as history, one table
 of operations rendered as CLI and MCP ([ADR-0827]), and the rule that a note's
 fields are written one `key: <JSON>` line each.
 
@@ -324,6 +324,7 @@ fields are written one `key: <JSON>` line each.
 [ADR-0835]: adr/0835-records-from-0802-to-0834-agree-on-files-a-ledger-and-git-at-the-edges.md
 [ADR-0839]: adr/0839-a-save-is-one-numbered-write-a-reset-deletes-nothing-and-epicenter-owns-the-pages-every-app-links-to.md
 [ADR-0840]: adr/0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md
+[ADR-0899]: adr/0899-the-folder-sync-product-is-retired.md
 [ADR-0850]: adr/0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md
 [ADR-0851]: adr/0851-an-app-has-one-home-and-an-optional-push-only-backup.md
 [ADR-0860]: adr/0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md

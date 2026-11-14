@@ -1,7 +1,8 @@
 # 0631. A browser observes the remote before making a commit
 
-- **Status:** Proposed
+- **Status:** Superseded
 - **Date:** 2026-10-19
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amends:** [ADR-0623](0623-every-browser-app-keeps-its-own-git-clone-of-a-repository.md) at every browser commit having one parent, allowing a root commit after a successful fetch establishes an empty remote; [ADR-0628](0628-browser-sync-uses-transactions-and-git-updates-instead-of-cross-tab-ownership.md) at the persisted browser refs and shallow-boundary metadata, storing only an observed remote base and an optional exact pending commit.
 - **Unbuilt:** first attachment in an app, hosted-service and abrupt-crash evidence for uncertain pushes.
 
