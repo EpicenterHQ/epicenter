@@ -3,7 +3,8 @@
 - **Status:** Accepted (2026-11-13)
 - **Date:** 2026-11-13
 - **Relates:** [ADR-0843](0843-new-code-imports-nothing-from-the-waiting-product-which-leaves-by-deletion.md) (the old product leaves), [ADR-0866](0866-an-app-starts-from-a-starter-kept-as-its-upstream-and-update-merges-the-starters-changes.md) (starters), [ADR-0877](0877-an-apps-code-and-its-data-are-two-repositories-and-sharing-an-app-shares-its-code.md) (this repository holds no apps), [ADR-0889](0889-an-app-runs-on-epicenter-a-program-works-with-it-and-they-meet-at-the-apps-contract.md) (programs).
-- **Unbuilt:** `apps/api` and the old product's packages, which leave when Whispering 8 ships with no sign-in ([ADR-0894](0894-whispering-8-keeps-its-recordings-and-their-audio-in-its-own-data-directory-and-needs-no-epicenter.md)); `EpicenterHQ/whispering-starter`.
+- **Amended:** 2026-11-13, the same day. The hosted API stays, as a service: it is live and paid, and it holds the accounts and billing a hosted notes service would need ([ADR-0897](0897-hosted-notes-is-a-product-beside-epicenter-and-waits-for-a-month-of-evidence.md)). It was to leave with the old product.
+- **Unbuilt:** `apps/api` moving to `services/api`, after which `apps/` is gone; the folder sync packages, which leave when neither Whispering nor the API imports them ([ADR-0843](0843-new-code-imports-nothing-from-the-waiting-product-which-leaves-by-deletion.md), steps 3 and 4); `EpicenterHQ/whispering-starter`.
 - **Built:** 2026-11-13. `programs/whispering` and `sites/landing` moved; Honeycrisp, Local Books, and the PostHog proxy were deleted. The tag `before-0891-layout` marks the last commit with them in the tree.
 
 ## Context
@@ -17,8 +18,8 @@ can take as a starter.
 ## Decision
 
 **This repository holds the runtime, the packages it is built from, programs,
-and the website. Every starter, Whispering's included, is a repository of its
-own.**
+services, and the website. Every starter, Whispering's included, is a
+repository of its own.**
 
 ```txt
 EpicenterHQ/epicenter
@@ -26,6 +27,7 @@ EpicenterHQ/epicenter
   packages/app            @epicenter/app, carried by the command
   packages/ui             components apps and programs copy
   programs/whispering/    the desktop program
+  services/api/           the hosted API: sign-in, inference, billing
   sites/landing/          the website
 EpicenterHQ/whispering-starter
   epicenter.ts  package.json  README.md
@@ -35,10 +37,14 @@ EpicenterHQ/whispering-starter
   the contract's types from it. During development, a local override points
   the dependency at a checkout beside it.
 - **`apps/` becomes `programs/`** when the old product leaves.
-  `apps/landing` moves to `sites/landing`; `apps/api`,
-  `apps/posthog-reverse-proxy`, and the old product's apps leave with it.
-  `apps/api` stays until then, because Whispering 7 signs in, transcribes,
-  and is billed through it.
+  `apps/landing` moves to `sites/landing`;
+  `apps/posthog-reverse-proxy` and the old product's apps leave with it.
+- **`apps/api` becomes `services/api`.** A service is software someone else
+  runs that holds the truth of its own data, as Gmail does. Whispering 7
+  signs in, transcribes, and is billed through the API. It loses its folder
+  sync routes (ADR-0843, step 3) and keeps sign-in, inference, and billing.
+  The move changes the deploy workflow's path and the billing path in
+  `AGENTS.md`, and waits for its own change.
 
 ## Consequences
 
@@ -48,7 +54,8 @@ EpicenterHQ/whispering-starter
   exception.
 - A change to Whispering's contract is two commits in two repositories: the
   starter's, then the program's pin.
-- The directory names teach the nouns: nothing under `programs/` is an app.
+- The directory names teach the nouns: nothing under `programs/` or
+  `services/` is an app.
 
 ## Considered alternatives
 
