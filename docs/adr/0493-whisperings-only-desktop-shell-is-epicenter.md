@@ -69,7 +69,7 @@ it**, since its window opens to `HostMissing`.
   plugins (`tauri-plugin-epicenter-folder`, `tauri-plugin-epicenter-recorder`)
   over the same folder, with one function naming its machine-state path under
   Epicenter's app data. None is built.
-- `apps/whispering/README.md` describes the folder at
+- `programs/whispering/README.md` describes the folder at
   `~/Epicenter/local/so.epicenter.whispering` and a Whispering that needs no
   Epicenter desktop; both change, and its folder becomes
   `~/Epicenter/so.epicenter.whispering`.

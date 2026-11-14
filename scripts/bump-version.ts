@@ -36,10 +36,13 @@ async function collectFiles() {
 	const patterns: { glob: string; type: 'json' | 'toml' }[] = [
 		{ glob: 'package.json', type: 'json' },
 		{ glob: 'apps/*/package.json', type: 'json' },
+		{ glob: 'programs/*/package.json', type: 'json' },
+		{ glob: 'sites/*/package.json', type: 'json' },
 		// packages/*/package.json intentionally excluded — packages use independent
-		// semver for npm publishing. Only apps share the monorepo version.
-		{ glob: 'apps/*/src-tauri/tauri.conf.json', type: 'json' },
-		{ glob: 'apps/*/src-tauri/Cargo.toml', type: 'toml' },
+		// semver for npm publishing. Only apps, programs, and sites share the
+		// monorepo version.
+		{ glob: 'programs/*/src-tauri/tauri.conf.json', type: 'json' },
+		{ glob: 'programs/*/src-tauri/Cargo.toml', type: 'toml' },
 	];
 
 	const files: { path: string; type: 'json' | 'toml' }[] = [];

@@ -2,8 +2,8 @@
 
 Where one person's software lives: small apps the person and their agents make and change, each a folder of files in `~/Epicenter`; the `epicenter` CLI runs their actions, and `epicenter serve` on the person's always-on computer offers them to every device they own and to their agents (ADR-0840, ADR-0864). Most code in this monorepo is still the earlier folder sync product, which waits.
 
-For orientation, read the relevant app or package README and verify it against
-current code. `apps/README.md` describes application composition; package
+For orientation, read the relevant program or package README and verify it against
+current code. `programs/README.md` describes the programs here; package
 READMEs describe their contracts. Load only the context needed for the task.
 
 Billing is hosted-only and stays in `apps/api/worker/billing/`; do not extract
@@ -11,7 +11,7 @@ it into a shared package or the self-hosted deployment.
 
 ## License
 
-Everything under `packages/` and `apps/` is AGPL-3.0-or-later and private.
+Everything under `packages/`, `apps/`, `programs/`, and `sites/` is AGPL-3.0-or-later and private.
 Previously published MIT versions remain MIT for those versions. Before adding
 an MIT package, read "If MIT returns" in
 `docs/licensing/licensing-strategy.md`: a named embedder and restored dependency

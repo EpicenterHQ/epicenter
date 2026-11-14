@@ -15,11 +15,17 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { APPS } from './apps.js';
 
-const appsDir = join(import.meta.dir, '..', '..', '..', '..', 'apps');
+const repo = join(import.meta.dir, '..', '..', '..', '..');
 
-/** Every app with a production Tauri configuration. */
-const desktopApps = readdirSync(appsDir).filter((app) =>
-	existsSync(join(appsDir, app, 'src-tauri', 'tauri.conf.json')),
+/** Where each app with a production Tauri configuration lives, by name. */
+const appDirs = new Map(
+	['apps', 'programs'].flatMap((root) =>
+		readdirSync(join(repo, root))
+			.filter((app) =>
+				existsSync(join(repo, root, app, 'src-tauri', 'tauri.conf.json')),
+			)
+			.map((app) => [app, join(repo, root, app)] as const),
+	),
 );
 
 type TauriConfig = {
@@ -27,9 +33,9 @@ type TauriConfig = {
 	plugins?: Record<string, unknown>;
 };
 
-function read(app: string, config: string): TauriConfig {
+function read(dir: string, config: string): TauriConfig {
 	return JSON.parse(
-		readFileSync(join(appsDir, app, 'src-tauri', config), 'utf8'),
+		readFileSync(join(dir, 'src-tauri', config), 'utf8'),
 	) as TauriConfig;
 }
 
@@ -49,22 +55,13 @@ const sites = Object.values(APPS).map(
 );
 
 test('every desktop app is enumerated', () => {
-	expect(desktopApps).toEqual(
-		expect.arrayContaining([
-			'capture',
-			'epicenter',
-			'honeycrisp',
-			'todos',
-			'vocab',
-			'whispering',
-		]),
-	);
+	expect([...appDirs.keys()]).toEqual(expect.arrayContaining(['whispering']));
 });
 
-for (const app of desktopApps) {
+for (const [app, dir] of appDirs) {
 	test(`${app}'s bundle identifier is its site's reversed host`, () => {
-		const config = read(app, 'tauri.conf.json');
-		const development = read(app, 'tauri.dev.conf.json');
+		const config = read(dir, 'tauri.conf.json');
+		const development = read(dir, 'tauri.dev.conf.json');
 		const production = config.identifier;
 		expect(development.identifier).toBe(`${production}.dev`);
 		// The environment is stated, and only by the development configuration.

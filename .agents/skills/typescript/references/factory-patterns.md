@@ -119,7 +119,7 @@ export function select<const TOptions extends readonly [string, ...string[]]>({
   return { type: 'select', nullable, options, default: defaultValue };
 }
 
-// From apps/whispering/.../create-key-recorder.svelte.ts
+// From programs/whispering/.../create-key-recorder.svelte.ts
 export function createKeyRecorder({
   pressedKeys,
   onRegister,

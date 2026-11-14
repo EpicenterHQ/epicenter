@@ -1,0 +1,52 @@
+# Cloudflare Workers Static Assets header rules. Everything in `static/` is
+# copied verbatim to the build output root by adapter-static, so this file
+# ships as `build/_headers` and Workers assets applies it by path pattern.
+# https://developers.cloudflare.com/workers/static-assets/headers/
+#
+# Report-Only CSP trial for the web build (programs/whispering, deployed to
+# whispering.epicenter.so). This is the *only* place this app's CSP is
+# delivered right now: SvelteKit's `kit.csp` cannot emit a Report-Only policy
+# for prerendered output (adapter-static renders every page ahead of time,
+# and SvelteKit's prerender path only ever writes the enforcing
+# `<meta http-equiv="content-security-policy">` tag, never the reportOnly
+# one -- see the comment in svelte.config.js). A real HTTP header is also the
+# only way `frame-ancestors` and `report-uri` take effect at all; both are
+# silently dropped by browsers when set via a <meta> tag.
+#
+# This is Report-Only: nothing here blocks anything yet. It only gets browsers
+# to log would-be violations to devtools so we can see what a real policy
+# would break before ever enforcing it. Do not rename this to
+# `Content-Security-Policy` until that trial has run clean.
+#
+# Known gap that MUST be closed before enforcing: this policy's connect-src
+# only covers 'self' and the hosted API/WS origin. Whispering also makes
+# direct BYOK calls from the browser to third-party AI providers (OpenAI,
+# Groq, OpenRouter, Deepgram, Anthropic, Google Generative Language) and,
+# critically, to an arbitrary user-supplied "Custom" base URL
+# (src/lib/operations/transform.ts, src/lib/operations/transcribe.ts) that
+# cannot be enumerated in any static allowlist. Enforcing connect-src as
+# written today would break every BYOK user immediately. Report-Only lets us
+# see exactly which origins fire before deciding how (or whether) to solve
+# the Custom-endpoint case.
+#
+# script-src allows 'unsafe-inline' for now, not a hash. The built index.html
+# has two inline <script> tags: the dark-mode-watcher init from src/app.html
+# (stable content, hashable: sha256-rQus2g3OCNnMWPoh01icKFAOzSYDO7V/YD6bGtVD+FU=
+# as of this writing -- recompute if that script changes with
+#   node -e "const c=require('fs').readFileSync('src/app.html','utf-8').match(/<script>([\s\S]*?)<\/script>/)[1];console.log('sha256-'+require('crypto').createHash('sha256').update(c).digest('base64'))"
+# ) and SvelteKit's own injected bootstrap script, whose content (and hash)
+# changes on every single build. A static header can hash the former but not
+# the latter, so a hash-only script-src here would report a violation on
+# every page load regardless of anything the app does -- noise that would
+# drown out real signal from this trial. 'unsafe-inline' avoids that false
+# positive; it means this trial does not gather useful script-src signal, but
+# script-src was never the open question here (connect-src is -- see above).
+# Enforcing script-src later needs a different mechanism than this file: e.g.
+# `kit.csp.directives['script-src']` with the theme hash added by hand (Kit
+# auto-hashes only its own bootstrap script, unioning in whatever else is
+# listed), or moving the theme script to an external .js file so 'self'
+# covers it outright (trades away the anti-FOUC inline placement).
+/*
+  Content-Security-Policy-Report-Only: default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' blob:; style-src 'self'; style-src-elem 'self'; style-src-attr 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: data: https:; frame-src 'self' https://www.youtube.com; font-src 'self' data:; worker-src 'self' blob:; connect-src 'self' https://api.epicenter.so wss://api.epicenter.so https://git.epicenter.so; object-src 'none'; base-uri 'self'; frame-ancestors 'none'
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin

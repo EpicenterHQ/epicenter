@@ -69,7 +69,7 @@ const log = config.log ?? createLogger('collaboration');
 
 **Triage**: this category is verified periodically: the codebase has historically been clean. Treat any hit as a regression and route through `wellcrafted/logger` before merging. New `console.*` in library code should be refused at PR review unless the call site is explicitly a CLI command, test, or benchmark.
 
-**Two evasions the `console\.` grep misses.** Both import from `wellcrafted/logger` and are therefore invisible to the pattern above, and both were found live in `apps/whispering`:
+**Two evasions the `console\.` grep misses.** Both import from `wellcrafted/logger` and are therefore invisible to the pattern above, and both were found live in `programs/whispering`:
 
 ```bash
 grep -rn "consoleSink({" apps packages --include="*.ts" --include="*.svelte"

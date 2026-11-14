@@ -10,7 +10,7 @@ Welcome! We're excited you're interested in contributing to Epicenter. This guid
 
 ## Getting Started
 
-Epicenter is a monorepo containing multiple applications. The main application ready for contributions is **Whispering** (located in `apps/whispering`).
+Epicenter is a monorepo containing multiple applications. The main application ready for contributions is **Whispering** (located in `programs/whispering`).
 
 ### Quick Setup
 
@@ -65,7 +65,7 @@ epicenter/
 
 ### Where to Contribute
 
-Currently, **Whispering** (`apps/whispering`) is the most mature application and the best place to start contributing. Check the [Whispering README](apps/whispering/README.md) for specific details about that application.
+Currently, **Whispering** (`programs/whispering`) is the most mature application and the best place to start contributing. Check the [Whispering README](programs/whispering/README.md) for specific details about that application.
 
 ### Working without Infisical access
 

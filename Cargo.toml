@@ -1,14 +1,13 @@
 # The standalone desktop apps and the native crates they share: one lockfile,
 # one Specta pin, one release profile, and one target directory (`target/`).
 # Each app keeps its own manifest, grants, and shipping command; build or ship
-# one through its own manifest (`--manifest-path apps/<app>/src-tauri/Cargo.toml`)
+# one through its own manifest (`--manifest-path programs/<app>/src-tauri/Cargo.toml`)
 # or its `build:desktop` script. `--workspace` unifies features across apps, so
 # it is a check, not a shipping build.
 [workspace]
 resolver = "2"
 members = [
-    "apps/honeycrisp/src-tauri",
-    "apps/whispering/src-tauri",
+    "programs/whispering/src-tauri",
     "packages/epicenter-transcription-build",
     "packages/tauri-epicenter-account",
     "packages/tauri-epicenter-standalone",

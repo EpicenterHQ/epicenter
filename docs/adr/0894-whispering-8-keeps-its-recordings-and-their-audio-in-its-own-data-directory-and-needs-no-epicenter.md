@@ -16,7 +16,7 @@ in `~/Library/Application Support/com.bradenwong.whispering`, 2.7 GB of
 models beside them, and 7 GB in WebView storage (IndexedDB).
 
 Whispering today writes through `@epicenter/folder`, the client of the folder
-sync product (`apps/whispering/src/lib/files.svelte.ts:14`), and signs in to
+sync product (`programs/whispering/src/lib/files.svelte.ts:14`), and signs in to
 Epicenter for hosted transcription (`@epicenter/account`). This
 computer's settings are already files at the top of the app's data directory
 on the desktop and `localStorage` on the web (`packages/local/src/settings.ts`).

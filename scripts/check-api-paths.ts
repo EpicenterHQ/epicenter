@@ -25,7 +25,7 @@ const root = execFileSync('git', ['rev-parse', '--show-toplevel'], {
 	encoding: 'utf8',
 }).trim();
 
-const SCAN_ROOTS = ['packages', 'apps'];
+const SCAN_ROOTS = ['packages', 'apps', 'programs', 'sites'];
 const EXCLUDED_DIRS = new Set([
 	'node_modules',
 	'dist',

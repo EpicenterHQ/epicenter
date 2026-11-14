@@ -90,7 +90,7 @@ Kept: closing a built-in window hides it; the Bun host's graceful shutdown; the
 browser's `beforeNavigate` guards; the shell's checked save.
 
 Also deleted, by writing run results when they start: the held results in
-`apps/whispering/src/lib/runs.svelte.ts` (`unsaved`, `retrySaveResult`,
+`programs/whispering/src/lib/runs.svelte.ts` (`unsaved`, `retrySaveResult`,
 `saveTextRun`, `discardTransformationRun`, `held()`), part of
 `RecoveryNotices.svelte`, and their tests, about 1,000 lines. With
 [ADR-0545](0545-an-interrupted-incoming-update-is-ordinary-changed-files-and-the-next-sync-finishes-it.md)

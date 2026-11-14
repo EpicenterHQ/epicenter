@@ -1,5 +1,5 @@
 /**
- * Fail when production code (`packages/`, `apps/`) spells `.epicenter`, the
+ * Fail when production code (`packages/`, `apps/`, `programs/`, `sites/`) spells `.epicenter`, the
  * directory a folder's unfinished writes live in, outside the two modules
  * that own its layout:
  * `packages/folder/src/state.ts` and the folder core's `state.rs`
@@ -35,7 +35,7 @@ const OWNERS = new Set([
 ]);
 
 /** Production code lives here; scripts and tooling are not shipped. */
-const SCANNED = /^(packages|apps)\//;
+const SCANNED = /^(packages|apps|programs|sites)\//;
 
 const CODE = /\.(ts|tsx|js|mjs|svelte|rs)$/;
 

@@ -9,7 +9,7 @@ type Violation = {
 };
 
 const uiSourceRoot = 'packages/ui/src';
-const workspaceRoots = ['apps', 'packages'];
+const workspaceRoots = ['apps', 'programs', 'sites', 'packages'];
 const boundaryConfigFilePatterns = [
 	/^package\.json$/,
 	/^svelte\.config\.[cm]?[jt]s$/,

@@ -9,11 +9,11 @@
 ## Context
 
 Saying "Whispering records" takes four edits today: `@epicenter/recorder`
-in `apps/whispering/package.json`, `tauri-plugin-epicenter-recorder` in
-`apps/whispering/src-tauri/Cargo.toml`,
+in `programs/whispering/package.json`, `tauri-plugin-epicenter-recorder` in
+`programs/whispering/src-tauri/Cargo.toml`,
 `.plugin(tauri_plugin_epicenter_recorder::init())` in
-`apps/whispering/src-tauri/src/main.rs`, and `epicenter-recorder:default`
-in `apps/whispering/src-tauri/capabilities/whispering.json`. Each desktop
+`programs/whispering/src-tauri/src/main.rs`, and `epicenter-recorder:default`
+in `programs/whispering/src-tauri/capabilities/whispering.json`. Each desktop
 app repeats the same registrations for the same plugins.
 
 Whispering's `src-tauri/src` holds 507 lines of Rust. Of its four files,
@@ -21,8 +21,8 @@ only `shortcut.rs` (77 lines), the global shortcut, is a feature no
 capability covers.
 
 Each app publishes its contract through a script of its own:
-`apps/whispering/scripts/write-contract.ts` writes `static/contract.json`
-from the contract in `apps/whispering/src/lib/contract.ts`, and Capture,
+`programs/whispering/scripts/write-contract.ts` writes `static/contract.json`
+from the contract in `programs/whispering/src/lib/contract.ts`, and Capture,
 Honeycrisp, Messages, Todos, and Vocab do the same.
 
 React Native solved the same repetition with autolinking: its CLI reads each

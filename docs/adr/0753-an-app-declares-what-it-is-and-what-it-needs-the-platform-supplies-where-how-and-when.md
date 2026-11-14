@@ -14,9 +14,9 @@ Whispering answers most platform questions in its own code today. Its
 `package.json` maps four seams, `#platform/auth`, `#platform/root`,
 `#platform/services`, and `#platform/variant`, each to a `tauri` leaf and a
 `default` leaf. Its desktop capability file
-(`apps/whispering/src-tauri/capabilities/whispering.json`) lets the page ask
+(`programs/whispering/src-tauri/capabilities/whispering.json`) lets the page ask
 Epicenter to sync its folder through `epicenter://init`. A script,
-`apps/whispering/scripts/write-contract.ts`, writes its contract to
+`programs/whispering/scripts/write-contract.ts`, writes its contract to
 `static/contract.json`.
 
 Three records on 2026-11-04 each took one of those answers out of the app.

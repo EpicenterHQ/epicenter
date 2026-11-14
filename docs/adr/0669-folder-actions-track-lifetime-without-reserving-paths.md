@@ -89,5 +89,5 @@ in ADR-0663; this lifecycle change adds no native acceptance result.
 boundary. `packages/folder/src/edit-owner.ts` owns publication lanes and held
 <!-- doc-path-check: ignore-next-line -->
 input. `packages/svelte/src/folder-app.svelte` starts asynchronous teardown;
-`apps/whispering/src/lib/runs.svelte.ts` admits result persistence separately
+`programs/whispering/src/lib/runs.svelte.ts` admits result persistence separately
 from provider waits. Current contract details live in `packages/folder/README.md`.

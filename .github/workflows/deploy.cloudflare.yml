@@ -5,7 +5,7 @@ on:
     branches: [main]
     # A merge that only touches agent instructions or repository docs changes
     # nothing either Worker serves, so it does not redeploy production. The
-    # landing blog's Markdown lives under apps/landing/src and still deploys.
+    # landing blog's Markdown lives under sites/landing/src and still deploys.
     paths-ignore:
       - '.agents/**'
       - '.claude/**'
@@ -72,7 +72,7 @@ jobs:
       # CLOUDFLARE_API_TOKEN (it needs Zone > Workers Routes > Edit for the custom
       # domains), NOT the least-privilege preview token.
       # Whispering is not deployed from here. ADR-0227 refused its hosted web
-      # runtime and `apps/whispering/wrangler.jsonc` went with it. Removing the
+      # runtime and `programs/whispering/wrangler.jsonc` went with it. Removing the
       # step does not tear down whatever is already serving
       # whispering.epicenter.so: Cloudflare keeps the last deployed version, so
       # this stops republishing rather than taking anything down. ADR-0227 says
@@ -87,7 +87,7 @@ jobs:
           set -euo pipefail
           outdir="$(mktemp -d)"
           WRANGLER_OUTPUT_FILE_DIRECTORY="${outdir}" \
-            bunx --no-install wrangler --cwd apps/landing deploy
+            bunx --no-install wrangler --cwd sites/landing deploy
           url="$(jq -rs 'map(select(.type=="deploy")) | last | .targets[0] // empty' "${outdir}"/*.json || true)"
           echo "deployment-url=${url}" >> "${GITHUB_OUTPUT}"
 

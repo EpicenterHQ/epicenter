@@ -18,7 +18,7 @@ mode a script launches. Each gives the app a second interface beside its
 files, with its own discovery, versioning, and authentication between
 programs running as the same person. Whispering's shortcut already reaches
 its page through an internal event, `whispering://toggle-recording`
-(`apps/whispering/src-tauri/src/shortcut.rs`), which no other program can
+(`programs/whispering/src-tauri/src/shortcut.rs`), which no other program can
 send.
 
 ## Decision

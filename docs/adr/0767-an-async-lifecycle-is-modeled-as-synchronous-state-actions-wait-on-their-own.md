@@ -36,7 +36,7 @@ outside `<Opening>` sees the opening state and handles it." Under that
 sentence, every module that imports `folder` checks `state()` or waits on
 something before it can use it. Whispering's finishing of cut-off
 recordings (`finishCutOffRecordings` in
-`apps/whispering/src/lib/folder-recordings.ts`) runs at startup and lists
+`programs/whispering/src/lib/folder-recordings.ts`) runs at startup and lists
 recordings, so it would be one of them.
 
 The collection adapter already answers reads with a loading flag beside

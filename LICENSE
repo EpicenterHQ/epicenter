@@ -1,6 +1,6 @@
 Copyright 2023-2026 Braden Wong
 
-Every package under packages/ and apps/ is licensed under
+Every package under packages/, apps/, programs/, and sites/ is licensed under
 AGPL-3.0-or-later. Each declares it in its package.json, and most carry a
 copy of the full text in their own LICENSE file. This file is the index.
 
@@ -31,13 +31,10 @@ anyone who forks and distributes a modified binary shares the changes back.
     packages/ui              @epicenter/ui
     packages/vite-config     @epicenter/vite-config
 
-  Apps:
+  Apps, programs, and sites:
     apps/api                    @epicenter/api
-    apps/honeycrisp             @epicenter/honeycrisp
-    apps/landing                @epicenter/landing
-    apps/local-books            @epicenter/local-books
-    apps/posthog-reverse-proxy  @epicenter/posthog-reverse-proxy
-    apps/whispering             @epicenter/whispering
+    programs/whispering         @epicenter/whispering
+    sites/landing               @epicenter/landing
 
 ================================================================================
 2. MIT (historical, no longer a live tier)

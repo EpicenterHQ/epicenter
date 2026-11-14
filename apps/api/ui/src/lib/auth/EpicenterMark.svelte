@@ -1,6 +1,6 @@
 <!--
 	Epicenter logo mark: two overlapping circles on a rounded tile. Matches the
-	favicon at apps/landing/public/favicon.svg. Size it from the caller with a
+	favicon at sites/landing/public/favicon.svg. Size it from the caller with a
 	`class` (the viewBox scales).
 -->
 <script lang="ts">

@@ -4,8 +4,7 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
-      - 'apps/landing/**'
-      - 'apps/honeycrisp/**'
+      - 'sites/landing/**'
       - 'packages/**'
       - '.github/workflows/deploy.cloudflare-preview.yml'
 
@@ -79,18 +78,18 @@ jobs:
 
           # No whispering: ADR-0227 refused its hosted web runtime, so it has no
           # wrangler.jsonc to preview from.
-          apps=(landing honeycrisp)
+          dirs=(sites/landing)
           preview_alias="pr-${PR_NUMBER}"
           rows=""
-          for app in "${apps[@]}"; do
-            echo "::group::Upload preview: ${app}"
+          for dir in "${dirs[@]}"; do
+            echo "::group::Upload preview: ${dir}"
             outdir="$(mktemp -d)"
-            # --cwd loads apps/<app>/wrangler.jsonc and runs its build.command
+            # --cwd loads <dir>/wrangler.jsonc and runs its build.command
             #   there, so the shell stays in the repo root where wrangler is
             #   hoisted. --no-install pins us to that hoisted binary: if it is
             #   ever missing, fail loudly rather than download the latest.
             if WRANGLER_OUTPUT_FILE_DIRECTORY="${outdir}" \
-                 bunx --no-install wrangler --cwd "apps/${app}" versions upload \
+                 bunx --no-install wrangler --cwd "${dir}" versions upload \
                    --preview-alias "${preview_alias}" \
                    --tag "${preview_alias}" \
                    --message "PR #${PR_NUMBER}: ${PR_TITLE}"; then
@@ -98,12 +97,12 @@ jobs:
               # line carries the stable pr-N alias URL in .preview_alias_url.
               url="$(jq -rs 'map(select(.type=="version-upload")) | last | .preview_alias_url // empty' "${outdir}"/*.json)"
               if [ -n "${url}" ]; then
-                rows+="| ${app} | ${url} |"$'\n'
+                rows+="| ${dir} | ${url} |"$'\n'
               else
-                rows+="| ${app} | uploaded (no preview URL returned) |"$'\n'
+                rows+="| ${dir} | uploaded (no preview URL returned) |"$'\n'
               fi
             else
-              rows+="| ${app} | :x: build or upload failed (see logs) |"$'\n'
+              rows+="| ${dir} | :x: build or upload failed (see logs) |"$'\n'
             fi
             echo "::endgroup::"
           done

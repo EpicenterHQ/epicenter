@@ -33,7 +33,6 @@ bench-oneshot.ts
 !.env.example
 !.env*.example
 .dev.vars
-apps/local-books/.infisical.json
 
 # Vercel
 .vercel

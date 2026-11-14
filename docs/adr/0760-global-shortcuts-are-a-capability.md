@@ -4,12 +4,12 @@
 - **Date:** 2026-11-04
 - **Amends:** [ADR-0755](0755-epicenters-packages-are-capabilities-formats-framework-layers-and-programs.md) at its capability list and at "Whispering's global shortcut is an app-owned native feature": `shortcut` is a capability, and no `#platform/*` seam remains for it; [ADR-0753](0753-an-app-declares-what-it-is-and-what-it-needs-the-platform-supplies-where-how-and-when.md) at "Whispering's global shortcut is one" of the features no capability covers: a capability covers it.
 - **Relates:** [ADR-0117](0117-global-shortcut-input-is-plugin-chords-only-and-the-macos-tap-is-just-the-paste-grant-watcher.md) (global shortcut input is `tauri-plugin-global-shortcut` chords only), [ADR-0754](0754-a-capability-takes-what-it-needs-as-values-and-shows-what-it-can-do-now-as-values.md) (what a capability is), [ADR-0759](0759-an-apps-native-shell-is-generated-on-every-build.md) (app-specific native code in `modules/<name>/`).
-- **Unbuilt:** `@epicenter/shortcut`, its TypeScript surface, and its plugin declaration; removing `apps/whispering/src-tauri/src/shortcut.rs` and the Epicenter app's direct registration of `tauri-plugin-global-shortcut`.
+- **Unbuilt:** `@epicenter/shortcut`, its TypeScript surface, and its plugin declaration; removing `programs/whispering/src-tauri/src/shortcut.rs` and the Epicenter app's direct registration of `tauri-plugin-global-shortcut`.
 
 ## Context
 
 Two desktop apps hold a global shortcut, each through its own Rust.
-Whispering's `apps/whispering/src-tauri/src/shortcut.rs` (77 lines) wraps
+Whispering's `programs/whispering/src-tauri/src/shortcut.rs` (77 lines) wraps
 `tauri-plugin-global-shortcut`: `set_shortcut` holds one accelerator such as
 `CommandOrControl+Shift+;`, and each press emits
 `whispering://toggle-recording` to the page. The Epicenter app registers the

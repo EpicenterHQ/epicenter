@@ -3,7 +3,8 @@
 - **Status:** Accepted (2026-11-13)
 - **Date:** 2026-11-13
 - **Relates:** [ADR-0843](0843-new-code-imports-nothing-from-the-waiting-product-which-leaves-by-deletion.md) (the old product leaves), [ADR-0866](0866-an-app-starts-from-a-starter-kept-as-its-upstream-and-update-merges-the-starters-changes.md) (starters), [ADR-0877](0877-an-apps-code-and-its-data-are-two-repositories-and-sharing-an-app-shares-its-code.md) (this repository holds no apps), [ADR-0889](0889-an-app-runs-on-epicenter-a-program-works-with-it-and-they-meet-at-the-apps-contract.md) (programs).
-- **Unbuilt:** all of it: `programs/`, `sites/`, and `EpicenterHQ/whispering-starter`.
+- **Unbuilt:** `apps/api` and the old product's packages, which leave when Whispering 8 ships with no sign-in ([ADR-0894](0894-whispering-8-keeps-its-recordings-and-their-audio-in-its-own-data-directory-and-needs-no-epicenter.md)); `EpicenterHQ/whispering-starter`.
+- **Built:** 2026-11-13. `programs/whispering` and `sites/landing` moved; Honeycrisp, Local Books, and the PostHog proxy were deleted. The tag `before-0891-layout` marks the last commit with them in the tree.
 
 ## Context
 
@@ -36,6 +37,8 @@ EpicenterHQ/whispering-starter
 - **`apps/` becomes `programs/`** when the old product leaves.
   `apps/landing` moves to `sites/landing`; `apps/api`,
   `apps/posthog-reverse-proxy`, and the old product's apps leave with it.
+  `apps/api` stays until then, because Whispering 7 signs in, transcribes,
+  and is billed through it.
 
 ## Consequences
 

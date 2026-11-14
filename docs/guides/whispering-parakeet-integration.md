@@ -99,7 +99,7 @@ The `model_path` is literally the directory path: `/path/to/parakeet-tdt-0.6b-v3
 
 Whispering handles Parakeet model downloads automatically through its UI. When users select a Parakeet model for download, the app downloads each required file individually and organizes them into the correct directory structure.
 
-The download process is implemented in the [`LocalModelDownloadCard`](https://github.com/EpicenterHQ/epicenter/blob/main/apps/whispering/src/lib/components/settings/LocalModelDownloadCard.svelte) component:
+The download process is implemented in the [`LocalModelDownloadCard`](https://github.com/EpicenterHQ/epicenter/blob/main/programs/whispering/src/lib/components/settings/LocalModelDownloadCard.svelte) component:
 
 1. Creates the model directory: `{appDataDir}/models/parakeet/parakeet-tdt-0.6b-v3-int8/`
 2. Downloads each file individually from the [GitHub release](https://github.com/EpicenterHQ/epicenter/releases/tag/models/parakeet-tdt-0.6b-v3-int8)

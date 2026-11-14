@@ -213,6 +213,6 @@ hosted API alone. The package READMEs describe their contracts:
 [folder](../packages/folder/README.md),
 [definition](../packages/definition/README.md),
 [server](../packages/server/README.md),
-[cli](../packages/cli/README.md), [apps](../apps/README.md),
+[cli](../packages/cli/README.md), [programs](../programs/README.md),
 [the Epicenter app](../apps/epicenter/README.md), and
 [the API](../apps/api/README.md).

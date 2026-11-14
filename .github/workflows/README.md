@@ -21,7 +21,7 @@ Web apps (Cloudflare Workers) deploy **together in one workflow** because deploy
 | File | Trigger | What it does |
 |---|---|---|
 | `deploy.cloudflare.yml` | Push to `main`, manual | Deploys Landing and API to Cloudflare Workers. Each `wrangler deploy` runs that worker's `build.command` first, so a deploy can never ship stale assets. Posts Discord notification. |
-| `deploy.cloudflare-preview.yml` | Pull requests touching `apps/landing/**`, `apps/honeycrisp/**`, `packages/**`, or the workflow | Uploads preview versions via `wrangler versions upload --preview-alias`. Posts PR comment with preview URLs. No cleanup needed (aliases auto-expire at 1000). |
+| `deploy.cloudflare-preview.yml` | Pull requests touching `sites/landing/**`, `packages/**`, or the workflow | Uploads preview versions via `wrangler versions upload --preview-alias`. Posts PR comment with preview URLs. No cleanup needed (aliases auto-expire at 1000). |
 
 ### CI
 

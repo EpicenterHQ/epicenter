@@ -8,7 +8,7 @@ metadata:
 
 # Services Layer
 
-Grounded in Whispering (`apps/whispering/src/lib/app.ts` and
+Grounded in Whispering (`programs/whispering/src/lib/app.ts` and
 `whispering.svelte.ts`) and `@epicenter/ai`'s `customEndpoints()`
 (`connection-keys.ts`). Read the app's `app.ts` and the capability package's
 entry before changing a service.

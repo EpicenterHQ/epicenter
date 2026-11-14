@@ -2,7 +2,7 @@
 
 Whispering now lives in `EpicenterHQ/epicenter`:
 
-- Source: `https://github.com/EpicenterHQ/epicenter/tree/main/apps/whispering`
+- Source: `https://github.com/EpicenterHQ/epicenter/tree/main/programs/whispering`
 - Downloads: `https://github.com/EpicenterHQ/epicenter/releases/latest`
 - Web app: `https://whispering.epicenter.so`
 - Product page: `https://epicenter.so/whispering`

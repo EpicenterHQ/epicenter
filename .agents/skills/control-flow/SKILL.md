@@ -26,7 +26,7 @@ Into this: linear flow that mirrors human decision-making
 ## Example: Early Returns with Natural Language Variables
 
 ```typescript
-// From apps/whispering/src/routes/(app)/_layout-utils/check-ffmpeg.ts
+// From programs/whispering/src/routes/(app)/_layout-utils/check-ffmpeg.ts
 
 export async function checkFfmpegRecordingMethodCompatibility() {
 	if (!window.__TAURI_INTERNALS__) return;
@@ -48,7 +48,7 @@ export async function checkFfmpegRecordingMethodCompatibility() {
 ## Example: Natural Language Booleans
 
 ```typescript
-// From apps/whispering/src/routes/(app)/_layout-utils/check-ffmpeg.ts
+// From programs/whispering/src/routes/(app)/_layout-utils/check-ffmpeg.ts
 
 const isUsingNavigator = settings.value['recording.method'] === 'navigator';
 const isUsingLocalTranscription =

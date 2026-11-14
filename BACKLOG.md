@@ -59,7 +59,7 @@ not create a second implementation assignment.
 - Older companion acceptance, reviewed October 27: The old Rust-owner,
   page-engine, guarded edit-session, account-relaunch, and Quit-flush proposals
   no longer describe this checkout. Current native Cmd-Q/menu Quit acceptance
-  already exists in `apps/whispering/docs/desktop-verification.md` and the
+  already exists in `programs/whispering/docs/desktop-verification.md` and the
   Todos README; do not repeat the old blocked smoke attempts as unfinished work.
   The existing manual desktop checks may include current app/root reuse and
   native Git lock contention/recovery; these have source tests, not reproduced
@@ -169,8 +169,8 @@ another chat and does not create an implementation assignment.
 
 - Desired result: Search, sort, selection, bulk actions, playback, and transcript
   editing work together on desktop and narrow screens.
-- Current basis: [RecordingList](apps/whispering/src/routes/components/RecordingList.svelte)
-  and [RecordingDetail](apps/whispering/src/routes/components/RecordingDetail.svelte)
+- Current basis: [RecordingList](programs/whispering/src/routes/components/RecordingList.svelte)
+  and [RecordingDetail](programs/whispering/src/routes/components/RecordingDetail.svelte)
   implement the table and optional detail pane. Do not rebuild them.
 - Remaining acceptance: Use disposable recordings. Verify matching excerpts,
   operations on selected visible rows, playback while editing, retained drafts,
@@ -199,11 +199,11 @@ another chat and does not create an implementation assignment.
 - Desired result: Select on-device transcription when available; otherwise
   explain what is missing and open the model settings. Keep endpoint
   transcription available as an explicit alternative.
-- Grounding: [Whispering's desktop services](apps/whispering/src/lib/platform/services.tauri.ts)
+- Grounding: [Whispering's desktop services](programs/whispering/src/lib/platform/services.tauri.ts)
   send a recording to a local model, and the
-  [connection form](apps/whispering/src/routes/components/ConnectionForm.svelte)
+  [connection form](programs/whispering/src/routes/components/ConnectionForm.svelte)
   offers it as **Use this computer**, with models administered in Settings
-  ([Whispering README](apps/whispering/README.md)). The web build has no
+  ([Whispering README](programs/whispering/README.md)). The web build has no
   local transcription.
 - Revisit when: Next Whispering connection or first-run pass. Verify model
   selection, unavailable state, and a real transcription through the host.

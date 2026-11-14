@@ -66,5 +66,5 @@ For most uses, serve the wordmark as the SVG instead.
 ## App copies
 
 Apps that serve a logo directly keep their own copy under `static/`/`public/`
-(for example `apps/landing/public/favicon.svg`). Those mirror the shapes here;
+(for example `sites/landing/public/favicon.svg`). Those mirror the shapes here;
 update them by hand when the mark changes.

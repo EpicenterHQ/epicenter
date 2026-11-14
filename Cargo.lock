@@ -1861,17 +1861,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "honeycrisp"
-version = "0.0.2"
-dependencies = [
- "epicenter-standalone",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-epicenter-folder",
-]
-
-[[package]]
 name = "hound"
 version = "3.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

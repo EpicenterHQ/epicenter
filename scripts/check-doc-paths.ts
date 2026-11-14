@@ -55,6 +55,8 @@ const trackedPaths = new Set(tracked);
 const EXCLUDED_DOC_DIRS = ['specs', 'docs/articles', '.agents', '.claude'];
 const REPO_ROOT_DIRS = [
 	'apps',
+	'programs',
+	'sites',
 	'packages',
 	'docs',
 	'specs',

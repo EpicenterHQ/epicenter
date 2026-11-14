@@ -5,7 +5,7 @@ import { join, relative } from 'node:path';
 
 const repoRoot = join(import.meta.dir, '../../..');
 
-const scannedRoots = ['apps', 'packages'];
+const scannedRoots = ['apps', 'programs', 'sites', 'packages'];
 const skippedSegments = new Set([
 	'.git',
 	'.svelte-kit',

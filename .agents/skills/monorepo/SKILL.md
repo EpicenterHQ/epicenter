@@ -38,8 +38,7 @@ hosted API (epicenter, vocab, and the
 api dashboard), it also starts `@epicenter/api` on `localhost:8787` via
 `bun run --filter`. Root `bun dev:<app>:ui` runs the app's frontend
 alone when that split exists; for desktop apps, it maps to the package's
-web `dev` or `dev:ui`. `bun dev:api` runs just the backend. Local Books has no root
-`dev:*` target.
+web `dev` or `dev:ui`. `bun dev:api` runs just the backend.
 
 Inside a single package, the conventions are:
 

@@ -21,7 +21,7 @@ Each folder app builds twice. `EPICENTER_HOST=1` turns on the
 `c885481f906d:packages/vite-config/src/installed-app.js`). The condition picks each
 app's `#platform/*` leaf: Todos' sign-in (`#platform/auth` in
 `apps/todos/package.json`) and Whispering's workspace
-(`#platform/workspace` in `apps/whispering/package.json`).
+(`#platform/workspace` in `programs/whispering/package.json`).
 `installedAppAdapterOptions` (`installed-app.js:30`) writes the host build to
 `dist/` with every route prerendered and the browser build to `build/` with
 a fallback page, and each app's `src/routes/+layout.ts` sets
