@@ -1,6 +1,6 @@
 ---
 name: collapse-pass
-description: Find and carry through worthwhile code simplifications across recent edits, named files, or a subsystem. Use when asked for a collapse pass, a refactoring pass, another simplification pass, "simplify this", to clean up code, or to hunt for indirection and dead abstractions. Specific transformations, planning requests, review-only requests, and explicit file limits determine the work. Use control-flow for a request limited to one function's branching.
+description: Find and carry through worthwhile code simplifications across recent edits, named files, or a subsystem. Use when asked for a collapse pass, a refactoring pass, another simplification pass, "simplify this", to clean up code, or to hunt for indirection, dead abstractions, and redundant subsystems. Specific transformations, planning requests, review-only requests, and explicit file limits determine the work. Use control-flow for a request limited to one function's branching.
 metadata:
   author: epicenter
   version: '1.0'
@@ -8,10 +8,13 @@ metadata:
 
 # Collapse pass
 
-A collapse pass simplifies the system's model by finding and removing complexity
-that does not earn its place. Start from the intended outcome and actual use.
-Question the current concepts and promises as well as their implementation,
-then carry worthwhile simplifications through implementation and verification.
+A collapse pass uses recurring complexity as evidence about the system's design.
+Start from the intended outcome and actual use. Trace repeated subsystems,
+duplicated decisions, and coordination back to the choices that produced them.
+Develop a simpler organizing model that makes unnecessary machinery disappear
+together, then carry worthwhile simplifications through implementation and
+verification.
+
 Read the relevant [refactoring methods](references/refactoring-methods.md)
 for caller evidence, safe inlining, typed boundaries, or straggler cleanup.
 
@@ -65,11 +68,10 @@ connect, and which relationships require coordination. Ask which distinctions
 carry independent information or behavior and whether the same job could use
 fewer concepts or operations, including a different design that makes several
 parts unnecessary together.
-Look for ownership and lifetime rules that eliminate coordination. Name what
-flexibility the stronger rule removes and whether actual users need it. Use the
-[concept inventory](references/concept-inventory.md) to examine that surface
-through its owners and callers. A focused transformation needs no subsystem
-inventory.
+Name what flexibility a stronger ownership or lifetime rule removes and whether
+actual users need it. Use the [concept inventory](references/concept-inventory.md)
+to examine that surface through its owners and callers. A focused transformation
+needs no subsystem inventory.
 
 For expensive guarantees, establish who needs the promise and what would change
 if it were narrowed, replaced, or removed. Verify how the replacement enforces
@@ -83,26 +85,31 @@ dead exports, obsolete compatibility paths, and files that only pass work
 elsewhere. These are candidates, not default fixes. Use
 [code-audit](../code-audit/SKILL.md) when a proven search recipe fits.
 
-Hunt for synchronization obligations. Within the relevant subsystem, search
-literally for `registry`, `Map`, `Set`, `index`, `flag`, `cache`, `pending`, and
-`retry`, including collection constructions and named state. Trace their writes,
-reads, cleanup, and any observable gap between updates. Ask whether readers can
-derive the answer from another source or ask its owner directly. When an owner
-hand-builds a transition loop, search its distinctive state and operation names
-in related owners. Count the coordination or repeated decisions eliminated,
-not the collections deleted. A computed key alone does not make membership,
-authorization, selection, in-flight work, or unsaved input derivable.
+Search the relevant subsystem literally for `registry`, `Map`, `Set`, `index`,
+`flag`, `cache`, `pending`, and `retry`, including collection constructions and
+named state. Treat these as symptoms to investigate. Establish what each
+structure represents, then trace its writes, reads, and cleanup through actual
+callers. Notice when each reader needs the answer and what it can observe
+between updates.
 
-Trace when readers need each value and how long it must remain available. Keep
-historical decisions and uncertain outcomes when current state cannot
-reconstruct them. Before removing a guard or relying on it, establish what it
-compares and whether that information is current, cached, or authoritative.
+Ask whether readers could get the answer from an existing owner when they need
+it. If a Map mirrors connections a pool already tracks, reading the pool may
+remove the Map and its add/delete bookkeeping together. If the Map records a
+selection someone made, it may already be the owner of that information. Keep
+state that carries an independent fact.
 
-Design the replacement from the intended outcome and actual use. Reconsider the
-API, ownership, lifecycle, and compatibility promises together; develop a shape
-that could make several existing paths unnecessary. Trace callers and stored
-data to establish the consequences and transition. Carry an authorized
-replacement through its consumers and retire superseded paths.
+Then consider whether a different owner or lifetime would make the coordination
+unnecessary. Develop that alternative far enough to show what disappears and
+how the remaining owners preserve the required behavior. Count the coordination
+eliminated, not the collections deleted. Search related code for the same
+pattern.
+
+When the same coordination recurs across owners, or a local fix only moves it
+elsewhere, investigate the design choice producing it. Mentally inline the
+affected layers and reconsider the system from its intended use. Use
+[rethink](../rethink/SKILL.md) to develop the organizing model and derive its
+concepts, operations, ownership, and guarantees. Trace callers and stored data
+to establish the consequences and transition.
 
 Search the affected path for `fallback`, `adapter`, `legacy`, `migration`, and
 `compatibility`. A matching adapter or fallback may still own active recovery;
@@ -118,11 +125,6 @@ For Svelte surfaces, hunt custom binding protocols and mirrored input state. Use
 for wrapper boundaries and [input ownership](../svelte/references/input-ownership.md)
 for drafts and submission. Trace the current owner before removing state or
 guards.
-
-Mentally inline the affected layers and reconsider the resulting flow from
-scratch. When should work happen? Who should own its lifetime? Are caching,
-snapshots, callbacks, or repeated checks still necessary, or could different
-ownership make them disappear together?
 
 **Look for opportunities to recompose capabilities, not only inline them.**
 Trace how method namespaces, resources, and context are passed between layers.
@@ -147,8 +149,7 @@ alone are insufficient. Do not manufacture changes to make a pass look productiv
 If an edit fails this test on rereading, undo only that edit while preserving
 unrelated and unsaved work.
 
-Use [rethink](../rethink/SKILL.md) for ownership, lifecycle, API, or package-boundary
-decisions. Use [asymmetric-wins](../asymmetric-wins/SKILL.md) to develop the
+Use [asymmetric-wins](../asymmetric-wins/SKILL.md) to develop the
 tradeoff when refusing a small promise could delete a disproportionate code
 family.
 
