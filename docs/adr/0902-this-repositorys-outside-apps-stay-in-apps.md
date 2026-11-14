@@ -1,6 +1,6 @@
 # 0902. This repository's outside apps stay in `apps/`
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-11-14)
 - **Date:** 2026-11-14
 - **Amends:** [ADR-0891](0891-this-repository-holds-the-runtime-and-programs-and-every-starter-is-a-repository-of-its-own.md) at its layout: `programs/`, `sites/`, and `services/` are withdrawn, and nothing moves out of `apps/`. Its rule that every starter is a repository of its own stands.
 - **Amends:** [ADR-0901](0901-an-app-is-inside-an-epicenter-or-outside-it.md) at "`programs/` in this repository still names what it holds": this repository has no `programs/`. Its nouns stand.
