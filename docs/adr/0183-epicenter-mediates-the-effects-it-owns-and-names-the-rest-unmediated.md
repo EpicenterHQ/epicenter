@@ -1,5 +1,7 @@
 # 0183. Epicenter mediates the effects it owns and names the rest unmediated
 
+<!-- doc-path-check: ignore-file (cites the waiting folder sync product (ADR-0840), kept at tag folder-sync-product) -->
+
 - **Status:** Accepted
 - **Date:** 2026-07-27
 - **Amends:** [ADR-0179](0179-an-installed-app-is-an-inert-built-folder-admitted-through-one-static-artifact-boundary.md) at one bounded clause: the native command surface reachable from an app window is no longer unrestricted HTTP and HTTPS through the Tauri HTTP plugin. Its static-artifact admission boundary, its full-trust ceremony, and its refusal of per-app permissions and prompts are unchanged and restated as still governing.

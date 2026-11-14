@@ -1,5 +1,7 @@
 # 0618. Epicenter hosts no AI service
 
+<!-- doc-path-check: ignore-file (cites the waiting folder sync product (ADR-0840), kept at tag folder-sync-product) -->
+
 - **Status:** Superseded
 - **Date:** 2026-10-19
 - **Superseded by:** [ADR-0634](0634-hosted-inference-is-independent-of-repository-sync.md), which retains optional hosted inference independently of repository synchronization; retired model-management and app-host designs are not restored.

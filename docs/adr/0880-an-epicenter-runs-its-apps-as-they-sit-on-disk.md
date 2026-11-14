@@ -1,5 +1,7 @@
 # 0880. An Epicenter runs its apps as they sit on disk
 
+<!-- doc-path-check: ignore-file (cites code that moved since) -->
+
 - **Status:** Proposed
 - **Date:** 2026-11-11
 - **Amended:** 2026-11-11: a call runs in the process that received it, the command line's or `serve`'s, not in a child `epicenter` per call; each load first drops the modules the process loaded from under the app's folder, so the next import reads the files as they are now. Deleted with the child: its report file, the `--report` and `--read-only-call` flags, signal forwarding, its IPC channel for yields, and `serve --stdio`. Given up: a call that outlives the `serve` that started it, and isolation from an action that exits, hangs, or changes the process's working directory or environment; the code is its owner's (ADR-0864), and `serve`'s job restarts it.

@@ -1,5 +1,7 @@
 # 0705. An app's data lives in two kinds of store
 
+<!-- doc-path-check: ignore-file (cites code that moved since) -->
+
 - **Status:** Accepted (2026-11-03)
 - **Date:** 2026-11-03
 - **Amends:** [ADR-0534](0534-data-folders-are-the-only-data-model.md) at "Data folders are the one data model": a document synced through the person's account is a second store; the removal of the Yjs store's packages, its `StoreAuthority` and `GenerationsLedger` Durable Objects, and the apps built only on them stands; [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) at an app's data being a layout of files: an app whose contract declares the document store keeps a document instead, and the Variants table gains document apps.

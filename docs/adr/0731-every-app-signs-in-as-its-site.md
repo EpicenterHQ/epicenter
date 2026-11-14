@@ -1,5 +1,7 @@
 # 0731. Every app signs in as its site
 
+<!-- doc-path-check: ignore-file (cites code that moved since) -->
+
 - **Status:** Accepted (2026-11-04)
 - **Date:** 2026-11-04
 - **Supersedes:** [ADR-0720](0720-you-sign-in-a-machine-not-an-app.md) (you sign in a machine, not an app): separately signed programs cannot share one keychain item without prompts, and the broker that could share it cannot tell which program is asking.

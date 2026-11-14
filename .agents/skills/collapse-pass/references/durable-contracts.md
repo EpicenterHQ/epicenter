@@ -15,7 +15,7 @@ Use these source owners as starting points, then trace their callers and tests:
   renaming a contract path or a stem can detach existing files even when the
   new code still writes successfully. Do not infer permission to
   delete old files from a change to the current layout.
-- [Server repositories](../../../../packages/server/src/repositories.ts) and
+- [Server folders](../../../../packages/server/src/folders.ts) and
   [routes](../../../../packages/server/src/routes): trace durable authority
   names and how the server resolves whose data a request can reach. Preserve
   partitioning as well as wire compatibility.

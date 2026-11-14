@@ -1,5 +1,7 @@
 # 0702. A data folder's unfinished writes wait in `.epicenter`, outside its data
 
+<!-- doc-path-check: ignore-file (cites the waiting folder sync product (ADR-0840), kept at tag folder-sync-product) -->
+
 - **Status:** Accepted
 - **Date:** 2026-11-01
 - **Amends:** [ADR-0551](0551-every-write-to-a-folder-file-is-one-save-that-merges-by-the-files-kind-and-sync-settles-with-the-same-merge.md) at step 1's "swap on that hash" for a desktop folder: the check runs right before an atomic rename with no lock held, and a new file is placed instead of renamed; [ADR-0562](0562-the-cli-and-the-shell-take-turns-writing-a-folder-under-one-save-lock.md) at its save lock and its amendments of 2026-10-31 and 2026-11-01: no save lock, `.epicenter` holds only `saves/` and `recordings/`, and a new file is placed; [ADR-0568](0568-a-folder-takes-every-writer-in-turn-under-its-save-lock-and-refuses-none.md) at every writer taking turns under the save lock, and its amendments of 2026-10-31 and 2026-11-01: no writer takes a lock; [ADR-0543](0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md) at where a desktop recording is written while it records and how it reaches its path, and its amendments of 2026-11-01 on `.epicenter`, the root, and what `stop` and `recoverRecordings` answer.

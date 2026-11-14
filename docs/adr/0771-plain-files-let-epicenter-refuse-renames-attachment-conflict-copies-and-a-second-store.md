@@ -1,5 +1,7 @@
 # 0771. Plain files let Epicenter refuse renames, attachment conflict copies, and a second store
 
+<!-- doc-path-check: ignore-file (cites the waiting folder sync product (ADR-0840), kept at tag folder-sync-product) -->
+
 - **Status:** Accepted (2026-11-05)
 - **Date:** 2026-11-05
 - **Amends:** [ADR-0612](0612-a-repository-is-shared-by-the-people-on-its-access-list.md) at "a repository's name changes freely": a repository is never renamed; [ADR-0734](0734-every-file-other-than-a-note-is-kept-whole-in-git-lfs.md) at conflict copies: when two writes to one attached file race, the later one wins; [ADR-0770](0770-teams-own-repositories-and-sharing-is-membership.md) at "clone, then push into the other team's repository" and "owners also rename": a copy is one commit of files, and owners rename a team, never a repository; [ADR-0705](0705-an-apps-data-lives-in-two-kinds-of-store.md), [ADR-0742](0742-items-are-what-you-keep-documents-are-whats-live.md), [ADR-0707](0707-an-app-that-needs-co-editing-is-a-document-app.md), [ADR-0708](0708-a-namespace-holds-documents-beside-repositories-under-one-resource-grant.md), [ADR-0709](0709-a-document-is-rebuilt-into-a-fresh-generation-by-copying-its-current-state.md), [ADR-0715](0715-the-epicenter-app-browses-every-folder-and-document-a-person-has.md), [ADR-0716](0716-agents-edit-a-document-through-one-shot-cli-commands.md), and [ADR-0739](0739-a-document-body-uses-a-standard-codec-until-an-app-needs-its-own.md) at the document store: there is one kind of store, the folder.

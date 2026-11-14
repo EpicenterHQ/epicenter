@@ -1,5 +1,7 @@
 # 0762. Epicenter is made of standards and places
 
+<!-- doc-path-check: ignore-file (cites code that moved since) -->
+
 - **Status:** Accepted (2026-11-04)
 - **Date:** 2026-11-04
 - **Amended by:** [ADR-0763](0763-epicenters-doctrine-is-three-roots-and-one-rule-for-apps.md) at its decision: its two halves become two roots of Epicenter's doctrine, "programs meet in shared places, never by calling each other" and "speak the standard; invent only what none covers"; [ADR-0764](0764-reaching-a-model-is-epicenter-ais-alone-in-the-openai-vocabulary.md) at "Open, not decided": the agent loop speaks the OpenAI vocabulary and keeps only its stream type, `EngineChunk`.
