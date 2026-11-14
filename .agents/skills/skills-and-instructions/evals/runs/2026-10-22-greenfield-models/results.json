@@ -1,0 +1,92 @@
+{
+  "verdicts": [
+    {
+      "skill": "rethink",
+      "task": "file-editing",
+      "repeat": 1,
+      "preferred": "B",
+      "confidence": "medium",
+      "preferredVersion": "old"
+    },
+    {
+      "skill": "rethink",
+      "task": "file-editing",
+      "repeat": 2,
+      "preferred": "A",
+      "confidence": "low to medium",
+      "preferredVersion": "revised"
+    },
+    {
+      "skill": "rethink",
+      "task": "photo-import",
+      "repeat": 1,
+      "preferred": "B",
+      "confidence": "low to medium",
+      "preferredVersion": "revised"
+    },
+    {
+      "skill": "rethink",
+      "task": "photo-import",
+      "repeat": 2,
+      "preferred": "A",
+      "confidence": "medium",
+      "preferredVersion": "old"
+    },
+    {
+      "skill": "adversarial-review",
+      "task": "file-editing",
+      "repeat": 1,
+      "preferred": "B",
+      "confidence": "low to medium",
+      "preferredVersion": "old"
+    },
+    {
+      "skill": "adversarial-review",
+      "task": "file-editing",
+      "repeat": 2,
+      "preferred": "tie",
+      "confidence": "low",
+      "preferredVersion": "tie"
+    },
+    {
+      "skill": "adversarial-review",
+      "task": "photo-import",
+      "repeat": 1,
+      "preferred": "B",
+      "confidence": "medium",
+      "preferredVersion": "revised"
+    },
+    {
+      "skill": "adversarial-review",
+      "task": "photo-import",
+      "repeat": 2,
+      "preferred": "tie",
+      "confidence": "low",
+      "preferredVersion": "tie"
+    }
+  ],
+  "totals": {
+    "old": 3,
+    "revised": 3,
+    "tie": 2
+  },
+  "health": {
+    "generationRuns": 16,
+    "blindJudges": 4,
+    "distinctSessions": 20,
+    "errors": 0,
+    "permissionDenials": 0,
+    "generationStopReasons": [
+      "end_turn"
+    ],
+    "models": [
+      "claude-opus-5-5"
+    ],
+    "costUsd": 10.885454600000001,
+    "wordCountRange": [
+      1598,
+      1997
+    ]
+  },
+  "interpretation": "No consistent improvement demonstrated. These are blind model-reviewer preferences, not objective ground-truth scores or statistical evidence."
+}

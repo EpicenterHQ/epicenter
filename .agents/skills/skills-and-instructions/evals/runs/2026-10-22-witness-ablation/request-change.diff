@@ -1,0 +1,5 @@
+--- request-before.md
++++ request-after.md
+@@
+- Accepted input survives component unmounts, failed saves, conflicts, and newer typing during a save. Saving uses an observed source witness to avoid silently overwriting outside changes. Holding input in memory is distinct from durable crash recovery.
++ Accepted input survives component unmounts, failed saves, conflicts, and newer typing during a save. Holding input in memory is distinct from durable crash recovery.

@@ -79,5 +79,12 @@ test('the query surface refuses writes', () => {
 	});
 
 	expect(error?.name).toBe('QueryFailed');
+	const readBack = queryMail({
+		dataDir: tmp.dir,
+		accountEmail: ACCOUNT,
+		sql: 'SELECT id, subject FROM messages',
+	});
+	expect(readBack.error).toBeNull();
+	expect(readBack.data?.rows).toEqual([{ id: 'm1', subject: 'Subject m1' }]);
 	tmp.cleanup();
 });

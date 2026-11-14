@@ -1,0 +1,50 @@
+[
+  {
+    "prefix": "judge-rethink-photo-import",
+    "cwd": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/blind-comparison-QE2sLW",
+    "exitCode": 0,
+    "sessionId": "26143873-9350-41cf-ba42-171934428d6b",
+    "isError": false,
+    "permissionDenials": [],
+    "models": [
+      "claude-opus-5-5"
+    ],
+    "costUsd": 0.3199462
+  },
+  {
+    "prefix": "judge-rethink-file-editing",
+    "cwd": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/blind-comparison-XiNqs3",
+    "exitCode": 0,
+    "sessionId": "45e5089f-6b5e-4412-9142-c075f977a18e",
+    "isError": false,
+    "permissionDenials": [],
+    "models": [
+      "claude-opus-5-5"
+    ],
+    "costUsd": 0.5373007999999999
+  },
+  {
+    "prefix": "judge-adversarial-review-file-editing",
+    "cwd": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/blind-comparison-BG6ekD",
+    "exitCode": 0,
+    "sessionId": "1f7a1f22-5819-4d96-8862-f6f2c66b1840",
+    "isError": false,
+    "permissionDenials": [],
+    "models": [
+      "claude-opus-5-5"
+    ],
+    "costUsd": 0.4742026
+  },
+  {
+    "prefix": "judge-adversarial-review-photo-import",
+    "cwd": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/blind-comparison-PYYoIx",
+    "exitCode": 0,
+    "sessionId": "3bc081ad-a3ec-4b72-9328-bfc645adabd9",
+    "isError": false,
+    "permissionDenials": [],
+    "models": [
+      "claude-opus-5-5"
+    ],
+    "costUsd": 0.34204060000000003
+  }
+]

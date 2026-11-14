@@ -1,0 +1,162 @@
+[
+  {
+    "id": "a64cb408",
+    "prefix": "adversarial-review-file-editing-r2-B",
+    "skill": "adversarial-review",
+    "task": "file-editing",
+    "repeat": 2,
+    "label": "B",
+    "startedAt": "2026-10-22T00:49:58.806Z",
+    "finishedAt": "2026-10-22T00:52:52.753Z",
+    "exitCode": 0,
+    "sessionId": "aeffa54d-1ce9-4721-959e-f1e430e46dec",
+    "isError": false,
+    "stopReason": "end_turn",
+    "permissionDenials": [],
+    "models": [
+      "claude-opus-5-5"
+    ],
+    "costUsd": 0.7560804,
+    "words": 1664
+  },
+  {
+    "id": "986c6937",
+    "prefix": "adversarial-review-file-editing-r2-A",
+    "skill": "adversarial-review",
+    "task": "file-editing",
+    "repeat": 2,
+    "label": "A",
+    "startedAt": "2026-10-22T00:49:58.806Z",
+    "finishedAt": "2026-10-22T00:52:53.056Z",
+    "exitCode": 0,
+    "sessionId": "d9e8bddf-15fb-4885-b856-675c8b2ef699",
+    "isError": false,
+    "stopReason": "end_turn",
+    "permissionDenials": [],
+    "models": [
+      "claude-opus-5-5"
+    ],
+    "costUsd": 0.9497012,
+    "words": 1682
+  },
+  {
+    "id": "7cb00472",
+    "prefix": "rethink-file-editing-r2-A",
+    "skill": "rethink",
+    "task": "file-editing",
+    "repeat": 2,
+    "label": "A",
+    "startedAt": "2026-10-22T00:49:58.806Z",
+    "finishedAt": "2026-10-22T00:53:25.876Z",
+    "exitCode": 0,
+    "sessionId": "e5abee19-74ba-4728-b40c-f288b20a6a8d",
+    "isError": false,
+    "stopReason": "end_turn",
+    "permissionDenials": [],
+    "models": [
+      "claude-opus-5-5"
+    ],
+    "costUsd": 0.7729674,
+    "words": 2086
+  },
+  {
+    "id": "4b8a6678",
+    "prefix": "rethink-file-editing-r1-B",
+    "skill": "rethink",
+    "task": "file-editing",
+    "repeat": 1,
+    "label": "B",
+    "startedAt": "2026-10-22T00:52:52.753Z",
+    "finishedAt": "2026-10-22T00:56:11.023Z",
+    "exitCode": 0,
+    "sessionId": "4ba0356f-3944-4659-a003-5dbabcc41630",
+    "isError": false,
+    "stopReason": "end_turn",
+    "permissionDenials": [],
+    "models": [
+      "claude-opus-5-5"
+    ],
+    "costUsd": 0.9000123999999999,
+    "words": 1756
+  },
+  {
+    "id": "c3419080",
+    "prefix": "adversarial-review-file-editing-r1-A",
+    "skill": "adversarial-review",
+    "task": "file-editing",
+    "repeat": 1,
+    "label": "A",
+    "startedAt": "2026-10-22T00:52:53.057Z",
+    "finishedAt": "2026-10-22T00:56:12.390Z",
+    "exitCode": 0,
+    "sessionId": "958496a2-6de3-4f2d-b5fb-44b7287c46cb",
+    "isError": false,
+    "stopReason": "end_turn",
+    "permissionDenials": [],
+    "models": [
+      "claude-opus-5-5"
+    ],
+    "costUsd": 0.8531922,
+    "words": 1649
+  },
+  {
+    "id": "8b3c8ad0",
+    "prefix": "rethink-file-editing-r2-B",
+    "skill": "rethink",
+    "task": "file-editing",
+    "repeat": 2,
+    "label": "B",
+    "startedAt": "2026-10-22T00:53:25.876Z",
+    "finishedAt": "2026-10-22T00:56:38.426Z",
+    "exitCode": 0,
+    "sessionId": "8ba12b71-a48d-41e9-a203-03bda1b43ad4",
+    "isError": false,
+    "stopReason": "end_turn",
+    "permissionDenials": [],
+    "models": [
+      "claude-opus-5-5"
+    ],
+    "costUsd": 0.9228042,
+    "words": 1796
+  },
+  {
+    "id": "3c3d6492",
+    "prefix": "adversarial-review-file-editing-r1-B",
+    "skill": "adversarial-review",
+    "task": "file-editing",
+    "repeat": 1,
+    "label": "B",
+    "startedAt": "2026-10-22T00:56:11.024Z",
+    "finishedAt": "2026-10-22T00:58:42.801Z",
+    "exitCode": 0,
+    "sessionId": "1d7f02e2-fbaa-4bc3-8932-fe9d2c015151",
+    "isError": false,
+    "stopReason": "end_turn",
+    "permissionDenials": [],
+    "models": [
+      "claude-opus-5-5"
+    ],
+    "costUsd": 0.7010008,
+    "words": 1618
+  },
+  {
+    "id": "bd7cbd2d",
+    "prefix": "rethink-file-editing-r1-A",
+    "skill": "rethink",
+    "task": "file-editing",
+    "repeat": 1,
+    "label": "A",
+    "startedAt": "2026-10-22T00:56:12.390Z",
+    "finishedAt": "2026-10-22T00:59:20.395Z",
+    "exitCode": 0,
+    "sessionId": "0e65277f-5265-43a4-bfe9-7827321dba75",
+    "isError": false,
+    "stopReason": "end_turn",
+    "permissionDenials": [],
+    "models": [
+      "claude-opus-5-5"
+    ],
+    "costUsd": 0.8201255999999999,
+    "words": 1927
+  }
+]

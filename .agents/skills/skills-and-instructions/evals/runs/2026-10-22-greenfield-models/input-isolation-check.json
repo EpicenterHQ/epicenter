@@ -1,0 +1,73 @@
+{
+  "result": "pass",
+  "pairs": [
+    {
+      "skill": "rethink",
+      "task": "file-editing",
+      "repeat": 1,
+      "changed": [
+        ".agents/skills/rethink/SKILL.md"
+      ]
+    },
+    {
+      "skill": "rethink",
+      "task": "file-editing",
+      "repeat": 2,
+      "changed": [
+        ".agents/skills/rethink/SKILL.md"
+      ]
+    },
+    {
+      "skill": "rethink",
+      "task": "photo-import",
+      "repeat": 1,
+      "changed": [
+        ".agents/skills/rethink/SKILL.md"
+      ]
+    },
+    {
+      "skill": "rethink",
+      "task": "photo-import",
+      "repeat": 2,
+      "changed": [
+        ".agents/skills/rethink/SKILL.md"
+      ]
+    },
+    {
+      "skill": "adversarial-review",
+      "task": "file-editing",
+      "repeat": 1,
+      "changed": [
+        ".agents/skills/adversarial-review/SKILL.md",
+        ".agents/skills/adversarial-review/references/example-workflow.md"
+      ]
+    },
+    {
+      "skill": "adversarial-review",
+      "task": "file-editing",
+      "repeat": 2,
+      "changed": [
+        ".agents/skills/adversarial-review/SKILL.md",
+        ".agents/skills/adversarial-review/references/example-workflow.md"
+      ]
+    },
+    {
+      "skill": "adversarial-review",
+      "task": "photo-import",
+      "repeat": 1,
+      "changed": [
+        ".agents/skills/adversarial-review/SKILL.md",
+        ".agents/skills/adversarial-review/references/example-workflow.md"
+      ]
+    },
+    {
+      "skill": "adversarial-review",
+      "task": "photo-import",
+      "repeat": 2,
+      "changed": [
+        ".agents/skills/adversarial-review/SKILL.md",
+        ".agents/skills/adversarial-review/references/example-workflow.md"
+      ]
+    }
+  ]
+}

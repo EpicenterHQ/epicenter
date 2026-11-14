@@ -1,0 +1,15 @@
+# Greenfield model comparison
+
+Frozen before execution. Two skills, two task prompts, old versus revised, two independent repetitions: 16 new Claude Opus 5.5 high sessions. Each run has a separate Git root outside the live repositories. Active skill and its changed example are the treatment. Supporting Markdown is held constant at 686f7f75c297140cd937d826f05598f552bec94e; adversarial-review uses the baseline rethink in both arms to isolate its own effect. File-editing sources come from the source snapshot retained during the original discussion, before its later solution. The exact opening request is retained; only an environment note maps its absolute workspace to the isolated snapshot and explains unavailable thread tools. Earlier thread context is unavailable, so this is not a complete replay of the original session. Photo import is a synthetic held-out design problem with no existing implementation. Seat booking was excluded because it shaped the revision.
+
+The same read-only launcher, model, effort, global Claude instructions, output allowance (1600 words), and single-turn task are used in every arm. No session resumes, helper agents, live repository access, later discussion, solution hints, or prior outputs are supplied. This tests an initial rethink proposal and the delegated-reviewer reasoning of adversarial-review, not a full live dialectic or its multi-reviewer coordination. A/B order is independently randomized per pair; the private manifest records the key.
+
+## Criteria set before execution
+
+Compare independent formation of a coherent model; concrete operations and lifecycle consequences; handling of explicit requirements or clearly labeled proposed changes; necessary distinctions versus hidden or displaced complexity; and useful next decisions supported by supplied evidence. File case additionally checks typing/save overlap, revert/retry/conflict/deletion, bounded save/flush semantics, and usable vanilla/Svelte expression. Photo case checks byte identity versus provenance, original preservation independent of preview, durable progress versus source permission, overlapping reselection, cancellation/retry, and precise completion meaning.
+
+No points for reproducing the eventual file solution. A stronger abstraction, retention, or deletion can win. Silently dropping explicit requirements is a regression. More alternatives, longer output, reviewer agreement, or fewer named types do not establish improvement. Two repetitions provide a small variability check, not statistical confidence or generalization.
+
+Native JSON, session IDs, model usage, denials, errors, prompts, frozen treatment files, and answer Markdown are retained. A timeout, truncation, or blocked evidence read is incomplete evidence, not a passing result. Blind comparison receives task, criteria, and A/B outputs without the version key.
+
+The old treatment is the pre-edit canonical skill at the recorded Git HEAD. The earlier conversation ran divergent worktree skill versions; this compares the actual before/after edit in this task rather than reproducing every instruction from that earlier conversation. Inputs are fingerprinted per run.

@@ -1,0 +1,200 @@
+{
+  "compiler": "/Users/braden/Code/worktrees/epicenter-stable/node_modules/.bun/svelte@5.56.3/node_modules/svelte/src/compiler/index.js",
+  "version": "5.56.3",
+  "scope": "Components separated at explicit author filename markers. Standalone compiler only; does not resolve imported types, validate APIs, or prove runtime behavior",
+  "checks": [
+    {
+      "prefix": "rethink-file-editing-r1-A",
+      "skill": "rethink",
+      "repeat": 1,
+      "label": "A",
+      "snippets": [
+        {
+          "index": 1,
+          "block": 1,
+          "validSyntax": false,
+          "code": "expected_token",
+          "message": "Expected token {:then ...} or {:catch ...}\nhttps://svelte.dev/e/expected_token",
+          "frame": "2:   {#if opened.error}<OpenProblem error={opened.error} />\n3:   {:else}<NoteEditor editor={opened.data} />{/if}\n4: {:else}<Loading />{/await}\n    ^\n5: "
+        },
+        {
+          "index": 2,
+          "block": 2,
+          "validSyntax": true,
+          "warnings": [
+            {
+              "code": "state_referenced_locally",
+              "message": "This reference only captures the initial value of `editor`. Did you mean to reference it inside a closure instead?\nhttps://svelte.dev/e/state_referenced_locally"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "prefix": "rethink-file-editing-r1-B",
+      "skill": "rethink",
+      "repeat": 1,
+      "label": "B",
+      "snippets": [
+        {
+          "index": 1,
+          "block": 1,
+          "validSyntax": false,
+          "code": "js_parse_error",
+          "message": "Unexpected token\nhttps://svelte.dev/e/js_parse_error",
+          "frame": "3:     <Loading label=\"Opening…\" />\n4:   {:then opened}\n5:     {#if opened.error}<OpenError error={opened.error} onRetry={...} />\n                                                                  ^\n6:     {:else}<NoteEditor editor={opened.data} />{/if}\n7:   {/await}"
+        },
+        {
+          "index": 2,
+          "block": 2,
+          "validSyntax": true,
+          "warnings": [
+            {
+              "code": "state_referenced_locally",
+              "message": "This reference only captures the initial value of `raw`. Did you mean to reference it inside a closure instead?\nhttps://svelte.dev/e/state_referenced_locally"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "prefix": "rethink-file-editing-r2-A",
+      "skill": "rethink",
+      "repeat": 2,
+      "label": "A",
+      "snippets": [
+        {
+          "index": 1,
+          "block": 1,
+          "validSyntax": false,
+          "code": "js_parse_error",
+          "message": "Unexpected token\nhttps://svelte.dev/e/js_parse_error",
+          "frame": "3:   <Loading label=\"Opening…\" />\n4: {:then opened}\n5:   {#if opened.error}<OpenError error={opened.error} retry={...} />\n                                                              ^\n6:   {:else}{#key path}<FileEditor editor={opened.data} />{/key}{/if}\n7: {/await}"
+        },
+        {
+          "index": 2,
+          "block": 2,
+          "validSyntax": true,
+          "warnings": [
+            {
+              "code": "state_referenced_locally",
+              "message": "This reference only captures the initial value of `owned`. Did you mean to reference it inside a closure instead?\nhttps://svelte.dev/e/state_referenced_locally"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "prefix": "rethink-file-editing-r2-B",
+      "skill": "rethink",
+      "repeat": 2,
+      "label": "B",
+      "snippets": [
+        {
+          "index": 1,
+          "block": 1,
+          "validSyntax": true,
+          "warnings": []
+        },
+        {
+          "index": 2,
+          "block": 2,
+          "validSyntax": true,
+          "warnings": [
+            {
+              "code": "state_referenced_locally",
+              "message": "This reference only captures the initial value of `file`. Did you mean to reference it inside a closure instead?\nhttps://svelte.dev/e/state_referenced_locally"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "prefix": "adversarial-review-file-editing-r1-A",
+      "skill": "adversarial-review",
+      "repeat": 1,
+      "label": "A",
+      "snippets": [
+        {
+          "index": 1,
+          "block": 1,
+          "validSyntax": true,
+          "warnings": []
+        },
+        {
+          "index": 2,
+          "block": 2,
+          "validSyntax": true,
+          "warnings": []
+        }
+      ]
+    },
+    {
+      "prefix": "adversarial-review-file-editing-r1-B",
+      "skill": "adversarial-review",
+      "repeat": 1,
+      "label": "B",
+      "snippets": [
+        {
+          "index": 1,
+          "block": 1,
+          "component": "FileRoute.svelte",
+          "validSyntax": true,
+          "warnings": [
+            {
+              "code": "state_referenced_locally",
+              "message": "This reference only captures the initial value of `path`. Did you mean to reference it inside a closure instead?\nhttps://svelte.dev/e/state_referenced_locally"
+            }
+          ]
+        },
+        {
+          "index": 2,
+          "block": 1,
+          "component": "FileEditor.svelte",
+          "validSyntax": true,
+          "warnings": []
+        }
+      ]
+    },
+    {
+      "prefix": "adversarial-review-file-editing-r2-A",
+      "skill": "adversarial-review",
+      "repeat": 2,
+      "label": "A",
+      "snippets": [
+        {
+          "index": 1,
+          "block": 1,
+          "component": "TextEditor.svelte",
+          "validSyntax": true,
+          "warnings": [
+            {
+              "code": "state_referenced_locally",
+              "message": "This reference only captures the initial value of `raw`. Did you mean to reference it inside a closure instead?\nhttps://svelte.dev/e/state_referenced_locally"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "prefix": "adversarial-review-file-editing-r2-B",
+      "skill": "adversarial-review",
+      "repeat": 2,
+      "label": "B",
+      "snippets": [
+        {
+          "index": 1,
+          "block": 1,
+          "validSyntax": true,
+          "warnings": []
+        },
+        {
+          "index": 2,
+          "block": 2,
+          "validSyntax": true,
+          "warnings": []
+        }
+      ]
+    }
+  ]
+}

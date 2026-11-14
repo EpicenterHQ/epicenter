@@ -1,0 +1,101 @@
+{
+  "result": "pass",
+  "crossCondition": [
+    {
+      "run": "bd7cbd2d",
+      "pairedPriorRun": "513a21ca",
+      "changes": [
+        "REQUEST.md: deletion of one sentence"
+      ],
+      "allOtherInputsVerified": true
+    },
+    {
+      "run": "4b8a6678",
+      "pairedPriorRun": "de6c2e92",
+      "changes": [
+        "REQUEST.md: deletion of one sentence"
+      ],
+      "allOtherInputsVerified": true
+    },
+    {
+      "run": "7cb00472",
+      "pairedPriorRun": "0c575f6d",
+      "changes": [
+        "REQUEST.md: deletion of one sentence"
+      ],
+      "allOtherInputsVerified": true
+    },
+    {
+      "run": "8b3c8ad0",
+      "pairedPriorRun": "fa98346a",
+      "changes": [
+        "REQUEST.md: deletion of one sentence"
+      ],
+      "allOtherInputsVerified": true
+    },
+    {
+      "run": "c3419080",
+      "pairedPriorRun": "01aa84de",
+      "changes": [
+        "REQUEST.md: deletion of one sentence"
+      ],
+      "allOtherInputsVerified": true
+    },
+    {
+      "run": "3c3d6492",
+      "pairedPriorRun": "4c691fdb",
+      "changes": [
+        "REQUEST.md: deletion of one sentence"
+      ],
+      "allOtherInputsVerified": true
+    },
+    {
+      "run": "986c6937",
+      "pairedPriorRun": "6a7c34d2",
+      "changes": [
+        "REQUEST.md: deletion of one sentence"
+      ],
+      "allOtherInputsVerified": true
+    },
+    {
+      "run": "a64cb408",
+      "pairedPriorRun": "2636f84e",
+      "changes": [
+        "REQUEST.md: deletion of one sentence"
+      ],
+      "allOtherInputsVerified": true
+    }
+  ],
+  "withinCondition": [
+    {
+      "skill": "rethink",
+      "repeat": 1,
+      "changed": [
+        ".agents/skills/rethink/SKILL.md"
+      ]
+    },
+    {
+      "skill": "rethink",
+      "repeat": 2,
+      "changed": [
+        ".agents/skills/rethink/SKILL.md"
+      ]
+    },
+    {
+      "skill": "adversarial-review",
+      "repeat": 1,
+      "changed": [
+        ".agents/skills/adversarial-review/SKILL.md",
+        ".agents/skills/adversarial-review/references/example-workflow.md"
+      ]
+    },
+    {
+      "skill": "adversarial-review",
+      "repeat": 2,
+      "changed": [
+        ".agents/skills/adversarial-review/SKILL.md",
+        ".agents/skills/adversarial-review/references/example-workflow.md"
+      ]
+    }
+  ]
+}

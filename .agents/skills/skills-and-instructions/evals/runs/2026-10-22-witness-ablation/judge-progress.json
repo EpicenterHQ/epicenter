@@ -1,0 +1,26 @@
+[
+  {
+    "prefix": "judge-adversarial-review-file-editing",
+    "cwd": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/blind-comparison-tH9tT2",
+    "exitCode": 0,
+    "sessionId": "498cfab0-bbee-41d6-b567-2113268c702d",
+    "isError": false,
+    "permissionDenials": [],
+    "models": [
+      "claude-opus-5-5"
+    ],
+    "costUsd": 0.5977876
+  },
+  {
+    "prefix": "judge-rethink-file-editing",
+    "cwd": "/var/folders/qx/9462vg517cvdtpjr4tt32_200000gn/T/blind-comparison-bgPWdG",
+    "exitCode": 0,
+    "sessionId": "e8d9614a-8b6e-424e-8b0c-9ad8659c4806",
+    "isError": false,
+    "permissionDenials": [],
+    "models": [
+      "claude-opus-5-5"
+    ],
+    "costUsd": 0.5780068
+  }
+]

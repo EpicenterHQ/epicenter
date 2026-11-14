@@ -1,0 +1,26 @@
+{
+  "scope": "Only explicit ={...} holes replaced with ={undefined}; no structural or semantic fixes",
+  "results": [
+    {
+      "prefix": "rethink-file-editing-r1-A",
+      "component": 1,
+      "asWrittenError": "expected_token",
+      "hasExplicitPlaceholder": false,
+      "normalizedValidSyntax": false
+    },
+    {
+      "prefix": "rethink-file-editing-r1-B",
+      "component": 1,
+      "asWrittenError": "js_parse_error",
+      "hasExplicitPlaceholder": true,
+      "normalizedValidSyntax": true
+    },
+    {
+      "prefix": "rethink-file-editing-r2-A",
+      "component": 1,
+      "asWrittenError": "js_parse_error",
+      "hasExplicitPlaceholder": true,
+      "normalizedValidSyntax": true
+    }
+  ]
+}

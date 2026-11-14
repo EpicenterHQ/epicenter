@@ -1,0 +1,139 @@
+{
+  "verdicts": [
+    {
+      "skill": "rethink",
+      "repeat": 1,
+      "preferred": "B",
+      "confidence": "low",
+      "version": "revised"
+    },
+    {
+      "skill": "rethink",
+      "repeat": 2,
+      "preferred": "A",
+      "confidence": "low; close to tie",
+      "version": "old"
+    },
+    {
+      "skill": "adversarial-review",
+      "repeat": 1,
+      "preferred": "B",
+      "confidence": "medium",
+      "version": "revised"
+    },
+    {
+      "skill": "adversarial-review",
+      "repeat": 2,
+      "preferred": "A",
+      "confidence": "low",
+      "version": "old"
+    }
+  ],
+  "policies": [
+    {
+      "prefix": "rethink-file-editing-r1-A",
+      "skill": "rethink",
+      "repeat": 1,
+      "variant": "old",
+      "retainsBaseAndConflictModel": true,
+      "developsUnconditionalPublicationAlternative": false,
+      "quote": "- **Base:** the stored content the text descends from. It is the guard for the next write.",
+      "line": 71
+    },
+    {
+      "prefix": "rethink-file-editing-r1-B",
+      "skill": "rethink",
+      "repeat": 1,
+      "variant": "revised",
+      "retainsBaseAndConflictModel": true,
+      "developsUnconditionalPublicationAlternative": false,
+      "quote": "- **base**: the exact stored content the text last agreed with. That's either the first content read or the last save that landed. Every write is guarded against it (compare-and-swap).",
+      "line": 27
+    },
+    {
+      "prefix": "rethink-file-editing-r2-A",
+      "skill": "rethink",
+      "repeat": 2,
+      "variant": "old",
+      "retainsBaseAndConflictModel": true,
+      "developsUnconditionalPublicationAlternative": false,
+      "quote": "- **`base`**: the stored text this buffer last confirmed, from a read or from its own write landing. A guarded write expects storage to still hold `base`.",
+      "line": 62
+    },
+    {
+      "prefix": "rethink-file-editing-r2-B",
+      "skill": "rethink",
+      "repeat": 2,
+      "variant": "revised",
+      "retainsBaseAndConflictModel": true,
+      "developsUnconditionalPublicationAlternative": false,
+      "quote": "- **`base`:** it defines dirty and conflict, and guards every write.",
+      "line": 171
+    },
+    {
+      "prefix": "adversarial-review-file-editing-r1-A",
+      "skill": "adversarial-review",
+      "repeat": 1,
+      "variant": "old",
+      "retainsBaseAndConflictModel": true,
+      "developsUnconditionalPublicationAlternative": false,
+      "quote": "  - A conflict is kept until a resolution sets a new base.",
+      "line": 47
+    },
+    {
+      "prefix": "adversarial-review-file-editing-r1-B",
+      "skill": "adversarial-review",
+      "repeat": 1,
+      "variant": "revised",
+      "retainsBaseAndConflictModel": true,
+      "developsUnconditionalPublicationAlternative": false,
+      "quote": "- **Base:** the stored content that held input was derived from. Saves compare against it.",
+      "line": 50
+    },
+    {
+      "prefix": "adversarial-review-file-editing-r2-A",
+      "skill": "adversarial-review",
+      "repeat": 2,
+      "variant": "old",
+      "retainsBaseAndConflictModel": true,
+      "developsUnconditionalPublicationAlternative": false,
+      "quote": "- **Diverged:** storage no longer holds the base. Either a guarded write was refused, or a newer read differed from the base while the editor held edits or storage became non-text or missing. Autosave stops.",
+      "line": 35
+    },
+    {
+      "prefix": "adversarial-review-file-editing-r2-B",
+      "skill": "adversarial-review",
+      "repeat": 2,
+      "variant": "revised",
+      "retainsBaseAndConflictModel": true,
+      "developsUnconditionalPublicationAlternative": false,
+      "quote": "| **Typing after a conflict** | Stays `conflict` because the base is still stale. Autosave is **paused** until `resolve`. `resolve('mine')` moves the base to theirs and does an ordinary save. | **Defect.** `schedule()` runs anyway (`:1162`). Each pause sends a save that is bound to fail, which clears the conflict error while it runs (`:847`) and then sets it again. The resolve alert flickers away, and `resolveConflict` returns `BUSY` during each attempt (`:1229-1233`). |",
+      "line": 108
+    }
+  ],
+  "health": {
+    "generationRuns": 8,
+    "blindJudges": 2,
+    "uniqueSessions": 10,
+    "errors": 0,
+    "reportedDenials": 0,
+    "stopReasons": [
+      "end_turn"
+    ],
+    "models": [
+      "claude-opus-5-5"
+    ],
+    "costUsd": 7.8516786,
+    "wordRange": [
+      1618,
+      2086
+    ]
+  },
+  "primaryFinding": "Deleting the bundled source-witness prescription did not make either version leave the base/conflict write model in this sample.",
+  "limits": [
+    "Two repetitions per skill/version",
+    "Same model generated and blindly judged",
+    "Sentence bundled mechanism with no-silent-overwrite guarantee",
+    "Existing source and conflict-oriented task framing remain"
+  ]
+}
