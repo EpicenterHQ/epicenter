@@ -153,7 +153,7 @@ test('a frozen mismatch fails with a repair command and does not stop the other 
 	);
 });
 
-test('new keeps a cloned app when its frozen install fails', async () => {
+test('new --from keeps the copied app when its frozen install fails', async () => {
 	const f = await setup();
 	await writeFile(
 		join(f.dir, 'package.json'),
@@ -180,32 +180,4 @@ test('new keeps a cloned app when its frozen install fails', async () => {
 	expect(await gitIn(join(copy, 'data'), 'log', '-1', '--format=%s')).toBe(
 		'copy: start its data',
 	);
-});
-
-test('update reports a frozen install failure after merging and keeps the app', async () => {
-	const f = await setup();
-	await gitIn(f.dir, 'add', 'bun.lock');
-	await gitIn(f.dir, 'commit', '-qm', 'lock packages');
-	expect((await f.run('new', 'copy', '--from', f.dir)).code).toBe(0);
-	await writeFile(
-		join(f.dir, 'package.json'),
-		JSON.stringify({
-			name: 'notes',
-			workspaces: ['local'],
-			dependencies: { 'offline-extra': 'file:./extra' },
-		}),
-	);
-	await gitIn(f.dir, 'add', 'package.json');
-	await gitIn(f.dir, 'commit', '-qm', 'mismatched lock');
-	const updated = await f.run('update', 'copy', '--json');
-	expect(updated.code).toBe(1);
-	expect(JSON.parse(updated.stdout).apps[0]).toMatchObject({
-		app: 'copy',
-		found: true,
-		merged: expect.any(String),
-		error: {
-			message: expect.stringContaining('copy: '),
-			next: `cd ${join(f.apps, 'copy')} && bun install && epicenter install copy`,
-		},
-	});
 });

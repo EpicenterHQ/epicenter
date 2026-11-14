@@ -4,6 +4,7 @@
 - **Date:** 2026-11-14
 - **Amends:** [ADR-0891](0891-this-repository-holds-the-runtime-and-programs-and-every-starter-is-a-repository-of-its-own.md) at its layout: `programs/`, `sites/`, and `services/` are withdrawn, and nothing moves out of `apps/`. Its rule that every starter is a repository of its own stands.
 - **Amends:** [ADR-0901](0901-an-app-is-inside-an-epicenter-or-outside-it.md) at "`programs/` in this repository still names what it holds": this repository has no `programs/`. Its nouns stand.
+- **Amended by:** [ADR-0904](0904-copying-is-the-only-way-to-take-an-apps-code.md) at "Its rule that every starter is a repository of its own stands": that rule is withdrawn, since one repository can hold several apps as folders. Its layout stands.
 - **Supersedes:** the records of the two deleted apps that still said `Accepted`: ADR-0061 to ADR-0064 and ADR-0072 for Local Books, and ADR-0087 and ADR-0411 for Honeycrisp.
 - **Relates:** [ADR-0843](0843-new-code-imports-nothing-from-the-waiting-product-which-leaves-by-deletion.md) (the old product leaves by deletion), [ADR-0877](0877-an-apps-code-and-its-data-are-two-repositories-and-sharing-an-app-shares-its-code.md) (this repository holds no inside apps), [ADR-0899](0899-the-folder-sync-product-is-retired.md) (the product the deleted apps belonged to).
 - **Unbuilt:** nothing.

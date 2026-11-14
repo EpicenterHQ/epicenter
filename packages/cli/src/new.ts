@@ -2,20 +2,31 @@
  * `epicenter new` makes an app in the selected Epicenter: two repositories,
  * the app's folder for its code and `data/` for its data (ADR-0877).
  *
- * - `new <name> --from <git url|path>` clones a starter, another app's code,
- *   keeps it as the app's `upstream` remote with the branch tracking nothing,
- *   and makes an empty data repository (ADR-0866); `serve` builds its UI
- *   when it is first opened. `epicenter update` later merges the starter's
- *   changes.
+ * - `new <name> --from <path>` and `new <name> --from <git url>[#<folder>]`
+ *   take another app's code by copying it (ADR-0904): the files Git tracks
+ *   in the app's folder, at the commit its repository's `HEAD` names. The
+ *   copy is a repository of its own whose one commit names the source and
+ *   that commit. It has no remote and none of the source's history, and no
+ *   data comes with it. From then on the code is changed where it is: taking
+ *   the source's later changes is work for an agent that reads the source,
+ *   not a merge any command performs. `serve` builds its UI when it is first
+ *   opened.
  * - `new <name>` makes the folder from the built-in template, makes it a
  *   repository, commits the template, and makes the data repository.
  * Both install the app's locked packages and link @epicenter/app before
  * loading epicenter.ts. An install failure keeps the app for repair.
  * The app's name is its child entry in the Epicenter.
  */
-import { mkdir, readdir, realpath, rm, writeFile } from 'node:fs/promises';
+import {
+	mkdir,
+	mkdtemp,
+	readdir,
+	readFile,
+	rm,
+	writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { basename, join } from 'node:path';
+import { join } from 'node:path';
 import { misuse, nameProblem, parseWords } from './commands.ts';
 import { dataRepository } from './data.ts';
 import { ENGINES } from './engines.ts';
@@ -34,6 +45,71 @@ function isUrl(source: string) {
 }
 
 /**
+ * Where `--from` takes an app's code: the repository to clone, and the folder
+ * inside it that holds the app, empty for the repository's root.
+ *
+ * - A Git URL names a repository, and after its first `#`, a folder inside
+ *   it, so a URL cannot contain `#` and a folder's name can. The folder is
+ *   read from the repository's root: `.` segments and extra slashes are
+ *   dropped, and an absolute path or a `..` is a misuse.
+ * - Anything else is a path to the app's folder itself, whole: a `#` in it is
+ *   part of the path. Git says which repository holds the folder and where,
+ *   so it may be a repository's root or any folder inside one. It must be
+ *   inside a repository, since only what Git tracks is copied.
+ */
+async function locateSource(
+	from: string,
+): Promise<{ repository: string; folder: string } | { error: CliError }> {
+	if (!isUrl(from)) {
+		const located = await git(folderPath(from), [
+			'rev-parse',
+			'--show-toplevel',
+			'--show-prefix',
+		]);
+		if (located.code !== 0)
+			return {
+				error: CliError.Usage({
+					message: `${from} is not in a Git repository; --from takes only the files Git tracks`,
+				}).error,
+			};
+		const [repository = '', prefix = ''] = located.stdout.split('\n');
+		return { repository, folder: prefix.replace(/\/$/, '') };
+	}
+	const at = from.indexOf('#');
+	if (at === -1) return { repository: from, folder: '' };
+	const given = from.slice(at + 1);
+	const segments = given
+		.split('/')
+		.filter((segment) => segment !== '' && segment !== '.');
+	if (given.startsWith('/') || segments.includes('..'))
+		return {
+			error: misuse(
+				'new',
+				`${JSON.stringify(given)} is not a folder inside the repository; write its path from the repository's root, without ..`,
+			),
+		};
+	if (segments.length === 0)
+		return {
+			error: misuse('new', `--from ${from} names no folder after #`),
+		};
+	return { repository: from.slice(0, at), folder: segments.join('/') };
+}
+
+/**
+ * `from` as the app's first commit records it. A path is made absolute, so it
+ * still names a place when read from another folder. An http(s) URL loses any
+ * credentials it carries, since the commit is pushed with the app.
+ */
+function recordedSource(from: string) {
+	return isUrl(from)
+		? from.replace(/^(https?:\/\/)[^/@]*@/i, '$1')
+		: folderPath(from);
+}
+
+/** What every app's code ignores: its data, a repository of its own, and its installed packages. */
+const IGNORED = ['data/', 'node_modules/'];
+
+/**
  * The built-in template: an app with no collections or actions yet, and what
  * its code's Git ignores, starting with its data, a repository of its own. It
  * routes nothing through Git LFS; an app that comes to hold binary files adds
@@ -50,7 +126,7 @@ export default defineApp({
 	actions: {},
 });
 `,
-		'.gitignore': 'data/\nnode_modules/\n',
+		'.gitignore': IGNORED.map((line) => `${line}\n`).join(''),
 	};
 }
 
@@ -77,7 +153,7 @@ function made(name: string, json: boolean) {
 	else {
 		writeOut(folder);
 		writeErr(`Run: epicenter ${name}`);
-		// A new app has no origin: a starter's remote is its upstream (ADR-0851).
+		// A new app has no remote, whether from the template or from another app's code (ADR-0851).
 		writeErr(
 			`not backed up\nRun: git -C ${folder} remote add origin <url> and git -C ${folder}/data remote add origin <url>, each a private repository, then epicenter sync ${name}`,
 		);
@@ -86,8 +162,8 @@ function made(name: string, json: boolean) {
 }
 
 /**
- * `epicenter new <name> [--from <git url|path>]`: an app from a starter kept
- * as its `upstream`, or from the built-in template.
+ * `epicenter new <name> [--from <path> | --from <git url>[#<folder>]]`: an
+ * app from a copy of another app's code, or from the built-in template.
  */
 export async function newCommand(
 	words: string[],
@@ -119,57 +195,102 @@ export async function newCommand(
 		if ('error' in installed) return installFailed(name, installed.error, json);
 		return made(name, json);
 	}
+	const source = await locateSource(from);
+	if ('error' in source) return fail(source.error, json);
 	const folder = join(appsDir(), name);
-	const cloned = await cloneStarter(from, folder);
-	if ('installError' in cloned)
-		return installFailed(name, cloned.installError, json);
-	if ('error' in cloned) {
+	const copied = await copySource(from, source, name, folder);
+	if ('installError' in copied)
+		return installFailed(name, copied.installError, json);
+	if ('error' in copied) {
 		await rm(folder, { recursive: true, force: true });
-		return fail(cloned.error, json);
+		return fail(copied.error, json);
 	}
 	return made(name, json);
 }
 
 /**
- * Clone the starter `from` into `folder`, rename its remote to `upstream`,
- * and leave the branch tracking nothing, so no push ever reaches the starter.
- * A path must be a repository's root, since Git clones only whole
- * repositories; the clone must hold an `epicenter.ts` that loads.
+ * Copy the app in `source` into `folder` as the app `name`: a repository of
+ * its own whose one commit holds the copy and names, in two trailers, where
+ * it came from (`recordedSource`) and the commit copied. Nothing reads the
+ * trailers; they are there for the person and their agent.
+ *
+ * The copy is read from Git, never from the source's folder on disk: Git
+ * writes exactly the files the commit tracks in that folder, with their modes
+ * and symlinks, so an app's `data/`, `node_modules/`, and builds never come
+ * along. It writes them from a shallow clone with nothing checked out. The
+ * clone is made in the system's temporary folder, since an Epicenter lists
+ * every repository inside it (`epicenter-repository.ts`), and it is removed
+ * whatever happens.
+ *
+ * The folder taken must hold an `epicenter.ts` that loads, and no `data/`: a
+ * source carries code alone.
  */
-async function cloneStarter(
+async function copySource(
 	from: string,
+	source: { repository: string; folder: string },
+	name: string,
 	folder: string,
 ): Promise<
 	| { ok: true }
 	| { error: CliError }
 	| { installError: { message: string; next?: string } }
 > {
-	let source = from;
-	if (!isUrl(from)) {
-		source = folderPath(from);
-		const top = await git(source, ['rev-parse', '--show-toplevel']);
-		if (
-			top.code !== 0 ||
-			(await realpath(top.stdout)) !== (await realpath(source))
-		)
-			return {
-				error: CliError.Usage({
-					message: `${from} is not a repository's root; a starter is a repository of its own`,
-				}).error,
-			};
-	}
+	const usage = (message: string) => ({
+		error: CliError.Usage({ message }).error,
+	});
+	const inFolder = (path: string) =>
+		source.folder === '' ? path : `${source.folder}/${path}`;
 	try {
-		await mkdir(appsDir(), { recursive: true });
-		await checkedGit(tmpdir(), ['clone', '-q', source, folder]);
-		await checkedGit(folder, ['remote', 'rename', 'origin', 'upstream']);
-		await checkedGit(folder, ['branch', '--unset-upstream']);
-		await dataRepository(basename(folder), folder, { make: true });
+		const clone = await mkdtemp(join(tmpdir(), 'epicenter-new-'));
+		try {
+			await checkedGit(tmpdir(), [
+				'clone',
+				'-q',
+				'--depth=1',
+				'--no-checkout',
+				source.repository,
+				clone,
+			]);
+			const commit = await checkedGit(clone, ['rev-parse', 'HEAD']);
+			const tracks = async (path: string) =>
+				(await git(clone, ['cat-file', '-e', `HEAD:${inFolder(path)}`]))
+					.code === 0;
+			if (!(await tracks('epicenter.ts')))
+				return usage(
+					`${from} has no epicenter.ts that Git tracks${isUrl(from) && source.folder === '' ? `; name the app's folder with --from ${from}#<folder>` : ''}`,
+				);
+			if (await tracks('data'))
+				return usage(
+					`${from} tracks files under data/, and an app's data is never copied`,
+				);
+			await mkdir(appsDir(), { recursive: true });
+			// The clone's index takes the folder's tree alone, and Git writes that index out at the app's folder.
+			await checkedGit(clone, ['read-tree', `HEAD:${source.folder}`]);
+			await checkedGit(clone, ['checkout-index', '-a', `--prefix=${folder}/`]);
+			await ignoreDataAndPackages(folder);
+			await checkedGit(folder, ['init', '-q']);
+			// Forced, so the commit holds every file copied, whatever the copied .gitignore or this computer's Git ignores.
+			await checkedGit(folder, ['add', '-A', '-f']);
+			await checkedGit(folder, [
+				'commit',
+				'-q',
+				'-m',
+				`new ${name}`,
+				'--trailer',
+				`Source: ${recordedSource(from)}`,
+				'--trailer',
+				`Source-Commit: ${commit}`,
+			]);
+			await dataRepository(name, folder, { make: true });
+		} finally {
+			await rm(clone, { recursive: true, force: true });
+		}
 	} catch (error) {
 		return { error: CliError.GitFailed({ cause: error }).error };
 	}
 	const installed = await installApp(folder);
 	if ('error' in installed) return { installError: installed.error };
-	const { data: located, error } = await loadHomeApp(basename(folder));
+	const { data: located, error } = await loadHomeApp(name);
 	if (error) return { error };
 	if (!located.ok)
 		return {
@@ -177,6 +298,30 @@ async function cloneStarter(
 				.error,
 		};
 	return { ok: true };
+}
+
+/**
+ * Make the code at `folder` ignore `data/` and `node_modules/`, adding to its
+ * `.gitignore` whichever line is missing. A folder taken from inside a larger
+ * repository may have relied on that repository's own `.gitignore`.
+ */
+async function ignoreDataAndPackages(folder: string) {
+	const path = join(folder, '.gitignore');
+	let text = '';
+	try {
+		text = await readFile(path, 'utf8');
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+	}
+	const present = new Set(text.split('\n').map((line) => line.trim()));
+	const missing = IGNORED.filter((line) => !present.has(line));
+	if (missing.length === 0) return;
+	// Removed first, so a .gitignore that is a symlink becomes the app's own file, never a write through the link.
+	await rm(path, { force: true });
+	await writeFile(
+		path,
+		`${text}${text === '' || text.endsWith('\n') ? '' : '\n'}${missing.map((line) => `${line}\n`).join('')}`,
+	);
 }
 
 /**

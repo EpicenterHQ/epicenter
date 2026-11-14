@@ -36,8 +36,9 @@ fetch, pull, rebase, or autostash, and it never force pushes. `epicenter serve`
 does the same for every app when it starts, every 5 minutes, and when it stops
 (ADR-0850). No other command touches `origin`: `epicenter undo` commits, and
 the next sync pushes it.
-`epicenter update` still fetches `upstream`, the
-starter; `upstream` is separate from the backup and receives no pushes.
+An app has no other remote: `epicenter new --from` copies another app's code
+into a new repository with no remote, and no command merges from one
+(ADR-0904).
 
 If the backup has commits the home lacks, a non-fast-forward push leaves the
 backup untouched and the home's snapshot intact. `sync` says that the backup

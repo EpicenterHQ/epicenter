@@ -33,7 +33,7 @@ as many as it has folders; a folder that holds several is only a grouping.
     EPICENTER.md                     marks the Epicenter; front matter port: 4747
     AGENTS.md                        guidance for agents; serve sends it as MCP instructions
     tasks/                           an app: its own Git repository
-      .git/                          history; remotes upstream (its starter) and origin (its backup)
+      .git/                          history; one remote, origin (its backup)
       .gitignore                     node_modules/  *.local  *.local.*
       epicenter.ts                   its collections and actions
       ui/                            its UI project (optional)
@@ -111,8 +111,7 @@ epicenter                                  this Epicenter's folder and apps; non
 epicenter <app>                            what the app does
 epicenter <app> <verb> [<positionals>] [--field value | --field null] [--input <json>|-] [--json]
 epicenter init [<folder>] [--port <n>]     make a folder an Epicenter: EPICENTER.md and AGENTS.md
-epicenter new <app> [--from <git url|path>]
-epicenter update [<app>]                   snapshot, merge the starter, build
+epicenter new <app> [--from <git url>[#<folder>] | <path>]   --from copies another app's code (ADR-0904)
 epicenter build [<app>]                    build the UI, keeping the last one that built
 epicenter sync [<app>]                     snapshot what is pending, push to origin (ADR-0851)
 epicenter serve [--port <n>] [--host <address>] [--stdio]

@@ -1,7 +1,8 @@
 # 0866. An app starts from a starter kept as its `upstream`, and `epicenter update` merges the starter's changes
 
-- **Status:** Proposed
+- **Status:** Superseded (2026-11-14, while still `Proposed`)
 - **Date:** 2026-11-10
+- **Superseded by:** [ADR-0904](0904-copying-is-the-only-way-to-take-an-apps-code.md): `epicenter new --from` copies an app's code into a new repository with no `upstream`, and `epicenter update` is removed. The layout of an app's code and the rule that only `origin` receives pushes stand in ADR-0877, ADR-0880, and ADR-0851.
 - **Amended:** 2026-11-11: `update` snapshots what is pending before it merges, as `undo` does, instead of refusing an app with uncommitted changes, and no longer lists files that do not fit their collection's fields, since every read of such a file says so in its `problems`.
 - **Relates:** [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (one copy; the install rules this replaces), [ADR-0851](0851-an-app-has-one-home-and-an-optional-push-only-backup.md) (`origin`), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (`new`, `link`), [ADR-0854](0854-an-apps-cache-is-the-files-it-gitignores.md) (rebuilt files, ignored where their tool writes them), [ADR-0857](0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md) (`epicenter.ts`), [ADR-0858](0858-where-a-file-lives-decides-whether-it-travels-survives-or-dies-with-its-program.md) (`*.local`), [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (the UI).
 

@@ -4,7 +4,7 @@
  * commits everything then pending in data under the call's name (ADR-0880).
  * A snapshot with no call commits everything pending in both repositories:
  * epicenter sync, with --message for an agent naming its edits; undo before
- * it reverts; update before it merges; and serve's backup clock. Whoever
+ * it reverts; and serve's backup clock. Whoever
  * commits holds the app's lock, so a snapshot never takes part of what a
  * running call wrote. Call trailers name the code captured before loading
  * the action; other data snapshots name the current code HEAD.

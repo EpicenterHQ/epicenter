@@ -227,7 +227,6 @@ test('a misused command answers its usage line, with its help as the next step',
 		['new', 'garden', '--from'],
 		['build', 'reading', 'vault'],
 		['install', 'reading', 'vault'],
-		['update', '--nope'],
 		['init', '--port'],
 	] as const;
 	for (const [command, ...words] of misused) {

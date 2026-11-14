@@ -66,7 +66,7 @@ async function aheadOf(folder: string) {
  * `<app>: <message>` or `<app>: changed outside epicenter`, then push each
  * that has `origin` there by name, if it is ahead of its tracking ref or has
  * none yet. It never fetches, merges, or force pushes, and never pushes to
- * `upstream` or any other remote (ADR-0851). The snapshots hold the app's
+ * any remote but `origin` (ADR-0851). The snapshots hold the app's
  * lock, waiting up to `wait` milliseconds (30 seconds unless given) for a call
  * writing the app to commit; `serve`'s clock gives 0. The pushes hold nothing.
  */

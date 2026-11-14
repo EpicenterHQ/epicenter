@@ -145,12 +145,12 @@ export default defineApp({ description: 'The loud app', collections: {}, actions
 test('F9 one table owns the vocabulary; --json goes anywhere; defaulted fields are not required', async () => {
 	const f = await setup();
 	await notes(f);
-	for (const word of ['open', 'types', 'setup', 'help']) {
+	for (const word of ['open', 'types', 'setup', 'help', 'update']) {
 		const result = await f.json(word);
 		expect(result.code).toBe(2);
 		expect(result.report.error.message).toContain(`Unknown app "${word}"`);
 	}
-	for (const word of ['new', 'update', 'sync', 'serve', 'init', 'build'])
+	for (const word of ['new', 'sync', 'serve', 'init', 'build'])
 		expect((await f.json('new', word)).code).toBe(2);
 	expect((await f.json('new', 'link')).code).toBe(0);
 	const help = (await f.run('--help')).stdout;

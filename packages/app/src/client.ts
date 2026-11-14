@@ -1,6 +1,6 @@
 /**
  * How an app's UI asks `epicenter serve` to run its actions (ADR-0860,
- * ADR-0866). A UI is a web page built from an app's `ui/` into `ui/dist/`
+ * ADR-0880). A UI is a web page built from an app's `ui/` into `ui/dist/`
  * and served at `/<app>/`; it runs an action at `POST /<app>/<action>` on the
  * same origin, and reads the response's JSON lines: each value the action
  * yields, then its answer (ADR-0879). Agents ask over MCP instead.

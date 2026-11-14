@@ -47,7 +47,6 @@ import { runAction } from './run.ts';
 import { serviceCommand } from './service.ts';
 import { appStatusOf } from './snapshot.ts';
 import { syncCommand } from './sync.ts';
-import { updateCommand } from './update.ts';
 
 const HELP = `epicenter                              your apps
 epicenter <app>                        what an app can do
@@ -72,7 +71,6 @@ const HANDLERS: { [K in Command]: Handler } = {
 	init: initCommand,
 	install: installCommand,
 	new: newCommand,
-	update: updateCommand,
 	build: buildCommand,
 	sync: syncCommand,
 	history: historyCommand,
