@@ -1,9 +1,8 @@
 # 0705. An app's data lives in two kinds of store
 
-<!-- doc-path-check: ignore-file (cites code that moved since) -->
-
-- **Status:** Accepted (2026-11-03)
+- **Status:** Superseded
 - **Date:** 2026-11-03
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amends:** [ADR-0534](0534-data-folders-are-the-only-data-model.md) at "Data folders are the one data model": a document synced through the person's account is a second store; the removal of the Yjs store's packages, its `StoreAuthority` and `GenerationsLedger` Durable Objects, and the apps built only on them stands; [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) at an app's data being a layout of files: an app whose contract declares the document store keeps a document instead, and the Variants table gains document apps.
 - **Relates:** [ADR-0525](0525-a-field-is-plain-json-schema.md) (a field is plain JSON Schema), [ADR-0706](0706-a-browser-variant-runs-the-desktop-code-with-weaker-guarantees.md) (browser variants), [ADR-0707](0707-an-app-that-needs-co-editing-is-a-document-app.md) (co-editing), [ADR-0708](0708-a-namespace-holds-documents-beside-repositories-under-one-resource-grant.md) (resources), [ADR-0709](0709-a-document-is-rebuilt-into-a-fresh-generation-by-copying-its-current-state.md) (rebuild).
 - **Amended by:** [ADR-0771](0771-plain-files-let-epicenter-refuse-renames-attachment-conflict-copies-and-a-second-store.md) at the document store: the folder is the only kind of store.

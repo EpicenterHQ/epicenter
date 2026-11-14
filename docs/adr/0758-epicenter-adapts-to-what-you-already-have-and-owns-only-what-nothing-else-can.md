@@ -1,7 +1,8 @@
 # 0758. Epicenter adapts to what you already have and owns only what nothing else can
 
-- **Status:** Accepted (2026-11-04)
+- **Status:** Superseded
 - **Date:** 2026-11-04
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Relates:** [ADR-0741](0741-epicenter-reconciles-only-states-it-made.md) (the inward rule: Epicenter reconciles only states it made), [ADR-0749](0749-epicenter-draws-its-boundaries-where-people-already-expect-them.md) (boundaries where people already expect them), [ADR-0733](0733-your-own-git-in-an-epicenter-folder-is-plain-git.md) (your own `git` is plain Git), [ADR-0757](0757-every-model-is-an-endpoint-every-model-file-is-a-cache.md) (models and model files), [ADR-0762](0762-epicenter-is-made-of-standards-and-places.md) (its inward form: Epicenter is made of standards and places).
 - **Unbuilt:** the adaptations ADR-0757 names (any endpoint, the Hugging Face cache as every app's model store); `settle` in the Rust sync core ([ADR-0751](0751-every-native-app-carries-one-sync-core.md)).
 

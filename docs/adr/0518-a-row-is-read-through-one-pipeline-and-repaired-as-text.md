@@ -1,7 +1,8 @@
 # 0518. A row is read through one pipeline and repaired as text
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-10-11
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Relates:** [ADR-0515](0515-snapshot-saves-serialize-writes-and-retain-only-the-latest-pending-text.md) (editing sessions), [ADR-0519](0519-row-frontmatter-is-yaml-every-common-reader-reads-identically.md) (the row text format), [ADR-0464](0464-file-table-updates-conditionally-replace-the-captured-whole-file.md) (conditional replacement without retry)
 
 Retired source files below use their last tracked Git snapshot (`commit:path`);

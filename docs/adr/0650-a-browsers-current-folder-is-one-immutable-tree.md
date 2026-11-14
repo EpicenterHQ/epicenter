@@ -1,7 +1,8 @@
 # 0650. A browser's current folder is one immutable tree
 
-- **Status:** Proposed
+- **Status:** Superseded
 - **Date:** 2026-10-20
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amends:** [ADR-0628](0628-browser-sync-uses-transactions-and-git-updates-instead-of-cross-tab-ownership.md) at the persisted edit overlay, revision-based publication, and hidden edit intent between identical snapshots. Its merge units, ordinary Git exchange, snapshot retention, and absence of a cross-tab owner remain.
 - **Relates:** [ADR-0636](0636-an-app-opens-local-files-through-one-folder-handle.md) keeps storage and Git details outside the app-facing Folder contract.
 - **Unbuilt:** automatic public sync integration and scheduling, hosted-service verification, and phone/eviction/termination evidence. Production working-tree storage and local native-server synchronization have desktop browser evidence.

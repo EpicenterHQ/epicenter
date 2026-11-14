@@ -1,7 +1,8 @@
 # 0797. Front matter is a strict grammar, and anything else is body
 
-- **Status:** Accepted (2026-11-05)
+- **Status:** Superseded
 - **Date:** 2026-11-05
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amends:** [ADR-0796](0796-a-field-is-a-line-its-value-is-json-and-a-write-patches-only-the-fields-it-changes.md) at "Epicenter reads any YAML a person or another tool writes": it reads only the grammar below, and a file outside it is all body; [ADR-0795](0795-git-merges-a-notes-body-and-epicenter-merges-its-front-matter-by-key.md) at a front matter that does not split into keys merging by Git's line merge: such a file has no front matter, and merges as body; [ADR-0787](0787-records-that-assumed-a-running-engine-or-a-build-time-choice-follow-0750-and-0781.md) at what the one `AGENTS.md` Epicenter writes says: it also states the grammar.
 - **Relates:** [ADR-0775](0775-a-write-never-fails-the-folder-keeps-it-until-it-lands.md) (a note that does not read keeps its text), [ADR-0789](0789-a-conflict-is-a-mark-on-its-note-resolved-in-the-repair-editor.md) (the repair editor), [ADR-0793](0793-programs-only-compose-typescript-holds-what-epicenter-means-and-rust-holds-the-os-git-and-secrets.md) (one primitive in each language under one fixture).
 - **Amended by:** [ADR-0798](0798-a-store-patches-fields-and-writes-text-and-a-change-is-data.md) at a field set normalizing first: the page normalizes, with a write, and no store normalizes.

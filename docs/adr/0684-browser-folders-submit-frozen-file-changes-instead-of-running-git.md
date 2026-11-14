@@ -1,7 +1,8 @@
 # 0684. Browser folders submit frozen file changes instead of running Git
 
-- **Status:** Rejected
+- **Status:** Superseded
 - **Date:** 2026-10-23
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Rejected:** 2026-10-30, in favor of [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md): the web never syncs; a browser keeps its own files (OPFS through `openDevice`) and uploads new ones through the server, which commits them. A browser holds no snapshot of a repository and submits no frozen changes to merge into one. Never built.
 - **Supersedes:** [ADR-0628](0628-browser-sync-uses-transactions-and-git-updates-instead-of-cross-tab-ownership.md) at browser Git storage, commit construction, ancestry recovery, and sync transactions; [ADR-0623](0623-every-browser-app-keeps-its-own-git-clone-of-a-repository.md) at the browser clone.
 - **Relates:** [ADR-0633](0633-apps-open-local-data-before-connecting-services.md) (local opening and explicit connection), [ADR-0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md) (merge units and recovery), [ADR-0689](0689-an-edit-shows-what-you-typed-the-queue-carries-it-the-folder-shows-what-landed.md) and [ADR-0690](0690-merges-happen-only-where-history-records-the-common-ancestor.md) (local saves and sync merges).

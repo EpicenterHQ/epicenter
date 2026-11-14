@@ -1,7 +1,8 @@
 # 0592. Git controls which working files enter commits
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-10-17
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amends:** [ADR-0577](0577-audio-stays-on-the-machine-that-recorded-it.md) at the `local` key, the engine's rule table, `publishLocalPatterns`, and the consequences about `local` merging: audio stays on the machine while the folder's `.gitignore` ignores it, and whoever edits that line decides for every device. [ADR-0576](0576-a-folder-has-one-write-a-merge-by-unit-where-the-writer-acting-wins.md) at "Paths the opened definition declares local never enter a commit": `.gitignore` decides what a commit leaves out. [ADR-0544](0544-a-blob-is-a-file-in-its-folder-and-git-decides-how-it-travels.md) at "`audio/`, which its definition declares local": Whispering's template `.gitignore` ignores `audio/`.
 - **Amended by:** [ADR-0619](0619-every-byte-epicenter-keeps-is-a-git-object-a-working-file-an-access-list-row-or-a-cache.md) at "Every repository Epicenter creates or clones gets `info/attributes` unsetting each attribute that changes bytes before anything is checked out": Epicenter writes no `info/attributes`.
 - **Amended by:** [ADR-0620](0620-history-in-a-repository-only-grows.md) at "repairing it means rewriting history in Git, by a person or an agent": a repair is a revert, and a rewritten history is a new repository.

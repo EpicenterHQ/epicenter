@@ -1,7 +1,5 @@
 # 0714. A file's extension decides how every folder merges it
 
-<!-- doc-path-check: ignore-file (cites the waiting folder sync product (ADR-0840), kept at tag folder-sync-product) -->
-
 - **Status:** Superseded
 - **Date:** 2026-11-03
 - **Superseded by:** [ADR-0734](0734-every-file-other-than-a-note-is-kept-whole-in-git-lfs.md): notes merge by Epicenter's rule and every other file is kept whole through Git LFS, with no binary-extension list or size cap.

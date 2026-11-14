@@ -1,7 +1,5 @@
 # 0762. Epicenter is made of standards and places
 
-<!-- doc-path-check: ignore-file (cites code that moved since) -->
-
 - **Status:** Accepted (2026-11-04)
 - **Date:** 2026-11-04
 - **Amended by:** [ADR-0763](0763-epicenters-doctrine-is-three-roots-and-one-rule-for-apps.md) at its decision: its two halves become two roots of Epicenter's doctrine, "programs meet in shared places, never by calling each other" and "speak the standard; invent only what none covers"; [ADR-0764](0764-reaching-a-model-is-epicenter-ais-alone-in-the-openai-vocabulary.md) at "Open, not decided": the agent loop speaks the OpenAI vocabulary and keeps only its stream type, `EngineChunk`.
@@ -85,7 +83,7 @@ calls another names the shared place that could not serve.
 ## Open, not decided
 
 Whether the agent loop speaks the OpenAI vocabulary directly instead of its
-own message types (`packages/ai/src/agent/engine.ts`, the loop of
+own message types (`4b2a64b930:packages/ai/src/agent/engine.ts`, the loop of
 [ADR-0047](0047-the-agent-loop-runs-in-the-client-and-tools-are-dispatched-actions.md)),
-which `packages/ai/src/openai/agent-engine.ts` (280 lines) translates
+which `4b2a64b930:packages/ai/src/openai/agent-engine.ts` (280 lines) translates
 today. It waits on a measurement of that translation code.

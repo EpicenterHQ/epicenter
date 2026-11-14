@@ -1,7 +1,8 @@
 # 0786. Every web app is online, and browser storage leaves the platform
 
-- **Status:** Accepted (2026-11-05)
+- **Status:** Superseded
 - **Date:** 2026-11-05
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amends:** [ADR-0746](0746-the-web-is-online-offline-needs-an-installed-app.md) at "A web app is either local only or online" and its local-only column: every web app is online; [ADR-0773](0773-a-folder-opens-at-a-place-every-place-is-a-store-and-the-server-never-merges.md) at `home` being "this browser's storage with no account": on the web, `home` is the team's repository, opened once the person signs in; [ADR-0784](0784-whispering-is-the-webs-local-app-and-messages-is-a-program-on-this-computer.md) at "Whispering is the web's one local app", its kept service worker, and browser storage called from the page: Whispering's web build is online, and no web app has a service worker or browser storage; [ADR-0779](0779-a-store-is-four-verbs-and-a-browser-recording-lands-whole.md) at where a browser recording lands: whole, at Stop, in the team's repository.
 - **Relates:** [ADR-0780](0780-a-surface-uses-what-its-platform-gives-and-parity-is-not-a-goal.md) (each surface uses what its platform gives), [ADR-0781](0781-apps-branch-on-what-a-capability-offers-and-one-build-serves-every-surface.md) (one build, which this keeps), [ADR-0770](0770-teams-own-repositories-and-sharing-is-membership.md) (consent chooses a team), [ADR-0785](0785-a-desktop-app-signs-in-to-sync-its-own-folder.md) (a desktop app signs in to sync).
 - **Amended by:** [ADR-0788](0788-everything-in-a-folder-syncs-and-a-recordings-audio-is-kept-in-one-of-three-places.md) at a take landing whole in the folder: its note does, and its audio lands where the person keeps audio.

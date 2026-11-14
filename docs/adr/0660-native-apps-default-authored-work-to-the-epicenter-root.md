@@ -1,7 +1,8 @@
 # 0660. Native apps default authored work to the Epicenter root
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-10-21
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amended by:** [ADR-0670](0670-native-shells-share-explicit-machine-local-app-homes.md), which shares explicit home selections across native shells.
 - **Amends:** [ADR-0636](0636-an-app-opens-local-files-through-one-folder-handle.md) at allowing a standalone app's authored default inside AppData; [ADR-0644](0644-the-shell-assigns-a-native-windows-default-folder.md) and [ADR-0647](0647-a-native-window-edits-one-directory-bound-before-it-exists.md) at assigning standalone Todos its whole AppData directory. Their native shell ownership of the folder grant remains.
 - **Restores:** [ADR-0539](0539-epicenters-own-folder-is-so-epicenter-and-machine-state-splits-by-what-it-costs-to-lose.md)'s visible authored-root rule for native application defaults, with its later changes to app installation and Epicenter's own records intact.

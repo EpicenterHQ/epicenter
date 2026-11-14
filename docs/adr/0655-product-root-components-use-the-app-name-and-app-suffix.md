@@ -1,7 +1,5 @@
 # 0655. Product root components use the app name and App suffix
 
-<!-- doc-path-check: ignore-file (cites the waiting folder sync product (ADR-0840), kept at tag folder-sync-product) -->
-
 - **Status:** Accepted
 - **Date:** 2026-10-21
 
@@ -21,10 +19,10 @@ and composes product state and UI.
 
 | Product | Component |
 | --- | --- |
-| Todos | `apps/todos/src/lib/components/TodosApp.svelte` |
-| Capture | `apps/capture/src/lib/components/CaptureApp.svelte` |
+| Todos | `folder-sync-product:apps/todos/src/lib/components/TodosApp.svelte` |
+| Capture | `folder-sync-product:apps/capture/src/lib/components/CaptureApp.svelte` |
 | Honeycrisp | `apps/honeycrisp/src/lib/components/HoneycrispApp.svelte` |
-| Vocab | `apps/vocab/src/routes/components/VocabApp.svelte` |
+| Vocab | `folder-sync-product:apps/vocab/src/routes/components/VocabApp.svelte` |
 | Whispering | `apps/whispering/src/routes/components/WhisperingApp.svelte` |
 
 **Reserve `Shell` for surrounding layout and `View` for a screen or

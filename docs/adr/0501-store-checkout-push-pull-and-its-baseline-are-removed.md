@@ -1,7 +1,8 @@
 # 0501. Store checkout Pull/Push and its baseline are removed
 
-- **Status:** Proposed
+- **Status:** Superseded
 - **Date:** 2026-10-03
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Supersedes:** [ADR-0337](0337-the-folder-is-a-working-copy-and-pull-and-push-are-the-whole-cycle.md), the Yjs store working-copy workflow. Later checkout refinements remain historical evidence, not a replacement workflow.
 - **Relates:** [ADR-0494](0494-file-folders-reserve-epicenter-for-rebuildable-caches.md) defines transient folder queries; [ADR-0463](0463-queryable-exports-contain-completed-sqlite-snapshots.md) defers SQL export.
 - **Implementation:** store checkout API, baseline/manifest code, NDJSON wire format, host checkout route, checkout tests, and checkout benchmark are removed.

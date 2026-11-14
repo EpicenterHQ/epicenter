@@ -1,9 +1,8 @@
 # 0732. A grant reaches what the person chooses at consent
 
-<!-- doc-path-check: ignore-file (cites the waiting folder sync product (ADR-0840), kept at tag folder-sync-product) -->
-
-- **Status:** Accepted (2026-11-04)
+- **Status:** Superseded
 - **Date:** 2026-11-04
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amends:** [ADR-0731](0731-every-app-signs-in-as-its-site.md) at "What an app can reach derives from its origin": an app's grant names the repository the person chose at consent, by [ADR-0614](0614-a-browser-app-is-identified-by-its-origin.md); at "one client, `so.epicenter`": Epicenter's client is its origin, `https://epicenter.so`, which also accepts device authorization in place of `so.epicenter.cli`; [ADR-0718](0718-epicenters-machinery-on-a-machine-lives-in-a-hidden-home-every-program-reads.md) at "Secrets stay in the keychain" and "Epicenter's AppData keeps only Epicenter's own window state": the engine's refresh token is a file in Epicenter's AppData.
 - **Relates:** [ADR-0614](0614-a-browser-app-is-identified-by-its-origin.md) (a repository grant names an account, an origin, and a repository), [ADR-0633](0633-apps-open-local-data-before-connecting-services.md) (consent never selects data by name alone), [ADR-0722](0722-an-apps-names-derive-from-its-sites-host.md) (names from the host), [ADR-0740](0740-every-credential-an-app-holds-lives-in-its-own-place.md) (where each credential lives).
 - **Amended by:** [ADR-0770](0770-teams-own-repositories-and-sharing-is-membership.md) at what consent offers: a team, whose repository for the app the grant names.

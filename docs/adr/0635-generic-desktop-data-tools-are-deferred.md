@@ -1,7 +1,8 @@
 # 0635. The Epicenter desktop app is deferred
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-10-19
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amends:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md) at treating the desktop data browser and minimal runner as current delivery scope, and [ADR-0627](0627-every-change-to-the-data-model-is-checked-against-nine-principles.md) at the desktop browser and runner in principle 9.
 - **Relates:** [ADR-0632](0632-a-lens-belongs-to-its-reader.md) (reader-selected schemas), [ADR-0633](0633-apps-open-local-data-before-connecting-services.md) (independent local apps), and [ADR-0634](0634-hosted-inference-is-independent-of-repository-sync.md) (optional hosted inference).
 - **Amended by:** [ADR-0715](0715-the-epicenter-app-browses-every-folder-and-document-a-person-has.md) at deferring the desktop data browser: the Epicenter app browses every folder and document a person has.

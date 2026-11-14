@@ -1,7 +1,8 @@
 # 0673. A SQLite handle owns one connection until asynchronous disposal
 
-- **Status:** Proposed
+- **Status:** Superseded
 - **Date:** 2026-10-22
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amends:** [ADR-0201](0201-epicenter-owns-one-app-data-root-and-an-app-partitions-its-one-directory-by-a-stable-authority-identifier.md) at forbidding host access to app-private databases, allowing app-requested SQLite operations within an installation-bound capability.
 - **Relates:** [ADR-0678](0678-app-storage-openers-use-runtime-bound-scopes.md) defines the installation scope and database opener; [ADR-0660](0660-native-apps-default-authored-work-to-the-epicenter-root.md) separates authored Folders from app-managed local state; historical ADR-0312 refused transactions spanning IPC calls but was superseded by ADR-0534.
 - **Unbuilt:** A repository SQLite adapter, `openDeviceDatabase` and `deleteDeviceDatabase`, production open-or-create admission and interrupted-deletion recovery, asynchronous disposal, browser cross-tab contention deadlines and worker-failure cleanup, and portable renderer-crash cleanup; adapters remain fictional-data prototypes, with no production exports.

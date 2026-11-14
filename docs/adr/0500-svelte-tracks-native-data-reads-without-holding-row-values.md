@@ -1,7 +1,8 @@
 # 0500. Svelte tracks native data reads without holding row values
 
-- **Status:** Proposed
+- **Status:** Superseded
 - **Date:** 2026-10-03
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Supersedes:** [ADR-0311](0311-a-table-is-a-held-projection-and-everything-cheaper-than-rebuilding-is-read-through.md), the adapter-held table projection.
 
 ## Context

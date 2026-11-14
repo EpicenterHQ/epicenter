@@ -1,7 +1,5 @@
 # 0600. An approved commit supplies a window's page and its relative assets
 
-<!-- doc-path-check: ignore-file (cites the waiting folder sync product (ADR-0840), kept at tag folder-sync-product) -->
-
 - **Status:** Superseded
 - **Date:** 2026-10-17
 - **Superseded by:** [ADR-0605](0605-an-app-is-an-ordinary-single-page-app-in-a-forkable-git-repository.md): each installed app is served at the root of its own host, so no other app's build is on its origin, and no commit is approved.

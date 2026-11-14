@@ -1,7 +1,5 @@
 # 0183. Epicenter mediates the effects it owns and names the rest unmediated
 
-<!-- doc-path-check: ignore-file (cites the waiting folder sync product (ADR-0840), kept at tag folder-sync-product) -->
-
 - **Status:** Accepted
 - **Date:** 2026-07-27
 - **Amends:** [ADR-0179](0179-an-installed-app-is-an-inert-built-folder-admitted-through-one-static-artifact-boundary.md) at one bounded clause: the native command surface reachable from an app window is no longer unrestricted HTTP and HTTPS through the Tauri HTTP plugin. Its static-artifact admission boundary, its full-trust ceremony, and its refusal of per-app permissions and prompts are unchanged and restated as still governing.
@@ -145,8 +143,8 @@ deliberately chooses none of them.
 - Naming the macOS media-capture limit creates an upstream target. Routing wry's
   media-capture decision through a host-supplied handler would convert that limit
   from permanent to fixed, and it belongs upstream rather than in a fork.
-- `apps/epicenter/AGENTS.md` currently states that there is no per-app device
-  prompt. That is a per-platform claim, not a universal one, and it needs
+- `80edecf1ce^:apps/epicenter/AGENTS.md` stated that there is no per-app device
+  prompt (the app was deleted in 11ea49b95f). That is a per-platform claim, not a universal one, and it needs
   qualifying when the implementation wave lands.
 
 ## Considered alternatives

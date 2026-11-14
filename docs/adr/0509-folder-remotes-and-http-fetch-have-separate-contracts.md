@@ -1,7 +1,8 @@
 # 0509. Folder remotes and HTTP fetch have separate contracts
 
-- **Status:** Proposed
+- **Status:** Superseded
 - **Date:** 2026-10-07
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 
 ## Context
 

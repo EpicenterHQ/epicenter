@@ -1,7 +1,8 @@
 # 0746. The web is online; offline needs an installed app
 
-- **Status:** Accepted (2026-11-04)
+- **Status:** Superseded
 - **Date:** 2026-11-04
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Relates:** [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) (the local web and online web variants, which stand), [ADR-0706](0706-a-browser-variant-runs-the-desktop-code-with-weaker-guarantees.md) (a browser variant's weaker guarantees), [ADR-0744](0744-sync-diffs-state-because-agents-edit-state.md) (sync diffs state), [ADR-0745](0745-a-browser-extension-writes-through-the-local-epicenter-engine.md) (an extension writes through the engine), [ADR-0749](0749-epicenter-draws-its-boundaries-where-people-already-expect-them.md) (a website needs the internet).
 - **Amended by:** [ADR-0773](0773-a-folder-opens-at-a-place-every-place-is-a-store-and-the-server-never-merges.md) at "reads and writes the repository through `openRemote`": the repository is a place, `home({ site, account })`.
 - **Amended by:** [ADR-0784](0784-whispering-is-the-webs-local-app-and-messages-is-a-program-on-this-computer.md) at "A web app holds no unsent work": a write waits in the page until it lands, behind the leave guard (ADR-0775).

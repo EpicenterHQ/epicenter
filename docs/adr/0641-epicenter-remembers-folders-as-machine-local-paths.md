@@ -1,7 +1,8 @@
 # 0641. Epicenter remembers folders as machine-local paths
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-10-19
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Related proposal:** ADR-0679 (deleted) replaced bookmarks with folder-only pins and automatic recent openings (`99dc52aaf6`); the pins, the recents, and `epicenter folders pin|unpin|list|remove-recent` were removed when Epicenter came to list only the folders it syncs (`9c007bccc7`, ADR-0701).
 - **Amended by:** [ADR-0649](0649-folders-json-selects-this-machines-folder-locations.md) at the array format and list-only purpose: the object keeps added paths in `folders` and the selected portable-records path in `epicenter`.
 - **Amends:** [ADR-0558](0558-the-epicenter-cli-groups-only-its-app-and-auth-commands.md) only at grouping machine-local preferences and the reserved `open` command: `folders` manages remembered paths; `open <directory>` requests desktop opening without the former `--app <id>` selector.

@@ -1,7 +1,8 @@
 # 0774. One write makes it so, and settles a change the way sync does
 
-- **Status:** Accepted (2026-11-05)
+- **Status:** Superseded
 - **Date:** 2026-11-05
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amends:** [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) at the client's `create`, `update` and `delete`, "every update or delete passes `over`, the version it read", and the refusals `NotFound`, `Occupied` and `Conflict { current }`: one write, `set`, takes no version, and a write fails only as `Invalid` or `Unavailable`; [ADR-0769](0769-svelte-reads-every-capability-through-one-reactive-copy.md) at the folder's writes "made over the version shown": the folder reads a file just before writing it and settles a change; [ADR-0773](0773-a-folder-opens-at-a-place-every-place-is-a-store-and-the-server-never-merges.md) at "the folder then carries the person's edit over the change (`updateNote`)": it settles it with `settle`.
 - **Relates:** [ADR-0551](0551-every-write-to-a-folder-file-is-one-save-that-merges-by-the-files-kind-and-sync-settles-with-the-same-merge.md) (one merge for a save and for sync, which this returns to), [ADR-0771](0771-plain-files-let-epicenter-refuse-renames-attachment-conflict-copies-and-a-second-store.md) (the later write to an attachment wins), [ADR-0772](0772-a-folder-says-what-it-is-in-agents-md-and-this-computer-keeps-the-rest.md) (no history before the first sync).
 - **Amended by:** [ADR-0775](0775-a-write-never-fails-the-folder-keeps-it-until-it-lands.md) at "A write fails only as `Invalid` or `Unavailable`": a write never fails; the folder keeps it until it lands.

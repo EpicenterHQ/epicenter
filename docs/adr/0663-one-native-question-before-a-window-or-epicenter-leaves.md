@@ -1,9 +1,8 @@
 # 0663. One native question before a window or Epicenter leaves
 
-<!-- doc-path-check: ignore-file (cites the waiting folder sync product (ADR-0840), kept at tag folder-sync-product) -->
-
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-10-21
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amended by:** [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) at window Close: a window waits for the writes its page has out (`guardLeave` in `@epicenter/svelte/leave-guard`) and asks nothing; closing again while it waits asks whether to close anyway. [ADR-0689](0689-an-edit-shows-what-you-typed-the-queue-carries-it-the-folder-shows-what-landed.md) amended this first and was rejected.
 - **Amended by:** [ADR-0701](0701-apps-run-as-separate-programs.md) at application Quit, 2026-11-01: the Quit alert ("Unsaved changes may be lost.", Quit Anyway or Cancel) is deleted, with `QuitRequest` and the `ExitRequested` handler, because no Epicenter window holds unsaved input: Epicenter opens no folder's files, and apps are separate programs. Quit quits. A downloaded update asks on its own whether to install and restart.
 - **Amended by:** [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) at window Close again, 2026-11-01: a window closes at once and asks nothing, and nothing waits for its page's writes; the close protocol and the "Close anyway?" question are deleted. A standalone app's Quit is the default menu's, not a route through the primary window's close. The recorder still finishes a recording in progress when its window is destroyed or the app exits.

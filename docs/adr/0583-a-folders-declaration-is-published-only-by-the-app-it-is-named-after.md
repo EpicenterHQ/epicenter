@@ -1,7 +1,5 @@
 # 0583. A folder's declaration is published only by the app it is named after
 
-<!-- doc-path-check: ignore-file (cites the waiting folder sync product (ADR-0840), kept at tag folder-sync-product) -->
-
 - **Status:** Superseded
 - **Date:** 2026-10-17
 - **Superseded by:** [ADR-0585](0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md) at all of it: no app publishes `epicenter.json`, a folder is made from its app's template, an app opens a folder with its own definition and no containment check, and `folder.own` is deleted. One `openFolder` per entry and the shell's `window_folder` hand-off stand.

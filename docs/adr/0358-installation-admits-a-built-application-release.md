@@ -1,7 +1,5 @@
 # 0358. Installation admits a built application release
 
-<!-- doc-path-check: ignore-file (cites the waiting folder sync product (ADR-0840), kept at tag folder-sync-product) -->
-
 - **Status:** Proposed
 - **Date:** 2026-09-08
 - **Relates:** [ADR-0179](0179-an-installed-app-is-an-inert-built-folder-admitted-through-one-static-artifact-boundary.md) (installation reads an inert built folder), [ADR-0314](0314-an-app-is-one-directory-and-installation-is-a-rename.md) (one installed app directory), [ADR-0326](0326-the-deployment-names-the-authority-and-a-person-never-types-one.md) (the deployment supplies the authority), [ADR-0334](0334-a-deployed-app-is-a-trusted-app-because-deploying-it-was-the-consent.md) (deployment is consent), and [ADR-0335](0335-a-person-is-an-origin-and-an-app-is-a-path-under-it.md) (hosted deployment paths)
@@ -14,13 +12,13 @@
 
 ## Context
 
-Epicenter currently launches only the applications compiled into its own
-<!-- doc-path-check: ignore-next-line (deleted with the Bun host in wave 3) -->
-release. `apps/epicenter/src/applications.ts` declares the closed
-<!-- doc-path-check: ignore-next-line (deleted with the Bun host in wave 3) -->
-`COMPILED_APPLICATIONS` list, `apps/epicenter/src/static-assets.ts` loads each
-application's built static directory, and `apps/epicenter/package.json` builds
-those applications as part of the desktop release. There is no installed-app
+Epicenter launched only the applications compiled into its own release.
+`46dfdad9cb^:apps/epicenter/src/applications.ts` declared the closed
+`COMPILED_APPLICATIONS` list, `46dfdad9cb^:apps/epicenter/src/static-assets.ts`
+loaded each application's built static directory, and
+`46dfdad9cb^:apps/epicenter/package.json` built those applications as part of
+the desktop release. 46dfdad9cb deleted the Bun host, and 11ea49b95f deleted
+the desktop app. There is no installed-app
 discovery surface and no `epicenter install` command.
 
 The future installation plane needs a vocabulary that a person and an agent can

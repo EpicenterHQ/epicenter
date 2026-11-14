@@ -1,7 +1,8 @@
 # 0572. A row body is read and written with line feeds and storable text
 
-- **Status:** Proposed
+- **Status:** Superseded
 - **Date:** 2026-10-16
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Relates:** [ADR-0518](0518-a-row-is-read-through-one-pipeline-and-repaired-as-text.md) (one read and write pipeline), [ADR-0519](0519-row-frontmatter-is-yaml-every-common-reader-reads-identically.md) (every write reads its own text back), [ADR-0548](0548-a-view-is-a-cache-of-files-with-one-write-path-one-read-path-and-one-channel-of-change.md), [ADR-0551](0551-every-write-to-a-folder-file-is-one-save-that-merges-by-the-files-kind-and-sync-settles-with-the-same-merge.md)
 - **Unbuilt:** `parseRow` converting body line endings to `\n`; `formatRow` writing `\n` and replacing unpaired surrogates; removing `lf`, and the `withFileNewlines` and `wellFormed` calls, from row editors in Todos, Honeycrisp, Capture, Vocab, and Whispering.
 

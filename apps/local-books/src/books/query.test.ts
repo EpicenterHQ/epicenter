@@ -1,7 +1,7 @@
 /**
  * `queryBooks` against a seeded mirror: the read-only path end to end (SQL ->
- * the SQLite mirror -> bounded rows), and the read-only connection as the write
- * boundary. The CLI `query` verb is a thin adapter over this.
+ * the SQLite mirror -> matching rows), and the read-only connection as the write
+ * boundary. The API suite checks the row cap with more than 1000 rows.
  */
 
 import { describe, expect, test } from 'bun:test';
@@ -34,7 +34,7 @@ function fixtureMirror() {
 }
 
 describe('queryBooks', () => {
-	test('runs a read-only SELECT and returns the live rows, bounded', () => {
+	test('runs a SELECT against the mirror and returns matching rows', () => {
 		const { mirror, cleanup } = fixtureMirror();
 		const data = expectOk(
 			queryBooks({
