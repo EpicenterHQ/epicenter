@@ -72,7 +72,7 @@ test('owners, tests, comments, docs, and dotted names pass', () => {
 		'packages/recorder/src/wav.rs':
 			'//! Pending in `.epicenter/recordings`.\nfn main() {}\n\n#[cfg(test)]\nmod tests {\n    fn t() {\n        let _ = ".epicenter/recordings";\n    }\n}\n',
 		'packages/folder/src/watch.ts':
-			"/**\n * Unfinished writes live in `.epicenter`.\n */\n// .epicenter is hidden\nconst id = 'so.epicenter.todos';\nconst api = 'https://api.epicenter.so';\nconst demo = '.epicenter-todos-demo';\n",
+			"/**\n * Unfinished writes live in `.epicenter`.\n */\n// .epicenter is hidden\nconst id = 'so.epicenter.todos';\nconst api = 'https://api.epicenter.so';\nconst demo = '.epicenter-todos-demo';\nconst range = engines\n\t?.epicenter;\n",
 		'packages/folder/README.md': 'Saves stage in `.epicenter/saves`.\n',
 	});
 	try {

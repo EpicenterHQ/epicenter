@@ -1,5 +1,7 @@
 # 0542. Quitting is immediate, because unfinished work already lives in its folder
 
+<!-- doc-path-check: ignore-file (cites the waiting folder sync product (ADR-0840), kept at tag folder-sync-product) -->
+
 - **Status:** Accepted
 - **Date:** 2026-10-15
 - **Amended:** 2026-10-20, individual desktop window close waits for local drafts and retains unsent input.

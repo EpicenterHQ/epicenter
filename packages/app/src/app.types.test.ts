@@ -270,8 +270,8 @@ describe('an app author', () => {
 				due: word?.due ?? null,
 				body: `${word?.body ?? ''}more\n`,
 			}));
-		// @ts-expect-error createdAt is required, so it cannot be removed
 		() =>
+			// @ts-expect-error createdAt is required, so it cannot be removed
 			words.update({ path: 'data/words/a.md' }, () => ({ createdAt: null }));
 		// @ts-expect-error a path is not a field
 		() => words.update({ path: 'data/words/a.md' }, () => ({ path: 'b' }));

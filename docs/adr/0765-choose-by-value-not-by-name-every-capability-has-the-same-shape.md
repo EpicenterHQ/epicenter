@@ -1,5 +1,7 @@
 # 0765. Choose by value, not by name; every capability has the same shape
 
+<!-- doc-path-check: ignore-file (cites code that moved since) -->
+
 - **Status:** Accepted (2026-11-04)
 - **Date:** 2026-11-04
 - **Amends:** [ADR-0754](0754-a-capability-takes-what-it-needs-as-values-and-shows-what-it-can-do-now-as-values.md) at "A capability takes what it needs as values" and at its Svelte adapter "follows `fromAuth`": the value a capability takes is another capability itself, never an adapter shaped for it; the platform, the source and the job are chosen by the build or by data, never by calling a differently named function; every capability has the six-part shape below; and each `fromX` is built on one shared internal helper.

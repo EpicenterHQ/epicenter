@@ -1,5 +1,7 @@
 # 0732. A grant reaches what the person chooses at consent
 
+<!-- doc-path-check: ignore-file (cites the waiting folder sync product (ADR-0840), kept at tag folder-sync-product) -->
+
 - **Status:** Accepted (2026-11-04)
 - **Date:** 2026-11-04
 - **Amends:** [ADR-0731](0731-every-app-signs-in-as-its-site.md) at "What an app can reach derives from its origin": an app's grant names the repository the person chose at consent, by [ADR-0614](0614-a-browser-app-is-identified-by-its-origin.md); at "one client, `so.epicenter`": Epicenter's client is its origin, `https://epicenter.so`, which also accepts device authorization in place of `so.epicenter.cli`; [ADR-0718](0718-epicenters-machinery-on-a-machine-lives-in-a-hidden-home-every-program-reads.md) at "Secrets stay in the keychain" and "Epicenter's AppData keeps only Epicenter's own window state": the engine's refresh token is a file in Epicenter's AppData.

@@ -1,5 +1,7 @@
 # 0748. Epicenter ships a portable Git inside the app
 
+<!-- doc-path-check: ignore-file (cites the waiting folder sync product (ADR-0840), kept at tag folder-sync-product) -->
+
 - **Status:** Superseded
 - **Date:** 2026-11-04
 - **Superseded by:** [ADR-0751](0751-every-native-app-carries-one-sync-core.md): every native app links one sync core over libgit2, so no Git program ships and no license review of distributing GPLv2 Git is needed.

@@ -1,5 +1,7 @@
 # 0565. A refresh token keeps its grant's scopes, and only each access token is narrowed to its audience
 
+<!-- doc-path-check: ignore-file (cites the waiting folder sync product (ADR-0840), kept at tag folder-sync-product) -->
+
 - **Status:** Accepted
 - **Date:** 2026-10-16
 - **Amends:** [ADR-0549](0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md) at "A refresh family is one grant's lineage": a refresh family is every grant of one client for one person, a replay after 60 seconds ends all of them, and the desktop and the CLI are separate families; the vendored patch and "A refresh row without a lineage is an error" are withdrawn; at the consequences "No other installation is affected", which becomes "every installation of that client signs in again", and "The patch is re-verified on every Better Auth upgrade", which is withdrawn; at the resource table, where `api` and `git` accept every first-party scope and only `mcp` limits scopes; at the Unbuilt item "sending the lineage patch upstream", which is withdrawn; at the `so.epicenter.cli` row, whose grant includes `openid`; and at "Its issuer and resources are its own origin", which is `<origin>`, `<origin>/git`, and `<origin>/mcp`, resolved by `resolveOAuthAudiences`.

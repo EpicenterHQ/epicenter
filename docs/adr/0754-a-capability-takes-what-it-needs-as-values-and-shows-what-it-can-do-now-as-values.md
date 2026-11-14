@@ -1,5 +1,7 @@
 # 0754. A capability takes what it needs as values and shows what it can do now as values
 
+<!-- doc-path-check: ignore-file (cites code that moved since) -->
+
 - **Status:** Accepted (2026-11-04)
 - **Date:** 2026-11-04
 - **Amended by:** [ADR-0757](0757-every-model-is-an-endpoint-every-model-file-is-a-cache.md) at the AI worked example: `openAi([...endpoints])` replaces `openAi({ account, local })` and the handles `ai.hosted()`, `ai.local()` and `ai.custom()`, models list in the array's order, and a management handle exists only for a source with a local lifecycle (`localSpeech()`: download, remove, load, unload); [ADR-0765](0765-choose-by-value-not-by-name-every-capability-has-the-same-shape.md) at "A capability takes what it needs as values" and at the Svelte adapter following `fromAuth`: a capability takes another capability itself, never an adapter shaped for it, the build or data chooses the platform, the source and the job, every capability has one six-part shape, and each `fromX` is built on one shared helper; [ADR-0766](0766-an-apps-capabilities-are-module-values-opened-synchronously.md) at the `app.ts` example and at "A core API reads through explicit methods": `openFolder(contract)` returns at once with readiness as `folder.state()`, a snapshot keeps its identity until something changes, and an action returns a typed result.
