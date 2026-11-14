@@ -1120,4 +1120,4 @@ When you add an ADR, add its row here.
 | [0900](0900-a-program-may-hand-its-new-records-over-to-a-home-which-then-holds-them.md) | A program may hand its new records over to a home, which then holds them | Proposed |
 | [0901](0901-an-app-is-inside-an-epicenter-or-outside-it.md) | An app is inside an Epicenter or outside it | Accepted (amends 0889 and 0891; amended by 0902) |
 | [0902](0902-this-repositorys-outside-apps-stay-in-apps.md) | This repository's outside apps stay in `apps/` | Accepted (amends 0891 and 0901; supersedes the records of Local Books and Honeycrisp; amended by 0904) |
-| [0904](0904-copying-is-the-only-way-to-take-an-apps-code.md) | Copying is the only way to take an app's code | Proposed (supersedes 0866; amends 0873, 0876, 0877, 0886, 0889, 0891, and 0902) |
+| [0904](0904-copying-is-the-only-way-to-take-an-apps-code.md) | Copying is the only way to take an app's code | Accepted (supersedes 0866; amends 0873, 0876, 0877, 0886, 0889, 0891, and 0902) |
