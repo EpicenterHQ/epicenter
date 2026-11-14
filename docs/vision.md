@@ -1,14 +1,19 @@
 # Vision
 
-**Epicenter is where one person's software lives: small apps the person and
-their agents change through their files or their actions. What the person
-makes is Markdown files they hold, with Git history once the folder is in an
-Epicenter.**
+**You keep one computer switched on, and what you want to hold onto ends up
+there as plain text files: tasks, reading notes, vocabulary. Some of it you
+write there directly. Some of it comes from elsewhere, like your email, and
+that computer fetches a copy. You reach all of it from your phone or laptop,
+and so do your agents.**
 
-Each app is a folder in `~/Epicenter`, on a computer you keep on: the home. The
-`epicenter` command runs an app's actions for you and your agents, and
-`epicenter serve` offers them over MCP, and each app's UI in a browser, to
-every device on your tailnet.
+Epicenter is where one person's software lives. `~/Epicenter` is on a computer
+you control and keep on, owned or rented: the home. It holds a folder per app:
+one TypeScript file that declares the app's data and actions, and a `data/`
+folder of files a person can read, mostly Markdown, in Git. One command,
+`epicenter serve`, offers every app's actions over MCP, and each app's UI in a
+browser, to every device on your tailnet. Nothing syncs and no one signs in:
+your other devices are thin clients of the one copy, and `origin` is a
+push-only backup.
 
 This page is the front door. [ADR-0896] and [ADR-0898] state the rules below;
 [ADR-0840] records why the direction changed from the folder sync product, and
@@ -22,8 +27,8 @@ which is mostly the earlier product described at the end.
    shape. Any program that writes that shape is a valid writer and needs no
    Epicenter ([ADR-0889]).
 2. **Each collection has one writer of record within an Epicenter:** its
-   folder, or a source elsewhere, such as a service or another program's
-   folder. Epicenter never reconciles two writable copies.
+   folder, or a source: a service, or a program's folder. Epicenter never
+   reconciles two writable copies.
 3. **Have the folder, write files; otherwise ask an action.** Actions exist
    for reach, rules, and sign-ins.
 4. **Commit what the person made.** A copy of data whose truth is elsewhere
@@ -36,7 +41,7 @@ which is mostly the earlier product described at the end.
 | Form | Where a write counts | How Epicenter's copy keeps up | Collections today |
 | --- | --- | --- | --- |
 | Kept | this Epicenter's folder | it is the truth | Tasks, Reading, Vocab, Capture, Mail's proposals, Messages' drafts |
-| Cached | a service, or another program's folder | its pull copies it | Mail's mailbox (`.local` SQLite); Whispering's recordings brought home |
+| Cached | a source: a service, or a program's folder | its pull copies it | Mail's mailbox (`.local` SQLite); Whispering's recordings brought home |
 | Live | a service | nothing is copied; the app asks each time | Messages' conversations in Beeper |
 
 These words describe; they are not API. No collection declares its form, and
@@ -134,15 +139,16 @@ starter's changes ([ADR-0866]).
   its folder into `~/Epicenter/apps/whispering/data`, or copy new files there
   with a file syncer, the recordings appear for your agents.
 - **A weekly summary.** You ask an agent for a summary of your voice notes. It
-  adds a `summaries` collection and a `summarize-week` action to the
-  `whispering` app. Whispering keeps writing recordings and never notices.
+  adds a `summaries` collection and a `summarize-week` action to
+  Whispering's inside app. Whispering keeps writing recordings and never
+  notices.
 
 ## The pieces
 
 | Noun | What it is |
 | --- | --- |
 | Epicenter | your folder of apps, `~/Epicenter` on the home, together with the command that serves it; "your Epicenter" and "an Epicenter" mean one person's |
-| an app | a folder in `~/Epicenter/apps` whose `epicenter.ts` default-exports `defineApp`: its description, collections, and actions; its name is the folder's |
+| an inside app | a folder in `~/Epicenter/apps` that runs on the home, whose `epicenter.ts` default-exports `defineApp`: its description, collections, and actions; its name is the folder's; bare "app" on this page, in records, and in code means this |
 | a collection | a kind of record in the app, by a path template (`words/{word}.md`) and fields; it gives six actions: `list`, `get`, `add`, `set`, `edit`, and `delete` |
 | a record | one file in a collection, addressed by its path; it is yours |
 | an item | one thing at a source that is not a record yet: a message in Gmail, a row in Todoist |
@@ -151,18 +157,30 @@ starter's changes ([ADR-0866]).
 | a UI | a web page built from the app's `ui/` into `ui/dist/`, served at `/<app>/`, that shows its data and calls its actions over MCP |
 | `epicenter` | the command: it runs an action in a folder, and `epicenter serve` offers every app over MCP |
 | a personal app | an app you made to join other apps: it holds the actions that cross them |
-| a program | software that runs on its own and writes files an app's collections declare, in its own folder: Whispering |
+| an outside app | any software that works without an Epicenter: Whispering, Gmail, Beeper, Todoist, a notes product; it is one of two kinds, a program or a service |
+| a program | an outside app that runs on your device: Whispering; the friendliest writes files in the shape an inside app's collections declare, in its own folder, and none has to |
 | a starter | an app's code repository, which someone else takes with `epicenter new --from` |
-| the home | the computer your Epicenter is on: it runs `epicenter serve`, from a terminal or as Epicenter for Mac ([ADR-0865]) |
-| a service | software someone else runs, which holds the truth of its own data: Gmail, a hosted notes service, the hosted API |
+| the home | the computer your Epicenter is on, which you control: it runs `epicenter serve` from a terminal, as a job the OS keeps running ([ADR-0878]), or as Epicenter for Mac ([ADR-0865]); you own it or rent it, and a rented one puts your files and sign-ins in its provider's hands; Epicenter never supplies it |
+| a service | an outside app that runs on someone else's servers and holds the truth of its own data: Gmail, a hosted notes service |
+| a source | where a pull copies from: a service, or a program's folder |
 | Git | snapshots on the home, optional `origin` backup, `upstream` for a starter, LFS for binaries |
 
-"Epicenter" is the place, and `epicenter` is its command. The company is
-"Epicenter, the company". Anything the company hosts is a service with its own
-name, as Whispering is a program whose name does not contain "Epicenter". A
-hosted notes service would not be called Epicenter, and it would sit beside
-the vault, not replace it. "Server" means someone else's computer; yours is
-the home.
+Every app is inside an Epicenter or outside it. The test: does it work
+without an Epicenter? If it does, it is an outside app. Data crosses only
+through an inside app's actions: Mail brings Gmail in, and Gmail does nothing.
+A product can have both halves: Whispering is an outside app, and Whispering's
+inside app is the `whispering` folder in an Epicenter.
+
+"Epicenter" is the place, and `epicenter` is its command. "Server" means
+someone else's computer, and "hosted" means someone else runs it; yours is the
+home, and an inside app runs on the home.
+
+Epicenter, the company, makes several products. Epicenter is the home-first
+one. The others stand alone and choose their own data model, and each has its
+own name: Whispering is standalone, and a hosted notes service would not be
+called Epicenter and would sit beside the vault, not replace it. Each is an
+outside app, and an Epicenter can bring any of them in, the way Mail brings in
+Gmail. "Local-first" is only for a product whose devices sync.
 
 ## An app
 
@@ -339,6 +357,7 @@ fields are written one `key: <JSON>` line each.
 [ADR-0867]: adr/0867-the-command-line-spells-an-actions-json-input-and-null-removes-a-field-there-as-everywhere.md
 [ADR-0870]: adr/0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md
 [ADR-0877]: adr/0877-an-apps-code-and-its-data-are-two-repositories-and-sharing-an-app-shares-its-code.md
+[ADR-0878]: adr/0878-the-os-keeps-epicenter-serve-running-under-a-job-the-person-installs.md
 [ADR-0880]: adr/0880-an-epicenter-runs-its-apps-as-they-sit-on-disk.md
 [ADR-0882]: adr/0882-mail-leaves-mail-in-gmail-and-agents-change-it-through-proposals-the-person-applies.md
 [ADR-0883]: adr/0883-an-epicenter-is-its-git-repositories-and-serve-and-its-host-keeps-runs-and-guards-them.md
