@@ -23,15 +23,10 @@ const ENVIRONMENT = {
  * (`snapshot.ts`); every other call reads paths literally.
  */
 export async function git(folder: string, args: string[], magic = false) {
-	const child = Bun.spawn(['git', '-C', folder, ...args], {
-		env: {
-			...process.env,
-			...ENVIRONMENT,
-			...(magic ? { GIT_LITERAL_PATHSPECS: '0' } : {}),
-		},
-		stdin: 'ignore',
-		stdout: 'pipe',
-		stderr: 'pipe',
+	const child = spawnGit(['-C', folder, ...args], {
+		...process.env,
+		...ENVIRONMENT,
+		...(magic ? { GIT_LITERAL_PATHSPECS: '0' } : {}),
 	});
 	const [stdout, stderr, code] = await Promise.all([
 		new Response(child.stdout).text(),
@@ -39,6 +34,56 @@ export async function git(folder: string, args: string[], magic = false) {
 		child.exited,
 	]);
 	return { stdout: stdout.trimEnd(), stderr: stderr.trim(), code };
+}
+
+/** Said when there is no `git` to run. */
+const GIT_MISSING =
+	'git is not installed, or not on PATH. Install Git (on Ubuntu or Debian: sudo apt install git).';
+
+/** Spawn `git ...args` with `env`, throwing `GIT_MISSING` when there is no `git`. */
+function spawnGit(args: string[], env: Record<string, string | undefined>) {
+	try {
+		return Bun.spawn(['git', ...args], {
+			env,
+			stdin: 'ignore',
+			stdout: 'pipe',
+			stderr: 'pipe',
+		});
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === 'ENOENT')
+			throw new Error(GIT_MISSING);
+		throw error;
+	}
+}
+
+/**
+ * Why Git could not commit now, or `undefined` when it could: Git says who
+ * commits from `GIT_AUTHOR_*` and `GIT_COMMITTER_*`, then its configuration,
+ * then a guess from the computer's name, which fails on a server whose name
+ * has no domain. With `configOnly`, only Git's configuration counts, as for a
+ * job that has none of the shell's variables and should not commit as a guess.
+ */
+export async function identityProblem({ configOnly }: { configOnly: boolean }) {
+	const env: Record<string, string | undefined> = { ...process.env };
+	if (configOnly)
+		for (const name of [
+			'GIT_AUTHOR_NAME',
+			'GIT_AUTHOR_EMAIL',
+			'GIT_COMMITTER_NAME',
+			'GIT_COMMITTER_EMAIL',
+			'EMAIL',
+		])
+			delete env[name];
+	const child = spawnGit(
+		[
+			...(configOnly ? ['-c', 'user.useConfigOnly=true'] : []),
+			'var',
+			'GIT_AUTHOR_IDENT',
+		],
+		env,
+	);
+	if ((await child.exited) === 0) return undefined;
+	return 'Git does not know who you are, so nothing could be committed. Set your name and email for Git:\n  git config --global user.name "Your Name"\n  git config --global user.email "you@example.com"';
 }
 
 /** Git's own message for a failed command: its stderr, else its stdout. */

@@ -80,12 +80,18 @@ it was. It never pushes; sync does.`,
 action to its UI at POST /<app>/<action>, on 127.0.0.1 and the Epicenter's port
 (default 4747) unless --port or --host says otherwise. It runs every call itself,
 from the app's code as it is on disk then. It backs up every app as sync does
-when it starts, every 5 minutes, and when it stops. It has no sign-in: only this
-computer and the tailnet should reach it.`,
+when it starts, every 5 minutes, and when it stops. It has no sign-in, so
+--host takes only a loopback or Tailscale address, never 0.0.0.0 or a public
+one. To reach it from your other devices, keep 127.0.0.1 and run
+tailscale serve --bg <port>, which gives it HTTPS at this computer's tailnet name.`,
 	},
 	service: {
 		usage: 'epicenter service <install|uninstall|restart|status>',
-		help: `Installs a macOS login job that keeps serve running for this Epicenter.
+		help: `Installs a job that keeps serve running for this Epicenter: a LaunchAgent on
+macOS, a systemd user unit on Linux, each with the installing shell's PATH.
+Install refuses until Git knows who commits (git config --global user.name and
+user.email). On Linux, logs are in journalctl --user -u <unit>, and serve runs
+while you are logged out and after a reboot only once you run loginctl enable-linger.
 The person runs install and uninstall. Agents may safely run restart and status.
 status --json reports whether the job is installed and running, its pid, and port.`,
 	},

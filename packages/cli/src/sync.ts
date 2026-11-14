@@ -142,8 +142,13 @@ async function pushTo(
 				'the backup at origin has changes this computer does not; nothing was overwritten',
 			next: `git -C ${folder} fetch origin && git -C ${folder} log HEAD..origin/${branch}`,
 		});
+	// Git never prompts (`git.ts`), and `serve` under a job has no terminal or SSH agent.
+	const unanswered =
+		/terminal prompts disabled|could not read (Username|Password)|Permission denied \(publickey|Host key verification failed/i.test(
+			pushed.stderr,
+		);
 	return stop({
-		message: `not pushed: ${gitMessage(args, pushed)}`,
+		message: `not pushed: ${gitMessage(args, pushed)}${unanswered ? '\nPushing needs a credential that works with no one to answer a prompt: an SSH key without a passphrase whose host is in ~/.ssh/known_hosts, or a Git credential helper that has stored one.' : ''}`,
 		next: `git -C ${folder} push origin HEAD:${branch}`,
 	});
 }

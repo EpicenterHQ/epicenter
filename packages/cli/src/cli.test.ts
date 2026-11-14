@@ -244,6 +244,13 @@ test('a misused command answers its usage line, with its help as the next step',
 		stdout: '',
 		stderr: `--port must be a whole number from 0 to 65535\nUsage: ${COMMANDS.serve.usage}\nRun: epicenter serve --help\n`,
 	});
+	for (const host of ['0.0.0.0', '::', '203.0.113.7', 'example.com']) {
+		const refused = await f.run('serve', '--host', host, '--port', '4800');
+		expect(refused.code).toBe(2);
+		expect(refused.stderr).toContain(
+			`serve signs no one in, so it listens only on this computer (127.0.0.1, ::1, localhost) or a Tailscale address (100.64.0.0/10, fd7a:115c:a1e0::/48), not ${JSON.stringify(host)}.\nTo reach it from your other devices, leave --host out and run: tailscale serve --bg 4800\n`,
+		);
+	}
 	expect((await f.run('sync', '--help')).stdout).toBe(
 		`${COMMANDS.sync.usage}\n${COMMANDS.sync.help}\n`,
 	);
@@ -361,4 +368,49 @@ test('an app is named by its folder in the home, whatever its description says',
 	const result = await f.run('other-name', 'log', '30', '--json');
 	expect(result.code).toBe(0);
 	expect(JSON.parse(result.stdout).returned).toEqual({ minutes: 30 });
+});
+
+test('a command says how to get Git when there is none on PATH', async () => {
+	const f = await setup();
+	const empty = join(f.root, 'no-git');
+	await mkdir(empty);
+	f.env.PATH = empty;
+	for (const words of [['sync'], ['new', 'notes'], []]) {
+		const result = await f.run(...words, '--json');
+		expect(result.code).toBe(2);
+		expect(JSON.parse(result.stdout).error.message).toContain(
+			'git is not installed, or not on PATH. Install Git (on Ubuntu or Debian: sudo apt install git).',
+		);
+	}
+});
+
+test('init and new refuse before writing anything when Git does not know who commits', async () => {
+	const f = await setup();
+	// As on a server whose name has no domain: no identity, and no guess at one.
+	for (const name of [
+		'GIT_AUTHOR_NAME',
+		'GIT_AUTHOR_EMAIL',
+		'GIT_COMMITTER_NAME',
+		'GIT_COMMITTER_EMAIL',
+		'EMAIL',
+	])
+		f.env[name] = undefined;
+	f.env.GIT_CONFIG_COUNT = '2';
+	f.env.GIT_CONFIG_KEY_1 = 'user.useConfigOnly';
+	f.env.GIT_CONFIG_VALUE_1 = 'true';
+	const fresh = join(f.root, 'Fresh');
+	for (const words of [
+		['init', fresh],
+		['new', 'notes'],
+	]) {
+		const result = await f.run(...words, '--json');
+		expect(result.code).toBe(2);
+		expect(JSON.parse(result.stdout).error.message).toBe(
+			'Git does not know who you are, so nothing could be committed. Set your name and email for Git:\n  git config --global user.name "Your Name"\n  git config --global user.email "you@example.com"',
+		);
+	}
+	expect(await Bun.file(join(fresh, 'EPICENTER.md')).exists()).toBe(false);
+	expect(await Bun.file(join(f.apps, 'notes', 'epicenter.ts')).exists()).toBe(
+		false,
+	);
 });

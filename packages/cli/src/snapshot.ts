@@ -58,12 +58,15 @@ export type Snapshot =
 /** What a snapshot with no call takes: everything in the folder that Git does not ignore. */
 const TAKEN = ['.'];
 
-/** Refused before staging when committing would store whole files that `.gitattributes` routes through LFS (ADR-0856). */
-const LFS_MISSING = {
-	message:
-		'.gitattributes routes files through Git LFS, and this computer has no LFS filter, so Git would store them whole',
+/**
+ * Refused before staging when committing would store whole files that
+ * `.gitattributes` routes through LFS (ADR-0856); `git lfs install` needs
+ * `git-lfs` installed first.
+ */
+const lfsMissing = () => ({
+	message: `.gitattributes routes files through Git LFS, and this computer has no LFS filter, so Git would store them whole${Bun.which('git-lfs') ? '' : '; install git-lfs first (on Ubuntu or Debian: sudo apt install git-lfs)'}`,
 	next: 'git lfs install',
-};
+});
 
 /** How long a commit waits for someone else's hold on Git's index lock before giving up. */
 const INDEX_LOCK_WAIT_MS = 2_000;
@@ -270,7 +273,7 @@ export async function commitIn(
 			(await git(folder, ['config', '--get', 'filter.lfs.process'])).stdout ===
 				''
 		)
-			return { failed: LFS_MISSING };
+			return { failed: lfsMissing() };
 		return { committed: await commitPending(repository, subject) };
 	} catch (error) {
 		return failedWith(error);

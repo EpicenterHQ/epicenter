@@ -15,6 +15,7 @@ import {
 	startEpicenterRepository,
 } from './epicenter-repository.ts';
 import { CliError } from './errors.ts';
+import { identityProblem } from './git.ts';
 import { fail, writeErr, writeJson, writeOut } from './output.ts';
 import {
 	APPS,
@@ -128,6 +129,9 @@ export async function initCommand(
 			json,
 		);
 	if (from !== undefined) return restore(from, folder, json);
+	// Before writing anything, so a fresh computer's first init can be run again.
+	const nobody = await identityProblem({ configOnly: false });
+	if (nobody) return fail(CliError.Usage({ message: nobody }).error, json);
 	await mkdir(folder, { recursive: true });
 	try {
 		await writeFile(join(folder, MARKER), marker(port), { flag: 'wx' });

@@ -325,8 +325,9 @@ test('C5 a snapshot failure leaves the answer and pending paths for sync', async
 	expect(kept.code).toBe(0);
 	expect(kept.answer).toEqual({ returned: null });
 	expect(kept.stderr).toContain(
-		'notes: not yet in history: .gitattributes routes files through Git LFS, and this computer has no LFS filter, so Git would store them whole\nRun: git lfs install\n',
+		'notes: not yet in history: .gitattributes routes files through Git LFS, and this computer has no LFS filter, so Git would store them whole',
 	);
+	expect(kept.stderr).toContain('\nRun: git lfs install\n');
 	expect(await gitIn(f.data, 'diff', '--cached', '--name-only')).toBe('');
 	expect(await subjects(f.data)).toBe('notes: start its data');
 	const threw = await f.json('notes', 'half', 'friday');
