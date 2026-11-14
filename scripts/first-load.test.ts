@@ -41,8 +41,8 @@ for (const dir of ['programs/whispering'])
 	test(`${dir}'s first load holds no desktop module`, async () => {
 		const modules = await firstLoadModules(join(root, dir));
 		// The page's own code is there, so the build read the app.
-		expect(
-			modules.some((path) => path.endsWith(`${dir}/src/lib/app.ts`)),
-		).toBe(true);
+		expect(modules.some((path) => path.endsWith(`${dir}/src/lib/app.ts`))).toBe(
+			true,
+		);
 		expect(desktopModules(modules)).toEqual([]);
 	}, 180_000);
