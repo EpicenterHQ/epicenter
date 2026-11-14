@@ -63,19 +63,11 @@ roots are the app's, so every window of the app reaches the same ones.
 The Epicenter app names no Data root: it names the Epicenter folder
 (`roots.name_epicenter(path, refusal)`, ADR-0813), and every real directory
 directly inside it is a root of its own, `Root::Folder(name)` (`{ Folder:
-name }` to a page, `Folder/<name>` in a raw request's `root` header). The
-page lists them with `list_epicenter`: the Epicenter folder's path, whether
-it is itself a Git repository (`git`), each folder (hidden names skipped)
-with its identity and whether Git keeps it (`git`: `.git` at its own root,
-one look, nothing above it; Epicenter never syncs a Git working tree), and
-each link there as `outside`, with its target (ADR-0825). It makes one with
-`make_epicenter_folder`. Opening a folder root never makes the folder and
+name }` to a page, `Folder/<name>` in a raw request's `root` header).
+Opening a folder root never makes the folder and
 refuses a link at its path; its location may not be inside `.git` or
-`.epicenter`, besides the shell's own refusal.
- Both commands are the
-`epicenter-folder:epicenter` permission set, not the default one; a shell
-that named no Epicenter folder answers `NotNamed`. The page's side is
-`epicenterRoot()` from `@epicenter/folder/tauri`.
+`.epicenter`, besides the shell's own refusal. A shell that named no
+Epicenter folder answers `NotNamed`.
 
 The Epicenter folder keeps its own records at its root, `.epicenter/`
 (ADR-0822): `synced/<folder-id>.json`, one per synced folder, and

@@ -29,7 +29,6 @@ use specta::Type;
 use tauri::{Emitter, Manager, Runtime, Webview};
 
 use crate::records::{self, FolderRecord};
-use crate::roots::{EpicenterEntry, EpicenterListing};
 use crate::{Directory, FolderEvent, Root, RootError, Roots};
 
 /// Run blocking work off the window thread.
@@ -431,53 +430,6 @@ pub async fn data_record<R: Runtime>(
             Ok(identity.and_then(|identity| records::proving(&state::records(&library), &identity)))
         },
         |message| Err(failed("", "record", message).into()),
-    )
-    .await
-}
-
-/// The Epicenter folder's listing (ADR-0813, ADR-0825): where it is and
-/// whether it is itself a Git repository, every real directory directly
-/// inside it, hidden names skipped, each with its name (its root is
-/// `Root::Folder(name)`), its identity, and whether Git keeps it, the links
-/// in it, shown as outside it, and what is there but cannot be a folder,
-/// with why. The folder is made when it is missing.
-
-#[tauri::command]
-#[specta::specta]
-pub async fn list_epicenter<R: Runtime>(
-    webview: Webview<R>,
-) -> Result<EpicenterListing, RootError> {
-    let app = webview.app_handle().clone();
-    blocking(
-        move || app.state::<Roots>().list_epicenter(),
-        |message| {
-            Err(RootError::Unavailable {
-                folder: String::new(),
-                message,
-            })
-        },
-    )
-    .await
-}
-
-/// Make the directory `name` in the Epicenter folder, for a folder cloned or
-/// accepted into it: refused when anything has that name, or the name is not
-/// one every disk keeps. It opens as `Root::Folder(name)`.
-#[tauri::command]
-#[specta::specta]
-pub async fn make_epicenter_folder<R: Runtime>(
-    webview: Webview<R>,
-    name: String,
-) -> Result<EpicenterEntry, RootError> {
-    let app = webview.app_handle().clone();
-    blocking(
-        move || app.state::<Roots>().make_epicenter_folder(&name),
-        |message| {
-            Err(RootError::Unavailable {
-                folder: String::new(),
-                message,
-            })
-        },
     )
     .await
 }
