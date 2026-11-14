@@ -44,6 +44,16 @@ monorepo holds the platform and no apps (ADR-0877). Read `@epicenter/app`'s
 README (`packages/app/README.md` in the monorepo) and one existing app before
 starting; Tasks is the smallest whole example.
 
+Before shaping a collection, decide where its truth is (`docs/vision.md`,
+ADR-0896, ADR-0898), then copy the nearest example in `~/Epicenter/apps`:
+Tasks for a kept collection, whose files are the truth; Mail for a cached
+one, a `.local` copy of a service with the person's decisions kept beside it
+and applied through an action; Messages for a live one, asked each time. An
+item from elsewhere moves into a kept collection by transfer: write it with
+its source id, then close it at the source. Never keep two writable copies in
+step, and never make one app import or call another. Anything under
+"Not yet" or "Never" in `docs/vision.md` needs the owner's yes.
+
 Change an app where the change belongs. A change for one person's app is made
 in its folder and committed to its code repository; Git merges it with
 `upstream`'s on the next update. A change for everyone who took the app is
