@@ -42,4 +42,4 @@ The QuickBooks client is hand-rolled on `oauth4webapi` plus `fetch`, not an npm 
 
 ## Reference
 
-- Implemented in `apps/local-books/src/qb-client.ts` (`update`, `report`), `src/agent/recategorize.ts`, `src/agent/report.ts`, `src/agent/qb-access.ts`, `src/agent/books-actions.ts` (the capability lattice), and `mount.ts`. Builds on ADR-0047 (the mirror as a data daemon). The sync-engine design lives in `specs/20260621T100000-local-books-cli-sync-engine.md`.
+- Implemented in `before-0891-layout:apps/local-books/src/qb-client.ts` (`update`, `report`), `src/agent/recategorize.ts`, `src/agent/report.ts`, `src/agent/qb-access.ts`, `src/agent/books-actions.ts` (the capability lattice), and `mount.ts`. Builds on ADR-0047 (the mirror as a data daemon). The sync-engine design lives in `specs/20260621T100000-local-books-cli-sync-engine.md`.

@@ -43,4 +43,4 @@ The mirror is a multi-writer SQLite cache, and correctness comes from one write 
 
 ## Reference
 
-- Implemented in `apps/local-books/src/db.ts` (`ingest`, `getLiveRaw`, the monotonic upsert/delete, the connection pragmas), `src/sync.ts`, and `src/agent/recategorize.ts`. Builds on ADR-0061 (the write-back verb) and ADR-0047 (the mirror as a data daemon). Committed in `7f577fb293`.
+- Implemented in `before-0891-layout:apps/local-books/src/db.ts` (`ingest`, `getLiveRaw`, the monotonic upsert/delete, the connection pragmas), `src/sync.ts`, and `src/agent/recategorize.ts`. Builds on ADR-0061 (the write-back verb) and ADR-0047 (the mirror as a data daemon). Committed in `7f577fb293`.

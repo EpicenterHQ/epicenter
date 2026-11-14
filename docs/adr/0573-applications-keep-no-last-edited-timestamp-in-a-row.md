@@ -8,7 +8,7 @@
 ## Context
 
 Honeycrisp's `notes` table declares `updatedAt` (`97db0c4cdd1c:apps/honeycrisp/src/lib/data.ts`).
-`withBody` (`apps/honeycrisp/src/lib/note-source.ts`) moves it forward on every
+`withBody` (`before-0891-layout:apps/honeycrisp/src/lib/note-source.ts`) moves it forward on every
 body change, and `NoteList.svelte` sorts notes by it and groups them under
 labels such as "Today" and "Yesterday".
 

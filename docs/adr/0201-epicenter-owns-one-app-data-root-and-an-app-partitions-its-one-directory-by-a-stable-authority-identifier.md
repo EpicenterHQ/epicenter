@@ -50,7 +50,7 @@ compute that directory themselves, and each computes a whole OS application-data
 <!-- doc-path-check: ignore-next-line -->
 root to do it. `apps/local-mail/src/paths.ts` resolves
 `~/Library/Application Support/local-mail` from `LOCAL_MAIL_DIR` or the platform
-default; `apps/local-books/src/paths.ts` resolves
+default; `before-0891-layout:apps/local-books/src/paths.ts` resolves
 `~/Library/Application Support/local-books` from `--data-dir`, `LOCAL_BOOKS_DIR`,
 or the platform default. Two apps, two roots, two override mechanisms, two
 copies of the same platform switch.
@@ -341,7 +341,7 @@ Generic cross-app SQL is the specific thing refused, because it is the one that
 looks free. Both apps already expose read-only SQL over their own mirror
 <!-- doc-path-check: ignore-next-line -->
 (`queryMail` in `apps/local-mail/src/query.ts`, `queryBooks` in
-`apps/local-books/src/books/query.ts`). Each is the *owning* app's surface over
+`before-0891-layout:apps/local-books/src/books/query.ts`). Each is the *owning* app's surface over
 the file that app wrote, offered to the person who owns the machine. Widening
 either into an engine that takes an app id, or adding a host verb that opens
 whichever app's database an argument names, would turn every app's stored shape
@@ -355,7 +355,7 @@ Cross-app use has exactly two forms, and both are already built:
 
 - **The owning app publishes a verb.** A narrow capability or read model, in the
   owner's own vocabulary, over data the owner interprets. Local Books' `query`,
-  `report`, `status`, and `recategorize` cores in `apps/local-books/src/books/`
+  `report`, `status`, and `recategorize` cores in `before-0891-layout:apps/local-books/src/books/`
   are this shape, and its `mcp` verb (ADR-0073) is the same cores re-exposed to
   a foreign caller without a rewrite; Local Mail's read models behind
 <!-- doc-path-check: ignore-next-line -->
@@ -407,7 +407,7 @@ credential loss into a data loss.
 The segment is validated as exactly one path component before it names a
 directory. Local Mail already does this; Local Books does not, and takes
 `realmId` verbatim from a callback query parameter into `join(dataDir, realmId)`
-(`apps/local-books/src/oauth.ts`, `apps/local-books/src/paths.ts`). Two call
+(`before-0891-layout:apps/local-books/src/oauth.ts`, `before-0891-layout:apps/local-books/src/paths.ts`). Two call
 sites, one of them currently unguarded, is what earns one shared guard.
 
 ### The path change is a clean break, in both apps and both directions

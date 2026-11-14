@@ -30,4 +30,4 @@ OAuth tokens live in a single `0600` `credentials.json` at the data-dir root, ke
 
 ## Reference
 
-- Implemented in `apps/local-books/src/token-store.ts` (`createFileTokenStore`, `createMemoryTokenStore`, and the typed `TokenStore` interface that stores a `TokenSet`), `src/config.ts` (`credentialsPath`), and `src/paths.ts` (`credentialsFilePath`). Builds on ADR-0047 (the mirror as a data daemon) and ADR-0061 (the agent surface whose SQL read this store stays clear of).
+- Implemented in `before-0891-layout:apps/local-books/src/token-store.ts` (`createFileTokenStore`, `createMemoryTokenStore`, and the typed `TokenStore` interface that stores a `TokenSet`), `src/config.ts` (`credentialsPath`), and `src/paths.ts` (`credentialsFilePath`). Builds on ADR-0047 (the mirror as a data daemon) and ADR-0061 (the agent surface whose SQL read this store stays clear of).

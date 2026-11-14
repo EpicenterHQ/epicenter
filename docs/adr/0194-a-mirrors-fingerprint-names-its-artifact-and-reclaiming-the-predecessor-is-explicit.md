@@ -16,7 +16,7 @@ mismatch, unlinks `mail.db` plus its `-wal` and `-shm` sidecars and reopens
 (`apps/local-mail/src/db.ts:186`). An in-progress Local Books experiment
 replaced the hand-stamped constant with a declaration fingerprint but kept the
 same in-place shape: compare a `_meta` row, then drop every table it finds in
-`sqlite_master` (`apps/local-books/src/db.ts:148`).
+`sqlite_master` (`before-0891-layout:apps/local-books/src/db.ts:148`).
 
 Both destroy data as a side effect of opening. Local Books opens a writable
 mirror from five call sites, one of which is a single-row recategorize
@@ -106,7 +106,7 @@ directory.
 The app, and only the app. The primitive has no completion protocol, no
 readiness flag, and no automatic reclamation. Local Books already owns this
 judgment: `syncRealm` advances the realm cursor only when every entity was
-pulled (`apps/local-books/src/sync.ts:175`). Local Mail's paginated backfill
+pulled (`before-0891-layout:apps/local-books/src/sync.ts:175`). Local Mail's paginated backfill
 advances only in `finishFullPull`, after every page has committed. Neither
 definition is expressible in a storage primitive, so app-owned maintenance calls
 `reclaim` once the app decides its successor is usable.
@@ -127,7 +127,7 @@ permissions, and cleanup timing.
   hours-long re-pull is not a defensible default, and keeping it makes a bad
   declaration a revert rather than an outage.
 - Reader and writer asymmetry stops being a correctness requirement. Today
-  `apps/local-books/src/books/status.ts:97` must remember to pass
+  `before-0891-layout:apps/local-books/src/books/status.ts:97` must remember to pass
   `{ readonly: true }` or a status read drops the mirror's tables. After this,
   the worst a mistaken writable open can do is create an empty file.
 - No process can pull a file out from under another process's open handle, so
@@ -146,7 +146,7 @@ permissions, and cleanup timing.
   That is also the bar for extracting it into a package.
 - Status is `Accepted` because the decision is settled and governs the next
   change to both apps. No code in the tree implements it yet, and the in-place
-  fingerprint gate in `apps/local-books/src/db.ts` is a rejected experiment, not
+  fingerprint gate in `before-0891-layout:apps/local-books/src/db.ts` is a rejected experiment, not
   a first step toward this.
 - Deferred: extracting the primitive into a package, per-table fingerprints, a
   retention policy or automatic reclamation, and reprojecting rows from a
