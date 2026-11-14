@@ -98,13 +98,18 @@ test('connect uses an explicit app without page globals', async () => {
 	Reflect.deleteProperty(globalThis, 'document');
 	Reflect.deleteProperty(globalThis, 'location');
 	answer({ returned: [] });
-	await connect<typeof reading>({ app: 'reading', url: 'https://studio/epi' }).list();
+	await connect<typeof reading>({
+		app: 'reading',
+		url: 'https://studio/epi',
+	}).list();
 	expect(urls).toEqual(['https://studio/epi/reading/list']);
 });
 
 test("a call posts its input to the action's address and answers what the action returned", async () => {
 	answer({ returned: { path: 'data/books/Dune.md' } });
-	expect<unknown>(expectOk(await app.get({ path: 'data/books/Dune.md' }))).toEqual({
+	expect<unknown>(
+		expectOk(await app.get({ path: 'data/books/Dune.md' })),
+	).toEqual({
 		path: 'data/books/Dune.md',
 	});
 	expect(sent).toEqual([
@@ -125,7 +130,11 @@ test('each value the action yields reaches onYield in order, however the lines a
 	const counter = connect<{ actions: { count: typeof yielding } }>({
 		app: 'counter',
 	});
-	respond(['{"yielded":1}\n{"yiel', 'ded":2}\n{"answer":', '{"returned":"done"}}\n']);
+	respond([
+		'{"yielded":1}\n{"yiel',
+		'ded":2}\n{"answer":',
+		'{"returned":"done"}}\n',
+	]);
 	const heard: number[] = [];
 	expect(
 		expectOk(await counter.count({}, { onYield: (n) => heard.push(n) })),
@@ -192,8 +201,14 @@ test('each way serve answers without a value is its own error', async () => {
 		},
 	});
 	expect(
-		expectErr(await app.edit({ path: 'data/books/Dune.md', old: 'a', new: 'b' })),
-	).toMatchObject({ name: 'Changed', path: 'data/books/Dune.md', why: 'quote' });
+		expectErr(
+			await app.edit({ path: 'data/books/Dune.md', old: 'a', new: 'b' }),
+		),
+	).toMatchObject({
+		name: 'Changed',
+		path: 'data/books/Dune.md',
+		why: 'quote',
+	});
 
 	answer({
 		threw: {
@@ -205,7 +220,9 @@ test('each way serve answers without a value is its own error', async () => {
 			},
 		},
 	});
-	expect(expectErr(await app.get({ path: 'data/books/Dune.md' }))).toMatchObject({
+	expect(
+		expectErr(await app.get({ path: 'data/books/Dune.md' })),
+	).toMatchObject({
 		name: 'Missing',
 		path: 'data/books/Dune.md',
 	});
@@ -217,7 +234,11 @@ test('each way serve answers without a value is its own error', async () => {
 	});
 
 	answer({
-		error: { name: 'InputError', message: 'path is required', next: 'Give a path' },
+		error: {
+			name: 'InputError',
+			message: 'path is required',
+			next: 'Give a path',
+		},
 	});
 	expect(expectErr(await app.list())).toMatchObject({
 		name: 'Refused',

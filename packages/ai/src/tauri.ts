@@ -107,6 +107,10 @@ export const connectionKey = {
 		shell: TauriShell = tauriShell,
 	) => shell.invoke<void>('connection_key_set', { id, endpoint, key }),
 	/** The key kept for `id`, when it was entered for `from`, applies to `to` from now. */
-	move: (id: string, from: string, to: string, shell: TauriShell = tauriShell) =>
-		shell.invoke<void>('connection_key_move', { id, from, to }),
+	move: (
+		id: string,
+		from: string,
+		to: string,
+		shell: TauriShell = tauriShell,
+	) => shell.invoke<void>('connection_key_move', { id, from, to }),
 };

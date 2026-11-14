@@ -510,7 +510,10 @@ describe('the protected routes', () => {
 			`Bearer error="insufficient_scope", scope="ai", resource_metadata="${origin}/.well-known/oauth-protected-resource"`,
 		);
 		expect(await refused.json()).toMatchObject({ error: 'insufficient_scope' });
-		const readOnly = await browserToken(audiences.folders, 'openid folders:read');
+		const readOnly = await browserToken(
+			audiences.folders,
+			'openid folders:read',
+		);
 		expect((await push(readOnly.token)).status).toBe(403);
 	}, 60_000);
 
@@ -635,10 +638,12 @@ describe('one browser sign-in for the API and the folders (decision 65)', () => 
 	test('a code for both audiences and one refresh give one token per audience', async () => {
 		const { person, api, folders } = await signInBoth('both-audiences');
 		expect(await at(api.access_token, audiences.api, 'ai')).toBe(200);
-		expect(await at(api.access_token, audiences.folders, 'folders:read')).toBe(401);
-		expect(await at(folders.access_token, audiences.folders, 'folders:write')).toBe(
-			200,
+		expect(await at(api.access_token, audiences.folders, 'folders:read')).toBe(
+			401,
 		);
+		expect(
+			await at(folders.access_token, audiences.folders, 'folders:write'),
+		).toBe(200);
 		expect(await at(folders.access_token, audiences.api, 'ai')).toBe(401);
 		// The refresh never narrows the grant: both answers carry all of it.
 		const sorted = (scope?: string) => scope?.split(' ').sort().join(' ');
@@ -711,7 +716,9 @@ describe('one browser sign-in for the API and the folders (decision 65)', () => 
 		});
 		expect(signedOut.status).toBe(200);
 		expect(await at(api.access_token, audiences.api, 'ai')).toBe(401);
-		expect(await at(folders.access_token, audiences.folders, 'folders:read')).toBe(401);
+		expect(
+			await at(folders.access_token, audiences.folders, 'folders:read'),
+		).toBe(401);
 		const refreshed = await harness.client.token({
 			grant_type: 'refresh_token',
 			client_id: browser.clientId,

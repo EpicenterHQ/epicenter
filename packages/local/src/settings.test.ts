@@ -13,8 +13,8 @@
 import { expect, test } from 'bun:test';
 import {
 	createSettings,
-	type SettingsPlace,
 	SettingsNotOpen,
+	type SettingsPlace,
 } from './settings.js';
 
 /** A place in memory, and the world outside it. */
@@ -95,9 +95,9 @@ test('settings that cannot be reached fail, saying why, and retry connects', asy
 	outside.refuse('the shell did not answer');
 	const settings = createSettings(outside.place);
 	const models = settings.file('models.md');
-	expect(await models.connected().catch((error: unknown) => error)).toMatchObject(
-		{ name: 'Unavailable' },
-	);
+	expect(
+		await models.connected().catch((error: unknown) => error),
+	).toMatchObject({ name: 'Unavailable' });
 	const state = settings.state();
 	if (state.status !== 'failed') throw new Error('expected a failure');
 	expect(state.error.message).toContain('the shell did not answer');

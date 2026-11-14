@@ -1,10 +1,26 @@
 {
 	"description": "The names Epicenter gives a write in progress beside its target, which no listing, watcher, or sync describes: a save staged as `.ep-<random>.save`, and a recording as `.ep-<8 base36 characters>-<base>.recording` beside its final path `<base>.webm`. A path is reserved when its last segment matches `^\\.ep-[^/]+\\.(save|recording)$` with a nonempty middle. `legacyDirectory` is where older builds kept a folder's unfinished writes, which opening a folder empties and then removes. The folder core (core/src/state.rs) and @epicenter/folder both read this file.",
 	"legacyDirectory": ".epicenter",
-	"reserved": [".ep-0123abcd.save", ".ep-k3j9x2ab-2026-11-06 take.recording", "notes/.ep-x.save"],
-	"notReserved": [".ep-.save", ".ep-x", "ep-x.save", ".ep-x.save.md", ".epicenter", ".DS_Store", "notes/a.md", ".ep-x.saved"],
+	"reserved": [
+		".ep-0123abcd.save",
+		".ep-k3j9x2ab-2026-11-06 take.recording",
+		"notes/.ep-x.save"
+	],
+	"notReserved": [
+		".ep-.save",
+		".ep-x",
+		"ep-x.save",
+		".ep-x.save.md",
+		".epicenter",
+		".DS_Store",
+		"notes/a.md",
+		".ep-x.saved"
+	],
 	"recordings": [
-		{ "pending": "recordings/.ep-k3j9x2ab-2026-11-06 take.recording", "final": "recordings/2026-11-06 take.webm" },
+		{
+			"pending": "recordings/.ep-k3j9x2ab-2026-11-06 take.recording",
+			"final": "recordings/2026-11-06 take.webm"
+		},
 		{ "pending": ".ep-00000000-a.recording", "final": "a.webm" }
 	]
 }

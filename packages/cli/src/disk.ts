@@ -25,10 +25,10 @@ import {
 import { lstat, readdir, readFile, stat, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
+	FileError,
 	type Folder,
 	isLocalPath,
 	normalizePath,
-	FileError,
 } from '@epicenter/app';
 
 /** How many times `update` tries a file that a writer outside epicenter (an editor) keeps changing before it gives up. */

@@ -17,8 +17,8 @@ import {
 import { CliError } from './errors.ts';
 import { fail, writeErr, writeJson, writeOut } from './output.ts';
 import {
-	ancestorWithMarker,
 	APPS,
+	ancestorWithMarker,
 	DEFAULT_PORT,
 	folderPath,
 	isMarked,

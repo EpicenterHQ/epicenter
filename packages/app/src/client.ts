@@ -147,9 +147,13 @@ export type AppClient<A> = {
  * defaults to this origin's `/`, where `epicenter serve` answers the UIs it
  * serves: an action is `POST <url><app>/<words joined by .>`.
  */
-export function connect<App extends { actions: object }>(
-	{ app, url = '/' }: { app?: string; url?: string } = {},
-): AppClient<App['actions']> {
+export function connect<App extends { actions: object }>({
+	app,
+	url = '/',
+}: {
+	app?: string;
+	url?: string;
+} = {}): AppClient<App['actions']> {
 	const name = app ?? appOfPage();
 	const base = url.endsWith('/') ? url : `${url}/`;
 	const at = (words: string[]): unknown =>
