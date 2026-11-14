@@ -12,9 +12,9 @@ test('a folder is addressed by its id under the audience, and joined or made at 
 	expect(isFolderId('abcdefgh01234567')).toBe(true);
 	expect(isFolderId('ABCDEFGH01234567')).toBe(false);
 	expect(isFolderId('abc')).toBe(false);
-	expect(
-		folderUrl('https://api.example/folders/', 'abcdefgh01234567'),
-	).toBe('https://api.example/folders/abcdefgh01234567');
+	expect(folderUrl('https://api.example/folders/', 'abcdefgh01234567')).toBe(
+		'https://api.example/folders/abcdefgh01234567',
+	);
 	expect(folderUrl('https://api.example/folders')).toBe(
 		'https://api.example/folders',
 	);

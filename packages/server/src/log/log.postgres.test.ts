@@ -15,13 +15,13 @@ import {
 	type DisposablePostgres,
 	startDisposablePostgres,
 } from '../test-helpers/disposable-postgres.js';
+import { appendChange, type ChangeWrite } from './append.js';
 import {
 	PENDING_FOR_MS,
 	purgeBlobs,
 	putBlob,
 	sweepPendingBlobs,
 } from './blobs.js';
-import { type ChangeWrite, appendChange } from './append.js';
 import { listMarks, seqOfMark, setMark } from './marks.js';
 import { createMemoryBlobStore } from './memory-blob-store.js';
 import {

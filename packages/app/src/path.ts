@@ -134,7 +134,9 @@ export function template(text: string): Template {
 						`${JSON.stringify(given)} cannot name a file: it is empty, has / or \\, or starts with .`,
 					);
 				if (new TextEncoder().encode(value).length > MAX_SEGMENT_BYTES)
-					throw new Error(`${JSON.stringify(given)} is too long to name a file`);
+					throw new Error(
+						`${JSON.stringify(given)} is too long to name a file`,
+					);
 				return value;
 			});
 			if (!local && isLocalPath(path))

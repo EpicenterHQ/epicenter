@@ -46,7 +46,9 @@ function savedIn(text: string | null): RecordingInput | undefined {
 		typeof saved.label === 'string'
 	)
 		return { deviceId: saved.deviceId, label: saved.label };
-	throw new Error('microphone.json on this computer does not name a microphone.');
+	throw new Error(
+		'microphone.json on this computer does not name a microphone.',
+	);
 }
 
 export const localPreferences: MicrophonePreferences = {

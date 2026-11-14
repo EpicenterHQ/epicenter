@@ -322,7 +322,10 @@ export function folderRepository(
 	}: { pollMs?: number; batchMs?: number } = {},
 ) {
 	if (!isFolderId(folder)) throw new Error(`'${folder}' is not a folder id`);
-	const base = folderUrl(resolveOAuthAudiences(account.baseURL).folders, folder);
+	const base = folderUrl(
+		resolveOAuthAudiences(account.baseURL).folders,
+		folder,
+	);
 
 	/** Versions this folder holds bytes for: put or read here, so never asked about again. */
 	const held = new Set<string>();

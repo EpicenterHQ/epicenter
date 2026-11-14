@@ -34,7 +34,9 @@ export async function printingToStderr<T>(work: () => Promise<T>): Promise<T> {
 	const saved = methods.map((method) => console[method]);
 	const write = process.stdout.write;
 	for (const method of methods) console[method] = console.error;
-	process.stdout.write = process.stderr.write.bind(process.stderr) as typeof write;
+	process.stdout.write = process.stderr.write.bind(
+		process.stderr,
+	) as typeof write;
 	try {
 		return await work();
 	} finally {

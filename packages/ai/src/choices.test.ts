@@ -66,7 +66,10 @@ test('a models.md that does not read answers no choice, says so by name, and a n
 	outside.write('models.md', '---\nchoices: [\n---\n');
 	await tick();
 	expect(choices.get('chat')).toBeNull();
-	expect(choices.problem()).toMatchObject({ name: 'Invalid', file: 'models.md' });
+	expect(choices.problem()).toMatchObject({
+		name: 'Invalid',
+		file: 'models.md',
+	});
 	expect(choices.require('chat').error).toMatchObject({
 		name: 'Invalid',
 		file: 'models.md',

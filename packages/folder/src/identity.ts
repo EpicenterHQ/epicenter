@@ -23,7 +23,10 @@ export type FolderIdentity = {
 export type IdentityStats = { ino: bigint; birthtimeNs: bigint };
 
 /** The identity `stats` describe: a birth time of zero (none recorded) is null. */
-export const identityOf = ({ ino, birthtimeNs }: IdentityStats): FolderIdentity => ({
+export const identityOf = ({
+	ino,
+	birthtimeNs,
+}: IdentityStats): FolderIdentity => ({
 	inode: ino.toString(),
 	birthtime: birthtimeNs > 0n ? birthtimeNs.toString() : null,
 });

@@ -153,7 +153,11 @@ test('recovery is asked about exactly the audio no note names, and names only wh
 	});
 	await writeFile(join(path, 'recordings/done.webm'), 'kept');
 	await keepRecording(files, kept('done'));
-	expect(expectOk(await finishCutOffRecordings(files, { recover: capture.recover! }))).toEqual({
+	expect(
+		expectOk(
+			await finishCutOffRecordings(files, { recover: capture.recover! }),
+		),
+	).toEqual({
 		noted: [],
 		unplaced: [],
 	});
@@ -166,9 +170,10 @@ test('recovery is asked about exactly the audio no note names, and names only wh
 		if (expectOk(await files.audio.list()).items.length === 3) break;
 		await Bun.sleep(10);
 	}
-	expect(expectOk(await finishCutOffRecordings(files, { recover: capture.recover! })).noted).toEqual([
-		'cut',
-	]);
+	expect(
+		expectOk(await finishCutOffRecordings(files, { recover: capture.recover! }))
+			.noted,
+	).toEqual(['cut']);
 	expect(asked.at(-1)?.toSorted()).toEqual([
 		'recordings/cut.webm',
 		'recordings/writing.webm',
