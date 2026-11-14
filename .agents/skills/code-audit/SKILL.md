@@ -46,10 +46,10 @@ grep -rn "\.then\s*\(\s*(\(\)|=> \{\}|=> undefined)" packages --include="*.ts"
 
 ## 3. Unstructured Logging in Library Code
 
-**Pattern**: `console.log` / `console.error` / `console.warn` outside of CLIs, tests, and benchmarks.
+**Pattern**: `console.log` / `console.error` / `console.warn` in library code. Biome's `noConsole` refuses it under `packages/*/src` in `bun run check`. Biome does not read `.svelte` files, so the grep covers those:
 
 ```bash
-grep -rnE "console\.(log|error|warn)" packages --include="*.ts" | grep -v test | grep -v packages/cli
+grep -rnE "console\.(log|error|warn)" packages --include="*.svelte"
 ```
 
 **Why it matters**: library code that calls `console` directly can't be redirected, silenced, or piped to a custom sink (in-memory test introspection, telemetry shipping). Every `console.log` is a hardcoded output decision the consumer can't override.
@@ -67,7 +67,7 @@ function createX({ log = createLogger('x') }: { log?: Logger } = {}) { ... }
 const log = config.log ?? createLogger('collaboration');
 ```
 
-**Triage**: this category is verified periodically: the codebase has historically been clean. Treat any hit as a regression and route through `wellcrafted/logger` before merging. New `console.*` in library code should be refused at PR review unless the call site is explicitly a CLI command, test, or benchmark.
+**Triage**: this category is verified periodically: the codebase has historically been clean. Treat any hit as a regression and route through `wellcrafted/logger` before merging. A deliberate call carries a `biome-ignore lint/suspicious/noConsole` with its reason; question one whose reason does not say why that code must print.
 
 **Two evasions the `console\.` grep misses.** Both import from `wellcrafted/logger` and are therefore invisible to the pattern above, and both were found live in `apps/whispering`:
 
