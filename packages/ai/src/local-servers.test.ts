@@ -7,7 +7,21 @@ import { expectOk } from 'wellcrafted/testing';
 import { localServers } from './local-servers.js';
 import { openAi } from './open-ai.js';
 
-const settled = () => new Promise((resolve) => setTimeout(resolve, 5));
+/**
+ * Resolves once `condition` holds, polling each millisecond, so a test waits
+ * on what it expects rather than a guess at how long a loaded machine takes.
+ */
+async function until(condition: () => boolean, deadline = 2000) {
+	const start = Date.now();
+	while (!condition()) {
+		if (Date.now() - start > deadline)
+			throw new Error(`still waiting after ${deadline} ms`);
+		await new Promise((resolve) => setTimeout(resolve, 1));
+	}
+}
+
+/** Long enough for several 5 ms interval ticks to fire if any were left. */
+const severalTicks = () => new Promise((resolve) => setTimeout(resolve, 25));
 
 /** A fake computer: which servers answer, and with which models. */
 function computer() {
@@ -32,7 +46,7 @@ test('a server appears when a probe finds it and tells subscribers', async () =>
 	const ai = openAi([localServers({ fetch: host.fetch })]);
 	let told = 0;
 	ai.subscribe(() => told++);
-	await settled();
+	await until(() => told > 0);
 	expect(host.asked.sort()).toEqual([
 		'http://localhost:11434/v1/models',
 		'http://localhost:1234/v1/models',
@@ -55,20 +69,18 @@ test('a server that stops is gone after the next probe', async () => {
 	const ai = openAi([localServers({ fetch: host.fetch })]);
 	let told = 0;
 	ai.subscribe(() => told++);
-	await settled();
+	await until(() => told > 0);
 	expect(ai.models().map(({ endpoint, id }) => `${endpoint}/${id}`)).toEqual([
 		'lm-studio/qwen',
 	]);
 
 	host.running.delete('http://localhost:1234');
-	ai.refresh();
-	await settled();
+	await ai.refresh();
 	expect(ai.models()).toEqual([]);
 	expect(told).toBe(2);
 
 	// The same answer again changes nothing and tells no one.
-	ai.refresh();
-	await settled();
+	await ai.refresh();
 	expect(told).toBe(2);
 });
 
@@ -87,7 +99,9 @@ test('nothing waits on a probe, and a server that never answers counts as absent
 	// Subscribing returned at once and models answer synchronously.
 	expect(asked).toBe(2);
 	expect(ai.models()).toEqual([]);
-	await new Promise((resolve) => setTimeout(resolve, 30));
+	// A refresh settles only once its probes time out, and they find nothing.
+	await ai.refresh();
+	expect(asked).toBe(4);
 	expect(ai.models()).toEqual([]);
 	expect(told).toBe(0);
 	stop();
@@ -98,11 +112,12 @@ test('no probe runs before a subscriber or a refresh, and an interval probes whi
 	const [ollama] = localServers({ fetch: host.fetch, interval: 5 });
 	expect(host.asked).toEqual([]);
 	const stop = ollama!.subscribe!(() => {});
-	await new Promise((resolve) => setTimeout(resolve, 18));
-	const whileSubscribed = host.asked.length;
-	expect(whileSubscribed).toBeGreaterThanOrEqual(3);
+	// The first probe runs on subscribing; the interval asks the rest.
+	await until(() => host.asked.length >= 3);
 	stop();
-	await new Promise((resolve) => setTimeout(resolve, 18));
+	// A probe asks synchronously, so the count at `stop()` is final.
+	const whileSubscribed = host.asked.length;
+	await severalTicks();
 	expect(host.asked.length).toBe(whileSubscribed);
 });
 
