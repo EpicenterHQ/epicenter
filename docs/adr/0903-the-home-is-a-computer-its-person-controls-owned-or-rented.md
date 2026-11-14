@@ -10,7 +10,6 @@
 - **Amends:** [ADR-0887](0887-a-program-keeps-a-clone-of-an-apps-data-repository-and-the-host-files-what-it-pushes.md) at "the host's token on a hosted Epicenter": withdrawn; whoever may call the app's actions on the home may clone and push.
 - **Amends:** [ADR-0898](0898-what-arrives-is-cached-what-the-person-decides-is-kept-and-an-item-moves-by-transfer.md) at "a hosted home" under Never: withdrawn; this record's third decision says what the program refuses to build for a hosting service.
 - **Relates:** [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (code runs where its owner trusts it), [ADR-0878](0878-the-os-keeps-epicenter-serve-running-under-a-job-the-person-installs.md) (the job that keeps `serve` running), [ADR-0899](0899-the-folder-sync-product-is-retired.md) (the product Epicenter Cloud belonged to), [ADR-0901](0901-an-app-is-inside-an-epicenter-or-outside-it.md) (a service is an outside app).
-- **Unbuilt:** the Linux job for a rented home, ADR-0878's systemd user unit, and `serve` refusing to bind anything but loopback or a tailnet address.
 
 ## Context
 
