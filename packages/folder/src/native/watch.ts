@@ -46,7 +46,8 @@ export async function watchDirectory(
 		root,
 		{ recursive: true, persistent: false, encoding: 'utf8' },
 		(_event, filename) => {
-			if (filename === null || filename === '') return report('all');
+			// Linux's watcher can name no file: null in the types, undefined from Bun.
+			if (!filename) return report('all');
 			// Bun normally supplies a relative name; tolerate an absolute one
 			// only when it still names something below this admitted root.
 			const path = (isAbsolute(filename) ? relative(root, filename) : filename)

@@ -14,6 +14,16 @@ metadata:
 
 PR titles, PR bodies, changelog entries, issue links, username verification, CODEOWNERS notes, and merge strategy belong to [pull-request](../pull-request/SKILL.md).
 
+## Working in a worktree
+
+Several agent harnesses keep worktrees of this repository at once.
+
+- **Verify `HEAD` before committing** (`git rev-parse --abbrev-ref HEAD`). A handoff may claim a fresh branch that does not exist, and another session may have switched the worktree since you last looked.
+- **`git stash` is shared across all worktrees.** A bare `git stash` or `stash pop` can take another worktree's entry. Commit to a branch instead.
+- **A branch cut from whatever was checked out carries unmerged work.** Before opening a PR, run `git diff --stat origin/main...HEAD` and confirm the scope.
+
+Deleting worktrees and branches belongs to [worktree-hygiene](../worktree-hygiene/SKILL.md).
+
 ## References
 
 This skill keeps its rules inline. For PR work, use [pull-request](../pull-request/SKILL.md).

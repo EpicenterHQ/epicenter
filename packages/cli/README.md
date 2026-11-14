@@ -90,7 +90,7 @@ An action that returns nothing answers `{ "returned": null }`. An action that th
 
 - An object prints one `key: value` line per defined key, in order. A string with a newline prints as `key: |` followed by indented lines. Other strings print plainly unless empty, padded with spaces, starting with a quote or `|`, or readable as JSON, such as `"true"`, `"null"`, or `"12"`; those print as JSON strings. A nested object with a defined key, or a non-empty array of objects, prints by these same rules under `key:`, indented two spaces. Numbers, booleans, null, other arrays, and an empty object print as compact JSON values. A `problems` key stays on stdout like any other key.
 - An array of objects whose fields each fit on one line prints one row per object, with `key: value` pairs separated by two spaces. If a field takes more lines, a multiline string or a nested object, each object prints on its own lines, with a blank line between objects.
-- An empty array prints nothing. A string prints as is, with a final newline added if needed. Other arrays and scalars print as JSON.
+- An empty array prints nothing. A string prints as is, with a final newline added if needed. Other arrays and single values print as JSON.
 
 ```txt
 $ epicenter tasks get tasks/2026-11-10T09-30-00-000Z-k3x9a2f8.md
