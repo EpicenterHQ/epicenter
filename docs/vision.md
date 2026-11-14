@@ -51,7 +51,7 @@ A pull uses whatever its source offers, from the most hostile to the
 friendliest: a requested export, listing everything and comparing, a change
 feed with a cursor (Gmail's `history.list`), or the source pushing changes.
 
-A remote is a backup, never a truth: one writer pushes to it, and no writer
+`origin` is a backup, never a truth: one writer pushes to it, and no writer
 pulls from it ([ADR-0851]).
 
 ## How apps compose
@@ -61,19 +61,19 @@ source's id. Changing the source is an action.** Mail is the example: an agent
 reads the cached mailbox and writes a proposal, and you run `epicenter mail
 apply <proposal>`, which changes Gmail and records each outcome ([ADR-0882]).
 
-| Verb | What it does | Example |
+| Way | What it does | Example |
 | --- | --- | --- |
 | pull | copies a source's items inward; never writes the source | Gmail, a Todoist inbox, Whispering's folder |
-| move | writes the kept item carrying `from: <source>/<id>`, then closes it at the source | a Todoist item becomes a task, then is completed in Todoist |
-| act | changes the source through its own action, then pulls what changed | Mail's `apply` |
+| move | writes a kept record carrying `from: <source>/<id>`, then closes the item at the source | a Todoist item becomes a task, then is completed in Todoist |
+| apply | changes the source through an action, then pulls what changed | Mail's `apply` |
 
-An item moves by transfer, never by link: after a move, nothing flows back,
+An item moves by transfer, never by link: it becomes a record, nothing flows back,
 and nothing is kept in step. Copying works only for what is never edited
 elsewhere: recordings, arrivals in an inbox, received mail.
 
 Apps never import, call, or subscribe to each other. You or an agent join
 them through actions. A move you repeat often becomes a prompt, then an action
-in a personal app. Scheduling belongs to the host: launchd, cron, or an
+in a personal app. Scheduling belongs to the home: launchd, cron, or an
 agent's routine may call `epicenter <app> <action>`.
 
 | You want | Reach for |
@@ -87,7 +87,8 @@ Mail for a cached one, Messages for a live one.
 
 ## Ways in
 
-`~/Epicenter` on the home holds a folder per app, each a Git repository.
+`~/Epicenter/apps` on the home holds a folder per app, each two Git
+repositories: its code, and its `data/` ([ADR-0877]).
 For the author, the home is the Mac Studio.
 
 | Way in | What it is | Who uses it |
@@ -140,29 +141,33 @@ starter's changes ([ADR-0866]).
 
 | Noun | What it is |
 | --- | --- |
-| your Epicenter | `~/Epicenter` on the home, a folder per app and nothing else, and the `serve` that answers for it |
-| an app | a folder in your Epicenter whose `epicenter.ts` default-exports `defineApp`: its description, collections, and actions; its name is the folder's |
-| a collection | a kind of file in the app, by a path template (`words/{word}.md`) and fields; it gives `list`, `get`, `add`, `set`, `edit`, and `delete` |
+| Epicenter | your folder of apps, `~/Epicenter` on the home, together with the command that serves it; "your Epicenter" and "an Epicenter" mean one person's |
+| an app | a folder in `~/Epicenter/apps` whose `epicenter.ts` default-exports `defineApp`: its description, collections, and actions; its name is the folder's |
+| a collection | a kind of record in the app, by a path template (`words/{word}.md`) and fields; it gives six actions: `list`, `get`, `add`, `set`, `edit`, and `delete` |
+| a record | one file in a collection, addressed by its path; it is yours |
+| an item | one thing at a source that is not a record yet: a message in Gmail, a row in Todoist |
 | a field | JSON Schema for one value, written with helpers such as `field.text()` |
-| an action | something you can ask an app to do: a collection's verb, or one the author writes with `defineAction` |
+| an action | something you can ask an app to do: one of a collection's six, or one the author writes with `defineAction`; it is a command in the terminal and a tool over MCP |
 | a UI | a web page built from the app's `ui/` into `ui/dist/`, served at `/<app>/`, that shows its data and calls its actions over MCP |
-| Epicenter | the runtime: the `epicenter` command, which runs an action in a folder, and `epicenter serve`, which offers every app over MCP |
+| `epicenter` | the command: it runs an action in a folder, and `epicenter serve` offers every app over MCP |
+| a personal app | an app you made to join other apps: it holds the actions that cross them |
 | a program | software that runs on its own and writes files an app's collections declare, in its own folder: Whispering |
 | a starter | an app's code repository, which someone else takes with `epicenter new --from` |
-| the home | the computer your Epicenter runs on: it runs `epicenter serve`, from a terminal or as the Epicenter Mac app ([ADR-0865]) |
+| the home | the computer your Epicenter is on: it runs `epicenter serve`, from a terminal or as Epicenter for Mac ([ADR-0865]) |
 | a service | software someone else runs, which holds the truth of its own data: Gmail, a hosted notes service, the hosted API |
 | Git | snapshots on the home, optional `origin` backup, `upstream` for a starter, LFS for binaries |
 
-"Epicenter" alone always means the runtime. The company is "Epicenter, the
-company". Anything the company hosts is a service with its own name, as
-Whispering is a program whose name does not contain "Epicenter". A hosted
-notes service would not be called Epicenter, and it would sit beside the vault,
-not replace it. "Server" means someone else's computer; yours is the home.
+"Epicenter" is the place, and `epicenter` is its command. The company is
+"Epicenter, the company". Anything the company hosts is a service with its own
+name, as Whispering is a program whose name does not contain "Epicenter". A
+hosted notes service would not be called Epicenter, and it would sit beside
+the vault, not replace it. "Server" means someone else's computer; yours is
+the home.
 
 ## An app
 
-An app is a Git repository of three kinds of file, each with one author
-([ADR-0866]):
+An app is a code repository with a data repository inside it, three kinds of
+file, each with one author ([ADR-0866], [ADR-0877]):
 
 ```txt
 apps/vocab/
@@ -202,8 +207,8 @@ export default defineApp({
 });
 ```
 
-Tasks' tools are the collection's verbs, `tasks list`, `get`, `add`, `set`,
-`edit`, and `delete`, with `add` replaced by the one written here. A file's
+Tasks' actions are the collection's six, `tasks list`, `get`, `add`, `set`,
+`edit`, and `delete`, with `add` replaced by the one written here. A record's
 address is its path:
 `epicenter tasks set tasks/2026-11-10T09-30-00-000Z-k3x9a2f8.md --done`. On
 the command line an action's `positional` fields are read by position:
@@ -222,9 +227,9 @@ Claude Code on the home, and for a program writing there.
 action.** That is true for Claude Desktop, an agent on another computer, and a
 UI.
 
-**History is snapshots, named for the calls** (`tasks: add Call the bank`): a
-write call commits exactly the paths it wrote, holding the app's lock from its
-first write to its commit, and `epicenter serve` snapshots what else is
+**History is snapshots, named for the actions** (`tasks: add Call the bank`):
+an action that writes commits exactly the paths it wrote, holding the app's
+lock from its first write to its commit, and `epicenter serve` snapshots what else is
 pending and pushes to the app's optional backup every 5 minutes ([ADR-0850],
 [ADR-0851]). A change made outside an action is committed as "changed outside
 epicenter". Exit codes tell an agent what happened: 0 returned, 1 threw, 2 did
@@ -244,7 +249,7 @@ epicenter serve, over your tailnet           your devices: UIs and MCP
 
 A command always means the computer it is typed on. `serve` runs each app as
 its files are on disk, so code you just changed is what runs ([ADR-0880]). It
-signs no one in; its host decides who reaches it, for the home the tailnet
+signs no one in; the home decides who reaches it, for the author the tailnet
 ([ADR-0883]).
 
 ## UIs
@@ -253,22 +258,16 @@ An app's UI ([ADR-0860]) is a web page served at `/<app>/` that reads and
 changes the app only by calling its actions. It never knows where they run and
 keeps nothing of its own.
 
-| Rung | Interface | Steps up when |
-| --- | --- | --- |
-| 1 | the terminal, Claude Code, any agent | you want to see or tap, not type |
-| 2 | a UI, in a browser | it needs the device in a way a browser does not give |
-| 3 | a program of its own, such as Whispering | never |
-
 ## One ladder
 
 | Rung | You add | Every app gains |
 | --- | --- | --- |
-| 1. Files | nothing | any program reads and writes it |
+| 1. Files | nothing | any software reads and writes it |
 | 2. History | Git, `git-lfs`, optional `origin` | local snapshots, optional backup |
 | 3. Actions | `epicenter` | its actions in the terminal and for Claude Code |
 | 4. Everywhere | `epicenter serve` on the home | every device on your tailnet reaches it; its UIs open in a browser |
 
-The Epicenter Mac app installs rungs 2 to 4 at once ([ADR-0865]). Whispering
+Epicenter for Mac installs rungs 2 to 4 at once ([ADR-0865]). Whispering
 is whole at rung 1.
 
 ## Each job, the least powerful form
@@ -280,11 +279,11 @@ is whole at rung 1.
 | Change data | edit a file | it needs a rule, a sign-in, or reach |
 | Reach a service's data | ask it each time | it needs search, offline reading, or history: a pull |
 | Join two apps | an agent | the steps are stable: an action in a personal app |
-| Record what ran | snapshots named for the calls | never |
+| Record what ran | snapshots named for the actions | never |
 | Move data | Git | never |
 | Reach | MCP | never |
-| An interface | Claude or the terminal | it needs to be seen: a UI |
-| Run something later | the host's scheduler calls an action | never |
+| An interface | Claude, any agent, or the terminal | you want to see or tap: a UI. It needs the device in a way a browser does not give: a program of its own, such as Whispering |
+| Run something later | the home's scheduler runs an action | never |
 
 ## Next, not yet, and never
 
@@ -339,6 +338,7 @@ fields are written one `key: <JSON>` line each.
 [ADR-0866]: adr/0866-an-app-starts-from-a-starter-kept-as-its-upstream-and-update-merges-the-starters-changes.md
 [ADR-0867]: adr/0867-the-command-line-spells-an-actions-json-input-and-null-removes-a-field-there-as-everywhere.md
 [ADR-0870]: adr/0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md
+[ADR-0877]: adr/0877-an-apps-code-and-its-data-are-two-repositories-and-sharing-an-app-shares-its-code.md
 [ADR-0880]: adr/0880-an-epicenter-runs-its-apps-as-they-sit-on-disk.md
 [ADR-0882]: adr/0882-mail-leaves-mail-in-gmail-and-agents-change-it-through-proposals-the-person-applies.md
 [ADR-0883]: adr/0883-an-epicenter-is-its-git-repositories-and-serve-and-its-host-keeps-runs-and-guards-them.md
