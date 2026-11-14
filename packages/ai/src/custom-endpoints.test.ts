@@ -85,7 +85,9 @@ test('reordering keeps every connection, and another window’s write is heard',
 	const second = await connections.add({ baseUrl: 'https://two.test/v1' });
 	await connections.reorder([second, first]);
 	expect(connections.list().map(({ id }) => id)).toEqual([second, first]);
-	await expect(connections.reorder([first])).rejects.toThrow('each existing id');
+	await expect(connections.reorder([first])).rejects.toThrow(
+		'each existing id',
+	);
 	let heard = 0;
 	const stop = connections.subscribe(() => heard++);
 	outside.write(

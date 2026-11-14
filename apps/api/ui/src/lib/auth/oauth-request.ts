@@ -51,7 +51,10 @@ export function deviceAuthorizeUrl(userCode: string) {
  * reading and changing below it reach (ADR-0820).
  */
 const SCOPE_COPY = new Map([
-	['folders:all', 'Reach every folder you have, not only the ones you use with this app'],
+	[
+		'folders:all',
+		'Reach every folder you have, not only the ones you use with this app',
+	],
 	['folders:read', 'Read your folders'],
 	['folders:write', 'Change your folders'],
 	['ai', 'Use Epicenter AI on your plan'],

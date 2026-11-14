@@ -45,9 +45,7 @@ test('state reads the cookie session; no session is signed out', async () => {
 	const { auth, server } = setup();
 	expect(auth.state().status).toBe('signed-out');
 	await auth.refresh();
-	expect<string | undefined>(auth.state().account?.principalId).toBe(
-		'alice',
-	);
+	expect<string | undefined>(auth.state().account?.principalId).toBe('alice');
 	const before = auth.state().account;
 	await auth.refresh();
 	expect(auth.state().account).toBe(before);
@@ -113,9 +111,7 @@ test('a failed sign-out keeps the Account the cookie still holds', async () => {
 	await auth.refresh();
 	server.signOutStatus = 500;
 	expect((await auth.signOut()).error?.name).toBe('SignOutFailed');
-	expect<string | undefined>(auth.state().account?.principalId).toBe(
-		'alice',
-	);
+	expect<string | undefined>(auth.state().account?.principalId).toBe('alice');
 	server.signOutStatus = 200;
 	expectOk(await auth.signOut());
 	expect(auth.state()).toEqual({ status: 'signed-out' });

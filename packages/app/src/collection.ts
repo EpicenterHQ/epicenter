@@ -42,7 +42,7 @@
  * A collection does not know its name: an app names it by its key in
  * `collections`, and everything a collection says names its path instead.
  */
-import { FileError } from './errors.ts';
+
 import {
 	type Static,
 	type TObject,
@@ -53,6 +53,7 @@ import {
 import { Value } from 'typebox/value';
 import { type Action, type ActionMeta, RESERVED_FIELDS } from './action.ts';
 import { folder, isLocalPath } from './context.ts';
+import { FileError } from './errors.ts';
 import { isWriteOnly, whatFits } from './field.ts';
 import {
 	type FieldValues,
@@ -221,7 +222,10 @@ export type ManyHandle<D extends CollectionDef> = {
 	 * await words.update({ path }, (word) => ({ reps: (word?.reps ?? 0) + 1 }));
 	 * ```
 	 */
-	update(at: PathIn, revise: Revise<D, FileOf<D> | undefined>): Promise<FileOf<D>>;
+	update(
+		at: PathIn,
+		revise: Revise<D, FileOf<D> | undefined>,
+	): Promise<FileOf<D>>;
 	/** Delete the file; `true` when there was one. */
 	delete(at: PathIn): Promise<boolean>;
 	/** The path `add` would write for these placeholder values: `pathOf({ word: '你好' })` is `data/words/你好.md`. */

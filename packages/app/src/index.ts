@@ -27,8 +27,8 @@ export {
 } from './collection.ts';
 export {
 	type Context,
-	type Folder,
 	callSignal,
+	type Folder,
 	folder,
 	inRun,
 	isLocalPath,
