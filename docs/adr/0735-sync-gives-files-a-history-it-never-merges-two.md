@@ -1,5 +1,7 @@
 # 0735. Sync gives files a history; it never merges two
 
+<!-- doc-path-check: ignore-file (cites the waiting folder sync product (ADR-0840), kept at tag folder-sync-product) -->
+
 - **Status:** Accepted (2026-11-04)
 - **Date:** 2026-11-04
 - **Amends:** [ADR-0721](0721-an-apps-folder-is-derived-never-stored.md) at "Cloning where a folder already exists, as when an app on a second Mac made its folder first, joins it: fetch, then merge": the folder's files are added on top of the account's repository in one commit; [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) at "the `.gitattributes` block `epicenter init` commits" and "A folder `epicenter init` has not registered has no history": a folder has no history until its first sync, whose one commit holds the attribute block.

@@ -1,5 +1,7 @@
 # 0706. A browser variant runs the desktop code with weaker guarantees
 
+<!-- doc-path-check: ignore-file (cites code that moved since) -->
+
 - **Status:** Accepted (2026-11-03)
 - **Date:** 2026-11-03
 - **Relates:** [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) (an app's variants and their stores), [ADR-0705](0705-an-apps-data-lives-in-two-kinds-of-store.md) (folder and document stores).

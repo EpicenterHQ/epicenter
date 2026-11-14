@@ -1,5 +1,7 @@
 # 0744. Sync diffs state, because agents edit state
 
+<!-- doc-path-check: ignore-file (cites the waiting folder sync product (ADR-0840), kept at tag folder-sync-product) -->
+
 - **Status:** Accepted (2026-11-04)
 - **Date:** 2026-11-04
 - **Relates:** [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) (desktop sync and the server's write path), [ADR-0734](0734-every-file-other-than-a-note-is-kept-whole-in-git-lfs.md) (one merge rule), [ADR-0735](0735-sync-gives-files-a-history-it-never-merges-two.md) (the first sync), [ADR-0702](0702-a-data-folders-unfinished-writes-wait-in-epicenter-outside-its-data.md) (unfinished writes), [ADR-0327](0327-undelivered-work-is-an-outbox-and-that-is-where-a-failure-appears.md) (Local Mail's outbox to Gmail), [ADR-0747](0747-git-runs-only-as-git-on-the-desktop.md) (Git runs only as Git).

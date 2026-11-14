@@ -1,5 +1,7 @@
 # 0794. A sync round asks its host to settle, checks out only what did not move, and retries rather than guess
 
+<!-- doc-path-check: ignore-file (cites the waiting folder sync product (ADR-0840), kept at tag folder-sync-product) -->
+
 - **Status:** Accepted (2026-11-05)
 - **Date:** 2026-11-05
 - **Amends:** [ADR-0751](0751-every-native-app-carries-one-sync-core.md) at "the plugin runs a round at the moments" and "a working-tree recheck before merge": the shell owns an app's moments while the core stays, a round's settle is answered by a live page of the app, and checkout writes only what did not move; [ADR-0787](0787-records-that-assumed-a-running-engine-or-a-build-time-choice-follow-0750-and-0781.md) at "The core runs it in a round": the core asks its host; [ADR-0774](0774-one-write-makes-it-so-and-settles-a-change-the-way-sync-does.md) at "the Git LFS object id of any other file, on every store": a store names a file other than a note by a stamp, keeping its object id beside it.

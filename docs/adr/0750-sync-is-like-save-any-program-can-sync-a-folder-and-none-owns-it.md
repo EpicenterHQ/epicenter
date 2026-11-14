@@ -1,5 +1,7 @@
 # 0750. Sync is like save: any program can sync a folder, and none owns it
 
+<!-- doc-path-check: ignore-file (cites the waiting folder sync product (ADR-0840), kept at tag folder-sync-product) -->
+
 - **Status:** Accepted (2026-11-04)
 - **Date:** 2026-11-04
 - **Amends:** [ADR-0713](0713-one-epicenter-engine-per-machine-syncs-every-apps-folder.md) at the Epicenter app owning `sync --watch` and at "Syncing needs Epicenter" with its download link: any program with a credential runs a round at the moments below, and no app shows that message; [ADR-0328](0328-epicenter-runs-when-you-log-in-and-pause-is-the-only-control-it-offers.md) at running from login so that work continues in the background, and at Pause, as they apply to sync: sync runs at moments a person causes, so it needs no program running between them and has nothing to pause; [ADR-0745](0745-a-browser-extension-writes-through-the-local-epicenter-engine.md) at "Sync, history, and agents come from the desktop: Git, `epicenter sync --watch`": the native host syncs the folder at the extension's moments; [ADR-0749](0749-epicenter-draws-its-boundaries-where-people-already-expect-them.md) at its "when sync runs" row: people expect sync where they expect save, when an app opens, after a save, on return, and on request.

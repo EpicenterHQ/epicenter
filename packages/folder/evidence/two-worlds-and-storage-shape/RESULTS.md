@@ -1,3 +1,5 @@
+<!-- doc-path-check: ignore-file (frozen historical record) -->
+
 # Two-worlds prototype and browser storage shape
 
 Recorded 2026-10-27; archived 2026-11-01. The source is commit `0bac9e6cea`

@@ -1,5 +1,7 @@
 # 0358. Installation admits a built application release
 
+<!-- doc-path-check: ignore-file (cites the waiting folder sync product (ADR-0840), kept at tag folder-sync-product) -->
+
 - **Status:** Proposed
 - **Date:** 2026-09-08
 - **Relates:** [ADR-0179](0179-an-installed-app-is-an-inert-built-folder-admitted-through-one-static-artifact-boundary.md) (installation reads an inert built folder), [ADR-0314](0314-an-app-is-one-directory-and-installation-is-a-rename.md) (one installed app directory), [ADR-0326](0326-the-deployment-names-the-authority-and-a-person-never-types-one.md) (the deployment supplies the authority), [ADR-0334](0334-a-deployed-app-is-a-trusted-app-because-deploying-it-was-the-consent.md) (deployment is consent), and [ADR-0335](0335-a-person-is-an-origin-and-an-app-is-a-path-under-it.md) (hosted deployment paths)
