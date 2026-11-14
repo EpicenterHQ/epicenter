@@ -54,10 +54,9 @@ epicenter/
 ├── apps/
 │   ├── whispering/     # Main transcription app (ready for contributions)
 │   ├── epicenter/      # Native host for trusted app windows
-│   ├── sh/             # Local assistant (in development)
 │   └── ...             # Other apps in various stages
 ├── packages/
-│   ├── db/             # Shared database schema for our hosted services
+│   ├── cli/            # The epicenter command and epicenter serve
 │   ├── ui/             # Shared UI components
 │   └── ...
 └── ...
@@ -247,7 +246,7 @@ An MIT toolkit tier existed until 2026-08 and was dissolved because no external 
 
 We believe in:
 
-- **Local-first**: Your data stays on your machine
+- **Your computer**: Your data lives on a computer you control
 - **Open source**: Everything is transparent and auditable
 - **User ownership**: You own your data and choose your models
 - **Simplicity**: Every change should be as simple as possible

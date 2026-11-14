@@ -76,7 +76,7 @@ Any activities conducted in a manner consistent with this policy will be conside
 
 ## License
 
-Epicenter is open source under a split license: the apps and server are [AGPL-3.0](licenses/LICENSE-AGPL-3.0), and the developer toolkit is [MIT](licenses/LICENSE-MIT). See the root [LICENSE](LICENSE) index.
+Epicenter is open source under [AGPL-3.0-or-later](licenses/LICENSE-AGPL-3.0). See the root [LICENSE](LICENSE) index.
 
 ---
 
