@@ -44,7 +44,7 @@
 	})(document, window.posthog || []);
 	posthog.init('phc_6HlOGFzGeDZpWPpusOiLAn4qouIMsjcpq6nLAUwt6yM', {
 		// Use a reverse proxy with Posthog: https://posthog.com/docs/advanced/proxy/cloudflare
-		// See: apps/posthog-reverse-proxy/ for our Cloudflare Worker setup
+		// The Worker's source was apps/posthog-reverse-proxy, deleted in ADR-0902; the tag before-0891-layout has it
 		api_host: 'https://proxy.epicenter.so',
 		defaults: '2025-05-24',
 	});
