@@ -1,111 +1,32 @@
 ---
 name: worktree-hygiene
-description: Safely reap Git worktrees and branches across Epicenter harnesses once their work is on GitHub, backing up unmerged work first. Use when cleaning `git worktree list` or local branches, removing orphaned or detached worktrees, or deciding whether one is safe to delete, not when creating branches or commits.
+description: Reap local Git worktrees and branches once their work is on GitHub, with `bun run worktrees`. Use when cleaning up worktrees or local branches, or deciding whether one is safe to delete, not when creating branches or commits.
 metadata:
   author: epicenter
-  version: '1.1'
+  version: '2.0'
 ---
 
 # Worktree Hygiene
 
-> **Related Skills**: [git](../git/SKILL.md) for branch creation, staging, and commit messages. [standalone-commits](../standalone-commits/SKILL.md) for reviewable units. [pull-request](../pull-request/SKILL.md) for merge strategy.
+> **Related Skills**: [git](../git/SKILL.md) for working inside a worktree.
 
-Five harnesses (Claude Code, Codex, Conductor, Warp, opencode) mint worktrees and branches here, and nothing reaps them, so they accumulate. The cure is to reap on close: once a branch's work is on GitHub, remove its worktree and delete the local branch in the same motion. This skill is the safe procedure for doing that, one-off or as a periodic sweep.
+A local copy is disposable once its work is reachable from GitHub: on `origin/main`, in a PR's head, or pushed as `backup/<branch>`. Git history keeps it findable, not the local branch. [`scripts/worktree-audit.ts`](../../../scripts/worktree-audit.ts) owns the mechanics and states the rule exactly; this skill holds the judgment it cannot make.
 
-## The rule: covered, then deleted
+## Procedure
 
-A local copy is disposable once its work is reachable from GitHub. Git history is what keeps it findable, not the local branch.
+1. Run `bun run worktrees`. It fetches, then prints every local branch and worktree with its state, dirty file count, and proof.
+2. Judge each row the script cannot decide (below), then show the owner the table and what you propose for each row.
+3. With approval, run `bun run worktrees --backup <branch…>` for abandoned `local-only` or `pushed` branches, then `bun run worktrees --reap <branch…>` for the approved names. Reap re-checks each branch at deletion and refuses anything uncovered or dirty.
+4. Run `bun run worktrees` again. Sessions create and switch worktrees continuously, so the second listing is the result.
 
-```txt
-covered = every commit is on origin/main          (merged, squashed, or rebased)
-       OR the exact tip is on origin under backup/  (unmerged, kept for later)
+## What the script leaves to you
 
-reap    = covered  AND  working tree clean (or only throwaway dirt)
-```
+- **Dirt.** It refuses any worktree with changed or untracked files. Build output (`dist/`, `target/`, `build-desktop/`) is throwaway; delete it by hand, then reap. Modified source or a unique untracked file is real work: commit it to a branch and back that up first.
+- **Liveness.** A clean, covered worktree may belong to a session that is still working, and a `local-only` branch may be today's work. Check the commit age and the running sessions; never reap a worktree another live session owns.
+- **Bases.** Keep a `base/*` branch another session started from until that session's PR merges.
+- **Local `main`.** The script reports how far `main` is from `origin/main` and never moves it. If it has commits or changes of its own, back them up and ask the owner separately before `git branch -f main origin/main`: discarding work on `main` is its own decision.
+- **Remote branches and PRs.** The script never deletes remote refs. Delete a merged PR's branch on GitHub by hand; close an open PR whose content reached `main` under other hashes with a comment naming the commit that landed it.
 
-- `git merge-base --is-ancestor <branch> origin/main` proves a normal merge.
-- `git cherry origin/main <branch>` with no `+` lines proves a squash or rebase merge, where the commits reached `main` under new hashes.
-- `git rev-parse origin/backup/<date>/<branch>` equal to `git rev-parse <branch>` proves a backup. Any other ref on origin that contains the tip (`git for-each-ref --contains <branch> refs/remotes/origin`) also counts.
+Reaping is destructive (`AGENTS.md`), so `--reap` runs only on names the owner approved. `--backup` only adds refs and needs no gate.
 
-"Branch merged" alone is **not** sufficient. A covered branch routinely carries live uncommitted edits in its working tree, and `--force` destroys them. Uncommitted work is never covered: commit it to a branch first.
-
-## Back up what is not on main
-
-Unmerged work that nobody is actively using goes to GitHub, not to a local branch that only this machine holds. One naming scheme, a branch per original branch:
-
-```txt
-backup/<YYYY-MM-DD>/<original-branch-name>
-```
-
-```bash
-bash -c '
-cd <main-checkout>
-list="claude/foo codex/bar"
-refs=(); for b in $list; do refs+=("${b}:refs/heads/backup/2026-11-13/${b}"); done
-git push -q origin "${refs[@]}" && git fetch -q origin
-for b in $list; do [ "$(git rev-parse "origin/backup/2026-11-13/${b}")" = "$(git rev-parse "$b")" ] || echo "NOT BACKED UP $b"; done'
-```
-
-Run it under `bash`: in zsh, `$b:refs` reads `:r` as a path modifier and mangles every refspec. Verify every SHA before deleting anything; a push that printed nothing may still have pushed nothing.
-
-Use branches, not tags, so a backup can be checked out, compared, and reopened as a PR the same way as any other branch.
-
-## Audit procedure
-
-Fetch first, then classify every local branch, including ones no worktree holds:
-
-```bash
-bash -c '
-cd <main-checkout>; git fetch -q --prune origin
-inuse=$(git worktree list --porcelain | awk "/^branch/{sub(\"refs/heads/\",\"\",\$2);print \$2}")
-for b in $(git for-each-ref --format="%(refname:short)" refs/heads); do
-  echo "$inuse" | grep -qx "$b" && { echo "IN-WORKTREE $b"; continue; }
-  if [ "$(git cherry origin/main "$b" | grep -c "^+")" = 0 ]; then echo "ON-MAIN $b"
-  elif [ -n "$(git for-each-ref --contains "$b" --format=x refs/remotes/origin | head -1)" ]; then echo "ON-GITHUB $b"
-  else echo "LOCAL-ONLY $b $(git log -1 --format=%cr "$b")"; fi
-done | sort'
-```
-
-For each worktree, check `git -C <path> status --porcelain` and inspect the dirty file list. Lockfile churn and build output (`dist/`, `target/`, `build-desktop/`, `node_modules/`) are throwaway; modified source or unique untracked files are real work. Detached-HEAD worktrees have no branch line; test their tip as you would a branch.
-
-Also check the main checkout itself. If local `main` has commits `origin/main` lacks, or uncommitted changes, back them up to `backup/<date>/local-main` before moving `main` to `origin/main` with `git branch -f main origin/main` from another branch.
-
-## Decide per worktree and branch
-
-```txt
-covered + clean                 -> reap: git worktree remove <path>; git branch -D <branch>
-covered + throwaway dirt only   -> reap: git worktree remove --force <path>; git branch -D <branch>
-covered + REAL uncommitted work -> commit it to a branch, back that branch up, then reap
-local-only + abandoned          -> back up, verify the SHA, then reap
-local-only + in use             -> leave alone (active work)
-checked out by a live session   -> leave alone, whatever its state
-```
-
-`-D` is justified by the coverage proof: `git branch -d` checks only the current `HEAD`, so it refuses branches that reached `main` under new hashes or that only a backup covers.
-
-Keep a branch that another live session started from (such as a `base/*` ref) until that session's PR merges.
-
-## Reaping is destructive: gate it
-
-`git worktree remove`, `git branch -D`, and deleting remote branches are destructive (AGENTS.md: destructive actions need approval). For a sweep, present the exact backups and deletions, grouped by tier, before running any of them. Never reap on a self-reported "it's merged" or "it's backed up"; run the audit yourself.
-
-- `git worktree remove` can fail with `Directory not empty` when ignored files remain. It still de-registers the worktree. Finish with `git worktree prune` then `rm -rf <path>`.
-- The harnesses spawn and switch worktrees continuously, even mid-sweep: a worktree you audited may be on a different branch by the time you remove it. Re-check `git worktree list` immediately before each removal, and re-run the audit at the end.
-- A remote branch whose PR merged can be deleted from GitHub too. Keep `backup/*` branches.
-- An open PR whose content already reached `main` under other hashes should be closed with a comment naming the commit that landed it.
-
-## Repo-specific worktree gotchas
-
-- **`git stash` is shared across all worktrees here.** A bare `git stash`/`stash pop` can grab another worktree's entry. Prefer explicit branches; avoid stash.
-- **Animal-named warp branches are stacked on unmerged bases**, cut from whatever was checked out rather than clean `origin/main`. Before opening a PR from one, run `git diff --stat origin/main...HEAD` and confirm scope; unrelated work rides along otherwise.
-- **Verify HEAD before committing in a worktree** (`git rev-parse --abbrev-ref HEAD`). A handoff may claim a "fresh worktree on branch X" that does not exist; these stay checked out on the base branch itself.
-
-## Invariant: one owner per worktree
-
-Each worktree and branch has a single owner (the harness or agent that created it). Do not reap, back up, or commit into a worktree you do not own without confirming it is abandoned; a clean-looking tree may belong to a live session. When two sessions are sweeping at once, agree on who removes what before either deletes anything.
-
-## Final checks
-
-1. Re-run the audit: no `LOCAL-ONLY` branch should remain unless it is in use.
-2. `git worktree list` shows only live worktrees; `git worktree prune` clears stale registrations.
-3. Local `main` equals `origin/main` (`git rev-list --left-right --count origin/main...main` prints `0 0`).
+If `git worktree remove` leaves `Directory not empty` because of ignored files, it has already de-registered the worktree: run `git worktree prune`, then `rm -rf` the folder.
