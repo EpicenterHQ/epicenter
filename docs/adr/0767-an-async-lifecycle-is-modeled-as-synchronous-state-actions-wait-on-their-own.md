@@ -9,7 +9,7 @@
 - **Amended by:** [ADR-0775](0775-a-write-never-fails-the-folder-keeps-it-until-it-lands.md) at the folder's states and an action answering the open's error: the state is its lifecycle and whether its store is available, and a write waits through both.
 - **Amended by:** [ADR-0777](0777-a-capability-has-no-ready-promise.md) at what a capability exposes of its first load: no `ready` promise; its actions wait.
 - **Amended by:** [ADR-0778](0778-a-page-connects-once-and-then-reads-synchronously.md) at a capability loading on its own: a page's stores load in one connection, which `<WhenOpen>` waits for.
-- **Unbuilt:** dependents built on the waiting actions, such as Whispering's recovery of unfinished recordings and `createRecorder(folder)`. Built in W2 of the plan in `specs/20261104T160000-one-sync-core-on-every-native-platform.md`, starting with Todos.
+- **Unbuilt:** dependents built on the waiting actions, such as Whispering's recovery of unfinished recordings and `createRecorder(folder)`. Built in W2 of the plan in `65affce69c:specs/20261104T160000-one-sync-core-on-every-native-platform.md`, starting with Todos.
 
 ## Context
 
@@ -24,7 +24,7 @@ const app = await openApp(definition, { account });
 receive an opening App", and there was "no public `ready`". That code is
 gone: `openApp` appears in no source outside `docs/` and a fictional skill
 example. Today each app's `Startup` (and `DesktopStartup` in
-`packages/svelte/src/desktop-startup.svelte`) awaits an opener before it
+`65affce69c:packages/svelte/src/desktop-startup.svelte`) awaits an opener before it
 sets any context, which keeps the same promise by another route.
 
 [ADR-0766](0766-an-apps-capabilities-are-module-values-opened-synchronously.md)
@@ -41,7 +41,7 @@ recordings, so it would be one of them.
 
 The collection adapter already answers reads with a loading flag beside
 the items: `fromClient` gives each collection `items`, `loading` and
-`error` (`packages/svelte/src/client.svelte.ts`).
+`error` (`65affce69c:packages/svelte/src/client.svelte.ts`).
 
 The platform has met this problem several times:
 

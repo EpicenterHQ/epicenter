@@ -1,7 +1,8 @@
 # 0363. An inference selection identifies the connection and model
 
-- **Status:** Proposed
+- **Status:** Superseded
 - **Date:** 2026-09-08
+- **Superseded by:** [ADR-0757](0757-every-model-is-an-endpoint-every-model-file-is-a-cache.md): the endpoint client replaced this routing in 1da16bda42.
 - **Revised:** 2026-09-20
 - **Amends:** [ADR-0059](0059-an-inference-connection-is-a-capability-orthogonal-device-endpoint.md) and [ADR-0060](0060-an-inference-connection-is-a-base-url-and-an-optional-bearer-key.md) at model resolution: explicit device-local selections replace discovery-based, custom-first routing.
 
@@ -62,7 +63,7 @@ that runtime.
 **Resolution requires the exact saved destination and the model saved with it.**
 
 The saved pair is the resolver's whole input. `resolveInferenceTarget` in
-`packages/ai/src/target.ts` returns `{ client, model, source }`
+`1da16bda42^:packages/ai/src/target.ts` returns `{ client, model, source }`
 or null for a missing destination or blank model. The catalog observes connection
 changes and delegates to that resolver. Chat applies its synced-model comparison
 before resolution; Whispering reads its pair directly. Discovery supplies no
@@ -126,7 +127,7 @@ ongoing legacy observer.
 
 ## Implementation
 
-`packages/ai/src/target.ts` owns exact resolution.
+`1da16bda42^:packages/ai/src/target.ts` owns exact resolution.
 `inference-picker/catalog.svelte.ts` observes connections and discovers models.
 Whispering reads and writes declared device KV fields; agent-chat owns local
 conversation targets and their comparison with synced model metadata.

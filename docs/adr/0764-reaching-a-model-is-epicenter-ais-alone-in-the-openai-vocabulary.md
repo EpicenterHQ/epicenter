@@ -27,7 +27,7 @@ The code merged in `08a16019ed` built a different shape. `Endpoint` in
 that takes a path relative to the endpoint, and a `models()` that returns at
 once. `openAi` in `packages/ai/src/open-ai.ts` has `chat`, `transcribe` and
 `embed` instead of `complete`. Vocab merges its endpoints inside a
-`$derived` (`apps/vocab/src/lib/ai.svelte.ts`), so every key the learner
+`$derived` (`6e462b129e:apps/vocab/src/lib/ai.svelte.ts`), so every key the learner
 adds builds a new `openAi` value. Under an asynchronous `models()`, each of
 those merges lists nothing until every endpoint's promise settles, and a
 picker waits on the slowest: a stopped local server answers only at the
@@ -37,8 +37,8 @@ A custom endpoint answers whether or not the person is signed in to
 Epicenter, so its key cannot come from the account.
 
 The agent loop sends an engine `ModelMessage`, `ModelToolCall` and
-`AgentEngineToolDefinition` values (`packages/ai/src/agent/engine.ts`), and
-`createChatEngine` (`packages/ai/src/agent/chat-engine.ts`) maps them to
+`AgentEngineToolDefinition` values (`6e462b129e:packages/ai/src/agent/engine.ts`), and
+`createChatEngine` (`6e462b129e:packages/ai/src/agent/chat-engine.ts`) maps them to
 `ChatMessage` and `ChatTool` from `packages/ai/src/client.ts`. Measured on
 2026-11-04: about 100 lines are pure translation between the two, field for
 field, and about 55 of them can be deleted.

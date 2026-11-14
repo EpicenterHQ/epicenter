@@ -83,7 +83,7 @@ calls another names the shared place that could not serve.
 ## Open, not decided
 
 Whether the agent loop speaks the OpenAI vocabulary directly instead of its
-own message types (`packages/ai/src/agent/engine.ts`, the loop of
+own message types (`4b2a64b930:packages/ai/src/agent/engine.ts`, the loop of
 [ADR-0047](0047-the-agent-loop-runs-in-the-client-and-tools-are-dispatched-actions.md)),
-which `packages/ai/src/openai/agent-engine.ts` (280 lines) translates
+which `4b2a64b930:packages/ai/src/openai/agent-engine.ts` (280 lines) translates
 today. It waits on a measurement of that translation code.

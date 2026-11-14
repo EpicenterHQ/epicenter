@@ -143,8 +143,8 @@ deliberately chooses none of them.
 - Naming the macOS media-capture limit creates an upstream target. Routing wry's
   media-capture decision through a host-supplied handler would convert that limit
   from permanent to fixed, and it belongs upstream rather than in a fork.
-- `apps/epicenter/AGENTS.md` currently states that there is no per-app device
-  prompt. That is a per-platform claim, not a universal one, and it needs
+- `80edecf1ce^:apps/epicenter/AGENTS.md` stated that there is no per-app device
+  prompt (the app was deleted in 11ea49b95f). That is a per-platform claim, not a universal one, and it needs
   qualifying when the implementation wave lands.
 
 ## Considered alternatives

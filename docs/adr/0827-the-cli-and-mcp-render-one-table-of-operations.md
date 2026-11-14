@@ -22,7 +22,7 @@ Git LFS pointer, so a mirror's contract could not be read or diffed as text.
 ## Decision
 
 **Each platform operation is a package function plus one description.**
-`OPERATIONS` in `packages/cli/src/operations.ts` holds, for each, its
+`OPERATIONS` in `53d09c23f2:packages/cli/src/operations.ts` (removed in the CLI rewrite 6342831e92) holds, for each, its
 `name`, `args` (positionals by input key), `options`, `summary`, `details`,
 and a TypeBox `input` and `output` schema; its code is an `Implementation`
 with `run(input)`, which answers its output and prints nothing, and

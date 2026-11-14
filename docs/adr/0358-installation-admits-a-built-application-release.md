@@ -12,13 +12,13 @@
 
 ## Context
 
-Epicenter currently launches only the applications compiled into its own
-<!-- doc-path-check: ignore-next-line (deleted with the Bun host in wave 3) -->
-release. `apps/epicenter/src/applications.ts` declares the closed
-<!-- doc-path-check: ignore-next-line (deleted with the Bun host in wave 3) -->
-`COMPILED_APPLICATIONS` list, `apps/epicenter/src/static-assets.ts` loads each
-application's built static directory, and `apps/epicenter/package.json` builds
-those applications as part of the desktop release. There is no installed-app
+Epicenter launched only the applications compiled into its own release.
+`46dfdad9cb^:apps/epicenter/src/applications.ts` declared the closed
+`COMPILED_APPLICATIONS` list, `46dfdad9cb^:apps/epicenter/src/static-assets.ts`
+loaded each application's built static directory, and
+`46dfdad9cb^:apps/epicenter/package.json` built those applications as part of
+the desktop release. 46dfdad9cb deleted the Bun host, and 11ea49b95f deleted
+the desktop app. There is no installed-app
 discovery surface and no `epicenter install` command.
 
 The future installation plane needs a vocabulary that a person and an agent can

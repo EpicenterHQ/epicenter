@@ -13,7 +13,7 @@ Whispering's `apps/whispering/src-tauri/src/shortcut.rs` (77 lines) wraps
 `tauri-plugin-global-shortcut`: `set_shortcut` holds one accelerator such as
 `CommandOrControl+Shift+;`, and each press emits
 `whispering://toggle-recording` to the page. The Epicenter app registers the
-same plugin in `apps/epicenter/src-tauri/src/lib.rs` behind its `dictation`
+same plugin in `948ea39cf4:apps/epicenter/src-tauri/src/lib.rs` behind its `dictation`
 feature.
 
 [ADR-0755](0755-epicenters-packages-are-capabilities-formats-framework-layers-and-programs.md)

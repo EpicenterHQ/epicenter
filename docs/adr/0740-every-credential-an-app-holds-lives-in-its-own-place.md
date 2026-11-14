@@ -10,12 +10,12 @@
 ## Context
 
 Desktop apps keep credentials in the OS keychain through `keyring`
-(`packages/tauri-epicenter-account/src/keychain.rs`, one entry per name
+(`dd9853c0df:packages/tauri-epicenter-account/src/keychain.rs`, one entry per name
 under the bundle identifier as the service). Whispering keeps both of its
 provider connections, keys included, in one entry named `connections`
-(`apps/whispering/src/lib/platform/services.tauri.ts`). Vocab keeps one entry
+(`dd9853c0df:apps/whispering/src/lib/platform/services.tauri.ts`). Vocab keeps one entry
 per connection, named by its id
-(`apps/vocab/src/lib/connections.tauri.ts`).
+(`dd9853c0df:apps/vocab/src/lib/connections.tauri.ts`).
 [ADR-0731](0731-every-app-signs-in-as-its-site.md) already moved the desktop
 refresh token out of the keychain into a file in the app's AppData, because
 the file keychain prompts a rebuilt binary and one store serves every

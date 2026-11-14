@@ -70,7 +70,7 @@ The promotion is forced by a measurement, not chosen. `navigator.storage.persist
 - `store.onCommitted` gets its first consumer since the SQL projection was deleted (ADR-0269). The phase-order contract it guarantees, followers marked dirty before any table subscriber reads, is what a renderer needs.
 - ADR-0010's warning applies and is accepted with a mitigation owed: "a continuous producer with no consumer, paid on every edit." The consumer exists now (a coding agent with `ls` and `Read`), and the cost is a file write joining every commit, which needs debouncing and an atomic write so an agent cannot read a half-rendered file.
 - One artifact producer instead of two. The zip assembly, the download flow, the save dialog, and the archive-progress model are not built, and the whole-map return shape becomes a per-row render that streams to disk. The in-memory ceiling on a large vault goes away by there being nowhere to hold one, rather than by optimizing.
-- `apps/epicenter/AGENTS.md` currently says "Do not rebuild any of them here" about the folder renderer. That instruction is superseded for the render direction and stays in force for the write direction.
+- `80edecf1ce^:apps/epicenter/AGENTS.md` said "Do not rebuild any of them here" about the folder renderer. That instruction is superseded for the render direction and stays in force for the write direction. The app was deleted in 11ea49b95f.
 
 ## Considered alternatives
 

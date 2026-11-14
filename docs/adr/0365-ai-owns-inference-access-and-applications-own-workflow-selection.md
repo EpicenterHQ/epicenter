@@ -1,13 +1,14 @@
 # 0365. AI owns inference access and applications own workflow selection
 
-- **Status:** Proposed
+- **Status:** Superseded
 - **Date:** 2026-09-08
+- **Superseded by:** [ADR-0757](0757-every-model-is-an-endpoint-every-model-file-is-a-cache.md): the endpoint client replaced this routing in 1da16bda42.
 - **Amends:** [ADR-0398](0398-every-transcription-destination-speaks-the-openai-wire.md) at client ownership: independent inference handles replace the App lifetime; SDK operations and wire compatibility remain.
 - **Unbuilt:** Metadata-only catalog reads, explicit saved-access acquisition, direct runtime transcription, and page/operation consumer migration. Independent network constructors and native endpoint routing already exist.
 
 ## Context
 
-Independent inference constructors exist in `packages/ai/src/ai.ts`. Saved
+Independent inference constructors existed in `1da16bda42^:packages/ai/src/ai.ts`. Saved
 catalog reads in `connection-catalog.ts` still materialize cached SDK clients.
 A settings snapshot therefore carries live execution access, and page startup
 still couples catalog acquisition to unrelated resources.

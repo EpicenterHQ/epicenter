@@ -8,10 +8,10 @@
 
 ## Context
 
-The dashboard's `apps/api/ui/src/lib/billing/queries.ts` repeats billing method
-names in `billingKeys` and in `createBillingQueries`, then forwards arguments
-through `defineQuery` and `defineMutation`. Account queries use the same
-pattern. Components consume `.options`, and billing and account components
+The dashboard's `1d6c4d9315^:apps/api/ui/src/lib/billing/queries.ts` repeated
+billing method names in `billingKeys` and in `createBillingQueries`, then
+forwarded arguments through `defineQuery` and `defineMutation`. Account queries
+used the same pattern. Components consume `.options`, and billing and account components
 invalidate cached reads themselves: `PlanComparison.svelte`, the dashboard
 page, and the account page each call `invalidateQueries` after a write.
 

@@ -132,7 +132,7 @@ refreshing at once each write over the text they read.
 
 - `secrets` and `Secrets` from `@epicenter/app` (`packages/app/src/context.ts`,
   `index.ts`), and `createMemorySecrets` from `memory.ts`;
-- `packages/cli/src/secrets.ts`, with `keychain`, `keychainService`, and
+- `afdcba86af^:packages/cli/src/secrets.ts`, with `keychain`, `keychainService`, and
   `EPICENTER_TEST_SECRETS`;
 - the `keychain` field of `epicenter <app> --json`;
 - the `id` in the Epicenter's marker (ADR-0868), which existed only to name

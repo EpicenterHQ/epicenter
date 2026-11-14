@@ -84,16 +84,17 @@ and fits its own behavior to the library's:
 - **The CLI and the shell narrow the first path.** The CLI finishes a
   refresh it has sent before it exits: a stop signal waits for the keychain
   write, at most two seconds (`STOP_GRACE_MS` in
-  `packages/cli/src/stop.ts`, the CLI's one stop handler, which a history
+  `63d5d5972f:packages/cli/src/stop.ts`, the CLI's one stop handler, which a history
   command shares). The shell stops a CLI child with SIGTERM to its process
   group and kills it only after three seconds (`STOP_GRACE` in
-  `apps/epicenter/src-tauri/src/cli.rs`), both when a window's page ends
+  `63d5d5972f:apps/epicenter/src-tauri/src/cli.rs`), both when a window's page ends
   (ADR-0559's rule stands: a window's children end with the window) and when
   a run is dropped or its listener stops. A history command still kills its
   own `git` children at once, which is why no refresh runs under one of
   them: the CLI mints the token for every `git` it starts in its own
   process, and hands it to that `git` as a header (`hostedCredentials` in
-  `packages/cli/src/repository-commands.ts`).
+  `63d5d5972f:packages/cli/src/repository-commands.ts`). Later CLI rewrites
+  and the desktop app's deletion in 11ea49b95f removed these three files.
 - **A Git token lists `ai` and `profile`, and an API token lists
   `folders:write`.** Both are inert at their audience: inference requires the
   `api` audience, and no API route checks `folders:write`. Least privilege
@@ -114,7 +115,8 @@ and fits its own behavior to the library's:
   the CLI asks for it, so `epicenter auth status` names the account from
   `/auth/oauth2/userinfo`.
 - **`epicenter auth login` writes Git's helper as two global entries.**
-  `configureGitHelper` in `packages/cli/src/auth.ts` runs:
+  `configureGitHelper` in `63d5d5972f:packages/cli/src/auth.ts` (removed in
+  6342831e92) runs:
 
   ```txt
   git config --global --replace-all credential.<git audience>.helper ''
