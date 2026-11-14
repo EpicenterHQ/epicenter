@@ -89,6 +89,19 @@
 	},
 	"overrides": [
 		{
+			// Library code logs through `wellcrafted/logger`, so its host decides
+			// where output goes. The CLI, tests, and benchmarks own their output.
+			"includes": [
+				"packages/*/src/**",
+				"!packages/cli/**",
+				"!**/*.test.ts",
+				"!**/*.bench.ts"
+			],
+			"linter": {
+				"rules": { "suspicious": { "noConsole": "error" } }
+			}
+		},
+		{
 			// Biome can lint <script> blocks in .astro components but can't see
 			// template usage, so imports and handlers used only in templates
 			// appear unused. (.svelte files are excluded from Biome entirely;
