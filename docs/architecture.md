@@ -69,9 +69,8 @@ Around them:
    (`packages/tauri-plugin-epicenter-folder`): it stages the bytes beside the
    target as `.ep-<random>.save`, checks the version again, and renames. The
    folder holds only its content; nothing of Epicenter's goes in it.
-3. The desktop app does not sync. Epicenter's programs do (step 1 of the next
-   flow), and the app reads the record Epicenter keeps to say whether
-   Epicenter syncs its folder (`syncedRecord()` in `@epicenter/folder/tauri`).
+3. The desktop app does not sync. Epicenter's programs did (step 1 of the
+   next flow), and that product is retired (ADR-0899).
 
 ### The Epicenter app syncing a folder
 
