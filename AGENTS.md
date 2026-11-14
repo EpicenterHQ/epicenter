@@ -41,7 +41,7 @@ The suffix tells you whether a script touches production.
 
 ## Git hygiene
 
-Stage specific files only. Never use `git add .` or `git add -A`.
+Stage specific files only.
 
 Do not include AI or tool attribution in commits.
 
