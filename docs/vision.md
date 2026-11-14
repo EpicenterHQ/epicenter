@@ -169,7 +169,7 @@ Every app is inside an Epicenter or outside it. The test: does it work
 without an Epicenter? If it does, it is an outside app. Data crosses only
 through an inside app's actions: Mail brings Gmail in, and Gmail does nothing.
 A product can have both halves: Whispering is an outside app, and Whispering's
-inside app is the `whispering` folder in an Epicenter.
+inside app is the `whispering` folder in an Epicenter ([ADR-0901]).
 
 "Epicenter" is the place, and `epicenter` is its command. "Server" means
 someone else's computer, and "hosted" means someone else runs it; yours is the
@@ -367,3 +367,4 @@ fields are written one `key: <JSON>` line each.
 [ADR-0896]: adr/0896-each-collection-has-one-writer-of-record-and-epicenter-never-reconciles-two-writable-copies.md
 [ADR-0897]: adr/0897-hosted-notes-is-a-product-beside-epicenter-and-waits-for-a-month-of-evidence.md
 [ADR-0898]: adr/0898-what-arrives-is-cached-what-the-person-decides-is-kept-and-an-item-moves-by-transfer.md
+[ADR-0901]: adr/0901-an-app-is-inside-an-epicenter-or-outside-it.md
