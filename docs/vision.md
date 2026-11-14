@@ -21,6 +21,31 @@ This page is the front door. [ADR-0896] and [ADR-0898] state the rules below;
 [CONTEXT](CONTEXT.md), and the package READMEs describe the code that exists,
 which is mostly the earlier product described at the end.
 
+## A computer that stays on
+
+**Your Epicenter lives on a regular computer you keep on.**
+
+It uses that computer's normal filesystem. Your apps, files, and history
+live there, and `epicenter serve` makes them available to your other devices
+and agents. The computer can be a laptop you use, an older laptop you
+repurpose, a desktop, or a server you rent and control.
+
+To reach it from other devices, add a private connection:
+
+```text
+Your phone -------------\
+Your other computer ----+-- Private connection -- Computer running Epicenter
+Your connected agents --/                         Your apps, files, and history
+```
+
+For example, an older laptop can stay plugged in and awake, with Tailscale
+connecting your other devices.
+
+Agents can run on the home itself or reach its actions from another
+connected computer. If the home sleeps or goes offline, your other devices
+cannot reach it. For the listener and service setup, see
+[the epicenter command](../packages/cli/README.md#a-call-runs-where-it-arrives).
+
 ## The rules
 
 1. **File over app.** What a person makes is plain files in a documented

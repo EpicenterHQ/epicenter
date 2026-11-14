@@ -5,7 +5,7 @@ This directory contains knowledge articles, guides, and reference materials for 
 ## Start Here
 
 - [Decisions (ADRs)](adr/README.md): the authoritative record of durable architecture decisions and why. Trust this over any spec.
-- [Vision](vision.md): what Epicenter is and the rules it keeps, on one page: files, a ledger, and Git at the edges.
+- [Vision](vision.md): what Epicenter is and the rules it keeps: your apps and files on a computer you control and keep on.
 - [ADR-0835](adr/0835-records-from-0802-to-0834-agree-on-files-a-ledger-and-git-at-the-edges.md): every decision in force, the record that made it, and whether it is built.
 - [Context](CONTEXT.md): shared vocabulary for the platform's concepts.
 - [Positioning](positioning.md): canonical public claims and vocabulary rules.

@@ -2,6 +2,12 @@
 
 `epicenter` runs the apps in an Epicenter as commands and MCP tools. An Epicenter is a folder with `EPICENTER.md` ([ADR-0868](../../docs/adr/0868-an-epicenter-is-any-folder-that-says-it-is-one-and-a-computer-runs-as-many-as-it-has.md)); its direct child folders with an `epicenter.ts` that default-exports `defineApp(...)` are apps, each with its collections and actions ([ADR-0841](../../docs/adr/0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md), [ADR-0857](../../docs/adr/0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md)).
 
+Your Epicenter lives in the normal filesystem of a computer you control and
+keep on. `epicenter serve` makes its apps available to your other devices
+over a private connection. An older laptop with Tailscale is one common
+setup. For the model, see
+[a computer that stays on](../../docs/vision.md#a-computer-that-stays-on).
+
 The command uses the nearest Epicenter at or above the current directory. Otherwise it uses `EPICENTER_ROOT`, then `$HOME/Epicenter`. A chosen folder without `EPICENTER.md` needs `epicenter init <folder>`. The marker is a note for people whose front matter, read as an app's files are, may hold one field: `port`, a whole number from 0 to 65535 that `serve` listens on, 4747 when absent. Any other field, or a value that does not fit, is refused, one line per problem. An empty file is a valid marker. The folder's basename is its display name. `epicenter init [<folder>] [--port <n>]` makes the folder, writes `EPICENTER.md` with the port, adds starter `AGENTS.md` guidance if there is none, and makes the folder the Epicenter's own repository (see [The Epicenter's repository](#the-epicenters-repository)). Epicenters cannot nest.
 
 ```sh
