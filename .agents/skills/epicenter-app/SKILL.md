@@ -306,9 +306,9 @@ A change under `ui/` shows at `/<app>/` on the next page load after its
 build, and the last good build stays up meanwhile. A build that fails is not
 tried again until a file under `ui/`, `package.json`, or `bun.lock` changes;
 run `epicenter build <app>` to build now and see the build's errors. Never
-commit `ui/dist/`. The UI keeps
-nothing of its own: it shows what serve answers and sends what the person
-changes.
+commit `ui/dist/`. The UI owns unfinished input and local interaction state.
+Actions own stored records; the UI shows what serve answers and sends what the
+person submits.
 
 `src/lib/app.ts` is the one place the UI names the app's actions. It calls
 `connect<typeof app>()` from `@epicenter/app/client`, importing the app
@@ -324,10 +324,9 @@ export const writes = resultMutations(['tasks'], { add: app.add, set: app.set })
 Each call answers a Result: what the action returned, or an `ActionError`
 told apart by `name`: `Changed` and `Missing` (the `FileError` the action
 threw), `Threw`, `Refused`, `Unreachable`. Check the name, never the message:
-a page for one record shows "it was deleted" when its read is `Missing`. The layout makes one
-QueryClient with `createQueryClient()` from the UI's own
-`src/lib/query-client.ts` (copy it from an existing app; it builds on the UI's
-own `@tanstack/svelte-query`, so the bundle has one TanStack Query) and puts it
+a page for one record shows "it was deleted" when its read is `Missing`. The layout creates one
+QueryClient from the UI's own `@tanstack/svelte-query`, with the invalidation
+rule from `query-layer`, and puts it
 in `<QueryClientProvider>`; pages read with
 `createQuery(() => reads.get({ path }))` and write with
 `createMutation(() => writes.set)`. That client refreshes every read after
@@ -354,19 +353,16 @@ failure to show.
 
 - It is a phone Home Screen app first: safe-area insets, 44 px targets, 16 px
   inputs so iOS does not zoom, light and dark from the system.
-- Send `set` only the fields that changed, and `null` for one emptied, so a
-  save never writes back a value read before someone else changed it. Skip a
-  save with nothing to send.
-- Keep what is typed as a draft over the query's data
-  (`bind:value={() => draft ?? file.body, (value) => (draft = value)}`), and
-  clear it once it is saved, so a refresh never overwrites typing.
-- Save a changed body with `edit`, quoting the body the draft was typed over
-  (`old: base, new: draft`), after `set` has saved the fields. When the
-  error's `name` is `Changed`, the failed
-  write has already refreshed the file: reapply a small change to the new body
-  (Capture's thoughts), or keep what was typed and say it was not saved,
-  letting the person save over the other change on purpose (Tasks' "Keep
-  mine").
+- Send `set` only the fields being submitted, and `null` for one emptied.
+  Do not spread an entire cached record into a field update. Comparing with
+  cached data can avoid a request; it cannot establish what is currently saved.
+- Choose each input's owner with [input ownership](../svelte/references/input-ownership.md).
+  Writes also arrive from other tabs, agents, and the command line; blocking
+  local edits while pending prevents only this page's overlap.
+- Use `edit` with its quoted base (`old: base, new: draft`) when the app promises
+  conflict detection. On `Changed`, reread and preserve the submitted text
+  while resolving the conflict. When last-write-wins is accepted, use the app's
+  replacement action without adding rebasing or a recovery queue.
 - Show a write before it lands from the mutations still pending:
   `useMutationState({ filters: { mutationKey: writes.set.mutationKey, status:
   'pending' } })` (Tasks' done, Vocab's review queue, Capture's adds). When the

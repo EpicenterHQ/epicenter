@@ -72,8 +72,10 @@ through its owners and callers. A focused transformation needs no subsystem
 inventory.
 
 For expensive guarantees, establish who needs the promise and what would change
-if it were narrowed, replaced, or removed. Show the machinery eliminated and any
-user loss or obligation. Changes beyond existing authorization remain proposals.
+if it were narrowed, replaced, or removed. Verify how the replacement enforces
+its rule for the actual writers, or name the overlap and loss it accepts. Show
+the machinery eliminated and any user loss or obligation. Changes beyond
+existing authorization remain proposals.
 
 Look for forwarding layers, re-export chains, shallow aliases, shadow or
 mirrored state, duplicated decisions, copied boundary shapes, derivable state,
@@ -90,6 +92,11 @@ hand-builds a transition loop, search its distinctive state and operation names
 in related owners. Count the coordination or repeated decisions eliminated,
 not the collections deleted. A computed key alone does not make membership,
 authorization, selection, in-flight work, or unsaved input derivable.
+
+Trace when readers need each value and how long it must remain available. Keep
+historical decisions and uncertain outcomes when current state cannot
+reconstruct them. Before removing a guard or relying on it, establish what it
+compares and whether that information is current, cached, or authoritative.
 
 Design the replacement from the intended outcome and actual use. Reconsider the
 API, ownership, lifecycle, and compatibility promises together; develop a shape

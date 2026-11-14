@@ -16,7 +16,12 @@ Use direct `await` when no template lifecycle state is observed, when the code r
 
 ## Async Button Pattern
 
-Pass `onSuccess` and `onError` as the second argument to `.mutate()` so the callback stays next to the UI action that needs it:
+Keep per-interaction UI reactions beside the action with `onSuccess` and
+`onError` in the second argument to `.mutate()`. These callbacks require a
+subscribed observer and belong to its latest call; they may be skipped after
+unmount or a newer call. Put work that must run for every execution in
+`mutationFn` or the mutation's options. The QueryClient owns shared invalidation
+(see `query-layer`).
 
 ```svelte
 <script lang="ts">
@@ -202,21 +207,26 @@ input. See [immediate editing and explicit submission](input-ownership.md).
 <input
   type="text"
   value={entry.title}
-  onblur={(e) => {
-    const next = e.currentTarget.value;
+  onblur={(event) => {
+    const next = event.currentTarget.value;
     if (next !== entry.title) updateEntry({ title: next });
   }}
 />
 ```
 
-The compare-then-write guard avoids a write when focus passes through an
-unchanged field. For factories that update many fields, extract a small
-`commit(field, next)` helper that does the compare internally.
+Choose whether blur submits every value or only one that differs from the
+rendered value. The example skips unchanged-looking input, so merely visiting
+an untouched field does not write a stale cached value over another writer's
+change. It can also skip a deliberate submission that matches the cached value.
+When blur itself is the submission, send the field directly and let its action
+or storage owner decide whether the persisted value needs a write. Neither
+choice detects or resolves competing writes; choose that policy separately.
 
-A blur handler that defers its write (`requestAnimationFrame`, `setTimeout`,
-an `await` before the write) can miss a page that is closing: rAF callbacks
-never run while the document is hidden, and teardown outruns timers. Write
-synchronously in the handler.
+A blur handler that defers dispatch (`requestAnimationFrame`, `setTimeout`,
+an `await` before the mutation call) can miss a page that is closing. Capture
+the value and dispatch in the handler. Dispatch does not guarantee that an
+asynchronous save finishes before teardown; preserve a durable-save requirement
+with an owner that actually provides it.
 
 ## When NOT to use commit-on-blur
 
@@ -225,4 +235,4 @@ synchronously in the handler.
 | A note's fields | the note's editor (`edit`), which saves as the person types |
 | Discrete selectors (radio, checkbox, datepicker, tag pickers) | inline event handler: already one event per action |
 | Search box / filter that doesn't persist | local `$state` only, no commit |
-| Component-local form state submitted on a button click | accumulate in `$state`, commit in the click handler |
+| Form submitted explicitly | choose its owner with [input ownership](input-ownership.md) and submit in the form handler |

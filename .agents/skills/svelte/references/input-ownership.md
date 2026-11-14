@@ -28,9 +28,47 @@ transform representations; they do not become another current-content owner.
 
 ## Explicit submission
 
-The form owns input that has not been submitted. Prefer one draft object for
-fields sent together, shaped like the API input. Replace it with a spread when
-editing one field, then pass the captured object to the API at Submit.
+The form owns input that has not been submitted. Choose where that input lives
+by who needs to read it and how long it must survive.
+
+Capture submitted values and record identity synchronously, before asynchronous
+work. Pass values onward rather than an event, control, or callback that reads
+the input later. Preserve failed input for retry unless the form deliberately
+discards it. Clear input after success only if it still belongs to that
+submission, or disable editing while pending. An older request must not erase
+newer typing.
+
+### Native controls
+
+When only submission reads the input, let the browser hold it. Read a field's
+`event.currentTarget.value` on blur or change, or read named form controls with
+`new FormData(event.currentTarget)` on submit. No `bind:value` or `oninput`
+copy is needed just to send that value later.
+
+Capture any element needed by a later callback in the handler. An event's
+[`currentTarget`](https://developer.mozilla.org/en-US/docs/Web/API/Event/currentTarget)
+does not remain available after dispatch. Read
+[FormData](https://developer.mozilla.org/en-US/docs/Web/API/FormData/FormData)
+before disabling controls; unnamed and disabled controls are omitted.
+
+A new-entry form can use `form.reset()`; reset restores control defaults, so
+choose those deliberately.
+Native input lasts only as long as its element. For an existing record, decide
+what a changed server value or remount may replace, and verify that behavior.
+Do not replace a draft with refs, dirty flags, and reset effects that recreate
+the same coordination elsewhere.
+
+### Reactive drafts
+
+Keep a reactive draft when markup or computed state observes typing, other views
+share unfinished input, or a stated policy preserves it across refreshes or
+unmounting. Search filters and live previews have reactive readers; they still
+need reactive input. Give input that must outlive the component an owner above
+it.
+
+For fields sent together, prefer one draft object shaped like the API input.
+Replace it with a spread when editing one field, then pass the captured object
+to the API at Submit.
 
 ```svelte
 <script lang="ts">
@@ -54,10 +92,7 @@ editing one field, then pass the captured object to the API at Submit.
 ```
 
 This is ownership pseudocode; the real handler presents failure and decides
-whether to clear or close on success. Capture the submission before awaiting.
-Clear the draft after success only if it is still that submission, or disable
-editing during the request. Never erase newer typing when an older request ends.
-Keep failed unsubmitted input until retry or deliberate discard.
+whether to clear or close on success.
 
 A single-field form may use a single-value `$state`. Do not manufacture an object
 only to wrap one string, or combine unrelated forms and visibility flags into
@@ -68,8 +103,7 @@ silently replace unfinished input from live record updates.
 
 Keep validation, normalization or mapping when the API needs a different shape.
 Avoid building another identical payload from parallel field variables at
-Submit. A custom draft owner earns its place when several views share unfinished
-input or when a named merge/reset policy requires it.
+Submit.
 
 ## Raw, snapshot and freezing
 
@@ -122,6 +156,7 @@ objects, bind:value and methods. For a copied-content candidate, trace acquisiti
 rendering, setters and submission together. Ask:
 
 - Is this immediate input or an unfinished submission?
+- Does anything need to observe the input before its submission event, or keep it after the control disappears?
 - Who owns the current value, and what event accepts it?
 - Does another draft or payload duplicate that value?
 - Which real information would disappear if this state were removed?
