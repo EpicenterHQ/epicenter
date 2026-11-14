@@ -44,18 +44,17 @@ jobs:
       - name: No AI or tool attribution in commit messages
         # AGENTS.md, "Git hygiene". Matches a trailer or footer that credits a
         # tool, not a mention of one: `chore(claude): ...` passes. The API lists
-        # at most 250 commits per pull request. A failure clears only when the
-        # commit is reworded.
+        # at most 250 commits per pull request.
         if: github.event_name == 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           ATTRIBUTION: '^\W*(co-authored-by:|generated with ).*\b(claude|anthropic|codex|openai|opencode|copilot|cursor|sisyphus)\b'
         run: |
-          commits=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/commits?per_page=100")
-          found=$(jq -r --arg re "$ATTRIBUTION" '.[] | .sha[0:10] as $sha
-            | .commit.message | split("\n")[] | select(test($re; "i"))
-            | "::error title=AI or tool attribution in commit \($sha)::\(.)"' <<<"$commits")
+          found=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/commits" --jq '
+            .[] | .sha[0:10] as $sha | .commit.message | split("\n")[]
+            | select(test(env.ATTRIBUTION; "i"))
+            | "::error title=AI or tool attribution in commit \($sha)::\(.)"')
           if [ -n "$found" ]; then
             echo "$found"
             exit 1

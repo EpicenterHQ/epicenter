@@ -38,7 +38,7 @@ not run it.
 
 | File | Trigger | What it does |
 |---|---|---|
-| `ci.format.yml` | Push to `main`, pull requests | The merge gate: `lint:ci`, `typecheck`, `test`, `check:structure`, and on pull requests the commit message step. Cancels older runs for the same branch or PR. |
+| `ci.format.yml` | Push to `main`, pull requests | The merge gate: `lint:ci`, `typecheck`, `test`, `check:structure`. Cancels older runs for the same branch or PR. |
 | `ci.autofix.yml` | Push to `main`, pull requests | Runs `bun run format` and commits fixes back via autofix-ci. This is why the gate does not check formatting. Cancels older runs for the same branch or PR. |
 
 Two things stay off the gate deliberately. Formatting, because autofix owns it.
