@@ -39,12 +39,17 @@ utilities. It is a choice we can revisit, not a restriction on customization.
 Other upstream styles use different distributed component source; switching
 styles requires reviewing and integrating that source.
 
-`src/app.css` owns the Graphite + blue theme: cool neutral surfaces, blue
-primary actions and focus, and semantic status colors in light and dark mode.
-It also owns Geist fonts and the corner-radius scale. Monorepo apps import
-this stylesheet; personal apps own copies of its color tokens. Change the
-palette here, then deliberately update those copies, preserving their fonts,
-layout rules, and app-specific CSS.
+`src/app.css` imports the Graphite + blue theme from
+[`@epicenter/theme`](../theme/README.md). That package owns the light and dark
+semantic colors, radius scale, and Tailwind mappings. This stylesheet owns
+Geist fonts, base rules, prose styling, and monorepo source scanning.
+
+Monorepo apps keep importing `@epicenter/ui/app.css`. Personal apps keep their
+editable components and app CSS; they can import `@epicenter/theme/theme.css`
+without taking a dependency on this component kit. Until the theme package is
+published, the nine live personal apps retain their existing token copies.
+Change the shared palette in `packages/theme/src/theme.css`; adopting a theme
+release changes a dependency version rather than copied token declarations.
 [Theme variables](https://www.shadcn-svelte.com/docs/theming) can change colors
 without replacing the component style. Changing a variable does not switch the
 component markup, spacing, or interaction contract. Components own their utility

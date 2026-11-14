@@ -1,0 +1,23 @@
+{
+	"name": "@epicenter/theme",
+	"version": "0.0.1",
+	"private": true,
+	"description": "Graphite + blue CSS variables for Epicenter apps using Tailwind CSS 4.",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/EpicenterHQ/epicenter.git",
+		"directory": "packages/theme"
+	},
+	"homepage": "https://epicenter.so",
+	"type": "module",
+	"exports": {
+		"./theme.css": "./src/theme.css"
+	},
+	"files": [
+		"src"
+	],
+	"peerDependencies": {
+		"tailwindcss": "^4.1.0"
+	},
+	"license": "AGPL-3.0-or-later"
+}
