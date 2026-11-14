@@ -4,7 +4,7 @@
 - **Date:** 2026-11-13
 - **Amends:** [ADR-0896](0896-each-collection-has-one-writer-of-record-and-epicenter-never-reconciles-two-writable-copies.md) at "Epicenter builds neither" and at Not yet's "A program delivering records to a home through actions" and "An offline outbox for actions": a program may hand new records over through the app's `add`, and only new records wait while the home is unreachable.
 - **Relates:** [ADR-0883](0883-an-epicenter-is-its-git-repositories-and-serve-and-its-host-keeps-runs-and-guards-them.md) (whoever runs a home decides who reaches it), [ADR-0889](0889-an-app-runs-on-epicenter-a-program-works-with-it-and-they-meet-at-the-apps-contract.md) (a program and an app meet at the contract), [ADR-0894](0894-whispering-8-keeps-its-recordings-and-their-audio-in-its-own-data-directory-and-needs-no-epicenter.md) (Whispering's folder), [ADR-0898](0898-what-arrives-is-cached-what-the-person-decides-is-kept-and-an-item-moves-by-transfer.md) (a move, a repeatable `add`, files beside a record).
-- **Unbuilt:** all of it. It waits for an `add` that answers done for the same id and content (`packages/app/src/collection.ts:740` refuses an existing path), for files beside a record (`packages/app/src/path.ts:79` takes `.md` only), and for an action's input to carry audio (`packages/cli/src/http.ts:141` reads JSON only).
+- **Unbuilt:** all of it. It waits for an `add` that answers done for the same id and content (`packages/app/src/collection.ts:744` refuses an existing path), for files beside a record (`packages/app/src/path.ts:79` takes `.md` only), and for an action's input to carry audio (`packages/cli/src/http.ts:141` reads JSON only).
 
 ## Context
 
