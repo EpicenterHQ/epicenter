@@ -21,15 +21,20 @@ type Manifest = {
 function packageFolder(name: string, from: string): string {
 	for (let dir = from; ; dir = dirname(dir)) {
 		const candidate = join(dir, 'node_modules', name);
-		if (existsSync(join(candidate, 'package.json'))) return realpathSync(candidate);
-		if (dirname(dir) === dir) throw new Error(`${name} is not installed above ${from}`);
+		if (existsSync(join(candidate, 'package.json')))
+			return realpathSync(candidate);
+		if (dirname(dir) === dir)
+			throw new Error(`${name} is not installed above ${from}`);
 	}
 }
 
 /** Every file under `dir` but nested `node_modules/`, source maps, and tests. */
 async function filesIn(dir: string): Promise<string[]> {
 	const found: string[] = [];
-	for (const entry of await readdir(dir, { withFileTypes: true, recursive: true })) {
+	for (const entry of await readdir(dir, {
+		withFileTypes: true,
+		recursive: true,
+	})) {
 		if (!entry.isFile()) continue;
 		const path = join(entry.parentPath, entry.name);
 		const rel = relative(dir, path);
@@ -73,7 +78,9 @@ export async function collectAppPackage(
 			queue.push({ name: next, from: folder });
 	}
 	const dependencies = Object.fromEntries(
-		[...placed].filter(([name]) => name in (manifest.dependencies ?? {})).map(([name, { version }]) => [name, version]),
+		[...placed]
+			.filter(([name]) => name in (manifest.dependencies ?? {}))
+			.map(([name, { version }]) => [name, version]),
 	);
 	files.push([
 		'package.json',

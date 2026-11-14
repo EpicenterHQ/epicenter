@@ -88,9 +88,9 @@ test('init proposes a contract; a first sync makes the folder; a share lands in 
 	]);
 	const { folder } = first;
 	// Its record is at the Epicenter folder's root; the folder holds only its files.
-	expect(await readdir(join(alice.desk.path, '.epicenter', 'synced'))).toEqual(
-		[`${folder}.json`],
-	);
+	expect(await readdir(join(alice.desk.path, '.epicenter', 'synced'))).toEqual([
+		`${folder}.json`,
+	]);
 	expect((await readdir(books.path)).sort()).toEqual([
 		'books',
 		'covers',
@@ -215,9 +215,9 @@ test('two syncs of one folder at once lose no edit: the slower re-runs after its
 	expect(await readFile(join(desk, 'notes/c.md'), 'utf8')).toBe(note('C'));
 	// The server holds every edit, and the laptop takes them.
 	synced(await laptop.sync('Studio'));
-	expect(
-		await readFile(join(laptop.path, 'Studio/notes/a.md'), 'utf8'),
-	).toBe(merged);
+	expect(await readFile(join(laptop.path, 'Studio/notes/a.md'), 'utf8')).toBe(
+		merged,
+	);
 	// A sync after both changes nothing: they agreed, and the record names the folder still.
 	const after = synced(await alice.desk.sync('Studio'));
 	expect(after.report).toMatchObject({ pulled: [], pushed: [], merged: [] });
@@ -259,8 +259,7 @@ test('one request finds which folders moved, and only those sync', async () => {
 	expect(
 		every.folders.map(({ name, result, waiting }) => [
 			name,
-			waiting ??
-				(result === undefined ? 'still' : expectOk(result).kind),
+			waiting ?? (result === undefined ? 'still' : expectOk(result).kind),
 		]),
 	).toEqual([
 		['Busy', 'synced'],
@@ -273,9 +272,9 @@ test('one request finds which folders moved, and only those sync', async () => {
 		'GET /folders',
 	]);
 	expect(sent.some((request) => request.includes(stillId))).toBe(false);
-	expect(
-		await readFile(join(alice.desk.path, 'Busy/b2.md'), 'utf8'),
-	).toBe(note('B2'));
+	expect(await readFile(join(alice.desk.path, 'Busy/b2.md'), 'utf8')).toBe(
+		note('B2'),
+	);
 	expect(
 		expectOk(await listFolders(alice.account)).folders.map(({ id }) => id),
 	).toContain(busyId);
