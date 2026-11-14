@@ -1107,9 +1107,9 @@ When you add an ADR, add its row here.
 | [0886](0886-vocab-practises-with-a-tutor-on-the-persons-own-model-and-zhongwen-is-vocab-cloned-for-chinese.md) | Vocab practises with a tutor on the person's own model, and Zhongwen is Vocab cloned for Chinese | Accepted |
 | [0887](0887-a-program-keeps-a-clone-of-an-apps-data-repository-and-the-host-files-what-it-pushes.md) | A program keeps a clone of an app's data repository, and the host files what it pushes | Accepted |
 | [0888](0888-the-host-merges-with-gits-line-merge-and-a-file-it-cannot-merge-takes-the-later-side-whole.md) | The host merges with Git's line merge, and a file it cannot merge takes the later side whole | Accepted |
-| [0889](0889-an-app-runs-on-epicenter-a-program-works-with-it-and-they-meet-at-the-apps-contract.md) | An app runs on Epicenter, a program works with it, and they meet at the app's contract | Accepted |
+| [0889](0889-an-app-runs-on-epicenter-a-program-works-with-it-and-they-meet-at-the-apps-contract.md) | An app runs on Epicenter, a program works with it, and they meet at the app's contract | Accepted (amended by 0901) |
 | [0890](0890-a-programs-folder-is-its-own-and-holds-only-what-its-apps-contract-declares.md) | A program's folder is its own, and holds only what its app's contract declares | Accepted |
-| [0891](0891-this-repository-holds-the-runtime-and-programs-and-every-starter-is-a-repository-of-its-own.md) | This repository holds the runtime and programs, and every starter is a repository of its own | Accepted |
+| [0891](0891-this-repository-holds-the-runtime-and-programs-and-every-starter-is-a-repository-of-its-own.md) | This repository holds the runtime and programs, and every starter is a repository of its own | Accepted (amended by 0901) |
 | [0892](0892-the-cli-releases-to-npm-and-whispering-8-is-a-new-install-with-its-own-update-address.md) | The CLI releases to npm, and Whispering 8 is a new install with its own update address | Accepted |
 | [0893](0893-a-records-path-is-its-path-in-the-apps-data-repository.md) | A record's path is its path in the app's data repository | Accepted |
 | [0894](0894-whispering-8-keeps-its-recordings-and-their-audio-in-its-own-data-directory-and-needs-no-epicenter.md) | Whispering 8 keeps its recordings and their audio in its own data directory, and needs no Epicenter | Proposed |
@@ -1117,3 +1117,4 @@ When you add an ADR, add its row here.
 | [0897](0897-hosted-notes-is-a-product-beside-epicenter-and-waits-for-a-month-of-evidence.md) | Hosted Notes is a product beside Epicenter, and waits for a month of evidence | Accepted |
 | [0898](0898-what-arrives-is-cached-what-the-person-decides-is-kept-and-an-item-moves-by-transfer.md) | What arrives is cached, what the person decides is kept, and an item moves by transfer | Accepted |
 | [0899](0899-the-folder-sync-product-is-retired.md) | The folder sync product is retired | Accepted (amends 0840 and 0843; supersedes the folder sync product's records) |
+| [0901](0901-an-app-is-inside-an-epicenter-or-outside-it.md) | An app is inside an Epicenter or outside it | Accepted (amends 0889 and 0891) |

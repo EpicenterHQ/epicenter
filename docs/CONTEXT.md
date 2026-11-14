@@ -1,5 +1,10 @@
 # Context: shared vocabulary
 
+These are the words of the folder sync product, which is retired
+([ADR-0899](adr/0899-the-folder-sync-product-is-retired.md)). Some of its code
+is still in this repository, so the words still name that code. Today's
+vocabulary is in [vision.md](vision.md), under "The pieces".
+
 Epicenter is your folders, and apps are lenses on them
 ([ADR-0813](adr/0813-epicenter-is-your-folders-and-apps-are-lenses.md)). A
 folder is plain files in `~/Epicenter`. It syncs with an Epicenter server,
