@@ -8,9 +8,10 @@ For general CSS and Tailwind guidelines, see the `styling` skill.
 
 # UI component boundary
 
-Apps use `@epicenter/ui` subpaths. Components and extras are vendored in
-`packages/ui/src`; this repo does not use shadcn-svelte's app-local
-`$lib/components/ui` layout or a `components.json` in the UI package. Read the
+Monorepo apps use `@epicenter/ui` subpaths. Components and extras are vendored in
+`packages/ui/src`; the UI package has no `components.json`. Personal apps in an
+Epicenter own their copied `$lib/components/ui` source and theme; follow
+[epicenter-app](../../epicenter-app/SKILL.md) for that layout. Read the
 [UI package guide](../../../../packages/ui/README.md) for imports, component
 selection, Vega styling, and the update workflow. Do not run an unpinned
 `shadcn-svelte add` or `jsrepo add` into the live package: generated files need
