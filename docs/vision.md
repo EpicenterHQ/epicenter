@@ -5,7 +5,7 @@ their agents change through their files or their actions. What the person
 makes is Markdown files they hold, with Git history once the folder is in an
 Epicenter.**
 
-Each app is a folder in `~/Epicenter`, on a computer you keep on. The
+Each app is a folder in `~/Epicenter`, on a computer you keep on: the home. The
 `epicenter` command runs an app's actions for you and your agents, and
 `epicenter serve` offers them over MCP, and each app's UI in a browser, to
 every device on your tailnet.
@@ -87,14 +87,14 @@ Mail for a cached one, Messages for a live one.
 
 ## Ways in
 
-`~/Epicenter` on your server holds a folder per app, each a Git repository.
-For the author, your server is the Mac Studio.
+`~/Epicenter` on the home holds a folder per app, each a Git repository.
+For the author, the home is the Mac Studio.
 
 | Way in | What it is | Who uses it |
 | --- | --- | --- |
 | `epicenter <app> <action>` | the command, opening the folder directly | you, agents with a shell |
 | `epicenter serve` | MCP at `/`, the launcher for a browser, and each app's UI at `/<app>/` | Claude Code, Claude Desktop, any agent on your tailnet; UIs in a browser |
-| the files | the folder itself | your editor, Claude Code on your server, a program that writes the contract |
+| the files | the folder itself | your editor, Claude Code on the home, a program that writes the contract |
 
 Capture, Vocab, agents, and UIs keep nothing on a device and see the current
 files when they reach the home. `epicenter serve` runs the `epicenter.ts` of
@@ -102,7 +102,7 @@ each app you trust, and Epicenter holds no third-party credentials: Mail's
 Google sign-in is a `.local` file in Mail's folder, on the computer that runs
 Mail's actions, and never leaves it ([ADR-0870]).
 
-Agents make apps: you start Claude Code on your server, ask for an app, and it
+Agents make apps: you start Claude Code on the home, ask for an app, and it
 writes the folder. An app can start from a starter, a repository with no data,
 which it keeps as its `upstream` remote; `epicenter update` merges the
 starter's changes ([ADR-0866]).
@@ -121,7 +121,7 @@ starter's changes ([ADR-0866]).
   groups events in a worktree, tries it with `epicenter ./worktree calendar
   show`, and merges.
 - **A capture from the phone.** You open Capture's UI in your phone's browser
-  at `/capture/` and save a quote. The UI calls `capture_add`; your server
+  at `/capture/` and save a quote. The UI calls `capture_add`; the home
   writes `captures/<time>.md` and snapshots it.
 - **Tasks from anywhere.** You add a task on the phone through Tasks' UI. You
   also drop things into Todoist from your watch; an agent pulls that inbox,
@@ -140,17 +140,24 @@ starter's changes ([ADR-0866]).
 
 | Noun | What it is |
 | --- | --- |
-| the place | `~/Epicenter` on your server: a folder per app, and nothing else |
-| an app | a folder whose `epicenter.ts` default-exports `defineApp`: its description, collections, and actions; its name is the folder's |
+| your Epicenter | `~/Epicenter` on the home, a folder per app and nothing else, and the `serve` that answers for it |
+| an app | a folder in your Epicenter whose `epicenter.ts` default-exports `defineApp`: its description, collections, and actions; its name is the folder's |
 | a collection | a kind of file in the app, by a path template (`words/{word}.md`) and fields; it gives `list`, `get`, `add`, `set`, `edit`, and `delete` |
 | a field | JSON Schema for one value, written with helpers such as `field.text()` |
 | an action | something you can ask an app to do: a collection's verb, or one the author writes with `defineAction` |
 | a UI | a web page built from the app's `ui/` into `ui/dist/`, served at `/<app>/`, that shows its data and calls its actions over MCP |
-| `epicenter` | the program that runs an action in a folder, and `epicenter serve`, which offers every app over MCP |
+| Epicenter | the runtime: the `epicenter` command, which runs an action in a folder, and `epicenter serve`, which offers every app over MCP |
 | a program | software that runs on its own and writes files an app's collections declare, in its own folder: Whispering |
 | a starter | an app's code repository, which someone else takes with `epicenter new --from` |
-| your server | the computer that runs `epicenter serve`, from a terminal or as the Epicenter Mac app ([ADR-0865]) |
+| the home | the computer your Epicenter runs on: it runs `epicenter serve`, from a terminal or as the Epicenter Mac app ([ADR-0865]) |
+| a service | software someone else runs, which holds the truth of its own data: Gmail, a hosted notes service, the hosted API |
 | Git | snapshots on the home, optional `origin` backup, `upstream` for a starter, LFS for binaries |
+
+"Epicenter" alone always means the runtime. The company is "Epicenter, the
+company". Anything the company hosts is a service with its own name, as
+Whispering is a program whose name does not contain "Epicenter". A hosted
+notes service would not be called Epicenter, and it would sit beside the vault,
+not replace it. "Server" means someone else's computer; yours is the home.
 
 ## An app
 
@@ -227,7 +234,7 @@ not run ([ADR-0867]).
 
 Code goes where what it needs is. Recording needs the microphone, so it lives
 in Whispering. Searching Gmail needs your sign-in, so it is an action that
-runs on your server.
+runs on the home.
 
 ```txt
 ssh studio                                   you, then `epicenter …` there
@@ -237,7 +244,7 @@ epicenter serve, over your tailnet           your devices: UIs and MCP
 
 A command always means the computer it is typed on. `serve` runs each app as
 its files are on disk, so code you just changed is what runs ([ADR-0880]). It
-signs no one in; its host decides who reaches it, for your server the tailnet
+signs no one in; its host decides who reaches it, for the home the tailnet
 ([ADR-0883]).
 
 ## UIs
@@ -259,7 +266,7 @@ keeps nothing of its own.
 | 1. Files | nothing | any program reads and writes it |
 | 2. History | Git, `git-lfs`, optional `origin` | local snapshots, optional backup |
 | 3. Actions | `epicenter` | its actions in the terminal and for Claude Code |
-| 4. Everywhere | `epicenter serve` on your server | every device on your tailnet reaches it; its UIs open in a browser |
+| 4. Everywhere | `epicenter serve` on the home | every device on your tailnet reaches it; its UIs open in a browser |
 
 The Epicenter Mac app installs rungs 2 to 4 at once ([ADR-0865]). Whispering
 is whole at rung 1.
