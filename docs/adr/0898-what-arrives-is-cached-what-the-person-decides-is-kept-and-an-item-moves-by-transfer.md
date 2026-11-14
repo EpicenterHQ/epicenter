@@ -3,6 +3,7 @@
 - **Status:** Accepted (2026-11-13)
 - **Date:** 2026-11-13
 - **Amends:** [ADR-0896](0896-each-collection-has-one-writer-of-record-and-epicenter-never-reconciles-two-writable-copies.md) at "Forms compose", which did not say what happens to an item at its source; at rule 4's "written only by the app's own pull", which a file syncer bringing Whispering's recordings home does not fit; and at "Not yet", which filed refusals beside things that wait.
+- **Amended by:** [ADR-0903](0903-the-home-is-a-computer-its-person-controls-owned-or-rented.md): "a hosted home" is withdrawn from Never.
 - **Relates:** [ADR-0859](0859-an-action-changes-the-folder-or-the-world-and-a-world-verb-is-safe-to-repeat.md) (a world verb is safe to repeat), [ADR-0882](0882-mail-leaves-mail-in-gmail-and-agents-change-it-through-proposals-the-person-applies.md) (Mail: proposals kept, the person applies).
 - **Unbuilt:** an `add` that answers done for the same id and content (`packages/app/src/collection.ts:725` refuses an existing path), and files beside a record (`packages/app/src/path.ts:79` takes `.md` only).
 

@@ -104,9 +104,9 @@ For the author, the home is the Mac Studio.
 
 Capture, Vocab, agents, and UIs keep nothing on a device and see the current
 files when they reach the home. `epicenter serve` runs the `epicenter.ts` of
-each app you trust, and Epicenter holds no third-party credentials: Mail's
-Google sign-in is a `.local` file in Mail's folder, on the computer that runs
-Mail's actions, and never leaves it ([ADR-0870]).
+each app you trust, and no sign-in leaves the home: Mail's Google sign-in is
+a `.local` file in Mail's folder, on the computer that runs Mail's actions
+([ADR-0870]).
 
 Agents make apps: you start Claude Code on the home, ask for an app, and it
 writes the folder. An app can start from a starter, a repository with no data,
@@ -163,7 +163,7 @@ starter's changes ([ADR-0866]).
 | an outside app | any software that works without an Epicenter: Whispering, Gmail, Beeper, Todoist, a notes product; it is one of two kinds, a program or a service |
 | a program | an outside app that runs on your device: Whispering; the friendliest writes files in the shape an inside app's collections declare, in its own folder, and none has to |
 | a starter | an app's code repository, which someone else takes with `epicenter new --from` |
-| the home | the computer your Epicenter is on, which you control: it runs `epicenter serve` from a terminal, as a job the OS keeps running ([ADR-0878]), or as Epicenter for Mac ([ADR-0865]); you own it or rent it, and a rented one puts your files and sign-ins in its provider's hands; Epicenter never supplies it |
+| the home | the computer your Epicenter is on, which you control: it runs `epicenter serve` from a terminal, as a job the OS keeps running ([ADR-0878]), or as Epicenter for Mac ([ADR-0865]); you own it or rent it, and a rented one puts your files and sign-ins in its provider's hands |
 | a service | an outside app that runs on someone else's servers and holds the truth of its own data: Gmail, a hosted notes service |
 | a source | where a pull copies from: a service, or a program's folder |
 | Git | snapshots on the home, optional `origin` backup, `upstream` for a starter, LFS for binaries |
@@ -322,14 +322,14 @@ is whole at rung 1.
 over to a home, which then holds them ([ADR-0900], Proposed), and a phone
 queueing its adds the same way; moving a
 collection's truth; a published protocol for third parties; `serve` running
-pulls on a clock; Epicenter hosting any service.
+pulls on a clock; Epicenter hosting anything new.
 
 **Never:** reconciling two writable copies or keeping two lists in step; a
 queue of edits made while the truth was unreachable; an event bus, triggers,
-or a workflow engine between apps; a scheduler of its own; a hosted home; a
+or a workflow engine between apps; a scheduler of its own; a
 collection form that `serve` acts on; conflict markers or conflict files; an
 Epicenter app on every device holding a copy of each app; a folder kept in a
-browser; Epicenter holding third-party credentials; running other people's
+browser; a third-party sign-in stored anywhere but the home; running other people's
 code in isolates or Durable Objects; Yjs or any CRDT in Epicenter.
 
 **Hosted Notes** is a product beside Epicenter, not an Epicenter app, and

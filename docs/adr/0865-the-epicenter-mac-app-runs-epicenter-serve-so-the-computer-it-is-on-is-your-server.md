@@ -88,5 +88,6 @@ reaches only folders a person picks and confines every program the app starts;
 - **A LaunchAgent installed by `epicenter`.** Persistence the program sets up
   for itself; a login item is a setting the person turns on and sees in System
   Settings.
-- **A hosted server for people without a computer that stays on.** Not decided
-  here (ADR-0864).
+- **A hosted server for people without a computer that stays on.** Not this
+  record's: such a person rents a home, which runs `epicenter serve` without
+  the Mac app (ADR-0903).
