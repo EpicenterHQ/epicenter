@@ -15,7 +15,9 @@ import {
 	type Folder,
 	inRun,
 	isName,
+	isWriteOnly,
 	runYielding,
+	writeOnlyKeys,
 } from '@epicenter/app';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { type CodeState, codeStateOf } from './data.ts';
@@ -51,9 +53,21 @@ function threwOf(cause: unknown): {
 /**
  * A call's name in history: the app, the action's words, and its first
  * positional value on one line, cut at 60 characters
- * (`tasks: add Water the plants`).
+ * (`tasks: add Water the plants`). A `writeOnly` value never names a commit,
+ * since history travels with the data's backup (ADR-0870).
  */
-function callName(app: string, key: string, value: unknown) {
+export function callName(
+	app: string,
+	key: string,
+	action: Action,
+	input: Record<string, unknown>,
+) {
+	const first = action.positional?.[0];
+	const field = first === undefined ? undefined : action.input[first];
+	const value =
+		first === undefined || (field && isWriteOnly(field))
+			? undefined
+			: input[first];
 	const suffix =
 		value === undefined
 			? ''
@@ -142,7 +156,7 @@ export async function runAction(
 		if (opening && 'failed' in opening) return { answer, committed: opening };
 		const committed = await commitCall(located.name, located.realPath, {
 			subject:
-				callName(located.name, key, input[action.positional?.[0] ?? '']) +
+				callName(located.name, key, action, input) +
 				(signal?.aborted ? ' (stopped)' : 'threw' in answer ? ' (threw)' : ''),
 			code,
 		});
@@ -154,6 +168,11 @@ export async function runAction(
 
 /** Who follows a call as it runs: each value it yields, and when they stop listening. */
 export type Following = {
+	/**
+	 * The call came over MCP, whose input sits in an agent's transcript: an
+	 * action with a `writeOnly` input is refused before it runs (ADR-0870).
+	 */
+	overMcp?: boolean;
 	/** Each value the action yields, in order; the action waits for it. */
 	onYield?: (value: unknown) => unknown;
 	/** Aborted when the caller stops listening: the action is stopped at its next yield, or at once where it reads `callSignal()`, and the call commits what it wrote. */
@@ -192,6 +211,11 @@ export async function callAction(
 		: undefined;
 	if (!action)
 		return refused(`${name} has no action "${key}"`, `epicenter ${name}`);
+	if (following.overMcp && writeOnlyKeys(action.input).length)
+		return refused(
+			`${name} ${key} takes a secret, so it is not offered over MCP, where the input stays in the agent's transcript. A person gives it in ${name}'s own page or at the command line`,
+			`epicenter ${name} ${key}`,
+		);
 	if (typeof raw !== 'object' || raw === null || Array.isArray(raw))
 		return refused('The input is not a JSON object');
 	const checked = checkInput(action, raw, (field) => field);

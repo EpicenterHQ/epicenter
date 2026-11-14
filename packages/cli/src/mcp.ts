@@ -7,13 +7,15 @@
  * each app's actions; an app that cannot load loses only its own tools, and
  * why goes to stderr. `tools/call` decodes the tool name and runs the action
  * in this process (`run.ts`), which checks the app, the action, and the
- * input, and commits what the call wrote before it answers. A call's result
+ * input, and commits what the call wrote before it answers. An action with a
+ * `writeOnly` input takes a secret, so it is neither listed nor run here
+ * (ADR-0870). A call's result
  * is the same object `--json` prints: `structuredContent` on success, and
  * with `isError` on failure. What an action yields is not sent: an MCP
  * client reads only the answer.
  */
 
-import { isName } from '@epicenter/app';
+import { isName, writeOnlyKeys } from '@epicenter/app';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import {
 	CallToolRequestSchema,
@@ -47,9 +49,9 @@ async function appTools(entry: string): Promise<Tool[]> {
 		writeErr(`${entry}: ${located.problems.join('; ')}`);
 		return [];
 	}
-	return Object.entries(located.actions).map(([key, action]) =>
-		actionTool(located.name, key, action),
-	);
+	return Object.entries(located.actions)
+		.filter(([, action]) => writeOnlyKeys(action.input).length === 0)
+		.map(([key, action]) => actionTool(located.name, key, action));
 }
 
 /**
@@ -87,7 +89,9 @@ async function callTool(name: string, args: Record<string, unknown>) {
 		return toolResult({
 			error: { name: 'Usage', message: `Unknown tool ${name}` },
 		});
-	return toolResult(await callAction(app, words.join(' '), args));
+	return toolResult(
+		await callAction(app, words.join(' '), args, { overMcp: true }),
+	);
 }
 
 /**
