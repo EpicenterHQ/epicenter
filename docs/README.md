@@ -4,7 +4,7 @@ This directory contains knowledge articles, guides, and reference materials for 
 
 ## Start here
 
-- [Vision](vision.md): what Epicenter is and the rules it keeps, on one page: a home you control, apps as folders of files, and `epicenter serve`.
+- [Vision](vision.md): what Epicenter is and the rules it keeps: your apps and files on a computer you control and keep on.
 - [Decisions (ADRs)](adr/README.md): the record of durable decisions and why, each with its status and what is not built yet. Trust this over any spec.
 - [The `epicenter` command](../packages/cli/README.md) and [what an app imports](../packages/app/README.md): how the current product works in code.
 - [Positioning](positioning.md): canonical public claims and vocabulary rules.
