@@ -30,16 +30,23 @@ machine. Every step in it is a root script, and the structural checks arrive as
 one `check:structure` step, so a check is added or removed in `package.json` and
 nowhere else. Do not re-list the steps here or in the workflow.
 
+The one exception is the commit message step, which runs on pull requests
+only. The job checks out a single merge commit, so the step reads the pull
+request's commit messages from the GitHub API and refuses AI or tool
+attribution. No root script can see those messages, so `bun run check` does
+not run it.
+
 | File | Trigger | What it does |
 |---|---|---|
-| `ci.format.yml` | Push to `main`, pull requests | The merge gate: `lint:ci`, `typecheck`, `test`, `check:structure`. Cancels older runs for the same branch or PR. |
+| `ci.format.yml` | Push to `main`, pull requests | The merge gate: `lint:ci`, `typecheck`, `test`, `check:structure`, and on pull requests the commit message step. Cancels older runs for the same branch or PR. |
 | `ci.autofix.yml` | Push to `main`, pull requests | Runs `bun run format` and commits fixes back via autofix-ci. This is why the gate does not check formatting. Cancels older runs for the same branch or PR. |
 
 Two things stay off the gate deliberately. Formatting, because autofix owns it.
 And `bun run check:doc-hygiene`, whose ADR-staleness rule is time-based, so a
 pull request that changed nothing can go red on a calendar day; it is a review
-command, not a merge blocker. Anything needing live credentials or a network
-endpoint gets its own workflow on its own trigger, as the two below do.
+command, not a merge blocker. Anything needing a secret or a network endpoint
+other than GitHub's own API gets its own workflow on its own trigger, as the two
+below do.
 
 ### Meta
 

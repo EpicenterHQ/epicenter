@@ -5,6 +5,10 @@
 # The workflow invokes that script directly, so the local and hosted gates
 # cannot drift.
 #
+# One step has no local form. The job checks out a single merge commit, so the
+# commits a pull request adds are visible only through the API. The first step
+# reads their messages there and refuses AI or tool attribution.
+#
 # Deliberately NOT in this gate:
 #   - Formatting. ci.autofix.yml runs `bun run format` and pushes the fix, so
 #     failing here would only tell a contributor what a bot is already doing.
@@ -34,7 +38,28 @@ jobs:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
       contents: read
+      # For the commit message step: "List commits on a pull request".
+      pull-requests: read
     steps:
+      - name: No AI or tool attribution in commit messages
+        # AGENTS.md, "Git hygiene". Matches a trailer or footer that credits a
+        # tool, not a mention of one: `chore(claude): ...` passes. The API lists
+        # at most 250 commits per pull request. A failure clears only when the
+        # commit is reworded.
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          ATTRIBUTION: '^\W*(co-authored-by:|generated with ).*\b(claude|anthropic|codex|openai|opencode|copilot|cursor|sisyphus)\b'
+        run: |
+          commits=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/commits?per_page=100")
+          found=$(jq -r --arg re "$ATTRIBUTION" '.[] | .sha[0:10] as $sha
+            | .commit.message | split("\n")[] | select(test($re; "i"))
+            | "::error title=AI or tool attribution in commit \($sha)::\(.)"' <<<"$commits")
+          if [ -n "$found" ]; then
+            echo "$found"
+            exit 1
+          fi
       - name: Checkout
         uses: actions/checkout@v6
         with:
