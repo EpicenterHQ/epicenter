@@ -10,7 +10,7 @@
  * here is a write landing over a version its writer never read.
  *
  * Key behaviors:
- * - Another person's folder is reached by its id, as far as their grant goes
+ * - Another person's folder refuses a reader it was not shared with
  * - A write over a version the server no longer holds, or where nothing was
  *   expected and a file is, is `Moved` and lands nothing, even for two at once
  * - The folder writes notes in house style; a note that does not read on
@@ -57,7 +57,6 @@ import type { Unavailable, Version } from '../device/store.js';
 import { createFolder } from '../folder.js';
 import { versionOf } from '../hash.js';
 import { noteCodec } from '../note-codec.js';
-import { acceptShare, shareFolder } from './folders.js';
 import { folderRepository, makeFolder } from './repository.js';
 
 const recorder = defineContract({
@@ -331,8 +330,6 @@ async function signInPerson(label: string) {
 		folder,
 		/** The person's folder, as a test reaches it. */
 		at: { account, folder } satisfies At,
-		/** The email the person signs in with, which others share with. */
-		email: person.email,
 		token,
 		sent,
 		/** The requests whose `METHOD url` matches `pattern`. */
@@ -389,54 +386,21 @@ describe('a repository: the store conformance checks', () => {
 });
 
 describe('a repository as a store', () => {
-	test("another person's folder is reached by its id once they accept its share, as far as their role goes", async () => {
+	test("another person's folder refuses a reader it was not shared with, and a folder is reached only by its id", async () => {
 		const alice = await signIn('shared-owner');
 		const bob = await signIn('shared-guest');
 		const id = timeId();
-		const path = `recordings/${id}.md`;
 		landed(
 			expectOk(
 				await filesAt(alice.at).recordings.write(
-					path,
-					note('title: For Bob\n'),
+					`recordings/${id}.md`,
+					note('title: For Alice\n'),
 					null,
 				),
 			),
 		);
 		const theirs = filesAt({ account: bob.account, folder: alice.folder });
 		expect(expectErr(await theirs.recordings.list())).toMatchObject({
-			name: 'Unavailable',
-			cause: { name: 'Refused', status: 403 },
-		});
-
-		expect(
-			expectOk(
-				await shareFolder(alice.account, {
-					folder: alice.folder,
-					email: bob.email,
-					role: 'reader',
-				}),
-			),
-		).toMatchObject({ pending: true });
-		// A share grants nothing until it is accepted.
-		expect(expectErr(await theirs.recordings.list())).toMatchObject({
-			cause: { status: 403 },
-		});
-		expect(
-			expectOk(await acceptShare(bob.account, { folder: alice.folder })),
-		).toMatchObject({ id: alice.folder, role: 'reader' });
-		const read = expectOk(await theirs.recordings.read(path));
-		if (read === null) throw new Error('expected the note');
-		expect(read.item).toMatchObject({ id, title: 'For Bob' });
-		expect(
-			expectErr(
-				await theirs.recordings.write(
-					path,
-					note('title: From Bob\n'),
-					read.version,
-				),
-			),
-		).toMatchObject({
 			name: 'Unavailable',
 			cause: { name: 'Refused', status: 403 },
 		});

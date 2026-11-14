@@ -27,8 +27,7 @@ use std::str::FromStr;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use epicenter_folder_core::admission::{is_reserved_directory, resolved};
-use epicenter_folder_core::identity::{identity_of, FolderIdentity};
-use epicenter_folder_core::paths::{path_problem, readable_path_problem};
+use epicenter_folder_core::paths::readable_path_problem;
 use epicenter_folder_core::state;
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -110,60 +109,6 @@ pub fn folder_name_problem(name: &str) -> Option<&'static str> {
         return Some("a hidden name is not a folder");
     }
     readable_path_problem(name)
-}
-
-/// One real directory directly inside the Epicenter folder.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
-pub struct EpicenterEntry {
-    /// Its name there, the person's own label for it, and its root's name.
-    pub name: String,
-    /// Its identity now (`identity::identity_of`): the inode and birth time
-    /// a record names it by. Null where the system has none.
-    pub identity: Option<FolderIdentity>,
-    /// Whether Git keeps it (`kept_by_git`): Epicenter never syncs a Git
-    /// working tree (ADR-0822, ADR-0825).
-    pub git: bool,
-}
-
-/// A link directly inside the Epicenter folder: shown as outside it, never
-/// opened as one of its folders, and never synced (ADR-0825).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
-pub struct Outside {
-    pub name: String,
-    /// Where the link points, as it is written.
-    pub target: String,
-}
-
-/// Something in the Epicenter folder that is not a folder it can open, and why.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
-pub struct Unreadable {
-    pub name: String,
-    pub reason: String,
-}
-
-/// The Epicenter folder's listing: where it is, as a person reads it, and
-/// where it really is, every link on its way followed, which the file-sync
-/// check reads; whether it is itself a Git repository, its folders by name,
-/// the links in it, and what is there but could not be read.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
-pub struct EpicenterListing {
-    pub path: String,
-    /// Where it really is (`resolved`): `~/Epicenter` linked into iCloud
-    /// Drive is in iCloud Drive.
-    pub real: String,
-    /// Whether the Epicenter folder holds `.git` at its root, which
-    /// Epicenter says once (ADR-0825).
-    pub git: bool,
-    pub folders: Vec<EpicenterEntry>,
-    pub outside: Vec<Outside>,
-    pub unreadable: Vec<Unreadable>,
-}
-
-/// Whether Git keeps the directory at `at`: an entry named `.git` (a
-/// directory, a file, or a link) at its root, found with one look and no
-/// search above it (ADR-0825).
-pub fn kept_by_git(at: &Path) -> bool {
-    fs::symlink_metadata(at.join(".git")).is_ok()
 }
 
 /// Why a root did not open or cannot be used: what the page is told.
@@ -415,137 +360,6 @@ impl Roots {
         self.state().listeners.push(Arc::new(listener));
     }
 
-    /// The Epicenter folder's path as a person reads it.
-    fn epicenter_path(&self) -> Result<PathBuf, RootError> {
-        let state = self.state();
-        state.running()?;
-        let named = state.epicenter.as_ref();
-        named
-            .map(|named| named.path.clone())
-            .ok_or(RootError::NotNamed {
-                root: Root::Folder(String::new()),
-            })
-    }
-
-    /// Every real directory directly inside the Epicenter folder, made when
-    /// it is missing, hidden names skipped, by name, each with its identity
-    /// and whether Git keeps it; each link to a folder, or to nothing, as
-    /// outside it (ADR-0825); whether the Epicenter folder is itself a Git
-    /// repository; and what is there but cannot be a folder, with why.
-    /// Blocks on the disk.
-    pub fn list_epicenter(&self) -> Result<EpicenterListing, RootError> {
-        let base = self.epicenter_path()?;
-        let shown = base.display().to_string();
-        let unavailable = |message: String| RootError::Unavailable {
-            folder: shown.clone(),
-            message,
-        };
-        if let Some(target) = dangling_target(&base) {
-            return Err(RootError::Disconnected {
-                folder: shown,
-                target: target.display().to_string(),
-            });
-        }
-        fs::create_dir_all(&base)
-            .map_err(|cause| unavailable(format!("the folder could not be made: {cause}")))?;
-        let mut names: Vec<String> = fs::read_dir(&base)
-            .map_err(|cause| unavailable(cause.to_string()))?
-            .filter_map(|entry| entry.ok())
-            .map(|entry| entry.file_name().to_string_lossy().into_owned())
-            .filter(|name| !name.starts_with('.'))
-            .collect();
-        names.sort();
-        let mut folders = Vec::new();
-        let mut outside = Vec::new();
-        let mut unreadable = Vec::new();
-        for name in names {
-            let at = base.join(&name);
-            let metadata = match fs::symlink_metadata(&at) {
-                Ok(metadata) => metadata,
-                Err(cause) => {
-                    unreadable.push(Unreadable {
-                        name,
-                        reason: cause.to_string(),
-                    });
-                    continue;
-                }
-            };
-            if metadata.file_type().is_symlink() {
-                // A link to a file is no folder; one to a folder, or to
-                // nothing, is a folder kept outside.
-                if fs::metadata(&at).is_ok_and(|target| !target.is_dir()) {
-                    continue;
-                }
-                let target = fs::read_link(&at)
-                    .map(|target| target.display().to_string())
-                    .unwrap_or_default();
-                outside.push(Outside { name, target });
-                continue;
-            }
-            if !metadata.is_dir() {
-                continue;
-            }
-            let named = {
-                let state = self.state();
-                state.named(&Root::Folder(name.clone()))
-            };
-            let refused = match named {
-                Ok(named) => (named.refusal)(&resolved(&at)),
-                Err(error) => Some(error.to_string()),
-            };
-            if let Some(reason) = refused {
-                unreadable.push(Unreadable { name, reason });
-                continue;
-            }
-            folders.push(EpicenterEntry {
-                git: kept_by_git(&at),
-                name,
-                identity: identity_of(&metadata),
-            });
-        }
-        Ok(EpicenterListing {
-            git: kept_by_git(&base),
-            real: resolved(&base).display().to_string(),
-            path: shown,
-            folders,
-            outside,
-            unreadable,
-        })
-    }
-
-    /// Make the directory `name` in the Epicenter folder, refused when
-    /// anything has that name or the name is not one every disk keeps.
-    /// Blocks on the disk.
-    pub fn make_epicenter_folder(&self, name: &str) -> Result<EpicenterEntry, RootError> {
-        let base = self.epicenter_path()?;
-        let at = base.join(name);
-        let shown = at.display().to_string();
-        if let Some(problem) = folder_name_problem(name).or_else(|| path_problem(name)) {
-            return Err(RootError::Refused {
-                folder: shown,
-                reason: format!("{name:?} is not a folder's name: {problem}."),
-            });
-        }
-        let unavailable = |message: String| RootError::Unavailable {
-            folder: shown.clone(),
-            message,
-        };
-        fs::create_dir_all(&base).map_err(|cause| unavailable(cause.to_string()))?;
-        fs::create_dir(&at).map_err(|cause| {
-            unavailable(if cause.kind() == ErrorKind::AlreadyExists {
-                "something there has that name already".to_string()
-            } else {
-                cause.to_string()
-            })
-        })?;
-        let metadata = fs::metadata(&at).map_err(|cause| unavailable(cause.to_string()))?;
-        Ok(EpicenterEntry {
-            name: name.to_string(),
-            identity: identity_of(&metadata),
-            git: kept_by_git(&at),
-        })
-    }
-
     /// The path the shell named `root` at, as a person reads it: what the
     /// page shows, and what a link to Epicenter names.
     pub fn path(&self, root: &Root) -> Result<PathBuf, RootError> {
@@ -575,8 +389,8 @@ impl Roots {
                 ),
             });
         }
-        // A folder of the Epicenter folder is made by `make_epicenter_folder`
-        // alone: opening one that went away does not bring it back.
+        // Opening a folder of the Epicenter folder that went away does not
+        // bring it back.
         let make = !matches!(root, Root::Folder(_));
         let directory = reach(&path, &*refusal, make)?;
         let replaced = {
@@ -967,58 +781,6 @@ mod tests {
         ));
     }
 
-    /// A folder is kept by Git when `.git` (a directory or a worktree's
-    /// file) is at its own root; nothing above it counts. The listing says
-    /// whether the Epicenter folder is itself a Git repository.
-    #[test]
-    fn a_folder_with_git_at_its_root_is_kept_by_git() {
-        let (_temp, base) = base();
-        let epicenter = base.join("Epicenter");
-        fs::create_dir_all(epicenter.join("Plain/docs")).unwrap();
-        fs::create_dir_all(epicenter.join("Repository/.git")).unwrap();
-        fs::create_dir_all(epicenter.join("Worktree")).unwrap();
-        fs::write(epicenter.join("Worktree/.git"), "gitdir: /elsewhere\n").unwrap();
-        // `.git` above a folder never reaches it.
-        fs::create_dir_all(base.join(".git")).unwrap();
-        let roots = Roots::default();
-        roots.name_epicenter(epicenter.clone(), never);
-        let listing = roots.list_epicenter().unwrap();
-        let kept: Vec<(&str, bool)> = listing
-            .folders
-            .iter()
-            .map(|folder| (folder.name.as_str(), folder.git))
-            .collect();
-        assert_eq!(
-            kept,
-            [("Plain", false), ("Repository", true), ("Worktree", true)]
-        );
-        assert!(!listing.git);
-        fs::create_dir_all(epicenter.join(".git")).unwrap();
-        let listing = roots.list_epicenter().unwrap();
-        assert!(listing.git);
-        assert!(!listing.folders[0].git);
-    }
-
-    /// The listing says where the Epicenter folder really is, its link
-    /// followed, so `~/Epicenter` linked into iCloud Drive is checked there.
-    #[cfg(unix)]
-    #[test]
-    fn the_listing_says_where_a_linked_epicenter_folder_really_is() {
-        let (_temp, base) = base();
-        let icloud = base.join("Library/Mobile Documents/com~apple~CloudDocs/Epicenter");
-        fs::create_dir_all(&icloud).unwrap();
-        let epicenter = base.join("Epicenter");
-        std::os::unix::fs::symlink(&icloud, &epicenter).unwrap();
-        let roots = Roots::default();
-        roots.name_epicenter(epicenter.clone(), never);
-        let listing = roots.list_epicenter().unwrap();
-        assert_eq!(listing.path, epicenter.display().to_string());
-        assert_eq!(
-            listing.real,
-            dunce::canonicalize(&icloud).unwrap().display().to_string()
-        );
-    }
-
     /// A listener hears each root that opens, with the folder it reached.
     #[test]
     fn a_listener_hears_each_root_that_opens() {
@@ -1043,66 +805,22 @@ mod tests {
         assert_eq!(lock(&heard).len(), 2);
     }
 
-    /// The Epicenter folder lists its real directories by name, and each
-    /// link to a folder, or to nothing, as outside it; each real directory
-    /// opens as a root of its own, and a link never does (ADR-0825).
+    /// Each real directory of the Epicenter folder opens as a root of its
+    /// own, and a link never does (ADR-0825).
     #[cfg(unix)]
     #[test]
-    fn the_epicenter_folder_lists_its_folders_and_each_opens_as_a_root() {
-        use std::os::unix::fs::{symlink, MetadataExt};
+    fn each_folder_of_the_epicenter_folder_opens_as_a_root() {
+        use std::os::unix::fs::symlink;
 
         let (_temp, base) = base();
         let roots = Roots::default();
-        assert!(matches!(
-            roots.list_epicenter(),
-            Err(RootError::NotNamed { .. })
-        ));
         let epicenter = base.join("Epicenter");
         roots.name_epicenter(epicenter.clone(), never);
-        // Made when missing, and empty.
-        let listing = roots.list_epicenter().unwrap();
-        assert_eq!(listing.path, epicenter.display().to_string());
-        assert!(
-            listing.folders.is_empty()
-                && listing.outside.is_empty()
-                && listing.unreadable.is_empty()
-        );
-
-        fs::create_dir(epicenter.join("Notes")).unwrap();
-        fs::create_dir(epicenter.join(".hidden")).unwrap();
-        fs::write(epicenter.join("loose.md"), "a file").unwrap();
+        fs::create_dir_all(epicenter.join("Notes")).unwrap();
         let elsewhere = base.join("Drive/Recipes");
         fs::create_dir_all(&elsewhere).unwrap();
         symlink(&elsewhere, epicenter.join("Recipes")).unwrap();
-        symlink(base.join("Gone"), epicenter.join("Gone")).unwrap();
         symlink(&base, epicenter.join("Everything")).unwrap();
-        symlink(epicenter.join("loose.md"), epicenter.join("Loose link")).unwrap();
-
-        let listing = roots.list_epicenter().unwrap();
-        let names: Vec<&str> = listing.folders.iter().map(|f| f.name.as_str()).collect();
-        assert_eq!(names, ["Notes"]);
-        let notes = &listing.folders[0];
-        let found = fs::metadata(epicenter.join("Notes")).unwrap();
-        assert_eq!(notes.identity, identity_of(&found));
-        assert_eq!(
-            notes.identity.as_ref().unwrap().inode,
-            found.ino().to_string()
-        );
-        assert!(!notes.git);
-        let outside: Vec<(&str, String)> = listing
-            .outside
-            .iter()
-            .map(|link| (link.name.as_str(), link.target.clone()))
-            .collect();
-        assert_eq!(
-            outside,
-            [
-                ("Everything", base.display().to_string()),
-                ("Gone", base.join("Gone").display().to_string()),
-                ("Recipes", elsewhere.display().to_string()),
-            ]
-        );
-        assert!(listing.unreadable.is_empty());
 
         // A real directory is its root; a link is refused, and nothing is read through it.
         let root = Root::Folder("Notes".into());
@@ -1135,29 +853,5 @@ mod tests {
             roots.open(&Root::Folder("Everything".into())),
             Err(RootError::Refused { .. })
         ));
-    }
-
-    #[test]
-    fn a_new_folder_takes_a_free_portable_name() {
-        let (_temp, base) = base();
-        let roots = Roots::default();
-        let epicenter = base.join("Epicenter");
-        roots.name_epicenter(epicenter.clone(), never);
-        let made = roots.make_epicenter_folder("Shared notes").unwrap();
-        assert_eq!(made.name, "Shared notes");
-        assert!(epicenter.join("Shared notes").is_dir());
-        assert!(matches!(
-            roots.make_epicenter_folder("Shared notes"),
-            Err(RootError::Unavailable { message, .. }) if message.contains("has that name")
-        ));
-        for refused in ["a/b", ".hidden", "HEAD", "trailing."] {
-            assert!(
-                matches!(
-                    roots.make_epicenter_folder(refused),
-                    Err(RootError::Refused { .. })
-                ),
-                "{refused:?}"
-            );
-        }
     }
 }

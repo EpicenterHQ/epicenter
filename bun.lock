@@ -250,9 +250,7 @@
         "drizzle-orm": "catalog:",
         "hono": "catalog:",
         "pg": "^8.20.0",
-        "playwright": "^1.61.1",
         "typescript": "catalog:",
-        "vite": "catalog:",
       },
     },
     "packages/local": {

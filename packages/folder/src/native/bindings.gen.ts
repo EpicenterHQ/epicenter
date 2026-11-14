@@ -29,21 +29,6 @@ export const commands = {
 	 */
 	listFolder: (root: Root, under: string[]) => typedError<ListedFile[], FolderError>(__TAURI_INVOKE("plugin:epicenter-folder|list_folder", { root, under })),
 	/**
-	 *  The Epicenter folder's listing (ADR-0813, ADR-0825): where it is and
-	 *  whether it is itself a Git repository, every real directory directly
-	 *  inside it, hidden names skipped, each with its name (its root is
-	 *  `Root::Folder(name)`), its identity, and whether Git keeps it, the links
-	 *  in it, shown as outside it, and what is there but cannot be a folder,
-	 *  with why. The folder is made when it is missing.
-	 */
-	listEpicenter: () => typedError<EpicenterListing, RootError>(__TAURI_INVOKE("plugin:epicenter-folder|list_epicenter")),
-	/**
-	 *  Make the directory `name` in the Epicenter folder, for a folder cloned or
-	 *  accepted into it: refused when anything has that name, or the name is not
-	 *  one every disk keeps. It opens as `Root::Folder(name)`.
-	 */
-	makeEpicenterFolder: (name: string) => typedError<EpicenterEntry, RootError>(__TAURI_INVOKE("plugin:epicenter-folder|make_epicenter_folder", { name })),
-	/**
 	 *  The identity of the folder an open `root` reached, its link followed
 	 *  (`identity::identity_of`): its inode and birth time. Null where the
 	 *  system has none. A page names a cache of the folder's hashes by it.
@@ -76,45 +61,6 @@ export const commands = {
 };
 
 /* Types */
-/**  One real directory directly inside the Epicenter folder. */
-export type EpicenterEntry = {
-	/**  Its name there, the person's own label for it, and its root's name. */
-	name: string,
-	/**
-	 *  Its identity now (`identity::identity_of`): the inode and birth time
-	 *  a record names it by. Null where the system has none.
-	 */
-	identity: FolderIdentity | null,
-	/**
-	 *  Whether Git keeps it (`kept_by_git`): Epicenter never syncs a Git
-	 *  working tree (ADR-0822, ADR-0825).
-	 */
-	git: boolean,
-};
-
-/**
- *  The Epicenter folder's listing: where it is, as a person reads it, and
- *  where it really is, every link on its way followed, which the file-sync
- *  check reads; whether it is itself a Git repository, its folders by name,
- *  the links in it, and what is there but could not be read.
- */
-export type EpicenterListing = {
-	path: string,
-	/**
-	 *  Where it really is (`resolved`): `~/Epicenter` linked into iCloud
-	 *  Drive is in iCloud Drive.
-	 */
-	real: string,
-	/**
-	 *  Whether the Epicenter folder holds `.git` at its root, which
-	 *  Epicenter says once (ADR-0825).
-	 */
-	git: boolean,
-	folders: EpicenterEntry[],
-	outside: Outside[],
-	unreadable: Unreadable[],
-};
-
 /**
  *  Why a storage command answered no: the root it named cannot be used
  *  (`RootError`, such as `Disconnected` with the link's folder and target),
@@ -174,16 +120,6 @@ export type ListedFile = {
 	path: string,
 	version: string,
 	size: number | null,
-};
-
-/**
- *  A link directly inside the Epicenter folder: shown as outside it, never
- *  opened as one of its folders, and never synced (ADR-0825).
- */
-export type Outside = {
-	name: string,
-	/**  Where the link points, as it is written. */
-	target: string,
 };
 
 /**  A root an app reaches by name. */
@@ -257,12 +193,6 @@ export type StorageError =
 { name: "NotADirectory"; path: string } |
 /**  The operation failed, and changed nothing. */
 { name: "Io"; path: string; operation: string; message: string };
-
-/**  Something in the Epicenter folder that is not a folder it can open, and why. */
-export type Unreadable = {
-	name: string,
-	reason: string,
-};
 
 /* Tauri Specta runtime */
 async function typedError<T, E>(result: Promise<T>): Promise<{ data: T; error: null } | { data: null; error: E }> {

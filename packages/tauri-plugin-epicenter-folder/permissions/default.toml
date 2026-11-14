@@ -13,11 +13,3 @@ permissions = [
   "allow-root-identity",
   "allow-data-record",
 ]
-
-# The Epicenter app's own: list the Epicenter folder, whose directories open
-# as `Folder` roots, and make a directory in it. A shell that names no
-# Epicenter folder answers both `NotNamed`.
-[[set]]
-identifier = "epicenter"
-description = "List the Epicenter folder the shell named, and make a folder in it."
-permissions = ["allow-list-epicenter", "allow-make-epicenter-folder"]

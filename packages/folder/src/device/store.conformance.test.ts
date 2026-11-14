@@ -1,8 +1,7 @@
 /**
  * The store conformance checks (`store.conformance.ts`) over every store
  * Bun can run: memory, a directory, the desktop shell's commands over an
- * emulated shell whose watcher is a directory watch, and a directory a
- * program serves (`served/`) over HTTP. The repository runs them in
+ * emulated shell whose watcher is a directory watch. The repository runs them in
  * `remote.postgres.test.ts`.
  */
 import { afterAll, describe, mock, test } from 'bun:test';
@@ -11,16 +10,12 @@ import { dirname, join } from 'node:path';
 import { createNamedShell } from '../named-shell.test-support.js';
 import { watchDirectory } from '../native/watch.js';
 import { scratch } from '../scratch.test-support.js';
-import { serveDirectory } from '../serve.js';
-import { servedStore } from '../served/store.js';
 import { memoryStore } from './memory-store.js';
 import { nodeStore } from './node-store.js';
 import { type StoreSubject, storeChecks } from './store.conformance.js';
 
 const roots: string[] = [];
-const stops: (() => Promise<unknown>)[] = [];
 afterAll(async () => {
-	for (const stop of stops) await stop();
 	for (const root of roots) await rm(root, { recursive: true, force: true });
 });
 
@@ -81,24 +76,6 @@ const subjects: Record<string, () => Promise<StoreSubject>> = {
 			},
 		});
 		return { store, outside: outsideOf(root) };
-	},
-	async 'served directory'() {
-		const root = await scratch('conformance-served-');
-		roots.push(root);
-		const directory = serveDirectory(root);
-		const server = Bun.serve({
-			hostname: '127.0.0.1',
-			port: 0,
-			fetch: directory.fetch,
-		});
-		stops.push(async () => {
-			directory.close();
-			await server.stop(true);
-		});
-		return {
-			store: servedStore(`http://127.0.0.1:${server.port}/folder`),
-			outside: outsideOf(root),
-		};
 	},
 };
 

@@ -1,8 +1,7 @@
 /**
  * `@epicenter/folder/node`: a directory on this computer as a place, for
- * scripts and tests, in Bun or Node (`device/node-store.ts`), its store
- * (`nodeStore`, which `epicenter sync` syncs), and the checks `epicenter
- * check` and `epicenter format` run.
+ * scripts and tests, in Bun or Node (`device/node-store.ts`), and the checks
+ * of its notes against a contract (`checkFiles`, `formatNotes`).
  *
  * The directory holds the contract's files at the contract's paths, the
  * same layout a desktop folder and the browser's private storage hold.
@@ -22,46 +21,6 @@ import { checkStore, formatStore } from './device/folder-tools.js';
 import { nodeStore } from './device/node-store.js';
 import { OpenFolderError } from './errors.js';
 import { type Place, place } from './place.js';
-
-/**
- * The Epicenter folder on this computer (`epicenterRoot`), a folder at a
- * path (`localFolder`, which refuses one inside `.git` or `.epicenter`), a
- * directory's identity, which a record names (`folderIdentity`), and the
- * sweep of stale saves (`sweepSaves`).
- */
-export {
-	epicenterRoot,
-	folderIdentity,
-	keptByGit,
-	localFolder,
-	type StatIdentity,
-	sweepSaves,
-	tidyLegacy,
-} from './device/node-root.js';
-/** The store of a directory on this computer: what `epicenter sync` syncs. */
-export { nodeStore } from './device/node-store.js';
-/**
- * Git from Bun (ADR-0826): a folder's history written as a Git repository
- * (`exportGit`), this computer's Git for `importGit` (`gitHost`), and giving
- * up an import that stopped midway (`abandonImport`). Each spawns the
- * system `git`, so it needs Bun.
- */
-export {
-	type ExportReport,
-	exportGit,
-	type History,
-	isPlainPath,
-	messageOf,
-} from './git/export.js';
-export {
-	type AbandonReport,
-	abandonImport,
-	git,
-	gitHost,
-	sourceOf,
-} from './git/node.js';
-/** Why a path cannot be a file on every disk, or undefined: what an import skips. */
-export { pathProblem } from './paths.js';
 
 /**
  * The directory at `path`, made with its missing parents when a folder

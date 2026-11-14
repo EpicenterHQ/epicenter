@@ -5,10 +5,6 @@
 		"noUnusedLocals": true,
 		"noUnusedParameters": true
 	},
-	"include": ["src/**/*.ts", "evidence/**/*.ts", "smoke/**/*.ts"],
-	"exclude": [
-		"src/**/*.postgres.test.ts",
-		"src/**/*.postgres.test-support.ts",
-		"src/__benchmarks__/**"
-	]
+	"include": ["src/**/*.ts"],
+	"exclude": ["src/**/*.postgres.test.ts", "src/**/*.postgres.test-support.ts"]
 }
