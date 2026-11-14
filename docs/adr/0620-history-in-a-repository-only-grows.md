@@ -1,5 +1,7 @@
 # 0620. History in a repository only grows
 
+<!-- doc-path-check: ignore-file (cites the waiting folder sync product (ADR-0840), kept at tag folder-sync-product) -->
+
 - **Status:** Accepted
 - **Date:** 2026-10-19
 - **Supersedes:** [ADR-0595](0595-the-self-hosted-git-store-accepts-a-force-push.md) (the self-hosted Git store accepts a push that is not a fast-forward): no store accepts a force push.

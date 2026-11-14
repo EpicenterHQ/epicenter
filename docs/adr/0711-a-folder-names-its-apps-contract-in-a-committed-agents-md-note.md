@@ -1,5 +1,7 @@
 # 0711. A folder names its app's contract in a committed AGENTS.md note
 
+<!-- doc-path-check: ignore-file (cites the waiting folder sync product (ADR-0840), kept at tag folder-sync-product) -->
+
 - **Status:** Accepted (2026-11-03)
 - **Date:** 2026-11-03
 - **Amends:** [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) at decision 35 ("folders hold no `epicenter.json`") and at `epicenter init --contract` in its Unbuilt line: a folder holds an `AGENTS.md` note naming its contract URL, and `init` records no contract in Git configuration.

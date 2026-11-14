@@ -1,5 +1,7 @@
 # 0720. You sign in a machine, not an app
 
+<!-- doc-path-check: ignore-file (cites the waiting folder sync product (ADR-0840), kept at tag folder-sync-product) -->
+
 - **Status:** Superseded
 - **Date:** 2026-11-03
 - **Amends:** [ADR-0701](0701-apps-run-as-separate-programs.md) at decision 84 (one native client per app, `so.epicenter.<app>.native`, each with its own refresh token): every first-party program on a machine shares one sign-in; [ADR-0549](0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md) at its client table's desktop and CLI rows: `so.epicenter` is the one first-party client for a machine and accepts both the loopback authorization code and device authorization, and `so.epicenter.cli` retires.

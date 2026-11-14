@@ -1,5 +1,7 @@
 # 0594. Hosted access follows repository membership
 
+<!-- doc-path-check: ignore-file (cites the waiting folder sync product (ADR-0840), kept at tag folder-sync-product) -->
+
 - **Status:** Accepted
 - **Date:** 2026-10-17
 - **Amends:** [ADR-0547](0547-every-repository-has-one-owner-namespace-and-a-person-is-a-namespace-of-one.md) at `namespace_member`, the role table, groups, "Sharing a folder is moving it into a group", and membership as the access rule: every namespace is one person's, and access is that person's account. [ADR-0549](0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md) at "A grant targets `*` or one namespace", the target column of the client table, the `referenceId` and `namespace_member` clauses of the access statement, and the target on the device approval page: a grant has no target, and a token reaches its person's own namespace. [ADR-0565](0565-a-refresh-token-keeps-its-grants-scopes-and-only-each-access-token-is-narrowed-to-its-audience.md) at "approves the code with the chosen target": the consent page approves a device code with no choice of folders. [ADR-0578](0578-epicenter-hosts-no-mcp-server.md) at the kept `grant-target.ts` and "with a folder choice": the `/consent` page stays for device codes, and `grant-target.ts` is deleted. [ADR-0593](0593-the-hosted-git-service-stores-data-repositories-and-offers-no-rename-or-move.md) at "stores data repositories and nothing else": the service accepts any Git content a person pushes, and Epicenter offers no app hosting.

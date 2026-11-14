@@ -1,5 +1,7 @@
 # 0871. A public address signs people in with a passkey and connectors in with OAuth
 
+<!-- doc-path-check: ignore-file (cites the waiting folder sync product (ADR-0840), kept at tag folder-sync-product) -->
+
 - **Status:** Superseded
 - **Date:** 2026-11-11
 - **Superseded by:** [ADR-0883](0883-an-epicenter-is-its-git-repositories-and-serve-and-its-host-keeps-runs-and-guards-them.md), 2026-11-12: `serve` has no public address; who reaches it is its host's decision. Read this record for how a connector signed in while it had one.

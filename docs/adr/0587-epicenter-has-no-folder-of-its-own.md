@@ -1,5 +1,7 @@
 # 0587. Epicenter has no folder of its own
 
+<!-- doc-path-check: ignore-file (cites code that moved since) -->
+
 - **Status:** Superseded
 - **Date:** 2026-10-17
 - **Superseded by:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md): the full desktop app platform; only a local built-app runner over chosen data repositories remains, without source installation, build approvals, or general native services.

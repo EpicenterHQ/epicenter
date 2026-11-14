@@ -1,5 +1,7 @@
 # 0716. Agents edit a document through one-shot CLI commands
 
+<!-- doc-path-check: ignore-file (cites the waiting folder sync product (ADR-0840), kept at tag folder-sync-product) -->
+
 - **Status:** Accepted (2026-11-03)
 - **Date:** 2026-11-03
 - **Relates:** [ADR-0705](0705-an-apps-data-lives-in-two-kinds-of-store.md) (documents and the field vocabulary), [ADR-0708](0708-a-namespace-holds-documents-beside-repositories-under-one-resource-grant.md) (a document's address), [ADR-0709](0709-a-document-is-rebuilt-into-a-fresh-generation-by-copying-its-current-state.md) (generations), [ADR-0715](0715-the-epicenter-app-browses-every-folder-and-document-a-person-has.md) (the Epicenter app opens documents), [ADR-0718](0718-epicenters-machinery-on-a-machine-lives-in-a-hidden-home-every-program-reads.md) (the machine's one local copy of each document), [ADR-0578](0578-epicenter-hosts-no-mcp-server.md) (no MCP server, which stands).

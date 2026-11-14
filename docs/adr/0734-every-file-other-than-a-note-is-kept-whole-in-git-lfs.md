@@ -1,5 +1,7 @@
 # 0734. Every file other than a note is kept whole in Git LFS
 
+<!-- doc-path-check: ignore-file (cites the waiting folder sync product (ADR-0840), kept at tag folder-sync-product) -->
+
 - **Status:** Accepted (2026-11-04)
 - **Date:** 2026-11-04
 - **Supersedes:** [ADR-0714](0714-a-files-extension-decides-how-every-folder-merges-it.md) (a file's extension decides how every folder merges it): one rule for every folder, with no binary-extension list, size cap, or migration between lists.

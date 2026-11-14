@@ -1,5 +1,7 @@
 # 0663. One native question before a window or Epicenter leaves
 
+<!-- doc-path-check: ignore-file (cites the waiting folder sync product (ADR-0840), kept at tag folder-sync-product) -->
+
 - **Status:** Accepted
 - **Date:** 2026-10-21
 - **Amended by:** [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) at window Close: a window waits for the writes its page has out (`guardLeave` in `@epicenter/svelte/leave-guard`) and asks nothing; closing again while it waits asks whether to close anyway. [ADR-0689](0689-an-edit-shows-what-you-typed-the-queue-carries-it-the-folder-shows-what-landed.md) amended this first and was rejected.

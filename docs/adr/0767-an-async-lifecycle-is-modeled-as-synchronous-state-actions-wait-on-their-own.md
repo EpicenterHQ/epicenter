@@ -1,5 +1,7 @@
 # 0767. An async lifecycle is modeled as synchronous state; actions wait on their own
 
+<!-- doc-path-check: ignore-file (cites code that moved since) -->
+
 - **Status:** Accepted (2026-11-04)
 - **Date:** 2026-11-04
 - **Supersedes:** [ADR-0410](0410-an-app-is-returned-ready-and-page-teardown-owns-recovery.md): an asynchronous opener that resolves to a ready App, so no caller holds anything while it opens; a capability is now handed over at once, and the `openApp` and `App` that record described exist nowhere in code.
