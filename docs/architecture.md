@@ -1,22 +1,23 @@
-# Epicenter architecture
+# Architecture of the folder sync product
 
-<!-- doc-path-check: ignore-file (maps the waiting folder sync product) -->
+<!-- doc-path-check: ignore-file (maps the retired folder sync product) -->
 
-This page maps the folder sync product's code, which waits
-([ADR-0840](adr/0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md)),
-and names some files deleted since. [The vision](vision.md) states the current
-direction.
+This page maps the code of the folder sync product, which is retired
+([ADR-0899](adr/0899-the-folder-sync-product-is-retired.md)). Some of that code
+is still in this repository while Whispering imports it, and the page names some
+files deleted since. It does not describe Epicenter today: [the vision](vision.md)
+says what Epicenter is, and the READMEs of `packages/cli` and `packages/app` say
+how it works in code.
 
-How Epicenter works in code today. [The vision](vision.md) says what Epicenter
-is and which rules it keeps;
+For that product,
 [ADR-0835](adr/0835-records-from-0802-to-0834-agree-on-files-a-ledger-and-git-at-the-edges.md)
-lists every decision in force and whether it is built; [the vocabulary](CONTEXT.md)
-owns the words. This page maps the code: which package holds each piece, which
-files a flow passes through, and where the code differs from what is decided.
+was the register of its decisions and [CONTEXT](CONTEXT.md) holds its
+vocabulary. This page says which package holds each piece, which files a flow
+passes through, and where the code differed from what was decided.
 
-A folder is plain files in `~/Epicenter`. The server keeps a ledger of
-changes for each folder. One thing moves: a change, a set of files each naming
-the version it replaces. The sections below follow it.
+In that product a folder was plain files in `~/Epicenter`, and the server kept
+a ledger of changes for each folder. One thing moved: a change, a set of files
+each naming the version it replaces. The sections below follow it.
 
 ## The primitives
 

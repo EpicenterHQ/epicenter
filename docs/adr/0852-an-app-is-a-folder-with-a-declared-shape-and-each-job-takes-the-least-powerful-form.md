@@ -79,9 +79,8 @@ second way, such as an npm package an app re-exports.
 
 **Epicenter's defaults are ordinary instances of open standards.** A remote is
 any Git host, GitHub by default (ADR-0851); reach is MCP (ADR-0853); a view is
-a web page that asks over MCP (ADR-0860). A hosted Epicenter, if one comes, runs
-the same `epicenter serve` rather than being a product of its own; ADR-0864
-leaves it undecided. A developer uses any Git host, their own computer, or their
+a web page that asks over MCP (ADR-0860). A rented home runs
+the same `epicenter serve` (ADR-0903). A developer uses any Git host, their own computer, or their
 own program without changing an app.
 
 ## Consequences

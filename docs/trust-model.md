@@ -1,130 +1,138 @@
 # Trust model
 
-Epicenter does not encrypt your data before syncing it. Whoever operates the
-server your data syncs with holds your files in the clear. That one decision is
-the trust model, and everything below is a consequence of it.
+Your Epicenter is on the home, and whoever can read the home can read it.
+Nothing is encrypted, nothing syncs, and `epicenter serve` signs no one in.
+That is the trust model, and everything below follows from it.
 
-This page describes what the code does today. A folder is a directory of
-Markdown and other files, and every device you use keeps the whole folder as
-plain files, with no Git on the computer
-([ADR-0804](adr/0804-a-computer-keeps-a-plain-folder-and-every-surface-syncs-with-one-typescript-function.md)).
-It syncs only with an Epicenter server, hosted or self-hosted, with an access
-token ([ADR-0803](adr/0803-clients-sync-only-with-epicenter-servers-and-sync-is-a-function-of-two-stores.md)).
-The server keeps each folder's history as a log of versions at
-`/folders/<id>`, in Postgres, with its larger bytes in a blob store
-([ADR-0824](adr/0824-a-folders-history-is-a-log-of-versions-and-git-is-how-it-leaves.md)).
-The files that carry it:
+This page describes what the code does today, in `packages/cli` and
+`packages/app`. [The vision](vision.md) names the pieces, and
+[ADR-0903](adr/0903-the-home-is-a-computer-its-person-controls-owned-or-rented.md)
+decides that the home is a computer its person controls, owned or rented.
 
-- `packages/folder/src/sync/` and `packages/folder/src/remote/`: the sync
-  function, and the requests it makes of a folder on the server
-- `packages/server/src/routes/folder.ts` and `routes/folders.ts`: a folder's
-  routes, which a token reaches by `folders:all` or by the folder's attachment to its app, and `packages/server/src/log/`: its ledger
-- `apps/api/worker/index.ts`: where Epicenter's hosted server keeps bytes, in
-  Cloudflare R2
+## The home
 
-The Yjs store sync that came before this, an authority that held each document's
-updates as opaque bytes, is removed, and the next deploy deletes what it stored
-(ADR-0534).
+The home is the computer `~/Epicenter` is on. Its person holds root on it, and
+it runs only the code they trust. An app's records are Markdown files under
+its `data/`, in a Git repository on the home, and nothing in Epicenter
+encrypts them.
 
-## We used to encrypt at rest. We stopped.
-
-For a long time Epicenter encrypted every CRDT value before it entered the synced Yjs doc. The key came from a server-held root (`ENCRYPTION_SECRETS` to an owner key to a workspace key) and shipped to the client through `/api/session`. The philosophy was "if you want full encryption, become the server."
-
-It worked, and the tell is that it still trusted the server. The root key lived on Epicenter's infrastructure, so server code could read your data, a bug could log it, an operator could inspect it. You were never server-blind; you were trusting the application. Once you grant that, the per-owner workspace key buys nothing but a key-recovery tax and a class of "unreadable cell" failures. So we deleted it: the `@epicenter/encryption` package, the keyring, the key derivation, and the `ENCRYPTION_SECRETS` root.
-
-<!-- doc-path-check: ignore-next-line -->
-The full argument is in `docs/articles/20260615T140000-dont-encrypt-the-data-dont-hold-it.md`. The design that drove the removal is `specs/20260615T120000-trusted-relay-and-collaborative-fields.md`.
-
-## What the server sees
-
-Nothing is encrypted before it leaves your device, so the server your folder
-syncs with holds your files as files: readable Markdown and JSON, with their
-whole history. Whoever operates that server can read them, in its database and
-its blob store.
-
-Who that is depends on the server you choose:
-
-| Server | Who can read your files |
+| Home | Who can read your files |
 | --- | --- |
-| A self-hosted Epicenter server (`apps/api/server.ts`, Bun with Postgres) | you, and anyone who reaches your box |
-| Epicenter's hosted server | Epicenter's operators, and the providers that store it: Cloudflare (R2) and the Postgres host |
+| One you own, such as a Mac you keep on | You, and whatever you let in: a user account, a backup tool, an agent you give a shell. |
+| One you rent, such as a Linux server from a hosting provider | You and the provider, which can read the disk and its snapshots, `.local` files included. Epicenter adds nothing against that. |
 
-A folder does not sync with GitHub, GitLab, or another Git host: a client syncs
-only with an Epicenter server. Its files come to any computer with
-`epicenter clone`, and its history leaves as a Git repository with
-`epicenter export --git`
-([ADR-0803](adr/0803-clients-sync-only-with-epicenter-servers-and-sync-is-a-function-of-two-stores.md),
-[ADR-0826](adr/0826-history-enters-and-leaves-epicenter-as-git.md)).
+Choosing where to rent a home is choosing who can read it, in the way choosing
+which agents get a shell is. Epicenter's hosted services hold no part of your
+Epicenter and none of its sign-ins.
 
-A folder's readers are its members, and each member is a member or a
-reader. A share is an invitation to an email that waits until that person accepts
-it, and the server answers it the same whether or not the email has an account
-([ADR-0820](adr/0820-a-share-is-an-invitation-to-an-email-and-reaching-every-folder-is-a-permission.md)).
-Removing a member refuses their next sync; it does not recall the files they
-already hold. A token reaches the folders attached to its app, or every folder
-its person holds when it carries `folders:all`, which the CLI and the Epicenter
-app ask for.
+## Reaching the home
 
-Epicenter's hosted server passes every byte through Epicenter's Worker, which
-checks your access token, your membership in the folder, and the token's reach
-on every request, then reads or writes the folder's log in Postgres and its
-larger bytes in R2 with the Worker's own bindings; your token reaches neither.
+`epicenter serve` offers every app's actions over MCP at `/`, and each app's
+UI at `/<app>/` (`packages/cli/src/http.ts`). It signs no one in: it trusts
+this computer and the tailnet, and who reaches it is the home's decision
+([ADR-0883](adr/0883-an-epicenter-is-its-git-repositories-and-serve-and-its-host-keeps-runs-and-guards-them.md)).
+Anything that reaches it can call every action of every app.
 
-Content is only half of what a server learns. The server also sees the metadata
-around the bytes: who wrote, to which folder, when, how much, and from which
-IP. Each change records its author's name and email and the program that made
-it. Run the server yourself and that metadata is yours too.
+- It listens on `127.0.0.1` unless `--host` names another address. A reverse
+  proxy such as `tailscale serve` puts it on the tailnet and adds HTTPS.
+  Today `--host` accepts any address; on a rented server, which usually has a
+  public one, never bind that.
+- It answers only a `Host` that is `localhost`, an IP address, or a `*.ts.net`
+  name, so a DNS rebinding name gets 403, and an `Origin`, when sent, must
+  match the `Host`.
+- It refuses, with 403, any request carrying the header a Tailscale Funnel or
+  Cloudflare Tunnel adds. Another tunnel that adds no such header would reach
+  `serve` with no sign-in, so never tunnel its port.
 
-## Recordings and other attachments sync with the folder
+Your other devices keep nothing. A UI on your phone, or an agent on your
+laptop, sees the files only while it reaches the home, through actions.
 
-Every visible file in a folder syncs, a hidden path does not
-([ADR-0804](adr/0804-a-computer-keeps-a-plain-folder-and-every-surface-syncs-with-one-typescript-function.md)).
-A recording's audio is a file beside its note, so it goes to the server with
-the folder and is as readable there as a note. The server keeps a file's bytes
-by their SHA-256: up to 16 KiB in Postgres, and larger ones in R2 on the hosted
-cloud or on disk on a self-hosted Bun server, at `folders/<id>/blobs/<sha256>`
-([ADR-0824](adr/0824-a-folders-history-is-a-log-of-versions-and-git-is-how-it-leaves.md)).
-The bytes are never shared between folders, so one folder cannot learn whether
-a file exists in another. Purging a version deletes its bytes; the log keeps
-its name and size.
+`serve` also sends the Epicenter's `AGENTS.md` to every MCP client as its
+instructions, so anything written there reaches each agent that connects.
 
-A setting that keeps audio on the computer that recorded it, or does not keep it
-at all, is decided and not built
-([ADR-0788](adr/0788-everything-in-a-folder-syncs-and-a-recordings-audio-is-kept-in-one-of-three-places.md)).
-Until then, audio in a synced folder leaves the computer, to the server and to
-every member's computer.
+## The code you run
+
+`serve` and `epicenter` run each app's `epicenter.ts` with your privileges,
+in one process, with no sandbox
+([ADR-0880](adr/0880-an-epicenter-runs-its-apps-as-they-sit-on-disk.md)).
+An action can read any file you can, and `folder` is a convenience, not a
+boundary. An app taken with `epicenter new --from <url>` runs its author's
+code, and `epicenter update` merges whatever its `upstream` changed. Trust a
+starter as you would any program you install.
+
+## Sign-ins are files that stay on the home
+
+An app keeps a sign-in, such as Mail's Google token, in a `.local` file in its
+own folder ([ADR-0870](adr/0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md)).
+The data repository's `.gitignore` keeps `*.local` and `*.local.*` out of
+every commit, and a commit that would take one refuses
+(`packages/cli/src/snapshot.ts`). A new `.local` file written through `folder`
+is `0600`. So a `.local` file never reaches a backup or a clone. It is a plain
+file, though: anyone who can read the home can read it, the provider of a
+rented home included.
+
+## Backups
+
+An app's code and data are two Git repositories, and each may have an
+`origin`, a push-only backup
+([ADR-0851](adr/0851-an-app-has-one-home-and-an-optional-push-only-backup.md)).
+Nothing is pushed until you add one. Whoever hosts that repository, GitHub or
+your own Git server, can read what is pushed: every committed file and its
+history, never a `.local` file.
+
+## Outside apps
+
+A service such as Gmail already holds its own data. An inside app brings it to
+the home only by a pull, which copies items inward and never writes the
+source; Mail keeps its mailbox as a `.local` SQLite cache on the home. A change
+to the service is an action you run, such as `epicenter mail apply`, which
+changes Gmail through your own sign-in
+([ADR-0882](adr/0882-mail-leaves-mail-in-gmail-and-agents-change-it-through-proposals-the-person-applies.md),
+[ADR-0898](adr/0898-what-arrives-is-cached-what-the-person-decides-is-kept-and-an-item-moves-by-transfer.md)).
+
+Epicenter's own hosted services (`apps/api`) are outside apps in the same
+sense. They hold your account and what you send them. They hold no part of
+your Epicenter.
 
 ## The AI gateways see the prompt and the audio
 
-The same "a service sees only what you hand it" rule governs inference. Epicenter's hosted gateways are two OpenAI-compatible routes on the cloud worker: `/v1/chat/completions` for chat (`packages/server/src/routes/inference.ts`) and `/v1/audio/transcriptions` for speech-to-text (`packages/server/src/routes/transcription.ts`). Both are pure passthrough proxies. The gateway holds the house key, attaches it, forwards your request to the upstream provider (OpenAI or Gemini for chat, OpenAI `whisper-1` for transcription), and streams the reply back. It is house-key-only by construction: it never reads a provider key from your request, so it cannot receive yours (ADR-0054).
+Epicenter's hosted gateways are two OpenAI-compatible routes in `apps/api`:
+`/v1/chat/completions` for chat (`packages/server/src/routes/inference.ts`) and
+`/v1/audio/transcriptions` for speech-to-text
+(`packages/server/src/routes/transcription.ts`). Both are passthrough proxies.
+The gateway attaches Epicenter's own key, forwards your request to the upstream
+provider (OpenAI or Gemini for chat, OpenAI `whisper-1` for transcription), and
+streams the reply back. It never reads a provider key from your request, so it
+cannot receive yours (ADR-0054).
 
-What that means for your bytes: when you transcribe through the hosted gateway, your audio leaves your device, reaches Epicenter's worker in memory for the duration of the one request, and is forwarded to the upstream STT provider under Epicenter's key. The worker stores nothing, keeps no transcript, and retains nothing past the response; the only durable record is a metered usage event (audio seconds, model, provider) so the call can be billed. The audio is never used for training, by us or, per their API terms, by the upstream provider. The same holds for a chat prompt: it transits the worker to the provider and back, unstored. This is convenience, not privacy: the request is inside Epicenter's trust boundary and the upstream provider's for the moment it is in flight, exactly the trust you already accept for hosted chat.
+When you transcribe through the hosted gateway, your audio leaves your device,
+reaches Epicenter's Worker in memory for the one request, and goes to the
+upstream provider under Epicenter's key. The Worker keeps no audio and no
+transcript; the only durable record is a metered usage event (audio seconds,
+model, provider) so the call can be billed. A chat prompt is handled the same
+way. For that moment the request is inside Epicenter's trust boundary and the
+provider's.
 
-The private path is the same shape as everywhere else: point the connection somewhere you operate. An inference connection is just `{ baseUrl, apiKey? }` (ADR-0060), so a surface can target a local server, your own Ollama for chat or a local Speaches box for transcription, and the bytes never leave your machine. There is one runtime now, a desktop SPA in a WebView (ADR-0227), and it can reach `localhost`, so private is the reachable default rather than a thing the deployment target takes away. The hosted gateway stays there for convenience, inside our trust boundary.
+The private path is to point the connection somewhere you operate. An
+inference connection is `{ baseUrl, apiKey? }` (ADR-0060), so Whispering can
+use your own Ollama for chat or a local Speaches server for transcription, and
+the bytes never leave your machine.
 
-## Two deployments, decided by who holds the data
+Epicenter signs in with social OAuth only: `packages/server/src/auth/base-config.ts`
+disables email and password on purpose, since no mail sender is wired up to
+verify an address.
 
-Epicenter Cloud, the default, is operated by Epicenter, so hosted data sits inside our trust boundary. It is the same promise as before, without the key-derivation machinery around it. `BETTER_AUTH_SECRET` signs auth cookies, tokens, and OAuth state in `packages/server/src/auth/create-auth.ts`; it is not a data encryption root. A self-hosted server runs the same Better Auth on Bun with Postgres (`apps/api/server.ts`) under its own `BETTER_AUTH_SECRET`.
+## What came before
 
-Self-hosting is functionally zero-knowledge against Epicenter, because Epicenter never holds or sees the data: you operate the deployment. The strength comes from topology, not from a held secret. So the marketing has to stay honest about which deployment it describes. "We cannot read your data" is true when you self-host, not on the default.
+The folder sync product kept every device's folder in step through an
+Epicenter server, hosted or self-hosted, that held each folder's history in
+plaintext. It is retired
+([ADR-0899](adr/0899-the-folder-sync-product-is-retired.md)), and so is its
+trust model: a choice of server and of who a folder was shared with. Its routes
+still exist in `packages/server` until nothing imports them.
 
-## Logging in: social OAuth on every deployment
-
-Epicenter signs in with social OAuth: `packages/server/src/auth/base-config.ts` disables email/password on purpose, because better-auth 1.5.6 has no local-email-verification gate and no mail sender is wired up, so a local account would open an account-takeover path.
-
-A self-hosted server signs in the same way, so its operator registers their own OAuth apps (Google, GitHub, Microsoft) for their own origin. ADR-0549 records the planned move to one OAuth 2.1 authorization server per deployment.
-
-Because the instance has no OAuth and no sessions, it composes no Better Auth and no Postgres at all (ADR-0076): the bearer is constant-time compared in-process, and there is nothing for the operator to provision but the token. Neither entry point constructs a database (ADR-0226, ADR-0227), which is what lets the same instance run as a single Bun binary or a Cloudflare Worker.
-
-## Where this is heading
-
-Privacy is a choice of server, not an encryption layer. A folder syncs with one
-Epicenter server, so "who can read my data" is answered by "whose server this
-computer syncs with" and who its members are. Epicenter ships the apps and the
-server; you choose who holds the synced copy, and every device keeps the full
-folder either way. The private answer is to run the server yourself; the
-convenient one is to let Epicenter run it.
-
-## Migration
-
-There is no deployed encrypted data to protect, so the migration is a one-off manual step: clear local devices once. No client storage name bump or in-script corruption guard is needed.
+Before that, Epicenter encrypted every value in a synced Yjs document under a
+key derived from a root its servers held. That still trusted the server, so it
+was deleted with the `@epicenter/encryption` package.
+<!-- doc-path-check: ignore-next-line -->
+The argument is in `docs/articles/20260615T140000-dont-encrypt-the-data-dont-hold-it.md`.

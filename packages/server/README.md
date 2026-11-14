@@ -1,7 +1,7 @@
 # `@epicenter/server`
 
 The AGPL Hono library `apps/api` composes on two runtimes: the Cloudflare
-Worker (hosted Epicenter Cloud) and Bun with Postgres (`apps/api/server.ts`,
+Worker (Epicenter's hosted services) and Bun with Postgres (`apps/api/server.ts`,
 the self-host path). Both serve the OAuth 2.1 authorization server, and both
 put every resource behind its access tokens (ADR-0549). A deployment builds the
 parent app with `createServerApp`, guards each mount with `requireAccessToken`

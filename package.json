@@ -3,12 +3,9 @@
 	"type": "module",
 	"private": true,
 	"version": "7.11.0",
-	"description": "Local-first PKM substrate. CRDT-powered tables that materialize to SQLite and markdown.",
+	"description": "Where one person's software lives: small apps as folders of plain files, run by the epicenter command on a computer you control.",
 	"keywords": [
 		"local-first",
-		"CRDT",
-		"Yjs",
-		"offline-first",
 		"personal knowledge base",
 		"PKM",
 		"second brain",

@@ -2,6 +2,7 @@
 
 **Status:** Active
 **Date:** 2026-04-28
+**Revised:** 2026-11-14: revenue is services Epicenter hosts; the home is its person's
 **Owner:** Braden Wong
 <!-- doc-path-check: ignore-next-line -->
 **Promoted from:** `specs/20260428T120000-licensing-strategy.md` (spec deleted in PR #2248)
@@ -33,20 +34,37 @@ root depends on must also be permissive"). Both are recoverable if MIT returns,
 and both are recorded below rather than deleted, because the mechanical half is
 the part that is easy to get wrong.
 
+## What the license protects
+
+Epicenter supplies the program, and the person supplies the home: a computer
+they control, owned or rented ([vision](../vision.md),
+[ADR-0903](../adr/0903-the-home-is-a-computer-its-person-controls-owned-or-rented.md)).
+Revenue comes from services Epicenter hosts, such as
+`apps/api` today and hosted Notes if it is built
+([ADR-0897](../adr/0897-hosted-notes-is-a-product-beside-epicenter-and-waits-for-a-month-of-evidence.md)).
+To a person's Epicenter each one is an outside app, like Gmail.
+
+So the license has two jobs. On the hosted services it is the revenue
+backstop (scenario 4). On the program and the apps people run themselves it
+keeps forks open (scenarios 3 and 5).
+
 ## Threat model
 
 The motivating concern is direct code copying by competitors. This is not theoretical: there is a steady drumbeat of stories in the local-first and developer-tools space of one team taking another team's open source code, rebranding it, and shipping it as a competing product, sometimes hosted, sometimes embedded inside a closed-source app.
 
-We sort this into four scenarios:
+We sort this into five scenarios:
 
 | # | Scenario | MIT outcome | AGPL outcome | Proprietary outcome |
 |---|---|---|---|---|
 | 1 | An individual runs Epicenter locally for personal use | Allowed | Allowed (no §13 trigger when running locally) | Forbidden |
 | 2 | A developer forks an Epicenter library to build their own app | Allowed | Their app must also be AGPL (kills adoption) | Forbidden |
 | 3 | A company forks an Epicenter app and ships it under a new brand, closed-source | **Allowed** | Forbidden (must publish source) | Forbidden |
-| 4 | A company forks the sync server and runs it as a competing hosted service | **Allowed** | Forbidden (§13 forces publishing source of running version) | Forbidden |
+| 4 | A company forks one of Epicenter's hosted services (`apps/api`) and runs it as a competitor | **Allowed** | Forbidden (§13 forces publishing source of running version) | Forbidden |
+| 5 | A company rents out homes, running `epicenter serve` for each person | Allowed | Allowed (§13 forces publishing any changes it makes) | Forbidden |
 
-Scenarios 3 and 4 are the threat. AGPL handles both. We default to AGPL rather than proprietary for these scenarios because AGPL preserves the right to read and fork the code (consistent with the local-first ethos), still forces a hosted fork to publish its (modified) source via §13, and avoids the operational overhead of running a proprietary tier.
+Scenarios 3 and 4 are the threat. Scenario 5 is allowed on purpose: a provider
+runs the same program, a person can leave with their repositories, and §13
+keeps a modified version open. AGPL handles both. We default to AGPL rather than proprietary for these scenarios because AGPL preserves the right to read and fork the code (consistent with the local-first ethos), still forces a hosted fork to publish its (modified) source via §13, and avoids the operational overhead of running a proprietary tier.
 
 Scenario 4 (a hosted competitor) is the one where the license is most load-bearing, because hosting a fork is a low-effort, high-leverage attack on revenue. We extend AGPL to the consumer apps too (Whispering today): on a locally-run app AGPL reduces to GPL conveyance copyleft, which is not "little protection" but exactly what blocks scenario 3, a competitor forking a shipped app into a closed-source rebrand. Brand, distribution, and update cadence remain the real moats for end-user apps; the license is the backstop that keeps a fork from being closed.
 
@@ -58,15 +76,15 @@ Scenario 4 (a hosted competitor) is the one where the license is most load-beari
 root `LICENSE`, generated from the packages themselves.
 
 **Rationale:**
-- `apps/api` (hosted cloud: store sync, auth, AI inference, billing; serves the same-origin dashboard SPA from its `ui/`) is the infrastructure a competitor would need to clone Epicenter Cloud. AGPL section 13 means any hosted fork must publish source, including improvements, which destroys the economics of forking-and-hosting. Self-hosting runs the same app on Bun with Postgres (`apps/api/server.ts`); billing is hosted-only and lives in `apps/api/worker/billing/`.
-- Consumer apps: on a locally-run app AGPL reduces to GPL conveyance copyleft, which is what blocks a competitor forking a shipped app into a closed-source rebrand. That is real protection, not brand consistency.
+- `apps/api` (the hosted service: sign-in, AI inference, billing, and the folder ledger of the folder sync product, which is retired; serves the same-origin dashboard SPA from its `ui/`) is the infrastructure a competitor would need to clone Epicenter's hosted services. AGPL section 13 means any hosted fork must publish source, including improvements, which destroys the economics of forking-and-hosting. Self-hosting runs the same app on Bun with Postgres (`apps/api/server.ts`); billing is hosted-only and lives in `apps/api/worker/billing/`.
+- Consumer apps and the `epicenter` program: on a locally-run app AGPL reduces to GPL conveyance copyleft, which is what blocks a competitor forking a shipped app into a closed-source rebrand. That is real protection, not brand consistency. `epicenter serve` runs on its person's home, so §13 applies only when someone offers a modified copy to other people (scenario 5).
 - Libraries: they compose the product. None is offered for third-party embedding today, so AGPL costs no adoption.
 
 ### Tier 2: Proprietary (deferred)
 
 **Applies to:** none today, and none planned.
 
-**Rationale:** Documented as an escape hatch for one specific situation: a real paying customer requires one specific feature that AGPL self-hosting would otherwise give away free. The tier will not be populated speculatively. The empty-tier end-state is the goal; populating it is a sign that hosting revenue alone was not enough.
+**Rationale:** Documented as an escape hatch for one specific situation: a real paying customer requires one specific feature that AGPL self-hosting would otherwise give away free. The tier will not be populated speculatively. The empty-tier end-state is the goal; populating it is a sign that revenue from hosted services alone was not enough.
 
 **Convention if ever used:**
 - Live in their own subdirectory, e.g. `apps/<name>/proprietary/` or a dedicated `enterprise/` top-level directory.
@@ -80,9 +98,12 @@ This is the same pattern Bitwarden uses for `bitwarden_license/` and Sentry uses
 
 ## The self-host story, which is settled
 
-This document once planned an `apps/sync-server` split to give homelabbers something self-hostable without the cloud platform. That is answered: one shared library (`packages/server`) and one deployable, `apps/api`, that composes it on two runtimes. The Cloudflare Worker is the hosted personal cloud (Better Auth principals, Postgres, billing); the Bun entry (`apps/api/server.ts`) runs the same composition on Postgres for self-hosting, without billing. Both are AGPL, so the split was architectural rather than licensing, exactly as predicted.
+This document once planned an `apps/sync-server` split to give homelabbers something self-hostable without the cloud platform. That is answered: one shared library (`packages/server`) and one deployable, `apps/api`, that composes it on two runtimes. The Cloudflare Worker is the hosted service (Better Auth principals, Postgres, billing); the Bun entry (`apps/api/server.ts`) runs the same composition on Postgres for self-hosting, without billing. Both are AGPL, so the split was architectural rather than licensing, exactly as predicted.
 
 Nothing about that changes a license tier. It is recorded here because the trigger the old plan was waiting on has already fired.
+
+This story is about the hosted services only. A person's Epicenter needs none:
+it always runs on their home.
 
 ## What MIT was, and why it went
 
@@ -145,7 +166,7 @@ named embedder, not an intention to have one.
 **No CLA. No DCO. No dual-licensing.**
 
 Reasoning:
-- We do not sell commercial AGPL exemptions to enterprises. Our revenue model is hosting, not licensing.
+- We do not sell commercial AGPL exemptions to enterprises. Our revenue model is services we host, not licensing.
 - Cal.com, dub.sh, Plausible, and most other open-core projects we are modeled on do not require CLAs either. The friction discourages contributors and provides no benefit for a hosting business.
 - If we ever needed to relicense `packages/server` or `apps/api` away from AGPL (e.g. to sell self-hosted enterprise licenses without copyleft), we would need either (a) a CLA from the start, or (b) consent from every external contributor at that point. We accept (b) as a future cost in exchange for present-day contributor friendliness. As of this spec, there are zero external contributors to AGPL components, so the cost is zero today.
 - If a meaningful external PR lands on an AGPL component and we anticipate ever wanting to dual-license, we can add CLA Assistant (a GitHub bot, click-through CLA) at that point. We do not pre-commit to that decision.
@@ -168,7 +189,7 @@ Two clusters of prior art are relevant. We anchor to the first cluster (no propr
 - **Bitwarden:** GPL/AGPL for clients and core server; proprietary for `bitwarden_license/` enterprise modules.
 - **Sentry:** Migrated through several variants (MIT to BSL to FSL); historically used a `getsentry/getsentry` proprietary repo for paid features.
 
-Our default model is closest to Plausible and PostHog: permissive for libraries, AGPL for apps and servers, hosting is the revenue surface, proprietary tier exists on paper but stays empty. We graduate toward the Bitwarden/Sentry pattern only if a specific enterprise customer pulls a specific feature into the proprietary tier.
+Our default model is closest to Plausible and PostHog: AGPL throughout, hosted services are the revenue surface, proprietary tier exists on paper but stays empty. We graduate toward the Bitwarden/Sentry pattern only if a specific enterprise customer pulls a specific feature into the proprietary tier.
 
 ## Proprietary LICENSE template
 
