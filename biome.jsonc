@@ -90,13 +90,9 @@
 	"overrides": [
 		{
 			// Library code logs through `wellcrafted/logger`, so its host decides
-			// where output goes. The CLI, tests, and benchmarks own their output.
-			"includes": [
-				"packages/*/src/**",
-				"!packages/cli/**",
-				"!**/*.test.ts",
-				"!**/*.bench.ts"
-			],
+			// where output goes. A benchmark exists to print its report. Any
+			// other deliberate call carries a `biome-ignore` with its reason.
+			"includes": ["packages/*/src/**", "!**/*.bench.ts"],
 			"linter": {
 				"rules": { "suspicious": { "noConsole": "error" } }
 			}

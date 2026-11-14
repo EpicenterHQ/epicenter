@@ -980,6 +980,7 @@ describe('a repository on a slow link', () => {
 			const painted = performance.now();
 			folder[Symbol.dispose]();
 			expect(shown).toBe(NOTES);
+			// biome-ignore lint/suspicious/noConsole: the timings this test measures are its output.
 			console.log(
 				JSON.stringify({
 					store: 'repository',
