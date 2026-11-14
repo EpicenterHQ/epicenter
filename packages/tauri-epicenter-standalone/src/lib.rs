@@ -189,7 +189,6 @@ fn name_roots<R: Runtime>(handle: &AppHandle<R>, startup: Startup<'_>) -> Result
     };
     let roots = handle.roots();
     roots.name(Root::AppData, app_data.clone(), |_| None);
-    roots.name_library(library.clone());
     roots.on_open(move |root, directory| {
         if *root != Root::Data {
             return;

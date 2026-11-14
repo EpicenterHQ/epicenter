@@ -93,10 +93,7 @@ device number, which changes when a drive remounts. `birthtime` is
 nanoseconds since the Unix epoch, as Node's `birthtimeNs` reads it. Two
 identities prove one directory only with the same inode and the same real
 birth time (`identity::proves`). `root_identity(root)` answers an open
-root's identity, and `data_record()` the record in the Epicenter folder's
-`synced/` that proves the open Data root, or null; a standalone shell names
-that folder with `roots.name_library(path)`, which makes none of its
-directories roots. Both are read-only and in the default set.
+root's identity; it is read-only and in the default set.
 `roots.on_open(listener)` tells a shell each root that opens, which a
 standalone shell uses to remember its Data root's identity
 (`epicenter-standalone`).

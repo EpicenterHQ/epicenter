@@ -21,14 +21,12 @@ use std::path::Path;
 use std::process::Command;
 
 use epicenter_folder_core::identity::{identity_at, FolderIdentity};
-use epicenter_folder_core::state;
 use epicenter_folder_core::storage::{self, Landing, ListedFile, StorageError};
 use epicenter_folder_core::sweep;
 use serde::Serialize;
 use specta::Type;
 use tauri::{Emitter, Manager, Runtime, Webview};
 
-use crate::records::{self, FolderRecord};
 use crate::roots::{EpicenterEntry, EpicenterListing};
 use crate::{Directory, FolderEvent, Root, RootError, Roots};
 
@@ -408,29 +406,6 @@ pub async fn root_identity<R: Runtime>(
                 .map_err(|cause| failed("", "identity", cause.to_string()).into())
         },
         |message| Err(failed("", "identity", message).into()),
-    )
-    .await
-}
-
-/// The record Epicenter keeps for the open Data root, read from the
-/// Epicenter folder's `.epicenter/synced/` (`records::proving`): the one
-/// whose inode and birth time prove the folder's, when both have a real
-/// birth time. Null when there is none, as for a folder Epicenter does not
-/// sync. Nothing is written.
-#[tauri::command]
-#[specta::specta]
-pub async fn data_record<R: Runtime>(
-    webview: Webview<R>,
-) -> Result<Option<FolderRecord>, FolderError> {
-    let directory = opened(&webview, &Root::Data)?;
-    let library = webview.state::<Roots>().library()?;
-    blocking(
-        move || {
-            let identity = identity_at(directory.root())
-                .map_err(|cause| failed("", "record", cause.to_string()))?;
-            Ok(identity.and_then(|identity| records::proving(&state::records(&library), &identity)))
-        },
-        |message| Err(failed("", "record", message).into()),
     )
     .await
 }
