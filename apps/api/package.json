@@ -1,6 +1,6 @@
 {
 	"name": "@epicenter/api",
-	"description": "Epicenter Cloud Worker (hosted personal cloud): auth, sync, AI, billing, and dashboard SPA",
+	"description": "Epicenter's hosted services: sign-in, AI inference, billing, the dashboard SPA, and the folder ledger of the retired folder sync product",
 	"private": true,
 	"version": "0.0.2",
 	"type": "module",
