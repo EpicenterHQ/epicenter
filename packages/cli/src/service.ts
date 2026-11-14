@@ -95,7 +95,10 @@ export async function serviceCommand(
 	)
 		return fail(misuse('service'), json);
 	if (platform !== 'darwin')
-		return failure('epicenter service is macOS-only for now.', json);
+		return failure(
+			'epicenter service is macOS-only. Elsewhere, run epicenter serve under whatever keeps processes running on this computer, such as a systemd user unit.',
+			json,
+		);
 
 	const root = epicenterRoot();
 	const home = homedir();
