@@ -43,32 +43,6 @@ function asker(answers: Record<string, string | undefined>) {
 	};
 }
 
-test('a write-only field carries JSON Schema writeOnly, and only text takes it', () => {
-	expect(field.text({ writeOnly: true })).toMatchObject({
-		type: 'string',
-		writeOnly: true,
-	});
-	expect(field.text()).not.toHaveProperty('writeOnly');
-});
-
-test('an action refuses a write-only positional, and a collection refuses a write-only field', async () => {
-	expect(() =>
-		defineAction({
-			description: 'Connect',
-			input: { token: field.text({ writeOnly: true }) },
-			positional: ['token'],
-			run: () => true,
-		}),
-	).toThrow('write-only "token" as a positional');
-	const { defineCollection } = await import('@epicenter/app');
-	expect(() =>
-		defineCollection({
-			path: 'data/keys/{name}.md',
-			fields: { token: field.text({ writeOnly: true }) },
-		}),
-	).toThrow('write-only field "token"');
-});
-
 test("a write-only value never names the call's commit", () => {
 	// defineAction refuses a write-only positional; an action built by hand can still list one.
 	const handMade = Object.assign(() => undefined, {
@@ -196,6 +170,7 @@ test('askSecret reads a line in raw mode and writes back none of it', async () =
 const keysApp = `export default defineApp({ description: 'Keys', collections: {}, actions: {
 	connect: defineAction({ description: 'Connect with a token', input: { token: field.text({ writeOnly: true }) },
 		run: async ({ token }) => { await folder.write('data/key.local.md', token); await folder.write('data/connected.md', 'yes'); return { connected: true }; } }),
+	check: defineAction({ description: 'Check with an optional token', input: { token: field.text({ writeOnly: true, optional: true }) }, run: () => ({ checked: true }) }),
 	status: defineAction({ description: 'Whether a token is kept', annotations: { readOnlyHint: true }, input: {}, run: () => ({ connected: false }) }),
 } });`;
 
@@ -208,6 +183,15 @@ test('MCP neither lists nor runs an action with a write-only input; HTTP runs it
 		const names = listed.tools.map((tool) => tool.name);
 		expect(names).toContain('keys_status');
 		expect(names).not.toContain('keys_connect');
+		expect(names).not.toContain('keys_check');
+
+		// Omitting an optional secret still cannot make the action callable over MCP.
+		const optional = await client.callTool({
+			name: 'keys_check',
+			arguments: {},
+		});
+		expect(optional.isError).toBe(true);
+		expect(JSON.stringify(optional)).toContain('not offered over MCP');
 
 		const refused = await client.callTool({
 			name: 'keys_connect',

@@ -7,6 +7,12 @@
 - **Relates:** [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) (Keychain access never stopped a program running as the same user), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (read-only runs), [ADR-0857](0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md) (`actions()`), [ADR-0868](0868-an-epicenter-is-any-folder-that-says-it-is-one-and-a-computer-runs-as-many-as-it-has.md) (the marker, which loses its `id`).
 - **Built:** 2026-11-11. A run's context is `{ folder }`; `isLocalPath` in `@epicenter/app` names a `.local` path for the read-only run, `actions()`, the disk's `0600`, and the snapshot's refusal alike. The memory folder has no file modes, so `0600` is the disk's alone. The marker's `id` goes with ADR-0868. 2026-11-13: a `.local` collection's `problems` and refused writes name a field without quoting its value (`misfit` in `packages/app/src/collection.ts`). 2026-11-13: `field.text({ writeOnly: true })` and what reads it (`isWriteOnly` in `packages/app/src/field.ts`): MCP leaves its action out of `tools/list` and refuses a call to it; the commit name skips the value (`callName` in `packages/cli/src/run.ts`); a refusal names the field without quoting the value; and the CLI asks for it without echo and refuses it among the arguments, where the shell's history keeps it, taking it from stdin through `--input -` instead. `defineAction` refuses a write-only positional and `defineCollection` a write-only field, since a read gives every field back. Messages' Beeper token is the first.
 
+  2026-11-14: a root write-only mark covers the whole input field.
+  `defineAction` refuses a nested mark without one at the root, and
+  `defineCollection` refuses a mark anywhere in a field. Schema data such as
+  defaults and examples is not inspected for marks. Structured secret inputs
+  arrive over HTTP or stdin; the terminal prompt takes text.
+
 ## Context
 
 A run reaches two things: `folder` and `secrets` (`packages/app/src/context.ts`).

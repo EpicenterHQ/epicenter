@@ -263,9 +263,14 @@ takes `{ path, grade }`; it could take `{ word, grade }` and call
 Each field is JSON Schema, so any TypeBox schema works as a field too. A field
 is required unless it says `optional: true`; `readOnly: true` is described
 above, and every field helper keeps it in its type. `field.text({ writeOnly:
-true })` marks an action's input as a secret, described below; a collection's
-field cannot be write-only. A field may not be named
-`json`, `help`, or `input`, which `epicenter` reads itself.
+true })` marks an action's whole top-level input as a secret, described below.
+A root `writeOnly` mark covers every part of the field; a nested mark without
+one at the root is refused when defining an action. A collection's field
+cannot be write-only, including any part nested inside it. A field may not be
+named `json`, `help`, or `input`, which `epicenter` reads itself.
+
+The terminal prompt takes text. Give structured secret inputs through HTTP or
+pipe their JSON to `--input -`.
 
 `localDay()` and `localTime()` give now, or a `Date` passed to them, as
 `field.date` and `field.datetime` hold it, in the time zone of the computer

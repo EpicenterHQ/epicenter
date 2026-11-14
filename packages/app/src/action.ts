@@ -20,7 +20,7 @@
  */
 import { type Static, type TObject, type TSchema, Type } from 'typebox';
 import { Value } from 'typebox/value';
-import { isWriteOnly } from './field.ts';
+import { containsWriteOnly, isWriteOnly } from './field.js';
 
 /** An action's input: a record of fields, or of any TypeBox schemas. */
 export type Input = Record<string, TSchema>;
@@ -267,9 +267,14 @@ function actionProblems(def: object): string[] {
 	if (typeof input !== 'object' || input === null)
 		return [...problems, 'has no input'];
 	const fields = input as Input;
-	for (const key of Object.keys(fields))
+	for (const [key, schema] of Object.entries(fields)) {
 		if (RESERVED_FIELDS.has(key))
 			problems.push(`has a field named "${key}", which epicenter reads itself`);
+		if (!isWriteOnly(schema) && containsWriteOnly(schema))
+			problems.push(
+				`has "${key}" with a write-only part inside it; mark the whole input write-only instead`,
+			);
+	}
 	if (!Array.isArray(positional)) return problems;
 	positional.forEach((key: unknown, index) => {
 		if (typeof key !== 'string' || !Object.hasOwn(fields, key))

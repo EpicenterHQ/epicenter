@@ -54,7 +54,7 @@ import { Value } from 'typebox/value';
 import { type Action, type ActionMeta, RESERVED_FIELDS } from './action.ts';
 import { folder, isLocalPath } from './context.ts';
 import { FileError } from './errors.ts';
-import { isWriteOnly, whatFits } from './field.ts';
+import { containsWriteOnly, whatFits } from './field.js';
 import {
 	type FieldValues,
 	isFieldKey,
@@ -443,7 +443,7 @@ function collectionProblems(def: CollectionDef): string[] {
 			problems.push(
 				`${at} has a field ${JSON.stringify(key)}, which a front matter line cannot name`,
 			);
-		else if (isWriteOnly(schema))
+		else if (containsWriteOnly(schema))
 			problems.push(
 				`${at} has the write-only field "${key}", but a read gives every field back; take a secret as an action's write-only input and keep it in a .local collection`,
 			);
