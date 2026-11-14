@@ -80,15 +80,18 @@ do not trust each other runs no one's `epicenter.ts`. A client holds its own
 credentials: Mail's Google token is in `mail/google.local.md` on the machine
 that runs Mail's actions (ADR-0870), and Epicenter holds only its own sign-in.
 
-**Your Epicenter is the Studio running `epicenter serve`.** Your own devices
+**Your Epicenter is the home running `epicenter serve`; for the author, the
+Studio.** Your own devices
 reach it over your tailnet. Claude.ai and ChatGPT connect from their companies'
 servers, so `epicenter serve` also has one public HTTPS address, through
 any HTTPS tunnel such as Tailscale Funnel, and signs a client in with OAuth, as
 MCP requires: adding the connector opens a page on your tailnet where you
 approve it, and the client receives a token you can revoke (ADR-0871,
 ADR-0881).
-Another person's Epicenter is the same program on their own computer; without a
-terminal, it is the Epicenter Mac app, which runs `epicenter serve` (ADR-0865).
+Another person's Epicenter is the same program on a computer they control,
+owned or rented (ADR-0903). On a Mac without a terminal it is the Epicenter Mac
+app, which runs `epicenter serve` (ADR-0865); a rented Linux server is set up
+over SSH.
 
 ## Consequences
 
@@ -115,8 +118,7 @@ terminal, it is the Epicenter Mac app, which runs `epicenter serve` (ADR-0865).
 - History has one commit per write through the server.
 - `epicenter serve` answers Git for clones through stock `git http-backend`,
   behind the same door as calls (ADR-0887).
-- A hosted Epicenter, serving people who do not run a computer of their own, is
-  not part of this decision.
+- A person who does not run a computer of their own rents one (ADR-0903).
 
 ## Considered alternatives
 

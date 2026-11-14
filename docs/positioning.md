@@ -6,6 +6,7 @@ ships it: README, landing page, GitHub About, package metadata, or launch plan.
 
 Every claim here describes what the code does today. A decided but unbuilt
 feature stays out of public copy until it ships; check the ADR's Unbuilt line.
+[The vision](vision.md) states the direction these claims come from.
 
 ## The spine
 
@@ -14,15 +15,13 @@ every claim from a shorter cut survives in the longer cuts.
 
 One line, for one-line surfaces (GitHub About, social preview, link cards):
 
-> Local-first apps over files you own.
+> Where one person's software lives.
 
 The hero cut, for the root README:
 
-> **Local-first apps over files you own.** An app's data is a folder of
-> Markdown and JSON files, whole on every device you use. It syncs with an
-> Epicenter server, hosted or self-hosted, that keeps every version of the
-> folder, and its history leaves as a Git repository. Any editor or agent can
-> work on the same files.
+> **Where one person's software lives.** Small apps keep what you make as
+> plain files on one computer you control, and every device you own, and your
+> agents, reach them there.
 
 The public cut, for epicenter.so and other general-audience surfaces:
 
@@ -30,8 +29,12 @@ The public cut, for epicenter.so and other general-audience surfaces:
 > make as ordinary files in a folder on your computer, so what matters to you
 > outlives every app that made it.
 
-On public surfaces the mechanism (Markdown, JSON, Git, local-first) appears
-below the fold, after the benefit it guarantees, never as the headline.
+The public cut predates the spine and still reads true, but it does not yet
+carry "every device you own, and your agents". The landing page owns its copy;
+change the two together.
+
+On public surfaces the mechanism (Markdown, Git, MCP, a tailnet) appears below
+the fold, after the benefit it guarantees, never as the headline.
 
 ## The proof line
 
@@ -45,32 +48,43 @@ sentence carries:
 - macOS, Windows, and Linux, somewhere on the surface (platform badges or
   adjacent copy count)
 
+Whispering is an outside app: it works without an Epicenter. The proof line
+says the company ships, not that Whispering runs on a home.
+
 Roadmap language stays out of heroes.
 
 ## What Epicenter is
 
-- Apps whose data is a folder: one Markdown file per item, plain files for
-  everything else, and an optional `epicenter.json` that gives the folder a
-  title and a contract
-  ([ADR-0813](adr/0813-epicenter-is-your-folders-and-apps-are-lenses.md)).
-- A command, `epicenter`, and the Epicenter app, which sync a folder with an
-  Epicenter server, share it with people, and show or restore its history
-  ([ADR-0817](adr/0817-the-cli-exposes-every-platform-operation-and-an-app-inherits-everything-about-folders.md)).
-- A folder engine, `@epicenter/folder`, that opens an app's folder on disk in
-  its desktop app and in a Bun script, and the signed-in account's folder on the
-  server for that app in a browser.
+- A folder on the home, `~/Epicenter`, holding a folder per app in `apps/`
+  ([ADR-0868](adr/0868-an-epicenter-is-any-folder-that-says-it-is-one-and-a-computer-runs-as-many-as-it-has.md),
+  [ADR-0885](adr/0885-an-epicenters-apps-live-in-apps-which-its-repository-ignores-with-one-line.md)).
+  The home is a computer its person controls, owned or rented
+  ([ADR-0903](adr/0903-the-home-is-a-computer-its-person-controls-owned-or-rented.md)).
+- An app is one `epicenter.ts` declaring its collections and actions, an
+  optional UI, and a `data/` folder of Markdown files; its code and its data
+  are two Git repositories
+  ([ADR-0857](adr/0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md),
+  [ADR-0877](adr/0877-an-apps-code-and-its-data-are-two-repositories-and-sharing-an-app-shares-its-code.md)).
+- A command, `epicenter`, that runs an app's actions and commits what each
+  writes, and `epicenter serve`, which offers every app's actions over MCP and
+  each app's UI in a browser to the person's devices and agents
+  ([ADR-0850](adr/0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md),
+  [ADR-0860](adr/0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md)).
 
 ## What Epicenter is not
 
-- Not cloud-first: a desktop app's folder works on one machine with no
-  account, and syncs only when Epicenter, the app or `epicenter sync`, runs.
-- Not a real-time collaboration engine: a sync compares the folder with the
-  server, copies what changed, and merges a file both sides changed. A field
-  both sides changed keeps one side's value, and edits that clash in a note's
-  body stay side by side in a conflict block for a person to resolve
-  ([`@epicenter/definition`](../packages/definition/README.md#merging-a-note)).
-- Not encrypted end to end: whoever runs the server a folder syncs with can
-  read it. See the [trust model](trust-model.md).
+- Not a hosted product: your Epicenter runs on your home. What the company
+  hosts, such as sign-in and paid models in `apps/api`, is a service, an
+  outside app like Gmail
+  ([ADR-0901](adr/0901-an-app-is-inside-an-epicenter-or-outside-it.md)).
+- Not sync: the person's other devices keep no copy and reach the one on the
+  home. Epicenter never reconciles two writable copies
+  ([ADR-0896](adr/0896-each-collection-has-one-writer-of-record-and-epicenter-never-reconciles-two-writable-copies.md)).
+- Not a sandbox: `serve` runs every app's code in its one process, with no
+  sandbox, and signs no one in; who reaches it is the tailnet's decision
+  ([ADR-0883](adr/0883-an-epicenter-is-its-git-repositories-and-serve-and-its-host-keeps-runs-and-guards-them.md)).
+- Not encrypted: whoever can read the home's disk can read the files, and a
+  rented home's provider can. See the [trust model](trust-model.md).
 
 ## Verifiable claims
 
@@ -79,20 +93,33 @@ Every public claim must be provable by inspecting the repository:
 | Claim | Proof |
 | --- | --- |
 | "We ship" | Whispering installs on macOS, Windows, and Linux through normal release channels. |
-| "Files you own" | A folder's items are Markdown files with front matter (`packages/folder`), and once Epicenter syncs it, the server keeps its history as a ledger of changes; `epicenter clone` brings its files to a computer and `epicenter export --git` writes its history as a Git repository (`packages/cli`, `packages/server`). |
-| "Any tool can edit them" | The desktop shell watches the folder, so an edit made outside the app appears in it (`tauri-plugin-epicenter-folder`); a note an edit leaves outside the contract shows as invalid, with its text, for repair (`packages/folder`). |
-| "Syncs with a server you choose" | Epicenter (the app, or `epicenter sync`) syncs a folder with an Epicenter server, hosted or self-hosted: one composition runs on Cloudflare Workers and on Bun with Postgres (`apps/api`, `packages/server`, `packages/cli`, ADR-0803). A folder does not sync with GitHub or GitLab. |
+| "Plain files" | A collection's records are Markdown files under the app's `data/`, at the path its template names (`packages/app/src/collection.ts`), and every write lands in that folder's Git history (`packages/cli/src/snapshot.ts`). |
+| "On one computer you control" | A command runs on the computer it is typed on, and `serve` listens on `127.0.0.1` unless told otherwise (`packages/cli/src/http.ts`). Nothing in this repository runs a person's Epicenter for them (ADR-0903). |
+| "Every device you own, and your agents, reach them" | `serve` answers MCP at `/` and each app's UI at `/<app>/` (`packages/cli/src/http.ts`, `mcp.ts`); a reverse proxy such as `tailscale serve` puts it on the tailnet. |
+| "Any tool can edit them" | A change made outside an action is committed as "changed outside epicenter" (`packages/cli/src/snapshot.ts`). |
 | "Bring your own model" | AI features accept user-provided API keys. |
+
+Not yet true, so not yet in public copy: installing `epicenter` from npm
+(ADR-0892), Epicenter for Mac (ADR-0865), and a job that keeps `serve` running
+on Linux (ADR-0878).
 
 ## Vocabulary
 
-Use the word a person already has on public surfaces: folder, file, app, sync.
-Keep `declaration`, `shape`, `lens`, and `engine` in developer docs.
+Use the word a person already has on public surfaces: app, file, folder, your
+computer. Developer docs use the vision's words: the home, an inside app, an
+outside app, a program, a service ([vision](vision.md), "The pieces").
+
+- "Server" means someone else's computer, and "hosted" means someone else runs
+  it. A person's own computer is the home, never their server.
+- "Local-first" is only for a product whose devices sync. Epicenter's devices
+  do not, so it is not local-first.
+- Do not say Epicenter syncs, or name a hosted, cloud, or self-hosted
+  Epicenter. The folder sync product that did is retired
+  ([ADR-0899](adr/0899-the-folder-sync-product-is-retired.md)).
 
 Do not use hype words: `AI-native`, `agentic`, `next-gen`, `revolutionary`,
 `redefine`, `game changer`, `Web3`, `metaverse`. Do not describe Epicenter's
-data as CRDT-backed, conflict-free, or synced through a relay: none of those is
-true of data folders.
+data as CRDT-backed or conflict-free.
 
 ## Package copy
 

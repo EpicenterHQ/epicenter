@@ -22,8 +22,8 @@ public HTTPS address (checked 2026-11-08).
 
 ## Decision
 
-**Your server is a computer the person keeps on, and it holds the one copy of
-each app** (ADR-0864). For the author it is the Mac Studio. Every client asks
+**Your server is a computer the person controls and keeps on, owned or rented,
+and it holds the one copy of each app** (ADR-0864, ADR-0903). For the author it is the Mac Studio. Every client asks
 it: an agent, a view in a browser, claude.ai, Claude on the phone. Only a
 program whose own work must go on offline, such as Whispering, keeps a copy on
 another computer and syncs it with Git. When the server is not reachable, every
@@ -71,12 +71,12 @@ runs because a person, their agent, or a page they opened asks for it.
   forwarding over SSH, a meeting point per app, and `EPICENTER_HOME`.
 - The CLI stores no address and has one behavior on every computer. Long runs
   report progress through MCP progress notifications.
-- While your server is unreachable (a FileVault reboot waits at the unlock
-  screen), every named action and every client that asks is down. Whispering
-  keeps recording into its own copy and pushes later. Remote FileVault unlock
-  over SSH, an administrator's step, is to be tried before the first trip.
-- A hosted server, for a person who does not keep a computer on, is not decided
-  (ADR-0864).
+- While your server is unreachable (on the author's Mac, a FileVault reboot
+  waits at the unlock screen; on a rented one, the provider restarts it),
+  every named action and every client that asks is down. Whispering keeps
+  recording into its own copy and pushes later. Remote FileVault unlock over
+  SSH, an administrator's step, is to be tried before the first trip.
+- A person who keeps no computer on rents one (ADR-0903).
 
 ## Considered alternatives
 

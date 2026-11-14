@@ -1,6 +1,6 @@
-# Epicenter API (Hosted Personal Cloud)
+# Epicenter API (hosted services)
 
-Epicenter Cloud Worker. Handles authentication, folders, AI inference, and billing for the hosted personal cloud product. Cloud composes `@epicenter/server` by resolving Better Auth users as principals.
+The Worker for the services Epicenter hosts: sign-in, AI inference, billing, and folders. Folders belong to the folder sync product, which is retired ([ADR-0899](../../docs/adr/0899-the-folder-sync-product-is-retired.md)); a person's Epicenter does not live here: it is on their home ([ADR-0903](../../docs/adr/0903-the-home-is-a-computer-its-person-controls-owned-or-rented.md)). The Worker composes `@epicenter/server` by resolving Better Auth users as principals.
 
 This folder is a single Cloudflare Worker deployment: `worker/` (Hono code) and `ui/` (SvelteKit dashboard SPA) ship together. The same app also runs on Bun with Postgres (`server.ts`), which is how you self-host it.
 
