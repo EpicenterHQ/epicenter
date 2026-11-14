@@ -1097,4 +1097,5 @@ When you add an ADR, add its row here.
 | [0891](0891-this-repository-holds-the-runtime-and-programs-and-every-starter-is-a-repository-of-its-own.md) | This repository holds the runtime and programs, and every starter is a repository of its own | Accepted |
 | [0892](0892-the-cli-releases-to-npm-and-whispering-8-is-a-new-install-with-its-own-update-address.md) | The CLI releases to npm, and Whispering 8 is a new install with its own update address | Accepted |
 | [0893](0893-a-records-path-is-its-path-in-the-apps-data-repository.md) | A record's path is its path in the app's data repository | Accepted |
-| [0894](0894-whispering-keeps-its-folder-in-its-own-data-directory-and-connect-takes-an-apps-git-address.md) | Whispering keeps its folder in its own data directory, and Connect takes an app's Git address | Proposed |
+| [0894](0894-whispering-8-keeps-its-recordings-and-their-audio-in-its-own-data-directory-and-needs-no-epicenter.md) | Whispering 8 keeps its recordings and their audio in its own data directory, and needs no Epicenter | Proposed |
+| [0895](0895-only-the-home-commits-an-apps-data-and-a-connected-program-delivers-to-it-through-the-apps-actions.md) | Only the home commits an app's data, and a connected program delivers to it through the app's actions | Proposed |
