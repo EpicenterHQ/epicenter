@@ -159,13 +159,14 @@ test('the marker is matched by its exact name, and a byte order mark before its 
 		);
 	} else expect(over.code).toBe(0);
 
+	// Run inside the Epicenter: where init over f.root succeeded, f.root is one too.
 	const marker = join(f.home, 'EPICENTER.md');
 	await writeFile(marker, '\uFEFF---\nprot: 4748\n---\n');
-	expect(JSON.parse((await f.run('--json')).stdout).error.message).toBe(
-		`${marker}: prot is not a field; the only field is port`,
-	);
+	expect(
+		JSON.parse((await f.runIn(f.home, '--json')).stdout).error.message,
+	).toBe(`${marker}: prot is not a field; the only field is port`);
 	await writeFile(marker, '\uFEFF---\nport: 4800\n---\n');
-	expect((await f.run('--json')).code).toBe(0);
+	expect((await f.runIn(f.home, '--json')).code).toBe(0);
 });
 
 test('build reports each app and keeps the last good UI after a failed build', async () => {
