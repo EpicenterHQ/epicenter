@@ -5,17 +5,11 @@
  * arguments and MCP input alike: both use its schema for defaults and
  * validation, so a command and a tool accept the same values and name the
  * field that needs attention. The action's `positional` list says which
- * fields the command line also reads by position, in order. An action whose
- * schema contains `writeOnly: true` accepts only JSON stdin, before any
+ * fields the command line also reads by position, in order. An action that
+ * declares `confidential: true` accepts only JSON stdin, before any
  * arguments can be parsed or echoed in a refusal.
  */
-import {
-	type Action,
-	containsWriteOnly,
-	type Input,
-	isName,
-	whatFits,
-} from '@epicenter/app';
+import { type Action, type Input, isName, whatFits } from '@epicenter/app';
 import { type TSchema, Type } from 'typebox';
 import { Value } from 'typebox/value';
 
@@ -249,7 +243,7 @@ export function checkInput(
 	const value = Value.Default(schema, structuredClone(raw));
 	if (Value.Check(schema, value))
 		return { ok: true, input: value as Record<string, unknown> };
-	if (containsWriteOnly(action.input))
+	if (action.confidential === true)
 		return { error: 'The input is not accepted' };
 	const first = Value.Errors(schema, value)[0];
 	const params = first?.params as
@@ -286,7 +280,7 @@ export function usageLine(
 	action: Action,
 	{ short = false }: { short?: boolean } = {},
 ): string {
-	if (containsWriteOnly(action.input))
+	if (action.confidential === true)
 		return `epicenter ${appName} ${key} --input -`;
 	const required = requiredKeys(action.input);
 	const positional = new Set<string>(action.positional ?? []);
@@ -351,7 +345,7 @@ export function jsonSchema(fields: Input): {
  */
 export async function readInput(action: Action, rest: string[]) {
 	if (
-		containsWriteOnly(action.input) &&
+		action.confidential === true &&
 		!(rest.length === 2 && rest[0] === '--input' && rest[1] === '-')
 	)
 		return {

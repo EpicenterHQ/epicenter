@@ -1,13 +1,13 @@
 /**
  * The Epicenter, app, and action views (ADR-0841). `--json` prints the app's
  * description and collections with each action as the MCP tool `serve`
- * offers, so a listing and `tools/list` agree, except that MCP leaves out an
- * action with a `writeOnly` input, which the listing keeps with its mark for
+ * offers, so a listing and `tools/list` agree, except that MCP leaves out a
+ * confidential action, which the listing keeps with its flag for
  * the app's own page; the human views come from the same actions.
  */
 
 import { basename } from 'node:path';
-import { type Action, containsWriteOnly } from '@epicenter/app';
+import type { Action } from '@epicenter/app';
 import type { TSchemaOptions } from 'typebox';
 import type { Discovery, Runnable } from './home.ts';
 import {
@@ -102,6 +102,7 @@ export function actionTool(app: string, key: string, action: Action) {
 		description: action.description,
 		inputSchema: jsonSchema(action.input),
 		annotations: { ...ANNOTATION_DEFAULTS, ...action.annotations },
+		...(action.confidential === true ? { confidential: true } : {}),
 	};
 }
 
@@ -218,7 +219,7 @@ export function oneAppListing(
  * flags and positionals.
  */
 export function actionHelp(name: string, key: string, action: Action): string {
-	const confidential = containsWriteOnly(action.input);
+	const confidential = action.confidential === true;
 	const positional = new Set<string>(action.positional ?? []);
 	const required = requiredKeys(action.input);
 	const rows = Object.entries(action.input).map(([key, field]) => {

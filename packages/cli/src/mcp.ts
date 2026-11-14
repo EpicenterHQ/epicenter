@@ -8,14 +8,13 @@
  * why goes to stderr. `tools/call` decodes the tool name and runs the action
  * in this process (`run.ts`), which checks the app, the action, and the
  * input, and commits what the call wrote before it answers. An action with a
- * `writeOnly` input takes a secret, so it is neither listed nor run here
- * (ADR-0870). A call's result
- * is the same object `--json` prints: `structuredContent` on success, and
- * with `isError` on failure. What an action yields is not sent: an MCP
- * client reads only the answer.
+ * `confidential: true` flag is neither listed nor run here (ADR-0906). A
+ * call's result is the same object `--json` prints: `structuredContent` on
+ * success, and with `isError` on failure. What an action yields is not sent:
+ * an MCP client reads only the answer.
  */
 
-import { containsWriteOnly, isName } from '@epicenter/app';
+import { isName } from '@epicenter/app';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import {
 	CallToolRequestSchema,
@@ -42,7 +41,7 @@ async function appTools(entry: string): Promise<Tool[]> {
 		return [];
 	}
 	return Object.entries(located.actions)
-		.filter(([, action]) => !containsWriteOnly(action.input))
+		.filter(([, action]) => action.confidential !== true)
 		.map(([key, action]) => actionTool(located.name, key, action));
 }
 

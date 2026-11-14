@@ -2,6 +2,7 @@
 
 - **Status:** Accepted (2026-11-14)
 - **Date:** 2026-11-14
+- **Amended by:** [ADR-0906](0906-confidentiality-is-explicit-action-metadata.md), replacing schema-marker inference with explicit action metadata.
 - **Amends:** [ADR-0870](0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md), replacing per-field CLI secret acquisition and nested-marker restrictions. Local storage and the app author's output obligations remain.
 
 ## Context

@@ -12,7 +12,6 @@
 import { join } from 'node:path';
 import {
 	type Action,
-	containsWriteOnly,
 	type Folder,
 	inRun,
 	isName,
@@ -61,7 +60,7 @@ export function callName(
 	action: Action,
 	input: Record<string, unknown>,
 ) {
-	if (containsWriteOnly(action.input)) return `${app}: ${key}`;
+	if (action.confidential === true) return `${app}: ${key}`;
 	const first = action.positional?.[0];
 	const value = first === undefined ? undefined : input[first];
 	const suffix =
@@ -165,8 +164,8 @@ export async function runAction(
 /** Who follows a call as it runs: each value it yields, and when they stop listening. */
 export type Following = {
 	/**
-	 * The call came over MCP, whose input sits in an agent's transcript: an
-	 * action with a `writeOnly` input is refused before it runs (ADR-0870).
+	 * The call came over MCP, whose input sits in an agent's transcript: a
+	 * confidential action is refused before it runs.
 	 */
 	overMcp?: boolean;
 	/** Each value the action yields, in order; the action waits for it. */
@@ -207,7 +206,7 @@ export async function callAction(
 		: undefined;
 	if (!action)
 		return refused(`${name} has no action "${key}"`, `epicenter ${name}`);
-	if (following.overMcp && containsWriteOnly(action.input))
+	if (following.overMcp && action.confidential === true)
 		return refused(
 			`${name} ${key} takes a secret, so it is not offered over MCP. Use ${name}'s own page or pipe JSON to --input -`,
 			`epicenter ${name} ${key}`,

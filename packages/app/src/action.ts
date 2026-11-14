@@ -43,6 +43,8 @@ export type Annotations = {
 export type ActionMeta = {
 	readonly description: string;
 	readonly input: Input;
+	/** Only HTTP or JSON stdin may supply this action's input; validation and history omit input values. */
+	readonly confidential?: boolean;
 	/**
 	 * The inputs the command line also reads by position, in order:
 	 * `positional: ['from', 'to']` reads `epicenter reading between 2026-11-01 2026-11-08`.
@@ -110,6 +112,7 @@ type CallerInput<I extends Input> = Simplify<
 type ActionFields<I extends Input> = {
 	description: string;
 	input: I;
+	confidential?: boolean;
 	positional?: readonly (keyof I & string)[];
 	annotations?: Annotations;
 };
@@ -235,6 +238,7 @@ export const RESERVED_FIELDS: ReadonlySet<string> = new Set([
 const ACTION_KEYS = new Set([
 	'description',
 	'input',
+	'confidential',
 	'positional',
 	'annotations',
 	'run',
@@ -250,10 +254,8 @@ const ANNOTATION_KEYS = new Set([
 
 /** What is wrong with `def` as an action beyond its types, each finishing "The action … ". */
 function actionProblems(def: object): string[] {
-	const { description, input, positional, annotations, run } = def as Record<
-		string,
-		unknown
-	>;
+	const { description, input, confidential, positional, annotations, run } =
+		def as Record<string, unknown>;
 	const problems: string[] = [];
 	for (const key of Object.keys(def))
 		if (!ACTION_KEYS.has(key))
@@ -261,6 +263,8 @@ function actionProblems(def: object): string[] {
 	if (typeof description !== 'string' || description.trim() === '')
 		problems.push('has no description');
 	if (typeof run !== 'function') problems.push('has no run');
+	if (confidential !== undefined && typeof confidential !== 'boolean')
+		problems.push('has a confidential flag that is not a boolean');
 	if (typeof annotations === 'object' && annotations !== null)
 		for (const key of Object.keys(annotations))
 			if (!ANNOTATION_KEYS.has(key))

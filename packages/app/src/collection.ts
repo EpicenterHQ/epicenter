@@ -54,7 +54,7 @@ import { Value } from 'typebox/value';
 import { type Action, type ActionMeta, RESERVED_FIELDS } from './action.ts';
 import { folder, isLocalPath } from './context.ts';
 import { FileError } from './errors.ts';
-import { containsWriteOnly, whatFits } from './field.js';
+import { whatFits } from './field.js';
 import {
 	type FieldValues,
 	isFieldKey,
@@ -331,6 +331,8 @@ export function defineCollection<const D extends CollectionDef>(
 ): Collection<D> {
 	const problems = collectionProblems(definition);
 	if (problems.length) throw new Error(problems.join('\n'));
+	// Collection fields must be publishable as JSON, independently of action policy.
+	JSON.stringify(definition.fields);
 	const layout = template(definition.path);
 	const single = layout.placeholders.length === 0;
 	const files = createFiles(layout, definition.fields);
@@ -442,10 +444,6 @@ function collectionProblems(def: CollectionDef): string[] {
 		if (!isFieldKey(key))
 			problems.push(
 				`${at} has a field ${JSON.stringify(key)}, which a front matter line cannot name`,
-			);
-		else if (containsWriteOnly(schema))
-			problems.push(
-				`${at} has the write-only field "${key}", but a read gives every field back; take a secret as an action's write-only input and keep it in a .local collection`,
 			);
 		else if (single && !isOptional(schema) && !hasDefault(schema))
 			problems.push(

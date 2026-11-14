@@ -1,7 +1,7 @@
 /**
  * Confidentiality belongs to the whole action: no input reaches MCP, CLI
  * arguments, validation diagnostics, or commit subjects. HTTP and the real
- * CLI JSON-stdin path still run it, including nested secret schemas.
+ * CLI JSON-stdin path still run it. Raw schema annotations do not imply policy.
  */
 import { expect, setDefaultTimeout, test } from 'bun:test';
 import { rm } from 'node:fs/promises';
@@ -17,10 +17,11 @@ setDefaultTimeout(30_000);
 const SECRET = 'sk-not-a-real-token-4242';
 const connect = defineAction({
 	description: 'Connect with a token',
+	confidential: true,
 	input: {
 		label: field.select(['work', 'personal']),
 		credentials: Type.Object({
-			token: field.text({ writeOnly: true, pattern: '^sk-' }),
+			token: field.text({ pattern: '^sk-' }),
 		}),
 	},
 	positional: ['label', 'credentials'],
@@ -84,26 +85,42 @@ test('help describes one JSON-stdin command and its JSON keys', () => {
 });
 
 const keysApp = `export default defineApp({ description: 'Keys', collections: {}, actions: {
-	connect: defineAction({ description: 'Connect', input: { label: field.select(['work', 'personal']), credentials: { type: 'object', required: ['token'], properties: { token: field.text({ writeOnly: true, pattern: '^sk-' }) } } }, positional: ['label', 'credentials'],
+	connect: defineAction({ description: 'Connect', confidential: true, input: { label: field.select(['work', 'personal']), credentials: { type: 'object', required: ['token'], properties: { token: field.text({ pattern: '^sk-' }) } } }, positional: ['label', 'credentials'],
 		run: async ({ credentials }) => { await folder.write('data/key.local.md', credentials.token); await folder.write('data/connected.md', 'yes'); return { connected: true }; } }),
-	check: defineAction({ description: 'Optional token', input: { token: field.text({ writeOnly: true, optional: true }) }, run: () => true }),
-	literal: defineAction({ description: 'Reserved marker in examples', input: { value: { type: 'string', examples: [{ writeOnly: true }] } }, run: () => true }),
-	status: defineAction({ description: 'Status', input: {}, run: () => true }),
+	check: defineAction({ description: 'Optional token', confidential: true, input: { token: field.text({ optional: true }) }, run: () => true }),
+	annotated: defineAction({ description: 'Ordinary raw annotation', input: { value: { type: 'string', writeOnly: true } }, run: ({ value }) => value }),
+	literal: defineAction({ description: 'Ordinary examples', input: { value: { type: 'string', examples: [{ writeOnly: true }] } }, run: () => true }),
+	status: defineAction({ description: 'Status', confidential: false, input: {}, run: () => true }),
 } });`;
 
-test('nested, optional, and literal markers hide and refuse entire MCP actions; HTTP and CLI stdin run them', async () => {
+test('only explicit flags hide and refuse MCP actions; HTTP and CLI stdin run confidential actions', async () => {
 	const f = await fixture();
 	const folder = await f.app('keys', keysApp);
 	const { client, served, close } = await connectMcp(f);
 	try {
 		const names = (await client.listTools()).tools.map((tool) => tool.name);
 		expect(names).toContain('keys_status');
-		for (const name of ['keys_connect', 'keys_check', 'keys_literal']) {
+		expect(names).toContain('keys_annotated');
+		expect(names).toContain('keys_literal');
+		for (const name of ['keys_connect', 'keys_check']) {
 			expect(names).not.toContain(name);
 			const refused = await client.callTool({ name, arguments: {} });
 			expect(refused.isError).toBe(true);
 			expect(JSON.stringify(refused)).toContain('not offered over MCP');
 		}
+		const annotated = await client.callTool({
+			name: 'keys_annotated',
+			arguments: { value: 'ordinary' },
+		});
+		expect(annotated.structuredContent).toEqual({ returned: 'ordinary' });
+		const listing = await f.run('keys', '--json');
+		const listed = JSON.parse(listing.stdout).actions.find(
+			(action: { name: string }) => action.name === 'keys_connect',
+		);
+		expect(listed.confidential).toBe(true);
+		expect(listed.annotations).not.toHaveProperty('confidential');
+		const help = await f.run('keys', 'connect', '--help', '--json');
+		expect(JSON.parse(help.stdout).confidential).toBe(true);
 		const refused = await f.run('keys', 'connect', `--${SECRET}=bad`, '--json');
 		expect(refused.code).toBe(2);
 		expect(refused.stdout + refused.stderr).not.toContain(SECRET);

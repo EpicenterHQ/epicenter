@@ -1090,7 +1090,7 @@ When you add an ADR, add its row here.
 | [0867](0867-the-command-line-spells-an-actions-json-input-and-null-removes-a-field-there-as-everywhere.md) | The command line spells an action's JSON input, and `null` removes a field there as everywhere | Proposed |
 | [0868](0868-an-epicenter-is-any-folder-that-says-it-is-one-and-a-computer-runs-as-many-as-it-has.md) | An Epicenter is any folder that says it is one, and a computer runs as many as it has | Proposed |
 | [0869](0869-a-body-is-changed-by-quoting-the-passage-it-replaces.md) | A body is changed by quoting the passage it replaces | Proposed |
-| [0870](0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md) | An app's secrets are `.local` files, and a `.local` file never leaves its computer | Accepted (amended by 0903) |
+| [0870](0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md) | An app's secrets are `.local` files, and a `.local` file never leaves its computer | Accepted (amended by 0903 and 0905) |
 | [0871](0871-a-public-address-signs-people-in-with-a-passkey-and-connectors-in-with-oauth.md) | A public address signs people in with a passkey and connectors in with OAuth | Superseded by 0883 |
 | [0873](0873-the-command-is-epicenter-cli-and-it-supplies-epicenter-app-to-every-app.md) | The command is `@epicenter/cli`, and it supplies `@epicenter/app` to every app | Accepted |
 | [0874](0874-the-ui-kit-is-a-shadcn-svelte-registry-an-app-copies-from.md) | The UI kit is a shadcn-svelte registry an app copies from | Proposed |
@@ -1119,3 +1119,5 @@ When you add an ADR, add its row here.
 | [0899](0899-the-folder-sync-product-is-retired.md) | The folder sync product is retired | Accepted (amends 0840 and 0843; supersedes the folder sync product's records) |
 | [0901](0901-an-app-is-inside-an-epicenter-or-outside-it.md) | An app is inside an Epicenter or outside it | Accepted (amends 0889 and 0891) |
 | [0903](0903-the-home-is-a-computer-its-person-controls-never-one-epicenter-supplies.md) | The home is a computer its person controls, never one Epicenter supplies | Accepted (amends 0841, 0842, 0844, 0870, 0883, and 0887) |
+| [0905](0905-secret-input-makes-the-whole-action-confidential.md) | Secret input makes the whole action confidential | Accepted (amends 0870; amended by 0906) |
+| [0906](0906-confidentiality-is-explicit-action-metadata.md) | Confidentiality is explicit action metadata | Accepted (amends 0905) |

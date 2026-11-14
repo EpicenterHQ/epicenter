@@ -36,7 +36,6 @@ export {
 } from './context.ts';
 export { FileError } from './errors.ts';
 export {
-	containsWriteOnly,
 	field,
 	type TSwitch,
 	type TTags,
