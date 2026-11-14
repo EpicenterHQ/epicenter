@@ -78,15 +78,9 @@ This skill keeps its rules inline. For PR work, use [pull-request](../pull-reque
 - No period at the end
 - Keep under 50-72 characters on first line
 
-### Breaking Changes & Version Bumps
+### Breaking Changes
 
-Our monorepo uses a unified version scheme (`8.Y.Z`) where major version 8 is permanent:
-
-- **Patch** (default): Every merged PR increments `Z` (e.g., `8.0.1` → `8.0.2`)
-- **Minor**: Add `!` after type/scope: `feat(api)!: change endpoint structure`, increments `Y`, resets `Z`
-- **Major**: Manual only. Reserved for "if ever needed." Do not use `!` expecting a major bump.
-
-Include `BREAKING CHANGE:` in the commit footer with details when using `!`.
+Mark a breaking change with `!` after the type or scope, as in `feat(api)!: change endpoint structure`, and say what breaks in a `BREAKING CHANGE:` footer.
 
 ### Examples Following Your Style:
 
