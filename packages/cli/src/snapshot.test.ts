@@ -439,6 +439,7 @@ test("snapshots from several processes, each holding the app's lock, commit what
 	const answers = await Promise.all(
 		Array.from({ length: 6 }, async () => {
 			const child = Bun.spawn([process.execPath, '-e', script], {
+				env: process.env,
 				stdout: 'pipe',
 				stderr: 'inherit',
 			});
