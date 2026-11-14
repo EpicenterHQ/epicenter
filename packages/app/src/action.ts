@@ -20,7 +20,6 @@
  */
 import { type Static, type TObject, type TSchema, Type } from 'typebox';
 import { Value } from 'typebox/value';
-import { containsWriteOnly, isWriteOnly } from './field.js';
 
 /** An action's input: a record of fields, or of any TypeBox schemas. */
 export type Input = Record<string, TSchema>;
@@ -205,6 +204,8 @@ export function defineAction(
 				.join('\n'),
 		);
 	const { run, ...meta } = def;
+	// Fail at declaration, before a non-JSON schema can break tool discovery.
+	JSON.stringify(def.input);
 	const schema = Type.Object(def.input);
 	const start = (input: unknown) =>
 		(run as (input: unknown) => unknown)(
@@ -267,14 +268,9 @@ function actionProblems(def: object): string[] {
 	if (typeof input !== 'object' || input === null)
 		return [...problems, 'has no input'];
 	const fields = input as Input;
-	for (const [key, schema] of Object.entries(fields)) {
+	for (const key of Object.keys(fields))
 		if (RESERVED_FIELDS.has(key))
 			problems.push(`has a field named "${key}", which epicenter reads itself`);
-		if (!isWriteOnly(schema) && containsWriteOnly(schema))
-			problems.push(
-				`has "${key}" with a write-only part inside it; mark the whole input write-only instead`,
-			);
-	}
 	if (!Array.isArray(positional)) return problems;
 	positional.forEach((key: unknown, index) => {
 		if (typeof key !== 'string' || !Object.hasOwn(fields, key))
@@ -283,10 +279,6 @@ function actionProblems(def: object): string[] {
 			);
 		else if (positional.indexOf(key) !== index)
 			problems.push(`lists the positional "${key}" twice`);
-		else if (isWriteOnly(fields[key] as TSchema))
-			problems.push(
-				`has the write-only "${key}" as a positional; a secret is never read from the command line, where the shell's history keeps it`,
-			);
 		else if (
 			(fields[key] as { type?: unknown }).type === 'array' &&
 			index !== positional.length - 1

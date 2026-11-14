@@ -12,12 +12,11 @@
 import { join } from 'node:path';
 import {
 	type Action,
+	containsWriteOnly,
 	type Folder,
 	inRun,
 	isName,
-	isWriteOnly,
 	runYielding,
-	writeOnlyKeys,
 } from '@epicenter/app';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { type CodeState, codeStateOf } from './data.ts';
@@ -53,8 +52,8 @@ function threwOf(cause: unknown): {
 /**
  * A call's name in history: the app, the action's words, and its first
  * positional value on one line, cut at 60 characters
- * (`tasks: add Water the plants`). A `writeOnly` value never names a commit,
- * since history travels with the data's backup (ADR-0870).
+ * (`tasks: add Water the plants`). An action taking any secret contributes
+ * no input values, since history travels with the data's backup.
  */
 export function callName(
 	app: string,
@@ -62,12 +61,9 @@ export function callName(
 	action: Action,
 	input: Record<string, unknown>,
 ) {
+	if (containsWriteOnly(action.input)) return `${app}: ${key}`;
 	const first = action.positional?.[0];
-	const field = first === undefined ? undefined : action.input[first];
-	const value =
-		first === undefined || (field && isWriteOnly(field))
-			? undefined
-			: input[first];
+	const value = first === undefined ? undefined : input[first];
 	const suffix =
 		value === undefined
 			? ''
@@ -211,9 +207,9 @@ export async function callAction(
 		: undefined;
 	if (!action)
 		return refused(`${name} has no action "${key}"`, `epicenter ${name}`);
-	if (following.overMcp && writeOnlyKeys(action.input).length)
+	if (following.overMcp && containsWriteOnly(action.input))
 		return refused(
-			`${name} ${key} takes a secret, so it is not offered over MCP, where the input stays in the agent's transcript. A person gives it in ${name}'s own page or at the command line`,
+			`${name} ${key} takes a secret, so it is not offered over MCP. Use ${name}'s own page or pipe JSON to --input -`,
 			`epicenter ${name} ${key}`,
 		);
 	if (typeof raw !== 'object' || raw === null || Array.isArray(raw))

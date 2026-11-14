@@ -8,10 +8,9 @@
  * list (`tags`) are never required: an absent switch is `false`, an absent
  * list is empty. A collection's field that says `readOnly` is written only by
  * the app's own actions: the exposed `add` and `set` leave it out. An action's
- * whole top-level input that says `writeOnly` takes a secret sent in
- * and never given back (ADR-0870): its action is not offered over MCP, its
- * value never names a commit or appears in a refusal, and the CLI asks for
- * it without echo.
+ * input schema containing `writeOnly: true` makes the whole action
+ * confidential: MCP neither lists nor runs it, the CLI accepts only JSON
+ * stdin, and input values never appear in validation errors or commit names.
  */
 import {
 	type TArray,
@@ -34,10 +33,9 @@ type Options = {
 type MaybeOptional = Options & { optional?: boolean };
 
 /**
- * JSON Schema's `writeOnly`: a secret sent as a whole top-level input, such
- * as a token the action keeps in a `.local` file and never returns. A root
- * mark covers every part of the field. A collection's field cannot be
- * write-only, since a read gives every field back.
+ * JSON Schema's `writeOnly`: an action containing this mark takes a secret.
+ * The action keeps it in a `.local` file and never returns it. The mark is
+ * reserved throughout schema JSON, including defaults and examples.
  */
 type WriteOnly = { writeOnly?: boolean };
 
@@ -161,83 +159,18 @@ export const field = {
 		) as Marked<TTags, O>,
 };
 
-/** Whether a field is JSON Schema's `writeOnly`: a secret its caller sends and is never shown again. */
-export function isWriteOnly(field: TSchema): boolean {
-	return (field as { writeOnly?: unknown }).writeOnly === true;
-}
-
-/** Schema-valued keywords, including the list form of `items` used by older JSON Schema drafts. */
-const SCHEMA_CHILDREN = [
-	'additionalProperties',
-	'additionalItems',
-	'items',
-	'contains',
-	'contentSchema',
-	'not',
-	'if',
-	'then',
-	'else',
-	'propertyNames',
-	'unevaluatedProperties',
-	'unevaluatedItems',
-	'anyOf',
-	'allOf',
-	'oneOf',
-	'prefixItems',
-];
-
-/** Keywords whose values map names to schemas, rather than holding literal data. */
-const SCHEMA_MAPS = [
-	'properties',
-	'patternProperties',
-	'$defs',
-	'definitions',
-	'dependentSchemas',
-	'dependencies',
-];
-
 /**
- * Whether a field's schema contains a write-only mark. Definitions are read
- * in place; references are not resolved. Literal defaults, examples, consts,
- * enums, and custom metadata are data, so they are never inspected.
- * Internal to declaration checks: runtime surfaces read only the root mark.
+ * Whether schema JSON contains the reserved `writeOnly: true` marker anywhere,
+ * including literal defaults, examples, and custom metadata. Throws when the
+ * schema cannot be serialized, so cyclic JavaScript graphs fail at declaration.
  */
-export function containsWriteOnly(field: TSchema): boolean {
-	const seen = new WeakSet<object>();
-	const visit = (value: unknown): boolean => {
-		if (typeof value !== 'object' || value === null || Array.isArray(value))
-			return false;
-		if (isWriteOnly(value)) return true;
-		if (seen.has(value)) return false;
-		seen.add(value);
-		const schema = value as Record<string, unknown>;
-		for (const key of SCHEMA_CHILDREN) {
-			const child = schema[key];
-			if (
-				Array.isArray(child) ? child.some((part) => visit(part)) : visit(child)
-			)
-				return true;
-		}
-		for (const key of SCHEMA_MAPS) {
-			const children = schema[key];
-			if (
-				typeof children === 'object' &&
-				children !== null &&
-				!Array.isArray(children) &&
-				Object.values(children).some((child) => visit(child))
-			)
-				return true;
-		}
-		return false;
-	};
-	return visit(field);
-}
-
-/** The keys of an action's input marked `writeOnly`, in the order its fields declare them. */
-export function writeOnlyKeys(input: Record<string, TSchema>): string[] {
-	return Object.entries(input)
-		.filter(([, field]) => isWriteOnly(field))
-		.map(([key]) => key);
+export function containsWriteOnly(schema: unknown): boolean {
+	let found = false;
+	JSON.stringify(schema, (key, value: unknown) => {
+		if (key === 'writeOnly' && value === true) found = true;
+		return value;
+	});
+	return found;
 }
 
 type Described = {

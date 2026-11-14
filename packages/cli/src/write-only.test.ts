@@ -1,216 +1,150 @@
 /**
- * A `writeOnly` input is a secret sent in and never given back (ADR-0870):
- * MCP neither lists nor runs its action, its value never names a commit or
- * appears in a refusal, and the command line asks for it without echo.
+ * Confidentiality belongs to the whole action: no input reaches MCP, CLI
+ * arguments, validation diagnostics, or commit subjects. HTTP and the real
+ * CLI JSON-stdin path still run it, including nested secret schemas.
  */
 import { expect, setDefaultTimeout, test } from 'bun:test';
-import { EventEmitter } from 'node:events';
 import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
-import { type Action, defineAction, field } from '@epicenter/app';
-import { askSecret, checkInput, readInput, usageLine } from './input.ts';
-import { actionHelp } from './listing.ts';
-import { callName } from './run.ts';
-import { connectMcp, fixture, gitIn } from './runner.test-support.ts';
+import { defineAction, field } from '@epicenter/app';
+import { Type } from 'typebox';
+import { checkInput, readInput, usageLine } from './input.js';
+import { actionHelp } from './listing.js';
+import { callName } from './run.js';
+import { connectMcp, fixture, gitIn } from './runner.test-support.js';
 
-// The MCP test runs the real `epicenter serve` as a separate process.
 setDefaultTimeout(30_000);
-
 const SECRET = 'sk-not-a-real-token-4242';
-
 const connect = defineAction({
 	description: 'Connect with a token',
 	input: {
-		account: field.text({ optional: true }),
-		token: field.text({
-			writeOnly: true,
-			pattern: '^sk-',
-			description: 'a token starting sk-',
+		label: field.select(['work', 'personal']),
+		credentials: Type.Object({
+			token: field.text({ writeOnly: true, pattern: '^sk-' }),
 		}),
 	},
-	run: ({ account }) => ({ account: account ?? 'default' }),
+	positional: ['label', 'credentials'],
+	run: () => ({ connected: true }),
 });
+const input = { label: 'work', credentials: { token: SECRET } };
 
-/** Every `ask` for this test: answers each key from `answers`, and records which were asked. */
-function asker(answers: Record<string, string | undefined>) {
-	const asked: string[] = [];
-	return {
-		asked,
-		ask: async (key: string) => {
-			asked.push(key);
-			return answers[key];
-		},
-	};
-}
-
-test("a write-only value never names the call's commit", () => {
-	// defineAction refuses a write-only positional; an action built by hand can still list one.
-	const handMade = Object.assign(() => undefined, {
-		description: 'Connect',
-		input: { token: field.text({ writeOnly: true }) },
-		positional: ['token'],
-	}) as unknown as Action;
-	expect(callName('keys', 'connect', handMade, { token: SECRET })).toBe(
-		'keys: connect',
-	);
-	const named = defineAction({
+test('a confidential call omits even an ordinary first positional from its commit name', () => {
+	expect(callName('keys', 'connect', connect, input)).toBe('keys: connect');
+	const ordinary = defineAction({
 		description: 'Add',
 		input: { title: field.text() },
 		positional: ['title'],
 		run: () => true,
 	});
-	expect(callName('tasks', 'add', named, { title: 'Water  the\nplants' })).toBe(
-		'tasks: add Water the plants',
-	);
+	expect(
+		callName('tasks', 'add', ordinary, { title: 'Water  the\nplants' }),
+	).toBe('tasks: add Water the plants');
 });
 
-test('a refusal of a write-only value names the field and never quotes it', () => {
-	const flag = (key: string) => `--${key}`;
-	const misfits = [{ token: 'not-sk' }, { token: 42 }, { token: `x${SECRET}` }];
-	for (const input of misfits) {
-		const checked = checkInput(connect, input, flag);
-		expect(checked).toHaveProperty('error');
-		expect(JSON.stringify(checked)).not.toContain(String(input.token));
-		expect((checked as { error: string }).error).toStartWith('--token');
-	}
-	expect(checkInput(connect, { token: SECRET }, flag)).toEqual({
-		ok: true,
-		input: { token: SECRET },
-	});
+test('validation keeps every supplied value and undeclared property name confidential', () => {
+	for (const raw of [
+		{ ...input, label: SECRET },
+		{ ...input, credentials: { token: `wrong-${SECRET}` } },
+		{ ...input, [SECRET]: true },
+		{ credentials: input.credentials },
+		null,
+	])
+		expect(checkInput(connect, raw, (key) => key)).toEqual({
+			error: 'The input is not accepted',
+		});
+	expect(checkInput(connect, input, (key) => key)).toEqual({ ok: true, input });
 });
 
-test('the command line asks for a write-only field and never reads it from its arguments', async () => {
-	const answered = asker({ token: SECRET });
-	expect(await readInput(connect, ['--account', 'work'], answered.ask)).toEqual(
-		{ ok: true, input: { account: 'work', token: SECRET } },
-	);
-	expect(answered.asked).toEqual(['token']);
-
-	const unasked = asker({});
+test('the CLI refuses confidential arguments before parsing or quoting any of them', async () => {
 	for (const rest of [
-		['--token', SECRET],
-		[`--token=${SECRET}`],
+		[],
 		[SECRET],
-		['--input', JSON.stringify({ token: SECRET })],
+		['--label', SECRET],
+		[`--${SECRET}=bad`],
+		['--input', JSON.stringify(input)],
+		['--input', '-', '--label', SECRET],
 	]) {
-		const refused = await readInput(connect, rest, unasked.ask);
-		expect(refused).toHaveProperty('error');
+		const refused = await readInput(connect, rest);
+		expect(refused).toEqual({
+			error:
+				'This action takes a secret. Use the app page or pipe a JSON object to --input -',
+		});
 		expect(JSON.stringify(refused)).not.toContain(SECRET);
 	}
-	expect(unasked.asked).toEqual([]);
-
-	// No terminal to ask in: the refusal says how else to give it.
-	const noTerminal = await readInput(connect, [], asker({}).ask);
-	expect(noTerminal).toEqual({
-		error:
-			'--token is needed, and it is a secret, so it is asked for only in a terminal. Or pipe the input to --input -',
-	});
-	// A mistyped answer is refused without being repeated.
-	const mistyped = await readInput(
-		connect,
-		[],
-		asker({ token: 'oops-typo' }).ask,
-	);
-	expect(mistyped).toEqual({ error: '--token must be a token starting sk-' });
 });
 
-test('help shows a write-only field as asked for, and usage leaves out its flag', () => {
+test('help describes one JSON-stdin command and its JSON keys', () => {
 	expect(usageLine('keys', 'connect', connect)).toBe(
-		'epicenter keys connect [--account <text>]',
+		'epicenter keys connect --input -',
 	);
-	expect(actionHelp('keys', 'connect', connect)).toContain('token (asked for)');
-});
-
-/** A terminal for `askSecret`: what is written to it, and a way to type. */
-function fakeTerminal() {
-	const input = Object.assign(new EventEmitter(), {
-		isTTY: true,
-		raw: false,
-		setRawMode(raw: boolean) {
-			input.raw = raw;
-			return input;
-		},
-		setEncoding: () => input,
-		resume: () => input,
-		pause: () => input,
-	});
-	let written = '';
-	const output = { write: (text: string) => (written += text) };
-	return {
-		terminal: { input, output } as unknown as Parameters<typeof askSecret>[1],
-		type: (text: string) => input.emit('data', text),
-		written: () => written,
-		raw: () => input.raw,
-	};
-}
-
-test('askSecret reads a line in raw mode and writes back none of it', async () => {
-	const t = fakeTerminal();
-	const asked = askSecret('token', t.terminal);
-	expect(t.raw()).toBe(true);
-	t.type('sk-not-a-reax');
-	t.type('\u007fl-token-4242\r');
-	expect(await asked).toBe(SECRET);
-	expect(t.raw()).toBe(false);
-	expect(t.written()).toBe('token (typing is not shown): \n');
-
-	const stopped = fakeTerminal();
-	const interrupted = askSecret('token', stopped.terminal);
-	stopped.type('sk-half\u0003');
-	expect(await interrupted).toBeUndefined();
-	expect(stopped.written()).not.toContain('sk-half');
-
-	const piped = {
-		input: { isTTY: false },
-		output: { write: () => true },
-	} as unknown as Parameters<typeof askSecret>[1];
-	expect(await askSecret('token', piped)).toBeUndefined();
+	const help = actionHelp('keys', 'connect', connect);
+	expect(help).toContain('credentials');
+	expect(help).not.toContain('--label');
+	expect(help).not.toContain('(asked for)');
 });
 
 const keysApp = `export default defineApp({ description: 'Keys', collections: {}, actions: {
-	connect: defineAction({ description: 'Connect with a token', input: { token: field.text({ writeOnly: true }) },
-		run: async ({ token }) => { await folder.write('data/key.local.md', token); await folder.write('data/connected.md', 'yes'); return { connected: true }; } }),
-	check: defineAction({ description: 'Check with an optional token', input: { token: field.text({ writeOnly: true, optional: true }) }, run: () => ({ checked: true }) }),
-	status: defineAction({ description: 'Whether a token is kept', annotations: { readOnlyHint: true }, input: {}, run: () => ({ connected: false }) }),
+	connect: defineAction({ description: 'Connect', input: { label: field.select(['work', 'personal']), credentials: { type: 'object', required: ['token'], properties: { token: field.text({ writeOnly: true, pattern: '^sk-' }) } } }, positional: ['label', 'credentials'],
+		run: async ({ credentials }) => { await folder.write('data/key.local.md', credentials.token); await folder.write('data/connected.md', 'yes'); return { connected: true }; } }),
+	check: defineAction({ description: 'Optional token', input: { token: field.text({ writeOnly: true, optional: true }) }, run: () => true }),
+	literal: defineAction({ description: 'Reserved marker in examples', input: { value: { type: 'string', examples: [{ writeOnly: true }] } }, run: () => true }),
+	status: defineAction({ description: 'Status', input: {}, run: () => true }),
 } });`;
 
-test('MCP neither lists nor runs an action with a write-only input; HTTP runs it and its commit does not name the value', async () => {
+test('nested, optional, and literal markers hide and refuse entire MCP actions; HTTP and CLI stdin run them', async () => {
 	const f = await fixture();
 	const folder = await f.app('keys', keysApp);
 	const { client, served, close } = await connectMcp(f);
 	try {
-		const listed = await client.listTools();
-		const names = listed.tools.map((tool) => tool.name);
+		const names = (await client.listTools()).tools.map((tool) => tool.name);
 		expect(names).toContain('keys_status');
-		expect(names).not.toContain('keys_connect');
-		expect(names).not.toContain('keys_check');
-
-		// Omitting an optional secret still cannot make the action callable over MCP.
-		const optional = await client.callTool({
-			name: 'keys_check',
-			arguments: {},
-		});
-		expect(optional.isError).toBe(true);
-		expect(JSON.stringify(optional)).toContain('not offered over MCP');
-
-		const refused = await client.callTool({
-			name: 'keys_connect',
-			arguments: { token: SECRET },
-		});
-		expect(refused.isError).toBe(true);
-		expect(JSON.stringify(refused)).not.toContain(SECRET);
-		expect(JSON.stringify(refused)).toContain('not offered over MCP');
+		for (const name of ['keys_connect', 'keys_check', 'keys_literal']) {
+			expect(names).not.toContain(name);
+			const refused = await client.callTool({ name, arguments: {} });
+			expect(refused.isError).toBe(true);
+			expect(JSON.stringify(refused)).toContain('not offered over MCP');
+		}
+		const refused = await f.run('keys', 'connect', `--${SECRET}=bad`, '--json');
+		expect(refused.code).toBe(2);
+		expect(refused.stdout + refused.stderr).not.toContain(SECRET);
 		expect(await Bun.file(join(folder, 'data/key.local.md')).exists()).toBe(
 			false,
 		);
-
+		const bad = await fetch(`${served.base}/keys/connect`, {
+			method: 'POST',
+			body: JSON.stringify({ ...input, [SECRET]: true }),
+		});
+		expect(await bad.text()).not.toContain(SECRET);
+		expect(await Bun.file(join(folder, 'data/key.local.md')).exists()).toBe(
+			false,
+		);
 		const posted = await fetch(`${served.base}/keys/connect`, {
 			method: 'POST',
-			body: JSON.stringify({ token: SECRET }),
+			body: JSON.stringify(input),
 		});
 		expect(await posted.text()).toBe(
 			'{"answer":{"returned":{"connected":true}}}\n',
 		);
+		const child = Bun.spawn(
+			[process.execPath, f.bin, 'keys', 'connect', '--input', '-', '--json'],
+			{
+				cwd: f.root,
+				env: f.env,
+				stdin: 'pipe',
+				stdout: 'pipe',
+				stderr: 'pipe',
+			},
+		);
+		child.stdin.write(JSON.stringify(input));
+		child.stdin.end();
+		const [stdout, stderr, code] = await Promise.all([
+			new Response(child.stdout).text(),
+			new Response(child.stderr).text(),
+			child.exited,
+		]);
+		expect({ code, stdout, stderr }).toMatchObject({ code: 0 });
+		expect(JSON.parse(stdout)).toEqual({ returned: { connected: true } });
+		expect(stderr).not.toContain(SECRET);
 		const data = join(folder, 'data');
 		expect(await gitIn(data, 'log', '-1', '--format=%s')).toBe('keys: connect');
 		expect(await gitIn(data, 'log', '-p', '--format=%B')).not.toContain(SECRET);

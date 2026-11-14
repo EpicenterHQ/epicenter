@@ -263,14 +263,18 @@ takes `{ path, grade }`; it could take `{ word, grade }` and call
 Each field is JSON Schema, so any TypeBox schema works as a field too. A field
 is required unless it says `optional: true`; `readOnly: true` is described
 above, and every field helper keeps it in its type. `field.text({ writeOnly:
-true })` marks an action's whole top-level input as a secret, described below.
-A root `writeOnly` mark covers every part of the field; a nested mark without
-one at the root is refused when defining an action. A collection's field
-cannot be write-only, including any part nested inside it. A field may not be
-named `json`, `help`, or `input`, which `epicenter` reads itself.
+true })` makes the whole action confidential. `containsWriteOnly(input)` scans
+its schema JSON for that reserved marker anywhere, including nested schemas,
+defaults, examples, and custom metadata. Schemas must serialize as finite JSON;
+recursive schemas use references rather than cyclic JavaScript objects. A
+collection's field cannot contain the marker, since reads return every field.
+A field may not be named `json`, `help`, or `input`, which `epicenter` reads itself.
 
-The terminal prompt takes text. Give structured secret inputs through HTTP or
-pipe their JSON to `--input -`.
+A confidential action accepts HTTP or exactly `--input -` at the CLI. Its whole
+input is one JSON object from stdin: flags, positionals, inline JSON, and terminal
+prompts are unavailable. MCP neither lists nor runs it. Validation refuses its
+whole input without echoing values or undeclared property names; its commit
+subject contains only the app and action names.
 
 `localDay()` and `localTime()` give now, or a `Date` passed to them, as
 `field.date` and `field.datetime` hold it, in the time zone of the computer
@@ -394,7 +398,7 @@ The actions an app writes keep two rules, since `serve` hands an answer and a
 thrown error to its caller whole, and an MCP caller's input sits in its
 transcript:
 
-- **Never return or throw a value read from a `.local` file.** Return what
+- **Never return, throw, or yield a value read from a `.local` file.** Return what
   the secret got you: an account name, a count, a result.
 - **Never take a secret as ordinary input.** Every action is an MCP tool, a
   call's commit is named after its first positional value, and a refusal
@@ -402,11 +406,12 @@ transcript:
   writes the `.local` file; the action runs a flow that brings it back to this
   computer itself, as Mail's `connect` does with only a `port` and a loopback
   listener; or an input marked `writeOnly` (`field.text({ writeOnly: true
-  })`), which the app's UI posts over HTTP. MCP neither lists nor runs an
-  action with such an input, its value never names the commit, a refusal
-  names the field without quoting it, and the command line asks for it
-  without echo rather than reading it from its arguments. It cannot be a
-  positional.
+  })`), which the app's UI posts over HTTP or the CLI reads as JSON through
+  `--input -`. The marker makes the entire action confidential, wherever it
+  occurs in the input schema JSON. MCP neither lists nor runs it, no input
+  value names its commit, and validation returns a fixed refusal. The CLI
+  refuses every other input spelling before parsing its arguments. The app
+  still owns what its actions return, throw, yield, and write.
 
 `.local` means "this computer only", for a cache as much as a sign-in. It is
 not a guard against a shell agent on the same computer: give that agent a

@@ -15,7 +15,7 @@
  * client reads only the answer.
  */
 
-import { isName, writeOnlyKeys } from '@epicenter/app';
+import { containsWriteOnly, isName } from '@epicenter/app';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import {
 	CallToolRequestSchema,
@@ -42,7 +42,7 @@ async function appTools(entry: string): Promise<Tool[]> {
 		return [];
 	}
 	return Object.entries(located.actions)
-		.filter(([, action]) => writeOnlyKeys(action.input).length === 0)
+		.filter(([, action]) => !containsWriteOnly(action.input))
 		.map(([key, action]) => actionTool(located.name, key, action));
 }
 

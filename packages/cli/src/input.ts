@@ -5,17 +5,16 @@
  * arguments and MCP input alike: both use its schema for defaults and
  * validation, so a command and a tool accept the same values and name the
  * field that needs attention. The action's `positional` list says which
- * fields the command line also reads by position, in order. A `writeOnly`
- * field is a secret: the command line never reads it from its arguments, which
- * the shell's history keeps, and asks for it instead without echo (ADR-0870).
+ * fields the command line also reads by position, in order. An action whose
+ * schema contains `writeOnly: true` accepts only JSON stdin, before any
+ * arguments can be parsed or echoed in a refusal.
  */
 import {
 	type Action,
+	containsWriteOnly,
 	type Input,
 	isName,
-	isWriteOnly,
 	whatFits,
-	writeOnlyKeys,
 } from '@epicenter/app';
 import { type TSchema, Type } from 'typebox';
 import { Value } from 'typebox/value';
@@ -175,8 +174,6 @@ function inputFromArgs(
 					error: `Unknown flag ${flag}. Flags: ${[...flags.keys()].join(', ') || '(none)'}`,
 				};
 			}
-			if (isWriteOnly(field.schema))
-				return { error: writeOnlyOnCommandLine(flag) };
 			const kind = fieldKind(field.schema);
 			const value = equal < 0 ? undefined : token.slice(equal + 1);
 			if (kind === 'switch' && value !== undefined) {
@@ -228,15 +225,8 @@ function inputFromArgs(
 				([key, schema]) =>
 					fieldKind(schema) === 'list' || !Object.hasOwn(input, key),
 			);
-			if (!positional) {
-				// A word typed where a secret was meant is not repeated back.
-				const secret = writeOnlyKeys(action.input)[0];
-				return {
-					error: secret
-						? `Unexpected positional. --${flagOf(secret)} is a secret, so leave it out to be asked for it`
-						: `Unexpected positional ${JSON.stringify(token)}`,
-				};
-			}
+			if (!positional)
+				return { error: `Unexpected positional ${JSON.stringify(token)}` };
 			const [key, schema] = positional;
 			const error = put(key, schema, token);
 			if (error) return { error };
@@ -245,15 +235,10 @@ function inputFromArgs(
 	return { ok: true, input };
 }
 
-/** Why a secret given among the arguments is refused, naming its flag and never its value. */
-function writeOnlyOnCommandLine(flag: string) {
-	return `${flag} is a secret, so it is not read from the command line, where the shell's history keeps it. Leave it out to be asked for it, or pipe the input to --input -`;
-}
-
 /**
  * Apply defaults and report the first schema error using the caller's field
- * names. A refusal never quotes a value, and for a `writeOnly` field it says
- * no more than what the field takes, so a mistyped secret is not repeated.
+ * names. An action taking a secret gets a fixed refusal for its whole input,
+ * so even undeclared property names and ordinary fields cannot echo a value.
  */
 export function checkInput(
 	action: Action,
@@ -264,6 +249,8 @@ export function checkInput(
 	const value = Value.Default(schema, structuredClone(raw));
 	if (Value.Check(schema, value))
 		return { ok: true, input: value as Record<string, unknown> };
+	if (containsWriteOnly(action.input))
+		return { error: 'The input is not accepted' };
 	const first = Value.Errors(schema, value)[0];
 	const params = first?.params as
 		| {
@@ -285,8 +272,6 @@ export function checkInput(
 		fieldSchema &&
 		whatFits(fieldSchema, (value as Record<string, unknown>)[field]);
 	if (words) return { error: `${name} must be ${words}` };
-	if (fieldSchema && isWriteOnly(fieldSchema))
-		return { error: `${name} is not accepted` };
 	return { error: `${name}: ${first?.message ?? 'is not accepted'}` };
 }
 
@@ -301,6 +286,8 @@ export function usageLine(
 	action: Action,
 	{ short = false }: { short?: boolean } = {},
 ): string {
+	if (containsWriteOnly(action.input))
+		return `epicenter ${appName} ${key} --input -`;
 	const required = requiredKeys(action.input);
 	const positional = new Set<string>(action.positional ?? []);
 	const args: string[] = [];
@@ -316,7 +303,7 @@ export function usageLine(
 	}
 	let folded = false;
 	for (const [name, field] of Object.entries(action.input)) {
-		if (positional.has(name) || isWriteOnly(field)) continue;
+		if (positional.has(name)) continue;
 		const kind = fieldKind(field);
 		if (short && (kind === 'switch' || !required.has(name))) {
 			folded = true;
@@ -357,87 +344,25 @@ export function jsonSchema(fields: Input): {
 	return schema;
 }
 
-/** Asks a person for a secret and resolves with what they typed, or `undefined` when no one can be asked or they stopped. */
-export type AskSecret = (label: string) => Promise<string | undefined>;
-
-/** A terminal's input and where its prompt goes, as `askSecret` uses them. */
-type Terminal = {
-	input: Pick<
-		NodeJS.ReadStream,
-		'isTTY' | 'setRawMode' | 'setEncoding' | 'resume' | 'pause' | 'on' | 'off'
-	>;
-	output: { write(text: string): unknown };
-};
-
 /**
- * Ask for a secret at the terminal without echo: the prompt goes to stderr,
- * so stdout holds only the answer, and what is typed is never written back.
- * Enter ends it; Backspace removes a character; Ctrl-C, or Ctrl-D on an empty
- * line, stops it. Resolves `undefined` when stdin is not a terminal.
+ * Read an action from flags and positionals or one JSON object. An action
+ * taking any secret accepts exactly --input -, using the same stdin path as
+ * ordinary actions. Refuse other spellings before inspecting their values.
  */
-export function askSecret(
-	label: string,
-	{ input, output }: Terminal = {
-		input: process.stdin,
-		output: process.stderr,
-	},
-): Promise<string | undefined> {
-	if (!input.isTTY || typeof input.setRawMode !== 'function')
-		return Promise.resolve(undefined);
-	output.write(`${label} (typing is not shown): `);
-	input.setRawMode(true);
-	input.setEncoding('utf8');
-	input.resume();
-	return new Promise((resolve) => {
-		let value = '';
-		const finish = (result: string | undefined) => {
-			input.off('data', onData);
-			input.setRawMode(false);
-			input.pause();
-			output.write('\n');
-			resolve(result);
+export async function readInput(action: Action, rest: string[]) {
+	if (
+		containsWriteOnly(action.input) &&
+		!(rest.length === 2 && rest[0] === '--input' && rest[1] === '-')
+	)
+		return {
+			error:
+				'This action takes a secret. Use the app page or pipe a JSON object to --input -',
 		};
-		const onData = (chunk: string) => {
-			for (const char of chunk) {
-				if (char === '\r' || char === '\n') return finish(value);
-				if (char === '\u0003' || (char === '\u0004' && value === ''))
-					return finish(undefined);
-				if (char === '\u007f' || char === '\b') value = value.slice(0, -1);
-				else value += char;
-			}
-		};
-		input.on('data', onData);
-	});
-}
-
-/**
- * The action's input, checked against its fields: from `--input <json>`, one
- * JSON object as MCP and scripts pass it (`-` reads it from stdin), or else
- * from flags and positionals. `--input` stands alone: the object holds every
- * field, positional ones included (ADR-0867). A `writeOnly` field is never
- * read from the arguments: from flags, `ask` asks for each one missing, and
- * `--input` takes one only from stdin.
- */
-export async function readInput(
-	action: Action,
-	rest: string[],
-	ask: AskSecret = askSecret,
-) {
 	const end = rest.indexOf('--');
 	const at = rest.indexOf('--input');
-	const secrets = writeOnlyKeys(action.input);
 	if (at < 0 || (end >= 0 && at > end)) {
 		const parsed = inputFromArgs(action, rest);
 		if ('error' in parsed) return parsed;
-		for (const key of secrets) {
-			if (Object.hasOwn(parsed.input, key)) continue;
-			const given = await ask(key);
-			if (given !== undefined) parsed.input[key] = given;
-			else if (requiredKeys(action.input).has(key))
-				return {
-					error: `--${flagOf(key)} is needed, and it is a secret, so it is asked for only in a terminal. Or pipe the input to --input -`,
-				};
-		}
 		return checkInput(action, parsed.input, (key) =>
 			action.positional?.includes(key) ? `<${key}>` : `--${flagOf(key)}`,
 		);
@@ -456,11 +381,5 @@ export async function readInput(
 	}
 	if (typeof raw !== 'object' || raw === null || Array.isArray(raw))
 		return { error: '--input is not a JSON object' };
-	const inline =
-		given === '-' ? undefined : secrets.find((key) => Object.hasOwn(raw, key));
-	if (inline)
-		return {
-			error: `${inline} is a secret, so it is not read from the command line, where the shell's history keeps it. Pipe the input to --input -, or give the other fields as flags to be asked for it`,
-		};
 	return checkInput(action, raw, (key) => key);
 }

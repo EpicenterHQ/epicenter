@@ -36,12 +36,11 @@ export {
 } from './context.ts';
 export { FileError } from './errors.ts';
 export {
+	containsWriteOnly,
 	field,
-	isWriteOnly,
 	type TSwitch,
 	type TTags,
 	whatFits,
-	writeOnlyKeys,
 } from './field.ts';
 export { readMarkdown } from './front-matter.ts';
 export { createMemoryContext } from './memory.ts';

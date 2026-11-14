@@ -7,7 +7,7 @@
  */
 
 import { basename } from 'node:path';
-import { type Action, isWriteOnly } from '@epicenter/app';
+import { type Action, containsWriteOnly } from '@epicenter/app';
 import type { TSchemaOptions } from 'typebox';
 import type { Discovery, Runnable } from './home.ts';
 import {
@@ -214,10 +214,11 @@ export function oneAppListing(
 
 /**
  * Explain each field: how it is spelled, whether it is needed, and its
- * description. A positional field may also be given as its flag; a
- * `writeOnly` one is asked for after the command runs, without echo.
+ * description. Secret actions show JSON keys; ordinary actions show their
+ * flags and positionals.
  */
 export function actionHelp(name: string, key: string, action: Action): string {
+	const confidential = containsWriteOnly(action.input);
 	const positional = new Set<string>(action.positional ?? []);
 	const required = requiredKeys(action.input);
 	const rows = Object.entries(action.input).map(([key, field]) => {
@@ -225,8 +226,8 @@ export function actionHelp(name: string, key: string, action: Action): string {
 		const kind = fieldKind(schema);
 		const flag = `--${flagOf(key)}`;
 		const asFlag = kind === 'switch' ? flag : `${flag} <${kind}>`;
-		const spelling = isWriteOnly(field)
-			? `${key} (asked for)`
+		const spelling = confidential
+			? key
 			: positional.has(key)
 				? `<${key}>, ${asFlag}`
 				: asFlag;
