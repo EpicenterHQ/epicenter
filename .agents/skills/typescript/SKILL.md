@@ -18,7 +18,7 @@ Project-wide TypeScript conventions compose with narrower skills such as `arktyp
 - Use `type`, not `interface`.
 - Use `readonly` only for arrays and maps, unless matching an upstream type exactly.
 - Treat acronyms as normal words in camelCase: `parseUrl`, `defineKv`, `readJson`, `customerId`.
-- Use `.js` extensions in relative imports. Do not use extensionless or `.ts` relative imports.
+- Give relative imports an explicit extension, the one the package already uses: `.ts` in packages run from source (`packages/app`, `packages/cli`, `apps/local-books`), `.js` in the rest.
 - Export symbols at their declarations. Reserve `export { ... } from ...` for barrel files.
 - In React/TSX, prefer named function components with explicit props parameters over `React.FC`/`FunctionComponent`; only type component values when you are storing them in a registry or passing them as data.
 - Prefer factory functions over classes. Let closure position communicate private vs public API.

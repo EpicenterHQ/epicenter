@@ -50,9 +50,8 @@ When merging PRs, use regular merge commits (NOT squash):
 gh pr merge --merge  # Correct: preserves commit history
 # NOT: gh pr merge --squash
 # NOT: gh pr merge --rebase
-
-# Use --admin flag if needed to bypass branch protections
-gh pr merge --merge --admin
 ```
+
+A merge that branch protection blocks waits for its checks. Bypassing protection with `--admin` is the person's decision, not the agent's.
 
 Preserve individual commits; they tell the story of how the work evolved.

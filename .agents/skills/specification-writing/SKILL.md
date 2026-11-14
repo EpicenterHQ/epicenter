@@ -46,7 +46,7 @@ The first screen of a spec must answer:
 
 ```txt
 What is this?
-Is it active, implemented, superseded, or historical?
+Is it a draft or in progress?
 What is the current shape?
 What is the target shape?
 What proves the change is done?
@@ -130,7 +130,6 @@ Not every spec needs every section. A small feature might skip Research Findings
 **Owner**: [Name/team responsible for decisions]
 **Branch**: [optional: branch name if work has started]
 **Supersedes**: [optional: previous spec paths]
-**Superseded by**: [optional: later spec path]
 ```
 
 ### One Sentence
