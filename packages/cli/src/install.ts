@@ -6,11 +6,10 @@
 import { existsSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { extractErrorMessage } from 'wellcrafted/error';
-import { COMPILED } from './commands.ts';
-import { misuse, parseWords } from './commands.ts';
+import { linkAppPackage } from './app-package.ts';
+import { COMPILED, misuse, parseWords } from './commands.ts';
 import { chooseApps } from './home.ts';
 import { fail, writeErr, writeJson, writeOut } from './output.ts';
-import { linkAppPackage } from './app-package.ts';
 
 /** Install the locked packages, when present, and link the command's app package. */
 export async function installApp(
@@ -81,7 +80,9 @@ export async function installCommand(
 			writeErr(`${app}: ${row.error.message}`);
 			if (row.error.next) writeErr(`Run: ${row.error.next}`);
 		} else
-			writeOut(`${app}: ${row.installed ? 'installed packages and linked @epicenter/app' : 'linked @epicenter/app'}`);
+			writeOut(
+				`${app}: ${row.installed ? 'installed packages and linked @epicenter/app' : 'linked @epicenter/app'}`,
+			);
 	}
 	if (json) writeJson({ apps });
 	return apps.some((app) => app.error) ? 1 : 0;

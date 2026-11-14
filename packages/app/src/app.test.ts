@@ -40,7 +40,9 @@ describe('createMemoryContext', () => {
 		expect(
 			await inRun(context, () => reading.actions.log({ minutes: 30 })),
 		).toEqual({ minutes: 30 });
-		expect(await context.folder.read('data/2026.csv')).toBe('minutes\n10\n30\n');
+		expect(await context.folder.read('data/2026.csv')).toBe(
+			'minutes\n10\n30\n',
+		);
 		expect(await context.folder.list()).toEqual(['data/2026.csv']);
 	});
 
@@ -62,7 +64,7 @@ describe('createMemoryContext', () => {
 describe('writes in a run', () => {
 	test('refuses every folder write outside data/ while leaving reads open', async () => {
 		const context = createMemoryContext({ 'README.md': 'code' });
-		const attempts = [
+		const attempts: (() => Promise<unknown>)[] = [
 			() => folder.write('report.md', 'text'),
 			() => folder.writeBytes('report.md', new Uint8Array([1])),
 			() => folder.update('report.md', () => 'text'),
@@ -78,14 +80,21 @@ describe('writes in a run', () => {
 
 	test('refuses every folder write into a .git* path segment', async () => {
 		const context = createMemoryContext();
-		for (const path of ['data/.git/hooks/x', 'data/.gitignore', 'data/nested/.gitattributes']) {
-			for (const attempt of [
+		for (const path of [
+			'data/.git/hooks/x',
+			'data/.gitignore',
+			'data/nested/.gitattributes',
+		]) {
+			const attempts: (() => Promise<unknown>)[] = [
 				() => folder.write(path, 'text'),
 				() => folder.writeBytes(path, new Uint8Array([1])),
 				() => folder.update(path, () => 'text'),
 				() => folder.delete(path),
-			])
-				await expect(inRun(context, attempt)).rejects.toThrow('.git* path segment');
+			];
+			for (const attempt of attempts)
+				await expect(inRun(context, attempt)).rejects.toThrow(
+					'.git* path segment',
+				);
 		}
 		expect(await context.folder.list()).toEqual([]);
 	});
@@ -101,7 +110,10 @@ describe('a read-only run', () => {
 		const refused = (doing: string) =>
 			`The action "week show" is read-only, so it cannot ${doing}`;
 		const tries: [() => Promise<unknown>, string][] = [
-			[() => folder.write('data/2026.csv', 'x'), refused('write data/2026.csv')],
+			[
+				() => folder.write('data/2026.csv', 'x'),
+				refused('write data/2026.csv'),
+			],
 			[
 				() => folder.writeBytes('data/a.bin', new Uint8Array([1])),
 				refused('write data/a.bin'),
@@ -122,7 +134,10 @@ describe('a read-only run', () => {
 		];
 		for (const [attempt, message] of tries)
 			await expect(inRun(context, attempt)).rejects.toThrow(message);
-		expect(await context.folder.list()).toEqual(['data/2026.csv', 'data/books/dune.md']);
+		expect(await context.folder.list()).toEqual([
+			'data/2026.csv',
+			'data/books/dune.md',
+		]);
 		expect(await context.folder.read('data/2026.csv')).toBe('minutes\n');
 		expect(
 			await inRun(context, () => books.get({ path: 'data/books/dune.md' })),
@@ -261,6 +276,7 @@ describe('defineApp', () => {
 				defineApp({
 					description: 'Then',
 					collections: {},
+					// biome-ignore lint/suspicious/noThenProperty: the test defines then actions to check defineApp refuses them
 					actions: { then: noop, group: { then: noop, inner: { then: noop } } },
 				}),
 			),
@@ -328,14 +344,22 @@ describe('defineApp', () => {
 
 describe('defineCollection', () => {
 	test('requires a data/ path and names the accepted path', () => {
-		expect(problems(() => defineCollection({ path: 'tasks/{time}.md', fields: {} }))).toEqual([
+		expect(
+			problems(() => defineCollection({ path: 'tasks/{time}.md', fields: {} })),
+		).toEqual([
 			'The collection path "tasks/{time}.md" must start with data/: data/tasks/{time}.md',
 		]);
 	});
 
 	test('allows names reserved for code when they are under data/', () => {
-		for (const path of ['data/ui/{page}.md', 'data/node_modules/{id}.md', 'data/epicenter.md'])
-			expect(problems(() => defineCollection({ path, fields: {} }))).toEqual([]);
+		for (const path of [
+			'data/ui/{page}.md',
+			'data/node_modules/{id}.md',
+			'data/epicenter.md',
+		])
+			expect(problems(() => defineCollection({ path, fields: {} }))).toEqual(
+				[],
+			);
 	});
 
 	test.each([

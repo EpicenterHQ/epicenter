@@ -1,5 +1,7 @@
 # 0741. Epicenter reconciles only states it made
 
+<!-- doc-path-check: ignore-file (cites the waiting folder sync product (ADR-0840), kept at tag folder-sync-product) -->
+
 - **Status:** Accepted (2026-11-04)
 - **Date:** 2026-11-04
 - **Amends:** [ADR-0719](0719-every-change-to-the-data-model-is-checked-against-eight-principles.md) at principle 8, "Where a guarantee is weaker, the screen says so": it becomes "Epicenter reconciles what it made; anywhere else, the screen says what it found and the command that fixes it."

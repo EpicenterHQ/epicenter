@@ -1,5 +1,7 @@
 # 0751. Every native app carries one sync core
 
+<!-- doc-path-check: ignore-file (cites the waiting folder sync product (ADR-0840), kept at tag folder-sync-product) -->
+
 - **Status:** Superseded
 - **Date:** 2026-11-04
 - **Superseded by:** [ADR-0804](0804-a-computer-keeps-a-plain-folder-and-every-surface-syncs-with-one-typescript-function.md): a computer keeps a plain folder, every surface syncs with one TypeScript function, and no client links a Git library.

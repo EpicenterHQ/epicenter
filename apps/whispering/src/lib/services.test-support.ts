@@ -23,11 +23,11 @@ import {
 	modelChoices,
 	openAi,
 } from '@epicenter/ai';
-import { settings } from '@epicenter/local';
-import { outside as computer } from '@epicenter/local/memory';
 import { openFolder } from '@epicenter/folder';
 import type { Folder } from '@epicenter/folder/core';
 import { memory, memoryFiles } from '@epicenter/folder/memory';
+import { settings } from '@epicenter/local';
+import { outside as computer } from '@epicenter/local/memory';
 import { audioDurationMs, RecorderError } from '@epicenter/recorder';
 import { Ok, type Result } from 'wellcrafted/result';
 import { extensionOf } from './audio-format.js';
@@ -282,7 +282,10 @@ export async function openTestServices({
 		endpoint: connectionId,
 		model: TEST_MODELS.transcription,
 	});
-	await choices.set('chat', { endpoint: connectionId, model: TEST_MODELS.text });
+	await choices.set('chat', {
+		endpoint: connectionId,
+		model: TEST_MODELS.text,
+	});
 
 	const services: TestCapabilities = {
 		capture: createFixtureDevice({

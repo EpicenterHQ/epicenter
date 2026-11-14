@@ -1,5 +1,7 @@
 # 0713. One Epicenter engine per machine syncs every app's folder
 
+<!-- doc-path-check: ignore-file (cites the waiting folder sync product (ADR-0840), kept at tag folder-sync-product) -->
+
 - **Status:** Accepted (2026-11-03)
 - **Date:** 2026-11-03
 - **Amends:** [ADR-0642](0642-each-desktop-app-selects-its-cli-independently-of-the-terminal.md) at "a desktop app that needs the CLI runs its matched private bundled executable": an app calls the one engine the Epicenter app installs at `~/.epicenter/bin/epicenter`, and bundles none.

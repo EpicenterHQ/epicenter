@@ -1,5 +1,7 @@
 # 0357. The account website owns account management and apps retry their own work
 
+<!-- doc-path-check: ignore-file (cites the waiting folder sync product (ADR-0840), kept at tag folder-sync-product) -->
+
 - **Status:** Proposed
 - **Date:** 2026-09-07
 - **Unbuilt:** Release verification of live-provider checkout and system-browser opening from a packaged desktop build.

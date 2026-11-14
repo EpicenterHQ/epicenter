@@ -1,5 +1,7 @@
 # 0655. Product root components use the app name and App suffix
 
+<!-- doc-path-check: ignore-file (cites the waiting folder sync product (ADR-0840), kept at tag folder-sync-product) -->
+
 - **Status:** Accepted
 - **Date:** 2026-10-21
 

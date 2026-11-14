@@ -236,7 +236,11 @@ async function startIn(
 ) {
 	const { folder } = await audioFolder();
 	browser(options);
-	return recorder.start({ files: folder.audio, path: 'recordings/a', ...start });
+	return recorder.start({
+		files: folder.audio,
+		path: 'recordings/a',
+		...start,
+	});
 }
 
 test('a take lands once, whole, at its path when it stops, with every piece in order', async () => {
@@ -260,9 +264,7 @@ test('a take lands once, whole, at its path when it stops, with every piece in o
 	});
 	// Written when Stop answers.
 	expect(memoryFiles(place).paths()).toEqual(['recordings/a.webm']);
-	expect(await bytesAt(folder, 'webm')).toEqual(
-		new Uint8Array([1, 2, 3, 9]),
-	);
+	expect(await bytesAt(folder, 'webm')).toEqual(new Uint8Array([1, 2, 3, 9]));
 	expect(expectErr(await recording.stop()).name).toBe('NotRecording');
 	expect(memoryFiles(place).paths()).toEqual(['recordings/a.webm']);
 });
@@ -602,9 +604,7 @@ test('a lost microphone ends a recording, which keeps what was recorded and stop
 		path: 'recordings/a.webm',
 		durationMs: 2_000,
 	});
-	expect(await bytesAt(folder, 'webm')).toEqual(
-		new Uint8Array([7, 1, 2, 3]),
-	);
+	expect(await bytesAt(folder, 'webm')).toEqual(new Uint8Array([7, 1, 2, 3]));
 	const late: string[] = [];
 	recording.onEnded((reason) => late.push(reason));
 	track.end();

@@ -1,5 +1,7 @@
 # 0365. AI owns inference access and applications own workflow selection
 
+<!-- doc-path-check: ignore-file (cites code that moved since) -->
+
 - **Status:** Proposed
 - **Date:** 2026-09-08
 - **Amends:** [ADR-0398](0398-every-transcription-destination-speaks-the-openai-wire.md) at client ownership: independent inference handles replace the App lifetime; SDK operations and wire compatibility remain.

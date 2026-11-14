@@ -1,5 +1,7 @@
 # 0271. A workspace mirrors continuously to the Epicenter folder, one way
 
+<!-- doc-path-check: ignore-file (cites the waiting folder sync product (ADR-0840), kept at tag folder-sync-product) -->
+
 - **Status:** Accepted
 - **Date:** 2026-08-27
 - **Amends:** [ADR-0226](0226-a-host-serves-bundles-and-brokers-credentials-it-owns-no-application-data.md) at what a host may hold. That record refused a second CONVERGENT plane and said so in its own words ("The refusal is of a second CONVERGENT plane, not of the host holding bytes"), then permitted the host to hold blob bytes on exactly that reasoning. A one-way mirror cannot diverge for the same reason a blob cannot: nothing merges it back.

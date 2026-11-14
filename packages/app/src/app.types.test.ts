@@ -5,13 +5,13 @@
 import { describe, test } from 'bun:test';
 import { Type } from 'typebox';
 import type { Result } from 'wellcrafted/result';
+import type { ActionYield } from './action.ts';
 import type {
 	ActionError,
 	ActionInput,
 	ActionOutput,
 	AppClient,
 } from './client.ts';
-import type { ActionYield } from './action.ts';
 import type { JsonValue } from './front-matter.ts';
 import {
 	createMemoryContext,
@@ -225,7 +225,11 @@ describe('an app author', () => {
 		assertType<Equal<ActionYield<typeof say>, string | { step: number }>>();
 		assertType<Equal<ActionYield<typeof tag>, never>>();
 		assertType<Equal<ActionYield<Actions['words']['set']>, never>>();
-		const chat = defineApp({ description: 'Chat', collections: {}, actions: { say } });
+		const chat = defineApp({
+			description: 'Chat',
+			collections: {},
+			actions: { say },
+		});
 		assertType<
 			Equal<ActionYield<typeof chat.actions.say>, string | { step: number }>
 		>();
@@ -266,8 +270,9 @@ describe('an app author', () => {
 				due: word?.due ?? null,
 				body: `${word?.body ?? ''}more\n`,
 			}));
-		// @ts-expect-error createdAt is required, so it cannot be removed
-		() => words.update({ path: 'data/words/a.md' }, () => ({ createdAt: null }));
+		() =>
+			// @ts-expect-error createdAt is required, so it cannot be removed
+			words.update({ path: 'data/words/a.md' }, () => ({ createdAt: null }));
 		// @ts-expect-error a path is not a field
 		() => words.update({ path: 'data/words/a.md' }, () => ({ path: 'b' }));
 		// @ts-expect-error a collection of many files updates one path
@@ -315,20 +320,24 @@ describe('an app author', () => {
 
 	test('a UI calls under the same words, typed by the app, and gets a Result', () => {
 		const vocabUi = {} as AppClient<Actions>;
-		const call = () => vocabUi.words.set({ path: 'data/words/a.md', meaning: 'x' });
+		const call = () =>
+			vocabUi.words.set({ path: 'data/words/a.md', meaning: 'x' });
 		assertType<
 			Equal<
 				Awaited<ReturnType<typeof call>>,
-				Result<{
-					path: string;
-					word: string;
-					meaning?: string;
-					createdAt?: string;
-					due?: string;
-					body: string;
-					problems?: string[];
-					other?: Record<string, JsonValue>;
-				}, ActionError>
+				Result<
+					{
+						path: string;
+						word: string;
+						meaning?: string;
+						createdAt?: string;
+						due?: string;
+						body: string;
+						problems?: string[];
+						other?: Record<string, JsonValue>;
+					},
+					ActionError
+				>
 			>
 		>();
 		// @ts-expect-error due is written only by Vocab's own actions

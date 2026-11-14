@@ -1,5 +1,7 @@
 # 0719. Every change to the data model is checked against eight principles
 
+<!-- doc-path-check: ignore-file (cites code that moved since) -->
+
 - **Status:** Accepted (2026-11-03)
 - **Date:** 2026-11-03
 - **Supersedes:** [ADR-0627](0627-every-change-to-the-data-model-is-checked-against-nine-principles.md) (every change to the data model is checked against nine principles): its principles describe browser clones, IndexedDB datasets and a merge that writes no conflict marker, which ADR-0700 and the records cited below replace.

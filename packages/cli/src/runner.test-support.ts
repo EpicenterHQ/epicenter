@@ -8,14 +8,9 @@ const bin = resolve(import.meta.dir, 'bin.ts');
 
 /** Run git in `dir`, throwing with its stderr when it fails. */
 export async function gitIn(dir: string, ...args: string[]) {
+	// Bun passes the environment it started with unless told; the preload changed `process.env`.
 	const child = Bun.spawn(['git', '-C', dir, ...args], {
-		env: {
-			...process.env,
-			GIT_AUTHOR_NAME: 'Epicenter Test',
-			GIT_AUTHOR_EMAIL: 'epicenter-test@example.com',
-			GIT_COMMITTER_NAME: 'Epicenter Test',
-			GIT_COMMITTER_EMAIL: 'epicenter-test@example.com',
-		},
+		env: process.env,
 		stdout: 'pipe',
 		stderr: 'pipe',
 	});
@@ -47,10 +42,6 @@ export async function fixture() {
 		...process.env,
 		HOME: root,
 		EPICENTER_ROOT: undefined,
-		GIT_AUTHOR_NAME: 'Epicenter Test',
-		GIT_AUTHOR_EMAIL: 'epicenter-test@example.com',
-		GIT_COMMITTER_NAME: 'Epicenter Test',
-		GIT_COMMITTER_EMAIL: 'epicenter-test@example.com',
 	};
 
 	/** Write `files` under `dir` and, unless `git` is false, commit them as a new repository. */

@@ -8,12 +8,12 @@
 import { afterAll, describe, mock, test } from 'bun:test';
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { scratch } from '../scratch.test-support.js';
 import { createNamedShell } from '../named-shell.test-support.js';
 import { watchDirectory } from '../native/watch.js';
-import { memoryStore } from './memory-store.js';
+import { scratch } from '../scratch.test-support.js';
 import { serveDirectory } from '../serve.js';
 import { servedStore } from '../served/store.js';
+import { memoryStore } from './memory-store.js';
 import { nodeStore } from './node-store.js';
 import { type StoreSubject, storeChecks } from './store.conformance.js';
 
@@ -39,7 +39,11 @@ function outsideOf(root: string) {
 let shell: ReturnType<typeof createNamedShell> | undefined;
 mock.module('@tauri-apps/api/core', () => ({
 	transformCallback: () => 0,
-	invoke: (cmd: string, body?: Record<string, unknown> | Uint8Array, options?: { headers?: Record<string, string> }) => {
+	invoke: (
+		cmd: string,
+		body?: Record<string, unknown> | Uint8Array,
+		options?: { headers?: Record<string, string> },
+	) => {
 		if (shell === undefined) throw new Error('no shell');
 		return shell.invoke(cmd, body, options);
 	},

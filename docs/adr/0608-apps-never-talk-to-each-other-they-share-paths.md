@@ -1,5 +1,7 @@
 # 0608. Apps share data through ordinary files
 
+<!-- doc-path-check: ignore-file (cites the waiting folder sync product (ADR-0840), kept at tag folder-sync-product) -->
+
 - **Status:** Accepted
 - **Date:** 2026-10-17
 - **Amends:** [ADR-0546](0546-a-folder-syncs-to-git-epicenter-so-under-its-owners-namespace-and-the-first-push-creates-it.md) at "the person may change it before the first push" and "After the first push the directory may be renamed freely": a folder's directory name is its repository name, made valid when the folder is made, and is never changed. [ADR-0593](0593-the-hosted-git-service-stores-data-repositories-and-offers-no-rename-or-move.md) at the consequence "renaming the folder on disk changes nothing remote": no local rename is offered either.

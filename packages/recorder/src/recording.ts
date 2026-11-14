@@ -56,7 +56,10 @@ export type RecordingStart = {
  * `{ id, ext }`, such as Whispering's `folder.audio` at
  * `recordings/{id}.{ext}`, or `reactive`'s copy of it.
  */
-export type AudioFiles = Pick<FolderFiles<{ path: '{id}.{ext}' }>, 'get' | 'set'>;
+export type AudioFiles = Pick<
+	FolderFiles<{ path: '{id}.{ext}' }>,
+	'get' | 'set'
+>;
 
 /**
  * The files a recording is written into, so the audio stays where the rest

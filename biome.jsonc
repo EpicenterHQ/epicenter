@@ -134,6 +134,15 @@
 			}
 		},
 		{
+			// Upstream shadcn-svelte barrels export parts by short names such as
+			// `Field.Error` and `Field.Set`, and `packages/ui/scripts/upstream.ts`
+			// checks these files against upstream's text, so the names stay.
+			"includes": ["packages/ui/src/*/index.ts"],
+			"linter": {
+				"rules": { "suspicious": { "noShadowRestrictedNames": "off" } }
+			}
+		},
+		{
 			// Vendored PostHog analytics snippet — minified code, not worth linting
 			"includes": ["**/posthog.astro"],
 			"linter": { "enabled": false }

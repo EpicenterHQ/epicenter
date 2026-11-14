@@ -332,14 +332,9 @@ describe("a folder's log over HTTP", () => {
 		const folder = await made(token);
 		const audio = new Uint8Array(40_000).map((_, index) => index % 251);
 		const version = await sha256(audio);
-		const missing = await call(
-			token,
-			'folders',
-			`${folder}/blobs/missing`,
-			{
-				body: { versions: [version] },
-			},
-		);
+		const missing = await call(token, 'folders', `${folder}/blobs/missing`, {
+			body: { versions: [version] },
+		});
 		expect((await missing.json()) as unknown).toEqual({ missing: [version] });
 		expect((await upload(token, folder, audio)).status).toBe(201);
 		// Bytes it holds are taken again without being kept twice.
@@ -601,9 +596,7 @@ describe("a folder's log over HTTP", () => {
 			folder,
 		);
 		// Its log answers as any folder the person does not hold.
-		expect((await call(token, 'folders', `${folder}/log`)).status).toBe(
-			403,
-		);
+		expect((await call(token, 'folders', `${folder}/log`)).status).toBe(403);
 	}, 60_000);
 });
 
@@ -645,9 +638,9 @@ describe('sharing a folder is an invitation to an email', () => {
 				},
 			],
 		});
-		expect(
-			(await call(bob.token, 'folders', `${folder}/changes`)).status,
-		).toBe(403);
+		expect((await call(bob.token, 'folders', `${folder}/changes`)).status).toBe(
+			403,
+		);
 
 		const accepted = await accept(bob.token, folder);
 		expect(accepted.status).toBe(200);
@@ -690,9 +683,7 @@ describe('sharing a folder is an invitation to an email', () => {
 		expect((await share(carol.token, folder, alice.person.email)).status).toBe(
 			403,
 		);
-		const heads = (await (
-			await call(carol.token, 'folders', '')
-		).json()) as {
+		const heads = (await (await call(carol.token, 'folders', '')).json()) as {
 			heads: Record<string, string | null>;
 		};
 		expect(heads.heads).toEqual({});

@@ -40,14 +40,14 @@
 import { isMarkName } from '@epicenter/definition/site';
 import { sql } from 'drizzle-orm';
 import type { Db } from '../db/create-db.js';
-import type { BlobStore } from '../log/blob-store.js';
-import { putBlob } from '../log/blobs.js';
 import {
 	type AppendAnswer,
-	type ChangeWrite,
 	appendChange,
+	type ChangeWrite,
 	type Imported,
 } from '../log/append.js';
+import type { BlobStore } from '../log/blob-store.js';
+import { putBlob } from '../log/blobs.js';
 import { listMarks, seqOfMark, setMark } from '../log/marks.js';
 import {
 	blobsOf,
@@ -512,7 +512,8 @@ function sendAppended(answer: AppendAnswer): Response {
 			{
 				error: 'missing',
 				missing: answer.missing,
-				message: 'put these versions at blobs/<sha256>, then send the change again',
+				message:
+					'put these versions at blobs/<sha256>, then send the change again',
 			},
 			409,
 		);

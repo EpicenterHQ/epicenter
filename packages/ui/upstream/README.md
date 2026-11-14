@@ -18,7 +18,7 @@ inputs and are not checked. Epicenter-owned components have no upstream match.
 A stock component is the CLI's text with our import paths, plus at most one
 patch, `patches/<name>.diff`, which opens with its reason (`Epicenter: …`).
 Upstream's `.ts` files are compared as Biome commits them; `.svelte` files are
-compared as the CLI wrote them. `scripts/upstream.test.ts` fails when a
+compared as the CLI wrote them. `packages/ui/scripts/upstream.test.ts` fails when a
 component differs from upstream plus its patch. The kit's own components
 (`icon-button`, `confirmation-dialog`, `loading` and the rest without a
 snapshot) are not checked.

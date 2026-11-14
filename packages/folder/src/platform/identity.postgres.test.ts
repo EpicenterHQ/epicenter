@@ -544,8 +544,10 @@ test('an old in-folder manifest is imported once: a record for the directory it 
 	await utimes(join(old, 'saves/stale'), hourAgo, hourAgo);
 	await rm(join(desk.path, '.epicenter'), { recursive: true });
 	// A copy of it elsewhere in the Epicenter folder: its manifest names another inode.
+	// The copy keeps each file's age, as macOS's clone does and Linux's copy does not.
 	await cp(join(desk.path, 'Old'), join(desk.path, 'Old copy'), {
 		recursive: true,
+		preserveTimestamps: true,
 	});
 
 	const found = expectOk(await identify({ root: desk.root, account }));
