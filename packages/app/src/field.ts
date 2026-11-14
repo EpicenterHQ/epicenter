@@ -7,7 +7,10 @@
  * A field is required unless it says `optional`. A switch (`boolean`) and a
  * list (`tags`) are never required: an absent switch is `false`, an absent
  * list is empty. A collection's field that says `readOnly` is written only by
- * the app's own actions: the exposed `add` and `set` leave it out.
+ * the app's own actions: the exposed `add` and `set` leave it out. An action's
+ * text input that says `writeOnly` is a secret sent in and never given back
+ * (ADR-0870): its action is not offered over MCP, its value never names a
+ * commit or appears in a refusal, and the CLI asks for it without echo.
  */
 import {
 	type TArray,
@@ -29,10 +32,18 @@ type Options = {
 
 type MaybeOptional = Options & { optional?: boolean };
 
-/** `T` marked as JSON Schema's `readOnly` when the options say so, so types can leave it out. */
-type Marked<T extends TSchema, O> = O extends { readOnly: true }
+/**
+ * JSON Schema's `writeOnly`, for an action's text input: a secret, such as a
+ * token, that the action keeps in a `.local` file and never returns. A
+ * collection's field cannot be write-only, since a read gives every field back.
+ */
+type WriteOnly = { writeOnly?: boolean };
+
+/** `T` marked as JSON Schema's `readOnly` or `writeOnly` when the options say so, so types can read the mark. */
+type Marked<T extends TSchema, O> = (O extends { readOnly: true }
 	? T & { readOnly: true }
-	: T;
+	: T) &
+	(O extends { writeOnly: true } ? { writeOnly: true } : unknown);
 
 type Optionally<T extends TSchema, O> = Marked<
 	O extends { optional: true } ? TOptional<T> : T,
@@ -81,10 +92,13 @@ export const field = {
 	 * a `description` that reads after "must be", since that is how a refusal
 	 * names it: `{ pattern: '^\\S.*$', description: 'one line, not blank' }`.
 	 */
-	text: <const O extends MaybeOptional & { pattern?: string }>(options?: O) =>
+	text: <const O extends MaybeOptional & WriteOnly & { pattern?: string }>(
+		options?: O,
+	) =>
 		maybeOptional(
 			Type.String({
 				...schemaOptions(options),
+				...(options?.writeOnly ? { writeOnly: true } : {}),
 				...(options?.pattern === undefined ? {} : { pattern: options.pattern }),
 			}),
 			options,
@@ -144,6 +158,18 @@ export const field = {
 			Type.Array(Type.String(), { ...schemaOptions(options), default: [] }),
 		) as Marked<TTags, O>,
 };
+
+/** Whether a field is JSON Schema's `writeOnly`: a secret its caller sends and is never shown again. */
+export function isWriteOnly(field: TSchema): boolean {
+	return (field as { writeOnly?: unknown }).writeOnly === true;
+}
+
+/** The keys of an action's input marked `writeOnly`, in the order its fields declare them. */
+export function writeOnlyKeys(input: Record<string, TSchema>): string[] {
+	return Object.entries(input)
+		.filter(([, field]) => isWriteOnly(field))
+		.map(([key]) => key);
+}
 
 type Described = {
 	type?: string;

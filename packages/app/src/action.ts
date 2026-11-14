@@ -20,6 +20,7 @@
  */
 import { type Static, type TObject, type TSchema, Type } from 'typebox';
 import { Value } from 'typebox/value';
+import { isWriteOnly } from './field.ts';
 
 /** An action's input: a record of fields, or of any TypeBox schemas. */
 export type Input = Record<string, TSchema>;
@@ -277,6 +278,10 @@ function actionProblems(def: object): string[] {
 			);
 		else if (positional.indexOf(key) !== index)
 			problems.push(`lists the positional "${key}" twice`);
+		else if (isWriteOnly(fields[key] as TSchema))
+			problems.push(
+				`has the write-only "${key}" as a positional; a secret is never read from the command line, where the shell's history keeps it`,
+			);
 		else if (
 			(fields[key] as { type?: unknown }).type === 'array' &&
 			index !== positional.length - 1

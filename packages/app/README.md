@@ -262,7 +262,9 @@ takes `{ path, grade }`; it could take `{ word, grade }` and call
 
 Each field is JSON Schema, so any TypeBox schema works as a field too. A field
 is required unless it says `optional: true`; `readOnly: true` is described
-above, and every field helper keeps it in its type. A field may not be named
+above, and every field helper keeps it in its type. `field.text({ writeOnly:
+true })` marks an action's input as a secret, described below; a collection's
+field cannot be write-only. A field may not be named
 `json`, `help`, or `input`, which `epicenter` reads itself.
 
 `localDay()` and `localTime()` give now, or a `Date` passed to them, as
@@ -394,9 +396,12 @@ transcript:
   quotes what did not fit. A secret comes in one of three ways: the person
   writes the `.local` file; the action runs a flow that brings it back to this
   computer itself, as Mail's `connect` does with only a `port` and a loopback
-  listener; or, once it is built, an input marked `writeOnly`
-  (`field.text({ writeOnly: true })`), which the app's UI posts over HTTP and
-  which MCP, the commit name, and refusals never carry.
+  listener; or an input marked `writeOnly` (`field.text({ writeOnly: true
+  })`), which the app's UI posts over HTTP. MCP neither lists nor runs an
+  action with such an input, its value never names the commit, a refusal
+  names the field without quoting it, and the command line asks for it
+  without echo rather than reading it from its arguments. It cannot be a
+  positional.
 
 `.local` means "this computer only", for a cache as much as a sign-in. It is
 not a guard against a shell agent on the same computer: give that agent a

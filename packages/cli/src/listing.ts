@@ -1,12 +1,13 @@
 /**
  * The Epicenter, app, and action views (ADR-0841). `--json` prints the app's
  * description and collections with each action as the MCP tool `serve`
- * offers, so a listing and `tools/list` agree; the human views come from the
- * same actions.
+ * offers, so a listing and `tools/list` agree, except that MCP leaves out an
+ * action with a `writeOnly` input, which the listing keeps with its mark for
+ * the app's own page; the human views come from the same actions.
  */
 
 import { basename } from 'node:path';
-import type { Action } from '@epicenter/app';
+import { type Action, isWriteOnly } from '@epicenter/app';
 import type { TSchemaOptions } from 'typebox';
 import type { Discovery, Runnable } from './home.ts';
 import {
@@ -213,7 +214,8 @@ export function oneAppListing(
 
 /**
  * Explain each field: how it is spelled, whether it is needed, and its
- * description. A positional field may also be given as its flag.
+ * description. A positional field may also be given as its flag; a
+ * `writeOnly` one is asked for after the command runs, without echo.
  */
 export function actionHelp(name: string, key: string, action: Action): string {
 	const positional = new Set<string>(action.positional ?? []);
@@ -223,7 +225,11 @@ export function actionHelp(name: string, key: string, action: Action): string {
 		const kind = fieldKind(schema);
 		const flag = `--${flagOf(key)}`;
 		const asFlag = kind === 'switch' ? flag : `${flag} <${kind}>`;
-		const spelling = positional.has(key) ? `<${key}>, ${asFlag}` : asFlag;
+		const spelling = isWriteOnly(field)
+			? `${key} (asked for)`
+			: positional.has(key)
+				? `<${key}>, ${asFlag}`
+				: asFlag;
 		const status = Object.hasOwn(schema, 'default')
 			? `default ${JSON.stringify(schema.default)}`
 			: required.has(key)

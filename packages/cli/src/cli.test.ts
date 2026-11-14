@@ -325,7 +325,7 @@ test('app and action views include locations, schemas, field help and version', 
 		JSON.parse((await f.run('reading', 'log', '--help', '--json')).stdout),
 	).toMatchObject({ name: 'reading_log', inputSchema: { type: 'object' } });
 	expect(JSON.parse((await f.run('--version', '--json')).stdout)).toEqual({
-		version: '0.0.1',
+		version: '0.0.2',
 	});
 	expect((await f.run('--help')).stdout).toContain('Exit codes:');
 	expect((await f.run('--help')).stdout).toContain('epicenter install [<app>]');
