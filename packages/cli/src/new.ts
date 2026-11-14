@@ -31,7 +31,7 @@ import { misuse, nameProblem, parseWords } from './commands.ts';
 import { dataRepository } from './data.ts';
 import { ENGINES } from './engines.ts';
 import { CliError } from './errors.ts';
-import { checkedGit, git } from './git.ts';
+import { checkedGit, git, identityProblem } from './git.ts';
 import { loadHomeApp } from './home.ts';
 import { installApp } from './install.ts';
 import { fail, writeErr, writeJson, writeOut } from './output.ts';
@@ -185,6 +185,8 @@ export async function newCommand(
 				.error,
 			json,
 		);
+	const nobody = await identityProblem();
+	if (nobody) return fail(CliError.Usage({ message: nobody }).error, json);
 	if (from === undefined) {
 		try {
 			await makeApp(name);

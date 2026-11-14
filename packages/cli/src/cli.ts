@@ -23,7 +23,7 @@ import { VERSION } from './engines.ts';
 import { CliError } from './errors.ts';
 import { historyCommand, undoCommand } from './history.ts';
 import { discoverAll, loadHomeApp } from './home.ts';
-import { serveHttp } from './http.ts';
+import { listenProblem, serveHttp } from './http.ts';
 import { initCommand } from './init.ts';
 import { matchAction, readInput, usageLine } from './input.ts';
 import { installCommand } from './install.ts';
@@ -92,6 +92,9 @@ const HANDLERS: { [K in Command]: Handler } = {
 		const root = epicenterRoot();
 		const listen = port === undefined ? root.port : portOf(port);
 		if (listen === undefined) return fail(misuse('serve', BAD_PORT), json);
+		const problem =
+			host === undefined ? undefined : listenProblem(host, listen);
+		if (problem) return fail(misuse('serve', problem), json);
 		return serveHttp(host ?? '127.0.0.1', listen);
 	},
 };
@@ -146,7 +149,8 @@ export async function runCli(argv: string[]): Promise<number> {
 				return 0;
 			}
 			if (command !== 'init' && command !== 'service') epicenterRoot();
-			return HANDLERS[command](words, json);
+			// Awaited, so a command that throws is answered by the catch below.
+			return await HANDLERS[command](words, json);
 		}
 		epicenterRoot();
 		// The code a call ran is the code before loading it: an epicenter.ts may move HEAD as it loads.

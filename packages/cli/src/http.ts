@@ -16,13 +16,16 @@
  * no name is reserved for the server.
  *
  * `serve` has no sign-in: who reaches it is its host's decision (ADR-0883).
- * It listens on 127.0.0.1 (or `--host`) and trusts every request it answers:
- * only this computer and the tailnet reach it. It answers only a `Host` that
- * is a loopback name, an IP literal, or a `*.ts.net` name, which a DNS
- * rebinding name is not, and refuses a request a Tailscale Funnel or
- * Cloudflare Tunnel delivered. Both set their header on every request, and
- * Funnel removes a copy the client sent, so a tunnel aimed at this port by
- * mistake reaches only refusals.
+ * It trusts every request it answers, so the address it listens on is its
+ * access control: 127.0.0.1 unless `--host` names another loopback address
+ * or one of the tailnet's (`listenProblem`), never a wildcard or a public
+ * address. It answers only a `Host` that is a loopback name, an IP literal,
+ * or a `*.ts.net` name, which a DNS rebinding name is not; the client writes
+ * that header, so it guards against rebinding and decides nothing about who
+ * may call. It refuses a request a Tailscale Funnel or Cloudflare Tunnel
+ * delivered. Both set their header on every request, and Funnel removes a
+ * copy the client sent, so a tunnel aimed at this port by mistake reaches
+ * only refusals.
  *
  * A write call commits pending data before it answers (`run.ts`).
  * Everything else reaches history and the backup on the server's clock: when
@@ -37,7 +40,7 @@
  */
 
 import { realpath, stat } from 'node:fs/promises';
-import { isIP } from 'node:net';
+import { BlockList, isIP } from 'node:net';
 import { basename, isAbsolute, join, sep } from 'node:path';
 import { isName } from '@epicenter/app';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
@@ -321,8 +324,40 @@ function createSite(refreshUi: (app: string, folder: string) => unknown): Site {
 }
 
 /**
+ * The addresses `serve` may listen on: this computer's loopback, and the
+ * ranges Tailscale gives a tailnet's devices.
+ */
+const LISTENABLE = new BlockList();
+LISTENABLE.addSubnet('127.0.0.0', 8, 'ipv4');
+LISTENABLE.addAddress('::1', 'ipv6');
+LISTENABLE.addSubnet('100.64.0.0', 10, 'ipv4');
+LISTENABLE.addSubnet('fd7a:115c:a1e0::', 48, 'ipv6');
+
+/**
+ * Why `serve` must not listen on `host`, or `undefined` when it may: `serve`
+ * signs no one in, so only `localhost`, a loopback address, or a Tailscale
+ * address will do. A wildcard such as `0.0.0.0` or a public address would
+ * let anyone who reaches this computer call every action. 100.64.0.0/10 is
+ * also carrier-grade NAT's range, so a 100.x address is the tailnet's only
+ * when Tailscale assigned it.
+ */
+export function listenProblem(host: string, port: number): string | undefined {
+	const address = host.replace(/^\[|\]$/g, '');
+	const family = isIP(address);
+	if (
+		host === 'localhost' ||
+		(family !== 0 && LISTENABLE.check(address, family === 6 ? 'ipv6' : 'ipv4'))
+	)
+		return undefined;
+	return `serve signs no one in, so it listens only on this computer (127.0.0.1, ::1, localhost) or a Tailscale address (100.64.0.0/10, fd7a:115c:a1e0::/48), not ${JSON.stringify(host)}.
+To reach it from your other devices, leave --host out and run: tailscale serve --bg ${port}`;
+}
+
+/**
  * Whether a `Host` header names this computer or the tailnet: a loopback
  * name, an IP literal, or a `*.ts.net` name, whose DNS Tailscale controls.
+ * The client writes the header, so this stops DNS rebinding and nothing else;
+ * the listening address (`listenProblem`) decides who reaches `serve`.
  */
 function isPrivateHost(host: string | null) {
 	if (!host) return false;
@@ -464,7 +499,8 @@ export async function serveHttp(host: string, port: number): Promise<number> {
 		if (await exists(join(realPath, 'node_modules')))
 			await linkAppPackage(realPath);
 	const server = startHttpServer(host, port);
-	writeErr(`Serving your apps at http://${host}:${server.port}.`);
+	const address = isIP(host) === 6 ? `[${host}]` : host;
+	writeErr(`Serving your apps at http://${address}:${server.port}.`);
 	await new Promise<void>((resolve) => {
 		process.once('SIGINT', resolve);
 		process.once('SIGTERM', resolve);

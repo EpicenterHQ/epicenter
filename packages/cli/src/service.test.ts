@@ -234,7 +234,9 @@ test('every service action says macOS-only on another platform', async () => {
 		}) as typeof process.stderr.write;
 		try {
 			expect(await serviceCommand([action], false, 'linux')).toBe(1);
-			expect(stderr).toBe('epicenter service is macOS-only for now.\n');
+			expect(stderr).toBe(
+				'epicenter service is macOS-only. Elsewhere, run epicenter serve under whatever keeps processes running on this computer, such as a systemd user unit.\n',
+			);
 		} finally {
 			process.stderr.write = oldErr;
 		}

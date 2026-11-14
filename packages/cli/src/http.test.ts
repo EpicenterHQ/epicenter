@@ -7,7 +7,7 @@
 import { afterAll, afterEach, expect, setDefaultTimeout, test } from 'bun:test';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { startHttpServer } from './http.ts';
+import { listenProblem, startHttpServer } from './http.ts';
 import { fixture, gitIn, readingApp } from './runner.test-support.ts';
 
 setDefaultTimeout(30_000);
@@ -162,4 +162,27 @@ test('a tick skips an idle app while backing up an app with pending data', async
 		pushed: true,
 	});
 	expect(await gitIn(join(idle, 'data'), 'rev-parse', 'HEAD')).toBe(before);
+});
+
+test('serve listens on loopback and Tailscale addresses, and nowhere else', () => {
+	for (const host of [
+		'localhost',
+		'127.0.0.1',
+		'127.8.0.1',
+		'::1',
+		'[::1]',
+		'100.101.102.103',
+		'fd7a:115c:a1e0:ab12:4843:cd96:6258:b240',
+	])
+		expect(listenProblem(host, 4747)).toBeUndefined();
+	for (const host of [
+		'0.0.0.0',
+		'::',
+		'192.168.1.20',
+		'100.128.0.1',
+		'203.0.113.7',
+		'fd00::1',
+		'box.tail1234.ts.net',
+	])
+		expect(listenProblem(host, 4747)).toContain('tailscale serve --bg 4747');
 });
