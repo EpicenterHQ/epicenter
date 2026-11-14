@@ -31,8 +31,10 @@ export type Answer =
  */
 export async function printingToStderr<T>(work: () => Promise<T>): Promise<T> {
 	const methods = ['log', 'info', 'debug', 'dir', 'table'] as const;
+	// biome-ignore lint/suspicious/noConsole: reads the methods to restore them; nothing prints here.
 	const saved = methods.map((method) => console[method]);
 	const write = process.stdout.write;
+	// biome-ignore lint/suspicious/noConsole: points an action's prints at stderr; nothing prints here.
 	for (const method of methods) console[method] = console.error;
 	process.stdout.write = process.stderr.write.bind(
 		process.stderr,
