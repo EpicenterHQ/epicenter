@@ -1,4 +1,0 @@
-{
-	"extends": ["../../tsconfig.base.json", "./.svelte-kit/tsconfig.json"],
-	"compilerOptions": { "types": ["bun"] }
-}
