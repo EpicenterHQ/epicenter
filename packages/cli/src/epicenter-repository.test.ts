@@ -6,6 +6,7 @@ import {
 	readFile,
 	realpath,
 	rm,
+	symlink,
 	writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -151,6 +152,31 @@ test('a repository with no origin is listed as null and reported, not cloned', a
 		'apps/notes had no origin, so it was not restored.',
 	);
 	expect(existsSync(join(again, 'apps/notes'))).toBe(false);
+});
+
+test("the list holds an app's linked data with its origin, and no other link", async () => {
+	const root = await realpath(await mkdtemp(join(tmpdir(), 'epicenter-list-')));
+	made.push(root);
+	const app = join(root, 'Mine/apps/notes');
+	const kept = join(root, 'kept-elsewhere');
+	for (const repository of [app, kept]) {
+		await mkdir(repository, { recursive: true });
+		await gitIn(repository, 'init', '-q');
+	}
+	await gitIn(
+		kept,
+		'remote',
+		'add',
+		'origin',
+		'https://example.com/notes-data.git',
+	);
+	await symlink(kept, join(app, 'data'));
+	await symlink(kept, join(app, 'other'));
+	await symlink(kept, join(root, 'Mine/data'));
+	expect(await recordRepositories(join(root, 'Mine'))).toEqual({
+		'apps/notes': null,
+		'apps/notes/data': 'https://example.com/notes-data.git',
+	});
 });
 
 test('the list records an http origin without the credentials written into it', async () => {

@@ -10,7 +10,7 @@
  * the action; other data snapshots name the current code HEAD.
  */
 import { existsSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
+import { lstat, readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { isLocalPath } from '@epicenter/app';
 import { extractErrorMessage } from 'wellcrafted/error';
@@ -402,22 +402,33 @@ async function isCodeRepository(folder: string) {
 	return top.code === 0 && top.stdout === '';
 }
 
-/** Commit what is pending in the code, refusing while `data/` is not ignored. */
+/**
+ * Commit what is pending in the code, refusing while `data` is not ignored.
+ * A linked `data` is a file to Git, which `data/` in `.gitignore` does not
+ * match, so a link is ignored only by `data` without the slash.
+ */
 async function snapshotCode(
 	app: string,
 	folder: string,
 	message: string | undefined,
 ): Promise<Snapshot> {
+	const linked = await lstat(dataFolder(folder)).then(
+		(found) => found.isSymbolicLink(),
+		() => false,
+	);
+	const entry = linked ? DATA : `${DATA}/`;
 	const ignored = await git(
 		folder,
-		['check-ignore', '--no-index', '-q', `${DATA}/`],
+		['check-ignore', '--no-index', '-q', entry],
 		true,
 	);
 	if (ignored.code !== 0)
 		return {
 			failed: {
-				message: `${app}/.gitignore does not list ${DATA}/, so a commit of the code could take the data`,
-				next: `printf '${DATA}/\n' >> ${join(folder, '.gitignore')}`,
+				message: linked
+					? `${app}/.gitignore does not list ${DATA}, and ${DATA}/ does not match a link, so a commit of the code could take the link to the data`
+					: `${app}/.gitignore does not list ${DATA}/, so a commit of the code could take the data`,
+				next: `printf '${entry}\n' >> ${join(folder, '.gitignore')}`,
 			},
 		};
 	return commitIn(
