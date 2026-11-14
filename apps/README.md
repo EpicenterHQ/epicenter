@@ -165,7 +165,6 @@ are deleted; the `folder-sync-product` tag keeps them.
 | --- | --- | --- | --- |
 | [Honeycrisp](honeycrisp/README.md) | web; desktop | `~/Epicenter/honeycrisp` | `honeycrisp`: `notes`, `folders` |
 | [Whispering](whispering/README.md) | web; desktop | `~/Epicenter/whispering` | `whispering`: `recordings`, `audio`, `transcriptions`, `transformations`, `transformation_runs`, `text_runs`, `shortcuts` |
-| [Messages](messages/README.md) | local program (`bun run --cwd apps/messages start`) | none: `<AppData>/apps/so.epicenter.messages`, which its program owns | `messages`: `drafts`, `attempts` |
 
 A web app keeps none of its files in the browser. The Epicenter app keeps no
 data of its own; the Epicenter folder, `~/Epicenter` (`~/Epicenter Dev` for a
@@ -184,8 +183,7 @@ Local Books keeps its QuickBooks replica in SQLite under
 
 ## Product root names
 
-Name each product root `<Product>App`: `HoneycrispApp`, `WhisperingApp`,
-and `MessagesApp`. This
+Name each product root `<Product>App`: `HoneycrispApp` and `WhisperingApp`. This
 component composes the product's state and interface over the folder
 `src/lib/app.ts` opened; nothing under it chooses a store.
 
@@ -194,14 +192,12 @@ Keep a specific tool name such as `FolderEditor` for a window within a larger
 application. For the naming rationale, see
 [product root component names](../docs/adr/0655-product-root-components-use-the-app-name-and-app-suffix.md).
 
-## Messages and Beeper
+## Messages
 
-[Messages](messages/README.md) keeps its drafts and send attempts as notes of
-its own contract in a directory its program owns on this computer, outside
-the Epicenter folder. Conversation history stays in Beeper and is read into
-memory.
-Messages runs as a local program on the computer where Beeper Desktop runs
-(`bun run --cwd apps/messages start`): its server answers the page's
-requests of its drafts' directory, and its Beeper requests through the
-Epicenter CLI, which keeps the token in the device keychain. It starts with
-fictional demo chats, and `bun dev:messages` shows only those.
+Messages is an app in an Epicenter, at `~/Epicenter/apps/messages`
+([ADR-0840](../docs/adr/0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md)):
+its actions run in `epicenter serve`, its drafts and send attempts are records
+in its `data/`, and its Beeper token is `data/beeper.local.md`, which its
+`connect` action takes as a `writeOnly` input
+([ADR-0870](../docs/adr/0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md)).
+It is no longer in this repository.
