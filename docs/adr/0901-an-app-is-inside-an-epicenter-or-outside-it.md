@@ -1,6 +1,6 @@
 # 0901. An app is inside an Epicenter or outside it
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-11-14)
 - **Date:** 2026-11-14
 - **Amends:** [ADR-0889](0889-an-app-runs-on-epicenter-a-program-works-with-it-and-they-meet-at-the-apps-contract.md) at "Records, code, and directory names say `program`": both kinds are apps, an inside app and an outside app, and a program is one kind of outside app. Its contract rules stand.
 - **Amends:** [ADR-0891](0891-this-repository-holds-the-runtime-and-programs-and-every-starter-is-a-repository-of-its-own.md) at "nothing under `programs/` is an app": nothing under `programs/` is an inside app. Its layout stands.
