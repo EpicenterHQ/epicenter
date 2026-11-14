@@ -275,6 +275,18 @@ Two habits make the link hard to forget:
   it cites a path that does not exist. That is correct for an illustrative
   example and is otherwise the record telling you it has gone out of date.
 
+`bun run check:doc-paths` checks every path a `Proposed` or `Accepted` record
+cites, because those records govern and their paths must be real. It skips a
+`Superseded` record: its paths were true when it was written. So when code
+moves or is deleted, each record that still governs either repoints to where
+the code lives now or cites the file at a git ref where it existed, as
+`folder-sync-product:apps/epicenter/AGENTS.md`. A ref-qualified path is
+history, and the check does not read it. When the dead paths are a whole
+product's, the product's records are superseded, as
+[ADR-0899](0899-the-folder-sync-product-is-retired.md) did for the folder sync
+product; a per-file `doc-path-check: ignore-file` marker in an ADR hides that
+instead.
+
 ## Index
 
 | ADR                                                                                                                         | Decision                                                                                                                                                                       | Status                                                                                                                          |
@@ -338,10 +350,10 @@ Two habits make the link hard to forget:
 | [0058](0058-push-to-talk-owns-the-recording-it-starts-keyed-by-its-id-not-a-lifecycle-layer.md)                             | Push-to-talk owns the recording it starts, keyed by the recording's id, not a general lifecycle layer                                                                          | Accepted                                                                                                                        |
 | [0059](0059-an-inference-connection-is-a-capability-orthogonal-device-endpoint.md)                                          | An inference connection is a capability-orthogonal device endpoint; the model is per-conversation (amends 0054)                                                                | Accepted (auth axis amended by 0060)                                                                                            |
 | [0060](0060-an-inference-connection-is-a-base-url-and-an-optional-bearer-key.md)                                            | An inference connection is a base URL and an optional bearer key; everything non-static is an injected transport (amends 0059)                                                 | Accepted                                                                                                                        |
-| [0061](0061-local-books-reads-facts-from-the-mirror-reports-live-and-writes-through-one-approved-verb.md)                   | Local Books serves row-level facts from the mirror, computed reports live, and writes back through one approved verb                                                           | Accepted                                                                                                                        |
-| [0062](0062-local-books-stores-oauth-tokens-in-a-single-0600-file.md)                                                       | Local Books stores OAuth tokens in a single 0600 file                                                                                                                          | Accepted                                                                                                                        |
-| [0063](0063-the-local-books-mirror-is-a-multi-writer-cache-made-safe-by-one-monotonic-write-door.md)                        | The Local Books mirror is a multi-writer cache made safe by one monotonic write door, not single-writer discipline                                                             | Accepted                                                                                                                        |
-| [0064](0064-the-local-books-mirror-keeps-one-realm-cdc-cursor-table-existence-is-the-per-entity-init-latch.md)              | The Local Books mirror keeps one realm CDC cursor; table existence is the per-entity init latch                                                                                | Accepted                                                                                                                        |
+| [0061](0061-local-books-reads-facts-from-the-mirror-reports-live-and-writes-through-one-approved-verb.md)                   | Local Books serves row-level facts from the mirror, computed reports live, and writes back through one approved verb                                                           | Superseded by 0902 |
+| [0062](0062-local-books-stores-oauth-tokens-in-a-single-0600-file.md)                                                       | Local Books stores OAuth tokens in a single 0600 file                                                                                                                          | Superseded by 0902 |
+| [0063](0063-the-local-books-mirror-is-a-multi-writer-cache-made-safe-by-one-monotonic-write-door.md)                        | The Local Books mirror is a multi-writer cache made safe by one monotonic write door, not single-writer discipline                                                             | Superseded by 0902 |
+| [0064](0064-the-local-books-mirror-keeps-one-realm-cdc-cursor-table-existence-is-the-per-entity-init-latch.md)              | The Local Books mirror keeps one realm CDC cursor; table existence is the per-entity init latch                                                                                | Superseded by 0902 |
 | [0065](0065-matter-is-a-standalone-disk-as-truth-tool-its-sqlite-is-a-read-only-query-surface.md)                           | Matter is a standalone disk-as-truth tool; its SQLite mirror is a first-class read-only query surface under `epicenter matter`                                                 | Superseded by 0534                                                                                                              |
 | [0066](0066-runtime-portability-is-per-concern-injection-not-a-runtime-object.md)                                           | Runtime portability is per-concern injection, not a runtime object                                                                                                             | Accepted                                                                                                                        |
 | [0067](0067-auth-owns-the-session-endpoint-the-data-client-is-owner-scoped.md)                                              | Auth owns the `/api/session` endpoint; the data client is owner-scoped and receives `ownerId` at construction                                                                  | Accepted (amended by 0092)                                                                                                      |
@@ -349,7 +361,7 @@ Two habits make the link hard to forget:
 | [0069](0069-epicenter-is-one-runnable-star-plus-services-called-by-url-and-token.md)                                        | Epicenter is one runnable program (the star) plus a la carte services addressed by base URL and token                                                                          | Accepted                                                                                                                        |
 | [0070](0070-self-host-adds-no-new-ownership-or-auth-mode.md)                                                                | Self-host adds no new ownership or auth mode: single-user is a preset, and only the credential source varies                                                                   | Superseded by [0075](0075-self-host-is-a-single-partition-instance-behind-one-operator-supplied-bearer.md)                      |
 | [0071](0071-oauth-is-hosted-only-a-custom-instance-requires-a-token.md)                                                     | OAuth is hosted-only; a custom instance requires a token                                                                                                                       | Superseded by 0549 |
-| [0072](0072-local-books-ships-as-a-standalone-cli-the-daemon-surface-is-deferred.md)                                        | Local Books ships as a standalone CLI; the ADR-0047 daemon surface is deferred behind a verb-core seam                                                                         | Accepted                                                                                                                        |
+| [0072](0072-local-books-ships-as-a-standalone-cli-the-daemon-surface-is-deferred.md)                                        | Local Books ships as a standalone CLI; the ADR-0047 daemon surface is deferred behind a verb-core seam                                                                         | Superseded by 0902 |
 | [0073](0073-tools-speak-mcp-natively-epicenter-owns-only-the-transport-mcp-lacks.md)                                        | Tools speak MCP natively; Epicenter owns only the transport MCP lacks                                                                                                          | Accepted (historical relay-floor channel layer deleted by ADR-0079/0086)                                                        |
 | [0074](0074-the-secret-vault-is-an-owner-scoped-synced-store-encrypted-under-a-server-derived-keyring.md)                   | The secret vault is an owner-scoped synced store encrypted under a server-derived keyring, not a passphrase vault                                                              | Accepted (scope amended by 0202: brought values only, never accounts or provider grants; still unbuilt)                          |
 | [0075](0075-self-host-is-a-single-partition-instance-behind-one-operator-supplied-bearer.md)                                | Self-host is a single-partition instance behind one operator-supplied bearer; multi-tenancy is Cloud-only                                                                      | Superseded by 0549                                                                                                                              |
@@ -364,7 +376,7 @@ Two habits make the link hard to forget:
 | [0084](0084-super-chat-shell-is-a-bun-hosted-local-server-not-a-bundled-spa.md)                                             | Super Chat's shell is a Bun-hosted local server, not a bundled SPA                                                                                                             | Accepted                                                                                                                        |
 | [0085](0085-a-box-is-a-role-an-addressable-endpoint-plays-not-a-node-type.md)                                               | A box is a role an addressable endpoint plays, not a distinct node type                                                                                                        | Accepted                                                                                                                        |
 | [0086](0086-no-live-consumer-for-network-reachable-capability-reach-opensidian-is-superseded-not-migrated.md)               | There is no live consumer for network-reachable capability reach; opensidian's cross-device tools are superseded by the super app, not migrated                                | Accepted                                                                                                                        |
-| [0087](0087-honeycrisp-is-the-maintained-notes-product-from-one-isomorphic-workspace-surface.md)                            | Honeycrisp is the maintained notes product from one isomorphic workspace surface                                                                                               | Accepted (one package contract amended by 0130)                                                                                 |
+| [0087](0087-honeycrisp-is-the-maintained-notes-product-from-one-isomorphic-workspace-surface.md)                            | Honeycrisp is the maintained notes product from one isomorphic workspace surface                                                                                               | Superseded by 0902 |
 | [0088](0088-sign-in-is-an-enhancement-never-a-door.md) | Sign-in is an enhancement, never a door | Superseded at its title by 0342's rejection (sign-in is a door); page-lifetime clauses withdrawn by 0350; composition shape, popover, and `apps/api/ui` exemption stand |
 | [0089](0089-the-blob-store-is-a-presigned-s3-kernel-and-the-bucket-is-its-only-index.md)                                    | The blob store is a presigned-S3 kernel and the bucket is its only index                                                                                                       | Accepted (key prefix amended by 0092)                                                                                           |
 | [0090](0090-the-blob-layer-stays-plaintext-confidentiality-belongs-to-the-encrypting-consumer.md)                           | The blob layer stays plaintext; confidentiality belongs to the encrypting consumer                                                                                             | Accepted                                                                                                                        |
@@ -646,6 +658,8 @@ When you add an ADR, add its row here.
 | [0382](0382-session-composition-selects-issuer-identity-and-management-capabilities.md) | Session composition selects issuer identity and management capabilities | Proposed |
 | [0383](0383-self-hosted-sign-in-defaults-to-passkeys-with-optional-passwords.md) | Self-hosted sign-in defaults to passkeys with optional passwords | Proposed |
 | [0362](0362-inference-connections-do-not-require-runtime-management.md) | Inference connections do not require runtime management | Proposed |
+| [0363](0363-an-inference-selection-identifies-the-connection-and-model.md) | An inference selection identifies the connection and model | Superseded by 0757 |
+| [0365](0365-ai-owns-inference-access-and-applications-own-workflow-selection.md) | AI owns inference access and applications own workflow selection | Superseded by 0757 |
 | [0371](0371-core-observations-and-queries-use-explicit-methods.md) | Core observations and queries use explicit methods | Proposed |
 | [0374](0374-the-host-selects-one-account-and-replacement-restarts-its-applications.md) | The host selects one account and replacement restarts its applications | Proposed |
 | [0385](0385-initial-generation-selection-is-a-server-commit.md) | Initial data creation is a server commit | Proposed |
@@ -674,7 +688,7 @@ When you add an ADR, add its row here.
 | [0409](0409-resource-admission-protects-its-storage-owner.md) | Resource admission protects its storage owner | Proposed |
 | [0410](0410-an-app-is-returned-ready-and-page-teardown-owns-recovery.md) | An App is returned ready and page teardown owns recovery | Superseded by 0767 |
 
-| [0411](0411-honeycrisp-displays-data-from-one-app.md) | Honeycrisp displays data from one App | Accepted (amends 0369 for Honeycrisp route and bootstrap ownership) |
+| [0411](0411-honeycrisp-displays-data-from-one-app.md) | Honeycrisp displays data from one App | Superseded by 0902 |
 | [0412](0412-app-data-addresses-name-scopes-not-libraries.md) | App data addresses name scopes, not libraries | Accepted (amends 0375 and 0392) |
 | [0413](0413-app-boot-owns-the-working-page-lifetime.md) | AppBoot owns the working page lifetime | Accepted (amends 0411) |
 | [0415](0415-runtime-replacement-ends-application-sessions.md) | Runtime replacement ends application sessions | Proposed (amends 0413 and 0155) |
@@ -746,66 +760,67 @@ When you add an ADR, add its row here.
 | [0495](0495-the-ark-community-profiles-use-at-handle-paths.md) | The Ark community profiles use at-handle paths | Proposed (community routing and stable profile identity unbuilt; custom domains open) |
 | [0497](0497-browser-folders-use-scoped-opfs-directories.md) | Browser folders use scoped OPFS directories | Accepted (app selection of development and account scopes and private SQL channel ownership unbuilt) |
 | [0498](0498-vocab-opens-one-local-folder-before-sign-in.md) | Vocab opens one local folder before sign-in | Accepted (native distribution and configured synchronization unbuilt) |
-| [0500](0500-svelte-tracks-native-data-reads-without-holding-row-values.md) | Svelte tracks native data reads without holding row values | Proposed |
-| [0501](0501-store-checkout-push-pull-and-its-baseline-are-removed.md) | Store checkout Pull/Push and its baseline are removed | Proposed (checkout removed; generic folder queries unbuilt; no replacement checkout or SQL export planned) |
+| [0500](0500-svelte-tracks-native-data-reads-without-holding-row-values.md) | Svelte tracks native data reads without holding row values | Superseded by 0899 |
+| [0501](0501-store-checkout-push-pull-and-its-baseline-are-removed.md) | Store checkout Pull/Push and its baseline are removed | Superseded by 0899 |
 | [0502](0502-whispering-connections-own-request-destinations-and-credentials.md) | Whispering connections own request destinations and credentials | Accepted (cross-application execution and folder-independent credential storage unbuilt) |
 | [0503](0503-file-authoritative-workflows-preserve-information-and-tolerate-repairable-states.md) | File-authoritative workflows preserve information and tolerate repairable states | Proposed (application refusal review and simpler Honeycrisp folder deletion unbuilt) |
-| [0506](0506-capture-composes-values-through-a-source-preserving-body-codec.md) | Capture composes values through a source-preserving body codec | Proposed |
-| [0509](0509-folder-remotes-and-http-fetch-have-separate-contracts.md) | Folder remotes and HTTP fetch have separate contracts | Proposed |
+| [0506](0506-capture-composes-values-through-a-source-preserving-body-codec.md) | Capture composes values through a source-preserving body codec | Superseded by 0899 |
+| [0509](0509-folder-remotes-and-http-fetch-have-separate-contracts.md) | Folder remotes and HTTP fetch have separate contracts | Superseded by 0899 |
 | [0512](0512-ai-reply-is-independent-of-openai-protocol-compatibility.md) | AI reply is independent of OpenAI protocol compatibility | Proposed (Zhongwen adoption and authenticated browser bridge unbuilt) |
 | [0515](0515-snapshot-saves-serialize-writes-and-retain-only-the-latest-pending-text.md) | Snapshot saves serialize writes and retain only the latest pending text | Superseded by 0528 |
-| [0517](0517-a-data-folder-can-live-inside-any-repository.md) | A data folder can live inside any repository | Proposed (epicenter.json discovery in apps, opener refusal inside a host, extraction tooling, and submodule-hosted opening unbuilt) |
-| [0518](0518-a-row-is-read-through-one-pipeline-and-repaired-as-text.md) | A row is read through one pipeline and repaired as text | Accepted |
-| [0519](0519-row-frontmatter-is-yaml-every-common-reader-reads-identically.md) | Row frontmatter is YAML every common reader reads identically | Accepted (continuous cross-reader check unbuilt) |
-| [0520](0520-the-cli-acts-on-a-data-folder-by-its-path.md) | The CLI acts on a data folder by its path | Accepted (running outside an Epicenter checkout unbuilt; amended by 0700) |
-| [0521](0521-a-folder-syncs-over-plain-git-with-a-token-to-a-server-the-person-chooses.md) | A folder syncs over plain Git with a token, to a server the person chooses | Proposed (`mountGitApp`, both stores, LFS, Sync panel, connector deletion unbuilt) |
+| [0517](0517-a-data-folder-can-live-inside-any-repository.md) | A data folder can live inside any repository | Superseded by 0899 |
+| [0518](0518-a-row-is-read-through-one-pipeline-and-repaired-as-text.md) | A row is read through one pipeline and repaired as text | Superseded by 0899 |
+| [0519](0519-row-frontmatter-is-yaml-every-common-reader-reads-identically.md) | Row frontmatter is YAML every common reader reads identically | Superseded by 0899 |
+| [0520](0520-the-cli-acts-on-a-data-folder-by-its-path.md) | The CLI acts on a data folder by its path | Superseded by 0899 |
+| [0521](0521-a-folder-syncs-over-plain-git-with-a-token-to-a-server-the-person-chooses.md) | A folder syncs over plain Git with a token, to a server the person chooses | Superseded by 0899 |
 | [0523](0523-applications-own-drafts-in-edit-sessions-and-leave-one-open-item.md) | Applications own drafts in edit sessions and leave one open item | Superseded by 0528 |
-| [0525](0525-a-field-is-plain-json-schema.md) | A field is plain JSON Schema | Accepted |
-| [0526](0526-a-field-is-required-unless-declared-optional.md) | A field is required unless declared optional | Accepted (amended by 0613) |
+| [0525](0525-a-field-is-plain-json-schema.md) | A field is plain JSON Schema | Superseded by 0899 |
+| [0526](0526-a-field-is-required-unless-declared-optional.md) | A field is required unless declared optional | Superseded by 0899 |
 | [0527](0527-a-data-folder-may-keep-its-declaration-as-typescript.md) | A data folder may keep its declaration as TypeScript | Superseded by 0613 |
-| [0528](0528-applications-edit-files-through-the-query-cache.md) | Applications edit files through the query cache | Accepted |
-| [0529](0529-commits-happen-only-on-sync-or-when-a-person-saves-a-version.md) | Commits happen only on sync or when a person saves a version | Accepted (amended by 0623; amended by 0700) |
-| [0531](0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md) | The page runs the folder engine and the shell grants the directory | Accepted (every desktop folder uses it and the Rust owner is deleted; desktop and Windows runs unbuilt; amended by 0700) |
-| [0532](0532-a-folder-is-the-directory-its-id-names-with-its-remote-in-git-configuration.md) | A folder is the directory its ID names, with its remote in Git configuration | Accepted (desktop installed apps still use owner paths and pairings; amended by 0585; amended by 0586; amended by 0700) |
-| [0533](0533-one-folder-handle-opens-in-three-hosts-chosen-by-where-the-code-runs.md) | One folder handle opens in three hosts, chosen by where the code runs | Accepted (amended by 0700) |
-| [0534](0534-data-folders-are-the-only-data-model.md) | Data folders are the only data model | Accepted (superseding the store records, retired Durable Object data) |
-| [0535](0535-an-existing-folder-opens-with-its-own-declaration.md) | An existing folder opens with its own declaration | Accepted (amends 0531 and 0533; amended by 0568, 0585, 0586, and 0591; amended by 0700) |
-| [0536](0536-a-folder-table-may-close-with-additionalproperties-false.md) | A folder table may close with additionalProperties false | Accepted |
-| [0537](0537-epicenter-opens-to-your-folders-and-home-becomes-settings.md) | Epicenter opens to your folders, and Home becomes Settings | Accepted (amends 0209); amended by 0701 |
+| [0528](0528-applications-edit-files-through-the-query-cache.md) | Applications edit files through the query cache | Superseded by 0899 |
+| [0529](0529-commits-happen-only-on-sync-or-when-a-person-saves-a-version.md) | Commits happen only on sync or when a person saves a version | Superseded by 0899 |
+| [0530](0530-applications-record-a-version-at-natural-moments.md) | Applications record a version at natural moments | Superseded by 0899 |
+| [0531](0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md) | The page runs the folder engine and the shell grants the directory | Superseded by 0899 |
+| [0532](0532-a-folder-is-the-directory-its-id-names-with-its-remote-in-git-configuration.md) | A folder is the directory its ID names, with its remote in Git configuration | Superseded by 0899 |
+| [0533](0533-one-folder-handle-opens-in-three-hosts-chosen-by-where-the-code-runs.md) | One folder handle opens in three hosts, chosen by where the code runs | Superseded by 0899 |
+| [0534](0534-data-folders-are-the-only-data-model.md) | Data folders are the only data model | Superseded by 0899 |
+| [0535](0535-an-existing-folder-opens-with-its-own-declaration.md) | An existing folder opens with its own declaration | Superseded by 0899 |
+| [0536](0536-a-folder-table-may-close-with-additionalproperties-false.md) | A folder table may close with additionalProperties false | Superseded by 0899 |
+| [0537](0537-epicenter-opens-to-your-folders-and-home-becomes-settings.md) | Epicenter opens to your folders, and Home becomes Settings | Superseded by 0899 |
 | [0538](0538-an-app-opens-any-folder-whose-declaration-contains-its-shape.md) | An app opens any folder whose declaration contains its shape | Superseded by 0585 |
-| [0539](0539-epicenters-own-folder-is-so-epicenter-and-machine-state-splits-by-what-it-costs-to-lose.md) | Epicenter's own folder is so.epicenter, and machine state splits by what it costs to lose | Accepted (amended by 0587, 0586, 0605, and 0636; native default restored by 0660) |
+| [0539](0539-epicenters-own-folder-is-so-epicenter-and-machine-state-splits-by-what-it-costs-to-lose.md) | Epicenter's own folder is so.epicenter, and machine state splits by what it costs to lose | Superseded by 0899 |
 | [0540](0540-an-app-is-installed-by-building-its-source-and-approving-a-commit-trusts-it-fully.md) | An app is installed by building its source, and approving a commit trusts it fully | Superseded by 0589 |
 | [0541](0541-a-desktop-folder-needs-no-web-locks-and-a-commit-that-loses-a-race-retries.md) | A desktop folder needs no Web Locks, and a commit that loses a race retries | Superseded by 0611 |
-| [0542](0542-quitting-is-immediate-because-unfinished-work-already-lives-in-its-folder.md) | Quitting is immediate, because unfinished work already lives in its folder | Accepted (window close amended by 0700: it closes at once) |
+| [0542](0542-quitting-is-immediate-because-unfinished-work-already-lives-in-its-folder.md) | Quitting is immediate, because unfinished work already lives in its folder | Superseded by 0899 |
 | [0543](0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md) | A recording streams into its folder from the moment it starts | Superseded by 0611 (desktop recording storage amended by 0702) |
 | [0544](0544-a-blob-is-a-file-in-its-folder-and-git-decides-how-it-travels.md) | A blob is a file in its folder, and Git decides how it travels | Superseded by 0621 |
 | [0545](0545-an-interrupted-incoming-update-is-ordinary-changed-files-and-the-next-sync-finishes-it.md) | An interrupted incoming update is ordinary changed files, and the next Sync finishes it | Superseded by 0700 |
-| [0546](0546-a-folder-syncs-to-git-epicenter-so-under-its-owners-namespace-and-the-first-push-creates-it.md) | A folder syncs to git.epicenter.so under its owner's namespace, and the first push creates it | Accepted (amended by 0586, 0593, 0595, 0605, 0608, 0612, and 0620; amended by 0700) |
-| [0547](0547-every-repository-has-one-owner-namespace-and-a-person-is-a-namespace-of-one.md) | Every repository has one owner namespace, and a person is a namespace of one | Accepted (amended by 0593, 0594, and 0612) |
+| [0546](0546-a-folder-syncs-to-git-epicenter-so-under-its-owners-namespace-and-the-first-push-creates-it.md) | A folder syncs to git.epicenter.so under its owner's namespace, and the first push creates it | Superseded by 0899 |
+| [0547](0547-every-repository-has-one-owner-namespace-and-a-person-is-a-namespace-of-one.md) | Every repository has one owner namespace, and a person is a namespace of one | Superseded by 0899 |
 | [0548](0548-a-view-is-a-cache-of-files-with-one-write-path-one-read-path-and-one-channel-of-change.md) | A view is a cache of files, with one write path, one read path, and one channel of change | Superseded by 0700 (0689 rejected) |
 | [0549](0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md) | Every Epicenter resource accepts only opaque access tokens from one OAuth 2.1 authorization server | Accepted (supersedes 0071 and 0076; amends 0075, 0326, and 0331; amended by 0565, 0578, 0594, 0618, 0731, 0740, and 0828) |
-| [0550](0550-epicenters-mcp-server-reaches-hosted-folders-through-grants-that-target-namespaces.md) | Epicenter's MCP server reaches hosted folders through grants that target namespaces | Accepted (superseded by 0578) |
-| [0551](0551-every-write-to-a-folder-file-is-one-save-that-merges-by-the-files-kind-and-sync-settles-with-the-same-merge.md) | Every write to a folder file is one save that merges by the file's kind, and Sync settles with the same merge | Accepted (local writes amended by 0700: conditional on the version read; sync merge remains; the desktop swap amended by 0702) |
+| [0550](0550-epicenters-mcp-server-reaches-hosted-folders-through-grants-that-target-namespaces.md) | Epicenter's MCP server reaches hosted folders through grants that target namespaces | Superseded by 0899 |
+| [0551](0551-every-write-to-a-folder-file-is-one-save-that-merges-by-the-files-kind-and-sync-settles-with-the-same-merge.md) | Every write to a folder file is one save that merges by the file's kind, and Sync settles with the same merge | Superseded by 0899 |
 | [0552](0552-every-app-is-installed-from-a-folder-in-any-git-repository.md) | Every app is installed, from a folder in any Git repository | Superseded by 0611 |
 | [0553](0553-a-pages-own-writes-keep-its-folder-cache-in-step-and-folder-queries-carry-their-read-policy.md) | A page's own writes keep its folder cache in step, and folder queries carry their read policy | Superseded by 0700 (0689 rejected) |
-| [0554](0554-a-field-edit-sets-fields-on-the-file-as-it-is-now.md) | A field edit sets fields on the file as it is now | Accepted (amends 0548 and 0553) |
+| [0554](0554-a-field-edit-sets-fields-on-the-file-as-it-is-now.md) | A field edit sets fields on the file as it is now | Superseded by 0899 |
 | [0555](0555-apps-reach-native-code-through-official-tauri-plugins-first-granted-by-app-id.md) | Apps reach native code through official Tauri plugins first, granted by app id | Superseded by 0611 |
 | [0556](0556-outside-a-webview-typescript-runs-only-as-the-epicenter-cli.md) | Outside a WebView, TypeScript runs only as the epicenter CLI | Superseded by 0611 |
 | [0557](0557-an-ai-connection-is-a-row-in-so-epicenter-whose-key-stays-in-this-machines-keychain.md) | An AI connection is a row in so.epicenter whose key stays in this machine's keychain | Superseded by 0618 |
-| [0558](0558-the-epicenter-cli-groups-only-its-app-and-auth-commands.md) | The epicenter CLI groups only its app and auth commands | Accepted (amends 0520, 0546, and 0549; amended by 0565, 0605, 0611, 0641, and 0642) |
+| [0558](0558-the-epicenter-cli-groups-only-its-app-and-auth-commands.md) | The epicenter CLI groups only its app and auth commands | Superseded by 0899 |
 | [0559](0559-all-desktop-git-runs-in-the-epicenter-cli-over-system-git.md) | All desktop Git runs in the epicenter CLI, over system git | Superseded by 0611 |
 | [0560](0560-an-apps-manifest-only-names-it-and-every-installed-app-is-offered-on-every-folder.md) | An app's manifest only names it, and every installed app is offered on every folder | Superseded by 0611 |
 | [0561](0561-rust-serves-every-app-from-one-epicenter-app-origin.md) | Rust serves every app from one epicenter-app origin | Superseded by 0611 |
 | [0562](0562-the-cli-and-the-shell-take-turns-writing-a-folder-under-one-save-lock.md) | The CLI and the shell take turns writing a folder under one save lock | Superseded by 0611 (save lock deleted by 0702) |
 | [0563](0563-a-hidden-app-window-keeps-running-until-epicenter-quits.md) | A hidden app window keeps running until Epicenter quits | Superseded by 0611 |
-| [0564](0564-an-ai-connections-endpoint-is-stored-with-its-key-not-in-its-row.md) | An AI connection's endpoint is stored with its key, not in its row | Accepted (amends 0557; amended by 0570, 0587, and 0618) |
+| [0564](0564-an-ai-connections-endpoint-is-stored-with-its-key-not-in-its-row.md) | An AI connection's endpoint is stored with its key, not in its row | Superseded by 0899 |
 | [0565](0565-a-refresh-token-keeps-its-grants-scopes-and-only-each-access-token-is-narrowed-to-its-audience.md) | A refresh token keeps its grant's scopes, and only each access token is narrowed to its audience | Accepted (amends 0549 and 0558; amended by 0578, 0594, 0618, 0703, and 0733) |
 | [0567](0567-epicenter-ships-for-macos-only-for-now.md) | Epicenter ships for macOS only, for now | Superseded by 0611 |
 | [0568](0568-a-folder-takes-every-writer-in-turn-under-its-save-lock-and-refuses-none.md) | A folder takes every writer in turn under its save lock and refuses none | Superseded by 0611 (save lock deleted by 0702) |
 | [0569](0569-the-installed-apps-are-the-clones-in-apps-not-rows-in-so-epicenter.md) | The installed apps are the clones in Apps/, not rows in so.epicenter | Superseded by 0611 |
 | [0570](0570-every-installed-apps-window-gets-the-same-grant.md) | Every installed app's window gets the same grant | Superseded by 0611 |
-| [0572](0572-a-row-body-is-read-and-written-with-line-feeds-and-storable-text.md) | A row body is read and written with line feeds and storable text | Proposed |
-| [0573](0573-applications-keep-no-last-edited-timestamp-in-a-row.md) | Applications keep no last-edited timestamp in a row | Proposed |
+| [0572](0572-a-row-body-is-read-and-written-with-line-feeds-and-storable-text.md) | A row body is read and written with line feeds and storable text | Superseded by 0899 |
+| [0573](0573-applications-keep-no-last-edited-timestamp-in-a-row.md) | Applications keep no last-edited timestamp in a row | Superseded by 0899 |
 | [0574](0574-an-app-opens-its-folder-behind-await-and-provides-its-options-through-context.md) | An app opens its folder behind `{#await}` and provides its options through context | Superseded by 0700 (0689 rejected) |
 | [0575](0575-a-control-binds-one-part-of-a-row-fields-are-patched-and-the-body-is-opened.md) | A control binds one part of a row: fields are patched and the body is opened | Superseded by 0700 (0689 rejected) |
 | [0576](0576-a-folder-has-one-write-a-merge-by-unit-where-the-writer-acting-wins.md) | A folder has one write: a merge by unit where the writer acting wins | Superseded by 0622 |
@@ -816,242 +831,242 @@ When you add an ADR, add its row here.
 | [0581](0581-a-desktop-pages-folder-storage-is-one-shell-command-per-storage-method.md) | A desktop page's folder storage is one shell command per storage method | Superseded by 0611 |
 | [0583](0583-a-folders-declaration-is-published-only-by-the-app-it-is-named-after.md) | A folder's declaration is published only by the app it is named after | Superseded by 0585 |
 | [0584](0584-each-concept-has-one-noun-in-code-on-the-wire-and-in-prose.md) | Names preserve the distinctions callers need | Accepted (amended by 0585; amended by 0586; amended by 0589; amended by 0607; amended by 0612, 0613, and 0636) |
-| [0585](0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md) | Schema files describe tables without owning them | Accepted (supersedes 0583 and 0538; amends 0532, 0535, 0560, and 0584; amended by 0605, 0607, 0609, 0613, and 0626; amended by 0632; amended by 0700) |
-| [0586](0586-you-open-a-folder-never-an-app.md) | An app is independent of its data location | Accepted (amends 0532, 0535, 0539, 0546, 0552, 0560, 0568, 0569, 0581, and 0584; amended by 0597, 0605, 0607, and 0611) |
+| [0585](0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md) | Schema files describe tables without owning them | Superseded by 0899 |
+| [0586](0586-you-open-a-folder-never-an-app.md) | An app is independent of its data location | Superseded by 0899 |
 | [0587](0587-epicenter-has-no-folder-of-its-own.md) | Epicenter has no folder of its own | Superseded by 0611 |
 | [0588](0588-an-installed-apps-window-runs-one-approved-commits-own-build.md) | An installed app's window runs one approved commit's own build | Superseded by 0611 |
 | [0589](0589-an-app-is-one-git-repository-of-built-files-at-an-address.md) | An app is one Git repository of built files at an address | Superseded by 0611 |
 | [0590](0590-every-change-to-the-folder-model-is-checked-against-ten-principles.md) | Every change to the folder model is checked against ten principles | Superseded by 0627 |
-| [0591](0591-the-merge-reads-a-files-content-and-extension-never-a-definition.md) | The merge reads a file's content and extension, never a definition | Accepted (amends 0535 and 0576; amended by 0613 and 0622; amended by 0700) |
-| [0592](0592-a-folders-gitignore-decides-what-stays-on-one-machine.md) | Git controls which working files enter commits | Accepted (amends 0544, 0576, and 0577; amended by 0619, 0620, 0621, and 0624; amended by 0700) |
-| [0593](0593-the-hosted-git-service-stores-data-repositories-and-offers-no-rename-or-move.md) | Hosted repositories have stable addresses | Accepted (amends 0546 and 0547; amended by 0594, 0608, and 0612) |
-| [0594](0594-a-hosted-repository-is-reached-only-by-the-person-who-owns-it.md) | Hosted access follows repository membership | Accepted (amends 0547, 0549, 0565, 0578, and 0593; amended by 0612 and 0614) |
+| [0591](0591-the-merge-reads-a-files-content-and-extension-never-a-definition.md) | The merge reads a file's content and extension, never a definition | Superseded by 0899 |
+| [0592](0592-a-folders-gitignore-decides-what-stays-on-one-machine.md) | Git controls which working files enter commits | Superseded by 0899 |
+| [0593](0593-the-hosted-git-service-stores-data-repositories-and-offers-no-rename-or-move.md) | Hosted repositories have stable addresses | Superseded by 0899 |
+| [0594](0594-a-hosted-repository-is-reached-only-by-the-person-who-owns-it.md) | Hosted access follows repository membership | Superseded by 0899 |
 | [0595](0595-the-self-hosted-git-store-accepts-a-force-push.md) | The self-hosted Git store accepts a force push | Superseded by 0620 |
 | [0596](0596-native-dictation-code-no-page-can-reach-compiles-only-behind-an-off-by-default-cargo-feature.md) | Native dictation code no page can reach compiles only behind an off-by-default Cargo feature | Superseded by 0611 |
 | [0597](0597-an-installed-apps-approved-commit-is-its-bare-clones-detached-head.md) | An installed app's approved commit is its bare clone's detached HEAD | Superseded by 0605 |
 | [0598](0598-an-app-is-built-once-and-selects-its-host-implementation-at-run-time.md) | An app is built once and selects its host implementation at run time | Superseded by 0611 |
 | [0600](0600-an-approved-commit-supplies-a-windows-page-and-its-relative-assets.md) | An approved commit supplies a window's page and its relative assets | Superseded by 0605 |
-| [0601](0601-the-generic-editor-edits-a-files-text-so-a-row-is-repaired-there.md) | Apps keep a route to source repair | Accepted |
+| [0601](0601-the-generic-editor-edits-a-files-text-so-a-row-is-repaired-there.md) | Apps keep a route to source repair | Superseded by 0899 |
 | [0602](0602-folderapp-names-its-app-by-the-last-segment-of-its-address.md) | `<FolderApp>` names its app by the last segment of its address | Superseded by 0611 |
 | [0605](0605-an-app-is-an-ordinary-single-page-app-in-a-forkable-git-repository.md) | An app is an ordinary single-page app in a forkable Git repository | Superseded by 0611 |
 | [0606](0606-a-third-party-browser-app-signs-in-by-a-client-metadata-document-on-its-own-origin.md) | Browser sign-in uses the calling origin | Accepted (amends 0578 and 0589; amended by 0614 and 0731) |
 | [0607](0607-an-app-opens-any-data-folder-by-its-id-on-every-host.md) | An app opens any data folder by its id, on every host | Superseded by 0611 |
-| [0608](0608-apps-never-talk-to-each-other-they-share-paths.md) | Apps share data through ordinary files | Accepted (amends 0546 and 0593; amended by 0612 and 0626) |
+| [0608](0608-apps-never-talk-to-each-other-they-share-paths.md) | Apps share data through ordinary files | Superseded by 0899 |
 | [0609](0609-a-new-data-folder-copies-its-apps-template-once.md) | A new data folder copies its app's template once | Superseded by 0611 |
 | [0610](0610-on-macos-epicenter-deletes-a-file-by-moving-it-to-the-trash.md) | On macOS, Epicenter deletes a file by moving it to the Trash | Superseded by 0611 |
-| [0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md) | Epicenter is a local-first toolkit with optional services | Accepted (supersedes 0541, 0543, 0552, 0555, 0556, 0559, 0560, 0561, 0562, 0563, 0567, 0568, 0569, 0570, 0581, 0587, 0588, 0589, 0596, 0598, 0602, 0605, 0607, 0609, and 0610; amends 0558 and 0586; amended by 0632, 0633, 0634, and 0635; amended by 0700) |
-| [0612](0612-a-repository-is-shared-by-the-people-on-its-access-list.md) | A repository is shared by the people on its access list | Accepted (amends 0546, 0547, 0584, 0593, 0594, and 0608) |
-| [0613](0613-a-table-is-a-top-level-directory-described-by-its-table-json.md) | A table is a view of one top-level directory | Accepted (supersedes 0527; amends 0526, 0584, 0585, and 0591; amended by 0632; amended by 0700) |
+| [0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md) | Epicenter is a local-first toolkit with optional services | Superseded by 0899 |
+| [0612](0612-a-repository-is-shared-by-the-people-on-its-access-list.md) | A repository is shared by the people on its access list | Superseded by 0899 |
+| [0613](0613-a-table-is-a-top-level-directory-described-by-its-table-json.md) | A table is a view of one top-level directory | Superseded by 0899 |
 | [0614](0614-a-browser-app-is-identified-by-its-origin.md) | A browser app is identified by its origin | Accepted (amends 0594 and 0606; amended by 0633 and 0634) |
 | [0618](0618-epicenter-hosts-no-ai-service.md) | Epicenter hosts no AI service | Superseded by 0634 |
-| [0619](0619-every-byte-epicenter-keeps-is-a-git-object-a-working-file-an-access-list-row-or-a-cache.md) | Repository data has one content history in Git | Accepted (amends 0592; amended by 0634; amended by 0700) |
-| [0620](0620-history-in-a-repository-only-grows.md) | History in a repository only grows | Accepted (supersedes 0595; amends 0546 and 0592; amended by 0700) |
-| [0621](0621-epicenters-library-writes-only-text-to-a-repository-in-v1.md) | Epicenter's library writes only text to a repository in v1 | Accepted (supersedes 0544 and 0577; amends 0592; amended by 0700) |
+| [0619](0619-every-byte-epicenter-keeps-is-a-git-object-a-working-file-an-access-list-row-or-a-cache.md) | Repository data has one content history in Git | Superseded by 0899 |
+| [0620](0620-history-in-a-repository-only-grows.md) | History in a repository only grows | Superseded by 0899 |
+| [0621](0621-epicenters-library-writes-only-text-to-a-repository-in-v1.md) | Epicenter's library writes only text to a repository in v1 | Superseded by 0899 |
 | [0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md) | A losing edit stays a parent of the merge commit | Superseded by 0700 |
 | [0623](0623-every-browser-app-keeps-its-own-git-clone-of-a-repository.md) | Each web origin keeps local data in IndexedDB | Superseded by 0700 (the web never syncs) |
-| [0624](0624-a-repository-reports-synced-pending-disconnected-or-stuck.md) | Local data reports its synchronization state | Accepted (amends 0592; amended by 0633; amended by 0700) |
-| [0626](0626-an-app-reaches-a-repository-only-through-open.md) | An app opens local data with its own schemas | Accepted (amends 0585 and 0608; amended by 0632, 0633, and 0636; amended by 0700) |
+| [0624](0624-a-repository-reports-synced-pending-disconnected-or-stuck.md) | Local data reports its synchronization state | Superseded by 0899 |
+| [0626](0626-an-app-reaches-a-repository-only-through-open.md) | An app opens local data with its own schemas | Superseded by 0899 |
 | [0627](0627-every-change-to-the-data-model-is-checked-against-nine-principles.md) | Every change to the data model is checked against nine principles | Superseded by 0719 (eight principles) |
 | [0628](0628-browser-sync-uses-transactions-and-git-updates-instead-of-cross-tab-ownership.md) | Browser sync uses transactions and Git updates instead of cross-tab ownership | Superseded by 0700 |
-| [0629](0629-a-local-save-refuses-a-file-directory-replacement.md) | A local save refuses a file-directory replacement | Proposed (amends 0622 and 0626) |
+| [0629](0629-a-local-save-refuses-a-file-directory-replacement.md) | A local save refuses a file-directory replacement | Superseded by 0899 |
 | [0630](0630-a-file-save-accepts-exact-bytes-as-its-starting-content.md) | A file save accepts exact bytes as its starting content | Superseded by 0700 (0689 rejected) |
-| [0631](0631-a-browser-observes-the-remote-before-making-a-commit.md) | A browser observes the remote before making a commit | Proposed (amends 0623 and 0628) |
-| [0632](0632-a-lens-belongs-to-its-reader.md) | Apps supply schemas; CLI readers use root epicenter.json | Accepted (amends 0585, 0611, 0613, 0626, and 0627; amended by 0700) |
-| [0633](0633-apps-open-local-data-before-connecting-services.md) | Apps open local data before connecting services | Accepted (amends 0611, 0614, 0623, 0624, 0626, and 0627; amended by 0636; amended by 0700) |
+| [0631](0631-a-browser-observes-the-remote-before-making-a-commit.md) | A browser observes the remote before making a commit | Superseded by 0899 |
+| [0632](0632-a-lens-belongs-to-its-reader.md) | Apps supply schemas; CLI readers use root epicenter.json | Superseded by 0899 |
+| [0633](0633-apps-open-local-data-before-connecting-services.md) | Apps open local data before connecting services | Superseded by 0899 |
 | [0634](0634-hosted-inference-is-independent-of-repository-sync.md) | Hosted inference is independent of repository sync | Accepted (supersedes 0618; amends 0611, 0614, 0619, and 0627) |
-| [0635](0635-generic-desktop-data-tools-are-deferred.md) | The Epicenter desktop app is deferred | Accepted (amends 0611 and 0627) |
-| [0636](0636-an-app-opens-local-files-through-one-folder-handle.md) | An app opens local files through one folder handle | Accepted (amends 0539, 0584, 0626, and 0633; amended by 0643 and 0660) |
-| [0637](0637-whispering-keeps-desktop-audio-in-its-selected-directory.md) | Whispering keeps desktop audio in its selected directory | Proposed (amends 0592, 0611, and 0621) |
+| [0635](0635-generic-desktop-data-tools-are-deferred.md) | The Epicenter desktop app is deferred | Superseded by 0899 |
+| [0636](0636-an-app-opens-local-files-through-one-folder-handle.md) | An app opens local files through one folder handle | Superseded by 0899 |
+| [0637](0637-whispering-keeps-desktop-audio-in-its-selected-directory.md) | Whispering keeps desktop audio in its selected directory | Superseded by 0899 |
 | [0638](0638-epicenter-mail-lives-at-mail-epicenter-so.md) | Epicenter Mail lives at mail.epicenter.so | Proposed |
-| [0640](0640-future-media-sync-uses-git-lfs-and-one-endpoint-pair.md) | Future media sync uses Git LFS and one endpoint pair | Proposed |
-| [0641](0641-epicenter-remembers-folders-as-machine-local-paths.md) | Epicenter remembers folders as machine-local paths | Accepted (amends 0558) |
-| [0642](0642-each-desktop-app-selects-its-cli-independently-of-the-terminal.md) | Each desktop app selects its CLI independently of the terminal | Accepted (amends 0558) |
-| [0643](0643-the-folder-package-owns-its-local-engine.md) | The Folder package owns its local engine | Accepted (amends 0626 and 0636) |
-| [0644](0644-the-shell-assigns-a-native-windows-default-folder.md) | The shell assigns a native window's default folder | Accepted (amends 0636; amended by 0647 and 0660); amended by 0701 |
-| [0646](0646-a-native-app-hands-epicenter-a-directory-path-and-the-person-accepts-it.md) | A native app hands Epicenter a directory path, and the person accepts it | Accepted (amended by 0647) |
+| [0640](0640-future-media-sync-uses-git-lfs-and-one-endpoint-pair.md) | Future media sync uses Git LFS and one endpoint pair | Superseded by 0899 |
+| [0641](0641-epicenter-remembers-folders-as-machine-local-paths.md) | Epicenter remembers folders as machine-local paths | Superseded by 0899 |
+| [0642](0642-each-desktop-app-selects-its-cli-independently-of-the-terminal.md) | Each desktop app selects its CLI independently of the terminal | Superseded by 0899 |
+| [0643](0643-the-folder-package-owns-its-local-engine.md) | The Folder package owns its local engine | Superseded by 0899 |
+| [0644](0644-the-shell-assigns-a-native-windows-default-folder.md) | The shell assigns a native window's default folder | Superseded by 0899 |
+| [0646](0646-a-native-app-hands-epicenter-a-directory-path-and-the-person-accepts-it.md) | A native app hands Epicenter a directory path, and the person accepts it | Superseded by 0899 |
 | [0647](0647-a-native-window-edits-one-directory-bound-before-it-exists.md) | A native window edits one directory bound before it exists | Superseded by 0725 |
-| [0649](0649-folders-json-selects-this-machines-folder-locations.md) | Folders.json selects this machine's folder locations | Proposed (amends 0539, 0641, and 0647) |
-| [0650](0650-a-browsers-current-folder-is-one-immutable-tree.md) | A browser's current folder is one immutable tree | Proposed (amends 0628) |
-| [0652](0652-the-folder-plugin-opens-one-window-per-app-and-directory.md) | The folder plugin opens one window per app and directory | Proposed (amends 0647) |
-| [0653](0653-ignore-rules-select-git-source-without-a-declaration-policy.md) | Ignore rules select Git source without a declaration policy | Proposed |
+| [0649](0649-folders-json-selects-this-machines-folder-locations.md) | Folders.json selects this machine's folder locations | Superseded by 0899 |
+| [0650](0650-a-browsers-current-folder-is-one-immutable-tree.md) | A browser's current folder is one immutable tree | Superseded by 0899 |
+| [0652](0652-the-folder-plugin-opens-one-window-per-app-and-directory.md) | The folder plugin opens one window per app and directory | Superseded by 0899 |
+| [0653](0653-ignore-rules-select-git-source-without-a-declaration-policy.md) | Ignore rules select Git source without a declaration policy | Superseded by 0899 |
 | [0654](0654-visible-folder-queries-refresh-without-native-watchers.md) | Visible folder queries refresh without native watchers | Superseded by 0700 (0689 rejected) |
 | [0655](0655-product-root-components-use-the-app-name-and-app-suffix.md) | Product root components use the app name and App suffix | Accepted |
 | [0656](0656-a-folder-owns-typed-input-from-open-to-close.md) | A folder owns typed input from open to close | Superseded by 0700 (0689 rejected) |
 | [0657](0657-departure-prompts-only-for-pending-folder-saves.md) | Departure prompts only for pending Folder saves | Superseded by 0700 (0689 rejected) |
-| [0658](0658-capture-compositions-are-durable-markdown-records.md) | Capture compositions are durable Markdown records from Add, not before | Accepted |
+| [0658](0658-capture-compositions-are-durable-markdown-records.md) | Capture compositions are durable Markdown records from Add, not before | Superseded by 0899 |
 | [0659](0659-whispering-audio-lives-beside-its-markdown.md) | Whispering audio lives beside its Markdown | Accepted |
-| [0660](0660-native-apps-default-authored-work-to-the-epicenter-root.md) | Native apps default authored work to the Epicenter root | Accepted (amends 0636, 0644, and 0647; restores the native default of 0539; standalone fixed default built) |
+| [0660](0660-native-apps-default-authored-work-to-the-epicenter-root.md) | Native apps default authored work to the Epicenter root | Superseded by 0899 |
 | [0661](0661-apps-compose-result-services-through-wellcrafted-option-namespaces.md) | Apps compose Result services through Wellcrafted option namespaces | Proposed (dashboard built on Wellcrafted 0.47; app views over `connect()` unbuilt) |
 | [0662](0662-one-path-edit-exposes-text-and-structured-changes-through-one-interface.md) | One path edit exposes text and structured changes through one interface | Superseded by 0700 (0689 rejected) |
-| [0663](0663-one-native-question-before-a-window-or-epicenter-leaves.md) | One native question before a window or Epicenter leaves | Accepted (window Close amended by 0700 twice, the second time to close at once; application Quit alert deleted by 0701) |
+| [0663](0663-one-native-question-before-a-window-or-epicenter-leaves.md) | One native question before a window or Epicenter leaves | Superseded by 0899 |
 | [0664](0664-folder-close-drains-admitted-work-through-one-owner.md) | Folder close drains admitted work through one owner | Superseded by 0700 (0689 rejected) |
 | [0665](0665-a-markdown-file-without-frontmatter-has-empty-fields-and-a-body.md) | A Markdown file without frontmatter has empty fields and a body | Proposed |
 | [0666](0666-one-source-draft-per-path-saves-against-its-observed-source.md) | One source draft per path saves against its observed source | Superseded by 0668 |
 | [0667](0667-a-file-edits-ready-buffer-contains-its-unsaved-state.md) | A file edit's ready buffer contains its unsaved state | Superseded by 0668 |
 | [0668](0668-one-folder-owned-source-orders-file-publications.md) | One Folder-owned source orders file publications | Superseded by 0700 (0689 rejected) |
 | [0669](0669-folder-actions-track-lifetime-without-reserving-paths.md) | Folder actions track lifetime without reserving paths | Superseded by 0700 (0689 rejected) |
-| [0670](0670-native-shells-share-explicit-machine-local-app-homes.md) | Native shells share explicit machine-local app homes | Accepted (amends 0649 and 0660); amended by 0701 |
-| [0671](0671-the-launcher-lists-directories-from-all-current-references.md) | The launcher lists directories from all current references | Accepted (amends 0537, 0641, and 0670); amended by 0701 |
-| [0673](0673-a-sqlite-handle-owns-one-connection-until-asynchronous-disposal.md) | A SQLite handle owns one connection until asynchronous disposal | Proposed (named SQLite open/delete; would amend 0201; production lifecycle and disposal unbuilt) |
+| [0670](0670-native-shells-share-explicit-machine-local-app-homes.md) | Native shells share explicit machine-local app homes | Superseded by 0899 |
+| [0671](0671-the-launcher-lists-directories-from-all-current-references.md) | The launcher lists directories from all current references | Superseded by 0899 |
+| [0673](0673-a-sqlite-handle-owns-one-connection-until-asynchronous-disposal.md) | A SQLite handle owns one connection until asynchronous disposal | Superseded by 0899 |
 | [0674](0674-standalone-apps-release-independently-from-one-monorepo.md) | Standalone apps release independently from one monorepo | Accepted; amended by 0701 |
 | [0676](0676-structured-edits-share-the-acquired-working-document.md) | Structured edits share the acquired working document | Superseded by 0688 |
 | [0677](0677-one-source-repository-can-provide-many-desktop-apps.md) | One source repository can provide many desktop apps | Superseded by 0701 (apps run as separate programs) |
-| [0678](0678-app-storage-openers-use-runtime-bound-scopes.md) | App databases open within runtime-bound scopes | Proposed (separate installation roots; flat dotted database names; would amend 0314; production unbuilt) |
+| [0678](0678-app-storage-openers-use-runtime-bound-scopes.md) | App databases open within runtime-bound scopes | Superseded by 0899 |
 | [0680](0680-rust-serves-each-installed-app-from-a-pinned-build-on-its-own-origin.md) | Rust serves each installed app from a pinned build on its own origin | Superseded by 0701 (apps run as separate programs) |
 | [0681](0681-portable-capability-packages-follow-the-resource-they-own.md) | Portable capability packages follow the resource they own | Proposed (`@epicenter/sqlite` and `@epicenter/secrets` as separate homes; no umbrella runtime package) |
 | [0683](0683-hosted-requests-use-a-resource-bound-account-fetch.md) | Hosted requests use a resource-bound Account fetch | Accepted (desktop caller removed by 0701) |
-| [0684](0684-browser-folders-submit-frozen-file-changes-instead-of-running-git.md) | Browser folders submit frozen file changes instead of running Git | Rejected 2026-10-30 (the web never syncs; ADR-0700) |
-| [0685](0685-hosted-git-records-browser-publication-receipts-in-a-protected-ref.md) | Hosted Git records browser publication receipts in a protected ref | Rejected 2026-10-30 (the web never syncs; ADR-0700) |
+| [0684](0684-browser-folders-submit-frozen-file-changes-instead-of-running-git.md) | Browser folders submit frozen file changes instead of running Git | Superseded by 0899 |
+| [0685](0685-hosted-git-records-browser-publication-receipts-in-a-protected-ref.md) | Hosted Git records browser publication receipts in a protected ref | Superseded by 0899 |
 | [0686](0686-one-https-site-is-one-portable-release-and-one-data-area.md) | One HTTPS site is one portable release and one data area | Superseded by 0701 (apps run as separate programs) |
 | [0687](0687-opening-a-site-url-opens-its-derived-folder.md) | Opening a site URL opens its derived folder | Superseded by 0701 (apps run as separate programs) |
 | [0688](0688-one-folder-owned-text-document-per-path.md) | One Folder-owned text document per path | Superseded by 0700 (0689 rejected) |
-| [0689](0689-an-edit-shows-what-you-typed-the-queue-carries-it-the-folder-shows-what-landed.md) | An edit shows what you typed; the queue carries it; the folder shows what landed | Rejected 2026-11-01 (writes are conditional on the version read; ADR-0700) |
-| [0690](0690-merges-happen-only-where-history-records-the-common-ancestor.md) | Merges happen only where history records the common ancestor | Proposed |
+| [0689](0689-an-edit-shows-what-you-typed-the-queue-carries-it-the-folder-shows-what-landed.md) | An edit shows what you typed; the queue carries it; the folder shows what landed | Superseded by 0899 |
+| [0690](0690-merges-happen-only-where-history-records-the-common-ancestor.md) | Merges happen only where history records the common ancestor | Superseded by 0899 |
 | [0691](0691-offline-reopening-keeps-the-sites-https-origin.md) | Offline reopening keeps the site's HTTPS origin | Superseded by 0701 (apps run as separate programs) |
-| [0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) | Apps share data through a file contract recorded in Git | Accepted 2026-11-01 (supersedes 0545, 0622, 0623, and 0628, and the 13 Folder engine records 0689 had; amends 25 records; per-repository grants, `@epicenter/secrets`, the notify Durable Object, and `epicenter init --contract` unbuilt; window Close amended 2026-11-01: a window closes at once; init's commit and first history amended by 0735; nothing-moves-between-stores amended by 0745 for an extension's held items; amended by 0795 and 0796) |
-| [0701](0701-apps-run-as-separate-programs.md) | Apps run as separate programs | Accepted 2026-11-01 (supersedes 0493, 0677, 0680, 0686, 0687, and 0691; amends 0537, 0644, 0647, 0663, 0670, 0671, 0674, and 0683; standalone Todos and a native Capture or Honeycrisp client unbuilt; archive tag `archive/app-hosting`; shared Quit amended by 0700: Quit is the default menu's; native clients amended by 0731; keychain storage amended by 0740; package selection and the shell crate amended by 0755; one build amended by 0781) |
-| [0702](0702-a-data-folders-unfinished-writes-wait-in-epicenter-outside-its-data.md) | A data folder's unfinished writes wait in `.epicenter`, outside its data | Accepted (amends 0543, 0551, 0562, and 0568: no save lock, one hidden-path rule, `saves/` and `recordings/`, placement) |
-| [0703](0703-a-stopped-sync-round-finishes-its-merge.md) | A stopped sync round finishes its merge | Proposed (amends 0565 at the shell's three-second kill) |
-| [0705](0705-an-apps-data-lives-in-two-kinds-of-store.md) | An app's data lives in two kinds of store | Accepted (amends 0534 and 0700; amended by 0727, 0739, and 0742) |
-| [0706](0706-a-browser-variant-runs-the-desktop-code-with-weaker-guarantees.md) | A browser variant runs the desktop code with weaker guarantees | Accepted |
-| [0707](0707-an-app-that-needs-co-editing-is-a-document-app.md) | An app that needs co-editing is a document app | Accepted |
-| [0708](0708-a-namespace-holds-documents-beside-repositories-under-one-resource-grant.md) | A namespace holds documents beside repositories under one resource grant | Accepted (amends 0546 and 0612) |
-| [0709](0709-a-document-is-rebuilt-into-a-fresh-generation-by-copying-its-current-state.md) | A document is rebuilt into a fresh generation by copying its current state | Accepted |
+| [0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) | Apps share data through a file contract recorded in Git | Superseded by 0899 |
+| [0701](0701-apps-run-as-separate-programs.md) | Apps run as separate programs | Superseded by 0899 |
+| [0702](0702-a-data-folders-unfinished-writes-wait-in-epicenter-outside-its-data.md) | A data folder's unfinished writes wait in `.epicenter`, outside its data | Superseded by 0899 |
+| [0703](0703-a-stopped-sync-round-finishes-its-merge.md) | A stopped sync round finishes its merge | Superseded by 0899 |
+| [0705](0705-an-apps-data-lives-in-two-kinds-of-store.md) | An app's data lives in two kinds of store | Superseded by 0899 |
+| [0706](0706-a-browser-variant-runs-the-desktop-code-with-weaker-guarantees.md) | A browser variant runs the desktop code with weaker guarantees | Superseded by 0899 |
+| [0707](0707-an-app-that-needs-co-editing-is-a-document-app.md) | An app that needs co-editing is a document app | Superseded by 0899 |
+| [0708](0708-a-namespace-holds-documents-beside-repositories-under-one-resource-grant.md) | A namespace holds documents beside repositories under one resource grant | Superseded by 0899 |
+| [0709](0709-a-document-is-rebuilt-into-a-fresh-generation-by-copying-its-current-state.md) | A document is rebuilt into a fresh generation by copying its current state | Superseded by 0899 |
 | [0710](0710-an-apps-slug-names-everything-a-program-reads.md) | An app's slug names everything a program reads | Superseded by 0722 |
-| [0711](0711-a-folder-names-its-apps-contract-in-a-committed-agents-md-note.md) | A folder names its app's contract in a committed AGENTS.md note | Accepted (amends 0700; amended by 0805) |
-| [0712](0712-an-apps-folder-resolves-against-a-fixed-library-root.md) | An app's folder resolves against a fixed library root | Accepted (amends 0670 and 0701) |
-| [0713](0713-one-epicenter-engine-per-machine-syncs-every-apps-folder.md) | One Epicenter engine per machine syncs every app's folder | Accepted (amends 0642; amended by 0733, 0750, and 0751) |
+| [0711](0711-a-folder-names-its-apps-contract-in-a-committed-agents-md-note.md) | A folder names its app's contract in a committed AGENTS.md note | Superseded by 0899 |
+| [0712](0712-an-apps-folder-resolves-against-a-fixed-library-root.md) | An app's folder resolves against a fixed library root | Superseded by 0899 |
+| [0713](0713-one-epicenter-engine-per-machine-syncs-every-apps-folder.md) | One Epicenter engine per machine syncs every app's folder | Superseded by 0899 |
 | [0714](0714-a-files-extension-decides-how-every-folder-merges-it.md) | A file's extension decides how every folder merges it | Superseded by 0734 |
-| [0715](0715-the-epicenter-app-browses-every-folder-and-document-a-person-has.md) | The Epicenter app browses every folder and document a person has | Accepted (amends 0635 and 0701; amended by 0721, 0736, and 0790) |
-| [0716](0716-agents-edit-a-document-through-one-shot-cli-commands.md) | Agents edit a document through one-shot CLI commands | Accepted |
+| [0715](0715-the-epicenter-app-browses-every-folder-and-document-a-person-has.md) | The Epicenter app browses every folder and document a person has | Superseded by 0899 |
+| [0716](0716-agents-edit-a-document-through-one-shot-cli-commands.md) | Agents edit a document through one-shot CLI commands | Superseded by 0899 |
 | [0717](0717-an-epicenter-app-is-a-site-that-publishes-a-contract.md) | An Epicenter app is a site that publishes a contract | Superseded by 0723 |
-| [0718](0718-epicenters-machinery-on-a-machine-lives-in-a-hidden-home-every-program-reads.md) | Epicenter's machinery on a machine lives in a hidden home every program reads | Accepted (amends 0642 and 0700; amended by 0721, 0731, 0732, 0733, and 0751) |
-| [0719](0719-every-change-to-the-data-model-is-checked-against-eight-principles.md) | Every change to the data model is checked against eight principles | Accepted (supersedes 0627; amended by 0730, 0731, 0741, 0751, 0753, and 0763) |
+| [0718](0718-epicenters-machinery-on-a-machine-lives-in-a-hidden-home-every-program-reads.md) | Epicenter's machinery on a machine lives in a hidden home every program reads | Superseded by 0899 |
+| [0719](0719-every-change-to-the-data-model-is-checked-against-eight-principles.md) | Every change to the data model is checked against eight principles | Superseded by 0899 |
 | [0720](0720-you-sign-in-a-machine-not-an-app.md) | You sign in a machine, not an app | Superseded by 0731 (amended 0549 and 0701) |
-| [0721](0721-an-apps-folder-is-derived-never-stored.md) | An app's folder is derived, never stored | Accepted (amends 0700, 0701, 0711, 0712, 0715, 0718; amended by 0725, 0726, 0728, 0735, and 0736) |
-| [0722](0722-an-apps-names-derive-from-its-sites-host.md) | An app's names derive from its site's host | Accepted (supersedes 0710) |
-| [0723](0723-an-apps-site-is-found-by-convention.md) | An app's site is found by convention | Accepted (supersedes 0717) |
+| [0721](0721-an-apps-folder-is-derived-never-stored.md) | An app's folder is derived, never stored | Superseded by 0899 |
+| [0722](0722-an-apps-names-derive-from-its-sites-host.md) | An app's names derive from its site's host | Superseded by 0899 |
+| [0723](0723-an-apps-site-is-found-by-convention.md) | An app's site is found by convention | Superseded by 0899 |
 | [0724](0724-a-browser-extension-keeps-its-data-in-a-document.md) | A browser extension keeps its data in a document | Superseded by 0743 |
-| [0725](0725-an-app-reaches-named-roots-through-one-command-per-storage-operation.md) | An app reaches named roots through one command per storage operation | Accepted (supersedes 0647; amends 0531, 0721) |
-| [0726](0726-an-apps-path-is-its-claim.md) | An app's path is its claim | Accepted (amends 0721, 0725) |
+| [0725](0725-an-app-reaches-named-roots-through-one-command-per-storage-operation.md) | An app reaches named roots through one command per storage operation | Superseded by 0899 |
+| [0726](0726-an-apps-path-is-its-claim.md) | An app's path is its claim | Superseded by 0899 |
 | [0727](0727-json-schema-is-the-field-language.md) | JSON Schema is the field language | Accepted (amends 0705; amended by 0739) |
-| [0728](0728-a-build-states-its-environment.md) | A build states its environment | Accepted (amends 0712, 0721) |
-| [0729](0729-a-link-is-followed-only-at-or-above-a-root.md) | A link is followed only at or above a root | Accepted (amends 0725) |
-| [0730](0730-everything-not-derived-from-an-apps-site-is-one-of-five-stored-kinds.md) | Everything not derived from an app's site is one of five stored kinds | Accepted (amends 0719) |
+| [0728](0728-a-build-states-its-environment.md) | A build states its environment | Superseded by 0899 |
+| [0729](0729-a-link-is-followed-only-at-or-above-a-root.md) | A link is followed only at or above a root | Superseded by 0899 |
+| [0730](0730-everything-not-derived-from-an-apps-site-is-one-of-five-stored-kinds.md) | Everything not derived from an app's site is one of five stored kinds | Superseded by 0899 |
 | [0731](0731-every-app-signs-in-as-its-site.md) | Every app signs in as its site | Accepted (supersedes 0720; amends 0549, 0606, 0701, and 0719; amended by 0732 and 0740) |
-| [0732](0732-a-grant-reaches-what-the-person-chooses-at-consent.md) | A grant reaches what the person chooses at consent | Accepted (amends 0718 and 0731; amended by 0787, 0793, and 0811) |
-| [0733](0733-your-own-git-in-an-epicenter-folder-is-plain-git.md) | Your own git in an Epicenter folder is plain Git | Accepted (amends 0565, 0713, and 0718; amended by 0748, 0751, 0795, 0803, and 0804) |
-| [0734](0734-every-file-other-than-a-note-is-kept-whole-in-git-lfs.md) | Every file other than a note is kept whole in Git LFS | Accepted (supersedes 0714; amended by 0824) |
-| [0735](0735-sync-gives-files-a-history-it-never-merges-two.md) | Sync gives files a history; it never merges two | Accepted (amends 0700 and 0721; amended by 0761) |
-| [0736](0736-a-folder-outside-the-library-is-enrolled-through-a-link-the-person-names.md) | A folder outside the library is enrolled through a link the person names | Accepted (amends 0715 and 0721; amended by 0825) |
-| [0737](0737-an-apps-actions-are-request-notes-it-watches-in-this-devices-place.md) | An app's actions are request notes it watches in this device's place | Accepted |
-| [0738](0738-a-script-reaches-an-app-through-a-handle-module-written-from-its-site.md) | A script reaches an app through a handle module written from its site | Accepted |
-| [0739](0739-a-document-body-uses-a-standard-codec-until-an-app-needs-its-own.md) | A document body uses a standard codec until an app needs its own | Accepted (amends 0705 and 0727) |
+| [0732](0732-a-grant-reaches-what-the-person-chooses-at-consent.md) | A grant reaches what the person chooses at consent | Superseded by 0899 |
+| [0733](0733-your-own-git-in-an-epicenter-folder-is-plain-git.md) | Your own git in an Epicenter folder is plain Git | Superseded by 0899 |
+| [0734](0734-every-file-other-than-a-note-is-kept-whole-in-git-lfs.md) | Every file other than a note is kept whole in Git LFS | Superseded by 0899 |
+| [0735](0735-sync-gives-files-a-history-it-never-merges-two.md) | Sync gives files a history; it never merges two | Superseded by 0899 |
+| [0736](0736-a-folder-outside-the-library-is-enrolled-through-a-link-the-person-names.md) | A folder outside the library is enrolled through a link the person names | Superseded by 0899 |
+| [0737](0737-an-apps-actions-are-request-notes-it-watches-in-this-devices-place.md) | An app's actions are request notes it watches in this device's place | Superseded by 0899 |
+| [0738](0738-a-script-reaches-an-app-through-a-handle-module-written-from-its-site.md) | A script reaches an app through a handle module written from its site | Superseded by 0899 |
+| [0739](0739-a-document-body-uses-a-standard-codec-until-an-app-needs-its-own.md) | A document body uses a standard codec until an app needs its own | Superseded by 0899 |
 | [0740](0740-every-credential-an-app-holds-lives-in-its-own-place.md) | Every credential an app holds lives in its own place | Accepted (amends 0549, 0701, and 0731; amended by 0764) |
-| [0741](0741-epicenter-reconciles-only-states-it-made.md) | Epicenter reconciles only states it made | Accepted (amends 0719) |
-| [0742](0742-items-are-what-you-keep-documents-are-whats-live.md) | Items are what you keep; documents are what's live | Accepted (amends 0705) |
-| [0743](0743-tabs-keeps-saved-tabs-as-items-in-a-collection.md) | Tabs keeps saved tabs as items in a collection | Accepted (supersedes 0724) |
-| [0744](0744-sync-diffs-state-because-agents-edit-state.md) | Sync diffs state, because agents edit state | Accepted (amended by 0787) |
-| [0745](0745-a-browser-extension-writes-through-the-local-epicenter-engine.md) | A browser extension writes through the local Epicenter engine | Accepted (amends 0227 and 0700; amended by 0750) |
-| [0746](0746-the-web-is-online-offline-needs-an-installed-app.md) | The web is online; offline needs an installed app | Accepted (amended by 0784, 0786, and 0787) |
-| [0747](0747-git-runs-only-as-git-on-the-desktop.md) | Git runs only as Git, on the desktop | Accepted (amended by 0751) |
+| [0741](0741-epicenter-reconciles-only-states-it-made.md) | Epicenter reconciles only states it made | Superseded by 0899 |
+| [0742](0742-items-are-what-you-keep-documents-are-whats-live.md) | Items are what you keep; documents are what's live | Superseded by 0899 |
+| [0743](0743-tabs-keeps-saved-tabs-as-items-in-a-collection.md) | Tabs keeps saved tabs as items in a collection | Superseded by 0899 |
+| [0744](0744-sync-diffs-state-because-agents-edit-state.md) | Sync diffs state, because agents edit state | Superseded by 0899 |
+| [0745](0745-a-browser-extension-writes-through-the-local-epicenter-engine.md) | A browser extension writes through the local Epicenter engine | Superseded by 0899 |
+| [0746](0746-the-web-is-online-offline-needs-an-installed-app.md) | The web is online; offline needs an installed app | Superseded by 0899 |
+| [0747](0747-git-runs-only-as-git-on-the-desktop.md) | Git runs only as Git, on the desktop | Superseded by 0899 |
 | [0748](0748-epicenter-ships-a-portable-git-inside-the-app.md) | Epicenter ships a portable Git inside the app | Superseded by 0751 |
 | [0749](0749-epicenter-draws-its-boundaries-where-people-already-expect-them.md) | Epicenter draws its boundaries where people already expect them | Accepted (amended by 0750 and 0787) |
-| [0750](0750-sync-is-like-save-any-program-can-sync-a-folder-and-none-owns-it.md) | Sync is like save: any program can sync a folder, and none owns it | Accepted (amends 0328, 0713, 0745, and 0749; amended by 0806 and 0819) |
+| [0750](0750-sync-is-like-save-any-program-can-sync-a-folder-and-none-owns-it.md) | Sync is like save: any program can sync a folder, and none owns it | Superseded by 0899 |
 | [0751](0751-every-native-app-carries-one-sync-core.md) | Every native app carries one sync core | Superseded by 0804 |
-| [0752](0752-an-apps-folder-sits-under-the-platforms-visible-root-of-app-folders.md) | An app's folder sits under the platform's visible root of app folders | Accepted |
-| [0753](0753-an-app-declares-what-it-is-and-what-it-needs-the-platform-supplies-where-how-and-when.md) | An app declares what it is and what it needs; the platform supplies where, how and when | Accepted (amends 0719; amended by 0759, 0760, 0766, and 0787) |
+| [0752](0752-an-apps-folder-sits-under-the-platforms-visible-root-of-app-folders.md) | An app's folder sits under the platform's visible root of app folders | Superseded by 0899 |
+| [0753](0753-an-app-declares-what-it-is-and-what-it-needs-the-platform-supplies-where-how-and-when.md) | An app declares what it is and what it needs; the platform supplies where, how and when | Superseded by 0899 |
 | [0754](0754-a-capability-takes-what-it-needs-as-values-and-shows-what-it-can-do-now-as-values.md) | A capability takes what it needs as values and shows what it can do now as values | Accepted (amended by 0757, 0765, and 0766) |
 | [0755](0755-epicenters-packages-are-capabilities-formats-framework-layers-and-programs.md) | Epicenter's packages are capabilities, formats, framework layers and programs | Accepted (amends 0403 and 0701; amended by 0760, 0764, and 0781) |
 | [0756](0756-an-apps-native-shell-is-linked-from-its-capabilities.md) | An app's native shell is linked from its capabilities | Accepted (amended by 0759 and 0766) |
-| [0757](0757-every-model-is-an-endpoint-every-model-file-is-a-cache.md) | Every model is an endpoint; every model file is a cache | Accepted (amends 0754; amended by 0764) |
-| [0758](0758-epicenter-adapts-to-what-you-already-have-and-owns-only-what-nothing-else-can.md) | Epicenter adapts to what you already have and owns only what nothing else can | Accepted |
+| [0757](0757-every-model-is-an-endpoint-every-model-file-is-a-cache.md) | Every model is an endpoint; every model file is a cache | Accepted (amends 0754; supersedes 0363 and 0365; amended by 0764) |
+| [0758](0758-epicenter-adapts-to-what-you-already-have-and-owns-only-what-nothing-else-can.md) | Epicenter adapts to what you already have and owns only what nothing else can | Superseded by 0899 |
 | [0759](0759-an-apps-native-shell-is-generated-on-every-build.md) | An app's native shell is generated on every build | Accepted (amends 0753 and 0756) |
 | [0760](0760-global-shortcuts-are-a-capability.md) | Global shortcuts are a capability | Accepted (amends 0753 and 0755) |
-| [0761](0761-sync-never-merges-two-unrelated-histories.md) | Sync never merges two unrelated histories | Accepted (amends 0735) |
+| [0761](0761-sync-never-merges-two-unrelated-histories.md) | Sync never merges two unrelated histories | Superseded by 0899 |
 | [0762](0762-epicenter-is-made-of-standards-and-places.md) | Epicenter is made of standards and places | Accepted (amended by 0763, 0764, and 0824) |
-| [0763](0763-epicenters-doctrine-is-three-roots-and-one-rule-for-apps.md) | Epicenter's doctrine is three roots and one rule for apps | Accepted (amends 0719 and 0762; amended by 0787, 0801, 0813, and 0818) |
+| [0763](0763-epicenters-doctrine-is-three-roots-and-one-rule-for-apps.md) | Epicenter's doctrine is three roots and one rule for apps | Superseded by 0899 |
 | [0764](0764-reaching-a-model-is-epicenter-ais-alone-in-the-openai-vocabulary.md) | Reaching a model is `@epicenter/ai`'s alone, in the OpenAI vocabulary | Accepted (amends 0740, 0755, 0757, and 0762) |
 | [0765](0765-choose-by-value-not-by-name-every-capability-has-the-same-shape.md) | Choose by value, not by name; every capability has the same shape | Accepted (amends 0754; amended by 0766, 0769, and 0787) |
-| [0766](0766-an-apps-capabilities-are-module-values-opened-synchronously.md) | An app's capabilities are module values, opened synchronously | Accepted (amends 0753, 0754, 0756, and 0765; amended by 0767, 0768, 0769, 0781, and 0787) |
+| [0766](0766-an-apps-capabilities-are-module-values-opened-synchronously.md) | An app's capabilities are module values, opened synchronously | Superseded by 0899 |
 | [0767](0767-an-async-lifecycle-is-modeled-as-synchronous-state-actions-wait-on-their-own.md, 0775) | An async lifecycle is modeled as synchronous state; actions wait on their own | Accepted (supersedes 0410; amends 0766; amended by 0768, 0775, 0777, and 0778) |
 | [0768](0768-retry-belongs-to-a-failure-and-editing-app-ts-reloads-the-page.md) | Retry belongs to a failure, and editing `app.ts` reloads the page | Accepted (amends 0766 and 0767) |
 | [0769](0769-svelte-reads-every-capability-through-one-reactive-copy.md) | Svelte reads every capability through one reactive copy | Accepted (amends 0765 and 0766) |
 | [0770](0770-teams-own-repositories-and-sharing-is-membership.md) | Teams own repositories, and sharing is membership | Superseded by 0811 |
-| [0771](0771-plain-files-let-epicenter-refuse-renames-attachment-conflict-copies-and-a-second-store.md) | Plain files let Epicenter refuse renames, attachment conflict copies, and a second store | Accepted (amends 0612, 0705, 0707, 0708, 0709, 0715, 0716, 0734, 0739, 0742, and 0770) |
-| [0772](0772-a-folder-says-what-it-is-in-agents-md-and-this-computer-keeps-the-rest.md) | A folder says what it is in AGENTS.md, and this computer keeps the rest | Accepted (amends 0711, 0715, 0721, 0722, 0752, and 0770; amended by 0787, 0791, 0802, 0804, 0805, and 0811) |
-| [0773](0773-a-folder-opens-at-a-place-every-place-is-a-store-and-the-server-never-merges.md) | A folder opens at a place, every place is a store, and the server never merges | Accepted (amends 0700, 0746, and 0766; amended by 0774, 0779, 0786, 0787, 0807, and 0815) |
-| [0774](0774-one-write-makes-it-so-and-settles-a-change-the-way-sync-does.md) | One write makes it so, and settles a change the way sync does | Accepted (amends 0700, 0769, and 0773; amended by 0775, 0787, 0793, 0794, 0795, 0796, 0798, and 0808) |
-| [0775](0775-a-write-never-fails-the-folder-keeps-it-until-it-lands.md) | A write never fails: the folder keeps it until it lands | Accepted (amends 0767 and 0774; amended by 0778 and 0782) |
-| [0776](0776-a-notes-name-is-its-file-name-and-a-rename-is-a-set-and-a-delete.md) | A note's name is its file name, and a rename is a set and a delete | Accepted |
+| [0771](0771-plain-files-let-epicenter-refuse-renames-attachment-conflict-copies-and-a-second-store.md) | Plain files let Epicenter refuse renames, attachment conflict copies, and a second store | Superseded by 0899 |
+| [0772](0772-a-folder-says-what-it-is-in-agents-md-and-this-computer-keeps-the-rest.md) | A folder says what it is in AGENTS.md, and this computer keeps the rest | Superseded by 0899 |
+| [0773](0773-a-folder-opens-at-a-place-every-place-is-a-store-and-the-server-never-merges.md) | A folder opens at a place, every place is a store, and the server never merges | Superseded by 0899 |
+| [0774](0774-one-write-makes-it-so-and-settles-a-change-the-way-sync-does.md) | One write makes it so, and settles a change the way sync does | Superseded by 0899 |
+| [0775](0775-a-write-never-fails-the-folder-keeps-it-until-it-lands.md) | A write never fails: the folder keeps it until it lands | Superseded by 0899 |
+| [0776](0776-a-notes-name-is-its-file-name-and-a-rename-is-a-set-and-a-delete.md) | A note's name is its file name, and a rename is a set and a delete | Superseded by 0899 |
 | [0777](0777-a-capability-has-no-ready-promise.md) | A capability has no ready promise | Accepted (amends 0767; amended by 0778) |
-| [0778](0778-a-page-connects-once-and-then-reads-synchronously.md) | A page connects once, and then reads synchronously | Accepted (amends 0767, 0775, and 0777; amended by 0779 and 0783) |
-| [0779](0779-a-store-is-four-verbs-and-a-browser-recording-lands-whole.md) | A store is four verbs, and a browser recording lands whole | Accepted (amends 0773 and 0778; amended by 0786, 0788, and 0798) |
+| [0778](0778-a-page-connects-once-and-then-reads-synchronously.md) | A page connects once, and then reads synchronously | Superseded by 0899 |
+| [0779](0779-a-store-is-four-verbs-and-a-browser-recording-lands-whole.md) | A store is four verbs, and a browser recording lands whole | Superseded by 0899 |
 | [0780](0780-a-surface-uses-what-its-platform-gives-and-parity-is-not-a-goal.md) | A surface uses what its platform gives, and parity is not a goal | Accepted (amended by 0801) |
 | [0781](0781-apps-branch-on-what-a-capability-offers-and-one-build-serves-every-surface.md) | Apps branch on what a capability offers, and one build serves every surface | Accepted (amends 0701, 0755, and 0766; amended by 0784, 0785, and 0792) |
-| [0782](0782-a-waiting-write-the-folder-will-not-make-rejects.md) | A waiting write the folder will not make rejects | Accepted (amends 0775) |
+| [0782](0782-a-waiting-write-the-folder-will-not-make-rejects.md) | A waiting write the folder will not make rejects | Superseded by 0899 |
 | [0783](0783-a-secret-lives-in-the-apps-credentials-file-and-is-read-by-the-request-that-uses-it.md) | A secret lives in the app's credentials file, and is read by the request that uses it | Accepted (amends 0778; amended by 0787) |
 | [0784](0784-whispering-is-the-webs-local-app-and-messages-is-a-program-on-this-computer.md) | Whispering is the web's local app, and Messages is a program on this computer | Accepted (amends 0746 and 0781; amended by 0786) |
-| [0785](0785-a-desktop-app-signs-in-to-sync-its-own-folder.md) | A desktop app signs in to sync its own folder | Accepted (amends 0781; amended by 0787, 0804, and 0822) |
-| [0786](0786-every-web-app-is-online-and-browser-storage-leaves-the-platform.md) | Every web app is online, and browser storage leaves the platform | Accepted (amends 0746, 0773, 0779, and 0784; amended by 0788 and 0807) |
-| [0787](0787-records-that-assumed-a-running-engine-or-a-build-time-choice-follow-0750-and-0781.md) | Records that assumed a running engine or a build-time choice follow ADR-0750 and ADR-0781 | Accepted (amends 0732, 0744, 0746, 0749, 0751, 0753, 0763, 0765, 0766, 0772, 0773, 0774, 0783, and 0785; amended by 0793, 0794, and 0797) |
+| [0785](0785-a-desktop-app-signs-in-to-sync-its-own-folder.md) | A desktop app signs in to sync its own folder | Superseded by 0899 |
+| [0786](0786-every-web-app-is-online-and-browser-storage-leaves-the-platform.md) | Every web app is online, and browser storage leaves the platform | Superseded by 0899 |
+| [0787](0787-records-that-assumed-a-running-engine-or-a-build-time-choice-follow-0750-and-0781.md) | Records that assumed a running engine or a build-time choice follow ADR-0750 and ADR-0781 | Superseded by 0899 |
 | [0788](0788-everything-in-a-folder-syncs-and-a-recordings-audio-is-kept-in-one-of-three-places.md) | Everything in a folder syncs, and a recording's audio is kept in one of three places | Accepted (amends 0779 and 0786; amended by 0789, 0801, 0804, and 0807) |
-| [0789](0789-a-conflict-is-a-mark-on-its-note-resolved-in-the-repair-editor.md) | A conflict is a mark on its note, resolved in the repair editor | Accepted (amends 0788; amended by 0795) |
-| [0790](0790-the-epicenter-app-is-a-library-over-every-folder-and-the-cli-answers-its-queries.md) | The Epicenter app is a library over every folder, and the CLI answers its queries | Accepted (amends 0715; amended by 0793, 0801, 0815, and 0816) |
+| [0789](0789-a-conflict-is-a-mark-on-its-note-resolved-in-the-repair-editor.md) | A conflict is a mark on its note, resolved in the repair editor | Superseded by 0899 |
+| [0790](0790-the-epicenter-app-is-a-library-over-every-folder-and-the-cli-answers-its-queries.md) | The Epicenter app is a library over every folder, and the CLI answers its queries | Superseded by 0899 |
 | [0791](0791-a-folders-first-sync-places-it-in-its-teams-folder.md) | A folder's first sync places it in its team's folder | Superseded by 0811 |
 | [0792](0792-an-account-asks-for-what-the-capabilities-that-take-it-need.md) | An account asks for what the capabilities that take it need | Accepted (amends 0781; amended by 0815) |
 | [0793](0793-programs-only-compose-typescript-holds-what-epicenter-means-and-rust-holds-the-os-git-and-secrets.md) | Programs only compose: TypeScript holds what Epicenter means, and Rust holds the OS, Git, and secrets | Accepted (amends 0732, 0751, 0774, 0787, and 0790; amended by 0795, 0801, and 0804) |
-| [0794](0794-a-sync-round-asks-its-host-to-settle-checks-out-only-what-did-not-move-and-retries-rather-than-guess.md) | A sync round asks its host to settle, checks out only what did not move, and retries rather than guess | Accepted (amends 0751, 0774, and 0787; amended by 0795, 0801, 0802, 0803, 0804, and 0808) |
-| [0795](0795-git-merges-a-notes-body-and-epicenter-merges-its-front-matter-by-key.md) | Git merges a note's body, and Epicenter merges its front matter by key | Accepted (amends 0700, 0733, 0774, 0789, 0793, and 0794; amended by 0796, 0797, and 0804) |
-| [0796](0796-a-field-is-a-line-its-value-is-json-and-a-write-patches-only-the-fields-it-changes.md) | A field is a line, its value is JSON, and a write patches only the fields it changes | Accepted (amends 0700, 0774, and 0795; amended by 0797) |
-| [0797](0797-front-matter-is-a-strict-grammar-and-anything-else-is-body.md) | Front matter is a strict grammar, and anything else is body | Accepted (amends 0787, 0795, and 0796; amended by 0798 and 0839) |
-| [0798](0798-a-store-patches-fields-and-writes-text-and-a-change-is-data.md) | A store patches fields and writes text, and a change is data | Accepted (amends 0774, 0779, and 0797; amended by 0800, 0807, and 0808) |
-| [0799](0799-a-folders-contract-is-also-an-mcp-server.md) | A folder's contract is also an MCP server | Accepted (amended by 0800, 0801, and 0827) |
-| [0800](0800-a-stores-wire-speaks-http-conditional-requests-and-apps-connect-agents-to-the-cli.md) | A store's wire speaks HTTP's conditional requests, and apps connect agents to the CLI | Accepted (amends 0798 and 0799; amended by 0807 and 0816) |
-| [0801](0801-records-from-0763-to-0800-agree-on-the-merge-rust-patching-marks-and-agents.md) | Records from 0763 to 0800 agree on the merge, Rust's part, the marks, and agents | Accepted (amends 0763, 0780, 0788, 0790, 0793, 0794, and 0799; amended by 0804) |
-| [0802](0802-people-share-spaces-an-app-works-in-one-at-a-time-and-a-folder-carries-its-contract.md) | People share spaces, an app works in one at a time, and a folder carries its contract | Accepted (amends 0770, 0772, 0791, and 0794; amended by 0805, 0811, and 0814) |
-| [0803](0803-clients-sync-only-with-epicenter-servers-and-sync-is-a-function-of-two-stores.md) | Clients sync only with Epicenter servers, and sync is a function of two stores | Accepted (amends 0733 and 0794; amended by 0824) |
-| [0804](0804-a-computer-keeps-a-plain-folder-and-every-surface-syncs-with-one-typescript-function.md) | A computer keeps a plain folder, and every surface syncs with one TypeScript function | Accepted (supersedes 0751; amends 0733, 0772, 0785, 0788, 0791, 0793, 0794, 0795, and 0801; amended by 0805, 0808, 0809, 0815, 0821, 0822, and 0839) |
-| [0805](0805-a-folder-is-recognized-by-epicenter-json-which-is-its-contract.md) | A folder is recognized by `epicenter.json`, which is its contract | Accepted (amends 0711, 0772, 0802, and 0804; amended by 0810, 0811, 0812, 0813, and 0827) |
-| [0806](0806-an-open-app-checks-for-changes-and-a-sync-never-silently-loses-an-edit.md) | An open app checks for changes, and a sync never silently loses an edit | Accepted (amends 0750; amended by 0807, 0819, 0829, and 0830) |
-| [0807](0807-an-app-writes-only-to-a-local-store-and-only-sync-talks-to-a-server.md) | An app writes only to a local store, and only sync talks to a server | Accepted (amends 0773, 0786, 0788, 0798, 0800, and 0806; amended by 0808 and 0823) |
-| [0808](0808-a-files-version-is-its-git-blob-id-on-every-store.md) | A file's version is its Git blob id on every store | Accepted (amends 0774, 0794, 0798, 0804, and 0807; amended by 0809 and 0824) |
-| [0809](0809-a-repository-is-a-spaces-app-and-bytes-nothing-needs-are-collected-or-purged.md) | A repository is a space's app, and bytes nothing needs are collected or purged | Accepted (amends 0804 and 0808; amended by 0810, 0811, and 0824) |
-| [0810](0810-a-folder-needs-no-app-and-a-repository-is-a-spaces-named-folder.md) | A folder needs no app, and a repository is a space's named folder | Accepted (amends 0805 and 0809; amended by 0811 and 0812) |
-| [0811](0811-folders-are-shared-directly-and-an-app-reaches-the-folders-attached-to-it.md) | Folders are shared directly, and an app reaches the folders attached to it | Accepted (supersedes 0770 and 0791; amends 0732, 0772, 0802, 0805, 0809, and 0810; amended by 0812, 0813, 0814, 0820, 0821, 0824, 0836, and 0837) |
-| [0812](0812-an-apps-schema-is-a-view-that-must-fit-a-folders-contract.md) | An app's schema is a view that must fit a folder's contract | Accepted (amends 0805, 0810, and 0811) |
-| [0813](0813-epicenter-is-your-folders-and-apps-are-lenses.md) | Epicenter is your folders, and apps are lenses | Accepted (amends 0763, 0805, and 0811) |
-| [0814](0814-one-window-shows-one-folder.md) | One window shows one folder | Accepted (amends 0802 and 0811) |
-| [0815](0815-the-platform-gives-a-window-its-folder-and-every-app-the-same-home.md) | The platform gives a window its folder, and every app the same home | Accepted (amends 0773, 0790, 0792, and 0804; amended by 0816 and 0825) |
-| [0816](0816-the-epicenter-app-is-where-a-person-sees-and-manages-every-folder.md) | The Epicenter app is where a person sees and manages every folder | Accepted (amends 0790, 0800, and 0815; amended by 0819) |
-| [0817](0817-the-cli-exposes-every-platform-operation-and-an-app-inherits-everything-about-folders.md) | The CLI exposes every platform operation, and an app inherits everything about folders | Accepted (amended by 0827, 0828, and 0839) |
-| [0818](0818-an-app-is-a-view-a-window-and-its-capabilities-and-everything-is-repairable-by-hand.md) | An app is a view, a window, and its capabilities, and everything is repairable by hand | Accepted (amends 0763; amended by 0821) |
-| [0819](0819-every-program-keeps-the-folders-it-has-open-in-sync-and-the-epicenter-app-has-them-all-open.md) | Every program keeps the folders it has open in sync, and the Epicenter app has them all open | Accepted (amends 0750, 0806, and 0816; amended by 0821, 0822, and 0830) |
-| [0820](0820-a-share-is-an-invitation-to-an-email-and-reaching-every-folder-is-a-permission.md) | A share is an invitation to an email, and reaching every folder is a permission | Accepted (amends 0811; amended by 0821, 0836, and 0837) |
-| [0821](0821-a-computer-remembers-what-it-synced-and-a-shell-limits-each-window-to-its-folder.md) | A computer remembers what it synced, and a shell limits each window to its folder | Accepted (amends 0804, 0811, 0818, 0819, and 0820; amended by 0822, 0832, and 0839) |
-| [0822](0822-only-epicenter-syncs-on-a-computer-and-a-folder-holds-only-its-content.md) | Only Epicenter syncs on a computer, and a folder holds only its content | Accepted (amends 0785, 0804, 0819, and 0821; amended by 0825, 0827, 0832, and 0839) |
-| [0823](0823-on-the-web-the-folder-on-the-server-is-the-apps-store.md) | On the web, the folder on the server is the app's store | Accepted (amends 0807; amended by 0830) |
-| [0824](0824-a-folders-history-is-a-log-of-versions-and-git-is-how-it-leaves.md) | A folder's history is a log of versions, and Git is how it leaves | Accepted (amends 0734, 0762, 0803, 0808, 0809, and 0811; amended by 0826, 0827, 0828, 0829, 0831, 0833, and 0837) |
-| [0825](0825-the-epicenter-folder-contains-its-folders.md) | The Epicenter folder contains its folders | Accepted (amends 0736, 0815, and 0822) |
-| [0826](0826-history-enters-and-leaves-epicenter-as-git.md) | History enters and leaves Epicenter as Git | Accepted (amends 0824; amended by 0827, 0828, 0831, 0836, 0837, and 0838) |
+| [0794](0794-a-sync-round-asks-its-host-to-settle-checks-out-only-what-did-not-move-and-retries-rather-than-guess.md) | A sync round asks its host to settle, checks out only what did not move, and retries rather than guess | Superseded by 0899 |
+| [0795](0795-git-merges-a-notes-body-and-epicenter-merges-its-front-matter-by-key.md) | Git merges a note's body, and Epicenter merges its front matter by key | Superseded by 0899 |
+| [0796](0796-a-field-is-a-line-its-value-is-json-and-a-write-patches-only-the-fields-it-changes.md) | A field is a line, its value is JSON, and a write patches only the fields it changes | Superseded by 0899 |
+| [0797](0797-front-matter-is-a-strict-grammar-and-anything-else-is-body.md) | Front matter is a strict grammar, and anything else is body | Superseded by 0899 |
+| [0798](0798-a-store-patches-fields-and-writes-text-and-a-change-is-data.md) | A store patches fields and writes text, and a change is data | Superseded by 0899 |
+| [0799](0799-a-folders-contract-is-also-an-mcp-server.md) | A folder's contract is also an MCP server | Superseded by 0899 |
+| [0800](0800-a-stores-wire-speaks-http-conditional-requests-and-apps-connect-agents-to-the-cli.md) | A store's wire speaks HTTP's conditional requests, and apps connect agents to the CLI | Superseded by 0899 |
+| [0801](0801-records-from-0763-to-0800-agree-on-the-merge-rust-patching-marks-and-agents.md) | Records from 0763 to 0800 agree on the merge, Rust's part, the marks, and agents | Superseded by 0899 |
+| [0802](0802-people-share-spaces-an-app-works-in-one-at-a-time-and-a-folder-carries-its-contract.md) | People share spaces, an app works in one at a time, and a folder carries its contract | Superseded by 0899 |
+| [0803](0803-clients-sync-only-with-epicenter-servers-and-sync-is-a-function-of-two-stores.md) | Clients sync only with Epicenter servers, and sync is a function of two stores | Superseded by 0899 |
+| [0804](0804-a-computer-keeps-a-plain-folder-and-every-surface-syncs-with-one-typescript-function.md) | A computer keeps a plain folder, and every surface syncs with one TypeScript function | Superseded by 0899 |
+| [0805](0805-a-folder-is-recognized-by-epicenter-json-which-is-its-contract.md) | A folder is recognized by `epicenter.json`, which is its contract | Superseded by 0899 |
+| [0806](0806-an-open-app-checks-for-changes-and-a-sync-never-silently-loses-an-edit.md) | An open app checks for changes, and a sync never silently loses an edit | Superseded by 0899 |
+| [0807](0807-an-app-writes-only-to-a-local-store-and-only-sync-talks-to-a-server.md) | An app writes only to a local store, and only sync talks to a server | Superseded by 0899 |
+| [0808](0808-a-files-version-is-its-git-blob-id-on-every-store.md) | A file's version is its Git blob id on every store | Superseded by 0899 |
+| [0809](0809-a-repository-is-a-spaces-app-and-bytes-nothing-needs-are-collected-or-purged.md) | A repository is a space's app, and bytes nothing needs are collected or purged | Superseded by 0899 |
+| [0810](0810-a-folder-needs-no-app-and-a-repository-is-a-spaces-named-folder.md) | A folder needs no app, and a repository is a space's named folder | Superseded by 0899 |
+| [0811](0811-folders-are-shared-directly-and-an-app-reaches-the-folders-attached-to-it.md) | Folders are shared directly, and an app reaches the folders attached to it | Superseded by 0899 |
+| [0812](0812-an-apps-schema-is-a-view-that-must-fit-a-folders-contract.md) | An app's schema is a view that must fit a folder's contract | Superseded by 0899 |
+| [0813](0813-epicenter-is-your-folders-and-apps-are-lenses.md) | Epicenter is your folders, and apps are lenses | Superseded by 0899 |
+| [0814](0814-one-window-shows-one-folder.md) | One window shows one folder | Superseded by 0899 |
+| [0815](0815-the-platform-gives-a-window-its-folder-and-every-app-the-same-home.md) | The platform gives a window its folder, and every app the same home | Superseded by 0899 |
+| [0816](0816-the-epicenter-app-is-where-a-person-sees-and-manages-every-folder.md) | The Epicenter app is where a person sees and manages every folder | Superseded by 0899 |
+| [0817](0817-the-cli-exposes-every-platform-operation-and-an-app-inherits-everything-about-folders.md) | The CLI exposes every platform operation, and an app inherits everything about folders | Superseded by 0899 |
+| [0818](0818-an-app-is-a-view-a-window-and-its-capabilities-and-everything-is-repairable-by-hand.md) | An app is a view, a window, and its capabilities, and everything is repairable by hand | Superseded by 0899 |
+| [0819](0819-every-program-keeps-the-folders-it-has-open-in-sync-and-the-epicenter-app-has-them-all-open.md) | Every program keeps the folders it has open in sync, and the Epicenter app has them all open | Superseded by 0899 |
+| [0820](0820-a-share-is-an-invitation-to-an-email-and-reaching-every-folder-is-a-permission.md) | A share is an invitation to an email, and reaching every folder is a permission | Superseded by 0899 |
+| [0821](0821-a-computer-remembers-what-it-synced-and-a-shell-limits-each-window-to-its-folder.md) | A computer remembers what it synced, and a shell limits each window to its folder | Superseded by 0899 |
+| [0822](0822-only-epicenter-syncs-on-a-computer-and-a-folder-holds-only-its-content.md) | Only Epicenter syncs on a computer, and a folder holds only its content | Superseded by 0899 |
+| [0823](0823-on-the-web-the-folder-on-the-server-is-the-apps-store.md) | On the web, the folder on the server is the app's store | Superseded by 0899 |
+| [0824](0824-a-folders-history-is-a-log-of-versions-and-git-is-how-it-leaves.md) | A folder's history is a log of versions, and Git is how it leaves | Superseded by 0899 |
+| [0825](0825-the-epicenter-folder-contains-its-folders.md) | The Epicenter folder contains its folders | Superseded by 0899 |
+| [0826](0826-history-enters-and-leaves-epicenter-as-git.md) | History enters and leaves Epicenter as Git | Superseded by 0899 |
 | [0827](0827-the-cli-and-mcp-render-one-table-of-operations.md) | The CLI and MCP render one table of operations | Accepted (amends 0799, 0805, 0817, 0822, 0824, and 0826; amended by 0838 and 0839) |
-| [0828](0828-names-say-folders-and-changes-and-history-is-package-functions-the-epicenter-app-shows.md) | Names say folders and changes, and history is package functions the Epicenter app shows | Accepted (amends 0549, 0817, 0824, and 0826) |
-| [0829](0829-a-restore-never-deletes-on-a-device-and-historys-chain-covers-what-changed-not-who.md) | A restore never deletes on a device, and history's chain covers what changed, not who | Accepted (amends 0806 and 0824; amended by 0836) |
-| [0830](0830-epicenter-sends-a-change-the-moment-it-happens-and-checks-for-others-every-thirty-seconds.md) | Epicenter sends a change the moment it happens, and checks for others' every thirty seconds | Accepted (amends 0806, 0819, and 0823) |
-| [0831](0831-a-git-branch-lands-in-a-folder-as-one-change-through-the-cli.md) | A Git branch lands in a folder as one change through the CLI | Accepted (amends 0824 and 0826; amended by 0834 and 0838) |
-| [0832](0832-a-folder-is-the-directory-epicenter-last-synced-or-epicenter-asks.md) | A folder is the directory Epicenter last synced, or Epicenter asks | Accepted (amends 0821 and 0822; amended by 0839) |
-| [0833](0833-a-folders-present-lives-in-one-shared-database-and-its-past-in-its-own-archive.md) | A folder's present lives in one shared database, and its past in its own archive | Accepted (amends 0824; amended by 0837) |
-| [0834](0834-every-folder-is-also-a-git-remote.md) | Every folder is also a Git remote | Accepted (amends 0831; amended by 0838) |
+| [0828](0828-names-say-folders-and-changes-and-history-is-package-functions-the-epicenter-app-shows.md) | Names say folders and changes, and history is package functions the Epicenter app shows | Superseded by 0899 |
+| [0829](0829-a-restore-never-deletes-on-a-device-and-historys-chain-covers-what-changed-not-who.md) | A restore never deletes on a device, and history's chain covers what changed, not who | Superseded by 0899 |
+| [0830](0830-epicenter-sends-a-change-the-moment-it-happens-and-checks-for-others-every-thirty-seconds.md) | Epicenter sends a change the moment it happens, and checks for others' every thirty seconds | Superseded by 0899 |
+| [0831](0831-a-git-branch-lands-in-a-folder-as-one-change-through-the-cli.md) | A Git branch lands in a folder as one change through the CLI | Superseded by 0899 |
+| [0832](0832-a-folder-is-the-directory-epicenter-last-synced-or-epicenter-asks.md) | A folder is the directory Epicenter last synced, or Epicenter asks | Superseded by 0899 |
+| [0833](0833-a-folders-present-lives-in-one-shared-database-and-its-past-in-its-own-archive.md) | A folder's present lives in one shared database, and its past in its own archive | Superseded by 0899 |
+| [0834](0834-every-folder-is-also-a-git-remote.md) | Every folder is also a Git remote | Superseded by 0899 |
 | [0835](0835-records-from-0802-to-0834-agree-on-files-a-ledger-and-git-at-the-edges.md) | Records from 0802 to 0834 agree on files, a ledger, and Git at the edges | Superseded by 0840 |
 | [0836](0836-one-merge-a-cursor-that-carries-its-digest-and-one-grant.md) | One merge, a cursor that carries its digest, and one grant | Superseded by 0840 |
 | [0837](0837-the-ledger-is-the-persons-model-folders-the-versions-of-their-files-and-who-may-see-them.md) | The ledger is the person's model: folders, the versions of their files, and who may see them | Superseded by 0840 |
 | [0838](0838-git-speaks-to-a-folder-through-a-remote-helper-and-the-cli-speaks-a-persons-verbs.md) | Git speaks to a folder through a remote helper, and the CLI speaks a person's verbs | Superseded by 0840 |
 | [0839](0839-a-save-is-one-numbered-write-a-reset-deletes-nothing-and-epicenter-owns-the-pages-every-app-links-to.md) | A save is one numbered write, a reset deletes nothing, and Epicenter owns the pages every app links to | Superseded by 0840 |
-| [0840](0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md) | Epicenter is where one person's software lives, and the folder sync product waits | Accepted (supersedes 0835, 0836, 0837, 0838, and 0839) |
-| [0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md) | An app is a folder whose `epicenter.ts` defines its actions | Accepted |
-| [0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md) | An action is a commit, and the repository is the sync | Accepted |
-| [0843](0843-new-code-imports-nothing-from-the-waiting-product-which-leaves-by-deletion.md) | New code imports nothing from the waiting product, which leaves by deletion | Accepted |
-| [0844](0844-one-runner-runs-anywhere-and-every-surface-is-a-view-over-it.md) | One runner runs anywhere, and every surface is a view over it | Accepted |
+| [0840](0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md) | Epicenter is where one person's software lives, and the folder sync product waits | Accepted (supersedes 0835, 0836, 0837, 0838, and 0839; amended by 0870, 0896, 0897, and 0899) |
+| [0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md) | An app is a folder whose `epicenter.ts` defines its actions | Accepted (amended by 0903) |
+| [0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md) | An action is a commit, and the repository is the sync | Accepted (amended by 0903) |
+| [0843](0843-new-code-imports-nothing-from-the-waiting-product-which-leaves-by-deletion.md) | New code imports nothing from the waiting product, which leaves by deletion | Accepted (amended by 0899) |
+| [0844](0844-one-runner-runs-anywhere-and-every-surface-is-a-view-over-it.md) | One runner runs anywhere, and every surface is a view over it | Accepted (amended by 0903) |
 | [0845](0845-an-app-declares-collections-each-a-path-and-fields-which-the-hub-views.md) | An app declares collections, each a path and fields, which the hub views | Accepted |
 | [0846](0846-epicenter-owns-no-infrastructure-and-each-repository-has-one-meeting-point.md) | Epicenter owns no infrastructure, and each repository has one meeting point | Accepted |
 | [0847](0847-an-app-brings-its-providers-credentials-with-a-default-in-its-code.md) | An app brings its provider's credentials, with a default in its code | Accepted |
@@ -1075,7 +1090,7 @@ When you add an ADR, add its row here.
 | [0867](0867-the-command-line-spells-an-actions-json-input-and-null-removes-a-field-there-as-everywhere.md) | The command line spells an action's JSON input, and `null` removes a field there as everywhere | Proposed |
 | [0868](0868-an-epicenter-is-any-folder-that-says-it-is-one-and-a-computer-runs-as-many-as-it-has.md) | An Epicenter is any folder that says it is one, and a computer runs as many as it has | Proposed |
 | [0869](0869-a-body-is-changed-by-quoting-the-passage-it-replaces.md) | A body is changed by quoting the passage it replaces | Proposed |
-| [0870](0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md) | An app's secrets are `.local` files, and a `.local` file never leaves its computer | Accepted |
+| [0870](0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md) | An app's secrets are `.local` files, and a `.local` file never leaves its computer | Accepted (amended by 0903) |
 | [0871](0871-a-public-address-signs-people-in-with-a-passkey-and-connectors-in-with-oauth.md) | A public address signs people in with a passkey and connectors in with OAuth | Superseded by 0883 |
 | [0873](0873-the-command-is-epicenter-cli-and-it-supplies-epicenter-app-to-every-app.md) | The command is `@epicenter/cli`, and it supplies `@epicenter/app` to every app | Accepted |
 | [0874](0874-the-ui-kit-is-a-shadcn-svelte-registry-an-app-copies-from.md) | The UI kit is a shadcn-svelte registry an app copies from | Proposed |
@@ -1086,18 +1101,23 @@ When you add an ADR, add its row here.
 | [0879](0879-an-action-may-yield-values-while-it-runs-and-only-its-return-is-the-answer.md) | An action may yield values while it runs, and only its return is the answer | Proposed |
 | [0880](0880-an-epicenter-runs-its-apps-as-they-sit-on-disk.md) | An Epicenter runs its apps as they sit on disk | Proposed |
 | [0881](0881-people-reach-an-epicenter-over-the-tailnet-and-its-public-address-serves-only-connectors.md) | People reach an Epicenter over the tailnet, and its public address serves only connectors | Superseded by 0883 |
-| [0883](0883-an-epicenter-is-its-git-repositories-and-serve-and-its-host-keeps-runs-and-guards-them.md) | An Epicenter is its Git repositories and `serve`, and its host keeps, runs, and guards them | Accepted |
+| [0883](0883-an-epicenter-is-its-git-repositories-and-serve-and-its-host-keeps-runs-and-guards-them.md) | An Epicenter is its Git repositories and `serve`, and its host keeps, runs, and guards them | Accepted (amended by 0903) |
 | [0884](0884-an-epicenter-is-a-repository-that-lists-the-repositories-inside-it-and-init-from-rebuilds-it.md) | An Epicenter is a repository that lists the repositories inside it, and `init --from` rebuilds it | Accepted |
 | [0885](0885-an-epicenters-apps-live-in-apps-which-its-repository-ignores-with-one-line.md) | An Epicenter's apps live in `apps/`, which its repository ignores with one line | Accepted |
 | [0886](0886-vocab-practises-with-a-tutor-on-the-persons-own-model-and-zhongwen-is-vocab-cloned-for-chinese.md) | Vocab practises with a tutor on the person's own model, and Zhongwen is Vocab cloned for Chinese | Accepted |
-| [0887](0887-a-program-keeps-a-clone-of-an-apps-data-repository-and-the-host-files-what-it-pushes.md) | A program keeps a clone of an app's data repository, and the host files what it pushes | Accepted |
+| [0887](0887-a-program-keeps-a-clone-of-an-apps-data-repository-and-the-host-files-what-it-pushes.md) | A program keeps a clone of an app's data repository, and the host files what it pushes | Accepted (amended by 0903) |
 | [0888](0888-the-host-merges-with-gits-line-merge-and-a-file-it-cannot-merge-takes-the-later-side-whole.md) | The host merges with Git's line merge, and a file it cannot merge takes the later side whole | Accepted |
-| [0889](0889-an-app-runs-on-epicenter-a-program-works-with-it-and-they-meet-at-the-apps-contract.md) | An app runs on Epicenter, a program works with it, and they meet at the app's contract | Accepted |
+| [0889](0889-an-app-runs-on-epicenter-a-program-works-with-it-and-they-meet-at-the-apps-contract.md) | An app runs on Epicenter, a program works with it, and they meet at the app's contract | Accepted (amended by 0901) |
 | [0890](0890-a-programs-folder-is-its-own-and-holds-only-what-its-apps-contract-declares.md) | A program's folder is its own, and holds only what its app's contract declares | Accepted |
-| [0891](0891-this-repository-holds-the-runtime-and-programs-and-every-starter-is-a-repository-of-its-own.md) | This repository holds the runtime and programs, and every starter is a repository of its own | Accepted |
+| [0891](0891-this-repository-holds-the-runtime-and-programs-and-every-starter-is-a-repository-of-its-own.md) | This repository holds the runtime and programs, and every starter is a repository of its own | Accepted (amended by 0901 and 0902) |
 | [0892](0892-the-cli-releases-to-npm-and-whispering-8-is-a-new-install-with-its-own-update-address.md) | The CLI releases to npm, and Whispering 8 is a new install with its own update address | Accepted |
 | [0893](0893-a-records-path-is-its-path-in-the-apps-data-repository.md) | A record's path is its path in the app's data repository | Accepted |
 | [0894](0894-whispering-8-keeps-its-recordings-and-their-audio-in-its-own-data-directory-and-needs-no-epicenter.md) | Whispering 8 keeps its recordings and their audio in its own data directory, and needs no Epicenter | Proposed |
 | [0896](0896-each-collection-has-one-writer-of-record-and-epicenter-never-reconciles-two-writable-copies.md) | Each collection has one writer of record, and Epicenter never reconciles two writable copies | Accepted |
 | [0897](0897-hosted-notes-is-a-product-beside-epicenter-and-waits-for-a-month-of-evidence.md) | Hosted Notes is a product beside Epicenter, and waits for a month of evidence | Accepted |
-| [0898](0898-what-arrives-is-cached-what-the-person-decides-is-kept-and-an-item-moves-by-transfer.md) | What arrives is cached, what the person decides is kept, and an item moves by transfer | Accepted |
+| [0898](0898-what-arrives-is-cached-what-the-person-decides-is-kept-and-an-item-moves-by-transfer.md) | What arrives is cached, what the person decides is kept, and an item moves by transfer | Accepted (amended by 0903) |
+| [0899](0899-the-folder-sync-product-is-retired.md) | The folder sync product is retired | Accepted (amends 0840 and 0843; supersedes the folder sync product's records) |
+| [0900](0900-a-program-may-hand-its-new-records-over-to-a-home-which-then-holds-them.md) | A program may hand its new records over to a home, which then holds them | Proposed |
+| [0901](0901-an-app-is-inside-an-epicenter-or-outside-it.md) | An app is inside an Epicenter or outside it | Accepted (amends 0889 and 0891; amended by 0902) |
+| [0902](0902-this-repositorys-outside-apps-stay-in-apps.md) | This repository's outside apps stay in `apps/` | Accepted (amends 0891 and 0901; supersedes the records of Local Books and Honeycrisp) |
+| [0903](0903-the-home-is-a-computer-its-person-controls-owned-or-rented.md) | The home is a computer its person controls, owned or rented | Accepted (amends 0841, 0842, 0844, 0870, 0883, 0887, and 0898) |

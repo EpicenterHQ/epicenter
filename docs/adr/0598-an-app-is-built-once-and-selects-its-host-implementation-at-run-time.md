@@ -1,7 +1,5 @@
 # 0598. An app is built once and selects its host implementation at run time
 
-<!-- doc-path-check: ignore-file (cites code that moved since) -->
-
 - **Status:** Superseded
 - **Date:** 2026-10-17
 - **Supersedes:** [ADR-0391](0391-the-build-selects-every-implementation-and-an-application-declares-only-its-id-and-data.md) (the build selects every implementation); the package it governed, `@epicenter/app`, no longer exists.

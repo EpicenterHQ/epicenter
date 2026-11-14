@@ -7,7 +7,6 @@
 [workspace]
 resolver = "2"
 members = [
-    "apps/honeycrisp/src-tauri",
     "apps/whispering/src-tauri",
     "packages/epicenter-transcription-build",
     "packages/tauri-epicenter-account",

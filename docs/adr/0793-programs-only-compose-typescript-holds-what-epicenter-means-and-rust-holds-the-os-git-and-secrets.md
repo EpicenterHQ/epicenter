@@ -1,7 +1,5 @@
 # 0793. Programs only compose: TypeScript holds what Epicenter means, and Rust holds the OS, Git, and secrets
 
-<!-- doc-path-check: ignore-file (cites the waiting folder sync product (ADR-0840), kept at tag folder-sync-product) -->
-
 - **Status:** Accepted (2026-11-05)
 - **Date:** 2026-11-05
 - **Amends:** [ADR-0751](0751-every-native-app-carries-one-sync-core.md) at "`settle` moves into the core" and "Two `settle` implementations exist": `settle` has one implementation, in TypeScript, and the core asks its host for it (ADR-0794); [ADR-0774](0774-one-write-makes-it-so-and-settles-a-change-the-way-sync-does.md) at "`settle` has two implementations, TypeScript and Rust": it has one; [ADR-0787](0787-records-that-assumed-a-running-engine-or-a-build-time-choice-follow-0750-and-0781.md) at "The CLI and the Epicenter app keep sharing one file in Epicenter's AppData": the CLI is its own OAuth client with its own credentials file, and the library keeps its own; [ADR-0732](0732-a-grant-reaches-what-the-person-chooses-at-consent.md) at "The app and the engine read and write the same file": each reads its own; [ADR-0790](0790-the-epicenter-app-is-a-library-over-every-folder-and-the-cli-answers-its-queries.md) at "The library asks `epicenter query --json --watch` for the names": the library builds the same tables in its own page, and neither runs nor carries the CLI.
@@ -9,7 +7,7 @@
 - **Amended by:** [ADR-0795](0795-git-merges-a-notes-body-and-epicenter-merges-its-front-matter-by-key.md) at `settle` having one TypeScript implementation: bodies merge by Git's merge, and front matter by a key rule written once in each language under one fixture.
 - **Amended by:** [ADR-0801](0801-records-from-0763-to-0800-agree-on-the-merge-rust-patching-marks-and-agents.md) at "Rust decides nothing about a note": Rust holds the front-matter primitive and key merge as TypeScript's twin.
 - **Amended by:** [ADR-0804](0804-a-computer-keeps-a-plain-folder-and-every-surface-syncs-with-one-typescript-function.md) at Rust holding a round's Git work: Rust holds no Git.
-- **Unbuilt:** the CLI's own OAuth client and credentials file in place of the keychain (`packages/cli/src/secrets.ts`); the query's table builder as a TypeScript package given a SQLite handle, `bun:sqlite` in the CLI and sqlite-wasm in the library's page; the CLI's installer apart from the Epicenter app, and the library's offer to install it (the app no longer bundles or links the CLI); the server's path rule in `packages/tauri-plugin-epicenter-folder/fixtures/path-rules.json`, and a path check at checkout.
+- **Unbuilt:** the CLI's own OAuth client and credentials file in place of the keychain (`afdcba86af^:packages/cli/src/secrets.ts`, removed in afdcba86af); the query's table builder as a TypeScript package given a SQLite handle, `bun:sqlite` in the CLI and sqlite-wasm in the library's page; the CLI's installer apart from the Epicenter app, and the library's offer to install it (the app no longer bundles or links the CLI); the server's path rule in `packages/tauri-plugin-epicenter-folder/fixtures/path-rules.json`, and a path check at checkout.
 
 ## Context
 

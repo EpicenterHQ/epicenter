@@ -1,7 +1,5 @@
 # 0661. Apps compose Result services through Wellcrafted option namespaces
 
-<!-- doc-path-check: ignore-file (cites the waiting folder sync product (ADR-0840), kept at tag folder-sync-product) -->
-
 - **Status:** Proposed
 - **Date:** 2026-10-21; revised 2026-11-11 for the merged helper shape
 - **Built:** the dashboard (`apps/api/ui/src/lib/dashboard/runtime.ts`) composes billing and account through `resultQueries` and `resultMutations` from Wellcrafted 0.47, with the client-wide invalidation rule. The UIs of Capture, Reading, Tasks, and Vocab do the same over `connect()`, whose calls return `Result<Out, ActionError>` (`Changed`, `Missing`, `Threw`, `Refused`, `Unreachable`): each UI's `ui/src/lib/app.ts` lists its `reads` and `writes`, and its layout makes the QueryClient with `createQueryClient()` from its own `ui/src/lib/query-client.ts`, which carries the rule and builds on the UI's own `@tanstack/svelte-query`, so a bundle holds one TanStack Query. `@epicenter/app` does not depend on TanStack Query (2026-11-11).
@@ -10,10 +8,10 @@
 
 ## Context
 
-The dashboard's `apps/api/ui/src/lib/billing/queries.ts` repeats billing method
-names in `billingKeys` and in `createBillingQueries`, then forwards arguments
-through `defineQuery` and `defineMutation`. Account queries use the same
-pattern. Components consume `.options`, and billing and account components
+The dashboard's `1d6c4d9315^:apps/api/ui/src/lib/billing/queries.ts` repeated
+billing method names in `billingKeys` and in `createBillingQueries`, then
+forwarded arguments through `defineQuery` and `defineMutation`. Account queries
+used the same pattern. Components consume `.options`, and billing and account components
 invalidate cached reads themselves: `PlanComparison.svelte`, the dashboard
 page, and the account page each call `invalidateQueries` after a write.
 

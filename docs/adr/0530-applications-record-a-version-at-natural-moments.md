@@ -1,7 +1,8 @@
 # 0530. Applications record a version at natural moments
 
-- **Status:** Proposed
+- **Status:** Superseded
 - **Date:** 2026-10-13
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amends:** [ADR-0529](0529-commits-happen-only-on-sync-or-when-a-person-saves-a-version.md), withdrawing "only" from "a commit happens only when sync checkpoints before it runs, or when a person saves a version". Saves still never request commits, and the folder package keeps no automatic commit machinery.
 - **Unbuilt:** the checkpoint call in every editing application; the choice of moments for each; periodic checkpoints.
 

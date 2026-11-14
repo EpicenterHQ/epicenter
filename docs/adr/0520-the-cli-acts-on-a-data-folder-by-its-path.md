@@ -1,7 +1,8 @@
 # 0520. The CLI acts on a data folder by its path
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-10-11
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Relates:** [ADR-0517](0517-a-data-folder-can-live-inside-any-repository.md) (a data folder is a directory with `epicenter.json`), [ADR-0494](0494-file-folders-reserve-epicenter-for-rebuildable-caches.md) (queries build transient projections), [ADR-0521](0521-a-folder-syncs-over-plain-git-with-a-token-to-a-server-the-person-chooses.md) (the CLI keeps no account system)
 - **Amended by:** [ADR-0527](0527-a-data-folder-may-keep-its-declaration-as-typescript.md) at running the folder's code: `epicenter generate` runs `epicenter.ts`; `check` and `query` still never do.
 - **Amended by:** [ADR-0558](0558-the-epicenter-cli-groups-only-its-app-and-auth-commands.md) at "The CLI has no account or transfer commands": it has `auth`, `sync`, `clone`, and `repos`, every command that acts on a local folder still takes its path, and exit code 2 also covers a program a command needs that is missing.

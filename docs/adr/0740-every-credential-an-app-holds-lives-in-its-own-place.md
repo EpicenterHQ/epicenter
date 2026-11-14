@@ -1,7 +1,5 @@
 # 0740. Every credential an app holds lives in its own place
 
-<!-- doc-path-check: ignore-file (cites code that moved since) -->
-
 - **Status:** Accepted (2026-11-04)
 - **Date:** 2026-11-04
 - **Amends:** [ADR-0731](0731-every-app-signs-in-as-its-site.md) at "how the app proves it: desktop: a refresh token" and the shell's file holding only the refresh token: a web app holds a refresh token too, and the desktop file also holds the person's provider API keys; [ADR-0701](0701-apps-run-as-separate-programs.md) at decision 84's "the refresh token stays in the keychain" and "API keys are keychain entries too": both are in one file in the app's AppData; [ADR-0549](0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md) at "A browser app keeps its access token in `localStorage` and holds no refresh token" and its renewal by navigating with `prompt=none`: a browser app keeps a rotated refresh token and renews without navigating.
@@ -12,12 +10,12 @@
 ## Context
 
 Desktop apps keep credentials in the OS keychain through `keyring`
-(`packages/tauri-epicenter-account/src/keychain.rs`, one entry per name
+(`dd9853c0df:packages/tauri-epicenter-account/src/keychain.rs`, one entry per name
 under the bundle identifier as the service). Whispering keeps both of its
 provider connections, keys included, in one entry named `connections`
-(`apps/whispering/src/lib/platform/services.tauri.ts`). Vocab keeps one entry
+(`dd9853c0df:apps/whispering/src/lib/platform/services.tauri.ts`). Vocab keeps one entry
 per connection, named by its id
-(`apps/vocab/src/lib/connections.tauri.ts`).
+(`dd9853c0df:apps/vocab/src/lib/connections.tauri.ts`).
 [ADR-0731](0731-every-app-signs-in-as-its-site.md) already moved the desktop
 refresh token out of the keychain into a file in the app's AppData, because
 the file keychain prompts a rebuilt binary and one store serves every

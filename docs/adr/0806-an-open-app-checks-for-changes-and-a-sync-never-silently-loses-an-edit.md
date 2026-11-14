@@ -1,7 +1,8 @@
 # 0806. An open app checks for changes, and a sync never silently loses an edit
 
-- **Status:** Accepted (2026-11-06)
+- **Status:** Superseded
 - **Date:** 2026-11-06
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amends:** [ADR-0750](0750-sync-is-like-save-any-program-can-sync-a-folder-and-none-owns-it.md) at "No program runs a file watcher, an interval timer, or a background service to sync" and "An idle app in the background does not show another device's change until the person returns to its window": an open app checks the server every few seconds; nothing runs once it closes.
 - **Relates:** [ADR-0804](0804-a-computer-keeps-a-plain-folder-and-every-surface-syncs-with-one-typescript-function.md) (one sync function, moments in its package), [ADR-0786](0786-every-web-app-is-online-and-browser-storage-leaves-the-platform.md) (the web already checks every few seconds), [ADR-0795](0795-git-merges-a-notes-body-and-epicenter-merges-its-front-matter-by-key.md) (an edit beats a delete).
 - **Amended by:** [ADR-0807](0807-an-app-writes-only-to-a-local-store-and-only-sync-talks-to-a-server.md) at the moments on the web: sync as a burst of saves ends and when the page is hidden.

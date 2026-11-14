@@ -1,7 +1,5 @@
 # 0765. Choose by value, not by name; every capability has the same shape
 
-<!-- doc-path-check: ignore-file (cites code that moved since) -->
-
 - **Status:** Accepted (2026-11-04)
 - **Date:** 2026-11-04
 - **Amends:** [ADR-0754](0754-a-capability-takes-what-it-needs-as-values-and-shows-what-it-can-do-now-as-values.md) at "A capability takes what it needs as values" and at its Svelte adapter "follows `fromAuth`": the value a capability takes is another capability itself, never an adapter shaped for it; the platform, the source and the job are chosen by the build or by data, never by calling a differently named function; every capability has the six-part shape below; and each `fromX` is built on one shared internal helper.
@@ -22,17 +20,17 @@ chose by calling differently named things:
 
 | Choice | Made today by calling | Where |
 | --- | --- | --- |
-| the platform | `openDataFolder`, `openAppData`, `openDevice` or `openRemote` | `packages/folder/src/desktop-folder.ts`, `packages/folder/src/browser.ts`, `packages/folder/src/tauri.ts`, `packages/folder/src/remote.ts` |
+| the platform | `openDataFolder`, `openAppData`, `openDevice` or `openRemote` | `5b32f49a07:packages/folder/src/desktop-folder.ts`, `5b32f49a07:packages/folder/src/browser.ts`, `packages/folder/src/tauri.ts`, `5b32f49a07:packages/folder/src/remote.ts` |
 | the platform | `createBrowserOAuth` or `createTauriAuth` | `packages/account/src/browser-oauth.ts`, `packages/account/src/tauri.ts` |
-| the source | `useAccount`, `useCustom` or `useLocal` | `apps/whispering/src/lib/platform/types.ts` |
-| the job | a string scope with a default written beside the read | `choices.get('tutor') ?? (canChat(HOSTED_TUTOR) ? HOSTED_TUTOR : null)` in `apps/vocab/src/lib/chat/session.svelte.ts` |
+| the source | `useAccount`, `useCustom` or `useLocal` | `5b32f49a07:apps/whispering/src/lib/platform/types.ts` |
+| the job | a string scope with a default written beside the read | `choices.get('tutor') ?? (canChat(HOSTED_TUTOR) ? HOSTED_TUTOR : null)` in `5b32f49a07:apps/vocab/src/lib/chat/session.svelte.ts` |
 
 Each named pair then needed an app-level type to hold it together:
 `Platform` and `VocabAuth` and `OpenConnections` in
-`apps/vocab/src/lib/platform.ts`, and `Platform` and `CreateServices` in
-`apps/whispering/src/lib/platform/types.ts`. The endpoint array,
+`5b32f49a07:apps/vocab/src/lib/platform.ts`, and `Platform` and `CreateServices` in
+`5b32f49a07:apps/whispering/src/lib/platform/types.ts`. The endpoint array,
 `openAi([servers, learnerHosted, ...records.map(...)])` in
-`apps/vocab/src/lib/ai.svelte.ts`, was the one layer already choosing by
+`5b32f49a07:apps/vocab/src/lib/ai.svelte.ts`, was the one layer already choosing by
 value. Counted friction: building an app today takes about 79 to 100 names,
 against 22 to 55 under the proposed shape.
 
@@ -72,7 +70,7 @@ for it.** `hosted(account)` takes the account, where
 The shared helper owns subscribing while a getter is read, through
 `createSubscriber` from `svelte/reactivity`, as `fromAuth` and `fromAi` each
 do today. An adapter with work of its own, such as `fromClient` in
-`packages/svelte/src/client.svelte.ts`, keeps that work and builds on the
+`5b32f49a07:packages/svelte/src/client.svelte.ts`, keeps that work and builds on the
 helper.
 
 ## Consequences

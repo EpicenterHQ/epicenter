@@ -1,11 +1,9 @@
 # 0864. Epicenter is a data server for repositories of files, and code runs where its owner trusts it
 
-<!-- doc-path-check: ignore-file (cites the waiting folder sync product (ADR-0840), kept at tag folder-sync-product) -->
-
 - **Status:** Proposed
 - **Date:** 2026-11-10
 - **Relates:** [ADR-0840](0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md) (one person's software), [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) (your server), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (who commits), [ADR-0851](0851-an-app-has-one-home-and-an-optional-push-only-backup.md) (the remote), [ADR-0853](0853-collections-give-five-actions-and-programs-without-the-folder-ask-over-mcp.md) (the collection verbs, MCP), [ADR-0857](0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md) (`epicenter.ts`), [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (views), [ADR-0861](0861-whats-yours-is-everywhere-and-everything-else-is-used-where-it-is.md), [ADR-0862](0862-notes-merge-field-by-field-and-every-conflict-is-listed-for-repair.md) (the merge).
-- **Unbuilt:** the typed client `open()`, and Whispering's clone ([ADR-0887](0887-a-program-keeps-a-clone-of-an-apps-data-repository-and-the-host-files-what-it-pushes.md)). Built: each collection's `list`, `get`, `add`, `set`, `edit`, and `delete` from the command line and over MCP (`packages/app/src/collection.ts`); `epicenter serve` over HTTP, serving MCP at `/` and views at `/<app>/`, with one commit per write call and a push to `origin` every 5 minutes (`packages/cli/src/http.ts`); a public listener for an HTTPS tunnel, serving only connectors, signed in with OAuth and approved on the tailnet (ADR-0871, ADR-0881, `packages/cli/src/public.ts`).
+- **Unbuilt:** the typed client `open()`, and Whispering's clone ([ADR-0887](0887-a-program-keeps-a-clone-of-an-apps-data-repository-and-the-host-files-what-it-pushes.md)). Built: each collection's `list`, `get`, `add`, `set`, `edit`, and `delete` from the command line and over MCP (`packages/app/src/collection.ts`); `epicenter serve` over HTTP, serving MCP at `/` and views at `/<app>/`, with one commit per write call and a push to `origin` every 5 minutes (`packages/cli/src/http.ts`). The public listener for an HTTPS tunnel (ADR-0871, ADR-0881) was built and then removed in 7959c24236 (ADR-0883).
 - **Amended by:** [ADR-0881](0881-people-reach-an-epicenter-over-the-tailnet-and-its-public-address-serves-only-connectors.md): people reach `serve` only over the tailnet, and the public address serves only connectors. Then [ADR-0883](0883-an-epicenter-is-its-git-repositories-and-serve-and-its-host-keeps-runs-and-guards-them.md) removed the public address, its connectors, and the `connectors` block.
 
 ## Context
@@ -82,15 +80,18 @@ do not trust each other runs no one's `epicenter.ts`. A client holds its own
 credentials: Mail's Google token is in `mail/google.local.md` on the machine
 that runs Mail's actions (ADR-0870), and Epicenter holds only its own sign-in.
 
-**Your Epicenter is the Studio running `epicenter serve`.** Your own devices
+**Your Epicenter is the home running `epicenter serve`; for the author, the
+Studio.** Your own devices
 reach it over your tailnet. Claude.ai and ChatGPT connect from their companies'
 servers, so `epicenter serve` also has one public HTTPS address, through
 any HTTPS tunnel such as Tailscale Funnel, and signs a client in with OAuth, as
 MCP requires: adding the connector opens a page on your tailnet where you
 approve it, and the client receives a token you can revoke (ADR-0871,
 ADR-0881).
-Another person's Epicenter is the same program on their own computer; without a
-terminal, it is the Epicenter Mac app, which runs `epicenter serve` (ADR-0865).
+Another person's Epicenter is the same program on a computer they control,
+owned or rented (ADR-0903). On a Mac without a terminal it is the Epicenter Mac
+app, which runs `epicenter serve` (ADR-0865); a rented Linux server is set up
+over SSH.
 
 ## Consequences
 
@@ -117,8 +118,7 @@ terminal, it is the Epicenter Mac app, which runs `epicenter serve` (ADR-0865).
 - History has one commit per write through the server.
 - `epicenter serve` answers Git for clones through stock `git http-backend`,
   behind the same door as calls (ADR-0887).
-- A hosted Epicenter, serving people who do not run a computer of their own, is
-  not part of this decision.
+- A person who does not run a computer of their own rents one (ADR-0903).
 
 ## Considered alternatives
 

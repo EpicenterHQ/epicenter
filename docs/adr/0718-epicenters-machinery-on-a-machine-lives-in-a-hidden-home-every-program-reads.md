@@ -1,9 +1,8 @@
 # 0718. Epicenter's machinery on a machine lives in a hidden home every program reads
 
-<!-- doc-path-check: ignore-file (cites the waiting folder sync product (ADR-0840), kept at tag folder-sync-product) -->
-
-- **Status:** Accepted (2026-11-03)
+- **Status:** Superseded
 - **Date:** 2026-11-03
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amends:** [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) at `epicenter init` registering a folder for sync: the folders under the library root need no registration, a folder elsewhere is a link inside the root, and nothing is listed in the global Git configuration; [ADR-0642](0642-each-desktop-app-selects-its-cli-independently-of-the-terminal.md) at the public command `~/.local/bin/epicenter` and `install-command`: the engine is `~/.epicenter/bin/epicenter`.
 - **Amended by:** [ADR-0721](0721-an-apps-folder-is-derived-never-stored.md) at `~/.epicenter/settings.md`: the file is not made, because the keychain item holds the account and server; [ADR-0731](0731-every-app-signs-in-as-its-site.md) at `session.lock` and the account and server in `settings.md`: each app signs in as its site and keeps its own refresh token, so neither is built; [ADR-0732](0732-a-grant-reaches-what-the-person-chooses-at-consent.md) at "Secrets stay in the keychain" and "Epicenter's AppData keeps only Epicenter's own window state": the engine's refresh token is a file in Epicenter's AppData; [ADR-0733](0733-your-own-git-in-an-epicenter-folder-is-plain-git.md) at `bin/git-lfs` and `bin/epicenter` as an installed copy: `~/.epicenter/bin/epicenter` is a link into the Epicenter app's bundled CLI, and `git-lfs` stays inside the app; [ADR-0751](0751-every-native-app-carries-one-sync-core.md) at "An app calls that path": an app links a sync core of its own, and `~/.epicenter/bin/epicenter` serves terminals, agents, and the native host.
 - **Unbuilt:** `logs/`.

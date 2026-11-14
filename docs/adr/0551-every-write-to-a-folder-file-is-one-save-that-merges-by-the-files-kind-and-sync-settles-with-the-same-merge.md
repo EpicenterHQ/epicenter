@@ -1,7 +1,8 @@
 # 0551. Every write to a folder file is one save that merges by the file's kind, and Sync settles with the same merge
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-10-15
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amended by:** [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) at local writes: a write is conditional on the version its writer read, and another writer's change since is a `Conflict` (a different field is carried over); Git sync still merges. The unconditional local writes of the rejected [ADR-0689](0689-an-edit-shows-what-you-typed-the-queue-carries-it-the-folder-shows-what-landed.md) never governed.
 - **Amends:** ADR-0514, since deleted: [ADR-0576](0576-a-folder-has-one-write-a-merge-by-unit-where-the-writer-acting-wins.md) replaced Sync's choices with a merge the device syncing wins. This amended it so that taking a side of a text unit no longer took the captured version exactly.
 - **Amended by:** [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) at "sync settles with the same merge": sync settles with `settle` and `epicenter merge-driver`; [ADR-0702](0702-a-data-folders-unfinished-writes-wait-in-epicenter-outside-its-data.md) at step 1's "swap on that hash" for a desktop folder: the check runs right before an atomic rename with no lock held, and a new file is placed instead of renamed.

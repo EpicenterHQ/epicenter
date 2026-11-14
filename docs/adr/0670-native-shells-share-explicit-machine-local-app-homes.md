@@ -1,7 +1,8 @@
 # 0670. Native shells share explicit machine-local app homes
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-10-22
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amended by:** [ADR-0701](0701-apps-run-as-separate-programs.md) at shared app homes: an app on `epicenter-standalone` defaults to `~/Epicenter/<productName>`, and the only folder it remembers is one the person chose, in its own AppData `settings.md`. (ADR-0672, deleted, had first replaced saved homes with fixed reverse-DNS defaults.) [ADR-0712](0712-an-apps-folder-resolves-against-a-fixed-library-root.md) at that remembered folder: an app also remembers the default after its first open, always as a name under the library root.
 - **Amends:** [ADR-0660](0660-native-apps-default-authored-work-to-the-epicenter-root.md)'s permanent default-child allocation and [ADR-0649](0649-folders-json-selects-this-machines-folder-locations.md)'s records-only selection.
 

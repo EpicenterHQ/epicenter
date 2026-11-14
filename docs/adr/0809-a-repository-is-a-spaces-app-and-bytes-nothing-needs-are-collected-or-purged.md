@@ -1,7 +1,8 @@
 # 0809. A repository is a space's app, and bytes nothing needs are collected or purged
 
-- **Status:** Accepted (2026-11-06)
+- **Status:** Superseded
 - **Date:** 2026-11-06
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amends:** [ADR-0804](0804-a-computer-keeps-a-plain-folder-and-every-surface-syncs-with-one-typescript-function.md) at `.epicenter/synced.json` naming the repository: it names the space's id and the app; [ADR-0808](0808-a-files-version-is-its-git-blob-id-on-every-store.md) at `/<repository>/blobs/<sha256>`: a repository is addressed as `/spaces/<space-id>/apps/<app>`.
 - **Relates:** [ADR-0770](0770-teams-own-repositories-and-sharing-is-membership.md) and [ADR-0802](0802-people-share-spaces-an-app-works-in-one-at-a-time-and-a-folder-carries-its-contract.md) (a space owns one repository per app), [ADR-0722](0722-an-apps-names-derive-from-its-sites-host.md) (an app's names derive from its site), [ADR-0776](0776-a-notes-name-is-its-file-name.md) (an item's name is its file name), [ADR-0805](0805-a-folder-is-recognized-by-epicenter-json-which-is-its-contract.md) (a folder is recognized by `epicenter.json`), [ADR-0788](0788-everything-in-a-folder-syncs-and-a-recordings-audio-is-kept-in-one-of-three-places.md) (audio is the heaviest data).
 - **Amended by:** [ADR-0810](0810-a-folder-needs-no-app-and-a-repository-is-a-spaces-named-folder.md) at `/spaces/<space-id>/apps/<app>` and `{ space, app }`: `/spaces/<space-id>/folders/<name>` and `{ space, name }`.

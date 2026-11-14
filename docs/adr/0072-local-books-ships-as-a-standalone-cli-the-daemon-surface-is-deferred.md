@@ -1,7 +1,8 @@
 # 0072. Local Books ships as a standalone CLI; the ADR-0047 daemon surface is deferred behind a verb-core seam
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-06-26
+- **Superseded by:** [ADR-0902](0902-this-repositorys-outside-apps-stay-in-apps.md): Local Books is deleted, and this record is its history.
 - **Refined by:** [ADR-0086](0086-no-live-consumer-for-network-reachable-capability-reach-opensidian-is-superseded-not-migrated.md) (answers this ADR's own reopening trigger: the delivery vehicle it names, a shared agent-chat client, is now the super app, which reaches Local Books locally, not by reopening a network daemon; the trigger stays closed)
 - **Narrows (for Local Books only):** [ADR-0047](0047-the-agent-loop-runs-in-the-client-and-tools-are-dispatched-actions.md) (the client loop + dispatched-action daemon). ADR-0047 stands for the platform; this records that Local Books does not realize it yet.
 - **Relates:** [ADR-0061](0061-local-books-reads-facts-from-the-mirror-reports-live-and-writes-through-one-approved-verb.md) (the three capabilities and the one approved write, unchanged here, only re-housed), [ADR-0021](0021-actions-are-the-only-surface-that-crosses-a-process-boundary.md) (actions cross process boundaries, the seam this leaves open).

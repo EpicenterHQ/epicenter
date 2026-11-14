@@ -1,7 +1,8 @@
 # 0619. Repository data has one content history in Git
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-10-19
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amends:** [ADR-0592](0592-a-folders-gitignore-decides-what-stays-on-one-machine.md) at "Every repository Epicenter creates or clones gets `info/attributes` unsetting each attribute that changes bytes before anything is checked out": Epicenter writes no `info/attributes`.
 - **Amended by:** [ADR-0628](0628-browser-sync-uses-transactions-and-git-updates-instead-of-cross-tab-ownership.md) at the exhaustive browser inventory: Git boundary metadata and a local publication revision are allowed operational bookkeeping, not another record of content or history. [ADR-0634](0634-hosted-inference-is-independent-of-repository-sync.md) at scope: the four-kind inventory governs repository data, not hosted inference usage and billing records.
 - **Amended by:** [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) at the browser's unsent-edit map and publication bookkeeping: a browser holds only its own files and capture sidecars.

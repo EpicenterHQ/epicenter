@@ -1,21 +1,38 @@
-# Context: shared vocabulary
+# Context: the folder sync product's vocabulary
 
-Epicenter is your folders, and apps are lenses on them
+These are the words of the folder sync product, which is retired
+([ADR-0899](adr/0899-the-folder-sync-product-is-retired.md)). Some of its code
+is still in this repository while Whispering imports it, so the words still
+name that code. They do not describe Epicenter today. Today's vocabulary is in
+[the vision](vision.md), under "The pieces": the home, an inside app, an outside
+app, a program, a service.
+
+Where the two disagree, today's words win. Several words this file retired are
+live again in today's product: Git, a repository, a commit, and `origin`. An
+app's code and its data are two Git repositories
+([ADR-0877](adr/0877-an-apps-code-and-its-data-are-two-repositories-and-sharing-an-app-shares-its-code.md)),
+an action that writes makes a commit
+([ADR-0850](adr/0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md)),
+and `origin` is an app's push-only backup
+([ADR-0851](adr/0851-an-app-has-one-home-and-an-optional-push-only-backup.md)).
+"Folder" in this file means the folder sync product's synced folder, not an
+app's folder in `~/Epicenter/apps`.
+
+In that product, Epicenter was your folders, and apps were lenses on them
 ([ADR-0813](adr/0813-epicenter-is-your-folders-and-apps-are-lenses.md)). A
-folder is plain files in `~/Epicenter`. It syncs with an Epicenter server,
-whose ledger orders its changes and keeps every version, and it is shared with
-people; Git is how history enters and leaves ([ADR-0835](adr/0835-records-from-0802-to-0834-agree-on-files-a-ledger-and-git-at-the-edges.md)). An app, the Epicenter app, the CLI, or an
-agent shows and changes the part of a folder it understands. A desktop app
-opens its folder before sign-in; a web app opens a folder on the server once
-the person signs in. Apps are separate programs; Epicenter does not host them
+folder was plain files in `~/Epicenter`. It synced with an Epicenter server,
+whose ledger ordered its changes and kept every version, and it was shared with
+people; Git was how history entered and left ([ADR-0835](adr/0835-records-from-0802-to-0834-agree-on-files-a-ledger-and-git-at-the-edges.md)). An app, the Epicenter app, the CLI, or an
+agent showed and changed the part of a folder it understood. A desktop app
+opened its folder before sign-in; a web app opened a folder on the server once
+the person signed in. Apps were separate programs
 ([ADR-0701](adr/0701-apps-run-as-separate-programs.md)).
 
-Use these names for the current API and the named remaining work. Source names
-in the implementation table remain exact. Package READMEs describe the available
+The entries below use the present tense for the code that remains. Source names
+in the implementation table are exact. Package READMEs describe the available
 entry points; ADRs retain the decisions and their amendment history. An entry
-marked **Direction** names a decided shape that is not built yet; ADR-0835's
-Built column and [the architecture map](architecture.md) say what is missing,
-and [the vision](vision.md) says what Epicenter is.
+marked **Direction** named a decided shape that was never built; ADR-0835's
+Built column and [the architecture map](architecture.md) say what is missing.
 Where a record decided a word the code has not adopted, this file uses the
 decided word for the concept and the code's identifier when it names code; the
 [retired terms](#retired-terms) table lists each.
@@ -25,20 +42,20 @@ The vocabulary decisions are in [ADR-0584](adr/0584-each-concept-has-one-noun-in
 [ADR-0813](adr/0813-epicenter-is-your-folders-and-apps-are-lenses.md),
 [ADR-0816](adr/0816-the-epicenter-app-is-where-a-person-sees-and-manages-every-folder.md),
 [ADR-0818](adr/0818-an-app-is-a-view-a-window-and-its-capabilities-and-everything-is-repairable-by-hand.md),
-[ADR-0828](adr/0828-names-say-folders-and-changes-and-history-is-package-functions-the-epicenter-app-shows.md), and [ADR-0835](adr/0835-records-from-0802-to-0834-agree-on-files-a-ledger-and-git-at-the-edges.md), which lists every decision in force.
+[ADR-0828](adr/0828-names-say-folders-and-changes-and-history-is-package-functions-the-epicenter-app-shows.md), and [ADR-0835](adr/0835-records-from-0802-to-0834-agree-on-files-a-ledger-and-git-at-the-edges.md), which was that product's register of decisions.
 
 ## Folders and places
 
 | Name | Meaning |
 | --- | --- |
-| Epicenter | The product: a person's folders, the apps that are lenses on them, the Epicenter app, the CLI, and the optional hosted services. It does not name one person's body of data. |
+| Epicenter | In the folder sync product: a person's folders, the apps that were lenses on them, the Epicenter app, the CLI, and the optional hosted services. Today it is one person's folder of apps on the home, with the command that serves it, and "your Epicenter" means one person's ([vision](vision.md)). |
 | Folder | A real directory directly inside the Epicenter folder; a link there is a folder kept outside, never synced ([ADR-0825](adr/0825-the-epicenter-folder-contains-its-folders.md)). It holds a person's things, syncs, keeps history in the ledger, and is shared. Its identity is the id the server gives it at its first sync; its directory's name is that computer's own label, and its title is a field of `epicenter.json` ([ADR-0811](adr/0811-folders-are-shared-directly-and-an-app-reaches-the-folders-attached-to-it.md), [ADR-0813](adr/0813-epicenter-is-your-folders-and-apps-are-lenses.md)). Nothing registers a folder: discovery lists the directory (`epicenterRoot` in `@epicenter/folder/node`). |
 | Epicenter folder | `~/Epicenter` (`~/Epicenter Dev` in development). Code and Rust comments still call it the library root ([ADR-0816](adr/0816-the-epicenter-app-is-where-a-person-sees-and-manages-every-folder.md)). |
 | Ledger | The server's append-only log of a folder: its changes in the order they land, numbered `seq`, each with its author, time, and the program that made it, every version kept, and its marks. The server orders, remembers, and admits; nothing is edited there, and it never merges. The code says log (`appendChange`, `readLog` in `@epicenter/server`) ([ADR-0824](adr/0824-a-folders-history-is-a-log-of-versions-and-git-is-how-it-leaves.md), ADR-0835). |
 | Directory | A physical filesystem location. In ordinary explanations, folder can name a disk directory. |
 | Contract | A folder's `epicenter.json`, which is optional: `$schema`, `title`, and `collections`. The folder's people own it, and no app writes an `$id` into it ([ADR-0805](adr/0805-a-folder-is-recognized-by-epicenter-json-which-is-its-contract.md), [ADR-0812](adr/0812-an-apps-schema-is-a-view-that-must-fit-a-folders-contract.md)). A folder with none is complete: every visible file syncs and keeps history, and a contract adds checking, tables, tools, and merging by field. `epicenter init` proposes one from the files. Today an app also compiles its contract with `defineContract`, and `epicenter check` takes one as a URL or file path. |
 | Collection | A name in a contract and a path pattern: `todos/{name}.md` holds items with fields, any other pattern holds files. A file collection is a pattern with no fields. |
-| Item | One file of a collection, with its attachments: files that share its directory and name are one item. Its name is its file name, and there is no identity beyond it: a rename is a `set` at the new name and a `delete` of the old ([ADR-0776](adr/0776-a-notes-name-is-its-file-name-and-a-rename-is-a-set-and-a-delete.md), [ADR-0818](adr/0818-an-app-is-a-view-a-window-and-its-capabilities-and-everything-is-repairable-by-hand.md)). The code says note (`NoteOf`, `FolderNotes`, `invalid()`), and `{id}` for the name in path patterns; the decided word is `{name}`. The rename is pending. "Note" names Honeycrisp's notes. |
+| Item | One file of a collection, with its attachments: files that share its directory and name are one item. Its name is its file name, and there is no identity beyond it: a rename is a `set` at the new name and a `delete` of the old ([ADR-0776](adr/0776-a-notes-name-is-its-file-name-and-a-rename-is-a-set-and-a-delete.md), [ADR-0818](adr/0818-an-app-is-a-view-a-window-and-its-capabilities-and-everything-is-repairable-by-hand.md)). The code says note (`NoteOf`, `FolderNotes`, `invalid()`), and `{id}` for the name in path patterns; the decided word is `{name}`. The rename is pending. The word "note" comes from Honeycrisp, a notes app that has since left the tree. |
 | Attachment | Any other file an item owns, such as a recording's audio. Its version is the SHA-256 of its bytes, as every file's is, and bytes over 16 KiB are fetched at `blobs/<sha256>` ([ADR-0824](adr/0824-a-folders-history-is-a-log-of-versions-and-git-is-how-it-leaves.md)). |
 | Field, value, body | A front matter key, its complete value, and the Markdown text after front matter. Front matter is the machine's; the body is the person's and the app's, and Epicenter reads nothing in it but conflict markers. **Direction:** a field Epicenter writes is one line, `key: <JSON>`, and a write patches only the lines of the fields it changes ([ADR-0796](adr/0796-a-field-is-a-line-its-value-is-json-and-a-write-patches-only-the-fields-it-changes.md)). |
 | Front matter grammar | YAML restricted to `key: <JSON>`: a `---` first line, a later `---`, and between them one key, a colon, a space, and a JSON value per line, each key once. A file outside the grammar has no front matter: it is all body, shows in `invalid()`, and merges by lines ([ADR-0797](adr/0797-front-matter-is-a-strict-grammar-and-anything-else-is-body.md)). `@epicenter/definition/front-matter` reads, patches, and merges it, and sync uses it; a folder's writes still format the whole note as block YAML in the contract's key order (`packages/definition/src/note/canonical.ts`). |
@@ -203,10 +220,10 @@ Name the actual object unless a separate grouping feature exists. Whispering's
 inference, connections, preferences, and recording recovery. It holds no
 folder or closing lifetime.
 
-## Current implementation names
+## Implementation names
 
-These names distinguish the public app API from internal storage. Historical
-terms in accepted ADRs do not create additional current APIs.
+These names distinguish the folder sync product's public API from its internal
+storage. Historical terms in accepted ADRs do not create additional APIs.
 
 | Source | Names and current behavior |
 | --- | --- |
@@ -216,13 +233,15 @@ terms in accepted ADRs do not create additional current APIs.
 | CLI | `epicenter` in `packages/cli` runs the apps in an Epicenter: `epicenter <app> <action words>` as a command, every action as an MCP tool, and its own `init`, `new`, `update`, `install`, `build`, `sync`, `history`, `undo`, `serve`, and `service` ([ADR-0841](adr/0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md), [ADR-0868](adr/0868-an-epicenter-is-any-folder-that-says-it-is-one-and-a-computer-runs-as-many-as-it-has.md)). The [CLI README](../packages/cli/README.md) is its reference. |
 | Server | A folder's ledger at `<api origin>/folders/<id>` and the person's folders at `/api/folders`, in `packages/server` (`mountFolders`, `mountFolderApi`; `appendChange`, `changesSince`, `filesAt`, `readLog`) ([ADR-0811](adr/0811-folders-are-shared-directly-and-an-app-reaches-the-folders-attached-to-it.md), [ADR-0828](adr/0828-names-say-folders-and-changes-and-history-is-package-functions-the-epicenter-app-shows.md)). |
 | Merge, contract | `merge3` and `mergeLines` (`@epicenter/definition/front-matter`) for sync, `settle` (`@epicenter/definition/merge`) for a folder's own write, `defineContract` and `checkContract` (`@epicenter/definition/contract`). |
-| `AGENTS.md` | A person's own file, if they keep one: Epicenter writes none and reads none. A folder's contract is its `epicenter.json` ([ADR-0805](adr/0805-a-folder-is-recognized-by-epicenter-json-which-is-its-contract.md), [ADR-0827](adr/0827-the-cli-and-mcp-render-one-table-of-operations.md)). |
+| `AGENTS.md` | The folder sync product read none, and a folder's contract was its `epicenter.json` ([ADR-0805](adr/0805-a-folder-is-recognized-by-epicenter-json-which-is-its-contract.md)). Today `epicenter init` writes a starter `AGENTS.md` at the Epicenter's root, and `serve` sends it to every MCP client as its instructions ([ADR-0878](adr/0878-the-os-keeps-epicenter-serve-running-under-a-job-the-person-installs.md)). |
 | Stored records | Existing fields such as `recordingId` retain their names and values. A noun cleanup is not a data-format migration. |
 
 ## Retired terms
 
 A retired term may still appear in code, in accepted records, and in Rust
-comments. Do not use it for the current concept.
+comments. Do not use it for the folder sync product's concept. The retirements
+below were made inside that product; they say nothing about today's Epicenter,
+where Git repositories, commits, and `origin` are the current words.
 
 | Retired | Use | Retired by |
 | --- | --- | --- |

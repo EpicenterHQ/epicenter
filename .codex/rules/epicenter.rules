@@ -1,0 +1,97 @@
+# Codex's half of this repository's command rules. `.claude/settings.json`
+# holds Claude Code's half. Change them together.
+#
+# Codex loads this file only in a checkout it trusts
+# (`projects."<path>".trust_level = "trusted"` in `~/.codex/config.toml`).
+#
+# A pattern is an exact prefix of a command's arguments. A flag placed after
+# a positional argument, as in `git push origin main --force`, is not
+# matched, so these cover the usual spelling of each command and no more.
+#
+# Check a command against this file with:
+#   codex execpolicy check --pretty --rules .codex/rules/epicenter.rules -- git add -A
+
+# Staging everything picks up whatever else is in the checkout, including
+# another session's work. Stage files by name.
+prefix_rule(
+    pattern = ["git", "add", ["-A", "--all", "."]],
+    decision = "forbidden",
+    justification = "Stage files by name. `git add -A` and `git add .` take whatever else is in the checkout.",
+    match = ["git add -A", "git add --all", "git add .", "git add . --dry-run"],
+    not_match = ["git add scripts/clean.ts", "git add -- .gitignore"],
+)
+
+# History and branches other people may depend on.
+prefix_rule(
+    pattern = ["git", "push", ["--force", "-f", "--force-with-lease", "--delete", "-d"]],
+    decision = "prompt",
+    justification = "A force push or a remote branch deletion needs the person's approval.",
+    match = ["git push --force", "git push -f origin main", "git push --force-with-lease", "git push --delete origin old"],
+    not_match = ["git push", "git push -u origin feature"],
+)
+
+prefix_rule(
+    pattern = ["git", "branch", ["-D", "-d", "--delete"]],
+    decision = "prompt",
+    justification = "Deleting a branch needs the person's approval.",
+    match = ["git branch -D old", "git branch -d old", "git branch --delete old"],
+    not_match = ["git branch", "git branch --show-current", "git branch feature"],
+)
+
+# Commands that discard work Git has no copy of.
+prefix_rule(
+    pattern = ["git", "reset", "--hard"],
+    decision = "prompt",
+    justification = "A hard reset discards uncommitted work and needs the person's approval.",
+    match = ["git reset --hard", "git reset --hard HEAD~1"],
+    not_match = ["git reset", "git reset --soft HEAD~1", "git reset -- scripts/clean.ts"],
+)
+
+prefix_rule(
+    pattern = ["git", "clean"],
+    decision = "prompt",
+    justification = "`git clean` deletes untracked files and needs the person's approval.",
+    match = ["git clean -fd", "git clean -n"],
+)
+
+prefix_rule(
+    pattern = ["git", "checkout", ["--", "."]],
+    decision = "prompt",
+    justification = "Checking out over changed files discards them and needs the person's approval.",
+    match = ["git checkout -- scripts/clean.ts", "git checkout ."],
+    not_match = ["git checkout main", "git checkout -b feature"],
+)
+
+prefix_rule(
+    pattern = ["git", "stash", ["drop", "clear"]],
+    decision = "prompt",
+    justification = "The stash is shared across worktrees; dropping from it needs the person's approval.",
+    match = ["git stash drop", "git stash clear", "git stash drop stash@{1}"],
+    not_match = ["git stash list", "git stash push -m tag"],
+)
+
+prefix_rule(
+    pattern = ["git", "worktree", "remove", ["--force", "-f"]],
+    decision = "prompt",
+    justification = "Forcing a worktree's removal discards its uncommitted work and needs the person's approval.",
+    match = ["git worktree remove --force ../old", "git worktree remove -f ../old"],
+    not_match = ["git worktree remove ../old", "git worktree list"],
+)
+
+# Production. A `:remote` script wraps its command in Infisical's prod
+# environment.
+prefix_rule(
+    pattern = ["bun", "run", ["cf:audit:remote", "auth:generate:remote", "db:migrate:remote", "db:studio:remote"]],
+    decision = "prompt",
+    justification = "A `:remote` script runs against production and needs the person's approval.",
+    match = ["bun run db:migrate:remote", "bun run cf:audit:remote"],
+    not_match = ["bun run db:migrate:local", "bun run check"],
+)
+
+prefix_rule(
+    pattern = ["infisical", "run", "--env=prod"],
+    decision = "prompt",
+    justification = "This runs a command with production secrets and needs the person's approval.",
+    match = ["infisical run --env=prod --path=/ops -- drizzle-kit migrate"],
+    not_match = ["infisical run --path=/apps/local-books -- bun run src/bin.ts status"],
+)

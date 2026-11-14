@@ -11,28 +11,24 @@ const PROD = buildEpicenterTrustedOrigins('https://api.epicenter.so');
 const LOCAL = buildEpicenterTrustedOrigins('http://localhost:8787');
 
 describe('buildEpicenterTrustedOrigins', () => {
-	test('rejects arbitrary chrome-extension origins (no wildcard regression)', () => {
-		expect(PROD).not.toContain('chrome-extension://attackerid');
-		expect(PROD).not.toContain('chrome-extension://*');
-		expect(PROD.some((o) => o.includes('*'))).toBe(false);
+	test('neither deployment trusts a browser extension or wildcard origin', () => {
+		for (const origins of [PROD, LOCAL]) {
+			expect(
+				origins.filter((o) => o.startsWith('chrome-extension://')),
+			).toEqual([]);
+			expect(origins.some((o) => o.includes('*'))).toBe(false);
+		}
 	});
 
-	test('trusts no browser extension at all', () => {
-		// Stronger than the assertion this replaces, which pinned Tab Manager's
-		// one extension origin. There is no extension now, so ANY
-		// chrome-extension origin in the production set is a regression, and
-		// this fails on the entry rather than on its id.
-		expect(PROD.filter((o) => o.startsWith('chrome-extension://'))).toEqual([]);
-	});
-
-	test('trusts no desktop webview origin', () => {
+	test('neither deployment trusts a desktop webview origin', () => {
 		// No `tauri://` page calls the API; the desktop host relays account
 		// traffic with its own bearer token.
-		expect(PROD.filter((o) => o.startsWith('tauri://'))).toEqual([]);
+		for (const origins of [PROD, LOCAL])
+			expect(origins.filter((o) => o.startsWith('tauri://'))).toEqual([]);
 	});
 
 	test('a production deployment does not trust localhost dev origins', () => {
-		expect(PROD).not.toContain(localUrl(APPS.HONEYCRISP));
+		expect(PROD).not.toContain(localUrl(APPS.CAPTURE));
 		expect(PROD).not.toContain(localUrl(APPS.API));
 		expect(PROD).not.toContain(`http://${new URL(APPS.API.url).host}`);
 		expect(PROD.some((o) => o.startsWith('http://localhost'))).toBe(false);
@@ -41,7 +37,7 @@ describe('buildEpicenterTrustedOrigins', () => {
 	test('a local deployment trusts the localhost dev origins', () => {
 		expect(LOCAL).toContain('http://localhost:5177');
 		expect(PROD).not.toContain('http://localhost:5177');
-		expect(LOCAL).toContain(localUrl(APPS.HONEYCRISP));
+		expect(LOCAL).toContain(localUrl(APPS.CAPTURE));
 		expect(LOCAL).toContain('http://127.0.0.1:5186');
 		expect(PROD).not.toContain('http://127.0.0.1:5186');
 		expect(LOCAL).toContain(localUrl(APPS.API));
@@ -49,9 +45,9 @@ describe('buildEpicenterTrustedOrigins', () => {
 	});
 
 	test('both deployments trust the production app origins', () => {
-		expect(PROD).toContain(APPS.HONEYCRISP.url);
+		expect(PROD).toContain(APPS.CAPTURE.url);
 		expect(PROD).toContain(APPS.TODOS.url);
-		expect(LOCAL).toContain(APPS.HONEYCRISP.url);
+		expect(LOCAL).toContain(APPS.CAPTURE.url);
 		expect(PROD).toContain('https://zhongwen.bradenwong.com');
 		expect(LOCAL).toContain('https://zhongwen.bradenwong.com');
 		expect(PROD).not.toContain('http://localhost:5207');

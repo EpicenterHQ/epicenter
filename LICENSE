@@ -33,10 +33,7 @@ anyone who forks and distributes a modified binary shares the changes back.
 
   Apps:
     apps/api                    @epicenter/api
-    apps/honeycrisp             @epicenter/honeycrisp
     apps/landing                @epicenter/landing
-    apps/local-books            @epicenter/local-books
-    apps/posthog-reverse-proxy  @epicenter/posthog-reverse-proxy
     apps/whispering             @epicenter/whispering
 
 ================================================================================

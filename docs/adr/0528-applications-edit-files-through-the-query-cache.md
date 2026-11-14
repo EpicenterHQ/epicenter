@@ -1,7 +1,8 @@
 # 0528. Applications edit files through the query cache
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-10-12
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Supersedes:** [ADR-0515](0515-snapshot-saves-serialize-writes-and-retain-only-the-latest-pending-text.md) (snapshot autosave sessions) and [ADR-0523](0523-applications-own-drafts-in-edit-sessions-and-leave-one-open-item.md) (drafts in edit sessions, one open item)
 - **Relates:** [ADR-0518](0518-a-row-is-read-through-one-pipeline-and-repaired-as-text.md) (reads, guarded writes, `InvalidRow`)
 

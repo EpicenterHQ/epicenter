@@ -21,7 +21,7 @@ Web apps (Cloudflare Workers) deploy **together in one workflow** because deploy
 | File | Trigger | What it does |
 |---|---|---|
 | `deploy.cloudflare.yml` | Push to `main`, manual | Deploys Landing and API to Cloudflare Workers. Each `wrangler deploy` runs that worker's `build.command` first, so a deploy can never ship stale assets. Posts Discord notification. |
-| `deploy.cloudflare-preview.yml` | Pull requests touching `apps/landing/**`, `apps/honeycrisp/**`, `packages/**`, or the workflow | Uploads preview versions via `wrangler versions upload --preview-alias`. Posts PR comment with preview URLs. No cleanup needed (aliases auto-expire at 1000). |
+| `deploy.cloudflare-preview.yml` | Pull requests touching `apps/landing/**`, `packages/**`, or the workflow | Uploads preview versions via `wrangler versions upload --preview-alias`. Posts PR comment with preview URLs. No cleanup needed (aliases auto-expire at 1000). |
 
 ### CI
 
@@ -29,6 +29,12 @@ Web apps (Cloudflare Workers) deploy **together in one workflow** because deploy
 machine. Every step in it is a root script, and the structural checks arrive as
 one `check:structure` step, so a check is added or removed in `package.json` and
 nowhere else. Do not re-list the steps here or in the workflow.
+
+The one exception is the commit message step, which runs on pull requests
+only. The job checks out a single merge commit, so the step reads the pull
+request's commit messages from the GitHub API and refuses AI or tool
+attribution. No root script can see those messages, so `bun run check` does
+not run it.
 
 | File | Trigger | What it does |
 |---|---|---|
@@ -38,8 +44,9 @@ nowhere else. Do not re-list the steps here or in the workflow.
 Two things stay off the gate deliberately. Formatting, because autofix owns it.
 And `bun run check:doc-hygiene`, whose ADR-staleness rule is time-based, so a
 pull request that changed nothing can go red on a calendar day; it is a review
-command, not a merge blocker. Anything needing live credentials or a network
-endpoint gets its own workflow on its own trigger, as the two below do.
+command, not a merge blocker. Anything needing a secret or a network endpoint
+other than GitHub's own API gets its own workflow on its own trigger, as the two
+below do.
 
 ### Meta
 

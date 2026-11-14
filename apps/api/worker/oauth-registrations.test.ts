@@ -32,22 +32,65 @@ describe('native clients', () => {
 	});
 
 	test('a loopback redirect on any port, the API alone, and no folders scope', () => {
+		const expectedScopes = [
+			'openid',
+			'offline_access',
+			'profile',
+			'email',
+			'ai',
+		] as const;
 		for (const client of natives) {
 			expect(client.applicationType).toBe('native');
 			expect(client.redirectUris).toEqual(['http://127.0.0.1/callback']);
 			expect(client.resources).toEqual([resolveOAuthAudiences(PRODUCTION).api]);
-			expect(client.scopes).toContain('offline_access');
-			expect(client.scopes).not.toContain('folders:read');
-			expect(client.scopes).not.toContain('folders:write');
+			expect([...client.scopes].sort()).toEqual([...expectedScopes].sort());
 		}
 	});
 });
 
-test('a client lists every redirect it uses', () => {
-	const todos = buildFirstPartyClients(LOCAL).find(
-		({ clientId }) => clientId === 'so.epicenter.todos',
-	);
-	expect(todos?.redirectUris.length).toBe(2);
-	for (const uri of todos?.redirectUris ?? [])
-		expect(uri.endsWith('/auth/callback')).toBe(true);
+test('browser clients redirect only to their own production and local callbacks', () => {
+	const expected = [
+		[
+			'so.epicenter.todos',
+			'https://todos.epicenter.so',
+			'http://localhost:5186',
+		],
+		[
+			'so.epicenter.whispering',
+			'https://whispering.epicenter.so',
+			'http://localhost:1420',
+		],
+		[
+			'so.epicenter.capture',
+			'https://capture.epicenter.so',
+			'http://localhost:5179',
+		],
+		[
+			'so.epicenter.vocab',
+			'https://vocab.epicenter.so',
+			'http://localhost:8888',
+		],
+		[
+			'com.bradenwong.zhongwen',
+			'https://zhongwen.bradenwong.com',
+			'http://localhost:5207',
+		],
+	] as const;
+	const productionClients = buildFirstPartyClients(PRODUCTION);
+	const localClients = buildFirstPartyClients(LOCAL);
+	expect(
+		productionClients
+			.filter((client) => client.applicationType === 'web')
+			.map((client) => client.clientId),
+	).toEqual(expected.map(([clientId]) => clientId));
+	for (const [clientId, productionOrigin, localOrigin] of expected) {
+		const callback = (origin: string) => `${origin}/auth/callback`;
+		expect(
+			productionClients.find((client) => client.clientId === clientId)
+				?.redirectUris,
+		).toEqual([callback(productionOrigin)]);
+		expect(
+			localClients.find((client) => client.clientId === clientId)?.redirectUris,
+		).toEqual([callback(productionOrigin), callback(localOrigin)]);
+	}
 });

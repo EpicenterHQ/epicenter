@@ -1,7 +1,5 @@
 # 0357. The account website owns account management and apps retry their own work
 
-<!-- doc-path-check: ignore-file (cites the waiting folder sync product (ADR-0840), kept at tag folder-sync-product) -->
-
 - **Status:** Proposed
 - **Date:** 2026-09-07
 - **Unbuilt:** Release verification of live-provider checkout and system-browser opening from a packaged desktop build.
@@ -9,8 +7,8 @@
 ## Context
 
 `apps/api/ui` already serves the hosted account and billing dashboard.
-`apps/vocab/src/routes/components/ConversationView.svelte` opens `/dashboard`
-when a person needs to upgrade. The shared account popover supplies identity,
+Vocab's `15b730fd19^:apps/vocab/src/routes/components/ConversationView.svelte`
+opened `/dashboard` when a person needed to upgrade. The shared account popover supplies identity,
 sign-out, and app-owned local-data removal.
 
 Expanding account management into every app, or making the Epicenter main

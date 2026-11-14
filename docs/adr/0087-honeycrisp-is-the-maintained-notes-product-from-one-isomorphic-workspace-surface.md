@@ -1,7 +1,8 @@
 # 0087. Honeycrisp is the maintained notes product from one isomorphic workspace surface
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-07-01
+- **Superseded by:** [ADR-0902](0902-this-repositorys-outside-apps-stay-in-apps.md): Honeycrisp is deleted, and this record is its history.
 - **Amended:** 2026-07-17 by [ADR-0130](0130-workspace-definitions-expose-tables-with-row-owned-documents-and-a-release-local-kv-lens.md): Honeycrisp's one package contract now uses canonical SQLite rows and row-owned documents. It no longer exposes the legacy root-Yjs action registry.
 
 ## Context

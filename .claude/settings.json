@@ -1,4 +1,33 @@
 {
+	"permissions": {
+		"deny": [
+			"Bash(git add -A*)",
+			"Bash(git add --all*)",
+			"Bash(git add . *)",
+			"Read(.env)",
+			"Read(.env.*)",
+			"Read(!.env.example)",
+			"Read(.dev.vars)",
+			"Read(~/.ssh/**)"
+		],
+		"ask": [
+			"Bash(git push*--force*)",
+			"Bash(git push* -f*)",
+			"Bash(git push* --delete*)",
+			"Bash(git reset*--hard*)",
+			"Bash(git branch* -D*)",
+			"Bash(git branch* -d*)",
+			"Bash(git branch*--delete*)",
+			"Bash(git clean *)",
+			"Bash(git checkout -- *)",
+			"Bash(git checkout . *)",
+			"Bash(git stash drop*)",
+			"Bash(git stash clear*)",
+			"Bash(git worktree remove*--force*)",
+			"Bash(bun *:remote*)",
+			"Bash(infisical *--env=prod*)"
+		]
+	},
 	"sandbox": {
 		"excludedCommands": [
 			"bun test --isolate ./apps/whispering/src/lib/platform/desktop/connections.postgres.test.ts"

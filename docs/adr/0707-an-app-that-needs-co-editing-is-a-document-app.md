@@ -1,7 +1,8 @@
 # 0707. An app that needs co-editing is a document app
 
-- **Status:** Accepted (2026-11-03)
+- **Status:** Superseded
 - **Date:** 2026-11-03
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Relates:** [ADR-0705](0705-an-apps-data-lives-in-two-kinds-of-store.md) (folder and document stores), [ADR-0690](0690-merges-happen-only-where-history-records-the-common-ancestor.md) (merges where history records the common ancestor).
 - **Amended by:** [ADR-0771](0771-plain-files-let-epicenter-refuse-renames-attachment-conflict-copies-and-a-second-store.md) at the document store: the folder is the only kind of store.
 - **Unbuilt:** the document store [ADR-0705](0705-an-apps-data-lives-in-two-kinds-of-store.md) names; no app co-edits today.

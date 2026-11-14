@@ -1,7 +1,5 @@
 # 0605. An app is an ordinary single-page app in a forkable Git repository
 
-<!-- doc-path-check: ignore-file (cites code that moved since) -->
-
 - **Status:** Superseded
 - **Date:** 2026-10-17
 - **Supersedes:** [ADR-0597](0597-an-installed-apps-approved-commit-is-its-bare-clones-detached-head.md) (the bare clone, its detached `HEAD` as the approved commit, and build directories extracted by `git archive` and restored when damaged) and [ADR-0600](0600-an-approved-commit-supplies-a-windows-page-and-its-relative-assets.md) (what an approved commit supplies on the one shared origin): nothing approves a commit, and each app has an origin of its own.

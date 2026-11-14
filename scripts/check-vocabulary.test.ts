@@ -129,18 +129,6 @@ test('dated records keep their words', () => {
 	});
 });
 
-test('an app with its own SQLite mirror may lift scalar columns', () => {
-	withRepo((dir) => {
-		write(
-			dir,
-			'apps/local-books/src/entities.ts',
-			'// extracted scalar columns\n',
-		);
-		commitAll(dir);
-		expect(run(dir).code).toBe(0);
-	});
-});
-
 test('prose is refused inside the store and allowed outside it', () => {
 	withRepo((dir) => {
 		write(dir, 'packages/svelte/src/row.ts', "// the row's prose\n");

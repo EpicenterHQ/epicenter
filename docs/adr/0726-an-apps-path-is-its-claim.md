@@ -1,7 +1,8 @@
 # 0726. An app's path is its claim
 
-- **Status:** Accepted (2026-11-03)
+- **Status:** Superseded
 - **Date:** 2026-11-03
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amends:** [ADR-0721](0721-an-apps-folder-is-derived-never-stored.md) at first launch read from AppData's absence, the first-launch collision choice, and "Locate…" / "Start a new folder": none remain; [ADR-0725](0725-an-app-reaches-named-roots-through-one-command-per-storage-operation.md) at `root_status`, `create_root`, and the `Ready`, `Missing` and `Disconnected` values: the shell states no status.
 - **Unbuilt:** none.
 

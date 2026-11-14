@@ -1,9 +1,8 @@
 # 0747. Git runs only as Git, on the desktop
 
-<!-- doc-path-check: ignore-file (cites the waiting folder sync product (ADR-0840), kept at tag folder-sync-product) -->
-
-- **Status:** Accepted (2026-11-04)
+- **Status:** Superseded
 - **Date:** 2026-11-04
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amended by:** [ADR-0751](0751-every-native-app-carries-one-sync-core.md) at "the `git` and `git-lfs` programs, run by `epicenter sync`": a round runs in a sync core linked into each native app, over libgit2, and leaves a repository stock `git` reads; the three refusals stand.
 - **Relates:** [ADR-0623](0623-every-browser-app-keeps-its-own-git-clone-of-a-repository.md) (the browser Git clone), [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) (which retired it), [ADR-0337](0337-the-folder-is-a-working-copy-and-pull-and-push-are-the-whole-cycle.md) and [ADR-0418](0418-push-translates-file-differences-into-ordinary-edits.md) (a Markdown working copy of a Yjs store), [ADR-0450](0450-current-files-own-portable-document-data.md) and [ADR-0534](0534-data-folders-are-the-only-data-model.md) (files own the data), [ADR-0744](0744-sync-diffs-state-because-agents-edit-state.md) (sync diffs state), [ADR-0746](0746-the-web-is-online-offline-needs-an-installed-app.md) (the web is online), [ADR-0748](0748-epicenter-ships-a-portable-git-inside-the-app.md) (the Git the app ships).
 

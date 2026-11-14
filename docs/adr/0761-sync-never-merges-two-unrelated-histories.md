@@ -1,7 +1,8 @@
 # 0761. Sync never merges two unrelated histories
 
-- **Status:** Accepted (2026-11-04)
+- **Status:** Superseded
 - **Date:** 2026-11-04
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amends:** [ADR-0735](0735-sync-gives-files-a-history-it-never-merges-two.md) at its title's principle, "it never merges two": it reads "it never merges two unrelated histories", and offline commits on a folder Epicenter already synced merge as branches of one history.
 - **Relates:** [ADR-0741](0741-epicenter-reconciles-only-states-it-made.md) (edits made offline on Epicenter's history are a state Epicenter made), [ADR-0744](0744-sync-diffs-state-because-agents-edit-state.md) (sync diffs state), [ADR-0734](0734-every-file-other-than-a-note-is-kept-whole-in-git-lfs.md) (the merge rule).
 

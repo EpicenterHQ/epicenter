@@ -31,10 +31,6 @@ export const APPS = {
 		url: 'https://whispering.epicenter.so',
 		id: 'so.epicenter.whispering',
 	},
-	HONEYCRISP: {
-		port: 5175,
-		url: 'https://honeycrisp.epicenter.so',
-	},
 	VOCAB: {
 		port: 8888,
 		url: 'https://vocab.epicenter.so',
@@ -68,9 +64,9 @@ export const APPS = {
  * app's OAuth client id. A reader who met `AppId` here and grepped for it
  * found the wrong concept.
  *
- * A row carries an id only for an app that names itself from it. Todos,
- * Capture, and Honeycrisp carry none here: each browser build's
- * id is its OAuth client in `apps/api/worker/oauth-registrations.ts`.
+ * A row carries an id only for an app that names itself from it. Todos and
+ * Capture carry none here: each browser build's id is its OAuth client in
+ * `apps/api/worker/oauth-registrations.ts`.
  */
 export type AppKey = keyof typeof APPS;
 

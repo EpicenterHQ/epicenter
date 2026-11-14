@@ -1,7 +1,8 @@
 # 0653. Ignore rules select Git source without a declaration policy
 
-- **Status:** Proposed
+- **Status:** Superseded
 - **Date:** 2026-10-20
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amends:** [ADR-0592](0592-a-folders-gitignore-decides-what-stays-on-one-machine.md) at its outside-repository audio placement and migration requirement: current folders can retain binary files locally, including ignored recordings, and the declaration policy is removed without migration. Its tracked-file and ignore semantics stand. [ADR-0621](0621-epicenters-library-writes-only-text-to-a-repository-in-v1.md) at text-only library writes: the files API saves text or bytes, while tables interpret Markdown.
 - **Relates:** [ADR-0650](0650-a-browsers-current-folder-is-one-immutable-tree.md) owns W/B/P storage and exact sending identity.
 - **Unbuilt:** public browser sync attachment/scheduling.

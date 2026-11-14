@@ -1,7 +1,5 @@
 # 0271. A workspace mirrors continuously to the Epicenter folder, one way
 
-<!-- doc-path-check: ignore-file (cites the waiting folder sync product (ADR-0840), kept at tag folder-sync-product) -->
-
 - **Status:** Accepted
 - **Date:** 2026-08-27
 - **Amends:** [ADR-0226](0226-a-host-serves-bundles-and-brokers-credentials-it-owns-no-application-data.md) at what a host may hold. That record refused a second CONVERGENT plane and said so in its own words ("The refusal is of a second CONVERGENT plane, not of the host holding bytes"), then permitted the host to hold blob bytes on exactly that reasoning. A one-way mirror cannot diverge for the same reason a blob cannot: nothing merges it back.
@@ -72,7 +70,7 @@ The promotion is forced by a measurement, not chosen. `navigator.storage.persist
 - `store.onCommitted` gets its first consumer since the SQL projection was deleted (ADR-0269). The phase-order contract it guarantees, followers marked dirty before any table subscriber reads, is what a renderer needs.
 - ADR-0010's warning applies and is accepted with a mitigation owed: "a continuous producer with no consumer, paid on every edit." The consumer exists now (a coding agent with `ls` and `Read`), and the cost is a file write joining every commit, which needs debouncing and an atomic write so an agent cannot read a half-rendered file.
 - One artifact producer instead of two. The zip assembly, the download flow, the save dialog, and the archive-progress model are not built, and the whole-map return shape becomes a per-row render that streams to disk. The in-memory ceiling on a large vault goes away by there being nowhere to hold one, rather than by optimizing.
-- `apps/epicenter/AGENTS.md` currently says "Do not rebuild any of them here" about the folder renderer. That instruction is superseded for the render direction and stays in force for the write direction.
+- `80edecf1ce^:apps/epicenter/AGENTS.md` said "Do not rebuild any of them here" about the folder renderer. That instruction is superseded for the render direction and stays in force for the write direction. The app was deleted in 11ea49b95f.
 
 ## Considered alternatives
 

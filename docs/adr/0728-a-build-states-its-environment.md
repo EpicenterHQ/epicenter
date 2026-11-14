@@ -1,7 +1,8 @@
 # 0728. A build states its environment
 
-- **Status:** Accepted (2026-11-03)
+- **Status:** Superseded
 - **Date:** 2026-11-03
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amends:** [ADR-0721](0721-an-apps-folder-is-derived-never-stored.md) at "the environment comes from the bundle identifier's `.dev` suffix": the build's Tauri configuration states it; [ADR-0712](0712-an-apps-folder-resolves-against-a-fixed-library-root.md) at `EPICENTER_FOLDER_DIR` as a test override for standalone apps: the standalone shell reads no such variable.
 - **Unbuilt:** none.
 

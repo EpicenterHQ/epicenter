@@ -1,7 +1,8 @@
 # 0640. Future media sync uses Git LFS and one endpoint pair
 
-- **Status:** Proposed
+- **Status:** Superseded
 - **Date:** 2026-10-19
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Relates:** [ADR-0621](0621-epicenters-library-writes-only-text-to-a-repository-in-v1.md) (text-only v1 and later LFS), [ADR-0633](0633-apps-open-local-data-before-connecting-services.md) (optional synchronization and supported hosts), [ADR-0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md) (content merge), and [ADR-0620](0620-history-in-a-repository-only-grows.md) (Git history retention).
 - **Implementation:** [Future Git LFS media synchronization](../../specs/20261019T183449-git-lfs-media-sync.md).
 - **Unbuilt:** Epicenter's LFS service and authorization, native and browser LFS integration, durable transfer state, pointer merge classification, media availability and download controls, retention policy, and opt-in migration of existing recordings.

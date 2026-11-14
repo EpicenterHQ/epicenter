@@ -1,7 +1,8 @@
 # 0532. A folder is the directory its ID names, with its remote in Git configuration
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-10-14
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Supersedes:** [ADR-0497](0497-browser-folders-use-scoped-opfs-directories.md)
 - **Amended by:** [ADR-0585](0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md) at "the folder's first write, which publishes `epicenter.json` just before it": a first write publishes nothing.
 - **Amended by:** [ADR-0586](0586-you-open-a-folder-never-an-app.md) at the desktop address `~/Epicenter/so.epicenter.todos/`: a folder's directory name is the person's.

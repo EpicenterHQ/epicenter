@@ -3,7 +3,7 @@
 Where one person's software lives: small apps the person and their agents make and change, each a folder of files in `~/Epicenter`; the `epicenter` CLI runs their actions, and `epicenter serve` on the person's always-on computer offers them to every device they own and to their agents (ADR-0840, ADR-0864). Most code in this monorepo is still the earlier folder sync product, which waits.
 
 For orientation, read the relevant app or package README and verify it against
-current code. `apps/README.md` describes application composition; package
+current code. `apps/README.md` lists the apps in this repository; package
 READMEs describe their contracts. Load only the context needed for the task.
 
 Billing is hosted-only and stays in `apps/api/worker/billing/`; do not extract
@@ -41,7 +41,7 @@ The suffix tells you whether a script touches production.
 
 ## Git hygiene
 
-Stage specific files only. Never use `git add .` or `git add -A`.
+Stage specific files only.
 
 Do not include AI or tool attribution in commits.
 
@@ -57,7 +57,7 @@ Skip this for stable basics and repo-local patterns already documented in skills
 
 ## Library logging
 
-Do not use direct `console.*` in library code. Use `wellcrafted/logger`, except in CLIs, tests, and benchmarks.
+Do not use direct `console.*` in library code. Use `wellcrafted/logger`. Biome refuses `console` under `packages/*/src`; a deliberate call there carries a `biome-ignore` with its reason.
 
 ## Read APIs
 

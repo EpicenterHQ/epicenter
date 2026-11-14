@@ -1,23 +1,13 @@
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { APPS, localUrl } from '@epicenter/definition/site';
 import type { Unstable_RawConfig as WranglerConfig } from 'wrangler';
+import { localPublicOrigin } from './dev-config.ts';
 
 const apiRoot = resolve(import.meta.dir, '..');
 const uiBuild = resolve(apiRoot, 'ui/build');
 const devVars = resolve(apiRoot, '.dev.vars');
 const localConfig = resolve(apiRoot, 'wrangler.dev.generated.json');
-const publicOrigin = process.env.API_PUBLIC_ORIGIN ?? localUrl(APPS.API);
-const publicUrl = new URL(publicOrigin);
-if (
-	publicUrl.protocol !== 'http:' ||
-	!['localhost', '127.0.0.1', '[::1]'].includes(publicUrl.hostname) ||
-	publicUrl.origin !== publicOrigin
-) {
-	throw new Error(
-		'API_PUBLIC_ORIGIN must be an HTTP loopback origin for local dev.',
-	);
-}
+const publicOrigin = localPublicOrigin(process.env.API_PUBLIC_ORIGIN);
 
 // The authorization server's pages must run from the same checkout as the
 // server. Rebuild at startup so a leftover shell cannot speak an older protocol.

@@ -3,10 +3,10 @@
     <img width="200" src="https://github.com/user-attachments/assets/9e210c52-2740-43b6-af3f-e6eaf4b5c397" alt="Epicenter">
   </a>
   <h1 align="center">Epicenter</h1>
-  <p align="center"><strong>Local-first apps over files you own.</strong></p>
-  <p align="center">Apps keep their data as ordinary Markdown and JSON files in a folder on your computer, and sync it with an Epicenter server, hosted or self-hosted. An editor, Git tool, or agent can open the same files.</p>
-  <p align="center"><a href="apps/whispering">Whispering</a> and <a href="apps/honeycrisp">Honeycrisp</a> are built on it today.</p>
-  <p align="center">Run the apps freely under AGPL-3.0-or-later. <a href="#license">What that means</a>.</p>
+  <p align="center"><strong>Where one person's software lives.</strong></p>
+  <p align="center">Small apps keep what you make as plain files on one computer you control, and every device you own, and your agents, reach them there.</p>
+  <p align="center"><a href="apps/whispering">Whispering</a>, desktop speech-to-text for macOS, Windows, and Linux, installs today.</p>
+  <p align="center">Run it freely under AGPL-3.0-or-later. <a href="#license">What that means</a>.</p>
 </p>
 
 <p align="center">
@@ -25,113 +25,142 @@
 </p>
 
 <p align="center">
-  <a href="#the-folder">The Folder</a> |
+  <a href="#how-it-works">How it works</a> |
   <a href="#status">Status</a> |
   <a href="#trust-boundaries">Trust</a> |
-  <a href="#repo-map">Repo Map</a> |
+  <a href="#repo-map">Repo map</a> |
   <a href="#development">Development</a> |
   <a href="#license">License</a>
 </p>
 
 ---
 
-## The Folder
+## How it works
 
-Epicenter is your folders, and apps are lenses. Every directory directly inside
-`~/Epicenter` is a folder; an optional `epicenter.json` gives it a title and a
-contract. `@epicenter/folder` opens an app's folder as the typed client its file
-contract derives: items are Markdown files at the contract's paths, and the
-contract's schemas interpret them. Opening needs no account, remote, or
-declaration file. A desktop app or a Bun script opens a directory; in a browser
-the folder is the signed-in account's folder on the server.
+`~/Epicenter` is on a computer you control and keep on, owned or rented: the
+home. It holds a folder per app in `apps/`. Each app is one `epicenter.ts` that
+declares its collections and actions, an optional UI, and a `data/` folder of
+Markdown files you can read, with its code and its data each in a Git
+repository of its own.
 
 ```ts
-import { openFolder } from '@epicenter/folder';
-import { directory } from '@epicenter/folder/node';
+import { defineApp, defineCollection, field } from '@epicenter/app';
 
-const folder = openFolder(todos, directory('/Users/me/Epicenter/todos'));
-await folder.todos.set({ id: 'milk' }, { title: 'Milk', done: false });
+const tasks = defineCollection({
+  path: 'data/tasks/{time}.md',
+  description: 'task',
+  fields: { title: field.text(), done: field.boolean() },
+});
+
+export default defineApp({
+  description: 'Things I mean to do',
+  collections: { tasks },
+  actions: tasks.actions(),
+});
 ```
 
-A write never fails: the folder keeps it, in order, until it lands. Sync is
-separate from opening, and nothing syncs these folders while the folder sync
-product waits
-([ADR-0840](docs/adr/0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md)).
+The `epicenter` command runs an app's actions on the home, and commits what
+each one writes:
 
-[Read the folder API](packages/folder/README.md)
+```sh
+epicenter tasks add --title 'Call the bank'
+epicenter tasks list --json
+epicenter serve
+```
+
+`epicenter serve` offers every app's actions over MCP, and each app's UI at
+`/<app>/`, to every device on your tailnet. Nothing syncs and no one signs in:
+your phone, your laptop, and your agents reach the one copy on the home, and
+keep nothing of their own. An app's optional `origin` is a push-only backup.
+
+Software that works without an Epicenter is an outside app: Gmail, Todoist,
+Whispering. An inside app brings its data in through actions. Mail pulls a copy
+of your mailbox to the home, and an agent changes Gmail only through a proposal
+you apply.
+
+[The vision](docs/vision.md) | [The `epicenter` command](packages/cli/README.md) | [What an app imports](packages/app/README.md)
 
 ## Status
 
-Whispering runs in the browser and as a desktop app. The `epicenter` command
-runs apps: each is a folder in `~/Epicenter` whose `epicenter.ts` defines its
-actions, and each action is a commit in that folder's repository. [Local Books](apps/local-books) is a headless mirror
-that pulls a QuickBooks account into local SQLite and keeps its own format.
-Most of the rest of this repository is the folder sync product, which waits
-([ADR-0840](docs/adr/0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md)).
-Honeycrisp and Messages are frozen on it as they were; each is rebuilt as an
-app whose actions the `epicenter` command runs, with its pages on top, in its
-turn, as Capture, Tasks, and Vocab already are (`apps/README.md`)
-([ADR-0843](docs/adr/0843-new-code-imports-nothing-from-the-waiting-product-which-leaves-by-deletion.md)).
+The `epicenter` command and `epicenter serve` run from this repository; the npm
+release is decided and not built
+([ADR-0892](docs/adr/0892-the-cli-releases-to-npm-and-whispering-8-is-a-new-install-with-its-own-update-address.md)).
+`epicenter service install` keeps `serve` running as a macOS LaunchAgent; the
+Linux job for a rented home and Epicenter for Mac are not built yet.
 
-## Trust Boundaries
+The author's inside apps (Capture, Mail, Messages, Reading, Tasks, and Vocab)
+run on their home. They are not in this repository: each is a repository of its
+own, taken with `epicenter new <app> --from <git url>`
+([ADR-0877](docs/adr/0877-an-apps-code-and-its-data-are-two-repositories-and-sharing-an-app-shares-its-code.md)).
 
-Pick the trust model you want.
+Whispering, an outside app, runs in a browser tab and as a desktop app, and
+needs no Epicenter. Epicenter, the company, also hosts services: sign-in and
+paid models (`apps/api`).
 
-| Path | What leaves your device |
+The folder sync product that came before is retired
+([ADR-0899](docs/adr/0899-the-folder-sync-product-is-retired.md)). Some of its
+code stays here while Whispering imports it.
+
+## Trust boundaries
+
+Your data is on the home, and whoever can read the home can read it.
+
+| Where | Who can read it |
 | --- | --- |
-| No sync | Nothing. The folder is complete on the device that holds it. |
-| Hosted Epicenter | Account and session data and any hosted feature you enable; your folder too, when you sync it. |
-| Self-hosted API | You control the server, secrets, deployment, and infrastructure boundary. Your folder goes only there. |
-| A provider an app calls | Whatever that app sends it: transcript text to an LLM, audio to a transcription provider. Epicenter servers are not in that path. |
+| A home you own | You, and whatever you let reach it: devices on your tailnet, agents you give a shell. |
+| A home you rent | You and its provider, which can read the disk, `.local` sign-in files included. |
+| Your other devices | Only what a UI or agent fetches while it reaches the home. They keep no copy. |
+| An app's `origin` backup | Whoever hosts the backup repository. Nothing is pushed until you add one. |
+| A service an inside app pulls from | The service already holds that data. Mail's Google sign-in is a `.local` file in Mail's folder on the home, and never leaves it. |
+| Epicenter's hosted services | What you send them: a prompt or audio for a paid model, and your account. They hold no part of your Epicenter. |
 
-A folder syncs only with an Epicenter server, which can read its files in plaintext. Choosing that server is choosing who can read your data. See the [trust model](docs/trust-model.md) for the details.
+`serve` signs no one in, so who reaches it is the tailnet's decision. See the
+[trust model](docs/trust-model.md) for the details.
 
-## Repo Map
+## Repo map
 
 ### Apps
 
-| App | Status | Notes |
-| --- | --- | --- |
-| [Honeycrisp](apps/honeycrisp) | Runs, development milestone | Markdown notes on the file contract, edited as Markdown with live preview: in a browser, the signed-in person's folder on the server; on the desktop, a folder on the computer. |
-| [Local Books](apps/local-books) | Runs, separately | Headless CLI mirror that pulls QuickBooks into local SQLite. |
-| [API](apps/api) | Hosted infrastructure | Personal cloud Worker. Owns sign-in, each folder's ledger, the AI gateways, hosted-only billing, and the dashboard. Self-host it on Bun with Postgres (`apps/api/server.ts`). |
-| [Whispering](apps/whispering) | Runs, development milestone | Voice recorder in a browser tab. Recordings, transcripts, and settings are files in a folder. |
-| Capture, Reading, Tasks, Vocab | Runs, on `epicenter serve` | Apps in `~/Epicenter`, each its own code repository with its records in a data repository inside it: actions in one `epicenter.ts`, and a UI served at `/<app>/`. Not in this repository ([ADR-0877](docs/adr/0877-an-apps-code-and-its-data-are-two-repositories-and-sharing-an-app-shares-its-code.md)). |
-| Other app folders | Research and prototypes | Useful history and experiments, not the current product lineup. |
+Every app in this repository is an outside app
+([apps/README.md](apps/README.md)).
+
+| App | What it is |
+| --- | --- |
+| [Whispering](apps/whispering) | Voice recorder and speech-to-text, in a browser tab or as a desktop app. Recordings, transcripts, and settings are files in a folder. |
+| [API](apps/api) | Epicenter's hosted services: sign-in, paid models, and hosted-only billing, on Cloudflare Workers. |
+| [Landing](apps/landing) | The website at epicenter.so. |
 
 ### Packages
 
-These packages carry the main architecture.
+| Package | What it is |
+| --- | --- |
+| [`@epicenter/cli`](packages/cli) | The `epicenter` command: runs each app's actions as commands and MCP tools, commits what they write, serves UIs, and backs each app up. |
+| [`@epicenter/app`](packages/app) | What an app's `epicenter.ts` imports: `defineApp`, `defineCollection`, `defineAction`, fields, `folder`, and the client a UI calls actions with. |
+| [`@epicenter/ui`](packages/ui) | Shared Svelte components. |
+| [`@epicenter/ai`](packages/ai) | Every source of models as an endpoint, one OpenAI-compatible client, the agent loop, and the model picker. |
+| [`@epicenter/server`](packages/server) | The Hono library `apps/api` composes. |
 
-| Package | Role | License |
-| --- | --- | --- |
-| [`@epicenter/folder`](packages/folder) | A folder: its collections and files, opened in a browser, a desktop page, or Bun, and synced with its ledger on the server. | AGPL-3.0-or-later |
-| [`@epicenter/app`](packages/app) | What an app's `epicenter.ts` imports: `defineApp`, fields, and the places an action receives. | AGPL-3.0-or-later |
-| [`@epicenter/cli`](packages/cli) | The `epicenter` command: runs each app's actions as commands and MCP tools, commits what they change, and syncs app repositories. | AGPL-3.0-or-later |
-| [`@epicenter/definition`](packages/definition) | A folder's contract, the front-matter and merge rules, and the names a site derives. | AGPL-3.0-or-later |
-| [`@epicenter/ai`](packages/ai) | Every source of models as an endpoint, one OpenAI-compatible client, the agent loop, and the model picker. | AGPL-3.0-or-later |
-| [`@epicenter/ui`](packages/ui) | Shared Svelte component library used by multiple apps. | AGPL-3.0-or-later |
-| [`@epicenter/server`](packages/server) | Shared Hono server library composed by the API on Cloudflare Workers and on Bun. | AGPL-3.0-or-later |
+Whispering's own packages, and the folder sync product's code it still imports
+(`@epicenter/folder`, `@epicenter/definition`, `@epicenter/local`), are under
+[packages/](packages).
 
 ## Architecture
 
-The server side is split into one shared library and two deployable folders:
-
 ```txt
-packages/server
-  shared Hono library
-  route composition for auth, sessions, folders (each a ledger
-  of changes in Postgres), and provider-backed inference
-  and transcription
+~/Epicenter                    on the home
+  EPICENTER.md                 marks the folder as an Epicenter
+  AGENTS.md                    sent to every MCP client as instructions
+  apps/<app>/
+    epicenter.ts               collections and actions
+    ui/                        the UI's source, built into ui/dist/
+    data/                      the app's records, a repository of its own
 
-apps/api
-  hosted personal Cloudflare Worker
-  composes packages/server with a Better Auth principal resolver
-  owns hosted-only dashboard and billing code
-  server.ts runs the same composition on Bun with Postgres: the self-host path
+packages/cli                   epicenter: runs actions, serve, snapshots, backup
+packages/app                   what epicenter.ts imports
+apps/api                       Epicenter's hosted services, an outside app from a home
 ```
 
-[Full architecture walkthrough](docs/architecture.md) | [Trust model](docs/trust-model.md)
+[The vision](docs/vision.md) | [Trust model](docs/trust-model.md)
 
 ## Development
 
@@ -143,19 +172,17 @@ cd epicenter
 bun install
 ```
 
-Every app starts from the repo root. `bun dev:<app>` runs every process the app needs; for apps that talk to the hosted API, that includes the API worker on `localhost:8787`. `bun dev:<app>:ui` runs the app's frontend alone when that split exists, and `bun dev:api` runs just the backend. Bare `bun dev` is `bun dev:honeycrisp`, and `bun run` with no arguments lists every target.
+Every app starts from the repo root. `bun dev:<app>` runs every process the app needs; for apps that talk to the hosted API, that includes the API worker on `localhost:8787`. `bun dev:<app>:ui` runs the app's frontend alone when that split exists, and `bun dev:api` runs just the backend. Bare `bun dev` is `bun dev:whispering`, and `bun run` with no arguments lists every target.
 
 | Command | Starts | App port |
 | --- | --- | --- |
-| `bun dev:honeycrisp` | Honeycrisp in the browser, no API | 5175 |
 | `bun dev:api` | Hosted API worker alone | 8787 |
 | `bun dev:api-dashboard` | API + dashboard UI | 5178 |
 | `bun dev:landing` | Landing site, standalone | 4321 |
-| `bun dev:posthog-reverse-proxy` | PostHog reverse proxy Worker | wrangler default |
 
 `bun dev:whispering` runs Whispering in a browser tab.
 
-The API needs local Postgres and Infisical; see [apps/api/README.md](apps/api/README.md). Rust is needed for Tauri apps such as Epicenter. Local Books runs its own multi-process dev flow; its README documents it.
+The API needs local Postgres and Infisical; see [apps/api/README.md](apps/api/README.md). Rust is needed for Whispering's desktop build.
 
 `bun run check` is the gate. It runs lint, typecheck, every workspace test, and the structural checks, and it is the same gate CI runs, so a green local run predicts a green pull request. Formatting is handled separately by the autofix workflow.
 
@@ -175,13 +202,13 @@ bun run check:structure # doc paths, catalog pins, API paths, UI boundary, boot 
 
 One check sits outside the gate on purpose. `bun run check:doc-hygiene` flags specs and ADRs that time has made stale, so it belongs to review rather than to merge.
 
-## Design Notes
+## Design notes
 
 Durable decisions and their reasoning live in [docs/adr/](docs/adr). Specs in [specs/](specs) are in-flight design scaffolding rather than current truth; when a spec and an ADR disagree, the ADR wins. Start with [docs/README.md](docs/README.md).
 
 ## Contributing
 
-Contributions are welcome. Good entry points are docs, local-first infrastructure, Svelte interfaces, moving an app onto folders, and small changes that make the repo easier to understand.
+Contributions are welcome. Good entry points are docs, the `epicenter` command, Svelte interfaces, Whispering, and small changes that make the repo easier to understand.
 
 [Read the Contributing Guide](CONTRIBUTING.md)
 
@@ -202,5 +229,5 @@ See the root [LICENSE](LICENSE), [FINANCIAL_SUSTAINABILITY.md](FINANCIAL_SUSTAIN
 </p>
 
 <p align="center">
-  <sub>Your data outlives the app that wrote it. Local-first, open source, built on plain files, with a history you can take with you as Git.</sub>
+  <sub>Your data outlives the app that wrote it. Open source, on a computer you control, built on plain files, with its history in Git.</sub>
 </p>

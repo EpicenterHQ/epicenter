@@ -1,7 +1,8 @@
 # 0533. One folder handle opens in three hosts, chosen by where the code runs
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-10-14
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amended by:** [ADR-0559](0559-all-desktop-git-runs-in-the-epicenter-cli-over-system-git.md) at the desktop page's history, "system git via run_git": desktop Git runs in an `epicenter` child, a Bun process; and [ADR-0581](0581-a-desktop-pages-folder-storage-is-one-shell-command-per-storage-method.md) at the desktop page's "disk reached by", "the shell (fs plugin reads, Rust writes)": the shell answers each storage method with one command, and only the Bun host builds its storage on `nodeDirectoryPrimitives`.
 - **Amended by:** [ADR-0583](0583-a-folders-declaration-is-published-only-by-the-app-it-is-named-after.md) at the script openers `openFolder({ root, definition, git })` and `openDataFolder({ root, git })`: one `openFolder({ root, app?, definition?, git })`, which publishes only in a directory named after `app`.
 - **Amended by:** [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) at the history column and `epicenter generate`: no host runs Git for a page, and generation is deleted.

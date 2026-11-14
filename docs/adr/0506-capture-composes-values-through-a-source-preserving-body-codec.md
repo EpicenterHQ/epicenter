@@ -1,7 +1,8 @@
 # 0506. Capture composes values through a source-preserving body codec
 
-- **Status:** Proposed
+- **Status:** Superseded
 - **Date:** 2026-10-06
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Relates:** [ADR-0523](0523-applications-own-drafts-in-edit-sessions-and-leave-one-open-item.md), the row edit session Capture edits through, and [ADR-0432](0432-captures-hold-ordered-thoughts-beneath-a-dated-timeline.md), Capture's text and ordered thoughts.
 
 Retired source files below use their last tracked Git snapshot (`commit:path`);

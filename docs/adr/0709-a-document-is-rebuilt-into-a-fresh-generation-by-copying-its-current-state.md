@@ -1,7 +1,8 @@
 # 0709. A document is rebuilt into a fresh generation by copying its current state
 
-- **Status:** Accepted (2026-11-03)
+- **Status:** Superseded
 - **Date:** 2026-11-03
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Relates:** [ADR-0705](0705-an-apps-data-lives-in-two-kinds-of-store.md) (documents and their export format), [ADR-0708](0708-a-namespace-holds-documents-beside-repositories-under-one-resource-grant.md) (a document's name and grants), [ADR-0286](0286-every-generation-is-minted-from-an-artifact-and-compaction-is-an-export-then-an-import.md) and [ADR-0293](0293-a-generation-is-created-by-importing-a-folder-and-the-ledger-row-is-its-existence.md) (the removed store's generations), [ADR-0220](0220-the-authority-keeps-a-snapshot-and-a-tail-and-a-deletion-becomes-real.md) (tombstone growth).
 - **Amended by:** [ADR-0771](0771-plain-files-let-epicenter-refuse-renames-attachment-conflict-copies-and-a-second-store.md) at the document store: the folder is the only kind of store.
 - **Unbuilt:** all of it: the rebuild, the generation number on the server, the refusal of a stale copy, and the "Discard local copy" and "Export it as notes" actions.

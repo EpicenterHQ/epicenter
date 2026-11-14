@@ -16,7 +16,7 @@ import { isAppId } from './app-id.js';
 describe('an app id is reverse domain (ADR-0204)', () => {
 	test('every first-party application id is admitted', () => {
 		for (const id of [
-			'so.epicenter.honeycrisp',
+			'so.epicenter.todos',
 			'so.epicenter.vocab',
 			'so.epicenter.whispering',
 			'so.epicenter.local-mail',

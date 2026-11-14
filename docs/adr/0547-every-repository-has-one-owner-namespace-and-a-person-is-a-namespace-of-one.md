@@ -1,7 +1,8 @@
 # 0547. Every repository has one owner namespace, and a person is a namespace of one
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-10-15
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amended by:** [ADR-0593](0593-the-hosted-git-service-stores-data-repositories-and-offers-no-rename-or-move.md) at "Sharing a folder is moving it into a group" and the `manage` role's rename and move: neither is offered; share-by-move is reopened only if it becomes product work.
 - **Amended by:** [ADR-0594](0594-a-hosted-repository-is-reached-only-by-the-person-who-owns-it.md) at `namespace_member`, the role table, groups, "Sharing a folder is moving it into a group", and membership as the access rule: every namespace is one person's, and access is that person's account.
 - **Amended by:** [ADR-0612](0612-a-repository-is-shared-by-the-people-on-its-access-list.md) at "A repository belongs to exactly one namespace", the personal namespace, and "People never see the word namespace": the `namespace` and `namespace_member` tables are renamed `repository` and `repository_member`, a repository has owners and members, and no code or schema says namespace.

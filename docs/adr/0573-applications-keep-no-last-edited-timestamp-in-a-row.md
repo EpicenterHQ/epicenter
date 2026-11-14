@@ -1,7 +1,8 @@
 # 0573. Applications keep no last-edited timestamp in a row
 
-- **Status:** Proposed
+- **Status:** Superseded
 - **Date:** 2026-10-16
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Relates:** [ADR-0518](0518-a-row-is-read-through-one-pipeline-and-repaired-as-text.md) (unknown keys are kept), [ADR-0529](0529-commits-happen-only-on-sync-or-when-a-person-saves-a-version.md), [ADR-0623](0623-every-browser-app-keeps-its-own-git-clone-of-a-repository.md) (a browser clone has no working tree), [ADR-0548](0548-a-view-is-a-cache-of-files-with-one-write-path-one-read-path-and-one-channel-of-change.md) (a save names what of the other side it replaced)
 - **Unbuilt:** removing `updatedAt` from Honeycrisp's `notes` table and note creation; deleting `withBody`; sorting and grouping `NoteList` by `createdAt`; deleting the `updatedAt` exception in Honeycrisp's save notices.
 

@@ -1,24 +1,23 @@
 # 0757. Every model is an endpoint; every model file is a cache
 
-<!-- doc-path-check: ignore-file (cites code that moved since) -->
-
 - **Status:** Accepted (2026-11-04)
 - **Date:** 2026-11-04
+- **Supersedes:** [ADR-0363](0363-an-inference-selection-identifies-the-connection-and-model.md) and [ADR-0365](0365-ai-owns-inference-access-and-applications-own-workflow-selection.md): an app reaches each model through an endpoint, and 1da16bda42 deleted the saved-selection resolver and the inference constructors they described.
 - **Amends:** [ADR-0754](0754-a-capability-takes-what-it-needs-as-values-and-shows-what-it-can-do-now-as-values.md) at its AI worked example: `openAi({ account, local })` with `ai.hosted()`, `ai.local()` and `ai.custom()` becomes `openAi([...endpoints])`, the default order is the array's order rather than local, hosted, custom, and a management handle exists only for a source with a local lifecycle.
 - **Amended by:** [ADR-0764](0764-reaching-a-model-is-epicenter-ais-alone-in-the-openai-vocabulary.md) at the endpoint shape and `models(): Promise<Model[]>`, at `ai.complete(request)`, at reading `models()` at fixed moments, and at the provider keys held by `@epicenter/account`: an endpoint is `{ id, name, source, fetch, models(), subscribe?, refresh? }` with a synchronous `models()`, `openAi` has `chat`, `transcribe` and `embed`, an app calls `ai.refresh()` at those moments, and the keys are `@epicenter/ai`'s.
 - **Relates:** [ADR-0730](0730-everything-not-derived-from-an-apps-site-is-one-of-five-stored-kinds.md) (a cache is one of the five stored kinds), [ADR-0740](0740-every-credential-an-app-holds-lives-in-its-own-place.md) (provider keys live in the app's credentials file, and the shell sends keyed requests), [ADR-0750](0750-sync-is-like-save-any-program-can-sync-a-folder-and-none-owns-it.md) (programs meet in a shared place; the sync moments), [ADR-0056](0056-local-inference-is-a-delegated-engine-behind-the-openai-compatible-seam.md) (local inference behind the OpenAI-compatible seam), [ADR-0424](0424-runtime-transcription-calls-the-host-directly.md) (runtime transcription calls the host directly), [ADR-0758](0758-epicenter-adapts-to-what-you-already-have-and-owns-only-what-nothing-else-can.md) (Epicenter adapts to what you already have), [ADR-0762](0762-epicenter-is-made-of-standards-and-places.md) (Epicenter is made of standards and places).
-- **Unbuilt:** all of it: `openAi([...])`, the endpoint shape `{ id, fetch, models() }`, per-model capabilities, `hosted`, `custom` and `localServers` in `@epicenter/ai`; one desktop relay in place of `apps/whispering/src-tauri/src/http.rs` and `packages/tauri-epicenter-account/src/relay.rs`; the accessor through which `@epicenter/account` hands over the person's provider keys; `@epicenter/transcription` exporting `localSpeech()`, with its in-process fetch and its remove, load and unload beside download, in place of `@epicenter/transcription-native`.
+- **Unbuilt:** all of it: `openAi([...])`, the endpoint shape `{ id, fetch, models() }`, per-model capabilities, `hosted`, `custom` and `localServers` in `@epicenter/ai`; one desktop relay in place of `948ea39cf4:apps/whispering/src-tauri/src/http.rs` and `packages/tauri-epicenter-account/src/relay.rs`; the accessor through which `@epicenter/account` hands over the person's provider keys; `@epicenter/transcription` exporting `localSpeech()`, with its in-process fetch and its remove, load and unload beside download, in place of `@epicenter/transcription-native`.
 
 ## Context
 
 `@epicenter/ai` (`packages/ai`) reaches a model through constructors an app
 calls one by one. `openEpicenterInference({ account })` in
-`packages/ai/src/ai.ts` opens hosted inference at the account's `/v1` with
+`948ea39cf4:packages/ai/src/ai.ts` opens hosted inference at the account's `/v1` with
 `account.fetch`; `openEndpointInference({ baseURL, getAuthHeaders })` opens
 any OpenAI-compatible server; `createAiConnections` in
-`packages/ai/src/ai-connections.ts` keeps the person's own connections, each
+`948ea39cf4:packages/ai/src/ai-connections.ts` keeps the person's own connections, each
 a `baseUrl`, an optional `apiKey`, and a list of `models`. Ollama and LM
-Studio are presets in `packages/ai/src/openai/connection-presets.ts`
+Studio are presets in `948ea39cf4:packages/ai/src/openai/connection-presets.ts`
 (`http://localhost:11434/v1` and `http://localhost:1234/v1`): form defaults
 a person fills in by hand.
 
@@ -32,10 +31,10 @@ speaks the OpenAI-compatible vocabulary: the server serves
 in `packages/server/src/api-routes.ts`).
 
 On the desktop, keyed requests leave through two relays: Whispering's
-`apps/whispering/src-tauri/src/http.rs` (257 lines) and the account crate's
+`948ea39cf4:apps/whispering/src-tauri/src/http.rs` (257 lines) and the account crate's
 `packages/tauri-epicenter-account/src/relay.rs`. Whispering routes each
-provider itself in `apps/whispering/src/lib/platform/browser.ts` and
-`apps/whispering/src/lib/platform/services.tauri.ts`, 624 lines between
+provider itself in `948ea39cf4:apps/whispering/src/lib/platform/browser.ts` and
+`948ea39cf4:apps/whispering/src/lib/platform/services.tauri.ts`, 624 lines between
 them.
 
 Local transcription is a separate package with a separate shape.

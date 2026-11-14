@@ -1,7 +1,8 @@
 # 0815. The platform gives a window its folder, and every app the same home
 
-- **Status:** Accepted (2026-11-06)
+- **Status:** Superseded
 - **Date:** 2026-11-06
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amends:** [ADR-0773](0773-a-folder-opens-at-a-place-every-place-is-a-store-and-the-server-never-merges.md) at `openFolder(contract, home({ site, account }))`: an app opens its window's folder with `openFolder(view)`, and `home` goes; [ADR-0792](0792-an-account-asks-for-what-the-capabilities-that-take-it-need.md) at `home` declaring the repository as an account's need: an app's account serves only hosted features, and syncing a folder is the platform's; [ADR-0790](0790-the-epicenter-app-is-a-library-over-every-folder-and-the-cli-answers-its-queries.md) at the library as an app of its own: it is the platform's home with a lens that shows any folder; [ADR-0804](0804-a-computer-keeps-a-plain-folder-and-every-surface-syncs-with-one-typescript-function.md) at the sync package's moments being wired per app: the window's runtime runs them.
 - **Relates:** [ADR-0813](0813-epicenter-is-your-folders-and-apps-are-lenses.md) (folders and lenses), [ADR-0814](0814-one-window-shows-one-folder.md) (one window, one folder), [ADR-0772](0772-a-folder-says-what-it-is-in-agents-md-and-this-computer-keeps-the-rest.md) (discovery follows links).
 - **Amended by:** [ADR-0816](0816-the-epicenter-app-is-where-a-person-sees-and-manages-every-folder.md) at "the library": the app is called Epicenter.

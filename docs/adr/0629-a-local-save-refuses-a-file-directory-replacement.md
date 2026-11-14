@@ -1,7 +1,8 @@
 # 0629. A local save refuses a file-directory replacement
 
-- **Status:** Proposed
+- **Status:** Superseded
 - **Date:** 2026-10-19
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amends:** [ADR-0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md) at "the change wins the path" for a local save, retaining that rule for synchronization; [ADR-0626](0626-an-app-reaches-a-repository-only-through-open.md) at the exhaustive `SaveError` list, adding `Occupied`.
 - **Unbuilt:** the public `@epicenter/data` opening API and applications presenting `Occupied`.
 

@@ -1,7 +1,8 @@
 # 0796. A field is a line, its value is JSON, and a write patches only the fields it changes
 
-- **Status:** Accepted (2026-11-05)
+- **Status:** Superseded
 - **Date:** 2026-11-05
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amends:** [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) at "Whatever an Epicenter tool writes is in house style: schema keys first, then sorted, block YAML": a tool writes only the fields it changes, each value as JSON; [ADR-0795](0795-git-merges-a-notes-body-and-epicenter-merges-its-front-matter-by-key.md) at "Block style stays the house style" and at comparing a key's text: a field's value is JSON, and the merge compares values; [ADR-0774](0774-one-write-makes-it-so-and-settles-a-change-the-way-sync-does.md) at a write formatting the note it writes: a write patches the lines of the fields it changes.
 - **Relates:** [ADR-0762](0762-epicenter-is-made-of-standards-and-places.md) (speak the standard), [ADR-0727](0727-json-schema-is-the-field-language.md) (fields are JSON Schema), [ADR-0793](0793-programs-only-compose-typescript-holds-what-epicenter-means-and-rust-holds-the-os-git-and-secrets.md) (one primitive in each language under one fixture).
 - **Amended by:** [ADR-0797](0797-front-matter-is-a-strict-grammar-and-anything-else-is-body.md) at reading any YAML: Epicenter reads only its grammar, and a file outside it is all body.

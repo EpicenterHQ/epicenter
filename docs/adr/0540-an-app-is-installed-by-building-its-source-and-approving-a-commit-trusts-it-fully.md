@@ -1,7 +1,5 @@
 # 0540. An app is installed by building its source, and approving a commit trusts it fully
 
-<!-- doc-path-check: ignore-file (cites the waiting folder sync product (ADR-0840), kept at tag folder-sync-product) -->
-
 - **Status:** Superseded
 - **Date:** 2026-10-15
 - **Superseded by:** [ADR-0589](0589-an-app-is-one-git-repository-of-built-files-at-an-address.md) at building the app's source on the person's machine; approving a commit still trusts it fully, as ADR-0589 restates.

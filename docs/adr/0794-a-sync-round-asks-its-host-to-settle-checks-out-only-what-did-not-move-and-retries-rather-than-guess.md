@@ -1,9 +1,8 @@
 # 0794. A sync round asks its host to settle, checks out only what did not move, and retries rather than guess
 
-<!-- doc-path-check: ignore-file (cites the waiting folder sync product (ADR-0840), kept at tag folder-sync-product) -->
-
-- **Status:** Accepted (2026-11-05)
+- **Status:** Superseded
 - **Date:** 2026-11-05
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amends:** [ADR-0751](0751-every-native-app-carries-one-sync-core.md) at "the plugin runs a round at the moments" and "a working-tree recheck before merge": the shell owns an app's moments while the core stays, a round's settle is answered by a live page of the app, and checkout writes only what did not move; [ADR-0787](0787-records-that-assumed-a-running-engine-or-a-build-time-choice-follow-0750-and-0781.md) at "The core runs it in a round": the core asks its host; [ADR-0774](0774-one-write-makes-it-so-and-settles-a-change-the-way-sync-does.md) at "the Git LFS object id of any other file, on every store": a store names a file other than a note by a stamp, keeping its object id beside it.
 - **Relates:** [ADR-0750](0750-sync-is-like-save-any-program-can-sync-a-folder-and-none-owns-it.md) (the moments), [ADR-0793](0793-programs-only-compose-typescript-holds-what-epicenter-means-and-rust-holds-the-os-git-and-secrets.md) (one `settle`, in TypeScript), [ADR-0775](0775-a-write-never-fails-the-folder-keeps-it-until-it-lands.md) (a note that does not read), [ADR-0789](0789-a-conflict-is-a-mark-on-its-note-resolved-in-the-repair-editor.md) (conflict marks), [ADR-0733](0733-your-own-git-in-an-epicenter-folder-is-plain-git.md) (plain Git).
 - **Amended by:** [ADR-0795](0795-git-merges-a-notes-body-and-epicenter-merges-its-front-matter-by-key.md) at a round asking its host to settle and a round with no live page: a round merges by itself.
