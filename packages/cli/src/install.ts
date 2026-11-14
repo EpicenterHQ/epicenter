@@ -1,7 +1,7 @@
 /**
  * Install an app's packages from its lock at the app's top, then link the
  * command's own @epicenter/app (ADR-0880). Calls never install packages.
- * Installation runs outside the app's lock, including after new and update.
+ * Installation runs outside the app's lock, including after new.
  */
 import { existsSync } from 'node:fs';
 import { basename, join } from 'node:path';

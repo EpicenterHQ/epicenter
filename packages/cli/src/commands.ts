@@ -24,24 +24,22 @@ lists and installs each app. The folder defaults to the current directory.
 Epicenters cannot nest.`,
 	},
 	new: {
-		usage: 'epicenter new <name> [--from <git url|path>]',
+		usage: 'epicenter new <name> [--from <path> | --from <git url>[#<folder>]]',
 		help: `Makes <Epicenter>/apps/<name>, two Git repositories: the folder holds the app's code,
-and data/ inside it the app's data. With --from, it clones a starter (another
-app's code) and keeps it as the app's upstream remote; without it, it starts
-from an epicenter.ts and a .gitignore. serve builds the UI when it is opened.`,
-	},
-	update: {
-		usage: 'epicenter update [<app> [<remote>]]',
-		help: `Merges each app's upstream into its code, or one app's, or from the remote named:
-it snapshots what is pending first and undoes a merge that stops on a conflict.
-The data is never merged; serve rebuilds the UI from the merged code.`,
+and data/ inside it the app's data. Without --from, it starts from an
+epicenter.ts and a .gitignore. With --from, it takes another app's code: it
+copies the files Git tracks in that app's folder into a repository of its own,
+in one commit that names where they came from. The folder is a path on this
+computer, inside a Git repository, or a Git URL, with #<folder> when the app
+is not at that repository's root. It copies no data and no history, and adds
+no remote: the code is yours to change. serve builds the UI when it is opened.`,
 	},
 	install: {
 		usage: 'epicenter install [<app>]',
 		help: `Installs each app's top-level package.json, or one app's, with bun install
 (--frozen-lockfile when bun.lock exists), then links node_modules/@epicenter/app
-to this epicenter's own copy, which no app lists. new and update run it;
-a call never installs. After bun add, run epicenter install <app> to restore
+to this epicenter's own copy, which no app lists. new runs it; a call never
+installs. After bun add, run epicenter install <app> to restore
 the supplied link if Bun removed it.`,
 	},
 	build: {

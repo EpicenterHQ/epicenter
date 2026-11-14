@@ -3,20 +3,20 @@
  * `flock` on the app's folder itself, so there is no lock file to make,
  * leave, or clean up. One holder at a time, each for the work that must not
  * meet another's: a call from its first write until its commit has finished
- * (`run.ts`), `sync` while it snapshots, `undo` from its snapshot until its
- * revert is committed, and `update` while it snapshots and merges. None holds
- * it across the network or a build. A lock belongs to an open descriptor: it is
- * released when that descriptor closes, here or when the process holding it
- * dies, so a crash never leaves it held. Two descriptors conflict even within
- * one process, so `serve`'s clock and a call it relays exclude each other as
- * two processes would. Bun opens every descriptor close-on-exec, so no child
- * (Git, an action's own process) keeps the lock after its holder lets go.
+ * (`run.ts`), `sync` while it snapshots, and `undo` from its snapshot until
+ * its revert is committed. None holds it across the network or a build. A
+ * lock belongs to an open descriptor: it is released when that descriptor
+ * closes, here or when the process holding it dies, so a crash never leaves
+ * it held. Two descriptors conflict even within one process, so `serve`'s
+ * clock and a call it relays exclude each other as two processes would. Bun
+ * opens every descriptor close-on-exec, so no child (Git, an action's own
+ * process) keeps the lock after its holder lets go.
  */
 
 import { dlopen, FFIType } from 'bun:ffi';
 import { closeSync, openSync } from 'node:fs';
 
-/** How long a call's first write, `sync`, `undo`, or `update` waits for the app's lock before it gives up. */
+/** How long a call's first write, `sync`, or `undo` waits for the app's lock before it gives up. */
 export const LOCK_WAIT_MS = 30_000;
 
 const LOCK_EX = 2;

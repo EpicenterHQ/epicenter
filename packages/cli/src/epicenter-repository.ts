@@ -35,7 +35,7 @@ export const REPOSITORIES = 'repositories.json';
 /** What a new Epicenter's repository ignores: the apps, each backed up on its own; what stays on this computer (ADR-0870); and caches. */
 const KEPT_OUT = `${APPS}/\n*.local\n*.local.*\nnode_modules/\n.DS_Store\n`;
 
-/** Binaries a new Epicenter's repository keeps in Git LFS, as an app's starter does (ADR-0856). */
+/** Binaries a new Epicenter's repository keeps in Git LFS (ADR-0856). */
 const LFS_ATTRIBUTES = [
 	'webm',
 	'm4a',
