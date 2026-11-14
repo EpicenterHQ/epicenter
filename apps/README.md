@@ -75,8 +75,8 @@ The surfaces need not promise the same things
 ([ADR-0780](../docs/adr/0780-a-surface-uses-what-its-platform-gives-and-parity-is-not-a-goal.md)).
 A guarantee that needs a process outliving the page is the desktop's:
 keeping a recording through a crash or a closed window, recording in the
-background, a global shortcut, and working on a folder offline, which Epicenter
-syncs when it can. Each app's
+background, a global shortcut, and Whispering's recordings kept in its own
+folder with no network. Each app's
 README says what its web build does not promise.
 
 Each desktop app is a Tauri program of its own
