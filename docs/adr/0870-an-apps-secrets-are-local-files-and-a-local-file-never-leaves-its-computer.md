@@ -5,6 +5,7 @@
 - **Amends:** [ADR-0840](0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md) at "a place for secrets (the Keychain)": an action's place for secrets is a `.local` file in its folder. [ADR-0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md) at `secrets`: a run reaches `folder` only. [ADR-0844](0844-one-runner-runs-anywhere-and-every-surface-is-a-view-over-it.md) at the `secrets` row of the host table, which is deleted. [ADR-0858](0858-where-a-file-lives-decides-whether-it-travels-survives-or-dies-with-its-program.md) at "Is it a secret? yes → the Keychain" and "a secret is never a file", for an app in an Epicenter; a program's own sign-ins (Whispering's account) stay in the Keychain. Also at "a collection whose path contains `.local.` is refused": such a collection is allowed and offers no actions.
 - **Relates:** [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) (Keychain access never stopped a program running as the same user), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (read-only runs), [ADR-0857](0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md) (`actions()`), [ADR-0868](0868-an-epicenter-is-any-folder-that-says-it-is-one-and-a-computer-runs-as-many-as-it-has.md) (the marker, which loses its `id`).
 - **Built:** 2026-11-11. A run's context is `{ folder }`; `isLocalPath` in `@epicenter/app` names a `.local` path for the read-only run, `actions()`, the disk's `0600`, and the snapshot's refusal alike. The memory folder has no file modes, so `0600` is the disk's alone. The marker's `id` goes with ADR-0868. 2026-11-13: a `.local` collection's `problems` and refused writes name a field without quoting its value (`misfit` in `packages/app/src/collection.ts`).
+- **Unbuilt:** the `writeOnly` field option and what reads it: an action with one is absent from MCP's tools and calls, its commit name skips the value, a refusal does not quote it, and the CLI prompts for it without echo.
 
 ## Context
 
@@ -64,18 +65,34 @@ as Mail's `mail.local.sqlite`; it is not a secret store.
 app writes, since `serve` hands an answer and a thrown tagged error to its
 caller whole.
 
-**A secret never arrives as an action's input.** Input reaches `serve` as MCP
-arguments or an HTTP body, so it sits in the calling agent's transcript, and
-its first positional value names the call's commit. A secret arrives by the
-person editing the `.local` file, or by a flow the action runs that brings it
-back to this computer itself: Mail's `connect` takes only a `port`, and
-Google's code returns on a loopback listener or the terminal.
+**A secret arrives in one of three ways, and never as an ordinary input.**
+Ordinary input leaks a secret three ways: every action is an MCP tool, so an
+agent is invited to carry the value and keeps it in its transcript; the first
+positional value names the call's commit; and a refusal quotes a value that
+does not fit. The three ways in:
+
+- **The person edits the `.local` file.** Mail's OAuth client is put in
+  `data/google.local.md` by hand.
+- **A flow the action runs brings it back to this computer.** Mail's `connect`
+  takes only a `port`, and Google's code returns on a loopback listener or the
+  terminal.
+- **An input field marked `writeOnly`.** JSON Schema's `writeOnly` says a
+  value is sent and never given back, the sibling of the `readOnly` that fields
+  already carry: `token: field.text({ writeOnly: true })`. A person types it
+  into the app's UI, which posts it to `serve` over HTTP, or at the CLI's
+  prompt, which does not echo. Because the mark is on the schema, every
+  surface reads it: an action with such a field is not listed or callable over
+  MCP, never names its commit after the value, and never quotes it when it
+  refuses one. Messages' Beeper token is the first.
+
+A secret input rides HTTP from a page on this Epicenter, which `serve` accepts
+only on loopback or the tailnet (ADR-0883), so it reaches no agent.
 
 ### What each layer defends
 
 | Who could get a secret | What stops it |
 | --- | --- |
-| an agent or page that reaches the app only through `serve` (MCP or HTTP) | the action layer: generated verbs refuse `.local` collections, and the app's own actions follow the rule above. Where the file sits changes nothing here. |
+| an agent or page that reaches the app only through `serve` (MCP or HTTP) | the action layer: generated verbs refuse `.local` collections, and the app's own actions follow the rules above. Where the file sits changes nothing here. |
 | the app's backup `origin` | the ignore file and the snapshot's refusal |
 | a shell agent on the host, by accident (`grep -r`, `cat`, an upload of the folder) | nothing in Epicenter. A deny rule for `*.local*` in that agent's own permissions covers it, and covers caches as well. |
 | a shell agent on the host, on purpose | nothing: it can edit `epicenter.ts` to return the value, or read the Keychain through `bun`. Choosing which agents get a shell is the boundary. |
@@ -148,10 +165,14 @@ refreshing at once each write over the text they read.
 - **A declared secret with a pluggable store.** It abstracts over one kind of
   credential, inherits the costs of every store it allows, and changes no
   case in the table above.
-- **A `field.secret()` input,** read by the CLI from a prompt that does not
-  echo, refused by MCP and HTTP, and left out of the commit's name. It would
-  give a pasted API key a path that keeps the entry rule. It waits for the
-  second app that needs one; Mail needs none.
+- **`field.secret()`, a separate field kind.** It would be text with one
+  annotation, and every surface would need to learn a new kind. `writeOnly`
+  is that annotation, already in JSON Schema, so MCP's `inputSchema` and
+  `epicenter <app> --json` carry it without a translation.
+- **Never take a secret as input.** It closes all three leaks, but it leaves
+  a pasted API key only the hand-edited file. An app's own UI posting a token
+  to `serve` reaches no agent, and refusing it would push that person into a
+  terminal for no protection.
 - **`secrets.local.json` behind the `secrets` API.** It would fix the `id`
   problem but keep a second storage model with no field types, defaults, or
   `problems`. ADR-0868 rejected it as "one `cat` away from any agent"; the
