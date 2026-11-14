@@ -164,15 +164,13 @@
 		"bump-version": "bun run scripts/bump-version.ts",
 		"clean": "bun run scripts/clean.ts",
 		"nuke": "bun run scripts/clean.ts --nuke",
-		"cf:audit:remote": "bun run --cwd ops cf:audit:remote",
-		"jsrepo:build": "jsrepo build"
+		"cf:audit:remote": "bun run --cwd ops cf:audit:remote"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "catalog:",
 		"@oxlint/plugins": "1.89.0",
 		"@types/bun": "catalog:",
 		"@y/y": "14.0.0-rc.26",
-		"jsrepo": "^3.6.2",
 		"oxlint": "1.89.0",
 		"playwright": "^1.61.1",
 		"wrangler": "catalog:"
