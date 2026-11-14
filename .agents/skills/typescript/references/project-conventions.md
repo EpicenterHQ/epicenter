@@ -162,21 +162,17 @@ Detailed examples for the baseline TypeScript rules used across Epicenter.
   ```
 
 - When moving components to new locations, always update relative imports to absolute imports (e.g., change `import Component from '../Component.svelte'` to `import Component from '$lib/components/Component.svelte'`)
-- **Use `.js` extensions in relative imports**: The monorepo uses `"module": "preserve"` in tsconfig, which requires explicit file extensions. Always use `.js` (not `.ts`) in relative import paths. TypeScript resolves `.js` to the corresponding `.ts` file at compile time:
+- **Give relative imports an explicit extension, and match the package**: Packages run from source name the file as it is on disk, with `.ts`: `packages/app`, `packages/cli`, and `apps/local-books`. The rest write `.js`, which TypeScript resolves to the `.ts` file. Both typecheck, because `tsconfig.base.json` sets `allowImportingTsExtensions`. Keep one spelling per package so a reader never has to check which a file uses:
 
   ```typescript
-  // Good: .js extension in relative imports
-  import { parseSkill } from './parse.js';
-  import type { Skill } from './types.js';
+  // packages/cli
+  import { CliError } from './errors.ts';
 
-  // Bad: no extension (fails with module: preserve)
-  import { parseSkill } from './parse';
-
-  // Bad: .ts extension (non-standard, won't resolve correctly)
-  import { parseSkill } from './parse.ts';
+  // packages/folder
+  import { createFolder } from './folder.js';
   ```
 
-  This does NOT apply to package imports (`import { type } from 'arktype'`) or path aliases (`import Component from '$lib/components/Foo.svelte'`): only bare relative paths.
+  This does not apply to package imports (`import { type } from 'arktype'`) or path aliases (`import Component from '$lib/components/Foo.svelte'`): only bare relative paths.
 - **`export { }` is only for barrel files**: Every symbol is exported directly at its declaration (`export type`, `export const`, `export function`). The `export { Foo } from './bar'` re-export syntax is reserved for `index.ts` barrel files: that is their entire job. Don't add re-exports at the bottom of implementation files "for convenience"; they go unused, leave orphaned imports, and create a false second import path.
 
   ```typescript
