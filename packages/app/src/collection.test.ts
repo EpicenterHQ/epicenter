@@ -197,9 +197,9 @@ describe('a collection of many files', () => {
 	test('set given nothing refuses, and writes nothing', async () => {
 		const text = '---\nkind: "thought"\n---\nKeep me.\n';
 		const context = createMemoryContext({ 'data/items/a.md': text });
-		expect(run('items set', { path: 'data/items/a.md' }, context)).rejects.toThrow(
-			'Nothing to set in data/items/a.md: give a field',
-		);
+		expect(
+			run('items set', { path: 'data/items/a.md' }, context),
+		).rejects.toThrow('Nothing to set in data/items/a.md: give a field');
 		expect(await context.folder.read('data/items/a.md')).toBe(text);
 	});
 
@@ -209,7 +209,11 @@ describe('a collection of many files', () => {
 		const text = '---\nkind: "thought"\nadded: "2026-11-01"\n---\n';
 		const context = createMemoryContext({ 'data/items/a.md': text });
 		expect(
-			run('items set', { path: 'data/items/a.md', reviewed: '2026-11-10' }, context),
+			run(
+				'items set',
+				{ path: 'data/items/a.md', reviewed: '2026-11-10' },
+				context,
+			),
 		).rejects.toThrow("reviewed is written only by the app's own actions");
 		await run('items review', { path: 'data/items/a.md' }, context);
 		expect(await context.folder.read('data/items/a.md')).toBe(
@@ -258,7 +262,11 @@ describe('a collection of many files', () => {
 			run('items edit', { ...at, old: '', new: 'x' }, context),
 		).rejects.toMatchObject({ name: 'Changed' });
 		await expect(
-			run('items edit', { path: 'data/items/nope.md', old: 'a', new: 'b' }, context),
+			run(
+				'items edit',
+				{ path: 'data/items/nope.md', old: 'a', new: 'b' },
+				context,
+			),
 		).rejects.toMatchObject({ name: 'Missing', path: 'data/items/nope.md' });
 	});
 
@@ -281,7 +289,9 @@ describe('a collection of many files', () => {
 			'data/items/a.md':
 				'---\nkind: thought # a comment\nadded: 2026-11-01\ntags: [x, y]\n---\nBody\n',
 		});
-		expect(await run('items get', { path: 'data/items/a.md' }, context)).toEqual({
+		expect(
+			await run('items get', { path: 'data/items/a.md' }, context),
+		).toEqual({
 			path: 'data/items/a.md',
 			id: 'a',
 			kind: 'thought',
@@ -298,14 +308,20 @@ describe('a collection of many files', () => {
 
 	test('a file without front matter is all body, and set adds front matter above it', async () => {
 		const context = createMemoryContext({ 'data/items/a.md': '# Just text\n' });
-		expect(await run('items get', { path: 'data/items/a.md' }, context)).toEqual({
+		expect(
+			await run('items get', { path: 'data/items/a.md' }, context),
+		).toEqual({
 			path: 'data/items/a.md',
 			id: 'a',
 			done: false,
 			body: '# Just text\n',
 			problems: ['kind is missing', 'added is missing'],
 		});
-		await run('items set', { path: 'data/items/a.md', kind: 'thought' }, context);
+		await run(
+			'items set',
+			{ path: 'data/items/a.md', kind: 'thought' },
+			context,
+		);
 		expect(await context.folder.read('data/items/a.md')).toBe(
 			'---\nkind: "thought"\n---\n# Just text\n',
 		);
@@ -314,7 +330,9 @@ describe('a collection of many files', () => {
 	test('front matter that is neither grammar nor YAML is read as body, and set refuses it', async () => {
 		const text = '---\nkind: [unclosed\n---\nBody\n';
 		const context = createMemoryContext({ 'data/items/a.md': text });
-		expect(await run('items get', { path: 'data/items/a.md' }, context)).toEqual({
+		expect(
+			await run('items get', { path: 'data/items/a.md' }, context),
+		).toEqual({
 			path: 'data/items/a.md',
 			id: 'a',
 			done: false,
@@ -389,7 +407,9 @@ describe('a collection of many files', () => {
 		expect(rows.map((row) => row.path)).toEqual(['data/items/dune.md']);
 		await expect(
 			inRun(context, () => items.get({ path: 'data/items/token.local.md' })),
-		).rejects.toThrow('data/items/token.local.md is not a file at data/items/{id}.md');
+		).rejects.toThrow(
+			'data/items/token.local.md is not a file at data/items/{id}.md',
+		);
 		expect(() => items.pathOf({ id: 'token.local' })).toThrow(
 			'data/items/token.local.md would be a .local file, which stays on this computer; data/items/{id}.md names files that are committed',
 		);
@@ -409,12 +429,12 @@ describe('a collection of many files', () => {
 
 	test('delete answers whether a file was there', async () => {
 		const context = createMemoryContext({ 'data/items/a.md': 'A\n' });
-		expect(await run('items delete', { path: 'data/items/a.md' }, context)).toBe(
-			true,
-		);
-		expect(await run('items delete', { path: 'data/items/a.md' }, context)).toBe(
-			false,
-		);
+		expect(
+			await run('items delete', { path: 'data/items/a.md' }, context),
+		).toBe(true);
+		expect(
+			await run('items delete', { path: 'data/items/a.md' }, context),
+		).toBe(false);
 		expect(await context.folder.list()).toEqual([]);
 	});
 });
@@ -503,7 +523,9 @@ describe('update', () => {
 	});
 	const at = { path: 'data/counters/a.md' };
 	const seeded = () =>
-		createMemoryContext({ 'data/counters/a.md': '---\nnote: "kept"\n---\nBody.\n' });
+		createMemoryContext({
+			'data/counters/a.md': '---\nnote: "kept"\n---\nBody.\n',
+		});
 
 	test('writes the patch computed from the record, fields and body together, and returns the record written', async () => {
 		const context = seeded();
@@ -590,7 +612,9 @@ describe('update', () => {
 			body: 'New.\n',
 		});
 		await expect(
-			inRun(context, () => counters.update({ path: 'data/counters/c.md' }, () => ({}))),
+			inRun(context, () =>
+				counters.update({ path: 'data/counters/c.md' }, () => ({})),
+			),
 		).rejects.toThrow('data/counters/c.md: note is missing');
 		await expect(
 			inRun(context, () =>
@@ -600,11 +624,12 @@ describe('update', () => {
 			),
 		).rejects.toThrow('not here');
 		await expect(
-			inRun(context, () =>
-				counters.set({ path: 'data/counters/c.md', n: 1 }),
-			),
+			inRun(context, () => counters.set({ path: 'data/counters/c.md', n: 1 })),
 		).rejects.toThrow('There is no data/counters/c.md');
-		expect(await context.folder.list()).toEqual(['data/counters/a.md', 'data/counters/b.md']);
+		expect(await context.folder.list()).toEqual([
+			'data/counters/a.md',
+			'data/counters/b.md',
+		]);
 	});
 
 	test('a one-file collection gives its defaults to the first update, which makes the file', async () => {

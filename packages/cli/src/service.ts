@@ -4,8 +4,7 @@ import { existsSync, realpathSync } from 'node:fs';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { homedir, userInfo } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
-import { COMPILED } from './commands.ts';
-import { misuse, parseWords } from './commands.ts';
+import { COMPILED, misuse, parseWords } from './commands.ts';
 import { fail, writeErr, writeJson, writeOut } from './output.ts';
 import { epicenterRoot } from './root.ts';
 
@@ -132,7 +131,9 @@ export async function serviceCommand(
 					);
 				const path = process.env.PATH;
 				if (path === undefined)
-					throw new Error('PATH is unset. Set PATH before installing the service.');
+					throw new Error(
+						'PATH is unset. Set PATH before installing the service.',
+					);
 				await mkdir(dirname(plistPath), { recursive: true });
 				await mkdir(dirname(logPath), { recursive: true });
 				await writeFile(

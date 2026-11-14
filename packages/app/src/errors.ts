@@ -7,7 +7,8 @@
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 
 const WHY = {
-	quote: "'s body does not have that text; it may have changed since it was read, so get it again",
+	quote:
+		"'s body does not have that text; it may have changed since it was read, so get it again",
 	empty: "'s body is no longer empty; get it again",
 	kept: ' kept changing while it was updated',
 } as const;
