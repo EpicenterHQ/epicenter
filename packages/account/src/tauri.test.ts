@@ -45,8 +45,7 @@ function shell(
 
 /** This computer's settings in memory, holding `account.json` as the shell writes it. */
 async function identityOf(initial: unknown) {
-	let text: string | null =
-		initial === null ? null : JSON.stringify(initial);
+	let text: string | null = initial === null ? null : JSON.stringify(initial);
 	let heard: ((names: readonly string[]) => void) | undefined;
 	const settings = createSettings({
 		async watch(changed) {
@@ -91,7 +90,10 @@ describe('state', () => {
 			[{ ...PERSON, refused: true }, 'reauth-required'],
 		] as const) {
 			const { identity } = await identityOf(written);
-			const client = createTauriAuth({ shell: shell(() => null).fake, identity });
+			const client = createTauriAuth({
+				shell: shell(() => null).fake,
+				identity,
+			});
 			const state = client.state();
 			expect(state.status).toBe(status);
 			if (written !== null) expect(client.baseURL).toBe(ORIGIN);
@@ -137,8 +139,8 @@ describe('signing in and out', () => {
 
 	test('a sign-in that failed says so and changes nothing', async () => {
 		const { identity } = await identityOf(null);
-		const { fake } = shell(() =>
-			new Error('The browser did not come back within ten minutes.'),
+		const { fake } = shell(
+			() => new Error('The browser did not come back within ten minutes.'),
 		);
 		const client = createTauriAuth({ shell: fake, identity });
 		const error = expectErr(await client.startSignIn());
@@ -228,7 +230,13 @@ describe('the account’s fetch', () => {
 		]);
 		// Neither reaches another origin.
 		await expect(
-			relayFetch(fake, ORIGIN, live, () => {}, 'folders')('https://folders.example/x'),
+			relayFetch(
+				fake,
+				ORIGIN,
+				live,
+				() => {},
+				'folders',
+			)('https://folders.example/x'),
 		).rejects.toThrow(TypeError);
 	});
 

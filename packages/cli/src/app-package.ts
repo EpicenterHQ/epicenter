@@ -12,7 +12,16 @@
  * its own, `$XDG_DATA_HOME/epicenter/app/<version>-<hash>` (by default under
  * `~/.local/share`), and links there.
  */
-import { mkdir, mkdtemp, readlink, rename, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import {
+	mkdir,
+	mkdtemp,
+	readlink,
+	rename,
+	rm,
+	stat,
+	symlink,
+	writeFile,
+} from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { COMPILED } from './commands.ts';
@@ -75,7 +84,9 @@ export function appPackageFolder(): Promise<string> {
 			)
 		: Promise.resolve(
 				// Its package folder: two up from its entry, `src/index.ts`.
-				dirname(dirname(Bun.fileURLToPath(import.meta.resolve('@epicenter/app')))),
+				dirname(
+					dirname(Bun.fileURLToPath(import.meta.resolve('@epicenter/app'))),
+				),
 			);
 	return found;
 }

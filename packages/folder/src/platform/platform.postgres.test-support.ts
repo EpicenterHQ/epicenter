@@ -4,9 +4,10 @@
  * the real server (`startRepositoryServer`) as the CLI is, reaching every
  * folder they hold.
  */
+
+import { expect } from 'bun:test';
 import { mkdir, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
-import { expect } from 'bun:test';
 import { expectOk } from 'wellcrafted/testing';
 import type { startRepositoryServer } from '../../../server/src/test-helpers/repository-server.js';
 import { epicenterRoot, type StatIdentity } from '../device/node-root.js';

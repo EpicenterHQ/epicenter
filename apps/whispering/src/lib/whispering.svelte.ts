@@ -289,7 +289,6 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 		}
 	}
 
-
 	if (capture.recover) void completeCutOffRecordings(capture.recover);
 
 	return {
@@ -398,7 +397,6 @@ export function createWhispering(capabilities: WhisperingCapabilities) {
 		},
 		/** Stop: the microphone is released, the audio finished at its path, and its note written. */
 		stopRecording: finishRecording,
-
 	};
 }
 

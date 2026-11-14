@@ -118,7 +118,10 @@ async function serverWorld(asFolder: boolean): Promise<World> {
 				await writeFile(target, text);
 			};
 			// The manifest is kept outside the folder, as a record is.
-			const manifest = storeManifest(nodeStore(`${root}-records`), 'synced.json');
+			const manifest = storeManifest(
+				nodeStore(`${root}-records`),
+				'synced.json',
+			);
 			roots.push(`${root}-records`);
 			if (!asFolder) return { store, manifest, write };
 			const folder = openFolder(contract, directory(root));

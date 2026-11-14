@@ -938,7 +938,8 @@ describe('learner message', () => {
 
 describe('received answer', () => {
 	test('a fully received answer waits for its writes under the same ids, and lands without the model or a tool running again', async () => {
-		const { folder, messages, files, saved, attempts, settle } = await makeMessages();
+		const { folder, messages, files, saved, attempts, settle } =
+			await makeMessages();
 		const { engine, tools, counts } = toolThenAnswer();
 		// The learner message lands; every write after the model starts is refused.
 		let writable: (() => void) | undefined;

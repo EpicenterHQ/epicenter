@@ -14,9 +14,9 @@ import {
 	writeFile,
 } from 'node:fs/promises';
 import { join } from 'node:path';
+import type { Action } from '@epicenter/app';
 import { connect } from '@epicenter/app/client';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import type { Action } from '@epicenter/app';
 import {
 	fixture,
 	gitIn,

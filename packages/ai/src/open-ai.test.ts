@@ -245,9 +245,12 @@ test('subscribe tells each subscriber when any endpoint changes, until it stops'
 test('refresh asks every endpoint that probes to look again', async () => {
 	let refreshed = 0;
 	const ai = openAi([
-		{ ...probing('a', 'local').endpoint, refresh: async () => {
-			refreshed++;
-		} },
+		{
+			...probing('a', 'local').endpoint,
+			refresh: async () => {
+				refreshed++;
+			},
+		},
 		custom({ baseUrl: 'https://x.test/v1' }),
 	]);
 	await ai.refresh();

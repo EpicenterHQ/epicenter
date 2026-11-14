@@ -27,7 +27,4 @@ export type CopyButtonPropsWithoutHTML = {
 };
 
 export type CopyButtonProps = CopyButtonPropsWithoutHTML &
-	Omit<
-		ButtonProps,
-		'children' | 'href' | 'ref' | 'size' | 'variant'
-	>;
+	Omit<ButtonProps, 'children' | 'href' | 'ref' | 'size' | 'variant'>;
