@@ -1,6 +1,6 @@
 ---
 name: epicenter-app
-description: Make or change an app that lives in an Epicenter (such as ~/Epicenter): its collections, its actions, its UI, and its two repositories, code and data. Use when asked to build a new personal app (a tracker, a log, a list), add a field or action to Capture, Reading, Tasks, or Vocab, change an app's UI, set up an Epicenter, share an app or take one from someone, or update an app from the app it came from on the computer that runs epicenter serve.
+description: Make or change an app that lives in an Epicenter (such as ~/Epicenter): its collections, its actions, its UI, and its two repositories, code and data. Use when asked to build a new personal app (a tracker, a log, a list), add a field or action to Capture, Reading, Tasks, or Vocab, change an app's UI, set up an Epicenter, share an app or take one from someone, or take later changes from the app an app's code was copied from, on the computer that runs epicenter serve.
 ---
 
 # Epicenter apps
@@ -16,9 +16,9 @@ matter (4747 when absent).
 An app is two Git repositories (ADR-0877). The app's folder is its code
 repository, which ignores `data/`; `data/` is its data repository, holding
 every record and every file the app keeps (ADR-0876). The code travels: it is
-what someone else takes, and what they change comes back by a merge. The data
-never travels: its history records every write, so it is backed up privately
-and shared with no one.
+what someone else takes, by copying it (ADR-0904). The data never travels:
+its history records every write, so it is backed up privately and shared
+with no one.
 
 ```txt
 <app>/                 the code repository
@@ -35,12 +35,17 @@ and shared with no one.
     google.local.md    kept on this computer, never committed
 ```
 
-An app can start from another app's code, which it keeps as its `upstream`
-remote; `epicenter update` merges that code's later changes, and `serve` rebuilds
-the UI from the merged code (ADR-0866). An app has one home: its folder in an
-Epicenter, backed up to its code repository. Capture, Reading, Tasks, and Vocab
-live in their author's Epicenter, each a private GitHub repository; the
-monorepo holds the platform and no apps (ADR-0877). Read `@epicenter/app`'s
+An app is its `epicenter.ts` over its data. The collections and actions
+there are the contract, and the UI is one view of it that can be replaced:
+the UI imports `epicenter.ts` for its types alone and calls the actions
+through `connect()`, so `bun run typecheck` says whether a UI is valid for
+an `epicenter.ts`. An app can start as a copy of another app's code, taken
+with `epicenter new --from`. The copy is a repository of its own with no
+remote, and no command merges later changes into it (ADR-0904). An app has
+one home: its folder in an Epicenter, backed up to its code repository.
+Capture, Reading, Tasks, and Vocab live in their author's Epicenter, each a
+private GitHub repository; the monorepo holds the platform and no apps
+(ADR-0877). Read `@epicenter/app`'s
 README (`packages/app/README.md` in the monorepo) and one existing app before
 starting; Tasks is the smallest whole example.
 
@@ -54,10 +59,11 @@ its source id, then close it at the source. Never keep two writable copies in
 step, and never make one app import or call another. Anything under
 "Not yet" or "Never" in `docs/vision.md` needs the owner's yes.
 
-Change an app where the change belongs. A change for one person's app is made
-in its folder and committed to its code repository; Git merges it with
-`upstream`'s on the next update. A change for everyone who took the app is
-made in the app it came from and reaches them when they update.
+Change an app where it is: edit its folder and commit to its code
+repository. The code is the person's own, written there or copied, and
+nothing keeps it in step with any other copy. A change meant for everyone
+who took an app is made in the app they took it from, and reaches each of
+them when their agent takes it (see "Take later changes" below).
 
 ## Decide the files first
 
@@ -125,7 +131,7 @@ starting with `.`. A field or placeholder may not be named `path`,
   Rename or tighten a field in two steps. Commit the code first; then rewrite
   the records, by an action or by hand, so each data commit names the code it
   was written for. Then read every record's `other` and `problems` to find any
-  the rewrite missed. Someone who takes the change with `update` gets the code
+  the rewrite missed. Someone who takes the change into their copy gets the code
   only: their records change when they run the same rewrite, so ship it as an
   action, or say in the README what to run.
 
@@ -146,7 +152,7 @@ built-ins. Add packages with `bun add` in the app's folder, then run
 `package.json`. Its `engines.epicenter` (`">=0.2.0"`) is the oldest
 `epicenter` the app runs on; `epicenter new` writes its own version there.
 Raise it when the app starts using something a newer `@epicenter/app` added,
-always as a floor (`>=`), never a caret. `epicenter new`, `update`, and `install [<app>]` install from
+always as a floor (`>=`), never a caret. `epicenter new` and `install [<app>]` install from
 the app's top-level `package.json` (`--frozen-lockfile` when `bun.lock` exists) and link that package;
 a call never installs. Write each action with `defineAction`, which types its
 `run` from its `input`. Add one when the caller cannot do the job with the
@@ -379,9 +385,11 @@ failure to show.
 
 Never run anything against the real `~/Epicenter` until the person asks.
 `HOME` decides `~`, so try an app in a temporary home. Take the app from its
-code repository with `new --from`, which clones it and makes its empty data
-repository, then `epicenter build <app>` builds its UI as the server would; for an app with
-uncommitted changes, commit them on a branch first, or clone from a copy:
+code repository with `new --from`, which copies what Git tracks there at
+`HEAD` and makes an empty data repository, then `epicenter build <app>`
+builds its UI as the server would. Uncommitted changes are not copied, so
+commit them on a branch first, or take the app from a copy of its folder
+with them committed there:
 
 ```sh
 bun test ./epicenter.test.ts               # in the app: actions over createMemoryContext
@@ -389,7 +397,7 @@ T=$(mktemp -d)
 printf '[user]\n\tname = Test\n\temail = test@example.com\n' > $T/.gitconfig
 HOME=$T epicenter init $T/Epicenter        # writes EPICENTER.md and AGENTS.md
 cd $T/Epicenter
-HOME=$T epicenter new <app> --from <app's code repository>
+HOME=$T epicenter new <app> --from <the app's folder, or its Git URL>
 HOME=$T epicenter build <app>              # the UI, as serve builds it
 HOME=$T epicenter <app> <words> ...
 HOME=$T epicenter serve --port 4799        # then drive http://localhost:4799/<app>/
@@ -404,15 +412,17 @@ the UI. Run tests one file or package at a time.
 
 Only when the person asks, on the computer that runs `epicenter serve`:
 
-- `epicenter new <app> --from <git url|path>` clones another app's code
-  repository, keeps it as `upstream`, makes an empty data repository, and
-  builds the UI. The path must be a repository's root.
-- `epicenter update <app> [<remote>]` snapshots what is pending, merges the
-  remote's branch into the code, `upstream` by default, and builds; the data
-  is never merged. It undoes a merge that conflicts, naming the command that
-  resolves it. An author takes a change back from someone who took the app
-  the same way: `git -C <app> remote add brother <url>`, then
-  `epicenter update <app> brother`.
+- `epicenter new <app> --from <git url>` takes another app by copying its
+  code from the root of that repository; `--from <git url>#<folder>` takes a
+  folder inside it, for a repository that holds several apps. On the same
+  computer, `--from <path>` names the folder that holds `epicenter.ts`
+  (`--from ~/Code/apps/vocab`), a repository's root or any folder inside one,
+  with no `#`. Only the files Git tracks at that repository's `HEAD` are
+  copied, so the path must be inside a Git repository, and `data/`,
+  `node_modules/`, builds, and uncommitted changes never come along. The copy
+  is one commit in a new repository with no remote, whose message names
+  where it came from (`Source:` and `Source-Commit:`), beside an empty data
+  repository. A folder that tracks `data/` is refused.
 - Backups go to each repository's `origin`, a private remote: add one to the
   app's folder and one to `data/`, and `epicenter sync` pushes both there at
   once, and `serve` every 5 minutes, never anywhere else. Nothing else pushes,
@@ -420,9 +430,14 @@ Only when the person asks, on the computer that runs `epicenter serve`:
   into `data/`.
 - Sharing an app is pushing its code repository to a remote the person
   chooses, which only they or an agent they ask does: `git -C <app> push
-  <remote> main`. What is shared is the code's real history, every code
-  commit included, so check it for anything private before the first push.
-  Never push `data/` anywhere but its own `origin`.
+  <remote> main`. Someone takes it with `new --from <its URL>`. Whoever can
+  read that remote reads the code's real history, every code commit
+  included, so check it for anything private before the first push. To share
+  several apps from one place, keep each as a folder of one repository
+  outside the Epicenter: `git -C <app> archive HEAD | tar -x -C
+  <repository>/<app>` puts an app's tracked files there, without its
+  history, and someone takes one with `--from <URL>#<app>`. Never push
+  `data/` anywhere but its own `origin`.
 - `epicenter build [<app>]` rebuilds a UI after a local edit, keeping the last
   one that built; the UI project's own `bun run build` empties `ui/dist/`
   first, so a page served meanwhile is missing.
@@ -431,3 +446,50 @@ Only when the person asks, on the computer that runs `epicenter serve`:
 
 A running `epicenter serve` sees a change on the next request: it lists tools
 and reads `ui/dist/` from disk each time.
+
+## Take later changes
+
+No command brings an app the later changes of the code it was copied from
+(ADR-0904). Do it when the person asks, as a comparison you read. A merge
+could not say that a changed collection leaves the person's records not
+fitting, so the order below puts that question first.
+
+1. Find where the code came from. `git -C <app> log --reverse --format=%B |
+   head` shows the first commit's `Source:`, the `--from` argument, and
+   `Source-Commit:`, the commit copied. A Git URL may end in `#<folder>`,
+   the app's folder in that repository. A path is the app's folder on the
+   computer it was taken on: `git -C <path> rev-parse --show-toplevel` is
+   its repository's root, and the rest of the path is `<folder>`. If a later
+   commit says it took changes, start from the commit it names. An app made
+   when `new --from` still cloned has an `upstream` remote and shares its
+   history: `git merge-base HEAD upstream/<branch>` is its commit.
+2. Get that code as it is now, in a temporary directory outside the
+   Epicenter, so `epicenter` never lists it as an app and no snapshot takes
+   it:
+
+   ```sh
+   T=$(mktemp -d)
+   git clone -q <URL or repository root> $T/code
+   # the app is $T/code/<folder>; drop <folder>/ when it is the root
+   git -C $T/code diff <Source-Commit> HEAD -- <folder>/epicenter.ts
+   git -C $T/code diff <Source-Commit> HEAD -- <folder>/ui
+   ```
+
+   When that commit is no longer in the repository, compare the two folders
+   as they are.
+3. Read the `epicenter.ts` diff first: it is the only change that can affect
+   data. When a collection's path or fields changed, stop and plan the
+   migration with the person before taking anything: which records stop
+   fitting, and the action or rewrite that repairs them, in the two steps
+   under "Decide the files first". Take the actions the person wants.
+4. Take the UI one of two ways. Replace it whole when the app has not
+   changed its own UI, or the person wants the new one more than their own
+   changes: commit what is pending, replace `ui/` with the other `ui/`, and
+   commit that alone, so `git revert` takes it back. Otherwise port the
+   changes wanted over the app's own, file by file. Take what the UI needs
+   in `package.json` and `bun.lock`, then run `epicenter install <app>`.
+5. Run `bun run typecheck`, which says whether the UI is valid for this
+   `epicenter.ts`, then `bun test ./epicenter.test.ts` and
+   `epicenter build <app>`. Commit with a message that names the commit you
+   compared against, and tell the person what you took, what you left, and
+   why.
