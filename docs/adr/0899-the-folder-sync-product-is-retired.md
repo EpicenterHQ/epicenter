@@ -1,6 +1,6 @@
 # 0899. The folder sync product is retired
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-11-13)
 - **Date:** 2026-11-13
 - **Amends:** [ADR-0840](0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md) at "the folder sync product waits": it does not wait; it is retired, and nothing returns to it.
 - **Amends:** [ADR-0843](0843-new-code-imports-nothing-from-the-waiting-product-which-leaves-by-deletion.md) at "a tag keeps it": the tag `folder-sync-product` stays as history, not as a way back.
