@@ -24,11 +24,6 @@ const BROWSER_APPS = [
 		name: 'Whispering',
 		app: APPS.WHISPERING,
 	},
-	{
-		clientId: 'so.epicenter.honeycrisp',
-		name: 'Honeycrisp',
-		app: APPS.HONEYCRISP,
-	},
 	{ clientId: 'so.epicenter.capture', name: 'Capture', app: APPS.CAPTURE },
 	{ clientId: APPS.VOCAB.id, name: 'Vocab', app: APPS.VOCAB },
 	{ clientId: APPS.ZHONGWEN.id, name: 'Zhongwen', app: APPS.ZHONGWEN },
