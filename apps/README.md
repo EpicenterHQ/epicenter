@@ -1,8 +1,8 @@
 # apps
 
-Only the hosted API is left here, and it stays: it is a service, live and
-paid, that Whispering 7 signs in, transcribes, and is billed through. It moves
-to `services/api` in its own change, and then this folder is gone
+Only the hosted API is left here, and it stays: it is the company's service
+for accounts and paid models. It moves to `services/api` in its own change,
+and then this folder is gone
 ([ADR-0891](../docs/adr/0891-this-repository-holds-the-runtime-and-programs-and-every-starter-is-a-repository-of-its-own.md)).
 Until then `.github/workflows/deploy.cloudflare.yml` deploys it from here.
 

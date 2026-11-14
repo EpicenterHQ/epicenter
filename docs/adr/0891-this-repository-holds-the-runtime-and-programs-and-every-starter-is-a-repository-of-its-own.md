@@ -3,7 +3,7 @@
 - **Status:** Accepted (2026-11-13)
 - **Date:** 2026-11-13
 - **Relates:** [ADR-0843](0843-new-code-imports-nothing-from-the-waiting-product-which-leaves-by-deletion.md) (the old product leaves), [ADR-0866](0866-an-app-starts-from-a-starter-kept-as-its-upstream-and-update-merges-the-starters-changes.md) (starters), [ADR-0877](0877-an-apps-code-and-its-data-are-two-repositories-and-sharing-an-app-shares-its-code.md) (this repository holds no apps), [ADR-0889](0889-an-app-runs-on-epicenter-a-program-works-with-it-and-they-meet-at-the-apps-contract.md) (programs).
-- **Amended:** 2026-11-13, the same day. The hosted API stays, as a service: it is live and paid, and it holds the accounts and billing a hosted notes service would need ([ADR-0897](0897-hosted-notes-is-a-product-beside-epicenter-and-waits-for-a-month-of-evidence.md)). It was to leave with the old product.
+- **Amended:** 2026-11-13, the same day. The hosted API stays, as a service: it holds the accounts and billing for paid models, Whispering's optional ones first, and for a hosted notes service if one is built ([ADR-0897](0897-hosted-notes-is-a-product-beside-epicenter-and-waits-for-a-month-of-evidence.md)). It was to leave with the old product. No released Whispering calls it: 7.11.0 has no sign-in.
 - **Unbuilt:** `apps/api` moving to `services/api`, after which `apps/` is gone; the folder sync packages, which leave when neither Whispering nor the API imports them ([ADR-0843](0843-new-code-imports-nothing-from-the-waiting-product-which-leaves-by-deletion.md), steps 3 and 4); `EpicenterHQ/whispering-starter`.
 - **Built:** 2026-11-13. `programs/whispering` and `sites/landing` moved; Honeycrisp, Local Books, and the PostHog proxy were deleted. The tag `before-0891-layout` marks the last commit with them in the tree.
 
@@ -40,9 +40,9 @@ EpicenterHQ/whispering-starter
   `apps/landing` moves to `sites/landing`;
   `apps/posthog-reverse-proxy` and the old product's apps leave with it.
 - **`apps/api` becomes `services/api`.** A service is software someone else
-  runs that holds the truth of its own data, as Gmail does. Whispering 7
-  signs in, transcribes, and is billed through the API. It loses its folder
-  sync routes (ADR-0843, step 3) and keeps sign-in, inference, and billing.
+  runs that holds the truth of its own data, as Gmail does. The API is the
+  company's service for accounts and paid models. It loses its folder sync
+  routes (ADR-0843, step 3) and keeps sign-in, inference, and billing.
   The move changes the deploy workflow's path and the billing path in
   `AGENTS.md`, and waits for its own change.
 

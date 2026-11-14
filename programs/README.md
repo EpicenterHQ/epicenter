@@ -11,6 +11,7 @@ a repository of its own
 | --- | --- |
 | [Whispering](whispering/README.md) | Records, transcribes, and pastes on the desktop and in a browser tab. |
 
-Whispering still runs on the folder sync product's packages and the hosted
-API; Whispering 8 drops both
+Whispering on `main` still writes through the folder sync product's packages,
+which Whispering 8 drops
 ([ADR-0894](../docs/adr/0894-whispering-8-keeps-its-recordings-and-their-audio-in-its-own-data-directory-and-needs-no-epicenter.md)).
+The released version, 7.11.0, has no sign-in.
