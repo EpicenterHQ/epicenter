@@ -1,6 +1,6 @@
 # 0896. Each collection has one writer of record, and Epicenter never reconciles two writable copies
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-11-13)
 - **Date:** 2026-11-13
 - **Amends:** [ADR-0840](0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md) at its description of Epicenter, which this states as one sentence below.
 - **Relates:** [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (an action changes files), [ADR-0851](0851-an-app-has-one-home-and-an-optional-push-only-backup.md) (a remote is a push-only backup), [ADR-0854](0854-an-apps-cache-is-the-files-it-gitignores.md) (a cache is what an app gitignores), [ADR-0859](0859-an-action-changes-the-folder-or-the-world-and-a-world-verb-is-safe-to-repeat.md) (an action changes the folder or the world), [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (Proposed), [ADR-0870](0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md) (a sign-in stays on its computer), [ADR-0889](0889-an-app-runs-on-epicenter-a-program-works-with-it-and-they-meet-at-the-apps-contract.md) (any program that writes valid files is a valid writer), [ADR-0894](0894-whispering-8-keeps-its-recordings-and-their-audio-in-its-own-data-directory-and-needs-no-epicenter.md) (Whispering's folder), [ADR-0897](0897-hosted-notes-is-a-product-beside-epicenter-and-waits-for-a-month-of-evidence.md) (hosted Notes).
@@ -36,45 +36,57 @@ Epicenter.**
    shape. Any program that writes that shape is a valid writer and needs no
    Epicenter.
 2. **Each collection has one writer of record within an Epicenter: its
-   folder, or a service.** Epicenter never reconciles two writable copies.
-   Someone else's tool may, at the person's choice and risk.
+   folder, or a source elsewhere, such as a service or another program's
+   folder.** Epicenter never reconciles two writable copies. Someone else's
+   tool may, at the person's choice and risk.
 3. **Have the folder, write files; otherwise ask an action.** Actions exist
    for reach, rules, and sign-ins.
-4. **Commit what the person made.** A copy of a service's data is written
-   only by the app's own pull, and by an action that changes the service and
-   pulls what it changed before it returns. Keep the copy `.local` when the
-   service can send it again. Commit it as Markdown only when the person
-   would want it after the service is gone; hosted Notes is the one such
-   case today. A stray edit to a committed copy is snapshotted ("changed
-   outside epicenter", `packages/cli/src/snapshot.ts:321`), then replaced by
-   the next pull.
+4. **Commit what the person made.** A copy of data whose truth is elsewhere
+   is written only by the app's own pull, and by an action that changes the
+   source and pulls what it changed before it returns. Keep the copy
+   `.local` when the source can send it again. Commit it as Markdown when
+   the person would want it after the source is gone, as with Whispering's
+   recordings and hosted Notes. A stray edit to a committed copy is
+   snapshotted ("changed outside epicenter",
+   `packages/cli/src/snapshot.ts:321`), then replaced by the next pull.
 
 ### Where a collection's truth is
 
-| Form | Where a write counts | How a copy keeps up | Collections |
+| Form | Where a write counts | How Epicenter's copy keeps up | Collections |
 | --- | --- | --- | --- |
-| Kept | Markdown files in a folder | it is the truth | Tasks, Reading, Vocab, Capture, Mail's proposals, Messages' drafts, Whispering's recordings |
-| Cached | a service | the app pulls | Mail's mailbox (`.local` SQLite) |
-| Live | a service | none; the app asks each time | Messages' conversations |
+| Kept | this Epicenter's folder | it is the truth | Tasks, Reading, Vocab, Capture, Mail's proposals, Messages' drafts |
+| Cached | elsewhere: a service, or another program's folder | the app pulls a copy | Mail's mailbox from Gmail; Whispering's recordings brought home from Whispering's folder |
+| Live | elsewhere: a service | none; the app asks each time | Messages' conversations in Beeper |
 
 These words describe; they are not API. No collection declares its form, and
 nothing in `serve` acts on it.
 
-**A cached collection pulls by whatever its service offers,** from the most
+**Live is the cheapest form.** It suits a service that already answers
+quickly, data private enough not to copy, or data that changes faster than a
+pull. An app starts live and caches only when it needs search, reading while
+the service is away, or history.
+
+**A cached collection pulls by whatever its source offers,** from the most
 hostile to the friendliest: a requested export, such as Google Takeout;
 listing everything and comparing; a change feed with a cursor, such as
-Gmail's `history.list`; or the service pushing changes. A service Epicenter
+Gmail's `history.list`; or the source pushing changes. A service Epicenter
 runs offers a change feed.
+
+**Forms compose.** A cached collection can feed a kept one: tasks pulled from
+another service into an inbox, which a person or an agent moves into Tasks
+through Tasks' actions. The kept collection never pulls; moving an item is a
+write by whoever decides.
 
 **A remote is a backup, never a truth** (ADR-0851). One writer pushes to it,
 and no writer pulls from it.
 
-**Whispering's recordings are kept on each computer that makes them**
-(ADR-0894). A recording is written only where it was made, so each still has
-one writer. Combining two computers' recordings, or bringing them home, is
-copying new files: by pointing Whispering's folder into
-`~/Epicenter/apps/whispering/data`, or with a file syncer the person
-chooses. Epicenter builds neither.
+**Whispering's recordings are kept in Whispering's own folder on the computer
+that makes them** (ADR-0894). Whispering writes them, not Epicenter, and a
+recording is written only where it was made. Whispering keeps no Git, so
+bringing recordings home is copying new files, a pull by file copy: with a
+file syncer the person chooses, or by pointing Whispering's folder at
+`~/Epicenter/apps/whispering/data`, which makes Whispering a writer of a kept
+collection there. Epicenter builds neither.
 
 ## Consequences
 

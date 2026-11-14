@@ -1,6 +1,6 @@
 # 0897. Hosted Notes is a product beside Epicenter, and waits for a month of evidence
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-11-13)
 - **Date:** 2026-11-13
 - **Amends:** [ADR-0840](0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md) at "the folder sync product waits", for one product: a hosted Notes service for people who are not the one person, if the evidence below justifies it.
 - **Relates:** [ADR-0534](0534-data-folders-are-the-only-data-model.md) and [ADR-0771](0771-plain-files-let-epicenter-refuse-renames-attachment-conflict-copies-and-a-second-store.md) (Yjs removed as the platform's store), [ADR-0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md) (a losing edit is kept), [ADR-0896](0896-each-collection-has-one-writer-of-record-and-epicenter-never-reconciles-two-writable-copies.md) (each collection has one writer of record).
