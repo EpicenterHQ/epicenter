@@ -1,7 +1,8 @@
 # 0782. A waiting write the folder will not make rejects
 
-- **Status:** Accepted (2026-11-05)
+- **Status:** Superseded
 - **Date:** 2026-11-05
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amends:** [ADR-0775](0775-a-write-never-fails-the-folder-keeps-it-until-it-lands.md) at "When the folder moves to `failed` or `closed`, the writes waiting then are not made": each one rejects.
 
 ## Context

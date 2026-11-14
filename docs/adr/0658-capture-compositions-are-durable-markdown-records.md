@@ -1,7 +1,8 @@
 # 0658. Capture compositions are durable Markdown records from Add, not before
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-10-21
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Relates:** [ADR-0656](0656-a-folder-owns-typed-input-from-open-to-close.md), Folder input ownership, and [ADR-0657](0657-departure-prompts-only-for-pending-folder-saves.md), departure based on pending saves.
 
 - **Current edit implementation:** [ADR-0668](0668-one-folder-owned-source-orders-file-publications.md) records the retained-source model implemented in `bd78bfb52b`. Editors and direct file/table commands share each path's publication lane; local writes are unconditional whole-file last-write-wins. Git synchronization keeps its merge rules. Earlier draft-merge and guarded-save descriptions below are historical.

@@ -1,7 +1,8 @@
 # 0737. An app's actions are request notes it watches in this device's place
 
-- **Status:** Accepted (2026-11-04)
+- **Status:** Superseded
 - **Date:** 2026-11-04
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Relates:** [ADR-0723](0723-an-apps-site-is-found-by-convention.md) (an app's site publishes `/contract.json` and `/SKILL.md`; how it publishes actions was open), [ADR-0725](0725-an-app-reaches-named-roots-through-one-command-per-storage-operation.md) (an app watches files by root), [ADR-0727](0727-json-schema-is-the-field-language.md) (fields are JSON Schema), [ADR-0716](0716-agents-edit-a-document-through-one-shot-cli-commands.md) (agents edit documents through the CLI).
 - **Unbuilt:** all of it: a request collection in any contract; an app watching its requests in AppData; deep link schemes for the standalone apps (only the Epicenter app registers one, `epicenter`, in `apps/epicenter/src-tauri/tauri.conf.json`).
 

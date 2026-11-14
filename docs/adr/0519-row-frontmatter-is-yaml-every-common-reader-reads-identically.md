@@ -1,7 +1,8 @@
 # 0519. Row frontmatter is YAML every common reader reads identically
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-10-11
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Relates:** [ADR-0518](0518-a-row-is-read-through-one-pipeline-and-repaired-as-text.md) (the one writer)
 - **Unbuilt:** a check that runs the cross-reader corpus in continuous integration, and readers beyond PyYAML and Ruby's Psych (Go `yaml.v2`, Java SnakeYAML) in that corpus.
 

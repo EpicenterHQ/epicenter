@@ -1,7 +1,8 @@
 # 0800. A store's wire speaks HTTP's conditional requests, and apps connect agents to the CLI
 
-- **Status:** Accepted (2026-11-05)
+- **Status:** Superseded
 - **Date:** 2026-11-05
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amends:** [ADR-0798](0798-a-store-patches-fields-and-writes-text-and-a-change-is-data.md) at "Each place keeps its own transport": a store reached over HTTP reads and writes one file as HTTP does; [ADR-0799](0799-a-folders-contract-is-also-an-mcp-server.md) at how an agent reaches `epicenter mcp`: an app connects it when a person asks.
 - **Relates:** [ADR-0762](0762-epicenter-is-made-of-standards-and-places.md) (speak the standard), [ADR-0784](0784-whispering-is-the-webs-local-app-and-messages-is-a-program-on-this-computer.md) (Messages' served store), [ADR-0793](0793-programs-only-compose-typescript-holds-what-epicenter-means-and-rust-holds-the-os-git-and-secrets.md) (the CLI is its own program), [ADR-0750](0750-sync-is-like-save-any-program-can-sync-a-folder-and-none-owns-it.md) (no background service).
 - **Amended by:** [ADR-0807](0807-an-app-writes-only-to-a-local-store-and-only-sync-talks-to-a-server.md) at the server's single-file routes: there are none; a served store keeps that shape.

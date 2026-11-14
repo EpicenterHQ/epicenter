@@ -1,7 +1,8 @@
 # 0713. One Epicenter engine per machine syncs every app's folder
 
-- **Status:** Accepted (2026-11-03)
+- **Status:** Superseded
 - **Date:** 2026-11-03
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amends:** [ADR-0642](0642-each-desktop-app-selects-its-cli-independently-of-the-terminal.md) at "a desktop app that needs the CLI runs its matched private bundled executable": an app calls the one engine the Epicenter app installs at `~/.epicenter/bin/epicenter`, and bundles none.
 - **Amended by:** [ADR-0733](0733-your-own-git-in-an-epicenter-folder-is-plain-git.md) at installing and updating `~/.epicenter/bin/epicenter`, `git-lfs` installed beside the engine, and the `git` check at setup: the engine is a link into the Epicenter app's bundled CLI, `git-lfs` stays inside the app on `PATH` only for Epicenter's runs, and a named setup step triggers the platform's Git installer; [ADR-0750](0750-sync-is-like-save-any-program-can-sync-a-folder-and-none-owns-it.md) at the Epicenter app owning `sync --watch` and at "Syncing needs Epicenter": any program with a credential runs a round when an app opens, after a save, on return to its window, and on Sync, and no app shows that message; [ADR-0751](0751-every-native-app-carries-one-sync-core.md) at "An app cannot sync without the Epicenter app installed", apps calling the engine to sync, and the system `git` as the network and history tool: every native app links one sync core and syncs its own folder, and no Git program runs.
 - **Unbuilt:** credential use for remotes other than Epicenter's.

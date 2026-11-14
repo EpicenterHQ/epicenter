@@ -1,7 +1,8 @@
 # 0730. Everything not derived from an app's site is one of five stored kinds
 
-- **Status:** Accepted (2026-11-04)
+- **Status:** Superseded
 - **Date:** 2026-11-04
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amends:** [ADR-0719](0719-every-change-to-the-data-model-is-checked-against-eight-principles.md) at principle 5, "Find things by convention; store only the exceptions": it becomes "Derive from the site; store only data, decisions, proofs, exceptions, and caches."
 - **Relates:** [ADR-0721](0721-an-apps-folder-is-derived-never-stored.md) (the folder is derived), [ADR-0722](0722-an-apps-names-derive-from-its-sites-host.md) (names from the host), [ADR-0723](0723-an-apps-site-is-found-by-convention.md) (the site by convention), [ADR-0731](0731-every-app-signs-in-as-its-site.md) (sign-in by site).
 

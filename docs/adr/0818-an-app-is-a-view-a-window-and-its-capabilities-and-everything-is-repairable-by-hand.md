@@ -1,7 +1,8 @@
 # 0818. An app is a view, a window, and its capabilities, and everything is repairable by hand
 
-- **Status:** Accepted (2026-11-06)
+- **Status:** Superseded
 - **Date:** 2026-11-06
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amends:** [ADR-0763](0763-epicenters-doctrine-is-three-roots-and-one-rule-for-apps.md) at its rule for apps: an app is a view, a window, and its capabilities, and the doctrine adds that everything the platform does can be done by hand.
 - **Relates:** [ADR-0812](0812-an-apps-schema-is-a-view-that-must-fit-a-folders-contract.md) (a view), [ADR-0813](0813-epicenter-is-your-folders-and-apps-are-lenses.md) (folders and lenses), [ADR-0814](0814-one-window-shows-one-folder.md) (one window, one folder), [ADR-0815](0815-the-platform-gives-a-window-its-folder-and-every-app-the-same-home.md) (`openFolder(view)` and the home), [ADR-0817](0817-the-cli-exposes-every-platform-operation-and-an-app-inherits-everything-about-folders.md) (what an app inherits), [ADR-0797](0797-front-matter-is-a-strict-grammar-and-anything-else-is-body.md) (the front-matter grammar), [ADR-0804](0804-a-computer-keeps-a-plain-folder-and-every-surface-syncs-with-one-typescript-function.md) (the manifest).
 - **Amended by:** [ADR-0821](0821-a-computer-remembers-what-it-synced-and-a-shell-limits-each-window-to-its-folder.md) at `.epicenter/` being a cache: losing a folder's record costs one question and a merge without a base.

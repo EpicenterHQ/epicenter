@@ -1,7 +1,8 @@
 # 0741. Epicenter reconciles only states it made
 
-- **Status:** Accepted (2026-11-04)
+- **Status:** Superseded
 - **Date:** 2026-11-04
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amends:** [ADR-0719](0719-every-change-to-the-data-model-is-checked-against-eight-principles.md) at principle 8, "Where a guarantee is weaker, the screen says so": it becomes "Epicenter reconciles what it made; anywhere else, the screen says what it found and the command that fixes it."
 - **Relates:** [ADR-0735](0735-sync-gives-files-a-history-it-never-merges-two.md) (a folder with its own history is refused), [ADR-0733](0733-your-own-git-in-an-epicenter-folder-is-plain-git.md) (your own git is plain Git), [ADR-0726](0726-an-apps-path-is-its-claim.md) (a failed open shows the error with Retry).
 - **Unbuilt:** a refusal with a command for each state in the second table that does not already have one.

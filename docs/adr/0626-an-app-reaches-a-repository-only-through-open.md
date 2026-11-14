@@ -1,7 +1,8 @@
 # 0626. An app opens local data with its own schemas
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-10-19
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amended by:** [ADR-0636](0636-an-app-opens-local-files-through-one-folder-handle.md) at the public opening surface: `@epicenter/folder` exposes the planned `openFolder` and `Folder` contract, with selection supplied by the runtime independently of a remote. Local opening and caller migration are implemented; stored-data migration and app-facing sync remain separate work.
 - **Amended by:** [ADR-0632](0632-a-lens-belongs-to-its-reader.md) at generic table discovery and description lifecycle: no description is required, and changing a selected schema preserves drafts and the open repository. [ADR-0633](0633-apps-open-local-data-before-connecting-services.md) at opening and identity: local data opens without a grant, has its own identity, and connects to a chosen remote later.
 - **Amended by:** [ADR-0643](0643-the-folder-package-owns-its-local-engine.md) at the planned package boundary: `@epicenter/folder` owns the local engine and the finished tree has no `@epicenter/data` package.

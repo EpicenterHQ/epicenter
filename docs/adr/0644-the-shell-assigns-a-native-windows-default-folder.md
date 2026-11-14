@@ -1,8 +1,9 @@
 # 0644. The shell assigns a native window's default folder
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Amended by:** [ADR-0660](0660-native-apps-default-authored-work-to-the-epicenter-root.md) at the standalone default directory. Shell selection and binding remain; standalone Todos now defaults to `~/Epicenter/Todos` or the development equivalent.
 - **Date:** 2026-10-20
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amends:** [ADR-0636](0636-an-app-opens-local-files-through-one-folder-handle.md) at native default selection and missing-location behavior.
 - **Built:** Standalone Todos assigns its Epicenter-root default. The Epicenter host assigns a fixed default or a listed folder to each bundled app window.
 - **Unbuilt:** Reveal folder in standalone Todos and portable watcher rearming after a fixed default is deleted and recreated.

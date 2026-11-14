@@ -1,7 +1,8 @@
 # 0778. A page connects once, and then reads synchronously
 
-- **Status:** Accepted (2026-11-05)
+- **Status:** Superseded
 - **Date:** 2026-11-05
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amends:** [ADR-0777](0777-a-capability-has-no-ready-promise.md) at "Its reads answer at every moment, from what it has so far": a read of stored data answers after the page has connected, and nothing renders before; [ADR-0775](0775-a-write-never-fails-the-folder-keeps-it-until-it-lands.md) at a collection's `loading()` staying "until listings are made per folder": they are, and it goes; [ADR-0767](0767-an-async-lifecycle-is-modeled-as-synchronous-state-actions-wait-on-their-own.md) at a capability loading on its own: a page's stores load in one connection.
 - **Relates:** [ADR-0773](0773-a-folder-opens-at-a-place-every-place-is-a-store-and-the-server-never-merges.md) (every place is a store), [ADR-0752](0752-an-apps-folder-sits-under-the-platforms-visible-root-of-app-folders.md) and [ADR-0740](0740-every-credential-an-app-holds-lives-in-its-own-place.md) (AppData and credentials), [ADR-0746](0746-the-web-is-online-offline-needs-an-installed-app.md) (the web is online).
 - **Amended by:** [ADR-0779](0779-a-store-is-four-verbs-and-a-browser-recording-lands-whole.md) at the store contract (`connect`, `Heard`, `append?`): a store has four verbs (list, read, write, watch), and connecting is the page's.

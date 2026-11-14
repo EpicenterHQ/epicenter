@@ -1,7 +1,8 @@
 # 0646. A native app hands Epicenter a directory path, and the person accepts it
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-10-20
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Relates:** [ADR-0641](0641-epicenter-remembers-folders-as-machine-local-paths.md) (remembered paths and the handoff rule this builds), [ADR-0644](0644-the-shell-assigns-a-native-windows-default-folder.md) (a shell's folder assignment), [ADR-0608](0608-apps-never-talk-to-each-other-they-share-paths.md) (composition through paths), and [ADR-0537](0537-epicenter-opens-to-your-folders-and-home-becomes-settings.md) (the Folders window).
 - **Unbuilt:** the `epicenter folders` and `epicenter open` CLI commands, Open in Epicenter in any standalone app but Todos, and verification of the operating system's delivery on a packaged build.
 

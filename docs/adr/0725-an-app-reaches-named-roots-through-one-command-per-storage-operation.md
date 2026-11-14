@@ -1,7 +1,8 @@
 # 0725. An app reaches named roots through one command per storage operation
 
-- **Status:** Accepted (2026-11-03)
+- **Status:** Superseded
 - **Date:** 2026-11-03
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Supersedes:** [ADR-0647](0647-a-native-window-edits-one-directory-bound-before-it-exists.md) (a native window edits one directory bound before it exists): a standalone app has one window, and what it may touch belongs to the app, not to a window label.
 - **Amends:** [ADR-0531](0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md) at "the shell grants the directory": the shell names roots instead of granting paths; [ADR-0721](0721-an-apps-folder-is-derived-never-stored.md) at "the shell computes the derived path, resolves links, and grants that one path": nothing is resolved or granted, the operating system follows links, and one refusal rule remains.
 - **Unbuilt:** none.

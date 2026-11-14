@@ -1,7 +1,8 @@
 # 0816. The Epicenter app is where a person sees and manages every folder
 
-- **Status:** Accepted (2026-11-06)
+- **Status:** Superseded
 - **Date:** 2026-11-06
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amends:** [ADR-0790](0790-the-epicenter-app-is-a-library-over-every-folder-and-the-cli-answers-its-queries.md) and [ADR-0815](0815-the-platform-gives-a-window-its-folder-and-every-app-the-same-home.md) at "the library": the app is called Epicenter, and "library" leaves the vocabulary; [ADR-0800](0800-a-stores-wire-speaks-http-conditional-requests-and-apps-connect-agents-to-the-cli.md) at "Connect your agents" in apps and the library: it lives in the Epicenter app, which also shows which agents are connected.
 - **Relates:** [ADR-0813](0813-epicenter-is-your-folders-and-apps-are-lenses.md) (folders and lenses), [ADR-0811](0811-folders-are-shared-directly-and-an-app-reaches-the-folders-attached-to-it.md) (sharing), [ADR-0809](0809-a-repository-is-a-spaces-app-and-bytes-nothing-needs-are-collected-or-purged.md) (purge), [ADR-0793](0793-programs-only-compose-typescript-holds-what-epicenter-means-and-rust-holds-the-os-git-and-secrets.md) (the CLI composes the same packages).
 - **Amended by:** [ADR-0819](0819-every-program-keeps-the-folders-it-has-open-in-sync-and-the-epicenter-app-has-them-all-open.md) at its jobs: it also keeps every folder in sync, and opens a folder in any app that fits.

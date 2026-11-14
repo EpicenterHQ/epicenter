@@ -1,7 +1,8 @@
 # 0535. An existing folder opens with its own declaration
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-10-14
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amends:** ADR-0508 (deleted; its publication is withdrawn by [ADR-0585](0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md)), which overwrote `epicenter.json` from whatever definition opened the folder: only an application's own folder publishes, and only when the bytes differ. [ADR-0531](0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md), whose one window per folder gives way to any number of windows once the shell compares and publishes every save, under one mutex per root; its cross-process lock stays, one per folder. [ADR-0533](0533-one-folder-handle-opens-in-three-hosts-chosen-by-where-the-code-runs.md), whose script example imports `epicenter.json` as a definition, which its shape does not allow.
 - **Amended by:** [ADR-0568](0568-a-folder-takes-every-writer-in-turn-under-its-save-lock-and-refuses-none.md) at "a second scope on one root is refused `Busy`" and "The cross-process lock stays, one per folder": two scopes on one root share its publishing mutex, and a second Epicenter process shares its save lock.
 - **Amended by:** [ADR-0583](0583-a-folders-declaration-is-published-only-by-the-app-it-is-named-after.md) at the two openers: one `openFolder` per entry, where `{ id }` reads the folder's own `epicenter.json` and `{ app, definition }` publishes only in the folder named after `app`; `openDataFolder` is deleted.

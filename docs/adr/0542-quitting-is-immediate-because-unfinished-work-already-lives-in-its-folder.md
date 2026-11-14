@@ -1,7 +1,8 @@
 # 0542. Quitting is immediate, because unfinished work already lives in its folder
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-10-15
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amended:** 2026-10-20, individual desktop window close waits for local drafts and retains unsent input.
 - **Amended by:** [ADR-0657](0657-departure-prompts-only-for-pending-folder-saves.md) for application Quit, window close, and browser departure. The file-first recovery decisions below remain.
 - **Amended by:** [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) at window close, 2026-11-01: a desktop window closes at once, as Quit does; the 2026-10-20 amendment's wait is withdrawn.

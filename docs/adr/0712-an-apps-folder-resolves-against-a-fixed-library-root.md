@@ -1,7 +1,8 @@
 # 0712. An app's folder resolves against a fixed library root
 
-- **Status:** Accepted (2026-11-03)
+- **Status:** Superseded
 - **Date:** 2026-11-03
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amends:** [ADR-0701](0701-apps-run-as-separate-programs.md) at decision 96's removal of `EPICENTER_FOLDER_DIR` for standalone apps and at remembering only a chosen folder: every program uses one fixed root per environment, `EPICENTER_FOLDER_DIR` overrides it only in tests, and an app remembers the folder it first opened, always as a name under the root; [ADR-0670](0670-native-shells-share-explicit-machine-local-app-homes.md) at its remembered folder: an app also remembers the default after its first open.
 - **Amended by:** [ADR-0721](0721-an-apps-folder-is-derived-never-stored.md) at the remembered `folder` value, the other-name choice after a collision, and "Open existing folder…": no location is stored, a first launch is read from AppData's absence, and apps choose no folder.; [ADR-0728](0728-a-build-states-its-environment.md) at `EPICENTER_FOLDER_DIR` for standalone apps: the standalone shell reads no such variable.
 - **Unbuilt:** a warning when the library root is inside a file-syncing service.

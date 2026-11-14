@@ -1,7 +1,8 @@
 # 0637. Whispering keeps desktop audio in its selected directory
 
-- **Status:** Proposed
+- **Status:** Superseded
 - **Date:** 2026-10-19
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amends:** [ADR-0621](0621-epicenters-library-writes-only-text-to-a-repository-in-v1.md) only at Whispering's desktop audio being outside the selected data directory; [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md) at desktop audio being separate app storage; and [ADR-0592](0592-a-folders-gitignore-decides-what-stays-on-one-machine.md) at the placement of Whispering's ignored audio. The library's text-only write boundary remains.
 - **Relates:** [ADR-0633](0633-apps-open-local-data-before-connecting-services.md) (the selected local data), [ADR-0634](0634-hosted-inference-is-independent-of-repository-sync.md) (transcription does not sync audio).
 - **Unbuilt:** standalone Whispering's native directory and recorder integration, migration from its current hosted desktop shell, and a data-safe migration of existing browser audio when the browser data engine changes. This record adds no generic binary-write API.

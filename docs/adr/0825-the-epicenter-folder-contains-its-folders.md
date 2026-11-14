@@ -1,7 +1,8 @@
 # 0825. The Epicenter folder contains its folders
 
-- **Status:** Accepted (2026-11-07)
+- **Status:** Superseded
 - **Date:** 2026-11-07
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amends:** [ADR-0815](0815-the-platform-gives-a-window-its-folder-and-every-app-the-same-home.md) at "Discovery lists `~/Epicenter` and follows links": Epicenter syncs the real directories in it, and shows a link as outside it; [ADR-0736](0736-a-folder-outside-the-library-is-enrolled-through-a-link-the-person-names.md) at a folder outside joining through a link: a folder moves in, and a link outside reaches it; [ADR-0822](0822-only-epicenter-syncs-on-a-computer-and-a-folder-holds-only-its-content.md) at a Git working tree found above a link's target and at detecting file-sync services per folder: Git owns a folder with `.git` at its root, and only the Epicenter folder is checked for a file-sync service.
 - **Relates:** [ADR-0821](0821-a-computer-remembers-what-it-synced-and-a-shell-limits-each-window-to-its-folder.md) (identity by inode and birth time).
 

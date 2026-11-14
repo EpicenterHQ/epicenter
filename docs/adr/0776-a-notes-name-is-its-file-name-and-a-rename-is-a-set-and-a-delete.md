@@ -1,7 +1,8 @@
 # 0776. A note's name is its file name, and a rename is a set and a delete
 
-- **Status:** Accepted (2026-11-05)
+- **Status:** Superseded
 - **Date:** 2026-11-05
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Relates:** [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) (a collection's path template, and naming a file to create it), [ADR-0774](0774-one-write-makes-it-so-and-settles-a-change-the-way-sync-does.md) (`set` and `delete`), [ADR-0775](0775-a-write-never-fails-the-folder-keeps-it-until-it-lands.md) (a name that would leave its collection throws), [ADR-0771](0771-plain-files-let-epicenter-refuse-renames-attachment-conflict-copies-and-a-second-store.md) (a repository is never renamed; a note may be).
 - **Unbuilt:** nothing in the folder; an app that lets a person rename a note keeps the links to it current.
 

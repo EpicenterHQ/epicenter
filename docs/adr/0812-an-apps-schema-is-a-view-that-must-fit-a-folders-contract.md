@@ -1,7 +1,8 @@
 # 0812. An app's schema is a view that must fit a folder's contract
 
-- **Status:** Accepted (2026-11-06)
+- **Status:** Superseded
 - **Date:** 2026-11-06
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amends:** [ADR-0811](0811-folders-are-shared-directly-and-an-app-reaches-the-folders-attached-to-it.md) at `$id` marking an app that keeps the contract current: no app owns a folder's contract, and `epicenter.json` holds no `$id`; [ADR-0810](0810-a-folder-needs-no-app-and-a-repository-is-a-spaces-named-folder.md) at an app owning `epicenter.json` when it names the app's contract: the folder's people own it; [ADR-0805](0805-a-folder-is-recognized-by-epicenter-json-which-is-its-contract.md) at `$id` being the contract's URL on the app's site: an app's schema stays at its site, and a folder's contract records no app.
 - **Relates:** [ADR-0796](0796-a-field-is-a-line-its-value-is-json-and-a-write-patches-only-the-fields-it-changes.md) (a write changes only the fields it names), [ADR-0727](0727-json-schema-is-the-field-language.md) (fields are JSON Schema), [ADR-0807](0807-an-app-writes-only-to-a-local-store-and-only-sync-talks-to-a-server.md) (the web's first run).
 - **Unbuilt:** all of it: the fit check in `@epicenter/definition`; attaching an app checking fit and proposing additions; an app opening a folder through its view; the web's and the desktop's first run offering to create a folder or use one that fits; removing `$id` from `epicenter.json`.

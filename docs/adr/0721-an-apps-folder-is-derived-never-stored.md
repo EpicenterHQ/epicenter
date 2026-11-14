@@ -1,7 +1,8 @@
 # 0721. An app's folder is derived, never stored
 
-- **Status:** Accepted (2026-11-03)
+- **Status:** Superseded
 - **Date:** 2026-11-03
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amends:** [ADR-0712](0712-an-apps-folder-resolves-against-a-fixed-library-root.md) at the remembered `folder` value, the other-name choice after a collision, and "Open existing folder…": no location is stored and apps choose none; [ADR-0711](0711-a-folder-names-its-apps-contract-in-a-committed-agents-md-note.md) at "a person may change" a folder's name and the origin "survives a rename": renaming a folder disconnects its app; [ADR-0715](0715-the-epicenter-app-browses-every-folder-and-document-a-person-has.md) at a repository carrying `epicenter.root` counting as synced, and at the deep link's `path` and `contract`; [ADR-0718](0718-epicenters-machinery-on-a-machine-lives-in-a-hidden-home-every-program-reads.md) at `~/.epicenter/settings.md`: the file is not made; [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) at `epicenter init` recording `epicenter.root` and at `--enclosing-ok`: a folder is its own repository at its derived path; [ADR-0701](0701-apps-run-as-separate-programs.md) at what remained of decision 96's remembered folder.
 - **Amended by:** [ADR-0772](0772-a-folder-says-what-it-is-in-agents-md-and-this-computer-keeps-the-rest.md) at "An app's folder is always at its derived path": a folder is found by its `AGENTS.md` under `~/Epicenter`, and its name is a label.
 - **Unbuilt:** `epicenter move`; the deep link without `path` and `contract`; one environment table read by both Rust and TypeScript.

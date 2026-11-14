@@ -2,6 +2,7 @@
 
 - **Status:** Accepted (2026-11-08)
 - **Date:** 2026-11-08
+- **Amended by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md) at "a tag keeps it": the tag `folder-sync-product` stays as history, not as a way back, because the product is retired.
 - **Relates:** [ADR-0840](0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md) (the direction, and the product that waits), [ADR-0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md) (what the new code builds), [ADR-0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md).
 - **Spec:** [specs/20261107T222922-epicenter-is-where-personal-software-lives.md](../../specs/20261107T222922-epicenter-is-where-personal-software-lives.md), whose build order carries this out.
 - **Amended:** 2026-11-08, the same day. Deleting the old folder apps because nothing imported them was a code test, not a product test; they came back frozen, and a working app now leaves when its successor runs (below).

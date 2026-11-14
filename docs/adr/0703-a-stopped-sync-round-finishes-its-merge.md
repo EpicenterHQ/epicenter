@@ -1,7 +1,8 @@
 # 0703. A stopped sync round finishes its merge
 
-- **Status:** Proposed
+- **Status:** Superseded
 - **Date:** 2026-11-01
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amends:** [ADR-0565](0565-a-refresh-token-keeps-its-grants-scopes-and-only-each-access-token-is-narrowed-to-its-audience.md) at "The CLI and the shell narrow the first path": the shell kills a CLI child's process group after `STOP_GRACE`, 65 seconds, not three, and a stop signal waits for a sync round under way for up to `ROUND_GRACE_MS`, a minute, as well as for a refresh's keychain write for up to `STOP_GRACE_MS`, two seconds.
 - **Relates:** [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) (a sync round fetches, merges, commits, and pushes a folder's repository).
 

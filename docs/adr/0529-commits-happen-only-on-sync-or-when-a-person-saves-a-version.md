@@ -1,7 +1,8 @@
 # 0529. Commits happen only on sync or when a person saves a version
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-10-12
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amends:** [ADR-0468](0468-file-saves-succeed-independently-of-automatic-commits.md), withdrawing automatic commits after saves. That a save succeeds independently of any commit, and that each reports its own outcome, remains.
 - **Amended by:** [ADR-0623](0623-every-browser-app-keeps-its-own-git-clone-of-a-repository.md) at "only": a browser clone commits at each sync, and sync runs on its own once edits settle.
 - **Amended by:** [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) at "when a person saves a version" and `folder.git.commit()`: only `epicenter sync` and the server commit.

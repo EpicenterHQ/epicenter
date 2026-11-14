@@ -1,7 +1,8 @@
 # 0539. Epicenter's own folder is so.epicenter, and machine state splits by what it costs to lose
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-10-15
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amended by:** [ADR-0649](0649-folders-json-selects-this-machines-folder-locations.md) at the fixed records-directory identity: `so.epicenter` is the initial default, and machine-local `folders.json` selects its location.
 - **Amended by:** [ADR-0636](0636-an-app-opens-local-files-through-one-folder-handle.md) at requiring authored data beneath the Epicenter root: a durable standalone-app `work/` default may live in OS app data.
 - **Restored by:** [ADR-0660](0660-native-apps-default-authored-work-to-the-epicenter-root.md) at native desktop authored defaults: hosted and standalone apps use a named child of the Epicenter root, while AppData holds app-managed local state.

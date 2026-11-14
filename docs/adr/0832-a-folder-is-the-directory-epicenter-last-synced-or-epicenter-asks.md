@@ -1,7 +1,8 @@
 # 0832. A folder is the directory Epicenter last synced, or Epicenter asks
 
-- **Status:** Accepted (2026-11-07)
+- **Status:** Superseded
 - **Date:** 2026-11-07
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amends:** [ADR-0822](0822-only-epicenter-syncs-on-a-computer-and-a-folder-holds-only-its-content.md) at a directory proven by its recorded name and exact files when the person is its only member, and at a folder held alone joining without asking: only the directory's own identity proves it, and anything else asks; [ADR-0821](0821-a-computer-remembers-what-it-synced-and-a-shell-limits-each-window-to-its-folder.md) at a directory rebinding by name when the Epicenter folder moved: it asks.
 - **Relates:** [ADR-0825](0825-the-epicenter-folder-contains-its-folders.md) (the Epicenter folder contains its folders, on one volume).
 - **Amended by:** [ADR-0839](0839-a-save-is-one-numbered-write-a-reset-deletes-nothing-and-epicenter-owns-the-pages-every-app-links-to.md) at an unbound directory staying local and an app's folder joining by name: a directory nothing could be becomes a folder at once.

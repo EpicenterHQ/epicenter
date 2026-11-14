@@ -1,7 +1,8 @@
 # 0633. Apps open local data before connecting services
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-10-19
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amended by:** [ADR-0636](0636-an-app-opens-local-files-through-one-folder-handle.md) at runtime selection: browser origins reopen their local default; native apps supply their default or chosen directory; a later runner grants a directory to its window. Local identity remains independent of account and remote.
 - **Amends:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md) at apps entering through hosted repositories; [ADR-0614](0614-a-browser-app-is-identified-by-its-origin.md) at repository consent as a prerequisite for browser use; [ADR-0623](0623-every-browser-app-keeps-its-own-git-clone-of-a-repository.md) at every browser dataset having a remote; [ADR-0624](0624-a-repository-reports-synced-pending-disconnected-or-stuck.md) with a `local` state for data without a sync destination; [ADR-0626](0626-an-app-reaches-a-repository-only-through-open.md) at `open` returning `undefined` without a hosted grant and its use of hosted identity to select local data; and [ADR-0627](0627-every-change-to-the-data-model-is-checked-against-nine-principles.md) at local opening and optional synchronization in principles 1, 3, 5, and 8.
 - **Amended by:** [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) at browser synchronization: the web uploads new files and never syncs.

@@ -1,7 +1,8 @@
 # 0813. Epicenter is your folders, and apps are lenses
 
-- **Status:** Accepted (2026-11-06)
+- **Status:** Superseded
 - **Date:** 2026-11-06
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amends:** [ADR-0805](0805-a-folder-is-recognized-by-epicenter-json-which-is-its-contract.md) at "A folder is an Epicenter folder because it holds `epicenter.json`": every directory directly inside `~/Epicenter` is an Epicenter folder, and `epicenter.json` is optional; [ADR-0811](0811-folders-are-shared-directly-and-an-app-reaches-the-folders-attached-to-it.md) at `epicenter init` making a folder: it adds a contract to one; [ADR-0763](0763-epicenters-doctrine-is-three-roots-and-one-rule-for-apps.md) at its rule for apps: an app is a lens on folders.
 - **Relates:** [ADR-0752](0752-an-apps-folder-sits-under-the-platforms-visible-root-of-app-folders.md) and [ADR-0772](0772-a-folder-says-what-it-is-in-agents-md-and-this-computer-keeps-the-rest.md) (everything under `~/Epicenter`), [ADR-0812](0812-an-apps-schema-is-a-view-that-must-fit-a-folders-contract.md) (an app's schema is a view), [ADR-0790](0790-the-epicenter-app-is-a-library-over-every-folder-and-the-cli-answers-its-queries.md) (the library).
 - **Unbuilt:** all of it: discovery listing `~/Epicenter`'s directories; the library showing a folder not yet synced and offering to sync it; `epicenter init` adding a contract; the build order below.

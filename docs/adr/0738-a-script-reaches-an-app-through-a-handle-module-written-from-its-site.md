@@ -1,7 +1,8 @@
 # 0738. A script reaches an app through a handle module written from its site
 
-- **Status:** Accepted (2026-11-04)
+- **Status:** Superseded
 - **Date:** 2026-11-04
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Relates:** [ADR-0731](0731-every-app-signs-in-as-its-site.md) (an app acting as itself names nothing; a script names the app), [ADR-0723](0723-an-apps-site-is-found-by-convention.md) (the contract at `/contract.json`), [ADR-0722](0722-an-apps-names-derive-from-its-sites-host.md) (names from the host), [ADR-0737](0737-an-apps-actions-are-request-notes-it-watches-in-this-devices-place.md) (request notes).
 - **Unbuilt:** all of it: `epicenter add`, `epicenter run`, `open(handle)`, and `epicenter check` comparing a handle with its site's live contract.
 

@@ -1,7 +1,8 @@
 # 0601. Apps keep a route to source repair
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-10-17
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Relates:** [ADR-0586](0586-you-open-a-folder-never-an-app.md) (the generic editor is its own app, reached by "Show files"), [ADR-0585](0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md) (a row that does not fit reads as an invalid row, for repair).
 - **Unbuilt:** source repair paths in clients migrating to the local-data API; the Epicenter desktop app is deferred under ADR-0635.
 

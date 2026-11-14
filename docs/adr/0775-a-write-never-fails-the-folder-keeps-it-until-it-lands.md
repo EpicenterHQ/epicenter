@@ -1,7 +1,8 @@
 # 0775. A write never fails: the folder keeps it until it lands
 
-- **Status:** Accepted (2026-11-05)
+- **Status:** Superseded
 - **Date:** 2026-11-05
+- **Superseded by:** [ADR-0899](0899-the-folder-sync-product-is-retired.md): the folder sync product is retired, and this record is its history.
 - **Amends:** [ADR-0774](0774-one-write-makes-it-so-and-settles-a-change-the-way-sync-does.md) at "A write fails only as `Invalid` or `Unavailable`": a write never fails; [ADR-0767](0767-an-async-lifecycle-is-modeled-as-synchronous-state-actions-wait-on-their-own.md) at the folder's states and at an action answering the open's error: the folder's state is its lifecycle and whether its store is available, and a write waits through both.
 - **Relates:** [ADR-0768](0768-retry-belongs-to-a-failure-and-editing-app-ts-reloads-the-page.md) (retry belongs to a failure), [ADR-0746](0746-the-web-is-online-offline-needs-an-installed-app.md) (the web is online), [ADR-0608](0608-apps-never-talk-to-each-other-they-share-paths.md) (a contract states what a reader expects and owns nothing).
 - **Amended by:** [ADR-0778](0778-a-page-connects-once-and-then-reads-synchronously.md) at a collection's `loading()`: listings are made per folder in one connection, and it goes.
