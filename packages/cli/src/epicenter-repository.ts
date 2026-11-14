@@ -23,7 +23,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { extractErrorMessage } from 'wellcrafted/error';
-import { isRepositoryTop } from './data.ts';
+import { DATA, isRepositoryTop } from './data.ts';
 import { checkedGit, git, gitMessage } from './git.ts';
 import { installApp } from './install.ts';
 import { APPS, MARKER } from './root.ts';
@@ -57,7 +57,9 @@ const LFS_ATTRIBUTES = [
 /**
  * Every repository inside `root`, as a path from it, parents before
  * children: each folder with a `.git`, found without following a link or
- * entering `node_modules` or a `.git`.
+ * entering `node_modules` or a `.git`. An app's `data` that is a link to its
+ * data repository kept elsewhere (`disk.ts`) is listed and not entered, so
+ * `init --from` clones that repository into `data/` on another computer.
  */
 export async function repositoriesIn(root: string): Promise<string[]> {
 	const found: string[] = [];
@@ -69,14 +71,19 @@ export async function repositoriesIn(root: string): Promise<string[]> {
 			return;
 		}
 		for (const entry of entries) {
+			const inside = path ? `${path}/${entry.name}` : entry.name;
+			const full = join(folder, entry.name);
+			if (entry.isSymbolicLink()) {
+				const linkedData = entry.name === DATA && dirname(path) === APPS;
+				if (linkedData && existsSync(join(full, '.git'))) found.push(inside);
+				continue;
+			}
 			if (
 				!entry.isDirectory() ||
 				entry.name === '.git' ||
 				entry.name === 'node_modules'
 			)
 				continue;
-			const inside = path ? `${path}/${entry.name}` : entry.name;
-			const full = join(folder, entry.name);
 			if (existsSync(join(full, '.git'))) found.push(inside);
 			await walk(full, inside);
 		}

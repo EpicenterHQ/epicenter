@@ -1,6 +1,6 @@
 /**
  * The folder on disk preserves relative paths and atomic writes.
- * Listing excludes dependency and Git directories and never traverses directory links.
+ * Listing excludes dependency and Git directories and traverses no directory link but `data` itself.
  * `update` changes what is there when it writes, never what was there when it read,
  * and concurrent updates in one process, through it or a collection's `update`,
  * each land. Across processes a call's lock keeps writers apart (`snapshot.test.ts`).
@@ -128,6 +128,32 @@ test('listing is sorted and folder-relative and skips dependency trees and direc
 	expect(await folder.list('missing')).toEqual([]);
 	expect(await folder.list('directory-link')).toEqual([]);
 	expect(await folder.list('nested/node_modules')).toEqual([]);
+});
+
+test('listing follows a link at data itself, and no link beneath it', async () => {
+	const { root, folder } = await setup();
+	const elsewhere = await mkdtemp(join(tmpdir(), 'epicenter-disk-data-'));
+	roots.push(elsewhere);
+	for (const file of ['pages/a.md', 'pages/b.md', 'other/c.md']) {
+		await mkdir(dirname(join(elsewhere, file)), { recursive: true });
+		await writeFile(join(elsewhere, file), 'data');
+	}
+	await symlink(join(elsewhere, 'other'), join(elsewhere, 'pages/linked'));
+	await symlink(elsewhere, join(root, 'data'));
+	await writeFile(join(root, 'epicenter.ts'), 'code');
+	expect(await folder.list('data/pages')).toEqual([
+		'data/pages/a.md',
+		'data/pages/b.md',
+	]);
+	expect(await folder.list('data/pages/linked')).toEqual([]);
+	expect(await folder.list()).toEqual([
+		'data/other/c.md',
+		'data/pages/a.md',
+		'data/pages/b.md',
+		'epicenter.ts',
+	]);
+	await folder.write('data/pages/d.md', 'new');
+	expect(await readdir(join(elsewhere, 'pages'))).toContain('d.md');
 });
 
 test('update retries when another writer changes the file between its read and its write, and keeps both changes', async () => {

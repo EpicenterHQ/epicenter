@@ -8,7 +8,9 @@
  * so updates in one process never interleave; another process's call waits
  * for the app's lock, which a call holds from its first write (`run.ts`).
  * Listing avoids Git, dependencies, and directory links so those trees never
- * become app data.
+ * become app data. The one directory link it follows is `data` itself, so the
+ * data repository may be kept elsewhere and linked into the app; a link
+ * beneath it is still left alone.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -30,6 +32,7 @@ import {
 	isLocalPath,
 	normalizePath,
 } from '@epicenter/app';
+import { DATA } from './data.ts';
 
 /** How many times `update` tries a file that a writer outside epicenter (an editor) keeps changing before it gives up. */
 const UPDATE_TRIES = 10;
@@ -177,7 +180,9 @@ export function folderOnDisk(dir: string): Folder {
 					else if (entry.isFile()) found.push(path);
 					else if (entry.isSymbolicLink()) {
 						try {
-							if ((await stat(join(dir, path))).isFile()) found.push(path);
+							const target = await stat(join(dir, path));
+							if (target.isFile()) found.push(path);
+							else if (path === DATA && target.isDirectory()) await walk(path);
 						} catch (error) {
 							if (!missing(error)) throw error;
 						}
@@ -193,8 +198,9 @@ export function folderOnDisk(dir: string): Folder {
 				return [];
 			if (relative) {
 				let current = dir;
-				for (const part of relative.split('/')) {
+				for (const [at, part] of relative.split('/').entries()) {
 					current = join(current, part);
+					if (at === 0 && part === DATA) continue;
 					try {
 						if ((await lstat(current)).isSymbolicLink()) return [];
 					} catch (error) {

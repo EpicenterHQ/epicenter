@@ -11,7 +11,9 @@ import {
 	mkdtemp,
 	readFile,
 	realpath,
+	rename,
 	rm,
+	symlink,
 	writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -190,6 +192,37 @@ test('a code snapshot refuses when .gitignore does not list data and leaves code
 	});
 	expect(await gitIn(f.dir, 'rev-parse', 'HEAD')).toBe(codeHead);
 	expect(await gitIn(f.dir, 'diff', '--cached', '--name-only')).toBe('');
+});
+
+test('a linked data is snapshotted through the link, and the code commits only once .gitignore lists data without the slash', async () => {
+	const f = await setup();
+	const elsewhere = await realpath(
+		await mkdtemp(join(tmpdir(), 'epicenter-snap-data-')),
+	);
+	roots.push(elsewhere);
+	const kept = join(elsewhere, 'notes-data');
+	await rename(f.data, kept);
+	await symlink(kept, f.data);
+	const codeHead = await gitIn(f.dir, 'rev-parse', 'HEAD');
+	await writeFile(join(f.data, 'b.md'), 'b\n');
+	await writeFile(join(f.dir, 'new.ts'), 'export const changed = true;\n');
+
+	const refused = await snapshotApp('notes', f.dir);
+	expect(refused.code).toEqual({
+		failed: {
+			message:
+				'notes/.gitignore does not list data, and data/ does not match a link, so a commit of the code could take the link to the data',
+			next: `printf 'data\n' >> ${join(f.dir, '.gitignore')}`,
+		},
+	});
+	expect(await gitIn(f.dir, 'rev-parse', 'HEAD')).toBe(codeHead);
+	expect(refused.data).toMatchObject({ committed: { files: 1 } });
+	expect(await gitIn(kept, 'status', '--porcelain')).toBe('');
+
+	await writeFile(join(f.dir, '.gitignore'), 'data\nnode_modules/\n');
+	const taken = await snapshotApp('notes', f.dir);
+	expect(taken.code).toMatchObject({ committed: { files: 2 } });
+	expect(await gitIn(f.dir, 'ls-files')).toBe('.gitignore\nnew.ts');
 });
 
 test('status names an origin that has never received the branch, and counts once it has', async () => {
