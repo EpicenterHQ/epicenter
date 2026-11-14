@@ -109,9 +109,12 @@ Google sign-in is a `.local` file in Mail's folder, on the computer that runs
 Mail's actions, and never leaves it ([ADR-0870]).
 
 Agents make apps: you start Claude Code on the home, ask for an app, and it
-writes the folder. An app can start from a starter, a repository with no data,
-which it keeps as its `upstream` remote; `epicenter update` merges the
-starter's changes ([ADR-0866]).
+writes the folder. An app can also start as a copy of another app's code:
+`epicenter new <name> --from <git url>` copies it into a repository of your
+own, with no data and no remote. `<git url>#<folder>` takes one folder of a
+repository that holds several apps, and a path on the same computer names
+the app's folder itself. No command merges later changes. Your agent reads
+what changed where the code came from and takes what you want ([ADR-0904]).
 
 ## What it is like
 
@@ -162,11 +165,10 @@ starter's changes ([ADR-0866]).
 | a personal app | an app you made to join other apps: it holds the actions that cross them |
 | an outside app | any software that works without an Epicenter: Whispering, Gmail, Beeper, Todoist, a notes product; it is one of two kinds, a program or a service |
 | a program | an outside app that runs on your device: Whispering; the friendliest writes files in the shape an inside app's collections declare, in its own folder, and none has to |
-| a starter | an app's code repository, which someone else takes with `epicenter new --from` |
 | the home | the computer your Epicenter is on, which you control: it runs `epicenter serve` from a terminal, as a job the OS keeps running ([ADR-0878]), or as Epicenter for Mac ([ADR-0865]); you own it or rent it, and a rented one puts your files and sign-ins in its provider's hands; Epicenter never supplies it |
 | a service | an outside app that runs on someone else's servers and holds the truth of its own data: Gmail, a hosted notes service |
 | a source | where a pull copies from: a service, or a program's folder |
-| Git | snapshots on the home, optional `origin` backup, `upstream` for a starter, LFS for binaries |
+| Git | snapshots on the home, optional `origin` backup, the first commit of copied code naming where it came from, LFS for binaries |
 
 Every app is inside an Epicenter or outside it. The test: does it work
 without an Epicenter? If it does, it is an outside app. Data crosses only
@@ -187,15 +189,16 @@ Gmail. "Local-first" is only for a product whose devices sync.
 
 ## An app
 
-An app is a code repository with a data repository inside it, three kinds of
-file, each with one author ([ADR-0866], [ADR-0877]):
+An app is its `epicenter.ts` over its data. `epicenter.ts` is the contract,
+and a UI is one view of it that can be replaced. On disk an app is a code
+repository with a data repository inside it ([ADR-0877], [ADR-0904]):
 
 ```txt
 apps/vocab/
-  epicenter.ts      the app: its collections and actions          from its starter; yours to change
-  ui/               the UI's source, built into ui/dist/        from its starter; yours to change
-  README.md         what the app is, for people and agents        from its starter
-  data/             the data repository                         yours alone
+  epicenter.ts      the app: its collections and actions          yours to change, written here or copied
+  ui/               the UI's source, built into ui/dist/        yours to change, written here or copied
+  README.md         what the app is, for people and agents
+  data/             the data repository                         yours alone; never copied
     words/你好.md    a record, whose path is `words/你好.md`
   node_modules/     installed packages, ignored
   .gitignore
@@ -357,7 +360,6 @@ fields are written one `key: <JSON>` line each.
 [ADR-0851]: adr/0851-an-app-has-one-home-and-an-optional-push-only-backup.md
 [ADR-0860]: adr/0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md
 [ADR-0865]: adr/0865-the-epicenter-mac-app-runs-epicenter-serve-so-the-computer-it-is-on-is-your-server.md
-[ADR-0866]: adr/0866-an-app-starts-from-a-starter-kept-as-its-upstream-and-update-merges-the-starters-changes.md
 [ADR-0867]: adr/0867-the-command-line-spells-an-actions-json-input-and-null-removes-a-field-there-as-everywhere.md
 [ADR-0870]: adr/0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md
 [ADR-0877]: adr/0877-an-apps-code-and-its-data-are-two-repositories-and-sharing-an-app-shares-its-code.md
@@ -373,3 +375,4 @@ fields are written one `key: <JSON>` line each.
 [ADR-0898]: adr/0898-what-arrives-is-cached-what-the-person-decides-is-kept-and-an-item-moves-by-transfer.md
 [ADR-0900]: adr/0900-a-program-may-hand-its-new-records-over-to-a-home-which-then-holds-them.md
 [ADR-0901]: adr/0901-an-app-is-inside-an-epicenter-or-outside-it.md
+[ADR-0904]: adr/0904-copying-is-the-only-way-to-take-an-apps-code.md

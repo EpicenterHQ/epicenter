@@ -2,7 +2,7 @@
 
 - **Status:** Accepted (2026-11-13)
 - **Date:** 2026-11-13
-- **Amended by:** [ADR-0901](0901-an-app-is-inside-an-epicenter-or-outside-it.md) at "nothing under `programs/` is an app": nothing under `programs/` is an inside app; and by [ADR-0902](0902-this-repositorys-outside-apps-stay-in-apps.md) at its layout: `programs/`, `sites/`, and `services/` are withdrawn, and nothing moves out of `apps/`.
+- **Amended by:** [ADR-0901](0901-an-app-is-inside-an-epicenter-or-outside-it.md) at "nothing under `programs/` is an app": nothing under `programs/` is an inside app; and by [ADR-0902](0902-this-repositorys-outside-apps-stay-in-apps.md) at its layout: `programs/`, `sites/`, and `services/` are withdrawn, and nothing moves out of `apps/`; and by [ADR-0904](0904-copying-is-the-only-way-to-take-an-apps-code.md) at "Every starter, Whispering's included, is a repository of its own", at "updated by a Git merge", and at the rejected `--from <repository>#<subfolder>`: an app's code is taken from a repository's root or a folder in it, and nothing merges. Where Whispering's contract lives is open.
 - **Relates:** [ADR-0843](0843-new-code-imports-nothing-from-the-waiting-product-which-leaves-by-deletion.md) (the old product leaves), [ADR-0866](0866-an-app-starts-from-a-starter-kept-as-its-upstream-and-update-merges-the-starters-changes.md) (starters), [ADR-0877](0877-an-apps-code-and-its-data-are-two-repositories-and-sharing-an-app-shares-its-code.md) (this repository holds no apps), [ADR-0889](0889-an-app-runs-on-epicenter-a-program-works-with-it-and-they-meet-at-the-apps-contract.md) (programs).
 - **Unbuilt:** `EpicenterHQ/whispering-starter`.
 

@@ -47,7 +47,7 @@ sharing, never deployment.**
 
 - **An app is one Bun project.** One `package.json`, one `bun.lock`, one
   `node_modules`, at the app's top, for its actions, its UI and its tests.
-  `ui/` is a folder of source, not a project. `epicenter new`, `update`, and
+  `ui/` is a folder of source, not a project. `epicenter new` and
   `install` install from the lock; an agent adding a package runs `bun add`,
   which installs. After `bun add`, run `epicenter install <app>` to restore the supplied @epicenter/app link, which Bun can remove. Nothing installs on a call.
 - **`@epicenter/app` comes from the command.** `epicenter` links

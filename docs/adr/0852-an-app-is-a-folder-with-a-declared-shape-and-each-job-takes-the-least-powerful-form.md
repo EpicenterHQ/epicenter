@@ -4,7 +4,7 @@
 - **Date:** 2026-11-08
 - **Amends:** [ADR-0844](0844-one-runner-runs-anywhere-and-every-surface-is-a-view-over-it.md) at Epicenter Cloud, which hosts a remote and a computer rather than being a separate product. [ADR-0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md) at `epicenter add`, which also links a folder, at `epicenter new`, which becomes `add` from a built-in template, and at the `{ from, sha }` record, which the `upstream` branch already holds.
 - **Relates:** [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) (your server), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (the commit rule), [ADR-0851](0851-an-app-has-one-home-and-an-optional-push-only-backup.md) (`origin`), [ADR-0853](0853-collections-give-five-actions-and-programs-without-the-folder-ask-over-mcp.md) (MCP), [ADR-0856](0856-binary-files-go-through-git-lfs.md) (binary files), [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (views), [ADR-0857](0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md) (`epicenter.ts`), [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (one copy, no catalog). [docs/vision.md](../vision.md) explains the whole.
-- **Built:** `new` as the built-in template (`packages/cli/src/new.ts`); `epicenter install` for code from a source, which replaced `add <git url>` and gave way to `new --from` and `update` (ADR-0866). `epicenter link` was built and is gone (ADR-0868); a symlink in the Epicenter still joins a folder where it lives.
+- **Built:** `new` as the built-in template (`packages/cli/src/new.ts`); `epicenter install` for code from a source, which replaced `add <git url>` and gave way to `new --from` and `update` (ADR-0866), and then to `new --from` as a copy with no `update` (ADR-0904). `epicenter link` was built and is gone (ADR-0868); a symlink in the Epicenter still joins a folder where it lives.
 
 ## Context
 
@@ -65,9 +65,10 @@ linked there, or made there by a program or by `epicenter new`. Its name is
 its entry there. `~/Epicenter` holds nothing else of Epicenter's: no list of
 apps, no settings. A symlink in the Epicenter joins a folder where it lives,
 so its path, scripts, and remotes keep working; nothing is committed or moved
-(ADR-0868). `epicenter new <name> --from <git url|path>` makes an app from a
-starter, a repository with no data, and keeps it as the app's `upstream`
-remote, whose changes `epicenter update` merges (ADR-0866).
+(ADR-0868). `epicenter new <name> --from <git url>[#<folder>]`, or `--from <path>`,
+makes an app by copying another app's code, from a repository or a folder
+in one, into a new repository with no remote; no command merges later
+changes (ADR-0904).
 `epicenter new <name>` alone makes the folder from a built-in template:
 an `epicenter.ts` with no collections or actions yet, and a `.gitignore` with `node_modules/`,
 `*.local`, and `*.local.*` (ADR-0858, ADR-0854); it makes the folder a

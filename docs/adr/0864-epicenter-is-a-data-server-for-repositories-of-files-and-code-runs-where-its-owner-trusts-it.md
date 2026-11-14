@@ -74,8 +74,8 @@ must go on offline keeps a clone and pushes to it (ADR-0887).**
 
 **3. Code runs where its owner trusts it.** `epicenter serve` runs the
 `epicenter.ts` of each repository its operator trusts, and offers its actions as
-MCP tools. An app the operator made, alone or from a starter with
-`epicenter new --from`, is trusted: making it was the decision (ADR-0866). A server that serves people who
+MCP tools. An app the operator made, alone or from another app's code with
+`epicenter new --from`, is trusted: making it was the decision (ADR-0904). A server that serves people who
 do not trust each other runs no one's `epicenter.ts`. A client holds its own
 credentials: Mail's Google token is in `mail/google.local.md` on the machine
 that runs Mail's actions (ADR-0870), and Epicenter holds only its own sign-in.
@@ -100,10 +100,10 @@ terminal, it is the Epicenter Mac app, which runs `epicenter serve` (ADR-0865).
   Objects.
 - A view is a web client: served from a repository's `ui/dist/` or from anywhere,
   it asks over MCP like an agent, and the browser sandboxes it.
-- An app starts from a starter, a repository with no data, kept as its
-  `upstream`; it holds its own code and data and is changed where it is, and
-  `epicenter update` merges the starter's changes (ADR-0866). Since a starter
-  holds no data, sharing an app never shares anyone's data.
+- An app can start as a copy of another app's code, which holds no data; it
+  holds its own code and data and is changed where it is, and no command
+  merges later changes into it (ADR-0904). Since the code holds no data,
+  sharing an app never shares anyone's data.
 - A rule another author's app needs everywhere lives in that app's client, or in
   an `epicenter.ts` a person chooses to trust, or in that author's own MCP
   server. The server enforces shapes only.

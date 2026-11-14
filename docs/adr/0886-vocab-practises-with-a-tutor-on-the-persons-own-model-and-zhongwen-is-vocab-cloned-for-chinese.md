@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-11-12
+- **Amended by:** [ADR-0904](0904-copying-is-the-only-way-to-take-an-apps-code.md) at "keeps Vocab as its `upstream`", at "an Epicenter rebuilt on another computer still merges from it", and at "`epicenter update zhongwen` merges Vocab's changes": `epicenter update` is removed, and an Epicenter rebuilt with `init --from` never had `upstream`. Zhongwen takes Vocab's later changes by its person's agent comparing the two, or by a hand `git merge` in the clone that still shares Vocab's history.
 - **Relates:** [ADR-0866](0866-an-app-starts-from-a-starter-kept-as-its-upstream-and-update-merges-the-starters-changes.md) (a starter kept as `upstream`), [ADR-0885](0885-an-epicenters-apps-live-in-apps-which-its-repository-ignores-with-one-line.md) (apps live in `apps/`), [ADR-0877](0877-an-apps-code-and-its-data-are-two-repositories-and-sharing-an-app-shares-its-code.md) (an app's two repositories), [ADR-0870](0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md) (`.local` files), [ADR-0883](0883-an-epicenter-is-its-git-repositories-and-serve-and-its-host-keeps-runs-and-guards-them.md) (`serve` runs on the host).
 
 ## Context

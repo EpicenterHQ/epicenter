@@ -77,7 +77,7 @@ pending or staged change stays as it was. The subject is the call, or
 are all unchanged makes no commit.
 
 **A snapshot with no call takes everything pending.** `epicenter sync`, the
-first step of `epicenter undo` and of `epicenter update`, and `serve`'s clock
+first step of `epicenter undo`, and `serve`'s clock
 commit everything pending in the app's folder and nothing outside it: `git add -A` and `git commit` with
 the pathspec `.`. The subject is `<app>: changed outside epicenter`, or
 `<app>: <message>` from `epicenter sync <app> -m <message>` (one line), with
@@ -107,8 +107,7 @@ writes nothing never takes it, so reads, and an action's work before its first
 write, never wait. Whoever makes a snapshot with no call holds the lock for
 the work that must not meet a call's writes, and never across the network or
 a build: `sync` while it snapshots, not while it pushes; `undo` from its
-snapshot until its revert is committed; `update`, after its fetch, while it
-snapshots and merges, not while it builds. Each waits up to 30 seconds and
+snapshot until its revert is committed. Each waits up to 30 seconds and
 then refuses, saying a call is still writing the app, and `serve`'s clock
 tries once and skips the app. A
 call's first write waits up to 30 seconds too, then throws that the app is
@@ -232,7 +231,7 @@ action prints goes to stderr while it runs, so none of it reaches the answer.
   an action that writes and then waits on a slow service holds off the app's
   other writes meanwhile; one that fetches first and writes last holds the
   lock only to write and commit. A call's first write gives up after 30
-  seconds, as do `sync`, `undo`, and `update`, and `serve`'s clock takes the
+  seconds, as do `sync` and `undo`, and `serve`'s clock takes the
   app on a later tick.
 - An action that, after writing, runs `epicenter` against its own app waits
   for its own lock and fails after 30 seconds.
