@@ -1,5 +1,7 @@
 # 0718. Epicenter's machinery on a machine lives in a hidden home every program reads
 
+<!-- doc-path-check: ignore-file (cites the waiting folder sync product (ADR-0840), kept at tag folder-sync-product) -->
+
 - **Status:** Accepted (2026-11-03)
 - **Date:** 2026-11-03
 - **Amends:** [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) at `epicenter init` registering a folder for sync: the folders under the library root need no registration, a folder elsewhere is a link inside the root, and nothing is listed in the global Git configuration; [ADR-0642](0642-each-desktop-app-selects-its-cli-independently-of-the-terminal.md) at the public command `~/.local/bin/epicenter` and `install-command`: the engine is `~/.epicenter/bin/epicenter`.

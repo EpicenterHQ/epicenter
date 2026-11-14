@@ -37,7 +37,7 @@ import {
 } from '../../../../packages/server/src/bun.js';
 import { startDisposablePostgres } from '../../../../packages/server/src/test-helpers/disposable-postgres.js';
 import { OAuthTestClient } from '../../../../packages/server/src/test-helpers/oauth-client.js';
-import { buildFirstPartyClients } from '../../../api/worker/oauth-registrations.js';
+import { buildFirstPartyClients } from '../../../../apps/api/worker/oauth-registrations.js';
 
 const secret = 'whispering-web-sign-in-secret-0123456789ab';
 const appOrigin = localUrl(APPS.WHISPERING);
@@ -73,7 +73,7 @@ beforeAll(async () => {
 	);
 	await migrate(createDb(cluster.clients[0]), {
 		migrationsFolder: fileURLToPath(
-			new URL('../../../api/drizzle/', import.meta.url),
+			new URL('../../../../apps/api/drizzle/', import.meta.url),
 		),
 	});
 	const app = createServerApp<CloudEnv>({

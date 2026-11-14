@@ -1,5 +1,7 @@
 # 0747. Git runs only as Git, on the desktop
 
+<!-- doc-path-check: ignore-file (cites the waiting folder sync product (ADR-0840), kept at tag folder-sync-product) -->
+
 - **Status:** Accepted (2026-11-04)
 - **Date:** 2026-11-04
 - **Amended by:** [ADR-0751](0751-every-native-app-carries-one-sync-core.md) at "the `git` and `git-lfs` programs, run by `epicenter sync`": a round runs in a sync core linked into each native app, over libgit2, and leaves a repository stock `git` reads; the three refusals stand.

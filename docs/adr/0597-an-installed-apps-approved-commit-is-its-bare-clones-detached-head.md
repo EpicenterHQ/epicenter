@@ -1,5 +1,7 @@
 # 0597. An installed app's approved commit is its bare clone's detached HEAD
 
+<!-- doc-path-check: ignore-file (cites the waiting folder sync product (ADR-0840), kept at tag folder-sync-product) -->
+
 - **Status:** Superseded
 - **Date:** 2026-10-17
 - **Superseded by:** [ADR-0605](0605-an-app-is-an-ordinary-single-page-app-in-a-forkable-git-repository.md): nothing approves a commit, an installed app is the person's clone of its source with a working tree, and the desktop builds a commit into app data; a window keeping the build it opened on stands, as ADR-0588 decided.

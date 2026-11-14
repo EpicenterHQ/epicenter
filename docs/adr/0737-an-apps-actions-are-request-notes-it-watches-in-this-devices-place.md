@@ -1,5 +1,7 @@
 # 0737. An app's actions are request notes it watches in this device's place
 
+<!-- doc-path-check: ignore-file (cites the waiting folder sync product (ADR-0840), kept at tag folder-sync-product) -->
+
 - **Status:** Accepted (2026-11-04)
 - **Date:** 2026-11-04
 - **Relates:** [ADR-0723](0723-an-apps-site-is-found-by-convention.md) (an app's site publishes `/contract.json` and `/SKILL.md`; how it publishes actions was open), [ADR-0725](0725-an-app-reaches-named-roots-through-one-command-per-storage-operation.md) (an app watches files by root), [ADR-0727](0727-json-schema-is-the-field-language.md) (fields are JSON Schema), [ADR-0716](0716-agents-edit-a-document-through-one-shot-cli-commands.md) (agents edit documents through the CLI).

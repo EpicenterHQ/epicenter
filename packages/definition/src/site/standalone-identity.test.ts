@@ -7,7 +7,6 @@
  * production one with `.dev`, which the shell removes in development alone.
  * This holds every standalone app's Tauri configurations to its `APPS` row,
  * so a renamed bundle or site cannot move an app's folder unnoticed.
- * Epicenter's own desktop shell has no `APPS` URL and is checked separately.
  */
 
 import { expect, test } from 'bun:test';
@@ -67,11 +66,6 @@ for (const [app, dir] of appDirs) {
 		// The environment is stated, and only by the development configuration.
 		expect(environment(config)).toBeUndefined();
 		expect(environment(development)).toBe('development');
-		if (app === 'epicenter') {
-			// Epicenter is the library shell, not an app with an APPS site.
-			expect(production).toBe('so.epicenter');
-			return;
-		}
 		const host = production.split('.').reverse().join('.');
 		const site = sites.find((row) => row.host === host);
 		expect(site).toBeDefined();

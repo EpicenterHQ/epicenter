@@ -81,6 +81,37 @@ test('a compiled epicenter writes out the @epicenter/app it carries and builds a
 	}
 });
 
+test("a compiled epicenter runs an app whose package names its entry only in package.json's exports", async () => {
+	const f = await fixture();
+	try {
+		// No `index.js` at the package's root, as with any package built into
+		// `dist/`: only its `package.json` says where the entry is.
+		await f.folder(join(f.apps, 'vocab'), {
+			'epicenter.ts': `${header}import { greeting } from 'greeting';\nexport default defineApp({ description: 'Words', collections: {}, actions: { hello: defineAction({ description: 'Hello', input: {}, run: () => greeting }) } });\n`,
+			'node_modules/greeting/package.json': `${JSON.stringify({ name: 'greeting', type: 'module', exports: { '.': './dist/main.js' } })}\n`,
+			'node_modules/greeting/dist/main.js': "export const greeting = 'hi';\n",
+		});
+		const hello = Bun.spawn([bin, 'vocab', 'hello', '--json'], {
+			cwd: f.root,
+			env: { ...f.env, XDG_DATA_HOME: join(f.root, 'xdg-data') },
+			stdout: 'pipe',
+			stderr: 'pipe',
+		});
+		const [stdout, stderr, code] = await Promise.all([
+			new Response(hello.stdout).text(),
+			new Response(hello.stderr).text(),
+			hello.exited,
+		]);
+		expect({ code, stdout, stderr }).toEqual({
+			code: 0,
+			stdout: '{"returned":"hi"}\n',
+			stderr: '',
+		});
+	} finally {
+		await rm(f.root, { recursive: true, force: true });
+	}
+});
+
 test('serve relinks each app to the @epicenter/app it carries, and a UI built against another one rebuilds on its next page load', async () => {
 	const f = await fixture();
 	try {

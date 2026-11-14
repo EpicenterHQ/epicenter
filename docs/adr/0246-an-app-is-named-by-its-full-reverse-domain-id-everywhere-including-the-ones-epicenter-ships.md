@@ -1,5 +1,7 @@
 # 0246. An app is named by its full reverse-domain id everywhere, including the ones Epicenter ships
 
+<!-- doc-path-check: ignore-file (cites the waiting folder sync product (ADR-0840), kept at tag folder-sync-product) -->
+
 - **Status:** Accepted
 - **Date:** 2026-08-18
 - **Amended by:** [ADR-0402](0402-a-window-label-is-identity-never-authority-and-the-capability-is-a-host-constant.md) at the consequence asking for a test of the granted set per label: the capability names `"windows": ["*"]` and selects no label, so the migration touches no capability file.

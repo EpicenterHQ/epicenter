@@ -1,5 +1,7 @@
 # 0363. An inference selection identifies the connection and model
 
+<!-- doc-path-check: ignore-file (cites code that moved since) -->
+
 - **Status:** Proposed
 - **Date:** 2026-09-08
 - **Revised:** 2026-09-20

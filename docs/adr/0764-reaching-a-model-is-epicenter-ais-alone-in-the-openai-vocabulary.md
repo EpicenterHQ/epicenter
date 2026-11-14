@@ -1,5 +1,7 @@
 # 0764. Reaching a model is `@epicenter/ai`'s alone, in the OpenAI vocabulary
 
+<!-- doc-path-check: ignore-file (cites code that moved since) -->
+
 - **Status:** Accepted (2026-11-04)
 - **Date:** 2026-11-04
 - **Amends:** [ADR-0757](0757-every-model-is-an-endpoint-every-model-file-is-a-cache.md) at the endpoint shape `{ id, fetch, models() }` with `models(): Promise<Model[]>`, at `ai.complete(request)`, at `openAi` reading `models()` at fixed moments, and at keys "the keys `@epicenter/account` holds" and its accessor: the endpoint is `{ id, name, source, fetch, models(), subscribe?, refresh? }` with a synchronous `models()`, `openAi` has `chat`, `transcribe` and `embed`, and the keys are `@epicenter/ai`'s; [ADR-0740](0740-every-credential-an-app-holds-lives-in-its-own-place.md) at who holds the provider keys in an app's credentials place: `@epicenter/ai` writes and reads them through the shell, and on the web they sit in the browser's storage; [ADR-0755](0755-epicenters-packages-are-capabilities-formats-framework-layers-and-programs.md) at the `account` row's "and the person's provider keys": `account` is this app's Epicenter sign-in; [ADR-0762](0762-epicenter-is-made-of-standards-and-places.md) at "Open, not decided": the agent loop speaks the OpenAI vocabulary.

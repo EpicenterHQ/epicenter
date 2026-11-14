@@ -1,5 +1,7 @@
 # 0760. Global shortcuts are a capability
 
+<!-- doc-path-check: ignore-file (cites the waiting folder sync product (ADR-0840), kept at tag folder-sync-product) -->
+
 - **Status:** Accepted (2026-11-04)
 - **Date:** 2026-11-04
 - **Amends:** [ADR-0755](0755-epicenters-packages-are-capabilities-formats-framework-layers-and-programs.md) at its capability list and at "Whispering's global shortcut is an app-owned native feature": `shortcut` is a capability, and no `#platform/*` seam remains for it; [ADR-0753](0753-an-app-declares-what-it-is-and-what-it-needs-the-platform-supplies-where-how-and-when.md) at "Whispering's global shortcut is one" of the features no capability covers: a capability covers it.
