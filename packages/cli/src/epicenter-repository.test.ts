@@ -11,8 +11,8 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-	recordRepositories,
 	REPOSITORIES,
+	recordRepositories,
 	snapshotEpicenter,
 } from './epicenter-repository.ts';
 import { bareApp, fixture, gitIn } from './runner.test-support.ts';

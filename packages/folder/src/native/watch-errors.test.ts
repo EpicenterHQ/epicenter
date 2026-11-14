@@ -71,7 +71,14 @@ test('absent filenames and errors reconcile all, while closed callbacks are igno
 	event('change', join('notes', 'a.md'));
 	event('rename', 'notes');
 	event('change', join('.git', 'index'));
-	expect(hints).toEqual(['all', 'all', 'all', 'all', ['notes/a.md'], ['notes']]);
+	expect(hints).toEqual([
+		'all',
+		'all',
+		'all',
+		'all',
+		['notes/a.md'],
+		['notes'],
+	]);
 	stop();
 	event('change', 'late.md');
 	failure();

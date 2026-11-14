@@ -87,7 +87,9 @@ export type Settings = {
 /** What a build gives the settings: one place's files, by name. */
 export type SettingsPlace = {
 	/** Start hearing changes; answers the stop once listening. Throws when the place cannot be reached. */
-	watch(changed: (names: readonly string[] | 'all') => void): Promise<() => void>;
+	watch(
+		changed: (names: readonly string[] | 'all') => void,
+	): Promise<() => void>;
 	/** The file's text, or null when there is none. Throws when the place cannot be reached. */
 	read(name: string): Promise<string | null>;
 	/** Replace the file, or remove it for null. Throws when the place cannot take it. */
@@ -136,7 +138,9 @@ export function createSettings(place: SettingsPlace): Settings {
 			return;
 		}
 		void reread(
-			changed === 'all' ? [...names] : changed.filter((name) => names.has(name)),
+			changed === 'all'
+				? [...names]
+				: changed.filter((name) => names.has(name)),
 		);
 	}
 

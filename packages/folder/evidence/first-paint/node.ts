@@ -43,12 +43,16 @@ async function seed(root: string, audio: boolean) {
 	const bytes = new Uint8Array(32 * 1024);
 	for (let start = 0; start < NOTES; start += 500)
 		await Promise.all(
-			Array.from({ length: Math.min(500, NOTES - start) }, async (_, offset) => {
-				const index = start + offset;
-				const id = `2026-10-31T09-30-00-${String(index).padStart(6, '0')}`;
-				await writeFile(join(root, `recordings/${id}.md`), note(index));
-				if (audio) await writeFile(join(root, `recordings/${id}.webm`), bytes);
-			}),
+			Array.from(
+				{ length: Math.min(500, NOTES - start) },
+				async (_, offset) => {
+					const index = start + offset;
+					const id = `2026-10-31T09-30-00-${String(index).padStart(6, '0')}`;
+					await writeFile(join(root, `recordings/${id}.md`), note(index));
+					if (audio)
+						await writeFile(join(root, `recordings/${id}.webm`), bytes);
+				},
+			),
 		);
 }
 

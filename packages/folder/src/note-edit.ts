@@ -122,8 +122,7 @@ export function editNote({
 	/** Saves queued or running. */
 	let out = 0;
 	/** Whoever waits in `landed()`. */
-	let waiters: { resolve: () => void; reject: (cause: unknown) => void }[] =
-		[];
+	let waiters: { resolve: () => void; reject: (cause: unknown) => void }[] = [];
 	const listeners = new Set<() => void>();
 
 	function notify() {

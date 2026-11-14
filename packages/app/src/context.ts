@@ -118,9 +118,13 @@ function writableFolder(verb: 'write' | 'delete', path: string): Folder {
 	const context = currentRun();
 	const normal = normalizePath(path);
 	if (!normal.startsWith('data/'))
-		throw new Error(`${path} is outside data/, and an action writes only there`);
+		throw new Error(
+			`${path} is outside data/, and an action writes only there`,
+		);
 	if (normal.split('/').some((part) => part.startsWith('.git')))
-		throw new Error(`${path} has a .git* path segment, and an action cannot ${verb} there`);
+		throw new Error(
+			`${path} has a .git* path segment, and an action cannot ${verb} there`,
+		);
 	if (context.readOnly && !isLocalPath(path))
 		throw new Error(
 			`The action "${context.readOnly.action}" is read-only, so it cannot ${verb} ${path}`,

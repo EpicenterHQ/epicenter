@@ -20,8 +20,14 @@ export function createDashboardRuntime(account: Account) {
 			queries: { staleTime: 30_000, refetchOnWindowFocus: true },
 		},
 		mutationCache: new MutationCache({
-			onSettled: (_data, _error, _variables, _rollback, _mutation, { client }) =>
-				client.invalidateQueries(),
+			onSettled: (
+				_data,
+				_error,
+				_variables,
+				_rollback,
+				_mutation,
+				{ client },
+			) => client.invalidateQueries(),
 		}),
 	});
 	const management = createAccountManagementClient(account);

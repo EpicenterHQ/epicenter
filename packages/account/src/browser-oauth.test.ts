@@ -697,7 +697,9 @@ test("Account.fetch attaches the bearer only for its own server and its token's 
 	await expect(account.fetch('https://folders.test.evil/x')).rejects.toThrow(
 		TypeError,
 	);
-	await expect(account.fetch('http://folders.test/x')).rejects.toThrow(TypeError);
+	await expect(account.fetch('http://folders.test/x')).rejects.toThrow(
+		TypeError,
+	);
 	await expect(account.fetch('https://user:pass@api.test/x')).rejects.toThrow(
 		TypeError,
 	);

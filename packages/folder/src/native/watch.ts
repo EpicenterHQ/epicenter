@@ -75,7 +75,10 @@ export async function watchDirectory(
 	try {
 		for (let tries = 0; !closed && !isLive && tries < PROBES; tries++) {
 			await writeFile(`${root}/${probe}`, `${tries}`, { mode: 0o600 });
-			await Promise.race([live.promise, sleep(PROBE_MS, undefined, { ref: false })]);
+			await Promise.race([
+				live.promise,
+				sleep(PROBE_MS, undefined, { ref: false }),
+			]);
 		}
 	} catch {
 		// A folder that takes no probe cannot say when the watcher is live.
