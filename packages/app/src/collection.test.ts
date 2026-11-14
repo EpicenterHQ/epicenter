@@ -719,6 +719,21 @@ describe('a .local collection', () => {
 		);
 		expect(() => google.actions('get')).toThrow('never leaves this computer');
 	});
+
+	test('names a field that does not fit without quoting its value', async () => {
+		const context = createMemoryContext({
+			'data/google.local.md': '---\nrefreshToken: 12345\n---\n',
+		});
+		const read = await inRun(context, () => google.get());
+		expect(read.problems).toEqual(['refreshToken is not text']);
+		const refused = inRun(context, () =>
+			google.set({ refreshToken: 67890 as unknown as string }),
+		);
+		await expect(refused).rejects.toThrow(
+			'data/google.local.md: refreshToken is not text',
+		);
+		await expect(refused).rejects.not.toThrow('67890');
+	});
 });
 
 describe('problem rows', () => {

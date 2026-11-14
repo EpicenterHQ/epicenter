@@ -1,10 +1,11 @@
 # 0870. An app's secrets are `.local` files, and a `.local` file never leaves its computer
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-11-13)
 - **Date:** 2026-11-11
 - **Amends:** [ADR-0840](0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md) at "a place for secrets (the Keychain)": an action's place for secrets is a `.local` file in its folder. [ADR-0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md) at `secrets`: a run reaches `folder` only. [ADR-0844](0844-one-runner-runs-anywhere-and-every-surface-is-a-view-over-it.md) at the `secrets` row of the host table, which is deleted. [ADR-0858](0858-where-a-file-lives-decides-whether-it-travels-survives-or-dies-with-its-program.md) at "Is it a secret? yes → the Keychain" and "a secret is never a file", for an app in an Epicenter; a program's own sign-ins (Whispering's account) stay in the Keychain. Also at "a collection whose path contains `.local.` is refused": such a collection is allowed and offers no actions.
 - **Relates:** [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) (Keychain access never stopped a program running as the same user), [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (read-only runs), [ADR-0857](0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md) (`actions()`), [ADR-0868](0868-an-epicenter-is-any-folder-that-says-it-is-one-and-a-computer-runs-as-many-as-it-has.md) (the marker, which loses its `id`).
-- **Built:** 2026-11-11. A run's context is `{ folder }`; `isLocalPath` in `@epicenter/app` names a `.local` path for the read-only run, `actions()`, the disk's `0600`, and the snapshot's refusal alike. The memory folder has no file modes, so `0600` is the disk's alone. The marker's `id` goes with ADR-0868.
+- **Built:** 2026-11-11. A run's context is `{ folder }`; `isLocalPath` in `@epicenter/app` names a `.local` path for the read-only run, `actions()`, the disk's `0600`, and the snapshot's refusal alike. The memory folder has no file modes, so `0600` is the disk's alone. The marker's `id` goes with ADR-0868. 2026-11-13: a `.local` collection's `problems` and refused writes name a field without quoting its value (`misfit` in `packages/app/src/collection.ts`).
+- **Unbuilt:** the `writeOnly` field option and what reads it: an action with one is absent from MCP's tools and calls, its commit name skips the value, a refusal does not quote it, and the CLI prompts for it without echo.
 
 ## Context
 
@@ -48,12 +49,55 @@ commit either when an app's `.gitignore` lets one through (ADR-0850).
 | a read-only run (`readOnlyHint: true`) | may write and delete `.local` paths through `folder`; everything else stays refused |
 | a file `folder` creates at a `.local` path | mode `0600`; a directory it creates on one is `0700` |
 | a collection whose `path` is not `.local` | never matches or fills a `.local` path, so a value such as `token.local` is not a record |
+| a read's `problems`, or a refused write, of a `.local` collection | names the field without quoting its value: `refreshToken is not text` |
 
 The second row keeps generated verbs from handing a token to an MCP client
-through one spread. An action the app writes may still return what it reads;
-that is the app's choice. The third row exists because a read-only action may
+through one spread. The third row exists because a read-only action may
 need to refresh an access token. Read-only means "changes nothing in the
-app's history", and a `.local` file is never in it.
+app's history", and a `.local` file is never in it. The last row keeps a
+mistyped token out of a message that reaches a caller or a log.
+
+`.local` means "this computer only". It holds a sign-in and a cache alike, such
+as Mail's `mail.local.sqlite`; it is not a secret store.
+
+**An app never returns or throws a value it read from a `.local` file.** The
+`actions()` refusal covers generated verbs; this rule covers the actions the
+app writes, since `serve` hands an answer and a thrown tagged error to its
+caller whole.
+
+**A secret arrives in one of three ways, and never as an ordinary input.**
+Ordinary input leaks a secret three ways: every action is an MCP tool, so an
+agent is invited to carry the value and keeps it in its transcript; the first
+positional value names the call's commit; and a refusal quotes a value that
+does not fit. The three ways in:
+
+- **The person edits the `.local` file.** Mail's OAuth client is put in
+  `data/google.local.md` by hand.
+- **A flow the action runs brings it back to this computer.** Mail's `connect`
+  takes only a `port`, and Google's code returns on a loopback listener or the
+  terminal.
+- **An input field marked `writeOnly`.** JSON Schema's `writeOnly` says a
+  value is sent and never given back, the sibling of the `readOnly` that fields
+  already carry: `token: field.text({ writeOnly: true })`. A person types it
+  into the app's UI, which posts it to `serve` over HTTP, or at the CLI's
+  prompt, which does not echo. Because the mark is on the schema, every
+  surface reads it: an action with such a field is not listed or callable over
+  MCP, never names its commit after the value, and never quotes it when it
+  refuses one. Messages' Beeper token is the first.
+
+A secret input rides HTTP from a page on this Epicenter, which `serve` accepts
+only on loopback or the tailnet (ADR-0883), so it reaches no agent.
+
+### What each layer defends
+
+| Who could get a secret | What stops it |
+| --- | --- |
+| an agent or page that reaches the app only through `serve` (MCP or HTTP) | the action layer: generated verbs refuse `.local` collections, and the app's own actions follow the rules above. Where the file sits changes nothing here. |
+| the app's backup `origin` | the ignore file and the snapshot's refusal |
+| a shell agent on the host, by accident (`grep -r`, `cat`, an upload of the folder) | nothing in Epicenter. A deny rule for `*.local*` in that agent's own permissions covers it, and covers caches as well. |
+| a shell agent on the host, on purpose | nothing: it can edit `epicenter.ts` to return the value, or read the Keychain through `bun`. Choosing which agents get a shell is the boundary. |
+| a stolen disk or a copied backup | FileVault and an encrypted backup, which the host keeps |
+| another macOS user | `0600` |
 
 **An app's secret is a one-file collection whose path ends in `.local.md`.**
 Its fields are declared in `epicenter.ts` like any other, and its values live
@@ -61,7 +105,7 @@ in a Markdown file on the computer that runs the app's actions:
 
 ```ts
 const google = defineCollection({
-  path: 'google.local.md',
+  path: 'data/google.local.md',
   description: "this computer's Google sign-in",
   fields: {
     account: field.text({ optional: true }),
@@ -74,10 +118,11 @@ const { refreshToken } = await google.get();
 ```
 
 ```txt
-~/Epicenter/mail/
-  epicenter.ts            declares google.local.md's fields
-  messages/<id>.md        data, committed
-  google.local.md         the token: 0600, never committed, never offered by a generated verb
+~/Epicenter/apps/mail/
+  epicenter.ts              declares google.local.md's fields
+  data/
+    messages/<id>.md        data, committed
+    google.local.md         the token: 0600, never committed, never offered by a generated verb
 ```
 
 Reads check it field by field like any file, and `problems` say what does not
@@ -112,8 +157,22 @@ refreshing at once each write over the text they read.
 ## Considered alternatives
 
 - **Keep the Keychain.** It stops a raw token from being read by a process
-  that is not `bun`. That is not the threat here, and it costs a second
-  store, a test hook, and the root `id`.
+  that is not `bun`, and from a shell agent's accidental `grep`. The first is
+  not the threat here. The second is better met by the agent's own deny rule,
+  since the Keychain cannot hold what sits beside the token: Mail's whole
+  mailbox is `mail.local.sqlite`. It costs a second store, a test hook, and
+  the root `id`.
+- **A declared secret with a pluggable store.** It abstracts over one kind of
+  credential, inherits the costs of every store it allows, and changes no
+  case in the table above.
+- **`field.secret()`, a separate field kind.** It would be text with one
+  annotation, and every surface would need to learn a new kind. `writeOnly`
+  is that annotation, already in JSON Schema, so MCP's `inputSchema` and
+  `epicenter <app> --json` carry it without a translation.
+- **Never take a secret as input.** It closes all three leaks, but it leaves
+  a pasted API key only the hand-edited file. An app's own UI posting a token
+  to `serve` reaches no agent, and refusing it would push that person into a
+  terminal for no protection.
 - **`secrets.local.json` behind the `secrets` API.** It would fix the `id`
   problem but keep a second storage model with no field types, defaults, or
   `problems`. ADR-0868 rejected it as "one `cat` away from any agent"; the
