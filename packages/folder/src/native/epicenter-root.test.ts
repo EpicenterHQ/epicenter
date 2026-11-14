@@ -215,7 +215,7 @@ test("each folder's store hears its own changes and names its root", async () =>
 	const put = asked.find(
 		({ command }) => command === 'plugin:epicenter-folder|put_folder_file',
 	);
-	expect((put?.headers as { root: string }).root).toBe(
+	expect((put?.headers as { root: string } | undefined)?.root).toBe(
 		encodeURIComponent('Folder/Notes'),
 	);
 });
