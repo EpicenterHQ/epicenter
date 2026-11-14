@@ -30,14 +30,6 @@ import { type Answer, renderAnswer, writeErr } from './output.ts';
 import { rootInstructions } from './root.ts';
 import { callAction } from './run.ts';
 
-/** The tools the Epicenter offers now. */
-async function listTools(): Promise<Tool[]> {
-	const listed = await Promise.all(
-		(await homeEntries()).map(({ entry }) => appTools(entry)),
-	);
-	return listed.flat();
-}
-
 /** One app's tools; none when it cannot load, and why goes to stderr. */
 async function appTools(entry: string): Promise<Tool[]> {
 	const { data: located, error } = await loadHomeApp(entry);
@@ -75,26 +67,6 @@ function toolResult(answer: Answer) {
 }
 
 /**
- * Run the action `<app>_<word>_<word>` names. App names and action words hold
- * no underscores, and the first word must be able to name an app, so a tool
- * name never runs one of `epicenter`'s own commands.
- */
-async function callTool(name: string, args: Record<string, unknown>) {
-	const [app = '', ...words] = name.split('_');
-	if (
-		nameProblem(app) !== undefined ||
-		words.length === 0 ||
-		!words.every(isName)
-	)
-		return toolResult({
-			error: { name: 'Usage', message: `Unknown tool ${name}` },
-		});
-	return toolResult(
-		await callAction(app, words.join(' '), args, { overMcp: true }),
-	);
-}
-
-/**
  * Register the tool handlers on a fresh MCP server. It reads the
  * Epicenter's `AGENTS.md` now, so each initialize sends what the file says
  * then (ADR-0878).
@@ -108,11 +80,28 @@ export async function createMcpServer() {
 			...(instructions === undefined ? {} : { instructions }),
 		},
 	);
-	server.setRequestHandler(ListToolsRequestSchema, async () => ({
-		tools: await listTools(),
-	}));
-	server.setRequestHandler(CallToolRequestSchema, (request) =>
-		callTool(request.params.name, request.params.arguments ?? {}),
-	);
+	server.setRequestHandler(ListToolsRequestSchema, async () => {
+		const listed = await Promise.all(
+			(await homeEntries()).map(({ entry }) => appTools(entry)),
+		);
+		return { tools: listed.flat() };
+	});
+	server.setRequestHandler(CallToolRequestSchema, async (request) => {
+		const { name, arguments: args } = request.params;
+		const [app = '', ...words] = name.split('_');
+		// App names and action words have no underscores. The first word must name
+		// an app, so a tool name never runs one of epicenter's own commands.
+		if (
+			nameProblem(app) !== undefined ||
+			words.length === 0 ||
+			!words.every(isName)
+		)
+			return toolResult({
+				error: { name: 'Usage', message: `Unknown tool ${name}` },
+			});
+		return toolResult(
+			await callAction(app, words.join(' '), args ?? {}, { overMcp: true }),
+		);
+	});
 	return server;
 }
