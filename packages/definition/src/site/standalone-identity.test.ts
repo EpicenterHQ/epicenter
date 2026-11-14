@@ -48,9 +48,7 @@ const sites = Object.values(APPS).map(
 );
 
 test('every desktop app is enumerated', () => {
-	expect(desktopApps).toEqual(
-		expect.arrayContaining(['honeycrisp', 'whispering']),
-	);
+	expect(desktopApps).toEqual(expect.arrayContaining(['whispering']));
 });
 
 for (const app of desktopApps) {

@@ -1,7 +1,8 @@
 # 0061. Local Books serves row-level facts from the mirror, computed reports live, and writes back through one approved verb
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-06-24
+- **Superseded by:** [ADR-0902](0902-this-repositorys-outside-apps-stay-in-apps.md): Local Books is deleted, and this record is its history.
 
 ## Context
 

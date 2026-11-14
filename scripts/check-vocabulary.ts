@@ -20,9 +20,8 @@
  * Two rules, scoped differently, because the two words are not alike.
  *
  * `scalar` has no ordinary meaning here, so it is checked almost everywhere. It
- * survives in two kinds of place, both excluded by subsystem: `local-books`
- * genuinely lifts scalar columns into SQLite mirrors of its own, and YAML calls
- * a plain node a scalar.
+ * survives in one place, excluded by subsystem: YAML calls a plain node a
+ * scalar.
  *
  * `prose` is an ordinary English word, so checking it everywhere would flag the
  * writing skills on every line. It is checked only where the store's vocabulary
@@ -91,8 +90,6 @@ const RULES: readonly Rule[] = [
 		instead: 'value',
 		adr: 'ADR-0309',
 		excludes: [
-			// Its own SQLite mirrors, with real extracted scalar columns.
-			'apps/local-books/',
 			// YAML's word for a plain node, not ours.
 			'.agents/skills/skills-and-instructions/',
 		],
@@ -105,7 +102,6 @@ const RULES: readonly Rule[] = [
 		scope: [
 			'packages/svelte/',
 			'packages/server/workers/',
-			'apps/honeycrisp/',
 			'apps/whispering/',
 			'.agents/skills/yjs/',
 			'.agents/skills/svelte/',

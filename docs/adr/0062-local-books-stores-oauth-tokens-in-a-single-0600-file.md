@@ -1,7 +1,8 @@
 # 0062. Local Books stores OAuth tokens in a single 0600 file
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-06-25
+- **Superseded by:** [ADR-0902](0902-this-repositorys-outside-apps-stay-in-apps.md): Local Books is deleted, and this record is its history.
 
 ## Context
 

@@ -1,7 +1,8 @@
 # 0063. The Local Books mirror is a multi-writer cache made safe by one monotonic write door, not single-writer discipline
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-06-25
+- **Superseded by:** [ADR-0902](0902-this-repositorys-outside-apps-stay-in-apps.md): Local Books is deleted, and this record is its history.
 
 ## Context
 

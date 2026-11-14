@@ -1,7 +1,8 @@
 # 0064. The Local Books mirror keeps one realm CDC cursor; table existence is the per-entity init latch
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-06-25
+- **Superseded by:** [ADR-0902](0902-this-repositorys-outside-apps-stay-in-apps.md): Local Books is deleted, and this record is its history.
 
 ## Context
 

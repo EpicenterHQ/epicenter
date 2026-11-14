@@ -21,7 +21,7 @@ and composes product state and UI.
 | --- | --- |
 | Todos | `folder-sync-product:apps/todos/src/lib/components/TodosApp.svelte` |
 | Capture | `folder-sync-product:apps/capture/src/lib/components/CaptureApp.svelte` |
-| Honeycrisp | `apps/honeycrisp/src/lib/components/HoneycrispApp.svelte` |
+| Honeycrisp | `before-0891-layout:apps/honeycrisp/src/lib/components/HoneycrispApp.svelte` |
 | Vocab | `folder-sync-product:apps/vocab/src/routes/components/VocabApp.svelte` |
 | Whispering | `apps/whispering/src/routes/components/WhisperingApp.svelte` |
 
