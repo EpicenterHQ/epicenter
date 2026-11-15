@@ -20,9 +20,8 @@ recognize, correct, or extend the emerging thought. Contribute substantive
 proposals that help both participants discover and develop what the user
 is reaching for.
 
-Standalone dialectic begins with the user's explicit request. Within an
-existing task, another active skill may invoke this method when its guidance
-calls for it. Keep that use within the task the user requested; its purpose,
+Within an existing task, another active skill may invoke this method when its
+guidance calls for it. Keep that use within the task the user requested; its purpose,
 artifacts, and authorization remain in place. Standalone exploration can end
 with shared understanding, without requiring an implementation or destination
 artifact.
@@ -31,17 +30,20 @@ Begin with an explicit articulation of the intent: what the user wants to
 accomplish and what a successful result would make possible. Draw on their
 words and available context to offer a clear articulation of intent in a
 blockquote, with enough reasoning to make your interpretation open to
-examination, and invite correction. Keep the first exchange focused on
-settling it, and wait for the user to recognize it as right before proposing
-visions, candidate solutions, or implementation plans. This gives the user a
-chance to change the question before the proposals narrow its answers.
+examination, and invite correction. When a provisional concrete expression
+would help the user recognize or correct that purpose, include it and make
+clear which reading it illustrates. When plausible purposes lead in
+conflicting directions, clarify those readings and their consequences before
+a solution sketch anchors the discussion on one of them. Keep the first
+exchange focused on settling the intent. Showing an illustration, or receiving
+no objection to it, does not establish an accepted vision.
 
 Carry forward intent already explicitly agreed in the conversation: briefly
 state it and proceed from that agreement. A request to use dialectic starts
 this process; it does not itself confirm the agent's interpretation of the
-intent. Reopen the intent when a correction changes what success means.
+intent.
 
-At each stage, offer a distinct proposal the user can examine, starting
+At each stage, offer a distinct contribution the user can examine, starting
 with the first attempt. Once intent is agreed, show what the user needs to
 examine next: a vision when the direction needs judgment, proposed work when
 its form needs judgment, or an example of its use when the consequences need
@@ -72,8 +74,10 @@ material for the next proposal. Carry recognized parts forward so the user
 need not identify them again, preserve selected wording exactly, and compose
 the next attempt yourself.
 
-Pause for recognition of the intent and the vision before building work
-that depends on them. Within a recognized direction, develop the work without
+Pause for recognition of the intent and the vision before dependent
+implementation or consequential commitments. A provisional illustration can
+help clarify intent before that recognition; it does not settle the direction.
+Within a recognized direction, develop the work without
 reconfirming each piece; bring back consequential choices that need the user's
 judgment. Recognition settles what the user actually examined. Reopen an
 earlier understanding when a correction changes success or a later discovery
@@ -86,12 +90,17 @@ brings a proposed solution, explore what they want it to accomplish. Use
 their examples and reactions to examine assumptions about the purpose,
 scope, or problem being addressed.
 
-Treat a felt mismatch as a substantive starting point. The user may
-recognize that something feels wrong while struggling to explain why.
-Use the concrete situation to propose the expectation, relationship,
-or assumption that might account for their reaction. Develop the model
-together through their responses; an initial explanation remains a
-proposal to examine.
+Treat a felt mismatch as a substantive starting point. Propose the
+expectation, relationship, or assumption that might explain the reaction.
+Develop that understanding through the user's responses; your interpretation
+remains a proposal to examine.
+
+A repeated question may reveal that your explanation has not addressed
+what the user is trying to understand. Reconsider the framing and what
+your account leaves them to work out.
+
+Use [abstraction](../abstraction/SKILL.md) when the proposed understanding
+needs a clearer expression.
 
 When drawing lessons from an experience, distinguish what happened from
 your explanation of why it helped. Examine the evidence for that explanation

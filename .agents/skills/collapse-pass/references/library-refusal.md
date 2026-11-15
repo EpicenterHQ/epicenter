@@ -1,57 +1,55 @@
-# Library Refusal as Information
+# Library refusal as information
 
-The principle that decides hard cases inside a collapse pass.
+Use friction at a library boundary as evidence about the proposed model.
 
 ## The rule
 
-When a library refuses your model, the refusal is information about the model, not friction to route around.
+When a library refuses your model, investigate the mismatch before building
+machinery to work around it.
 
-If a "simplification" requires reimplementing a library's public surface (its types, its lifecycle methods, its observers, its options object), stop and delete the model instead.
+Read the library's public surface before reshaping or reimplementing its types,
+lifecycle, observers, or options. Remove local machinery that duplicates the
+library without adding useful behavior or a necessary boundary. Keep a local
+model when the work requires responsibilities the library does not own.
 
 ## Why this rule earns its keep
 
-A library is the load-bearing description of a domain that has already been thought through. Yjs has thought about CRDT replicas. ArkType has thought about runtime validation. Better Auth has thought about session lifecycle. Drizzle has thought about query composition.
+A library's public surface defines the behavior it supports, including details
+a local wrapper can silently omit. Its documentation and installed source
+establish that contract; they do not decide which model the product needs.
 
-When the codebase grows a helper that re-shapes one of those domains into a custom abstraction, two things are usually true:
+When a helper recreates part of a library protocol, investigate two costs:
 
-1. The custom shape covers fewer cases than the library's public surface
-2. The custom shape diverges over time, while the library keeps improving
+1. Behavior the local shape drops or changes.
+2. A second protocol that must stay aligned as the library changes.
 
-The first symptom is duplication. The second symptom is silent feature loss.
+An intentionally narrower domain API can still earn its place. Name what that
+boundary gives its callers and compare the complete result.
 
 ## How to apply the rule during a pass
 
 When a finding proposes a simplification that touches a library boundary, before editing:
 
-1. **Read the library's actual public surface** for the domain you are about to re-shape. For Epicenter the relevant references are listed below.
-2. **Ground against the upstream docs.** If the user or goal requires a DeepWiki citation for this pass, use `mcp__deepwiki__ask_question` against the upstream repo. Cite the specific function or type that already does what your custom shape was doing.
-3. **Compare your model to the library's model.** If yours is strictly narrower with no extra invariant, the library wins; delete your model.
-4. **If yours encodes a real invariant the library does not**, name the invariant in one sentence. If you can't, the library still wins.
-
-## Upstream repos that recur in Epicenter
-
-Cite against the relevant one when grounding a finding:
-
-- `arktypeio/arktype` for validators, schema merges, branded types, `'+': 'delete'` projections
-- `yjs/yjs` for CRDT types, observer lifecycles, transaction boundaries, sub-document GUIDs
-- `yjs/y-indexeddb` for browser persistence shape and lifecycle
-- `standard-schema/standard-schema` when bridging multiple validator libraries
-- `sveltejs/svelte` and `sveltejs/kit` for runes, stores, adapters
-- `honojs/hono` for HTTP routing, middleware composition, error handling
-- `better-auth/better-auth` for session, plugin, and adapter surfaces
-- `drizzle-team/drizzle-orm` for schema, query, and migration shape
-- `huntabyte/shadcn-svelte` and `ieedan/shadcn-svelte-extras` for UI primitive composition
-- `useautumn/autumn` for billing primitives
-- `jsrepojs/jsrepo` for installable-block packaging
-- `tanstack/ai` and `TanStack/table` for the TanStack families
+1. Read the installed public types and source for the behavior being changed.
+2. Confirm decisive details in official documentation or upstream source. Use
+   the relevant domain skill and DeepWiki when helpful; check the installed
+   version before relying on an upstream example.
+3. Compare the proposed boundary with using the library directly. If it only
+   recreates an existing protocol, remove that duplication.
+4. If the boundary owns a domain rule, lifecycle, or useful contract, name it
+   and adapt explicitly where the two models meet. If the library cannot
+   support a necessary capability, compare changing or replacing the dependency
+   with maintaining the workaround.
 
 ## What a library refusal looks like
 
-Concrete shapes that should stop a refactor and surface to the user:
+Concrete shapes to investigate before extending a local model:
 
 - You are about to write a custom `Observer`-like type because the existing object "doesn't quite fit." The library already ships an observer.
 - You are about to extract a `*Manager` to wrap a library client's session, but the library already owns the session and provides the lifecycle hook you need.
 - You are about to copy a library's type into your own package "to remove the dependency" from a leaf module. The leaf module imports the library implicitly anyway; the copy just hides it.
-- You are about to add an option named for an implementation step (`refreshFn`, `decryptCallback`) because the library's policy-shaped option (`refresh`, `decrypt`) "doesn't feel right." The policy shape is intentional.
+- You are about to add an option named for an implementation step (`refreshFn`, `decryptCallback`). Check whether the library's policy-shaped option (`refresh`, `decrypt`) already expresses the behavior the caller needs.
 
-In every case, the move is to delete the local model, not extend it.
+For each candidate, establish which responsibility the boundary adds. Remove
+duplicated protocols, preserve justified domain boundaries, and verify the
+required behavior through the resulting callers.

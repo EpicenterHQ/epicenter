@@ -12,10 +12,9 @@ Run this for any visible UI change:
 
 ```txt
 Foundation:
-  Uses @epicenter/ui primitives where appropriate.
-  Does not import from packages/ui/src or stock $lib/components/ui paths.
+  Imports follow the app's established component boundary described in ui-design.
   Does not create a one-off primitive when a local one exists.
-  Does not preserve inherited markup or styling merely for exact reproduction.
+  Preserves explicit user constraints; challenges incidental choices left open.
 
 Collapse:
   No class-heavy wrapper survives when a primitive can own the composition.
@@ -39,6 +38,7 @@ Layout:
   No unnecessary wrapper exists only to carry classes.
 
 Copy and visuals:
+  The reading path and primary content or action are clear.
   Visible strings are reread.
   No obvious filler copy, fake precision, or generic placeholder names ship.
   The user-visible objective survives even when inherited structure does not.
@@ -55,10 +55,10 @@ Design read:
 
 System coherence:
   One component foundation.
-  One palette and accent logic.
+  One semantic palette, with a consistent role for any action color.
   One radius, shadow, and border language, or a named rule for variants.
   Typography matches the surface and does not rely on random font contrast.
-  Repeated visual contracts are promoted instead of copied locally.
+  Repeated visual contracts have an owner in the established component system.
 
 Hierarchy and density:
   The primary action or reading path is obvious.
@@ -85,7 +85,8 @@ Content:
   Logo walls, testimonials, and examples do not use generic filler.
 
 Implementation fit:
-  @epicenter/ui owns primitives.
+  The established component system owns primitives.
+  Agent patterns preserve actual execution, draft, and decision semantics.
   styling owns Tailwind/CSS mechanics.
   svelte owns component lifecycle and state mechanics.
 ```

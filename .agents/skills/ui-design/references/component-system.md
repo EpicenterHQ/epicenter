@@ -1,7 +1,9 @@
 # Epicenter Component-System Collapse
 
 This reference owns the smell and ownership decisions that collapse app-local
-UI into the shared product system. For the exact component catalog, import
+UI into the product's component system. Monorepo apps use `@epicenter/ui`;
+personal apps own copied components under
+[epicenter-app](../../epicenter-app/SKILL.md). For the exact monorepo catalog, import
 boundary, loading and empty-state guidance, tooltip API, composition ladder,
 vendored-fork differences, and update workflow, read the authoritative
 [`packages/ui/README.md`](../../../../packages/ui/README.md). Do not copy that
@@ -23,6 +25,11 @@ These are high-signal smells, not automatic bans:
 - One-off responsive branches, hover treatments, or animations preserved only
   to reproduce the old screen exactly.
 
+Standard-scale type and spacing that establish a useful reading hierarchy are
+part of composition. Keep their purpose when removing wrappers or overrides.
+Likewise, a deliberate token-level theme change has a different owner from
+per-component color overrides; inspect the theme before collapsing either.
+
 For each smell, name the user-visible objective and compare the code with the
 natural component-system composition. If the objective survives without the
 custom detail, delete the detail and its wrappers instead of translating them
@@ -40,7 +47,8 @@ Keep a composition in the app when it owns app-specific data, persistence,
 policy, workflow, or product meaning. Its styling should still compose shared
 primitives rather than rebuilding them.
 
-Move a shape into `packages/ui` when it is stable and visual and either:
+For monorepo consumers, move a shape into `packages/ui` when it is stable and
+visual and either:
 
 - several apps need the same product concept; or
 - it owns an accessibility or interaction contract that should not be
