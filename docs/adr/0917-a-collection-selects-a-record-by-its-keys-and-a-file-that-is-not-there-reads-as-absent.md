@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-11-15
-- **Unbuilt:** all of it. The methods of `defineCollection` in `packages/app/src/collection.ts` still take `{ path }`, a one-file collection still has its own methods and defaults, and `holds` and `other` are still there.
+- **Unbuilt:** the apps under `~/Epicenter/apps` still call the old methods. `packages/app` and `packages/cli` carry the decision.
 
 ## Context
 
@@ -64,6 +64,8 @@ words.pathOf({ word });
 - A collection with no placeholder has the same methods without the keys
   argument: `settings.get()`, `settings.add({ theme })`,
   `settings.set({ theme })`.
+- A path may not use `{old}` or `{new}` as a placeholder, because the `edit`
+  verb takes those names beside the keys.
 
 **Each writer is defined by one condition on the file.**
 
@@ -76,6 +78,10 @@ words.pathOf({ word });
 
 `set` and `edit` throw `ActionError.Missing` themselves when the file is not
 there. `update` is the one writer that may make a file.
+
+The function given to `set` returns fields only; the body changes through
+`edit` or `update`. `add`, and an `update` that makes the file, refuse a
+`null` value, because a new file has no field for `null` to remove.
 
 **A key names its file as `pathOf` does today.**
 
@@ -98,7 +104,8 @@ its name is not the one its key makes.
 A collection with no placeholder follows the same table: no defaults while
 the file is absent, and `set` does not make it. A file that opens with `---`
 and has no closing fence counts as front matter that cannot be read. `list`
-returns such a file as a row with `problems` and no fields.
+returns such a file as a row with `problems`, its keys, and only the fields'
+defaults.
 
 **A read gives `path`, each key, each field, `body`, and `problems`. It no longer gives `other`.**
 
@@ -141,8 +148,10 @@ record holds both.
 - A page that routes by a record's path (`#/data/words/<word>.md`) routes by
   its keys, which every row carries. Vocab has two such pages. An action that
   took `path` as input takes the key.
-- One call site reads `other`, in Mail, to refuse front matter it does not
-  know. It already reads the file's text and checks there.
+- Nothing reports front matter no field declares, as nothing reports a file
+  no collection declares: a caller that needs it reads the file's text. One
+  call site reads `other`, in Mail, to refuse front matter it does not know,
+  and it already reads the file's text and checks there.
 - A person or agent repairs unreadable front matter with a text editor or
   `folder.update(path, ...)`. The collection's own methods refuse it.
 

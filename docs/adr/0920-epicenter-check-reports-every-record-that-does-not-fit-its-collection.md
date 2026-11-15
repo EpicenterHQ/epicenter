@@ -68,8 +68,7 @@ printed.
 
 `get` and `list` report what one file shows: a field that does not fit, a
 missing required field, front matter that cannot be read. The check adds what
-needs other files: a `field.ref` key with no record behind it, and front
-matter keys no field declares.
+needs other files: a `field.ref` key with no record behind it.
 
 ## Consequences
 

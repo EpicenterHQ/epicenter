@@ -63,19 +63,18 @@ declaration before anything breaks.
 
 ### Wave 3: selection by key (ADR-0917)
 
-- [ ] Every method takes keys where it took `path`: `get(keys)`,
+- [x] Every method takes keys where it took `path`: `get(keys)`,
   `set(keys, change)`, `edit(keys, change)`, `update(keys, change)`,
   `delete(keys)`. `add` and `list()` are unchanged. A row can be passed as
   the keys.
-- [ ] `set` accepts a function of the record as its change and throws
+- [x] `set` accepts a function of the record as its change and throws
   `ActionError.Missing` itself.
-- [ ] A collection with no placeholder gets every method and verb, without
+- [x] A collection with no placeholder gets every method and verb, without
   the keys argument, and loses its defaults and its upsert.
-- [ ] Unreadable front matter refuses; an unclosed opening fence counts.
-- [ ] A file whose name is not the one its key makes lists with a problem.
-- [ ] Verbs take keys in one flat input. `holds`, `other`, and
+- [x] Unreadable front matter refuses; an unclosed opening fence counts.
+- [x] A file whose name is not the one its key makes lists with a problem.
+- [x] Verbs take keys in one flat input. `holds`, `other`, and
   `field.tags()` are removed.
-- [ ] The check reports front matter no field declares.
 - [ ] Every app under `~/Epicenter/apps` moves in the same step as installing
   the new command, because the command supplies `@epicenter/app` to each app
   it loads: the calls that pass `path`, 13 `field.tags()` calls, the
