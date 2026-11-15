@@ -1,4 +1,4 @@
-/** Create an app container from a template or a filtered tracked code copy. */
+/** Create an app container from blank code or a committed code copy. */
 import {
 	mkdir,
 	mkdtemp,
@@ -12,7 +12,12 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { checkoutCodeFiles, readCodeFiles } from './code-copy.js';
+import { fileURLToPath } from 'node:url';
+import {
+	checkoutCodeFiles,
+	isCopiedCodePath,
+	readCodeFiles,
+} from './code-copy.ts';
 import { misuse, nameProblem, parseWords } from './commands.ts';
 import { ENGINES } from './engines.ts';
 import { CliError } from './errors.ts';
@@ -21,6 +26,8 @@ import { loadHomeApp } from './home.ts';
 import { installApp } from './install.ts';
 import { fail, writeErr, writeJson, writeOut } from './output.ts';
 import { appsDir, epicenterDir, folderPath } from './root.ts';
+
+type CopiedSource = { commit: string; notCopied?: string[] | null };
 
 /** A Git URL rather than a folder path: a scheme, or `user@host:path`. */
 function isUrl(source: string) {
@@ -54,7 +61,7 @@ async function locateSource(
 		if (located.code !== 0)
 			return {
 				error: CliError.Usage({
-					message: `${from} is not in a Git repository; --from takes only the files Git tracks`,
+					message: `${from} is not in a Git repository; --from copies committed code. Put the source in Git and commit it, or put its code in apps/<name>/code/ and run epicenter install <name>`,
 				}).error,
 			};
 		const [repository = '', prefix = ''] = located.stdout.split('\n');
@@ -87,8 +94,8 @@ function recordedSource(from: string) {
 		: folderPath(from);
 }
 
-/** The template is one Bun project whose records live beside code/. */
-function template(name: string) {
+/** Blank app code is one Bun project whose records live beside code/. */
+function blank(name: string) {
 	return {
 		'.gitignore': 'node_modules/\nui/dist/\n',
 		'package.json': `${JSON.stringify({ name, private: true, engines: ENGINES }, null, 2)}\n`,
@@ -116,16 +123,23 @@ async function taken(name: string) {
 }
 
 /** The folder is the answer; the next command goes to stderr. */
-async function made(name: string, json: boolean) {
+async function made(name: string, json: boolean, source?: CopiedSource) {
 	const folder = join(appsDir(), name);
 	const links = await danglingLinks(join(folder, 'code'));
 	for (const { path, target } of links)
 		writeErr(
 			`${name}: code/${path} links to ${target}, which this Epicenter does not have`,
 		);
-	if (json) writeJson({ name, folder, ...(links.length ? { links } : {}) });
+	if (json)
+		writeJson({
+			name,
+			folder,
+			...(source ? { source } : {}),
+			...(links.length ? { links } : {}),
+		});
 	else {
 		writeOut(folder);
+		writeSourceWarning(name, source);
 		writeErr(`Run: epicenter ${name}`);
 	}
 	return 0;
@@ -133,7 +147,7 @@ async function made(name: string, json: boolean) {
 
 /**
  * `epicenter new <name> [--from <path> | --from <git url>[#<folder>]]`: an
- * app from a copy of another app's code, or from the built-in template.
+ * app from a copy of another app's code, or from blank code.
  */
 export async function newCommand(
 	words: string[],
@@ -177,13 +191,103 @@ export async function newCommand(
 		return fail(CliError.GitFailed({ cause }).error, json);
 	}
 	const copied = await copySource(from, source, name, join(folder, 'code'));
-	if ('installError' in copied)
-		return installFailed(name, copied.installError, json);
 	if ('error' in copied) {
 		if (created) await rm(folder, { recursive: true, force: true });
 		return fail(copied.error, json);
 	}
-	return made(name, json);
+	const installed = await installApp(join(folder, 'code'), name);
+	if ('error' in installed)
+		return installFailed(name, installed.error, json, copied);
+	const { data: located, error } = await loadHomeApp(name);
+	const loadProblem =
+		error ??
+		(located.ok
+			? undefined
+			: CliError.AppProblems({ app: from, problems: located.problems }).error);
+	if (loadProblem) {
+		await rm(folder, { recursive: true, force: true });
+		return fail(loadProblem, json);
+	}
+	return made(name, json, copied);
+}
+
+/** Compare local source with the copied commit, including staged and untracked code. */
+async function notCopied(repository: string, folder: string, commit: string) {
+	let worktree = repository;
+	if (isUrl(repository)) {
+		if (!/^file:/i.test(repository)) return undefined;
+		try {
+			worktree = fileURLToPath(repository);
+		} catch {
+			return undefined;
+		}
+	}
+	const bare = await git(worktree, ['rev-parse', '--is-bare-repository']);
+	if (bare.code !== 0) return null;
+	if (bare.stdout === 'true') return undefined;
+	const path = folder ? `${folder}/` : '.';
+	const compared = await Promise.all([
+		git(worktree, [
+			'diff',
+			'--no-ext-diff',
+			'--no-renames',
+			'--name-only',
+			'-z',
+			commit,
+			'--',
+			path,
+		]),
+		git(worktree, [
+			'diff',
+			'--cached',
+			'--no-ext-diff',
+			'--no-renames',
+			'--name-only',
+			'-z',
+			commit,
+			'--',
+			path,
+		]),
+		git(worktree, [
+			'ls-files',
+			'--others',
+			'--exclude-standard',
+			'-z',
+			'--',
+			path,
+		]),
+	]);
+	if (compared.some(({ code }) => code !== 0)) return null;
+	const offset = folder ? folder.length + 1 : 0;
+	return [
+		...new Set(
+			compared
+				.flatMap(({ stdout }) =>
+					stdout
+						.split('\0')
+						.filter(Boolean)
+						.map((path) => path.slice(offset)),
+				)
+				.filter(isCopiedCodePath),
+		),
+	].sort();
+}
+
+function writeSourceWarning(name: string, source?: CopiedSource) {
+	if (source?.notCopied === null)
+		writeErr(
+			`${name}: copied source commit ${source.commit}; could not compare local source files with it`,
+		);
+	else if (source?.notCopied?.length) {
+		writeErr(
+			`${name}: copied source commit ${source.commit}; ${source.notCopied.length} source file(s) differ from it and were not copied`,
+		);
+		const shown = source.notCopied
+			.slice(0, 5)
+			.map((path) => JSON.stringify(path))
+			.join(', ');
+		writeErr(`Not copied: ${shown}${source.notCopied.length > 5 ? ', …' : ''}`);
+	}
 }
 
 /** Copy a filtered committed tree from a temporary clone, preserving Git modes and links. */
@@ -192,11 +296,7 @@ async function copySource(
 	source: { repository: string; folder: string },
 	name: string,
 	folder: string,
-): Promise<
-	| { ok: true }
-	| { error: CliError }
-	| { installError: { message: string; next?: string } }
-> {
+): Promise<CopiedSource | { error: CliError }> {
 	const usage = (message: string) => ({
 		error: CliError.Usage({ message }).error,
 	});
@@ -253,22 +353,16 @@ async function copySource(
 				join(folder, 'SOURCE.md'),
 				`This app's code was copied by \`epicenter new --from\`. No command reads this file.\n\nSource: ${recordedSource(from)}\nSource-Commit: ${commit}\n`,
 			);
+			return {
+				commit,
+				notCopied: await notCopied(source.repository, source.folder, commit),
+			};
 		} finally {
 			await rm(clone, { recursive: true, force: true });
 		}
 	} catch (error) {
 		return { error: CliError.GitFailed({ cause: error }).error };
 	}
-	const installed = await installApp(folder, name);
-	if ('error' in installed) return { installError: installed.error };
-	const { data: located, error } = await loadHomeApp(name);
-	if (error) return { error };
-	if (!located.ok)
-		return {
-			error: CliError.AppProblems({ app: from, problems: located.problems })
-				.error,
-		};
-	return { ok: true };
 }
 
 /** Add only LFS rules lost when the source folder was detached from its ancestors. */
@@ -312,7 +406,7 @@ async function makeApp(name: string) {
 	const folder = join(container, 'code');
 	await mkdir(folder);
 	await mkdir(join(container, 'data'));
-	for (const [path, text] of Object.entries(template(name)))
+	for (const [path, text] of Object.entries(blank(name)))
 		await writeFile(join(folder, path), text);
 }
 
@@ -321,9 +415,17 @@ function installFailed(
 	name: string,
 	error: { message: string; next?: string },
 	json: boolean,
+	source?: CopiedSource,
 ) {
-	if (json) writeJson({ name, folder: join(appsDir(), name), error });
+	if (json)
+		writeJson({
+			name,
+			folder: join(appsDir(), name),
+			error,
+			...(source ? { source } : {}),
+		});
 	else {
+		writeSourceWarning(name, source);
 		writeErr(`${name}: ${error.message}`);
 		if (error.next) writeErr(`Run: ${error.next}`);
 	}

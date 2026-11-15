@@ -16,12 +16,22 @@ const { values } = parseArgs({
 	args: Bun.argv.slice(2),
 	options: {
 		outfile: { type: 'string', default: join(cli, 'dist', 'epicenter') },
+		target: { type: 'string' },
 	},
 });
 const carried = await collectAppPackage(
 	join(cli, '..', 'app'),
 	packageJson.version,
 );
+const targets = [
+	'bun-darwin-arm64',
+	'bun-darwin-x64',
+	'bun-linux-arm64',
+	'bun-linux-x64-baseline',
+] as const;
+const target = targets.find((target) => target === values.target);
+if (values.target !== undefined && target === undefined)
+	throw new Error(`Unsupported target ${values.target}`);
 // Bytecode needs an entry graph without top-level await, which the CLI's
 // entry keeps; the carried package is imported only when it is needed.
 const result = await Bun.build({
@@ -30,7 +40,11 @@ const result = await Bun.build({
 	// executable reads no `package.json` unless told to, and then finds only a
 	// package with an `index.js` at its root, never one whose entry `exports`
 	// names.
-	compile: { outfile: values.outfile, autoloadPackageJson: true },
+	compile: {
+		outfile: values.outfile,
+		autoloadPackageJson: true,
+		...(target ? { target } : {}),
+	},
 	target: 'bun',
 	format: 'esm',
 	minify: true,

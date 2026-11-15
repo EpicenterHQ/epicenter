@@ -25,6 +25,98 @@ on 2026-11-14. The author's live home later moved onto a Vault-based `main`,
 with that combined history kept as archive refs (ADR-0910). Ordinary commands
 do not import or retire nested repositories.
 
+## Install and try a writing inbox
+
+Writing is an ordinary app whose code is shared through export. Save
+thoughts, quotes, and links with their sources and projects, then search them
+from the browser, terminal, or an assistant. It needs no AI account or provider
+key. The executable supplies the runtime. `new --from` copies ordinary app files
+from GitHub into your Epicenter. No app is bundled in the executable.
+
+The release installer downloads a platform executable, verifies its SHA-256
+checksum, checks that it runs, and installs it in `~/.local/bin`. It requires
+Git, curl, and either shasum or sha256sum. Supported build targets are macOS and
+Linux on arm64 and x64. Install the developer preview with:
+
+```sh
+curl -fsSL https://github.com/EpicenterHQ/epicenter/releases/download/epicenter-cli-v0.1.0/install.sh | sh
+```
+
+`EPICENTER_DOWNLOAD_BASE` overrides the asset URL, for example when
+rehearsing downloads from a local HTTP server. `EPICENTER_INSTALL_DIR` overrides
+the absolute install directory. The installer replaces an existing executable
+only when it identifies itself as Epicenter. It refuses a symlink at that path.
+It leaves your Epicenter, shell configuration, and login services alone. If the
+directory is missing from PATH, its instructions use the executable's full path.
+
+With `~/.local/bin` on PATH and Git's `user.name` and `user.email` configured, create an Epicenter:
+
+```sh
+epicenter init ~/Epicenter
+cd ~/Epicenter
+epicenter new writing --from 'https://github.com/EpicenterHQ/epicenter#examples/writing'
+epicenter writing add 'An observation I want to return to' --source 'My notebook' --project 'Essay'
+epicenter writing search observation
+epicenter serve
+```
+
+Open `http://127.0.0.1:4747/writing/`. Save a real note, search for it, and open
+it to edit. Your notes are in `apps/writing/data/notes/`. Closing the terminal
+stops the server; the files remain. Keep unsubmitted text open until saved.
+
+To connect an assistant on this computer, add a Streamable HTTP MCP server at
+`http://127.0.0.1:4747/`. Ask it to find saved notes with their sources. You can
+also run a coding agent from this Epicenter and ask it to adapt
+`apps/writing/code/`. The [writing app README](../../examples/writing/README.md)
+explains one first change. Copied code belongs to you; later shared code
+does not replace it.
+
+Start on localhost. Add a private connection when another device needs access.
+On macOS, `epicenter service install` is an optional, explicit step to keep the
+server running at login. No login job is installed during onboarding.
+
+### Prepare release assets
+
+From the repository root, with dependencies installed:
+
+```sh
+bun run --cwd packages/cli release
+```
+
+This writes a native executable, its `.sha256` file, and a versioned `install.sh`
+under `packages/cli/dist/release/`. The installer points to the intended GitHub
+tag `epicenter-cli-v<VERSION>`. That URL works only after the assets are published.
+To prepare another target, pass `--target darwin-arm64`, `darwin-x64`,
+`linux-arm64`, or `linux-x64`. `--outdir` selects the artifact directory.
+Build and verify each platform before publishing its executable.
+
+The [CLI release workflow](../../.github/workflows/release.cli.yml) builds each
+target on a matching native runner. It installs downloads over HTTP in a fresh
+home, copies the exported writing app, saves a note, builds the UI, and
+finds the note over MCP, with Bun absent from PATH. A manual workflow run only
+uploads build artifacts. Pushing an `epicenter-cli-v<VERSION>` tag creates a
+prerelease draft after all four platforms pass, with Latest explicitly disabled.
+It never publishes automatically and does not reuse desktop app tags or the
+monorepo's global latest-release URL. Whispering uses that global address for
+updates; keep the CLI marked as a prerelease and leave Latest disabled when
+publishing it.
+
+To prepare a public release:
+
+1. Commit the intended CLI and runtime source. Publish `examples/writing/` on
+   the default branch before releasing; the workflow exercises a public Git
+   copy before creating the draft.
+2. Review the committed source, then tag that commit to match the CLI's version.
+   Push the tag to run the release workflow.
+3. Review the four native onboarding runs, assets, and draft's install instructions.
+4. Publish the draft as a prerelease with Latest disabled, then try its exact
+   install command without GitHub credentials.
+
+A local build from a dirty checkout is a rehearsal artifact. Do not upload it
+as a release of a different source commit. Each app's `engines.epicenter`
+declares its minimum runtime; keep the default branch compatible with the
+public CLI release. Copied apps record their source commit in `SOURCE.md`.
+
 Your Epicenter lives on a computer you control and keep on. `epicenter serve`
 offers its apps to devices on a private connection. An older laptop with
 Tailscale is one setup. See [a computer that stays on](../../docs/vision.md#a-computer-that-stays-on).
@@ -44,6 +136,7 @@ epicenter reading books set data/books/dune.md --finished null
 epicenter init <folder>
 epicenter init --from <private-origin> <folder>
 epicenter new notes
+epicenter new writing --from 'https://github.com/EpicenterHQ/epicenter#examples/writing'
 epicenter new recipes --from <path-or-url>
 epicenter export tasks ~/Code/my-project/code
 epicenter export --all ~/Code/shared-apps/apps
@@ -136,7 +229,6 @@ operation as the manual checkpoint command. A failure is logged once until
 it changes and cleared after success. Serve begins listening while its first
 checkpoint runs. Shutdown waits at most ten seconds for the final pass.
 The clock stays in serve; the service job only keeps serve running.
-
 
 ## Coordinate writes
 
@@ -261,12 +353,35 @@ repository or commit. Names are checked without regard to case and cannot
 be CLI command names. JSON reports `{ name, folder }`, with the container as
 folder. Text prints that path and `Run: epicenter <name>`.
 
+Without `--from`, `new` makes a blank app. To start with a usable app, copy a
+shared app with `--from`; the destination name can differ from the source's name.
+
 `epicenter new <name> --from <path|url>[#folder]` copies committed code:
 
 - A local path names a repository root or a subfolder inside one.
 - A URL names a repository root, or selects a subfolder with `#folder`.
 - An app container is accepted when its tracked `code/epicenter.ts` identifies
   the code subtree instead of a top-level declaration.
+
+The copy uses the commit cloned from the source. Files visible in a local source
+folder may differ from that commit. For local paths and non-bare `file://`
+repositories, `new` reports the copied commit and warns about tracked, staged,
+deleted, or untracked code it left out. It applies the same code filter as the
+copy, excluding records, local files, dependencies, builds, and provenance.
+The source is not changed or committed automatically.
+
+The private development commit and the public publication commit are separate.
+Committing an app in your Epicenter makes its code available to `export`;
+exporting writes files into the publication folder. Commit those exported files
+there before asking someone to copy that version with `new --from`. A refreshed
+export that is not committed is still outside the publication's copied commit.
+
+With `--json`, a copy adds `source: { commit, notCopied? }` to the result.
+`notCopied` lists relative code paths: an empty array means the local source
+was checked and matches; a missing key means no local working tree could be
+compared, and `null` means comparison failed. A comparison failure is a warning,
+not a failed copy. These differences are measured against the commit actually
+copied, so the report also covers a source commit made during the copy.
 
 The command uses a temporary shallow clone, then checks out selected committed
 files into the new container's ignored `.code-build-copy-*` directory before
@@ -286,6 +401,13 @@ and an optional JSON `links: [{ path, target }]`, with paths relative to code/.
 Install failure leaves the created app for repair. Copy or load failure removes
 only the container this command created. Opening a page triggers its first UI
 build; new does not build it.
+
+`new` creates a separate app with empty records; it never updates an existing
+one. To take a later code change, inspect the source commit in `SOURCE.md`,
+compare incoming code outside the live Epicenter, and adapt the existing
+`code/` while preserving `data/` and local changes. Test with the existing
+records before a named checkpoint. Committing a refreshed public export does
+not update apps people have already copied.
 
 ## Export app code
 
@@ -397,7 +519,7 @@ An app's UI is what its `code/ui/` builds to in `code/ui/dist/` ([ADR-0860](../.
 
 `epicenter build [<app>]` builds every app's UI from its sources now, or one app's, and shows the build's errors. It reports `UI built`, `nothing to build`, or a build error for each app. With `--json` it answers `{ "apps": [{ app, folder, built, error? }] }`, `built` saying whether there was a UI to build. A build error exits 1; another app can still build.
 
-Build output under `code/ui/dist/` is ignored by the root `.gitignore` and the code template's `.gitignore` ([ADR-0854](../../docs/adr/0854-an-apps-cache-is-the-files-it-gitignores.md)).
+Build output under `code/ui/dist/` is ignored by the root `.gitignore` and the blank app's `.gitignore` ([ADR-0854](../../docs/adr/0854-an-apps-cache-is-the-files-it-gitignores.md)).
 
 Compile the executable from the repository root:
 

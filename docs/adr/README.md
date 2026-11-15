@@ -1126,3 +1126,5 @@ When you add an ADR, add its row here.
 | [0907](0907-private-input-is-a-whole-call-handling-policy.md) | Private input is a whole-call handling policy | Accepted (amends 0906) |
 | [0910](0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md) | An Epicenter is one private repository, and each app keeps its code beside its data | Accepted (supersedes 0877 and 0884; amends 0842, 0870, 0876, 0883, 0885, 0887, 0893, and 0896) |
 | [0911](0911-export-copies-an-apps-committed-code-into-a-refreshable-directory.md) | Export copies an app's committed code into a refreshable directory | Accepted (amends 0910) |
+| [0912](0912-shared-app-code-comes-from-the-app-we-maintain.md) | Shared app code comes from the app we maintain | Proposed (amends 0891) |
+| [0913](0913-cli-developer-previews-are-non-latest-github-releases.md) | CLI developer previews are non-latest GitHub releases | Proposed (amends 0892) |
