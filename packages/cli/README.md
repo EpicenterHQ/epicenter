@@ -295,6 +295,13 @@ and the signalling error, so uncertain cleanup cannot advance completion.
 Deleting runtime state makes the latest occurrence due
 again. Commands must tolerate repetition; there is no exactly-once guarantee.
 
+The [daily task review example](examples/daily-task-review.md) runs
+[an ordinary script](examples/daily-task-review.ts) that reads `tasks list`
+and groups open tasks into a dated draft under `drafts/`. It changes no tasks,
+uses no model, and preserves an existing draft. Copy the declaration to
+<!-- doc-path-check: ignore-next-line -->
+`routines/daily-task-review.md` and the script to `scripts/daily-task-review.ts`
+in the home. The home's repository backs up the declaration, script, and drafts.
 See [ADR-0908](../../docs/adr/0908-serve-runs-the-homes-daily-routines.md).
 
 ## Serve-owned runs
