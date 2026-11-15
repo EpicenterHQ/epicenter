@@ -47,6 +47,11 @@ Keep small one-off element behavior beside the element. Extract an attachment
 when it names meaningful setup or cleanup, shares a rule, or provides function
 identity that its consumer observes. See [function identity](#when-a-name-earns-its-place).
 
+Whispering's `RecordingDetail.svelte` and `TransformationDetail.svelte` use
+`{@attach (node: HTMLElement) => node.focus()}` on their back controls. Follow
+that shape for small one-off element behavior; inspect its dependencies and
+the control's intended focus behavior before moving it.
+
 # Props Pattern
 
 ## Bindable Props And Ownership
@@ -152,6 +157,16 @@ props and preserve real draft ownership.
 <output>{code}</output>
 ```
 
+A binding can also read through an existing owner and send input to its
+operation, rather than recreate paired get/set props:
+
+```svelte
+<Textarea bind:value={() => draft.text, (text) => draft.inputText(text)} />
+```
+
+The arrow retains the method receiver if `inputText` needs it. The uppercase
+example transforms a local value; this example keeps the draft's own input rule.
+
 ### Template locals: narrow reactive values before use
 
 A callback can run after the check that created it. TypeScript may therefore
@@ -241,6 +256,22 @@ Tabs may select actual workspaces or workflows. Shared `Tabs.Content` owns panel
 mounting, so do not repeat `tab === value` inside each panel. A disabled trigger
 does not establish valid fields for a later event. Use forceMount only for a
 named retained lifetime.
+
+Keep unsubmitted Add, Send, or Save form input with the form. Bind shared
+`Textarea` and `Input` directly, using a function binding for a derived value,
+instead of an app-local component that only forwards bindings. Keep substantial
+UI, resources, format rules, and real editing lifetimes. Delayed commands keep
+their own lifetime and current-data checks.
+
+For an editor hunt, trace write mutations and the queries they update. Look for
+per-record Source tabs, raw-mode admission, and duplicated selection or tab
+conditions inside shared `Tabs.Content`. Keep path-operation facts and edit
+identities; name who preserves their information before removing an owner.
+Use the [input search recipes](input-ownership.md#search-recipes), then verify
+repair navigation. For writes that can fail, verify that the submitted input
+remains available and the failure is visible. Synchronous input refusals remain
+distinct from publication failures. Contract editors with queued saves keep
+their accepted input and availability handling at the contract owner.
 
 ## Inline Simple Props Types
 
@@ -349,6 +380,61 @@ Use callbacks when a child asks another owner to act. Keep the operation local
 when the child owns its whole lifetime. Neither a callback nor a shared dialog
 is, by itself, evidence of misplaced state.
 
+It's perfectly fine to instantiate multiple dialogs, one per row, rather than
+manage a single shared dialog with complex state. When the choice belongs to
+one row, its parent need not track which item is being deleted:
+
+```svelte
+<!-- DeleteItemButton.svelte; itemMutations.delete is a direct options entry. -->
+<script lang="ts">
+  import { createMutation } from '@tanstack/svelte-query';
+  import * as AlertDialog from '@epicenter/ui/alert-dialog';
+  import { Button, buttonVariants } from '@epicenter/ui/button';
+  import { itemMutations } from '$lib/query';
+  import { report } from '$lib/report';
+
+  let { item }: { item: { id: string; title: string } } = $props();
+  let open = $state(false);
+
+  const deleteItem = createMutation(() => ({
+    ...itemMutations.delete,
+    onError: (error) => report.error({ title: 'Could not delete item', cause: error }),
+  }));
+</script>
+
+<AlertDialog.Root bind:open>
+  <AlertDialog.Trigger class={buttonVariants({ variant: 'destructive' })}>
+    Delete
+  </AlertDialog.Trigger>
+  <AlertDialog.Content>
+    <AlertDialog.Header>
+      <AlertDialog.Title>Delete {item.title}?</AlertDialog.Title>
+      <AlertDialog.Description>This removes the item.</AlertDialog.Description>
+    </AlertDialog.Header>
+    <AlertDialog.Footer>
+      <AlertDialog.Cancel>Cancel</AlertDialog.Cancel>
+      <Button disabled={deleteItem.isPending} onclick={() => {
+        const id = item.id;
+        deleteItem.mutate({ id }, { onSuccess: () => open = false });
+      }}>Confirm delete</Button>
+    </AlertDialog.Footer>
+  </AlertDialog.Content>
+</AlertDialog.Root>
+
+<!-- Parent component -->
+{#each items as item (item.id)}
+  <DeleteItemButton {item} />
+{/each}
+```
+
+These app-local query and report names are illustrative. The entry has no
+existing completion callback to replace; preserve one if the real entry has it.
+Error reporting belongs to the mutation options, so removing the row does not
+skip it. Closing this row's dialog is a current-interaction reaction. If the
+reviewed choice or other work must survive the row, use a parent-owned dialog
+instead. Keeping delete behavior together can keep new row actions from adding
+selection and dialog bookkeeping to the parent.
+
 # View-mode boundaries
 
 Repeated mode checks can reveal separate responsibilities. Follow the data,
@@ -361,12 +447,50 @@ complete callers: moving checks into parents while adding many configuration
 props may only relocate the branching. The number of checks does not determine
 the component boundary.
 
+Three or more checks on the same flag are a useful investigation prompt: the
+component may be serving two purposes. For example, the same mode can choose
+data, controls, and empty text in separate locations:
+
+```svelte
+<script lang="ts">
+  const notes = $derived(isRecentlyDeletedView ? deletedNotes : filteredNotes);
+</script>
+
+{#if !isRecentlyDeletedView}<div>sort controls...</div>{/if}
+{#if isRecentlyDeletedView}No deleted notes{:else}No notes yet{/if}
+```
+
+One possible composition moves that choice to the parent:
+
+```svelte
+{#if viewState.isRecentlyDeletedView}
+  <NoteList
+    notes={notesState.deletedNotes}
+    title="Recently Deleted"
+    showControls={false}
+    emptyMessage="No deleted notes"
+  />
+{:else}
+  <NoteList notes={viewState.filteredNotes} title={viewState.folderName} />
+{/if}
+```
+
+The child renders the choices it receives, so the view-mode decision is in one
+place. The price is configuration props. Keep this composition when those props
+describe a useful common view; split workflows or retain local conditions when
+that makes their meaning clearer. A child with no mode flag is not a goal by
+itself.
+
 # Data-Driven Repetitive Markup
 
 Use an array and `{#each}` when repeated controls are instances of the same
 rule and only their data varies. Use a snippet when sharing markup makes that
 rule clearer. Keep cheap local repetition or different interactions inline;
 the number of siblings alone does not justify extraction.
+
+Three sequential siblings with only data varying are a useful place to look
+for a shared rule, not a requirement to extract. The sorting controls below
+share one selection rule; the toolbar snippet shares control composition.
 
 ```svelte
 <!-- Before: the same sorting rule repeated for each option. -->
@@ -435,6 +559,37 @@ without explaining a rule. Judge what disappears, not the number of functions.
 
 ## Why Inline?
 
+Single-use extracted bindings add indirection: the reader jumps between the
+script definition and the template to understand what happens on click,
+keydown, or render. Inlining keeps cause and effect together at the point
+where the action happens.
+
+```svelte
+<!-- Before: a helper only forwards an argument. -->
+<script lang="ts">
+  function handleSelectItem(itemId: string) {
+    goto(`/items/${itemId}`);
+  }
+</script>
+<Item onclick={() => handleSelectItem(item.id)} />
+
+<!-- After: the destination is visible beside the item. -->
+<Item onclick={() => goto(`/items/${item.id}`)} />
+```
+
+A single-use class string can add the same jump:
+
+```svelte
+<!-- Before -->
+<script lang="ts">
+  const rowClass = 'grid gap-3 rounded-md border bg-background px-3 py-3';
+</script>
+<div class={rowClass}>...</div>
+
+<!-- After -->
+<div class="grid gap-3 rounded-md border bg-background px-3 py-3">...</div>
+```
+
 A guard or several statements do not require a separate handler. Keep the
 permitted action beside the control when that makes it easier to understand:
 
@@ -461,6 +616,25 @@ the method needs `this`. Remove unused query entries and imports when their
 actual callers have disappeared; keep the underlying service if it still has
 consumers.
 
+Event-specific logic can also remain inline when its steps are easier to
+understand beside the element. Two shortcuts can fit here; extract a map when
+its size, shared rules, or documentation make a name useful:
+
+```svelte
+<svelte:window onkeydown={(event) => {
+  if (!event.metaKey && !event.ctrlKey) return;
+  if (event.key === 'k') {
+    event.preventDefault();
+    commandPaletteOpen = !commandPaletteOpen;
+    return;
+  }
+  if (event.key === 'n') {
+    event.preventDefault();
+    notesState.createNote();
+  }
+}} />
+```
+
 ## When A Name Earns Its Place
 
 Keep names for typed parsing or codecs, persistence and its failure handling,
@@ -469,6 +643,26 @@ names explain a non-obvious decision. A page-wide keyboard map can earn its name
 a textarea shortcut that only forwards to `send()` usually fits at the textarea.
 A named operation can return a Result to the handler that presents its outcome;
 see [error handling](../../error-handling/SKILL.md).
+
+```svelte
+<script lang="ts">
+  /**
+   * Navigate the note list with arrow keys, wrapping at boundaries.
+   * Operates on the flattened display-order ID list to respect date grouping.
+   */
+  function navigateWithArrowKeys(event: KeyboardEvent) {
+    // The navigation implementation belongs here.
+  }
+</script>
+
+<div role="listbox" aria-label="Notes" onkeydown={navigateWithArrowKeys} tabindex="-1">...</div>
+```
+
+The name and comment explain an ordering rule rather than forward a call.
+Add a comment when the decision itself needs an explanation; a comment is not
+required merely to justify the function. A documented state-to-class map can
+also earn its name when it parks a non-obvious decision, such as why a cell
+rings amber or why digits right-align, that would be buried in a class array.
 
 Retain locals that preserve type narrowing for deferred bindings, capture one
 operation's identity, or supply contextual typing a generic factory needs.
@@ -542,6 +736,10 @@ aliases; keep template locals needed to narrow optional values. See
 [refactoring methods](../../collapse-pass/references/refactoring-methods.md#keep-source-and-action-visible)
 and [template narrowing](#template-locals-narrow-reactive-values-before-use).
 
+Repeated shallow reads such as `editor.row` can stay direct so ownership
+remains visible at every use. Two uses alone do not establish useful caching,
+a shared rule, or an explanation that deserves another name.
+
 # Referential stability for reactive data sources
 
 Use `$derived` for a reactive projection when caching its computation or
@@ -554,6 +752,61 @@ An ordinary `{#each}` does not require a memoized array merely to render it.
 When row identity must survive reordering or replacement, use an appropriate
 each key. Keep existing upstream getters when required by their API; new read
 APIs can return the derived value through a method.
+
+For example, this read sorts again and returns a fresh array on every call:
+
+```ts
+const recordings = {
+  sorted: () => Array.from(map.values()).sort(
+    (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
+  ),
+};
+```
+
+Cache the projection when repeated computation or output identity matters:
+
+```ts
+const sorted = $derived(
+  Array.from(map.values()).sort(
+    (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
+  ),
+);
+
+const recordings = { sorted: () => sorted };
+```
+
+If a consumer feeds changes back into reactive state, investigate this loop:
+
+```text
+read produces a fresh array
+  -> consumer treats the data as changed
+  -> consumer writes reactive state
+  -> that write invalidates the read
+  -> another fresh array
+```
+
+TanStack Query's cache can hide this difference by preserving the same data
+reference between changes. A hand-built projection must earn that stability
+itself. Establish the actual feedback path before diagnosing a loop; reference
+comparison alone is not one. See the framework-specific guidance in
+[TanStack Table's data guide](https://tanstack.com/table/v8/docs/guide/data#give-data-a-stable-reference).
+
+A component prop can expose the same choice:
+
+```svelte
+<!-- Before: materializes the projection at the use. -->
+<FujiSidebar entries={entries.values().toArray()} />
+
+<!-- After: caches the projection in script. -->
+<script lang="ts">
+  const entriesArray = $derived(entries.values().toArray());
+</script>
+<FujiSidebar entries={entriesArray} />
+```
+
+Choose the second when the projection benefits from caching or the child
+observes identity. A child that only renders a cheap projection need not
+acquire another binding just because it receives an array.
 
 # Loading, empty, and error states
 
@@ -577,6 +830,95 @@ Use the app's established loading and empty components where they fit. Follow
 [readiness gates](lifecycle-and-reactivity.md#async-gate-variant) for promise
 ownership. Spinner choice and layout do not change who owns request state.
 
+## Complete readiness gate
+
+For monorepo apps, a routine page or panel pending state uses `Loading`.
+This example assumes `resource.whenReady` is stable and this block owns its
+failure presentation. Personal apps use their copied component imports.
+
+```svelte
+<script lang="ts">
+  import { Loading } from '@epicenter/ui/loading';
+  import * as Empty from '@epicenter/ui/empty';
+  import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
+</script>
+
+{#await resource.whenReady}
+  <Loading class="flex-1" label="Loading tabs..." />
+{:then}
+  <MainContent />
+{:catch}
+  <Empty.Root class="flex-1">
+    <Empty.Header>
+      <Empty.Media><TriangleAlertIcon class="size-8" /></Empty.Media>
+      <Empty.Title>Could not load tabs</Empty.Title>
+      <Empty.Description>Try reloading.</Empty.Description>
+    </Empty.Header>
+  </Empty.Root>
+{/await}
+```
+
+Use `Empty` for pending states that need custom media or actions. For example,
+a cancellable preparation step can have its own composition:
+
+```svelte
+<Empty.Root class="flex-1">
+  <Empty.Header>
+    <Empty.Media><Spinner class="size-5 text-muted-foreground" /></Empty.Media>
+    <Empty.Title>Preparing export...</Empty.Title>
+  </Empty.Header>
+  <Empty.Content><Button onclick={cancelExport}>Cancel export</Button></Empty.Content>
+</Empty.Root>
+```
+
+The operation must actually support cancellation. These markup examples assume
+their app's operations and components are in scope; presentation does not add
+a cancellation guarantee.
+
+## Inline and button progress
+
+Read the operation's pending state, rather than infer it from missing data:
+
+```svelte
+{#if query.isPending}
+  <div class="flex items-center justify-center">
+    <Spinner class="size-5 text-muted-foreground" />
+  </div>
+{:else if query.isError}
+  <ErrorState error={query.error} />
+{:else}
+  <Content data={query.data} />
+{/if}
+
+<Button onclick={handleAction} disabled={save.isPending}>
+  {#if save.isPending}<Spinner class="size-3.5" />{/if}
+  Submit
+</Button>
+```
+
+Keep the label while adding the spinner. In these compositions, `size-5` suits
+panel progress and `size-3.5` suits a compact button; use muted foreground for a
+quiet standalone spinner. Use the established component's defaults where they
+already provide this. A spinner is an affordance, not a substitute for naming
+the action or explaining a long wait.
+
+## Successful empty answer
+
+```svelte
+<Empty.Root class="py-8">
+  <Empty.Header>
+    <Empty.Media><FolderOpenIcon class="size-8 text-muted-foreground" /></Empty.Media>
+    <Empty.Title>No items found</Empty.Title>
+    <Empty.Description>Create an item to get started.</Empty.Description>
+  </Empty.Header>
+</Empty.Root>
+```
+
+Render this after a successful empty read. Import icons from their individual
+Lucide paths and components from the app's established component boundary.
+An error can use this anatomy when it fits, but it owns different copy and
+recovery actions from an empty result.
+
 # Derive from the owner of the fact
 
 Use a prop when it already carries the fact needed for a decision. If restore
@@ -588,6 +930,46 @@ empty-state text even when two views contain the same note. Read it from its
 owner or pass the relevant choice explicitly. Verify that two values mean the
 same thing before replacing one with the other; a shorter dependency list is
 not evidence that the information is equivalent.
+
+For restore eligibility, compare:
+
+```svelte
+<!-- Before: eligibility is inferred from the open view. -->
+<script lang="ts">
+  const showRestoreActions = $derived(viewState.isRecentlyDeletedView);
+</script>
+
+<!-- After: the prop already carries the relevant fact. -->
+<script lang="ts">
+  let { note }: { note: Note } = $props();
+  const isDeleted = $derived(note.deletedAt !== undefined);
+</script>
+```
+
+The second version works regardless of which view rendered the note. It drops
+a global-state import, and passing a deleted note is enough to exercise its
+eligibility behavior. Keep view mode for decisions it really owns, such as
+which controls a view offers or what its empty state says.
+
+A shallow alias can also add a jump without computing or narrowing anything:
+
+```svelte
+<!-- Before -->
+<script lang="ts">
+  const current = $derived(session.current);
+</script>
+{#if current}<AccountPopover principal={current.principal} />{/if}
+
+<!-- After -->
+{#if session.current}
+  <AccountPopover principal={session.current.principal} />
+{/if}
+```
+
+This example reads a property owner. A method read such as `auth.state()` may
+need one `$derived` local so several consumers can narrow the same answer;
+repeating the call does not preserve TypeScript's narrowing. A reactive local
+is not a second draft or a mount-time snapshot.
 
 # Template Gotchas
 
