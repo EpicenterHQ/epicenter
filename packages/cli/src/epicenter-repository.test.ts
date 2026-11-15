@@ -99,6 +99,7 @@ test('an Epicenter backs up what is beside its apps, and init --from rebuilds it
 	for (const path of [
 		'EPICENTER.md',
 		'AGENTS.md',
+		'theme.css',
 		'Zhongwen/entries/first.md',
 		'apps/vocab/epicenter.ts',
 		'apps/vocab/data/words/ni-hao.md',

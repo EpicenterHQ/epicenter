@@ -3,10 +3,18 @@
  * and writes it out for an app's tools: a UI bundled from `ui/index.html`
  * resolves `@epicenter/app/client` through the link to that copy, with no
  * source checkout to fall back on. Compiling takes several seconds, so this
- * is the one test that runs the binary.
+ * is the suite that runs the binary.
  */
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from 'bun:test';
-import { mkdtemp, readFile, readlink, realpath, rm } from 'node:fs/promises';
+import {
+	mkdtemp,
+	readdir,
+	readFile,
+	readlink,
+	realpath,
+	rm,
+	symlink,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fixture, gitignore, header } from './runner.test-support.ts';
@@ -171,6 +179,78 @@ test('serve relinks each app to the @epicenter/app it carries, and a UI built ag
 			serve.kill('SIGTERM');
 			await serve.exited;
 		}
+	} finally {
+		await rm(f.root, { recursive: true, force: true });
+	}
+});
+
+test('a compiled epicenter writes its default theme.css into a new Epicenter, and a UI linking it bundles those colors', async () => {
+	const f = await fixture();
+	try {
+		const fresh = join(f.root, 'Fresh');
+		const env = { ...f.env, XDG_DATA_HOME: join(f.root, 'xdg-data') };
+		const init = Bun.spawn([bin, 'init', fresh, '--json'], {
+			cwd: f.root,
+			env,
+			stdout: 'pipe',
+			stderr: 'pipe',
+		});
+		const [initOutput, initError, initCode] = await Promise.all([
+			new Response(init.stdout).text(),
+			new Response(init.stderr).text(),
+			init.exited,
+		]);
+		expect({ code: initCode, stderr: initError }).toEqual({
+			code: 0,
+			stderr: '',
+		});
+		expect(JSON.parse(initOutput).folder).toBe(fresh);
+		expect(await readFile(join(fresh, 'theme.css'), 'utf8')).toBe(
+			await readFile(
+				join(import.meta.dir, '..', '..', 'theme', 'src', 'theme.css'),
+				'utf8',
+			),
+		);
+		const app = await f.folder(
+			join(fresh, 'apps', 'vocab'),
+			{
+				'.gitignore': `${gitignore}ui/dist/\n`,
+				'epicenter.ts': `${header}export default defineApp({ description: 'Words', collections: {}, actions: { hello: defineAction({ description: 'Hello', input: {}, run: () => 'hi' }) } });\n`,
+				'ui/index.html':
+					'<!doctype html><html><head><link rel="stylesheet" href="./src/app.css"></head><body></body></html>\n',
+				'ui/src/app.css':
+					'@import "./theme.css";\nbody { color: var(--primary); }\n',
+			},
+			{ git: false },
+		);
+		await symlink('../../../../theme.css', join(app, 'ui', 'src', 'theme.css'));
+		const build = Bun.spawn([bin, 'build', 'vocab'], {
+			cwd: fresh,
+			env,
+			stdout: 'pipe',
+			stderr: 'pipe',
+		});
+		const [stdout, stderr, code] = await Promise.all([
+			new Response(build.stdout).text(),
+			new Response(build.stderr).text(),
+			build.exited,
+		]);
+		expect({ code, stdout, stderr }).toEqual({
+			code: 0,
+			stdout: 'vocab: UI built\n',
+			stderr: '',
+		});
+		const dist = join(app, 'ui', 'dist');
+		const files = (await readdir(dist, { recursive: true })).filter((file) =>
+			file.endsWith('.css'),
+		);
+		expect(files.length).toBeGreaterThan(0);
+		const css = (
+			await Promise.all(files.map((file) => readFile(join(dist, file), 'utf8')))
+		).join('\n');
+		expect(css).toContain('--sidebar-ring');
+		expect(css).toContain('--chart-5');
+		expect(css).toMatch(/color:\s*var\(--primary\)/);
 	} finally {
 		await rm(f.root, { recursive: true, force: true });
 	}

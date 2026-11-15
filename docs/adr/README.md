@@ -1121,3 +1121,4 @@ When you add an ADR, add its row here.
 | [0903](0903-the-home-is-a-computer-its-person-controls-never-one-epicenter-supplies.md) | The home is a computer its person controls, never one Epicenter supplies | Accepted (amends 0841, 0842, 0844, 0870, 0883, and 0887) |
 | [0905](0905-secret-input-makes-the-whole-action-confidential.md) | Secret input makes the whole action confidential | Accepted (amends 0870; amended by 0906) |
 | [0906](0906-confidentiality-is-explicit-action-metadata.md) | Confidentiality is explicit action metadata | Accepted (amends 0905) |
+| [0909](0909-an-epicenters-theme-is-one-plain-css-file-at-its-top-that-each-apps-ui-links-to.md) | An Epicenter's theme is one plain CSS file at its top that each app's UI links to | Proposed |

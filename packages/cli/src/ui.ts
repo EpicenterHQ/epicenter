@@ -14,6 +14,8 @@
  * of every file in its `src/`. So an upgraded `epicenter`, one run from
  * another checkout, or an edit to the client rebuilds every UI against the
  * client of the `serve` that answers it, and the build relinks the app to it.
+ * A link under `ui/` counts as the file it points to, so `ui/src/theme.css`
+ * linked to the Epicenter's `theme.css` rebuilds the UI when that file changes.
  *
  * An app is one Bun project, so a UI builds in the app's folder:
  *

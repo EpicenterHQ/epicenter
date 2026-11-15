@@ -282,6 +282,7 @@
       },
       "dependencies": {
         "@epicenter/app": "workspace:*",
+        "@epicenter/theme": "workspace:*",
         "@modelcontextprotocol/sdk": "catalog:",
         "typebox": "catalog:",
         "wellcrafted": "catalog:",
@@ -408,6 +409,9 @@
       "peerDependencies": {
         "tailwindcss": "^4.1.0",
       },
+      "optionalPeers": [
+        "tailwindcss",
+      ],
     },
     "packages/transcription": {
       "name": "@epicenter/transcription",

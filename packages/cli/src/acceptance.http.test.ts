@@ -525,6 +525,60 @@ test('serve builds the UI as it sits on disk when a page opens, waits only for t
 	expect((await fetch(`${f.base}/reading/.epicenter-build`)).status).toBe(404);
 });
 
+test('a UI that links the Epicenter theme.css rebuilds when it changes, and keeps its last build while the link finds nothing', async () => {
+	const f = await setup(async (f) => {
+		await writeFile(join(f.home, 'theme.css'), 'one\n');
+		const app = await f.folder(
+			join(f.apps, 'reading'),
+			{
+				...readingApp,
+				'.gitignore': `${readingApp['.gitignore']}ui/dist/\n`,
+				'package.json': `${JSON.stringify({ scripts: { build: 'mkdir -p "$EPICENTER_OUT" && cat ui/src/theme.css > "$EPICENTER_OUT/index.html"' } })}\n`,
+			},
+			{ git: false },
+		);
+		await mkdir(join(app, 'ui', 'src'), { recursive: true });
+		await symlink('../../../../theme.css', join(app, 'ui', 'src', 'theme.css'));
+		await gitIn(app, 'init', '-q');
+		await gitIn(app, 'config', 'user.name', 'Epicenter Test');
+		await gitIn(app, 'config', 'user.email', 'epicenter-test@example.com');
+		await gitIn(
+			app,
+			'add',
+			'epicenter.ts',
+			'.gitignore',
+			'package.json',
+			'ui/src/theme.css',
+		);
+		await gitIn(app, 'commit', '-q', '--no-verify', '-m', 'initial');
+		return app;
+	});
+	const opened = async (text: string) => {
+		for (let tries = 0; tries < 100; tries++) {
+			const response = await fetch(`${f.base}/reading/`);
+			if (response.ok && (await response.text()) === text) return true;
+			await Bun.sleep(100);
+		}
+		return false;
+	};
+	const first = await fetch(`${f.base}/reading/`);
+	expect([first.status, await first.text()]).toEqual([200, 'one\n']);
+	await writeFile(join(f.home, 'theme.css'), 'second\n');
+	expect(await opened('second\n')).toBe(true);
+	await rm(join(f.home, 'theme.css'));
+	await fetch(`${f.base}/reading/`);
+	for (
+		let tries = 0;
+		tries < 100 && !f.stderr().includes('reading: the UI did not build');
+		tries++
+	)
+		await Bun.sleep(100);
+	expect(f.stderr()).toContain('reading: the UI did not build');
+	expect(await (await fetch(`${f.base}/reading/`)).text()).toBe('second\n');
+	await writeFile(join(f.home, 'theme.css'), 'third\n');
+	expect(await opened('third\n')).toBe(true);
+});
+
 /**
  * Talk: `say` yields each word and returns them joined; `drip` writes, then
  * yields until its caller stops listening; `wait` yields once, then waits a

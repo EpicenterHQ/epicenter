@@ -2,7 +2,7 @@ import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { bareApp, fixture } from './runner.test-support.ts';
+import { bareApp, fixture, gitIn } from './runner.test-support.ts';
 
 setDefaultTimeout(30_000);
 const roots: string[] = [];
@@ -17,11 +17,12 @@ async function setup() {
 	return f;
 }
 
-test('init writes EPICENTER.md and starter guidance, keeps existing guidance, and refuses nesting', async () => {
+test('init writes EPICENTER.md, starter guidance, and the default theme, keeps existing files, and refuses nesting', async () => {
 	const f = await setup();
 	const folder = join(f.root, 'other');
 	await mkdir(folder);
 	await writeFile(join(folder, 'AGENTS.md'), 'Keep this guidance.\n');
+	await writeFile(join(folder, 'theme.css'), 'my colors\n');
 	const result = await f.run('init', folder, '--port', '4748', '--json');
 	expect(result.code).toBe(0);
 	expect(JSON.parse(result.stdout)).toEqual({ folder, port: 4748 });
@@ -31,6 +32,7 @@ test('init writes EPICENTER.md and starter guidance, keeps existing guidance, an
 	expect(await readFile(join(folder, 'AGENTS.md'), 'utf8')).toBe(
 		'Keep this guidance.\n',
 	);
+	expect(await readFile(join(folder, 'theme.css'), 'utf8')).toBe('my colors\n');
 	expect((await f.run('init', folder, '--json')).code).toBe(2);
 	expect((await f.run('init', join(folder, 'nested'), '--json')).code).toBe(2);
 	expect((await f.runIn(folder, 'init', 'nested', '--json')).code).toBe(2);
@@ -45,7 +47,15 @@ test('init writes EPICENTER.md and starter guidance, keeps existing guidance, an
 	expect(await readFile(join(fresh, 'EPICENTER.md'), 'utf8')).toStartWith(
 		'---\nport: 4747\n---\n',
 	);
+	expect(await readFile(join(fresh, 'theme.css'), 'utf8')).toBe(
+		await readFile(
+			join(import.meta.dir, '..', '..', 'theme', 'src', 'theme.css'),
+			'utf8',
+		),
+	);
+	expect((await gitIn(fresh, 'ls-files')).split('\n')).toContain('theme.css');
 	const starter = await readFile(join(fresh, 'AGENTS.md'), 'utf8');
+	expect(starter).toContain('ln -s ../../../../theme.css ui/src/theme.css');
 	expect(starter).toContain('epicenter sync <app> -m "<what you did>"');
 	expect(starter).toContain('An app is two Git');
 	expect(starter).toContain('data/.gitignore ignores them');

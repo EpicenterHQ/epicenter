@@ -5,6 +5,7 @@
 
 @import "tw-animate-css";
 @import "@epicenter/theme/theme.css";
+@import "@epicenter/theme/tailwind.css";
 
 @import "./prose.css";
 

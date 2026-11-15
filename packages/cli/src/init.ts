@@ -1,13 +1,15 @@
 /**
  * `epicenter init` writes the marker, `EPICENTER.md`, adds starter guidance
- * (ADR-0868), and makes the folder the Epicenter's own repository, its apps
- * in `apps/` (ADR-0884, ADR-0885).
+ * (ADR-0868) and the default `theme.css` (ADR-0909) where absent, and makes
+ * the folder the Epicenter's own repository, its apps in `apps/`
+ * (ADR-0884, ADR-0885).
  * `epicenter init --from <url>` instead rebuilds an Epicenter from that
  * repository and the repositories it lists.
  */
 import { existsSync, realpathSync } from 'node:fs';
 import { mkdir, readdir, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve } from 'node:path';
+import defaultTheme from '@epicenter/theme/theme.css' with { type: 'text' };
 import { extractErrorMessage } from 'wellcrafted/error';
 import { BAD_PORT, misuse, parseWords, portOf } from './commands.ts';
 import {
@@ -24,6 +26,9 @@ import {
 	isMarked,
 	MARKER,
 } from './root.ts';
+
+/** The stylesheet at an Epicenter's top that its apps' UIs link to: its colors and corner radius (ADR-0909). */
+const THEME = 'theme.css';
 
 /** The marker for an Epicenter served on `port`: a note for people, its port in the front matter. */
 const marker = (port: number) => `---
@@ -46,6 +51,14 @@ the epicenter.ts that is there, and a UI in ui/ rebuilds within about a second
 of a change to its files, committed or not. An action may read any file in
 this Epicenter, another app's records included (\`../tasks/data/tasks/...\`);
 change another app's data only through that app's actions.
+
+theme.css holds the colors and corner radius every app's UI shares, as plain
+CSS variables: :root for light and .dark for dark. A UI links to it from its
+own sources and imports the link; in the app's folder,
+\`ln -s ../../../../theme.css ui/src/theme.css\` makes it. An edit to
+theme.css makes serve rebuild a linking UI when it opens; the new styles
+appear on a page load after that build. Fonts, spacing, and component styles
+stay in each app.
 
 Prefer \`epicenter <app> <verb>\` to change an app's data: it checks each value
 against the app's fields and commits each call's files into the app's data
@@ -148,6 +161,10 @@ export async function initCommand(
 	if (!existsSync(join(folder, 'AGENTS.md'))) {
 		await writeFile(join(folder, 'AGENTS.md'), STARTER_AGENTS, { flag: 'wx' });
 		wrote.push('AGENTS.md');
+	}
+	if (!existsSync(join(folder, THEME))) {
+		await writeFile(join(folder, THEME), defaultTheme, { flag: 'wx' });
+		wrote.push(THEME);
 	}
 	await startEpicenterRepository(folder, wrote);
 	if (json) writeJson({ folder, port });
