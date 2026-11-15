@@ -44,7 +44,13 @@ destination Epicenter; new reports links that do not resolve.
 
 Read `packages/app/README.md` and one existing app before starting. Tasks is
 the smallest whole example. Keep private records out of code publication;
-publishing needs a separate code-only history, and no command builds it.
+publishing needs a separate code-only history. `epicenter export` writes code
+into a generated directory outside the private Epicenter; review, commit, and
+push the publication's outer repository with Git.
+
+The code travels through export; the records stay private. Someone taking the
+app copies committed code without its records or private history. A private
+origin can still back up the root, including all apps' records.
 
 Before shaping a collection, decide where its truth is (`docs/vision.md`,
 ADR-0896, ADR-0898), then copy the nearest example in `~/Epicenter/apps`:
@@ -266,6 +272,15 @@ whole app. History retained only in archive refs is outside `main`; fetch it
 explicitly into a separate recovery checkout. Keep the live home on its
 current branch.
 
+
+When recovering a bad write, inspect history and restore the relevant known
+version rather than retype its previous content, then record the repair in a
+named checkpoint so history says what happened. A field change and its record
+repair belong together. Restoring only code or only data can leave the
+declaration and records disagreeing; read the records' `other` and `problems`
+afterward. Keep the named checkpoint before risky work, without requiring
+separate code and data commits for every repair.
+
 ## Build the UI as a client
 
 Copy an existing app's `code/ui/` into the new app's `code/ui/`: Svelte on Bun's bundler, with `ui/build.ts`,
@@ -320,14 +335,16 @@ import `runs` from `@epicenter/app/client` and use
 it does not store a collection attachment. See the app package README for the
 run events, cancellation, and retention contract.
 
-Each call answers a Result: what the action returned, or a shared `ActionError`:
-`Changed`, `Missing`, `Threw`, `Refused`, `Unreachable`, or `Stopped`. Use the
-factories from `@epicenter/app` in actions. Check the name and its subject, never
-the message. A `Missing` may describe a dependency rather than the record being
-shown. An error does not establish what was saved or rolled back; reread the
-record when the outcome is uncertain and retain unsent writing. The layout creates one
-QueryClient from the UI's own `@tanstack/svelte-query`, with the invalidation
-rule from `query-layer`, and puts it
+Each call answers a Result: what the action returned, or an `ActionError`
+told apart by `name`: `Changed`, `Missing`, `Threw`, `Refused`, `Unreachable`,
+and `Stopped`. Actions construct them with `ActionError` from `@epicenter/app`;
+the client validates the shared contract and passes these errors through whole.
+Custom tagged throws stay in `Threw.thrown`. A name is the failure reason,
+not evidence of what was saved. Reconcile writes by rereading the record; keep
+submitted text until saving is confirmed. Check the name and typed subject
+fields, never the message: a page shows "it was deleted" only for `Missing`
+on its requested record. The layout creates one QueryClient from the UI's own
+`@tanstack/svelte-query`, with the invalidation rule from `query-layer`, and puts it
 in `<QueryClientProvider>`; pages read with
 `createQuery(() => reads.get({ path }))` and write with
 `createMutation(() => writes.set)`. That client refreshes every read after
@@ -336,13 +353,19 @@ again, so a page never refreshes by hand or on a timer. Name
 types with `ActionInput<typeof app.actions.set>` and
 `ActionOutput<typeof app.actions.get>`.
 
+Keep the QueryClient factory in the UI's own `src/lib/query-client.ts`, built
+on its own `@tanstack/svelte-query`, so the bundle carries one TanStack Query.
+Copy a suitable existing app's implementation and apply the current
+invalidation rule. Verify the helper's export in that app.
+
 An action that yields takes `onYield` after its input, to show its work as it
 comes: `app.chat.say({ message }, { onYield: (token) => (draft += token) })`
 resolves with the same Result once the reply is whole. Pass it where the page
 keeps its draft, and make that call the mutation's function, so every read
 still refreshes once it returns. A Stop button passes `{ signal }` too and
-aborts it; the call then resolves as the `Stopped` error, which is not a
-failure to show.
+aborts it. Recognize that local Stop using the controller captured for that
+request, not the error name alone: a dependency can also report `Stopped`.
+Neither a stop nor another failure confirms that cleanup or saving has finished.
 
 - Route a record by its whole path: the page is at `#/data/tasks/<time>.md`,
   linked with each part URL-encoded
@@ -357,6 +380,10 @@ failure to show.
 - Send `set` only the fields being submitted, and `null` for one emptied.
   Do not spread an entire cached record into a field update. Comparing with
   cached data can avoid a request; it cannot establish what is currently saved.
+  Submitting a title must not also write back a stale completion status from
+  the cached record. Skip `set` when there are no submitted fields; a `set`
+  with no field throws. An unchanged-looking value may still be an intentional
+  submission.
 - When draft, recovery, or workflow promises are unsettled, use
   [product-collapse](../product-collapse/SKILL.md) to choose the behavior.
   For settled behavior, choose each input's owner with
@@ -374,6 +401,66 @@ failure to show.
   with `error.message`.
 - Save on blur, on a pause, or on an explicit action, never on each keystroke.
   Checkpoints sample those files later; a call is not a commit boundary.
+
+### A draft over query data
+
+For an explicit-save form whose live preview reads unfinished input, keep the
+draft over the query's data so a refresh never overwrites typing. This view is
+keyed by the record's path and receives a successfully read file; `Textarea`
+and `Preview` are the app's components:
+
+```svelte
+<script lang="ts">
+  let { file }: { file: { path: string; body: string } } = $props();
+  let draft = $state<string>();
+</script>
+
+<Textarea
+  aria-label="Notes"
+  bind:value={() => draft ?? file.body, (value) => (draft = value)}
+/>
+<Preview text={draft ?? file.body} />
+```
+
+The preview gives this draft a live reader. Native controls remain the default
+for input read only at submission. Use `??` here because an empty string is
+real input. This example shows rendering and input ownership, not the whole
+save handler. For conflict detection, capture the quoted base when editing
+begins rather than replace it from a later refetch. Capture that base, the
+submitted text, and record identity before async work.
+
+Clear the draft only when saving is confirmed and completion still owns the
+same record, editing session, and draft, or disable editing while saving.
+Matching text alone is insufficient when the control can disappear or the
+selection can change. An older save must not erase newer typing. Keep failed
+or uncertain input for retry or deliberate discard, following
+[input ownership](../svelte/references/input-ownership.md#explicit-submission).
+An immediate editor that already owns accepted typing needs no second draft.
+
+### Fields, body, and conflict responses
+
+A form that submits fields and body through separate calls can save fields
+with `set` first, then save the body with `edit({ path, old: base, new: draft })`.
+This is a sequence, not a transaction: the fields can save while the body
+conflicts. Show that partial result and keep the submitted body available.
+Other workflows can choose another order; make their partial-success behavior
+explicit.
+
+Two earlier app designs illustrate different responses to a body conflict:
+
+- Capture's thoughts reapplied a small change against the newly read body.
+  Use that response when the change can be reapplied without discarding the
+  other writer's work.
+- Tasks' "Keep mine" kept what was typed, said it was not saved, and let the
+  person deliberately save over the other version. Use that response when
+  choosing which content to keep belongs to the person.
+
+These are strategy examples, not claims about those apps' current controls.
+For `Changed`, first match its path to the requested record, reread, and
+preserve the submitted text while resolving the conflict. A dependency can
+report `Changed` for another path. Neither an error name nor cache invalidation
+alone confirms what persisted. When last-write-wins is the agreed behavior,
+use the replacement action rather than add conflict machinery by default.
 
 ## Verify without touching the person's data
 
@@ -411,6 +498,12 @@ Only when the person asks, on the computer that runs `epicenter serve`:
 - To adapt later code, inspect a committed copy in a temporary home, then
   change the existing app's code/ deliberately. Preserve data/ beside it and
   repair records after changing fields. There is no automatic later merge.
+  Inspect the source commit recorded in `code/SOURCE.md`, compare incoming
+  code outside the live Epicenter, and test compatibility with the existing
+  records before a named checkpoint. A refreshed publication does not update
+  apps people have already copied. Bring contributions back into the maintained
+  app before refreshing an export, which would overwrite edits made in the
+  generated directory.
 - Back up the root to one optional private origin. A checkpoint commits all
   included pending files and pushes only there. Restore with one root clone
   and `epicenter init --from`, then recreate local credentials.
@@ -418,7 +511,10 @@ Only when the person asks, on the computer that runs `epicenter serve`:
   reviewed for private content. Never publish the private root history.
   Make or clone that code-only repository outside the private Epicenter:
   a Git repository inside it makes every checkpoint refuse.
-  No publication command is built.
+  Use `epicenter export` for the generated code directory, then review, commit,
+  and push the outer repository with Git. Recipients can read its history and
+  notes as well as its code: keep private record content out of those messages,
+  notes, and source files. Never publish the private root history.
 - `epicenter build [<app>]` rebuilds from code/ui/ while retaining the last
   good build. The project's own build script may empty its output first.
 - Run from inside the app's Epicenter. Another person's Epicenter is a
@@ -426,3 +522,40 @@ Only when the person asks, on the computer that runs `epicenter serve`:
 
 A running serve loads edited code on the next call and checks code/ui/ on a
 page load. It serves code/ui/dist/ and keeps the last good build while rebuilding.
+
+### Export code for sharing
+
+Keep the publication repository and its handwritten files outside the generated
+directory. For one app:
+
+```sh
+epicenter export tasks ~/Code/shared-tasks/code
+```
+
+```text
+shared-tasks/
+  .git/          publication history
+  README.md      publication notes
+  code/          generated and replaced by export
+    .epicenter-export.json
+    epicenter.ts
+```
+
+Export first makes a local checkpoint of included pending code, records, and
+staged work across the private Epicenter, then copies code from that commit.
+It excludes records, local files, dependencies, builds, provenance, and private
+history. It does not upload the private backup or publish the exported code.
+
+The command owns and replaces the generated directory, including edits and
+extra files inside it. A destination must be new, empty, or carry the matching
+export marker; Git metadata inside it is refused. Review and commit the exported
+files in the outer publication repository before someone copies that version.
+Exporting files does not commit them to the publication repository.
+
+To publish several apps, `epicenter export --all ~/Code/shared-apps/apps`
+generates one child per committed app under `apps/`. A recipient can copy one
+published app with
+`epicenter new tasks --from https://github.com/OWNER/shared-apps#apps/tasks`,
+replacing `OWNER` with the publication owner's username. See
+[the CLI's export contract](../../../packages/cli/README.md#export-app-code)
+for destination rules, shared files, and symlinks.

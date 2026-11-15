@@ -1,6 +1,6 @@
 ---
 name: diagnose
-description: Diagnose hard bugs and performance regressions with a reproduce-to-regression-test feedback loop. Use when the user reports broken, throwing, failing, or slow behavior or explicitly asks to diagnose or debug it.
+description: Find the cause of broken, throwing, failing, or slow behavior through a reproducible feedback loop, then lock the fix in with a regression test. Use when the user reports such behavior and its cause is not yet established, or explicitly asks to diagnose or debug it.
 metadata:
   upstream: mattpocock/skills
   forked: 2026-05-17
@@ -8,30 +8,34 @@ metadata:
 
 # Diagnose
 
-A discipline for hard bugs. Skip phases only when explicitly justified.
-
 Start with the user's symptom and the code path that could produce it. Use repo docs only when they directly shorten the path to a repro.
+
+Scale the procedure to what remains unknown. When the reproduction and the code establish the cause, state that evidence and go to Phase 5; the regression test, the original repro, and Phase 6 still apply. When evidence is ambiguous, contradictory, or timing-sensitive, keep diagnosing until a probe confirms the cause. A plausible explanation does not establish one.
 
 ## Phase 1 - Build a feedback loop
 
-**This is the skill.** Everything else is mechanical. If you have a fast, deterministic, agent-runnable pass/fail signal for the bug, you will find the cause - bisection, hypothesis-testing, and instrumentation all just consume that signal. If you don't have one, no amount of staring at code will save you.
+The diagnosis depends on this loop. A fast, deterministic, agent-runnable pass/fail signal for the bug gives bisection, hypothesis testing, and instrumentation something to consume; without one, reading code produces guesses. Invest here until you have a loop you trust.
 
-Spend disproportionate effort here. **Be aggressive. Be creative. Refuse to give up.**
+### Ways to construct one
 
-### Ways to construct one - try them in roughly this order
+Build the loop where the symptom shows. A symptom someone sees in the UI needs
+a loop that observes rendered output: view screenshots of the running app, not
+only DOM assertions. A symptom in the desktop app is reproduced in the native
+app, since a browser build or mocked bridge can lack the bug. Once the symptom
+reproduces there, a lower seam that fails the same way can become the fast
+loop. For other symptoms, and for that lower seam, try these in roughly this
+order:
 
 1. **Failing test** at whatever seam reaches the bug - unit, integration, e2e.
 2. **Curl / HTTP script** against a running dev server.
 3. **CLI invocation** with a fixture input, diffing stdout against a known-good snapshot.
-4. **Headless browser script** (Playwright / Puppeteer) - drives the UI, asserts on DOM/console/network.
+4. **Headless browser script** (Playwright / Puppeteer) - drives the UI, asserts on DOM/console/network, and captures screenshots to view when the symptom is visual.
 5. **Replay a captured trace.** Save a real network request / payload / event log to disk; replay it through the code path in isolation.
 6. **Throwaway harness.** Spin up a minimal subset of the system (one service, mocked deps) that exercises the bug code path with a single function call.
 7. **Property / fuzz loop.** If the bug is "sometimes wrong output", run 1000 random inputs and look for the failure mode.
 8. **Bisection harness.** If the bug appeared between two known states (commit, dataset, version), automate "boot at state X, check, repeat" so you can `git bisect run` it.
 9. **Differential loop.** Run the same input through old-version vs new-version (or two configs) and diff outputs.
-10. **HITL bash script.** Last resort. If a human must click, drive _them_ with `scripts/hitl-loop.template.sh` so the loop is still structured. Captured output feeds back to you.
-
-Build the right feedback loop, and the bug is 90% fixed.
+10. **HITL bash script.** Last resort. If a step needs a person (an OS-owned prompt, physical hardware, or a tool you lack), drive _them_ with `scripts/hitl-loop.template.sh` so the loop is still structured. Captured output feeds back to you.
 
 ### Iterate on the loop itself
 
@@ -41,7 +45,7 @@ Treat the loop as a product. Once you have _a_ loop, ask:
 - Can I make the signal sharper? (Assert on the specific symptom, not "didn't crash".)
 - Can I make it more deterministic? (Pin time, seed RNG, isolate filesystem, freeze network.)
 
-A 30-second flaky loop is barely better than no loop. A 2-second deterministic loop is a debugging superpower.
+A slow or flaky loop makes every later probe ambiguous.
 
 ### Non-deterministic bugs
 
@@ -67,7 +71,7 @@ Do not proceed until you reproduce the bug.
 
 ## Phase 3 - Hypothesise
 
-Generate **3-5 ranked hypotheses** before testing any of them. Single-hypothesis generation anchors on the first plausible idea.
+When the reproduction and the code already establish the cause, state it with that evidence and move to Phase 5. Otherwise, write down the causes the evidence makes plausible before testing any of them; holding several at once guards against anchoring on the first idea. List as many as the evidence supports, without padding.
 
 Each hypothesis must be **falsifiable**: state the prediction it makes.
 
@@ -75,11 +79,11 @@ Each hypothesis must be **falsifiable**: state the prediction it makes.
 
 If you cannot state the prediction, the hypothesis is a vibe - discard or sharpen it.
 
-**Show the ranked list to the user before testing.** They often have domain knowledge that re-ranks instantly ("we just deployed a change to #3"), or know hypotheses they've already ruled out. Cheap checkpoint, big time saver. Don't block on it - proceed with your ranking if the user is AFK.
+When several hypotheses remain, share the ranked list with the user and keep testing. They may know of a recent change or an already ruled-out cause that re-ranks it. Sharing it does not wait for a reply.
 
 ## Phase 4 - Instrument
 
-Each probe must map to a specific prediction from Phase 3. **Change one variable at a time.**
+Each probe must map to a specific prediction. **Change one variable at a time.**
 
 Tool preference:
 
@@ -111,10 +115,13 @@ If a correct seam exists:
 
 Required before declaring done:
 
-- [ ] Original repro no longer reproduces (re-run the Phase 1 loop)
+- [ ] Original repro no longer reproduces (re-run the Phase 1 loop, in the surface where the symptom appeared)
+- [ ] Journeys that share the changed path still behave as before
 - [ ] Regression test passes (or absence of seam is documented)
 - [ ] All `[DEBUG-...]` instrumentation removed (`grep` the prefix)
 - [ ] Throwaway prototypes deleted (or moved to a clearly-marked debug location)
-- [ ] The hypothesis that turned out correct is stated in the commit / PR message - so the next debugger learns
+- [ ] The established cause and its evidence are stated in the commit / PR message - so the next debugger learns
+
+If the surface where the symptom appeared could not be exercised, report the fix as unverified there instead of done.
 
 **Then ask: what would have prevented this bug?** If the answer involves architectural change (no good test seam, tangled callers, hidden coupling), capture the concrete follow-up where the team tracks follow-up work. Make the recommendation **after** the fix is in, not before - you have more information now than when you started.

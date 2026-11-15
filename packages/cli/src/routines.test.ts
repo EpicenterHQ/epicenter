@@ -314,6 +314,39 @@ test('paused routines do not run on checks but can be run explicitly', async () 
 	}
 });
 
+test('the daily task review writes a draft, excludes completed tasks, and preserves edits on rerun', async () => {
+	const f = await setup(['bun', 'scripts/daily-task-review.ts']);
+	await mkdir(join(f.home, 'scripts'));
+	await copyFile(
+		join(import.meta.dir, '../examples/daily-task-review.ts'),
+		join(f.home, 'scripts/daily-task-review.ts'),
+	);
+	await f.app(
+		'tasks',
+		`export default defineApp({ description: 'Tasks', collections: {}, actions: {
+    list: defineAction({ description: 'Tasks', input: {}, run: () => [
+      { path: 'data/tasks/one.md', title: 'An overdue task', done: false, due: '2000-01-01' },
+      { path: 'data/tasks/two.md', title: 'Already completed', done: true },
+      { path: 'data/tasks/three.md', title: 'Undated task', done: false }
+    ] })
+  } });`,
+	);
+	const result = await f.run('routines', 'run', 'review', '--json');
+	expect(result.code).toBe(0);
+	const today = new Date();
+	const day = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+	const draft = join(f.home, 'drafts', `task-review-${day}.md`);
+	const text = await readFile(draft, 'utf8');
+	expect(text).toContain('status: "draft"');
+	expect(text).toContain('An overdue task');
+	expect(text).toContain('../apps/tasks/data/tasks/one.md');
+	expect(text).not.toContain('Already completed');
+	expect(text).toContain('2 open tasks.');
+	await writeFile(draft, 'My edited draft\n');
+	expect((await f.run('routines', 'run', 'review')).code).toBe(0);
+	expect(await readFile(draft, 'utf8')).toBe('My edited draft\n');
+});
+
 test('daily catch-up respects daylight-saving gaps and calendar days', async () => {
 	const f = await setup();
 	const modulePath = join(import.meta.dir, 'routines.ts');

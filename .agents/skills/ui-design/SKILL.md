@@ -1,6 +1,6 @@
 ---
 name: ui-design
-description: Design and review Epicenter interfaces while collapsing local UI primitives into the shared component system. Use when co-designing, exploring comparable apps, turning a feature idea into Svelte UI, or changing `packages/ui`, not for a tiny CSS repair.
+description: Design and review Epicenter interfaces while collapsing local UI primitives into the established component system. Use when co-designing, exploring comparable apps, turning a feature idea into Svelte UI, or changing `packages/ui`, not for a tiny CSS repair.
 metadata:
   author: epicenter
   version: '1.0'
@@ -10,15 +10,21 @@ license: Complete terms in LICENSE.txt
 # UI Design
 
 `ui-design` preserves the user-visible objective while reimagining the simplest
-greenfield composition and collapsing local markup, arbitrary styling, and
-duplicated visual contracts into `@epicenter/ui`, except where app-specific
-behavior or a load-bearing interaction earns the custom shape.
+composition and collapsing local markup, arbitrary styling, and duplicated
+visual contracts into the established component system, except where
+app-specific behavior or a load-bearing interaction earns the custom shape.
 
-The existing screen is evidence, not a structure to reproduce. For Epicenter
-product apps, `@epicenter/ui` is the default system. Treat shadcn-svelte as
-implementation lineage and upstream grounding, not as an app import path.
+The existing screen is evidence, not a structure to reproduce. Monorepo apps
+use public `@epicenter/ui` imports. Personal apps in an Epicenter own copied
+components and theme CSS; follow [epicenter-app](../epicenter-app/SKILL.md) for
+their paths. Treat shadcn-svelte as the upstream component and pattern source.
 
 ## Canonical Path
+
+The person's explicit constraints bound the change. A palette, copy, or
+single-state request changes only that. Run the collapse pass within the
+surface you are changing; report wider opportunities instead of performing
+them. Reconsider the whole composition when that choice is open.
 
 1. Name the user-visible objective in one concrete sentence. When the product
    direction is unsettled, read
@@ -26,16 +32,21 @@ implementation lineage and upstream grounding, not as an app import path.
    choosing the composition.
 2. Read the current and neighboring surfaces. Inventory the workflow, hierarchy,
    accessibility, important states, and recognizable product intent that matter.
-3. Sketch the simplest greenfield composition using the natural anatomy of
-   existing `@epicenter/ui` primitives.
-4. Run the component-system collapse pass below. Refuse exact reproduction of
-   incidental markup, spacing, colors, breakpoints, and one-off states.
+3. Where composition is open, sketch the simplest greenfield shape using the
+   natural anatomy of the existing component system. For agent interactions,
+   consult the upstream patterns below when they fit the work.
+4. Run the component-system collapse pass below within the requested scope.
+   Refuse exact reproduction of incidental markup, spacing, colors,
+   breakpoints, and one-off states where the person has left those choices open.
 5. Implement the whole state surface: loading, empty, error, disabled, pending,
    selected, and filter-empty where relevant.
-6. Verify visible, responsive, and interactive results in the browser.
+6. Run the change and verify it as
+   [references/verification.md](references/verification.md) describes: view
+   screenshots of what looks different and exercise what behaves differently.
+   Check desktop-targeted UI in the native desktop app.
 7. Run UI pre-flight before final handoff or committing the change.
 
-For substantial work, state the design read:
+For substantial composition work, state the design read:
 
 ```txt
 Objective: <what the user accomplishes>.
@@ -45,8 +56,8 @@ Collapse: <the local structure or styling that disappears>.
 
 ## Component-System Collapse Pass
 
-Run this for every meaningful UI implementation or review, not only work called
-a redesign. This is the UI application of
+Run this within the requested scope for every meaningful UI implementation or
+review, not only work called a redesign. This is the UI application of
 [asymmetric-wins](../asymmetric-wins/SKILL.md); load that skill when a candidate
 refusal needs an explicit product-loss versus deletion-prize decision.
 
@@ -70,9 +81,33 @@ Implement obvious collapses directly. Ask the user only when the refusal changes
 workflow, hierarchy, product meaning, brand posture, or a plausibly load-bearing
 detail.
 
-Keep custom UI app-local only when it owns app-specific behavior or product
-meaning. Move a stable visual contract into `packages/ui` when several apps need
-it or it owns an accessibility or interaction contract.
+Keep custom UI app-local when it owns app-specific behavior or product meaning.
+For monorepo consumers, move a stable visual contract into `packages/ui` when
+several apps need it or it owns an accessibility or interaction contract.
+
+## Emphasis and theme coherence
+
+Make the reading path and current action clear. Judge quietness by how easily
+the person can read and act; larger type and stronger color are choices, not
+requirements. Keep one coherent visual language and change theme colors
+through semantic tokens. Inspect a token's callers before changing its role:
+in shadcn, `--accent` commonly supplies hover and other interactive surfaces.
+
+## Agent interactions
+
+When they fit the work, consult shadcn-svelte's
+[Trace](https://www.shadcn-svelte.com/docs/components/trace),
+[Code Block](https://www.shadcn-svelte.com/docs/components/code-block),
+[Questionnaire](https://www.shadcn-svelte.com/docs/components/questionnaire), and
+[AI Elements](https://www.shadcn-svelte.com/docs/ai-elements).
+Verify local exports and current upstream source and dependencies before
+adopting one; follow the component-system guide for its source ownership.
+
+Use the smallest composition that fits: a status line for one asynchronous
+action, a trace for several meaningful steps. Show only activity and status
+the source actually reports. A borrowed pattern keeps the app's verb: filling
+a draft and sending a message are different actions. A choice UI records a
+decision; the backend owns what it authorizes.
 
 ## Buttons And Tooltips
 
@@ -122,6 +157,9 @@ details that serve the chosen direction.
 - Read [references/anti-slop-tells.md](references/anti-slop-tells.md) for public,
   marketing, docs, portfolio-like, or highly polished work where templated output
   is a material risk.
+- Read [references/verification.md](references/verification.md) after
+  implementing any visible or interactive change, including a small CSS fix,
+  and when deciding what to report about a check you could not run.
 - Read [references/preflight.md](references/preflight.md) before final handoff or
   committing any visible UI change. Report only failures or intentional exceptions.
 
@@ -145,5 +183,6 @@ skill owns their implementation mechanics.
 
 ## Final Output
 
-Report the changed surfaces, browser verification, any material deletion prize,
-and only the custom shapes or pre-flight exceptions that intentionally remain.
+Report the changed surfaces, what you observed in the running app and any check
+left unverified, any material deletion prize, and only the custom shapes or
+pre-flight exceptions that intentionally remain.

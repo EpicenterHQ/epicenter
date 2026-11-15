@@ -33,14 +33,18 @@ behavior checks, not a subsystem inventory. A structural refactor needs enough
 of the affected system to establish where its state and rules now belong.
 Identify the files that support a finding; no fixed report layout is required.
 Load the focused skill for the touched surface, such as `testing`,
-`typescript`, or `svelte`, and escalate ownership, lifecycle, API, or
-package-boundary decisions to [rethink](../rethink/SKILL.md).
+`typescript`, or `svelte`. When the review leaves an ownership, lifecycle,
+API, or package-boundary question unresolved, or several repairs look like
+patches on one underlying problem, reason through it with
+[rethink](../rethink/SKILL.md) as part of this review. A question the
+implementation already settles soundly needs no separate pass.
 
 Before accepting the final shape, replay the change as if designing it from
-scratch. For a structural review, use the
-[concept inventory](../collapse-pass/references/concept-inventory.md) to visibly
-list the methods and concepts someone must understand and ask whether a simpler
-model could do the same job.
+scratch. When judging a structural change depends on what someone must
+understand, use the
+[concept inventory](../collapse-pass/references/concept-inventory.md) to list
+its methods and concepts and ask whether a simpler model could do the same
+job. Show that list when it helps the user judge the structure.
 
 ## Inspect the combined result
 
@@ -101,6 +105,11 @@ do not justify an edit.
 Inspect actual callers and run checks appropriate to the changed behavior.
 Search for removed or renamed symbols and stale imports, exports, tests, and
 documentation.
+
+For a change people see or use, check it running as
+[ui-design's verification reference](../ui-design/references/verification.md)
+describes; desktop-targeted behavior is checked in the native desktop app. A
+backend-only change needs its behavioral checks, not screenshots.
 
 Use the task-start baseline or an agreed review baseline to investigate
 failures. Current HEAD may already include earlier task changes, so reproducing

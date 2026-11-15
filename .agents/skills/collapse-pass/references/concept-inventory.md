@@ -4,8 +4,9 @@ Understand what the system needs to do and follow actual callers. Then step
 back: could it do the same job with a simpler model? A collection of reasonable
 parts can still ask someone to understand too much.
 
-Make that question concrete by visibly enumerating the surface someone must
-understand to use or change the relevant workflow, API, or subsystem. Include
+When the concepts or proposed changes are difficult to hold in mind, enumerate
+the surface someone must understand to use or change the relevant workflow,
+API, or subsystem. Include
 nouns such as types, objects, services, and stores, and inspect their methods,
 properties, object keys, options, and state variants. Group members by owner;
 explain what each represents or does and why it exists separately. Trace actual

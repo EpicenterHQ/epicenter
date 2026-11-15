@@ -74,6 +74,10 @@ and `@epicenter/local`'s is settings in memory. A test of desktop behavior
 mocks `isTauri` (`mock.module('@tauri-apps/api/core', ...)`) and the
 desktop module it loads.
 
+These tests and the browser build show the web branch and the mocked contract.
+Accept the desktop branch in the running native app, as the
+[tauri skill](../tauri/SKILL.md#verify-in-the-desktop-app) describes.
+
 `scripts/first-load.test.ts` builds every page source of each app with a
 desktop window (`firstLoadModules` from
 `@epicenter/vite-config/module-graph`) and fails when what loads before any
