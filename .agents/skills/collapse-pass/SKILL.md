@@ -74,6 +74,9 @@ around the work people do. A simpler workflow might eliminate an entire draft
 or recovery subsystem. Search for what would let each mechanism disappear,
 then compare the complete result.
 
+Use [product-collapse](../product-collapse/SKILL.md) when simpler product behavior
+could make machinery unnecessary and the experience needs the person's judgment.
+
 Ask which complexity is inherited from an earlier version of the idea.
 Establish what still depends on it today. Removing machinery whose purpose and
 consumers have disappeared need not sacrifice capability. Refusing a live

@@ -1,5 +1,11 @@
 # Immediate editing and explicit submission
 
+Choose the product's acceptance boundary before choosing the input owner.
+When that behavior is unsettled, use
+[product-collapse](../../product-collapse/SKILL.md) to decide what should be
+accepted on typing, blur, change, or Submit, and which unfinished work should
+survive leaving. The guidance below implements that choice.
+
 Choose the owner by when input becomes accepted application content. These are
 the two default content-input patterns. They do not classify every rune: dialog
 visibility, selection, request outcomes and widget history have other jobs.

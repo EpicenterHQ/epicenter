@@ -356,7 +356,10 @@ failure to show.
 - Send `set` only the fields being submitted, and `null` for one emptied.
   Do not spread an entire cached record into a field update. Comparing with
   cached data can avoid a request; it cannot establish what is currently saved.
-- Choose each input's owner with [input ownership](../svelte/references/input-ownership.md).
+- When draft, recovery, or workflow promises are unsettled, use
+  [product-collapse](../product-collapse/SKILL.md) to choose the behavior.
+  For settled behavior, choose each input's owner with
+  [input ownership](../svelte/references/input-ownership.md).
   Writes also arrive from other tabs, agents, and the command line; blocking
   local edits while pending prevents only this page's overlap.
 - Use `edit` with its quoted base (`old: base, new: draft`) when the app promises

@@ -1,6 +1,6 @@
 ---
 name: asymmetric-wins
-description: Identify an asymmetric win by refusing a small promise that would eliminate disproportionate complexity. Use when the user asks about asymmetric wins, pixel perfect fidelity, compatibility, fallbacks, modes, duplicate paths, or what would delete disproportionate complexity.
+description: Evaluate whether refusing a small promise would eliminate disproportionate complexity. Use when judging an asymmetric win or a proposed refusal of fidelity, compatibility, fallbacks, modes, or duplicate paths; use product-collapse to develop simpler product workflows.
 ---
 
 # Asymmetric Wins
@@ -38,9 +38,12 @@ simplification.
 
 ## Compose With
 
+- [Product collapse](../product-collapse/SKILL.md) develops simpler experiences
+  with the person, then works backward to their implementation. Use it when
+  choosing the behavior; this skill evaluates a particular refusal and its cost.
 - `one-sentence-test` detects the opportunity (the surface audit surfaces the
-  convenience feature that forces a second product sentence). This skill owns
-  the decision.
+  convenience feature that forces a second product sentence). This skill judges
+  the proposed refusal against the valuable workflow.
 - [Refactoring methods](../collapse-pass/references/refactoring-methods.md) guide caller counts, fixtures, state branches, styling branches,
   docs paths, and other code-family evidence before the refusal is executed.
 - `ui-design` owns visual direction, accessibility, brand, and whether a
