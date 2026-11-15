@@ -94,7 +94,8 @@ The [CLI release workflow](../../.github/workflows/release.cli.yml) builds each
 target on a matching native runner. It installs downloads over HTTP in a fresh
 home, copies the exported writing app, saves a note, builds the UI, and
 finds the note over MCP, with Bun absent from PATH. A manual workflow run only
-uploads build artifacts. Pushing an `epicenter-cli-v<VERSION>` tag creates a
+uploads build artifacts. After publication, enable its `verify-published` input
+to repeat all four trials against the public installer without credentials. Pushing an `epicenter-cli-v<VERSION>` tag creates a
 prerelease draft after all four platforms pass, with Latest explicitly disabled.
 It never publishes automatically and does not reuse desktop app tags or the
 monorepo's global latest-release URL. Whispering uses that global address for

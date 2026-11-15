@@ -6,10 +6,10 @@ import { join, resolve } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 
-const [assets, source] = Bun.argv.slice(2);
+const [assets, source, downloadBase] = Bun.argv.slice(2);
 if (!assets || !source)
 	throw new Error(
-		'Usage: bun scripts/smoke-release.ts <asset directory> <committed app source>',
+		'Usage: bun scripts/smoke-release.ts <asset directory> <committed app source> [public download URL]',
 	);
 const directory = resolve(assets);
 const home = await mkdtemp(join(tmpdir(), 'epicenter-onboarding-'));
@@ -38,8 +38,11 @@ const server = Bun.serve({
 		return new Response(Bun.file(join(directory, name)));
 	},
 });
-env.EPICENTER_DOWNLOAD_BASE = server.url.href;
-env.EPICENTER_INSTALLER_URL = new URL('install.sh', server.url).href;
+env.EPICENTER_DOWNLOAD_BASE = downloadBase ?? server.url.href;
+env.EPICENTER_INSTALLER_URL = new URL(
+	'install.sh',
+	`${env.EPICENTER_DOWNLOAD_BASE.replace(/\/$/, '')}/`,
+).href;
 const folder = join(home, 'Epicenter');
 const executable = join(home, '.local/bin/epicenter');
 let serving: Bun.Subprocess<'ignore', 'ignore', 'pipe'> | undefined;
