@@ -22,6 +22,9 @@ across topics and formats.
 Treat an accepted response as evidence about useful judgment, rather
 than a template to reproduce.
 
+Use examples as evidence for principles that future agents can apply to new
+cases.
+
 When the purpose of the guidance or the workflow it should produce is still
 unsettled, use [dialectic](../dialectic/SKILL.md) throughout: clarify the
 intent together, develop a greenfield vision, and work backward into concrete
@@ -36,11 +39,24 @@ Let the user examine that experience before settling the instructions
 that should produce it. Distinguish illustrative exchanges from results
 obtained by running the guidance.
 
+Reconsider the structure before polishing wording.
+
 Work backward from the recognized vision to responsibilities, structure,
 and wording. Existing skill and section boundaries remain open to change.
-You can rethink the whole while presenting coherent pieces at the user's
-pace. Put Current wording in a blockquote and Proposed wording in a
-copyable block, with explanation outside both.
+A short sketch of the proposed sections can make this concrete.
+
+How much you rethink and how much you show at once are separate choices: you
+can rethink a whole skill while reviewing one section, merge, or replacement
+at a time, at the user's pace. Put Current wording in a blockquote and Proposed
+wording in a copyable block, with explanation outside both.
+
+The user may accept the direction and still object to the wording; carry
+settled pieces forward and keep working on the rest. When behavior is at
+issue, show how each version would handle a realistic request.
+
+When reviewing the concrete form of a new skill, show the proposed instructions
+and intended interaction. Use the appropriate surface for other outputs, such
+as caller code, a rendered screen, or an action sequence.
 
 ## Find the guidance's owner
 
@@ -95,6 +111,8 @@ work each calls for. Revisit the description when the capability changes.
 Begin the body with the guidance itself; selection stays in the
 description.
 
+The body explains the judgment and workflow the skill applies.
+
 Keep the core readable on its own. Link to conditional detail with
 a concrete reason to read it. Keep examples that contribute judgment
 beyond the principle. Remove obsolete references and duplicated
@@ -105,7 +123,9 @@ instructions as part of the same change.
 Read the whole against the intended behavior and the guidance it
 composes with. Check what the instructions jointly encourage, what
 they leave unresolved, and whether they burden unrelated work.
+Check for clarity, repetition, and whether each rule sits with its owner.
 Discoveries may require revisiting an earlier understanding.
+A passage or example may show that the structure or intent needs revisiting.
 
 Choose verification around a concrete uncertainty. Check affected
 links after moving references. Check frontmatter and intended-host
@@ -142,6 +162,9 @@ hyphenated names and YAML frontmatter containing `name` and
 still serve the capability. Add host-specific scaffolding for an
 identified host requirement.
 
+For shared instruction files, follow the repository's
+[instruction ownership and Claude shim rules](../../../AGENTS.md#agent-instruction-files).
+
 For skills intended for Claude as well, create this relative link
 from the repository root, and update or remove it with the skill:
 
@@ -156,3 +179,4 @@ host-managed skill updates.
 When importing guidance, inspect its scripts, dependencies, external
 actions, and assumptions before using them. Adapt it to local
 conventions and identify the tools or credentials it requires.
+Work within the credentials and permissions available in the session.
