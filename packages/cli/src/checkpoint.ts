@@ -1,8 +1,8 @@
 /** One root checkpoint for manual calls and the host schedule. Never imports apps. */
 import { access, lstat, readdir, realpath } from 'node:fs/promises';
 import { join } from 'node:path';
-import { isLocalPath } from '@epicenter/app';
-import { git, gitMessage, originOf } from './git.js';
+import { isLocalPath, isName } from '@epicenter/app';
+import { git, gitMessage } from './git.js';
 import { type Held, hold } from './lock.js';
 
 type Problem = { message: string; next?: string };
@@ -192,62 +192,103 @@ function embedded(path: string, next: string): Problem {
 	};
 }
 
-async function push(root: string, result: Checkpoint, timeoutMs: number) {
-	const origin = await originOf(root);
-	if (!origin) return;
-	if (!origin.branch) {
-		result.pushFailed = { message: 'not on a branch, so nothing was pushed' };
-		return;
-	}
-	result.origin = origin.ahead === undefined ? null : { ahead: origin.ahead };
-	if (origin.ahead === 0) return;
-	const tracking = `refs/remotes/origin/${origin.branch}`;
-	const hasTracking = await git(root, ['rev-parse', '--verify', tracking]);
-	const range = hasTracking.code === 0 ? `${tracking}..HEAD` : 'HEAD';
-	const [local] = await unpushedLocalPaths(root, range);
-	if (local) {
+/** Upload only the inspected commit, independently of the local snapshot lock. */
+async function backup(
+	root: string,
+	{ head, branch }: Pick<Snapshot, 'head' | 'branch'>,
+	timeoutMs: number,
+) {
+	const result: Pick<Checkpoint, 'pushed' | 'origin' | 'pushFailed'> = {
+		pushed: false,
+		origin: null,
+	};
+	try {
+		if (!head || (await git(root, ['remote', 'get-url', 'origin'])).code !== 0)
+			return result;
+		if (!branch) {
+			result.pushFailed = { message: 'not on a branch, so nothing was pushed' };
+			return result;
+		}
+		const tracking = await git(root, [
+			'rev-parse',
+			'--verify',
+			`refs/remotes/origin/${branch}`,
+		]);
+		const range = tracking.code === 0 ? `${tracking.stdout}..${head}` : head;
+		if (tracking.code === 0) {
+			const ahead = await git(root, ['rev-list', '--count', range]);
+			if (ahead.code !== 0) throw new Error(gitMessage(['rev-list'], ahead));
+			result.origin = { ahead: Number(ahead.stdout) };
+			if (result.origin.ahead === 0) return result;
+		}
+		const [local] = await unpushedLocalPaths(root, range);
+		if (local) {
+			result.pushFailed = {
+				message: `${local} is in commits not yet pushed, so a push would copy it to origin`,
+				next: `git -C ${root} log --oneline ${range} -- ${local}`,
+			};
+			return result;
+		}
+		const args = ['push', 'origin', `${head}:refs/heads/${branch}`];
+		const pushed = await git(root, args, { timeoutMs });
+		if (pushed.timedOut) {
+			result.pushFailed = {
+				message: `push did not finish within ${timeoutMs === 600_000 ? '10 minutes' : `${timeoutMs / 1000} seconds`}; the deadline expired and the remote outcome is unconfirmed; the next pass safely retries with an ordinary non-force push`,
+				next: `for a very large first push, run once by hand: git -C ${root} push origin ${head}:refs/heads/${branch}`,
+			};
+		} else if (pushed.code !== 0) {
+			result.pushFailed = /non-fast-forward|fetch first/.test(pushed.stderr)
+				? {
+						message:
+							'the backup at origin has changes this computer does not; nothing was overwritten',
+						next: `git -C ${root} fetch origin && git -C ${root} log ${head}..origin/${branch}`,
+					}
+				: { message: gitMessage(args, pushed) };
+		} else {
+			result.pushed = true;
+			result.origin = { ahead: 0 };
+		}
+	} catch (error) {
 		result.pushFailed = {
-			message: `${local} is in commits not yet pushed, so a push would copy it to origin`,
-			next: `git -C ${root} log --oneline ${range} -- ${local}`,
+			message: error instanceof Error ? error.message : String(error),
 		};
-		return;
 	}
-	const args = ['push', 'origin', `HEAD:${origin.branch}`];
-	const pushed = await git(root, args, { timeoutMs });
-	if (pushed.timedOut) {
-		result.pushFailed = {
-			message: `push did not finish within ${timeoutMs === 600_000 ? '10 minutes' : `${timeoutMs / 1000} seconds`}; the deadline expired and the remote outcome is unconfirmed; the next pass safely retries with an ordinary non-force push`,
-			next: `for a very large first push, run once by hand: git -C ${root} push origin HEAD:${origin.branch}`,
-		};
-		return;
+	return result;
+}
+
+/** Describe the staged paths, without guessing whether a change is finished. */
+function checkpointMessage(paths: string[]) {
+	const groups = new Set<string>();
+	for (const path of paths) {
+		const [root, app, kind] = path.split('/');
+		groups.add(
+			root !== 'apps'
+				? 'root files'
+				: !isName(app)
+					? 'other files'
+					: `${app} ${kind === 'code' ? 'code' : kind === 'data' ? 'records' : 'files'}`,
+		);
 	}
-	if (pushed.code !== 0) {
-		result.pushFailed = /non-fast-forward|fetch first/.test(pushed.stderr)
-			? {
-					message:
-						'the backup at origin has changes this computer does not; nothing was overwritten',
-					next: `git -C ${root} fetch origin && git -C ${root} log HEAD..origin/${origin.branch}`,
-				}
-			: { message: gitMessage(args, pushed) };
-	} else {
-		result.pushed = true;
-		result.origin = { ahead: 0 };
-	}
+	const subject = `checkpoint: ${[...groups].sort().join(', ')}`;
+	return subject.length <= 100 ? subject : `checkpoint: ${paths.length} files`;
 }
 
 /**
  * Stage all included root files and consume the shared index in one commit.
- * Retry outstanding pushes after refusals and commit failures, except when
- * deferred or refusing a tracked local path. The push checks unpushed history.
+ * Capture HEAD and its branch before releasing the lock. No network work runs here.
  */
-export async function checkpoint(
+export async function snapshot(
 	root: string,
-	{
-		message,
-		pushTimeoutMs = 600_000,
-	}: { message?: string; pushTimeoutMs?: number } = {},
-): Promise<Checkpoint> {
-	const result: Checkpoint = { committed: null, pushed: false, origin: null };
+	{ message }: { message?: string } = {},
+) {
+	const result: {
+		committed: Checkpoint['committed'];
+		head?: string;
+		branch?: string;
+		deferred?: Problem;
+		failed?: Problem;
+		trackedLocal?: boolean;
+	} = { committed: null };
 	let held: Held | undefined;
 	try {
 		if (!(await isRepositoryTop(root))) {
@@ -294,51 +335,50 @@ export async function checkpoint(
 		}
 		const refused = await refusePending(root);
 		if (refused) {
-			const { trackedLocal: _trackedLocal, ...problem } = refused;
+			const { trackedLocal, ...problem } = refused;
 			result.failed = problem;
-		} else {
-			for (const args of [
-				['add', '-A', '--', '.'],
-				['diff', '--cached', '--quiet'],
-				['commit', '-q', '-m', message ?? 'checkpoint'],
-			]) {
-				const ran = await retryGit(root, args);
-				if (args[0] === 'diff' && ran.code === 0) break;
-				if (args[0] === 'diff' && ran.code === 1) continue;
-				if (ran.code !== 0) {
-					if (/index\.lock/.test(ran.stderr))
-						result.deferred = {
-							message: `Git is busy: another process holds the index lock\n${gitMessage(args, ran)}`,
-						};
-					else result.failed = { message: gitMessage(args, ran) };
-					break;
-				}
-				if (args[0] === 'commit') {
-					const commit = await git(root, ['rev-parse', 'HEAD']);
-					const files = await git(root, [
-						'diff-tree',
-						'--root',
-						'--no-commit-id',
-						'--name-only',
-						'-z',
-						'-r',
-						'HEAD',
-					]);
-					result.committed = {
-						commit: commit.stdout,
-						files: files.stdout.split('\0').filter(Boolean).length,
-					};
-				}
-			}
+			result.trackedLocal = trackedLocal;
 		}
-		if (!result.deferred && !refused?.trackedLocal) {
-			try {
-				await push(root, result, pushTimeoutMs);
-			} catch (error) {
-				result.pushFailed = {
-					message: error instanceof Error ? error.message : String(error),
+		const write = async (args: string[]) => {
+			const ran = await retryGit(root, args);
+			if (ran.code === 0) return true;
+			if (/index\.lock/.test(ran.stderr))
+				result.deferred = {
+					message: `Git is busy: another process holds the index lock\n${gitMessage(args, ran)}`,
 				};
-			}
+			else result.failed = { message: gitMessage(args, ran) };
+			return false;
+		};
+		let committedFiles: number | undefined;
+		if (!refused && (await write(['add', '-A', '--', '.']))) {
+			const changed = await git(root, [
+				'diff',
+				'--cached',
+				'--name-only',
+				'--no-renames',
+				'-z',
+			]);
+			if (changed.code !== 0) throw new Error(gitMessage(['diff'], changed));
+			const paths = changed.stdout.split('\0').filter(Boolean);
+			if (
+				paths.length &&
+				(await write([
+					'commit',
+					'-q',
+					'-m',
+					message ?? checkpointMessage(paths),
+				]))
+			)
+				committedFiles = paths.length;
+		}
+		const head = await git(root, ['rev-parse', '--verify', 'HEAD']);
+		if (head.code === 0) {
+			result.head = head.stdout;
+			if (committedFiles !== undefined)
+				result.committed = { commit: head.stdout, files: committedFiles };
+			result.branch = (
+				await git(root, ['symbolic-ref', '--quiet', '--short', 'HEAD'])
+			).stdout;
 		}
 	} catch (error) {
 		result.failed = {
@@ -347,6 +387,29 @@ export async function checkpoint(
 	} finally {
 		held?.release();
 	}
+	return result;
+}
+
+export type Snapshot = Awaited<ReturnType<typeof snapshot>>;
+
+/** Save locally, then retry the private backup without holding the repository lock. */
+export async function checkpoint(
+	root: string,
+	{
+		message,
+		pushTimeoutMs = 600_000,
+	}: { message?: string; pushTimeoutMs?: number } = {},
+): Promise<Checkpoint> {
+	const saved = await snapshot(root, { message });
+	const result: Checkpoint = {
+		committed: saved.committed,
+		pushed: false,
+		origin: null,
+	};
+	if (saved.deferred) result.deferred = saved.deferred;
+	if (saved.failed) result.failed = saved.failed;
+	if (!saved.deferred && !saved.trackedLocal)
+		Object.assign(result, await backup(root, saved, pushTimeoutMs));
 	return result;
 }
 

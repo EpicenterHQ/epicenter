@@ -21,6 +21,8 @@ the person's files were checked separately. The root MIGRATION.md records
 recovery paths and the archival tag namespace. Code-only publication and
 updates remain deliberate copies; no managed publisher or updater was added.
 
+- **Proposed amendment:** [ADR-0916](0916-export-saves-a-local-checkpoint-before-copying-code.md) adds local checkpointing before export, factual checkpoint subjects, and backup uploads outside the root lock.
+
 ## Context
 
 The previous source shape gave each app two repositories:
