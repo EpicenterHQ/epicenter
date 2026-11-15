@@ -406,6 +406,52 @@ body: |
 
 A placeholder such as `time` prints as a field: the command reads only the answer, which does not say which keys came from the path.
 
+## Check records
+
+`epicenter check [<app>]` reads every collection an app declares, or every
+app's, and reports the files that do not fit their collection's fields. A read
+never refuses such a file; it gives the file's `problems`
+(`../app/README.md#what-a-read-gives`). This command collects them for a whole
+app, so a person or an agent can repair the records, or the declaration.
+
+It reads each collection with its `check()` method in a read-only run of the
+app's folder, as a read-only action's run is: it takes no write lock and the
+folder refuses any write. A `.local` collection is checked too, and its
+problem lines never quote a value.
+
+For each collection the report gives its path template, the files it
+matched, and how many have problems; then each kind of problem with the number
+of files that have it, most frequent first; then each file's path and problem
+lines. A kind is a problem line without the value it quotes, as `check()`
+gives it, so `due: "next week"` and `due: "soon"` are one kind. When most files share one kind, the declaration is
+often too narrow, and one change to `epicenter.ts` repairs them all. A
+collection that matches no file says `0 files`.
+
+```txt
+$ epicenter check tasks
+tasks
+  items  data/items/{id}.md
+    5 files, 3 with problems
+    2  due is not a day like 2026-11-12
+    1  title is missing
+    data/items/a.md
+      due: "next week" is not a day like 2026-11-12
+    data/items/b.md
+      due: "soon" is not a day like 2026-11-12
+    data/items/c.md
+      title is missing
+  notes  data/notes/{slug}.md
+    0 files
+```
+
+With `--json` it answers
+`{ "apps": { <app>: { <collection>: { path, files, withProblems, kinds: [{ kind, count }], records: [{ path, problems }] } } }, "problems": [{ entry, folder, problems }] }`.
+`records` holds only files with problems. Without an app named, an app that
+does not load is listed under `problems`, as in the Epicenter listing, and the
+other apps are still checked; a read that fails lists its app there too. A
+named app that does not load did not run, exit 2. Otherwise the exit code is 0
+when no file has a problem, and 1 when any does or an app could not be checked.
+
 ## Checkpoint the root
 
 `epicenter checkpoint [-m <message>] [--json]` requires the selected Epicenter

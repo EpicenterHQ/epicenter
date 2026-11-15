@@ -1,6 +1,7 @@
 /** Dispatch commands and run checked app actions; actions leave their writes pending. */
 import { isName } from '@epicenter/app';
 import { buildCommand } from './build.ts';
+import { checkCommand } from './check.ts';
 import { checkpoint, renderCheckpoint } from './checkpoint.ts';
 import {
 	BAD_PORT,
@@ -62,6 +63,7 @@ const HANDLERS: { [K in Command]: Handler } = {
 	new: newCommand,
 	export: exportCommand,
 	build: buildCommand,
+	check: checkCommand,
 	service: serviceCommand,
 	routines: routinesCommand,
 	async checkpoint(words, json) {
