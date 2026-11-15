@@ -5,8 +5,8 @@
 import { Database } from 'bun:sqlite';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { appendFile, rm, stat, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { connect } from '@epicenter/app/client';
 import { linkAppPackage } from '../app-package.ts';
 import { fixture, gitIn } from '../runner.test-support.ts';

@@ -1,7 +1,7 @@
 /** Type checks for ordinary actions, file inputs, run controls, and yields. */
 import { expect, test } from 'bun:test';
 import { defineAction } from './action.ts';
-import { connect, runs, type ActionRun } from './client.ts';
+import { type ActionRun, connect, runs } from './client.ts';
 import { field } from './field.ts';
 
 const upload = defineAction({

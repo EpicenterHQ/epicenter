@@ -3,8 +3,9 @@
  * Verify durable admission, replay, observer independence, explicit cancellation,
  * recovery without execution, private inputs, and temporary-byte retention.
  */
-import { afterAll, afterEach, expect, test } from 'bun:test';
+
 import { Database } from 'bun:sqlite';
+import { afterAll, afterEach, expect, test } from 'bun:test';
 import {
 	chmod,
 	readdir,
