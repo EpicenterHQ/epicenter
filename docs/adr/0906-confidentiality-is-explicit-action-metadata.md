@@ -43,8 +43,8 @@ source of truth and no reservation on literal schema data. Authors classify
 the whole action explicitly rather than marking a field.
 
 Migrate existing confidential callers with the framework. An old helper option
-can be ignored when Bun loads an app without typechecking; simply removing the
-scan before migrating a caller would expose it as an ordinary action. Messages
+may be accepted by the compiler and ignored at runtime; removing the scan before
+migrating a caller would expose it as an ordinary action. Messages
 moves its declaration to the action flag in the same change. Older runners
 reject that new action key, so the migration fails closed before they upgrade.
 

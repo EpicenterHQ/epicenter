@@ -320,17 +320,14 @@ export function usageLine(
 	return [`epicenter ${appName} ${key}`, ...args].join(' ');
 }
 
-/** A map of fields as the JSON Schema of one object, without TypeBox's internal keywords. */
+/** A map of fields as the JSON Schema of one object; TypeBox's internal markers are non-enumerable. */
 export function jsonSchema(fields: Input): {
 	type: 'object';
 	properties?: Record<string, object>;
 	[key: string]: unknown;
 } {
 	const schema = JSON.parse(
-		JSON.stringify(
-			Type.Object(fields, { additionalProperties: false }),
-			(key, value) => (key.startsWith('~') ? undefined : value),
-		),
+		JSON.stringify(Type.Object(fields, { additionalProperties: false })),
 	);
 	const required = [...requiredKeys(fields)];
 	if (required.length) schema.required = required;
