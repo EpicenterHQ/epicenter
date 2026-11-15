@@ -2,6 +2,7 @@
 
 - **Status:** Accepted (2026-11-13)
 - **Date:** 2026-11-13
+- **Amended by:** [ADR-0908](0908-serve-runs-the-homes-daily-routines.md): scheduling ownership: serve runs daily routines declared by the home.
 - **Amends:** [ADR-0896](0896-each-collection-has-one-writer-of-record-and-epicenter-never-reconciles-two-writable-copies.md) at "Forms compose", which did not say what happens to an item at its source; at rule 4's "written only by the app's own pull", which a file syncer bringing Whispering's recordings home does not fit; and at "Not yet", which filed refusals beside things that wait.
 - **Amended by:** [ADR-0903](0903-the-home-is-a-computer-its-person-controls-owned-or-rented.md): "a hosted home" is withdrawn from Never.
 - **Relates:** [ADR-0859](0859-an-action-changes-the-folder-or-the-world-and-a-world-verb-is-safe-to-repeat.md) (a world verb is safe to repeat), [ADR-0882](0882-mail-leaves-mail-in-gmail-and-agents-change-it-through-proposals-the-person-applies.md) (Mail: proposals kept, the person applies).
