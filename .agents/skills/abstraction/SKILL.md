@@ -38,6 +38,7 @@ pretending the model has already settled.
 
 Show the material the person is judging, drawn from the work itself rather
 than an account of it: the actual code, wording, visible result, or comparison.
+Draw on sources such as the diff or the tests.
 Brevity should remove incidental details, not the material the person is trying
 to inspect. Let the scope of their judgment determine how much to show,
 including the complete change when requested.
@@ -46,8 +47,9 @@ For a revision, show current and proposed material together when their
 differences are what the person needs to judge. Show the rendered result
 when appearance or movement matters.
 
-A summary or file link may orient them. Choose further concrete material
-for the relationship it reveals or the judgment it makes possible.
+A summary, file link, or description of an effect may orient them. Choose
+further concrete material for the relationship it reveals or the judgment
+it makes possible.
 
 When reporting on work, show what changed in a form the person can scan: code,
 a before and after, or a small diagram, rather than naming the change in the
@@ -80,7 +82,9 @@ When viewpoints differ, show them separately. A compact `reader / author`,
 ## Reveal progressively
 
 Lead with the outcome, if there is one, and the relationship or distinction
-that makes it understandable. Connect the relevant facts to what they
+that makes it understandable. Then add the context, example, or qualification
+needed to make it recognizable. Defer background and machinery that do not
+affect the current judgment. Connect the relevant facts to what they
 establish for the person. Explain what an uncertainty could change for them.
 Include the requested material in the current response, with enough context
 to understand it.
@@ -94,6 +98,24 @@ Let the form follow the thought. Keep qualifications beside the claims they
 qualify, so readability does not imply more certainty than we have. If an
 omission could make something look absent, automatic, or settled, name that
 boundary briefly.
+Do not hide uncertainty just to make the surface clean.
+
+## A short pass
+
+Use this optional check for a draft that feels heavy or misses its point.
+It reviews a response; it does not set its structure.
+
+1. Read the conversation for the person's immediate aim, current model, and
+   point of uncertainty or leverage.
+2. Find the next judgment, insight, expression, or action the person needs.
+3. Keep the actors, decisions, handoff, and consequence required for that
+   moment.
+4. Choose the clearest surface: a short sequence, small diagram, example,
+   restatement, contrast, or paired viewpoint.
+5. Check that separate owners have not been collapsed and deferred decisions
+   have not been presented as settled.
+6. Remove incidental detail while preserving the requested material and the
+   evidence needed to learn, recognize, correct, express, or act.
 
 ## With dialectic
 
@@ -123,6 +145,9 @@ or other side effect.
 
 ## Watch for
 
+- A response that has grown larger than the judgment it is meant to support.
+  Remove incidental detail while preserving the requested material and the
+  evidence that judgment depends on.
 - **Inventory:** nouns without the relationship between them.
 - **Shortening:** fewer words but the same conceptual burden.
 - **Premature simplicity:** a distinction that mattered to the decision has

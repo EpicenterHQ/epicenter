@@ -54,6 +54,13 @@ unnecessary; that reasoning serves this task without starting a separate
 workflow. Let that understanding determine the edits. Scale investigation to
 the uncertainty; a local change can still be the best result.
 
+Before moving coordination to another owner, ask whether simpler product
+behavior could make it unnecessary. Trace the mechanism to the promise it
+serves; consider whether a native control or simpler workflow could do the job
+without the repair. Use [product-collapse](../product-collapse/SKILL.md) to
+develop changes to the experience with the user, making gains and losses
+explicit. Carry forward product choices already settled in the conversation.
+
 Moving behavior to a different owner is implementation work within the
 authorized outcome; explain the structural change, and ask only when it would
 change behavior, contracts, or guarantees the user has not settled. Show
@@ -68,9 +75,18 @@ consumers read it. Read from that owner and use its lifetime before adding a
 mirror or bookkeeping. Native controls can
 own unfinished values; an element can own attached DOM behavior. Keep separate
 state when it carries independent information for a reader or interaction.
-Compare the complete result: replacing a binding with refs, parsing, dirty
-flags, and reset effects can add coordination. Judge the coordination removed,
-not the rune count.
+
+Choose the trigger as well as the owner. A submitted operation's outcome
+belongs to its completion path; DOM behavior responding to a view transition
+can belong in an effect. A previous value may carry the history needed to
+recognize that transition.
+
+Compare the complete obligations, including what each caller must remember.
+Moving one reaction into several completion hooks redistributes a rule;
+removing an effect alone is no collapse. A relocation can improve ownership
+without reducing coordination. Explain what state, synchronization, or required
+wiring disappears and what the new owner takes on. Keep the current arrangement
+when the alternative only moves those obligations.
 
 Choose the owner before declaring state or extracting a handler:
 
@@ -81,7 +97,7 @@ Choose the owner before declaring state or extracting a handler:
 
 ## Svelte 5 Baseline
 
-- Use `$state` for reactive in-place updates and `$state.raw` for replace-only values. See [raw, snapshot and freezing](references/input-ownership.md#raw-snapshot-and-freezing) for proxy and submission boundaries.
+- Use `$state` for reactive in-place updates and `$state.raw` for replace-only values. Reach for raw state when the deep proxy buys reactivity you never use, such as a replace-only persisted store whose value is serialized or compared by reference. See [raw, snapshot and freezing](references/input-ownership.md#raw-snapshot-and-freezing) for proxy and submission boundaries.
 - Prefer `$derived` for computed state. Treat `$effect` as a browser-only escape hatch for DOM integration, analytics, subscriptions, and external systems. A returned cleanup runs before the effect re-runs and when the component is destroyed.
 - Props can change. Compute changing values with `$derived` or read the prop directly where used. Initialize an adapter once only when its owner is fixed for that component instance; reactive properties do not imply changing adapter identity. Read [lifecycle and reactivity](references/lifecycle-and-reactivity.md).
 - Treat props as parent-owned by default. Use callback props for commands and `$bindable` only for intentional two-way APIs such as UI wrappers, `bind:value`, `bind:open`, and `bind:ref`. Prefer `bind:value={get, set}` over paired read/write props on controlled inputs; see [function bindings](references/component-ui-patterns.md#function-bindings-for-transformed-values).
@@ -106,10 +122,18 @@ Choose the owner before declaring state or extracting a handler:
 - Keep simple component props inline. Use named `Props` only when a wrapper, generic relationship, exported contract, or native DOM type composition earns it. Push large view-mode branches into focused child components. Read [component and UI patterns](references/component-ui-patterns.md).
 - Use local `@epicenter/ui` loading, empty, pending, and tooltip components before ad hoc markup.
 
+Never write a per-capability adapter or getter facade; a capability that needs
+one does not have the shape yet. Reads keep their names:
+`folder.todos.items()`, `auth.state()`, and `ai.models()`. When several reads
+must narrow one value, read it once (`const signIn = $derived(auth.state())`).
+Actions pass through untracked, so an effect can call `void ai.refresh()`
+without subscribing to that action.
+
 ## Reference Map
 
 - Read [UI verification](../ui-design/references/verification.md) for visible or interactive changes: view screenshots for appearance, exercise changed interactions, and check desktop UI in the native app.
 - Read [Lifecycle and reactivity](references/lifecycle-and-reactivity.md) for keyed resources, readiness promises, cleanup, stable owners, value maps, reactive collections, contract editors, or state modules.
 - Read [query-layer](../query-layer/SKILL.md) for mutation arguments and shared options; read [mutation lifecycle](../query-layer/references/mutation-lifecycle.md) for callback ownership, ordering, admission guards, and retained variables.
+- Read [mutation examples](references/mutation-examples.md) for complete async buttons, local exports, direct `await`, and the point at which an interaction needs a mutation.
 - Read [Input ownership](references/input-ownership.md) for native controls, reactive drafts, commit-on-blur, submission cleanup, or proxy and snapshot choices.
 - Read [Component and UI patterns](references/component-ui-patterns.md) when a change touches `@epicenter/ui` imports, `$props` typing, `$bindable`, function bindings, snippets, DOM attachments, dialog ownership, view boundaries, repetitive markup, single-use helper inlining, loading or empty states, derivation from an existing owner, or template text gotchas.

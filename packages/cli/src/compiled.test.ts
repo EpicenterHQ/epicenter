@@ -7,6 +7,7 @@
  */
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from 'bun:test';
 import {
+	mkdir,
 	mkdtemp,
 	readFile,
 	readlink,
@@ -16,7 +17,8 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fixture, gitIn, gitignore, header } from './runner.test-support.ts';
+import { fixture, gitignore, header } from './runner.test-support.ts';
+import { writingSource } from './writing.test-support.js';
 
 setDefaultTimeout(120_000);
 
@@ -74,19 +76,111 @@ test('compiled export refreshes a collection without importing app code or copyi
 			).toBe(false);
 			if (!refresh) {
 				await writeFile(join(f.apps, 'tasks/code/added.txt'), 'added');
-				await gitIn(f.home, 'add', '--', 'apps/tasks/code/added.txt');
-				await gitIn(
-					f.home,
-					'commit',
-					'--no-verify',
-					'-qm',
-					'next code snapshot',
-				);
 			}
 		}
 		expect(await readFile(join(destination, 'tasks/added.txt'), 'utf8')).toBe(
 			'added',
 		);
+	} finally {
+		await rm(f.root, { recursive: true, force: true });
+	}
+});
+
+test('the compiled binary copies and builds a writing app from Git without Bun on PATH', async () => {
+	const f = await fixture();
+	const run = async (...words: string[]) => {
+		const child = Bun.spawn([bin, ...words], {
+			cwd: f.root,
+			env: {
+				...f.env,
+				PATH: '/usr/bin:/bin',
+				XDG_DATA_HOME: join(f.root, 'xdg-data'),
+			},
+			stdout: 'pipe',
+			stderr: 'pipe',
+		});
+		const [stdout, stderr, code] = await Promise.all([
+			new Response(child.stdout).text(),
+			new Response(child.stderr).text(),
+			child.exited,
+		]);
+		return { stdout, stderr, code };
+	};
+	try {
+		expect(
+			(
+				await run(
+					'new',
+					'writing',
+					'--from',
+					`file://${await writingSource(f)}#writing`,
+				)
+			).code,
+		).toBe(0);
+		expect(
+			(await run('writing', 'add', 'A note from the compiled starter')).code,
+		).toBe(0);
+		const found = await run('writing', 'search', 'compiled starter', '--json');
+		expect(found.code).toBe(0);
+		expect(JSON.parse(found.stdout).returned).toMatchObject([
+			{ body: 'A note from the compiled starter', kind: 'thought' },
+		]);
+		const built = await run('build', 'writing');
+		expect(built).toEqual({
+			code: 0,
+			stdout: 'writing: UI built\n',
+			stderr: '',
+		});
+		expect(
+			await readFile(join(f.apps, 'writing/code/ui/dist/index.html'), 'utf8'),
+		).toContain('Writing inbox');
+	} finally {
+		await rm(f.root, { recursive: true, force: true });
+	}
+});
+
+test('compiled routines invoke their own CLI and Bun runtime without depending on PATH', async () => {
+	const f = await fixture();
+	try {
+		await f.app(
+			'hello',
+			`export default defineApp({ description: 'Hello', collections: {}, actions: {
+			greet: defineAction({ description: 'Hello', input: {}, run: () => 'compiled action' })
+		} });`,
+		);
+		await mkdir(join(f.home, 'routines'));
+		for (const run of [
+			['epicenter', 'hello', 'greet'],
+			['bun', '-e', 'console.log("compiled runtime")'],
+		]) {
+			await writeFile(
+				join(f.home, 'routines/review.md'),
+				`---\ndaily: "08:00"\nrun: ${JSON.stringify(run)}\n---\n`,
+			);
+			const child = Bun.spawn([bin, 'routines', 'run', 'review', '--json'], {
+				cwd: f.home,
+				env: {
+					...f.env,
+					PATH: '/usr/bin:/bin',
+					XDG_DATA_HOME: join(f.root, 'xdg-data'),
+				},
+				stdout: 'pipe',
+				stderr: 'pipe',
+			});
+			const [stdout, stderr, code] = await Promise.all([
+				new Response(child.stdout).text(),
+				new Response(child.stderr).text(),
+				child.exited,
+			]);
+			expect({ code, stderr }).toEqual({ code: 0, stderr: '' });
+			expect(JSON.parse(stdout).attempt.outcome).toBe('succeeded');
+		}
+		const log = await readFile(
+			join(f.home, 'routines/review.local/output.log'),
+			'utf8',
+		);
+		expect(log).toContain('compiled action');
+		expect(log).toContain('compiled runtime');
 	} finally {
 		await rm(f.root, { recursive: true, force: true });
 	}

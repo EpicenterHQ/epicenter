@@ -1,0 +1,5 @@
+node_modules/
+.wrangler/
+.dev.vars
+compiler-artifact/
+proof-result.json

@@ -1,6 +1,6 @@
 ---
 name: styling
-description: CSS and Tailwind, cn(), flex layouts. Use for "style this", "fix the CSS", "add classes", "not scrolling", "overflow", Tailwind utilities.
+description: 'Write CSS and Tailwind for Epicenter''s Svelte UI and check the rendered result: cn(), flex layouts, scroll and overflow fixes, disabled states, and primitive overrides. Use when styling UI, fixing CSS, adding classes, correcting scrolling or overflow, or changing Tailwind utilities.'
 metadata:
   author: epicenter
   version: '1.0'
@@ -13,6 +13,16 @@ composition, or local wrapper behavior, read
 [ui-design's component-system reference](../ui-design/references/component-system.md)
 for upstream grounding. Ordinary Tailwind utilities and the repo-local layout
 rules below need no external lookup.
+
+## Look at the result
+
+A styling change is done when you have seen it render. Run the app with the
+change, capture a screenshot of the affected view where the problem showed (for
+overflow, the narrow width and the longest realistic content), and look at it.
+Recheck after each adjustment. Follow
+[ui-design's verification reference](../ui-design/references/verification.md)
+for choosing views, desktop-only surfaces, and reporting a view you could not
+check.
 
 ## Minimize Wrapper Elements
 

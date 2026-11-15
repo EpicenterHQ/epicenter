@@ -104,8 +104,9 @@ elsewhere: recordings, arrivals in an inbox, received mail.
 
 Apps never import, call, or subscribe to each other. You or an agent join
 them through actions. A move you repeat often becomes a prompt, then an action
-in a personal app. Scheduling belongs to the home: launchd, cron, or an
-agent's routine may call `epicenter <app> <action>`.
+in a personal app. The home opts into daily commands in `routines/`. While
+running, `serve` checks once a minute and catches up once to the latest due
+occurrence. A command may run an app action or start an agent ([ADR-0908]).
 
 | You want | Reach for |
 | --- | --- |
@@ -185,7 +186,6 @@ later source changes in place ([ADR-0910]).
 | a personal app | an app you made to join other apps: it holds the actions that cross them |
 | an outside app | any software that works without an Epicenter: Whispering, Gmail, Beeper, Todoist, a notes product; it is one of two kinds, a program or a service |
 | a program | an outside app that runs on your device: Whispering; the friendliest writes files in the shape an inside app's collections declare, in its own folder, and none has to |
-| a starter | committed app code, which someone else copies with `epicenter new --from` |
 | the home | the computer your Epicenter is on, which you control: it runs `epicenter serve` from a terminal, as a job the OS keeps running ([ADR-0878]), or as Epicenter for Mac ([ADR-0865]); you own it or rent it, and a rented one puts your files and sign-ins in its provider's hands; Epicenter never supplies it |
 | a service | an outside app that runs on someone else's servers and holds the truth of its own data: Gmail, a hosted notes service |
 | a source | where a pull copies from: a service, or a program's folder |
@@ -330,7 +330,7 @@ is whole at rung 1.
 | Move data | Git | never |
 | Reach | MCP | never |
 | An interface | Claude, any agent, or the terminal | you want to see or tap: a UI. It needs the device in a way a browser does not give: a program of its own, such as Whispering |
-| Run something later | the home's scheduler runs an action | never |
+| Run something daily | a home-owned routine, checked by `serve` | one current catch-up run; inspect its outcome with `epicenter routines` |
 
 ## Next, not yet, and never
 
@@ -346,13 +346,12 @@ is whole at rung 1.
 
 **Not yet; each needs the owner's yes:** a program delivering records to a
 home through actions; an offline queue of adds from a phone; moving a
-collection's truth; a published protocol for third parties; `serve` running
-pulls on a clock; Epicenter hosting any service.
+collection's truth; a published protocol for third parties; Epicenter hosting
+any service.
 
 **Never:** reconciling two writable copies or keeping two lists in step; a
 queue of edits made while the truth was unreachable; an event bus, triggers,
-or a workflow engine between apps; a scheduler of its own; a hosted home; a
-collection form that `serve` acts on; conflict markers or conflict files; an
+or a workflow engine between apps; a hosted home; a collection form that `serve` acts on; conflict markers or conflict files; an
 Epicenter app on every device holding a copy of each app; a folder kept in a
 browser; Epicenter holding third-party credentials; running other people's
 code in isolates or Durable Objects; Yjs or any CRDT in Epicenter.
@@ -382,7 +381,6 @@ fields are written one `key: <JSON>` line each.
 [ADR-0851]: adr/0851-an-app-has-one-home-and-an-optional-push-only-backup.md
 [ADR-0860]: adr/0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md
 [ADR-0865]: adr/0865-the-epicenter-mac-app-runs-epicenter-serve-so-the-computer-it-is-on-is-your-server.md
-[ADR-0866]: adr/0866-an-app-starts-from-a-starter-kept-as-its-upstream-and-update-merges-the-starters-changes.md
 [ADR-0867]: adr/0867-the-command-line-spells-an-actions-json-input-and-null-removes-a-field-there-as-everywhere.md
 [ADR-0870]: adr/0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md
 [ADR-0877]: adr/0877-an-apps-code-and-its-data-are-two-repositories-and-sharing-an-app-shares-its-code.md
@@ -397,5 +395,6 @@ fields are written one `key: <JSON>` line each.
 [ADR-0897]: adr/0897-hosted-notes-is-a-product-beside-epicenter-and-waits-for-a-month-of-evidence.md
 [ADR-0898]: adr/0898-what-arrives-is-cached-what-the-person-decides-is-kept-and-an-item-moves-by-transfer.md
 [ADR-0901]: adr/0901-an-app-is-inside-an-epicenter-or-outside-it.md
+[ADR-0908]: adr/0908-serve-runs-the-homes-daily-routines.md
 
 [ADR-0910]: adr/0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md

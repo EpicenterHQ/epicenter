@@ -1,0 +1,39 @@
+<!-- PROTOTYPE: Plain DOM controls for observing host-owned file runs. -->
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>PROTOTYPE: Host-owned runs</title>
+	<style>
+		body { font: 16px/1.5 system-ui; margin: 2rem auto; padding: 0 1rem; max-width: 70rem; }
+		label { display: block; margin: .75rem 0; }
+		button, input { font: inherit; }
+		button { margin: .25rem; }
+		pre { white-space: pre-wrap; overflow-wrap: anywhere; border-top: 1px solid #aaa; padding-top: 1rem; }
+		#run-id { overflow-wrap: anywhere; }
+	</style>
+</head>
+<body>
+	<h1>PROTOTYPE: Host-owned runs</h1>
+	<p>Start a slow run, reload this page midway, then attach from Pending. Closing this observer leaves the run on the host.</p>
+	<form id="start-form">
+		<label>File <input id="file" type="file" accept="audio/*,text/plain,application/octet-stream" required></label>
+		<label>Chunks for a binary file <input id="chunks" type="number" min="1" max="200" value="10"></label>
+		<label>Delay per chunk (ms) <input id="delay" type="number" min="0" max="5000" value="250"></label>
+		<button type="submit">Start</button><button id="cancel" type="button" disabled>Cancel</button>
+	</form>
+	<p>Current run: <output id="run-id">none</output></p>
+	<h2>Pending</h2>
+	<p id="pending-count"></p>
+	<button id="refresh" type="button">Refresh pending</button>
+	<ul id="pending"></ul>
+	<form id="attach-form">
+		<label>Attach id <input id="attach-id" type="text" required></label>
+		<button type="submit">Attach</button>
+	</form>
+	<h2>Events</h2>
+	<pre id="events" aria-live="polite"></pre>
+	<script type="module" src="./page.js"></script>
+</body>
+</html>

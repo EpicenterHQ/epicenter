@@ -1,0 +1,42 @@
+{
+  "name": "tasks-workers-prototype",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@cloudflare/worker-bundler": "0.2.6",
+    "@cloudflare/workers-types": "latest",
+    "@fontsource-variable/geist": "^5.2.9",
+    "@fontsource-variable/geist-mono": "^5.2.8",
+    "@internationalized/date": "^3",
+    "@lucide/svelte": "^0.561.0",
+    "@tanstack/svelte-query": "^6.4.1",
+    "bits-ui": "~2.21.0",
+    "clsx": "^2.1.1",
+    "mode-watcher": "^1.1.0",
+    "nanoid": "5.1.14",
+    "svelte": "5.56.3",
+    "svelte-sonner": "^1.0.6",
+    "tailwind-merge": "^3.4.0",
+    "tailwind-variants": "^3.2.2",
+    "tailwindcss": "^4.1.17",
+    "tw-animate-css": "^1.3.5",
+    "typebox": "1.0.0",
+    "typescript": "5.9.3",
+    "wellcrafted": "^0.47.0",
+    "wrangler": "4.162.0",
+    "yaml": "2.9.0"
+  },
+  "scripts": {
+    "dev": "bun run build:platform && wrangler dev --port 8799",
+    "deploy": "bun run build:platform && wrangler deploy --profile epicenter",
+    "prove": "bun prove.ts",
+    "build:platform": "bun platform-build.ts",
+    "prove:browser": "bun browser-proof.ts",
+    "typecheck": "tsc --noEmit --target esnext --module esnext --moduleResolution bundler --types @cloudflare/workers-types,bun --skipLibCheck --allowImportingTsExtensions src/worker.ts src/compiler.ts src/assets.d.ts source.ts prove.ts browser-proof.ts platform-build.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.4",
+    "playwright": "^1.65.1"
+  },
+  "license": "AGPL-3.0-or-later"
+}

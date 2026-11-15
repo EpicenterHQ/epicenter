@@ -1,6 +1,6 @@
 ---
 name: delegate-claude
-description: Delegate a bounded implementation, prototype, benchmark, or file artifact to Claude Code, which owns the reasoning and delivery in the current checkout or a selected standalone clone, directing a Codex helper as sole code writer for substantial changes. Use when an authorized task benefits from Claude's reasoning, design judgment, or taste, or when asked to delegate execution to Claude. Answer-only investigations, recommendations, and text drafts belong to consult-claude.
+description: Delegate a bounded implementation, prototype, benchmark, or file artifact to Claude Code, which owns the reasoning and delivery in the current checkout or a selected standalone clone, directing a Codex helper as sole code writer for substantial changes. Use when Claude should own a completed assignment or when asked to delegate execution to Claude. Bounded reasoning questions and text drafts belong to consult-claude, including when Codex owns the surrounding implementation.
 ---
 
 # Delegate Claude
@@ -28,12 +28,15 @@ The user's request to delegate, or authorization to complete the parent task,
 bounds the assignment; that authorization already covers bounded delegation.
 Delegation does not authorize publishing, deploying, sending messages, changing
 credentials, or expanding the product outcome. Use
-[consult-claude](../consult-claude/SKILL.md) when the requested result is an
-answer, recommendation, or text draft. When the user authorizes a delivered
-change, give Claude the investigation, design judgment, and implementation in
-one assignment. An uncertain mechanism or design does not require an initial
-consultation and a separate delivery handoff. Let Claude resolve those choices
-within the accepted outcome.
+[consult-claude](../consult-claude/SKILL.md) when Claude should own an answer,
+recommendation, or text draft, including when Codex owns the surrounding
+implementation. Authorization to implement does not by itself select
+delegation. When Claude owns delivery, give it the investigation, design
+judgment, and implementation in one assignment; an uncertain mechanism or
+design does not require a separate consultation first. Let Claude resolve
+those choices within the accepted outcome. Checks Claude cannot run inform
+the division of work but do not prevent it from owning a UI delivery; name
+them for coordinator acceptance.
 Stop with concrete evidence when a missing requirement would change the product
 outcome or assignment scope. Passing tests cannot establish an unstated
 requirement. Reserve independent adversarial review for consequential decisions,
@@ -100,11 +103,13 @@ coordinating checkout's absolute local path. These checks establish source
 provenance, not whether an existing clone is disposable. Consultation never
 accepts `--workspace`.
 
-Prepare required dependencies before launch. This route provides no task-network
-allowlist or local server binding. Before dispatch, identify checks Claude can
-run under those restrictions and checks Codex must run during acceptance,
-especially browser or local-server checks. A blocked check remains unverified
-until Codex performs it.
+Prepare required dependencies before launch. This route provides no
+task-network allowlist or local server binding. Claude and its helpers do not
+inherit the coordinator's browser or computer-use tools. Before dispatch, identify the
+checks Claude can run and the live checks Codex owns during acceptance:
+screenshots of changed views, exercised journeys, and desktop behavior in the
+native app. Ask Claude to return the views, states, and journeys those checks
+should cover. A blocked check remains unverified until Codex performs it.
 
 ## Dispatch and continue
 
@@ -222,12 +227,14 @@ Git metadata is also untrusted: inspect with
 to cover staged and unstaged tracked changes. List untracked artifacts with
 `git -c core.fsmonitor= -c core.hooksPath=/dev/null ls-files --others --exclude-standard`
 and inspect their contents before running checks with the coordinator's
-authority. Check the allowed paths and consumer contract, and reproduce the checks that decide acceptance, especially those
-Claude could not run. Identify which evidence came from Claude and which Codex
-reproduced. Do not repeat the full investigation. Return a focused failure to
-the same session rather than editing alongside Claude or commissioning another
-full panel. After acceptance, Codex resumes edits and owns continuity, including
-any post-implementation review the parent task requires. For a clone delivery,
+authority. Check the allowed paths and consumer contract, and reproduce the
+checks that decide acceptance, especially those Claude could not run, such as
+the visual and native checks named at dispatch. Identify which evidence came
+from Claude and which Codex reproduced. Do not repeat the full investigation.
+Return a focused failure to the same session rather than editing alongside
+Claude or commissioning another full panel. After acceptance, Codex resumes
+edits and owns continuity, including any post-implementation review the parent
+task requires. For a clone delivery,
 Codex applies accepted changes to the live checkout when the task needs them
 there.
 

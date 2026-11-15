@@ -5,8 +5,9 @@
  */
 import { afterEach, expect, test } from 'bun:test';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { connect } from './client.ts';
-import { defineAction, defineApp, defineCollection, field } from './index.ts';
+import { connect } from './client.js';
+import { ActionError } from './errors.js';
+import { defineAction, defineApp, defineCollection, field } from './index.js';
 
 const books = defineCollection({
 	path: 'data/books/{title}.md',
@@ -57,6 +58,19 @@ function answer(value: unknown) {
 }
 
 const app = connect<typeof reading>({ app: 'reading' });
+
+const count = defineAction({
+	description: 'Count',
+	input: {},
+	async *run() {
+		yield 1;
+		yield 2;
+		return 'done';
+	},
+});
+const counter = connect<{ actions: { count: typeof count } }>({
+	app: 'counter',
+});
 
 test('connect infers the app from document baseURI before location', async () => {
 	Object.defineProperty(globalThis, 'document', {
@@ -118,18 +132,6 @@ test("a call posts its input to the action's address and answers what the action
 });
 
 test('each value the action yields reaches onYield in order, however the lines arrive in chunks', async () => {
-	const yielding = defineAction({
-		description: 'Count',
-		input: {},
-		async *run() {
-			yield 1;
-			yield 2;
-			return 'done';
-		},
-	});
-	const counter = connect<{ actions: { count: typeof yielding } }>({
-		app: 'counter',
-	});
 	respond([
 		'{"yielded":1}\n{"yiel',
 		'ded":2}\n{"answer":',
@@ -149,17 +151,7 @@ test('each value the action yields reaches onYield in order, however the lines a
 	});
 });
 
-test('aborting the signal stops reading a yielding call, which resolves as Stopped', async () => {
-	const yielding = defineAction({
-		description: 'Count forever',
-		input: {},
-		async *run() {
-			for (;;) yield 1;
-		},
-	});
-	const counter = connect<{ actions: { count: typeof yielding } }>({
-		app: 'counter',
-	});
+test('aborting while awaiting a yield callback stops reading and resolves as Stopped', async () => {
 	// Like fetch, the body errors once the request's signal aborts.
 	globalThis.fetch = (async (_url: string, init: RequestInit) =>
 		new Response(
@@ -177,8 +169,9 @@ test('aborting the signal stops reading a yielding call, which resolves as Stopp
 	const stopped = await counter.count(
 		{},
 		{
-			onYield: (n) => {
+			onYield: async (n) => {
 				heard.push(n);
+				await Promise.resolve();
 				stop.abort();
 			},
 			signal: stop.signal,
@@ -193,6 +186,7 @@ test('each way serve answers without a value is its own error', async () => {
 		threw: {
 			message: 'data/books/Dune.md changed',
 			thrown: {
+				namespace: 'epicenter/action-error',
 				name: 'Changed',
 				message: 'data/books/Dune.md changed',
 				path: 'data/books/Dune.md',
@@ -214,6 +208,7 @@ test('each way serve answers without a value is its own error', async () => {
 		threw: {
 			message: 'There is no data/books/Dune.md',
 			thrown: {
+				namespace: 'epicenter/action-error',
 				name: 'Missing',
 				message: 'There is no data/books/Dune.md',
 				path: 'data/books/Dune.md',
@@ -255,4 +250,212 @@ test('each way serve answers without a value is its own error', async () => {
 		name: 'Unreachable',
 		message: 'Epicenter answered 502 Bad Gateway',
 	});
+});
+
+for (const asynchronous of [false, true]) {
+	for (const abort of [false, true]) {
+		test(`${asynchronous ? 'async' : 'sync'} callback failure rejects unchanged and cancels the response${abort ? ', even after aborting' : ''}`, async () => {
+			let cancelled = false;
+			const body = new ReadableStream<Uint8Array>({
+				start(controller) {
+					controller.enqueue(new TextEncoder().encode('{"yielded":1}\n'));
+				},
+				cancel() {
+					cancelled = true;
+					throw new Error('cleanup failed');
+				},
+			});
+			globalThis.fetch = (async () =>
+				new Response(body)) as unknown as typeof fetch;
+			const bug = new Error('callback failed');
+			const stop = new AbortController();
+			const fail = () => {
+				if (abort) stop.abort();
+				throw bug;
+			};
+			await expect(
+				counter.count(
+					{},
+					{
+						onYield: asynchronous ? async () => fail() : fail,
+						signal: stop.signal,
+					},
+				),
+			).rejects.toBe(bug);
+			expect(cancelled).toBe(true);
+			expect(body.locked).toBe(false);
+		});
+	}
+}
+
+test('async callbacks finish in order before the next yield is delivered', async () => {
+	respond(['{"yielded":1}\n{"yielded":2}\n{"answer":{"returned":"done"}}\n']);
+	const heard: string[] = [];
+	expect(
+		expectOk(
+			await counter.count(
+				{},
+				{
+					onYield: async (value) => {
+						heard.push(`start ${value}`);
+						await Promise.resolve();
+						heard.push(`end ${value}`);
+					},
+				},
+			),
+		),
+	).toBe('done');
+	expect(heard).toEqual(['start 1', 'end 1', 'start 2', 'end 2']);
+});
+
+for (const status of [200, 502]) {
+	test(`a ${status} response settles without waiting for EOF or cancellation cleanup`, async () => {
+		let cancelled = false;
+		const body = new ReadableStream<Uint8Array>({
+			start(controller) {
+				controller.enqueue(
+					new TextEncoder().encode(
+						'{"answer":{"returned":"done"}}\n{"answer":{"returned":"second"}}\n',
+					),
+				);
+			},
+			cancel() {
+				cancelled = true;
+				return new Promise<void>(() => {});
+			},
+		});
+		globalThis.fetch = (async () =>
+			new Response(body, { status })) as unknown as typeof fetch;
+		const result = await counter.count();
+		if (status === 200) expect(expectOk(result)).toBe('done');
+		else expect(expectErr(result).name).toBe('Unreachable');
+		expect(cancelled).toBe(true);
+		expect(body.locked).toBe(false);
+	});
+}
+
+test('a cancellation failure cannot replace a received answer', async () => {
+	const body = new ReadableStream<Uint8Array>({
+		start(controller) {
+			controller.enqueue(
+				new TextEncoder().encode('{"answer":{"returned":"done"}}\n'),
+			);
+		},
+		cancel() {
+			throw new Error('cleanup failed');
+		},
+	});
+	globalThis.fetch = (async () =>
+		new Response(body)) as unknown as typeof fetch;
+	expect(expectOk(await counter.count())).toBe('done');
+	expect(body.locked).toBe(false);
+});
+
+test('unmarked and malformed shared errors stay inside Threw with their fields intact', async () => {
+	for (const thrown of [
+		{ name: 'Missing', message: 'custom', recordId: 1 },
+		{ name: 'Missing', message: 'custom', path: 1 },
+		{ name: 'Changed', message: 'custom', path: 'data/a.md' },
+		{ name: 'Changed', message: 'custom', path: 'data/a.md', why: 'other' },
+		{ name: 'Changed', message: 'custom', path: 'data/a.md', why: 'toString' },
+		{ name: 'Stopped', message: 'custom', reason: 'an app-specific error' },
+		{
+			namespace: 'epicenter/action-error',
+			name: 'Changed',
+			message: 'bad',
+			path: 'data/a.md',
+			why: 'other',
+		},
+	]) {
+		answer({ threw: { message: thrown.message, thrown } });
+		expect(expectErr(await app.list())).toMatchObject({
+			name: 'Threw',
+			message: thrown.message,
+			thrown,
+		});
+	}
+	for (const why of ['quote', 'empty', 'kept'] as const) {
+		const thrown = {
+			namespace: 'epicenter/action-error' as const,
+			name: 'Changed' as const,
+			message: 'custom message',
+			path: 'data/a.md',
+			why,
+			extra: 1,
+		};
+		answer({ threw: { message: thrown.message, thrown } });
+		expect(expectErr(await app.list())).toEqual(thrown);
+	}
+});
+
+test('all shared error variants cross unchanged, including nested failures and Threw payloads', async () => {
+	const custom = {
+		name: 'ProposalChanged',
+		message: 'Review again',
+		proposal: 'p',
+	};
+	for (const result of [
+		ActionError.Changed({ path: 'data/a.md', why: 'quote' }),
+		ActionError.Missing({ path: 'data/a.md' }),
+		ActionError.Threw({ message: custom.message, thrown: custom }),
+		ActionError.Refused({ message: 'Dependency declined', next: 'Inspect it' }),
+		ActionError.Unreachable({ message: 'The model did not answer' }),
+		ActionError.Stopped({ message: 'The dependency stopped' }),
+	]) {
+		const thrown = { ...result.error, extra: 'retained' };
+		answer({ threw: { message: thrown.message, thrown } });
+		expect(expectErr(await app.list())).toEqual(thrown);
+	}
+	answer({ threw: { message: custom.message, thrown: custom } });
+	const error = expectErr(await app.list());
+	expect(error).toMatchObject({ name: 'Threw', thrown: custom });
+	if (error.name === 'Threw')
+		expect(error.thrown?.name).toBe('ProposalChanged');
+});
+
+test('malformed protocol frames and answer metadata resolve as Unreachable', async () => {
+	for (const frame of [
+		null,
+		42,
+		[],
+		{},
+		{ yielded: 1, answer: { returned: 2 } },
+		{ answer: null },
+		{ answer: 42 },
+		{ answer: [] },
+		{ answer: {} },
+		{ answer: { returned: 1, threw: { message: 'ambiguous' } } },
+		{ answer: { threw: { message: 42 } } },
+		{ answer: { threw: { message: 'bad', thrown: { name: 'Missing' } } } },
+		{ answer: { error: { message: 'bad', next: 42 } } },
+	]) {
+		respond([`${JSON.stringify(frame)}\n`]);
+		expect(expectErr(await app.list()).name).toBe('Unreachable');
+	}
+	respond(['not JSON\n']);
+	expect(expectErr(await app.list()).name).toBe('Unreachable');
+});
+
+test('request and response read failures resolve as Unreachable, while invalid local input rejects', async () => {
+	globalThis.fetch = (async () => {
+		throw new TypeError('offline');
+	}) as unknown as typeof fetch;
+	expect(expectErr(await app.list()).name).toBe('Unreachable');
+	globalThis.fetch = (async () =>
+		new Response(
+			new ReadableStream({
+				start(controller) {
+					controller.error(new TypeError('connection lost'));
+				},
+			}),
+		)) as unknown as typeof fetch;
+	expect(expectErr(await app.list()).name).toBe('Unreachable');
+	await expect(
+		app.get({
+			path: 'a',
+			toJSON() {
+				throw new Error('invalid input');
+			},
+		} as { path: string }),
+	).rejects.toThrow('invalid input');
 });

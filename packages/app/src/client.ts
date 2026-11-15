@@ -27,48 +27,22 @@
  *
  * The app is imported as a type, so the UI's bundle carries no app code.
  */
-import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import type { ActionYield } from './action.ts';
-import type { FileError } from './errors.ts';
-import type { JsonValue } from './front-matter.ts';
+import type { ActionYield } from './action.js';
+import { ActionError, isActionError } from './errors.js';
+import type { JsonValue } from './front-matter.js';
+import type { UploadedFile } from './field.js';
+import {
+	createRunMethods,
+	pendingRuns,
+	type Run,
+	type RunEvent,
+	type PendingRun,
+} from './run-client.prototype.js';
 
-/** The ways serve answers without a value, or does not answer. */
-const CallError = defineErrors({
-	/**
-	 * The action ran and threw something other than a `FileError`. `thrown`
-	 * is the tagged error it threw, kept whole, when it threw one.
-	 */
-	Threw: ({
-		message,
-		thrown,
-	}: {
-		message: string;
-		thrown?: { name: string; message: string } & Record<string, unknown>;
-	}) => ({ message, thrown }),
-	/** Nothing ran: the action, its input, or the app was wrong. `next` says what to do instead, when serve knows. */
-	Refused: ({ message, next }: { message: string; next?: string }) => ({
-		message,
-		next,
-	}),
-	/** No answer came back: serve could not be reached, or answered something other than an answer. */
-	Unreachable: ({ message }: { message: string }) => ({ message }),
-	/** The caller stopped the call with its `signal`. The action stopped at its next yield, and what it wrote is committed. */
-	Stopped: ({ message }: { message: string }) => ({ message }),
-});
+export { pendingRuns, type Run, type RunEvent, type PendingRun };
 
-/**
- * Why a call did not return, told apart by `name`:
- *
- * - `Changed`: what the call changes changed since it was read (a collection
- *   `edit` whose quoted text is gone). Show the latest rather than overwrite it.
- * - `Missing`: there is no file at the path asked for; it was deleted, here or elsewhere.
- * - `Threw`: the action threw anything else.
- * - `Refused`: nothing ran, because the call was wrong.
- * - `Unreachable`: serve did not answer.
- * - `Stopped`: the caller stopped a yielding call with its `signal`.
- */
-export type ActionError = InferErrors<typeof CallError> | FileError;
+export type { ActionError } from './errors.js';
 
 /** `T` flattened into one object type. */
 type Flat<T> = { [K in keyof T]: T[K] } & {};
@@ -110,12 +84,26 @@ export type ActionOutput<A> = A extends (input: never) => infer Out
 	? JsonOf<Awaited<Out>>
 	: never;
 
+/** PROTOTYPE: Browser files replace the host's uploaded file handles, including optional files. */
+type BrowserInput<T> = T extends UploadedFile ? Blob : T;
+type RunInput<In> = { [K in keyof In]: BrowserInput<In[K]> };
+
+type RunMethods<A> = {
+	start(
+		...args: Record<string, never> extends ActionInput<A>
+			? [input?: RunInput<ActionInput<A>>]
+			: [input: RunInput<ActionInput<A>>]
+	): Run<JsonOf<ActionYield<A>>, ActionOutput<A>>;
+	attach(id: string): Run<JsonOf<ActionYield<A>>, ActionOutput<A>>;
+	pending(): PendingRun[];
+};
+
 /** What a call of action `A` may take after its input, when `A` yields: `onYield`, and a `signal` that stops it. */
 type CallOptions<A> = [ActionYield<A>] extends [never]
 	? []
 	: [
 			options?: {
-				onYield?: (value: JsonOf<ActionYield<A>>) => void;
+				onYield?: (value: JsonOf<ActionYield<A>>) => unknown;
 				signal?: AbortSignal;
 			},
 		];
@@ -123,20 +111,24 @@ type CallOptions<A> = [ActionYield<A>] extends [never]
 /**
  * The client for actions `A`: each action a function of its input, each
  * group under its word. An action that yields also takes `{ onYield }`,
- * which receives each value as the action yields it, and `{ signal }`,
- * which stops it at its next yield; the call still resolves to what the
- * action returned, or `Stopped`.
+ * which receives each value in order and may return a promise to wait for,
+ * and `{ signal }`, which stops it at its next yield. The call resolves to what the
+ * action returned, or `Stopped`. If `onYield` throws or rejects, the call
+ * rejects with that error and stops reading the response.
+ * PROTOTYPE: `start`, `attach`, and `pending` are run methods; action or
+ * group members with those names are unreachable through the client.
  */
 export type AppClient<A> = {
 	readonly [K in keyof A]: A[K] extends (input: never) => unknown
-		? (
+		? ((
 				...args: [
 					...(Record<string, never> extends ActionInput<A[K]>
 						? [input?: ActionInput<A[K]>]
 						: [input: ActionInput<A[K]>]),
 					...CallOptions<A[K]>,
 				]
-			) => Promise<Result<ActionOutput<A[K]>, ActionError>>
+			) => Promise<Result<ActionOutput<A[K]>, ActionError>>) &
+				RunMethods<A[K]>
 		: AppClient<A[K]>;
 };
 
@@ -158,13 +150,31 @@ export function connect<App extends { actions: object }>({
 	const base = url.endsWith('/') ? url : `${url}/`;
 	const at = (words: string[]): unknown =>
 		new Proxy(() => {}, {
-			get: (_, key) =>
-				typeof key === 'string' && key !== 'then'
+			get: (_, key) => {
+				if (
+					words.length > 0 &&
+					(key === 'start' || key === 'attach' || key === 'pending')
+				)
+					return createRunMethods({
+						base,
+						app: name,
+						action: words.join('.'),
+						answered,
+					})[key];
+				return typeof key === 'string' && key !== 'then'
 					? at([...words, key])
-					: undefined,
+					: undefined;
+			},
 			apply: async (_, __, [input, options]) => {
 				if (words.length === 0)
 					throw new Error(`Call one of ${name}'s actions, not the app`);
+				if (
+					input &&
+					Object.values(input).some((value) => value instanceof Blob)
+				)
+					return ActionError.Refused({
+						message: 'This action takes a file; start it with .start(input)',
+					});
 				return call(
 					`${base}${encodeURIComponent(name)}/${words.join('.')}`,
 					input ?? {},
@@ -191,29 +201,101 @@ function appOfPage(): string {
 }
 
 /**
- * Each JSON value in a response of JSON lines, as its line arrives. Read with
- * `getReader`, since Safari cannot iterate a stream with `for await`.
+ * Own the request and its JSON lines, translating transport and decoding
+ * failures into `Unreachable` or `Stopped`. Code consuming a yield runs
+ * outside this catch.
+ * Read with `getReader`, since Safari cannot iterate a stream with `for await`.
  */
-async function* jsonLines(body: ReadableStream<Uint8Array>) {
-	const reader = body.getReader();
-	const decoder = new TextDecoder();
-	let buffered = '';
+async function* responseLines(url: string, body: string, signal?: AbortSignal) {
 	try {
-		for (;;) {
-			const { done, value } = await reader.read();
-			buffered += decoder.decode(value, { stream: !done });
-			let end = buffered.indexOf('\n');
-			while (end >= 0) {
-				const text = buffered.slice(0, end);
-				buffered = buffered.slice(end + 1);
-				if (text.trim()) yield JSON.parse(text) as unknown;
-				end = buffered.indexOf('\n');
+		const response = await fetch(url, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body,
+			signal,
+		});
+		const reader = response.body?.getReader();
+		try {
+			if (!response.ok || !reader) {
+				yield ActionError.Unreachable({
+					message: `Epicenter answered ${response.status} ${response.statusText}`,
+				});
+				return;
 			}
-			if (done) return;
+			const decoder = new TextDecoder();
+			let buffered = '';
+			for (;;) {
+				const { done, value } = await reader.read();
+				buffered += decoder.decode(value, { stream: !done });
+				let end = buffered.indexOf('\n');
+				while (end >= 0) {
+					const text = buffered.slice(0, end);
+					buffered = buffered.slice(end + 1);
+					if (text.trim()) yield Ok(JSON.parse(text) as unknown);
+					end = buffered.indexOf('\n');
+				}
+				if (done) return;
+			}
+		} finally {
+			if (reader) {
+				// Abandoning the response stops its producer. Cleanup must neither
+				// delay the outcome nor replace it if the connection already failed.
+				void reader.cancel().catch(() => {});
+				reader.releaseLock();
+			}
 		}
-	} finally {
-		reader.releaseLock();
+	} catch (cause) {
+		yield signal?.aborted
+			? ActionError.Stopped({ message: 'Stopped' })
+			: ActionError.Unreachable({
+					message: `Could not read Epicenter's answer: ${String(cause)}`,
+				});
 	}
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isTaggedError(
+	value: unknown,
+): value is { name: string; message: string } & Record<string, unknown> {
+	return (
+		isObject(value) &&
+		typeof value.name === 'string' &&
+		typeof value.message === 'string'
+	);
+}
+
+/** Validate serve's terminal answer; the action owns the shape of its returned value. */
+function answered(answer: unknown): Result<unknown, ActionError> {
+	const invalid = () =>
+		ActionError.Unreachable({ message: 'Epicenter sent an invalid answer' });
+	if (!isObject(answer)) return invalid();
+	if (
+		['returned', 'threw', 'error'].filter((key) => Object.hasOwn(answer, key))
+			.length !== 1
+	)
+		return invalid();
+	if ('returned' in answer) return Ok(answer.returned);
+	if ('threw' in answer) {
+		const failure = answer.threw;
+		if (!isObject(failure) || typeof failure.message !== 'string')
+			return invalid();
+		const { thrown } = failure;
+		if (thrown !== undefined && !isTaggedError(thrown)) return invalid();
+		return isActionError(thrown)
+			? Err(thrown)
+			: ActionError.Threw({ message: failure.message, thrown });
+	}
+	const failure = answer.error;
+	if (
+		!isObject(failure) ||
+		typeof failure.message !== 'string' ||
+		(failure.next !== undefined && typeof failure.next !== 'string')
+	)
+		return invalid();
+	return ActionError.Refused({ message: failure.message, next: failure.next });
 }
 
 /**
@@ -227,56 +309,23 @@ async function call(
 	{
 		onYield,
 		signal,
-	}: { onYield?: (value: unknown) => void; signal?: AbortSignal } = {},
+	}: { onYield?: (value: unknown) => unknown; signal?: AbortSignal } = {},
 ): Promise<Result<unknown, ActionError>> {
-	let message: { answer?: unknown } = {};
-	try {
-		const response = await fetch(url, {
-			method: 'POST',
-			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify(input),
-			signal,
-		});
-		if (!response.ok || !response.body)
-			return CallError.Unreachable({
-				message: `Epicenter answered ${response.status} ${response.statusText}`,
+	const body = JSON.stringify(input);
+	for await (const line of responseLines(url, body, signal)) {
+		if (line.error !== null) return line;
+		const frame = line.data;
+		if (
+			!isObject(frame) ||
+			Object.hasOwn(frame, 'yielded') === Object.hasOwn(frame, 'answer')
+		)
+			return ActionError.Unreachable({
+				message: 'Epicenter sent an invalid response line',
 			});
-		for await (const line of jsonLines(response.body)) {
-			const value = line as { yielded?: unknown; answer?: unknown };
-			if ('yielded' in value) onYield?.(value.yielded);
-			else if ('answer' in value) message = value;
-		}
-	} catch (cause) {
-		if (signal?.aborted) return CallError.Stopped({ message: 'Stopped' });
-		return CallError.Unreachable({
-			message: `Could not reach Epicenter: ${String(cause)}`,
-		});
+		if ('answer' in frame) return answered(frame.answer);
+		await onYield?.(frame.yielded);
 	}
-	if (!('answer' in message))
-		return CallError.Unreachable({
-			message: 'Epicenter stopped answering before the action finished',
-		});
-	const answer = (message.answer ?? {}) as {
-		returned?: unknown;
-		threw?: {
-			message: string;
-			thrown?: { name: string; message: string } & Record<string, unknown>;
-		};
-		error?: { message: string; next?: string };
-	};
-	if ('returned' in answer) return Ok(answer.returned);
-	if (answer.threw) {
-		const { thrown } = answer.threw;
-		if (thrown?.name === 'Changed' || thrown?.name === 'Missing')
-			return Err(thrown as FileError);
-		return CallError.Threw(answer.threw);
-	}
-	if (answer.error)
-		return CallError.Refused({
-			message: answer.error.message,
-			next: answer.error.next,
-		});
-	return CallError.Unreachable({
-		message: `Epicenter answered without an answer: ${JSON.stringify(answer)}`,
+	return ActionError.Unreachable({
+		message: 'Epicenter stopped answering before the action finished',
 	});
 }

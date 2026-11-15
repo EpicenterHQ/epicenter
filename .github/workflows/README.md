@@ -6,7 +6,7 @@ All workflows live flat in `.github/workflows/` (GitHub Actions requirement). We
 
 | Prefix | Purpose | Scope |
 |---|---|---|
-| `release.{app}` | Tag-triggered desktop builds + GitHub Release | Per Tauri app (expensive 3-platform matrix) |
+| `release.{app}` | Tag-triggered builds + GitHub Release draft | Desktop apps or the CLI, each with its own tag prefix |
 | `pr-preview.{app}` | PR preview desktop builds | Per Tauri app (expensive 3-platform matrix) |
 | `deploy.{target}` | Web app deployment | Deployed web targets |
 | `ci.{name}` | Code quality checks | Whole repo |
@@ -15,6 +15,17 @@ All workflows live flat in `.github/workflows/` (GitHub Actions requirement). We
 Web apps (Cloudflare Workers) deploy **together in one workflow** because deploys are fast (~2 min on a single runner) and share the same runtime setup. Each worker's build lives in its own `wrangler.jsonc` `build.command`, which Wrangler runs for both `deploy` and `versions upload`, so production, previews, and local `wrangler deploy` build through one definition. Repo-wide lint, typecheck, and unrelated package builds belong to CI.
 
 ## Workflows
+
+### CLI releases
+
+`release.cli.yml` builds `epicenter-cli-v*` tags on native macOS and Linux
+runners for arm64 and x64. Each runner tries the downloaded installer and a
+Git source copy of the writing app in a fresh home without Bun on PATH. After
+all four pass, the workflow creates a prerelease draft with Latest disabled,
+executables, checksums, an installer, and onboarding instructions. This keeps
+Whispering's global Latest update address unchanged. A manual run uploads artifacts without
+creating a release. Publication is a separate action after reviewing the draft.
+See [the CLI release procedure](../../packages/cli/README.md#prepare-release-assets).
 
 ### Web Deployment (Cloudflare Workers)
 

@@ -53,7 +53,7 @@ import {
 import { Value } from 'typebox/value';
 import { type Action, type ActionMeta, RESERVED_FIELDS } from './action.ts';
 import { folder, isLocalPath } from './context.ts';
-import { FileError } from './errors.ts';
+import { ActionError } from './errors.ts';
 import { whatFits } from './field.js';
 import {
 	type FieldValues,
@@ -214,7 +214,7 @@ export type ManyHandle<D extends CollectionDef> = {
 	 * written only over the record it was given, and makes the file, as `add`
 	 * would, when there was none. When the file changed meanwhile, `revise`
 	 * runs again on what is there now, so keep it a pure function of the
-	 * record; after 10 tries it throws `FileError.Changed`. A `revise` that
+	 * record; after 10 tries it throws `ActionError.Changed`. A `revise` that
 	 * throws writes nothing, and one that returns `{}` for a file leaves it as
 	 * it is. Returns the record written.
 	 *
@@ -411,6 +411,18 @@ const RESERVED: ReadonlyMap<string, string> = new Map([
 	),
 ]);
 
+function containsFileMarker(
+	value: unknown,
+	seen = new WeakSet<object>(),
+): boolean {
+	if (!value || typeof value !== 'object' || seen.has(value)) return false;
+	seen.add(value);
+	return (
+		Object.hasOwn(value, 'x-epicenter-file') ||
+		Object.values(value).some((child) => containsFileMarker(child, seen))
+	);
+}
+
 /** What is wrong with `def` beyond its types, one sentence each. */
 function collectionProblems(def: CollectionDef): string[] {
 	const path: unknown = def.path;
@@ -435,6 +447,10 @@ function collectionProblems(def: CollectionDef): string[] {
 	}
 	const single = keys.size === 0;
 	for (const [key, schema] of Object.entries(def.fields ?? {})) {
+		if (containsFileMarker(schema))
+			problems.push(
+				`${at} has the file field "${key}", which a collection of one file per record cannot keep; it would store the host's temporary upload reference`,
+			);
 		if (keys.has(key))
 			problems.push(
 				`${at} has a field "${key}", which its path gives as {${key}}; the file's name holds it`,
@@ -649,7 +665,7 @@ function createFiles(layout: Template, fields: Fields) {
 		const { old } = change;
 		const at = body.indexOf(old);
 		if (old === '' ? body !== '' : at < 0)
-			throw FileError.Changed({ path, why: old === '' ? 'empty' : 'quote' })
+			throw ActionError.Changed({ path, why: old === '' ? 'empty' : 'quote' })
 				.error;
 		if (old !== '' && body.indexOf(old, at + 1) >= 0)
 			throw new Error(
@@ -749,14 +765,14 @@ function createFiles(layout: Template, fields: Fields) {
 			if (Object.values(given).every((value) => value === undefined))
 				throw new Error(`Nothing to set in ${at}: give a field`);
 			return rewrite(at, (record) => {
-				if (!record) throw FileError.Missing({ path: at }).error;
+				if (!record) throw ActionError.Missing({ path: at }).error;
 				return { fields: given };
 			});
 		},
 		async edit({ path, ...quoted }: PathIn & Change) {
 			const at = own(path);
 			return rewrite(at, (record) => {
-				if (!record) throw FileError.Missing({ path: at }).error;
+				if (!record) throw ActionError.Missing({ path: at }).error;
 				return { fields: {}, body: edited(at, record.body, quoted) };
 			});
 		},
@@ -853,7 +869,7 @@ function verbActions(
 				if (single) return call.get?.();
 				const found = await call.get?.(input);
 				if (!found)
-					throw FileError.Missing({ path: (input as PathIn).path }).error;
+					throw ActionError.Missing({ path: (input as PathIn).path }).error;
 				return found;
 			},
 			{

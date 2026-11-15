@@ -9,7 +9,13 @@
  * declares `privateInput: true` accepts only JSON stdin, before any
  * arguments can be parsed or echoed in a refusal.
  */
-import { type Action, type Input, isName, whatFits } from '@epicenter/app';
+import {
+	type Action,
+	type Input,
+	isName,
+	whatFits,
+	fileFieldOf,
+} from '@epicenter/app';
 import { type TSchema, Type } from 'typebox';
 import { Value } from 'typebox/value';
 
@@ -238,7 +244,17 @@ export function checkInput(
 	action: Action,
 	raw: unknown,
 	nameOf: (key: string) => string,
+	{ fileReferences = false }: { fileReferences?: boolean } = {},
 ): { ok: true; input: Record<string, unknown> } | { error: string } {
+	if (!fileReferences) {
+		const keys = Object.keys(action.input).filter((key) =>
+			fileFieldOf(action.input[key]),
+		);
+		if (keys.length)
+			return {
+				error: `This action takes a file (${keys.join(', ')}), which only a run started from its page can give`,
+			};
+	}
 	const schema = Type.Object(action.input, { additionalProperties: false });
 	const value = Value.Default(schema, structuredClone(raw));
 	if (Value.Check(schema, value))

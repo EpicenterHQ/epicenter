@@ -20,6 +20,7 @@
  */
 import { type Static, type TObject, type TSchema, Type } from 'typebox';
 import { Value } from 'typebox/value';
+import { fileFieldOf } from './field.ts';
 
 /** An action's input: a record of fields, or of any TypeBox schemas. */
 export type Input = Record<string, TSchema>;
@@ -277,6 +278,10 @@ function actionProblems(def: object): string[] {
 			);
 		else if (positional.indexOf(key) !== index)
 			problems.push(`lists the positional "${key}" twice`);
+		else if (fileFieldOf(fields[key]))
+			problems.push(
+				`has the file "${key}" as a positional, which the command line cannot give`,
+			);
 		else if (
 			(fields[key] as { type?: unknown }).type === 'array' &&
 			index !== positional.length - 1

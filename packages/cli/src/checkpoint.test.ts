@@ -2,7 +2,7 @@
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
 import { chmod, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { checkpoint } from './checkpoint.js';
+import { checkpoint, snapshot } from './checkpoint.js';
 import { hold } from './lock.js';
 import { fixture, gitIn, reading } from './runner.test-support.js';
 
@@ -226,7 +226,7 @@ test('push deadline kills a remote helper and its sleeping child, releases the l
 		expect(first.pushFailed).toEqual({
 			message:
 				'push did not finish within 0.5 seconds; the deadline expired and the remote outcome is unconfirmed; the next pass safely retries with an ordinary non-force push',
-			next: `for a very large first push, run once by hand: git -C ${f.home} push origin HEAD:${branch}`,
+			next: `for a very large first push, run once by hand: git -C ${f.home} push origin ${first.committed?.commit}:refs/heads/${branch}`,
 		});
 		const killed = (await readFile(pids, 'utf8')).trim().split(' ').map(Number);
 		// A reparented process may briefly be a zombie; wait for the OS to reap it.
@@ -423,4 +423,82 @@ test('checkpoint ignores inherited repository redirection and leaves the decoy H
 	expect(await gitIn(f.home, 'show', 'HEAD:pending')).toBe('root edit');
 	expect(await head(decoy)).toBe(before);
 	expect(await readFile(join(decoy, '.git/index'))).toEqual(index);
+});
+
+test('local snapshots describe code, records and root changes and retain their exact HEAD when unchanged', async () => {
+	const f = await setup();
+	await f.folder(f.home, {
+		'apps/mail/code/a\tb\nc.ts': 'code',
+		'apps/reading/data/note.md': 'record',
+		'apps/odd\nname/code/file': 'odd app name',
+		'theme.css': 'root change',
+	});
+	const saved = await snapshot(f.home);
+	expect(saved.failed).toBeUndefined();
+	expect(saved.committed?.files).toBe(4);
+	expect(saved.head).toBe(await head(f.home));
+	expect(await gitIn(f.home, 'log', '-1', '--format=%s')).toBe(
+		'checkpoint: mail code, other files, reading records, root files',
+	);
+	const unchanged = await snapshot(f.home);
+	expect(unchanged.committed).toBeNull();
+	expect(unchanged.head).toBe(saved.head);
+});
+
+test('large checkpoint subjects use a factual file count', async () => {
+	const f = await setup();
+	for (let i = 0; i < 8; i++)
+		await f.folder(f.home, {
+			[`apps/example-application-${i}/code/file.ts`]: 'code',
+		});
+	await snapshot(f.home);
+	expect(await gitIn(f.home, 'log', '-1', '--format=%s')).toBe(
+		'checkpoint: 8 files',
+	);
+});
+
+test('backup pushes the inspected commit even when another writer commits before Git starts the push', async () => {
+	const f = await setup();
+	const remote = join(f.root, 'origin.git');
+	await gitIn(f.root, 'init', '--bare', '-q', remote);
+	await gitIn(f.home, 'remote', 'add', 'origin', remote);
+	const bin = join(f.root, 'bin');
+	await mkdir(bin);
+	const realGit = Bun.which('git');
+	if (!realGit) throw new Error('Git is required');
+	const wrapper = join(bin, 'git');
+	const mark = join(f.root, 'committed-during-upload');
+	await writeFile(
+		wrapper,
+		`#!${process.execPath}
+const args = process.argv.slice(2);
+if (args[2] === 'push' && !(await Bun.file(${JSON.stringify(mark)}).exists())) {
+  await Bun.write(${JSON.stringify(mark)}, 'started');
+  await Bun.write(${JSON.stringify(join(f.home, 'secret.local'))}, 'not in the inspected commit');
+  for (const command of [['add', '-f', '--', 'secret.local'], ['commit', '--no-verify', '-qm', 'concurrent private change']]) {
+    const child = Bun.spawn([${JSON.stringify(realGit)}, '-C', ${JSON.stringify(f.home)}, ...command], { stdout: 'ignore', stderr: 'pipe' });
+    if (await child.exited) throw new Error(await new Response(child.stderr).text());
+  }
+}
+const child = Bun.spawn([${JSON.stringify(realGit)}, ...args], { stdin: 'inherit', stdout: 'inherit', stderr: 'inherit' });
+process.exit(await child.exited);
+`,
+	);
+	await chmod(wrapper, 0o755);
+	const previousPath = process.env.PATH;
+	process.env.PATH = `${bin}:${previousPath}`;
+	try {
+		await writeFile(join(f.home, 'first'), 'inspected code');
+		const result = await checkpoint(f.home);
+		expect(result.pushed).toBe(true);
+		if (!result.committed) throw new Error('Expected a new checkpoint');
+		expect(await head(remote)).toBe(result.committed.commit);
+		expect(await head(f.home)).not.toBe(await head(remote));
+		expect((await checkpoint(f.home)).failed?.message).toContain(
+			'secret.local',
+		);
+		expect(await head(remote)).toBe(result.committed.commit);
+	} finally {
+		process.env.PATH = previousPath;
+	}
 });

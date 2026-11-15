@@ -2,8 +2,8 @@
 
 - **Status:** Accepted
 - **Date:** 2026-11-14
-- **Amended by:** [ADR-0911](0911-export-copies-an-apps-committed-code-into-a-refreshable-directory.md): local code export and refresh; publication still uses a separate history and ordinary Git.
-- **Implementation:** Source retains the existing container lock, tolerant reads, HTTP/MCP actions, UI builds, private input and serve-owned clock. This change adds code/data siblings under `apps/`, root checkpoints, committed code copying, and single-clone restore; it removes action Git bookkeeping.
+- **Amended by:** [ADR-0911](0911-export-copies-an-apps-committed-code-into-a-refreshable-directory.md): local checkpoints before export, factual checkpoint subjects, and backup uploads outside the root lock; publication still uses a separate history and ordinary Git.
+- **Implementation:** Source retains the existing container lock, tolerant reads, HTTP/MCP actions, UI builds, private input, uploads/runs prototype, and serve-owned clock. This change adds code/data siblings under `apps/`, root checkpoints, committed code copying, and single-clone restore; it removes action Git bookkeeping.
 - **Migration:** Completed on 2026-11-14 for the nine live apps. The root and 18 app repositories became one private root repository, preserving exact original signed objects under archival tags and relocated histories under the new paths. All nine UIs built. A fresh GitHub clone recovered every included file and historical LFS payload; the installed service made and pushed a signed startup checkpoint. The stopped originals remain in a local recovery archive. The 17 old individual GitHub repositories were archived on 2026-11-15; both private backup repositories remain active.
 - **Supersedes:** [ADR-0877](0877-an-apps-code-and-its-data-are-two-repositories-and-sharing-an-app-shares-its-code.md): separate code and data repositories and sharing their existing histories; [ADR-0884](0884-an-epicenter-is-a-repository-that-lists-the-repositories-inside-it-and-init-from-rebuilds-it.md): a root that excludes apps, records their repositories, and restores them with separate clones.
 - **Amends:** [ADR-0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md): withdraw per-action commits and app-repository sync.
@@ -121,8 +121,11 @@ mirror kept on one computer, stays out of the index and the commit and does
 not block included files. Each such rule names the app and directory it covers.
 
 It stages everything included with `git add -A`, consumes the shared index,
-and makes one commit named `checkpoint` or the supplied message. It pushes
-only to `origin`, without pull, merge, rebase, or force. It refuses a push
+and makes one commit whose subject names the changed app code, records, and
+root files, or uses the supplied message. Long subjects use a file count.
+It captures the commit and branch under the root lock, then releases the lock
+before uploading. The push sends that exact inspected commit only to `origin`,
+without pull, merge, rebase, or force. It refuses a push
 whose unpushed history contains `.local` additions. A push has a ten-minute
 process-group deadline. A refusal leaves the remote unchanged; a later pass
 retries an outstanding push even when no new commit is needed.
@@ -223,7 +226,7 @@ verification artifacts record commit identities.
   snapshots and commits, code trailers, backup status per app, and the
   `history`, `undo`, `sync`, and merge-based `update` commands.
 - Kept machinery: `apps/` discovery, file contracts, tolerant reads, container
-  locks, local credentials, HTTP/MCP, and UI builds.
+  locks, local credentials, LFS, HTTP/MCP, UI builds, uploads/runs, and routines.
 - Checkpoints can contain partial direct edits or part of a running action.
   Uncommitted intermediate states are not recoverable from Git.
 - Deleting `apps/<app>` deletes its working-tree records too. A later

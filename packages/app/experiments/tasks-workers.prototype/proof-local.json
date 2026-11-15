@@ -1,0 +1,188 @@
+{
+  "origin": "http://localhost:8799",
+  "started": "2026-11-15T04:30:19.796Z",
+  "checks": [
+    "V1 compiles raw UI and actions inside workerd",
+    "Original Tasks add action runs in Dynamic Worker",
+    "Complete and note actions persist task data",
+    "Action edit applies to actual Tasks source",
+    "Visible Svelte UI edit applies",
+    "Published revision stays selected while next revision builds",
+    "Published UI and actions remain usable during compilation",
+    "V2 builds edited Svelte UI and action together",
+    "V2 serves edited HTML and compiled Svelte",
+    "Data survives code revision change",
+    "V2 action behavior changed",
+    "Stale UI cannot silently call new actions",
+    "Broken Svelte build preserves active revision",
+    "Last working UI bundle remains byte-identical",
+    "Unpublished static assets cannot change the working version",
+    "Last working actions still execute after broken UI",
+    "Broken TypeScript build preserves active revision",
+    "Original Markdown data survives both failed builds",
+    "Original Tasks delete action works"
+  ],
+  "first": {
+    "id": "ee2918d9-6777-4e44-a9cc-6c562765c579",
+    "ok": true,
+    "runtime": "workerd",
+    "compiler": "svelte/compiler + esbuild-wasm + tailwindcss inside workerd",
+    "components": 287,
+    "elapsedMs": 16836,
+    "actions": [
+      "list",
+      "get",
+      "add",
+      "set",
+      "edit",
+      "delete",
+      "note"
+    ]
+  },
+  "duringBuild": {
+    "pageStatus": 200,
+    "pageAndActionMs": 7
+  },
+  "second": {
+    "id": "2f0f38a6-8094-4ed2-a0b4-47d86b55dff5",
+    "ok": true,
+    "runtime": "workerd",
+    "compiler": "svelte/compiler + esbuild-wasm + tailwindcss inside workerd",
+    "components": 287,
+    "elapsedMs": 17743,
+    "actions": [
+      "list",
+      "get",
+      "add",
+      "set",
+      "edit",
+      "delete",
+      "note"
+    ]
+  },
+  "brokenUi": {
+    "id": "550a985d-2399-46ae-a22a-e028a8453178",
+    "ok": false,
+    "runtime": "workerd",
+    "error": "Build failed with 1 error:\nprototype:ui/src/App.svelte:11:17: ERROR: [plugin: prototype-svelte-files] Unexpected token\nhttps://svelte.dev/e/js_parse_error",
+    "active": "2f0f38a6-8094-4ed2-a0b4-47d86b55dff5"
+  },
+  "brokenAction": {
+    "id": "d0ea0a12-5717-402e-9dec-532e82ea25f7",
+    "ok": false,
+    "runtime": "workerd",
+    "error": "Build failed with 1 error:\nprototype:epicenter.ts:1:22: ERROR: Unexpected \";\"",
+    "active": "2f0f38a6-8094-4ed2-a0b4-47d86b55dff5"
+  },
+  "final": {
+    "active": "2f0f38a6-8094-4ed2-a0b4-47d86b55dff5",
+    "building": false,
+    "sourceFiles": 6806,
+    "builds": [
+      {
+        "id": "d0ea0a12-5717-402e-9dec-532e82ea25f7",
+        "ok": false,
+        "runtime": "workerd",
+        "error": "Build failed with 1 error:\nprototype:epicenter.ts:1:22: ERROR: Unexpected \";\""
+      },
+      {
+        "id": "550a985d-2399-46ae-a22a-e028a8453178",
+        "ok": false,
+        "runtime": "workerd",
+        "error": "Build failed with 1 error:\nprototype:ui/src/App.svelte:11:17: ERROR: [plugin: prototype-svelte-files] Unexpected token\nhttps://svelte.dev/e/js_parse_error"
+      },
+      {
+        "id": "2f0f38a6-8094-4ed2-a0b4-47d86b55dff5",
+        "ok": true,
+        "runtime": "workerd",
+        "compiler": "svelte/compiler + esbuild-wasm + tailwindcss inside workerd",
+        "components": 287,
+        "elapsedMs": 17743,
+        "actions": [
+          "list",
+          "get",
+          "add",
+          "set",
+          "edit",
+          "delete",
+          "note"
+        ]
+      },
+      {
+        "id": "ee2918d9-6777-4e44-a9cc-6c562765c579",
+        "ok": true,
+        "runtime": "workerd",
+        "compiler": "svelte/compiler + esbuild-wasm + tailwindcss inside workerd",
+        "components": 287,
+        "elapsedMs": 16836,
+        "actions": [
+          "list",
+          "get",
+          "add",
+          "set",
+          "edit",
+          "delete",
+          "note"
+        ]
+      },
+      {
+        "id": "12735d2f-5bb0-43f9-a395-74298da58af7",
+        "ok": true,
+        "runtime": "workerd",
+        "compiler": "svelte/compiler + esbuild-wasm + tailwindcss inside workerd",
+        "components": 287,
+        "elapsedMs": 17384,
+        "actions": [
+          "list",
+          "get",
+          "add",
+          "set",
+          "edit",
+          "delete",
+          "note"
+        ]
+      },
+      {
+        "id": "69de804b-ade1-4adf-bb10-a8955ad534a3",
+        "ok": true,
+        "runtime": "workerd",
+        "compiler": "svelte/compiler + esbuild-wasm + tailwindcss inside workerd",
+        "components": 287,
+        "elapsedMs": 17117,
+        "actions": [
+          "list",
+          "get",
+          "add",
+          "set",
+          "edit",
+          "delete",
+          "note"
+        ]
+      },
+      {
+        "id": "c419c10e-dd97-45b5-a0b5-433b70765120",
+        "ok": false,
+        "runtime": "workerd",
+        "error": "Build failed with 1 error:\nprototype:ui/src/App.svelte:11:17: ERROR: [plugin: prototype-svelte-files] Unexpected token\nhttps://svelte.dev/e/js_parse_error"
+      },
+      {
+        "id": "bdc49154-921e-4c4f-979b-b067ddac9013",
+        "ok": true,
+        "runtime": "workerd",
+        "compiler": "svelte/compiler + esbuild-wasm + tailwindcss inside workerd",
+        "components": 287,
+        "elapsedMs": 16756,
+        "actions": [
+          "list",
+          "get",
+          "add",
+          "set",
+          "edit",
+          "delete",
+          "note"
+        ]
+      }
+    ]
+  },
+  "completed": "2026-11-15T04:31:16.798Z"
+}

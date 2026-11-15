@@ -25,6 +25,9 @@ non-obvious decision, enforcing an invariant, owning a lifecycle, or making a
 long phase understandable. Preserve evaluation timing, receiver binding,
 caching, and snapshot semantics when inlining; fewer names must not change behavior.
 
+A boundary that isolates unsafe input can earn its place too. Keep the parsing
+or validation owner rather than distribute its checks among callers.
+
 ### Find same name property aliases
 
 When looking for shallow aliases, search a bounded area for `const a = b.a`,
@@ -102,6 +105,10 @@ existing operation already expresses the common work.
 Describing two branches with the same sentence identifies a candidate. Compare
 the information and behavior each preserves before sharing the operation.
 
+If you can describe two branches with the same sentence, they may be
+duplicates. The sentence is a useful tell, not proof that their facts,
+lifetimes, or failure behavior are interchangeable.
+
 ```typescript
 // BEFORE: "flatten to string and push" appears twice
 switch (entry.type) {
@@ -177,6 +184,12 @@ Judge a short repeated block by what an extraction would explain. Keep it inline
 when the operation is already clear and a helper would only add a name and
 navigation. Use the extraction criteria below when a shared owner could improve
 the result.
+
+When a duplicated block is 1-3 lines and appears 2-3 times in one file, keeping
+it inline is often more readable. The helper adds a name to learn, a definition
+to jump to, and an abstraction boundary to reason about; those costs can exceed
+what the duplication saves. Treat the counts as an inspection prompt, not a
+threshold that overrides a shared rule or necessary boundary.
 
 **The readability test:** Does a reader need to leave the callsite to understand what's happening? If the inline code is self-explanatory, extraction hurts more than it helps.
 

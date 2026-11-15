@@ -10,6 +10,7 @@ import { join } from 'node:path';
 import type { Action } from '@epicenter/app';
 import { connect } from '@epicenter/app/client';
 import { expectErr, expectOk } from 'wellcrafted/testing';
+import { hold } from './lock.js';
 import {
 	fixture,
 	gitignore,
@@ -154,6 +155,7 @@ test('read-only calls return and a write followed by a throw preserves its error
 	expect(expectOk(await client.week.show())).toBe(210);
 
 	expect(expectErr(await client.explode())).toEqual({
+		namespace: 'epicenter/action-error',
 		name: 'Threw',
 		message: 'line 4 is not a number',
 		thrown: undefined,
@@ -428,6 +430,160 @@ test('a caller that stops reading stops the action at its next yield; its finall
 	const deadline = Date.now() + 10_000;
 	while (!(await latest()) && Date.now() < deadline) await Bun.sleep(50);
 	expect(await latest()).toBe(true);
+});
+
+test('a callback failure cancels the served action, runs its finally, and releases the lock', async () => {
+	const f = await setup((f) => f.app('talk', talk));
+	const client = connect<{
+		actions: { drip: Action<Record<string, never>, Promise<string>, number> };
+	}>({
+		app: 'talk',
+		url: `${f.base}/`,
+	});
+	const bug = new Error('UI callback failed');
+	await expect(
+		client.drip(
+			{},
+			{
+				onYield: async () => {
+					throw bug;
+				},
+			},
+		),
+	).rejects.toBe(bug);
+	const data = join(f.apps, 'talk', 'data');
+	const latest = () => Bun.file(join(data, 'stopped.md')).exists();
+	const deadline = Date.now() + 10_000;
+	while (!(await latest()) && Date.now() < deadline) await Bun.sleep(50);
+	expect(await latest()).toBe(true);
+
+	// The finally write can become visible just before the run releases its lock.
+	const held = await hold(join(f.apps, 'talk'), 1000);
+	try {
+		expect(held).toBeDefined();
+	} finally {
+		held?.release();
+	}
+});
+
+test('unserializable action throws still answer Threw, preserve writes, and release the app lock', async () => {
+	const f = await setup((f) =>
+		f.app(
+			'failure',
+			`
+export default defineApp({ description: 'Failure', collections: {}, actions: {
+	fail: defineAction({ description: 'Write then throw', input: { kind: field.text() },
+		run: async ({ kind }) => {
+			await folder.write('data/' + kind + '.md', kind);
+			if (kind === 'array') throw [1n];
+			const thrown = { name: 'Problem', message: 'action failed', details: 1n };
+			if (kind === 'cycle') thrown.details = thrown;
+			if (kind === 'replacement') thrown.toJSON = () => 42;
+			if (kind === 'json') thrown.details = 'kept';
+			throw thrown;
+		},
+	}),
+} });`,
+		),
+	);
+	const client = connect<{
+		actions: { fail: (input: { kind: string }) => never };
+	}>({
+		app: 'failure',
+		url: `${f.base}/`,
+	});
+	for (const kind of ['bigint', 'cycle', 'replacement', 'array', 'json']) {
+		const error = expectErr(await client.fail({ kind }));
+		expect(error).toMatchObject({
+			name: 'Threw',
+			message:
+				kind === 'array'
+					? 'The action threw a value that could not be read'
+					: 'action failed',
+		});
+		if (error.name === 'Threw')
+			expect(error.thrown).toEqual(
+				kind === 'json'
+					? { name: 'Problem', message: 'action failed', details: 'kept' }
+					: undefined,
+			);
+
+		expect(
+			await readFile(join(f.apps, 'failure', 'data', `${kind}.md`), 'utf8'),
+		).toBe(kind);
+		const held = await hold(join(f.apps, 'failure'), 0);
+		try {
+			expect(held).toBeDefined();
+		} finally {
+			held?.release();
+		}
+	}
+});
+
+test('shared errors cross a real call after writes without claiming rollback or changing custom error depth', async () => {
+	const f = await setup((f) =>
+		f.app(
+			'failures',
+			`
+import { ActionError } from '@epicenter/app';
+export default defineApp({ description: 'Shared failures', collections: {}, actions: {
+	fail: defineAction({ description: 'Write then fail', input: { kind: field.text() },
+		run: async ({ kind }) => {
+			await folder.write('data/' + kind + '.md', kind);
+			const custom = { name: 'ProposalChanged', message: 'Review again', proposal: 'p' };
+			const cases = {
+				Changed: ActionError.Changed({ path: 'data/a.md', why: 'quote' }).error,
+				Missing: ActionError.Missing({ path: 'data/a.md' }).error,
+				Threw: ActionError.Threw({ message: custom.message, thrown: custom }).error,
+				Refused: ActionError.Refused({ message: 'Dependency declined', next: 'Inspect dependency' }).error,
+				Unreachable: ActionError.Unreachable({ message: 'The model did not answer' }).error,
+				Stopped: ActionError.Stopped({ message: 'The dependency stopped' }).error,
+				Custom: custom,
+			};
+			throw cases[kind];
+		},
+	}),
+} });`,
+		),
+	);
+	const client = connect<{
+		actions: { fail: (input: { kind: string }) => never };
+	}>({ app: 'failures', url: `${f.base}/` });
+	for (const kind of [
+		'Changed',
+		'Missing',
+		'Threw',
+		'Refused',
+		'Unreachable',
+		'Stopped',
+		'Custom',
+	] as const) {
+		const error = expectErr(await client.fail({ kind }));
+		expect(error.name).toBe(kind === 'Custom' ? 'Threw' : kind);
+		expect(error.namespace).toBe('epicenter/action-error');
+		if (error.name === 'Threw')
+			expect(error.thrown?.name).toBe('ProposalChanged');
+		expect(
+			await readFile(join(f.apps, 'failures', 'data', `${kind}.md`), 'utf8'),
+		).toBe(kind);
+	}
+	const raw = await fetch(`${f.base}/failures/fail`, {
+		method: 'POST',
+		body: JSON.stringify({ kind: 'Missing' }),
+	});
+	const frame = JSON.parse(await raw.text());
+	expect(frame).toMatchObject({
+		answer: {
+			threw: {
+				message: 'There is no data/a.md',
+				thrown: {
+					namespace: 'epicenter/action-error',
+					name: 'Missing',
+					path: 'data/a.md',
+				},
+			},
+		},
+	});
 });
 
 test('a stop reaches an action waiting between yields through callSignal, at once', async () => {

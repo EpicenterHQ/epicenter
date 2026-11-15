@@ -6,27 +6,43 @@ import { CliError } from './errors.ts';
 import { loadHomeApp, type Runnable } from './home.ts';
 import { checkInput } from './input.ts';
 import { type Held, hold, LOCK_WAIT_MS } from './lock.ts';
-import { type Answer } from './output.ts';
+import type { Answer } from './output.ts';
+import { setRoutine } from './routine-set.js';
 
 /**
  * What the action threw, as the answer carries it. A thrown tagged error (a
  * frozen `{ name, message, ...fields }`, as wellcrafted's `defineErrors`
- * makes) is kept whole so its name and fields reach the caller.
+ * makes) is kept whole when it survives JSON. A value that cannot be read
+ * or serialized still answers as an action throw, with a safe message.
  */
 function threwOf(cause: unknown): {
 	message: string;
 	thrown?: Record<string, unknown>;
 } {
-	const message = extractErrorMessage(cause);
-	if (typeof cause !== 'object' || cause === null || cause instanceof Error)
-		return { message };
-	const { name } = cause as { name?: unknown };
-	if (
-		typeof name !== 'string' ||
-		typeof (cause as { message?: unknown }).message !== 'string'
-	)
-		return { message };
-	return { message, thrown: JSON.parse(JSON.stringify(cause)) };
+	let message = 'The action threw a value that could not be read';
+	try {
+		message = extractErrorMessage(cause);
+	} catch {
+		// Even extracting a message can fail for a cyclic array or a getter.
+	}
+	try {
+		if (typeof cause !== 'object' || cause === null || cause instanceof Error)
+			return { message };
+		const thrown: unknown = JSON.parse(JSON.stringify(cause));
+		if (
+			typeof thrown === 'object' &&
+			thrown !== null &&
+			!Array.isArray(thrown) &&
+			'name' in thrown &&
+			typeof thrown.name === 'string' &&
+			'message' in thrown &&
+			typeof thrown.message === 'string'
+		)
+			return { message, thrown };
+	} catch {
+		// Error details are best effort; they must not prevent the call's answer.
+	}
+	return { message };
 }
 
 /**
@@ -80,6 +96,18 @@ export async function runAction(
 		...located.context,
 		folder,
 		signal,
+		routines: {
+			set: (
+				name: string,
+				routine: Parameters<typeof setRoutine>[0]['routine'],
+			) => {
+				if (readOnly)
+					throw new Error(
+						`The action "${key}" is read-only, so it cannot set a routine`,
+					);
+				return setRoutine({ app: located, name, routine });
+			},
+		},
 		...(readOnly ? { readOnly: { action: key } } : {}),
 	};
 	try {

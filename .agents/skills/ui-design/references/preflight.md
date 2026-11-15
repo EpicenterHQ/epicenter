@@ -11,6 +11,10 @@ the implementation.
 Run this for any visible UI change:
 
 ```txt
+Observed:
+  The running change was viewed or exercised as verification.md describes,
+  or the view left unverified is named.
+
 Foundation:
   Imports follow the app's established component boundary described in ui-design.
   Does not create a one-off primitive when a local one exists.
@@ -29,7 +33,7 @@ States:
 Accessibility:
   Text and controls have sufficient contrast.
   Focus states are visible.
-  Icon-only controls have labels or tooltips.
+  Icon-only controls have accessible labels; no meaning lives only in a tooltip.
   Clickable rows or custom controls have keyboard behavior.
 
 Layout:

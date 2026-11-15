@@ -7,6 +7,11 @@
  * GET  /<app>/...       the app's UI, ui/dist/, as static files
  * GET  /<app>           308 to /<app>/
  * POST /<app>/<action>  run the action for the UI; JSON lines (`callResponse`)
+ * PUT  /.runs/<app>/<action>/<id>/files/<field>  PROTOTYPE: upload a file
+ * POST /.runs/<app>/<action>/<id>               PROTOTYPE: admit a run
+ * GET  /.runs/<app>/<action>/<id>/events        PROTOTYPE: observe a run
+ * GET  /.runs/<app>/<action>/<id>               PROTOTYPE: read run state
+ * POST /.runs/<app>/<action>/<id>/cancel        PROTOTYPE: cancel a run
  * ```
  *
  * `serve` runs every call itself, from the app's code as it is on disk when
@@ -36,13 +41,15 @@ import { isName } from '@epicenter/app';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { linkAppPackage } from './app-package.ts';
-import { checkpoint, type Checkpoint } from './checkpoint.js';
+import { type Checkpoint, checkpoint } from './checkpoint.js';
 import { CliError } from './errors.ts';
 import { chooseApps, homeEntries, loadHomeApp } from './home.ts';
 import { createMcpServer } from './mcp.ts';
 import { type Answer, writeErr } from './output.ts';
 import { epicenterDir } from './root.ts';
+import { createRoutines } from './routines.js';
 import { callAction } from './run.ts';
+import { createRunHost } from './runs.prototype.ts';
 import { createUiRefresher, UI_DIST } from './ui.ts';
 
 /** How often `serve` backs up every app. */
@@ -343,6 +350,7 @@ const forbidden = () => new Response('Forbidden', { status: 403 });
  * did for the root.
  */
 export function startHttpServer(host: string, port: number) {
+	const runs = createRunHost();
 	/** Log an unchanged root checkpoint failure only once. */
 	const lastFailure = new Map<string, string>();
 	const refreshUi = createUiRefresher();
@@ -410,6 +418,7 @@ export function startHttpServer(host: string, port: number) {
 				return forbidden();
 		}
 		const { pathname } = new URL(request.url);
+		if (pathname.startsWith('/.runs/')) return runs.handle(request);
 		if (request.method === 'POST')
 			return pathname === '/' ? site.mcp(request) : site.call(request);
 		if (pathname === '/') return site.launcher(request);
@@ -421,6 +430,24 @@ export function startHttpServer(host: string, port: number) {
 		idleTimeout: 0,
 		fetch: answer,
 	});
+	const routines = createRoutines({
+		folder: epicenterDir(),
+		serviceUrl: `http://127.0.0.1:${server.port}/`,
+	});
+	const checkRoutines = () =>
+		routines
+			.check()
+			.catch((error) =>
+				writeErr(
+					`Checking routines failed: ${error instanceof Error ? error.message : String(error)}`,
+				),
+			);
+	void checkRoutines();
+	// Only the check is periodic. Commands and network backups never block it.
+	const routineClock = setInterval(() => {
+		void checkRoutines();
+	}, 60_000);
+	routineClock.unref();
 	return {
 		port: server.port as number,
 		tick,
@@ -429,10 +456,15 @@ export function startHttpServer(host: string, port: number) {
 		 * it at most 10 seconds; `false` when it gave up waiting.
 		 */
 		stop() {
+			runs.stop();
 			stopping = true;
 			clearTimeout(clock);
+			clearInterval(routineClock);
 			void server.stop();
-			return within(BACKUP_WAIT_MS, tickLogged());
+			return within(
+				BACKUP_WAIT_MS,
+				Promise.all([routines.stop(), tickLogged()]),
+			);
 		},
 	};
 }

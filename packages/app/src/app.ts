@@ -131,7 +131,10 @@ function appProblems(app: unknown): string[] {
 			else if (isAction(entry)) continue;
 			else if (typeof entry !== 'object' || entry === null)
 				problems.push(`${at} is neither an action nor a group of them`);
-			else if ('run' in entry || 'description' in entry)
+			else if (
+				typeof entry.description === 'string' ||
+				(typeof entry.run === 'function' && !isAction(entry.run))
+			)
 				problems.push(
 					`${at} is not an action: make it with defineAction(...), and change one with defineAction({ ... }) rather than a spread, which drops the call`,
 				);

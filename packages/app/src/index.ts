@@ -33,12 +33,18 @@ export {
 	inRun,
 	isLocalPath,
 	normalizePath,
+	type Routine,
+	routines,
 } from './context.ts';
-export { FileError } from './errors.ts';
+export { ActionError } from './errors.js';
 export {
+	FILE_REFERENCE_PREFIX,
 	field,
+	fileFieldOf,
+	MAX_FILE_BYTES,
 	type TSwitch,
 	type TTags,
+	type UploadedFile,
 	whatFits,
 } from './field.ts';
 export { readMarkdown } from './front-matter.ts';

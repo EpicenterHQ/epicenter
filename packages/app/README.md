@@ -127,7 +127,7 @@ gives the same operations as verbs to expose, each taking the same object:
 | `delete({ path })`: deletes the file; `true` when there was one | |
 | `pathOf({ ...placeholders })`: the path `add` would write | |
 
-The exposed `get`, `set`, and `edit` throw `FileError.Missing` (`There is no
+The exposed `get`, `set`, and `edit` throw `ActionError.Missing` (`There is no
 <path>`) where the method answers `undefined`. `pathOf` fills the template, `{time}` included, as `add` does:
 it names the file by the value as NFC, trimmed, with each run of whitespace
 one space, so `" 你好 "` and `"你好"` name one file, and it throws for a value
@@ -160,7 +160,7 @@ at once both count, and refuses a word that is not there:
 
 ```ts
 await words.update({ path }, (word) => {
-  if (!word) throw FileError.Missing({ path }).error;
+  if (!word) throw ActionError.Missing({ path }).error;
   return schedule(word, grade, now);
 });
 ```
@@ -251,6 +251,18 @@ own input, and one people type should take what they type. Vocab's `review`
 takes `{ path, grade }`; it could take `{ word, grade }` and call
 `words.pathOf({ word })`, so a person types `epicenter vocab review 你好 good`.
 
+### Files in a record (prototype)
+
+`defineCollection` does not keep files yet. It refuses a `field.file()` field today.
+[ADR-0909](../../docs/adr/0909-a-collection-that-holds-files-gives-each-record-a-directory-it-owns.md)
+proposes `owns: 'directory'`: each record is a directory whose Markdown file
+`path` names (`data/memos/{slug}/memo.md`), each `field.file()` field selects
+a file inside it, and `add` and `set` copy each incoming `UploadedFile`
+there. `defineDirectoryCollection` in `src/collection-files.prototype.ts` is
+the throwaway version; `bun packages/cli/examples/collection-files.prototype.ts`
+runs it on a scratch folder and prints each step's files, roles and hashes.
+Ordinary collections are unchanged.
+
 ## Fields
 
 | Field | Value | On the command line |
@@ -329,7 +341,7 @@ the file, calls `change` with its text (`undefined` when there is none), and
 writes what `change` returns, nothing when that is what is there. A writer
 outside epicenter, such as an editor, may change the file between the read
 and the write; then `update` calls `change` again on what is there now, and
-after 10 tries it throws `FileError.Changed`. A `change` that
+after 10 tries it throws `ActionError.Changed`. A `change` that
 throws writes nothing. It returns the text written. Every collection write (`add`, `set`, `edit`, `update`)
 goes through it, so two `set`s of different fields of one file both land, and
 two `update`s of one field each see the other's.
@@ -353,6 +365,39 @@ Paths are relative to the folder with `/` between parts, and `read` gives
 `undefined` for a missing file.
 Every write through `folder` stays under `data/`. A path with a `.git*` segment
 is refused at any depth. Reads may reach code files.
+
+## Save recurring work from setup
+
+An explicit setup action can save a home-owned routine using an exposed action:
+
+```ts
+import { routines } from '@epicenter/app';
+
+await routines.set('flights-daily-research', {
+  daily: '08:00',
+  action: dailyRun,
+  input: {},
+  timeout: '20m',
+});
+```
+
+The host infers the installed app and resolves the action reference in that
+load's existing action table. The input follows the action's TypeScript type
+and is validated against its schema before saving. It must contain only JSON
+values. Omitted defaults stay omitted, so each invocation uses current code.
+Private-input and uploaded-file actions cannot be saved.
+
+The name is home-wide: this call writes `routines/flights-daily-research.md`
+using the existing `daily` and command-argv format. It atomically updates the
+requested fields, preserving notes, unspecified `paused` and `timeout`, and
+all runtime state and logs. It refuses an existing command targeting another
+app. Copying or importing code never enables a routine. Read-only actions and
+hosts without routine support refuse the call.
+
+The action must await its work, throwing on failure. Returning after starting
+detached work would record launch as completion. A new unpaused routine can
+catch up at the next check, even before today's configured time. Inspect and
+repair it with `epicenter routines` and `epicenter routines run <name>`.
 
 ## Secrets are `.local` files
 
@@ -453,14 +498,30 @@ const { data: books, error } = await app.books.list();
 ```
 
 A call resolves to a Result: what the action returned, in its JSON form, or
-an `ActionError` saying why not, told apart by `name`. The action's
-`FileError`s arrive as themselves: `Changed` (`{ path, why }`) for an `edit`
-whose passage changed or an `update` of a file that kept changing, and
-`Missing` (`{ path }`) for a file that is not there. `Threw` carries anything
-else the action threw, with a tagged error whole as `thrown`; `Refused` means
-nothing ran, with serve's `next` when it has one; `Unreachable` means no
-answer came back. Checkpoint failures are reported by the checkpoint command or serve
-clock separately from an action's answer.
+an `ActionError` saying why not, told apart by `name`. Producers import the
+same factories from `@epicenter/app` that the client uses:
+
+- `Changed` (`{ path, why }`): a quoted passage or empty body changed, or a file kept changing during an update.
+- `Missing` (`{ path }`): the file is not there.
+- `Threw` (`{ message, thrown? }`): an unrecognized throw, with a JSON-safe tagged payload kept as `thrown`.
+- `Refused` (`{ message, next? }`): an operation declined the request.
+- `Unreachable` (`{ message }`): a required operation returned no usable answer. The message identifies the dependency.
+- `Stopped` (`{ message }`): work was deliberately stopped.
+
+The shared errors carry a serializable namespace marker. The client validates
+all their fields and returns every recognized shared error whole, preserving
+its message and extra fields. An app's own unrelated tagged errors stay inside
+`Threw.thrown`, even when their names match a shared variant.
+
+A name gives the failure reason, not proof of what was saved, whether a stop
+has finished, or whether repeating an action is safe. The command's existing
+`returned` / `threw` / `error` envelope records the action's execution phase.
+When a UI needs to know what persisted, it rereads the record. While the outcome
+is uncertain, it keeps the person's draft and reports the uncertainty. `Missing`
+and `Changed` identify their own `path`, which may belong to a dependency;
+match the requested record before interpreting either as its state. Checkpoint
+failures are reported by the checkpoint command or serve's clock, separately
+from the action's answer.
 
 A UI hands these calls to TanStack Query through Wellcrafted's
 `resultQueries` and `resultMutations` (ADR-0661), and makes its one
@@ -492,6 +553,13 @@ the next yield:
 ```ts
 const response = await fetch(endpoint, { body, signal: callSignal() });
 ```
+
+`onYield` may return a promise; the client waits for it before delivering
+the next yield. If it throws or rejects, the call rejects with that error
+and cancels its response, stopping the action the same way as closing the
+page. Recognize a local Stop from the AbortController captured for that
+request; an action can also report `Stopped` for a dependency. A received answer completes
+the call without waiting for the connection to close.
 
 ```ts
 let draft = $state('');

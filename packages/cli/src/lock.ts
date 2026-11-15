@@ -2,6 +2,7 @@
  * The container directory's flock serializes calls from their first write
  * until they end. Root checkpoints independently hold(root). A descriptor
  * owns the lock, so closing it or exiting releases it without a lock file.
+ * Routine children inherit fd 3 to keep exclusion after supervisor death.
  */
 
 import { dlopen, FFIType } from 'bun:ffi';
@@ -38,7 +39,11 @@ function flockOf() {
 }
 
 /** The app's lock, held; `release` closes its descriptor, which releases it. */
-export type Held = { release(): void };
+export type Held = {
+	/** A routine passes this as child fd 3 so exclusion survives supervisor death. */
+	fd: number;
+	release(): void;
+};
 
 /**
  * Hold the lock on the app folder `dir`, trying again every 20 ms for up to
@@ -56,7 +61,7 @@ export async function hold(
 		for (;;) {
 			if (flockOf()(fd, LOCK_EX | LOCK_NB) === 0) {
 				held = true;
-				return { release: () => closeSync(fd) };
+				return { fd, release: () => closeSync(fd) };
 			}
 			if (Date.now() >= deadline) return undefined;
 			await Bun.sleep(RETRY_MS);

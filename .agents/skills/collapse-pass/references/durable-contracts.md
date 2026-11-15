@@ -10,6 +10,22 @@ hosted services have their own contract owners.
 Exact names and layouts belong in source and subsystem READMEs. A copied
 inventory in a skill can turn an earlier architecture into a false constraint.
 
+## Source owners to inspect
+
+Use the current subsystem's owner rather than apply one folder model to every
+app. These paths are starting points to verify against exports and callers:
+
+- Local apps: [app contracts](../../../../packages/app/README.md) and
+  [CLI commands and storage](../../../../packages/cli/README.md).
+- The earlier synced-folder product: [folder files](../../../../packages/folder/README.md)
+  and [file contracts](../../../../packages/definition/README.md).
+- Hosted folder access: [server folders](../../../../packages/server/src/folders.ts)
+  and [routes](../../../../packages/server/src/routes). Trace durable authority
+  names and how a request resolves whose data it may reach.
+- Account identity: [auth schemas](../../../../packages/account/src/auth-types.ts)
+  and [principal types](../../../../packages/account/src/principal.ts). Trace
+  persisted values, wire schemas, and consumers before changing fields or brands.
+
 ## Trace what must survive
 
 Trace the stored paths, identities, serialized shapes, commands, tool names,
@@ -22,6 +38,11 @@ Renaming a stored path, record stem, or identity can detach existing work even
 when new writes succeed. Follow how requests resolve whose data they can reach;
 preserve partitioning as well as wire compatibility. A new layout does not grant
 permission to delete the old records.
+
+Files are the durable record in a file-backed app. Renaming a contract path or
+record stem can detach existing files even when the new code still writes
+successfully. Follow both the old and new addresses before concluding that
+stored work remains accessible.
 
 Applied migrations record stored-data history. Preserve them during routine
 cleanup; use the current schema and migration workflow for an authorized change.

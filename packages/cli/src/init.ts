@@ -2,19 +2,19 @@
 import { existsSync, realpathSync } from 'node:fs';
 import {
 	mkdir,
-	readFile,
 	readdir,
+	readFile,
 	realpath,
 	stat,
 	writeFile,
 } from 'node:fs/promises';
 import { dirname, join, relative, resolve } from 'node:path';
 import { extractErrorMessage } from 'wellcrafted/error';
-import { BAD_PORT, misuse, parseWords, portOf } from './commands.ts';
 import { isRepositoryTop } from './checkpoint.ts';
+import { BAD_PORT, misuse, parseWords, portOf } from './commands.ts';
+import { CliError } from './errors.ts';
 import { checkedGit, git, gitMessage } from './git.ts';
 import { installApp } from './install.ts';
-import { CliError } from './errors.ts';
 import { fail, writeErr, writeJson, writeOut } from './output.ts';
 import {
 	APPS,
@@ -120,6 +120,20 @@ export async function initCommand(
 		);
 	if (from !== undefined) return restore(from, folder, json);
 	await mkdir(folder, { recursive: true });
+	// Establish Git identity before writing the marker, so a missing identity is retryable.
+	if (!(await isRepositoryTop(folder)))
+		await checkedGit(folder, ['init', '-q']);
+	for (const identity of ['GIT_AUTHOR_IDENT', 'GIT_COMMITTER_IDENT']) {
+		if ((await git(folder, ['var', identity])).code !== 0)
+			return fail(
+				CliError.Usage({
+					message:
+						'Git needs your name and email before creating an Epicenter. Set user.name and user.email in Git, then run init again.',
+					next: 'git config --global user.name "Your name" and git config --global user.email "you@example.com"',
+				}).error,
+				json,
+			);
+	}
 	try {
 		await writeFile(join(folder, MARKER), marker(port), { flag: 'wx' });
 	} catch (error) {
@@ -152,7 +166,11 @@ export async function initCommand(
 				entry.isDirectory() &&
 				existsSync(join(apps, entry.name, 'code', 'epicenter.ts')),
 		);
-		writeErr(hasApps ? 'Run: epicenter' : 'Run: epicenter new <name>');
+		writeErr(
+			hasApps
+				? 'Run: epicenter'
+				: "Run: epicenter new writing --from 'https://github.com/EpicenterHQ/epicenter#examples/writing'",
+		);
 	}
 	return 0;
 }

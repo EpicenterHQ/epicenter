@@ -11,6 +11,11 @@ input until submission. Within a form, a binding used only to fetch text on
 Submit is a removal candidate; live previews need a reactive reader, and focus
 or selection refs have separate interaction work to do.
 
+These are two default content-input patterns. They do not classify every rune:
+dialog visibility, selection, request outcomes, and widget history have other
+jobs. Judge the information and coordination each owner carries, not the rune
+count.
+
 ## Immediate editing
 
 Bind accepted input to its existing editor rather than synchronizing another
@@ -113,6 +118,9 @@ choose those deliberately.
 Native input lasts only as long as its element. For an existing record, decide
 what a changed server value or remount may replace, and verify that behavior.
 
+Do not replace a draft with refs, dirty flags, and reset effects that recreate
+the same coordination elsewhere.
+
 ### Commit-on-blur
 
 Blur can be the submission event for an individual field:
@@ -133,6 +141,16 @@ submission matching that cached value. If blur itself always means Submit,
 send the value directly and let the action decide whether a write is needed.
 Neither policy resolves competing writes.
 
+For the compare-before-write policy, a factory updating many fields may keep
+one `commit(field, next)` helper that owns that comparison. Keep it when it
+centralizes a shared rule; do not introduce a forwarding helper for each field.
+Its comparison still has the cached-value limits described above.
+
+Honeycrisp's `apps/honeycrisp/src/lib/components/FolderNav.svelte` shows a real
+rename interaction: it commits on Enter as well as blur, and Escape cancels.
+Choose those keys with the interaction rather than make pointer focus changes
+the only way to finish editing.
+
 Capture and dispatch in the blur handler; deferring dispatch through an await,
 timer, or animation frame can miss a closing page. Dispatch does not guarantee
 completion before teardown. Keep any durable-save requirement with an owner
@@ -141,6 +159,13 @@ that provides it.
 Immediate editors already accept typing; they need no extra blur commit.
 Discrete selectors submit on their change event, search filters need their own
 reactive value, and explicit forms submit through their form handler.
+
+| Field type | Pattern |
+|---|---|
+| An immediate note editor's fields | Its editor accepts typing; no extra blur submission. |
+| Discrete selectors | A change handler or the owner's direct binding. |
+| Search box or nonpersistent filter | Local reactive input, with no persistence commit. |
+| Explicit-submit form | Native controls or a reactive draft chosen by readers and lifetime; submit through the form handler. |
 
 ### Reactive drafts
 
@@ -214,6 +239,12 @@ before adding detachment: a plain raw draft replaced on every edit may already
 preserve the submitted object. The installed Svelte declarations describe raw
 and snapshot in `svelte/types/index.d.ts`.
 
+Do not add snapshot, structuredClone, JSON round-tripping, or Object.freeze by
+habit. Keep a copy when an API retains mutable input, needs plain data, or
+requires detachment; name which boundary needs it. Passing an object is not
+itself proof of a snapshot, and copying is not itself proof that every nested
+value is detached.
+
 ## Search recipes
 
 Search application consumers first, then follow their readers, mutations, and
@@ -231,6 +262,43 @@ rg -n -g '*.svelte' -g '*.svelte.ts' 'onsubmit=|onblur=|FormData|mutate\(|mutate
 rg -n -g '*.svelte' -g '*.svelte.ts' '\$state\.snapshot|structuredClone|reset\(|onSuccess|onSettled' apps
 ```
 
+Use narrower searches when the broad candidates suggest a particular problem.
+Names such as `localBody` are illustrative owner names, not proof that those
+bindings are redundant or still exist in every app:
+
+```sh
+# Copied content and synchronization effects.
+rg -n -g '*.svelte' -g '*.svelte.ts' '\$state(\.raw)?|\$effect|syncedBody|localTitle|localBody|acceptedBody' apps
+
+# Submission events and possible draft/payload owners.
+rg -n -g '*.svelte' -g '*.svelte.ts' 'onsubmit=|on:submit|onblur=|handleSubmit|submitForm|initialValues|defaultValues|\b(draft|form|payload|submitted)\b' apps
+
+# Proxy conversion, copies, and freezing at submission.
+rg -n -g '*.svelte' -g '*.svelte.ts' '\$state\.(raw|snapshot|frozen)|structuredClone\(|JSON\.parse\(JSON\.stringify|Object\.freeze\(' apps
+
+# Property mutation beside a raw-state declaration; follow aliases too.
+rg -n -g '*.svelte' -g '*.svelte.ts' '\b(draft|form|values)\.[[:alnum:]_.]+[[:space:]]*(=|\+=|\+\+)|\.(push|splice|sort|reverse)\(' apps
+
+# Late results that might clear or overwrite newer input.
+rg -n -g '*.svelte' -g '*.svelte.ts' 'await|submitted|reset\(|draft =|form =|\.then\(' apps
+```
+
 Apply the [state and handler defaults](../SKILL.md#state-and-handler-defaults)
 to each candidate. Inspect alias and nested writes before concluding that a
 passed object is stable, and trace reset ownership before removing a guard.
+
+For copied content, trace acquisition, rendering, setters, and submission
+together. Ask:
+
+- Is this immediate input or an unfinished submission?
+- Does anything observe the input before submission, or keep it after the control disappears?
+- Who owns the current value, and what event accepts it?
+- Does another draft or payload duplicate that value?
+- Which real information would disappear if this state were removed?
+- Can a late response reset newer input or address a different record?
+
+Record a candidate as a grounded change, a policy decision, or a value to keep.
+Do not replace a real accepted-content owner, rich widget document/history,
+selection session, failure receipt, or request identity with a getter merely
+because it uses `$state`. Two default input patterns are not a reason to erase
+other application information.

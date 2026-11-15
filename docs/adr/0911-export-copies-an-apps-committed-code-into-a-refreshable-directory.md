@@ -24,9 +24,17 @@ separately live outside it.
 `epicenter export <app> <directory>` regenerates that app at the exact directory,
 with `epicenter.ts` at its root. `epicenter export --all <directory>` regenerates
 one complete collection with one child per committed app. Future committed
-apps appear and removed apps disappear. One invocation reads one source commit.
-It reports omitted uncommitted code and never imports apps or changes the live
-repository's index, refs, or working files.
+apps appear and removed apps disappear. Before exporting, the command saves a
+local checkpoint of the whole private Epicenter, including code, records, and
+staged files. It reads that exact commit and never imports apps or edits source
+working files. It stops on a failed or deferred snapshot rather than using
+older code. Destination checks precede the snapshot.
+
+Local saving and private backup upload are separate operations. Export takes
+only the local snapshot. The existing checkpoint clock or manual checkpoint
+uploads it later. The root lock protects local saving and capturing the commit
+and branch; uploads run after releasing the lock and push only the inspected
+commit. Export therefore does not depend on the private backup connection.
 
 A collection uses `shared-apps/apps/` as its generated directory, beside the
 publication's `.git/` and README. A standalone project can use `code/` beside
@@ -82,6 +90,9 @@ recovery journal are maintained.
   Rerunning repairs disposable output after interruption without backup machinery.
 - **Always create one repository per app.** The person chooses repository
   boundaries independently of the code destination.
-- **Export the working tree or checkpoint implicitly.** A pinned commit keeps
-  private checkpointing independent of export and avoids mixed source revisions.
+- **Export the last existing commit.** Requiring the person to wait for the
+  backup clock or remember a manual checkpoint made fresh code easy to omit.
+  A local snapshot preserves a recoverable source revision without that step.
+- **Upload the private backup before export.** Export needs a local snapshot;
+  a slow or unavailable backup connection should not block code copying.
 - **Automatically push.** Local output remains reviewable before publication.
