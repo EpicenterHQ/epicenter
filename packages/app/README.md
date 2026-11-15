@@ -126,6 +126,7 @@ gives the same operations as verbs to expose, each taking the same object:
 | `update({ path }, (record) => patch)`: writes what the function computes from the file, or makes it from `undefined`; a method only | `update((record) => patch)` |
 | `delete({ path })`: deletes the file; `true` when there was one | |
 | `pathOf({ ...placeholders })`: the path `add` would write | |
+| `check()`: `{ files, records }`, the number of files and each file with problems; a method only | `check()`: the same, with no files while there is none |
 
 The exposed `get`, `set`, and `edit` throw `ActionError.Missing` (`There is no
 <path>`) where the method answers `undefined`. `pathOf` fills the template, `{time}` included, as `add` does:
@@ -205,7 +206,10 @@ A file that does not fit has `problems`, one line per problem, quoting the
 value it dropped as JSON: `due: "next week" is not a day like 2026-11-12`, `title is missing`,
 or `its front matter is neither key: <JSON> lines nor YAML`. A file that fits
 has no `problems` key. `words.list()` returns rows with `problems`; for a one-file collection,
-`get()` returns the file with `problems`. An agent or action repairs these
+`get()` returns the file with `problems`. `check()` gives each file's problems
+as `{ line, kind }` (the `Problem` type), where `kind` is the line without the
+value it quotes, so `due: "next week"` and `due: "soon"` are one kind;
+`epicenter check` reports them for a whole app. An agent or action repairs these
 records after a code change; reads do not impose a global migration gate.
 
 `get`, and the file `add`, `set`, and `edit` return, also have `other`: the

@@ -294,17 +294,35 @@ export type CollectionActions<D extends CollectionDef, V extends Verb> = {
 	[P in V]: VerbAction<D, P>;
 };
 
+/**
+ * One problem of a file that does not fit its fields: the `line` a read's
+ * `problems` gives, and its `kind`, the line without the value it quotes, so
+ * one problem on many files reads alike. `due: "next week" is not a day like
+ * 2026-11-12` is of the kind `due is not a day like 2026-11-12`, which is how
+ * a `.local` file's line reads already.
+ */
+export type Problem = { line: string; kind: string };
+
 /** What every collection has, whatever its fields: what an app holds in `collections`. */
 export type AnyCollection = CollectionDef & {
 	/** Whether the file at `path` is one of this collection's. */
 	holds(path: string): boolean;
+	/**
+	 * Read every file, for a report of what does not fit: how many files
+	 * there are, and each file with problems, sorted by path. An absent
+	 * one-file collection has no files.
+	 */
+	check(): Promise<{
+		files: number;
+		records: { path: string; problems: Problem[] }[];
+	}>;
 	actions(...verbs: never[]): Record<string, Action>;
 };
 
 /** A collection: what it was defined with, its methods, and its actions. */
 export type Collection<D extends CollectionDef = CollectionDef> = Readonly<D> &
 	Handle<D> &
-	Pick<AnyCollection, 'holds'> & {
+	Pick<AnyCollection, 'holds' | 'check'> & {
 		/** Its actions, each under its verb: every verb that fits it, or the ones named. */
 		actions<V extends VerbOf<D> = VerbOf<D>>(
 			...verbs: V[]
@@ -370,6 +388,7 @@ export function defineCollection<const D extends CollectionDef>(
 		...methods,
 		...(single ? {} : { pathOf: files.pathOf }),
 		holds: (path: string) => layout.match(path) !== undefined,
+		check: files.check,
 		actions: (...verbs: Verb[]) => {
 			if (isLocalPath(layout.text))
 				throw new Error(
@@ -552,9 +571,11 @@ function createFiles(layout: Template, fields: Fields) {
 	function project(path: string, found: Found) {
 		const values: FieldValues = {};
 		const fitting = new Set<string>();
-		const problems: string[] = [];
+		const problems: Problem[] = [];
+		const problem = (line: string, kind = line) =>
+			problems.push({ line, kind });
 		if (!found.writable)
-			problems.push('its front matter is neither key: <JSON> lines nor YAML');
+			problem('its front matter is neither key: <JSON> lines nor YAML');
 		for (const [key, schema] of Object.entries(fields)) {
 			const present = Object.hasOwn(found.fields, key);
 			const value = found.fields[key];
@@ -563,9 +584,13 @@ function createFiles(layout: Template, fields: Fields) {
 				fitting.add(key);
 				continue;
 			}
-			if (present) problems.push(misfit(key, schema, value, local));
+			if (present)
+				problem(
+					misfit(key, schema, value, local),
+					misfit(key, schema, value, true),
+				);
 			else if (found.writable && !isOptional(schema) && !hasDefault(schema))
-				problems.push(`${key} is missing`);
+				problem(`${key} is missing`);
 			if (hasDefault(schema))
 				values[key] = structuredClone(
 					(schema as { default: JsonValue }).default,
@@ -585,10 +610,13 @@ function createFiles(layout: Template, fields: Fields) {
 		};
 	}
 
+	/** A read's `problems`: each problem's line. */
+	const lines = (problems: Problem[]) => problems.map(({ line }) => line);
+
 	/** `path` as `list` gives it: no body, and no `other`. */
 	function row(path: string, found: Found) {
 		const { problems, other: _, body: __, ...rest } = project(path, found);
-		return problems.length ? { ...rest, problems } : rest;
+		return problems.length ? { ...rest, problems: lines(problems) } : rest;
 	}
 
 	/** `path` as `get` gives it. */
@@ -597,7 +625,7 @@ function createFiles(layout: Template, fields: Fields) {
 		return {
 			...rest,
 			body,
-			...(problems.length ? { problems } : {}),
+			...(problems.length ? { problems: lines(problems) } : {}),
 			...(Object.keys(other).length ? { other } : {}),
 		};
 	}
@@ -745,6 +773,18 @@ function createFiles(layout: Template, fields: Fields) {
 		},
 		async get({ path }: PathIn) {
 			return getFile(own(path));
+		},
+		async check() {
+			const records: { path: string; problems: Problem[] }[] = [];
+			let count = 0;
+			for (const path of single ? [layout.text] : await paths()) {
+				const found = await read(path);
+				if (!found) continue;
+				count += 1;
+				const { problems } = project(path, found);
+				if (problems.length) records.push({ path, problems });
+			}
+			return { files: count, records };
 		},
 		async add(input: Record<string, unknown>) {
 			const { body, ...rest } = input;

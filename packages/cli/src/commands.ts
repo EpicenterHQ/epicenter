@@ -51,6 +51,16 @@ the supplied link if Bun removed it.`,
 and shows the build's errors. serve rebuilds a UI on its own when a page opens
 after its sources changed, and keeps serving the last good build meanwhile.`,
 	},
+	check: {
+		usage: 'epicenter check [<app>] [--json]',
+		help: `Reads every collection of every app, or one app's, and reports each file that
+does not fit its collection's fields. Each collection shows how many files it
+matched and how many have problems, then each kind of problem with how many
+files have it, most frequent first, then each file's problems. Many files with
+one kind of problem usually mean the declaration is too narrow, not the files.
+It reads only, and never prints a value from a .local file. Exit 1 when any
+file has a problem or an app could not be checked.`,
+	},
 	checkpoint: {
 		usage: 'epicenter checkpoint [-m <message>] [--json]',
 		help: 'Commit pending code and records in the root repository, then push to origin when set.',
