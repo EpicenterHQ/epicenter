@@ -1,14 +1,15 @@
 # @epicenter/app
 
-What an app's `epicenter.ts` imports
+What an app's `code/epicenter.ts` imports
 ([ADR-0841](../../docs/adr/0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md),
 [ADR-0857](../../docs/adr/0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md)).
-An app is a folder whose `epicenter.ts` default-exports `defineApp(...)`. The
+An app container under `apps/` holds code/ and data/ siblings. Its
+`code/epicenter.ts` default-exports `defineApp(...)`. The
 `epicenter` command turns each of its actions into a command for the person
 and an MCP tool for their agent, and its UI calls the same actions.
 
 ```ts
-// <Epicenter>/reading/epicenter.ts
+// <Epicenter>/apps/reading/code/epicenter.ts
 import { defineAction, defineApp, defineCollection, field, folder } from '@epicenter/app';
 
 const books = defineCollection({
@@ -40,7 +41,7 @@ export default defineApp({
 the collection gives. `@epicenter/app` is the API of the `epicenter` that runs
 the app, so the command supplies it: to `epicenter.ts` when it loads the file,
 and to the editor, `bun test`, and the UI's build by linking
-`node_modules/@epicenter/app` to its own copy (ADR-0873). The folder's
+`code/node_modules/@epicenter/app` to its own copy (ADR-0873). The code project's
 `package.json` names only the app's own dependencies. An app's name is its
 folder's.
 
@@ -204,7 +205,8 @@ A file that does not fit has `problems`, one line per problem, quoting the
 value it dropped as JSON: `due: "next week" is not a day like 2026-11-12`, `title is missing`,
 or `its front matter is neither key: <JSON> lines nor YAML`. A file that fits
 has no `problems` key. `words.list()` returns rows with `problems`; for a one-file collection,
-`get()` returns the file with `problems`.
+`get()` returns the file with `problems`. An agent or action repairs these
+records after a code change; reads do not impose a global migration gate.
 
 `get`, and the file `add`, `set`, and `edit` return, also have `other`: the
 front matter that is not a field's fitting value, keyed by name. It holds
@@ -226,6 +228,8 @@ the path it was asked for, while `list` gives the name on disk.
 ### What a definition may say
 
 `defineCollection` refuses:
+
+- a `field.file()` field, including a nested or read-only file marker;
 
 - a path outside `data/`, naming the path with that prefix;
 - a path that is not a relative `.md` template, has an empty part or one
@@ -261,10 +265,21 @@ takes `{ path, grade }`; it could take `{ word, grade }` and call
 
 Each field is JSON Schema, so any TypeBox schema works as a field too. A field
 is required unless it says `optional: true`; `readOnly: true` is described
-above, and every field helper keeps it in its type. `field.text({ writeOnly:
-true })` marks an action's input as a secret, described below; a collection's
-field cannot be write-only. A field may not be named
-`json`, `help`, or `input`, which `epicenter` reads itself.
+above, and every field helper keeps it in its type. Fields describe data;
+`defineAction({ privateInput: true, ... })` declares private handling for the
+whole input. Raw JSON Schema annotations, including `writeOnly`, pass through
+unchanged and have no effect on this policy. Schemas must serialize as
+finite JSON; recursive schemas use references rather than cyclic JavaScript
+objects. A field may not be named `json`, `help`, or `input`, which `epicenter`
+reads itself.
+
+An action with `privateInput: true` accepts HTTP or exactly `--input -` at the
+CLI. Its whole input is one JSON object from stdin: flags, positionals, inline
+JSON, and terminal prompts are unavailable. MCP neither lists nor runs it.
+Validation refuses its whole input without echoing values or undeclared
+property names. Actions make no commits.
+The flag governs input handling. It does not authenticate HTTP callers or
+redact action results. The app owns what it returns, throws, yields, and writes.
 
 `localDay()` and `localTime()` give now, or a `Date` passed to them, as
 `field.date` and `field.datetime` hold it, in the time zone of the computer
@@ -297,22 +312,17 @@ same run
 `folder` has `read`, `readBytes`, `write`, `writeBytes`, `update`, `list`, and
 `delete`, and `path` on a computer.
 
-An action changes files and never commits; on a computer, the call that ran
-it commits before it answers, however it arrived
-([ADR-0850](../../docs/adr/0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md)).
-The commit holds exactly the files the run wrote through `folder` that
-changed, named for the call; other pending files stay pending until
-`epicenter sync` or `serve`'s 5-minute clock snapshots them as
-`<app>: changed outside epicenter`; `epicenter history` lists each commit's
-paths from Git. What an
-action wrote before it throws is committed as `<call> (threw)`; whether a
-failed action should be rolled back instead is undecided
-([ADR-0857](../../docs/adr/0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md)).
+An action changes files and makes no Git commit. Its writes remain pending,
+including when it throws or stops. A root checkpoint records included code
+and records together, from the CLI or serve's clock
+([ADR-0910](../../docs/adr/0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md), Accepted).
+Reads tolerate records that no longer fit the declaration; repair follows a
+code change rather than blocking the whole app.
 
-Calls that write one app take turns, from the command line, an agent, and a
-UI alike: a call holds the app's lock from its first write until its commit,
-and a call that only reads never takes it. So an action that fetches or
-computes first and writes last holds the app for the least time.
+Calls that write one app take turns from their first folder write until they
+end. The runner flocks the real container `apps/<app>`, so replacing code/
+does not change the lock. A read-only call takes no lock. Fetch or compute
+first and write last to keep other writers from waiting.
 `folder.write` replaces the file, and the last write wins. A change that
 depends on what it read goes through `folder.update(path, change)`: it reads
 the file, calls `change` with its text (`undefined` when there is none), and
@@ -328,7 +338,7 @@ two `update`s of one field each see the other's.
 await folder.update('data/2026.csv', (before = 'minutes,book\n') => `${before}${minutes},\n`);
 ```
 
-A run of an action marked `readOnlyHint: true` is never snapshotted. Its
+A run of an action marked `readOnlyHint: true` takes no write lock. Its
 context carries `readOnly: { action }`, and in it `folder.write`,
 `folder.writeBytes`, `folder.update`, and `folder.delete` throw before doing
 anything, unless the path is `.local` under `data/`: `The action "<words>" is read-only, so
@@ -336,8 +346,9 @@ it cannot write <path>`. A raw `node:fs` write, or a change made through an
 outside service, is the action's own promise.
 
 `folder` is a convenience, not a sandbox: an action may also write through
-`folder.path` with `node:fs`. What the app can rebuild lives in files it
-gitignores inside its folder, such as `ui/dist/`; they are never committed.
+`folder.path` with `node:fs`. That path is the real app container, not code/
+or data/. What the app can rebuild lives in files it
+gitignores inside its folder, such as `code/ui/dist/`; they are never committed.
 Paths are relative to the folder with `/` between parts, and `read` gives
 `undefined` for a missing file.
 Every write through `folder` stays under `data/`. A path with a `.git*` segment
@@ -350,10 +361,10 @@ the computer that runs the app
 ([ADR-0870](../../docs/adr/0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md)).
 `isLocalPath(path)` says whether a path is one. Such a file:
 
-- is never committed: the app's `.gitignore` leaves it out, and a snapshot
-  refuses one it lets through;
-- may be written and deleted in a read-only run, since it is never in the
-  app's history, so an action that only reads may still refresh a token;
+- stays out of root history: the root `.gitignore` excludes it, and a
+  checkpoint refuses local credentials Git would include;
+- may be written and deleted in a read-only run, since it stays out of
+  Git history, so an action that only reads may still refresh a token;
 - is made `0600`, readable by its owner alone, when `folder` creates it on a
   computer, and a directory `folder` creates on such a path is `0700`;
 - is never one of a collection's files unless the collection's own `path` is
@@ -388,19 +399,19 @@ The actions an app writes keep two rules, since `serve` hands an answer and a
 thrown error to its caller whole, and an MCP caller's input sits in its
 transcript:
 
-- **Never return or throw a value read from a `.local` file.** Return what
+- **Never return, throw, or yield a value read from a `.local` file.** Return what
   the secret got you: an account name, a count, a result.
-- **Never take a secret as ordinary input.** Every action is an MCP tool, a
-  call's commit is named after its first positional value, and a refusal
-  quotes what did not fit. A secret comes in one of three ways: the person
+- **Never take a secret as ordinary input.** An ordinary action is an MCP tool,
+  its input sits in the transcript, and a refusal quotes what did not fit. A secret comes in one of three ways: the person
   writes the `.local` file; the action runs a flow that brings it back to this
   computer itself, as Mail's `connect` does with only a `port` and a loopback
-  listener; or an input marked `writeOnly` (`field.text({ writeOnly: true
-  })`), which the app's UI posts over HTTP. MCP neither lists nor runs an
-  action with such an input, its value never names the commit, a refusal
-  names the field without quoting it, and the command line asks for it
-  without echo rather than reading it from its arguments. It cannot be a
-  positional.
+  listener; or an action declaring `privateInput: true`, whose input the app's
+  UI posts over HTTP or the CLI reads as JSON through `--input -`. The flag
+  governs the whole input, independently of its fields. MCP neither lists
+  nor runs it, and validation returns a fixed refusal. The CLI refuses every other input spelling before parsing its
+  arguments. The app still owns what its actions return, throw, yield, and
+  write. Discovery through `epicenter <app> --json` and `<action> --help --json`
+  preserves the flag at the top level, separately from MCP's `annotations`.
 
 `.local` means "this computer only", for a cache as much as a sign-in. It is
 not a guard against a shell agent on the same computer: give that agent a
@@ -409,6 +420,8 @@ deny rule for `*.local*` in its own permissions
 says what each layer defends).
 
 ## Testing an action
+
+Keep the test beside epicenter.ts under code/. Run it from that Bun project.
 
 ```ts
 import { createMemoryContext, inRun } from '@epicenter/app';
@@ -446,9 +459,8 @@ whose passage changed or an `update` of a file that kept changing, and
 `Missing` (`{ path }`) for a file that is not there. `Threw` carries anything
 else the action threw, with a tagged error whole as `thrown`; `Refused` means
 nothing ran, with serve's `next` when it has one; `Unreachable` means no
-answer came back. Whatever becomes of the snapshot after a call, the
-call resolves; the app's status on the computer that serves it says when one
-failed.
+answer came back. Checkpoint failures are reported by the checkpoint command or serve
+clock separately from an action's answer.
 
 A UI hands these calls to TanStack Query through Wellcrafted's
 `resultQueries` and `resultMutations` (ADR-0661), and makes its one

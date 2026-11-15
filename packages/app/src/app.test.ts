@@ -1,4 +1,9 @@
+/**
+ * App composition, run context, and action and collection declarations.
+ * Declarations reject malformed metadata and cyclic schemas before discovery.
+ */
 import { describe, expect, test } from 'bun:test';
+import type { TSchema } from 'typebox';
 import {
 	createMemoryContext,
 	defineAction,
@@ -343,6 +348,29 @@ describe('defineApp', () => {
 });
 
 describe('defineCollection', () => {
+	test('accepts raw writeOnly schema metadata as ordinary collection data', () => {
+		const schema = { type: 'string', writeOnly: true };
+		const collection = defineCollection({
+			path: 'data/records/{id}.md',
+			fields: { value: schema },
+		});
+		expect(collection.fields.value).toEqual(schema);
+	});
+
+	test('rejects cyclic schemas at declaration before they can break discovery', () => {
+		const schema: { type: string; properties: Record<string, TSchema> } = {
+			type: 'object',
+			properties: {},
+		};
+		schema.properties.self = schema;
+		expect(() =>
+			defineCollection({
+				path: 'data/records/{id}.md',
+				fields: { value: schema },
+			}),
+		).toThrow(TypeError);
+	});
+
 	test('requires a data/ path and names the accepted path', () => {
 		expect(
 			problems(() => defineCollection({ path: 'tasks/{time}.md', fields: {} })),
@@ -458,6 +486,80 @@ describe('defineCollection', () => {
 });
 
 describe('defineAction', () => {
+	test('preserves a boolean privateInput flag and rejects any other value', () => {
+		for (const privateInput of [true, false]) {
+			const action = defineAction({
+				description: 'Connect',
+				privateInput,
+				input: { token: field.text() },
+				run: () => true,
+			});
+			expect(action.privateInput).toBe(privateInput);
+		}
+		expect(() =>
+			defineAction({
+				description: 'Connect',
+				privateInput: 'true' as unknown as boolean,
+				input: {},
+				run: () => true,
+			}),
+		).toThrow('privateInput flag that is not a boolean');
+	});
+
+	test('raw writeOnly schema metadata does not imply private input handling', () => {
+		const action = defineAction({
+			description: 'Read',
+			input: { value: { type: 'string', writeOnly: true } },
+			run: () => true,
+		});
+		expect(action.privateInput).toBeUndefined();
+	});
+
+	test('rejects the old confidential spelling instead of losing its protections', () => {
+		expect(() =>
+			// @ts-expect-error privateInput is the only supported policy name
+			defineAction({
+				description: 'Connect',
+				input: {},
+				confidential: true,
+				run: () => true,
+			}),
+		).toThrow('has "confidential", which an action does not take');
+	});
+
+	test('rejects cyclic schemas at declaration before they can break discovery', () => {
+		const schema: { type: string; properties: Record<string, TSchema> } = {
+			type: 'object',
+			properties: {},
+		};
+		schema.properties.self = schema;
+		expect(() =>
+			defineAction({
+				description: 'Read',
+				input: { value: schema },
+				run: () => true,
+			}),
+		).toThrow(TypeError);
+	});
+
+	test('accepts finite recursive schemas expressed with references', () => {
+		const schema = {
+			$defs: {
+				node: {
+					type: 'object',
+					properties: { next: { $ref: '#/$defs/node' } },
+				},
+			},
+			$ref: '#/$defs/node',
+		};
+		const action = defineAction({
+			description: 'Read',
+			input: { value: schema },
+			run: () => true,
+		});
+		expect(action.input.value).toEqual(schema);
+	});
+
 	test('a yielding action called directly resolves with its return; runYielding also reads its yields in order', async () => {
 		const say = defineAction({
 			description: 'Say',

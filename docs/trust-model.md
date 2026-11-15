@@ -52,30 +52,33 @@ instructions, so anything written there reaches each agent that connects.
 
 ## The code you run
 
-`serve` and `epicenter` run each app's `epicenter.ts` with your privileges,
+`serve` and `epicenter` run each app's `code/epicenter.ts` with your privileges,
 in one process, with no sandbox
 ([ADR-0880](adr/0880-an-epicenter-runs-its-apps-as-they-sit-on-disk.md)).
 An action can read any file you can, and `folder` is a convenience, not a
 boundary. An app taken with `epicenter new --from <url>` runs its author's
-code, and `epicenter update` merges whatever its `upstream` changed. Trust a
-starter as you would any program you install.
+committed code into your app's `code/`, without an upstream or automatic
+merge. Inspect incoming code before copying later changes. Trust it as you
+would any program you install.
 
 ## Sign-ins are files that stay on the home
 
 An app keeps a sign-in, such as Mail's Google token, in a `.local` file in its
 own folder ([ADR-0870](adr/0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md)).
-The data repository's `.gitignore` keeps `*.local` and `*.local.*` out of
-every commit, and a commit that would take one refuses
-(`packages/cli/src/snapshot.ts`). A new `.local` file written through `folder`
+The home's `.gitignore` keeps `*.local` and `*.local.*` out of
+checkpoints, and a checkpoint that would include one refuses
+(`packages/cli/src/checkpoint.ts`). A new `.local` file written through `folder`
 is `0600`. So a `.local` file never reaches a backup or a clone. It is a plain
 file, though: anyone who can read the home can read it, the provider of a
 rented home included.
 
 ## Backups
 
-An app's code and data are two Git repositories, and each may have an
-`origin`, a push-only backup
-([ADR-0851](adr/0851-an-app-has-one-home-and-an-optional-push-only-backup.md)).
+The home has one private root Git repository holding every app's code and
+included records. Its `origin` is an optional push-only backup
+([ADR-0910](adr/0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md)).
+Agents edit the working files; named or periodic checkpoints record pending
+changes. Publishing an app copies only its code into a separate history.
 Nothing is pushed until you add one. Whoever hosts that repository, GitHub or
 your own Git server, can read what is pushed: every committed file and its
 history, never a `.local` file.

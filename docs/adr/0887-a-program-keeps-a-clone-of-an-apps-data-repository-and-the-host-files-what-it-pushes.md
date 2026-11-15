@@ -6,6 +6,7 @@
 - **Amended by:** [ADR-0903](0903-the-home-is-a-computer-its-person-controls-owned-or-rented.md): "the host's token on a hosted Epicenter" is withdrawn; whoever may call the app's actions on the home may clone and push.
 - **Relates:** [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (filing is a writer under the app's lock), [ADR-0851](0851-an-app-has-one-home-and-an-optional-push-only-backup.md) (the backup, which this does not change), [ADR-0877](0877-an-apps-code-and-its-data-are-two-repositories-and-sharing-an-app-shares-its-code.md) (the data repository), [ADR-0888](0888-the-host-merges-with-gits-line-merge-and-a-file-it-cannot-merge-takes-the-later-side-whole.md) (the merge), [ADR-0889](0889-an-app-runs-on-epicenter-a-program-works-with-it-and-they-meet-at-the-apps-contract.md) (programs), [ADR-0890](0890-a-programs-folder-is-its-own-and-holds-only-what-its-apps-contract-declares.md) (a program's folder), [ADR-0893](0893-a-records-path-is-its-path-in-the-apps-data-repository.md) (one path per record).
 - **Unbuilt:** all of it: `serve`'s Git route at `/<app>.git`, filing a pushed branch, the status line for a branch not filed, `undo` of a filing, and Whispering's connect.
+- **Amended by:** [ADR-0910](0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md): an app's data is no longer a separately cloneable repository; the device protocol remains undecided.
 
 ## Context
 

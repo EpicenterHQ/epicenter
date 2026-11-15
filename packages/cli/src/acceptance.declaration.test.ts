@@ -7,12 +7,7 @@ import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
 import { existsSync } from 'node:fs';
 import { readFile, rm, symlink } from 'node:fs/promises';
 import { join } from 'node:path';
-import {
-	connectMcp,
-	fixture,
-	gitIn,
-	readingApp,
-} from './runner.test-support.ts';
+import { connectMcp, fixture, readingApp } from './runner.test-support.ts';
 
 setDefaultTimeout(30_000);
 
@@ -120,25 +115,25 @@ export default defineApp({ description: 'The misplaced app', collections: {}, ac
 	expect(problems).toEqual({
 		// Each line of what a define call throws is one problem.
 		badpath: [
-			'epicenter.ts: The collection path data/words/ is not a .md path',
+			'code/epicenter.ts: The collection path data/words/ is not a .md path',
 		],
 		malformed: [
-			'epicenter.ts: The collection at data/words/{word}.md has a field "word", which its path gives as {word}; the file\'s name holds it',
-			'epicenter.ts: The collection at data/words/{word}.md has a field "path", which is the file\'s address',
+			'code/epicenter.ts: The collection at data/words/{word}.md has a field "word", which its path gives as {word}; the file\'s name holds it',
+			'code/epicenter.ts: The collection at data/words/{word}.md has a field "path", which is the file\'s address',
 		],
 		misplaced: [
-			'epicenter.ts: The action "Show" has the positional "nope", which is not one of its fields',
+			'code/epicenter.ts: The action "Show" has the positional "nope", which is not one of its fields',
 		],
-		nodefault: ['epicenter.ts does not export defineApp(...) by default'],
+		nodefault: ['code/epicenter.ts does not export defineApp(...) by default'],
 		nullactions: [
-			'epicenter.ts: An app needs actions: an object of defineAction(...) and groups of them, {} for none',
+			'code/epicenter.ts: An app needs actions: an object of defineAction(...) and groups of them, {} for none',
 		],
 		shapeless: [
-			'epicenter.ts: collections.words is not defineCollection(...)',
-			'epicenter.ts: actions.show is neither an action nor a group of them',
+			'code/epicenter.ts: collections.words is not defineCollection(...)',
+			'code/epicenter.ts: actions.show is neither an action nor a group of them',
 		],
 		unchecked: [
-			'epicenter.ts: actions.show is not an action: make it with defineAction(...), and change one with defineAction({ ... }) rather than a spread, which drops the call',
+			'code/epicenter.ts: actions.show is not an action: make it with defineAction(...), and change one with defineAction({ ... }) rather than a spread, which drops the call',
 		],
 	});
 	// A later key replaces an earlier one: the written set replaces the collection's.
@@ -148,13 +143,11 @@ export default defineApp({ description: 'The misplaced app', collections: {}, ac
 	expect(JSON.stringify(listing)).not.toContain('json-only');
 
 	const human = await f.run();
-	expect(human.stdout).toMatch(
-		/^vocab +The vocab app \(code: not backed up\)$/m,
-	);
+	expect(human.stdout).toMatch(/^vocab +The vocab app$/m);
 	expect(human.stdout).toContain(`-> ${linked}`);
 	expect(human.stdout).toContain('Problems:');
 	expect(human.stdout).toContain(
-		'    epicenter.ts: The collection path data/words/ is not a .md path',
+		'    code/epicenter.ts: The collection path data/words/ is not a .md path',
 	);
 });
 
@@ -309,9 +302,7 @@ test('D6 serve answers initialize, lists the same tools as --json, and runs a ca
 			arguments: { minutes: 30 },
 		});
 		expect(called.isError).toBeFalsy();
-		expect(await gitIn(join(folder, 'data'), 'log', '-1', '--format=%s')).toBe(
-			'reading: log 30',
-		);
+
 		expect(await readFile(join(folder, 'data/2026.csv'), 'utf8')).toBe(
 			'minutes,book\n30,\n',
 		);
@@ -539,15 +530,4 @@ test("D8 an app of one collection's verbs adds, reads, changes, and deletes its 
 			],
 		},
 	});
-	// Every write is its own commit, named for the call, from the terminal and MCP alike.
-	expect(await gitIn(join(folder, 'data'), 'log', '--format=%s')).toBe(
-		[
-			'capture: delete data/items/dune.md',
-			'capture: add petrichor',
-			'capture: edit data/items/dune.md',
-			'capture: set data/items/dune.md',
-			'capture: add dune',
-			'capture: start its data',
-		].join('\n'),
-	);
 });

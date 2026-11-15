@@ -20,7 +20,6 @@
  */
 import { type Static, type TObject, type TSchema, Type } from 'typebox';
 import { Value } from 'typebox/value';
-import { isWriteOnly } from './field.ts';
 
 /** An action's input: a record of fields, or of any TypeBox schemas. */
 export type Input = Record<string, TSchema>;
@@ -29,8 +28,7 @@ export type Input = Record<string, TSchema>;
  * MCP's tool annotations, verbatim. An action that does not say otherwise
  * may change things, may destroy, is not idempotent, and reaches outside the
  * folder; the last three mean something only when it is not read-only. A
- * read-only action's run is never snapshotted into the app's history, and a
- * write through `folder` in it throws, except to a `.local` path.
+ * read-only action's write through `folder` throws, except to a `.local` path.
  */
 export type Annotations = {
 	title?: string;
@@ -40,15 +38,21 @@ export type Annotations = {
 	openWorldHint?: boolean;
 };
 
-/** What the CLI, MCP, and a UI read from an action besides calling it. */
-export type ActionMeta = {
+/** An action's metadata, shared by its declaration and callers. */
+export type ActionMeta<I extends Input = Input> = {
 	readonly description: string;
-	readonly input: Input;
+	readonly input: I;
+	/**
+	 * Handle the whole input privately: exclude MCP, accept CLI input only as
+	 * JSON stdin, and omit input from validation details and commit names.
+	 * HTTP JSON remains available. The app owns its outputs and storage.
+	 */
+	readonly privateInput?: boolean;
 	/**
 	 * The inputs the command line also reads by position, in order:
 	 * `positional: ['from', 'to']` reads `epicenter reading between 2026-11-01 2026-11-08`.
 	 */
-	readonly positional?: readonly string[];
+	readonly positional?: readonly (keyof I & string)[];
 	readonly annotations?: Annotations;
 };
 
@@ -107,19 +111,11 @@ type CallerInput<I extends Input> = Simplify<
 	}
 >;
 
-/** What an action is besides its `run`, as an app writes it. */
-type ActionFields<I extends Input> = {
-	description: string;
-	input: I;
-	positional?: readonly (keyof I & string)[];
-	annotations?: Annotations;
-};
-
 /** An action as an app writes it: `run` receives its input, typed by its fields. */
 export type ActionDef<
 	I extends Input,
 	Out extends Returned | Promise<Returned> = Returned | Promise<Returned>,
-> = ActionFields<I> & {
+> = ActionMeta<I> & {
 	/** Returns what the caller sees, and what `--json` prints: a value that survives JSON. */
 	run(input: InputOf<I>): Out;
 };
@@ -129,7 +125,7 @@ export type YieldingActionDef<
 	I extends Input,
 	Y extends Returned,
 	R extends Returned,
-> = ActionFields<I> & {
+> = ActionMeta<I> & {
 	run(input: InputOf<I>): AsyncGenerator<Y, R, undefined>;
 };
 
@@ -205,6 +201,8 @@ export function defineAction(
 				.join('\n'),
 		);
 	const { run, ...meta } = def;
+	// Fail at declaration, before a non-JSON schema can break tool discovery.
+	JSON.stringify(def.input);
 	const schema = Type.Object(def.input);
 	const start = (input: unknown) =>
 		(run as (input: unknown) => unknown)(
@@ -234,6 +232,7 @@ export const RESERVED_FIELDS: ReadonlySet<string> = new Set([
 const ACTION_KEYS = new Set([
 	'description',
 	'input',
+	'privateInput',
 	'positional',
 	'annotations',
 	'run',
@@ -249,10 +248,8 @@ const ANNOTATION_KEYS = new Set([
 
 /** What is wrong with `def` as an action beyond its types, each finishing "The action … ". */
 function actionProblems(def: object): string[] {
-	const { description, input, positional, annotations, run } = def as Record<
-		string,
-		unknown
-	>;
+	const { description, input, privateInput, positional, annotations, run } =
+		def as Record<string, unknown>;
 	const problems: string[] = [];
 	for (const key of Object.keys(def))
 		if (!ACTION_KEYS.has(key))
@@ -260,6 +257,8 @@ function actionProblems(def: object): string[] {
 	if (typeof description !== 'string' || description.trim() === '')
 		problems.push('has no description');
 	if (typeof run !== 'function') problems.push('has no run');
+	if (privateInput !== undefined && typeof privateInput !== 'boolean')
+		problems.push('has a privateInput flag that is not a boolean');
 	if (typeof annotations === 'object' && annotations !== null)
 		for (const key of Object.keys(annotations))
 			if (!ANNOTATION_KEYS.has(key))
@@ -278,10 +277,6 @@ function actionProblems(def: object): string[] {
 			);
 		else if (positional.indexOf(key) !== index)
 			problems.push(`lists the positional "${key}" twice`);
-		else if (isWriteOnly(fields[key] as TSchema))
-			problems.push(
-				`has the write-only "${key}" as a positional; a secret is never read from the command line, where the shell's history keeps it`,
-			);
 		else if (
 			(fields[key] as { type?: unknown }).type === 'array' &&
 			index !== positional.length - 1

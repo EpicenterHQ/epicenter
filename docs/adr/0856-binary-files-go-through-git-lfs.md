@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-11-08
 - **Relates:** [ADR-0851](0851-an-app-has-one-home-and-an-optional-push-only-backup.md) (the remote), [ADR-0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) (the template, and the rule of least power), [ADR-0853](0853-collections-give-five-actions-and-programs-without-the-folder-ask-over-mcp.md) (byte collections and programs that write files), [ADR-0858](0858-where-a-file-lives-decides-whether-it-travels-survives-or-dies-with-its-program.md) (a binary kept on one computer is a `.local` path).
-- **Unbuilt:** `setup`'s check for `git-lfs` and the vault's `.gitattributes`. Built 2026-11-09: the refusal, before the write lands, of a path marked for LFS when `git-lfs` is not on `PATH` or its filter is not set up, since Git without the filter stores the whole file.
+- **Unbuilt:** any migration of existing live binary history. Source init writes root LFS attributes when git-lfs is available; checkpoints refuse pending LFS paths without the process filter.
 
 ## Context
 
@@ -23,26 +23,25 @@ only needs storing and fetching by its hash. Git LFS keeps the second kind out o
 every clone: history holds a pointer, the bytes live in a store, and a clone
 fetches them when they are opened.
 
-**A binary a folder tracks goes through LFS; the folder's `.gitignore` still
-decides what is tracked.** A folder that holds binaries routes their types
-through LFS in its own `.gitattributes`: the one Whispering writes, and one
-added to the vault. The template of `epicenter new` has none, since most apps
-hold only text and a `.gitattributes` there made every commit on a computer
-without LFS fail (amended 2026-11-10). The lines are:
+**A tracked binary uses LFS, and the root ignore file decides what is tracked.**
+`epicenter init` writes root `.gitattributes` for the extensions below when
+`git-lfs` is available, and installs its local filter. Existing attributes
+are preserved. The app template adds no LFS rules. A copied code folder keeps
+any inherited LFS rules needed for its materialized files. The lines are:
 
 ```txt
 *.webm *.m4a *.wav *.mp3 *.png *.jpg *.jpeg *.heic *.gif *.webp *.mp4 *.mov *.pdf
   → filter=lfs diff=lfs merge=lfs -text
 ```
 
-Each job has the owner Git already gives it; nothing in Epicenter sets LFS up.
+Each job has the owner Git already gives it; init configures the local filter only where git-lfs is installed.
 
 | Job | Owner |
 | --- | --- |
-| Which files go through LFS | the folder's `.gitattributes`, written by its author |
-| Installing the filter | each computer, once; `epicenter setup` checks for `git-lfs` and says how to install it |
+| Which files go through LFS | the root `.gitattributes` from init, then edited by its owner |
+| Installing the filter | each computer; init installs the local filter when git-lfs is available |
 | Where the bytes are stored | the `origin` host, or a `.lfsconfig` naming another server |
-| Never committing a binary into plain history | every program that commits: it refuses to commit when `.gitattributes` marks a path for LFS and this computer has no LFS filter, because Git without the filter ignores the attribute and stores the whole file |
+| Never committing a binary into plain history | the root checkpoint refuses before staging when `.gitattributes` marks a path for LFS and this computer has no LFS filter, because Git without the filter ignores the attribute and stores the whole file |
 
 **Rewriting a folder's existing history into LFS is the author's choice, made
 separately.** For the vault it means measuring the media in its 9.1 GB and the
@@ -65,11 +64,11 @@ Epicenter fetches everything.
 
 - Text history stays small and diffable; each version of a binary is stored once
   on the remote's LFS store.
-- Every computer with a clone needs `git-lfs`, and `setup` checks for it.
+- A clone holding LFS files needs git-lfs; a checkpoint names a missing filter.
 - GitHub's LFS is metered beyond a free quota.
 - No app needs a setting for keeping binaries out of its folder. A binary kept
-  on one computer stays in the folder under a `.local` name, which the template
-  ignores (ADR-0858); Whispering's "Keep audio on this Mac only" chooses that
+  on one computer stays in the folder under a `.local` name, which the root ignore file
+  excludes (ADR-0858); Whispering's "Keep audio on this Mac only" chooses that
   name for future recordings.
 
 ## Considered alternatives

@@ -1,33 +1,12 @@
-/**
- * A call runs in the process that received it, the command line's or
- * `serve`'s, from the app's code as it is on disk now (`home.ts`), and owns
- * its data commit (ADR-0850, ADR-0880). Its first folder write takes the
- * app's lock and snapshots pending data as changed outside epicenter. When the action ends, it commits everything
- * pending in data under the call's name, even when it threw. An opening
- * snapshot failure leaves everything pending. A call with no folder write
- * takes no lock and commits nothing. Read-only calls take no lock, including
- * their .local writes. Commit outcomes never change the action's answer.
- */
+/** Run actions with a lazy container write lock, released when the call ends. */
 
-import { join } from 'node:path';
-import {
-	type Action,
-	type Folder,
-	inRun,
-	isName,
-	isWriteOnly,
-	runYielding,
-	writeOnlyKeys,
-} from '@epicenter/app';
+import { type Action, type Folder, inRun, runYielding } from '@epicenter/app';
 import { extractErrorMessage } from 'wellcrafted/error';
-import { type CodeState, codeStateOf } from './data.ts';
 import { CliError } from './errors.ts';
 import { loadHomeApp, type Runnable } from './home.ts';
 import { checkInput } from './input.ts';
 import { type Held, hold, LOCK_WAIT_MS } from './lock.ts';
-import { type Answer, writeErr } from './output.ts';
-import { appsDir } from './root.ts';
-import { commitCall, type Snapshot, snapshotData } from './snapshot.ts';
+import { type Answer } from './output.ts';
 
 /**
  * What the action threw, as the answer carries it. A thrown tagged error (a
@@ -48,31 +27,6 @@ function threwOf(cause: unknown): {
 	)
 		return { message };
 	return { message, thrown: JSON.parse(JSON.stringify(cause)) };
-}
-
-/**
- * A call's name in history: the app, the action's words, and its first
- * positional value on one line, cut at 60 characters
- * (`tasks: add Water the plants`). A `writeOnly` value never names a commit,
- * since history travels with the data's backup (ADR-0870).
- */
-export function callName(
-	app: string,
-	key: string,
-	action: Action,
-	input: Record<string, unknown>,
-) {
-	const first = action.positional?.[0];
-	const field = first === undefined ? undefined : action.input[first];
-	const value =
-		first === undefined || (field && isWriteOnly(field))
-			? undefined
-			: input[first];
-	const suffix =
-		value === undefined
-			? ''
-			: ` ${typeof value === 'string' ? value : JSON.stringify(value)}`;
-	return `${app}: ${key}${suffix.replace(/\s+/g, ' ').slice(0, 61)}`;
 }
 
 /**
@@ -100,27 +54,17 @@ function forCall(
 	};
 }
 
-/**
- * Run `action`, the app's `key`, with its checked input in the app's folder,
- * then commit everything pending in data under the call's name,
- * whether it returned, threw (`<call> (threw)`), or its caller stopped it
- * (`<call> (stopped)`), and let the app's lock go.
- * `committed` is the commit's outcome, absent when the call wrote nothing
- * through `folder`.
- */
+/** Run a checked action; its first write owns the container until it ends. */
 export async function runAction(
 	located: Runnable,
 	key: string,
 	action: Action,
 	input: Record<string, unknown>,
-	code: CodeState,
 	{ onYield, signal }: Following = {},
 ): Promise<{
 	answer: Exclude<Answer, { error: unknown }>;
-	committed?: Snapshot;
 }> {
 	const readOnly = action.annotations?.readOnlyHint === true;
-	let opening: Snapshot | undefined;
 	let owning: Promise<void> | undefined;
 	let held: Held | undefined;
 	const own = () =>
@@ -130,7 +74,6 @@ export async function runAction(
 				throw new Error(
 					`${located.name} is busy: another write held it for ${LOCK_WAIT_MS / 1000} seconds`,
 				);
-			opening = await snapshotData(located.name, located.realPath);
 		})());
 	const folder = forCall(located.context.folder, own, readOnly);
 	const context = {
@@ -139,28 +82,20 @@ export async function runAction(
 		signal,
 		...(readOnly ? { readOnly: { action: key } } : {}),
 	};
-	let answer: Exclude<Answer, { error: unknown }>;
 	try {
-		const returned = await inRun(context, () =>
-			runYielding(action, input, async (value) => {
-				if (signal?.aborted) throw new Error('The caller stopped the call');
-				await onYield?.(value);
-			}),
-		);
-		answer = { returned: returned ?? null };
-	} catch (error) {
-		answer = { threw: threwOf(error) };
-	}
-	try {
-		if (!held) return { answer };
-		if (opening && 'failed' in opening) return { answer, committed: opening };
-		const committed = await commitCall(located.name, located.realPath, {
-			subject:
-				callName(located.name, key, action, input) +
-				(signal?.aborted ? ' (stopped)' : 'threw' in answer ? ' (threw)' : ''),
-			code,
-		});
-		return { answer, committed };
+		let answer: Exclude<Answer, { error: unknown }>;
+		try {
+			const returned = await inRun(context, () =>
+				runYielding(action, input, async (value) => {
+					if (signal?.aborted) throw new Error('The caller stopped the call');
+					await onYield?.(value);
+				}),
+			);
+			answer = { returned: returned ?? null };
+		} catch (error) {
+			answer = { threw: threwOf(error) };
+		}
+		return { answer };
 	} finally {
 		held?.release();
 	}
@@ -169,23 +104,17 @@ export async function runAction(
 /** Who follows a call as it runs: each value it yields, and when they stop listening. */
 export type Following = {
 	/**
-	 * The call came over MCP, whose input sits in an agent's transcript: an
-	 * action with a `writeOnly` input is refused before it runs (ADR-0870).
+	 * The call came over MCP, whose input sits in an agent's transcript: a
+	 * call with private input is refused before it runs.
 	 */
 	overMcp?: boolean;
 	/** Each value the action yields, in order; the action waits for it. */
 	onYield?: (value: unknown) => unknown;
-	/** Aborted when the caller stops listening: the action is stopped at its next yield, or at once where it reads `callSignal()`, and the call commits what it wrote. */
+	/** Aborted when the caller stops listening: the action is stopped at its next yield, or at once where it reads `callSignal()`, and the call releases its lock. */
 	signal?: AbortSignal;
 };
 
-/**
- * Run the app `name`'s action `key` (its words one space apart) with `raw`,
- * one JSON object holding its whole input, as MCP and a UI give it: the app's
- * code is loaded as it is now, the input checked, and what the call wrote
- * committed before it answers. A commit that fails is written to stderr; it
- * never changes the answer.
- */
+/** Load the current code, check input, and run the requested action. */
 export async function callAction(
 	name: string,
 	key: string,
@@ -195,10 +124,6 @@ export async function callAction(
 	const refused = (message: string, next?: string): Answer => ({
 		error: CliError.Usage({ message, next }).error,
 	});
-	// The code a call ran is the code before loading it: an epicenter.ts may move HEAD as it loads.
-	const code = isName(name)
-		? await codeStateOf(join(appsDir(), name))
-		: { dirty: false };
 	const { data: located, error: notFound } = await loadHomeApp(name);
 	if (notFound) return { error: notFound };
 	if (!located.ok)
@@ -211,9 +136,9 @@ export async function callAction(
 		: undefined;
 	if (!action)
 		return refused(`${name} has no action "${key}"`, `epicenter ${name}`);
-	if (following.overMcp && writeOnlyKeys(action.input).length)
+	if (following.overMcp && action.privateInput === true)
 		return refused(
-			`${name} ${key} takes a secret, so it is not offered over MCP, where the input stays in the agent's transcript. A person gives it in ${name}'s own page or at the command line`,
+			`${name} ${key} takes private input, so it is not offered over MCP. Use ${name}'s own page or pipe JSON to --input -`,
 			`epicenter ${name} ${key}`,
 		);
 	if (typeof raw !== 'object' || raw === null || Array.isArray(raw))
@@ -221,17 +146,12 @@ export async function callAction(
 	const checked = checkInput(action, raw, (field) => field);
 	if ('error' in checked)
 		return refused(checked.error, `epicenter ${name} ${key} --help`);
-	const { answer, committed } = await runAction(
+	const { answer } = await runAction(
 		located,
 		key,
 		action,
 		checked.input,
-		code,
 		following,
 	);
-	if (committed && 'failed' in committed)
-		writeErr(
-			`${name}: not yet in history: ${committed.failed.message}\nRun: ${committed.failed.next ?? `epicenter sync ${name}`}`,
-		);
 	return answer;
 }

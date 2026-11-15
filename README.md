@@ -89,9 +89,11 @@ release is decided and not built
 Linux job for a rented home and Epicenter for Mac are not built yet.
 
 The author's inside apps (Capture, Mail, Messages, Reading, Tasks, and Vocab)
-run on their home. They are not in this repository: each is a repository of its
-own, taken with `epicenter new <app> --from <git url>`
-([ADR-0877](docs/adr/0877-an-apps-code-and-its-data-are-two-repositories-and-sharing-an-app-shares-its-code.md)).
+run on their home, outside this runtime source repository. Each app has
+`apps/<app>/code/` and sibling `data/` in the home's one private Git
+repository. Root checkpoints record pending code and records together;
+actions make no commits. App publication copies only code into a separate
+history ([ADR-0910](docs/adr/0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md)).
 
 Whispering, an outside app, runs in a browser tab and as a desktop app, and
 needs no Epicenter. Epicenter, the company, also hosts services: sign-in and
@@ -110,7 +112,7 @@ Your data is on the home, and whoever can read the home can read it.
 | A home you own | You, and whatever you let reach it: devices on your tailnet, agents you give a shell. |
 | A home you rent | You and its provider, which can read the disk, `.local` sign-in files included. |
 | Your other devices | Only what a UI or agent fetches while it reaches the home. They keep no copy. |
-| An app's `origin` backup | Whoever hosts the backup repository. Nothing is pushed until you add one. |
+| The home's private `origin` backup | Whoever hosts the backup repository can read all included apps and records. Nothing is pushed until you add an origin. |
 | A service an inside app pulls from | The service already holds that data. Mail's Google sign-in is a `.local` file in Mail's folder on the home, and never leaves it. |
 | Epicenter's hosted services | What you send them: a prompt or audio for a paid model, and your account. They hold no part of your Epicenter. |
 
@@ -134,7 +136,7 @@ Every app in this repository is an outside app
 
 | Package | What it is |
 | --- | --- |
-| [`@epicenter/cli`](packages/cli) | The `epicenter` command: runs each app's actions as commands and MCP tools, commits what they write, serves UIs, and backs each app up. |
+| [`@epicenter/cli`](packages/cli) | The `epicenter` command: runs each app's actions as commands and MCP tools, serves UIs, and checkpoints included code and records in one private root repository. |
 | [`@epicenter/app`](packages/app) | What an app's `epicenter.ts` imports: `defineApp`, `defineCollection`, `defineAction`, fields, `folder`, and the client a UI calls actions with. |
 | [`@epicenter/ui`](packages/ui) | Shared Svelte components. |
 | [`@epicenter/ai`](packages/ai) | Every source of models as an endpoint, one OpenAI-compatible client, the agent loop, and the model picker. |

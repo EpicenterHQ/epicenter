@@ -3,8 +3,9 @@
 - **Status:** Proposed
 - **Date:** 2026-11-11
 - **Amended:** 2026-11-11: a call runs in the process that received it, the command line's or `serve`'s, not in a child `epicenter` per call; each load first drops the modules the process loaded from under the app's folder, so the next import reads the files as they are now. Deleted with the child: its report file, the `--report` and `--read-only-call` flags, signal forwarding, its IPC channel for yields, and `serve --stdio`. Given up: a call that outlives the `serve` that started it, and isolation from an action that exits, hangs, or changes the process's working directory or environment; the code is its owner's (ADR-0864), and `serve`'s job restarts it.
-- **Built:** a call's commit of what it left in `data/`, `Code-Commit` with `Code-Dirty`, the clock's idle skip, and `epicenter install` (`packages/cli/src/run.ts`, `snapshot.ts`, `http.ts`, `install.ts`); the UI's fingerprint build into `EPICENTER_OUT` (`ui.ts`); the compiled command's copy of `@epicenter/app` and `linkAppPackage` (`app-package.ts`, `packages/cli/scripts/compile.ts`); Capture, Reading, Tasks, and Vocab on the Studio, each one Bun project on Bun's bundler.
-- **Relates:** [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (a call's commit; the lock; the clock), [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (an app's UI), [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (code runs where its owner trusts it), [ADR-0873](0873-the-command-is-epicenter-cli-and-it-supplies-epicenter-app-to-every-app.md) (the command supplies `@epicenter/app`), [ADR-0876](0876-an-apps-records-live-under-data-and-everything-else-in-it-is-code.md) (`data/`), [ADR-0877](0877-an-apps-code-and-its-data-are-two-repositories-and-sharing-an-app-shares-its-code.md) (two repositories, `Code-Commit`).
+- **Built:** imports and module invalidation under code/, code-package installation, UI fingerprint builds, the compiled app package, the container write lock, and root checkpoints in packages/cli.
+- **Migrated:** the live Epicenter history import and code/data directory cutover described in [ADR-0910](0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md).
+- **Relates:** [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) (a call's commit; the lock; the clock), [ADR-0860](0860-an-interface-is-a-view-over-an-apps-actions-and-never-knows-where-they-run.md) (an app's UI), [ADR-0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) (code runs where its owner trusts it), [ADR-0873](0873-the-command-is-epicenter-cli-and-it-supplies-epicenter-app-to-every-app.md) (the command supplies `@epicenter/app`), [ADR-0876](0876-an-apps-records-live-under-data-and-everything-else-in-it-is-code.md) (`data/`), [ADR-0877](0877-an-apps-code-and-its-data-are-two-repositories-and-sharing-an-app-shares-its-code.md) (historical repository split).
 
 ## Context
 
@@ -16,7 +17,7 @@ follow commits instead, and each carries machinery for it:
 - A UI follows the code repository's `HEAD`: a stamp, a detached worktree, a
   background rebuild when `HEAD` moves. A UI edit shows once committed, while
   an action edit takes effect at once.
-- A data commit's `Code-Commit` names `HEAD`, but the action may have run
+- The former data commit trailer names `HEAD`, but the action may have run
   uncommitted code, so the trailer can be false.
 
 A call commits exactly the paths it wrote through `folder`, so every write
@@ -34,21 +35,20 @@ Whoever can reach an Epicenter can use every app in it.
 sharing, never deployment.**
 
 ```txt
-~/Epicenter/
+~/Epicenter/                         one private Git repository
   EPICENTER.md  AGENTS.md
-  tasks/                    one Bun project, one Git repository (the code)
-    package.json            everything the actions and the UI import, except @epicenter/app
-    bun.lock
-    epicenter.ts            may import anything package.json names
-    ui/                     optional: source only, built into ui/dist/
-      index.html
-    data/                   its own Git repository (the data)
+  apps/tasks/                       stable container and write lock
+    code/                           one Bun project
+      epicenter.ts  package.json  bun.lock
+      node_modules/                 includes supplied @epicenter/app link
+      ui/                           source; build goes in ui/dist/
+    data/                           records and local credentials
 ```
 
-- **An app is one Bun project.** One `package.json`, one `bun.lock`, one
-  `node_modules`, at the app's top, for its actions, its UI and its tests.
+- **An app's code/ is one Bun project.** One `package.json`, one `bun.lock`, one
+  `node_modules`, under `code/`, for its actions, its UI and its tests.
   `ui/` is a folder of source, not a project. `epicenter new` and
-  `install` install from the lock; an agent adding a package runs `bun add`,
+  `install` install from the lock; an agent adding a package runs `bun add` in `code/`,
   which installs. After `bun add`, run `epicenter install <app>` to restore the supplied @epicenter/app link, which Bun can remove. Nothing installs on a call.
 - **`@epicenter/app` comes from the command.** `epicenter` links
   `node_modules/@epicenter/app` to its own copy after every install
@@ -57,7 +57,7 @@ sharing, never deployment.**
   own, once per version, and links to that.
 - **A UI is optional and any framework.** An app with no `ui/` is its actions
   over its files. When an app has one, `serve` builds it when its fingerprint
-  changes and serves `ui/dist/` at `/<app>/`:
+  changes and serves `code/ui/dist/` at `/<app>/`:
   - The fingerprint is the path, size and modified time of every file under
     `ui/`, with `package.json`, `bun.lock`, the `epicenter` version, and where
     its own `@epicenter/app` is with the files in its `src/`, so an upgraded
@@ -75,8 +75,8 @@ sharing, never deployment.**
   - The word for it is UI; "view" is retired.
 - **A call runs where it arrives, from the files as they are.** The command
   line runs a call itself, and so does `serve`. Each load of an app first
-  drops every module the process loaded from under the app's folder, its
-  `node_modules` included, then imports `epicenter.ts`, so an edit to it, or
+  drops every module the process loaded from under the app's `code/`, its
+  `node_modules` included, then imports `code/epicenter.ts`, so an edit to it, or
   to anything it imports, reaches the next call. Measured 2026-11-11 on Bun
   1.4.3: an edit to `epicenter.ts`, a file it imports, and a package in its
   `node_modules` each reached the next import, and 300 reloads grew the
@@ -84,26 +84,19 @@ sharing, never deployment.**
 - **Reads reach the whole Epicenter.** An action reads any file under the
   Epicenter with `node:fs` or any library, another app's records included:
   `../tasks/data/tasks/<time>.md`.
-- **A call commits what it left in `data/`.** A call's first write through
-  `folder` or a collection takes the app's lock and snapshots anything already
-  pending in `data/` as `<app>: changed outside epicenter`. Later writes may
-  go any way: `folder`, `node:fs`, a library. When the action ends, the call
-  commits everything pending in `data/` under its name. A call that never
-  writes through `folder` takes no lock and commits nothing; what it wrote is
-  snapshotted later.
-- **`Code-Commit` says what ran.** Before it loads `epicenter.ts`, a call reads
-  the code repository's `HEAD` and whether anything is pending there. Its data
-  commit carries `Code-Commit: <HEAD>`, and `Code-Dirty: true` when the code
-  had uncommitted changes. A call never commits code.
+- **A call makes no Git commit.** Its first folder write takes the container
+  lock, held until the action returns, throws, or stops. The call leaves its
+  writes pending. A call with no folder write takes no lock.
 - **Another app's data changes through that app's actions**, as guidance in
-  the `epicenter-app` skill, so its history names what happened. `epicenter`
+  the `epicenter-app` skill, so its rules check the write. `epicenter`
   does not check it, and has no API yet for one app's action to call
   another's.
 - **A read-only call takes no lock and commits nothing,** including when it
   writes a `.local` file, which is never committed.
-- **`serve`'s clock stays,** since it is what commits and backs up code edited
-  over SSH or MCP. A tick skips an app with nothing pending and nothing ahead
-  of `origin`.
+- **The clock checkpoints the root.** At startup, every five minutes after a
+  scheduled pass completes, and on stop, serve records included code and data
+  in one commit and pushes the root origin when needed. Its root lock is
+  independent of the container lock, so this is sampled history.
 
 ## Consequences
 
@@ -111,12 +104,9 @@ sharing, never deployment.**
   may write the app's files. Its owner trusts what it installs as they trust
   its code.
 - A slow action still blocks other writes only from its first `folder` write
-  to its commit: fetch first, write last, as before.
-- An edit made by hand to `data/` after a call's first write is committed under
-  the call's name, and `undo` of that call reverts it. Edits pending before the
-  first write get their own snapshot.
-- `Code-Commit` with `Code-Dirty` is what ran, to within the time between
-  reading `HEAD` and loading the file. No code commit is made per call.
+  until it ends: fetch first, write last.
+- Direct edits and interrupted writes remain pending for a root checkpoint.
+  No code trailer attributes those bytes to an action.
 - A UI edit shows within about a second of the next page load, committed or
   not. Deleting a file under `ui/`, or moving one in with an old modified
   time, changes the fingerprint, since its paths and sizes are part of it.
@@ -135,9 +125,9 @@ sharing, never deployment.**
   ADR-0850 removed this on 2026-11-11: a slow action blocks every write to its
   app for its whole run, up to the lock's 30-second wait. A Mail sync
   fetching for a minute would fail every write from the phone meanwhile.
-- **Commit pending code before each call, so `Code-Commit` is exact.** An
+- **Commit pending code before each call to name the loaded code exactly.** An
   agent's partial edit, staging included, becomes a commit per phone tap, and
-  a code repository mid-rebase blocks every write.
+  a code repository mid-rebase blocks every write. This alternative is historical; actions no longer consult Git.
 - **No clock; push after each commit.** A command-line call never reaches
   `serve`, and code edited with no call after it would never be committed or
   backed up.
@@ -148,7 +138,7 @@ sharing, never deployment.**
   channel whose last message was lost when the child exited at once (20 of
   20 runs with a 200 KB message). Dropping the app's modules before each load
   gives the first; the command line sends prints to stderr during a call for
-  the second; the clock's snapshot takes what an interrupted call left.
+  the second; the root checkpoint records what an interrupted call left.
 - **A Bun Worker per call.** Measured 2026-11-11: a fresh module graph per
   Worker, `process.env` and globals kept apart, `process.exit` ending only the
   Worker. But `process.chdir` in a Worker moved the whole process's directory,

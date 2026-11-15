@@ -44,11 +44,11 @@ export async function fixture() {
 		EPICENTER_ROOT: undefined,
 	};
 
-	/** Write `files` under `dir` and, unless `git` is false, commit them as a new repository. */
+	/** Write `files` under `dir` and, when `git` is true, commit them as a new repository. */
 	async function folder(
 		dir: string,
 		files: Record<string, string>,
-		{ git = true }: { git?: boolean } = {},
+		{ git = false }: { git?: boolean } = {},
 	) {
 		await mkdir(dir, { recursive: true });
 		for (const [path, text] of Object.entries(files)) {
@@ -66,14 +66,14 @@ export async function fixture() {
 	}
 
 	/**
-	 * An app at `<epicenter>/apps/<entry>`: a `.gitignore`, and an
-	 * `epicenter.ts` of `source` after an import of everything an app
+	 * An app container at `<epicenter>/apps/<entry>`: `code/.gitignore` and
+	 * `code/epicenter.ts` of `source` after an import of everything an app
 	 * defines itself with.
 	 */
 	async function app(entry: string, source: string, epicenter = home) {
 		return folder(join(epicenter, 'apps', entry), {
-			'.gitignore': gitignore,
-			'epicenter.ts': `${header}${source}`,
+			'code/.gitignore': gitignore,
+			'code/epicenter.ts': `${header}${source}`,
 		});
 	}
 
@@ -171,7 +171,7 @@ export async function connectMcp(
 }
 
 /** The ignore file every test app carries, as `epicenter new` writes it. */
-export const gitignore = 'data/\nnode_modules/\n';
+export const gitignore = 'node_modules/\nui/dist/\n';
 
 /** The import every test app's `epicenter.ts` starts with. */
 export const header = `import { defineAction, defineApp, defineCollection, field, folder } from '@epicenter/app';\n`;
@@ -183,8 +183,8 @@ export function bareApp(name: string) {
 
 /** Reading, as an app's files: a books collection and actions that write a CSV. */
 export const readingApp = {
-	'.gitignore': gitignore,
-	'epicenter.ts': `${header}
+	'code/.gitignore': gitignore,
+	'code/epicenter.ts': `${header}
 const books = defineCollection({ path: 'data/books/{slug}.md', fields: { title: field.text() } });
 
 export default defineApp({

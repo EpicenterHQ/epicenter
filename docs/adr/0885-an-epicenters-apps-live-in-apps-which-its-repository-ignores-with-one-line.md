@@ -4,6 +4,7 @@
 - **Date:** 2026-11-12
 - **Amends:** [ADR-0884](0884-an-epicenter-is-a-repository-that-lists-the-repositories-inside-it-and-init-from-rebuilds-it.md) (the `.gitignore` lines epicenter rewrote are gone), [ADR-0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md) (an app was a direct child of the Epicenter).
 - **Relates:** [ADR-0877](0877-an-apps-code-and-its-data-are-two-repositories-and-sharing-an-app-shares-its-code.md) (an app's code ignores `data/` with one line).
+- **Amended by:** [ADR-0910](0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md): ignoring apps/ is withdrawn; the apps/ wrapper remains.
 
 ## Context
 

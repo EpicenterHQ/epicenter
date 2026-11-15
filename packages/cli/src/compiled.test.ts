@@ -36,11 +36,11 @@ test('a compiled epicenter writes out the @epicenter/app it carries and builds a
 	const f = await fixture();
 	try {
 		const app = await f.folder(join(f.apps, 'vocab'), {
-			'.gitignore': `${gitignore}ui/dist/\n`,
-			'epicenter.ts': `${header}export default defineApp({ description: 'Words', collections: {}, actions: { hello: defineAction({ description: 'Hello', input: {}, run: () => 'hi' }) } });\n`,
-			'ui/index.html':
+			'code/.gitignore': `${gitignore}ui/dist/\n`,
+			'code/epicenter.ts': `${header}export default defineApp({ description: 'Words', collections: {}, actions: { hello: defineAction({ description: 'Hello', input: {}, run: () => 'hi' }) } });\n`,
+			'code/ui/index.html':
 				'<!doctype html><html><body><script type="module" src="./main.ts"></script></body></html>\n',
-			'ui/main.ts':
+			'code/ui/main.ts':
 				"import { connect } from '@epicenter/app/client';\ndocument.body.dataset.client = String(connect);\n",
 		});
 		const data = join(f.root, 'xdg-data');
@@ -60,14 +60,19 @@ test('a compiled epicenter writes out the @epicenter/app it carries and builds a
 			stdout: 'vocab: UI built\n',
 			stderr: '',
 		});
-		const link = await readlink(join(app, 'node_modules', '@epicenter', 'app'));
+		const link = await readlink(
+			join(app, 'code', 'node_modules', '@epicenter', 'app'),
+		);
 		expect(await realpath(link)).toStartWith(
 			await realpath(join(data, 'epicenter', 'app')),
 		);
 		expect(
 			JSON.parse(await readFile(join(link, 'package.json'), 'utf8')).exports,
 		).toEqual({ '.': './src/index.ts', './client': './src/client.ts' });
-		const html = await readFile(join(app, 'ui', 'dist', 'index.html'), 'utf8');
+		const html = await readFile(
+			join(app, 'code', 'ui', 'dist', 'index.html'),
+			'utf8',
+		);
 		expect(html).toMatch(/src="\.\/[^"]+\.js"/);
 		const hello = Bun.spawn([bin, 'vocab', 'hello', '--json'], {
 			cwd: f.root,
@@ -87,9 +92,10 @@ test("a compiled epicenter runs an app whose package names its entry only in pac
 		// No `index.js` at the package's root, as with any package built into
 		// `dist/`: only its `package.json` says where the entry is.
 		await f.folder(join(f.apps, 'vocab'), {
-			'epicenter.ts': `${header}import { greeting } from 'greeting';\nexport default defineApp({ description: 'Words', collections: {}, actions: { hello: defineAction({ description: 'Hello', input: {}, run: () => greeting }) } });\n`,
-			'node_modules/greeting/package.json': `${JSON.stringify({ name: 'greeting', type: 'module', exports: { '.': './dist/main.js' } })}\n`,
-			'node_modules/greeting/dist/main.js': "export const greeting = 'hi';\n",
+			'code/epicenter.ts': `${header}import { greeting } from 'greeting';\nexport default defineApp({ description: 'Words', collections: {}, actions: { hello: defineAction({ description: 'Hello', input: {}, run: () => greeting }) } });\n`,
+			'code/node_modules/greeting/package.json': `${JSON.stringify({ name: 'greeting', type: 'module', exports: { '.': './dist/main.js' } })}\n`,
+			'code/node_modules/greeting/dist/main.js':
+				"export const greeting = 'hi';\n",
 		});
 		const hello = Bun.spawn([bin, 'vocab', 'hello', '--json'], {
 			cwd: f.root,
@@ -116,10 +122,10 @@ test('serve relinks each app to the @epicenter/app it carries, and a UI built ag
 	const f = await fixture();
 	try {
 		const app = await f.folder(join(f.apps, 'vocab'), {
-			'.gitignore': `${gitignore}ui/dist/\n`,
-			'epicenter.ts': `${header}export default defineApp({ description: 'Words', collections: {}, actions: {} });\n`,
-			'package.json': `${JSON.stringify({ scripts: { build: `mkdir -p "$EPICENTER_OUT" && bun -e "console.log(Bun.fileURLToPath(import.meta.resolve('@epicenter/app/client')))" > "$EPICENTER_OUT/index.html"` } })}\n`,
-			'ui/.keep': '',
+			'code/.gitignore': `${gitignore}ui/dist/\n`,
+			'code/epicenter.ts': `${header}export default defineApp({ description: 'Words', collections: {}, actions: {} });\n`,
+			'code/package.json': `${JSON.stringify({ scripts: { build: `mkdir -p "$EPICENTER_OUT" && bun -e "console.log(Bun.fileURLToPath(import.meta.resolve('@epicenter/app/client')))" > "$EPICENTER_OUT/index.html"` } })}\n`,
+			'code/ui/.keep': '',
 		});
 		const before = join(f.root, 'data-before');
 		const after = join(f.root, 'data-after');
@@ -130,7 +136,8 @@ test('serve relinks each app to the @epicenter/app it carries, and a UI built ag
 			stderr: 'pipe',
 		});
 		expect(await built.exited).toBe(0);
-		const page = () => readFile(join(app, 'ui', 'dist', 'index.html'), 'utf8');
+		const page = () =>
+			readFile(join(app, 'code', 'ui', 'dist', 'index.html'), 'utf8');
 		expect(await realpath((await page()).trim())).toStartWith(
 			await realpath(before),
 		);
@@ -155,7 +162,9 @@ test('serve relinks each app to the @epicenter/app it carries, and a UI built ag
 			}
 			expect(
 				await realpath(
-					await readlink(join(app, 'node_modules', '@epicenter', 'app')),
+					await readlink(
+						join(app, 'code', 'node_modules', '@epicenter', 'app'),
+					),
 				),
 			).toStartWith(await realpath(after));
 			await fetch(`${base}/vocab/`);

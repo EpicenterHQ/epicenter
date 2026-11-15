@@ -85,7 +85,7 @@ export function folderOnDisk(dir: string): Folder {
 	 * Write `bytes` beside the file at `path`, where it can be renamed over
 	 * it, so a reader never sees half a file; a file it replaces keeps its
 	 * mode, and a new `.local` file is `0600` from before it has a name there.
-	 * The file beside it is named `*.local`, so a snapshot taken meanwhile
+	 * The file beside it is named `*.local`, so a checkpoint taken meanwhile
 	 * never commits it.
 	 */
 	function stage(path: string, bytes: Uint8Array) {

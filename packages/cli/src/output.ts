@@ -11,7 +11,7 @@ import type { CliError } from './errors.ts';
  * What a command that runs an action answers (ADR-0850): the one value
  * `--json` prints and MCP returns as `structuredContent`.
  * Whether it returned or threw, what the action wrote stays in the folder
- * until a snapshot takes it into the app's history.
+ * until a checkpoint records it in the root history.
  */
 export type Answer =
 	/** The action returned this value; `null` for nothing. */
@@ -31,10 +31,8 @@ export type Answer =
  */
 export async function printingToStderr<T>(work: () => Promise<T>): Promise<T> {
 	const methods = ['log', 'info', 'debug', 'dir', 'table'] as const;
-	// biome-ignore lint/suspicious/noConsole: reads the methods to restore them; nothing prints here.
 	const saved = methods.map((method) => console[method]);
 	const write = process.stdout.write;
-	// biome-ignore lint/suspicious/noConsole: points an action's prints at stderr; nothing prints here.
 	for (const method of methods) console[method] = console.error;
 	process.stdout.write = process.stderr.write.bind(
 		process.stderr,

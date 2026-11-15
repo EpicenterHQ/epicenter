@@ -6,6 +6,7 @@
 - **Unbuilt:** the Studio's apps keep their records at the top until they move to the two repositories of ADR-0877.
 - **Amended by:** [ADR-0893](0893-a-records-path-is-its-path-in-the-apps-data-repository.md): a collection's path is relative to `data/`, and a record's path is its path in the data repository. [ADR-0904](0904-copying-is-the-only-way-to-take-an-apps-code.md) at "which others take and `update` merges": others copy the code repository with `epicenter new --from`, which refuses a folder that tracks `data/`, and nothing merges.
 - **Relates:** [ADR-0857](0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md) (collections and `folder`), [ADR-0858](0858-where-a-file-lives-decides-whether-it-travels-survives-or-dies-with-its-program.md) (where a file lives decides what happens to it), [ADR-0866](0866-an-app-starts-from-a-starter-kept-as-its-upstream-and-update-merges-the-starters-changes.md) (starters hold no data), [ADR-0870](0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md) (`*.local`), [ADR-0877](0877-an-apps-code-and-its-data-are-two-repositories-and-sharing-an-app-shares-its-code.md) (`data/` is a repository of its own).
+- **Amended by:** [ADR-0910](0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md): code moves under code/; container-relative data/ paths and the write boundary remain.
 
 ## Context
 

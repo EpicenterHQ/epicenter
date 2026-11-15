@@ -213,7 +213,9 @@ describe('an app author', () => {
 		});
 		const say = defineAction({
 			description: 'Say',
+			privateInput: true,
 			input: { message: field.text() },
+			positional: ['message'],
 			async *run({ message }) {
 				yield message;
 				yield { step: 1 };
@@ -348,5 +350,29 @@ describe('an app author', () => {
 		() => vocabUi.review({ path: 'data/words/a.md' });
 		// @ts-expect-error no action is named then
 		() => vocabUi.then;
+	});
+});
+
+describe('type errors', () => {
+	test('ordinary and yielding actions reject positionals outside their input fields', () => {
+		() => {
+			defineAction({
+				description: 'Read',
+				input: { value: field.text() },
+				// @ts-expect-error a positional must name an input field
+				positional: ['missing'],
+				run: () => true,
+			});
+			defineAction({
+				description: 'Read',
+				input: { value: field.text() },
+				// @ts-expect-error a yielding action has the same positional constraint
+				positional: ['missing'],
+				async *run() {
+					yield true;
+					return true;
+				},
+			});
+		};
 	});
 });
