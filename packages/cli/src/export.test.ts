@@ -1,8 +1,8 @@
 /**
  * App export tests.
  * Exercise the real CLI and Git boundary: committed code becomes a flat,
- * refreshable app without records or private history. Reruns preserve Git,
- * refuse edited destinations, and materialize shareable theme links.
+ * owned directory without records or private history. Refreshes replace generated
+ * contents, keep Git outside, and materialize shareable theme links.
  */
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
 import {
@@ -12,7 +12,6 @@ import {
 	readdir,
 	readFile,
 	readlink,
-	rename,
 	rm,
 	symlink,
 	writeFile,
@@ -89,7 +88,8 @@ test('single export copies committed bytes and modes at the root without records
 	expect(run.code).toBe(0);
 	expect(JSON.parse(run.stdout)).toMatchObject({
 		commit: sourceCommit,
-		apps: [{ app: 'tasks', status: 'created', uncommitted: true }],
+		directory: f.output,
+		apps: [{ app: 'tasks', uncommitted: true }],
 	});
 	expect(await readFile(join(f.output, 'epicenter.ts'), 'utf8')).toBe(source);
 	expect(new Uint8Array(await readFile(join(f.output, 'binary.bin')))).toEqual(
@@ -111,105 +111,115 @@ test('single export copies committed bytes and modes at the root without records
 	expect(await gitIn(f.home, 'show-ref')).toBe(before.refs);
 });
 
-test('refresh removes deleted source files, adds new ones, and leaves unchanged exports and standalone Git intact', async () => {
+test('refresh replaces edited code and deleted files while the outer README and Git survive', async () => {
 	const f = await setup({ 'apps/tasks/code/old.txt': 'remove me' });
-	expect((await f.run('export', 'tasks', f.output)).code).toBe(0);
+	const output = join(f.output, 'code');
+	await mkdir(f.output);
+	await writeFile(join(f.output, 'README.md'), 'Handwritten project notes');
 	await gitIn(f.output, 'init', '-q');
 	await gitIn(f.output, 'config', 'user.name', 'Export Test');
 	await gitIn(f.output, 'config', 'user.email', 'export@example.com');
-	await gitIn(
-		f.output,
-		'add',
-		'--',
-		'.gitignore',
-		'epicenter.ts',
-		'old.txt',
-		EXPORT_MARKER,
-	);
+	expect((await f.run('export', 'tasks', output)).code).toBe(0);
+	await gitIn(f.output, 'add', '--', 'README.md', 'code');
 	await gitIn(f.output, 'commit', '--no-verify', '-qm', 'first publication');
 	const publicHead = await gitIn(f.output, 'rev-parse', 'HEAD');
-	const marker = join(f.output, EXPORT_MARKER);
-	const markerBefore = await lstat(marker);
-	const unchanged = await f.run('export', 'tasks', f.output, '--json');
-	expect(JSON.parse(unchanged.stdout).apps[0].status).toBe('unchanged');
-	expect((await lstat(marker)).mtimeMs).toBe(markerBefore.mtimeMs);
+	const inode = (await lstat(output)).ino;
+	const markerBefore = await readFile(join(output, EXPORT_MARKER), 'utf8');
+	await writeFile(join(output, 'epicenter.ts'), 'a contribution to overwrite');
+	await writeFile(
+		join(output, 'extra.txt'),
+		'generated contents are replaceable',
+	);
+	const outside = join(f.root, 'precious');
+	await mkdir(outside);
+	await writeFile(join(outside, 'keep.txt'), 'keep me');
+	await symlink(outside, join(output, 'outside'));
 	await rm(join(f.tasks, 'old.txt'));
 	await writeFile(join(f.tasks, 'new.txt'), 'new source');
 	await commit(f.home);
-	const updated = await f.run('export', 'tasks', f.output, '--json');
-	expect(updated.code).toBe(0);
-	expect(JSON.parse(updated.stdout).apps[0].status).toBe('updated');
-	expect(await Bun.file(join(f.output, 'old.txt')).exists()).toBe(false);
-	expect(await readFile(join(f.output, 'new.txt'), 'utf8')).toBe('new source');
+	expect((await f.run('export', 'tasks', output)).code).toBe(0);
+	expect((await lstat(output)).ino).toBe(inode);
+	expect(await readFile(join(output, 'epicenter.ts'), 'utf8')).toBe(
+		bareApp('tasks'),
+	);
+	for (const path of ['old.txt', 'extra.txt', 'outside'])
+		expect(await Bun.file(join(output, path)).exists()).toBe(false);
+	expect(await readFile(join(outside, 'keep.txt'), 'utf8')).toBe('keep me');
+	expect(await readFile(join(output, 'new.txt'), 'utf8')).toBe('new source');
+	expect(await readFile(join(output, EXPORT_MARKER), 'utf8')).toBe(
+		markerBefore,
+	);
+	expect(JSON.parse(markerBefore)).toEqual({ export: 'app', app: 'tasks' });
+	expect(await readFile(join(f.output, 'README.md'), 'utf8')).toBe(
+		'Handwritten project notes',
+	);
 	expect(await gitIn(f.output, 'rev-parse', 'HEAD')).toBe(publicHead);
-	expect(await gitIn(f.output, 'diff', '--name-only')).toContain('old.txt');
-	expect(
-		Object.keys(JSON.parse(await readFile(marker, 'utf8'))).sort(),
-	).toEqual(['app', 'digest']);
+	expect(await gitIn(f.output, 'diff', '--name-only')).toContain(
+		'code/old.txt',
+	);
 });
 
-test('refresh preserves a standalone worktree Git file', async () => {
-	const f = await setup();
-	expect((await f.run('export', 'tasks', f.output)).code).toBe(0);
-	const gitFile = 'gitdir: ../elsewhere/.git/worktrees/tasks\n';
-	await writeFile(join(f.output, '.git'), gitFile);
-	await writeFile(join(f.tasks, 'added.txt'), 'added');
-	await commit(f.home);
-	expect((await f.run('export', 'tasks', f.output)).code).toBe(0);
-	expect(await readFile(join(f.output, '.git'), 'utf8')).toBe(gitFile);
-});
+for (const path of ['.git', 'nested/.git']) {
+	for (const kind of ['file', 'directory']) {
+		test(`refresh refuses a ${kind} at ${path} without changing generated contents`, async () => {
+			const f = await setup();
+			expect((await f.run('export', 'tasks', f.output)).code).toBe(0);
+			const target = join(f.output, path);
+			await mkdir(join(target, '..'), { recursive: true });
+			if (kind === 'directory') {
+				await mkdir(target);
+				await writeFile(join(target, 'HEAD'), 'valuable public history');
+			} else await writeFile(target, 'gitdir: /precious/worktree\n');
+			await writeFile(
+				join(f.output, 'epicenter.ts'),
+				'preserve until Git is moved outside',
+			);
+			const run = await f.run('export', 'tasks', f.output, '--json');
+			expect(run.code).toBe(2);
+			expect(JSON.parse(run.stdout).error.message).toContain(
+				'keep Git outside',
+			);
+			expect(await readFile(join(f.output, 'epicenter.ts'), 'utf8')).toBe(
+				'preserve until Git is moved outside',
+			);
+			expect(
+				await readFile(
+					kind === 'directory' ? join(target, 'HEAD') : target,
+					'utf8',
+				),
+			).toContain(kind === 'directory' ? 'valuable public history' : 'gitdir:');
+		});
+	}
+}
 
-test('Finder metadata does not block creating or refreshing an export', async () => {
+test('Finder metadata does not block creation and disappears on refresh', async () => {
 	const f = await setup({ 'apps/tasks/code/ui/index.html': '<html></html>' });
 	await mkdir(f.output);
 	await writeFile(join(f.output, '.DS_Store'), 'Finder metadata');
 	expect((await f.run('export', 'tasks', f.output)).code).toBe(0);
-	await writeFile(join(f.output, '.DS_Store'), 'Finder metadata');
 	await writeFile(join(f.output, 'ui/.DS_Store'), 'nested Finder metadata');
-	expect(
-		JSON.parse((await f.run('export', 'tasks', f.output, '--json')).stdout)
-			.apps[0].status,
-	).toBe('unchanged');
-	await writeFile(join(f.tasks, 'new.txt'), 'new');
-	await commit(f.home);
-	expect(
-		JSON.parse((await f.run('export', 'tasks', f.output, '--json')).stdout)
-			.apps[0].status,
-	).toBe('updated');
+	expect((await f.run('export', 'tasks', f.output)).code).toBe(0);
+	expect(await Bun.file(join(f.output, 'ui/.DS_Store')).exists()).toBe(false);
 });
 
-test('unfinished export work preserves recovery Git metadata and blocks fresh single and all exports', async () => {
+test('an interrupted collection fill is repaired using its retained ownership marker', async () => {
 	const f = await setup();
-	const recovery = join(
-		f.output,
-		'.epicenter-export-interrupted/previous/.git',
+	await mkdir(join(f.output, 'tasks'), { recursive: true });
+	await writeFile(join(f.output, EXPORT_MARKER), '{"export":"all"}\n');
+	await writeFile(join(f.output, 'tasks/half.txt'), 'incomplete output');
+	await writeFile(join(f.output, 'leftover.txt'), 'incomplete deletion');
+	expect((await f.run('export', '--all', f.output)).code).toBe(0);
+	expect((await readdir(f.output)).sort()).toEqual([EXPORT_MARKER, 'tasks']);
+	expect(await readFile(join(f.output, 'tasks/epicenter.ts'), 'utf8')).toBe(
+		bareApp('tasks'),
 	);
-	await mkdir(recovery, { recursive: true });
-	await writeFile(join(recovery, 'HEAD'), 'valuable public history');
-	const single = await f.run(
-		'export',
-		'tasks',
-		join(f.output, 'tasks'),
-		'--json',
-	);
-	expect(single.code).toBe(2);
-	expect(JSON.parse(single.stdout).error.message).toContain(
-		'Unfinished export directories',
-	);
-	const all = await f.run('export', '--all', f.output, '--json');
-	expect(all.code).toBe(2);
-	expect(JSON.parse(all.stdout).error.message).toContain(
-		'Unfinished export directories',
-	);
-	expect(await Bun.file(join(f.output, 'tasks/epicenter.ts')).exists()).toBe(
+	expect(await Bun.file(join(f.output, 'tasks/half.txt')).exists()).toBe(false);
+	expect(await Bun.file(join(f.output, 'tasks', EXPORT_MARKER)).exists()).toBe(
 		false,
 	);
-	expect(await readFile(join(recovery, 'HEAD'), 'utf8')).toBe(
-		'valuable public history',
-	);
 });
 
-test('single and all exports honor the same collection lock and release it after success', async () => {
+test('both forms lock their exact destination and release it after refreshing', async () => {
 	const f = await setup();
 	await mkdir(f.output);
 	const held = await hold(f.output, 0);
@@ -217,7 +227,7 @@ test('single and all exports honor the same collection lock and release it after
 	try {
 		for (const args of [
 			['--all', f.output],
-			['tasks', join(f.output, 'tasks')],
+			['tasks', f.output],
 		]) {
 			const run = await f.run('export', ...args, '--json');
 			expect(run.code).toBe(2);
@@ -228,8 +238,9 @@ test('single and all exports honor the same collection lock and release it after
 		held?.release();
 	}
 	expect((await f.run('export', '--all', f.output)).code).toBe(0);
+	// Children belong to the whole collection and cannot become separate exports.
 	expect((await f.run('export', 'tasks', join(f.output, 'tasks'))).code).toBe(
-		0,
+		2,
 	);
 	const released = await hold(f.output, 0);
 	try {
@@ -239,14 +250,15 @@ test('single and all exports honor the same collection lock and release it after
 	}
 });
 
-test('--all exports future apps without importing code, preserves collection files, and reports removed apps as stale', async () => {
+test('--all adds future committed apps and removes absent apps without importing code or changing the outer repository', async () => {
 	const f = await setup({
 		'apps/broken/code/epicenter.ts': 'throw new Error("must not execute");',
 	});
+	const output = join(f.output, 'apps');
 	await mkdir(f.output);
 	await writeFile(join(f.output, 'README.md'), 'My apps');
 	await gitIn(f.output, 'init', '-q');
-	const first = await f.run('export', '--all', f.output, '--json');
+	const first = await f.run('export', '--all', output, '--json');
 	expect(first.code).toBe(0);
 	expect(
 		JSON.parse(first.stdout).apps.map((app: { app: string }) => app.app),
@@ -255,80 +267,53 @@ test('--all exports future apps without importing code, preserves collection fil
 		'reading',
 		'export default defineApp({ description: "Reading", collections: {}, actions: {} });',
 	);
-	const pending = await f.run('export', '--all', f.output, '--json');
+	const pending = await f.run('export', '--all', output, '--json');
 	expect(pending.code).toBe(1);
 	expect(JSON.parse(pending.stdout).omitted).toContain('reading');
 	await commit(f.home);
-	const future = await f.run('export', '--all', f.output, '--json');
-	expect(future.code).toBe(0);
-	expect(JSON.parse(future.stdout).apps).toContainEqual(
-		expect.objectContaining({ app: 'reading', status: 'created' }),
-	);
-	expect(await Bun.file(join(f.output, 'reading/epicenter.ts')).exists()).toBe(
+	expect((await f.run('export', '--all', output)).code).toBe(0);
+	expect(await Bun.file(join(output, 'reading/epicenter.ts')).exists()).toBe(
 		true,
 	);
 	await rm(join(f.apps, 'broken'), { recursive: true });
 	await commit(f.home);
-	const stale = await f.run('export', '--all', f.output, '--json');
-	expect(stale.code).toBe(1);
-	expect(JSON.parse(stale.stdout).apps).toContainEqual(
-		expect.objectContaining({ app: 'broken', status: 'stale' }),
-	);
-	expect(await Bun.file(join(f.output, 'broken/epicenter.ts')).exists()).toBe(
-		true,
-	);
+	expect((await f.run('export', '--all', output)).code).toBe(0);
+	expect((await readdir(output)).sort()).toEqual([
+		EXPORT_MARKER,
+		'reading',
+		'tasks',
+	]);
 	expect(await readFile(join(f.output, 'README.md'), 'utf8')).toBe('My apps');
 	expect((await lstat(join(f.output, '.git'))).isDirectory()).toBe(true);
-	await rename(join(f.output, 'tasks'), join(f.output, 'todo'));
-	const renamed = await f.run('export', '--all', f.output, '--json');
-	expect(JSON.parse(renamed.stdout).apps).toContainEqual(
-		expect.objectContaining({
-			app: 'tasks',
-			directory: join(f.output, 'todo'),
-			status: 'stale',
-			problem: expect.stringContaining('Extra export of tasks'),
-		}),
-	);
+	await rm(join(f.apps, 'tasks'), { recursive: true });
+	await rm(join(f.apps, 'reading'), { recursive: true });
+	await commit(f.home);
+	expect((await f.run('export', '--all', output)).code).toBe(0);
+	expect(await readdir(output)).toEqual([EXPORT_MARKER]);
 });
 
-test('edited exports are refused while --all still refreshes the other apps', async () => {
+test('one invalid app leaves the entire previous collection untouched', async () => {
 	const f = await setup({
 		'apps/reading/code/epicenter.ts': bareApp('reading'),
 	});
 	expect((await f.run('export', '--all', f.output)).code).toBe(0);
-	await gitIn(f.output, 'init', '-q');
-	await gitIn(f.output, 'config', 'user.name', 'Export Test');
-	await gitIn(f.output, 'config', 'user.email', 'export@example.com');
-	await gitIn(f.output, 'add', '--', 'tasks', 'reading');
-	await gitIn(f.output, 'commit', '--no-verify', '-qm', 'first publication');
-	await writeFile(join(f.output, 'tasks/epicenter.ts'), 'a contribution');
-	await gitIn(f.output, 'add', '--', 'tasks/epicenter.ts');
-	await gitIn(f.output, 'commit', '--no-verify', '-qm', 'public contribution');
-	await writeFile(join(f.apps, 'reading/code/added.txt'), 'new');
+	await writeFile(
+		join(f.output, 'tasks/epicenter.ts'),
+		'old collection is left untouched',
+	);
+	await writeFile(join(f.tasks, 'added.txt'), 'new committed file');
+	await symlink('missing.txt', join(f.apps, 'reading/code/link'));
 	await commit(f.home);
 	const run = await f.run('export', '--all', f.output, '--json');
-	expect(run.code).toBe(1);
-	expect(JSON.parse(run.stdout).apps).toEqual(
-		expect.arrayContaining([
-			expect.objectContaining({
-				app: 'tasks',
-				status: 'refused',
-				problem: expect.stringContaining('changed since'),
-			}),
-			expect.objectContaining({ app: 'reading', status: 'updated' }),
-		]),
-	);
+	expect(run.code).toBe(2);
+	expect(JSON.parse(run.stdout).error.message).toContain('broken or cyclic');
 	expect(await readFile(join(f.output, 'tasks/epicenter.ts'), 'utf8')).toBe(
-		'a contribution',
+		'old collection is left untouched',
 	);
-	expect(await readFile(join(f.output, 'reading/added.txt'), 'utf8')).toBe(
-		'new',
+	expect(await Bun.file(join(f.output, 'tasks/added.txt')).exists()).toBe(
+		false,
 	);
-	expect(
-		(await readdir(f.output)).some((name) =>
-			name.startsWith('.epicenter-export-'),
-		),
-	).toBe(false);
+	expect(await Bun.file(join(f.output, 'reading/link')).exists()).toBe(false);
 });
 
 test('destinations inside, containing, or aliasing the live Epicenter are refused without touching files', async () => {
@@ -354,7 +339,7 @@ test('unowned directories, another app export, and symlinked targets are refused
 	const f = await setup();
 	await mkdir(f.output);
 	await writeFile(join(f.output, 'keep.txt'), 'precious');
-	expect((await f.run('export', 'tasks', f.output)).code).toBe(1);
+	expect((await f.run('export', 'tasks', f.output)).code).toBe(2);
 	expect(await readFile(join(f.output, 'keep.txt'), 'utf8')).toBe('precious');
 	await rm(f.output, { recursive: true });
 	expect((await f.run('export', 'tasks', f.output)).code).toBe(0);
@@ -363,7 +348,7 @@ test('unowned directories, another app export, and symlinked targets are refused
 		'export default defineApp({ description: "Reading", collections: {}, actions: {} });',
 	);
 	await commit(f.home);
-	expect((await f.run('export', 'reading', f.output)).code).toBe(1);
+	expect((await f.run('export', 'reading', f.output)).code).toBe(2);
 	const alias = join(f.root, 'export-alias');
 	await symlink(f.output, alias);
 	expect((await f.run('export', 'tasks', alias)).code).toBe(2);
@@ -393,6 +378,62 @@ test('theme links copy committed shared bytes and internal links retain their ta
 	expect(await readlink(join(f.output, 'ui/internal.css'))).toBe(
 		'theme-copy.css',
 	);
+	await f.folder(f.home, {
+		'apps/reading/code/epicenter.ts': bareApp('reading'),
+		'apps/reading/code/ui/base.css': 'body {}',
+	});
+	await symlink(
+		'../../../../theme.css',
+		join(f.apps, 'reading/code/ui/theme.css'),
+	);
+	await symlink('../../../../theme.css', join(f.tasks, 'ui/theme-second.css'));
+	await commit(f.home);
+	const collection = join(f.root, 'collection/apps');
+	expect((await f.run('export', '--all', collection)).code).toBe(0);
+	for (const path of [
+		'reading/ui/theme.css',
+		'tasks/ui/theme.css',
+		'tasks/ui/theme-second.css',
+	]) {
+		expect((await lstat(join(collection, path))).isFile()).toBe(true);
+		expect(await readFile(join(collection, path), 'utf8')).toBe(
+			'body { color: red; }',
+		);
+	}
+});
+
+test('links that escape and reenter through the checkout directory name are refused in both export forms', async () => {
+	for (const [app, target] of [
+		['tasks', '../../code/ui/base.css'],
+		['tasks', 'alias/../code/ui/base.css'],
+		['code', 'alias/../code/ui/base.css'],
+	] as const) {
+		const f = await setup({
+			[`apps/${app}/code/epicenter.ts`]: bareApp(app),
+			[`apps/${app}/code/ui/base.css`]: 'portable bytes',
+		});
+		const single = join(f.root, 'project/code');
+		const collection = join(f.root, 'collection/apps');
+		for (const args of [
+			[app, single],
+			['--all', collection],
+		])
+			expect((await f.run('export', ...args)).code).toBe(0);
+		await symlink('..', join(f.apps, app, 'code/ui/alias'));
+		await symlink(target, join(f.apps, app, 'code/ui/link'));
+		await commit(f.home);
+		for (const [args, output] of [
+			[[app, single], single],
+			[['--all', collection], join(collection, app)],
+		] as const) {
+			const run = await f.run('export', ...args, '--json');
+			expect(run.code).toBe(2);
+			expect(await readFile(join(output, 'ui/base.css'), 'utf8')).toBe(
+				'portable bytes',
+			);
+			expect(await Bun.file(join(output, 'ui/link')).exists()).toBe(false);
+		}
+	}
 });
 
 test('links to data, excluded code, missing files, external paths, and shared directories leave the previous export intact', async () => {
@@ -420,8 +461,8 @@ test('links to data, excluded code, missing files, external paths, and shared di
 		await symlink(target, join(f.tasks, 'link'));
 		await commit(f.home);
 		const run = await f.run('export', 'tasks', f.output, '--json');
-		expect(run.code).toBe(1);
-		expect(JSON.parse(run.stdout).apps[0].status).toBe('refused');
+		expect(run.code).toBe(2);
+		expect(JSON.parse(run.stdout).error).toBeDefined();
 		expect(await readFile(join(f.output, EXPORT_MARKER), 'utf8')).toBe(before);
 		expect(await Bun.file(join(f.output, 'link')).exists()).toBe(false);
 	}
@@ -429,17 +470,17 @@ test('links to data, excluded code, missing files, external paths, and shared di
 
 test('an exported collection is accepted by new --from and does not copy the export marker', async () => {
 	const f = await setup();
-	expect((await f.run('export', '--all', f.output)).code).toBe(0);
+	expect((await f.run('export', '--all', join(f.output, 'apps'))).code).toBe(0);
 	await gitIn(f.output, 'init', '-q');
 	await gitIn(f.output, 'config', 'user.name', 'Export Test');
 	await gitIn(f.output, 'config', 'user.email', 'export@example.com');
-	await gitIn(f.output, 'add', '--', 'tasks');
+	await gitIn(f.output, 'add', '--', 'apps');
 	await gitIn(f.output, 'commit', '--no-verify', '-qm', 'public code');
 	const copied = await f.run(
 		'new',
 		'copy',
 		'--from',
-		`file://${f.output}#tasks`,
+		`file://${f.output}#apps/tasks`,
 		'--json',
 	);
 	expect(copied.code).toBe(0);
@@ -497,26 +538,27 @@ for (const storage of [undefined, 'custom-lfs']) {
 			),
 		);
 		const missing = await f.run('export', 'tasks', f.output, '--json');
-		expect(missing.code).toBe(1);
-		expect(JSON.parse(missing.stdout).apps[0].status).toBe('failed');
+		expect(missing.code).toBe(2);
+		expect(JSON.parse(missing.stdout).error).toBeDefined();
 		expect(await readFile(join(f.output, EXPORT_MARKER), 'utf8')).toBe(
 			oldMarker,
 		);
 	});
 }
 
-test('--all reports malformed stale markers without hiding completed exports', async () => {
+test('invalid and old digest markers are refused without adopting their contents', async () => {
 	const f = await setup();
-	await mkdir(join(f.output, 'old-app'), { recursive: true });
-	await writeFile(join(f.output, 'old-app', EXPORT_MARKER), 'not json');
-	const run = await f.run('export', '--all', f.output, '--json');
-	expect(run.code).toBe(1);
-	expect(JSON.parse(run.stdout).apps).toEqual(
-		expect.arrayContaining([
-			expect.objectContaining({ app: 'tasks', status: 'created' }),
-			expect.objectContaining({ app: 'old-app', status: 'refused' }),
-		]),
-	);
+	await mkdir(f.output);
+	await writeFile(join(f.output, 'keep.txt'), 'precious');
+	for (const marker of [
+		'not json',
+		'{"export":"all","extra":true}',
+		'{"app":"tasks","digest":"sha256:old"}',
+	]) {
+		await writeFile(join(f.output, EXPORT_MARKER), marker);
+		expect((await f.run('export', '--all', f.output)).code).toBe(2);
+		expect(await readFile(join(f.output, 'keep.txt'), 'utf8')).toBe('precious');
+	}
 });
 
 test('export help and argument validation reserve the command and reject ambiguous invocations', async () => {

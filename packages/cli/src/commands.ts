@@ -28,13 +28,14 @@ serve builds code/ui/ when it is opened.`,
 	export: {
 		usage:
 			'epicenter export <app> <directory> | epicenter export --all <directory>',
-		help: `Copies committed app code into an exact directory, or one child per app with --all.
-Each exported app has epicenter.ts at its root. Repeating the command refreshes its output,
-including deleted files. --all includes future apps after their code is committed.
+		help: `Regenerates one owned directory from committed app code. With --all, the directory
+contains one child per app, including future committed apps; removed apps disappear.
+Keep Git, handwritten notes and other publication files outside this directory.
+Repeating the command replaces all generated contents, including local edits.
 Exports exclude records, local files, dependencies, builds, provenance, and private history.
-Uncommitted source changes are reported but not exported. Edited or unrelated destinations
-are refused. Existing Git files and the collection's root files are preserved.
-Export changes only local files. Review, commit and push the exported code with Git.`,
+Uncommitted source changes are reported but not exported. Unrelated nonempty directories
+and any Git metadata inside the destination are refused. All code is prepared before
+refreshing; rerun after an interrupted fill. Review, commit and push with Git.`,
 	},
 	install: {
 		usage: 'epicenter install [<app>]',
