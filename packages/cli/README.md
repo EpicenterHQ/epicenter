@@ -133,7 +133,7 @@ epicenter
 epicenter reading
 epicenter reading log 30 --book Dune
 epicenter reading log 30 --json
-epicenter reading books set data/books/dune.md --finished null
+epicenter reading books set dune --finished null
 epicenter init <folder>
 epicenter init --from <private-origin> <folder>
 epicenter new notes
@@ -387,14 +387,22 @@ With `--json`, stdout is one JSON object, and MCP returns the same object as `st
 { "error": { "name", "message", "next"? } }  exit 2, nothing ran
 ```
 
-An action that returns nothing answers `{ "returned": null }`. An action that throws a tagged error (`{ name, message, …fields }`) reports it whole as `thrown`. Without `--json`, stdout carries only the returned value, rendered by its structure, and stderr carries what the action threw, or why nothing ran followed by `Run: <next step>` when there is one. MCP's text for a thrown action is the same stderr. The returned value reads this way (`src/output.ts`):
+An action that returns nothing answers `{ "returned": null }`. An action that throws a tagged error (`{ name, message, …fields }`) reports it whole as `thrown`. Without `--json`, stdout carries only the returned value, rendered by its structure, and stderr carries what the action threw, or why nothing ran, followed by `Run: <next step>` when there is one. A `set` or `edit` that throws `Missing`, when an `add` sits beside it, names that `add` as the next step, so a collection with no placeholder is made on a fresh install:
+
+```txt
+$ epicenter vocab settings set --goal 20
+There is no data/settings.md
+Run: epicenter vocab settings add
+```
+
+MCP's text for a thrown action is what the action threw, without that step. The returned value reads this way (`src/output.ts`):
 
 - An object prints one `key: value` line per defined key, in order. A string with a newline prints as `key: |` followed by indented lines. Other strings print plainly unless empty, padded with spaces, starting with a quote or `|`, or readable as JSON, such as `"true"`, `"null"`, or `"12"`; those print as JSON strings. A nested object with a defined key, or a non-empty array of objects, prints by these same rules under `key:`, indented two spaces. Numbers, booleans, null, other arrays, and an empty object print as compact JSON values. A `problems` key stays on stdout like any other key.
 - An array of objects whose fields each fit on one line prints one row per object, with `key: value` pairs separated by two spaces. If a field takes more lines, a multiline string or a nested object, each object prints on its own lines, with a blank line between objects.
 - An empty array prints nothing. A string prints as is, with a final newline added if needed. Other arrays and single values print as JSON.
 
 ```txt
-$ epicenter tasks get data/tasks/2026-11-10T09-30-00-000Z-k3x9a2f8.md
+$ epicenter tasks get 2026-11-10T09-30-00-000Z-k3x9a2f8
 path: data/tasks/2026-11-10T09-30-00-000Z-k3x9a2f8.md
 time: 2026-11-10T09-30-00-000Z-k3x9a2f8
 title: Email Sam the slides
@@ -404,7 +412,7 @@ body: |
   The deck is in Drive.
 ```
 
-A placeholder such as `time` prints as a field: the command reads only the answer, which does not say which keys came from the path.
+A key such as `time` prints as a field: the command reads only the answer, which does not say which keys came from the path. A collection's `get`, `set`, `edit`, and `delete` take each key as a positional word, in path order, where `add` takes the keys it does not make.
 
 ## Check records
 
@@ -424,8 +432,10 @@ matched, and how many have problems; then each kind of problem with the number
 of files that have it, most frequent first; then each file's path and problem
 lines. A kind is a problem line without the value it quotes, as `check()`
 gives it, so `due: "next week"` and `due: "soon"` are one kind. When most files share one kind, the declaration is
-often too narrow, and one change to `epicenter.ts` repairs them all. A
-collection that matches no file says `0 files`.
+often too narrow, and one change to `epicenter.ts` repairs them all. Front
+matter no field declares is not a problem: a read does not give it, every
+write keeps it, and the check does not report it. A collection that matches
+no file says `0 files`.
 
 ```txt
 $ epicenter check tasks
