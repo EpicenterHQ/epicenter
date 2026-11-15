@@ -36,7 +36,7 @@ import { isName } from '@epicenter/app';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { linkAppPackage } from './app-package.ts';
-import { checkpoint, type Checkpoint } from './checkpoint.js';
+import { type Checkpoint, checkpoint } from './checkpoint.js';
 import { CliError } from './errors.ts';
 import { chooseApps, homeEntries, loadHomeApp } from './home.ts';
 import { createMcpServer } from './mcp.ts';

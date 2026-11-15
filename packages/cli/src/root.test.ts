@@ -337,27 +337,33 @@ async function lfsRestoreSource() {
 	return { f, remote, bytes };
 }
 
-test.skipIf(!hasLfs)('init --from materializes LFS records and installs repo-local filters on a fresh machine', async () => {
-	const { f, remote, bytes } = await lfsRestoreSource();
-	const restored = join(f.root, 'restored');
-	const result = await f.run('init', restored, '--from', remote, '--json');
-	expect(result.code, result.stdout + result.stderr).toBe(0);
-	expect(JSON.parse(result.stdout).installed).toEqual(['apps/x']);
-	expect(await readFile(join(restored, 'apps/x/data/a.png'))).toEqual(bytes);
-	expect(
-		await gitIn(restored, 'config', '--local', 'filter.lfs.process'),
-	).toBe('git-lfs filter-process');
-});
+test.skipIf(!hasLfs)(
+	'init --from materializes LFS records and installs repo-local filters on a fresh machine',
+	async () => {
+		const { f, remote, bytes } = await lfsRestoreSource();
+		const restored = join(f.root, 'restored');
+		const result = await f.run('init', restored, '--from', remote, '--json');
+		expect(result.code, result.stdout + result.stderr).toBe(0);
+		expect(JSON.parse(result.stdout).installed).toEqual(['apps/x']);
+		expect(await readFile(join(restored, 'apps/x/data/a.png'))).toEqual(bytes);
+		expect(
+			await gitIn(restored, 'config', '--local', 'filter.lfs.process'),
+		).toBe('git-lfs filter-process');
+	},
+);
 
-test.skipIf(!hasLfs)('init --from retains the clone and installs no apps when an LFS object is missing', async () => {
-	const { f, remote } = await lfsRestoreSource();
-	await rm(join(remote, 'lfs/objects'), { recursive: true });
-	const restored = join(f.root, 'missing-object');
-	const result = await f.run('init', restored, '--from', remote);
-	expect(result.code).not.toBe(0);
-	expect(result.stderr).toContain('apps/x/data/a.png');
-	expect(result.stderr).toContain(`Run: git -C ${restored} lfs pull`);
-	expect(result.stdout).not.toContain('Restored the Epicenter');
-	expect(existsSync(join(restored, '.git'))).toBe(true);
-	expect(existsSync(join(restored, 'apps/x/code/node_modules'))).toBe(false);
-});
+test.skipIf(!hasLfs)(
+	'init --from retains the clone and installs no apps when an LFS object is missing',
+	async () => {
+		const { f, remote } = await lfsRestoreSource();
+		await rm(join(remote, 'lfs/objects'), { recursive: true });
+		const restored = join(f.root, 'missing-object');
+		const result = await f.run('init', restored, '--from', remote);
+		expect(result.code).not.toBe(0);
+		expect(result.stderr).toContain('apps/x/data/a.png');
+		expect(result.stderr).toContain(`Run: git -C ${restored} lfs pull`);
+		expect(result.stdout).not.toContain('Restored the Epicenter');
+		expect(existsSync(join(restored, '.git'))).toBe(true);
+		expect(existsSync(join(restored, 'apps/x/code/node_modules'))).toBe(false);
+	},
+);
