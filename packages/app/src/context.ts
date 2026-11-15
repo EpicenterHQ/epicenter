@@ -15,6 +15,16 @@
  * except to a `.local` path under `data/` (ADR-0870).
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
+import type { Action } from './action.ts';
+
+/** A home-owned daily invocation of an action exposed by the current app. */
+export type Routine<TAction extends Action = Action> = {
+	daily: string;
+	action: TAction;
+	input: Parameters<NoInfer<TAction>>[0];
+	paused?: boolean;
+	timeout?: string;
+};
 
 /**
  * An app's folder as an object. Paths are relative to the folder, with `/`
@@ -39,7 +49,7 @@ export type Folder = {
 	 * that is what is there. Every update of the app takes turns. When a
 	 * writer that takes no lock changes the file between the read and the
 	 * write, `change` runs again on what is there now; after 10 tries it
-	 * throws `FileError.Changed`. A `change` that throws writes nothing.
+	 * throws `ActionError.Changed`. A `change` that throws writes nothing.
 	 *
 	 * ```ts
 	 * await folder.update('data/2026.csv', (text = 'day,minutes\n') => `${text}${day},${minutes}\n`);
@@ -61,6 +71,13 @@ export type Folder = {
 /** What whatever runs an action opens its run with. */
 export type Context = {
 	folder: Folder;
+	/** Supplied by a host that can save recurring work in the current Epicenter. */
+	routines?: {
+		set(
+			name: string,
+			routine: Routine,
+		): Promise<{ name: string; path: string }>;
+	};
 	/**
 	 * The run is of a read-only action (`readOnlyHint: true`), named `action`:
 	 * `folder.write`, `writeBytes`, `update`, and `delete` throw in it before
@@ -108,6 +125,26 @@ function currentRun(): Context {
 		);
 	return context;
 }
+
+/** Save recurring work explicitly, inside an action such as an app's setup. */
+export const routines = {
+	/**
+	 * Create or update routines/<name>.md in the current home. The name is
+	 * home-wide; the host infers this app and resolves the action in its table.
+	 * Input must survive JSON. Private inputs and file inputs cannot be saved.
+	 * Keeps notes, attempt history, and unspecified paused/timeout settings.
+	 * A new unpaused routine catches up to the latest daily occurrence.
+	 */
+	async set<TAction extends Action>(name: string, routine: Routine<TAction>) {
+		const context = currentRun();
+		if (context.readOnly)
+			throw new Error(
+				`The action "${context.readOnly.action}" is read-only, so it cannot set a routine`,
+			);
+		if (!context.routines) throw new Error('This host cannot save routines');
+		return context.routines.set(name, routine);
+	},
+};
 
 /**
  * The folder of the run this code is in, to write or delete `path` in; throws

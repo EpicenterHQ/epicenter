@@ -292,6 +292,35 @@ describe('defineApp', () => {
 		]);
 	});
 
+	test('accepts groups with actions named run, start, and description', () => {
+		const app = defineApp({
+			description: 'Daily work',
+			collections: {},
+			actions: { daily: { run: noop, start: log, description: noop } },
+		});
+		expect(
+			Object.keys(app.actions.daily).map((word) => `daily ${word}`),
+		).toEqual(['daily run', 'daily start', 'daily description']);
+		expect(app.actions.daily.run).toBe(noop);
+		expect(app.actions.daily.start).toBe(log);
+	});
+
+	test('refuses an object spread with an action description and plain run function', () => {
+		expect(
+			problems(() =>
+				defineApp({
+					description: 'Broken spread',
+					collections: {},
+					actions: {
+						daily: { ...noop, description: 'Daily', run() {} },
+					} as never,
+				}),
+			),
+		).toEqual([
+			'actions.daily is not an action: make it with defineAction(...), and change one with defineAction({ ... }) rather than a spread, which drops the call',
+		]);
+	});
+
 	test('names collections that would hold the same file', () => {
 		const at = (path: string) => defineCollection({ path, fields: {} });
 		expect(

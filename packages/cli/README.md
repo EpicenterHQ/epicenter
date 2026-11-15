@@ -146,11 +146,13 @@ epicenter build
 epicenter checkpoint
 epicenter checkpoint -m "Repair the book fields"
 epicenter serve
+epicenter routines
+epicenter routines run daily-task-review
 epicenter --version
 ```
 
-The commands are `init`, `new`, `export`, `install`, `build`, `checkpoint`, `serve`,
-and `service`. Their usage and help live in `src/commands.ts`.
+The commands are `init`, `new`, `export`, `install`, `build`, `checkpoint`,
+`serve`, `service`, and `routines`. Their usage and help live in `src/commands.ts`.
 Any other first word names an app. `--json` and `--help` (`-h`) go anywhere
 before `--`; `--version` is read only on its own. Each command parses flags
 strictly. A misuse returns its usage line and next help command.
@@ -230,6 +232,127 @@ operation as the manual checkpoint command. A failure is logged once until
 it changes and cleared after success. Serve begins listening while its first
 checkpoint runs. Shutdown waits at most ten seconds for the final pass.
 The clock stays in serve; the service job only keeps serve running.
+
+## Daily routines
+
+The home opts into recurring work with `routines/<name>.md`, outside `apps/`.
+A routine is an instruction to this computer, so sharing an app schedules
+nothing. `serve` checks on startup and once a minute, independently of backups:
+
+```yaml
+---
+daily: "08:00"
+run: ["epicenter", "my-app", "review"]
+---
+Prepare my morning review.
+```
+
+`daily` is a local calendar time. A first check with no state runs the latest
+due occurrence; after several days offline it runs once, not once per missed
+day. A success satisfies the slot captured when it started. Timing is approximate
+while the service is awake and available. Clock gaps normalize forward, and a
+repeated clock time uses its first occurrence. Changing the daily time can make
+a new occurrence due on the same day.
+
+`run` is executable and arguments, with no shell. The working directory is the
+Epicenter folder. `epicenter` and `bun` use the running CLI and its runtime;
+other executables use the service's PATH. `EPICENTER_COMMAND` holds the CLI argv
+as JSON for scripts calling back into it, `EPICENTER_ROUTINE_SLOT` is the due
+instant as UTC ISO, and `EPICENTER_ROUTINE_NAME` is the routine's name.
+`EPICENTER_SERVICE_URL` names this serve listener's loopback URL, including an
+overridden port. A script
+calling that CLI argv clears `BUN_BE_BUN` first if it was launched as Bun.
+Optional `paused: true` stops scheduled attempts. Optional `timeout: "30m"`
+bounds each attempt; the default is 30 minutes, with seconds, minutes, or hours
+accepted. Unknown fields and malformed declarations are refused.
+
+`epicenter routines` lists declarations and last outcomes, even while the
+server is stopped; `--json` includes completion, the last attempt, and its log.
+`epicenter routines run <name>` explicitly runs one now, including while paused.
+It also repairs failed or interrupted work and can repeat effects.
+
+An app's explicit setup action can call `routines.set(name, { daily, action,
+input, paused?, timeout? })` from `@epicenter/app`. The host resolves the action
+against that app's current table, checks its JSON input, and saves the same
+command-argv declaration. It preserves notes, runtime receipts, and unspecified
+pause and timeout fields. The name is home-wide. An existing command for another
+app, an ambiguous or unexposed action, private input, file input, and read-only
+setup are refused. No new action registry or executable format is involved.
+
+State is atomically replaced in `routines/<name>.local/state.json`. Output
+appends to `routines/<name>.local/output.log`. Both stay local and owner-only.
+The kernel lock on that folder covers the entire attempt, including foreground
+runs. The command inherits the lock as fd 3, so a command that survives its
+supervisor still prevents overlap. Commands must keep fd 3 open and remain in
+their process group. Shutdown and timeout terminate that group, escalating to
+SIGKILL after two seconds. This uses macOS/Linux facilities, not a sandbox.
+
+Failures wait for the next daily slot or an explicit run. Interrupted work
+blocks automatic execution until an explicit run: its effects may already have
+happened. Inspect the state and log first. Corrupted state also blocks execution
+without overwriting it. A failure to signal descendants records interruption
+and the signalling error, so uncertain cleanup cannot advance completion.
+Deleting runtime state makes the latest occurrence due
+again. Commands must tolerate repetition; there is no exactly-once guarantee.
+
+See [ADR-0908](../../docs/adr/0908-serve-runs-the-homes-daily-routines.md).
+
+## Serve-owned runs
+
+A page starts a long action with `runs.start(app.action, input)`, observes it with
+`events()` or `result()`, and reattaches by id after a tab closes. The browser
+journals the id before sending a request. It uploads each `Blob` or `File` with
+a raw PUT before admitting the action. Ordinary calls, CLI, MCP, and routines
+refuse file inputs. The host decodes opaque references into temporary
+`UploadedFile` handles; collections cannot retain them.
+
+The run routes pass through the same Host, Origin, and tunnel guards as other
+routes. `<action>` joins action words with dots:
+
+| Method | Route | Purpose |
+| --- | --- | --- |
+| PUT | `/.runs/<app>/<action>/<id>/files/<field>` | Upload bytes; `x-epicenter-file-name` contains the encoded name |
+| POST | `/.runs/<app>/<action>/<id>` | Admit once or join identical admission |
+| GET | `/.runs/<app>/<action>/<id>/events?after=<seq>` | Replay and observe events |
+| GET | `/.runs/<app>/<action>/<id>` | Read state |
+| POST | `/.runs/<app>/<action>/<id>/cancel` | Request cooperative cancellation |
+
+One host process owns the runtime directory. It defaults to
+`~/.local/state/epicenter/prototype-runs/<hash>`, where `<hash>` is the first 16 hex
+characters of SHA-256 of the Epicenter root's real path. `EPICENTER_RUNTIME_DIR`
+overrides it. The host refuses a directory inside the Epicenter or any app,
+including through symlinks. Files are owner-only. On macOS, Time Machine
+exclusion is attempted on a best-effort basis. This is local storage, not Git
+history or a guarantee that another backup tool excludes it.
+
+Limits are 15 MiB per file, 1 MiB admission JSON, 256 KiB per yield, and 4 MiB
+per event log with 1 KiB reserved for a terminal event. Upload admission has a
+512 MiB storage budget. At most 8 runs execute, 64 observers connect, and 1000
+run directories remain. Each field may impose a smaller file limit and MIME
+accept list. These bounds can refuse uploads, admission, yields, or answers.
+
+A finish whose answer has `returned` deletes input `.bin` files. Other outcomes
+retain them until the 24-hour terminal TTL. Orphan uploads and partial files
+expire after one hour. Cleanup checks every ten minutes and under admission
+pressure. Recovery marks a non-terminal record `interrupted` at startup or on
+read. It never reruns the action. A missing or expired id remains unknown;
+creating another run is an explicit decision that may repeat effects.
+
+For `privateInput: true`, admission stores neither JSON input values nor a JSON
+input digest. A JSON digest could confirm guesses about input otherwise never
+written here. Duplicate admission matches the action alone. Ordinary actions
+compare a digest of their validated input. Uploaded file metadata, hashes, and
+bytes follow the ordinary retention rules. Actions control their own yielded
+and returned data, so private actions must avoid emitting secrets.
+
+Closing an observer does not cancel execution. Explicit cancellation records
+`cancel-requested` and aborts the action's signal. The action must cooperate
+through `callSignal()` or yielding. No cancellation result establishes rollback.
+The client journal key is `epicenter.runs.prototype.v1`. Run controls are
+`runs.start(action, input)`, `runs.attach(action, id)`, and `runs.pending(action)`.
+These controls live outside the connected app's action tree and reserve no
+app action names.
+See [ADR-0915](../../docs/adr/0915-serve-owns-a-pages-runs-and-a-file-input-is-a-temporary-upload.md).
 
 ## Coordinate writes
 

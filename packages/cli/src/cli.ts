@@ -33,6 +33,7 @@ import {
 	writeOut,
 } from './output.ts';
 import { epicenterDir, epicenterRoot, RootUsageError } from './root.ts';
+import { routinesCommand } from './routines.ts';
 import { runAction } from './run.ts';
 import { serviceCommand } from './service.ts';
 
@@ -62,6 +63,7 @@ const HANDLERS: { [K in Command]: Handler } = {
 	export: exportCommand,
 	build: buildCommand,
 	service: serviceCommand,
+	routines: routinesCommand,
 	async checkpoint(words, json) {
 		const given = parseWords(
 			words,

@@ -22,6 +22,40 @@ import {
 } from 'typebox';
 import { Value } from 'typebox/value';
 
+export const MAX_FILE_BYTES = 15 * 1024 * 1024;
+export const FILE_REFERENCE_PREFIX = 'epicenter-file:';
+
+/**
+ * A run's file input. Its path, bytes, and text are valid only while the run runs.
+ */
+export type UploadedFile = {
+	readonly name: string;
+	readonly type: string;
+	readonly size: number;
+	/** Absolute path in the host's private runtime directory; valid only while the run runs. */
+	path(): string;
+	bytes(): Promise<Uint8Array>;
+	text(): Promise<string>;
+};
+
+/** Read a file field's host metadata, including from an optional field. */
+export function fileFieldOf(
+	schema: unknown,
+): { accept?: string[]; maxBytes: number } | undefined {
+	if (typeof schema !== 'object' || schema === null) return undefined;
+	const metadata = (schema as Record<string, unknown>)['x-epicenter-file'];
+	if (typeof metadata !== 'object' || metadata === null) return undefined;
+	const { accept, maxBytes } = metadata as Record<string, unknown>;
+	if (typeof maxBytes !== 'number') return undefined;
+	if (
+		accept !== undefined &&
+		(!Array.isArray(accept) ||
+			!accept.every((value) => typeof value === 'string'))
+	)
+		return undefined;
+	return { ...(accept === undefined ? {} : { accept: [...accept] }), maxBytes };
+}
+
 type Options = {
 	description?: string;
 	/** JSON Schema's `readOnly`: in a collection, only the app's own actions write it. */
@@ -77,6 +111,53 @@ function bounds(options: Bounds | undefined) {
 }
 
 export const field = {
+	/**
+	 * A top-level action file input. The wire value is an opaque
+	 * reference the host issued; `run` receives `UploadedFile`. A browser
+	 * caller passes a Blob or File through the run controls. CLI, MCP, routines, direct
+	 * POST calls, and collections refuse it.
+	 * Persistent files in collections are a separate, undecided feature.
+	 */
+	file: <
+		const O extends {
+			description?: string;
+			optional?: boolean;
+			accept?: readonly string[];
+			maxBytes?: number;
+		},
+	>(
+		options?: O,
+	) => {
+		const maxBytes =
+			options?.maxBytes === undefined ? MAX_FILE_BYTES : options.maxBytes;
+		if (
+			!Number.isInteger(maxBytes) ||
+			maxBytes <= 0 ||
+			maxBytes > MAX_FILE_BYTES
+		)
+			throw new Error(
+				`A file's maxBytes must be a positive integer at most ${MAX_FILE_BYTES}`,
+			);
+		const accept = options?.accept;
+		const mime = /^[a-z0-9!#$%&'+.^_`|~-]+\/(?:[a-z0-9!#$%&'+.^_`|~-]+|\*)$/i;
+		if (accept?.some((entry) => !mime.test(entry)))
+			throw new Error('A file accept entry must be a MIME type or type/*');
+		return maybeOptional(
+			Type.Unsafe<UploadedFile>({
+				type: 'string',
+				pattern: '^epicenter-file:',
+				...(options?.description === undefined
+					? {}
+					: { description: options.description }),
+				'x-epicenter-file': {
+					...(accept ? { accept: [...accept] } : {}),
+					maxBytes,
+				},
+			}),
+			options,
+		);
+	},
+
 	/**
 	 * Text. `pattern` is a regular expression the whole value must match; give
 	 * a `description` that reads after "must be", since that is how a refusal

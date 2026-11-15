@@ -7,6 +7,7 @@
  */
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from 'bun:test';
 import {
+	mkdir,
 	mkdtemp,
 	readFile,
 	readlink,
@@ -294,6 +295,53 @@ test('serve relinks each app to the @epicenter/app it carries, and a UI built ag
 			serve.kill('SIGTERM');
 			await serve.exited;
 		}
+	} finally {
+		await rm(f.root, { recursive: true, force: true });
+	}
+});
+
+test('compiled routines invoke their own CLI and Bun runtime without depending on PATH', async () => {
+	const f = await fixture();
+	try {
+		await f.app(
+			'hello',
+			`export default defineApp({ description: 'Hello', collections: {}, actions: {
+			greet: defineAction({ description: 'Hello', input: {}, run: () => 'compiled action' })
+		} });`,
+		);
+		await mkdir(join(f.home, 'routines'));
+		for (const run of [
+			['epicenter', 'hello', 'greet'],
+			['bun', '-e', 'console.log("compiled runtime")'],
+		]) {
+			await writeFile(
+				join(f.home, 'routines/review.md'),
+				`---\ndaily: "08:00"\nrun: ${JSON.stringify(run)}\n---\n`,
+			);
+			const child = Bun.spawn([bin, 'routines', 'run', 'review', '--json'], {
+				cwd: f.home,
+				env: {
+					...f.env,
+					PATH: '/usr/bin:/bin',
+					XDG_DATA_HOME: join(f.root, 'xdg-data'),
+				},
+				stdout: 'pipe',
+				stderr: 'pipe',
+			});
+			const [stdout, stderr, code] = await Promise.all([
+				new Response(child.stdout).text(),
+				new Response(child.stderr).text(),
+				child.exited,
+			]);
+			expect({ code, stderr }).toEqual({ code: 0, stderr: '' });
+			expect(JSON.parse(stdout).attempt.outcome).toBe('succeeded');
+		}
+		const log = await readFile(
+			join(f.home, 'routines/review.local/output.log'),
+			'utf8',
+		);
+		expect(log).toContain('compiled action');
+		expect(log).toContain('compiled runtime');
 	} finally {
 		await rm(f.root, { recursive: true, force: true });
 	}

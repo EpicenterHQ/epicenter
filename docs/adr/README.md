@@ -1124,8 +1124,11 @@ When you add an ADR, add its row here.
 | [0905](0905-secret-input-makes-the-whole-action-confidential.md) | Secret input makes the whole action confidential | Accepted (amends 0870; amended by 0906) |
 | [0906](0906-confidentiality-is-explicit-action-metadata.md) | Confidentiality is explicit action metadata | Accepted (amends 0905; amended by 0907) |
 | [0907](0907-private-input-is-a-whole-call-handling-policy.md) | Private input is a whole-call handling policy | Accepted (amends 0906) |
+| [0908](0908-serve-runs-the-homes-daily-routines.md) | Serve runs the home's daily routines | Accepted (amends 0849, 0861, 0878, 0883, and 0898) |
 | [0910](0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md) | An Epicenter is one private repository, and each app keeps its code beside its data | Accepted (supersedes 0877 and 0884; amends 0842, 0870, 0876, 0883, 0885, 0887, 0893, and 0896) |
 | [0911](0911-export-copies-an-apps-committed-code-into-a-refreshable-directory.md) | Export copies an app's committed code into a refreshable directory | Accepted (amends 0910) |
 | [0912](0912-shared-app-code-comes-from-the-app-we-maintain.md) | Shared app code comes from the app we maintain | Proposed (amends 0891) |
 | [0913](0913-cli-developer-previews-are-non-latest-github-releases.md) | CLI developer previews are non-latest GitHub releases | Proposed (amends 0892) |
+| [0914](0914-action-errors-share-one-contract-and-the-envelope-records-execution.md) | Action errors share one contract and the envelope records execution | Accepted |
+| [0915](0915-serve-owns-a-pages-runs-and-a-file-input-is-a-temporary-upload.md) | Serve owns a page's runs and a file input is a temporary upload | Accepted |
 | [0916](0916-export-saves-a-local-checkpoint-before-copying-code.md) | Export saves a local checkpoint before copying code | Proposed (amends 0910 and 0911) |
