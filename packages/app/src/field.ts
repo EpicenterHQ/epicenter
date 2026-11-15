@@ -5,12 +5,13 @@
  * action lists it; MCP shows it as a property of the tool's input.
  *
  * A field is required unless it says `optional`. A switch (`boolean`) and a
- * list (`tags`) are never required: an absent switch is `false`, an absent
- * list is empty. A collection's field that says `readOnly` is written only by
- * the app's own actions: the exposed `add` and `set` leave it out. Fields
- * describe data; an action declares private input handling separately.
+ * list (`list`, `tags`) are never required: an absent switch is `false`, an
+ * absent list is empty. A collection's field that says `readOnly` is written
+ * only by the app's own actions: the exposed `add` and `set` leave it out.
+ * Fields describe data; an action declares private input handling separately.
  */
 import {
+	type Static,
 	type TArray,
 	type TBoolean,
 	type TLiteral,
@@ -77,8 +78,23 @@ type Optionally<T extends TSchema, O> = Marked<
 /** A switch: `false` unless its flag is given. */
 export type TSwitch = TOptional<TBoolean> & { default: false };
 
-/** A list of text: every time its flag is given, or every word left when it is the last positional; empty unless given. */
-export type TTags = TOptional<TArray<TString>> & { default: string[] };
+/** A list of `T`: every time its flag is given, or every word left when it is the last positional; empty unless given. */
+export type TList<T extends TSchema> = TOptional<TArray<T>> & {
+	default: Static<T>[];
+};
+
+/** A list of text, as `field.tags()` makes it. */
+export type TTags = TList<TString>;
+
+/** A list of `item`, optional and empty unless given. */
+function list<const T extends TSchema, const O extends Options>(
+	item: T,
+	options?: O,
+) {
+	return Type.Optional(
+		Type.Array(item, { ...schemaOptions(options), default: [] }),
+	) as unknown as Marked<TList<T>, O>;
+}
 
 function maybeOptional<T extends TSchema, O extends MaybeOptional>(
 	schema: T,
@@ -221,10 +237,16 @@ export const field = {
 			Type.Boolean({ ...schemaOptions(options), default: false }),
 		) as Marked<TSwitch, O>,
 
-	tags: <const O extends Options>(options?: O) =>
-		Type.Optional(
-			Type.Array(Type.String(), { ...schemaOptions(options), default: [] }),
-		) as Marked<TTags, O>,
+	/**
+	 * A list of any field: `field.list(field.select(['x', 'threads']))`. It is
+	 * never required, reads as `[]` when absent, and takes a repeated flag on
+	 * the command line. A list of an item the command line cannot spell, such
+	 * as a `Type.Object`, is given as JSON.
+	 */
+	list,
+
+	/** A list of text: `field.list(field.text())`. */
+	tags: <const O extends Options>(options?: O) => list(Type.String(), options),
 };
 
 type Described = {
@@ -288,8 +310,11 @@ function wanted(schema: Described): string | undefined {
 	// A pattern is a regular expression; the field's description says it in words.
 	if (schema.pattern !== undefined) return schema.description;
 	if (schema.format !== undefined) return FORMATS[schema.format];
-	if (schema.type === 'array' && schema.items?.type === 'string')
-		return 'a list of text';
+	if (schema.type === 'array' && schema.items) {
+		const each = wanted(schema.items);
+		if (each === 'text') return 'a list of text';
+		if (each) return `a list, each ${each}`;
+	}
 	const kind = schema.type === undefined ? undefined : TYPES[schema.type];
 	if (!kind) return kind;
 	const { minimum: min, maximum: max } = schema;

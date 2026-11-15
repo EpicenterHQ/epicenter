@@ -261,7 +261,15 @@ takes `{ path, grade }`; it could take `{ word, grade }` and call
 | `field.datetime()` | `string`, RFC 3339 | `--name <date and time>` |
 | `field.select(['a', 'b'])` | `'a' \| 'b'` | `--name a` |
 | `field.boolean()` | `boolean`, `false` unless given | `--name`, `--name=false` |
-| `field.tags()` | `string[]`, empty unless given | `--name a --name b` |
+| `field.list(item)` | an array of `item`'s value, empty unless given | `--name a --name b`, each read as `item` |
+| `field.tags()` | `field.list(field.text())`: `string[]` | `--name a --name b` |
+
+`field.list(item)` is a list of any field: `field.list(field.select(['x', 'threads']))`
+is several of a fixed set, and `field.list(field.integer())` reads each
+`--name 4` as a number. It is never required, reads as `[]` when its line is
+absent, and a write may leave it out. A list of an item the command line
+cannot spell, such as `field.list(Type.Object({ name: Type.String() }))`, is
+given as one JSON object with `--input`, and its flag is refused.
 
 Each field is JSON Schema, so any TypeBox schema works as a field too. A field
 is required unless it says `optional: true`; `readOnly: true` is described
@@ -295,7 +303,8 @@ problem reads `title: "…" is not <description>`. Tasks' title is
 An action's `positional` lists, in order, the fields the command line also
 reads by position: `positional: ['from', 'to']` reads
 `epicenter reading between 2026-11-01 2026-11-08`. A list field may be last,
-and takes every word left. Flags always work.
+and takes every word left. Flags always work, except for a list of an item
+the command line cannot spell.
 
 An action's `annotations` are MCP's tool annotations, verbatim:
 `readOnlyHint`, `destructiveHint`, `idempotentHint`, and `openWorldHint`, with

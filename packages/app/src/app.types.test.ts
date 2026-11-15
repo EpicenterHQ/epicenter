@@ -3,7 +3,7 @@
  * run by `tsc`; the test bodies only keep `bun test` from skipping the file.
  */
 import { describe, test } from 'bun:test';
-import { Type } from 'typebox';
+import { type TString, Type } from 'typebox';
 import type { Result } from 'wellcrafted/result';
 import type { ActionYield } from './action.ts';
 import type {
@@ -185,6 +185,62 @@ describe('an app author', () => {
 		});
 		type SetIn = In<ReturnType<typeof flags.actions<'set'>>['set']>;
 		assertType<Equal<SetIn, { path: string }>>();
+	});
+
+	test('a list reads as an array and is optional to write', () => {
+		const books = defineCollection({
+			path: 'data/books/{book}.md',
+			fields: {
+				platforms: field.list(field.select(['x', 'threads'])),
+				ratings: field.list(field.integer(), { readOnly: true }),
+				people: field.list(Type.Object({ name: Type.String() })),
+			},
+		});
+		type Read = Awaited<ReturnType<typeof books.list>>[number];
+		assertType<
+			Equal<
+				Read,
+				{
+					path: string;
+					book: string;
+					platforms: ('x' | 'threads')[];
+					ratings: number[];
+					people: { name: string }[];
+					problems?: string[];
+				}
+			>
+		>();
+		type AddIn = In<ReturnType<typeof books.actions<'add'>>['add']>;
+		assertType<
+			Equal<
+				AddIn,
+				{
+					book: string;
+					platforms?: ('x' | 'threads')[];
+					people?: { name: string }[];
+					body?: string;
+				}
+			>
+		>();
+		const shelve = defineAction({
+			description: 'Shelve',
+			input: {
+				platforms: field.list(field.select(['x', 'threads'])),
+			},
+			run: ({ platforms }) => {
+				assertType<Equal<typeof platforms, ('x' | 'threads')[]>>();
+				return platforms.length;
+			},
+		});
+		assertType<
+			Equal<ActionInput<typeof shelve>, { platforms?: ('x' | 'threads')[] }>
+		>();
+		assertType<
+			Equal<
+				ReturnType<typeof field.tags<{ readOnly: true }>>,
+				ReturnType<typeof field.list<TString, { readOnly: true }>>
+			>
+		>();
 	});
 
 	test('a caller may leave out a defaulted field, and run receives it', () => {

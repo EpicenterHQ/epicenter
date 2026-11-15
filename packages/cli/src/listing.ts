@@ -14,6 +14,7 @@ import {
 	fieldKind,
 	flagOf,
 	jsonSchema,
+	listSpelling,
 	requiredKeys,
 	usageLine,
 } from './input.ts';
@@ -141,7 +142,12 @@ export function actionHelp(name: string, key: string, action: Action): string {
 		const schema = field as TSchemaOptions;
 		const kind = fieldKind(schema);
 		const flag = `--${flagOf(key)}`;
-		const asFlag = kind === 'switch' ? flag : `${flag} <${kind}>`;
+		const asFlag =
+			kind === 'switch'
+				? flag
+				: kind === 'list'
+					? listSpelling(flag, schema)
+					: `${flag} <${kind}>`;
 		const spelling = privateInput
 			? key
 			: positional.has(key)
