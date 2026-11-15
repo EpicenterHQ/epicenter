@@ -12,7 +12,7 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { checkoutCodeFiles, isCopiedCodePath } from './code-copy.js';
+import { checkoutCodeFiles, readCodeFiles } from './code-copy.js';
 import { misuse, nameProblem, parseWords } from './commands.ts';
 import { ENGINES } from './engines.ts';
 import { CliError } from './errors.ts';
@@ -229,26 +229,11 @@ async function copySource(
 			// Keep full paths and ancestor attributes in the index. Select checkout paths
 			// separately, so root-owned LFS attributes still apply to a subfolder copy.
 			await checkedGit(clone, ['read-tree', 'HEAD']);
-			const entries = (await checkedGit(clone, ['ls-files', '-s', '-z']))
-				.split('\0')
-				.filter(Boolean)
-				.map((entry) => ({
-					mode: entry.slice(0, 6),
-					path: entry.slice(entry.indexOf('\t') + 1),
-				}))
-				.filter(
-					({ path }) =>
-						source.folder === '' || path.startsWith(`${source.folder}/`),
-				);
+			const { entries, selected } = await readCodeFiles(clone, source.folder);
 			if (entries.some(({ mode }) => mode === '160000'))
 				return usage(
 					`${from} contains a gitlink; copy a folder without embedded repositories`,
 				);
-			const selected = entries.filter(({ path }) =>
-				isCopiedCodePath(
-					source.folder === '' ? path : path.slice(source.folder.length + 1),
-				),
-			);
 			let lfs: string[];
 			const staging = await mkdtemp(join(appsDir(), name, '.code-build-copy-'));
 			try {
