@@ -13,8 +13,14 @@ Run this for any visible UI change:
 ```txt
 Foundation:
   Imports follow the app's established component boundary described in ui-design.
+  Monorepo consumers import public @epicenter/ui subpaths, never
+  packages/ui/src or copied stock $lib/components/ui primitives.
+  For these consumers, shadcn-svelte is upstream source rather than
+  an app import path. Personal apps use their owned, copied components.
   Does not create a one-off primitive when a local one exists.
   Preserves explicit user constraints; challenges incidental choices left open.
+  Where the person has left markup and styling open, does not preserve
+  incidental details merely for exact reproduction.
 
 Collapse:
   No class-heavy wrapper survives when a primitive can own the composition.
@@ -59,6 +65,10 @@ System coherence:
   One radius, shadow, and border language, or a named rule for variants.
   Typography matches the surface and does not rely on random font contrast.
   Repeated visual contracts have an owner in the established component system.
+  Promote repeated visual contracts to a semantic token, component variant,
+  or stable primitive when they meet the component-system ownership criteria.
+  Monorepo consumers share through packages/ui; personal apps consolidate
+  repetition within their owned components.
 
 Hierarchy and density:
   The primary action or reading path is obvious.
