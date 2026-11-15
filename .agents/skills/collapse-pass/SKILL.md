@@ -15,10 +15,10 @@ disappear, then carry the better design through its callers.
 
 ## Understand the work
 
-Read the relevant code and follow its callers to understand what the person or
-caller needs to do, where the work has become difficult, and which parts of the
-current arrangement cause that difficulty. Use intent already settled in the
-conversation; ask when an unresolved purpose or tradeoff would change the work.
+Start from what the person or caller needs to accomplish. Read the relevant
+code and follow its callers to understand where the work has become difficult.
+Use intent already settled in the conversation; ask when an unresolved purpose
+or tradeoff would change the work.
 
 Begin with the named files or subsystem. Follow connected evidence when it
 points to a shared cause, and explain the connection before editing beyond the
@@ -49,12 +49,16 @@ Group related symptoms around the responsibility or decision producing them.
 A broad pass investigates those connections before treating every occurrence
 as a separate cleanup.
 
-## Rethink the design producing them
+## Rethink the design producing the work
 
-Use [rethink](../rethink/SKILL.md) to develop the system from its intended use.
-Treat existing APIs, boundaries, ownership, and workflows as choices to
-reconsider. Trace each mechanism to the requirement, assumption, or promise
-that makes it necessary.
+Trace each mechanism to the requirement, assumption, or promise that makes it
+necessary. Check which requirements come from the person or actual consumers,
+and which arose from the implementation. Existing behavior alone does not
+establish that someone needs it.
+
+Use [rethink](../rethink/SKILL.md) to consider how we would build this today for
+its intended uses. Treat existing APIs, boundaries, ownership, and workflows
+as choices to reconsider. Ask what would let the machinery disappear.
 
 Ask whether readers could get the answer from an existing owner when they need
 it. If a Map mirrors connections a pool already tracks, reading the pool may
@@ -71,8 +75,8 @@ pattern.
 Look beyond relocating state. A rule might be declared directly at the boundary
 that knows it instead of inferred elsewhere. Responsibilities might be grouped
 around the work people do. A simpler workflow might eliminate an entire draft
-or recovery subsystem. Search for what would let each mechanism disappear,
-then compare the complete result.
+or recovery subsystem. Follow the alternative far enough to show how it handles
+the actual uses and what becomes unnecessary, then compare the complete result.
 
 Use [product-collapse](../product-collapse/SKILL.md) when simpler product behavior
 could make machinery unnecessary and the experience needs the person's judgment.
@@ -93,8 +97,9 @@ what coordination disappears.
 Take the model back to the cases that produced it, including awkward and
 materially different uses. When exceptions keep accumulating, reconsider the
 organizing distinction. Preserve differences that carry real information or
-behavior. Keeping the current design is a valid outcome when its boundaries
-earn their cost.
+behavior. A local correction is sufficient when the surrounding model earns
+its complexity; a broader redesign needs evidence that it better fulfills
+the intent.
 
 ## Carry the replacement through and verify it
 
@@ -125,16 +130,17 @@ exports, comments, tests, and documentation with the replacement. Preserve
 coverage for behavior that remains. Review the cumulative result with
 [post-implementation-review](../post-implementation-review/SKILL.md).
 
-After a fix works, reconsider the owning unit as if the latest constraint had
-been known from the beginning. Check that the resulting design is one we would
-choose today. If implementation introduces more coordination or exceptions,
-use that evidence to revisit the model.
+After a fix works, reconsider the cumulative design as if the latest constraints
+had been known from the beginning. Check whether we would choose its boundaries
+and responsibilities today, including those introduced by previous fixes.
+"Another pass" starts from that reassessment: earlier implementation decisions
+remain open to question, while settled user intent carries forward. Use fresh
+evidence, including new coordination or exceptions, to revisit the model.
 
-Continue while grounded opportunities remain in the relevant subsystem.
-"Another pass" pursues fresh evidence, including what the previous replacement
-exposed. Stop when further investigation yields no convincing simplification,
-remaining work needs a consequential decision, or an explicit budget is reached.
-Do not manufacture changes to make a pass look productive.
+Continue while grounded opportunities remain in the relevant subsystem. Stop
+when further investigation yields no convincing simplification, remaining work
+needs a consequential decision, or an explicit budget is reached. Do not
+manufacture changes to make a pass look productive.
 
 Report the cause, the replacement, what disappeared, what was verified, and
 remaining decisions. Use [report guidance](references/report-format.md) for a
