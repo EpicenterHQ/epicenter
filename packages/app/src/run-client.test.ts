@@ -47,6 +47,8 @@ const app = connect<{
 	actions: {
 		upload: typeof upload;
 		start: typeof empty;
+		daily: { begin: typeof empty };
+		practice: { begin: typeof empty };
 	};
 }>({ app: 'files' });
 
@@ -94,14 +96,20 @@ test('aborting result observation sends no cancellation request', async () => {
 	expect(sent).toBe(0);
 });
 
-test('a top-level action named start remains an ordinary call', async () => {
+test('renamed nested triggers route as calls while action start controls a run', async () => {
 	const urls: string[] = [];
 	globalThis.fetch = (async (url: string | URL | Request) => {
 		urls.push(String(url));
 		return new Response('{"answer":{"returned":null}}\n');
 	}) as typeof fetch;
 	expectOk(await app.start());
-	expect(urls).toEqual(['/files/start']);
+	expectOk(await app.daily.begin());
+	expectOk(await app.practice.begin());
+	expect(urls).toEqual([
+		'/files/start',
+		'/files/daily.begin',
+		'/files/practice.begin',
+	]);
 	journal();
 	const hosted = app.upload.start({ file: new Blob(['hello']) });
 	expect(hosted).toHaveProperty('events');
