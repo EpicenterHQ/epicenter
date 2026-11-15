@@ -111,8 +111,6 @@ work each calls for. Revisit the description when the capability changes.
 Begin the body with the guidance itself; selection stays in the
 description.
 
-The body explains the judgment and workflow the skill applies.
-
 Keep the core readable on its own. Link to conditional detail with
 a concrete reason to read it. Keep examples that contribute judgment
 beyond the principle. Remove obsolete references and duplicated
@@ -124,7 +122,6 @@ Read the whole against the intended behavior and the guidance it
 composes with. Check what the instructions jointly encourage, what
 they leave unresolved, and whether they burden unrelated work.
 Check for clarity, repetition, and whether each rule sits with its owner.
-Discoveries may require revisiting an earlier understanding.
 A passage or example may show that the structure or intent needs revisiting.
 
 Choose verification around a concrete uncertainty. Check affected
