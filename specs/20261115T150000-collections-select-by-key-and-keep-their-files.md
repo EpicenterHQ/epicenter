@@ -7,8 +7,8 @@
 
 ## One sentence
 
-`defineCollection` keeps its one path template, gains selection by key, file
-slots, lists, and references, and `epicenter check` reports what does not fit,
+`defineCollection` keeps its one path template, names a record by its keys,
+gains file slots, lists, and references, and `epicenter check` reports what does not fit,
 built in five waves that each land complete.
 
 ## What an app looks like afterward
@@ -29,8 +29,9 @@ const pages = defineCollection({
   files: { narration: { accept: ['audio/mpeg'], optional: true } },
 });
 
-await pages.at({ page: 'tools' }).create({ title: 'Tools', body: '...' });
-await pages.at({ page: 'tools' }).set({ narration: upload });
+await pages.add({ page: 'tools', title: 'Tools', body: '...' });
+await pages.set({ page: 'tools' }, { narration: upload });
+await pages.get({ page: 'tools' });
 await pages.list();
 ```
 
@@ -62,23 +63,28 @@ declaration before anything breaks.
 
 ### Wave 3: selection by key (ADR-0917)
 
-- [ ] `at`, one record type, `create`, the absence table, the `{time}`
-  collection-level `create`.
+- [ ] Every method takes keys where it took `path`: `get(keys)`,
+  `set(keys, change)`, `edit(keys, change)`, `update(keys, change)`,
+  `delete(keys)`, `list(keys?)`. `add` is unchanged. `pathOf` stops rewriting
+  its value.
+- [ ] The absence table: one-file collections lose their defaults and their
+  upsert.
 - [ ] Unreadable front matter refuses; an unclosed opening fence counts.
-- [ ] Verbs take keys. `pathOf`, `holds`, `other`, and `field.tags()` are
-  removed.
+- [ ] Verbs take keys in one flat input. `holds`, `other`, and
+  `field.tags()` are removed.
 - [ ] The check reports front matter no field declares.
 - [ ] Every app under `~/Epicenter/apps` moves in the same step as installing
   the new command, because the command supplies `@epicenter/app` to each app
-  it loads: 22 `pathOf` calls, about 59 `add` calls, 13 `field.tags()` calls,
-  the three `.local` one-file collections, and each UI's routes.
+  it loads: the calls that pass `path` (22 of them through `pathOf`), 13
+  `field.tags()` calls, the three `.local` one-file collections, and each
+  UI's routes. About 59 `add` calls do not change.
 
 ### Wave 4: files (ADR-0918 and ADR-0921)
 
 - [ ] `files` on `defineAction`; `field.file` and its scans removed.
 - [ ] Ordinary calls and the command line carry files; input bytes are
   deleted at the end of every call and run.
-- [ ] `files` on `defineCollection`, the record's folder, `dir`,
+- [ ] `files` on `defineCollection`, the record's folder, `dirOf`,
   `folder.move`.
 - [ ] A route that serves a kept file to a page. No page can show kept media
   today, and no record decides this yet.
@@ -122,7 +128,8 @@ paths do move, which that spec says they would not.
 3. **A reattached run.** Whether it needs every past yield or only the latest
    is outside these records.
 4. **Cut from the first version**: a file kept under the uploader's own name,
-   typed keys, a `move` on a record. Add each when an app needs it.
+   typed keys, a `move` on a record, a reference to the same collection or
+   in a cycle, and an `at` selector. Add each when an app needs it.
 
 ## What was checked, and what was not
 
@@ -143,4 +150,5 @@ paths do move, which that spec says they would not.
 - [ ] No app builds a path under `data/` by hand to reach a declared record or
   its file.
 - [ ] A page saves a file with one ordinary call and shows it afterward.
-- [ ] `grep -r "pathOf\|field.file\|field.tags"` over the apps finds nothing.
+- [ ] `grep -r "path: .*pathOf\|field.file\|field.tags"` over the apps finds
+  nothing.

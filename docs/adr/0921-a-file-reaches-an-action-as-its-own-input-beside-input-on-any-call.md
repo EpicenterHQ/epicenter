@@ -78,8 +78,8 @@ runs, through a collection's slot.
   `packages/cli/src/mcp.ts` are deleted. What remains is one question per
   caller: can it carry bytes.
 - An ordinary call with a file has no id to observe if its answer is lost.
-  That is acceptable for a call that is short and safe to repeat, such as a
-  `create` that refuses an existing file. Work that is neither belongs in a
+  That is acceptable for a call that is short and safe to repeat, such as an
+  `add` that refuses an existing file. Work that is neither belongs in a
   run.
 - Not yet established: that the server reads a 15 MiB part without holding it
   in memory.

@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-11-15
-- **Unbuilt:** all of it. `defineCollection` takes no `files`, `Folder` in `packages/app/src/context.ts` has no `move`, and a record has no `dir`.
+- **Unbuilt:** all of it. `defineCollection` takes no `files`, `Folder` in `packages/app/src/context.ts` has no `move`, and a collection has no `dirOf`.
 
 ## Context
 
@@ -54,27 +54,27 @@ data/memos/walk/
   audio.m4a
 ```
 
-`record.dir` is that folder's path.
+`collection.dirOf(keys)` is that folder's path, as `pathOf(keys)` is the record's.
 
-**`create` and `set` take a file for a slot, and a read finds it by name.**
+**`add` and `set` take a file for a slot, and a read finds it by name.**
 
-A slot accepts an `UploadedFile`, or `{ name, bytes }` from code. `create`
+A slot accepts an `UploadedFile`, or `{ name, bytes }` from code. `add`
 refuses before writing anything when the Markdown file exists; it then writes
-each slot's file and the Markdown file last. `set({ audio: file })` replaces
-whatever file holds the slot, and `set({ audio: null })` deletes an optional
-slot's file. A slot refuses an incoming file whose extension is `.md`: a
+each slot's file and the Markdown file last. `set(keys, { audio: file })`
+replaces whatever file holds the slot, and `set(keys, { audio: null })`
+deletes an optional slot's file. A slot refuses an incoming file whose extension is `.md`: a
 Markdown file in a record's folder is another collection's record.
 
 A read gives each slot as `{ name, path }`, or leaves it out when no file is
 there. A required slot with no file adds `audio is missing` to `problems`, and
 two files for one slot add `audio: two files (audio.m4a, audio.mp3)`.
 
-**`delete()` removes the record's Markdown file and leaves its folder.**
+**`delete` removes the record's Markdown file and leaves its folder.**
 
 **`folder.move(from, to)` renames a file or a folder under `data/`.** It takes
 the write lock, obeys a read-only run, and refuses a target that exists.
 Renaming a record whose Markdown file is inside its folder is
-`folder.move(a.dir, b.dir)`.
+`folder.move(memos.dirOf({ memo: 'walk' }), memos.dirOf({ memo: 'stroll' }))`.
 
 ## Consequences
 
@@ -83,8 +83,7 @@ Renaming a record whose Markdown file is inside its folder is
   own.
 - The incoming file's own name is not kept. `Voice 003.m4a` becomes
   `audio.m4a`.
-- `set({ audio: file })` and `set({ audio: null })` destroy the bytes they
-  replace. Git holds the earlier bytes only where the file is tracked
+- Setting a slot to a file or to `null` destroys the bytes it replaces. Git holds the earlier bytes only where the file is tracked
   ([ADR-0858](0858-where-a-file-lives-decides-whether-it-travels-survives-or-dies-with-its-program.md),
   [ADR-0856](0856-binary-files-go-through-git-lfs.md)).
 - A write of a slot and the front matter is two steps. A failure between them
