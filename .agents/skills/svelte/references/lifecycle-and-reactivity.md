@@ -61,6 +61,12 @@ The child's handle is non-nullable. No `{#if handle}` guard leaks into markup. T
 When mount and resource lifetimes coincide, the keyed version removes this
 nullable render gate and leaves cleanup with the resource owner.
 
+That nullable handle and setup effect reimplement component mount/unmount in
+user-space when their only job is to follow the view. Keeping one resource
+and its cleanup together removes competing setup and disposal paths; the
+cleanup body is the teardown. This does not make arbitrary resource code
+incapable of leaking: the owner must still acquire and dispose it correctly.
+
 ## Decision check
 
 Key the view when changing the id should replace both its resource and local
@@ -119,6 +125,16 @@ promise and gives rejection its own branch. The flag and cancellation boolean
 above duplicate that render state and omit rejection handling. They do not
 cancel the operation itself.
 
+The readiness-only flag pattern has three separate costs:
+
+1. **One idea, three primitives.** A state variable, subscription effect, and
+   conditional branch collectively express the render decision `{#await}` owns.
+2. **Silent unhandled rejections.** A fulfillment-only `.then()` drops rejection
+   handling. Use `{:catch}` when this block owns its presentation.
+3. **Manual stale-result handling.** The flag must ignore an older result after
+   its branch leaves. `{#await}` follows the current promise for rendering;
+   cancellation and resource disposal still belong to the operation's owner.
+
 ### When you still need `$state` flags
 
 `{#await}` follows one stable promise. A workflow with independent race,
@@ -176,6 +192,21 @@ Separate the adapter's identity from the values it exposes. For an existing owne
 whose getters participate in Svelte reactivity, keep it stable when the source
 is fixed for the component instance. Capabilities already use `reactive`; this
 is not a reason to build a per-capability wrapper.
+
+A reactive local is not a second draft or a mount-time snapshot. Keep one when
+several reads must narrow one answer, such as
+`const signIn = $derived(auth.state())`. For the contrasting direct-property
+example, see [deriving from the owner](component-ui-patterns.md#derive-from-the-owner-of-the-fact).
+
+Search a bounded area for candidate passthroughs, then inspect the consumers:
+
+```sh
+rg -n '\$derived\([^)]*\.[A-Za-z_$][A-Za-z0-9_$]*\)' --glob '*.svelte'
+rg -n '\{@const\s+[A-Za-z_$][A-Za-z0-9_$]*\s*=\s*[^}\n]+\.[A-Za-z_$][A-Za-z0-9_$]*\s*\}' --glob '*.svelte'
+```
+
+These match useful computations and narrowing too; a match is not an instruction
+to inline it.
 
 ```svelte
 <!-- Parent: a new open item recreates the child. -->
@@ -283,6 +314,12 @@ local UI booleans, and sequential data without identity.
 reactively, store row objects that are already reactive, or replace the map
 value with `set(id, next)`.
 
+For an ID-keyed collection you own, `.find()` scans an array while `get(id)`
+expresses keyed lookup directly. Replacing a whole array invalidates readers
+of that array; a map can track reads of individual keys. Keep the array when
+order or sequence is the information it owns. Derive a sorted array when a
+consumer needs that projection, rather than repeatedly sort inside a read.
+
 Use `SvelteSet` for reactive membership read by a template, derived value, or
 effect. When membership needs associated data, such as a timestamp or error,
 use `SvelteMap`. Plain maps and sets suit imperative-only consumers such as a
@@ -293,7 +330,7 @@ listener bag; reactivity without a reader adds no behavior.
 | Contract listings | `notes.items()`, `notes.invalid()` | notes and notes that do not read |
 | An open note | `notes.edit({ id })` | `todo.fields` (typed until saved), `todo.exists()`, and `todo.saving()` |
 | Browser API keyed data | `new SvelteMap()` + listeners | media devices, windows |
-| Reactive membership | `new SvelteSet()` | chosen word IDs |
+| Reactive membership | `new SvelteSet()` | expanded row IDs when only membership matters |
 | Primitive value | `$state(value)` | `$state(false)`, `$state('')`, `$state(0)` |
 | Replace-only ordered data | `$state.raw<T[]>([])` | command history, open file tab order |
 
@@ -399,6 +436,12 @@ For new APIs, expose live reads through explicit methods, following
 protocols as their current contracts; avoid adding a facade solely to change
 access syntax.
 
+A getter may still be reactive if it reads reactive state, but it recomputes
+its body on every access. `$derived` computes reactively and caches until its
+dependencies change. Use it for a computation that benefits from caching;
+a method or existing getter can return the cached value. See
+[the projection example](component-ui-patterns.md#referential-stability-for-reactive-data-sources).
+
 # Product state modules
 
 A state module can own independent product information shared by components,
@@ -429,3 +472,56 @@ Name the factory and instance for the information they own. New read methods
 can be `selectedId()`, `items()`, or `state()`; existing getters, `.current`, or
 `.value` remain valid where their owning API defines them. Svelte does not
 require one universal property name for reactive values.
+
+## A module that owns a snapshot and subscription
+
+The small selection example does not show source acquisition or cleanup.
+This fuller factory illustrates those responsibilities. It assumes a
+synchronous, nonreactive `AppData` source whose changes must be followed for
+the factory's whole lifetime, including while no view is mounted. Imperative
+consumers need the latest successful snapshot too. `reportBackgroundError`
+is the app's error boundary; on a failed read this owner keeps its last good
+snapshot. It is not a wrapper to add around an already-reactive capability.
+
+```ts
+// bookmark-state.svelte.ts
+function createBookmarkState(db: AppData) {
+  let rows = $state.raw<Bookmark[]>([]);
+
+  function read() {
+    const { data, error } = db.bookmarks.list();
+    if (error !== null) return reportBackgroundError(error);
+    rows = data.rows;
+  }
+
+  read();
+  const stop = db.bookmarks.subscribe(read);
+  const bookmarks = $derived(rows.filter((bookmark) => bookmark.deletedAt === null));
+
+  return {
+    [Symbol.dispose]: stop,
+    bookmarks: () => bookmarks,
+  };
+}
+```
+
+Its creator disposes the module when that chosen lifetime ends. Add domain
+operations alongside the read when this owner actually owns those rules.
+For a source whose subscription should exist only while reactive readers use
+it, prefer `createSubscriber` instead of introducing this retained snapshot
+and explicit subscription lifetime. Read an existing capability through
+`reactive` rather than create either bridge again.
+
+Names can make those responsibilities easier to see:
+
+| Concern | Convention | Example |
+|---|---|---|
+| Factory | `createX()` names the owner being made | `createBookmarkState()` |
+| Instance | A noun for the information it owns | `bookmarkState`, `deviceConfig`, `vadRecorder` |
+| File | Domain name, optionally with `-state` | `bookmark-state.svelte.ts`, `selection.svelte.ts` |
+
+Use the `State` suffix when the instance name would collide with a read:
+`bookmarkState.bookmarks()`, rather than `bookmarks.bookmarks()`. This names the
+owner without prescribing a singleton. Existing single-value wrappers may use
+`.current`; a new read can be `selectedId()` or `state()`. Preserve an owning
+API's `.current`, `.value`, or getter contract instead of renaming it by habit.
