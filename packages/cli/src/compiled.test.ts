@@ -52,7 +52,7 @@ test('compiled export refreshes a collection without importing app code or copyi
 			{ git: true },
 		);
 		const destination = join(f.root, 'shared-apps');
-		for (const status of ['created', 'updated']) {
+		for (const refresh of [false, true]) {
 			const child = Bun.spawn([bin, 'export', '--all', destination, '--json'], {
 				cwd: f.home,
 				env: f.env,
@@ -65,11 +65,14 @@ test('compiled export refreshes a collection without importing app code or copyi
 				child.exited,
 			]);
 			expect({ code, stderr }).toEqual({ code: 0, stderr: '' });
-			expect(JSON.parse(stdout).apps[0].status).toBe(status);
+			expect(JSON.parse(stdout)).toMatchObject({
+				directory: destination,
+				apps: [{ app: 'tasks' }],
+			});
 			expect(
 				await Bun.file(join(destination, 'tasks/data/private.md')).exists(),
 			).toBe(false);
-			if (status === 'created') {
+			if (!refresh) {
 				await writeFile(join(f.apps, 'tasks/code/added.txt'), 'added');
 				await gitIn(f.home, 'add', '--', 'apps/tasks/code/added.txt');
 				await gitIn(

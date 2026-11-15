@@ -1,8 +1,8 @@
 /** Export committed app code into replaceable directories, leaving publication to Git. */
-import { createHash } from 'node:crypto';
 import {
 	chmod,
 	copyFile,
+	cp,
 	lstat,
 	mkdir,
 	mkdtemp,
@@ -40,15 +40,7 @@ import { hold } from './lock.js';
 import { fail, writeErr, writeJson, writeOut } from './output.js';
 import { epicenterDir, folderPath } from './root.js';
 
-type ExportMarker = { app: string; digest: string };
-type ExportReport = {
-	app: string;
-	directory: string;
-	status: 'created' | 'updated' | 'unchanged' | 'refused' | 'failed' | 'stale';
-	materialized?: { path: string; from: string }[];
-	uncommitted?: boolean;
-	problem?: string;
-};
+type ExportMarker = { export: 'all' } | { export: 'app'; app: string };
 
 function refuse(message: string): never {
 	throw CliError.Refused({ message }).error;
@@ -97,100 +89,49 @@ async function checkLocation(directory: string, source: string) {
 	return resolved;
 }
 
-/** A crashed swap may have left the only copy of a publication repository here. */
-async function checkInterrupted(parent: string) {
-	const work = (await readdir(parent)).filter((name) =>
-		name.startsWith('.epicenter-export-'),
-	);
-	if (work.length)
-		refuse(
-			`Unfinished export directories need inspection before refreshing: ${work.map((name) => join(parent, name)).join(', ')}. A previous export or its Git files may be inside; recover them before removing these directories`,
-		);
-}
-
-/** Hash output bytes and modes without following links or reading the destination's Git. */
-async function digest(folder: string) {
-	const hash = createHash('sha256');
-	async function walk(prefix: string) {
-		const names = (await readdir(join(folder, prefix))).sort();
-		for (const name of names) {
-			if (name === '.DS_Store') continue;
-			if (!prefix && (name === '.git' || name === EXPORT_MARKER)) continue;
-			const path = prefix ? `${prefix}/${name}` : name;
-			const full = join(folder, path);
-			const entry = await lstat(full);
-			if (entry.isDirectory()) {
-				hash.update(`${JSON.stringify([path, 'directory'])}\n`);
-				await walk(path);
-			} else if (entry.isSymbolicLink()) {
-				hash.update(
-					`${JSON.stringify([path, 'link', await readlink(full)])}\n`,
+/** The marker grants overwrite permission; generated contents carry no independent state. */
+async function checkDestination(directory: string, expected: ExportMarker) {
+	const entry = await info(directory);
+	if (!entry) return;
+	if (!entry.isDirectory()) refuse(`${directory} is not a real directory`);
+	const path = join(directory, EXPORT_MARKER);
+	const marker = await info(path);
+	if (marker) {
+		if (!marker.isFile() || marker.size > 1024)
+			refuse(`${path} must be a regular export marker`);
+		let value: unknown;
+		try {
+			value = JSON.parse(await readFile(path, 'utf8'));
+		} catch {
+			refuse(`${path} is not a valid export marker`);
+		}
+		if (
+			typeof value !== 'object' ||
+			value === null ||
+			!('export' in value) ||
+			value.export !== expected.export ||
+			Object.keys(value).length !== (expected.export === 'app' ? 2 : 1) ||
+			(expected.export === 'app' &&
+				(!('app' in value) || value.app !== expected.app))
+		)
+			refuse(
+				`${directory} does not have a matching export marker; choose a new directory`,
+			);
+	} else if ((await readdir(directory)).some((name) => name !== '.DS_Store')) {
+		refuse(`${directory} is not empty and was not created by export`);
+	}
+	// Never follow directory links while checking or deleting generated contents.
+	async function checkGit(folder: string) {
+		for (const entry of await readdir(folder, { withFileTypes: true })) {
+			const path = join(folder, entry.name);
+			if (entry.name.toLowerCase() === '.git')
+				refuse(
+					`${path} contains Git metadata; keep Git outside the export directory`,
 				);
-			} else if (entry.isFile()) {
-				const bytes = await readFile(full);
-				hash.update(
-					`${JSON.stringify([path, 'file', Boolean(entry.mode & 0o111), bytes.length])}\n`,
-				);
-				hash.update(bytes);
-			} else
-				refuse(`${full} is not a regular file, directory, or symbolic link`);
+			if (entry.isDirectory()) await checkGit(path);
 		}
 	}
-	await walk('');
-	return `sha256:${hash.digest('hex')}`;
-}
-
-async function readMarker(
-	directory: string,
-): Promise<ExportMarker | undefined> {
-	const path = join(directory, EXPORT_MARKER);
-	const entry = await info(path);
-	if (!entry) return undefined;
-	if (!entry.isFile()) refuse(`${path} must be a regular export marker`);
-	let value: unknown;
-	try {
-		value = JSON.parse(await readFile(path, 'utf8'));
-	} catch {
-		refuse(`${path} is not a valid export marker`);
-	}
-	if (
-		typeof value !== 'object' ||
-		value === null ||
-		Object.keys(value).length !== 2 ||
-		!('app' in value) ||
-		typeof value.app !== 'string' ||
-		!('digest' in value) ||
-		typeof value.digest !== 'string' ||
-		!/^sha256:[0-9a-f]{64}$/.test(value.digest)
-	)
-		refuse(`${path} is not a valid export marker`);
-	return { app: value.app, digest: value.digest };
-}
-
-async function destination(directory: string, app: string) {
-	const entry = await info(directory);
-	if (!entry) return undefined;
-	if (!entry.isDirectory()) refuse(`${directory} is not a real directory`);
-	const gitEntry = await info(join(directory, '.git'));
-	if (gitEntry && !gitEntry.isDirectory() && !gitEntry.isFile())
-		refuse(`${directory}/.git must be a directory or a regular file`);
-	const marker = await readMarker(directory);
-	if (!marker) {
-		if (
-			(await readdir(directory)).some(
-				(name) => name !== '.git' && name !== '.DS_Store',
-			)
-		)
-			refuse(`${directory} is not empty and was not created by export`);
-		return undefined;
-	}
-	if (marker.app !== app)
-		refuse(`${directory} is an export of ${marker.app}, not ${app}`);
-	if ((await digest(directory)) !== marker.digest)
-		refuse(
-			`${directory} has changed since its last export; move those edits into the live app before refreshing`,
-		);
-	return marker;
+	await checkGit(directory);
 }
 
 /**
@@ -249,129 +190,34 @@ async function materializeLinks(
 		await chmod(file, mode === '100755' ? 0o755 : 0o644);
 		materialized.push({ path, from: resolved });
 	}
-	// Lexical '..' normalization cannot account for an intermediate directory
-	// link. Check effective targets after shared-file links have been replaced.
-	const root = await realpath(join(tree, prefix));
+	return materialized;
+}
+
+/** Validate links independently of the checkout's code/ or collection app name. */
+async function checkLinks(
+	directory: string,
+	entries: { path: string; mode: string }[],
+	prefix: string,
+) {
+	const root = await realpath(directory);
 	for (const { path, mode } of entries) {
-		if (mode !== '120000' || !(await lstat(join(tree, path))).isSymbolicLink())
-			continue;
-		const resolved = await realpath(join(tree, path)).catch(
+		const relative = path.slice(prefix.length + 1);
+		const file = join(root, relative);
+		if (mode !== '120000' || !(await lstat(file)).isSymbolicLink()) continue;
+		const resolved = await realpath(file).catch(
 			(cause: NodeJS.ErrnoException) => {
 				if (cause.code === 'ENOENT' || cause.code === 'ELOOP')
-					refuse(
-						`${path.slice(prefix.length + 1)} has a broken or cyclic link target`,
-					);
+					refuse(`${relative} has a broken or cyclic link target`);
 				throw cause;
 			},
 		);
 		if (!contains(root, resolved))
-			refuse(`${path.slice(prefix.length + 1)} links outside the exported app`);
-	}
-	return materialized;
-}
-
-async function exportApp(
-	app: string,
-	directory: string,
-	{
-		repository,
-		source,
-		commit,
-		lfsStorage,
-		files,
-	}: {
-		repository: string;
-		source: string;
-		commit: string;
-		lfsStorage: string;
-		files: Awaited<ReturnType<typeof readCodeFiles>>;
-	},
-): Promise<ExportReport> {
-	const previous = await destination(directory, app);
-	const prefix = `apps/${app}/code`;
-	const { entries, selected } = files;
-	if (
-		!entries.some(
-			(entry) =>
-				entry.path === `${prefix}/epicenter.ts` && entry.mode.startsWith('100'),
-		)
-	)
-		refuse(
-			`${app} has no committed code/epicenter.ts; commit its code before exporting`,
-		);
-	if (entries.some(({ mode }) => mode === '160000'))
-		refuse(
-			`${app} contains a gitlink; export code without embedded repositories`,
-		);
-	const work = await mkdtemp(join(dirname(directory), '.epicenter-export-'));
-	let preserveWork = false;
-	try {
-		const tree = join(work, 'tree');
-		await mkdir(tree);
-		await checkoutCodeFiles(repository, selected, tree, { lfsStorage });
-		const materialized = await materializeLinks(
-			repository,
-			commit,
-			selected,
-			tree,
-			prefix,
-			lfsStorage,
-		);
-		const output = join(tree, prefix);
-		const nextDigest = await digest(output);
-		const pending = await checkedGit(source, [
-			'status',
-			'--porcelain=v1',
-			'-z',
-			'--untracked-files=all',
-			'--',
-			prefix,
-			...materialized.map(({ from }) => from),
-		]);
-		const report = {
-			app,
-			directory,
-			materialized,
-			uncommitted: pending !== '',
-		};
-		if (previous?.digest === nextDigest)
-			return { ...report, status: 'unchanged' };
-		await writeFile(
-			join(output, EXPORT_MARKER),
-			`${JSON.stringify({ app, digest: nextDigest }, null, 2)}\n`,
-		);
-		// Recheck immediately before replacing; staging can take time for a large app.
-		await destination(directory, app);
-		const backup = join(work, 'previous');
-		const hadDirectory = Boolean(await info(directory));
-		if (hadDirectory) await rename(directory, backup);
-		let movedGit = false;
-		try {
-			if (hadDirectory && (await info(join(backup, '.git')))) {
-				await rename(join(backup, '.git'), join(output, '.git'));
-				movedGit = true;
-			}
-			await rename(output, directory);
-		} catch (cause) {
-			try {
-				if (movedGit) await rename(join(output, '.git'), join(backup, '.git'));
-				if (hadDirectory) await rename(backup, directory);
-			} catch {
-				preserveWork = true;
-				throw new Error(
-					`Export failed; recovery files are preserved under ${work}: ${extractErrorMessage(cause)}`,
-				);
-			}
-			throw cause;
-		}
-		return { ...report, status: previous ? 'updated' : 'created' };
-	} finally {
-		if (!preserveWork) await rm(work, { recursive: true, force: true });
+			refuse(`${relative} links outside the exported app`);
 	}
 }
 
 /**
- * Export into an exact app directory, or one child per app with --all.
+ * Regenerate one owned directory, holding all committed apps or one app.
  * Repeating either invocation refreshes the same directories. No Git index,
  * ref, remote or working file in the live Epicenter is changed.
  */
@@ -440,92 +286,103 @@ export async function exportCommand(
 						.map((entry) => entry.slice(entry.indexOf('\t') + 1))
 						.filter((name) => nameProblem(name) === undefined)
 				: [app];
-		const apps = new Map<string, Awaited<ReturnType<typeof readCodeFiles>>>();
+		const apps: ({ app: string } & Awaited<
+			ReturnType<typeof readCodeFiles>
+		>)[] = [];
 		for (const name of candidates.sort()) {
 			const files = await readCodeFiles(repository, `apps/${name}/code`);
-			if (!all || files.entries.length) apps.set(name, files);
+			if (!all || files.entries.length) apps.push({ app: name, ...files });
 		}
-		const reports: ExportReport[] = [];
-		if (all) {
-			const entry = await info(directory);
-			if (entry && !entry.isDirectory())
-				refuse(`${directory} is not a real directory`);
-			if (entry && (await info(join(directory, EXPORT_MARKER))))
-				refuse(
-					`${directory} is already a single-app export; choose a collection directory`,
-				);
-		}
-		const parent = all ? directory : dirname(directory);
-		await mkdir(parent, { recursive: true });
-		held = await hold(parent, 0);
-		if (!held)
-			refuse(`${parent}: another export is using this directory; try again`);
-		await checkInterrupted(parent);
-		for (const [name, files] of apps) {
-			const target = all ? join(directory, name) : directory;
-			try {
-				reports.push(
-					await exportApp(name, target, {
-						repository,
-						source,
-						commit,
-						lfsStorage,
-						files,
-					}),
-				);
-			} catch (cause) {
-				reports.push({
-					app: name,
-					directory: target,
-					status: isRefused(cause) ? 'refused' : 'failed',
-					problem: extractErrorMessage(cause),
-				});
-			}
-		}
-		if (all) {
-			for (const entry of await readdir(directory, { withFileTypes: true })) {
-				if (
-					!entry.isDirectory() ||
-					apps.has(entry.name) ||
-					entry.name === '.git'
+		for (const { app, entries } of apps) {
+			if (
+				!entries.some(
+					({ path, mode }) =>
+						path === `apps/${app}/code/epicenter.ts` && mode.startsWith('100'),
 				)
-					continue;
-				const target = join(directory, entry.name);
-				try {
-					const marker = await readMarker(target);
-					if (marker)
-						reports.push({
-							app: marker.app,
-							directory: target,
-							status: 'stale',
-							problem: apps.has(marker.app)
-								? `Extra export of ${marker.app}; its current export is ${join(directory, marker.app)}. This directory was left in place`
-								: 'This app is absent from the committed source; its previous export was left in place',
-						});
-				} catch (cause) {
-					reports.push({
-						app: entry.name,
-						directory: target,
-						status: 'refused',
-						problem: extractErrorMessage(cause),
-					});
-				}
-			}
+			)
+				refuse(
+					`${app} has no committed code/epicenter.ts; commit its code before exporting`,
+				);
+			if (entries.some(({ mode }) => mode === '160000'))
+				refuse(
+					`${app} contains a gitlink; export code without embedded repositories`,
+				);
+		}
+		const marker: ExportMarker =
+			app === undefined ? { export: 'all' } : { export: 'app', app };
+		await checkDestination(directory, marker);
+		const tree = join(scratch, 'tree');
+		const output = join(scratch, 'output');
+		await mkdir(tree);
+		await mkdir(output);
+		await checkoutCodeFiles(
+			repository,
+			apps.flatMap(({ selected }) => selected),
+			tree,
+			{ lfsStorage },
+		);
+		const reports = [];
+		for (const { app, selected } of apps) {
+			const prefix = `apps/${app}/code`;
+			const materialized = await materializeLinks(
+				repository,
+				commit,
+				selected,
+				tree,
+				prefix,
+				lfsStorage,
+			);
+			// A random root also catches chains that leave and reenter a folder named code.
+			const prepared = await mkdtemp(join(scratch, 'app-'));
+			await rename(join(tree, prefix), prepared);
+			await checkLinks(prepared, selected, prefix);
+			await rename(prepared, all ? join(output, app) : output);
+			const pending = await checkedGit(source, [
+				'status',
+				'--porcelain=v1',
+				'-z',
+				'--untracked-files=all',
+				'--',
+				prefix,
+				...materialized.map(({ from }) => from),
+			]);
+			reports.push({ app, materialized, uncommitted: pending !== '' });
 		}
 		const omitted = all
 			? (await homeEntries())
-					.filter(({ entry }) => !apps.has(entry))
+					.filter(({ entry }) => !apps.some(({ app }) => app === entry))
 					.map(({ entry }) => entry)
 			: [];
-		if (json) writeJson({ commit, apps: reports, omitted });
+		await checkLocation(directory, source);
+		await mkdir(directory, { recursive: true });
+		held = await hold(directory, 0);
+		if (!held)
+			refuse(`${directory}: another export is using this directory; try again`);
+		await checkLocation(directory, source);
+		await checkDestination(directory, marker);
+		// Keep ownership through interruption: a rerun repairs an incomplete fill.
+		if (!(await info(join(directory, EXPORT_MARKER))))
+			await writeFile(
+				join(directory, EXPORT_MARKER),
+				`${JSON.stringify(marker)}\n`,
+				{ flag: 'wx' },
+			);
+		for (const name of await readdir(directory)) {
+			if (name !== EXPORT_MARKER)
+				await rm(join(directory, name), { recursive: true, force: true });
+		}
+		await cp(output, directory, { recursive: true, verbatimSymlinks: true });
+		if (json) writeJson({ commit, directory, apps: reports, omitted });
 		else {
+			writeOut(
+				`Exported ${reports.length} app${reports.length === 1 ? '' : 's'} to ${directory}`,
+			);
 			writeOut(`Exported source: ${commit}`);
 			for (const report of reports) {
-				writeOut(`${report.app}: ${report.status} (${report.directory})`);
-				if (report.problem) writeErr(`${report.app}: ${report.problem}`);
-				if (report.status === 'created' || report.status === 'updated')
-					for (const file of report.materialized ?? [])
-						writeOut(`  ${file.path}: copied shared file ${file.from}`);
+				for (const file of report.materialized)
+					writeOut(
+						`${report.app}/${file.path}: copied shared file ${file.from}`,
+					);
 				if (report.uncommitted)
 					writeErr(
 						`${report.app}: uncommitted source changes were not exported`,
@@ -534,12 +391,7 @@ export async function exportCommand(
 			for (const name of omitted)
 				writeErr(`${name}: no committed code tree; not exported`);
 		}
-		return reports.some(
-			({ status }) =>
-				status === 'refused' || status === 'failed' || status === 'stale',
-		) || omitted.length
-			? 1
-			: 0;
+		return omitted.length ? 1 : 0;
 	} catch (cause) {
 		if (isRefused(cause))
 			return fail(
