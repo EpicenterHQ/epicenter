@@ -28,8 +28,7 @@ export type Input = Record<string, TSchema>;
  * MCP's tool annotations, verbatim. An action that does not say otherwise
  * may change things, may destroy, is not idempotent, and reaches outside the
  * folder; the last three mean something only when it is not read-only. A
- * read-only action's run is never snapshotted into the app's history, and a
- * write through `folder` in it throws, except to a `.local` path.
+ * read-only action's write through `folder` throws, except to a `.local` path.
  */
 export type Annotations = {
 	title?: string;

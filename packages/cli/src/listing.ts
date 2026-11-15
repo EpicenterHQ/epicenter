@@ -17,76 +17,6 @@ import {
 	requiredKeys,
 	usageLine,
 } from './input.ts';
-import type { appStatusOf, RepositoryStatus } from './snapshot.ts';
-
-/** What Git says of the app's code and its data (ADR-0877); each absent when the app has no such repository. */
-type Status = Awaited<ReturnType<typeof appStatusOf>> | undefined;
-
-/** Whether a repository has nothing pending and a backup that has everything. */
-const settled = (status: RepositoryStatus | undefined) =>
-	!status || (status.pending === 0 && !status.unpushed && !status.backup);
-
-/**
- * Git-derived status as `--json` gives it, for the code and the data:
- * pending paths, commits not backed up, a backup that is missing or has
- * never received the branch, and data written under code this code does not
- * have; absent when both are settled.
- */
-function listingStatus(status: Status) {
-	if (
-		!status ||
-		(settled(status.code) && settled(status.data) && !status.data?.otherCode)
-	)
-		return {};
-	return { status };
-}
-
-/** One repository's history and backup status in a few words each, each starting with which repository. */
-function repositoryMarks(which: 'code' | 'data', status?: RepositoryStatus) {
-	if (!status) return [];
-	return [
-		...(status.pending
-			? [
-					`${which}: ${status.pending} ${status.pending === 1 ? 'change' : 'changes'} not yet in history`,
-				]
-			: []),
-		...(status.unpushed
-			? [
-					`${which}: ${status.unpushed} ${status.unpushed === 1 ? 'snapshot' : 'snapshots'} not backed up`,
-				]
-			: []),
-		...(status.backup === 'none' ? [`${which}: not backed up`] : []),
-		...(status.backup === 'never' ? [`${which}: never backed up`] : []),
-	];
-}
-
-/** An app's history and backup status, for its code and its data. */
-function statusMarks(status: Status) {
-	return [
-		...repositoryMarks('code', status?.code),
-		...repositoryMarks('data', status?.data),
-		...(status?.data?.otherCode
-			? [
-					`data: written under code ${status.data.otherCode}, which this code's history does not have`,
-				]
-			: []),
-	];
-}
-
-/** The step that settles an app's status, or nothing when it is settled. */
-function syncStep(name: string, folder: string, status: Status) {
-	const remotes = [
-		...(status?.code?.backup === 'none' ? [folder] : []),
-		...(status?.data?.backup === 'none' ? [`${folder}/data`] : []),
-	];
-	if (remotes.length)
-		return `Run: ${remotes.map((at) => `git -C ${at} remote add origin <url>`).join(' and ')}, then epicenter sync ${name}`;
-	if (!settled(status?.code) || !settled(status?.data))
-		return `Run: epicenter sync ${name}`;
-	if (status?.data?.otherCode) return `Run: epicenter history ${name}`;
-	return undefined;
-}
-
 /** MCP's defaults for each hint an action does not give. */
 const ANNOTATION_DEFAULTS = {
 	readOnlyHint: false,
@@ -108,10 +38,9 @@ export function actionTool(app: string, key: string, action: Action) {
 
 /**
  * The app as `--json` prints it: its description, each collection's path and
- * fields as JSON Schema, its actions as tools, and what is not yet in its
- * history, which the caller reads from Git.
+ * fields as JSON Schema and its actions as tools.
  */
-function appListing(located: Runnable, history: Status) {
+function appListing(located: Runnable) {
 	const { app } = located;
 	return {
 		name: located.name,
@@ -133,7 +62,6 @@ function appListing(located: Runnable, history: Status) {
 		actions: Object.entries(located.actions).map(([key, action]) =>
 			actionTool(located.name, key, action),
 		),
-		...listingStatus(history),
 	};
 }
 
@@ -152,16 +80,12 @@ function actionLines(located: Runnable) {
 	]);
 }
 
-/** Render discovery as one answer while keeping broken entries separate from runnable apps; an app with changes not yet in history is marked. */
-export function homeListing(
-	found: Discovery,
-	json: boolean,
-	histories: ReadonlyMap<string, Status>,
-): unknown {
+/** Render discovery as one answer while keeping broken entries separate from runnable apps. */
+export function homeListing(found: Discovery, json: boolean): unknown {
 	if (json)
 		return {
 			epicenter: found.epicenter,
-			apps: found.apps.map((app) => appListing(app, histories.get(app.name))),
+			apps: found.apps.map((app) => appListing(app)),
 			problems: found.problems.map(({ entry, folder, problems }) => ({
 				entry,
 				folder,
@@ -170,15 +94,10 @@ export function homeListing(
 		};
 	const width = Math.max(0, ...found.apps.map(({ name }) => name.length));
 	const lines = found.apps.map((located) => {
-		const marks = statusMarks(histories.get(located.name));
-		return `${located.name.padEnd(width)}  ${located.app.description}${located.link ? ` -> ${located.link}` : ''}${marks.length ? ` (${marks.join('; ')})` : ''}`;
+		return `${located.name.padEnd(width)}  ${located.app.description}${located.link ? ` -> ${located.link}` : ''}`;
 	});
 	if (!found.apps.length) lines.push('No apps yet. Run: epicenter new <name>');
 	else lines.push('', 'Run: epicenter <app>');
-	for (const app of found.apps) {
-		const step = syncStep(app.name, app.folder, histories.get(app.name));
-		if (step) lines.push(step);
-	}
 	lines.unshift(`Epicenter: ${basename(found.epicenter)} (${found.epicenter})`);
 	if (found.problems.length) {
 		lines.push('', 'Problems:');
@@ -192,20 +111,13 @@ export function homeListing(
 	return lines.join('\n');
 }
 
-/** Render an app's actions, its folder, and what is not yet in its history or its backup. */
-export function oneAppListing(
-	located: Runnable,
-	json: boolean,
-	history: Status,
-): unknown {
-	if (json) return appListing(located, history);
-	const step = syncStep(located.name, located.folder, history);
+/** Render an app's actions and its container folder. */
+export function oneAppListing(located: Runnable, json: boolean): unknown {
+	if (json) return appListing(located);
 	return [
 		`${located.name}  ${located.app.description}`,
 		`folder: ${located.folder}`,
 		...(located.link ? [`link: ${located.link}`] : []),
-		...statusMarks(history),
-		...(step ? [step] : []),
 		'',
 		...actionLines(located),
 		'',

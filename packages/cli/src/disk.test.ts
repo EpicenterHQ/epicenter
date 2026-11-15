@@ -3,7 +3,7 @@
  * Listing excludes dependency and Git directories and never traverses directory links.
  * `update` changes what is there when it writes, never what was there when it read,
  * and concurrent updates in one process, through it or a collection's `update`,
- * each land. Across processes a call's lock keeps writers apart (`snapshot.test.ts`).
+ * each land. Across processes a call's lock keeps writers apart (`layout.test.ts`).
  */
 import { afterEach, expect, test } from 'bun:test';
 import { writeFileSync } from 'node:fs';

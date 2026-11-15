@@ -23,7 +23,7 @@ export const CliError = defineErrors({
 		app,
 		problems,
 	}),
-	/** The command was understood, and doing it would lose or guess, so it changed nothing (`epicenter undo`). */
+	/** The command was understood, and doing it would lose or guess, so it changed nothing. */
 	Refused: ({ message, next }: { message: string; next?: string }) => ({
 		message,
 		...(next === undefined ? {} : { next }),

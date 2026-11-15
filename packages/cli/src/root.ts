@@ -134,7 +134,7 @@ export function epicenterDir(): string {
 	return epicenterRoot().folder;
 }
 
-/** The folder in an Epicenter that holds its apps, each a repository of its own (ADR-0884). */
+/** The folder in an Epicenter that holds its apps, each holding code/ and data/. */
 export const APPS = 'apps';
 
 /** The selected Epicenter's `apps/`. */

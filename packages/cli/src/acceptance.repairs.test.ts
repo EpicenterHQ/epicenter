@@ -59,9 +59,9 @@ export default defineApp({
 `;
 
 const repairsApp = {
-	'.gitignore': gitignore,
+	'code/.gitignore': gitignore,
 	'data/a.md': 'base a\n',
-	'epicenter.ts': repairsCode,
+	'code/epicenter.ts': repairsCode,
 };
 
 async function setup() {
@@ -84,10 +84,7 @@ test('F1 new puts the next step on stderr; a broken root is a usage error', asyn
 	const made = await f.run('new', 'garden');
 	expect(made.code).toBe(0);
 	expect(made.stdout).toBe(`${join(f.apps, 'garden')}\n`);
-	expect(made.stderr).toBe(
-		`Run: epicenter garden\nnot backed up\nRun: git -C ${join(f.apps, 'garden')} remote add origin <url> and git -C ${join(f.apps, 'garden/data')} remote add origin <url>, each a private repository, then epicenter sync garden\n`,
-	);
-
+	expect(made.stderr).toBe('Run: epicenter garden\n');
 	await rm(f.home, { recursive: true });
 	await writeFile(f.home, 'not a folder');
 	const listed = await f.json();
@@ -100,8 +97,8 @@ test('F7 over MCP a broken app loses only its tools, and a call is decoded from 
 	await f.folder(join(f.apps, 'reading'), readingApp);
 	await notes(f);
 	await f.folder(join(f.apps, 'broken'), {
-		'.gitignore': gitignore,
-		'epicenter.ts': `import 'epicenter-acceptance-not-installed';\nexport default {};\n`,
+		'code/.gitignore': gitignore,
+		'code/epicenter.ts': `import 'epicenter-acceptance-not-installed';\nexport default {};\n`,
 	});
 	await f.app(
 		'loud',
@@ -150,13 +147,13 @@ test('F9 one table owns the vocabulary; --json goes anywhere; defaulted fields a
 		expect(result.code).toBe(2);
 		expect(result.report.error.message).toContain(`Unknown app "${word}"`);
 	}
-	for (const word of ['new', 'update', 'sync', 'serve', 'init', 'build'])
+	for (const word of ['new', 'checkpoint', 'serve', 'init', 'build'])
 		expect((await f.json('new', word)).code).toBe(2);
 	expect((await f.json('new', 'link')).code).toBe(0);
 	const help = (await f.run('--help')).stdout;
-	expect(help).toContain('epicenter sync [<app> [-m <message>]]');
+	expect(help).toContain('epicenter checkpoint [-m <message>] [--json]');
 	expect(help).toContain(
-		'Exit codes: 0 done, 1 threw or an app did not sync, 2 did not run.',
+		'Exit codes: 0 done, 1 threw or a checkpoint did not finish, 2 did not run.',
 	);
 	for (const gone of ['epicenter types', 'setup', 'epicenter help'])
 		expect(help).not.toContain(gone);
@@ -184,9 +181,9 @@ test('F9 one table owns the vocabulary; --json goes anywhere; defaulted fields a
 test('F10 typing waits for its first consumer: no epicenter types, no generated file', async () => {
 	const f = await setup();
 	expect((await f.run('new', 'garden')).code).toBe(0);
-	expect(await readFile(join(f.apps, 'garden', '.gitignore'), 'utf8')).toBe(
-		gitignore,
-	);
+	expect(
+		await readFile(join(f.apps, 'garden', 'code/.gitignore'), 'utf8'),
+	).toBe(gitignore);
 	await f.app(
 		'other',
 		`export default defineApp({ description: 'Another app', collections: {}, actions: { hi: defineAction({ description: 'Hi', input: {}, run: () => 'hi' }) } });\n`,

@@ -45,7 +45,7 @@ commit either when an app's `.gitignore` lets one through (ADR-0850).
 
 | Path | Property |
 | --- | --- |
-| snapshot (`packages/cli/src/snapshot.ts`) | never committed, so never pushed to `origin`: the app's `.gitignore` leaves it out, and a snapshot refuses one it lets through (already true) |
+| checkpoint (`packages/cli/src/checkpoint.ts`) | never committed or pushed: ignore rules keep local files out, and a root checkpoint refuses one Git would include |
 | `actions()` of a collection whose `path` matches `*.local` or `*.local.*` | refused when called: `<path> never leaves this computer, so it offers no actions` |
 | a read-only run (`readOnlyHint: true`) | may write and delete `.local` paths through `folder`; everything else stays refused |
 | a file `folder` creates at a `.local` path | mode `0600`; a directory it creates on one is `0700` |

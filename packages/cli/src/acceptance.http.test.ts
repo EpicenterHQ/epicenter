@@ -1,25 +1,17 @@
 /**
  * HTTP serve acceptance tests.
  * Runs the real CLI against a temporary HOME and checks MCP calls, the
- * commits after them, the backup when serve stops, UI confinement, and
+ * returned answers, concurrent writes, UI confinement, and
  * request origin handling. `http.test.ts` drives the backup clock's tick.
  */
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test';
-import {
-	chmod,
-	mkdir,
-	readFile,
-	rm,
-	symlink,
-	writeFile,
-} from 'node:fs/promises';
+import { mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Action } from '@epicenter/app';
 import { connect } from '@epicenter/app/client';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import {
 	fixture,
-	gitIn,
 	gitignore,
 	header,
 	readingApp,
@@ -51,9 +43,7 @@ afterEach(async () => {
 type Fixture = Awaited<ReturnType<typeof fixture>>;
 
 /**
- * Serve a new Epicenter once `prepare` has made and committed its apps. serve
- * backs up once when it starts, so a test makes its apps first, and nothing
- * is pending for that backup to take whenever it runs.
+ * Serve a temporary Epicenter after preparing its apps.
  */
 async function setup<T = undefined>(
 	prepare?: (f: Fixture) => Promise<T>,
@@ -139,7 +129,7 @@ test('a crafted tool name cannot run an app outside the home', async () => {
 	expect(await Bun.file(join(outside, 'data/ran.txt')).exists()).toBe(false);
 });
 
-test('the browser client calls a tool without initialize and a write makes one named commit', async () => {
+test('the browser client calls a tool without initialize and writes its record', async () => {
 	const f = await setup((f) => f.folder(join(f.apps, 'reading'), readingApp));
 	const folder = f.made;
 	const client = connect<Reading>({
@@ -150,65 +140,27 @@ test('the browser client calls a tool without initialize and a write makes one n
 		minutes: 30,
 		book: null,
 	});
-	expect(await gitIn(folder, 'rev-list', '--count', 'HEAD')).toBe('1');
-	expect(await gitIn(join(folder, 'data'), 'rev-list', '--count', 'HEAD')).toBe(
-		'2',
-	);
-	expect(await gitIn(join(folder, 'data'), 'log', '-1', '--format=%s')).toBe(
-		'reading: log 30',
-	);
-	expect(
-		await gitIn(join(folder, 'data'), 'log', '-1', '--format=%B'),
-	).toContain(`Code-Commit: ${await gitIn(folder, 'rev-parse', 'HEAD')}`);
+
 	expect(await readFile(join(folder, 'data/2026.csv'), 'utf8')).toBe(
 		'minutes,book\n30,\n',
 	);
 });
 
-test('a read-only action makes no commit, and one that throws after writing commits pending data as the call that threw', async () => {
+test('read-only calls return and a write followed by a throw preserves its error', async () => {
 	const f = await setup((f) => f.folder(join(f.apps, 'reading'), readingApp));
-	const folder = f.made;
 	const client = connect<Reading>({ app: 'reading', url: `${f.base}/` });
-	// Nothing is pending, so serve's startup backup commits nothing whenever it runs.
+	// Read-only calls and throwing calls preserve their return/error contracts.
 	expect(expectOk(await client.week.show())).toBe(210);
 	expect(expectOk(await client.week.show())).toBe(210);
-	expect(await gitIn(folder, 'rev-list', '--count', 'HEAD')).toBe('1');
+
 	expect(expectErr(await client.explode())).toEqual({
 		name: 'Threw',
 		message: 'line 4 is not a number',
 		thrown: undefined,
 	});
-	expect(await gitIn(join(folder, 'data'), 'log', '-1', '--format=%s')).toBe(
-		'reading: explode (threw)',
-	);
-	expect(await gitIn(folder, 'status', '--porcelain')).toBe('');
 });
 
-test('a call whose snapshot fails still resolves, and the app says why', async () => {
-	const f = await setup(async (f) => {
-		const folder = await f.folder(join(f.apps, 'reading'), readingApp);
-		await writeFile(
-			join(folder, '.gitattributes'),
-			'*.csv filter=lfs diff=lfs merge=lfs -text\n',
-		);
-		return folder;
-	});
-	const folder = f.made;
-	const client = connect<Reading>({ app: 'reading', url: `${f.base}/` });
-	expect(expectOk(await client.log({ minutes: 5 }))).toEqual({
-		minutes: 5,
-		book: null,
-	});
-	expect(await gitIn(folder, 'rev-list', '--count', 'HEAD')).toBe('1');
-	expect(
-		JSON.parse((await f.run('reading', '--json')).stdout).status,
-	).toMatchObject({
-		code: { pending: 1, backup: 'none' },
-		data: { pending: 1, backup: 'none' },
-	});
-});
-
-test('concurrent writes through update both land, and both are in history', async () => {
+test('concurrent updates to one record both land', async () => {
 	const f = await setup((f) => f.folder(join(f.apps, 'reading'), readingApp));
 	const folder = f.made;
 	const client = connect<Reading>({ app: 'reading', url: `${f.base}/` });
@@ -220,15 +172,9 @@ test('concurrent writes through update both land, and both are in history', asyn
 	expect(await readFile(join(folder, 'data/2026.csv'), 'utf8')).toMatch(
 		/^minutes,book\n(?:10,\n20,|20,\n10,)\n$/,
 	);
-	expect(await gitIn(folder, 'status', '--porcelain')).toBe('');
-	const history = await gitIn(join(folder, 'data'), 'log', '--format=%s');
-	expect(history).toMatch(/reading: log (10|20)/);
-	expect(
-		await gitIn(join(folder, 'data'), 'rev-list', '--count', 'HEAD'),
-	).toMatch(/^[23]$/);
 });
 
-test('two calls at once on different files take turns and make separate data commits', async () => {
+test('two calls at once on different files preserve both records', async () => {
 	const f = await setup((f) =>
 		f.app(
 			'notes',
@@ -242,7 +188,7 @@ test('two calls at once on different files take turns and make separate data com
 	const client = connect<{
 		actions: { write: (input: { page: string }) => string };
 	}>({ app: 'notes', url: `${f.base}/` });
-	// After a call, the backup serve started with has passed this app.
+	// Changes beside concurrent calls survive their writes.
 	expectOk(await client.write({ page: 'sunday' }));
 	await writeFile(join(folder, 'data/by-hand.md'), 'by hand\n');
 	for (const result of await Promise.all([
@@ -250,181 +196,9 @@ test('two calls at once on different files take turns and make separate data com
 		client.write({ page: 'tuesday' }),
 	]))
 		expectOk(result);
-	const commits = (
-		await gitIn(join(folder, 'data'), 'log', '-2', '--format=%s')
-	).split('\n');
-	expect(commits.sort()).toEqual([
-		'notes: write monday',
-		'notes: write tuesday',
-	]);
-	for (const rev of ['HEAD', 'HEAD~1']) {
-		const subject = await gitIn(
-			join(folder, 'data'),
-			'log',
-			'-1',
-			'--format=%s',
-			rev,
-		);
-		expect(
-			await gitIn(
-				join(folder, 'data'),
-				'show',
-				'--name-only',
-				'--format=',
-				rev,
-			),
-		).toBe(`${subject.slice('notes: write '.length)}.md`);
-	}
-	expect(
-		await gitIn(join(folder, 'data'), 'log', '-1', '--format=%s', 'HEAD~2'),
-	).toBe('notes: changed outside epicenter');
-	expect(
-		await gitIn(
-			join(folder, 'data'),
-			'show',
-			'--name-only',
-			'--format=',
-			'HEAD~2',
-		),
-	).toBe('by-hand.md');
-	expect(await gitIn(join(folder, 'data'), 'status', '--porcelain')).toBe('');
-});
-
-test("a backup that runs during a call leaves the call's writes to the call's one commit", async () => {
-	// The backup serve starts with commits an app that sorts first, slowly,
-	// and reaches notes while the call to notes is between its two writes.
-	const f = await setup(async (f) => {
-		const slow = await f.app(
-			'aaa',
-			"export default defineApp({ description: 'Slow to commit', collections: {}, actions: {} });\n",
-		);
-		await mkdir(join(slow, 'data'));
-		await writeFile(join(slow, 'data/pending.md'), 'pending\n');
-		await writeFile(join(slow, 'pending-code.md'), 'pending\n');
-		const hook = join(slow, '.git', 'hooks', 'pre-commit');
-		await writeFile(hook, '#!/bin/sh\nsleep 2\n');
-		await chmod(hook, 0o755);
-		return f.app(
-			'notes',
-			`export default defineApp({ description: 'Notes', collections: {}, actions: {
-		pair: defineAction({ description: 'Write two pages, apart', input: {},
-			run: async () => { await folder.write('data/a.md', 'a'); await Bun.sleep(3000); await folder.write('data/b.md', 'b'); return true; } }),
-	} });`,
-		);
-	});
-	const folder = f.made;
-	expectOk(
-		await connect<{ actions: { pair: () => boolean } }>({
-			app: 'notes',
-			url: `${f.base}/`,
-		}).pair(),
-	);
-	expect(await gitIn(join(folder, 'data'), 'log', '--format=%s')).toBe(
-		'notes: pair\nnotes: start its data',
-	);
-	expect(
-		await gitIn(
-			join(folder, 'data'),
-			'show',
-			'--name-only',
-			'--format=',
-			'HEAD',
-		),
-	).toBe('a.md\nb.md');
-	expect(await gitIn(folder, 'status', '--porcelain')).toBe('');
-	expect(
-		await gitIn(join(f.apps, 'aaa', 'data'), 'log', '-1', '--format=%s'),
-	).toBe('aaa: changed outside epicenter');
-});
-
-/** Reading, backed up to a bare `origin` it has pushed to. */
-async function backedUpReading(f: Fixture) {
-	const folder = await f.folder(join(f.apps, 'reading'), readingApp);
-	await mkdir(join(folder, 'data'));
-	await f.run('sync', 'reading');
-	const remote = join(f.root, 'remote.git');
-	await gitIn(f.root, 'init', '--bare', '-q', remote);
-	await gitIn(join(folder, 'data'), 'remote', 'add', 'origin', remote);
-	await gitIn(join(folder, 'data'), 'push', '-q', '-u', 'origin', 'HEAD');
-	return { folder, remote };
-}
-
-test('serve reports a refused backup push and leaves both histories intact', async () => {
-	const f = await setup(backedUpReading);
-	const { folder, remote } = f.made;
-	const peer = join(f.root, 'peer');
-	await gitIn(f.root, 'clone', '-q', remote, peer);
-	await writeFile(join(peer, 'peer.md'), 'from peer\n');
-	await gitIn(peer, 'add', 'peer.md');
-	await gitIn(peer, 'commit', '-q', '-m', 'peer');
-	await gitIn(peer, 'push', '-q');
-	expectOk(
-		await connect<Reading>({ app: 'reading', url: `${f.base}/` }).log({
-			minutes: 42,
-		}),
-	);
-	expect(await f.stop()).toBe(0);
-	expect(f.stderr()).toContain(
-		'the backup at origin has changes this computer does not; nothing was overwritten',
-	);
-	const branch = await gitIn(
-		join(folder, 'data'),
-		'symbolic-ref',
-		'--short',
-		'HEAD',
-	);
-	expect(f.stderr()).toContain(
-		`git -C ${folder}/data fetch origin && git -C ${folder}/data log HEAD..origin/${branch}`,
-	);
-	expect(await gitIn(remote, 'log', '-1', '--format=%s')).toBe('peer');
-	expect(await gitIn(join(folder, 'data'), 'log', '-1', '--format=%s')).toBe(
-		'reading: log 42',
-	);
-});
-
-test('a write call is pushed by the backup clock, not by the call; serve backs up once more when it stops', async () => {
-	const f = await setup(backedUpReading);
-	const { folder, remote } = f.made;
-	expectOk(
-		await connect<Reading>({
-			app: 'reading',
-			url: `${f.base}/`,
-		}).log({ minutes: 42 }),
-	);
-	expect(await gitIn(join(folder, 'data'), 'log', '-1', '--format=%s')).toBe(
-		'reading: log 42',
-	);
-	expect(await gitIn(remote, 'log', '-1', '--format=%s')).toBe(
-		'reading: start its data',
-	);
-	await writeFile(join(folder, 'data/notes.md'), 'by hand\n');
-	expect(await f.stop()).toBe(0);
-	expect(await gitIn(remote, 'log', '--format=%s')).toBe(
-		'reading: changed outside epicenter\nreading: log 42\nreading: start its data',
-	);
-	expect(await gitIn(folder, 'status', '--porcelain')).toBe('');
-});
-
-test('commit subjects use the first positional value on one line, capped at 60 characters', async () => {
-	const f = await setup((f) =>
-		f.app(
-			'notes',
-			`export default defineApp({ description: 'The notes app', collections: {}, actions: {
-		add: defineAction({ description: 'Add a note', input: { text: field.text() }, positional: ['text'],
-			run: async ({ text }) => { await folder.write('data/note.txt', text); return text; } }),
-	} });`,
-		),
-	);
-	const folder = f.made;
-	const text = `Fear is the mind-killer ${'x'.repeat(80)}\nsecond line`;
-	expectOk(
-		await connect<{ actions: { add: (input: { text: string }) => string } }>({
-			app: 'notes',
-			url: `${f.base}/`,
-		}).add({ text }),
-	);
-	expect(await gitIn(join(folder, 'data'), 'log', '-1', '--format=%s')).toBe(
-		`notes: add ${text.replace(/\s+/g, ' ').slice(0, 60)}`,
+	expect(await readFile(join(folder, 'data/monday.md'), 'utf8')).toBe('monday');
+	expect(await readFile(join(folder, 'data/tuesday.md'), 'utf8')).toBe(
+		'tuesday',
 	);
 });
 
@@ -437,23 +211,26 @@ test('a built UI serves files and refuses traversal and symlinks outside it', as
 		),
 	}));
 	const { folder, linked } = f.made;
-	await mkdir(join(folder, 'ui', 'dist', '_app', 'immutable'), {
+	await mkdir(join(folder, 'code', 'ui', 'dist', '_app', 'immutable'), {
 		recursive: true,
 	});
-	await writeFile(join(folder, 'ui', 'dist', 'index.html'), '<h1>Reading</h1>');
 	await writeFile(
-		join(folder, 'ui', 'dist', '_app', 'immutable', 'asset.js'),
+		join(folder, 'code', 'ui', 'dist', 'index.html'),
+		'<h1>Reading</h1>',
+	);
+	await writeFile(
+		join(folder, 'code', 'ui', 'dist', '_app', 'immutable', 'asset.js'),
 		'export {};',
 	);
 	await symlink(
-		join(folder, 'epicenter.ts'),
-		join(folder, 'ui', 'dist', 'outside.ts'),
+		join(folder, 'code/epicenter.ts'),
+		join(folder, 'code', 'ui', 'dist', 'outside.ts'),
 	);
 	const outsideUi = join(f.root, 'outside-ui');
 	await mkdir(outsideUi);
 	await writeFile(join(outsideUi, 'index.html'), 'outside');
-	await mkdir(join(linked, 'ui'));
-	await symlink(outsideUi, join(linked, 'ui', 'dist'));
+	await mkdir(join(linked, 'code', 'ui'));
+	await symlink(outsideUi, join(linked, 'code', 'ui', 'dist'));
 	expect(await (await fetch(`${f.base}/`)).text()).toContain(
 		'href="/reading/"',
 	);
@@ -489,9 +266,9 @@ test('serve builds the UI as it sits on disk when a page opens, waits only for t
 	const f = await setup((f) =>
 		f.folder(join(f.apps, 'reading'), {
 			...readingApp,
-			'.gitignore': `${readingApp['.gitignore']}ui/dist/\n`,
-			'package.json': `${JSON.stringify({ scripts: { build: 'mkdir -p "$EPICENTER_OUT" && cp ui/page.txt "$EPICENTER_OUT/index.html" && grep -qv broken ui/page.txt' } })}\n`,
-			'ui/page.txt': 'one\n',
+			'code/.gitignore': `${readingApp['code/.gitignore']}ui/dist/\n`,
+			'code/package.json': `${JSON.stringify({ scripts: { build: 'mkdir -p "$EPICENTER_OUT" && cp ui/page.txt "$EPICENTER_OUT/index.html" && grep -qv broken ui/page.txt' } })}\n`,
+			'code/ui/page.txt': 'one\n',
 		}),
 	);
 	const folder = f.made;
@@ -508,9 +285,9 @@ test('serve builds the UI as it sits on disk when a page opens, waits only for t
 	const first = await fetch(`${f.base}/reading/`);
 	expect([first.status, await first.text()]).toEqual([200, 'one\n']);
 	// Uncommitted: the UI runs as it sits on disk.
-	await writeFile(join(folder, 'ui', 'page.txt'), 'two\n');
+	await writeFile(join(folder, 'code', 'ui', 'page.txt'), 'two\n');
 	expect(await opened('two\n')).toBe(true);
-	await writeFile(join(folder, 'ui', 'page.txt'), 'broken\n');
+	await writeFile(join(folder, 'code', 'ui', 'page.txt'), 'broken\n');
 	await fetch(`${f.base}/reading/`);
 	for (
 		let tries = 0;
@@ -520,7 +297,7 @@ test('serve builds the UI as it sits on disk when a page opens, waits only for t
 		await Bun.sleep(100);
 	expect(f.stderr()).toContain('reading: the UI did not build');
 	expect(await (await fetch(`${f.base}/reading/`)).text()).toBe('two\n');
-	await writeFile(join(folder, 'ui', 'page.txt'), 'three\n');
+	await writeFile(join(folder, 'code', 'ui', 'page.txt'), 'three\n');
 	expect(await opened('three\n')).toBe(true);
 	expect((await fetch(`${f.base}/reading/.epicenter-build`)).status).toBe(404);
 });
@@ -634,7 +411,7 @@ test("a UI's call gets each value the action yields, in order, then its answer; 
 	expect(body.result.structuredContent).toEqual({ returned: 'x y' });
 });
 
-test('a caller that stops reading stops the action at its next yield; its finally runs and what it wrote is committed', async () => {
+test('a caller that stops reading stops the action at its next yield; its finally writes its last record', async () => {
 	const f = await setup((f) => f.app('talk', talk));
 	const stop = new AbortController();
 	const response = await fetch(`${f.base}/talk/drip`, {
@@ -647,14 +424,10 @@ test('a caller that stops reading stops the action at its next yield; its finall
 	expect(first).toStartWith('{"yielded":0}\n');
 	stop.abort();
 	const data = join(f.apps, 'talk', 'data');
-	const latest = () => gitIn(data, 'log', '-1', '--format=%s');
+	const latest = () => Bun.file(join(data, 'stopped.md')).exists();
 	const deadline = Date.now() + 10_000;
-	while (!(await latest()).startsWith('talk: drip') && Date.now() < deadline)
-		await Bun.sleep(50);
-	expect(await latest()).toBe('talk: drip (stopped)');
-	expect(
-		(await gitIn(data, 'show', '--name-only', '--format=', 'HEAD')).split('\n'),
-	).toEqual(['started.md', 'stopped.md']);
+	while (!(await latest()) && Date.now() < deadline) await Bun.sleep(50);
+	expect(await latest()).toBe(true);
 });
 
 test('a stop reaches an action waiting between yields through callSignal, at once', async () => {
@@ -671,24 +444,23 @@ test('a stop reaches an action waiting between yields through callSignal, at onc
 	);
 	stop.abort();
 	const data = join(f.apps, 'talk', 'data');
-	const latest = () => gitIn(data, 'log', '-1', '--format=%s');
 	// Far less than the minute it would wait: the stop ended it.
 	const deadline = Date.now() + 10_000;
-	while (!(await latest()).startsWith('talk: wait') && Date.now() < deadline)
+	while (
+		!(await Bun.file(join(data, 'waited.md')).exists()) &&
+		Date.now() < deadline
+	)
 		await Bun.sleep(50);
 	// It returned once the wait ended, but its caller had stopped it.
-	expect(await latest()).toBe('talk: wait (stopped)');
-	expect(
-		(await gitIn(data, 'show', '--name-only', '--format=', 'HEAD')).split('\n'),
-	).toEqual(['waited.md']);
+	expect(await Bun.file(join(data, 'waited.md')).exists()).toBe(true);
 });
 
 test('an edit to epicenter.ts, or to a file it imports, reaches the next call without restarting serve', async () => {
 	const f = await setup((f) =>
 		f.folder(join(f.apps, 'echo'), {
-			'.gitignore': gitignore,
-			'word.ts': "export const word = 'one';\n",
-			'epicenter.ts': `${header}import { word } from './word.ts';
+			'code/.gitignore': gitignore,
+			'code/word.ts': "export const word = 'one';\n",
+			'code/epicenter.ts': `${header}import { word } from './word.ts';
 export default defineApp({ description: 'Echo', collections: {}, actions: {
 	hello: defineAction({ description: 'Say the word', input: {}, run: () => word }),
 } });
@@ -700,10 +472,10 @@ export default defineApp({ description: 'Echo', collections: {}, actions: {
 		url: `${f.base}/`,
 	});
 	expect(expectOk(await client.hello())).toBe('one');
-	await writeFile(join(f.made, 'word.ts'), "export const word = 'two';\n");
+	await writeFile(join(f.made, 'code/word.ts'), "export const word = 'two';\n");
 	expect(expectOk(await client.hello())).toBe('two');
 	await writeFile(
-		join(f.made, 'epicenter.ts'),
+		join(f.made, 'code/epicenter.ts'),
 		`${header}export default defineApp({ description: 'Echo', collections: {}, actions: {
 	hello: defineAction({ description: 'Say the word', input: {}, run: () => 'three' }),
 } });

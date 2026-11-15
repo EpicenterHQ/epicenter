@@ -63,8 +63,10 @@ product waits
 ## Status
 
 Whispering runs in the browser and as a desktop app. The `epicenter` command
-runs apps: each is a folder in `~/Epicenter` whose `epicenter.ts` defines its
-actions, and each action is a commit in that folder's repository. [Local Books](apps/local-books) is a headless mirror
+runs apps in `apps/<app>/` containers with `code/epicenter.ts` and sibling
+`data/` records. Source uses one private root repository and checkpoints
+pending code and records together. Actions make no commits. The live Epicenter
+uses this layout ([ADR-0910](docs/adr/0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md), Accepted). [Local Books](apps/local-books) is a headless mirror
 that pulls a QuickBooks account into local SQLite and keeps its own format.
 Most of the rest of this repository is the folder sync product, which waits
 ([ADR-0840](docs/adr/0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md)).
@@ -96,7 +98,7 @@ A folder syncs only with an Epicenter server, which can read its files in plaint
 | [Local Books](apps/local-books) | Runs, separately | Headless CLI mirror that pulls QuickBooks into local SQLite. |
 | [API](apps/api) | Hosted infrastructure | Personal cloud Worker. Owns sign-in, each folder's ledger, the AI gateways, hosted-only billing, and the dashboard. Self-host it on Bun with Postgres (`apps/api/server.ts`). |
 | [Whispering](apps/whispering) | Runs, development milestone | Voice recorder in a browser tab. Recordings, transcripts, and settings are files in a folder. |
-| Capture, Reading, Tasks, Vocab | Runs, on `epicenter serve` | Apps in `~/Epicenter`, each its own code repository with its records in a data repository inside it: actions in one `epicenter.ts`, and a UI served at `/<app>/`. Not in this repository ([ADR-0877](docs/adr/0877-an-apps-code-and-its-data-are-two-repositories-and-sharing-an-app-shares-its-code.md)). |
+| Capture, Reading, Tasks, Vocab | Runs, on `epicenter serve` | Personal apps outside this monorepo, with UIs at `/<app>/`. The source runtime and live apps use code/data containers in one private root history ([ADR-0910](docs/adr/0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md), Accepted). |
 | Other app folders | Research and prototypes | Useful history and experiments, not the current product lineup. |
 
 ### Packages
@@ -107,7 +109,7 @@ These packages carry the main architecture.
 | --- | --- | --- |
 | [`@epicenter/folder`](packages/folder) | A folder: its collections and files, opened in a browser, a desktop page, or Bun, and synced with its ledger on the server. | AGPL-3.0-or-later |
 | [`@epicenter/app`](packages/app) | What an app's `epicenter.ts` imports: `defineApp`, fields, and the places an action receives. | AGPL-3.0-or-later |
-| [`@epicenter/cli`](packages/cli) | The `epicenter` command: runs each app's actions as commands and MCP tools, commits what they change, and syncs app repositories. | AGPL-3.0-or-later |
+| [`@epicenter/cli`](packages/cli) | The `epicenter` command: runs each app's actions as commands and MCP tools, checkpoints pending code and records in one private root repository. | AGPL-3.0-or-later |
 | [`@epicenter/definition`](packages/definition) | A folder's contract, the front-matter and merge rules, and the names a site derives. | AGPL-3.0-or-later |
 | [`@epicenter/ai`](packages/ai) | Every source of models as an endpoint, one OpenAI-compatible client, the agent loop, and the model picker. | AGPL-3.0-or-later |
 | [`@epicenter/ui`](packages/ui) | Shared Svelte component library used by multiple apps. | AGPL-3.0-or-later |

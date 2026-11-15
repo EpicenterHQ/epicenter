@@ -7,7 +7,7 @@ import { mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { COMMANDS } from './commands.ts';
 import { VERSION } from './engines.ts';
-import { fixture, gitIn, reading, vault } from './runner.test-support.ts';
+import { fixture, reading, vault } from './runner.test-support.ts';
 
 // Each test runs the real command several times as separate processes.
 setDefaultTimeout(30_000);
@@ -26,31 +26,10 @@ async function setup() {
 	return f;
 }
 
-test("listing warns when the data's code commit is absent from the code's history", async () => {
-	const f = await setup();
-	const app = join(f.apps, 'reading');
-	const writtenUnder = await gitIn(app, 'rev-parse', 'HEAD');
-	expect((await f.run('reading', 'log', '30')).code).toBe(0);
-	const tree = await gitIn(app, 'rev-parse', 'HEAD^{tree}');
-	const unrelated = await gitIn(
-		app,
-		'commit-tree',
-		tree,
-		'-m',
-		'unrelated code',
-	);
-	await gitIn(app, 'reset', '--soft', unrelated);
-	const listed = JSON.parse((await f.run('reading', '--json')).stdout);
-	expect(listed.status.data.otherCode).toBe(writtenUnder.slice(0, 12));
-	expect((await f.run('reading')).stdout).toContain(
-		`data: written under code ${writtenUnder.slice(0, 12)}, which this code's history does not have`,
-	);
-});
-
 test('listing isolates broken imports, invalid apps and folders that cannot name an app, and shows linked apps', async () => {
 	const f = await setup();
 	await f.app('broken', `throw new Error('import exploded');`);
-	await f.app('sync', reading);
+	await f.app('checkpoint', reading);
 	await f.app('invalid', `export default {actions:{bad:{input:{}}}};`);
 	await f.app(
 		'spaced',
@@ -92,23 +71,23 @@ test('listing isolates broken imports, invalid apps and folders that cannot name
 			]),
 		),
 	).toEqual({
-		broken: ['epicenter.ts: import exploded'],
+		broken: ['code/epicenter.ts: import exploded'],
 		// An object default is checked as defineApp checks it, since defineApp returns its argument.
 		invalid: [
-			'epicenter.ts: An app needs a description',
-			'epicenter.ts: An app needs collections: an object of defineCollection(...), {} for none',
+			'code/epicenter.ts: An app needs a description',
+			'code/epicenter.ts: An app needs collections: an object of defineCollection(...), {} for none',
 		],
 		// An action's words are its keys' path: one key holds one word.
 		spaced: [
-			'epicenter.ts: actions has the key "week show" at actions.week show, which is not lowercase letters, digits, and dashes, starting with a letter',
+			'code/epicenter.ts: actions has the key "week show" at actions.week show, which is not lowercase letters, digits, and dashes, starting with a letter',
 		],
-		sync: [
-			'its folder\'s name cannot name an app: "sync" is an epicenter command',
+		checkpoint: [
+			'its folder\'s name cannot name an app: "checkpoint" is an epicenter command',
 		],
 	});
-	expect(value.problems[3]).toMatchObject({
-		entry: 'sync',
-		folder: join(f.apps, 'sync'),
+	expect(value.problems[1]).toMatchObject({
+		entry: 'checkpoint',
+		folder: join(f.apps, 'checkpoint'),
 	});
 	const human = await f.run();
 	expect(human.stdout).toContain('Problems:');
@@ -125,10 +104,13 @@ test('an app that asks for a newer epicenter is a problem and does not run; one 
 	const engines = (range: string) =>
 		`${JSON.stringify({ name: 'x', private: true, engines: { epicenter: range } })}\n`;
 	await writeFile(
-		join(f.apps, 'reading', 'package.json'),
+		join(f.apps, 'reading', 'code/package.json'),
 		engines(`>=${VERSION}`),
 	);
-	await writeFile(join(f.apps, 'vault', 'package.json'), engines('>=999.0.0'));
+	await writeFile(
+		join(f.apps, 'vault', 'code/package.json'),
+		engines('>=999.0.0'),
+	);
 	const listed = JSON.parse((await f.run('--json')).stdout);
 	expect(listed.apps.map((app: { name: string }) => app.name)).toEqual([
 		'reading',
@@ -218,16 +200,12 @@ test('usage errors return exit 2 and exactly one JSON error', async () => {
 test('a misused command answers its usage line, with its help as the next step', async () => {
 	const f = await setup();
 	const misused = [
-		['sync', '-m', 'tidy'],
-		['sync', 'reading', '-m'],
-		['history'],
-		['history', 'reading', '--limit', '0'],
-		['undo', 'reading', 'a', 'b'],
+		['checkpoint', 'extra'],
+		['checkpoint', 'reading', '-m'],
 		['new'],
 		['new', 'garden', '--from'],
 		['build', 'reading', 'vault'],
 		['install', 'reading', 'vault'],
-		['update', '--nope'],
 		['init', '--port'],
 	] as const;
 	for (const [command, ...words] of misused) {
@@ -244,8 +222,8 @@ test('a misused command answers its usage line, with its help as the next step',
 		stdout: '',
 		stderr: `--port must be a whole number from 0 to 65535\nUsage: ${COMMANDS.serve.usage}\nRun: epicenter serve --help\n`,
 	});
-	expect((await f.run('sync', '--help')).stdout).toBe(
-		`${COMMANDS.sync.usage}\n${COMMANDS.sync.help}\n`,
+	expect((await f.run('checkpoint', '--help')).stdout).toBe(
+		`${COMMANDS.checkpoint.usage}\n${COMMANDS.checkpoint.help}\n`,
 	);
 });
 

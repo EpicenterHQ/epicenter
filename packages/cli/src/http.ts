@@ -24,16 +24,9 @@
  * Funnel removes a copy the client sent, so a tunnel aimed at this port by
  * mistake reaches only refusals.
  *
- * A write call commits pending data before it answers (`run.ts`).
- * Everything else reaches history and the backup on the server's clock: when
- * it starts, every 5 minutes, and when it stops, it does for each app what
- * `epicenter sync <app>` does, then the same for the Epicenter's own
- * repository (ADR-0884), snapshotting what is pending as changed
- * outside epicenter and pushing to `origin` when there is something to push.
- * The clock's interval is how old an unbacked change can get, not a guess at
- * when an edit is done. A tick skips an idle app and never waits for a call:
- * it skips an app whose lock a call holds (`lock.ts`). The call's commit,
- * or the next tick, takes what the call wrote.
+ * Calls leave their writes pending (`run.ts`).
+ * The serve-owned clock checkpoints the root at startup, every five minutes
+ * after completion, and on shutdown.
  */
 
 import { realpath, stat } from 'node:fs/promises';
@@ -43,20 +36,19 @@ import { isName } from '@epicenter/app';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { linkAppPackage } from './app-package.ts';
+import { checkpoint, type Checkpoint } from './checkpoint.js';
 import { CliError } from './errors.ts';
 import { chooseApps, homeEntries, loadHomeApp } from './home.ts';
 import { createMcpServer } from './mcp.ts';
 import { type Answer, writeErr } from './output.ts';
 import { epicenterDir } from './root.ts';
 import { callAction } from './run.ts';
-import { nothingToBackUp } from './snapshot.ts';
-import { type Synced, syncEpicenter, syncFailures, syncOne } from './sync.ts';
 import { createUiRefresher, UI_DIST } from './ui.ts';
 
 /** How often `serve` backs up every app. */
 const BACKUP_EVERY_MS = 5 * 60_000;
 
-/** How long `serve` waits for the backup it runs when it stops. */
+/** How long `serve` waits for the checkpoint it runs when it stops. */
 const BACKUP_WAIT_MS = 10_000;
 
 /** Headers a tunnel adds: Tailscale Funnel's, and Cloudflare Tunnel's. */
@@ -128,7 +120,7 @@ const line = (value: unknown) =>
  * input. The response is JSON lines: `{"yielded": value}` for each value the
  * action yields, as it yields it, then `{"answer": answer}`, the same answer
  * `--json` prints. A caller that stops reading stops the action at its next
- * yield; what it wrote is committed.
+ * yield; its write lock is released.
  */
 async function callResponse(request: Request): Promise<Response> {
 	const match = /^\/([^/]+)\/([^/]+)$/.exec(new URL(request.url).pathname);
@@ -194,7 +186,7 @@ function createSite(refreshUi: (app: string, folder: string) => unknown): Site {
 	const uiFile = async (app: string, path: string) => {
 		if (!isName(app)) return notFound();
 		const [entry] = (await chooseApps(app)).data ?? [];
-		if (!entry) return notFound();
+		if (!entry || entry.problem) return notFound();
 		let decoded: string;
 		try {
 			decoded = decodeURIComponent(path);
@@ -212,8 +204,8 @@ function createSite(refreshUi: (app: string, folder: string) => unknown): Site {
 		// A UI that has never built waits for its first build, up to a minute;
 		// after that, the last good build answers while the next one runs.
 		if (decoded === '' || decoded === 'index.html') {
-			const refreshed = refreshUi(entry.entry, entry.realPath);
-			if (!(await exists(join(entry.realPath, UI_DIST, 'index.html')))) {
+			const refreshed = refreshUi(entry.entry, entry.codePath);
+			if (!(await exists(join(entry.codePath, UI_DIST, 'index.html')))) {
 				let timer: Timer | undefined;
 				await Promise.race([
 					refreshed,
@@ -226,8 +218,8 @@ function createSite(refreshUi: (app: string, folder: string) => unknown): Site {
 		}
 		try {
 			// The UI in ui/dist/ is the only thing served (ADR-0860).
-			const root = await realpath(join(entry.realPath, UI_DIST));
-			if (!root.startsWith(`${entry.realPath}${sep}`)) return notFound();
+			const root = await realpath(join(entry.codePath, UI_DIST));
+			if (!root.startsWith(`${entry.codePath}${sep}`)) return notFound();
 			const candidate = join(root, decoded || 'index.html');
 			const file = await realpath(
 				(await stat(candidate)).isDirectory()
@@ -343,15 +335,15 @@ function isPrivateHost(host: string | null) {
 const forbidden = () => new Response('Forbidden', { status: 403 });
 
 /**
- * Start the listener and its backup clock, which backs up once now and every
+ * Start the listener and its checkpoint clock, which checkpoints once now and every
  * 5 minutes after. The listener answers everything for a request from this
  * computer or the tailnet whose `Origin`, if any, is its own host. The caller
  * owns its lifetime and ends it with `stop`. Port 0 asks Bun for a free port.
- * `tick` runs one backup now, after any already running, and answers what it
- * did per app.
+ * `tick` runs one checkpoint now, after any already running, and answers what it
+ * did for the root.
  */
 export function startHttpServer(host: string, port: number) {
-	/** Each app's last backup failure as logged, so an unchanged one is logged once. */
+	/** Log an unchanged root checkpoint failure only once. */
 	const lastFailure = new Map<string, string>();
 	const refreshUi = createUiRefresher();
 	/** Log `failures` for the repository at `folder`, unless they are what was logged last. */
@@ -368,33 +360,26 @@ export function startHttpServer(host: string, port: number) {
 			lastFailure.set(folder, failure);
 		}
 	};
-	const backUpAll = async () => {
-		const backedUp: Synced[] = [];
-		for (const { entry, realPath } of await homeEntries()) {
-			const idle = await nothingToBackUp(realPath);
-			const synced = idle
-				? undefined
-				: await syncOne(entry, realPath, { wait: 0 });
-			// A call to it is running: its commit, or the next tick, takes what it wrote.
-			if (!synced || synced.busy) continue;
-			backedUp.push(synced);
-			report(realPath, syncFailures(synced));
-		}
-		// After the apps, so the list it records names the origins they pushed to.
+	const runCheckpoint = async () => {
 		const root = epicenterDir();
-		const own = await syncEpicenter(root);
-		if (own) report(root, own.error ? [own.error] : []);
-		return backedUp;
+		const result = await checkpoint(root);
+		report(
+			root,
+			[result.deferred, result.failed, result.pushFailed].filter(
+				(problem) => problem !== undefined,
+			),
+		);
+		return result;
 	};
 	let previous: Promise<unknown> = Promise.resolve();
-	const tick = (): Promise<Synced[]> => {
-		const next = previous.then(backUpAll);
+	const tick = (): Promise<Checkpoint> => {
+		const next = previous.then(runCheckpoint);
 		previous = next.catch(() => undefined);
 		return next;
 	};
 	const tickLogged = () =>
 		tick().catch((error) => {
-			writeErr(`Backing up failed: ${extractErrorMessage(error)}`);
+			writeErr(`Checkpoint failed: ${extractErrorMessage(error)}`);
 		});
 	let clock: ReturnType<typeof setTimeout> | undefined;
 	let stopping = false;
@@ -440,7 +425,7 @@ export function startHttpServer(host: string, port: number) {
 		port: server.port as number,
 		tick,
 		/**
-		 * Stop listening and the clock, then run the last backup, waiting for
+		 * Stop listening and the clock, then run the last checkpoint, waiting for
 		 * it at most 10 seconds; `false` when it gave up waiting.
 		 */
 		stop() {
@@ -453,15 +438,15 @@ export function startHttpServer(host: string, port: number) {
 }
 
 /**
- * Serve until the process receives SIGINT or SIGTERM, then back up once
+ * Serve until the process receives SIGINT or SIGTERM, then checkpoint once
  * more: a host stops `serve` with SIGTERM and allows it time for that
- * backup (ADR-0883).
+ * checkpoint (ADR-0883).
  */
 export async function serveHttp(host: string, port: number): Promise<number> {
 	// Every installed app's tools resolve the `@epicenter/app` of the `serve`
 	// that answers it, even when the `epicenter` they linked to is gone.
-	for (const { realPath } of await homeEntries())
-		if (await exists(join(realPath, 'node_modules')))
+	for (const { codePath: realPath, problem } of await homeEntries())
+		if (!problem && (await exists(join(realPath, 'node_modules'))))
 			await linkAppPackage(realPath);
 	const server = startHttpServer(host, port);
 	writeErr(`Serving your apps at http://${host}:${server.port}.`);

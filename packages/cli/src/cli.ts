@@ -1,14 +1,6 @@
-/**
- * The epicenter command runs apps from the selected Epicenter
- * (ADR-0841). It parses words, shows what can run, checks input, and prints the
- * answer. Its exit code is 0 when the action returned, 1 when it threw, and 2
- * when nothing ran (ADR-0867). A call that wrote commits everything pending
- * in data, named for the call (ADR-0850); a commit that fails changes neither the
- * answer nor the exit code: why, and its next step, go to stderr, and the
- * paths stay pending.
- */
-import { join } from 'node:path';
+/** Dispatch commands and run checked app actions; actions leave their writes pending. */
 import { isName } from '@epicenter/app';
+import { checkpoint, renderCheckpoint } from './checkpoint.ts';
 import { buildCommand } from './build.ts';
 import {
 	BAD_PORT,
@@ -18,10 +10,8 @@ import {
 	parseWords,
 	portOf,
 } from './commands.ts';
-import { codeStateOf } from './data.ts';
 import { VERSION } from './engines.ts';
 import { CliError } from './errors.ts';
-import { historyCommand, undoCommand } from './history.ts';
 import { discoverAll, loadHomeApp } from './home.ts';
 import { serveHttp } from './http.ts';
 import { initCommand } from './init.ts';
@@ -38,16 +28,12 @@ import {
 	fail,
 	presentAnswer,
 	printingToStderr,
-	writeErr,
 	writeJson,
 	writeOut,
 } from './output.ts';
-import { appsDir, epicenterRoot, RootUsageError } from './root.ts';
+import { epicenterRoot, epicenterDir, RootUsageError } from './root.ts';
 import { runAction } from './run.ts';
 import { serviceCommand } from './service.ts';
-import { appStatusOf } from './snapshot.ts';
-import { syncCommand } from './sync.ts';
-import { updateCommand } from './update.ts';
 
 const HELP = `epicenter                              your apps
 epicenter <app>                        what an app can do
@@ -62,7 +48,7 @@ then ~/Epicenter. An Epicenter has EPICENTER.md.
 A flag's value is read as its field's type; null removes a field that takes it.
 --input <json> gives an action's whole input as one JSON object; - reads it from stdin.
 --json prints one JSON answer, and --help (-h) explains anything; both go anywhere before --.
-Exit codes: 0 done, 1 threw or an app did not sync, 2 did not run.`;
+Exit codes: 0 done, 1 threw or a checkpoint did not finish, 2 did not run.`;
 const GLOBALS = new Set(['--json', '--help', '-h', '--version', '-V']);
 
 type Handler = (words: string[], json: boolean) => Promise<number>;
@@ -72,12 +58,22 @@ const HANDLERS: { [K in Command]: Handler } = {
 	init: initCommand,
 	install: installCommand,
 	new: newCommand,
-	update: updateCommand,
 	build: buildCommand,
-	sync: syncCommand,
-	history: historyCommand,
-	undo: undoCommand,
 	service: serviceCommand,
+	async checkpoint(words, json) {
+		const given = parseWords(
+			words,
+			{ message: { type: 'string', short: 'm' } },
+			[0, 0],
+		);
+		if (!given) return fail(misuse('checkpoint'), json);
+		const result = await checkpoint(epicenterDir(), {
+			message: given.values.message,
+		});
+		if (json) writeJson(result);
+		else writeOut(renderCheckpoint(result));
+		return result.deferred || result.failed || result.pushFailed ? 1 : 0;
+	},
 	async serve(words, json) {
 		if (json)
 			return fail(
@@ -128,15 +124,7 @@ export async function runCli(argv: string[]): Promise<number> {
 			else if (help) print(HELP);
 			else {
 				const found = await discoverAll();
-				const histories = new Map(
-					await Promise.all(
-						found.apps.map(
-							async (app) =>
-								[app.name, await appStatusOf(app.realPath)] as const,
-						),
-					),
-				);
-				print(homeListing(found, json, histories));
+				print(homeListing(found, json));
 			}
 			return 0;
 		}
@@ -151,11 +139,6 @@ export async function runCli(argv: string[]): Promise<number> {
 			return HANDLERS[command](words, json);
 		}
 		epicenterRoot();
-		// The code a call ran is the code before loading it: an epicenter.ts may move HEAD as it loads.
-		const code =
-			words.length > 0 && !help && isName(name)
-				? await codeStateOf(join(appsDir(), name))
-				: { dirty: false };
 		const { data: located, error: notFound } = await loadHomeApp(name);
 		if (notFound) return fail(notFound, json);
 		if (!located.ok)
@@ -164,7 +147,7 @@ export async function runCli(argv: string[]): Promise<number> {
 				json,
 			);
 		if (!words.length) {
-			print(oneAppListing(located, json, await appStatusOf(located.realPath)));
+			print(oneAppListing(located, json));
 			return 0;
 		}
 		const matched = matchAction(located.actions, words);
@@ -198,13 +181,9 @@ export async function runCli(argv: string[]): Promise<number> {
 		if ('error' in given)
 			return fail(CliError.Usage({ message: given.error, next }).error, json);
 		// What the action prints goes to stderr, so stdout holds only the answer.
-		const { answer, committed } = await printingToStderr(() =>
-			runAction(located, matched.key, action, given.input, code),
+		const { answer } = await printingToStderr(() =>
+			runAction(located, matched.key, action, given.input),
 		);
-		if (committed && 'failed' in committed)
-			writeErr(
-				`${name}: not yet in history: ${committed.failed.message}\nRun: ${committed.failed.next ?? `epicenter sync ${name}`}`,
-			);
 		return presentAnswer(answer, json);
 	} catch (error) {
 		if (error instanceof RootUsageError)

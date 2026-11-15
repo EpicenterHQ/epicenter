@@ -6,11 +6,10 @@ system is shaped the way it is. Specs explore options; an ADR records the one
 outcome we committed to.
 
 **Start with [ADR-0840](0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md).** On 2026-11-07 Epicenter became where one person's
-software lives: each app is a folder whose `epicenter.ts` defines its actions
+software lives: each app is a container whose `code/epicenter.ts` defines its actions
 ([ADR-0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md)),
-and the folder's repository holds snapshots of pending changes
-([ADR-0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md),
-[ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md)).
+and root checkpoints record pending code and records
+([ADR-0910](0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md), Accepted).
 Records 0802 to 0839 designed a folder sync product for many people, with
 [ADR-0835](0835-records-from-0802-to-0834-agree-on-files-a-ledger-and-git-at-the-edges.md)
 as its register; ADR-0840 supersedes them as governing current work, and they
@@ -1064,7 +1063,7 @@ When you add an ADR, add its row here.
 | [0839](0839-a-save-is-one-numbered-write-a-reset-deletes-nothing-and-epicenter-owns-the-pages-every-app-links-to.md) | A save is one numbered write, a reset deletes nothing, and Epicenter owns the pages every app links to | Superseded by 0840 |
 | [0840](0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md) | Epicenter is where one person's software lives, and the folder sync product waits | Accepted (supersedes 0835, 0836, 0837, 0838, and 0839; amended by 0870, 0896, 0897, and 0899) |
 | [0841](0841-an-app-is-a-folder-whose-epicenter-ts-defines-its-actions.md) | An app is a folder whose `epicenter.ts` defines its actions | Accepted (amended by 0903) |
-| [0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md) | An action is a commit, and the repository is the sync | Accepted (amended by 0903) |
+| [0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md) | An action is a commit, and the repository is the sync | Accepted (amended by 0903; amended by 0910) |
 | [0843](0843-new-code-imports-nothing-from-the-waiting-product-which-leaves-by-deletion.md) | New code imports nothing from the waiting product, which leaves by deletion | Accepted (amended by 0899) |
 | [0844](0844-one-runner-runs-anywhere-and-every-surface-is-a-view-over-it.md) | One runner runs anywhere, and every surface is a view over it | Accepted (amended by 0903) |
 | [0845](0845-an-app-declares-collections-each-a-path-and-fields-which-the-hub-views.md) | An app declares collections, each a path and fields, which the hub views | Accepted |
@@ -1072,12 +1071,12 @@ When you add an ADR, add its row here.
 | [0847](0847-an-app-brings-its-providers-credentials-with-a-default-in-its-code.md) | An app brings its provider's credentials, with a default in its code | Accepted |
 | [0848](0848-the-runner-owns-only-what-an-action-wrote.md) | The runner owns only what an action wrote | Accepted |
 | [0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) | Your server is one always-reachable computer that runs named actions | Proposed |
-| [0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) | An action changes files, and whoever knows the intent commits them | Proposed |
-| [0851](0851-an-app-has-one-home-and-an-optional-push-only-backup.md) | An app has one home and an optional push-only backup | Proposed |
+| [0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) | An action changes files, and whoever knows the intent commits them | Proposed (root checkpoint boundary revised) |
+| [0851](0851-an-app-has-one-home-and-an-optional-push-only-backup.md) | An app has one home and an optional push-only backup | Proposed (private root backup revised) |
 | [0852](0852-an-app-is-a-folder-with-a-declared-shape-and-each-job-takes-the-least-powerful-form.md) | An app is a folder with a declared shape, and each job takes the least powerful form | Proposed |
 | [0853](0853-collections-give-five-actions-and-programs-without-the-folder-ask-over-mcp.md) | Collections give five actions, and programs without the folder ask over MCP | Proposed |
 | [0854](0854-an-apps-cache-is-the-files-it-gitignores.md) | An app's cache is the files it gitignores | Proposed |
-| [0856](0856-binary-files-go-through-git-lfs.md) | Binary files go through Git LFS | Proposed |
+| [0856](0856-binary-files-go-through-git-lfs.md) | Binary files go through Git LFS | Proposed (root LFS attributes revised) |
 | [0857](0857-an-app-is-one-epicenter-ts-that-composes-collections-and-actions.md) | An app is one `epicenter.ts` that composes collections and actions | Proposed |
 | [0858](0858-where-a-file-lives-decides-whether-it-travels-survives-or-dies-with-its-program.md) | Where a file lives decides whether it travels, survives, or dies with its program | Accepted |
 | [0859](0859-an-action-changes-the-folder-or-the-world-and-a-world-verb-is-safe-to-repeat.md) | An action changes the folder or the world, and a world verb is safe to repeat on the targets it is given | Proposed |
@@ -1086,7 +1085,7 @@ When you add an ADR, add its row here.
 | [0862](0862-notes-merge-field-by-field-and-every-conflict-is-listed-for-repair.md) | Notes merge field by field, and every conflict is listed for repair | Superseded by 0851 |
 | [0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) | Epicenter is a data server for repositories of files, and code runs where its owner trusts it | Proposed |
 | [0865](0865-the-epicenter-mac-app-runs-epicenter-serve-so-the-computer-it-is-on-is-your-server.md) | The Epicenter Mac app runs `epicenter serve`, so the computer it is on is your server | Proposed |
-| [0866](0866-an-app-starts-from-a-starter-kept-as-its-upstream-and-update-merges-the-starters-changes.md) | An app starts from a starter kept as its `upstream`, and `epicenter update` merges the starter's changes | Proposed |
+| [0866](0866-an-app-starts-from-a-starter-kept-as-its-upstream-and-update-merges-the-starters-changes.md) | An app starts from a starter kept as its `upstream`, and `epicenter update` merges the starter's changes | Superseded by 0910 |
 | [0867](0867-the-command-line-spells-an-actions-json-input-and-null-removes-a-field-there-as-everywhere.md) | The command line spells an action's JSON input, and `null` removes a field there as everywhere | Proposed |
 | [0868](0868-an-epicenter-is-any-folder-that-says-it-is-one-and-a-computer-runs-as-many-as-it-has.md) | An Epicenter is any folder that says it is one, and a computer runs as many as it has | Proposed |
 | [0869](0869-a-body-is-changed-by-quoting-the-passage-it-replaces.md) | A body is changed by quoting the passage it replaces | Proposed |
@@ -1095,23 +1094,23 @@ When you add an ADR, add its row here.
 | [0873](0873-the-command-is-epicenter-cli-and-it-supplies-epicenter-app-to-every-app.md) | The command is `@epicenter/cli`, and it supplies `@epicenter/app` to every app | Accepted |
 | [0874](0874-the-ui-kit-is-a-shadcn-svelte-registry-an-app-copies-from.md) | The UI kit is a shadcn-svelte registry an app copies from | Proposed |
 | [0875](0875-a-package-is-published-when-an-app-outside-the-monorepo-imports-it.md) | A package is published when an outside consumer needs to install it | Accepted |
-| [0876](0876-an-apps-records-live-under-data-and-everything-else-in-it-is-code.md) | An app's records live under `data/`, and everything else in it is code | Accepted |
-| [0877](0877-an-apps-code-and-its-data-are-two-repositories-and-sharing-an-app-shares-its-code.md) | An app's code and its data are two repositories, and sharing an app shares its code | Accepted |
+| [0876](0876-an-apps-records-live-under-data-and-everything-else-in-it-is-code.md) | An app's records live under `data/`, and everything else in it is code | Accepted (amended by 0910) |
+| [0877](0877-an-apps-code-and-its-data-are-two-repositories-and-sharing-an-app-shares-its-code.md) | An app's code and its data are two repositories, and sharing an app shares its code | Superseded by 0910 |
 | [0878](0878-the-os-keeps-epicenter-serve-running-under-a-job-the-person-installs.md) | The OS keeps `epicenter serve` running, under a job the person installs | Accepted |
 | [0879](0879-an-action-may-yield-values-while-it-runs-and-only-its-return-is-the-answer.md) | An action may yield values while it runs, and only its return is the answer | Proposed |
-| [0880](0880-an-epicenter-runs-its-apps-as-they-sit-on-disk.md) | An Epicenter runs its apps as they sit on disk | Proposed |
+| [0880](0880-an-epicenter-runs-its-apps-as-they-sit-on-disk.md) | An Epicenter runs its apps as they sit on disk | Proposed (code/ paths and checkpoint ownership revised) |
 | [0881](0881-people-reach-an-epicenter-over-the-tailnet-and-its-public-address-serves-only-connectors.md) | People reach an Epicenter over the tailnet, and its public address serves only connectors | Superseded by 0883 |
-| [0883](0883-an-epicenter-is-its-git-repositories-and-serve-and-its-host-keeps-runs-and-guards-them.md) | An Epicenter is its Git repositories and `serve`, and its host keeps, runs, and guards them | Accepted (amended by 0903) |
-| [0884](0884-an-epicenter-is-a-repository-that-lists-the-repositories-inside-it-and-init-from-rebuilds-it.md) | An Epicenter is a repository that lists the repositories inside it, and `init --from` rebuilds it | Accepted |
-| [0885](0885-an-epicenters-apps-live-in-apps-which-its-repository-ignores-with-one-line.md) | An Epicenter's apps live in `apps/`, which its repository ignores with one line | Accepted |
+| [0883](0883-an-epicenter-is-its-git-repositories-and-serve-and-its-host-keeps-runs-and-guards-them.md) | An Epicenter is its Git repositories and `serve`, and its host keeps, runs, and guards them | Accepted (amended by 0903; amended by 0910) |
+| [0884](0884-an-epicenter-is-a-repository-that-lists-the-repositories-inside-it-and-init-from-rebuilds-it.md) | An Epicenter is a repository that lists the repositories inside it, and `init --from` rebuilds it | Superseded by 0910 |
+| [0885](0885-an-epicenters-apps-live-in-apps-which-its-repository-ignores-with-one-line.md) | An Epicenter's apps live in `apps/`, which its repository ignores with one line | Accepted (amended by 0910) |
 | [0886](0886-vocab-practises-with-a-tutor-on-the-persons-own-model-and-zhongwen-is-vocab-cloned-for-chinese.md) | Vocab practises with a tutor on the person's own model, and Zhongwen is Vocab cloned for Chinese | Accepted |
-| [0887](0887-a-program-keeps-a-clone-of-an-apps-data-repository-and-the-host-files-what-it-pushes.md) | A program keeps a clone of an app's data repository, and the host files what it pushes | Accepted (amended by 0903) |
+| [0887](0887-a-program-keeps-a-clone-of-an-apps-data-repository-and-the-host-files-what-it-pushes.md) | A program keeps a clone of an app's data repository, and the host files what it pushes | Accepted (amended by 0903; amended by 0910) |
 | [0888](0888-the-host-merges-with-gits-line-merge-and-a-file-it-cannot-merge-takes-the-later-side-whole.md) | The host merges with Git's line merge, and a file it cannot merge takes the later side whole | Accepted |
 | [0889](0889-an-app-runs-on-epicenter-a-program-works-with-it-and-they-meet-at-the-apps-contract.md) | An app runs on Epicenter, a program works with it, and they meet at the app's contract | Accepted (amended by 0901) |
 | [0890](0890-a-programs-folder-is-its-own-and-holds-only-what-its-apps-contract-declares.md) | A program's folder is its own, and holds only what its app's contract declares | Accepted |
 | [0891](0891-this-repository-holds-the-runtime-and-programs-and-every-starter-is-a-repository-of-its-own.md) | This repository holds the runtime and programs, and every starter is a repository of its own | Accepted (amended by 0901) |
 | [0892](0892-the-cli-releases-to-npm-and-whispering-8-is-a-new-install-with-its-own-update-address.md) | The CLI releases to npm, and Whispering 8 is a new install with its own update address | Accepted |
-| [0893](0893-a-records-path-is-its-path-in-the-apps-data-repository.md) | A record's path is its path in the app's data repository | Accepted |
+| [0893](0893-a-records-path-is-its-path-in-the-apps-data-repository.md) | A record's path is its path in the app's data repository | Accepted (amended by 0910) |
 | [0894](0894-whispering-8-keeps-its-recordings-and-their-audio-in-its-own-data-directory-and-needs-no-epicenter.md) | Whispering 8 keeps its recordings and their audio in its own data directory, and needs no Epicenter | Proposed |
 | [0896](0896-each-collection-has-one-writer-of-record-and-epicenter-never-reconciles-two-writable-copies.md) | Each collection has one writer of record, and Epicenter never reconciles two writable copies | Accepted |
 | [0897](0897-hosted-notes-is-a-product-beside-epicenter-and-waits-for-a-month-of-evidence.md) | Hosted Notes is a product beside Epicenter, and waits for a month of evidence | Accepted |
@@ -1122,3 +1121,4 @@ When you add an ADR, add its row here.
 | [0905](0905-secret-input-makes-the-whole-action-confidential.md) | Secret input makes the whole action confidential | Accepted (amends 0870; amended by 0906) |
 | [0906](0906-confidentiality-is-explicit-action-metadata.md) | Confidentiality is explicit action metadata | Accepted (amends 0905; amended by 0907) |
 | [0907](0907-private-input-is-a-whole-call-handling-policy.md) | Private input is a whole-call handling policy | Accepted (amends 0906) |
+| [0910](0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md) | An Epicenter is one private repository, and each app keeps its code beside its data | Accepted (supersedes 0877 and 0884; amends 0842, 0870, 0876, 0883, 0885, 0887, 0893, and 0896) |

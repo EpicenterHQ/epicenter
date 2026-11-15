@@ -27,9 +27,10 @@ export async function buildCommand(
 	const { data: chosen, error } = await chooseApps(given.positionals[0]);
 	if (error) return fail(error, json);
 	const apps: Built[] = [];
-	for (const { entry, realPath } of chosen) {
+	for (const { entry, codePath: realPath, problem } of chosen) {
 		const result: Built = { app: entry, folder: realPath, built: false };
 		try {
+			if (problem) throw new Error(problem);
 			result.built = await buildUi(entry, realPath);
 		} catch (error) {
 			result.error = { message: extractErrorMessage(error) };

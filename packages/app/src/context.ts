@@ -5,11 +5,11 @@
  * run, the app's collections and `folder` reach it, however deep the call,
  * and an action that calls another stays in the same run; outside any run
  * they throw. What an app can rebuild lives in files it gitignores inside the
- * folder, such as `ui/dist/`, and is never committed. A run writes only under
+ * folder, such as `code/ui/dist/`, and is never committed. A run writes only under
  * `data/`; reads may reach any app file.
  *
- * An action changes files and never commits: whatever runs it takes snapshots
- * of the folder into its history (ADR-0850). A change that depends on what it
+ * An action changes files and never commits. Root checkpoints record pending
+ * code and records together. A change that depends on what it
  * read goes through a collection's `update`, or `folder.update` for any other
  * file. A run of a read-only action refuses every write through `folder`,
  * except to a `.local` path under `data/` (ADR-0870).

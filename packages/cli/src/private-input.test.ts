@@ -10,8 +10,7 @@ import { defineAction, field } from '@epicenter/app';
 import { Type } from 'typebox';
 import { checkInput, readInput, usageLine } from './input.js';
 import { actionHelp } from './listing.js';
-import { callName } from './run.js';
-import { connectMcp, fixture, gitIn } from './runner.test-support.js';
+import { connectMcp, fixture } from './runner.test-support.js';
 
 setDefaultTimeout(30_000);
 const SECRET = 'sk-not-a-real-token-4242';
@@ -28,19 +27,6 @@ const connect = defineAction({
 	run: () => ({ connected: true }),
 });
 const input = { label: 'work', credentials: { token: SECRET } };
-
-test('a call with private input omits even an ordinary first positional from its commit name', () => {
-	expect(callName('keys', 'connect', connect, input)).toBe('keys: connect');
-	const ordinary = defineAction({
-		description: 'Add',
-		input: { title: field.text() },
-		positional: ['title'],
-		run: () => true,
-	});
-	expect(
-		callName('tasks', 'add', ordinary, { title: 'Water  the\nplants' }),
-	).toBe('tasks: add Water the plants');
-});
 
 test('validation keeps every supplied value and undeclared property name private', () => {
 	for (const raw of [
@@ -161,9 +147,6 @@ test('only privateInput hides and refuses MCP actions; HTTP and CLI stdin still 
 		expect({ code, stdout, stderr }).toMatchObject({ code: 0 });
 		expect(JSON.parse(stdout)).toEqual({ returned: { connected: true } });
 		expect(stderr).not.toContain(SECRET);
-		const data = join(folder, 'data');
-		expect(await gitIn(data, 'log', '-1', '--format=%s')).toBe('keys: connect');
-		expect(await gitIn(data, 'log', '-p', '--format=%B')).not.toContain(SECRET);
 	} finally {
 		await close();
 		await rm(f.root, { recursive: true, force: true });

@@ -1,6 +1,6 @@
 /**
  * The apps in the selected Epicenter (ADR-0841), each a folder in its `apps/`
- * (ADR-0884). A folder there is an app when it has an `epicenter.ts` whose
+ * A folder there is an app when it has a `code/epicenter.ts` whose
  * default export is `defineApp(...)`. An app's name is its folder's name in
  * `apps/`. Each entry loads on its own so a broken
  * app is listed without stopping the others: what its `define*` calls throw
@@ -35,6 +35,7 @@ type Place = {
 	folder: string;
 	/** The real directory whose code and data the runner uses. */
 	realPath: string;
+	codePath: string;
 	/** The real target when the entry itself is a symlink, for the listing. */
 	link?: string;
 };
@@ -60,14 +61,14 @@ export type Located =
 /** An app that can run. */
 export type Runnable = Extract<Located, { ok: true }>;
 
-const CODE = 'epicenter.ts';
+const CODE = 'code/epicenter.ts';
 
 async function isFile(path: string) {
 	try {
 		return (await stat(path)).isFile();
 	} catch (error) {
 		if (
-			['ENOENT', 'ENOTDIR'].includes(
+			['ENOENT', 'ENOTDIR', 'ELOOP'].includes(
 				(error as NodeJS.ErrnoException).code ?? '',
 			)
 		)
@@ -82,10 +83,24 @@ async function entryAt(folder: string) {
 		if (!info.isDirectory() && !info.isSymbolicLink()) return undefined;
 		if (!(await stat(folder)).isDirectory()) return undefined;
 		const realPath = await realpath(folder);
-		if (!(await isFile(join(realPath, CODE)))) return undefined;
+		const runnable = await isFile(join(realPath, CODE));
+		const problem = runnable
+			? undefined
+			: (await isFile(join(realPath, 'epicenter.ts')))
+				? "epicenter.ts is at the app's top; move the app's code into code/ (apps/<name>/code/epicenter.ts)"
+				: (await lstat(join(realPath, 'code')).catch(() => undefined)) ||
+						(await lstat(join(realPath, 'data')).catch(() => undefined))
+					? 'code/epicenter.ts is missing'
+					: undefined;
+		if (!runnable && !problem) return undefined;
+		const codePath = runnable
+			? await realpath(join(realPath, 'code'))
+			: join(realPath, 'code');
 		return {
 			folder,
 			realPath,
+			codePath,
+			problem,
 			...(info.isSymbolicLink() ? { link: realPath } : {}),
 		};
 	} catch (error) {
@@ -141,6 +156,7 @@ async function load(
 		ok: false,
 		problems,
 	});
+	if (place.problem) return broken([place.problem]);
 	const named = nameProblem(entry);
 	if (named !== undefined)
 		return broken([`its folder's name cannot name an app: ${named}`]);
@@ -150,12 +166,14 @@ async function load(
 				.split('\n')
 				.map((line) => `${CODE}: ${line}`),
 		);
-	const refused = await enginesProblem(place.realPath);
+	const refused = await enginesProblem(place.codePath);
 	if (refused) return broken([refused]);
 	let module: { default?: unknown };
 	try {
-		forgetModules(place.realPath);
-		module = await import(pathToFileURL(join(place.realPath, CODE)).href);
+		forgetModules(place.codePath);
+		module = await import(
+			pathToFileURL(join(place.codePath, 'epicenter.ts')).href
+		);
 	} catch (error) {
 		return thrown(error);
 	}
