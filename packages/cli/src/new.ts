@@ -1,6 +1,5 @@
 /** Create an app container from a template or a filtered tracked code copy. */
 import {
-	lstat,
 	mkdir,
 	mkdtemp,
 	readdir,
@@ -13,7 +12,7 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { isLocalPath } from '@epicenter/app';
+import { checkoutCodeFiles, isCopiedCodePath } from './code-copy.js';
 import { misuse, nameProblem, parseWords } from './commands.ts';
 import { ENGINES } from './engines.ts';
 import { CliError } from './errors.ts';
@@ -245,73 +244,15 @@ async function copySource(
 				return usage(
 					`${from} contains a gitlink; copy a folder without embedded repositories`,
 				);
-			const selected = entries.filter(({ path }) => {
-				const relative =
-					source.folder === '' ? path : path.slice(source.folder.length + 1);
-				return (
-					relative !== 'data' &&
-					!relative.startsWith('data/') &&
-					!relative.split('/').includes('node_modules') &&
-					!isLocalPath(relative) &&
-					relative !== 'ui/dist' &&
-					!relative.startsWith('ui/dist/') &&
-					relative !== 'SOURCE.md'
-				);
-			});
-			const attributes = await git(
-				clone,
-				['check-attr', '--cached', '-z', '--stdin', 'filter'],
-				{ input: `${selected.map(({ path }) => path).join('\0')}\0` },
+			const selected = entries.filter(({ path }) =>
+				isCopiedCodePath(
+					source.folder === '' ? path : path.slice(source.folder.length + 1),
+				),
 			);
-			if (attributes.code !== 0) throw new Error(attributes.stderr);
-			const fields = attributes.stdout.split('\0');
-			const lfs: string[] = [];
-			for (let i = 0; i + 2 < fields.length; i += 3) {
-				const path = fields[i] ?? '';
-				if (
-					fields[i + 2] === 'lfs' &&
-					selected.some(
-						(entry) => entry.path === path && entry.mode.startsWith('100'),
-					)
-				)
-					lfs.push(path);
-			}
-			if (lfs.length && (await git(clone, ['lfs', 'version'])).code !== 0)
-				return usage(
-					`${from} contains Git LFS files; install git-lfs and run git lfs install before copying it`,
-				);
+			let lfs: string[];
 			const staging = await mkdtemp(join(appsDir(), name, '.code-build-copy-'));
 			try {
-				const checkout = await git(
-					clone,
-					[
-						'-c',
-						'filter.lfs.smudge=git-lfs smudge -- %f',
-						'-c',
-						'filter.lfs.process=git-lfs filter-process',
-						'-c',
-						'filter.lfs.required=true',
-						'checkout-index',
-						`--prefix=${staging}/`,
-						'-z',
-						'--stdin',
-					],
-					{ input: `${selected.map(({ path }) => path).join('\0')}\0` },
-				);
-				if (checkout.code !== 0)
-					throw new Error(checkout.stderr || checkout.stdout);
-				for (const path of lfs) {
-					const file = join(staging, path);
-					if (
-						(await lstat(file)).size < 1024 &&
-						(await readFile(file, 'utf8')).startsWith(
-							'version https://git-lfs.github.com/spec/v1\n',
-						)
-					)
-						throw new Error(
-							`${path} is still a Git LFS pointer; run git lfs install and ensure the source LFS object is available`,
-						);
-				}
+				lfs = await checkoutCodeFiles(clone, selected, staging);
 				await rename(join(staging, source.folder), folder);
 			} finally {
 				await rm(staging, { recursive: true, force: true });

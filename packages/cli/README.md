@@ -45,6 +45,8 @@ epicenter init <folder>
 epicenter init --from <private-origin> <folder>
 epicenter new notes
 epicenter new recipes --from <path-or-url>
+epicenter export tasks ~/Code/shared-apps/tasks
+epicenter export --all ~/Code/shared-apps
 epicenter install
 epicenter build
 epicenter checkpoint
@@ -53,7 +55,7 @@ epicenter serve
 epicenter --version
 ```
 
-The commands are `init`, `new`, `install`, `build`, `checkpoint`, `serve`,
+The commands are `init`, `new`, `export`, `install`, `build`, `checkpoint`, `serve`,
 and `service`. Their usage and help live in `src/commands.ts`.
 Any other first word names an app. `--json` and `--help` (`-h`) go anywhere
 before `--`; `--version` is read only on its own. Each command parses flags
@@ -285,6 +287,77 @@ Install failure leaves the created app for repair. Copy or load failure removes
 only the container this command created. Opening a page triggers its first UI
 build; new does not build it.
 
+## Export app code
+
+Work in your live Epicenter and refresh a separate collection when you want to
+share its code. Export writes local files. Review, commit, and push that
+collection with ordinary Git; its history stays separate from your private
+Epicenter's code and records ([ADR-0911](../../docs/adr/0911-export-copies-an-apps-committed-code-into-a-refreshable-directory.md)).
+
+```sh
+epicenter export tasks ~/Code/shared-apps/tasks
+epicenter export --all ~/Code/shared-apps
+```
+
+The single-app form writes to the exact directory you name. `--all` writes one
+child directory per app, including future apps after their code is committed.
+Each child has `epicenter.ts` at its root, with no `code/` wrapper or `data/`.
+An app exported to its own Git repository has the same shape as an app in a
+collection. Someone can take one with:
+
+```sh
+epicenter new tasks --from https://github.com/OWNER/shared-apps#tasks
+```
+
+Replace `OWNER` with the collection owner's GitHub username.
+
+Export reads one committed `HEAD` snapshot for the entire invocation. It never
+imports app code or changes the live repository's index, refs, or files. It
+reports uncommitted code changes that were left out. To include pending changes,
+commit them first. `--all` reports apps that exist only on disk rather than
+silently omitting them.
+
+The copy excludes `data/`, `.local` paths, `node_modules`, `ui/dist`, `.DS_Store`, `SOURCE.md`,
+and export markers, even if tracked. It preserves binary bytes and executable
+modes, and materializes Git LFS files. Internal symbolic links keep their
+targets when the targets are included. A relative link to a committed regular
+shared file outside `apps/`, such as the root `theme.css`, becomes a regular
+file in the exported app. Export refuses links into another app, records, local
+files, missing files, shared directories, or outside the Epicenter. It does
+not rewrite imports or discover arbitrary dependencies outside `code/`.
+
+Repeating the command refreshes its output, including removing deleted source
+files. A `.epicenter-export.json` in each exported app records its app name and
+content digest. Unchanged output is left untouched. Export refuses unrelated
+nonempty directories and output edited since the last export, even if those
+edits were committed in the public repository. Move contributions into the live
+app before refreshing. The marker contains no local paths or private commit
+identities, and `new --from` leaves it out of the recipient's copy.
+Finder's `.DS_Store` files do not count as edits.
+
+An exported app's top-level `.git` directory or file survives refresh. The
+collection's root README, license files, Git repository, and unrelated children
+are left alone. Export destinations must be outside the live Epicenter and
+cannot contain it. A failed app leaves its previous output intact while `--all`
+continues with other apps. Exports whose source app was removed are reported
+as stale and left in place for you to remove deliberately.
+Unfinished `.epicenter-export-*` work directories block another export and are
+named in its error. Inspect them for the previous output and its Git metadata
+before removing them; a run interrupted during replacement can leave them as
+the recovery copy.
+One invocation holds the destination parent lock through the whole export.
+A collection refresh and a single-app export into that collection exclude each
+other. A busy lock or unfinished work directory refuses either form before any
+app is attempted, with exit 2.
+
+`--json` reports `{ commit, apps, omitted }`. Each app has `app`, `directory`,
+and `status`: `created`, `updated`, `unchanged`, `refused`, `failed`, or `stale`.
+Successful app reports include `materialized: [{ path, from }]` and
+`uncommitted`; problems have `problem`. `omitted` lists on-disk apps without a
+committed code tree. Exit 0 means the export completed; exit 1 means a failed,
+refused, stale, or omitted app needs attention; exit 2 means the invocation did
+not run.
+
 ## Recover selected paths
 
 Inspect history before restoring:
@@ -303,8 +376,8 @@ Select that commit's code or data prefix instead.
 
 The live working tree is shared. Branch switches, stashes, and resets affect
 all running apps' code and records. Keep experiments outside the live Epicenter.
-Publishing code requires a deliberate separate code-only history; the CLI
-builds no publication workflow.
+Publishing uses the exported code's separate history. The CLI exports local
+files; you review, commit, and push them with Git.
 
 ## Build a UI
 

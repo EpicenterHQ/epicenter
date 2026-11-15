@@ -2,14 +2,21 @@
  * The compiled `epicenter` (`scripts/compile.ts`) carries `@epicenter/app`
  * and writes it out for an app's tools: a UI bundled from `ui/index.html`
  * resolves `@epicenter/app/client` through the link to that copy, with no
- * source checkout to fall back on. Compiling takes several seconds, so this
- * is the one test that runs the binary.
+ * source checkout to fall back on. Compiling takes several seconds, so
+ * these tests share one compiled binary.
  */
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from 'bun:test';
-import { mkdtemp, readFile, readlink, realpath, rm } from 'node:fs/promises';
+import {
+	mkdtemp,
+	readFile,
+	readlink,
+	realpath,
+	rm,
+	writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fixture, gitignore, header } from './runner.test-support.ts';
+import { fixture, gitIn, gitignore, header } from './runner.test-support.ts';
 
 setDefaultTimeout(120_000);
 
@@ -31,6 +38,56 @@ beforeAll(async () => {
 		throw new Error(await new Response(compile.stderr).text());
 });
 afterAll(() => rm(dir, { recursive: true, force: true }));
+
+test('compiled export refreshes a collection without importing app code or copying private records', async () => {
+	const f = await fixture();
+	try {
+		await f.folder(
+			f.home,
+			{
+				'apps/tasks/code/epicenter.ts':
+					'throw new Error("export must not import me");',
+				'apps/tasks/data/private.md': 'private record',
+			},
+			{ git: true },
+		);
+		const destination = join(f.root, 'shared-apps');
+		for (const status of ['created', 'updated']) {
+			const child = Bun.spawn([bin, 'export', '--all', destination, '--json'], {
+				cwd: f.home,
+				env: f.env,
+				stdout: 'pipe',
+				stderr: 'pipe',
+			});
+			const [stdout, stderr, code] = await Promise.all([
+				new Response(child.stdout).text(),
+				new Response(child.stderr).text(),
+				child.exited,
+			]);
+			expect({ code, stderr }).toEqual({ code: 0, stderr: '' });
+			expect(JSON.parse(stdout).apps[0].status).toBe(status);
+			expect(
+				await Bun.file(join(destination, 'tasks/data/private.md')).exists(),
+			).toBe(false);
+			if (status === 'created') {
+				await writeFile(join(f.apps, 'tasks/code/added.txt'), 'added');
+				await gitIn(f.home, 'add', '--', 'apps/tasks/code/added.txt');
+				await gitIn(
+					f.home,
+					'commit',
+					'--no-verify',
+					'-qm',
+					'next code snapshot',
+				);
+			}
+		}
+		expect(await readFile(join(destination, 'tasks/added.txt'), 'utf8')).toBe(
+			'added',
+		);
+	} finally {
+		await rm(f.root, { recursive: true, force: true });
+	}
+});
 
 test('a compiled epicenter writes out the @epicenter/app it carries and builds a UI against it', async () => {
 	const f = await fixture();
