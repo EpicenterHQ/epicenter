@@ -1132,3 +1132,8 @@ When you add an ADR, add its row here.
 | [0914](0914-action-errors-share-one-contract-and-the-envelope-records-execution.md) | Action errors share one contract and the envelope records execution | Accepted |
 | [0915](0915-serve-owns-a-pages-runs-and-a-file-input-is-a-temporary-upload.md) | Serve owns a page's runs and a file input is a temporary upload | Accepted |
 | [0916](0916-export-saves-a-local-checkpoint-before-copying-code.md) | Export saves a local checkpoint before copying code | Proposed (amends 0910 and 0911) |
+| [0917](0917-a-collection-selects-a-record-by-its-keys-and-a-file-that-is-not-there-reads-as-absent.md) | A collection selects a record by its keys, and a file that is not there reads as absent | Proposed |
+| [0918](0918-a-collection-declares-its-files-beside-its-fields-and-they-rest-in-the-folder-named-by-its-key.md) | A collection declares its files beside its fields, and they rest in the folder named by its key | Proposed |
+| [0919](0919-a-field-can-list-values-and-can-refer-to-another-collections-record-by-its-key.md) | A field can list values and can refer to another collection's record by its key | Proposed |
+| [0920](0920-epicenter-check-reports-every-record-that-does-not-fit-its-collection.md) | `epicenter check` reports every record that does not fit its collection | Proposed |
+| [0921](0921-a-file-reaches-an-action-as-its-own-input-beside-input-on-any-call.md) | A file reaches an action as its own input beside `input`, on any call | Proposed (amends 0915) |
