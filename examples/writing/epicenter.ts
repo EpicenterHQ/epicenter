@@ -51,7 +51,7 @@ const search = defineAction({
 		const found = [];
 		for (const row of (await notes.list()).reverse()) {
 			if (project !== undefined && row.project !== project) continue;
-			const note = await notes.get({ path: row.path });
+			const note = await notes.get(row);
 			if (
 				note &&
 				[note.body, note.source, note.project]

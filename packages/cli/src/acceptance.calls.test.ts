@@ -185,7 +185,7 @@ export default defineApp({ description: 'Many fields', collections: { items }, a
 	});
 	const runs = await Promise.all(
 		fields.map((key, i) =>
-			f.run('many', 'items', 'set', 'data/items/one.md', `--${key}`, String(i)),
+			f.run('many', 'items', 'set', 'one', `--${key}`, String(i)),
 		),
 	);
 	// Calls serialize read-modify-write operations across processes.

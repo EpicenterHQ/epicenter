@@ -84,7 +84,7 @@ test('problems are counted by kind, most frequent first, then listed by file, an
 			'  items  data/items/{id}.md',
 			'    5 files, 4 with problems',
 			'    2  due is not a day like 2026-11-12',
-			'    1  its front matter is neither key: <JSON> lines nor YAML',
+			'    1  its front matter is not key: <JSON> lines or YAML between two --- lines',
 			'    1  title is missing',
 			'    data/items/a.md',
 			'      due: "next week" is not a day like 2026-11-12',
@@ -93,7 +93,7 @@ test('problems are counted by kind, most frequent first, then listed by file, an
 			'    data/items/c.md',
 			'      title is missing',
 			'    data/items/d.md',
-			'      its front matter is neither key: <JSON> lines nor YAML',
+			'      its front matter is not key: <JSON> lines or YAML between two --- lines',
 			'  notes  data/notes/{slug}.md',
 			'    0 files',
 			'  settings  data/settings.md',
@@ -127,7 +127,7 @@ test('--json keys each collection by app and name, with its counts, kinds, and r
 					kinds: [
 						{ kind: 'due is not a day like 2026-11-12', count: 2 },
 						{
-							kind: 'its front matter is neither key: <JSON> lines nor YAML',
+							kind: 'its front matter is not key: <JSON> lines or YAML between two --- lines',
 							count: 1,
 						},
 						{ kind: 'title is missing', count: 1 },
@@ -145,7 +145,7 @@ test('--json keys each collection by app and name, with its counts, kinds, and r
 						{
 							path: 'data/items/d.md',
 							problems: [
-								'its front matter is neither key: <JSON> lines nor YAML',
+								'its front matter is not key: <JSON> lines or YAML between two --- lines',
 							],
 						},
 					],

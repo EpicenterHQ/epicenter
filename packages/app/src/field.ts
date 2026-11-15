@@ -5,7 +5,7 @@
  * action lists it; MCP shows it as a property of the tool's input.
  *
  * A field is required unless it says `optional`. A switch (`boolean`) and a
- * list (`list`, `tags`) are never required: an absent switch is `false`, an
+ * list (`list`) is never required: an absent switch is `false`, an
  * absent list is empty. A collection's field that says `readOnly` is written
  * only by the app's own actions: the exposed `add` and `set` leave it out.
  * Fields describe data; an action declares private input handling separately.
@@ -86,16 +86,13 @@ export type TList<T extends TSchema> = TOptional<TArray<T>> & {
 	default: Static<T>[];
 };
 
-/** A list of text, as `field.tags()` makes it. */
-export type TTags = TList<TString>;
-
 /** The JSON Schema keyword a reference carries: `{ "x-epicenter-ref": { "path": "<the target's path>" } }`. */
 const REF = 'x-epicenter-ref';
 
 /** `collection`'s path, refusing a collection a key cannot name one record of. */
 function refPath(collection: AnyCollection): string {
-	const { path, holds } = (collection ?? {}) as Partial<AnyCollection>;
-	if (typeof path !== 'string' || typeof holds !== 'function')
+	const path = (collection as Partial<AnyCollection> | undefined)?.path;
+	if (typeof path !== 'string')
 		throw new Error(
 			'field.ref takes a collection made by defineCollection(...)',
 		);
@@ -277,9 +274,6 @@ export const field = {
 	 * as a `Type.Object`, is given as JSON.
 	 */
 	list,
-
-	/** A list of text: `field.list(field.text())`. */
-	tags: <const O extends Options>(options?: O) => list(Type.String(), options),
 
 	/**
 	 * The key of a record in `collection`: the value of the one placeholder in

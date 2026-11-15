@@ -12,8 +12,9 @@
  * Front matter in that grammar is patched line by line, keeping every line a
  * write does not change. Other YAML front matter is read too, so Zhongwen's
  * or Obsidian's `text: 银行` is a field, not body, and the first write
- * rewrites it in the grammar, keeping the body (ADR-0862). A file whose front
- * matter is neither is read with its whole text as body, and never rewritten.
+ * rewrites it in the grammar, keeping the body (ADR-0862). A file that opens
+ * with `---` and is neither, or never closes it, has front matter that cannot
+ * be read: its whole text is body, and it is never rewritten.
  */
 /** A JSON value. */
 export type JsonValue =
@@ -155,14 +156,18 @@ function patchFrontMatter(
 
 export type FieldValues = Record<string, JsonValue>;
 
-/** A file's fields and body as read, and whether its fields may be rewritten. */
-type Read = { fields: FieldValues; body: string; writable: boolean };
+/** A file's fields and body as read, and whether its front matter could be read, so may be rewritten. */
+type Read = { fields: FieldValues; body: string; readable: boolean };
 
 function isRecord(value: unknown): value is FieldValues {
 	return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-/** A Markdown file's fields: `key: <JSON>` lines, else YAML; else none, and the whole text is body. */
+/**
+ * A Markdown file's fields: `key: <JSON>` lines, else YAML. A file that does
+ * not open with `---` has none, and its whole text is body; one that opens
+ * with `---` and is neither, or has no closing `---`, is not `readable`.
+ */
 export function readMarkdown(text: string): Read {
 	const parts = split(text);
 	if (parts)
@@ -171,22 +176,23 @@ export function readMarkdown(text: string): Read {
 				parts.fields.map(({ key, value }) => [key, value]),
 			),
 			body: parts.body,
-			writable: true,
+			readable: true,
 		};
 	const open = /^---\r?\n/.exec(text);
-	const rest = open ? text.slice(open[0].length) : '';
-	const close = open ? /^---[ \t]*(\r?\n|$)/m.exec(rest) : null;
-	if (!open || !close) return { fields: {}, body: text, writable: true };
+	if (!open) return { fields: {}, body: text, readable: true };
+	const rest = text.slice(open[0].length);
+	const close = /^---[ \t]*(\r?\n|$)/m.exec(rest);
+	if (!close) return { fields: {}, body: text, readable: false };
 	try {
 		const value = Bun.YAML.parse(rest.slice(0, close.index));
 		if (value === null || isRecord(value))
 			return {
 				fields: value ?? {},
 				body: rest.slice(close.index + close[0].length),
-				writable: true,
+				readable: true,
 			};
 	} catch {}
-	return { fields: {}, body: text, writable: false };
+	return { fields: {}, body: text, readable: false };
 }
 
 /** A Markdown file of `fields` as `key: <JSON>` lines, then `body`. */

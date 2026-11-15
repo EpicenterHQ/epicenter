@@ -30,7 +30,7 @@ epicenter writing search reading
 epicenter writing search --project 'My essay'
 ```
 
-Use a returned path with `epicenter writing get PATH` to read one note.
+Use a returned time with `epicenter writing get TIME` to read one note.
 The CLI lists every action with `epicenter writing`. `set` changes fields;
 `edit` changes an exact passage in the body. The UI edits only the body.
 MCP offers the same actions at the server root. Start by asking an assistant

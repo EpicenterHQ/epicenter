@@ -390,12 +390,12 @@ test("D8 an app of one collection's verbs adds, reads, changes, and deletes its 
 	// Refused before anything is written: by the command line (2) or by the collection (1).
 	const refused = [
 		[
-			['set', 'data/items/dune.md', '--kind', 'poem'],
+			['set', 'dune', '--kind', 'poem'],
 			2,
 			'--kind must be one of thought, link, quote',
 		],
 		[
-			['set', 'data/items/dune.md', '--added', '2026-13-45'],
+			['set', 'dune', '--added', '2026-13-45'],
 			2,
 			'--added must be a day like 2026-11-12',
 		],
@@ -411,25 +411,13 @@ test("D8 an app of one collection's verbs adds, reads, changes, and deletes its 
 			"<id> must be a file's name for {id} in data/items/{id}.md: no / or \\\\, and not starting with .",
 		],
 		[
-			['set', 'data/items/new-one.md', '--kind', 'link'],
+			['set', 'new-one', '--kind', 'link'],
 			1,
 			'There is no data/items/new-one.md',
 		],
-		[
-			['set', 'notes/dune.md', '--kind', 'link'],
-			1,
-			'notes/dune.md is not a file at data/items/{id}.md',
-		],
-		[
-			['set', 'data/items/dune.md', '--kind', 'null'],
-			2,
-			'--kind does not take null',
-		],
-		[
-			['set', '--input', '{"path":"data/items/dune.md","added":null}'],
-			2,
-			'added',
-		],
+		[['set', 'a\\b', '--kind', 'link'], 1, 'cannot name a file'],
+		[['set', 'dune', '--kind', 'null'], 2, '--kind does not take null'],
+		[['set', '--input', '{"id":"dune","added":null}'], 2, 'added'],
 	] as const;
 	for (const [args, code, message] of refused) {
 		const result = await json(...args);
@@ -439,22 +427,23 @@ test("D8 an app of one collection's verbs adds, reads, changes, and deletes its 
 	expect(await readFile(join(folder, 'data/items/dune.md'), 'utf8')).toContain(
 		'kind: "quote"',
 	);
+	// A person is told how to make the record a set or edit did not find.
+	expect(
+		await f.run('capture', 'edit', 'new-one', '--old', '', '--new', 'x'),
+	).toEqual({
+		code: 1,
+		stdout: '',
+		stderr: 'There is no data/items/new-one.md\nRun: epicenter capture add\n',
+	});
 
 	expect(
-		(
-			await json(
-				'set',
-				'data/items/dune.md',
-				'--url',
-				'https://example.com/dune',
-			)
-		).code,
+		(await json('set', 'dune', '--url', 'https://example.com/dune')).code,
 	).toBe(0);
 	expect(
 		(
 			await json(
 				'edit',
-				'data/items/dune.md',
+				'dune',
 				'--old',
 				'mind-killer',
 				'--new',
@@ -476,7 +465,7 @@ test("D8 an app of one collection's verbs adds, reads, changes, and deletes its 
 			],
 		},
 	});
-	expect((await f.run('capture', 'get', 'data/items/dune.md')).stdout).toBe(
+	expect((await f.run('capture', 'get', 'dune')).stdout).toBe(
 		'path: data/items/dune.md\nid: dune\nkind: quote\nurl: https://example.com/dune\nadded: 2026-11-09\nbody: |\n  Fear is the little-death.\n',
 	);
 
@@ -504,12 +493,12 @@ test("D8 an app of one collection's verbs adds, reads, changes, and deletes its 
 		expect(added.isError).toBeFalsy();
 		const bad = await client.callTool({
 			name: 'capture_set',
-			arguments: { path: 'data/items/petrichor.md', kind: 'poem' },
+			arguments: { id: 'petrichor', kind: 'poem' },
 		});
 		expect(bad.isError).toBe(true);
 		const deleted = await client.callTool({
 			name: 'capture_delete',
-			arguments: { path: 'data/items/dune.md' },
+			arguments: { id: 'dune' },
 		});
 		expect(deleted.structuredContent).toEqual({
 			returned: true,
@@ -530,4 +519,25 @@ test("D8 an app of one collection's verbs adds, reads, changes, and deletes its 
 			],
 		},
 	});
+});
+
+test('D9 a collection with no placeholder is made by add on a fresh install, and a set before then names add', async () => {
+	const f = await setup();
+	await f.app(
+		'prefs',
+		`const settings = defineCollection({ path: 'data/settings.md', fields: { goal: field.integer() } });
+export default defineApp({ description: 'Preferences', collections: { settings }, actions: { settings: settings.actions() } });
+`,
+	);
+	expect(await f.run('prefs', 'settings', 'set', '--goal', '4')).toEqual({
+		code: 1,
+		stdout: '',
+		stderr: 'There is no data/settings.md\nRun: epicenter prefs settings add\n',
+	});
+	expect((await f.run('prefs', 'settings', 'get')).code).toBe(1);
+	expect((await f.run('prefs', 'settings', 'add', '--goal', '3')).code).toBe(0);
+	expect((await f.run('prefs', 'settings', 'set', '--goal', '4')).code).toBe(0);
+	expect((await f.run('prefs', 'settings', 'get')).stdout).toBe(
+		'path: data/settings.md\ngoal: 4\nbody: ""\n',
+	);
 });

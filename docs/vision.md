@@ -256,9 +256,9 @@ export default defineApp({
 ```
 
 Tasks' actions are the collection's six, `tasks list`, `get`, `add`, `set`,
-`edit`, and `delete`, with `add` replaced by the one written here. A record's
-address is its path:
-`epicenter tasks set data/tasks/2026-11-10T09-30-00-000Z-k3x9a2f8.md --done`. On
+`edit`, and `delete`, with `add` replaced by the one written here. A verb names
+a record by its keys, the values of its path's placeholders:
+`epicenter tasks set 2026-11-10T09-30-00-000Z-k3x9a2f8 --done`. On
 the command line an action's `positional` fields are read by position:
 `epicenter tasks add 'Call the bank'`. An action reads and writes through its
 collections, or through the `folder` it imports; whatever runs it supplies the

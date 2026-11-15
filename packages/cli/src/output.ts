@@ -66,25 +66,30 @@ export function writeErr(text: string) {
 
 /**
  * An answer as a person reads it, and its exit code: a returned value on
- * stdout, and on stderr what the action threw, or why nothing ran with its
- * next step. 0: it returned. 1: it
- * threw, or ended without an answer. 2: it did not run.
+ * stdout, and on stderr what the action threw, or why nothing ran, with its
+ * next step when there is one. 0: it returned. 1: it threw, or ended without
+ * an answer. 2: it did not run.
  */
-export function renderAnswer(answer: Answer): {
+export function renderAnswer(
+	answer: Answer,
+	/** The next step after what the action threw, which only the command line knows. */
+	afterThrow?: string,
+): {
 	stdout: string;
 	stderr: string;
 	code: 0 | 1 | 2;
 } {
+	const run = (next: string | undefined) => (next ? `Run: ${next}\n` : '');
 	if ('error' in answer) {
 		const { message, next } = answer.error;
-		return {
-			stdout: '',
-			stderr: `${message}\n${next ? `Run: ${next}\n` : ''}`,
-			code: 2,
-		};
+		return { stdout: '', stderr: `${message}\n${run(next)}`, code: 2 };
 	}
 	if ('threw' in answer)
-		return { stdout: '', stderr: `${answer.threw.message}\n`, code: 1 };
+		return {
+			stdout: '',
+			stderr: `${answer.threw.message}\n${run(afterThrow)}`,
+			code: 1,
+		};
 	return { ...readable(answer.returned), code: 0 };
 }
 
@@ -184,8 +189,12 @@ function readable(value: unknown): { stdout: string; stderr: string } {
 }
 
 /** Present an answer, as one JSON value or for a person, and return its exit code. */
-export function presentAnswer(answer: Answer, json: boolean): number {
-	const { stdout, stderr, code } = renderAnswer(answer);
+export function presentAnswer(
+	answer: Answer,
+	json: boolean,
+	afterThrow?: string,
+): number {
+	const { stdout, stderr, code } = renderAnswer(answer, afterThrow);
 	if (json) writeJson(answer);
 	else {
 		process.stdout.write(stdout);

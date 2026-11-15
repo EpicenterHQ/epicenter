@@ -8,7 +8,6 @@
  * Key behaviors:
  * - a list reads as `[]` when its line is absent and is written as JSON
  * - an item that does not fit is refused by what each item must be
- * - `field.tags()` is `field.list(field.text())`
  *
  * See also:
  * - `app.types.test.ts` for the types a list gives
@@ -37,9 +36,7 @@ function setup() {
 }
 
 test('a list reads as empty when its line is absent', async () => {
-	const dune = await inRun(setup(), () =>
-		books.get({ path: 'data/books/dune.md' }),
-	);
+	const dune = await inRun(setup(), () => books.get({ book: 'dune' }));
 	expect(dune).toEqual({
 		path: 'data/books/dune.md',
 		book: 'dune',
@@ -75,20 +72,9 @@ test('lists of text, select, and number are written as JSON lines', async () => 
 
 test('a list item that does not fit its field is refused, naming what each must be', async () => {
 	const refused = inRun(setup(), () =>
-		books.set({ path: 'data/books/dune.md', platforms: ['mastodon'] as never }),
+		books.set({ book: 'dune' }, { platforms: ['mastodon'] as never }),
 	);
 	await expect(refused).rejects.toThrow(
 		'data/books/dune.md: platforms: ["mastodon"] is not a list, each one of x, threads',
 	);
-});
-
-test('field.tags() is field.list(field.text())', () => {
-	expect(JSON.stringify(field.tags({ description: 'Labels' }))).toBe(
-		JSON.stringify(field.list(field.text(), { description: 'Labels' })),
-	);
-	expect(JSON.parse(JSON.stringify(field.tags()))).toEqual({
-		type: 'array',
-		items: { type: 'string' },
-		default: [],
-	});
 });

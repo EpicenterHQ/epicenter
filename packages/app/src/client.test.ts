@@ -121,14 +121,10 @@ test('connect uses an explicit app without page globals', async () => {
 
 test("a call posts its input to the action's address and answers what the action returned", async () => {
 	answer({ returned: { path: 'data/books/Dune.md' } });
-	expect<unknown>(
-		expectOk(await app.get({ path: 'data/books/Dune.md' })),
-	).toEqual({
+	expect<unknown>(expectOk(await app.get({ title: 'Dune' }))).toEqual({
 		path: 'data/books/Dune.md',
 	});
-	expect(sent).toEqual([
-		{ url: '/reading/get', input: { path: 'data/books/Dune.md' } },
-	]);
+	expect(sent).toEqual([{ url: '/reading/get', input: { title: 'Dune' } }]);
 });
 
 test('each value the action yields reaches onYield in order, however the lines arrive in chunks', async () => {
@@ -195,9 +191,7 @@ test('each way serve answers without a value is its own error', async () => {
 		},
 	});
 	expect(
-		expectErr(
-			await app.edit({ path: 'data/books/Dune.md', old: 'a', new: 'b' }),
-		),
+		expectErr(await app.edit({ title: 'Dune', old: 'a', new: 'b' })),
 	).toMatchObject({
 		name: 'Changed',
 		path: 'data/books/Dune.md',
@@ -215,9 +209,7 @@ test('each way serve answers without a value is its own error', async () => {
 			},
 		},
 	});
-	expect(
-		expectErr(await app.get({ path: 'data/books/Dune.md' })),
-	).toMatchObject({
+	expect(expectErr(await app.get({ title: 'Dune' }))).toMatchObject({
 		name: 'Missing',
 		path: 'data/books/Dune.md',
 	});
@@ -231,14 +223,14 @@ test('each way serve answers without a value is its own error', async () => {
 	answer({
 		error: {
 			name: 'InputError',
-			message: 'path is required',
-			next: 'Give a path',
+			message: 'title is required',
+			next: 'Give a title',
 		},
 	});
 	expect(expectErr(await app.list())).toMatchObject({
 		name: 'Refused',
-		message: 'path is required',
-		next: 'Give a path',
+		message: 'title is required',
+		next: 'Give a title',
 	});
 
 	globalThis.fetch = (async () =>
@@ -452,10 +444,10 @@ test('request and response read failures resolve as Unreachable, while invalid l
 	expect(expectErr(await app.list()).name).toBe('Unreachable');
 	await expect(
 		app.get({
-			path: 'a',
+			title: 'a',
 			toJSON() {
 				throw new Error('invalid input');
 			},
-		} as { path: string }),
+		} as { title: string }),
 	).rejects.toThrow('invalid input');
 });
