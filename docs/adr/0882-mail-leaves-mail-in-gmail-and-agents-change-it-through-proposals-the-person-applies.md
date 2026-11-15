@@ -5,6 +5,7 @@
 - **Amended:** 2026-11-12: Mail holds several Gmail accounts, one file each, named by address; nothing syncs on `serve`'s clock, and a read catches the caches up from Gmail's history instead (ADR-0849 has no schedules); a full sync fills an account's cache in place, its `meta` saying how complete it is, and no sync removes a message until Gmail says it is gone; every read answers with each account's freshness and never refuses for one account; cache writes commute, so syncs and reads apply history at once and only a full sync takes the account's lock; a sync waits out Gmail's quota and a read does not; `connect` finishes in the terminal it waits in, then copies the account, and answers only once it is searchable.
 - **Amended:** 2026-11-15: Gmail connects from Mail's private HTTPS page on any device. One Web application OAuth client replaces the Desktop client and temporary loopback listener. The browser keeps state and a PKCE verifier in sessionStorage; Google returns to the same static Mail page, which scrubs its query and calls `finish`. The Studio keeps the client secret and refresh tokens. No application login, callback server, or server-side pending-attempt store is added. Authorization finishes before the browser starts the existing resumable sync. Changing OAuth client requires reconnecting each account once, preserving caches and proposals.
 - **Amended:** 2026-11-15: Mail shows one row per account and conversation. The person uses Archive, Read/Unread, and Move to Trash directly in its reader. These explicit choices create no proposal; Gmail holds their result. Proposals remain agent suggestions requiring review. Both paths share one live message operation. Reader actions capture the displayed message ids, leave later replies alone, and update cached labels using Gmail's message version without advancing the history cursor. Message search remains available to agents.
+- **Amended:** 2026-11-15: The Studio owns each browser-started download through the existing experimental action-run API. Mail starts one `sync` run per account and observes its yielded progress. Closing the page stops only observation; reopening the same browser attaches to its pending receipts without starting another copy. Pause explicitly cancels the host run, including Gmail quota waits. The account's resumable cache survives an interrupted host, but restarting the server does not automatically rerun the action. Mail adds no job store or schedule.
 - **Amended:** 2026-11-13: the review UI reads account caches, binds approval to the reviewed file and selected ids, and keeps outside edits behind a new review.
 - **Amended:** 2026-11-13: Mail opens the inbox, with account and label selection, bounded search pages, and a plain-text conversation reader; proposal review stays intact across reading and workspace switches. Read catch-up cancels after three seconds per account and answers from the cache.
 - **Unbuilt:** `draft`. Built: `connect`, `sync`, `status`, `mailboxes`, `search`, `thread`, proposals, `apply`, the mailbox UI, and the proposal review UI, in Mail's own repository (`braden-w/mail`), with plain `fetch` against Google's REST endpoints and tests against a fake Google.
@@ -70,9 +71,15 @@ complete through, and `filling`, present while a full sync runs, is `first`
   consumption; Mail keeps no server-side pending sign-in record. The page
   sends no referrer and loads no third-party resources. The phone needs only
   its browser and access to the Studio, with no SSH port forwarding.
-  `finish` returns before downloading. The browser then calls the existing
-  streaming `sync` action and shows progress and Pause; closing the page can
-  stop that copy. Continue download resumes it. Reconnect never deletes a
+  `finish` returns before downloading. The browser then starts one Studio-owned
+  `sync` run for that account and observes the action's yielded progress.
+  Accepted work continues after the tab closes. The existing run client keeps
+  a browser-local receipt; returning attaches to that id and replays progress
+  or the final result. Pause explicitly cancels the host run. Another browser
+  sees account-level progress from the cache but has no receipt for Pause.
+  The host owns its event log outside Git; Mail keeps no job database or
+  timer. A server restart interrupts the run without rerunning it. Continue
+  download resumes its saved cache. Reconnect never deletes a
   cache or a proposal. The former interactive terminal command, temporary
   listener, and paste-URL path are removed. A new OAuth client requires a
   one-time reconnect for every existing mailbox; its files remain readable.
