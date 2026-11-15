@@ -787,6 +787,79 @@ describe('problem rows', () => {
 			},
 		]);
 	});
+
+	test('check gives each problem line with its kind, the line without its value', async () => {
+		const context = createMemoryContext({
+			'data/items/a.md': '---\nkind: "song"\nadded: "next week"\n---\n',
+			'data/items/b.md': '---\nkind: "thought"\nadded: "soon"\n---\n',
+			'data/items/c.md': '---\nkind: "thought"\n---\n',
+			'data/items/d.md': '---\nkind: [unclosed\n---\n',
+			'data/items/e.md': '---\nkind: "thought"\nadded: "2026-11-01"\n---\n',
+		});
+		const added = {
+			line: 'added: "soon" is not a day like 2026-11-12',
+			kind: 'added is not a day like 2026-11-12',
+		};
+		expect(await inRun(context, () => items.check())).toEqual({
+			files: 5,
+			records: [
+				{
+					path: 'data/items/a.md',
+					problems: [
+						{
+							line: 'kind: "song" is not one of thought, link, quote',
+							kind: 'kind is not one of thought, link, quote',
+						},
+						{ ...added, line: added.line.replace('soon', 'next week') },
+					],
+				},
+				{ path: 'data/items/b.md', problems: [added] },
+				{
+					path: 'data/items/c.md',
+					problems: [{ line: 'added is missing', kind: 'added is missing' }],
+				},
+				{
+					path: 'data/items/d.md',
+					problems: [
+						{
+							line: 'its front matter is neither key: <JSON> lines nor YAML',
+							kind: 'its front matter is neither key: <JSON> lines nor YAML',
+						},
+					],
+				},
+			],
+		});
+		// The rows of the same files keep problems as lines.
+		expect(
+			(await inRun(context, () => items.list())).find(
+				(row) => row.path === 'data/items/b.md',
+			)?.problems,
+		).toEqual([added.line]);
+	});
+
+	test('check of a one-file collection counts no file while it is absent', async () => {
+		expect(await inRun(createMemoryContext(), () => settings.check())).toEqual({
+			files: 0,
+			records: [],
+		});
+		const context = createMemoryContext({
+			'data/settings.md': '---\nvoice: "robot"\n---\n',
+		});
+		expect(await inRun(context, () => settings.check())).toEqual({
+			files: 1,
+			records: [
+				{
+					path: 'data/settings.md',
+					problems: [
+						{
+							line: 'voice: "robot" is not one of female, male',
+							kind: 'voice is not one of female, male',
+						},
+					],
+				},
+			],
+		});
+	});
 });
 
 describe('outside a run', () => {

@@ -21,6 +21,7 @@ export {
 	type FileOf,
 	type Handle,
 	type ManyHandle,
+	type Problem,
 	type Row,
 	type SingleHandle,
 	type Verb,
