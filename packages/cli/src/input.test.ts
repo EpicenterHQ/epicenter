@@ -1,7 +1,7 @@
 /** Action matching separates name words from values and flags; a refusal names the field as the caller gave it. */
 
 import { expect, test } from 'bun:test';
-import { defineAction, field } from '@epicenter/app';
+import { defineAction, defineCollection, field } from '@epicenter/app';
 import { Type } from 'typebox';
 import { checkInput, matchAction, readInput, usageLine } from './input.ts';
 
@@ -57,12 +57,19 @@ test("a number's refusal names its bounds", () => {
 	});
 });
 
+const shelves = defineCollection({
+	path: 'data/shelves/{shelf}.md',
+	fields: {},
+});
+
 const shelve = defineAction({
 	description: 'Shelve',
 	input: {
 		ratings: field.list(field.integer({ min: 1, max: 5 })),
 		platforms: field.list(field.select(['x', 'threads'])),
 		days: field.list(field.date()),
+		shelf: field.ref(shelves, { optional: true }),
+		shelves: field.list(field.ref(shelves)),
 		tags: field.list(field.text()),
 	},
 	positional: ['tags'],
@@ -79,6 +86,12 @@ test('a list takes each item from a repeated flag, read as its item, and every w
 			'threads',
 			'--days',
 			'2026-11-08',
+			'--shelf',
+			'essays',
+			'--shelves',
+			'essays',
+			'--shelves',
+			'poems',
 			'a',
 			'b',
 		]),
@@ -88,12 +101,14 @@ test('a list takes each item from a repeated flag, read as its item, and every w
 			ratings: [4, 5],
 			platforms: ['threads'],
 			days: ['2026-11-08'],
+			shelf: 'essays',
+			shelves: ['essays', 'poems'],
 			tags: ['a', 'b'],
 		},
 	});
 	expect(await readInput(shelve, [])).toEqual({
 		ok: true,
-		input: { ratings: [], platforms: [], days: [], tags: [] },
+		input: { ratings: [], platforms: [], days: [], shelves: [], tags: [] },
 	});
 });
 
@@ -126,6 +141,20 @@ test('a list the command line cannot spell is refused as flags and taken in --in
 		'epicenter party invite [--people (only in --input)]',
 	);
 	expect(usageLine('books', 'shelve', shelve)).toBe(
-		'epicenter books shelve [<tags>...] [--ratings <number>...] [--platforms <x|threads>...] [--days <date>...]',
+		'epicenter books shelve [<tags>...] [--ratings <number>...] [--platforms <x|threads>...] [--days <date>...] [--shelf <text>] [--shelves <text>...]',
 	);
+});
+
+test('a reference in an action input is checked as text only', async () => {
+	expect(await readInput(shelve, ['--shelf', 'no-such-shelf'])).toEqual({
+		ok: true,
+		input: {
+			shelf: 'no-such-shelf',
+			ratings: [],
+			platforms: [],
+			days: [],
+			shelves: [],
+			tags: [],
+		},
+	});
 });

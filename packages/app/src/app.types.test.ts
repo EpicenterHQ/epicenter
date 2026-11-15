@@ -187,12 +187,18 @@ describe('an app author', () => {
 		assertType<Equal<SetIn, { path: string }>>();
 	});
 
-	test('a list reads as an array and is optional to write', () => {
+	test('a list reads as an array, is optional to write, and a reference is text', () => {
+		const shelves = defineCollection({
+			path: 'data/shelves/{shelf}.md',
+			fields: {},
+		});
 		const books = defineCollection({
 			path: 'data/books/{book}.md',
 			fields: {
 				platforms: field.list(field.select(['x', 'threads'])),
 				ratings: field.list(field.integer(), { readOnly: true }),
+				shelf: field.ref(shelves),
+				shelves: field.list(field.ref(shelves)),
 				people: field.list(Type.Object({ name: Type.String() })),
 			},
 		});
@@ -205,6 +211,8 @@ describe('an app author', () => {
 					book: string;
 					platforms: ('x' | 'threads')[];
 					ratings: number[];
+					shelf?: string;
+					shelves: string[];
 					people: { name: string }[];
 					problems?: string[];
 				}
@@ -217,6 +225,8 @@ describe('an app author', () => {
 				{
 					book: string;
 					platforms?: ('x' | 'threads')[];
+					shelf: string;
+					shelves?: string[];
 					people?: { name: string }[];
 					body?: string;
 				}
@@ -225,15 +235,17 @@ describe('an app author', () => {
 		const shelve = defineAction({
 			description: 'Shelve',
 			input: {
-				platforms: field.list(field.select(['x', 'threads'])),
+				shelves: field.list(field.ref(shelves)),
+				shelf: field.ref(shelves, { optional: true }),
 			},
-			run: ({ platforms }) => {
-				assertType<Equal<typeof platforms, ('x' | 'threads')[]>>();
-				return platforms.length;
+			run: ({ shelves, shelf }) => {
+				assertType<Equal<typeof shelves, string[]>>();
+				assertType<Equal<typeof shelf, string | undefined>>();
+				return shelves.length;
 			},
 		});
 		assertType<
-			Equal<ActionInput<typeof shelve>, { platforms?: ('x' | 'threads')[] }>
+			Equal<ActionInput<typeof shelve>, { shelves?: string[]; shelf?: string }>
 		>();
 		assertType<
 			Equal<

@@ -22,6 +22,9 @@ import {
 	Type,
 } from 'typebox';
 import { Value } from 'typebox/value';
+import type { AnyCollection } from './collection.ts';
+import { isLocalPath } from './context.ts';
+import { template } from './path.ts';
 
 export const MAX_FILE_BYTES = 15 * 1024 * 1024;
 export const FILE_REFERENCE_PREFIX = 'epicenter-file:';
@@ -85,6 +88,36 @@ export type TList<T extends TSchema> = TOptional<TArray<T>> & {
 
 /** A list of text, as `field.tags()` makes it. */
 export type TTags = TList<TString>;
+
+/** The JSON Schema keyword a reference carries: `{ "x-epicenter-ref": { "path": "<the target's path>" } }`. */
+const REF = 'x-epicenter-ref';
+
+/** `collection`'s path, refusing a collection a key cannot name one record of. */
+function refPath(collection: AnyCollection): string {
+	const { path, holds } = (collection ?? {}) as Partial<AnyCollection>;
+	if (typeof path !== 'string' || typeof holds !== 'function')
+		throw new Error(
+			'field.ref takes a collection made by defineCollection(...)',
+		);
+	if (isLocalPath(path))
+		throw new Error(
+			`field.ref cannot refer to ${path}: it never leaves this computer, so a key to one of its records would be read where the record is not`,
+		);
+	const { placeholders } = template(path);
+	if (placeholders.length !== 1)
+		throw new Error(
+			`field.ref names a record by its key, the one placeholder in its collection's path, and ${path} has ${placeholders.length === 0 ? 'none' : placeholders.length}`,
+		);
+	return path;
+}
+
+/** The path of the collection a `field.ref` schema names, or `undefined` for any other schema. */
+export function refPathOf(schema: unknown): string | undefined {
+	if (typeof schema !== 'object' || schema === null) return undefined;
+	const annotation = (schema as Record<string, unknown>)[REF];
+	const path = (annotation as { path?: unknown } | undefined)?.path;
+	return typeof path === 'string' ? path : undefined;
+}
 
 /** A list of `item`, optional and empty unless given. */
 function list<const T extends TSchema, const O extends Options>(
@@ -247,6 +280,26 @@ export const field = {
 
 	/** A list of text: `field.list(field.text())`. */
 	tags: <const O extends Options>(options?: O) => list(Type.String(), options),
+
+	/**
+	 * The key of a record in `collection`: the value of the one placeholder in
+	 * its path, so `field.ref(essays)` for `data/essays/{slug}.md` holds a slug
+	 * such as `"dune"`. `collection` is declared before the field that names
+	 * it. A collection's `add` and `set` refuse a key with no record, or one
+	 * that is not exactly the key its file would carry; a read returns the key
+	 * and opens no other file.
+	 */
+	ref: <const O extends MaybeOptional>(
+		collection: AnyCollection,
+		options?: O,
+	) =>
+		maybeOptional(
+			Type.String({
+				...schemaOptions(options),
+				[REF]: { path: refPath(collection) },
+			}) as TString,
+			options,
+		),
 };
 
 type Described = {
