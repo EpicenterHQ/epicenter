@@ -4,6 +4,8 @@
 - **Date:** 2026-11-15
 - **Amends:** [ADR-0910](0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md): settles local code export; the private root and publication histories stay separate.
 
+- **Proposed amendment:** [ADR-0916](0916-export-saves-a-local-checkpoint-before-copying-code.md) adds local checkpointing before export, factual checkpoint subjects, and backup uploads outside the root lock.
+
 ## Context
 
 A person develops and uses apps inside their private Epicenter, then shares

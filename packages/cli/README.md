@@ -287,8 +287,8 @@ A placeholder such as `time` prints as a field: the command reads only the answe
 
 `epicenter checkpoint [-m <message>] [--json]` requires the selected Epicenter
 to be the top of its repository. It serializes on the root directory lock,
-waiting up to 30 seconds for another checkpoint. That lock is independent of
-app write locks. A checkpoint can capture a partial agent edit or some of a
+waiting up to 30 seconds for another local snapshot. It releases the lock before
+uploading the backup. That lock is independent of app write locks. A checkpoint can capture a partial agent edit or some of a
 running action's writes; it does not establish transaction boundaries.
 
 Before staging, it defers during a merge, rebase, revert, or cherry-pick.
@@ -306,11 +306,15 @@ requires app code, so missing or broken code does not prevent data from being
 recorded.
 
 The operation runs `git add -A` and commits all included files together,
-including what the person already staged. The subject is `checkpoint` or the
-supplied message. It makes no commit when nothing changed. The shared branch
+including what the person already staged. The default subject describes changed
+app code, records, and root files, such as `checkpoint: mail code, vault records`.
+Long subjects use a file count. `-m` preserves the supplied message unchanged.
+It makes no commit when nothing changed. The shared branch
 and index belong to every app; make a named commit before risky work.
 
-The optional root origin receives an ordinary push of the current branch.
+The optional root origin receives an ordinary push of the exact saved commit
+to its captured branch. Uploading holds no root lock, so another local snapshot
+can proceed while the network is slow.
 It stays private because it receives every app's records. Checkpoints never
 pull, merge, rebase, or force-push. A non-fast-forward refusal leaves the remote
 unchanged and suggests fetching and inspecting it by hand. Unpushed history
@@ -319,8 +323,8 @@ process-group deadline. A later pass retries outstanding pushes without
 requiring a new commit.
 
 JSON reports `{ committed, pushed, origin, deferred?, failed?, pushFailed? }`.
-`committed` is `{ commit, files }` or null. `origin` is `{ ahead }` from local
-tracking refs, or null when no count is available. Problems carry
+`committed` is `{ commit, files }` or null. `origin` is `{ ahead }` for the saved
+commit against local tracking refs, or null when no count is available. Problems carry
 `{ message, next? }`. Exit 0 means no deferral or failure; otherwise exit 1.
 Text output uses the same result. No fetch refreshes the ahead count.
 
@@ -372,8 +376,8 @@ copy, excluding records, local files, dependencies, builds, and provenance.
 The source is not changed or committed automatically.
 
 The private development commit and the public publication commit are separate.
-Committing an app in your Epicenter makes its code available to `export`;
-exporting writes files into the publication folder. Commit those exported files
+Export saves a local checkpoint of your Epicenter and writes code into the
+publication folder. Commit those exported files
 there before asking someone to copy that version with `new --from`. A refreshed
 export that is not committed is still outside the publication's copied commit.
 
@@ -451,10 +455,19 @@ epicenter export tasks ~/Code/my-project/code
 The single-app form puts `epicenter.ts` directly in the exact directory you
 name. `new --from` accepts a repository with this `code/` wrapper too.
 
-Export reads one committed `HEAD` snapshot for the invocation. It never imports
-app code or changes the live repository's index, refs, or files. It reports
-uncommitted code changes that were left out. To include pending changes, commit
-them first. `--all` reports apps that exist only on disk.
+Export first saves a local checkpoint of the whole private Epicenter, including
+pending code, records, and staged files. It then reads that exact commit for
+the invocation. You do not need to wait for the scheduled checkpoint or run one
+manually. Export does not upload the private backup; the normal checkpoint
+clock or a later `epicenter checkpoint` can upload it. A backup connection
+problem does not block export.
+
+If the local checkpoint fails or is deferred, export stops before changing the
+output. It never falls back to older code. Destination checks happen before the
+checkpoint, so a mistaken target does not create a private commit. Export never
+imports apps or edits source working files. Concurrent edits after the snapshot
+are left for the next export; pending source changes are reported. `--all`
+reports on-disk apps whose code is excluded from the checkpoint.
 
 The copy excludes `data/`, `.local` paths, `node_modules`, `ui/dist`, `.DS_Store`,
 `SOURCE.md`, and export markers, even if tracked. It preserves binary bytes and
@@ -484,10 +497,12 @@ directory is not atomic: an interruption or write failure can leave incomplete
 output. Its ownership marker remains, so rerun the same command before
 reviewing or committing. Export keeps no rollback copies of generated files.
 
-`--json` reports `{ commit, directory, apps, omitted }`. Each app has `app`,
+`--json` reports `{ commit, checkpoint, directory, apps, omitted }`. `checkpoint`
+is `{ commit, files }` for a new local commit, or null when nothing changed.
+`commit` always names the exported snapshot. Each app has `app`,
 `materialized: [{ path, from }]`, and `uncommitted`. `omitted` lists on-disk
-apps without a committed code tree. Exit 0 means the export completed; exit 1
-means omitted uncommitted apps need attention; exit 2 means a failure or
+apps without a code tree in the saved snapshot. Exit 0 means the export
+completed; exit 1 means omitted apps need attention; exit 2 means a failure or
 refusal. Refusals and failures use the CLI's error envelope.
 
 ## Recover selected paths

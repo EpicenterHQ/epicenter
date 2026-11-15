@@ -1128,3 +1128,4 @@ When you add an ADR, add its row here.
 | [0911](0911-export-copies-an-apps-committed-code-into-a-refreshable-directory.md) | Export copies an app's committed code into a refreshable directory | Accepted (amends 0910) |
 | [0912](0912-shared-app-code-comes-from-the-app-we-maintain.md) | Shared app code comes from the app we maintain | Proposed (amends 0891) |
 | [0913](0913-cli-developer-previews-are-non-latest-github-releases.md) | CLI developer previews are non-latest GitHub releases | Proposed (amends 0892) |
+| [0916](0916-export-saves-a-local-checkpoint-before-copying-code.md) | Export saves a local checkpoint before copying code | Proposed (amends 0910 and 0911) |

@@ -154,7 +154,7 @@ Your data is on the home, and whoever can read the home can read it.
 
 ### Apps
 
-Every app in this repository is an outside app
+Applications under `apps/` are outside apps
 ([apps/README.md](apps/README.md)).
 
 | App | What it is |

@@ -26,6 +26,7 @@ import {
 	sep,
 } from 'node:path';
 import { extractErrorMessage } from 'wellcrafted/error';
+import { snapshot } from './checkpoint.js';
 import {
 	checkoutCodeFiles,
 	EXPORT_MARKER,
@@ -218,8 +219,8 @@ async function checkLinks(
 
 /**
  * Regenerate one owned directory, holding all committed apps or one app.
- * Repeating either invocation refreshes the same directories. No Git index,
- * ref, remote or working file in the live Epicenter is changed.
+ * Save a local checkpoint first, then export its exact commit without uploading
+ * the private backup. Repeating either invocation refreshes the same directory.
  */
 export async function exportCommand(
 	words: string[],
@@ -243,10 +244,15 @@ export async function exportCommand(
 			refuse(
 				'Export needs this Epicenter to be the root of its Git repository',
 			);
-		const head = await git(source, ['rev-parse', '--verify', 'HEAD']);
-		if (head.code !== 0)
-			refuse('This Epicenter has no commit to export; commit its code first');
-		const commit = head.stdout;
+		const marker: ExportMarker =
+			app === undefined ? { export: 'all' } : { export: 'app', app };
+		await checkDestination(directory, marker);
+		const saved = await snapshot(source);
+		const problem = saved.deferred ?? saved.failed;
+		if (problem) return fail(CliError.Refused(problem).error, json);
+		if (!saved.head)
+			refuse('This Epicenter has no included files to checkpoint');
+		const commit = saved.head;
 		scratch = await mkdtemp(join(tmpdir(), 'epicenter-export-source-'));
 		const repository = join(scratch, 'repository');
 		await checkedGit(source, [
@@ -308,9 +314,6 @@ export async function exportCommand(
 					`${app} contains a gitlink; export code without embedded repositories`,
 				);
 		}
-		const marker: ExportMarker =
-			app === undefined ? { export: 'all' } : { export: 'app', app };
-		await checkDestination(directory, marker);
 		const tree = join(scratch, 'tree');
 		const output = join(scratch, 'output');
 		await mkdir(tree);
@@ -372,8 +375,19 @@ export async function exportCommand(
 				await rm(join(directory, name), { recursive: true, force: true });
 		}
 		await cp(output, directory, { recursive: true, verbatimSymlinks: true });
-		if (json) writeJson({ commit, directory, apps: reports, omitted });
+		if (json)
+			writeJson({
+				commit,
+				checkpoint: saved.committed,
+				directory,
+				apps: reports,
+				omitted,
+			});
 		else {
+			if (saved.committed)
+				writeOut(
+					`Saved local checkpoint: ${saved.committed.commit} (${saved.committed.files} files)`,
+				);
 			writeOut(
 				`Exported ${reports.length} app${reports.length === 1 ? '' : 's'} to ${directory}`,
 			);
@@ -385,7 +399,7 @@ export async function exportCommand(
 					);
 				if (report.uncommitted)
 					writeErr(
-						`${report.app}: uncommitted source changes were not exported`,
+						`${report.app}: source changed after the checkpoint; run export again to include it`,
 					);
 			}
 			for (const name of omitted)

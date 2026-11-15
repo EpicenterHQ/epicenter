@@ -5,8 +5,8 @@ Epicenter. Its notes stay in that Epicenter's private `apps/writing/data/`.
 The exported files use the same `new --from` path as any other shared app.
 There is no named template or bundled writing app in the CLI.
 
-To refresh this code after changing the maintained app, commit its code in
-your private Epicenter and export it:
+To refresh this code after changing the maintained app, export it from your
+private Epicenter. Export saves a local checkpoint before copying code:
 
 ```sh
 epicenter export writing "$REPOSITORY/examples/writing"
