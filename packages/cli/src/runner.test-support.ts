@@ -135,7 +135,15 @@ export async function startServe(
 				throw new Error('serve did not listen');
 			}),
 		]);
-		return { base, stop, stderr: () => output };
+		return {
+			base,
+			stop,
+			kill: async () => {
+				child.kill('SIGKILL');
+				return child.exited;
+			},
+			stderr: () => output,
+		};
 	} catch (error) {
 		await stop();
 		throw error;

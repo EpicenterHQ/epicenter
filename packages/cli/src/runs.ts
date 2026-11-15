@@ -3,8 +3,8 @@
  * directory. Cancellation is cooperative; recovery marks a non-terminal
  * record interrupted at startup or on read and never reruns its action.
  * Limits: 15 MiB/file, 1 MiB admission JSON, 256 KiB/yield, 4 MiB/log with
- * 1 KiB reserved for a terminal event, 512 MiB upload admission budget,
- * 8 active runs, 64 observers, and 1000 run directories.
+ * 1 KiB reserved for a terminal event, a 512 MiB admission threshold,
+ * 32 active runs, and 64 observers. Admission and events stream from SQLite.
  * A finish with a returned answer deletes input bytes. Other outcomes retain
  * them until the 24-hour terminal TTL. Orphan uploads and parts expire in 1 hour.
  */
@@ -35,6 +35,12 @@ import { checkInput } from './input.ts';
 import { type Answer, writeErr } from './output.ts';
 import { epicenterDir, folderPath } from './root.ts';
 import { runAction } from './run.ts';
+import {
+	LogFull,
+	openRunStore,
+	type RunStore,
+	type RunRecord as StoredRunRecord,
+} from './run-store.ts';
 
 const MAX_RUNTIME_BYTES = 512 * 1024 * 1024;
 const MAX_INPUT_BYTES = 1024 * 1024;
@@ -57,7 +63,7 @@ type FileMeta = {
 	reference: string;
 	uploadedAt: string;
 };
-type RunRecord = {
+type LegacyRecord = {
 	version: 1;
 	id: string;
 	app: string;
@@ -68,6 +74,7 @@ type RunRecord = {
 	endedAt?: string;
 	files: Record<string, Pick<FileMeta, 'name' | 'type' | 'size' | 'sha256'>>;
 };
+type RunRecord = StoredRunRecord;
 type EventFields =
 	| { type: 'accepted' | 'started' | 'cancel-requested' }
 	| { type: 'yielded'; value: unknown }
@@ -90,7 +97,10 @@ const hexField = (field: string) => Buffer.from(field, 'utf8').toString('hex');
 const object = (value: unknown): value is Record<string, unknown> =>
 	typeof value === 'object' && value !== null && !Array.isArray(value);
 const usage = (status: number, message: string, next?: string) =>
-	Response.json({ error: CliError.Usage({ message, next }).error }, { status });
+	Response.json(
+		{ error: CliError.Usage({ message, next }).error, admitted: false },
+		{ status },
+	);
 const missing = () => usage(404, 'Unknown run route or run');
 
 function withinRoot(path: string, root: string) {
@@ -204,7 +214,15 @@ async function writeAll(handle: FileHandle, bytes: Uint8Array) {
 	}
 }
 
-export function createRunHost() {
+export function createRunHost(
+	options: { limits?: { runtimeBytes?: number }; now?: () => number } = {},
+) {
+	const runtimeLimit = options.limits?.runtimeBytes ?? MAX_RUNTIME_BYTES;
+	const now = options.now ?? Date.now;
+	let store: RunStore;
+	let initialized = false;
+	let storeClosed = false;
+	let requests = 0;
 	let dir: string | undefined;
 	let unavailable: string | undefined;
 	let runtimeBytes = 0;
@@ -220,7 +238,20 @@ export function createRunHost() {
 	const busy = new Map<string, number>();
 	const subscribers = new Map<string, Set<(event: HostEvent) => void>>();
 	const observers = new Set<() => void>();
-	const sequences = new Map<string, number>();
+
+	function closeWhenIdle() {
+		if (
+			stopped &&
+			initialized &&
+			!storeClosed &&
+			claimed.size === 0 &&
+			locks.size === 0 &&
+			requests === 0
+		) {
+			storeClosed = true;
+			store.close();
+		}
+	}
 
 	async function exclusive<T>(key: string, work: () => Promise<T>): Promise<T> {
 		const previous = locks.get(key) ?? Promise.resolve();
@@ -230,6 +261,7 @@ export function createRunHost() {
 			return await next;
 		} finally {
 			if (locks.get(key) === next) locks.delete(key);
+			closeWhenIdle();
 		}
 	}
 
@@ -278,25 +310,23 @@ export function createRunHost() {
 		}
 	}
 
-	async function logOf(run: RunLocation): Promise<HostEvent[]> {
-		let text: string;
-		try {
-			text = await readFile(join(run.dir, 'events.ndjson'), 'utf8');
-		} catch (cause) {
-			if ((cause as NodeJS.ErrnoException).code === 'ENOENT') return [];
-			throw cause;
-		}
-		const lines = text.split('\n');
-		const events: HostEvent[] = [];
-		for (const [index, line] of lines.entries()) {
+	async function readLegacyEvents(run: RunLocation): Promise<HostEvent[]> {
+		const text = await readFile(join(run.dir, 'events.ndjson'), 'utf8').catch(
+			(cause: NodeJS.ErrnoException) => {
+				if (cause.code === 'ENOENT') return '';
+				throw cause;
+			},
+		);
+		const result: HostEvent[] = [];
+		for (const line of text.split('\n')) {
 			if (!line.trim()) continue;
 			try {
 				const value: unknown = JSON.parse(line);
 				if (
-					!object(value) ||
-					!Number.isSafeInteger(value.seq) ||
-					typeof value.at !== 'string' ||
-					![
+					object(value) &&
+					Number.isSafeInteger(value.seq) &&
+					typeof value.at === 'string' &&
+					[
 						'accepted',
 						'started',
 						'yielded',
@@ -305,54 +335,27 @@ export function createRunHost() {
 						'interrupted',
 					].includes(String(value.type))
 				)
-					throw new Error('Invalid run log');
-				events.push(value as HostEvent);
-			} catch (cause) {
-				// Recovery appends a newline after a torn tail, leaving that fragment
-				// before the next valid event. It never consumes a sequence number.
-				if (cause instanceof SyntaxError) continue;
-				if (index === lines.length - 1) break;
-				throw cause;
+					result.push(value as HostEvent);
+			} catch {
+				/* A legacy log can have a torn tail. */
 			}
 		}
-		return events;
+		return result;
 	}
 
-	/** Caller holds the run mutex; publish only after the append is durable. */
+	/** Publish only after the SQLite transaction commits. */
 	async function append(
 		run: RunLocation,
 		fields: EventFields,
 		limit = MAX_LOG_BYTES,
 	) {
-		const path = join(run.dir, 'events.ndjson');
-		const seq =
-			(sequences.get(run.key) ?? (await logOf(run)).at(-1)?.seq ?? 0) + 1;
-		const event = { seq, at: new Date().toISOString(), ...fields } as HostEvent;
-		const serialized = JSON.stringify(event);
-		const persisted = JSON.parse(serialized) as HostEvent;
-		const handle = await open(path, 'a+', 0o600);
-		try {
-			const { size } = await handle.stat();
-			let prefix = '';
-			if (size > 0) {
-				const last = new Uint8Array(1);
-				await handle.read(last, 0, 1, size - 1);
-				if (last[0] !== 10) prefix = '\n';
-			}
-			const bytes = new TextEncoder().encode(`${prefix}${serialized}\n`);
-			if (size + bytes.byteLength > limit)
-				throw new Error('The run event log would exceed 4 MiB');
-			await writeAll(handle, bytes);
-			await handle.datasync();
-			runtimeBytes += bytes.byteLength;
-		} catch (cause) {
-			sequences.delete(run.key);
-			throw cause;
-		} finally {
-			await handle.close();
-		}
-		sequences.set(run.key, seq);
-		for (const publish of subscribers.get(run.key) ?? []) publish(persisted);
+		const event = store.append(
+			run.app,
+			run.id,
+			{ ...fields, at: new Date(now()).toISOString() },
+			{ limit },
+		) as HostEvent;
+		for (const publish of subscribers.get(run.key) ?? []) publish(event);
 		return event;
 	}
 
@@ -418,39 +421,41 @@ export function createRunHost() {
 		record: RunRecord,
 		message = RECOVERY_MESSAGE,
 	) {
-		if (terminal(record)) return;
-		const log = await logOf(run);
-		const finished = log.findLast(
-			(event) => event.type === 'finished' || event.type === 'interrupted',
-		);
-		if (!finished) await append(run, { type: 'interrupted', message });
-		record.state = finished?.type === 'finished' ? 'finished' : 'interrupted';
-		record.endedAt = finished?.at ?? new Date().toISOString();
-		await atomicJson(join(run.dir, 'record.json'), record);
-		if (finished?.type === 'finished' && 'returned' in finished.answer)
-			await deleteBins(run);
+		if (!terminal(record)) await append(run, { type: 'interrupted', message });
 	}
 
 	async function sweep() {
 		return exclusive('$sweep', async () => {
+			for (const item of store.expire(
+				now() - DAY_MS,
+				new Set([...claimed.keys(), ...busy.keys()]),
+			)) {
+				const run = location(item.app, '', item.id);
+				if (claimed.has(run.key) || busy.has(run.key)) continue;
+				const info = await sizeOf(run.dir).catch(() => ({
+					bytes: 0,
+					newest: 0,
+				}));
+				await rm(run.dir, { recursive: true, force: true });
+				runtimeBytes = Math.max(0, runtimeBytes - info.bytes);
+			}
 			for (const run of await runDirs()) {
 				if (claimed.has(run.key) || busy.has(run.key)) continue;
 				await exclusive(run.key, async () => {
 					if (claimed.has(run.key) || busy.has(run.key)) return;
-					const record = await jsonFile<RunRecord>(
+					const legacy = await jsonFile<LegacyRecord>(
 						join(run.dir, 'record.json'),
 					);
+					if (legacy && !store.record(run.app, run.id))
+						store.importLegacy(legacy, await readLegacyEvents(run));
 					const info = await sizeOf(run.dir);
 					if (
-						(record &&
-							terminal(record) &&
-							record.endedAt &&
-							Date.parse(record.endedAt) < Date.now() - DAY_MS) ||
-						(!record && info.newest < Date.now() - HOUR_MS)
+						!store.record(run.app, run.id) &&
+						!legacy &&
+						info.newest < now() - HOUR_MS
 					) {
 						await rm(run.dir, { recursive: true, force: true });
 						runtimeBytes = Math.max(0, runtimeBytes - info.bytes);
-						sequences.delete(run.key);
 						return;
 					}
 					for (const folder of [run.dir, join(run.dir, 'files')]) {
@@ -458,14 +463,14 @@ export function createRunHost() {
 							for (const name of await readdir(folder)) {
 								if (
 									name.includes('.part-') &&
-									(await stat(join(folder, name))).mtimeMs <
-										Date.now() - HOUR_MS
+									(await stat(join(folder, name))).mtimeMs < now() - HOUR_MS
 								)
 									await deleteFile(join(folder, name));
 							}
 					}
 				});
 			}
+			store.compact();
 		});
 	}
 
@@ -473,12 +478,16 @@ export function createRunHost() {
 		try {
 			dir = await resolveRuntimeDir();
 			await makeDir(join(dir, 'runs'));
-			runtimeBytes = (await sizeOf(dir)).bytes;
+			runtimeBytes = (await sizeOf(join(dir, 'runs'))).bytes;
+			store = openRunStore({ path: join(dir, 'runs.sqlite') });
 			for (const run of await runDirs()) {
-				const record = await jsonFile<RunRecord>(join(run.dir, 'record.json'));
-				if (record && !terminal(record))
-					await exclusive(run.key, () => interrupt(run, record));
+				const record = await jsonFile<LegacyRecord>(
+					join(run.dir, 'record.json'),
+				);
+				if (record) store.importLegacy(record, await readLegacyEvents(run));
 			}
+			for (const record of store.nonTerminal())
+				await interrupt(location(record.app, record.action, record.id), record);
 			await sweep();
 			if (!stopped) {
 				clock = setInterval(
@@ -491,6 +500,8 @@ export function createRunHost() {
 				);
 				clock.unref();
 			}
+			initialized = true;
+			closeWhenIdle();
 		} catch (cause) {
 			unavailable = cause instanceof Error ? cause.message : String(cause);
 		}
@@ -545,9 +556,23 @@ export function createRunHost() {
 			return usage(400, 'Invalid file name encoding');
 		}
 		const reserved = await exclusive('$quota', async () => {
-			if (runtimeBytes + reservedBytes + length > MAX_RUNTIME_BYTES)
+			if (
+				runtimeBytes +
+					store.sizes() +
+					reservedBytes +
+					length +
+					claimed.size * MAX_LOG_BYTES >
+				runtimeLimit
+			)
 				await sweep();
-			if (runtimeBytes + reservedBytes + length > MAX_RUNTIME_BYTES)
+			if (
+				runtimeBytes +
+					store.sizes() +
+					reservedBytes +
+					length +
+					claimed.size * MAX_LOG_BYTES >
+				runtimeLimit
+			)
 				return false;
 			reservedBytes += length;
 			return true;
@@ -613,7 +638,7 @@ export function createRunHost() {
 						'A different file was already uploaded for this run and field',
 					);
 				}
-				if (await exists(join(run.dir, 'record.json')))
+				if (store.record(run.app, run.id))
 					return usage(409, 'This run has already been admitted');
 				const reference = `${FILE_REFERENCE_PREFIX}${run.id}:${hex}:${sha256.slice(0, 32)}`;
 				await rename(part, join(files, `${hex}.bin`));
@@ -703,8 +728,6 @@ export function createRunHost() {
 		try {
 			await exclusive(run.key, async () => {
 				await append(run, { type: 'started' });
-				record.state = 'running';
-				await atomicJson(join(run.dir, 'record.json'), record);
 			});
 			let answer: Answer;
 			try {
@@ -733,11 +756,7 @@ export function createRunHost() {
 				try {
 					await append(run, { type: 'finished', answer });
 				} catch (cause) {
-					if (
-						!(cause instanceof Error) ||
-						cause.message !== 'The run event log would exceed 4 MiB'
-					)
-						throw cause;
+					if (!(cause instanceof LogFull)) throw cause;
 					// An oversized return value still leaves a bounded terminal envelope.
 					answer = {
 						error: CliError.Usage({
@@ -746,18 +765,13 @@ export function createRunHost() {
 					};
 					await append(run, { type: 'finished', answer });
 				}
-				record.state = 'finished';
-				record.endedAt = new Date().toISOString();
-				await atomicJson(join(run.dir, 'record.json'), record);
 				if ('returned' in answer) await deleteBins(run);
 			});
 		} catch (cause) {
 			try {
 				await exclusive(run.key, async () => {
 					// A finished log is already definitive, even if its record update failed.
-					const persisted = await jsonFile<RunRecord>(
-						join(run.dir, 'record.json'),
-					);
+					const persisted = store.record(run.app, run.id);
 					await interrupt(
 						run,
 						persisted ?? { ...record, state: 'running' },
@@ -771,6 +785,7 @@ export function createRunHost() {
 			}
 		} finally {
 			claimed.delete(run.key);
+			closeWhenIdle();
 		}
 	}
 
@@ -783,6 +798,7 @@ export function createRunHost() {
 		if (!located.ok)
 			return Response.json(
 				{
+					admitted: false,
 					error: CliError.AppProblems({
 						app: run.app,
 						problems: located.problems,
@@ -810,102 +826,108 @@ export function createRunHost() {
 			: hash(
 					JSON.stringify(stable({ action: run.action, input: checked.input })),
 				);
-		if ((await runDirs()).length >= 1000) await sweep();
-		return exclusive(run.key, () =>
-			exclusive('$admissions', async () => {
-				const existing = await jsonFile<RunRecord>(
-					join(run.dir, 'record.json'),
-				);
-				if (existing) {
-					if (
-						existing.action === run.action &&
-						(action.privateInput || existing.inputDigest === inputDigest)
-					)
-						return Response.json({ id: run.id, state: existing.state });
+		return exclusive(run.key, async () => {
+			let existing = store.record(run.app, run.id);
+			if (existing) {
+				if (!terminal(existing) && !claimed.has(run.key)) {
+					await interrupt(run, existing);
+					existing = store.record(run.app, run.id)!;
+				}
+				if (
+					existing.action !== run.action ||
+					(!action.privateInput && existing.inputDigest !== inputDigest)
+				)
 					return usage(
 						409,
 						'This run id was already admitted with different input or action',
 					);
-				}
-				const files = Object.create(null) as RunRecord['files'];
-				const decoded = { ...checked.input };
-				for (const [field, schema] of Object.entries(action.input)) {
-					if (!fileFieldOf(schema) || checked.input[field] === undefined)
-						continue;
-					const hex = hexField(field);
-					const meta = await jsonFile<FileMeta>(
-						join(run.dir, 'files', `${hex}.json`),
+				// A join was already admitted; its observer limit response has no refusal marker.
+				return events(request, run, existing, true, 0);
+			}
+			const files = Object.create(null) as RunRecord['files'];
+			const decoded = { ...checked.input };
+			for (const [field, schema] of Object.entries(action.input)) {
+				if (!fileFieldOf(schema) || checked.input[field] === undefined)
+					continue;
+				const hex = hexField(field);
+				const meta = await jsonFile<FileMeta>(
+					join(run.dir, 'files', `${hex}.json`),
+				);
+				const binPath = join(run.dir, 'files', `${hex}.bin`);
+				if (
+					!meta ||
+					checked.input[field] !== meta.reference ||
+					!(await exists(binPath))
+				)
+					return usage(
+						400,
+						`The file for ${field} was not uploaded for this run`,
 					);
-					const binPath = join(run.dir, 'files', `${hex}.bin`);
-					if (
-						!meta ||
-						checked.input[field] !== meta.reference ||
-						!(await exists(binPath))
-					)
-						return usage(
-							400,
-							`The file for ${field} was not uploaded for this run`,
-						);
-					const { name, type, size, sha256 } = meta;
-					files[field] = { name, type, size, sha256 };
-					decoded[field] = Object.freeze({
-						name,
-						type,
-						size,
-						path: () => binPath,
-						bytes: async () =>
-							new Uint8Array(await Bun.file(binPath).arrayBuffer()),
-						text: () => Bun.file(binPath).text(),
-						toJSON: () => ({ name, type, size }),
-					} satisfies UploadedFile & {
-						toJSON(): { name: string; type: string; size: number };
-					});
-				}
-				if (claimed.size >= 8)
-					return usage(503, 'Eight runs are already active on this host');
-				const count = (await runDirs()).length;
-				if (count > 1000 || (count === 1000 && !(await exists(run.dir))))
-					return usage(507, 'The runtime directory has too many runs');
-				await makeDir(join(dir as string, 'runs', run.app));
-				await makeDir(run.dir);
-				const record: RunRecord = {
-					version: 1,
-					id: run.id,
-					app: run.app,
-					action: run.action,
-					...(inputDigest === undefined ? {} : { inputDigest }),
-					acceptedAt: new Date().toISOString(),
-					state: 'accepted',
-					files,
-				};
-				await atomicJson(join(run.dir, 'record.json'), record);
-				await append(run, { type: 'accepted' });
-				await syncDir(run.dir);
-				const controller = new AbortController();
-				claimed.set(run.key, { controller, cancelRequested: false });
-				// Detached from request.signal: only explicit cancellation owns this signal.
-				void execute(run, record, located, action, decoded, controller).catch(
-					(cause) => writeErr(`Run executor failed: ${String(cause)}`),
-				);
-				return Response.json(
-					{ id: run.id, state: 'accepted' },
-					{ status: 202 },
-				);
-			}),
-		);
+				const { name, type, size, sha256 } = meta;
+				files[field] = { name, type, size, sha256 };
+				decoded[field] = Object.freeze({
+					name,
+					type,
+					size,
+					path: () => binPath,
+					bytes: async () =>
+						new Uint8Array(await Bun.file(binPath).arrayBuffer()),
+					text: () => Bun.file(binPath).text(),
+					toJSON: () => ({ name, type, size }),
+				} satisfies UploadedFile & {
+					toJSON(): { name: string; type: string; size: number };
+				});
+			}
+			if (
+				runtimeBytes +
+					store.sizes() +
+					reservedBytes +
+					(claimed.size + 1) * MAX_LOG_BYTES >
+				runtimeLimit
+			)
+				await sweep();
+			// No await between the capacity checks, commit, and claiming the run.
+			if (claimed.size >= 32)
+				return usage(429, 'Thirty-two runs are already active on this host');
+			if (
+				runtimeBytes +
+					store.sizes() +
+					reservedBytes +
+					(claimed.size + 1) * MAX_LOG_BYTES >
+				runtimeLimit
+			)
+				return usage(507, 'The run runtime directory is full');
+			const admitted = store.admit({
+				app: run.app,
+				id: run.id,
+				action: run.action,
+				inputDigest,
+				files,
+				at: new Date(now()).toISOString(),
+			});
+			if (!admitted.created)
+				throw new Error('Run admission changed unexpectedly');
+			const controller = new AbortController();
+			claimed.set(run.key, { controller, cancelRequested: false });
+			void execute(
+				run,
+				admitted.created,
+				located,
+				action,
+				decoded,
+				controller,
+			).catch((cause) => writeErr(`Run executor failed: ${String(cause)}`));
+			return events(request, run, admitted.created, false, 0);
+		});
 	}
 
 	async function recordOf(run: RunLocation) {
-		const record = await jsonFile<RunRecord>(join(run.dir, 'record.json'));
-		if (
-			!record ||
-			record.app !== run.app ||
-			record.id !== run.id ||
-			record.action !== run.action
-		)
-			return undefined;
-		if (!terminal(record) && !claimed.has(run.key))
+		let record = store.record(run.app, run.id);
+		if (!record || record.action !== run.action) return undefined;
+		if (!terminal(record) && !claimed.has(run.key)) {
 			await interrupt(run, record);
+			record = store.record(run.app, run.id)!;
+		}
 		return record;
 	}
 
@@ -913,13 +935,32 @@ export function createRunHost() {
 		request: Request,
 		run: RunLocation,
 		record: RunRecord,
+		counted = true,
+		initialAfter?: number,
 	): Promise<Response> {
-		const after = new URL(request.url).searchParams.get('after') ?? '0';
+		if (stopped)
+			return Response.json(
+				{
+					error: CliError.Usage({ message: 'The run host has stopped' }).error,
+				},
+				{ status: 503 },
+			);
+		const after = String(
+			initialAfter ?? new URL(request.url).searchParams.get('after') ?? '0',
+		);
 		if (!/^\d+$/.test(after) || !Number.isSafeInteger(Number(after)))
 			return usage(400, 'after must be a non-negative integer');
-		if (streams >= 64)
-			return usage(503, 'Too many run observers are connected');
-		streams++;
+		if (counted && streams >= 64)
+			return Response.json(
+				{
+					...(initialAfter === 0 ? { admitted: true } : {}),
+					error: CliError.Usage({
+						message: 'Too many run observers are connected',
+					}).error,
+				},
+				{ status: 429 },
+			);
+		if (counted) streams++;
 		let cursor = Number(after);
 		let closed = false;
 		let replaying = true;
@@ -932,7 +973,7 @@ export function createRunHost() {
 		const cleanup = () => {
 			if (closed) return;
 			closed = true;
-			streams--;
+			if (counted) streams--;
 			clearTimeout(timer);
 			subscribers.get(run.key)?.delete(publish);
 			if (subscribers.get(run.key)?.size === 0) subscribers.delete(run.key);
@@ -946,7 +987,7 @@ export function createRunHost() {
 		};
 		const send = (event: HostEvent) => {
 			if (closed) return;
-			if (event.seq > cursor) {
+			if (event.seq > cursor || (isTerminal(event) && terminal(record))) {
 				controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
 				cursor = event.seq;
 			}
@@ -973,7 +1014,12 @@ export function createRunHost() {
 		timer.unref();
 		try {
 			// Subscribe before replay. The cursor removes overlap with queued live events.
-			for (const event of await logOf(run)) send(event);
+			const replay = store.events(run.app, run.id, Number(after));
+			if (terminal(record) && replay.length === 0)
+				replay.push(
+					...store.events(run.app, run.id, Math.max(0, record.lastSeq - 1)),
+				);
+			for (const event of replay) send(event as HostEvent);
 			replaying = false;
 			for (const event of queued.sort((a, b) => a.seq - b.seq)) send(event);
 			if (terminal(record) || request.signal.aborted) close();
@@ -1026,6 +1072,7 @@ export function createRunHost() {
 			} catch {
 				return missing();
 			}
+			requests++;
 			busy.set(run.key, (busy.get(run.key) ?? 0) + 1);
 			try {
 				if (
@@ -1046,8 +1093,7 @@ export function createRunHost() {
 						app: run.app,
 						action: record.action,
 						state: record.state,
-						lastSeq:
-							sequences.get(run.key) ?? (await logOf(run)).at(-1)?.seq ?? 0,
+						lastSeq: record.lastSeq,
 					});
 				if (request.method === 'POST' && suffix === 'cancel')
 					return await exclusive(run.key, async () => {
@@ -1073,12 +1119,17 @@ export function createRunHost() {
 				const count = (busy.get(run.key) ?? 1) - 1;
 				if (count) busy.set(run.key, count);
 				else busy.delete(run.key);
+				requests--;
+				closeWhenIdle();
 			}
 		},
 		stop() {
+			if (stopped) return;
 			stopped = true;
 			clearInterval(clock);
 			for (const close of [...observers]) close();
+			// Active executors retain the store until the last one exits.
+			closeWhenIdle();
 		},
 	};
 }

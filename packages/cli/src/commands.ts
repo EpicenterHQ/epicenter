@@ -59,7 +59,8 @@ after its sources changed, and keeps serving the last good build meanwhile.`,
 	serve: {
 		usage: 'epicenter serve [--port <n>] [--host <address>]',
 		help: `Offers every app's actions over MCP at /, each app's UI at /<app>/, and each
-action to its UI at POST /<app>/<action>, on 127.0.0.1 and the Epicenter's port
+action to its UI as a serve-owned run at POST /.runs/<app>/<action>/<id>, on
+127.0.0.1 and the Epicenter's port
 (default 4747) unless --port or --host says otherwise. It runs every call itself,
 from the app's code as it is on disk then. It backs up the root with checkpoint
 when it starts, every 5 minutes, and when it stops. It has no sign-in: only this

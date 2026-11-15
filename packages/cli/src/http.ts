@@ -6,9 +6,9 @@
  * GET  /                the launcher; 405 when asked for an event stream (MCP)
  * GET  /<app>/...       the app's UI, ui/dist/, as static files
  * GET  /<app>           308 to /<app>/
- * POST /<app>/<action>  run the action for the UI; JSON lines (`callResponse`)
+ * POST /<app>/<action>  retired; answer with a reload message
  * PUT  /.runs/<app>/<action>/<id>/files/<field>  upload a file
- * POST /.runs/<app>/<action>/<id>               admit a run
+ * POST /.runs/<app>/<action>/<id>               admit and stream a run
  * GET  /.runs/<app>/<action>/<id>/events        observe a run
  * GET  /.runs/<app>/<action>/<id>               read run state
  * POST /.runs/<app>/<action>/<id>/cancel        request cancellation
@@ -46,10 +46,9 @@ import { type Checkpoint, checkpoint } from './checkpoint.js';
 import { CliError } from './errors.ts';
 import { chooseApps, homeEntries, loadHomeApp } from './home.ts';
 import { createMcpServer } from './mcp.ts';
-import { type Answer, writeErr } from './output.ts';
+import { writeErr } from './output.ts';
 import { epicenterDir } from './root.ts';
 import { createRoutines } from './routines.ts';
-import { callAction } from './run.ts';
 import { createRunHost } from './runs.ts';
 import { createUiRefresher, UI_DIST } from './ui.ts';
 
@@ -114,60 +113,22 @@ type Site = {
 	launcher(request: Request): Promise<Response>;
 	/** `GET /<app>` and `/<app>/<path>`: the app's UI, or 404. */
 	ui(request: Request): Promise<Response>;
-	/** `POST /<app>/<action>`: run the action for the app's UI, or 404. */
+	/** `POST /<app>/<action>`: ask an old page to reload, or 404. */
 	call(request: Request): Promise<Response>;
 };
 
-/** One line of a call's response: a JSON value and a newline. */
-const line = (value: unknown) =>
-	new TextEncoder().encode(`${JSON.stringify(value)}\n`);
-
-/**
- * Run the action `POST /<app>/<action>` names, its words joined by `.`
- * (`/tasks/add`, `/vocab/words.add`), with the request's body as its whole
- * input. The response is JSON lines: `{"yielded": value}` for each value the
- * action yields, as it yields it, then `{"answer": answer}`, the same answer
- * `--json` prints. A caller that stops reading stops the action at its next
- * yield; its write lock is released.
- */
-async function callResponse(request: Request): Promise<Response> {
+/** An old page must reload before it can call actions. */
+export async function staleCallResponse(request: Request): Promise<Response> {
 	const match = /^\/([^/]+)\/([^/]+)$/.exec(new URL(request.url).pathname);
 	if (!match) return notFound();
 	const [, app = '', action = ''] = match;
-	const words = action.split('.');
-	if (!isName(app) || !words.every(isName)) return notFound();
-	let input: unknown;
-	try {
-		input = await request.json();
-	} catch {
-		input = undefined;
-	}
-	const stopped = new AbortController();
-	const body = new ReadableStream<Uint8Array>({
-		start(controller) {
-			void (async () => {
-				let answer: Answer;
-				try {
-					answer = await callAction(app, words.join(' '), input, {
-						onYield: (value) => {
-							if (!stopped.signal.aborted)
-								controller.enqueue(line({ yielded: value }));
-						},
-						signal: stopped.signal,
-					});
-				} catch (cause) {
-					answer = { error: CliError.Internal({ cause }).error };
-				}
-				if (stopped.signal.aborted) return;
-				controller.enqueue(line({ answer }));
-				controller.close();
-			})();
-		},
-		cancel() {
-			stopped.abort();
-		},
-	});
-	return new Response(body, {
+	if (!isName(app) || !action.split('.').every(isName)) return notFound();
+	const answer = {
+		error: CliError.Usage({
+			message: `This page is out of date. Reload it to keep using ${app}.`,
+		}).error,
+	};
+	return new Response(`${JSON.stringify({ answer })}\n`, {
 		headers: {
 			'content-type': 'application/x-ndjson',
 			'cache-control': 'no-store',
@@ -316,7 +277,7 @@ function createSite(refreshUi: (app: string, folder: string) => unknown): Site {
 			}
 			return uiFile(app, match[2]);
 		},
-		call: callResponse,
+		call: staleCallResponse,
 	};
 }
 

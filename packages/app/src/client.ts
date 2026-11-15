@@ -1,9 +1,9 @@
 /**
  * How an app's UI asks `epicenter serve` to run its actions (ADR-0860,
  * ADR-0866). A UI is a web page built from an app's `ui/` into `ui/dist/`
- * and served at `/<app>/`; it runs an action at `POST /<app>/<action>` on the
- * same origin, and reads the response's JSON lines: each value the action
- * yields, then its answer (ADR-0879). Agents ask over MCP instead.
+ * and served at `/<app>/`. Calls and runs.start use the same serve-owned
+ * lifecycle at `POST /.runs/<app>/<action>/<id>` and stream events
+ * (ADR-0879, ADR-0915). Observation can stop without cancelling the run.
  *
  * The client has the app's actions under the same words as the app. Each
  * call checks its input, types what it returns in its JSON form, and resolves
@@ -29,13 +29,14 @@
  *
  * The app is imported as a type, so the UI's bundle carries no app code.
  */
-import { Err, Ok, type Result } from 'wellcrafted/result';
+import type { Result } from 'wellcrafted/result';
 import type { ActionYield } from './action.ts';
-import { ActionError, isActionError } from './errors.ts';
+import { ActionError } from './errors.ts';
 import type { UploadedFile } from './field.ts';
 import type { JsonValue } from './front-matter.ts';
 import {
-	createRunMethods,
+	createRun,
+	runId,
 	type PendingRun,
 	pendingRuns,
 	type Run,
@@ -93,31 +94,30 @@ export type ActionRun<A> = Run<JsonOf<ActionYield<A>>, ActionOutput<A>>;
 
 declare const actionType: unique symbol;
 
-/** What a call of action `A` may take after its input, when `A` yields: `onYield`, and a `signal` that stops it. */
+/** Yielding calls may supply an `onYield` callback. */
 type CallOptions<A> = [ActionYield<A>] extends [never]
 	? []
 	: [
 			options?: {
 				onYield?: (value: JsonOf<ActionYield<A>>) => unknown;
-				signal?: AbortSignal;
 			},
 		];
 
 /**
  * The client for actions `A`: each action a function of its input, each
  * group under its word. An action that yields also takes `{ onYield }`,
- * which receives each value in order and may return a promise to wait for,
- * and `{ signal }`, which stops it at its next yield. The call resolves to what the
- * action returned, or `Stopped`. If `onYield` throws or rejects, the call
- * rejects with that error and stops reading the response.
+ * which receives each value in order and may return a promise to wait for.
+ * The call resolves to what the action returned or an action error. If
+ * `onYield` throws or rejects, the call rejects with that error and stops
+ * observing; the run continues on serve.
  * Run controls are separate: `runs.start(action, input)` keeps every action
  * name available at every depth.
  */
 export type ActionCall<A> = ((
 	...args: [
 		...(Record<string, never> extends ActionInput<A>
-			? [input?: ActionInput<A>]
-			: [input: ActionInput<A>]),
+			? [input?: RunInput<ActionInput<A>>]
+			: [input: RunInput<ActionInput<A>>]),
 		...CallOptions<A>,
 	]
 ) => Promise<Result<ActionOutput<A>, ActionError>>) & {
@@ -132,10 +132,10 @@ export type AppClient<A> = {
 
 type ActionAddress = { base: string; app: string; action: string };
 const actionAddresses = new WeakMap<object, ActionAddress>();
-function runControls(action: object) {
+function addressOf(action: object) {
 	const address = actionAddresses.get(action);
 	if (!address) throw new TypeError('Choose an action returned by connect()');
-	return createRunMethods({ ...address, answered });
+	return address;
 }
 
 /** Background execution is separate from the app's action names. */
@@ -146,15 +146,25 @@ export const runs = {
 			? [input?: RunInput<ActionInput<A>>]
 			: [input: RunInput<ActionInput<A>>]
 	): ActionRun<A> {
-		return runControls(action).start(
-			args[0] as Record<string, unknown> | undefined,
-		) as ActionRun<A>;
+		return createRun({
+			...addressOf(action),
+			id: runId(),
+			input: (args[0] as Record<string, unknown> | undefined) ?? {},
+			remember: true,
+		}) as ActionRun<A>;
 	},
 	attach<A>(action: ActionCall<A>, id: string): ActionRun<A> {
-		return runControls(action).attach(id) as ActionRun<A>;
+		return createRun({
+			...addressOf(action),
+			id,
+			remember: false,
+		}) as ActionRun<A>;
 	},
 	pending<A>(action: ActionCall<A>): PendingRun[] {
-		return runControls(action).pending();
+		const address = addressOf(action);
+		return pendingRuns({ app: address.app }).filter(
+			(entry) => entry.action === address.action,
+		);
 	},
 };
 
@@ -163,7 +173,7 @@ export const runs = {
  * `/<app>/` uses `app` without repeating its name; pass `{ app }` when the
  * page does not identify it. Without either name, `connect` throws. `url`
  * defaults to this origin's `/`, where `epicenter serve` answers the UIs it
- * serves: an action is `POST <url><app>/<words joined by .>`.
+ * serves: an action is `POST <url>.runs/<app>/<words joined by .>/<id>`.
  */
 export function connect<App extends { actions: object }>({
 	app,
@@ -184,18 +194,19 @@ export function connect<App extends { actions: object }>({
 			apply: async (_, __, [input, options]) => {
 				if (words.length === 0)
 					throw new Error(`Call one of ${name}'s actions, not the app`);
-				if (
-					input &&
-					Object.values(input).some((value) => value instanceof Blob)
-				)
+				if (options && 'signal' in options)
 					return ActionError.Refused({
-						message: 'This action takes a file; use runs.start(action, input)',
+						message:
+							'An action call takes no signal. Start it with runs.start(action, input) and stop it with run.cancel().',
 					});
-				return call(
-					`${base}${encodeURIComponent(name)}/${words.join('.')}`,
-					input ?? {},
-					options,
-				);
+				return createRun({
+					base,
+					app: name,
+					action: words.join('.'),
+					id: runId(),
+					input: input ?? {},
+					remember: false,
+				}).result({ onYield: options?.onYield });
 			},
 		});
 		actionAddresses.set(action, { base, app: name, action: words.join('.') });
@@ -217,134 +228,4 @@ function appOfPage(): string {
 			'connect() needs a UI served at /<app>/ or an explicit { app }',
 		);
 	return segment;
-}
-
-/**
- * Own the request and its JSON lines, translating transport and decoding
- * failures into `Unreachable` or `Stopped`. Code consuming a yield runs
- * outside this catch.
- * Read with `getReader`, since Safari cannot iterate a stream with `for await`.
- */
-async function* responseLines(url: string, body: string, signal?: AbortSignal) {
-	try {
-		const response = await fetch(url, {
-			method: 'POST',
-			headers: { 'content-type': 'application/json' },
-			body,
-			signal,
-		});
-		const reader = response.body?.getReader();
-		try {
-			if (!response.ok || !reader) {
-				yield ActionError.Unreachable({
-					message: `Epicenter answered ${response.status} ${response.statusText}`,
-				});
-				return;
-			}
-			const decoder = new TextDecoder();
-			let buffered = '';
-			for (;;) {
-				const { done, value } = await reader.read();
-				buffered += decoder.decode(value, { stream: !done });
-				let end = buffered.indexOf('\n');
-				while (end >= 0) {
-					const text = buffered.slice(0, end);
-					buffered = buffered.slice(end + 1);
-					if (text.trim()) yield Ok(JSON.parse(text) as unknown);
-					end = buffered.indexOf('\n');
-				}
-				if (done) return;
-			}
-		} finally {
-			if (reader) {
-				// Abandoning the response stops its producer. Cleanup must neither
-				// delay the outcome nor replace it if the connection already failed.
-				void reader.cancel().catch(() => {});
-				reader.releaseLock();
-			}
-		}
-	} catch (cause) {
-		yield signal?.aborted
-			? ActionError.Stopped({ message: 'Stopped' })
-			: ActionError.Unreachable({
-					message: `Could not read Epicenter's answer: ${String(cause)}`,
-				});
-	}
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-	return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function isTaggedError(
-	value: unknown,
-): value is { name: string; message: string } & Record<string, unknown> {
-	return (
-		isObject(value) &&
-		typeof value.name === 'string' &&
-		typeof value.message === 'string'
-	);
-}
-
-/** Validate serve's terminal answer; the action owns the shape of its returned value. */
-function answered(answer: unknown): Result<unknown, ActionError> {
-	const invalid = () =>
-		ActionError.Unreachable({ message: 'Epicenter sent an invalid answer' });
-	if (!isObject(answer)) return invalid();
-	if (
-		['returned', 'threw', 'error'].filter((key) => Object.hasOwn(answer, key))
-			.length !== 1
-	)
-		return invalid();
-	if ('returned' in answer) return Ok(answer.returned);
-	if ('threw' in answer) {
-		const failure = answer.threw;
-		if (!isObject(failure) || typeof failure.message !== 'string')
-			return invalid();
-		const { thrown } = failure;
-		if (thrown !== undefined && !isTaggedError(thrown)) return invalid();
-		return isActionError(thrown)
-			? Err(thrown)
-			: ActionError.Threw({ message: failure.message, thrown });
-	}
-	const failure = answer.error;
-	if (
-		!isObject(failure) ||
-		typeof failure.message !== 'string' ||
-		(failure.next !== undefined && typeof failure.next !== 'string')
-	)
-		return invalid();
-	return ActionError.Refused({ message: failure.message, next: failure.next });
-}
-
-/**
- * Ask serve to run the action at `url` (`POST /<app>/<action>`), giving each
- * value it yields to `onYield`, and return what it returned. Aborting
- * `signal` stops reading, which stops the action at its next yield.
- */
-async function call(
-	url: string,
-	input: Record<string, unknown>,
-	{
-		onYield,
-		signal,
-	}: { onYield?: (value: unknown) => unknown; signal?: AbortSignal } = {},
-): Promise<Result<unknown, ActionError>> {
-	const body = JSON.stringify(input);
-	for await (const line of responseLines(url, body, signal)) {
-		if (line.error !== null) return line;
-		const frame = line.data;
-		if (
-			!isObject(frame) ||
-			Object.hasOwn(frame, 'yielded') === Object.hasOwn(frame, 'answer')
-		)
-			return ActionError.Unreachable({
-				message: 'Epicenter sent an invalid response line',
-			});
-		if ('answer' in frame) return answered(frame.answer);
-		await onYield?.(frame.yielded);
-	}
-	return ActionError.Unreachable({
-		message: 'Epicenter stopped answering before the action finished',
-	});
 }

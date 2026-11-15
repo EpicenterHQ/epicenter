@@ -138,7 +138,7 @@ export type Following = {
 	overMcp?: boolean;
 	/** Each value the action yields, in order; the action waits for it. */
 	onYield?: (value: unknown) => unknown;
-	/** Aborted when the caller stops listening: the action is stopped at its next yield, or at once where it reads `callSignal()`, and the call releases its lock. */
+	/** Execution cancellation signal. HTTP observers do not own it. */
 	signal?: AbortSignal;
 };
 
