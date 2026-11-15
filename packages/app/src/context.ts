@@ -88,7 +88,10 @@ export type Context = {
 	 * promise.
 	 */
 	readOnly?: { action: string };
-	/** Aborted when the call's caller stops it: a page's Stop, or the page closed. */
+	/**
+	 * Aborted by explicit cancellation of a serve-owned run, never by loss of
+	 * observation. CLI and MCP calls cannot be cancelled.
+	 */
 	signal?: AbortSignal;
 };
 
@@ -98,11 +101,11 @@ const runs = new AsyncLocalStorage<Context>();
 const UNSTOPPABLE = new AbortController().signal;
 
 /**
- * The signal of the call this code runs in, aborted when its caller stops it.
- * A call is otherwise stopped only at its next yield (ADR-0879); pass this to
- * a slow wait, such as a model's `fetch`, so a stop ends the wait at once and
- * the action's `finally` runs then. It never aborts for a caller that cannot
- * stop a call, such as the command line or a connector.
+ * The action's signal aborts when its serve-owned run is explicitly cancelled,
+ * for example by `run.cancel()` on a page. Closing a page or stopping an
+ * observer does not abort it. Pass the signal to a slow wait so it can stop
+ * cooperatively and run its `finally` blocks. CLI and MCP calls cannot be
+ * cancelled and receive a signal that never aborts.
  */
 export function callSignal(): AbortSignal {
 	return currentRun().signal ?? UNSTOPPABLE;

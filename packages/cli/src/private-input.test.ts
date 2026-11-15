@@ -112,21 +112,32 @@ test('only privateInput hides and refuses MCP actions; HTTP and CLI stdin still 
 		expect(await Bun.file(join(folder, 'data/key.local.md')).exists()).toBe(
 			false,
 		);
-		const bad = await fetch(`${served.base}/keys/connect`, {
-			method: 'POST',
-			body: JSON.stringify({ ...input, [SECRET]: true }),
-		});
+		const bad = await fetch(
+			`${served.base}/.runs/keys/connect/${crypto.randomUUID()}`,
+			{
+				method: 'POST',
+				body: JSON.stringify({ ...input, [SECRET]: true }),
+			},
+		);
 		expect(await bad.text()).not.toContain(SECRET);
 		expect(await Bun.file(join(folder, 'data/key.local.md')).exists()).toBe(
 			false,
 		);
-		const posted = await fetch(`${served.base}/keys/connect`, {
-			method: 'POST',
-			body: JSON.stringify(input),
-		});
-		expect(await posted.text()).toBe(
-			'{"answer":{"returned":{"connected":true}}}\n',
+		const posted = await fetch(
+			`${served.base}/.runs/keys/connect/${crypto.randomUUID()}`,
+			{
+				method: 'POST',
+				body: JSON.stringify(input),
+			},
 		);
+		const frames = (await posted.text())
+			.trim()
+			.split('\n')
+			.map((line) => JSON.parse(line));
+		expect(frames.at(-1)).toMatchObject({
+			type: 'finished',
+			answer: { returned: { connected: true } },
+		});
 		const child = Bun.spawn(
 			[process.execPath, f.bin, 'keys', 'connect', '--input', '-', '--json'],
 			{

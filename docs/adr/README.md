@@ -1132,3 +1132,4 @@ When you add an ADR, add its row here.
 | [0914](0914-action-errors-share-one-contract-and-the-envelope-records-execution.md) | Action errors share one contract and the envelope records execution | Accepted |
 | [0915](0915-serve-owns-a-pages-runs-and-a-file-input-is-a-temporary-upload.md) | Serve owns a page's runs and a file input is a temporary upload | Accepted |
 | [0916](0916-export-saves-a-local-checkpoint-before-copying-code.md) | Export saves a local checkpoint before copying code | Proposed (amends 0910 and 0911) |
+| [0917](0917-a-pages-calls-are-serve-owned-runs-and-observing-is-not-cancelling.md) | A page's calls are serve-owned runs, and observing is not cancelling | Accepted (amends 0879 and 0915) |

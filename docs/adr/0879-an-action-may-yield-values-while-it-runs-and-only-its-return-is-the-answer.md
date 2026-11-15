@@ -1,6 +1,7 @@
 # 0879. An action may yield values while it runs, and only its return is the answer
 
 - **Status:** Accepted (2026-11-11)
+- **Amended by:** [ADR-0917](0917-a-pages-calls-are-serve-owned-runs-and-observing-is-not-cancelling.md)
 - **Date:** 2026-11-11
 - **Amended:** 2026-11-11: a UI calls an action at `POST /<app>/<action>`,
   whose response is JSON lines, instead of over MCP with progress
@@ -33,10 +34,9 @@ and then 44 streamed tokens rebuilt the returned reply exactly.
 ## Decision
 
 **An action's `run` may be an `async function*`. What it yields goes only to
-the UI that called it, as it runs; what it returns is the answer, as now; and
-only its writes are saved, committed once when it ends (ADR-0850).** Yields
-are for a person watching a page. Claude, ChatGPT, the terminal, a test, and
-another action never see them, and lose nothing.
+observers of the page run, as it runs; what it returns is the answer, as now; and
+only its writes become app data.** Yields are available to observers of a page
+run. CLI and MCP callers receive the returned answer.
 
 ```ts
 // vocab/epicenter.ts
@@ -66,18 +66,14 @@ const said = await vocab.chat.say({ message }, { onYield: (token) => (draft += t
   together, and the UI's client is typed by the app (ADR-0857), so the
   yield's type reaches `onYield` as the return's type reaches the result.
   `epicenter` gives a yield no meaning.
-- **A yield is never the answer.** It is not saved, not committed, and not
-  part of the result. A caller that ignores yields loses nothing: the CLI
+- **A yield is never the answer.** It is retained in the run event log but is not part of the
+  returned result or app data. A caller that ignores yields loses nothing: the CLI
   prints the answer, `--json` prints one answer as now, and Claude or ChatGPT
   get the tool result. An action whose meaning lives only in its yields is
   wrong; its return must carry what the call produced.
-- **A UI calls an action at its own address.** `POST /<app>/<action>`, the
-  action's words joined by `.` (`/vocab/chat.say`), with the whole input as
-  the JSON body. The response is JSON lines, one JSON value and a newline
-  each: `{"yielded": <value>}` per yield, as it is yielded, then
-  `{"answer": <answer>}`, the answer `--json` prints. An action that only
-  returns answers one line. The words, not a tool name, make the address, so
-  `GET` gets a page and `POST` runs an action under the same `/<app>/`.
+- **A UI calls an action through a run.** `POST /.runs/<app>/<action>/<id>`
+  carries the JSON input and streams sequenced event frames, ending with the
+  answer. The action's words are joined by `.`.
 - **MCP is for agents and carries no yields.** A connector's `tools/call`
   gets the one tool result, as before; nothing a connector does can ask for a
   yield.
@@ -86,27 +82,14 @@ const said = await vocab.chat.say({ message }, { onYield: (token) => (draft += t
   returned, so a test, another action, and the CLI call it as they call any
   action. Only `runYielding`, which every call runs through, reads the
   generator step by step.
-- **Yields go to the caller and nowhere else.** No page watches a call another
-  device or a connector made; a conversation another caller continued shows
-  when its turn is saved and the page reads it again.
-- **The UI client** posts to the action's address, reads the lines with the
-  stream's reader (Safari cannot iterate a stream with `for await`), calls
-  `onYield` with each value in order, and resolves with the same `Result` a
-  call without it would. Its type offers `onYield` only on an action that
-  yields. A response that ends without an answer is `Unreachable`. The same
-  call takes a `signal`; aborting it stops reading, so the action stops as
-  below, and the call resolves as `Stopped` (added 2026-11-12, for a Stop
-  button on a tutor's reply).
-- **A call abandoned is a call stopped at its next yield.** When the page
-  stops reading, `serve` makes the action's next yield throw where it
-  stands: its `finally` blocks run, and what it wrote is committed as
-  `<call> (stopped)`. A generator that saves only before it returns has then
-  saved nothing. An action that waits between yields reads the call's signal
-  with `callSignal()` and passes it to the wait, such as a model's `fetch`,
-  so a stop ends the wait at once instead of at the next yield; an action
-  that never reads it is stopped at its next yield all the same. An action
-  that does not yield runs to its end. (Amended 2026-11-12: `callSignal()`
-  and the `(stopped)` commit, for Vocab's Stop.)
+- **Page runs retain yields for observers.** Another observer with the run id
+  can replay them while the host retains the run.
+- **The UI client** reads frames with the stream's reader, calls `onYield`
+  in order, and resolves to the action's result. A callback may return a
+  promise or throw. Stopping observation does not cancel the run.
+- **Cancellation is explicit.** `run.cancel()` asks serve to abort the action's
+  cooperative signal. An action passes `callSignal()` to a wait when it can
+  stop that wait. Its `finally` blocks run when it cooperates.
 
 ## Consequences
 
@@ -114,7 +97,7 @@ const said = await vocab.chat.say({ message }, { onYield: (token) => (draft += t
   from the phone, and its prompt, word choice, and history in an action
   Claude can also call.
 - `serve` has two ways in for an action: MCP at `POST /` for agents, and
-  `POST /<app>/<action>` for an app's own pages. Both reach the same call
+  `POST /.runs/<app>/<action>/<id>` for an app's own pages. Both reach the same call
   (`run.ts`), so the input check, the answer, and the commit are one. An
   action's address is on the private listener only; a connector at the
   public address goes through MCP (ADR-0881).

@@ -9,6 +9,8 @@ import {
 	writeFile,
 } from 'node:fs/promises';
 import { join } from 'node:path';
+import { connect } from '@epicenter/app/client';
+import { expectOk } from 'wellcrafted/testing';
 import { checkpoint } from './checkpoint.js';
 import { hold } from './lock.js';
 import { fixture, gitIn, header, startServe } from './runner.test-support.js';
@@ -51,13 +53,11 @@ test('CLI and HTTP writes use container paths and leave the root commit unchange
 			await Bun.sleep(20);
 		const started = await gitIn(f.home, 'rev-parse', 'HEAD');
 		await rm(join(app, 'data/record.md'));
-		const response = await fetch(`${served.base}/x/put`, {
-			method: 'POST',
-			body: '{}',
+		const client = connect<{ actions: { put: () => Promise<string> } }>({
+			app: 'x',
+			url: `${served.base}/`,
 		});
-		expect(JSON.parse(await response.text())).toEqual({
-			answer: { returned: app },
-		});
+		expect(expectOk(await client.put({}))).toBe(app);
 		expect(await readFile(join(app, 'data/record.md'), 'utf8')).toBe('record');
 		expect(await gitIn(f.home, 'rev-parse', 'HEAD')).toBe(started);
 		await assertNoGit(f.apps);

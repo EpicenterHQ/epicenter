@@ -366,48 +366,42 @@ The browser supplies a `Blob` or `File` through separate run controls:
 ```ts
 import { runs } from '@epicenter/app/client';
 
+const ordinary = await app.transcribe({ audio: file }); // Blob or File
 const run = runs.start(app.transcribe, { audio: file });
-for await (const event of run.events()) {
-  if (event.type === 'yielded') show(event.value);
-}
-const result = await run.result();
+if (run.isRemembered()) showCanReturnLater();
+const answer = run.result({ onYield: (value) => show(value) });
+// A Stop button calls run.cancel().
+await run.cancel();
 ```
 
-The wire carries an opaque host-issued reference. The action receives an
-`UploadedFile` with `name`, `type`, `size`, `path()`, `bytes()`, and `text()`.
-Its methods are valid only while the run runs. CLI, MCP, routines, and ordinary
-POST calls cannot supply files. MCP omits file actions; CLI help directs the
-person to the app's page. Ordinary client calls refuse a `Blob`.
+Both forms upload each `Blob` or `File` before the same run admission. The
+host passes the action an `UploadedFile` with `name`, `type`, `size`, `path()`,
+`bytes()`, and `text()`, valid while the run executes. CLI, MCP, routines,
+nested schemas, and collections cannot supply files.
 
-`runs.start(action, input)` creates a journal entry under `epicenter.runs.prototype.v1` before any
-request. If browser storage fails, nothing is sent. Uploads happen sequentially,
-then admission has a 20-second timeout. An ambiguous acknowledgement is observed
-by id; admission is never resent. A definite 4xx refusal removes the journal
-entry. `runs.attach(action, id)` only observes. `runs.pending(action)` lists this action's entries;
-`pendingRuns({ app })` lists entries across actions. The journal keeps file
-metadata, not file bytes or other input values, and entries expire after 24 hours.
+`runs.start` saves `epicenter.run:<id>` before sending. Storage failure never
+blocks execution: `isRemembered()` is false, and pending runs remain in a
+bounded page-memory fallback. The client imports the old
+`epicenter.runs.prototype.v1` array into per-id receipts on read. Receipts
+older than seven days are pruned. `runs.pending(action)` lists this action's
+receipts; `pendingRuns({ app })` lists across actions. Ordinary calls keep the
+id in memory and do not write browser storage.
 
-`events({ after, signal })` replays sequence numbers after a cursor and
-reconnects with backoff. Closing the tab or aborting observation leaves the
-host running. `result({ signal })` waits for a terminal Result; aborting it
-stops waiting. `cancel()` aborts uploads before admission, or asks the host to
-cancel after admission. Cancellation is cooperative and confirms no rollback.
-A 404 emits `unknown` and retains the journal entry. Terminal observation removes
-it. An error or a lost connection does not establish which effects persisted.
+`events({ after, signal })` replays events after a cursor. `result({ onYield,
+signal })` waits for the answer and delivers yields in order. An aborted
+observer, a closed tab, or a throwing callback stops observation only.
+`run.cancel()` requests cooperative cancellation, which does not establish
+rollback. A terminal event removes the receipt; an unknown or disconnected
+run retains it. If an uncertain ordinary call returns `Unreachable` or
+`Stopped` with `error.run`, use `runs.attach(app.transcribe, error.run.id)` to
+observe the same id. Never resend admission to recover an answer.
 
-Run controls take a connected action as their first argument. They live
-outside the action tree, so names such as `daily.start`, `attach`, and
-`pending` remain ordinary app actions.
-
-Serve owns execution and keeps bounded local records outside the Epicenter.
-Recovery marks unfinished records `interrupted`; it never executes them again.
-For `privateInput: true`, admission persists neither JSON input values nor a
-JSON input digest: a digest could confirm guesses about input otherwise never
-written here. Uploaded file metadata, hashes, and bytes follow the ordinary
-retention rules. Actions still control their own yielded and returned data.
-
-See the [CLI run policy](../cli/README.md#serve-owned-runs) for limits, retention,
-and the one-process ownership rule.
+Run controls take a connected action and live outside the action tree, so
+`daily.start` and `practice.start` remain callable actions. Serve marks an
+unfinished run `interrupted` on recovery and never reruns it. For
+`privateInput: true`, admission stores neither input values nor an input
+digest. File metadata, hashes, and bytes follow the ordinary retention rules.
+See the [CLI run policy](../cli/README.md#serve-owned-runs) for limits and retention.
 
 ## Save recurring work from setup
 
@@ -582,36 +576,22 @@ export const writes = resultMutations(['reading'], { set: app.books.set });
 // In a component: createQuery(() => reads.list()), createMutation(() => writes.set)
 ```
 
-An action whose `run` yields takes `{ onYield }` after its input. Each value
-it yields reaches `onYield`, in order, while it runs, and the call resolves
-with the same Result as without it. No other caller sees a yield: not the
-command line, not a connector, not another page. Closing the page mid-call
-cancels the response; the host stops the action at its next yield and runs
-its `finally` blocks. A page requests the same stop with `{ signal }`.
-An aborted response read resolves as `Stopped`; receiving it does not confirm
-that cleanup finished or say which writes persisted. An action that waits
-between yields, as on a model, passes `callSignal()` to that wait so it can
-stop before the next yield:
+An action whose `run` yields accepts `onYield` after its input. The client
+awaits each callback before delivering the next value. A callback failure
+rejects the call and stops observation; the action continues. For a Stop
+button, start a run and request cancellation explicitly:
 
 ```ts
-const response = await fetch(endpoint, { body, signal: callSignal() });
+import { runs } from '@epicenter/app/client';
+
+const run = runs.start(vocab.chat.say, { message });
+const said = run.result({ onYield: (token) => (draft += token) });
+// On Stop:
+await run.cancel();
 ```
 
-`onYield` may return a promise; the client waits for it before delivering
-the next yield. If it throws or rejects, the call rejects with that error
-and cancels its response, stopping the action the same way as closing the
-page. Recognize a local Stop from the AbortController captured for that
-request; an action can also report `Stopped` for a dependency. A received
-answer completes the call without waiting for the connection to close.
-
-```ts
-let draft = $state('');
-const stop = new AbortController();
-const said = await vocab.chat.say(
-  { message },
-  { onYield: (token) => (draft += token), signal: stop.signal },
-);
-```
+An action that waits between yields can pass `callSignal()` to that wait.
+Closing the page or aborting an observer does not cancel execution.
 
 `ActionInput<A>`, `ActionOutput<A>`, and `ActionYield<A>` name what action
 `A` takes from a caller, returns to a client, and yields while it runs:
