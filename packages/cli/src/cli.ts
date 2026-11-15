@@ -12,6 +12,7 @@ import {
 } from './commands.ts';
 import { VERSION } from './engines.ts';
 import { CliError } from './errors.ts';
+import { exportCommand } from './export.js';
 import { discoverAll, loadHomeApp } from './home.ts';
 import { serveHttp } from './http.ts';
 import { initCommand } from './init.ts';
@@ -48,7 +49,7 @@ then ~/Epicenter. An Epicenter has EPICENTER.md.
 A flag's value is read as its field's type; null removes a field that takes it.
 --input <json> gives an action's whole input as one JSON object; - reads it from stdin.
 --json prints one JSON answer, and --help (-h) explains anything; both go anywhere before --.
-Exit codes: 0 done, 1 threw or a checkpoint did not finish, 2 did not run.`;
+Exit codes: 0 done, 1 ran with a failure or an unfinished export or checkpoint, 2 did not run.`;
 const GLOBALS = new Set(['--json', '--help', '-h', '--version', '-V']);
 
 type Handler = (words: string[], json: boolean) => Promise<number>;
@@ -58,6 +59,7 @@ const HANDLERS: { [K in Command]: Handler } = {
 	init: initCommand,
 	install: installCommand,
 	new: newCommand,
+	export: exportCommand,
 	build: buildCommand,
 	service: serviceCommand,
 	async checkpoint(words, json) {

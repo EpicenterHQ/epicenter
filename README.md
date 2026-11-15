@@ -25,6 +25,7 @@
 </p>
 
 <p align="center">
+  <a href="#try-the-cli">Try the CLI</a> |
   <a href="#how-it-works">How it works</a> |
   <a href="#status">Status</a> |
   <a href="#trust-boundaries">Trust</a> |
@@ -35,13 +36,42 @@
 
 ---
 
+## Try the CLI
+
+Install the developer preview on macOS or Linux, arm64 or x64. Git, curl, and
+shasum or sha256sum are required. Bun and an AI account are not required.
+
+```sh
+curl -fsSL https://github.com/EpicenterHQ/epicenter/releases/download/epicenter-cli-v0.1.0/install.sh | sh
+```
+
+The installer verifies the download and installs `~/.local/bin/epicenter`.
+With Git's `user.name` and `user.email` configured, create your Epicenter and
+copy the Writing app:
+
+```sh
+export PATH="$HOME/.local/bin:$PATH"
+epicenter init ~/Epicenter
+cd ~/Epicenter
+epicenter new writing --from 'https://github.com/EpicenterHQ/epicenter#examples/writing'
+epicenter serve
+```
+
+Open `http://127.0.0.1:4747/writing/` to save a thought, quote, or link with its
+source, then find and edit it. Keep the terminal open while the server runs.
+Your notes are Markdown files in `apps/writing/data/notes/`. You own the app's
+copy in `apps/writing/code/` and can change it with your editor or coding agent.
+
+For CLI commands, MCP setup, and optional background service installation, see
+[the CLI guide](packages/cli/README.md).
+
 ## How it works
 
 `~/Epicenter` is on a computer you control and keep on, owned or rented: the
-home. It holds a folder per app in `apps/`. Each app is one `epicenter.ts` that
-declares its collections and actions, an optional UI, and a `data/` folder of
-Markdown files you can read, with its code and its data each in a Git
-repository of its own.
+home. It holds a folder per app in `apps/`. Each app has a `code/epicenter.ts`
+that declares its collections and actions, an optional UI under `code/ui/`,
+and a sibling `data/` folder of Markdown files you can read. One private Git
+repository holds the home. Checkpoints save pending code and records together.
 
 ```ts
 import { defineApp, defineCollection, field } from '@epicenter/app';
@@ -59,8 +89,8 @@ export default defineApp({
 });
 ```
 
-The `epicenter` command runs an app's actions on the home, and commits what
-each one writes:
+The `epicenter` command runs an app's actions on the home. Actions change files;
+checkpoints record their state in Git:
 
 ```sh
 epicenter tasks add --title 'Call the bank'
@@ -71,7 +101,7 @@ epicenter serve
 `epicenter serve` offers every app's actions over MCP, and each app's UI at
 `/<app>/`, to every device on your tailnet. Nothing syncs and no one signs in:
 your phone, your laptop, and your agents reach the one copy on the home, and
-keep nothing of their own. An app's optional `origin` is a push-only backup.
+keep nothing of their own. The home's optional `origin` is its backup remote.
 
 Software that works without an Epicenter is an outside app: Gmail, Todoist,
 Whispering. An inside app brings its data in through actions. Mail pulls a copy
@@ -82,9 +112,10 @@ you apply.
 
 ## Status
 
-The `epicenter` command and `epicenter serve` run from this repository; the npm
-release is decided and not built
-([ADR-0892](docs/adr/0892-the-cli-releases-to-npm-and-whispering-8-is-a-new-install-with-its-own-update-address.md)).
+The CLI developer preview installs as a standalone executable from
+[GitHub releases](https://github.com/EpicenterHQ/epicenter/releases/tag/epicenter-cli-v0.1.0).
+Writing is an exported app copied separately from GitHub. The executable
+carries the runtime; each app remains ordinary editable source.
 `epicenter service install` keeps `serve` running as a macOS LaunchAgent; the
 Linux job for a rented home and Epicenter for Mac are not built yet.
 
@@ -153,9 +184,9 @@ Whispering's own packages, and the folder sync product's code it still imports
   EPICENTER.md                 marks the folder as an Epicenter
   AGENTS.md                    sent to every MCP client as instructions
   apps/<app>/
-    epicenter.ts               collections and actions
-    ui/                        the UI's source, built into ui/dist/
-    data/                      the app's records, a repository of its own
+    code/epicenter.ts          collections and actions
+    code/ui/                   the UI's source, built into code/ui/dist/
+    data/                      the app's records in the private root history
 
 packages/cli                   epicenter: runs actions, serve, snapshots, backup
 packages/app                   what epicenter.ts imports

@@ -147,13 +147,13 @@ test('F9 one table owns the vocabulary; --json goes anywhere; defaulted fields a
 		expect(result.code).toBe(2);
 		expect(result.report.error.message).toContain(`Unknown app "${word}"`);
 	}
-	for (const word of ['new', 'checkpoint', 'serve', 'init', 'build'])
+	for (const word of ['new', 'export', 'checkpoint', 'serve', 'init', 'build'])
 		expect((await f.json('new', word)).code).toBe(2);
 	expect((await f.json('new', 'link')).code).toBe(0);
 	const help = (await f.run('--help')).stdout;
 	expect(help).toContain('epicenter checkpoint [-m <message>] [--json]');
 	expect(help).toContain(
-		'Exit codes: 0 done, 1 threw or a checkpoint did not finish, 2 did not run.',
+		'Exit codes: 0 done, 1 ran with a failure or an unfinished export or checkpoint, 2 did not run.',
 	);
 	for (const gone of ['epicenter types', 'setup', 'epicenter help'])
 		expect(help).not.toContain(gone);

@@ -348,6 +348,8 @@ test('scoped ignore rules keep Vault renditions and a local mirror out without b
 
 test('empty embedded data repositories and missing LFS filters are refused before staging', async () => {
 	const f = await setup();
+	// This fixture needs a missing filter even when the person installed it globally.
+	await gitIn(f.home, 'config', 'filter.lfs.process', '');
 	await f.app('x', reading);
 	await mkdir(join(f.apps, 'x/data'));
 	await gitIn(join(f.apps, 'x/data'), 'init', '-q');

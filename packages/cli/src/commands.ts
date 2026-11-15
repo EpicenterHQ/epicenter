@@ -25,6 +25,18 @@ The destination must be missing or empty. Epicenters cannot nest.`,
 With --from <path|url>[#<folder>], copy the selected app's code without its Git history or records.
 serve builds code/ui/ when it is opened.`,
 	},
+	export: {
+		usage:
+			'epicenter export <app> <directory> | epicenter export --all <directory>',
+		help: `Regenerates one owned directory from committed app code. With --all, the directory
+contains one child per app, including future committed apps; removed apps disappear.
+Keep Git, handwritten notes and other publication files outside this directory.
+Repeating the command replaces all generated contents, including local edits.
+Exports exclude records, local files, dependencies, builds, provenance, and private history.
+Uncommitted source changes are reported but not exported. Unrelated nonempty directories
+and any Git metadata inside the destination are refused. All code is prepared before
+refreshing; rerun after an interrupted fill. Review, commit and push with Git.`,
+	},
 	install: {
 		usage: 'epicenter install [<app>]',
 		help: `Installs each app's code/package.json, or one app's, with bun install

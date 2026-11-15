@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-11-14
+- **Amended by:** [ADR-0911](0911-export-copies-an-apps-committed-code-into-a-refreshable-directory.md): local code export and refresh; publication still uses a separate history and ordinary Git.
 - **Implementation:** Source retains the existing container lock, tolerant reads, HTTP/MCP actions, UI builds, private input and serve-owned clock. This change adds code/data siblings under `apps/`, root checkpoints, committed code copying, and single-clone restore; it removes action Git bookkeeping.
 - **Migration:** On 2026-11-14 the root and 18 app repositories were combined into one private repository, with exact original signed objects under archival tags. On 2026-11-15 the personal home moved onto Vault history instead (see "Personal Vault home, 2026-11-15" below). The earlier combined history remains as archive refs on that home's origin. Its separate GitHub repository and the 17 individual app repositories were deleted after their histories and media were verified on the surviving origin. The stopped originals remain in local recovery archives.
 - **Supersedes:** [ADR-0877](0877-an-apps-code-and-its-data-are-two-repositories-and-sharing-an-app-shares-its-code.md): separate code and data repositories and sharing their existing histories; [ADR-0884](0884-an-epicenter-is-a-repository-that-lists-the-repositories-inside-it-and-init-from-rebuilds-it.md): a root that excludes apps, records their repositories, and restores them with separate clones.
@@ -258,7 +259,9 @@ verification artifacts record commit identities.
   LaunchAgent. The source keeps the serve-owned clock.
 - A storage policy for other Epicenters. The personal Vault home uses ordinary
   blobs; existing LFS support remains for older homes.
-- The code-only publication workflow.
+- The code-only publication workflow. Local export is subsequently settled by
+  [ADR-0911](0911-export-copies-an-apps-committed-code-into-a-refreshable-directory.md);
+  repository provisioning and automated publication remain outside the CLI.
 - What a program on another device clones under ADR-0887 after data stops
   being its own repository.
 - How revised guidance reaches existing Epicenters. `init` preserves an
