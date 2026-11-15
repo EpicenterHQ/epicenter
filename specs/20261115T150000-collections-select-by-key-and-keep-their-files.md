@@ -1,7 +1,7 @@
 # Collections select by key and keep their files
 
 **Date**: 2026-11-15
-**Status**: In Progress (wave 1 is being built on its own branch; nothing is merged)
+**Status**: In Progress (waves 1 and 2 are built in their own worktrees; nothing is merged)
 **Owner**: Braden
 **Decisions**: ADR-0917, ADR-0918, ADR-0919, ADR-0920, ADR-0921, all Proposed
 
@@ -65,19 +65,23 @@ declaration before anything breaks.
 
 - [ ] Every method takes keys where it took `path`: `get(keys)`,
   `set(keys, change)`, `edit(keys, change)`, `update(keys, change)`,
-  `delete(keys)`, `list(keys?)`. `add` is unchanged. `pathOf` stops rewriting
-  its value.
-- [ ] The absence table: one-file collections lose their defaults and their
-  upsert.
+  `delete(keys)`. `add` and `list()` are unchanged. A row can be passed as
+  the keys.
+- [ ] `set` accepts a function of the record as its change and throws
+  `ActionError.Missing` itself.
+- [ ] A collection with no placeholder gets every method and verb, without
+  the keys argument, and loses its defaults and its upsert.
 - [ ] Unreadable front matter refuses; an unclosed opening fence counts.
+- [ ] A file whose name is not the one its key makes lists with a problem.
 - [ ] Verbs take keys in one flat input. `holds`, `other`, and
   `field.tags()` are removed.
 - [ ] The check reports front matter no field declares.
 - [ ] Every app under `~/Epicenter/apps` moves in the same step as installing
   the new command, because the command supplies `@epicenter/app` to each app
-  it loads: the calls that pass `path` (22 of them through `pathOf`), 13
-  `field.tags()` calls, the three `.local` one-file collections, and each
-  UI's routes. About 59 `add` calls do not change.
+  it loads: the calls that pass `path`, 13 `field.tags()` calls, the
+  collections with no placeholder, and each UI's routes. About 59 `add` calls
+  do not change. The trial's rewrite of Vocab, Flights, and Mail is the
+  starting point.
 
 ### Wave 4: files (ADR-0918 and ADR-0921)
 
@@ -140,7 +144,12 @@ paths do move, which that spec says they would not.
 - The wave 1 build of `epicenter check`, run read-only against the home on
   2026-11-15: 12 apps, 27 collections, no problems, about one second, and no
   file under `apps/` changed.
-- No runtime for `at`, `files`, `field.list`, or `field.ref` exists.
+- A trial rewrote the collection calls of Vocab, Flights, and Mail against
+  the ADR-0917 signatures as types only. All three type-check, and its
+  findings changed the record in six places.
+- Waves 1 and 2 are built and pass their tests in their own worktrees. They
+  are not committed.
+- No runtime for key selection or `files` exists.
 - No independent review of ADR-0917 to ADR-0921 has been done.
 
 ## Success criteria
