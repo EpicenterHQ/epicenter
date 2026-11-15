@@ -82,20 +82,6 @@ current response, with enough context to understand it.
 If an omission could make something look absent, automatic, or settled, name
 that boundary briefly. Do not hide uncertainty just to make the surface clean.
 
-## A short pass
-
-1. Read the conversation for the person's immediate aim, current model, and
-   point of uncertainty or leverage.
-2. Find the next judgment, insight, expression, or action the person needs.
-3. Keep the actors, decisions, handoff, and consequence required for that
-   moment.
-4. Choose the clearest surface: a short sequence, small diagram, example,
-   restatement, contrast, or paired viewpoint.
-5. Check that separate owners have not been collapsed and deferred decisions
-   have not been presented as settled.
-6. Remove incidental detail while preserving the requested material and the
-   evidence needed to learn, recognize, correct, express, or act.
-
 ## With dialectic
 
 Dialectic asks:
