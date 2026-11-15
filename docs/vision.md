@@ -7,7 +7,7 @@ that computer fetches a copy. You reach all of it from your phone or laptop,
 and so do your agents.**
 
 Epicenter is where one person's software lives. `~/Epicenter` is on a computer
-you control and keep on, owned or rented: the home. Source uses one private
+you control and keep on, owned or rented: the home. Each home uses one private
 root Git repository. Each apps/<app>/ container holds a code/ Bun project and
 sibling data/ records, mostly Markdown. One command,
 `epicenter serve`, offers every app's actions over MCP, and each app's UI in a

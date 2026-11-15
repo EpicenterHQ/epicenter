@@ -8,6 +8,8 @@
 - **Amended:** 2026-11-08, `add` takes any source (below).
 - **Unbuilt:** `epicenter add`.
 
+- **Current boundary:** [ADR-0910](0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md): `apps/<app>/` is the stable container; its entrypoint now lives at `code/epicenter.ts`, beside sibling `data/`. One private root repository holds all apps. The original layout below is historical.
+
 ## Context
 
 ADR-0840 makes Epicenter the home of one person's apps and the agents that use

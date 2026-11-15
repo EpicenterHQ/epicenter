@@ -8,6 +8,8 @@
 - **Unbuilt:** `draft`. Built: `connect`, `sync`, `status`, `mailboxes`, `search`, `thread`, proposals, `apply`, the mailbox UI, and the proposal review UI, in Mail's own repository (`braden-w/mail`), with plain `fetch` against Google's REST endpoints and tests against a fake Google.
 - **Relates:** [ADR-0847](0847-an-app-brings-its-providers-credentials-with-a-default-in-its-code.md) (the person's own Google client), [ADR-0849](0849-your-server-is-one-always-reachable-computer-that-runs-named-actions.md) (`epicenter mail connect` on the server, and no schedules), [ADR-0870](0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md) (`.local` files), [ADR-0876](0876-an-apps-records-live-under-data-and-everything-else-in-it-is-code.md) (`data/`), [ADR-0877](0877-an-apps-code-and-its-data-are-two-repositories-and-sharing-an-app-shares-its-code.md) (the data's private backup), [ADR-0879](0879-an-action-may-yield-values-while-it-runs-and-only-its-return-is-the-answer.md) (yields), [ADR-0880](0880-an-epicenter-runs-its-apps-as-they-sit-on-disk.md) (an app imports any library).
 
+- **Current boundary:** [ADR-0910](0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md): Mail now lives at `apps/mail/code/` with sibling `data/`, checkpointed by the private root repository. The separate Mail repositories and per-action commit bookkeeping described below are historical; the Gmail authority and proposal-review decisions remain.
+
 ## Context
 
 Mail is where a person and their agents get through the person's inbox
