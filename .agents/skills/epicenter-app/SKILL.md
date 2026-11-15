@@ -312,10 +312,20 @@ export const reads = resultQueries(['tasks'], { list: app.list, get: app.get });
 export const writes = resultMutations(['tasks'], { add: app.add, set: app.set });
 ```
 
-Each call answers a Result: what the action returned, or an `ActionError`
-told apart by `name`: `Changed` and `Missing` (the `FileError` the action
-threw), `Threw`, `Refused`, `Unreachable`. Check the name, never the message:
-a page for one record shows "it was deleted" when its read is `Missing`. The layout creates one
+For a run that should continue after the page closes, use
+`app.action.start(input)`, `app.action.attach(id)`, and `app.action.pending()`.
+The client reserves `start`, `attach`, and `pending` below the top level, so
+choose other names for nested app actions, such as `daily.begin`.
+`field.file()` accepts a temporary browser upload through these run controls;
+it does not store a collection attachment. See the app package README for the
+run events, cancellation, and retention contract.
+
+Each call answers a Result: what the action returned, or a shared `ActionError`:
+`Changed`, `Missing`, `Threw`, `Refused`, `Unreachable`, or `Stopped`. Use the
+factories from `@epicenter/app` in actions. Check the name and its subject, never
+the message. A `Missing` may describe a dependency rather than the record being
+shown. An error does not establish what was saved or rolled back; reread the
+record when the outcome is uncertain and retain unsent writing. The layout creates one
 QueryClient from the UI's own `@tanstack/svelte-query`, with the invalidation
 rule from `query-layer`, and puts it
 in `<QueryClientProvider>`; pages read with
