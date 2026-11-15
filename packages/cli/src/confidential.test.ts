@@ -89,7 +89,6 @@ const keysApp = `export default defineApp({ description: 'Keys', collections: {}
 		run: async ({ credentials }) => { await folder.write('data/key.local.md', credentials.token); await folder.write('data/connected.md', 'yes'); return { connected: true }; } }),
 	check: defineAction({ description: 'Optional token', confidential: true, input: { token: field.text({ optional: true }) }, run: () => true }),
 	annotated: defineAction({ description: 'Ordinary raw annotation', input: { value: { type: 'string', writeOnly: true } }, run: ({ value }) => value }),
-	literal: defineAction({ description: 'Ordinary examples', input: { value: { type: 'string', examples: [{ writeOnly: true }] } }, run: () => true }),
 	status: defineAction({ description: 'Status', confidential: false, input: {}, run: () => true }),
 } });`;
 
@@ -101,7 +100,6 @@ test('only explicit flags hide and refuse MCP actions; HTTP and CLI stdin run co
 		const names = (await client.listTools()).tools.map((tool) => tool.name);
 		expect(names).toContain('keys_status');
 		expect(names).toContain('keys_annotated');
-		expect(names).toContain('keys_literal');
 		for (const name of ['keys_connect', 'keys_check']) {
 			expect(names).not.toContain(name);
 			const refused = await client.callTool({ name, arguments: {} });

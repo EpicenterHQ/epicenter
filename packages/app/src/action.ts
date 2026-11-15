@@ -39,17 +39,17 @@ export type Annotations = {
 	openWorldHint?: boolean;
 };
 
-/** What the CLI, MCP, and a UI read from an action besides calling it. */
-export type ActionMeta = {
+/** An action's metadata, shared by its declaration and callers. */
+export type ActionMeta<I extends Input = Input> = {
 	readonly description: string;
-	readonly input: Input;
+	readonly input: I;
 	/** Only HTTP or JSON stdin may supply this action's input; validation and history omit input values. */
 	readonly confidential?: boolean;
 	/**
 	 * The inputs the command line also reads by position, in order:
 	 * `positional: ['from', 'to']` reads `epicenter reading between 2026-11-01 2026-11-08`.
 	 */
-	readonly positional?: readonly string[];
+	readonly positional?: readonly (keyof I & string)[];
 	readonly annotations?: Annotations;
 };
 
@@ -108,20 +108,11 @@ type CallerInput<I extends Input> = Simplify<
 	}
 >;
 
-/** What an action is besides its `run`, as an app writes it. */
-type ActionFields<I extends Input> = {
-	description: string;
-	input: I;
-	confidential?: boolean;
-	positional?: readonly (keyof I & string)[];
-	annotations?: Annotations;
-};
-
 /** An action as an app writes it: `run` receives its input, typed by its fields. */
 export type ActionDef<
 	I extends Input,
 	Out extends Returned | Promise<Returned> = Returned | Promise<Returned>,
-> = ActionFields<I> & {
+> = ActionMeta<I> & {
 	/** Returns what the caller sees, and what `--json` prints: a value that survives JSON. */
 	run(input: InputOf<I>): Out;
 };
@@ -131,7 +122,7 @@ export type YieldingActionDef<
 	I extends Input,
 	Y extends Returned,
 	R extends Returned,
-> = ActionFields<I> & {
+> = ActionMeta<I> & {
 	run(input: InputOf<I>): AsyncGenerator<Y, R, undefined>;
 };
 

@@ -1,4 +1,9 @@
+/**
+ * App composition, run context, and action and collection declarations.
+ * Declarations reject malformed metadata and cyclic schemas before discovery.
+ */
 import { describe, expect, test } from 'bun:test';
+import type { TSchema } from 'typebox';
 import {
 	createMemoryContext,
 	defineAction,
@@ -343,6 +348,29 @@ describe('defineApp', () => {
 });
 
 describe('defineCollection', () => {
+	test('accepts raw writeOnly schema metadata as ordinary collection data', () => {
+		const schema = { type: 'string', writeOnly: true };
+		const collection = defineCollection({
+			path: 'data/records/{id}.md',
+			fields: { value: schema },
+		});
+		expect(collection.fields.value).toEqual(schema);
+	});
+
+	test('rejects cyclic schemas at declaration before they can break discovery', () => {
+		const schema: { type: string; properties: Record<string, TSchema> } = {
+			type: 'object',
+			properties: {},
+		};
+		schema.properties.self = schema;
+		expect(() =>
+			defineCollection({
+				path: 'data/records/{id}.md',
+				fields: { value: schema },
+			}),
+		).toThrow(TypeError);
+	});
+
 	test('requires a data/ path and names the accepted path', () => {
 		expect(
 			problems(() => defineCollection({ path: 'tasks/{time}.md', fields: {} })),
@@ -458,6 +486,68 @@ describe('defineCollection', () => {
 });
 
 describe('defineAction', () => {
+	test('preserves a boolean confidentiality flag and rejects any other value', () => {
+		for (const confidential of [true, false]) {
+			const action = defineAction({
+				description: 'Connect',
+				confidential,
+				input: { token: field.text() },
+				run: () => true,
+			});
+			expect(action.confidential).toBe(confidential);
+		}
+		expect(() =>
+			defineAction({
+				description: 'Connect',
+				confidential: 'true' as unknown as boolean,
+				input: {},
+				run: () => true,
+			}),
+		).toThrow('confidential flag that is not a boolean');
+	});
+
+	test('raw writeOnly schema metadata does not make an action confidential', () => {
+		const action = defineAction({
+			description: 'Read',
+			input: { value: { type: 'string', writeOnly: true } },
+			run: () => true,
+		});
+		expect(action.confidential).toBeUndefined();
+	});
+
+	test('rejects cyclic schemas at declaration before they can break discovery', () => {
+		const schema: { type: string; properties: Record<string, TSchema> } = {
+			type: 'object',
+			properties: {},
+		};
+		schema.properties.self = schema;
+		expect(() =>
+			defineAction({
+				description: 'Read',
+				input: { value: schema },
+				run: () => true,
+			}),
+		).toThrow(TypeError);
+	});
+
+	test('accepts finite recursive schemas expressed with references', () => {
+		const schema = {
+			$defs: {
+				node: {
+					type: 'object',
+					properties: { next: { $ref: '#/$defs/node' } },
+				},
+			},
+			$ref: '#/$defs/node',
+		};
+		const action = defineAction({
+			description: 'Read',
+			input: { value: schema },
+			run: () => true,
+		});
+		expect(action.input.value).toEqual(schema);
+	});
+
 	test('a yielding action called directly resolves with its return; runYielding also reads its yields in order', async () => {
 		const say = defineAction({
 			description: 'Say',
