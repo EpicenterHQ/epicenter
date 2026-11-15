@@ -17,6 +17,10 @@ const { values } = parseArgs({
 const target = values.target ?? `${process.platform}-${process.arch}`;
 if (!targets.includes(target))
 	throw new Error(`Choose --target ${targets.join('|')}`);
+if (target.startsWith('darwin-') && process.platform !== 'darwin')
+	throw new Error(
+		'Build macOS release executables on macOS so codesign can sign them.',
+	);
 const outdir = resolve(values.outdir ?? join(cli, 'dist/release'));
 await mkdir(outdir, { recursive: true });
 const executable = join(outdir, `epicenter-${target}`);
@@ -32,6 +36,16 @@ const compile = Bun.spawn(
 	{ stdin: 'inherit', stdout: 'inherit', stderr: 'inherit' },
 );
 if ((await compile.exited) !== 0) process.exit(1);
+if (target.startsWith('darwin-')) {
+	// Compiling can leave Bun's original signature invalid on Intel macOS.
+	// Sign the final bytes before computing the download checksum.
+	const sign = Bun.spawn(['codesign', '--force', '--sign', '-', executable], {
+		stdin: 'inherit',
+		stdout: 'inherit',
+		stderr: 'inherit',
+	});
+	if ((await sign.exited) !== 0) process.exit(1);
+}
 const bytes = await readFile(executable);
 const checksum = new Bun.CryptoHasher('sha256').update(bytes).digest('hex');
 await writeFile(`${executable}.sha256`, `${checksum}\n`);
