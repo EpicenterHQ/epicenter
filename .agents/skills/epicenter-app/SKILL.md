@@ -287,8 +287,13 @@ the Svelte plugin beside it (`ui/svelte-plugin.ts`), the hash router in
 shadowing Bun. The app's `package.json` names every package the UI imports,
 from npm, never `workspace:` or `catalog:`. The UI imports Epicenter only
 through `@epicenter/app/client`. It owns its components, copied into
-`src/lib/components/ui/` with `components.json`, `src/lib/utils.ts`, and the
-theme in `src/app.css` (ADR-0874). Add a component by copying it whole,
+`src/lib/components/ui/` with `components.json` and `src/lib/utils.ts`
+(ADR-0874). Its `src/app.css` imports `./theme.css`, a tracked relative symlink
+from `ui/src/theme.css` to `../../../../theme.css` at the Epicenter's top.
+Keep fonts, Tailwind mappings, and local styles in the app; edit the shared
+file when changing the home's palette. See the
+[theme package guide](../../../packages/theme/README.md) for the CSS boundary.
+Add a component by copying it whole,
 dependencies and tests included, and change it in place.
 
 `serve` builds the UI itself from `ui/` as it sits on disk, committed or
