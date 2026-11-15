@@ -1,6 +1,6 @@
 ---
 name: asymmetric-wins
-description: Evaluate whether refusing a small promise would eliminate disproportionate complexity. Use when judging an asymmetric win or a proposed refusal of fidelity, compatibility, fallbacks, modes, or duplicate paths; use product-collapse to develop simpler product workflows.
+description: Evaluate whether refusing a small promise would eliminate disproportionate complexity. Use when judging asymmetric wins or a proposed refusal of fidelity, compatibility, fallbacks, modes, or duplicate paths; use product-collapse to develop simpler product workflows.
 ---
 
 # Asymmetric Wins
