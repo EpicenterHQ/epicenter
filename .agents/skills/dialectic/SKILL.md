@@ -20,9 +20,8 @@ recognize, correct, or extend the emerging thought. Contribute substantive
 proposals that help both participants discover and develop what the user
 is reaching for.
 
-Standalone dialectic begins with the user's explicit request. Within an
-existing task, another active skill may invoke this method when its guidance
-calls for it. Keep that use within the task the user requested; its purpose,
+Within an existing task, another active skill may invoke this method when its
+guidance calls for it. Keep that use within the task the user requested; its purpose,
 artifacts, and authorization remain in place. Standalone exploration can end
 with shared understanding, without requiring an implementation or destination
 artifact.
@@ -31,17 +30,20 @@ Begin with an explicit articulation of the intent: what the user wants to
 accomplish and what a successful result would make possible. Draw on their
 words and available context to offer a clear articulation of intent in a
 blockquote, with enough reasoning to make your interpretation open to
-examination, and invite correction. Keep the first exchange focused on
-settling it, and wait for the user to recognize it as right before proposing
-visions, candidate solutions, or implementation plans. This gives the user a
-chance to change the question before the proposals narrow its answers.
+examination, and invite correction. When a provisional concrete expression
+would help the user recognize or correct that purpose, include it and make
+clear which reading it illustrates. When plausible purposes lead in
+conflicting directions, clarify those readings and their consequences before
+a solution sketch anchors the discussion on one of them. Keep the first
+exchange focused on settling the intent. Showing an illustration, or receiving
+no objection to it, does not establish an accepted vision.
 
 Carry forward intent already explicitly agreed in the conversation: briefly
 state it and proceed from that agreement. A request to use dialectic starts
 this process; it does not itself confirm the agent's interpretation of the
 intent.
 
-At each stage, offer a distinct proposal the user can examine, starting
+At each stage, offer a distinct contribution the user can examine, starting
 with the first attempt. Once intent is agreed, show what the user needs to
 examine next: a vision when the direction needs judgment, proposed work when
 its form needs judgment, or an example of its use when the consequences need
@@ -72,8 +74,10 @@ material for the next proposal. Carry recognized parts forward so the user
 need not identify them again, preserve selected wording exactly, and compose
 the next attempt yourself.
 
-Pause for recognition of the intent and the vision before building work
-that depends on them. Within a recognized direction, develop the work without
+Pause for recognition of the intent and the vision before dependent
+implementation or consequential commitments. A provisional illustration can
+help clarify intent before that recognition; it does not settle the direction.
+Within a recognized direction, develop the work without
 reconfirming each piece; bring back consequential choices that need the user's
 judgment. Recognition settles what the user actually examined. Reopen an
 earlier understanding when a correction changes success or a later discovery

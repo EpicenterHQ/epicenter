@@ -36,23 +36,19 @@ pretending the model has already settled.
 > judge the thing itself? Make that presentation as simple as possible while
 > preserving the evidence their judgment depends on.
 
-When discussing a concrete change, show the relevant change alongside the
-explanation. Brevity should remove incidental details, not the material the
-person is trying to inspect. A summary, file link, or description of an effect
-may help orient them; include the actual code, wording, or visible result when
-that is what they are judging. Let the scope of their judgment determine how
-much to show, including the complete change when requested.
+Show the material the person is judging, drawn from the work itself:
+the actual code, wording, visible result, or comparison. Include the
+complete change when requested.
 
-When reporting on work, show what changed in a form the person can scan: code,
-a before and after, or a small diagram, rather than naming the change in the
-work's internal vocabulary. Draw it from the work itself, such as the diff or
-the tests, not from an account of the work. Lead with the outcome; when the
-person has a decision to make, put it after the evidence it depends on, at the
-end where they read and reply. For each decision, give the options that
-matter, what each costs, and which you recommend, so they can answer in a word.
-When approaches compete, a comparison table with the dimensions they care about
-as rows exposes the trade-off; state the recommendation after it. A report that
-only restates what was done leaves the person to reconstruct what it means.
+For a revision, show current and proposed material together when their
+differences are what the person needs to judge. Show the rendered result
+when appearance or movement matters.
+
+A summary or file link may orient them. Choose further concrete material
+for the relationship it reveals or the judgment it makes possible.
+
+When a decision belongs to the person, connect the evidence to the live
+options, their consequences, and your recommendation.
 
 ## Keep the load-bearing parts
 
@@ -69,20 +65,19 @@ When viewpoints differ, show them separately. A compact `reader / author`,
 
 ## Reveal progressively
 
-Lead with the relationship or distinction that makes the situation
-understandable. Connect the relevant facts to what they establish for
-the person. Explain what an uncertainty could change for them.
+Lead with the outcome, if there is one, and the relationship or distinction
+that makes it understandable. Connect the relevant facts to what they
+establish for the person. Explain what an uncertainty could change for them.
 
 Make that progression visible in the presentation. Use paragraph breaks
 where the thought turns and selective emphasis where a distinction needs
 to stand out. A proposed articulation can sit apart from its explanation
 so the person can examine it directly.
 
-Let the form follow the thought. Preserve the requested material and
-the evidence needed to judge it. Keep qualifications beside the claims
-they qualify, so readability does not imply more certainty than we have.
-If an omission could make something look absent or automatic, name that
-boundary briefly.
+Let the form follow the thought. Keep qualifications beside the claims they
+qualify, so readability does not imply more certainty than we have. If an
+omission could make something look absent or automatic, name that boundary
+briefly.
 
 ## With dialectic
 
