@@ -363,9 +363,10 @@ failure to show.
 - Send `set` only the fields that changed, and `null` for one emptied, so a
   save never writes back a value read before someone else changed it. Skip a
   save with nothing to send.
-- Keep what is typed as a draft over the query's data
-  (`bind:value={() => draft ?? file.body, (value) => (draft = value)}`), and
-  clear it once it is saved, so a refresh never overwrites typing.
+- When draft, recovery, or workflow promises are unsettled, use
+  [product-collapse](../product-collapse/SKILL.md) to choose the behavior.
+  For settled behavior, choose each input's owner with
+  [input ownership](../svelte/references/input-ownership.md).
 - Save a changed body with `edit`, quoting the body the draft was typed over
   (`old: base, new: draft`), after `set` has saved the fields. When the
   error's `name` is `Changed`, the failed
