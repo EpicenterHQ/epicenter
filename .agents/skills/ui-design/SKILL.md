@@ -37,8 +37,8 @@ them. Reconsider the whole composition when that choice is open.
    natural anatomy of the existing component system. For agent interactions,
    consult the upstream patterns below when they fit the work.
 4. Run the component-system collapse pass below within the requested scope.
-   Refuse exact reproduction of incidental markup and styling where the person
-   has left those choices open.
+   Refuse exact reproduction of incidental markup, spacing, colors,
+   breakpoints, and one-off states where the person has left those choices open.
 5. Implement the whole state surface: loading, empty, error, disabled, pending,
    selected, and filter-empty where relevant.
 6. Verify visible, responsive, and interactive results in the browser.
