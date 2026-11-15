@@ -51,6 +51,13 @@ file says `0 files`. `--json` prints the same facts as one document,
 `withProblems`, `kinds`, and `records`, where `records` holds only files with
 problems; under `problems`, each app that could not be checked.
 
+**Each collection reports its own problems through `check()`.**
+
+`collection.check()` returns `{ files, records }`, where each record is
+`{ path, problems }` and each problem is `{ line, kind }`. The command calls it
+for every collection and counts the kinds. An app's own action may call it
+too. `list` and `get` keep `problems` as lines of text.
+
 **It writes nothing and exits non-zero when any record has a problem.**
 
 The run is read-only, as for an action marked `readOnlyHint`, and takes no
