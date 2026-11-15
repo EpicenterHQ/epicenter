@@ -8,9 +8,10 @@ For general CSS and Tailwind guidelines, see the `styling` skill.
 
 # UI component boundary
 
-Apps use `@epicenter/ui` subpaths. Components and extras are vendored in
-`packages/ui/src`; this repo does not use shadcn-svelte's app-local
-`$lib/components/ui` layout or a `components.json` in the UI package. Read the
+Monorepo apps use `@epicenter/ui` subpaths. Components and extras are vendored in
+`packages/ui/src`; the UI package has no `components.json`. Personal apps in an
+Epicenter own their copied `$lib/components/ui` source and theme; follow
+[epicenter-app](../../epicenter-app/SKILL.md) for that layout. Read the
 [UI package guide](../../../../packages/ui/README.md) for imports, component
 selection, Vega styling, and the update workflow. Do not run an unpinned
 `shadcn-svelte add` or `jsrepo add` into the live package: generated files need
@@ -42,10 +43,9 @@ that only exposes an action. If you need to pass an action through a component
 or compose it with other DOM behavior, check `fromAction` in `svelte/attachments`
 before writing adapter code yourself.
 
-This repo already uses `{@attach (node) => node.focus()}` for focused
-controls in Todos and Whispering. Follow that shape for small one-off element behavior; extract
-an attachment factory only when several call sites share the behavior or the
-setup owns cleanup.
+Keep small one-off element behavior beside the element. Extract an attachment
+when it names meaningful setup or cleanup, shares a rule, or provides function
+identity that its consumer observes. See [function identity](#when-a-name-earns-its-place).
 
 # Props Pattern
 
@@ -144,13 +144,15 @@ replacing them when they only control the same value. Keep commands as callback
 props and preserve real draft ownership.
 
 ```svelte
-<Textarea
-	bind:value={
-		() => draft.text,
-		draft.inputText
-	}
-/>
+<script lang="ts">
+  let code = $state('');
+</script>
+
+<input bind:value={() => code, (value) => code = value.toUpperCase()} />
+<output>{code}</output>
 ```
+
+### Template locals: narrow reactive values before use
 
 A callback can run after the check that created it. TypeScript may therefore
 lose narrowing for a repeated optional property access inside the binding
@@ -198,6 +200,12 @@ by the mere presence of a getter or `bind:value`. Nested access alone, such as
 `() => editor.settings.title`, needs no alias when the accessed values are
 always available.
 
+Other useful locals can name a computed predicate, share an expensive
+projection, filter unchanged results for downstream consumers, or hold a dynamic
+component such as `{@const Icon = item.icon}`. Inspect consumers before inlining.
+
+### Transformations and codecs
+
 The setter sends the change to its owner's update operation; it does not mutate
 a rendered snapshot or send the whole record back. If a command composes a
 replacement from existing content, read the current owner synchronously at the
@@ -221,45 +229,18 @@ Use [the input patterns](input-ownership.md) for the choice between immediate
 editing and explicit submission.
 
 Files opens full text; a product list opens structured controls. An invalid file
-shows its reason and opens as text, as below; repairing text does not switch a
+shows its reason and opens as text; repairing text does not switch a
 mounted editor's interpretation. Do not add per-record Source/Fields tabs, raw
 mode, or automatic Source fallback.
 
-A page reads each collection off the app's `folder` (`$lib/app.js`). Read
-`todos.items()` for
-listings, `todos.invalid()` for notes that do not read (with their text, for
-repair), and `get(args)` for one note from a list or a workflow.
-
-The view that shows a note makes one editor of it during setup
-(`const todo = folder.todos.edit({ id })`),
-gates on `todo.exists()`, and reads every value through `todo.fields` rather
-than a second `get` or a prop. Bind its fields
-(`bind:value={todo.fields.title}`, `bind:checked={todo.fields.done}`); a
-note edited whole binds `todo.text`. Saves never fail, so the view shows no
-save error: `<WhenOpen>` says when the store is out of reach. A control
-outside the open note's view, such as a list row's toggle, writes with
-`set(args, changes)`, computing toggles from the value shown. Keep
-unsubmitted Add, Send, or Save form input with the form.
+Use the [contract editor lifecycle](lifecycle-and-reactivity.md#contract-reads-and-editing)
+for collection reads, editor construction, field bindings, and saves. Key details
+by the acquired editor identity.
 
 Tabs may select actual workspaces or workflows. Shared `Tabs.Content` owns panel
 mounting, so do not repeat `tab === value` inside each panel. A disabled trigger
 does not establish valid fields for a later event. Use forceMount only for a
 named retained lifetime.
-
-Bind shared `Textarea` and `Input` directly, with a function binding when the
-value is derived, instead of app-local forwarding wrappers or paired get/set
-props. Delayed commands keep their own lifetime and current-data checks.
-Inline components that only forward bindings; keep substantial UI, resources,
-format rules and real editing lifetimes.
-
-For a hunt, trace each app's write mutations and the queries they update. Hunt
-per-record Source tabs, raw-mode admission, and duplicated selection or
-selected-tab conditions inside shared `Tabs.Content`. Classify state by its
-actual owner before removing it. Keep path-operation facts and edit identities;
-name who preserves their information before removing an owner. Use the
-[search recipes](input-ownership.md#search-recipes), then verify repair
-navigation and that a failed save retains accepted input and shows a visible
-failure. Synchronous input refusals remain distinct from publication failures.
 
 ## Inline Simple Props Types
 
@@ -351,134 +332,44 @@ short form is fine:
 Do not define a normal prop named `children` on a component that also accepts
 child content. Svelte reserves that name for the implicit snippet.
 
-# Self-Contained Component Pattern
+# Dialog ownership
 
-## Prefer Component Composition Over Parent State Management
+Put the dialog and its operation with the owner whose lifetime covers the
+choice, submitted input, and outcome. A row can own its dialog when all of
+those belong to that row's mounted lifetime. A parent can own one dialog for
+a selected item, a bulk action, or a choice shared across rows.
 
-When building interactive components (especially with dialogs/modals), create self-contained components rather than managing state at the parent level.
+If a pending write can remove or filter out the row, keep work that must
+survive above that row. Its local dialog and per-call mutation callbacks
+unmount with it. Capture the submitted item and reviewed values when the
+person confirms; let the mutation owner retain essential completion work.
+See [callback lifetime](../../query-layer/SKILL.md).
 
-### The Anti-Pattern (Parent State Management)
+Use callbacks when a child asks another owner to act. Keep the operation local
+when the child owns its whole lifetime. Neither a callback nor a shared dialog
+is, by itself, evidence of misplaced state.
 
-```svelte
-<!-- Parent component -->
-<script>
-	let deletingItem = $state(null);
-</script>
+# View-mode boundaries
 
-{#each items as item}
-	<Button onclick={() => (deletingItem = item)}>Delete</Button>
-{/each}
+Repeated mode checks can reveal separate responsibilities. Follow the data,
+actions, and lifetimes before splitting a component. Extract when the branches
+represent independent workflows or ownership; keep local conditions when they
+express one coherent interaction.
 
-<AlertDialog open={!!deletingItem}>
-	<!-- Single dialog for all items -->
-</AlertDialog>
-```
-
-### The Pattern (Self-Contained Components)
-
-```svelte
-<!-- DeleteItemButton.svelte -->
-<script lang="ts">
-	import { createMutation } from '@tanstack/svelte-query';
-	import { itemMutations } from '$lib/query';
-
-	let { item }: { item: Item } = $props();
-	let open = $state(false);
-
-	const deleteItem = createMutation(() => itemMutations.delete);
-</script>
-
-<AlertDialog.Root bind:open>
-	<AlertDialog.Trigger>
-		<Button>Delete</Button>
-	</AlertDialog.Trigger>
-	<AlertDialog.Content>
-		<Button onclick={() => deleteItem.mutate({ id: item.id })}>
-			Confirm Delete
-		</Button>
-	</AlertDialog.Content>
-</AlertDialog.Root>
-
-<!-- Parent component -->
-{#each items as item}
-	<DeleteItemButton {item} />
-{/each}
-```
-
-### Why This Pattern Works
-
-- **No parent state pollution**: Parent doesn't need to track which item is being deleted
-- **Better encapsulation**: All delete logic lives in one place
-- **Simpler mental model**: Each row has its own delete button with its own dialog
-- **No callbacks needed**: Component handles everything internally
-- **Scales better**: Adding new actions doesn't complicate the parent
-
-### When to Apply This Pattern
-
-- Action buttons in table rows (delete, edit, etc.)
-- Confirmation dialogs for list items
-- Any repeating UI element that needs modal interactions
-- When you find yourself passing callbacks just to update parent state
-
-The key insight: It's perfectly fine to instantiate multiple dialogs (one per row) rather than managing a single shared dialog with complex state. Modern frameworks handle this efficiently, and the code clarity is worth it.
-
-# View-Mode Branching Limit
-
-If a component checks the same boolean flag (like `isRecentlyDeletedView`, `isEditing`, `isCompact`) in **3 or more template locations**, the component is likely serving two purposes and should be considered for extraction.
-
-```svelte
-<!-- SMELL: Same flag checked 3+ times -->
-<script lang="ts">
-	const notes = $derived(
-		isRecentlyDeletedView ? deletedNotes : filteredNotes,  // branch 1
-	);
-</script>
-
-{#if !isRecentlyDeletedView}  <!-- branch 2 -->
-	<div>sort controls...</div>
-{/if}
-
-{#if isRecentlyDeletedView}  <!-- branch 3 -->
-	No deleted notes
-{:else}
-	No notes yet
-{/if}
-```
-
-### The Fix: Push Branching Up to the Parent
-
-Move the view-mode decision to the parent. The child component takes the varying data as props:
-
-```svelte
-<!-- Parent: one branch point, explicit data flow -->
-{#if viewState.isRecentlyDeletedView}
-	<NoteList
-		notes={notesState.deletedNotes}
-		title="Recently Deleted"
-		showControls={false}
-		emptyMessage="No deleted notes"
-	/>
-{:else}
-	<NoteList
-		notes={viewState.filteredNotes}
-		title={viewState.folderName}
-	/>
-{/if}
-```
-
-The child becomes dumb: it renders what it's told, with zero awareness of view modes. This keeps the branching in **one place** instead of scattered across the component tree.
-
-### The Threshold
-
-- **1-2 checks**: Acceptable: simple conditional rendering.
-- **3+ checks on the same flag**: The component is likely two views in one. Consider pushing the varying data up as props.
+Passing varying data or snippets can make a shared view clearer. Compare the
+complete callers: moving checks into parents while adding many configuration
+props may only relocate the branching. The number of checks does not determine
+the component boundary.
 
 # Data-Driven Repetitive Markup
 
-When **3 or more sequential sibling elements** follow an identical pattern with only data varying, consider extracting the data into an array and using `{#each}` or a `{#snippet}`.
+Use an array and `{#each}` when repeated controls are instances of the same
+rule and only their data varies. Use a snippet when sharing markup makes that
+rule clearer. Keep cheap local repetition or different interactions inline;
+the number of siblings alone does not justify extraction.
 
 ```svelte
-<!-- BAD: Copy-paste x3 with only value/label changing -->
+<!-- Before: the same sorting rule repeated for each option. -->
 <DropdownMenu.Item onclick={() => setSortBy('dateEdited')}>
 	{#if sortBy === 'dateEdited'}<CheckIcon class="mr-2 size-4" />{/if}
 	Date Edited
@@ -492,7 +383,7 @@ When **3 or more sequential sibling elements** follow an identical pattern with 
 	Title
 </DropdownMenu.Item>
 
-<!-- GOOD: Data-driven with {#each} -->
+<!-- After: the options share one sorting rule. -->
 <script lang="ts">
 	const sortOptions = [
 		{ value: 'dateEdited' as const, label: 'Date Edited' },
@@ -538,298 +429,165 @@ For more complex repeated patterns (e.g., toolbar buttons with tooltips), use `{
 
 # Single-Use Functions And Aliases
 
-Keep source reads and actions visible beside their controls. Inline a binding
-when it merely forwards a call, aliases a property, or stores a one-off class
-string. Ask whether inlining loses an explanation or necessary behavior, or just
-removes a jump. Keep a name that explains a substantial operation, owns a
-meaningful interaction boundary, or captures a non-obvious decision. A named
-operation can return a Result to the handler that presents its outcome, even
-when that handler is its only caller. See
-[error-handling](../../error-handling/SKILL.md) for Result composition and consumption.
+Keep source reads and actions visible beside their controls. Inline a handler,
+forwarder, property alias, or one-off class string when its name adds navigation
+without explaining a rule. Judge what disappears, not the number of functions.
 
 ## Why Inline?
 
-Single-use extracted bindings add indirection: the reader jumps between the script definition and the template to understand what happens on click/keydown/render. Inlining keeps cause and effect together at the point where the action happens.
+A guard or several statements do not require a separate handler. Keep the
+permitted action beside the control when that makes it easier to understand:
 
 ```svelte
-<!-- BAD: Extracted single-use function that only forwards a call -->
-<script>
-	function handleShare() {
-		share.mutate({ id });
-	}
-
-	function handleSelectItem(itemId: string) {
-		goto(`/items/${itemId}`);
-	}
-</script>
-
-<Button onclick={handleShare}>Share</Button>
-<Item onclick={() => handleSelectItem(item.id)} />
-
-<!-- GOOD: Inlined at the call site -->
-<Button onclick={() => share.mutate({ id })}>Share</Button>
-<Item onclick={() => goto(`/items/${item.id}`)} />
-```
-
-A single-use `const` class string is the same smell: scanning it inline beats chasing a name to a definition for no reuse.
-
-```svelte
-<!-- BAD: a class string referenced once, behind a name -->
+<!-- Before: the name only forwards an already clear action. -->
 <script lang="ts">
-	const rowClass = 'grid gap-3 rounded-md border bg-background px-3 py-3';
+  function handleShare() {
+    if (!canShare) return;
+    share.mutate({ id });
+  }
 </script>
-<div class={rowClass}>...</div>
+<Button onclick={handleShare}>Share</Button>
 
-<!-- GOOD: the class lives where it is applied -->
-<div class="grid gap-3 rounded-md border bg-background px-3 py-3">...</div>
+<!-- After: the guard and request owner are visible at the control. -->
+<Button onclick={() => {
+  if (!canShare) return;
+  share.mutate({ id });
+}}>Share</Button>
 ```
 
-A handler does not need a name just because it contains several statements or
-a guard. Keep lifetime, mode, and write-permission checks beside the control
-when that makes the permitted action clearer. Move the logic into a named
-operation when sequencing or distinct failure decisions would overwhelm the
-event wiring. Preserve method receivers when removing wrappers: inline
-`() => owner.act()` rather than passing `owner.act` if the method needs `this`.
-
-Event-specific logic can remain inline when its steps are easier to understand beside the element:
-
-```svelte
-<!-- GOOD: Inlined keyboard shortcut handler -->
-<svelte:window onkeydown={(e) => {
-	const meta = e.metaKey || e.ctrlKey;
-	if (!meta) return;
-	if (e.key === 'k') {
-		e.preventDefault();
-		commandPaletteOpen = !commandPaletteOpen;
-		return;
-	}
-	if (e.key === 'n') {
-		e.preventDefault();
-		notesState.createNote();
-	}
-}} />
-```
+Keep per-interaction `.mutate(...)` callbacks at that call site too. Preserve
+method receivers: use `() => owner.act()` rather than passing `owner.act` when
+the method needs `this`. Remove unused query entries and imports when their
+actual callers have disappeared; keep the underlying service if it still has
+consumers.
 
 ## When A Name Earns Its Place
 
-Keep a single-use binding when its name explains work beyond an already clear
-forwarded call, or when the function owns sequencing or a failure decision that
-the event wiring should not carry. Add a comment when the decision itself needs
-an explanation; a comment is not required merely to justify the function.
+Keep names for typed parsing or codecs, persistence and its failure handling,
+shared rules, substantial streaming or recovery sequences, and operations whose
+names explain a non-obvious decision. A page-wide keyboard map can earn its name;
+a textarea shortcut that only forwards to `send()` usually fits at the textarea.
+A named operation can return a Result to the handler that presents its outcome;
+see [error handling](../../error-handling/SKILL.md).
 
-```svelte
-<script lang="ts">
-	/**
-	 * Navigate the note list with arrow keys, wrapping at boundaries.
-	 * Operates on the flattened display-order ID list to respect date grouping.
-	 */
-	function navigateWithArrowKeys(e: KeyboardEvent) {
-		// 15 lines of keyboard navigation logic...
-	}
-</script>
+Retain locals that preserve type narrowing for deferred bindings, capture one
+operation's identity, or supply contextual typing a generic factory needs.
+Inlining a typed intermediate can change inference even when the runtime value
+looks identical. Check its callers and typecheck the resulting expression.
 
-<!-- The semantic name communicates intent better than inlined logic would -->
-<div onkeydown={navigateWithArrowKeys} tabindex="-1">
-```
+Keep a stable function when its consumer uses identity to control setup,
+cleanup, or subscription lifetime. Svelte's
+[`{@attach}`](https://svelte.dev/docs/svelte/@attach) observes the supplied
+function and reactive reads made during setup. A stable conditional such as
+`{@attach message.id === focus ? center : undefined}` can keep an attachment
+in place across refreshed message objects. An inline attachment is also valid;
+inspect its dependencies before assuming it changes identity or reruns. Naming
+a function does not stop reactive reads inside it from triggering setup again.
 
-A documented state-to-class map can also earn its name when it parks a non-obvious decision (why a cell rings amber, why digits right-align) that would be buried inside a `class={[...]}` array.
+## Preserve read timing
 
-Inline bindings that merely forward values or calls; their indirection does not earn its place.
+Inlining preserves when information is read as well as what is called:
+
+- Preserve a `tick()` boundary when it orders DOM work after pending updates.
+  Moving a scroll into an attachment establishes access to the element, but
+  another caller, such as a router, may still schedule a competing scroll.
+  [`tick()`](https://svelte.dev/docs/svelte/lifecycle-hooks#tick) waits for pending
+  Svelte updates; it does not guarantee precedence over arbitrary async work.
+  Trace both callers and verify cold and cached navigation before changing
+  their scheduling.
+
+- Read current selection or membership at the event. A template local such
+  as `picked` describes the last render; several events can arrive before the
+  next render. Keep the membership test inside the handler:
+
+  ```svelte
+  onclick={() => {
+    chosen = chosen.includes(word.word)
+      ? chosen.filter((other) => other !== word.word)
+      : [...chosen, word.word];
+  }}
+  ```
+
+- Preserve the [submitted operation](../../query-layer/SKILL.md)
+  when inlining: move capture with the event, not into a deferred callback.
+  Keep any pre-update scroll position at the phase it describes.
+- When the request settles, derive updates from the current shared
+  collection. When removing a deferred helper, put its replacement inside the
+  callback that called it. Computing it before the request would overwrite work
+  from other requests that settled in between:
+
+  ```ts
+  const graded = word;
+  review.mutateAsync({ path: graded.path, grade }).then(
+    (saved) => {
+      const remaining = again.filter((other) => other.path !== graded.path);
+      again = grade === 'again' ? [...remaining, { ...graded, ...saved }] : remaining;
+    },
+    reportFailure,
+  );
+  ```
+
+Keep callbacks with their existing lifetime owner while moving a handler. See
+[callback lifetime and timing](../../query-layer/SKILL.md)
+for observer callbacks, per-execution promises, and awaited completion work.
 
 ## Multi-Use Bindings
 
-Reuse is evidence, not an exemption from the inlining test. Repeated shallow
-reads such as `editor.row` can stay direct so ownership remains visible at every
-use. Keep extraction when it centralizes a shared rule, avoids substantial
-repetition, provides necessary caching, or gives non-obvious work a useful name.
-Two uses alone do not establish any of those benefits. See
-[refactoring methods](../../collapse-pass/references/refactoring-methods.md#keep-source-and-action-visible) for the
-general test, and [lifecycle and reactivity](lifecycle-and-reactivity.md#template-locals-narrow-reactive-values-before-use)
-for reactive reads and operation-local snapshots.
+Reuse is evidence, not an exemption from the inlining test. A forwarding
+`set(changes)` wrapper can give way to direct `save.mutate({ path, ... })` calls
+when it only repeats those arguments. Keep extraction when it centralizes a
+shared rule, avoids substantial repetition, caches a necessary result, or makes
+non-obvious work understandable. Use the same test for forwarding `$derived`
+aliases; keep template locals needed to narrow optional values. See
+[refactoring methods](../../collapse-pass/references/refactoring-methods.md#keep-source-and-action-visible)
+and [template narrowing](#template-locals-narrow-reactive-values-before-use).
 
-# Referential Stability for Reactive Data Sources
+# Referential stability for reactive data sources
 
-## The Problem: New Array = Infinite Loop with TanStack Table
+Use `$derived` for a reactive projection when caching its computation or
+preserving its reference matters to a consumer. A table adapter, keyed setup,
+or attachment may observe identity; inspect that consumer before changing how
+values are constructed. A fresh array alone does not establish a feedback loop.
+Trace the read, write, and invalidation that would make it repeat.
 
-When feeding data from a reactive SvelteMap (or any signal-based store) into `createSvelteTable`, the `get data()` getter must return a **referentially stable** array. If it creates a new array on every access, TanStack Table's internal `$derived` enters an infinite loop:
+An ordinary `{#each}` does not require a memoized array merely to render it.
+When row identity must survive reordering or replacement, use an appropriate
+each key. Keep existing upstream getters when required by their API; new read
+APIs can return the derived value through a method.
 
-```
-1. $derived calls get data() -> new array (Array.from().sort())
-2. TanStack Table sees "data changed" -> updates internal $state (row model)
-3. $state mutation invalidates the $derived
-4. $derived re-runs -> get data() -> new array again (always new!)
-5. -> infinite loop -> page freeze
-```
+# Loading, empty, and error states
 
-TanStack Query hid this problem because its cache returns the **same reference** until a refetch. SvelteMap getters that do `Array.from(map.values()).sort()` create a new array every call.
+Render the state its owner actually exposes. Missing data alone does not tell
+you whether a read is pending, failed, or successfully empty. Read the query,
+mutation, editor, or readiness promise that owns that distinction.
 
-## The Fix: Memoize with `$derived`
+- For a stable readiness promise, use `{#await}`. Add `{:catch}` when this block
+  owns a possible rejection and its presentation. It may be omitted when no
+  rejection is possible or failure already has an explicit owner. Omitting
+  `{:catch}` does not create error handling.
+- For an operation that exposes pending and error state, read those states
+  directly. Preserve meaningful button labels while indicating progress and
+  blocking duplicate actions where required.
+- Show an empty state after a successful empty answer. Choose error content
+  according to what failed and what the person can do next; it need not share
+  the empty state's markup.
 
-In `.svelte.ts` modules, use `$derived` to compute the sorted/filtered array once per SvelteMap change:
+Use the app's established loading and empty components where they fit. Follow
+[ui-design](../../ui-design/SKILL.md) for presentation and
+[readiness gates](lifecycle-and-reactivity.md#async-gate-variant) for promise
+ownership. Spinner choice and layout do not change who owns request state.
 
-```typescript
-// Bad: new array on every access -> infinite loop with TanStack Table
-get sorted(): Recording[] {
-    return Array.from(map.values()).sort(
-        (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
-    );
-}
+# Derive from the owner of the fact
 
-// Good: $derived caches the result, stable reference between SvelteMap changes
-const sorted = $derived(
-    Array.from(map.values()).sort(
-        (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
-    ),
-);
+Use a prop when it already carries the fact needed for a decision. If restore
+eligibility depends on whether a note is deleted, derive it from the note's
+saved deletion state rather than inferring it from which list is open.
 
-// Expose via getter (returns cached $derived value)
-get sorted(): Recording[] {
-    return sorted;
-}
-```
-
-## When This Matters
-
-The infinite loop only happens when the array is consumed by something that **tracks reference identity in a reactive context**:
-
-- `createSvelteTable({ get data() { ... } })`: **DANGEROUS** (infinite loop)
-- `$derived(someStore.sorted)` where the result feeds back into state: **DANGEROUS**
-- `{#each someStore.sorted as item}` in a template: **SAFE** (Svelte's each block diffs by value, renders once per change)
-- `$derived(someStore.get(id))`: **SAFE** (returns existing object reference from SvelteMap.get())
-
-## Rule of Thumb
-
-If a `.svelte.ts` state module has a computed getter that returns an array/object, and that getter could be consumed by TanStack Table or a `$derived` chain that feeds into `$state`, **always memoize with `$derived`**. The cost is near-zero (one extra signal), and it prevents a class of bugs that's invisible in development until the page freezes.
-
-# Loading and Empty State Patterns
-
-## Never Use Plain Text for Loading States
-
-Always use the `Spinner` component from `@epicenter/ui/spinner` instead of plain text like "Loading...". This applies to:
-
-- `{#await}` blocks gating on async readiness
-- `{#if}` / `{:else}` conditional loading
-- Button loading states
-
-## Full-Page Loading (Async Gate)
-
-When gating UI on an async promise (e.g. `whenReady`, `whenLoaded`), use `Empty.*` for both loading and error states. This keeps the structure symmetric:
-
-```svelte
-<script lang="ts">
-	import * as Empty from '@epicenter/ui/empty';
-	import { Spinner } from '@epicenter/ui/spinner';
-	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
-</script>
-
-{#await someState.whenReady}
-	<Empty.Root class="flex-1">
-		<Empty.Media>
-			<Spinner class="size-5 text-muted-foreground" />
-		</Empty.Media>
-		<Empty.Title>Loading tabs...</Empty.Title>
-	</Empty.Root>
-{:then _}
-	<MainContent />
-{:catch}
-	<Empty.Root class="flex-1">
-		<Empty.Media>
-			<TriangleAlertIcon class="size-8 text-muted-foreground" />
-		</Empty.Media>
-		<Empty.Title>Failed to load</Empty.Title>
-		<Empty.Description>Something went wrong. Try reloading.</Empty.Description>
-	</Empty.Root>
-{/await}
-```
-
-## Inline Loading (Conditional)
-
-When loading state is controlled by a boolean or null check:
-
-```svelte
-<script lang="ts">
-	import { Spinner } from '@epicenter/ui/spinner';
-</script>
-
-{#if data}
-	<Content {data} />
-{:else}
-	<div class="flex h-full items-center justify-center">
-		<Spinner class="size-5 text-muted-foreground" />
-	</div>
-{/if}
-```
-
-## Button Loading State
-
-Use `Spinner` inside the button, matching the `AuthForm` pattern:
-
-```svelte
-<Button onclick={handleAction} disabled={isPending}>
-	{#if isPending}<Spinner class="size-3.5" />{:else}Submit{/if}
-</Button>
-```
-
-## Empty State (No Data)
-
-Use the `Empty.*` compound component for empty states (no results, no items):
-
-```svelte
-<script lang="ts">
-	import * as Empty from '@epicenter/ui/empty';
-	import FolderOpenIcon from '@lucide/svelte/icons/folder-open';
-</script>
-
-<Empty.Root class="py-8">
-	<Empty.Media>
-		<FolderOpenIcon class="size-8 text-muted-foreground" />
-	</Empty.Media>
-	<Empty.Title>No items found</Empty.Title>
-	<Empty.Description>Create an item to get started</Empty.Description>
-</Empty.Root>
-```
-
-### Key Rules
-
-- **Never** show plain text ("Loading...", "Loading tabs...") without a `Spinner`
-- **Always** include `{:catch}` on `{#await}` blocks. This prevents infinite spinners on failure
-- Use `{:then _}` for readiness gates when the resolved value is unused. Bare `{:then}` is valid Svelte, but Biome 2.4.x rejects it in `.svelte` files
-- Use `text-muted-foreground` for loading text and spinner color
-- Use `size-5` for full-page spinners, `size-3.5` for inline/button spinners
-- Match the `Empty.*` compound component pattern for both error and empty states
-
-# Prop-First Data Derivation
-
-When a component receives a prop that already carries the information needed for a decision, derive from the prop. Never reach into global state for data the component already has.
-
-```svelte
-<!-- BAD: Reading global state for info the prop already carries -->
-<script lang="ts">
-	import { viewState } from '$lib/state';
-	let { note }: { note: Note } = $props();
-
-	// viewState.isRecentlyDeletedView is redundant: note.deletedAt has the answer
-	const showRestoreActions = $derived(viewState.isRecentlyDeletedView);
-</script>
-
-<!-- GOOD: Derive from the prop itself -->
-<script lang="ts">
-	let { note }: { note: Note } = $props();
-
-	// The note knows its own state: no global state needed
-	const isDeleted = $derived(note.deletedAt !== undefined);
-</script>
-```
-
-### Why This Matters
-
-- **Self-describing**: The component works correctly regardless of which view rendered it.
-- **Fewer imports**: Dropping a global state import reduces coupling.
-- **Testable**: Pass a note with `deletedAt` set and the component behaves correctly: no need to mock view state.
-
-### The Rule
-
-If the data needed for a decision is already on a prop (directly or derivable), **always** derive from the prop. Global state is for information the component genuinely doesn't have.
+View mode is a different fact: it can decide layout, available controls, or
+empty-state text even when two views contain the same note. Read it from its
+owner or pass the relevant choice explicitly. Verify that two values mean the
+same thing before replacing one with the other; a shorter dependency list is
+not evidence that the information is equivalent.
 
 # Template Gotchas
 

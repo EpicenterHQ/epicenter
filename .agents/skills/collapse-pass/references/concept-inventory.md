@@ -4,8 +4,9 @@ Understand what the system needs to do and follow actual callers. Then step
 back: could it do the same job with a simpler model? A collection of reasonable
 parts can still ask someone to understand too much.
 
-Make that question concrete by visibly enumerating the surface someone must
-understand to use or change the relevant workflow, API, or subsystem. Include
+When the concepts or proposed changes are difficult to hold in mind, enumerate
+the surface someone must understand to use or change the relevant workflow,
+API, or subsystem. Include
 nouns such as types, objects, services, and stores, and inspect their methods,
 properties, object keys, options, and state variants. Group members by owner;
 explain what each represents or does and why it exists separately. Trace actual
@@ -61,13 +62,6 @@ could make several parts unnecessary together. Before settling for a rename or
 local cleanup, explain whether a deeper change would simplify the whole
 workflow. Compare concrete caller code, ownership, lifetimes, and the complexity
 introduced as well as removed.
-
-Carry out this investigation independently. Bring the user a developed
-alternative and the consequences that require their judgment. Ask when a
-missing requirement or product choice would materially change the direction;
-resolve questions about the existing implementation through inspection.
-Keep changes within the task's authorized scope. A focused local transformation
-needs no subsystem inventory.
 
 ## Replace unnecessary flexibility with stronger invariants
 
