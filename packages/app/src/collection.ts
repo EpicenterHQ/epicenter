@@ -54,7 +54,7 @@ import { Value } from 'typebox/value';
 import { type Action, type ActionMeta, RESERVED_FIELDS } from './action.ts';
 import { folder, isLocalPath } from './context.ts';
 import { ActionError } from './errors.ts';
-import { whatFits } from './field.ts';
+import { refPathOf, whatFits } from './field.ts';
 import {
 	type FieldValues,
 	isFieldKey,
@@ -495,18 +495,22 @@ const isReadOnly = (schema: TSchema) =>
 const hasDefault = (schema: TSchema) => Object.hasOwn(schema, 'default');
 
 /**
- * Why `value` does not fit `schema`, quoting it: `due: "next week" is not a
- * day like 2026-11-12`. A `.local` file's value is not quoted (`refreshToken
- * is not text`), so a problem or a refused write cannot carry a secret to
- * whoever reads the message.
+ * A field and its value as a refusal names them: `due: "next week"`. A
+ * `.local` file's value is not quoted (`refreshToken`), so a problem or a
+ * refused write cannot carry a secret to whoever reads the message.
  */
+function quote(key: string, value: unknown, local: boolean): string {
+	return local ? key : `${key}: ${JSON.stringify(value)}`;
+}
+
+/** Why `value` does not fit `schema`, quoted: `due: "next week" is not a day like 2026-11-12`. */
 function misfit(
 	key: string,
 	schema: TSchema,
 	value: unknown,
 	local: boolean,
 ): string {
-	const quoted = local ? key : `${key}: ${JSON.stringify(value)}`;
+	const quoted = quote(key, value, local);
 	const words = whatFits(schema, value);
 	if (words) return `${quoted} is not ${words}`;
 	const [error] = Value.Errors(schema, value);
@@ -674,6 +678,48 @@ function createFiles(layout: Template, fields: Fields) {
 		return { set: inDeclaredOrder(set, fields), removed };
 	}
 
+	/** Each field that holds a `field.ref` or a list of them, with its target's template. */
+	const references = Object.entries(fields).flatMap(([key, schema]) => {
+		const one = refPathOf(schema);
+		const path = one ?? refPathOf((schema as { items?: unknown }).items);
+		return path === undefined
+			? []
+			: [{ key, many: one === undefined, target: template(path) }];
+	});
+
+	/**
+	 * Refuse, with `ActionError.Refused`, each key `given` would store in a
+	 * reference that is not exactly the key of a record in its target: one the
+	 * target's path would change, or with no file. It reads those files and
+	 * writes nothing; `add` and `set` call it before they write. `update` does
+	 * not: what its function returns is the app's own, as a `readOnly` field is.
+	 */
+	async function checkReferences(path: string, given: Record<string, unknown>) {
+		const problems: string[] = [];
+		for (const { key, many, target } of references) {
+			const value = given[key];
+			const [placeholder = ''] = target.placeholders;
+			for (const each of many ? (Array.isArray(value) ? value : []) : [value]) {
+				if (typeof each !== 'string') continue;
+				const quoted = `${path}: ${quote(key, each, local)}`;
+				let file: string | undefined;
+				try {
+					file = target.fill({ [placeholder]: each });
+				} catch {
+					file = undefined;
+				}
+				if (file === undefined || target.match(file)?.[placeholder] !== each)
+					problems.push(
+						`${quoted} is not a key ${target.text} can name a file by`,
+					);
+				else if ((await folder.read(file)) === undefined)
+					problems.push(`${quoted} names no record in ${target.text}`);
+			}
+		}
+		if (problems.length)
+			throw ActionError.Refused({ message: problems.join('\n') }).error;
+	}
+
 	/** The text of a new file at `path` from the defaults, `given`, and `body`; throws when the fields do not fit. */
 	function made(path: string, given: FieldValues, body: string) {
 		for (const key of Object.keys(given)) known(path, key);
@@ -794,6 +840,7 @@ function createFiles(layout: Template, fields: Fields) {
 			const given = Object.fromEntries(
 				Object.entries(rest).filter(([, value]) => value !== undefined),
 			) as FieldValues;
+			await checkReferences(path, given);
 			const text = await folder.update(path, (before) => {
 				if (before !== undefined) throw new Error(`${path} is already there`);
 				return made(path, given, typeof body === 'string' ? body : '');
@@ -804,6 +851,7 @@ function createFiles(layout: Template, fields: Fields) {
 			const at = own(path);
 			if (Object.values(given).every((value) => value === undefined))
 				throw new Error(`Nothing to set in ${at}: give a field`);
+			await checkReferences(at, given);
 			return rewrite(at, (record) => {
 				if (!record) throw ActionError.Missing({ path: at }).error;
 				return { fields: given };

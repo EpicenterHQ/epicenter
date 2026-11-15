@@ -43,6 +43,7 @@ export {
 	field,
 	fileFieldOf,
 	MAX_FILE_BYTES,
+	type TList,
 	type TSwitch,
 	type TTags,
 	type UploadedFile,

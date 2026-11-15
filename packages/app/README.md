@@ -247,6 +247,9 @@ the path it was asked for, while `list` gives the name on disk.
 - in a one-file collection, a field that is required and has no default,
   since the file reads as its defaults before its first `set`.
 
+`field.ref` refuses, when it is called, a target it cannot name one record
+of by a key.
+
 ### Addressing a record
 
 The generated verbs are for the generic case, so they address a record by its
@@ -265,7 +268,42 @@ takes `{ path, grade }`; it could take `{ word, grade }` and call
 | `field.datetime()` | `string`, RFC 3339 | `--name <date and time>` |
 | `field.select(['a', 'b'])` | `'a' \| 'b'` | `--name a` |
 | `field.boolean()` | `boolean`, `false` unless given | `--name`, `--name=false` |
-| `field.tags()` | `string[]`, empty unless given | `--name a --name b` |
+| `field.list(item)` | an array of `item`'s value, empty unless given | `--name a --name b`, each read as `item` |
+| `field.tags()` | `field.list(field.text())`: `string[]` | `--name a --name b` |
+| `field.ref(collection)` | `string`, the key of a record in `collection` | `--name <text>` |
+
+`field.list(item)` is a list of any field: `field.list(field.select(['x', 'threads']))`
+is several of a fixed set, and `field.list(field.integer())` reads each
+`--name 4` as a number. It is never required, reads as `[]` when its line is
+absent, and a write may leave it out. A list of an item the command line
+cannot spell, such as `field.list(Type.Object({ name: Type.String() }))`, is
+given as one JSON object with `--input`, and its flag is refused.
+
+`field.ref(collection)` holds the key of a record in `collection`: the value
+of the one placeholder in its path. `field.ref(shelves)` for
+`data/shelves/{shelf}.md` holds `"essays"` for `data/shelves/essays.md`, and
+nothing else, never the path. `field.list(field.ref(shelves))` holds several.
+`collection` is declared before the field that names it, so a collection
+cannot refer to itself, and two cannot refer to each other. `field.ref`
+refuses a target whose path has no placeholder or more than one, and a
+`.local` target.
+
+- A collection's `add` and `set` read the record each key names before they
+  write. They refuse a key that is not exactly the one its file would carry
+  (`" essays "` is not `essays`), and a key whose record is not there. Each
+  throws `ActionError.Refused`, one line per key, such as
+  `data/books/dune.md: shelf: "poems" names no record in data/shelves/{shelf}.md`,
+  and writes nothing. A `.local` collection's line leaves the key out.
+- `update` does not check: what its function returns is the app's own, as a
+  `readOnly` field is.
+- A read returns the key and opens no other file, so a key whose record was
+  deleted since still reads as that key.
+- In an action's `input`, a reference is checked as text. The action finds
+  out whether the record exists when it reads it.
+
+A reference's JSON Schema is text with the target's path, which the app
+listing prints with the rest of the schema:
+`{ "type": "string", "x-epicenter-ref": { "path": "data/shelves/{shelf}.md" } }`.
 
 Each field is JSON Schema, so any TypeBox schema works as a field too. A field
 is required unless it says `optional: true`; `readOnly: true` is described
@@ -299,7 +337,8 @@ problem reads `title: "…" is not <description>`. Tasks' title is
 An action's `positional` lists, in order, the fields the command line also
 reads by position: `positional: ['from', 'to']` reads
 `epicenter reading between 2026-11-01 2026-11-08`. A list field may be last,
-and takes every word left. Flags always work.
+and takes every word left. Flags always work, except for a list of an item
+the command line cannot spell.
 
 An action's `annotations` are MCP's tool annotations, verbatim:
 `readOnlyHint`, `destructiveHint`, `idempotentHint`, and `openWorldHint`, with
