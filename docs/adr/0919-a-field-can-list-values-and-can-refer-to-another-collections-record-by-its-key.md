@@ -41,12 +41,14 @@ const pages = defineCollection({
 
 - The value is text. On disk it is the target's key and nothing else:
   `"essays"`, never a path and never `collections/essays`.
-- The target has exactly one placeholder.
-- A collection that refers to itself, or two that refer to each other, pass a
-  function: `field.ref(() => pages)`.
-- `create`, `set`, and `update` refuse a key that has no record in the target.
-- A read returns the key and reads no other file.
-  `collections.at({ collection: key })` follows it.
+- The target has exactly one placeholder, is not a `.local` collection, and is
+  declared before the collection that refers to it.
+- `add` and `set` refuse a key that has no record in the target, and a key
+  that is not exactly the one the target's file carries, so `" essays "` is
+  refused. `update` does not check: its value comes from the app's own
+  function, as a `readOnly` field's does.
+- A read returns the key and reads no other file. The target's own `get`
+  follows it.
 - In an action's `input`, `field.ref(pages)` checks the key's form. The action
   finds out whether the record exists when it reads it.
 
@@ -59,11 +61,12 @@ add meaning to a value but never stand for a value of another type.
 
 ## Consequences
 
-- A page can draw a picker for a reference and chips for a list of them from
-  the schema alone. The app's listing names the action that lists the target
-  when the app exposes one; a page with none falls back to a text box.
-- A record must exist before another names it. Two records that name each
-  other are written in two steps.
+- A reader of the schema can tell a reference from free text, and a list of
+  them from a list of tags. Which action lists a reference's target is not in
+  the schema; a page that draws a picker names that action itself.
+- A record must exist before another names it.
+- A collection cannot refer to itself, and two cannot refer to each other.
+  Such a field stays `field.text()` until an app needs it checked.
 - Renaming a record leaves the keys that named it pointing at nothing.
   `epicenter check` reports them
   ([ADR-0920](0920-epicenter-check-reports-every-record-that-does-not-fit-its-collection.md)).
@@ -84,3 +87,13 @@ add meaning to a value but never stand for a value of another type.
 - **Check a reference on every read.** A read would open a second file for
   each reference. The write and the check command cover it.
 - **`field.object`.** It would rename `Type.Object` and add nothing.
+- **A function target, `field.ref(() => pages)`, for self-references and
+  cycles.** Built and removed. The annotation had to stay empty until
+  `defineApp` resolved it, which took a hidden resolver, a walk of every
+  schema, and a dependence on how TypeBox copies a schema. TypeScript also
+  needs a return type written on the function. No app has such a field.
+- **Check references inside `update`.** Built and removed. The value is only
+  known inside the write's own callback, which cannot wait for a read, so the
+  check threw out of the callback, read, and ran it again.
+- **The app listing names the action that lists a reference's target.** Built
+  and removed. It needed a mark on every generated verb, and no page reads it.

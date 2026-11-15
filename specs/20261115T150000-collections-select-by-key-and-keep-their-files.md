@@ -56,9 +56,9 @@ declaration before anything breaks.
 - [ ] `field.list(item)`. `field.tags()` keeps working until wave 3, so this
   wave breaks no app.
 - [ ] `field.ref(collection)`, the `x-epicenter-ref` annotation, refusal of a
-  missing target on `create`, `set`, and `update`.
-- [ ] The check reports a reference with no record behind it.
-- [ ] The app listing names the action that lists a reference's target.
+  missing or inexact key on `add` and `set`.
+- [ ] The check reports a reference with no record behind it. This part waits
+  for wave 1 to be on `main`.
 
 ### Wave 3: selection by key (ADR-0917)
 
