@@ -313,9 +313,9 @@ export const writes = resultMutations(['tasks'], { add: app.add, set: app.set })
 ```
 
 For a run that should continue after the page closes, use
-`app.action.start(input)`, `app.action.attach(id)`, and `app.action.pending()`.
-The client reserves `start`, `attach`, and `pending` below the top level, so
-choose other names for nested app actions, such as `daily.begin`.
+import `runs` from `@epicenter/app/client` and use
+`runs.start(app.action, input)`, `runs.attach(app.action, id)`, and
+`runs.pending(app.action)`. These controls preserve every app action name.
 `field.file()` accepts a temporary browser upload through these run controls;
 it does not store a collection attachment. See the app package README for the
 run events, cancellation, and retention contract.
