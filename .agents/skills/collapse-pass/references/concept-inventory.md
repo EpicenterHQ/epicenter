@@ -63,6 +63,13 @@ local cleanup, explain whether a deeper change would simplify the whole
 workflow. Compare concrete caller code, ownership, lifetimes, and the complexity
 introduced as well as removed.
 
+Carry out this investigation independently. Bring the user a developed
+alternative and the consequences that require their judgment. Ask when a
+missing requirement or product choice would materially change the direction;
+resolve questions about the existing implementation through inspection.
+Keep changes within the task's authorized scope. A focused local transformation
+needs no subsystem inventory.
+
 ## Replace unnecessary flexibility with stronger invariants
 
 Look for stronger invariants that make independently maintained relationships
