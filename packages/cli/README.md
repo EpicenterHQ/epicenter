@@ -17,9 +17,13 @@ all apps' code and records. Each folder in `apps/` is a stable app container:
 ```
 
 [ADR-0910](../../docs/adr/0910-an-epicenter-is-one-private-repository-and-each-app-keeps-its-code-beside-its-data.md)
-is Accepted and describes the source and live layout. Existing histories were
-combined with the one-time `packages/cli/scripts/migrate-to-one-repository.ts`; ordinary
-commands do not import or retire nested repositories.
+describes the current layout and history. Each personal or shared home has
+its own private root repository, separate from this runtime source monorepo
+and from code-only app publications. The one-time
+`packages/cli/scripts/migrate-to-one-repository.ts` combined nested repositories
+on 2026-11-14. The author's live home later moved onto a Vault-based `main`,
+with that combined history kept as archive refs (ADR-0910). Ordinary commands
+do not import or retire nested repositories.
 
 Your Epicenter lives on a computer you control and keep on. `epicenter serve`
 offers its apps to devices on a private connection. An older laptop with

@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-11-14
 - **Implementation:** Source retains the existing container lock, tolerant reads, HTTP/MCP actions, UI builds, private input and serve-owned clock. This change adds code/data siblings under `apps/`, root checkpoints, committed code copying, and single-clone restore; it removes action Git bookkeeping.
-- **Migration:** Completed on 2026-11-14 for the nine live apps. The root and 18 app repositories became one private root repository, preserving exact original signed objects under archival tags and relocated histories under the new paths. All nine UIs built. A fresh GitHub clone recovered every included file and historical LFS payload; the installed service made and pushed a signed startup checkpoint. The stopped originals remain in a local recovery archive. The 17 old individual GitHub repositories were archived on 2026-11-15; both private backup repositories remain active.
+- **Migration:** On 2026-11-14 the root and 18 app repositories were combined into one private repository, with exact original signed objects under archival tags. On 2026-11-15 the personal home moved onto Vault history instead (see "Personal Vault home, 2026-11-15" below). The earlier combined history remains as archive refs on that home's origin. Its separate GitHub repository and the 17 individual app repositories were deleted after their histories and media were verified on the surviving origin. The stopped originals remain in local recovery archives.
 - **Supersedes:** [ADR-0877](0877-an-apps-code-and-its-data-are-two-repositories-and-sharing-an-app-shares-its-code.md): separate code and data repositories and sharing their existing histories; [ADR-0884](0884-an-epicenter-is-a-repository-that-lists-the-repositories-inside-it-and-init-from-rebuilds-it.md): a root that excludes apps, records their repositories, and restores them with separate clones.
 - **Amends:** [ADR-0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md): withdraw per-action commits and app-repository sync.
 - **Amends:** [ADR-0870](0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md): root checkpoints retain the local-file exclusion and refusal.
@@ -169,36 +169,50 @@ git restore --source=<c> -- apps/<app>/         # both
 ```
 
 A whole-app restore reverts both directories and deletes tracked files added
-after that commit. A commit imported from before the repositories were
-combined holds only code or only data. Restoring the whole app from such a
-commit deletes the absent sibling. Restore its code or data prefix instead.
+after that commit. Inspect the tree before restoring: migrations can change
+paths, and an imported per-app commit can hold only code or only data.
+Restoring the whole app from that commit deletes the absent sibling. Restore
+its code or data prefix instead. Archive refs are separate from `main`; the
+root `MIGRATION.md` records which histories and paths a home preserves.
 
 ## Personal Vault home, 2026-11-15
 
-The personal home at `~/Epicenter` now uses the existing Vault repository and
-its history as its foundation. Vault programs live in `apps/vault/code/`;
-authored records, paid assets, settings, and local state live in
-`apps/vault/data/`. The nine existing apps retain their code/data paths and
-entered as a current snapshot. Their earlier graphs and LFS objects remain
-in the complete original Epicenter archive. They were not merged into this
-home's main history.
+The personal home at `~/Epicenter` uses the existing Vault repository and
+its history as its foundation. That private GitHub repository was renamed
+in place to `epicenter` and is the home's only origin. Vault programs live in
+`apps/vault/code/`; authored records, paid assets, settings, and local state
+live in `apps/vault/data/`. The nine other apps entered `main` as a current
+snapshot of their code/data paths. Their earlier histories were not merged.
+
+`main` is the working history: Vault's commits, the move into `apps/vault/`,
+the app snapshot, and later checkpoints. Older histories stay on the same
+origin outside `main`: the earlier combined history at
+`refs/tags/retired-epicenter-20261115/main`, the per-repository migration tags,
+and earlier rehearsal branches. These retain the nine apps' earlier commits;
+the origin also retains their historical Git LFS media. The home fetches
+`main` only, without tags. To inspect earlier app history, explicitly fetch
+an archive ref into a separate recovery checkout and fetch its LFS media
+when needed. Keep the live home on its current branch. Vault commits from
+before the move use Vault's old root paths; the nine apps' history on `main`
+begins at the snapshot.
 
 This home uses ordinary Git blobs. Existing LFS media was materialized and
 its staged bytes were checked before import. Ten nested LFS attribute files
 were omitted; the root attributes file contains only a comment recording the
 ordinary-Git choice. That file also prevents fresh initialization from adding
 LFS rules. The active repository has no local LFS configuration, hook, or cache.
-The original Vault all-ref scan found no LFS pointer files. No Vault history
-was rewritten to remove historical references. Generic CLI support for older
-LFS homes remains available.
+The original Vault all-ref scan found no LFS pointer files. Archive refs
+added later do contain LFS pointers; the origin retains their media objects.
+No Vault history was rewritten to remove historical references. Generic CLI
+support for older LFS homes remains available.
 
 One always-on computer runs the working home. Taking a current app snapshot
 avoids importing and maintaining another set of histories that the running
 software does not need. Ordinary blobs remove a second media fetch and upload
-procedure from this home's restore. The existing private Vault origin backs
-up main; fetching is scoped to main without automatic tag following. Earlier
-private rehearsal branches and archival tags remain as backups outside this
-main history.
+procedure from this home's restore. Restore the working home with a
+`--single-branch --branch main --no-tags` clone; the origin backs up `main`.
+The archival refs and stopped filesystem copies preserve the cutover state;
+new checkpoints do not update those archives.
 
 Reviewed ignore rules decide inclusion, including Vault's deliberately local
 mirrors and regenerable output. The separate secret-file refusals remain.
@@ -206,6 +220,10 @@ A complete filesystem backup preserves ignored bytes and literal symlinks;
 Git alone does not recover them or external symlink targets. Both original
 trees and Git indexes remain outside the active home for rollback. The old
 `~/Code/vault` path is a shortcut to the one Vault data directory.
+The origin holds what the last successful checkpoint pushed. Later edits
+remain local until the next push. Ignored files, including local credentials,
+require a separate filesystem backup. Checkpoints do not retain every
+intermediate edit.
 
 The new Vault entrypoint offers read-only search and check actions. Its legacy
 CLI and publishing rules remain, with the required path and dependency fixes.
