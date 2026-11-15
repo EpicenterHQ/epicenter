@@ -379,7 +379,7 @@ async function exportApp(
 			} catch {
 				preserveWork = true;
 				throw new Error(
-					`Export failed; the previous directory is preserved at ${backup}: ${extractErrorMessage(cause)}`,
+					`Export failed; recovery files are preserved under ${work}: ${extractErrorMessage(cause)}`,
 				);
 			}
 			throw cause;
