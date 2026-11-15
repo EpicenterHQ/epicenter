@@ -414,6 +414,7 @@ test('an aborted observer leaves the action running to its finally', async () =>
 	while (!(await Bun.file(path).exists()) && Date.now() < deadline)
 		await Bun.sleep(50);
 	expect(await Bun.file(path).exists()).toBe(true);
+	expectOk(await run.result());
 });
 
 test('a callback failure leaves the action running to finally and releases the lock', async () => {
@@ -591,6 +592,7 @@ test('run.cancel reaches callSignal and runs finally', async () => {
 	while (!(await Bun.file(path).exists()) && Date.now() < deadline)
 		await Bun.sleep(50);
 	expect(await Bun.file(path).exists()).toBe(true);
+	await run.result();
 });
 
 test('a killed host interrupts an accepted run and never executes it again', async () => {

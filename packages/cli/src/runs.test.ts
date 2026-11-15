@@ -58,7 +58,14 @@ const originalRuntime = process.env.EPICENTER_RUNTIME_DIR;
 const cleanup: (() => Promise<void>)[] = [];
 // The CLI selects one Epicenter per process, so this file shares its fixture.
 const homeFixture = await fixture();
-afterAll(() => rm(homeFixture.root, { recursive: true, force: true }));
+afterAll(async () => {
+	await rm(homeFixture.root, { recursive: true, force: true });
+	// Later suites must not reuse the root selected for this deleted fixture.
+	for (const path of Object.keys(require.cache)) {
+		if (path.startsWith(`${import.meta.dir}/`) && !path.includes('.test'))
+			delete require.cache[path];
+	}
+});
 
 test.skipIf(process.platform !== 'darwin')(
 	'slow Time Machine integration cannot hold run-host readiness',
