@@ -1120,4 +1120,5 @@ When you add an ADR, add its row here.
 | [0901](0901-an-app-is-inside-an-epicenter-or-outside-it.md) | An app is inside an Epicenter or outside it | Accepted (amends 0889 and 0891) |
 | [0903](0903-the-home-is-a-computer-its-person-controls-never-one-epicenter-supplies.md) | The home is a computer its person controls, never one Epicenter supplies | Accepted (amends 0841, 0842, 0844, 0870, 0883, and 0887) |
 | [0905](0905-secret-input-makes-the-whole-action-confidential.md) | Secret input makes the whole action confidential | Accepted (amends 0870; amended by 0906) |
-| [0906](0906-confidentiality-is-explicit-action-metadata.md) | Confidentiality is explicit action metadata | Accepted (amends 0905) |
+| [0906](0906-confidentiality-is-explicit-action-metadata.md) | Confidentiality is explicit action metadata | Accepted (amends 0905; amended by 0907) |
+| [0907](0907-private-input-is-a-whole-call-handling-policy.md) | Private input is a whole-call handling policy | Accepted (amends 0906) |

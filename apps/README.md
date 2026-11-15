@@ -198,6 +198,6 @@ Messages is an app in an Epicenter, at `~/Epicenter/apps/messages`
 ([ADR-0840](../docs/adr/0840-epicenter-is-where-one-persons-software-lives-and-the-folder-sync-product-waits.md)):
 its actions run in `epicenter serve`, its drafts and send attempts are records
 in its `data/`, and its Beeper token is `data/beeper.local.md`, which its
-`connect` action takes under `confidential: true`
-([ADR-0906](../docs/adr/0906-confidentiality-is-explicit-action-metadata.md)).
+`connect` action takes under `privateInput: true`
+([ADR-0907](../docs/adr/0907-private-input-is-a-whole-call-handling-policy.md)).
 It is no longer in this repository.

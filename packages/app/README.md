@@ -263,18 +263,20 @@ takes `{ path, grade }`; it could take `{ word, grade }` and call
 Each field is JSON Schema, so any TypeBox schema works as a field too. A field
 is required unless it says `optional: true`; `readOnly: true` is described
 above, and every field helper keeps it in its type. Fields describe data;
-`defineAction({ confidential: true, ... })` declares how the whole call is
-handled. Raw JSON Schema annotations, including `writeOnly`, pass through
-unchanged and have no effect on confidentiality. Schemas must serialize as
+`defineAction({ privateInput: true, ... })` declares private handling for the
+whole input. Raw JSON Schema annotations, including `writeOnly`, pass through
+unchanged and have no effect on this policy. Schemas must serialize as
 finite JSON; recursive schemas use references rather than cyclic JavaScript
 objects. A field may not be named `json`, `help`, or `input`, which `epicenter`
 reads itself.
 
-An action with `confidential: true` accepts HTTP or exactly `--input -` at the
+An action with `privateInput: true` accepts HTTP or exactly `--input -` at the
 CLI. Its whole input is one JSON object from stdin: flags, positionals, inline
 JSON, and terminal prompts are unavailable. MCP neither lists nor runs it.
 Validation refuses its whole input without echoing values or undeclared
 property names; its commit subject contains only the app and action names.
+The flag governs input handling. It does not authenticate HTTP callers or
+redact action results. The app owns what it returns, throws, yields, and writes.
 
 `localDay()` and `localTime()` give now, or a `Date` passed to them, as
 `field.date` and `field.datetime` hold it, in the time zone of the computer
@@ -405,9 +407,9 @@ transcript:
   quotes what did not fit. A secret comes in one of three ways: the person
   writes the `.local` file; the action runs a flow that brings it back to this
   computer itself, as Mail's `connect` does with only a `port` and a loopback
-  listener; or an action declaring `confidential: true`, whose input the app's
+  listener; or an action declaring `privateInput: true`, whose input the app's
   UI posts over HTTP or the CLI reads as JSON through `--input -`. The flag
-  belongs to the whole action, independently of its fields. MCP neither lists
+  governs the whole input, independently of its fields. MCP neither lists
   nor runs it, no input value names its commit, and validation returns a fixed
   refusal. The CLI refuses every other input spelling before parsing its
   arguments. The app still owns what its actions return, throw, yield, and

@@ -486,33 +486,45 @@ describe('defineCollection', () => {
 });
 
 describe('defineAction', () => {
-	test('preserves a boolean confidentiality flag and rejects any other value', () => {
-		for (const confidential of [true, false]) {
+	test('preserves a boolean privateInput flag and rejects any other value', () => {
+		for (const privateInput of [true, false]) {
 			const action = defineAction({
 				description: 'Connect',
-				confidential,
+				privateInput,
 				input: { token: field.text() },
 				run: () => true,
 			});
-			expect(action.confidential).toBe(confidential);
+			expect(action.privateInput).toBe(privateInput);
 		}
 		expect(() =>
 			defineAction({
 				description: 'Connect',
-				confidential: 'true' as unknown as boolean,
+				privateInput: 'true' as unknown as boolean,
 				input: {},
 				run: () => true,
 			}),
-		).toThrow('confidential flag that is not a boolean');
+		).toThrow('privateInput flag that is not a boolean');
 	});
 
-	test('raw writeOnly schema metadata does not make an action confidential', () => {
+	test('raw writeOnly schema metadata does not imply private input handling', () => {
 		const action = defineAction({
 			description: 'Read',
 			input: { value: { type: 'string', writeOnly: true } },
 			run: () => true,
 		});
-		expect(action.confidential).toBeUndefined();
+		expect(action.privateInput).toBeUndefined();
+	});
+
+	test('rejects the old confidential spelling instead of losing its protections', () => {
+		expect(() =>
+			// @ts-expect-error privateInput is the only supported policy name
+			defineAction({
+				description: 'Connect',
+				input: {},
+				confidential: true,
+				run: () => true,
+			}),
+		).toThrow('has "confidential", which an action does not take');
 	});
 
 	test('rejects cyclic schemas at declaration before they can break discovery', () => {

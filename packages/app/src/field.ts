@@ -8,7 +8,7 @@
  * list (`tags`) are never required: an absent switch is `false`, an absent
  * list is empty. A collection's field that says `readOnly` is written only by
  * the app's own actions: the exposed `add` and `set` leave it out. Fields
- * describe data; an action declares confidentiality separately.
+ * describe data; an action declares private input handling separately.
  */
 import {
 	type TArray,

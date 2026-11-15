@@ -43,8 +43,12 @@ export type Annotations = {
 export type ActionMeta<I extends Input = Input> = {
 	readonly description: string;
 	readonly input: I;
-	/** Only HTTP or JSON stdin may supply this action's input; validation and history omit input values. */
-	readonly confidential?: boolean;
+	/**
+	 * Handle the whole input privately: exclude MCP, accept CLI input only as
+	 * JSON stdin, and omit input from validation details and commit names.
+	 * HTTP JSON remains available. The app owns its outputs and storage.
+	 */
+	readonly privateInput?: boolean;
 	/**
 	 * The inputs the command line also reads by position, in order:
 	 * `positional: ['from', 'to']` reads `epicenter reading between 2026-11-01 2026-11-08`.
@@ -229,7 +233,7 @@ export const RESERVED_FIELDS: ReadonlySet<string> = new Set([
 const ACTION_KEYS = new Set([
 	'description',
 	'input',
-	'confidential',
+	'privateInput',
 	'positional',
 	'annotations',
 	'run',
@@ -245,7 +249,7 @@ const ANNOTATION_KEYS = new Set([
 
 /** What is wrong with `def` as an action beyond its types, each finishing "The action … ". */
 function actionProblems(def: object): string[] {
-	const { description, input, confidential, positional, annotations, run } =
+	const { description, input, privateInput, positional, annotations, run } =
 		def as Record<string, unknown>;
 	const problems: string[] = [];
 	for (const key of Object.keys(def))
@@ -254,8 +258,8 @@ function actionProblems(def: object): string[] {
 	if (typeof description !== 'string' || description.trim() === '')
 		problems.push('has no description');
 	if (typeof run !== 'function') problems.push('has no run');
-	if (confidential !== undefined && typeof confidential !== 'boolean')
-		problems.push('has a confidential flag that is not a boolean');
+	if (privateInput !== undefined && typeof privateInput !== 'boolean')
+		problems.push('has a privateInput flag that is not a boolean');
 	if (typeof annotations === 'object' && annotations !== null)
 		for (const key of Object.keys(annotations))
 			if (!ANNOTATION_KEYS.has(key))

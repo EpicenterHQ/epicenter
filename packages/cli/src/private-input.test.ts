@@ -1,5 +1,5 @@
 /**
- * Confidentiality belongs to the whole action: no input reaches MCP, CLI
+ * Private input handling belongs to the whole call: no input reaches MCP, CLI
  * arguments, validation diagnostics, or commit subjects. HTTP and the real
  * CLI JSON-stdin path still run it. Raw schema annotations do not imply policy.
  */
@@ -17,7 +17,7 @@ setDefaultTimeout(30_000);
 const SECRET = 'sk-not-a-real-token-4242';
 const connect = defineAction({
 	description: 'Connect with a token',
-	confidential: true,
+	privateInput: true,
 	input: {
 		label: field.select(['work', 'personal']),
 		credentials: Type.Object({
@@ -29,7 +29,7 @@ const connect = defineAction({
 });
 const input = { label: 'work', credentials: { token: SECRET } };
 
-test('a confidential call omits even an ordinary first positional from its commit name', () => {
+test('a call with private input omits even an ordinary first positional from its commit name', () => {
 	expect(callName('keys', 'connect', connect, input)).toBe('keys: connect');
 	const ordinary = defineAction({
 		description: 'Add',
@@ -42,7 +42,7 @@ test('a confidential call omits even an ordinary first positional from its commi
 	).toBe('tasks: add Water the plants');
 });
 
-test('validation keeps every supplied value and undeclared property name confidential', () => {
+test('validation keeps every supplied value and undeclared property name private', () => {
 	for (const raw of [
 		{ ...input, label: SECRET },
 		{ ...input, credentials: { token: `wrong-${SECRET}` } },
@@ -56,7 +56,7 @@ test('validation keeps every supplied value and undeclared property name confide
 	expect(checkInput(connect, input, (key) => key)).toEqual({ ok: true, input });
 });
 
-test('the CLI refuses confidential arguments before parsing or quoting any of them', async () => {
+test('the CLI refuses private arguments before parsing or quoting any of them', async () => {
 	for (const rest of [
 		[],
 		[SECRET],
@@ -68,7 +68,7 @@ test('the CLI refuses confidential arguments before parsing or quoting any of th
 		const refused = await readInput(connect, rest);
 		expect(refused).toEqual({
 			error:
-				'This action takes a secret. Use the app page or pipe a JSON object to --input -',
+				'This action takes private input. Use the app page or pipe a JSON object to --input -',
 		});
 		expect(JSON.stringify(refused)).not.toContain(SECRET);
 	}
@@ -85,14 +85,14 @@ test('help describes one JSON-stdin command and its JSON keys', () => {
 });
 
 const keysApp = `export default defineApp({ description: 'Keys', collections: {}, actions: {
-	connect: defineAction({ description: 'Connect', confidential: true, input: { label: field.select(['work', 'personal']), credentials: { type: 'object', required: ['token'], properties: { token: field.text({ pattern: '^sk-' }) } } }, positional: ['label', 'credentials'],
+	connect: defineAction({ description: 'Connect', privateInput: true, input: { label: field.select(['work', 'personal']), credentials: { type: 'object', required: ['token'], properties: { token: field.text({ pattern: '^sk-' }) } } }, positional: ['label', 'credentials'],
 		run: async ({ credentials }) => { await folder.write('data/key.local.md', credentials.token); await folder.write('data/connected.md', 'yes'); return { connected: true }; } }),
-	check: defineAction({ description: 'Optional token', confidential: true, input: { token: field.text({ optional: true }) }, run: () => true }),
+	check: defineAction({ description: 'Optional token', privateInput: true, input: { token: field.text({ optional: true }) }, run: () => true }),
 	annotated: defineAction({ description: 'Ordinary raw annotation', input: { value: { type: 'string', writeOnly: true } }, run: ({ value }) => value }),
-	status: defineAction({ description: 'Status', confidential: false, input: {}, run: () => true }),
+	status: defineAction({ description: 'Status', privateInput: false, input: {}, run: () => true }),
 } });`;
 
-test('only explicit flags hide and refuse MCP actions; HTTP and CLI stdin run confidential actions', async () => {
+test('only privateInput hides and refuses MCP actions; HTTP and CLI stdin still run them', async () => {
 	const f = await fixture();
 	const folder = await f.app('keys', keysApp);
 	const { client, served, close } = await connectMcp(f);
@@ -115,10 +115,11 @@ test('only explicit flags hide and refuse MCP actions; HTTP and CLI stdin run co
 		const listed = JSON.parse(listing.stdout).actions.find(
 			(action: { name: string }) => action.name === 'keys_connect',
 		);
-		expect(listed.confidential).toBe(true);
-		expect(listed.annotations).not.toHaveProperty('confidential');
+		expect(listed.privateInput).toBe(true);
+		expect(listed).not.toHaveProperty('confidential');
+		expect(listed.annotations).not.toHaveProperty('privateInput');
 		const help = await f.run('keys', 'connect', '--help', '--json');
-		expect(JSON.parse(help.stdout).confidential).toBe(true);
+		expect(JSON.parse(help.stdout).privateInput).toBe(true);
 		const refused = await f.run('keys', 'connect', `--${SECRET}=bad`, '--json');
 		expect(refused.code).toBe(2);
 		expect(refused.stdout + refused.stderr).not.toContain(SECRET);

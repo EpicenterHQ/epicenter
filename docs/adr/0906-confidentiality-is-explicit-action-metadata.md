@@ -2,6 +2,7 @@
 
 - **Status:** Accepted (2026-11-14)
 - **Date:** 2026-11-14
+- **Amended by:** [ADR-0907](0907-private-input-is-a-whole-call-handling-policy.md), renaming `confidential` to `privateInput` to state the scope of the policy.
 - **Amends:** [ADR-0905](0905-secret-input-makes-the-whole-action-confidential.md), replacing `writeOnly` inference and reserved schema-marker rules. The whole-action policy remains.
 
 ## Context

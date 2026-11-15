@@ -1,8 +1,8 @@
 /**
  * The Epicenter, app, and action views (ADR-0841). `--json` prints the app's
  * description and collections with each action as the MCP tool `serve`
- * offers, so a listing and `tools/list` agree, except that MCP leaves out a
- * confidential action, which the listing keeps with its flag for
+ * offers, so a listing and `tools/list` agree, except that MCP leaves out an
+ * action with private input, which the listing keeps with its flag for
  * the app's own page; the human views come from the same actions.
  */
 
@@ -102,7 +102,7 @@ export function actionTool(app: string, key: string, action: Action) {
 		description: action.description,
 		inputSchema: jsonSchema(action.input),
 		annotations: { ...ANNOTATION_DEFAULTS, ...action.annotations },
-		...(action.confidential === true ? { confidential: true } : {}),
+		...(action.privateInput === true ? { privateInput: true } : {}),
 	};
 }
 
@@ -215,11 +215,11 @@ export function oneAppListing(
 
 /**
  * Explain each field: how it is spelled, whether it is needed, and its
- * description. Secret actions show JSON keys; ordinary actions show their
- * flags and positionals.
+ * description. Actions with private input show JSON keys; other actions show
+ * their flags and positionals.
  */
 export function actionHelp(name: string, key: string, action: Action): string {
-	const confidential = action.confidential === true;
+	const privateInput = action.privateInput === true;
 	const positional = new Set<string>(action.positional ?? []);
 	const required = requiredKeys(action.input);
 	const rows = Object.entries(action.input).map(([key, field]) => {
@@ -227,7 +227,7 @@ export function actionHelp(name: string, key: string, action: Action): string {
 		const kind = fieldKind(schema);
 		const flag = `--${flagOf(key)}`;
 		const asFlag = kind === 'switch' ? flag : `${flag} <${kind}>`;
-		const spelling = confidential
+		const spelling = privateInput
 			? key
 			: positional.has(key)
 				? `<${key}>, ${asFlag}`

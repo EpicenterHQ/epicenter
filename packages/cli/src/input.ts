@@ -6,7 +6,7 @@
  * validation, so a command and a tool accept the same values and name the
  * field that needs attention. The action's `positional` list says which
  * fields the command line also reads by position, in order. An action that
- * declares `confidential: true` accepts only JSON stdin, before any
+ * declares `privateInput: true` accepts only JSON stdin, before any
  * arguments can be parsed or echoed in a refusal.
  */
 import { type Action, type Input, isName, whatFits } from '@epicenter/app';
@@ -231,7 +231,7 @@ function inputFromArgs(
 
 /**
  * Apply defaults and report the first schema error using the caller's field
- * names. An action taking a secret gets a fixed refusal for its whole input,
+ * names. An action with private input gets a fixed refusal for its whole input,
  * so even undeclared property names and ordinary fields cannot echo a value.
  */
 export function checkInput(
@@ -243,7 +243,7 @@ export function checkInput(
 	const value = Value.Default(schema, structuredClone(raw));
 	if (Value.Check(schema, value))
 		return { ok: true, input: value as Record<string, unknown> };
-	if (action.confidential === true)
+	if (action.privateInput === true)
 		return { error: 'The input is not accepted' };
 	const first = Value.Errors(schema, value)[0];
 	const params = first?.params as
@@ -280,7 +280,7 @@ export function usageLine(
 	action: Action,
 	{ short = false }: { short?: boolean } = {},
 ): string {
-	if (action.confidential === true)
+	if (action.privateInput === true)
 		return `epicenter ${appName} ${key} --input -`;
 	const required = requiredKeys(action.input);
 	const positional = new Set<string>(action.positional ?? []);
@@ -337,17 +337,17 @@ export function jsonSchema(fields: Input): {
 
 /**
  * Read an action from flags and positionals or one JSON object. An action
- * taking any secret accepts exactly --input -, using the same stdin path as
+ * with private input accepts exactly --input -, using the same stdin path as
  * ordinary actions. Refuse other spellings before inspecting their values.
  */
 export async function readInput(action: Action, rest: string[]) {
 	if (
-		action.confidential === true &&
+		action.privateInput === true &&
 		!(rest.length === 2 && rest[0] === '--input' && rest[1] === '-')
 	)
 		return {
 			error:
-				'This action takes a secret. Use the app page or pipe a JSON object to --input -',
+				'This action takes private input. Use the app page or pipe a JSON object to --input -',
 		};
 	const end = rest.indexOf('--');
 	const at = rest.indexOf('--input');

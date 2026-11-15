@@ -213,6 +213,7 @@ describe('an app author', () => {
 		});
 		const say = defineAction({
 			description: 'Say',
+			privateInput: true,
 			input: { message: field.text() },
 			positional: ['message'],
 			async *run({ message }) {

@@ -51,7 +51,7 @@ function threwOf(cause: unknown): {
 /**
  * A call's name in history: the app, the action's words, and its first
  * positional value on one line, cut at 60 characters
- * (`tasks: add Water the plants`). An action taking any secret contributes
+ * (`tasks: add Water the plants`). An action with private input contributes
  * no input values, since history travels with the data's backup.
  */
 export function callName(
@@ -60,7 +60,7 @@ export function callName(
 	action: Action,
 	input: Record<string, unknown>,
 ) {
-	if (action.confidential === true) return `${app}: ${key}`;
+	if (action.privateInput === true) return `${app}: ${key}`;
 	const first = action.positional?.[0];
 	const value = first === undefined ? undefined : input[first];
 	const suffix =
@@ -165,7 +165,7 @@ export async function runAction(
 export type Following = {
 	/**
 	 * The call came over MCP, whose input sits in an agent's transcript: a
-	 * confidential action is refused before it runs.
+	 * call with private input is refused before it runs.
 	 */
 	overMcp?: boolean;
 	/** Each value the action yields, in order; the action waits for it. */
@@ -206,9 +206,9 @@ export async function callAction(
 		: undefined;
 	if (!action)
 		return refused(`${name} has no action "${key}"`, `epicenter ${name}`);
-	if (following.overMcp && action.confidential === true)
+	if (following.overMcp && action.privateInput === true)
 		return refused(
-			`${name} ${key} takes a secret, so it is not offered over MCP. Use ${name}'s own page or pipe JSON to --input -`,
+			`${name} ${key} takes private input, so it is not offered over MCP. Use ${name}'s own page or pipe JSON to --input -`,
 			`epicenter ${name} ${key}`,
 		);
 	if (typeof raw !== 'object' || raw === null || Array.isArray(raw))

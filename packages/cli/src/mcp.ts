@@ -8,7 +8,7 @@
  * why goes to stderr. `tools/call` decodes the tool name and runs the action
  * in this process (`run.ts`), which checks the app, the action, and the
  * input, and commits what the call wrote before it answers. An action with a
- * `confidential: true` flag is neither listed nor run here (ADR-0906). A
+ * `privateInput: true` flag is neither listed nor run here (ADR-0907). A
  * call's result is the same object `--json` prints: `structuredContent` on
  * success, and with `isError` on failure. What an action yields is not sent:
  * an MCP client reads only the answer.
@@ -41,7 +41,7 @@ async function appTools(entry: string): Promise<Tool[]> {
 		return [];
 	}
 	return Object.entries(located.actions)
-		.filter(([, action]) => action.confidential !== true)
+		.filter(([, action]) => action.privateInput !== true)
 		.map(([key, action]) => actionTool(located.name, key, action));
 }
 
