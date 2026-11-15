@@ -340,6 +340,41 @@ another chat and does not create an implementation assignment.
 - Revisit when: A real shared workflow needs more than ordinary file or Git
   exchange. Keep this separate from local opening and app migration.
 
+### Track photographs used in Vault publications
+
+- Desired result: Each publication records the photographs it uses, so the
+  person and their agents can find the photos in a publication, the publications
+  using a photo, and unused photos within a chosen trip, date range, or topic.
+- Grounding: [Model photo identity and lineage from Google Takeout](thread://019f779e-59f7-7bc0-a101-b1b4ee603f54?hostId=local)
+  ends with this request. Vault ADR-0290 records asset-use tracking as
+  unimplemented. Keep durable use references in authored Vault or publication
+  records; the ignored SQLite catalog may index them, but cannot be their only
+  home. Settle how Google items, Takeout occurrences, selected downloads, and
+  publication derivatives relate without assuming a filename, thumbnail, or
+  matching bytes establishes one logical photo. Preserve uncertain matches.
+- Revisit when: Connecting photo selection to a real Vault page or video.
+  [This Google Photos import chat](thread://01a1e0a7-325a-7cb2-97ea-40a645f185f7?hostId=local)
+  continues the import into `~/Epicenter`; do not revive superseded command,
+  Markdown-catalog, or storage proposals from the source chat automatically.
+
+### Complete or deliberately defer an independent Google Photos backup
+
+- Desired result: Establish what original media is independently preserved,
+  then decide whether, where, and how to finish a verified full-library backup.
+- Grounding: [Resume Photos Takeout and clean abandoned downloads](thread://019fa077-33f0-7d33-9e47-5c1ead825abc?hostId=local)
+  reported in July 2026 that only parts 1 through 6 of a 32-part, approximately 1.54 TB
+  export completed on a 1 TB Crucial X8. It reported moving 41 older partial
+  downloads to that drive's Trash without emptying it. These are historical
+  observations, not the drive's current inventory. [Explain Google Photos Takeout size](thread://019f77dc-273f-78a1-8d7c-71bc0bebf79e?hostId=local)
+  supplies export-size context; Vault ADR-0261 preserves the remote-retention
+  proposal, not evidence of a completed backup.
+- Revisit when: Choosing to retain originals independently of Google Photos.
+  Inspect surviving downloads, integrity, available storage, and Trash before
+  deciding the destination or remaining import work. Preserve existing sources;
+  deletion or quality reduction is a separate decision. A metadata/thumbnail
+  cache does not establish a backup of originals. Continue coordination in
+  [this Google Photos import chat](thread://01a1e0a7-325a-7cb2-97ea-40a645f185f7?hostId=local).
+
 ### Decide the identity model for a liked-music library
 
 - Desired result: Show a liked recording once across services where appropriate,
