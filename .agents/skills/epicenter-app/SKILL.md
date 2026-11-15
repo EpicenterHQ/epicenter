@@ -259,9 +259,12 @@ git restore --source=<commit> -- apps/<app>/data/    # records only
 ```
 
 A whole `apps/<app>/` restore reverts both and deletes tracked files added
-later. A commit imported from before the repositories were combined contains
-only code or only records. Restoring the whole app from it deletes the absent
-sibling. Restore its code or data prefix instead.
+later. Inspect the root `MIGRATION.md` and the commit tree first. Commits from
+before a move into `apps/<app>/` use the old paths. An imported per-app commit
+can hold only code or only records: restore its code or data prefix, not the
+whole app. History retained only in archive refs is outside `main`; fetch it
+explicitly into a separate recovery checkout. Keep the live home on its
+current branch.
 
 ## Build the UI as a client
 
