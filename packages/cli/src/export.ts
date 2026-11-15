@@ -30,6 +30,7 @@ import {
 	checkoutCodeFiles,
 	EXPORT_MARKER,
 	isCopiedCodePath,
+	readCodeFiles,
 } from './code-copy.js';
 import { misuse, nameProblem, parseWords } from './commands.js';
 import { CliError } from './errors.js';
@@ -192,25 +193,6 @@ async function destination(directory: string, app: string) {
 	return marker;
 }
 
-/** Parse Git's NUL-delimited index entries; paths can contain whitespace and newlines. */
-async function indexedCode(repository: string, app: string) {
-	return (
-		await checkedGit(repository, [
-			'ls-files',
-			'-s',
-			'-z',
-			'--',
-			`apps/${app}/code/`,
-		])
-	)
-		.split('\0')
-		.filter(Boolean)
-		.map((entry) => ({
-			mode: entry.slice(0, 6),
-			path: entry.slice(entry.indexOf('\t') + 1),
-		}));
-}
-
 /**
  * Keep internal links when their targets travel with the app. A relative
  * link to a committed shared file outside apps/ is copied by value instead;
@@ -296,17 +278,18 @@ async function exportApp(
 		source,
 		commit,
 		lfsStorage,
-		entries,
+		files,
 	}: {
 		repository: string;
 		source: string;
 		commit: string;
 		lfsStorage: string;
-		entries: Awaited<ReturnType<typeof indexedCode>>;
+		files: Awaited<ReturnType<typeof readCodeFiles>>;
 	},
 ): Promise<ExportReport> {
 	const previous = await destination(directory, app);
 	const prefix = `apps/${app}/code`;
+	const { entries, selected } = files;
 	if (
 		!entries.some(
 			(entry) =>
@@ -320,9 +303,6 @@ async function exportApp(
 		refuse(
 			`${app} contains a gitlink; export code without embedded repositories`,
 		);
-	const selected = entries.filter(({ path }) =>
-		isCopiedCodePath(path.slice(prefix.length + 1)),
-	);
 	const work = await mkdtemp(join(dirname(directory), '.epicenter-export-'));
 	let preserveWork = false;
 	try {
@@ -460,10 +440,10 @@ export async function exportCommand(
 						.map((entry) => entry.slice(entry.indexOf('\t') + 1))
 						.filter((name) => nameProblem(name) === undefined)
 				: [app];
-		const apps = new Map<string, Awaited<ReturnType<typeof indexedCode>>>();
+		const apps = new Map<string, Awaited<ReturnType<typeof readCodeFiles>>>();
 		for (const name of candidates.sort()) {
-			const entries = await indexedCode(repository, name);
-			if (!all || entries.length) apps.set(name, entries);
+			const files = await readCodeFiles(repository, `apps/${name}/code`);
+			if (!all || files.entries.length) apps.set(name, files);
 		}
 		const reports: ExportReport[] = [];
 		if (all) {
@@ -481,7 +461,7 @@ export async function exportCommand(
 		if (!held)
 			refuse(`${parent}: another export is using this directory; try again`);
 		await checkInterrupted(parent);
-		for (const [name, entries] of apps) {
+		for (const [name, files] of apps) {
 			const target = all ? join(directory, name) : directory;
 			try {
 				reports.push(
@@ -490,7 +470,7 @@ export async function exportCommand(
 						source,
 						commit,
 						lfsStorage,
-						entries,
+						files,
 					}),
 				);
 			} catch (cause) {

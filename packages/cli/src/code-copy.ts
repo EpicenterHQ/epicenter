@@ -2,7 +2,7 @@
 import { lstat, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { isLocalPath } from '@epicenter/app';
-import { git } from './git.js';
+import { checkedGit, git } from './git.js';
 
 export const EXPORT_MARKER = '.epicenter-export.json';
 
@@ -21,6 +21,36 @@ export function isCopiedCodePath(path: string) {
 		path !== 'SOURCE.md' &&
 		!segments.some((part) => part.toLowerCase() === EXPORT_MARKER)
 	);
+}
+
+/**
+ * Keep the full index for inherited attributes, but ask Git for only this
+ * subtree. Both copiers use the same relative path when selecting its code.
+ * Raw entries remain available for their caller's gitlink refusal.
+ */
+export async function readCodeFiles(repository: string, folder: string) {
+	const entries = (
+		await checkedGit(repository, [
+			'ls-files',
+			'-s',
+			'-z',
+			'--',
+			...(folder ? [`${folder}/`] : []),
+		])
+	)
+		.split('\0')
+		.filter(Boolean)
+		.map((entry) => ({
+			mode: entry.slice(0, 6),
+			path: entry.slice(entry.indexOf('\t') + 1),
+		}));
+	const offset = folder ? folder.length + 1 : 0;
+	return {
+		entries,
+		selected: entries.filter(({ path }) =>
+			isCopiedCodePath(path.slice(offset)),
+		),
+	};
 }
 
 /**

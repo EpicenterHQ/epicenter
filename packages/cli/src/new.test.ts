@@ -210,6 +210,63 @@ test('copy failure removes only the created container and reports the source fol
 	expect(await Bun.file(join(f.apps, 'copy')).exists()).toBe(false);
 });
 
+test('new --from keeps folder pathspecs literal and filenames with tabs and newlines intact', async () => {
+	const f = await setup();
+	const source = join(f.root, 'source');
+	const prefix = 'apps [copy]';
+	const asset = 'asset\twith\nlines.bin';
+	const bytes = new Uint8Array([0, 255, 128, 10]);
+	await f.folder(source, {
+		[`${prefix}/epicenter.ts`]: `${header}export default defineApp({description:'Literal paths',collections:{},actions:{}});`,
+		'apps c/epicenter.ts': 'throw new Error("wrong subtree");',
+	});
+	await writeFile(join(source, prefix, asset), bytes);
+	await gitIn(source, 'init', '-q');
+	await gitIn(source, 'add', '--', prefix, 'apps c');
+	await gitIn(source, 'commit', '--no-verify', '-qm', 'literal path fixture');
+	const run = await f.run(
+		'new',
+		'copy',
+		'--from',
+		`file://${source}#${prefix}`,
+		'--json',
+	);
+	expect(run.code).toBe(0);
+	expect(
+		new Uint8Array(await readFile(join(f.apps, 'copy/code', asset))),
+	).toEqual(bytes);
+	expect((await f.run('copy', '--json')).code).toBe(0);
+});
+
+test('new --from descends into a code container and preserves a linked declaration', async () => {
+	const f = await setup();
+	const source = join(f.root, 'source');
+	const prefix = 'apps/original/code';
+	await f.folder(source, {
+		[`${prefix}/app.ts`]: `${header}export default defineApp({description:'Linked declaration',collections:{},actions:{}});`,
+	});
+	await symlink('app.ts', join(source, prefix, 'epicenter.ts'));
+	await gitIn(source, 'init', '-q');
+	await gitIn(source, 'add', '--', 'apps/original');
+	await gitIn(
+		source,
+		'commit',
+		'--no-verify',
+		'-qm',
+		'linked declaration fixture',
+	);
+	const run = await f.run(
+		'new',
+		'copy',
+		'--from',
+		`file://${source}#apps/original`,
+		'--json',
+	);
+	expect(run.code).toBe(0);
+	expect(await readlink(join(f.apps, 'copy/code/epicenter.ts'))).toBe('app.ts');
+	expect((await f.run('copy', '--json')).code).toBe(0);
+});
+
 test('copied LFS bytes retain inherited attributes under apps/name/code', async () => {
 	const f = await setup();
 	const source = join(f.root, 'lfs-source');
