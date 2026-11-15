@@ -11,31 +11,28 @@ that guidance helps the agent make better decisions in real situations.
 
 ## Shape a change together
 
-For a new skill or a substantial revision, work through these responsibilities
-with the user. Later work can send you back to an earlier one.
+For a new skill or a substantial revision, use
+[dialectic](../dialectic/SKILL.md) throughout: clarify the intent together,
+develop a greenfield vision, and work backward into concrete form.
+Carry forward what the conversation has already settled.
 
-1. **Agree on what the guidance should do.** Settle its purpose and the
-   behavior it should produce. Use [dialectic](../dialectic/SKILL.md) when
-   either is unsettled.
-2. **Reconsider the structure before polishing wording.** Decide what the
-   relevant whole is responsible for, then how its sections should be divided
-   and ordered. Existing section boundaries need not survive. A short sketch of
-   the proposed sections can make this concrete.
-3. **Rewrite in pieces the user can judge.** How much you rethink and how much
-   you show at once are separate choices: you can rethink a whole skill while
-   reviewing one section, merge, or replacement at a time, at the user's pace.
-   Put the **Current** wording in a blockquote and the **Proposed** wording in
-   a copyable writing block, with explanation outside both. When behavior is at
-   issue, show how each version would handle a realistic request. The user may
-   accept the direction and still object to the wording; carry settled pieces
-   forward and keep working on the rest.
-4. **Read the assembled whole.** Check it against the intended behavior and
-   for clarity, repetition, and whether each rule sits with its owner. A
-   passage or example may show that the structure or intent needs revisiting.
+Clarify what the guidance should make possible and what judgment future
+agents need. Make the vision tangible by showing how a future agent would
+understand and handle realistic work. Let the user examine that experience
+before settling the structure or instructions that should produce it.
 
-A settled change skips this sequence. When the user has selected wording or the
-fix is already clear and authorized, apply it, say what you saved, and carry
-the work through without asking again.
+Work backward from the recognized vision to responsibilities, structure,
+and wording. Existing skill and section boundaries remain open to change.
+You can rethink the whole while presenting coherent pieces at the user's
+pace. Put Current wording in a blockquote and Proposed wording in a
+copyable block, with explanation outside both.
+
+Read the assembled guidance against the intent and vision, checking how
+its instructions work together. Discoveries may require revisiting an
+earlier understanding.
+
+When the user has selected wording or the fix is clear and authorized,
+apply it, say what you saved, and carry the work through.
 
 ## Find the instruction's owner
 
@@ -72,8 +69,8 @@ Start the frontmatter description with a sentence stating what the skill does.
 Begin the second sentence with "Use when" and name the user intents or situations
 that should select it. This makes both the capability and its selection
 conditions clear. Use examples to distinguish nearby user intents and the
-work each calls for. Revisit the description when the capability changes. The
-body explains the judgment and workflow behind those selection conditions.
+work each calls for. Revisit the description when the capability changes.
+Begin the body with the guidance itself; selection stays in the description.
 
 Keep the core readable on its own. Link to a reference with a concrete reason
 to read it. Keep examples that add judgment beyond the principle. Simplify as
@@ -111,23 +108,16 @@ enough of the request and surrounding output to see the difference; bold the
 parts that changed or need attention. Clearly identify examples you are
 illustrating versus results you actually obtained by running the skill.
 
-For a new skill, show the proposed instructions and intended interaction. Use
-the appropriate surface for other outputs, such as caller code, a rendered
-screen, or an action sequence.
-
 Describe the conditions of actual runs. Treat a preference as evidence about
-that sample, and test materially different requests before claiming a general
-improvement.
+that sample. Review the motivating request and a materially different use,
+including when direct action is appropriate, before claiming a general
+improvement. When behavior is uncertain or regresses, compare actual work with
+the previous version, or without the skill for a new capability.
 
 Choose checks that answer a concrete uncertainty. Check affected links after
 moving references; check frontmatter and intended-host discovery after changing
 skill names, locations, or discovery metadata. For a prose correction, focus
 verification on the changed guidance and its diff.
-
-Review the motivating request and a materially different use to see whether the
-judgment transfers, including when direct action is appropriate. When behavior
-is uncertain or regresses, compare actual work with the previous version, or
-without the skill for a new capability.
 
 Read [evaluation](references/evaluation.md) when investigating selection or
 behavior, comparing versions, or asked for evidence of improvement. Read

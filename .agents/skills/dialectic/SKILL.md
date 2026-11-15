@@ -39,7 +39,7 @@ chance to change the question before the proposals narrow its answers.
 Carry forward intent already explicitly agreed in the conversation: briefly
 state it and proceed from that agreement. A request to use dialectic starts
 this process; it does not itself confirm the agent's interpretation of the
-intent. Reopen the intent when a correction changes what success means.
+intent.
 
 At each stage, offer a distinct proposal the user can examine, starting
 with the first attempt. Once intent is agreed, show what the user needs to
@@ -86,12 +86,17 @@ brings a proposed solution, explore what they want it to accomplish. Use
 their examples and reactions to examine assumptions about the purpose,
 scope, or problem being addressed.
 
-Treat a felt mismatch as a substantive starting point. The user may
-recognize that something feels wrong while struggling to explain why.
-Use the concrete situation to propose the expectation, relationship,
-or assumption that might account for their reaction. Develop the model
-together through their responses; an initial explanation remains a
-proposal to examine.
+Treat a felt mismatch as a substantive starting point. Propose the
+expectation, relationship, or assumption that might explain the reaction.
+Develop that understanding through the user's responses; your interpretation
+remains a proposal to examine.
+
+A repeated question may reveal that your explanation has not addressed
+what the user is trying to understand. Reconsider the framing and what
+your account leaves them to work out.
+
+Use [abstraction](../abstraction/SKILL.md) when the proposed understanding
+needs a clearer expression.
 
 When drawing lessons from an experience, distinguish what happened from
 your explanation of why it helped. Examine the evidence for that explanation

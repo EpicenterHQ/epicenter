@@ -8,11 +8,6 @@ description: Shape a complex idea, workflow, design, or report on work into the 
 Show the person the part of a model they need now. Keep the model true, but do
 not make them carry its history, machinery, or every possible consequence.
 
-Use this after thinking, research, or design when the answer risks becoming
-larger than the judgment it is meant to support. It pairs with `dialectic`:
-dialectic helps work through the unsettled idea; abstraction helps present
-what the person needs to understand or judge.
-
 ## Start with the conversation
 
 Treat the actual chat—not just the topic—as the material to abstract. Read for
@@ -74,27 +69,20 @@ When viewpoints differ, show them separately. A compact `reader / author`,
 
 ## Reveal progressively
 
-Lead with the governing relationship. Then add only the context, example, or
-qualification needed to make it recognizable. Defer background and machinery
-that do not affect the current judgment. Include the requested material in the
-current response, with enough context to understand it.
+Lead with the relationship or distinction that makes the situation
+understandable. Connect the relevant facts to what they establish for
+the person. Explain what an uncertainty could change for them.
 
-If an omission could make something look absent, automatic, or settled, name
-that boundary briefly. Do not hide uncertainty just to make the surface clean.
+Make that progression visible in the presentation. Use paragraph breaks
+where the thought turns and selective emphasis where a distinction needs
+to stand out. A proposed articulation can sit apart from its explanation
+so the person can examine it directly.
 
-## A short pass
-
-1. Read the conversation for the person's immediate aim, current model, and
-   point of uncertainty or leverage.
-2. Find the next judgment, insight, expression, or action the person needs.
-3. Keep the actors, decisions, handoff, and consequence required for that
-   moment.
-4. Choose the clearest surface: a short sequence, small diagram, example,
-   restatement, contrast, or paired viewpoint.
-5. Check that separate owners have not been collapsed and deferred decisions
-   have not been presented as settled.
-6. Remove incidental detail while preserving the requested material and the
-   evidence needed to learn, recognize, correct, express, or act.
+Let the form follow the thought. Preserve the requested material and
+the evidence needed to judge it. Keep qualifications beside the claims
+they qualify, so readability does not imply more certainty than we have.
+If an omission could make something look absent or automatic, name that
+boundary briefly.
 
 ## With dialectic
 
