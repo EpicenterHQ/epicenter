@@ -16,6 +16,7 @@ import {
 	gitignore,
 	header,
 } from './runner.test-support.js';
+
 setDefaultTimeout(30_000);
 const roots: string[] = [];
 afterEach(async () => {

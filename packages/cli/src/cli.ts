@@ -1,7 +1,7 @@
 /** Dispatch commands and run checked app actions; actions leave their writes pending. */
 import { isName } from '@epicenter/app';
-import { checkpoint, renderCheckpoint } from './checkpoint.ts';
 import { buildCommand } from './build.ts';
+import { checkpoint, renderCheckpoint } from './checkpoint.ts';
 import {
 	BAD_PORT,
 	COMMANDS,
@@ -31,7 +31,7 @@ import {
 	writeJson,
 	writeOut,
 } from './output.ts';
-import { epicenterRoot, epicenterDir, RootUsageError } from './root.ts';
+import { epicenterDir, epicenterRoot, RootUsageError } from './root.ts';
 import { runAction } from './run.ts';
 import { serviceCommand } from './service.ts';
 

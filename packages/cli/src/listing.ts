@@ -17,6 +17,7 @@ import {
 	requiredKeys,
 	usageLine,
 } from './input.ts';
+
 /** MCP's defaults for each hint an action does not give. */
 const ANNOTATION_DEFAULTS = {
 	readOnlyHint: false,

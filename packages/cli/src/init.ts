@@ -2,19 +2,19 @@
 import { existsSync, realpathSync } from 'node:fs';
 import {
 	mkdir,
-	readFile,
 	readdir,
+	readFile,
 	realpath,
 	stat,
 	writeFile,
 } from 'node:fs/promises';
 import { dirname, join, relative, resolve } from 'node:path';
 import { extractErrorMessage } from 'wellcrafted/error';
-import { BAD_PORT, misuse, parseWords, portOf } from './commands.ts';
 import { isRepositoryTop } from './checkpoint.ts';
+import { BAD_PORT, misuse, parseWords, portOf } from './commands.ts';
+import { CliError } from './errors.ts';
 import { checkedGit, git, gitMessage } from './git.ts';
 import { installApp } from './install.ts';
-import { CliError } from './errors.ts';
 import { fail, writeErr, writeJson, writeOut } from './output.ts';
 import {
 	APPS,
