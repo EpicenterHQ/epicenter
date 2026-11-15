@@ -74,7 +74,7 @@ jobs:
           if-no-files-found: error
 
   draft:
-    if: startsWith(github.ref, 'refs/tags/epicenter-cli-v')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/epicenter-cli-v')
     needs: build
     runs-on: ubuntu-24.04
     permissions:
