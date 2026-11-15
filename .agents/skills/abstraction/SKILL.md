@@ -56,10 +56,13 @@ decision to make, put it after the evidence it depends on, at the end where
 they read and reply.
 
 For each decision, give the options that matter, what each costs, and which
-you recommend, so they can answer in a word.
+you recommend, so they can respond without having to assemble the comparison
+themselves.
+
 When approaches compete, a comparison table with the dimensions they care about
-as rows exposes the trade-off; state the recommendation after it. A report that
-only restates what was done leaves the person to reconstruct what it means.
+as rows can expose the trade-off; state the recommendation after the comparison.
+A report that only restates what was done leaves the person to reconstruct
+what it means.
 
 ## Keep the load-bearing parts
 
