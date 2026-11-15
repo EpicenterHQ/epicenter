@@ -132,8 +132,6 @@ or other side effect.
 ## Watch for
 
 - A response that has grown larger than the judgment it is meant to support.
-  Remove incidental detail while preserving the requested material and the
-  evidence that judgment depends on.
 - **Inventory:** nouns without the relationship between them.
 - **Shortening:** fewer words but the same conceptual burden.
 - **Premature simplicity:** a distinction that mattered to the decision has
