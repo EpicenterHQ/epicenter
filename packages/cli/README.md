@@ -299,7 +299,7 @@ See [ADR-0908](../../docs/adr/0908-serve-runs-the-homes-daily-routines.md).
 
 ## Serve-owned runs
 
-A page starts a long action with `app.action.start(input)`, observes it with
+A page starts a long action with `runs.start(app.action, input)`, observes it with
 `events()` or `result()`, and reattaches by id after a tab closes. The browser
 journals the id before sending a request. It uploads each `Blob` or `File` with
 a raw PUT before admitting the action. Ordinary calls, CLI, MCP, and routines
@@ -349,9 +349,9 @@ Closing an observer does not cancel execution. Explicit cancellation records
 `cancel-requested` and aborts the action's signal. The action must cooperate
 through `callSignal()` or yielding. No cancellation result establishes rollback.
 The client journal key is `epicenter.runs.prototype.v1`. Run controls are
-`action.start(input)`, `action.attach(id)`, and `action.pending()`.
-These words are reserved below the top level in the connected app's action
-tree. Use other names for nested app actions, such as Flights' `daily.begin`.
+`runs.start(action, input)`, `runs.attach(action, id)`, and `runs.pending(action)`.
+These controls live outside the connected app's action tree and reserve no
+app action names.
 See [ADR-0915](../../docs/adr/0915-serve-owns-a-pages-runs-and-a-file-input-is-a-temporary-upload.md).
 
 ## Coordinate writes

@@ -6,7 +6,7 @@ import { afterEach, expect, test } from 'bun:test';
 import { Type } from 'typebox';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { defineAction } from './action.ts';
-import { connect } from './client.ts';
+import { connect, runs } from './client.ts';
 import { field, MAX_FILE_BYTES } from './field.ts';
 
 const originalFetch = globalThis.fetch;
@@ -47,8 +47,8 @@ const app = connect<{
 	actions: {
 		upload: typeof upload;
 		start: typeof empty;
-		daily: { begin: typeof empty };
-		practice: { begin: typeof empty };
+		daily: { start: typeof empty; attach: typeof empty; pending: typeof empty };
+		practice: { start: typeof empty };
 	};
 }>({ app: 'files' });
 
@@ -62,8 +62,8 @@ test('pending runs saved by the installed client remain reachable', () => {
 		files: [{ field: 'file', name: 'note.txt', type: 'text/plain', size: 5 }],
 	};
 	saved.set('epicenter.runs.prototype.v1', JSON.stringify([pending]));
-	expect(app.upload.pending()).toEqual([pending]);
-	expect(app.upload.attach(pending.id).id).toBe(pending.id);
+	expect(runs.pending(app.upload)).toEqual([pending]);
+	expect(runs.attach(app.upload, pending.id).id).toBe(pending.id);
 });
 
 test('cancelling before admission sends no request and clears the journal', async () => {
@@ -73,10 +73,10 @@ test('cancelling before admission sends no request and clears the journal', asyn
 		sent++;
 		return new Response();
 	}) as unknown as typeof fetch;
-	const run = app.upload.start({ file: new Blob(['hello']) });
+	const run = runs.start(app.upload, { file: new Blob(['hello']) });
 	expectOk(await run.cancel());
 	expect(expectErr(await run.result()).name).toBe('Stopped');
-	expect(app.upload.pending()).toEqual([]);
+	expect(runs.pending(app.upload)).toEqual([]);
 	expect(sent).toBe(0);
 });
 
@@ -89,29 +89,33 @@ test('aborting result observation sends no cancellation request', async () => {
 	}) as unknown as typeof fetch;
 	const stop = new AbortController();
 	stop.abort();
-	const run = app.upload.attach('unknown-run-identifier');
+	const run = runs.attach(app.upload, 'unknown-run-identifier');
 	expect(
 		expectErr(await run.result({ signal: stop.signal })).message,
 	).toContain('Stopped waiting');
 	expect(sent).toBe(0);
 });
 
-test('renamed nested triggers route as calls while action start controls a run', async () => {
+test('run controls preserve ordinary action names at every depth', async () => {
 	const urls: string[] = [];
 	globalThis.fetch = (async (url: string | URL | Request) => {
 		urls.push(String(url));
 		return new Response('{"answer":{"returned":null}}\n');
 	}) as typeof fetch;
 	expectOk(await app.start());
-	expectOk(await app.daily.begin());
-	expectOk(await app.practice.begin());
+	expectOk(await app.daily.start());
+	expectOk(await app.practice.start());
+	expectOk(await app.daily.attach());
+	expectOk(await app.daily.pending());
 	expect(urls).toEqual([
 		'/files/start',
-		'/files/daily.begin',
-		'/files/practice.begin',
+		'/files/daily.start',
+		'/files/practice.start',
+		'/files/daily.attach',
+		'/files/daily.pending',
 	]);
 	journal();
-	const hosted = app.upload.start({ file: new Blob(['hello']) });
+	const hosted = runs.start(app.upload, { file: new Blob(['hello']) });
 	expect(hosted).toHaveProperty('events');
 	expectOk(await hosted.cancel());
 });

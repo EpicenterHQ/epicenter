@@ -89,15 +89,9 @@ export type ActionOutput<A> = A extends (input: never) => infer Out
 type BrowserInput<T> = T extends UploadedFile ? Blob : T;
 type RunInput<In> = { [K in keyof In]: BrowserInput<In[K]> };
 
-type RunMethods<A> = {
-	start(
-		...args: Record<string, never> extends ActionInput<A>
-			? [input?: RunInput<ActionInput<A>>]
-			: [input: RunInput<ActionInput<A>>]
-	): Run<JsonOf<ActionYield<A>>, ActionOutput<A>>;
-	attach(id: string): Run<JsonOf<ActionYield<A>>, ActionOutput<A>>;
-	pending(): PendingRun[];
-};
+export type ActionRun<A> = Run<JsonOf<ActionYield<A>>, ActionOutput<A>>;
+
+declare const actionType: unique symbol;
 
 /** What a call of action `A` may take after its input, when `A` yields: `onYield`, and a `signal` that stops it. */
 type CallOptions<A> = [ActionYield<A>] extends [never]
@@ -116,23 +110,52 @@ type CallOptions<A> = [ActionYield<A>] extends [never]
  * and `{ signal }`, which stops it at its next yield. The call resolves to what the
  * action returned, or `Stopped`. If `onYield` throws or rejects, the call
  * rejects with that error and stops reading the response.
- * Below the top level, `start`, `attach`, and `pending` are run methods of
- * the action at that path. An action or group member with one of those names
- * under a group is unreachable through connect(). A top-level action named
- * `start` remains reachable.
+ * Run controls are separate: `runs.start(action, input)` keeps every action
+ * name available at every depth.
  */
+export type ActionCall<A> = ((
+	...args: [
+		...(Record<string, never> extends ActionInput<A>
+			? [input?: ActionInput<A>]
+			: [input: ActionInput<A>]),
+		...CallOptions<A>,
+	]
+) => Promise<Result<ActionOutput<A>, ActionError>>) & {
+	readonly [actionType]: A;
+};
+
 export type AppClient<A> = {
 	readonly [K in keyof A]: A[K] extends (input: never) => unknown
-		? ((
-				...args: [
-					...(Record<string, never> extends ActionInput<A[K]>
-						? [input?: ActionInput<A[K]>]
-						: [input: ActionInput<A[K]>]),
-					...CallOptions<A[K]>,
-				]
-			) => Promise<Result<ActionOutput<A[K]>, ActionError>>) &
-				RunMethods<A[K]>
+		? ActionCall<A[K]>
 		: AppClient<A[K]>;
+};
+
+type ActionAddress = { base: string; app: string; action: string };
+const actionAddresses = new WeakMap<object, ActionAddress>();
+function runControls(action: object) {
+	const address = actionAddresses.get(action);
+	if (!address) throw new TypeError('Choose an action returned by connect()');
+	return createRunMethods({ ...address, answered });
+}
+
+/** Background execution is separate from the app's action names. */
+export const runs = {
+	start<A>(
+		action: ActionCall<A>,
+		...args: Record<string, never> extends ActionInput<A>
+			? [input?: RunInput<ActionInput<A>>]
+			: [input: RunInput<ActionInput<A>>]
+	): ActionRun<A> {
+		return runControls(action).start(
+			args[0] as Record<string, unknown> | undefined,
+		) as ActionRun<A>;
+	},
+	attach<A>(action: ActionCall<A>, id: string): ActionRun<A> {
+		return runControls(action).attach(id) as ActionRun<A>;
+	},
+	pending<A>(action: ActionCall<A>): PendingRun[] {
+		return runControls(action).pending();
+	},
 };
 
 /**
@@ -151,19 +174,9 @@ export function connect<App extends { actions: object }>({
 } = {}): AppClient<App['actions']> {
 	const name = app ?? appOfPage();
 	const base = url.endsWith('/') ? url : `${url}/`;
-	const at = (words: string[]): unknown =>
-		new Proxy(() => {}, {
+	const at = (words: string[]): unknown => {
+		const action = new Proxy(() => {}, {
 			get: (_, key) => {
-				if (
-					words.length > 0 &&
-					(key === 'start' || key === 'attach' || key === 'pending')
-				)
-					return createRunMethods({
-						base,
-						app: name,
-						action: words.join('.'),
-						answered,
-					})[key];
 				return typeof key === 'string' && key !== 'then'
 					? at([...words, key])
 					: undefined;
@@ -176,7 +189,7 @@ export function connect<App extends { actions: object }>({
 					Object.values(input).some((value) => value instanceof Blob)
 				)
 					return ActionError.Refused({
-						message: 'This action takes a file; start it with .start(input)',
+						message: 'This action takes a file; use runs.start(action, input)',
 					});
 				return call(
 					`${base}${encodeURIComponent(name)}/${words.join('.')}`,
@@ -185,6 +198,9 @@ export function connect<App extends { actions: object }>({
 				);
 			},
 		});
+		actionAddresses.set(action, { base, app: name, action: words.join('.') });
+		return action;
+	};
 	return at([]) as AppClient<App['actions']>;
 }
 

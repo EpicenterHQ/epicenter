@@ -54,11 +54,10 @@ data if written to do so.
 
 - Files are temporary inputs, not persistent attachments or app data.
 - One process must own each runtime directory; multiple hosts are unsupported.
-- Each client action has `start(input)`, `attach(id)`, and `pending()` run
-  controls. These words are reserved below the top level. Flights renames its
-  manual trigger from `daily.start` to `daily.begin`; its foreground scheduled
-  target remains `daily.run`. Vocab and Zhongwen likewise use `practice.begin`
-  for their ordinary streamed tutor calls.
+- Run controls live outside the action tree: `runs.start(action, input)`,
+  `runs.attach(action, id)`, and `runs.pending(action)`. Existing app action
+  names remain callable at every depth, including Flights `daily.start` and
+  the Vocab and Zhongwen `practice.start` actions.
 - Retention and browser journals are bounded recovery aids. Their loss does not
   authorize automatic repetition of an action.
 

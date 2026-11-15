@@ -101,7 +101,7 @@ code lives under `apps/<app>/code/`; results stay beside it under `data/`.
 Importing or copying code never activates a routine.
 
 Flights setup targets `daily run`, which awaits the shared research worker and
-its existing kernel lock. The UI's `daily begin` still acknowledges background
+its existing kernel lock. The UI's `daily start` still acknowledges background
 work. A scheduled child retains the routine's process group and inherited lock;
 manual HTTP calls own an isolated cancellable group. The action throws for a
 busy lock, stopped or failed work, and entirely failed searches. An empty due

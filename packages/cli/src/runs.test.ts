@@ -7,7 +7,7 @@ import { afterAll, afterEach, expect, test } from 'bun:test';
 import { chmod, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Action, UploadedFile } from '@epicenter/app';
-import { connect, pendingRuns, type RunEvent } from '@epicenter/app/client';
+import { connect, pendingRuns, type RunEvent, runs } from '@epicenter/app/client';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { expectErr, expectOk } from 'wellcrafted/testing';
@@ -283,7 +283,7 @@ async function bins(directory: string) {
 
 test('file receipt matches bytes, yields stay ordered, returned finish clears bytes and pending', async () => {
 	const f = await setup();
-	const run = f.app.transcribe.start({
+	const run = runs.start(f.app.transcribe, {
 		audio: new File(['hello'], 'note.txt', { type: 'text/plain' }),
 	});
 	expect(pendingRuns()).toHaveLength(1);
@@ -304,7 +304,7 @@ test('file receipt matches bytes, yields stay ordered, returned finish clears by
 		sha256,
 		text: 'hello',
 	});
-	expect(f.app.transcribe.pending()).toEqual([]);
+	expect(runs.pending(f.app.transcribe)).toEqual([]);
 	await eventually(async () => (await bins(f.recordDir(run.id))).length === 0);
 });
 
@@ -318,7 +318,7 @@ test('identical admission joins once; changed inputs and bytes conflict', async 
 	expect((await f.admit(id, input)).status).toBe(200);
 	expect((await f.admit(id, { ...input, chunks: 4 })).status).toBe(409);
 	expect((await f.upload(id, 'changed')).status).toBe(409);
-	expectOk(await f.app.transcribe.attach(id).result());
+	expectOk(await runs.attach(f.app.transcribe, id).result());
 	expect(await readFile(join(f.apps, 'files/data/count.local'), 'utf8')).toBe(
 		'1',
 	);
@@ -326,7 +326,7 @@ test('identical admission joins once; changed inputs and bytes conflict', async 
 
 test('observer abort leaves execution alive and cursor replay has no gaps', async () => {
 	const f = await setup();
-	const run = f.app.transcribe.start({
+	const run = runs.start(f.app.transcribe, {
 		audio: new Blob(['hello'], { type: 'text/plain' }),
 		chunks: 5,
 		delayMs: 5,
@@ -341,7 +341,7 @@ test('observer abort leaves execution alive and cursor replay has no gaps', asyn
 		...first.map((event) => ('seq' in event ? event.seq : 0)),
 	);
 	const replay = await collect(
-		f.app.transcribe.attach(run.id).events({ after: cursor }),
+		runs.attach(f.app.transcribe, run.id).events({ after: cursor }),
 	);
 	const seqs = [...first, ...replay].flatMap((event) =>
 		'seq' in event ? [event.seq] : [],
@@ -353,7 +353,7 @@ test('observer abort leaves execution alive and cursor replay has no gaps', asyn
 
 test('explicit cancel is durable, stops yields, and retains bytes after failure', async () => {
 	const f = await setup();
-	const run = f.app.transcribe.start({
+	const run = runs.start(f.app.transcribe, {
 		audio: new Blob(['hello'], { type: 'text/plain' }),
 		chunks: 20,
 		delayMs: 50,
@@ -430,7 +430,7 @@ test('unknown ids observe without admission and retain an uncertain journal entr
 		]),
 	);
 	const events = await collect(
-		f.app.transcribe.attach('unknown-run-identifier').events(),
+		runs.attach(f.app.transcribe, 'unknown-run-identifier').events(),
 	);
 	expect(events.map((event) => event.type)).toEqual(['unknown']);
 	expect(f.requests.every((request) => request.method === 'GET')).toBe(true);
@@ -445,7 +445,7 @@ test('size and MIME refusals send no admission; ordinary and direct calls refuse
 	expect(
 		(await f.upload(crypto.randomUUID(), 'hello', 'image/png')).status,
 	).toBe(415);
-	const run = f.app.transcribe.start({
+	const run = runs.start(f.app.transcribe, {
 		audio: new Blob(['image'], { type: 'image/png' }),
 	});
 	expect(expectErr(await run.result()).name).toBe('Refused');
@@ -497,14 +497,14 @@ test('journal failure makes no request and ambiguous acknowledgement is never re
 	f.storage.setItem = () => {
 		throw new Error('storage denied');
 	};
-	const refused = f.app.transcribe.start({
+	const refused = runs.start(f.app.transcribe, {
 		audio: new Blob(['hello'], { type: 'text/plain' }),
 	});
 	expect(expectErr(await refused.result()).name).toBe('Refused');
 	expect(f.requests).toEqual([]);
 	f.storage.setItem = setItem;
 	f.ambiguous();
-	const run = f.app.transcribe.start({
+	const run = runs.start(f.app.transcribe, {
 		audio: new Blob(['hello'], { type: 'text/plain' }),
 	});
 	expectOk(await run.result());
@@ -515,13 +515,13 @@ test('journal failure makes no request and ambiguous acknowledgement is never re
 
 test('thrown work retains bytes and private input persists neither its value nor a digest', async () => {
 	const f = await setup();
-	const run = f.app.transcribe.start({
+	const run = runs.start(f.app.transcribe, {
 		audio: new Blob(['hello'], { type: 'text/plain' }),
 		fail: true,
 	});
 	expect(expectErr(await run.result()).name).toBe('Threw');
 	expect(await bins(f.recordDir(run.id))).toHaveLength(1);
-	const privateRun = f.app.private.start({
+	const privateRun = runs.start(f.app.private, {
 		token: 'private-input-sentinel',
 	});
 	expectOk(await privateRun.result());

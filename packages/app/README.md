@@ -361,10 +361,12 @@ A top-level action input can use `field.file({ accept: ['audio/*'], maxBytes })`
 to 15 MiB, the default. A file cannot be positional, nested in another schema,
 or stored by a collection. Persistent attachments are undecided.
 
-The browser supplies a `Blob` or `File` through its action’s run controls:
+The browser supplies a `Blob` or `File` through separate run controls:
 
 ```ts
-const run = app.transcribe.start({ audio: file });
+import { runs } from '@epicenter/app/client';
+
+const run = runs.start(app.transcribe, { audio: file });
 for await (const event of run.events()) {
   if (event.type === 'yielded') show(event.value);
 }
@@ -377,11 +379,11 @@ Its methods are valid only while the run runs. CLI, MCP, routines, and ordinary
 POST calls cannot supply files. MCP omits file actions; CLI help directs the
 person to the app's page. Ordinary client calls refuse a `Blob`.
 
-`action.start(input)` creates a journal entry under `epicenter.runs.prototype.v1` before any
+`runs.start(action, input)` creates a journal entry under `epicenter.runs.prototype.v1` before any
 request. If browser storage fails, nothing is sent. Uploads happen sequentially,
 then admission has a 20-second timeout. An ambiguous acknowledgement is observed
 by id; admission is never resent. A definite 4xx refusal removes the journal
-entry. `action.attach(id)` only observes. `action.pending()` lists this action's entries;
+entry. `runs.attach(action, id)` only observes. `runs.pending(action)` lists this action's entries;
 `pendingRuns({ app })` lists entries across actions. The journal keeps file
 metadata, not file bytes or other input values, and entries expire after 24 hours.
 
@@ -393,9 +395,9 @@ cancel after admission. Cancellation is cooperative and confirms no rollback.
 A 404 emits `unknown` and retains the journal entry. Terminal observation removes
 it. An error or a lost connection does not establish which effects persisted.
 
-Below the top level, `start`, `attach`, and `pending` are client run controls.
-Choose other names for nested app actions; Flights uses `daily.begin` for its
-manual trigger. A top-level action named `start` remains an ordinary action.
+Run controls take a connected action as their first argument. They live
+outside the action tree, so names such as `daily.start`, `attach`, and
+`pending` remain ordinary app actions.
 
 Serve owns execution and keeps bounded local records outside the Epicenter.
 Recovery marks unfinished records `interrupted`; it never executes them again.
