@@ -129,11 +129,11 @@ describe('a read-only run', () => {
 			],
 			[() => folder.delete('data/2026.csv'), refused('delete data/2026.csv')],
 			[
-				() => books.set({ path: 'data/books/dune.md', title: 'Other' }),
+				() => books.set({ slug: 'dune' }, { title: 'Other' }),
 				refused('write data/books/dune.md'),
 			],
 			[
-				() => books.delete({ path: 'data/books/dune.md' }),
+				() => books.delete({ slug: 'dune' }),
 				refused('delete data/books/dune.md'),
 			],
 		];
@@ -145,7 +145,7 @@ describe('a read-only run', () => {
 		]);
 		expect(await context.folder.read('data/2026.csv')).toBe('minutes\n');
 		expect(
-			await inRun(context, () => books.get({ path: 'data/books/dune.md' })),
+			await inRun(context, () => books.get({ slug: 'dune' })),
 		).toMatchObject({ title: 'Dune' });
 	});
 
@@ -451,7 +451,6 @@ describe('defineCollection', () => {
 						body: field.text(),
 						path: field.text(),
 						problems: field.text(),
-						other: field.text(),
 						json: field.text(),
 						'two words': field.text(),
 					},
@@ -462,44 +461,31 @@ describe('defineCollection', () => {
 			'The collection at data/words/{word}.md has a field "body", which is the file\'s text after its front matter',
 			'The collection at data/words/{word}.md has a field "path", which is the file\'s address',
 			'The collection at data/words/{word}.md has a field "problems", which a read uses to say what does not fit',
-			'The collection at data/words/{word}.md has a field "other", which a read uses for front matter that is not a field',
 			'The collection at data/words/{word}.md has a field "json", which epicenter reads itself',
 			'The collection at data/words/{word}.md has a field "two words", which a front matter line cannot name',
 		]);
 	});
 
-	test('names placeholders a read or epicenter gives itself', () => {
-		expect(
-			problems(() =>
-				defineCollection({
-					path: 'data/notes/{body}/{path}/{problems}/{other}/{input}.md',
-					fields: {},
-				}),
-			),
-		).toEqual([
-			"The collection at data/notes/{body}/{path}/{problems}/{other}/{input}.md has the placeholder {body}, which is the file's text after its front matter",
-			"The collection at data/notes/{body}/{path}/{problems}/{other}/{input}.md has the placeholder {path}, which is the file's address",
-			'The collection at data/notes/{body}/{path}/{problems}/{other}/{input}.md has the placeholder {problems}, which a read uses to say what does not fit',
-			'The collection at data/notes/{body}/{path}/{problems}/{other}/{input}.md has the placeholder {other}, which a read uses for front matter that is not a field',
-			'The collection at data/notes/{body}/{path}/{problems}/{other}/{input}.md has the placeholder {input}, which epicenter reads itself',
+	test('names placeholders a read, edit, or epicenter takes itself', () => {
+		const path = 'data/notes/{body}/{path}/{problems}/{old}/{input}.md';
+		expect(problems(() => defineCollection({ path, fields: {} }))).toEqual([
+			`The collection at ${path} has the placeholder {body}, which is the file's text after its front matter`,
+			`The collection at ${path} has the placeholder {path}, which is the file's address`,
+			`The collection at ${path} has the placeholder {problems}, which a read uses to say what does not fit`,
+			`The collection at ${path} has the placeholder {old}, which edit takes beside the keys`,
+			`The collection at ${path} has the placeholder {input}, which epicenter reads itself`,
 		]);
 	});
 
-	test('a one-file collection has no required field without a default', () => {
+	test('a collection with no placeholder may have a required field without a default', () => {
 		expect(
 			problems(() =>
 				defineCollection({
 					path: 'data/settings.md',
-					fields: {
-						voice: field.select(['female', 'male']),
-						goal: field.integer({ optional: true }),
-						loud: field.boolean(),
-					},
+					fields: { voice: field.select(['female', 'male']) },
 				}),
 			),
-		).toEqual([
-			'The collection at data/settings.md has the required field "voice" with no default; one file reads as its defaults before its first set, so make it optional or give it a default',
-		]);
+		).toEqual([]);
 	});
 
 	test('a collection has one path, and a list is refused', () => {
@@ -619,7 +605,7 @@ describe('defineAction', () => {
 		const tag = defineAction({
 			description: 'Tag',
 			input: {
-				tags: field.tags(),
+				tags: field.list(field.text()),
 				done: field.boolean(),
 				note: field.text({ optional: true }),
 			},
@@ -638,7 +624,7 @@ describe('defineAction', () => {
 					description: 'Show',
 					input: {
 						a: field.text(),
-						b: field.tags(),
+						b: field.list(field.text()),
 						json: field.boolean(),
 						// Not reserved: `--version` is read only on its own.
 						version: field.text(),

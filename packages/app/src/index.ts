@@ -18,12 +18,11 @@ export {
 	type CollectionDef,
 	defineCollection,
 	type Fields,
-	type FileOf,
 	type Handle,
-	type ManyHandle,
+	type Keys,
 	type Problem,
+	type RecordOf,
 	type Row,
-	type SingleHandle,
 	type Verb,
 } from './collection.ts';
 export {
@@ -45,7 +44,6 @@ export {
 	MAX_FILE_BYTES,
 	type TList,
 	type TSwitch,
-	type TTags,
 	type UploadedFile,
 	whatFits,
 } from './field.ts';

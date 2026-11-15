@@ -24,7 +24,7 @@
  *
  * const list = createQuery(() => taskReads.list());
  * const setTask = createMutation(() => taskWrites.set);
- * setTask.mutate({ path, done: true });
+ * setTask.mutate({ id, done: true });
  * ```
  *
  * The app is imported as a type, so the UI's bundle carries no app code.

@@ -6,9 +6,11 @@
  * since that is where a reference's existence check takes effect.
  *
  * Key behaviors:
- * - a reference is stored as the target's key, and `add` and `set` refuse a
- *   key with no record, or not exactly a key, before writing anything
- * - `update` stores what its function returns unchecked, as the app's own
+ * - a reference is stored as the target's key, and `add` and a `set` given
+ *   fields refuse a key with no record, or not exactly a key, before writing
+ *   anything
+ * - a function given to `update` or `set` has what it returns stored
+ *   unchecked, as the app's own
  * - a target without exactly one placeholder, or a `.local` one, is refused
  *
  * See also:
@@ -57,20 +59,14 @@ async function refusal(promise: Promise<unknown>) {
 test('a reference to a record that exists is written, and a read returns its key without opening it', async () => {
 	const context = setup();
 	await inRun(context, () =>
-		books.set({
-			path: 'data/books/dune.md',
-			shelf: 'essays',
-			shelves: ['essays'],
-		}),
+		books.set({ book: 'dune' }, { shelf: 'essays', shelves: ['essays'] }),
 	);
 	expect(await context.folder.read('data/books/dune.md')).toBe(
 		'---\nshelf: "essays"\nshelves: ["essays"]\n---\nA book\n',
 	);
 	// A read never checks the key: a record deleted since still reads as its key.
 	await context.folder.delete('data/shelves/essays.md');
-	const dune = await inRun(context, () =>
-		books.get({ path: 'data/books/dune.md' }),
-	);
+	const dune = await inRun(context, () => books.get({ book: 'dune' }));
 	expect(dune?.shelf).toBe('essays');
 	expect(dune?.problems).toBeUndefined();
 });
@@ -91,9 +87,7 @@ test('add and set refuse a key with no record, writing nothing', async () => {
 	const before = await context.folder.read('data/books/dune.md');
 	expect(
 		await refusal(
-			inRun(context, () =>
-				books.set({ path: 'data/books/dune.md', shelf: 'poems' }),
-			),
+			inRun(context, () => books.set({ book: 'dune' }, { shelf: 'poems' })),
 		),
 	).toEqual({
 		name: 'Refused',
@@ -107,9 +101,7 @@ test('a key is refused unless it is exactly the key its file would carry', async
 	const context = setup();
 	expect(
 		await refusal(
-			inRun(context, () =>
-				books.set({ path: 'data/books/dune.md', shelf: ' essays ' }),
-			),
+			inRun(context, () => books.set({ book: 'dune' }, { shelf: ' essays ' })),
 		),
 	).toEqual({
 		name: 'Refused',
@@ -118,13 +110,16 @@ test('a key is refused unless it is exactly the key its file would carry', async
 	});
 });
 
-test('update stores what its function returns without checking references', async () => {
+test('a change a function computes, in update or set, is stored without checking references', async () => {
 	const context = setup();
 	await inRun(context, () =>
-		books.update({ path: 'data/books/dune.md' }, () => ({ shelf: 'poems' })),
+		books.update({ book: 'dune' }, () => ({ shelf: 'poems' })),
+	);
+	await inRun(context, () =>
+		books.set({ book: 'dune' }, () => ({ shelves: ['verse'] })),
 	);
 	expect(await context.folder.read('data/books/dune.md')).toBe(
-		'---\nshelf: "poems"\n---\nA book\n',
+		'---\nshelf: "poems"\nshelves: ["verse"]\n---\nA book\n',
 	);
 });
 
