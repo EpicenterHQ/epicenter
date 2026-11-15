@@ -79,10 +79,13 @@ Preserve:
 When viewpoints differ, show them separately. A compact `reader / author`,
 `user / system`, or `caller / owner` view is often clearer than an object graph.
 
+Keep separate owners visible, and distinguish an open or deferred decision
+from one that has been made.
+
 ## Reveal progressively
 
 Lead with the outcome, if there is one, and the relationship or distinction
-that makes it understandable. Then add the context, example, or qualification
+that makes it understandable. Then add only the context, example, or qualification
 needed to make it recognizable. Defer background and machinery that do not
 affect the current judgment. Connect the relevant facts to what they
 establish for the person. Explain what an uncertainty could change for them.
@@ -99,23 +102,6 @@ qualify, so readability does not imply more certainty than we have. If an
 omission could make something look absent, automatic, or settled, name that
 boundary briefly.
 Do not hide uncertainty just to make the surface clean.
-
-## A short pass
-
-Use this optional check for a draft that feels heavy or misses its point.
-It reviews a response; it does not set its structure.
-
-1. Read the conversation for the person's immediate aim, current model, and
-   point of uncertainty or leverage.
-2. Find the next judgment, insight, expression, or action the person needs.
-3. Keep the actors, decisions, handoff, and consequence required for that
-   moment.
-4. Choose the clearest surface: a short sequence, small diagram, example,
-   restatement, contrast, or paired viewpoint.
-5. Check that separate owners have not been collapsed and deferred decisions
-   have not been presented as settled.
-6. Remove incidental detail while preserving the requested material and the
-   evidence needed to learn, recognize, correct, express, or act.
 
 ## With dialectic
 

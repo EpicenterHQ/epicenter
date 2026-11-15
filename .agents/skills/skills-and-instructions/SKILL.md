@@ -72,6 +72,7 @@ Update the existing owner when the intent is the same.
 Create a separate skill when it offers a coherent capability someone
 would reach for independently. Merge or remove guidance whose
 distinction creates more work than it saves.
+Let skills compose where their responsibilities work together.
 
 | Material | Home |
 |---|---|

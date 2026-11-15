@@ -330,7 +330,7 @@ listener bag; reactivity without a reader adds no behavior.
 | Contract listings | `notes.items()`, `notes.invalid()` | notes and notes that do not read |
 | An open note | `notes.edit({ id })` | `todo.fields` (typed until saved), `todo.exists()`, and `todo.saving()` |
 | Browser API keyed data | `new SvelteMap()` + listeners | media devices, windows |
-| Reactive membership | `new SvelteSet()` | chosen word IDs |
+| Reactive membership | `new SvelteSet()` | expanded row IDs when only membership matters |
 | Primitive value | `$state(value)` | `$state(false)`, `$state('')`, `$state(0)` |
 | Replace-only ordered data | `$state.raw<T[]>([])` | command history, open file tab order |
 

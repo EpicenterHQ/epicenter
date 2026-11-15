@@ -2,9 +2,8 @@
 
 Use these examples when a component needs a complete asynchronous interaction,
 not just a hook declaration. [Query-layer](../../query-layer/SKILL.md) owns
-options, submission inputs, shared identity, and invalidation;
-[mutation lifecycle](../../query-layer/references/mutation-lifecycle.md) owns
-callback scope and ordering. [Input ownership](input-ownership.md) owns native
+options, submission inputs, shared identity, invalidation, and mutation callback
+scope and ordering. [Input ownership](input-ownership.md) owns native
 controls, reactive drafts, and commit-on-blur.
 
 The app-local operations and report names below are illustrative. Adapt them to
@@ -99,7 +98,7 @@ It owns its export work and any stable service dependencies.
 
   const exportMarkdown = createMutation(() => resultMutationOptions({
     mutationKey: ['recordings', 'exportMarkdown'],
-    mutationFn: exportRecordingsMarkdown,
+    mutationFn: () => exportRecordingsMarkdown(),
   }));
 </script>
 

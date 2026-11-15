@@ -172,9 +172,12 @@ For a local inlining, preserve the existing semantics. When redesigning the
 model, make changed semantics explicit and verify the resulting caller
 experience.
 
-Every accepted change should remove an unnecessary concept, exported surface,
-file, navigation hop, duplicated decision, or maintenance burden. Fewer lines
-alone are insufficient. Account for obligations introduced as well as removed:
+Every accepted change should remove unnecessary complexity or put a
+responsibility with an owner that can enforce its rule or manage its lifetime.
+Name the gain: a concept, exported surface, file, navigation hop, duplicated
+decision, or maintenance burden disappears, or the new owner can enforce a
+rule or manage a lifetime directly. Fewer lines alone are insufficient.
+Account for obligations introduced as well as removed:
 deleting a file does not simplify the system if its responsibility is now
 distributed across callers. If an edit fails this test on rereading, undo only
 that edit while preserving unrelated and unsaved work.
