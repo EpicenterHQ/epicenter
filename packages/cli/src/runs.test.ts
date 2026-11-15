@@ -7,7 +7,12 @@ import { afterAll, afterEach, expect, test } from 'bun:test';
 import { chmod, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Action, UploadedFile } from '@epicenter/app';
-import { connect, pendingRuns, type RunEvent, runs } from '@epicenter/app/client';
+import {
+	connect,
+	pendingRuns,
+	type RunEvent,
+	runs,
+} from '@epicenter/app/client';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { expectErr, expectOk } from 'wellcrafted/testing';
