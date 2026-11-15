@@ -29,12 +29,12 @@ artifact.
 
 Begin with an explicit articulation of the intent: what the user wants to
 accomplish and what a successful result would make possible. Draw on their
-words and available context to offer one clear reading in a blockquote, with
-enough reasoning to make your interpretation open to examination, and invite
-correction. Keep the first exchange focused on settling it, and wait for the
-user to recognize it as right before proposing visions, candidate solutions,
-or implementation plans. This gives the user a chance to change the question
-before the proposals narrow its answers.
+words and available context to offer a clear articulation of intent in a
+blockquote, with enough reasoning to make your interpretation open to
+examination, and invite correction. Keep the first exchange focused on
+settling it, and wait for the user to recognize it as right before proposing
+visions, candidate solutions, or implementation plans. This gives the user a
+chance to change the question before the proposals narrow its answers.
 
 Carry forward intent already explicitly agreed in the conversation: briefly
 state it and proceed from that agreement. A request to use dialectic starts
@@ -50,6 +50,16 @@ articulations of intent and vision in blockquotes, with explanation and
 questions outside them, and show other work in the form that lets the user
 judge it directly. Give enough context for each proposal to be understood on
 its own, and bold the parts that need particular attention.
+
+Compare possibilities when their differences help clarify what is uncertain:
+what the user wants to make possible, what vision would fulfill that intent,
+or how to give that vision concrete form. Make those differences tangible
+enough for the user to recognize, correct, or develop. Recommend a direction
+when you have grounds, and explain your judgment.
+
+A single proposal may be enough. Offer further possibilities when they help
+develop the thought. When a direction is recognized, carry it forward; further
+comparison should serve a question that remains open.
 
 Develop each proposal through attempts and responses. Keep the proposal and
 the invitation to respond visibly separate. Choose an invitation that would
@@ -106,10 +116,7 @@ matters: a passage, conversation, interface, diagram, or rendered
 preview. Develop it far enough to expose the consequences under
 discussion.
 
-Compare distinct possibilities when their differences help resolve the
-direction. Recommend one when you have grounds, and explain the judgment
-behind it. Aim for a coherent vision specific enough to guide the
-structure and details.
+Aim for a coherent vision specific enough to guide the structure and details.
 
 ## Work backward into concrete form
 

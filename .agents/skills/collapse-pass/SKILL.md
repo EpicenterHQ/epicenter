@@ -71,6 +71,9 @@ flexibility the stronger rule removes and whether actual users need it. Use the
 through its owners and callers. A focused transformation needs no subsystem
 inventory.
 
+Use [product-collapse](../product-collapse/SKILL.md) when simpler product behavior
+could make machinery unnecessary and the experience needs the person's judgment.
+
 For expensive guarantees, establish who needs the promise and what would change
 if it were narrowed, replaced, or removed. Show the machinery eliminated and any
 user loss or obligation. Changes beyond existing authorization remain proposals.
