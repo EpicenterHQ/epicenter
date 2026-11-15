@@ -548,6 +548,9 @@ for (const storage of [undefined, 'custom-lfs']) {
 		);
 		const oldMarker = await readFile(join(f.output, EXPORT_MARKER), 'utf8');
 		const oid = /oid sha256:([0-9a-f]+)/.exec(pointer)![1]!;
+		// A materialized working file lets the fresh snapshot recreate the object.
+		// Leave only its pointer so the payload is unavailable in both places.
+		await writeFile(join(f.tasks, 'asset.bin'), `${pointer}\n`);
 		await rm(
 			join(
 				f.home,

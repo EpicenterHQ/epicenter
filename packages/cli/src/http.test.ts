@@ -19,7 +19,7 @@ test('serve checkpoints at startup and shutdown and tick resolves the root resul
 		const idle = await server.tick();
 		expect(idle.committed).toBeNull();
 		expect(await gitIn(f.home, 'show', 'HEAD:direct')).toBe('start');
-		expect(await gitIn(f.home, 'log', '-1', '--format=%s')).toBe('checkpoint');
+		expect(await gitIn(f.home, 'log', '-1', '--format=%s')).toBe('checkpoint: root files');
 		await writeFile(join(f.home, 'direct'), 'stop');
 	} finally {
 		await server.stop();
