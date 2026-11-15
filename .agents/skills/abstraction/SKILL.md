@@ -36,9 +36,11 @@ pretending the model has already settled.
 > judge the thing itself? Make that presentation as simple as possible while
 > preserving the evidence their judgment depends on.
 
-Show the material the person is judging, drawn from the work itself:
-the actual code, wording, visible result, or comparison. Include the
-complete change when requested.
+Show the material the person is judging, drawn from the work itself rather
+than an account of it: the actual code, wording, visible result, or comparison.
+Brevity should remove incidental details, not the material the person is trying
+to inspect. Let the scope of their judgment determine how much to show,
+including the complete change when requested.
 
 For a revision, show current and proposed material together when their
 differences are what the person needs to judge. Show the rendered result
@@ -47,8 +49,17 @@ when appearance or movement matters.
 A summary or file link may orient them. Choose further concrete material
 for the relationship it reveals or the judgment it makes possible.
 
-When a decision belongs to the person, connect the evidence to the live
-options, their consequences, and your recommendation.
+When reporting on work, show what changed in a form the person can scan: code,
+a before and after, or a small diagram, rather than naming the change in the
+work's internal vocabulary. Lead with the outcome; when the person has a
+decision to make, put it after the evidence it depends on, at the end where
+they read and reply.
+
+For each decision, give the options that matter, what each costs, and which
+you recommend, so they can answer in a word.
+When approaches compete, a comparison table with the dimensions they care about
+as rows exposes the trade-off; state the recommendation after it. A report that
+only restates what was done leaves the person to reconstruct what it means.
 
 ## Keep the load-bearing parts
 
@@ -68,6 +79,8 @@ When viewpoints differ, show them separately. A compact `reader / author`,
 Lead with the outcome, if there is one, and the relationship or distinction
 that makes it understandable. Connect the relevant facts to what they
 establish for the person. Explain what an uncertainty could change for them.
+Include the requested material in the current response, with enough context
+to understand it.
 
 Make that progression visible in the presentation. Use paragraph breaks
 where the thought turns and selective emphasis where a distinction needs
@@ -76,8 +89,8 @@ so the person can examine it directly.
 
 Let the form follow the thought. Keep qualifications beside the claims they
 qualify, so readability does not imply more certainty than we have. If an
-omission could make something look absent or automatic, name that boundary
-briefly.
+omission could make something look absent, automatic, or settled, name that
+boundary briefly.
 
 ## With dialectic
 
