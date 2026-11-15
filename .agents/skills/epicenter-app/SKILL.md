@@ -76,13 +76,14 @@ A path is one relative `.md` template under `data/`, such as
 `data/days/{day}.md`; files in a second layout are a second collection.
 `defineCollection` refuses a path outside `data/`, a list of paths, or a part
 starting with `.`. A field or placeholder may not be named `path`,
-`body`, `problems`, `other`, `json`, `help`, or `input`.
+`body`, `problems`, `json`, `help`, or `input`, and a placeholder may not be
+`old` or `new`.
 
 - Choose the path by how people and agents will name a file. `{time}` suits
   things made in passing (`data/captures/{time}.md`, `data/tasks/{time}.md`): `add`
   names the file by the time. A placeholder `add` takes suits things named by
   what they are (`data/words/{word}.md`, `data/books/{title}.md`), at the cost of
-  characters a file name cannot hold. `add` and `pathOf` name the file by the
+  characters a file name cannot hold. Every method names the file by the
   value as NFC, trimmed, with single spaces, so an action passes what the
   person typed.
 - Write a day or a moment with `localDay()` or `localTime()` from
@@ -96,8 +97,7 @@ starting with `.`. A field or placeholder may not be named `path`,
   glance in a field (a task's `title`); put prose in the body.
 - Keep fields few. `set` merges as JSON Merge Patch does: `null` removes a
   field, so a field that may be absent needs no `null` in its type; a
-  required field takes no `null`. A `set` with no field throws. In a one-file
-  collection every field is optional or has a default.
+  required field takes no `null`. A `set` with no field throws.
 - Mark a field `readOnly` when only the app's own actions may write it (Vocab's
   schedule, Capture's `capturedAt`): the exposed `add` and `set` leave it out.
   A `readOnly` field that is required with no default removes the exposed
@@ -107,25 +107,28 @@ starting with `.`. A field or placeholder may not be named `path`,
   do`), so the generated `set` refuses what the app's own `add` would.
 - A read never trusts the file: a field that does not fit reads as its
   default, or is absent, and the file carries `problems` quoting what was
-  dropped; `get` also carries `other`, the front matter that is not a fitting
-  field. So every field without a default is optional when read, a required
+  dropped. So every field without a default is optional when read, a required
   one included. Read code handles absence; it never assumes the declaration.
+  Front matter that cannot be read, or opens with `---` and never closes, is
+  refused by `get` and every writer, and listed as a row with `problems`.
 - A body changes through `edit --old <text> --new <text>`, which replaces one
   passage and is refused unless `old` occurs exactly once, so a body read
   before someone else changed it is never written back over theirs
   (ADR-0869). An empty `old` fills an empty body.
-- A secret, such as a sign-in token, is a one-file collection at a
+- A secret, such as a sign-in token, is a collection with no placeholder at a
   `.local.md` path (`data/google.local.md`), its fields declared like any other
   (ADR-0870). A `.local` file stays on the computer that runs the app:
   the root `.gitignore` leaves it out of every commit, `folder` makes it `0600`,
   and its `actions()` throws, so no generated verb hands it to an MCP client.
-  Read it in an action with `google.get()` and write it with `google.set(...)`.
+  Read it in an action with `(await google.get()) ?? {}` and write it with
+  `google.update(...)`, which makes it on the first sign-in.
   A fresh clone has none, so the person signs in again.
 - The collections are the contract between code and records. Reads tolerate
-  disagreement: undeclared keys go to `other`, and a missing optional field
-  is no problem. Rename or tighten a field in two steps: change the code,
-  then repair records with an action or agent. Read each record's `other` and
-  `problems` afterward. A checkpoint records both code and repairs together.
+  disagreement: undeclared keys are kept by every write and left out of a
+  read, and a missing optional field is no problem. Rename or tighten a field
+  in two steps: change the code, then repair records with an action or agent.
+  Run `epicenter check <app>` afterward: it lists each record's `problems`.
+  A checkpoint records both code and repairs together.
   There is no global migration gate. Explain any repair when sharing code;
   another person's records change only when they run it.
 
@@ -154,10 +157,14 @@ verbs: a rule on making a file (Tasks' `add` splits a title from its notes),
 a rule across fields (Vocab's `review` scheduling), or a read shaped for a
 screen (Capture's `recent`). Replace a verb by key, as in any object:
 `{ ...words.actions(), add: learn }`. Inside `run`, read and write through the
-collection's methods (`words.get({ path })`, `words.set({ path, ...fields })`,
-`words.edit({ path, old, new })`, `words.update({ path }, change)`) instead of
-parsing front matter again. For other files, the imported `folder` supplies
-atomic writes and updates. Build a path with `words.pathOf({ word })`, never by hand.
+collection's methods, which name a record by its keys and take the change
+second (`words.get({ word })`, `words.set({ word }, fields)`,
+`words.edit({ word }, { old, new })`, `words.update({ word }, change)`), instead
+of parsing front matter again; a row passes as its own keys. A collection with
+no placeholder takes no keys (`settings.get()`), reads as `undefined` until
+its first write, and `set` refuses it until `add` or `update` makes it. For
+other files, the imported `folder` supplies atomic writes and updates.
+`words.pathOf({ word })` gives a record's path; never build one by hand.
 Make the first write through `folder` or a collection, so the call takes
 container's lock. It stays held until the call returns, throws, or stops.
 After that first write, a library or `node:fs` write shares the call's lock
@@ -187,18 +194,19 @@ reaches every app `serve` runs.
 Writes to one app run at once: a phone, an agent, and the command line can
 all call the app at the same moment, and an agent may edit its files
 directly. A value computed from `get` and written with `set` is last write
-wins: a change made between them is lost. Compute it inside the collection's
-`update` instead, which calls `change` with the record as `get` gives it
-(`undefined` when there is no file) and writes the patch it returns (what
-`set` takes, without `path`, plus `body` when the body changes) only over
-that same record, or makes the file from it when there was none; when the
-file changed meanwhile, it calls `change` again on what is there now. Vocab's
-`review` schedules a word this way, so two reviews at once both count, and
-Reading's `start` makes a book or starts it in one `update`, never `get` then
-`add`, which two calls at once would race.
+wins: a change made between them is lost. Compute it inside the write
+instead: `set(keys, (record) => fields)` calls the function with the record
+as `get` gives it, throws `ActionError.Missing` when there is no file, and
+writes the fields it returns only over that same record; when the file
+changed meanwhile, it calls the function again on what is there now. Vocab's
+`review` schedules a word this way, so two reviews at once both count.
+`update(keys, change)` does the same, also gives `undefined` when there is no
+file and makes the file from what `change` returns, and takes `body` when the
+body changes, so Reading's `start` makes a book or starts it in one `update`,
+never `get` then `add`, which two calls at once would race.
 
 ```ts
-await words.update({ path }, (word) => ({ reps: (word?.reps ?? 0) + 1 }));
+await words.set({ word }, (found) => ({ reps: (found.reps ?? 0) + 1 }));
 ```
 
 For any other file, use `folder.update(path, change)`, never `folder.read`
@@ -206,21 +214,20 @@ then `folder.write`. It does the same with the file's text (`undefined` when
 there is none). Either way, keep `change` a pure function of what it is
 given, since it may run more than once; throw in it to refuse, and nothing is
 written. A collection's `change` that returns `{}` leaves a file as it is,
-so Reading's `start` returns `{}` for a book already started; throw in it
-when the record must already be there.
+so Reading's `start` returns `{}` for a book already started.
 
 ```ts
 await folder.update('data/2026.csv', (text = 'day,minutes\n') => `${text}${day},${minutes}\n`);
 ```
 
-Every collection write goes through `folder.update`. `set` writes the values
-it is given, and `folder.write` is for a file whose whole content the action
-decides: for both, the last write wins.
+Every collection write goes through `folder.update`. `set` given fields writes
+the values it is given, and `folder.write` is for a file whose whole content
+the action decides: for both, the last write wins.
 
-The generated verbs address a record by its path, the one address every
-collection has. An action you write chooses its own input, and one people type
-should take what they type: Vocab's `review` could take `{ word, grade }` and
-call `words.pathOf({ word })`, giving `epicenter vocab review 你好 good`.
+The generated verbs take a record's keys, flat and positional in path order:
+`epicenter vocab set serendipity --meaning "a lucky find"`. An action you
+write chooses its own input, and one people type should take what they type:
+Vocab's `review` takes `{ word, grade }`, giving `epicenter vocab review 你好 good`.
 
 Annotate honestly. A read-only run takes no lock. Its folder writes throw
 except to `.local` paths under data/, so an action that only reads can refresh
@@ -329,7 +336,7 @@ record when the outcome is uncertain and retain unsent writing. The layout creat
 QueryClient from the UI's own `@tanstack/svelte-query`, with the invalidation
 rule from `query-layer`, and puts it
 in `<QueryClientProvider>`; pages read with
-`createQuery(() => reads.get({ path }))` and write with
+`createQuery(() => reads.get({ word }))` and write with
 `createMutation(() => writes.set)`. That client refreshes every read after
 each write, before the write counts as done, and when the UI is shown
 again, so a page never refreshes by hand or on a timer. Name
@@ -344,11 +351,10 @@ still refreshes once it returns. A Stop button passes `{ signal }` too and
 aborts it; the call then resolves as the `Stopped` error, which is not a
 failure to show.
 
-- Route a record by its whole path: the page is at `#/data/tasks/<time>.md`,
-  linked with each part URL-encoded
-  (`path.split('/').map(encodeURIComponent).join('/')`) and read back with the
-  router's `currentPath()`. Write no code that knows the app's templates; show
-  a record's name from its read (`row.word`).
+- Route a record by its keys, which every row carries: the page is at
+  `#/words/<word>`, each key URL-encoded, and calls `get({ word })` with the
+  keys from its route. Write no code that knows the app's templates; show a
+  record's name from its read (`row.word`).
 - Show a record's `problems` quietly where the record is shown, and never
   crash on a field that is absent.
 
