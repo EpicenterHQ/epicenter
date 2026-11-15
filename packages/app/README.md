@@ -127,7 +127,7 @@ gives the same operations as verbs to expose, each taking the same object:
 | `delete({ path })`: deletes the file; `true` when there was one | |
 | `pathOf({ ...placeholders })`: the path `add` would write | |
 
-The exposed `get`, `set`, and `edit` throw `FileError.Missing` (`There is no
+The exposed `get`, `set`, and `edit` throw `ActionError.Missing` (`There is no
 <path>`) where the method answers `undefined`. `pathOf` fills the template, `{time}` included, as `add` does:
 it names the file by the value as NFC, trimmed, with each run of whitespace
 one space, so `" 你好 "` and `"你好"` name one file, and it throws for a value
@@ -160,7 +160,7 @@ at once both count, and refuses a word that is not there:
 
 ```ts
 await words.update({ path }, (word) => {
-  if (!word) throw FileError.Missing({ path }).error;
+  if (!word) throw ActionError.Missing({ path }).error;
   return schedule(word, grade, now);
 });
 ```
@@ -329,7 +329,7 @@ the file, calls `change` with its text (`undefined` when there is none), and
 writes what `change` returns, nothing when that is what is there. A writer
 outside epicenter, such as an editor, may change the file between the read
 and the write; then `update` calls `change` again on what is there now, and
-after 10 tries it throws `FileError.Changed`. A `change` that
+after 10 tries it throws `ActionError.Changed`. A `change` that
 throws writes nothing. It returns the text written. Every collection write (`add`, `set`, `edit`, `update`)
 goes through it, so two `set`s of different fields of one file both land, and
 two `update`s of one field each see the other's.
@@ -353,6 +353,92 @@ Paths are relative to the folder with `/` between parts, and `read` gives
 `undefined` for a missing file.
 Every write through `folder` stays under `data/`. A path with a `.git*` segment
 is refused at any depth. Reads may reach code files.
+
+## Temporary file inputs and runs
+
+A top-level action input can use `field.file({ accept: ['audio/*'], maxBytes })`.
+`accept` contains MIME types or `type/*`; `maxBytes` is a positive integer up
+to 15 MiB, the default. A file cannot be positional, nested in another schema,
+or stored by a collection. Persistent attachments are undecided.
+
+The browser supplies a `Blob` or `File` through its action’s run controls:
+
+```ts
+const run = app.transcribe.start({ audio: file });
+for await (const event of run.events()) {
+  if (event.type === 'yielded') show(event.value);
+}
+const result = await run.result();
+```
+
+The wire carries an opaque host-issued reference. The action receives an
+`UploadedFile` with `name`, `type`, `size`, `path()`, `bytes()`, and `text()`.
+Its methods are valid only while the run runs. CLI, MCP, routines, and ordinary
+POST calls cannot supply files. MCP omits file actions; CLI help directs the
+person to the app's page. Ordinary client calls refuse a `Blob`.
+
+`action.start(input)` creates a journal entry under `epicenter.runs.prototype.v1` before any
+request. If browser storage fails, nothing is sent. Uploads happen sequentially,
+then admission has a 20-second timeout. An ambiguous acknowledgement is observed
+by id; admission is never resent. A definite 4xx refusal removes the journal
+entry. `action.attach(id)` only observes. `action.pending()` lists this action's entries;
+`pendingRuns({ app })` lists entries across actions. The journal keeps file
+metadata, not file bytes or other input values, and entries expire after 24 hours.
+
+`events({ after, signal })` replays sequence numbers after a cursor and
+reconnects with backoff. Closing the tab or aborting observation leaves the
+host running. `result({ signal })` waits for a terminal Result; aborting it
+stops waiting. `cancel()` aborts uploads before admission, or asks the host to
+cancel after admission. Cancellation is cooperative and confirms no rollback.
+A 404 emits `unknown` and retains the journal entry. Terminal observation removes
+it. An error or a lost connection does not establish which effects persisted.
+
+Below the top level, `start`, `attach`, and `pending` are client run controls.
+Choose other names for nested app actions; Flights uses `daily.begin` for its
+manual trigger. A top-level action named `start` remains an ordinary action.
+
+Serve owns execution and keeps bounded local records outside the Epicenter.
+Recovery marks unfinished records `interrupted`; it never executes them again.
+For `privateInput: true`, admission persists neither JSON input values nor a
+JSON input digest: a digest could confirm guesses about input otherwise never
+written here. Uploaded file metadata, hashes, and bytes follow the ordinary
+retention rules. Actions still control their own yielded and returned data.
+
+See the [CLI run policy](../cli/README.md#serve-owned-runs) for limits, retention,
+and the one-process ownership rule.
+
+## Save recurring work from setup
+
+An explicit setup action can save a home-owned routine using an exposed action:
+
+```ts
+import { routines } from '@epicenter/app';
+
+await routines.set('flights-daily-research', {
+  daily: '08:00',
+  action: dailyRun,
+  input: {},
+  timeout: '20m',
+});
+```
+
+The host infers the installed app and resolves the action reference in that
+load's existing action table. The input follows the action's TypeScript type
+and is validated against its schema before saving. It must contain only JSON
+values. Omitted defaults stay omitted, so each invocation uses current code.
+Private-input and file-input actions cannot be saved.
+
+The name is home-wide: this call writes `routines/flights-daily-research.md`
+using the existing `daily` and command-argv format. It atomically updates the
+requested fields, preserving notes, unspecified `paused` and `timeout`, and
+all runtime state and logs. It refuses an existing command targeting another
+app. Copying or importing code never enables a routine. Read-only actions and
+hosts without routine support refuse the call.
+
+The action must await its work, throwing on failure. Returning after starting
+detached work would record launch as completion. A new unpaused routine can
+catch up at the next check, even before today's configured time. Inspect and
+repair it with `epicenter routines` and `epicenter routines run <name>`.
 
 ## Secrets are `.local` files
 
@@ -453,14 +539,30 @@ const { data: books, error } = await app.books.list();
 ```
 
 A call resolves to a Result: what the action returned, in its JSON form, or
-an `ActionError` saying why not, told apart by `name`. The action's
-`FileError`s arrive as themselves: `Changed` (`{ path, why }`) for an `edit`
-whose passage changed or an `update` of a file that kept changing, and
-`Missing` (`{ path }`) for a file that is not there. `Threw` carries anything
-else the action threw, with a tagged error whole as `thrown`; `Refused` means
-nothing ran, with serve's `next` when it has one; `Unreachable` means no
-answer came back. Checkpoint failures are reported by the checkpoint command or serve
-clock separately from an action's answer.
+an `ActionError` saying why not, told apart by `name`. Producers import the
+same factories from `@epicenter/app` that the client uses:
+
+- `Changed` (`{ path, why }`): a quoted passage or empty body changed, or a file kept changing during an update.
+- `Missing` (`{ path }`): the file is not there.
+- `Threw` (`{ message, thrown? }`): an unrecognized throw, with a JSON-safe tagged payload kept as `thrown`.
+- `Refused` (`{ message, next? }`): an operation declined the request.
+- `Unreachable` (`{ message }`): a required operation returned no usable answer. The message identifies the dependency.
+- `Stopped` (`{ message }`): work was deliberately stopped.
+
+The shared errors carry a serializable namespace marker. The client validates
+all their fields and returns every recognized shared error whole, preserving
+its message and extra fields. An app's own unrelated tagged errors stay inside
+`Threw.thrown`, even when their names match a shared variant.
+
+A name gives the failure reason, not proof of what was saved, whether a stop
+has finished, or whether repeating an action is safe. The command's existing
+`returned` / `threw` / `error` envelope records the action's execution phase.
+When a UI needs to know what persisted, it rereads the record. While the outcome
+is uncertain, it keeps the person's draft and reports the uncertainty. `Missing`
+and `Changed` identify their own `path`, which may belong to a dependency;
+match the requested record before interpreting either as its state. Checkpoint
+failures are reported by the checkpoint command or serve's clock, separately
+from the action's answer.
 
 A UI hands these calls to TanStack Query through Wellcrafted's
 `resultQueries` and `resultMutations` (ADR-0661), and makes its one
@@ -482,16 +584,23 @@ An action whose `run` yields takes `{ onYield }` after its input. Each value
 it yields reaches `onYield`, in order, while it runs, and the call resolves
 with the same Result as without it. No other caller sees a yield: not the
 command line, not a connector, not another page. Closing the page mid-call
-stops the action at its next yield, so whatever it would have saved after
-that is not saved. A page stops a call on purpose with `{ signal }`: the
-action stops the same way, its `finally` blocks run, and the call resolves
-as the `Stopped` error. An action that waits between yields, as on a model,
-passes `callSignal()` to that wait, so a stop ends it at once rather than at
-the next yield:
+cancels the response; the host stops the action at its next yield and runs
+its `finally` blocks. A page requests the same stop with `{ signal }`.
+An aborted response read resolves as `Stopped`; receiving it does not confirm
+that cleanup finished or say which writes persisted. An action that waits
+between yields, as on a model, passes `callSignal()` to that wait so it can
+stop before the next yield:
 
 ```ts
 const response = await fetch(endpoint, { body, signal: callSignal() });
 ```
+
+`onYield` may return a promise; the client waits for it before delivering
+the next yield. If it throws or rejects, the call rejects with that error
+and cancels its response, stopping the action the same way as closing the
+page. Recognize a local Stop from the AbortController captured for that
+request; an action can also report `Stopped` for a dependency. A received
+answer completes the call without waiting for the connection to close.
 
 ```ts
 let draft = $state('');

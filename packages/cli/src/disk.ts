@@ -25,7 +25,7 @@ import {
 import { lstat, readdir, readFile, stat, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
-	FileError,
+	ActionError,
 	type Folder,
 	isLocalPath,
 	normalizePath,
@@ -148,7 +148,7 @@ export function folderOnDisk(dir: string): Folder {
 				}
 				rmSync(temp, { force: true });
 				if (tries === UPDATE_TRIES)
-					throw FileError.Changed({ path: normalizePath(path), why: 'kept' })
+					throw ActionError.Changed({ path: normalizePath(path), why: 'kept' })
 						.error;
 			}
 		},

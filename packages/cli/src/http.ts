@@ -7,6 +7,11 @@
  * GET  /<app>/...       the app's UI, ui/dist/, as static files
  * GET  /<app>           308 to /<app>/
  * POST /<app>/<action>  run the action for the UI; JSON lines (`callResponse`)
+ * PUT  /.runs/<app>/<action>/<id>/files/<field>  upload a file
+ * POST /.runs/<app>/<action>/<id>               admit a run
+ * GET  /.runs/<app>/<action>/<id>/events        observe a run
+ * GET  /.runs/<app>/<action>/<id>               read run state
+ * POST /.runs/<app>/<action>/<id>/cancel        request cancellation
  * ```
  *
  * `serve` runs every call itself, from the app's code as it is on disk when
@@ -26,7 +31,8 @@
  *
  * Calls leave their writes pending (`run.ts`).
  * The serve-owned clock checkpoints the root at startup, every five minutes
- * after completion, and on shutdown.
+ * after completion, and on shutdown. Daily routines are checked at startup
+ * and once a minute, independently of checkpoints (ADR-0908).
  */
 
 import { realpath, stat } from 'node:fs/promises';
@@ -42,7 +48,9 @@ import { chooseApps, homeEntries, loadHomeApp } from './home.ts';
 import { createMcpServer } from './mcp.ts';
 import { type Answer, writeErr } from './output.ts';
 import { epicenterDir } from './root.ts';
+import { createRoutines } from './routines.ts';
 import { callAction } from './run.ts';
+import { createRunHost } from './runs.ts';
 import { createUiRefresher, UI_DIST } from './ui.ts';
 
 /** How often `serve` backs up every app. */
@@ -343,6 +351,7 @@ const forbidden = () => new Response('Forbidden', { status: 403 });
  * did for the root.
  */
 export function startHttpServer(host: string, port: number) {
+	const runs = createRunHost();
 	/** Log an unchanged root checkpoint failure only once. */
 	const lastFailure = new Map<string, string>();
 	const refreshUi = createUiRefresher();
@@ -410,6 +419,7 @@ export function startHttpServer(host: string, port: number) {
 				return forbidden();
 		}
 		const { pathname } = new URL(request.url);
+		if (pathname.startsWith('/.runs/')) return runs.handle(request);
 		if (request.method === 'POST')
 			return pathname === '/' ? site.mcp(request) : site.call(request);
 		if (pathname === '/') return site.launcher(request);
@@ -421,18 +431,41 @@ export function startHttpServer(host: string, port: number) {
 		idleTimeout: 0,
 		fetch: answer,
 	});
+	const routines = createRoutines({
+		folder: epicenterDir(),
+		serviceUrl: `http://127.0.0.1:${server.port}/`,
+	});
+	const checkRoutines = () =>
+		routines
+			.check()
+			.catch((error) =>
+				writeErr(
+					`Checking routines failed: ${error instanceof Error ? error.message : String(error)}`,
+				),
+			);
+	void checkRoutines();
+	// Only the check is periodic. Commands and network backups never block it.
+	const routineClock = setInterval(() => {
+		void checkRoutines();
+	}, 60_000);
+	routineClock.unref();
 	return {
 		port: server.port as number,
 		tick,
 		/**
-		 * Stop listening and the clock, then run the last checkpoint, waiting for
-		 * it at most 10 seconds; `false` when it gave up waiting.
+		 * Stop listening and both clocks, then stop routines and run the last
+		 * checkpoint, waiting at most 10 seconds; `false` when it gave up waiting.
 		 */
 		stop() {
+			runs.stop();
 			stopping = true;
 			clearTimeout(clock);
+			clearInterval(routineClock);
 			void server.stop();
-			return within(BACKUP_WAIT_MS, tickLogged());
+			return within(
+				BACKUP_WAIT_MS,
+				Promise.all([routines.stop(), tickLogged()]),
+			);
 		},
 	};
 }

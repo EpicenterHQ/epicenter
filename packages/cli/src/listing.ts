@@ -2,12 +2,12 @@
  * The Epicenter, app, and action views (ADR-0841). `--json` prints the app's
  * description and collections with each action as the MCP tool `serve`
  * offers, so a listing and `tools/list` agree, except that MCP leaves out an
- * action with private input, which the listing keeps with its flag for
+ * action with private or file input, which the listing keeps for
  * the app's own page; the human views come from the same actions.
  */
 
 import { basename } from 'node:path';
-import type { Action } from '@epicenter/app';
+import { type Action, fileFieldOf } from '@epicenter/app';
 import type { TSchemaOptions } from 'typebox';
 import type { Discovery, Runnable } from './home.ts';
 import {
@@ -132,6 +132,8 @@ export function oneAppListing(located: Runnable, json: boolean): unknown {
  * their flags and positionals.
  */
 export function actionHelp(name: string, key: string, action: Action): string {
+	if (Object.values(action.input).some((schema) => fileFieldOf(schema)))
+		return `${usageLine(name, key, action)}\n${action.description}\n\nThis action takes a file. Start it from its page; the command line cannot supply it.`;
 	const privateInput = action.privateInput === true;
 	const positional = new Set<string>(action.positional ?? []);
 	const required = requiredKeys(action.input);

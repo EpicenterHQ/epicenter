@@ -20,6 +20,7 @@
  */
 import { type Static, type TObject, type TSchema, Type } from 'typebox';
 import { Value } from 'typebox/value';
+import { fileFieldOf } from './field.ts';
 
 /** An action's input: a record of fields, or of any TypeBox schemas. */
 export type Input = Record<string, TSchema>;
@@ -246,6 +247,19 @@ const ANNOTATION_KEYS = new Set([
 	'openWorldHint',
 ]);
 
+/** File handles are decoded only for whole top-level input fields. */
+function containsFileMarker(
+	value: unknown,
+	seen = new WeakSet<object>(),
+): boolean {
+	if (!value || typeof value !== 'object' || seen.has(value)) return false;
+	seen.add(value);
+	return (
+		Object.hasOwn(value, 'x-epicenter-file') ||
+		Object.values(value).some((child) => containsFileMarker(child, seen))
+	);
+}
+
 /** What is wrong with `def` as an action beyond its types, each finishing "The action … ". */
 function actionProblems(def: object): string[] {
 	const { description, input, privateInput, positional, annotations, run } =
@@ -269,6 +283,11 @@ function actionProblems(def: object): string[] {
 	for (const key of Object.keys(fields))
 		if (RESERVED_FIELDS.has(key))
 			problems.push(`has a field named "${key}", which epicenter reads itself`);
+	for (const [key, schema] of Object.entries(fields))
+		if (!fileFieldOf(schema) && containsFileMarker(schema))
+			problems.push(
+				`has a nested file in "${key}"; files must be top-level action inputs`,
+			);
 	if (!Array.isArray(positional)) return problems;
 	positional.forEach((key: unknown, index) => {
 		if (typeof key !== 'string' || !Object.hasOwn(fields, key))
@@ -277,6 +296,10 @@ function actionProblems(def: object): string[] {
 			);
 		else if (positional.indexOf(key) !== index)
 			problems.push(`lists the positional "${key}" twice`);
+		else if (fileFieldOf(fields[key]))
+			problems.push(
+				`has the file "${key}" as a positional, which the command line cannot give`,
+			);
 		else if (
 			(fields[key] as { type?: unknown }).type === 'array' &&
 			index !== positional.length - 1

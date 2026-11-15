@@ -209,6 +209,7 @@ test('update gives up, writing nothing, on a file another writer changes every t
 		})
 		.catch((thrown: unknown) => thrown);
 	expect(kept).toEqual({
+		namespace: 'epicenter/action-error',
 		name: 'Changed',
 		message: 'busy.txt kept changing while it was updated',
 		path: 'busy.txt',

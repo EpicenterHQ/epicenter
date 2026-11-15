@@ -70,6 +70,14 @@ computer and the tailnet should reach it.`,
 The person runs install and uninstall. Agents may safely run restart and status.
 status --json reports whether the job is installed and running, its pid, and port.`,
 	},
+	routines: {
+		usage: 'epicenter routines [run <name>]',
+		help: `Lists the home's routines and their last outcomes, even while serve is stopped.
+A routines/<name>.md declares daily: "08:00" and run: [executable, ...arguments].
+serve checks at startup and once a minute, catching up once to the latest due time.
+run explicitly runs one now, including a failed or interrupted attempt. It may
+repeat effects. State and output stay in routines/<name>.local/.`,
+	},
 } as const;
 
 export type Command = keyof typeof COMMANDS;

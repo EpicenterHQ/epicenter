@@ -8,6 +8,7 @@ import { fixture, gitIn } from './runner.test-support.ts';
 
 const f = await fixture();
 process.env.EPICENTER_ROOT = f.home;
+process.env.EPICENTER_RUNTIME_DIR = join(f.root, 'run-runtime');
 afterAll(() => rm(f.root, { recursive: true, force: true }));
 
 test('serve checkpoints at startup and shutdown and tick resolves the root result', async () => {
