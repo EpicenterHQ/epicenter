@@ -9,6 +9,12 @@ import { defineErrors, type InferErrors } from 'wellcrafted/error';
 
 const NAMESPACE = 'epicenter/action-error' as const;
 
+const runIdentity = Type.Object({
+	app: Type.String(),
+	action: Type.String(),
+	id: Type.String(),
+});
+
 const fields = {
 	Changed: Type.Object({
 		path: Type.String(),
@@ -32,8 +38,14 @@ const fields = {
 		message: Type.String(),
 		next: Type.Optional(Type.String()),
 	}),
-	Unreachable: Type.Object({ message: Type.String() }),
-	Stopped: Type.Object({ message: Type.String() }),
+	Unreachable: Type.Object({
+		message: Type.String(),
+		run: Type.Optional(runIdentity),
+	}),
+	Stopped: Type.Object({
+		message: Type.String(),
+		run: Type.Optional(runIdentity),
+	}),
 };
 
 const WHY = {
@@ -62,10 +74,11 @@ export const ActionError = defineErrors({
 	Refused: ({ message, next }: Static<typeof fields.Refused>) =>
 		marked({ message, next }),
 	/** A required operation returned no usable answer. The message identifies what failed. */
-	Unreachable: ({ message }: Static<typeof fields.Unreachable>) =>
-		marked({ message }),
+	Unreachable: ({ message, run }: Static<typeof fields.Unreachable>) =>
+		marked({ message, ...(run ? { run } : {}) }),
 	/** Work was deliberately stopped. This does not confirm completed cleanup or rollback. */
-	Stopped: ({ message }: Static<typeof fields.Stopped>) => marked({ message }),
+	Stopped: ({ message, run }: Static<typeof fields.Stopped>) =>
+		marked({ message, ...(run ? { run } : {}) }),
 });
 export type ActionError = InferErrors<typeof ActionError>;
 
