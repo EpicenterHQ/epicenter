@@ -135,6 +135,20 @@ paths do move, which that spec says they would not.
    typed keys, a `move` on a record, a reference to the same collection or
    in a cycle, and an `at` selector. Add each when an app needs it.
 
+5. **The write lock.** An action takes the app's `flock` at its first write
+   and holds it until it ends. A trace on 2026-11-15 found it does three jobs:
+   it closes a two-line gap in `folder.update` between processes
+   (`packages/cli/src/disk.ts`, the re-read and the rename), it makes `add`
+   refuse an existing file (there is no create-only write), and it tells a
+   live job from a dead one for Codex's `settle` and Mail's `apply`. Mail
+   takes it early with an `update` that changes nothing. Flights and Mail's
+   sync built their own locks, because this one starts at the first write
+   and covers the whole app.
+   - **Recommendation**: leave it alone in these waves. A later record could
+     give an action a way to take a named hold on purpose, and make `add`
+     create-only at the file. Removing the lock without those loses real
+     guarantees.
+
 ## What was checked, and what was not
 
 - Type-only experiments for selection by key compile against the real `field`
