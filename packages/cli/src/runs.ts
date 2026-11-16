@@ -36,9 +36,9 @@ import { type RunAnswer, refused, writeErr } from './output.ts';
 import { epicenterDir, folderPath } from './root.ts';
 import { runAction } from './run.ts';
 import {
-	openRunStore,
 	type EventFields,
 	type HostEvent,
+	openRunStore,
 	type RunStore,
 	type RunRecord as StoredRunRecord,
 } from './run-store.ts';

@@ -23,8 +23,8 @@ import {
 	type Tool,
 } from '@modelcontextprotocol/sdk/types.js';
 import { nameProblem } from './commands.ts';
-import { CliError } from './errors.ts';
 import { VERSION } from './engines.ts';
+import { CliError } from './errors.ts';
 import { homeEntries, loadHomeApp } from './home.ts';
 import { actionTool } from './listing.ts';
 import { type Answer, outcome, refused, writeErr } from './output.ts';
