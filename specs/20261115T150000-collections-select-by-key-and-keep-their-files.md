@@ -124,11 +124,33 @@ command line's input, so it can be built beside wave 4a.
 One pass over all 12, on the owner's go-ahead, with the command that has
 waves 3 to 4b:
 
-- [ ] Calls that pass `path` take keys; `field.tags()` becomes
+- [x] Calls that pass `path` take keys; `field.tags()` becomes
   `field.list(field.text())`; defaults move to where the value is read.
-- [ ] 49 `positional` lines are deleted; each README's commands take JSON.
-- [ ] Hand-written actions that the default verbs now cover are deleted.
-- [ ] `epicenter check` exits zero on the home afterward.
+- [x] `positional` lines are deleted; each README's commands take JSON.
+- [x] Hand-written actions that the default verbs now cover are deleted:
+  `tasks note`, `reading note`, `capture replace`, and `amend` in Vocab and
+  Zhongwen.
+- [x] `epicenter check` exits zero on a staged copy of the home.
+- [ ] The home switches: the patches are applied in `~/Epicenter` in the same
+  step as installing the new command and restarting `serve`.
+
+Done on a copy, because `epicenter serve` runs on the home from the installed
+command, which supplies the old package to every app. All 12 apps load, and
+each passes its own tests, type check, and UI build against the new package.
+No page was opened in a browser.
+
+What the apps showed about the design:
+
+- An `update` that may make a record refused `null` for an optional field.
+  Fixed: `null` leaves the field out of a file being made.
+- A page that saves fields and notes together now makes two writes, `set`
+  then `edit`. Vocab's `amend` made one, and returned a conflict as data.
+- A list is never required, so an action that needs one says so only by
+  refusing an empty list.
+- A list or switch whose value does not fit reads as absent, so every reader
+  writes `?? []` or `=== true`.
+- A hand-written action cannot take an object such as `was` without TypeBox,
+  which the apps do not list.
 
 ### Wave 5: files (ADR-0919 and ADR-0922)
 
