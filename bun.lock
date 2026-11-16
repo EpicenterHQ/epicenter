@@ -195,7 +195,7 @@
     },
     "packages/app": {
       "name": "@epicenter/app",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "dependencies": {
         "nanoid": "catalog:",
         "typebox": "catalog:",
@@ -208,7 +208,7 @@
     },
     "packages/cli": {
       "name": "@epicenter/cli",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "bin": {
         "epicenter": "./src/bin.ts",
       },
