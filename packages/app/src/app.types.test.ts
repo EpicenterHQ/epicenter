@@ -99,32 +99,20 @@ describe('an app author', () => {
 		assertType<
 			Equal<
 				In<Actions['words']['set']>,
-				| {
-						word: string;
-						meaning?: string | null | undefined;
-						was?: {
-							meaning?: string | null;
-							createdAt?: string | null;
-							due?: string | null;
-						};
-						old?: never;
-						new?: never;
-				  }
-				| {
-						word: string;
-						meaning?: string | null | undefined;
-						was?: {
-							meaning?: string | null;
-							createdAt?: string | null;
-							due?: string | null;
-						};
-						old: string;
-						new: string;
-				  }
+				{
+					word: string;
+					meaning?: string | null | undefined;
+					was?: {
+						meaning?: string | null;
+						createdAt?: string | null;
+						due?: string | null;
+					};
+					edit?: { old: string; new: string };
+				}
 			>
 		>();
-		// @ts-expect-error old and new come together
-		() => vocab.actions.words.set({ word: 'a', old: 'x' });
+		// @ts-expect-error an edit names both old and new
+		() => vocab.actions.words.set({ word: 'a', edit: { old: 'x' } });
 		assertType<Equal<In<Actions['words']['get']>, { word: string }>>();
 		assertType<Equal<In<Actions['settings']['get']>, Record<string, never>>>();
 		assertType<
@@ -151,18 +139,11 @@ describe('an app author', () => {
 		assertType<
 			Equal<
 				In<Actions['settings']['set']>,
-				| {
-						dailyGoal?: number | null | undefined;
-						was?: { dailyGoal?: number | null };
-						old?: never;
-						new?: never;
-				  }
-				| {
-						dailyGoal?: number | null | undefined;
-						was?: { dailyGoal?: number | null };
-						old: string;
-						new: string;
-				  }
+				{
+					dailyGoal?: number | null | undefined;
+					was?: { dailyGoal?: number | null };
+					edit?: { old: string; new: string };
+				}
 			>
 		>();
 		assertType<
@@ -253,7 +234,7 @@ describe('an app author', () => {
 		>();
 		// @ts-expect-error words has a required readOnly createdAt, so no add
 		() => words.actions('add');
-		// @ts-expect-error set takes old and new, so there is no edit
+		// @ts-expect-error set takes edit, so there is no edit verb
 		() => words.actions('edit');
 		const flags = defineCollection({
 			path: 'data/flags/{id}.md',
@@ -266,18 +247,11 @@ describe('an app author', () => {
 		assertType<
 			Equal<
 				SetIn,
-				| {
-						id: string;
-						was?: { pinned?: boolean | null; labels?: string[] | null };
-						old?: never;
-						new?: never;
-				  }
-				| {
-						id: string;
-						was?: { pinned?: boolean | null; labels?: string[] | null };
-						old: string;
-						new: string;
-				  }
+				{
+					id: string;
+					was?: { pinned?: boolean | null; labels?: string[] | null };
+					edit?: { old: string; new: string };
+				}
 			>
 		>();
 	});
@@ -379,10 +353,7 @@ describe('an app author', () => {
 		assertType<
 			Equal<AddIn, { trip: string; airports: string[]; body?: string }>
 		>();
-		type SetIn = Extract<
-			In<ReturnType<typeof trips.actions<'set'>>['set']>,
-			{ old?: never }
-		>;
+		type SetIn = In<ReturnType<typeof trips.actions<'set'>>['set']>;
 		// A required list cannot be removed with null.
 		assertType<
 			Equal<
@@ -391,8 +362,7 @@ describe('an app author', () => {
 					trip: string;
 					airports?: string[];
 					was?: { airports?: string[] | null };
-					old?: never;
-					new?: never;
+					edit?: { old: string; new: string };
 				}
 			>
 		>();

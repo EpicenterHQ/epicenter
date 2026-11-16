@@ -89,8 +89,7 @@ describe('the verbs', () => {
 			'added',
 			'done',
 			'was',
-			'old',
-			'new',
+			'edit',
 		]);
 		expect(app.actions.settings.get.input).toEqual({});
 		expect(app.actions.items.list.annotations).toEqual({
@@ -203,7 +202,7 @@ describe('set', () => {
 		);
 		await run(
 			'items set',
-			{ id: 'a', old: '\nKeep me.\n', new: 'New.\n' },
+			{ id: 'a', edit: { old: '\nKeep me.\n', new: 'New.\n' } },
 			context,
 		);
 		expect(await context.folder.read('data/items/a.md')).toBe(
@@ -379,7 +378,7 @@ describe('set with a passage', () => {
 	test('there is no edit verb: actions names set instead', () => {
 		expect('edit' in items).toBe(false);
 		expect(() => items.actions('edit' as never)).toThrow(
-			'data/items/{id}.md has no "edit": set takes old and new now',
+			'data/items/{id}.md has no "edit": set takes edit: { old, new } now',
 		);
 	});
 
@@ -392,7 +391,7 @@ describe('set with a passage', () => {
 		expect(
 			await run(
 				'items set',
-				{ ...at, old: 'the plant', new: 'both plants' },
+				{ ...at, edit: { old: 'the plant', new: 'both plants' } },
 				context,
 			),
 		).toMatchObject({
@@ -400,24 +399,28 @@ describe('set with a passage', () => {
 			body: 'Water both plants.\nWater the cat.\n',
 		});
 		expect(
-			run('items set', { ...at, old: 'the plant', new: 'x' }, context),
+			run(
+				'items set',
+				{ ...at, edit: { old: 'the plant', new: 'x' } },
+				context,
+			),
 		).rejects.toMatchObject({
 			name: 'Changed',
 			why: 'quote',
 			message: expect.stringContaining('does not have that text'),
 		});
 		expect(
-			run('items set', { ...at, old: 'Water', new: 'Feed' }, context),
+			run('items set', { ...at, edit: { old: 'Water', new: 'Feed' } }, context),
 		).rejects.toMatchObject({
 			name: 'Changed',
 			why: 'twice',
 			message: expect.stringContaining('more than once'),
 		});
 		expect(
-			run('items set', { ...at, old: '', new: 'x' }, context),
+			run('items set', { ...at, edit: { old: '', new: 'x' } }, context),
 		).rejects.toMatchObject({ name: 'Changed', why: 'empty' });
 		await expect(
-			run('items set', { id: 'nope', old: 'a', new: 'b' }, context),
+			run('items set', { id: 'nope', edit: { old: 'a', new: 'b' } }, context),
 		).rejects.toMatchObject({ name: 'Missing', path: 'data/items/nope.md' });
 		// The whole body may be the quote, which replaces it all.
 		expect(
@@ -425,8 +428,7 @@ describe('set with a passage', () => {
 				'items set',
 				{
 					...at,
-					old: 'Water both plants.\nWater the cat.\n',
-					new: 'Rest.\n',
+					edit: { old: 'Water both plants.\nWater the cat.\n', new: 'Rest.\n' },
 				},
 				context,
 			),
@@ -439,7 +441,7 @@ describe('set with a passage', () => {
 		});
 		await run(
 			'items set',
-			{ id: 'a', old: '', new: 'First words.\n' },
+			{ id: 'a', edit: { old: '', new: 'First words.\n' } },
 			context,
 		);
 		expect(await context.folder.read('data/items/a.md')).toBe(
@@ -459,8 +461,7 @@ describe('set with a passage', () => {
 					id: 'a',
 					kind: 'quote',
 					was: { kind: 'thought' },
-					old: 'the plant',
-					new: 'the cat',
+					edit: { old: 'the plant', new: 'the cat' },
 				},
 				context,
 			),
@@ -488,8 +489,7 @@ describe('set with a passage', () => {
 					id: 'a',
 					kind: 'quote',
 					was: { kind: 'link' },
-					old: 'the plant',
-					new: 'the cat',
+					edit: { old: 'the plant', new: 'the cat' },
 				},
 				context,
 			),
@@ -501,8 +501,7 @@ describe('set with a passage', () => {
 					id: 'a',
 					kind: 'quote',
 					was: { kind: 'thought' },
-					old: 'the dog',
-					new: 'the cat',
+					edit: { old: 'the dog', new: 'the cat' },
 				},
 				context,
 			),
@@ -510,14 +509,18 @@ describe('set with a passage', () => {
 		expect(await context.folder.read('data/items/a.md')).toBe(text);
 	});
 
-	test('refuses old without new, or new without old', async () => {
+	test('refuses an edit without both old and new, as text', async () => {
 		const text = '---\nkind: "thought"\nadded: "2026-11-01"\n---\nBody.\n';
 		const context = createMemoryContext({ 'data/items/a.md': text });
-		for (const half of [{ old: 'Body.\n' }, { new: 'Text.\n' }])
+		for (const edit of [
+			{ old: 'Body.\n' },
+			{ new: 'Text.\n' },
+			{ old: 1, new: 'x' },
+		])
 			await expect(
-				run('items set', { id: 'a', kind: 'quote', ...half }, context),
+				run('items set', { id: 'a', kind: 'quote', edit }, context),
 			).rejects.toThrow(
-				'Set a passage of the body of data/items/{id}.md with old and new together',
+				'Edit the body of data/items/{id}.md with edit: { old, new }, each text',
 			);
 		expect(await context.folder.read('data/items/a.md')).toBe(text);
 	});
@@ -528,7 +531,7 @@ describe('set with a passage', () => {
 			fields: { at: field.date({ optional: true, readOnly: true }) },
 		});
 		const { set } = stamped.actions();
-		expect(Object.keys(set.input)).toEqual(['id', 'was', 'old', 'new']);
+		expect(Object.keys(set.input)).toEqual(['id', 'was', 'edit']);
 		const context = createMemoryContext({
 			'data/stamped/a.md': '---\nat: "2026-11-01"\n---\nDraft.\n',
 		});
@@ -536,8 +539,7 @@ describe('set with a passage', () => {
 			set({
 				id: 'a',
 				was: { at: '2026-11-01' },
-				old: 'Draft.\n',
-				new: 'Done.\n',
+				edit: { old: 'Draft.\n', new: 'Done.\n' },
 			}),
 		);
 		expect(await context.folder.read('data/stamped/a.md')).toBe(
@@ -669,7 +671,11 @@ describe('front matter that cannot be read', () => {
 			])
 				await expect(inRun(context, attempt)).rejects.toMatchObject(refused);
 			await expect(
-				run('items set', { ...at, old: 'the plant', new: 'the cat' }, context),
+				run(
+					'items set',
+					{ ...at, edit: { old: 'the plant', new: 'the cat' } },
+					context,
+				),
 			).rejects.toMatchObject(refused);
 			expect(
 				inRun(context, () =>
@@ -1062,7 +1068,11 @@ describe('a collection with no placeholder', () => {
 		).rejects.toMatchObject({ name: 'Missing', path: 'data/settings.md' });
 		// A passage needs a file to be in, even beside fields that would make it.
 		await expect(
-			run('settings set', { dailyGoal: 20, old: '', new: 'x' }, context),
+			run(
+				'settings set',
+				{ dailyGoal: 20, edit: { old: '', new: 'x' } },
+				context,
+			),
 		).rejects.toMatchObject({ name: 'Missing', path: 'data/settings.md' });
 		expect(await context.folder.list()).toEqual([]);
 
@@ -1075,7 +1085,7 @@ describe('a collection with no placeholder', () => {
 		);
 		await run(
 			'settings set',
-			{ dailyGoal: null, voice: 'male', old: '', new: 'Notes.\n' },
+			{ dailyGoal: null, voice: 'male', edit: { old: '', new: 'Notes.\n' } },
 			context,
 		);
 		expect(await run('settings get', {}, context)).toEqual({

@@ -472,7 +472,11 @@ test("D8 an app of one collection's verbs adds, reads, changes, and deletes its 
 	);
 	// A passage names the record it did not find.
 	expect(
-		await f.run('capture', 'set', '{"id":"new-one","old":"","new":"x"}'),
+		await f.run(
+			'capture',
+			'set',
+			'{"id":"new-one","edit":{"old":"","new":"x"}}',
+		),
 	).toEqual({
 		code: 1,
 		stdout: '',
@@ -486,7 +490,7 @@ test("D8 an app of one collection's verbs adds, reads, changes, and deletes its 
 		(
 			await json(
 				'set',
-				'{"id":"dune","old":"mind-killer","new":"little-death"}',
+				'{"id":"dune","edit":{"old":"mind-killer","new":"little-death"}}',
 			)
 		).code,
 	).toBe(0);

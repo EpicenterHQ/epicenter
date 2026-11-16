@@ -166,6 +166,20 @@ test('every input shape works: lists of objects, and a reference checked as text
 	});
 });
 
+test("a collection's set takes edit as one object, and refuses half of one", () => {
+	const notes = defineCollection({
+		path: 'data/notes/{id}.md',
+		fields: { title: field.text({ optional: true }) },
+	});
+	const { set } = notes.actions('set');
+	expect(actionHelp('notes', 'set', set)).toContain(
+		'  edit   optional  an object. { "old": the passage of the body as you last saw it, "new": the text to put in its place }; refused when old is not in the body now\n',
+	);
+	expect(checkInput(set, { id: 'a', edit: { old: 'x' } })).toEqual({
+		error: 'edit.new is needed',
+	});
+});
+
 test('help lists the keys and prints one example to copy', () => {
 	expect(usageLine('tasks', 'add', add)).toBe('epicenter tasks add <input>');
 	expect(actionHelp('tasks', 'add', add)).toBe(`epicenter tasks add <input>

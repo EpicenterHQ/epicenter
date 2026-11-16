@@ -401,11 +401,11 @@ With `--json`, stdout is one JSON object, and MCP returns the same object as `st
 { "error": { "name", "message", "next"? } }  exit 2, nothing ran
 ```
 
-An action that returns nothing answers `{ "returned": null }`. An action that throws a tagged error (`{ name, message, …fields }`) reports it whole as `thrown`. Without `--json`, stdout carries only the returned value, rendered by its structure, and stderr carries what the action threw, or why nothing ran, followed by `Run: <next step>` when nothing ran and there is one. A collection's `set` makes a collection's one file when it is absent, so `epicenter vocab settings set '{"goal":20}'` works on a fresh install. The `set` verb's `was` guard is an object beside the fields, and `old` with `new` replaces a passage of the body in the same write:
+An action that returns nothing answers `{ "returned": null }`. An action that throws a tagged error (`{ name, message, …fields }`) reports it whole as `thrown`. Without `--json`, stdout carries only the returned value, rendered by its structure, and stderr carries what the action threw, or why nothing ran, followed by `Run: <next step>` when nothing ran and there is one. A collection's `set` makes a collection's one file when it is absent, so `epicenter vocab settings set '{"goal":20}'` works on a fresh install. The `set` verb's `was` guard is an object beside the fields, and `edit: { old, new }` replaces a passage of the body in the same write:
 
 ```txt
 $ epicenter vocab set '{"word":"serendipity","meaning":"a lucky find","was":{"meaning":null}}'
-$ epicenter vocab set '{"word":"serendipity","old":"First seen.","new":"First seen in a novel."}'
+$ epicenter vocab set '{"word":"serendipity","edit":{"old":"First seen.","new":"First seen in a novel."}}'
 ```
 
 MCP's text for a thrown action is what the action threw. The returned value reads this way (`src/output.ts`):

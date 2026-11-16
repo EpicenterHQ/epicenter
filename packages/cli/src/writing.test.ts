@@ -113,8 +113,7 @@ test('MCP discovers the writing actions and refuses a stale body edit without lo
 						'set',
 						JSON.stringify({
 							time,
-							old: 'The original quote',
-							new: 'The corrected quote',
+							edit: { old: 'The original quote', new: 'The corrected quote' },
 						}),
 					)
 				).code,
@@ -123,8 +122,7 @@ test('MCP discovers the writing actions and refuses a stale body edit without lo
 				name: 'writing_set',
 				arguments: {
 					time,
-					old: 'The original quote',
-					new: 'A stale replacement',
+					edit: { old: 'The original quote', new: 'A stale replacement' },
 				},
 			});
 			expect(stale.isError).toBe(true);

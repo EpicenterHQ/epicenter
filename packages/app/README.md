@@ -173,7 +173,7 @@ sends only plain data, and differ from them:
 | `list` | none | its rows leave out `body` |
 | `get` | the keys | throws `ActionError.Missing` (`There is no <path>`) where the method answers `undefined` |
 | `add` | the record | no |
-| `set` | the keys, fields, and optionally `was`, and `old` with `new` | takes no `body`, but replaces the passage `old` of it with `new`; with no placeholder, makes the file from fields when there is none, as `add` would |
+| `set` | the keys, fields, and optionally `was` and `edit` | takes no `body`, but `edit: { old, new }` replaces the passage `old` of it with `new`; with no placeholder, makes the file from fields when there is none, as `add` would |
 | `delete` | the keys | only when named |
 
 A verb's input is flat: each key is an input field beside the rest of the
@@ -196,10 +196,10 @@ const found = await words.get({ word });
 The `set` verb is the `set` method for a caller that cannot send a function,
 so it sends what it last saw instead, and one call is one write. `was` names
 the field values the caller last saw, `null` for a field that was absent:
-`{ meaning: 'a lucky find' }`. `old` names the passage of the body it last
-saw, and `new` is what replaces it; one without the other is refused. `old`
-must be in the body exactly once, or be the whole body, or be empty for an
-empty body. A passage needs a file, so with none the refusal is
+`{ meaning: 'a lucky find' }`. `edit` is `{ old, new }`, both required:
+`old` names the passage of the body it last saw, and `new` is what replaces
+it. `old` must be in the body exactly once, or be the whole body, or be empty
+for an empty body. A passage needs a file, so with none the refusal is
 `ActionError.Missing`, even for a collection with no placeholder. Every guard
 is checked inside the write before anything is written: when a `was` value
 differs now, compared as JSON, the refusal is `{ name: 'Changed', why: 'was' }`,
@@ -209,7 +209,7 @@ the body are written. So a page saves a record's fields and its notes in one
 call:
 
 ```sh
-epicenter vocab set '{"word":"serendipity","meaning":"a lucky find","was":{"meaning":"luck"},"old":"First seen.\n","new":"First seen in a novel.\n"}'
+epicenter vocab set '{"word":"serendipity","meaning":"a lucky find","was":{"meaning":"luck"},"edit":{"old":"First seen.\n","new":"First seen in a novel.\n"}}'
 ```
 
 Without `was`, two callers setting the same field from stale screens: the
@@ -259,8 +259,8 @@ books.update({ title }, (book) =>
 
 `update` is not a verb, since a caller cannot send a function; neither is a
 `set` given one, or a `set` given a whole body, which would replace a person's
-text blindly from a stale page; the `set` verb's `old` and `new` change the
-body instead.
+text blindly from a stale page; the `set` verb's `edit` changes the body
+instead.
 
 A field marked `readOnly` is written only by the app's own actions, through
 the collection's methods; the exposed `add` and `set` leave it out, and
@@ -340,8 +340,8 @@ answers under the path its keys make, while `list` gives the name on disk.
   that is not a placeholder;
 - a list of paths: a second layout is a second collection;
 - a field or placeholder named `path`, `body`, or `problems`, which a read
-  gives itself, or `was`, `old`, or `new`, which the `set` verb takes beside
-  the fields; a field named as a placeholder, since a record holds both; a field name that a front matter
+  gives itself, or `was` or `edit`, which the `set` verb takes beside the
+  fields; a field named as a placeholder, since a record holds both; a field name that a front matter
   line cannot hold;
 - a field whose schema has a `default` at any depth. Write the default in
   code where the value is read: `(record.limit ?? 50)`.

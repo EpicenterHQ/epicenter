@@ -76,8 +76,7 @@ A path is one relative `.md` template under `data/`, such as
 `data/days/{day}.md`; files in a second layout are a second collection.
 `defineCollection` refuses a path outside `data/`, a list of paths, or a part
 starting with `.`. A field or placeholder may not be named `path`,
-`body`, `problems`, `was`, `json`, `help`, or `input`, and a placeholder may
-not be `old` or `new`. No field has a `default`: a definition with one is
+`body`, `problems`, `was`, or `edit`. No field has a `default`: a definition with one is
 refused, so write the default where the value is read (`limit ?? 50`).
 
 - Choose the path by how people and agents will name a file. `{time}` suits
@@ -126,8 +125,8 @@ refused, so write the default where the value is read (`limit ?? 50`).
   is refused by `get` and every writer, and listed with `problems`.
 - The `set` verb sends what the caller last saw, since it cannot send a
   function: fields, an optional `was` naming the field values it last saw
-  (`null` for absent), and `old` with `new` to replace the passage `old` of
-  the body. `old` must occur exactly once, or be the whole body, or be empty
+  (`null` for absent), and `edit: { old, new }` to replace the passage `old`
+  of the body. `old` must occur exactly once, or be the whole body, or be empty
   for an empty body (ADR-0869). One call is one write: when a `was` value or
   the passage does not hold, it is refused with `Changed` (`why` says which)
   and nothing is written, fields included. So a page that saves a record's
@@ -393,8 +392,8 @@ failure to show.
   [input ownership](../svelte/references/input-ownership.md).
   Writes also arrive from other tabs, agents, and the command line; blocking
   local edits while pending prevents only this page's overlap.
-- Use `set` with its quoted base (`old: base, new: draft`, beside any fields
-  and their `was`) when the app promises conflict detection. On `Changed`, reread and preserve the submitted text
+- Use `set` with its quoted base (`edit: { old: base, new: draft }`, beside
+  any fields and their `was`) when the app promises conflict detection. On `Changed`, reread and preserve the submitted text
   while resolving the conflict. When last-write-wins is accepted, use the app's
   replacement action without adding rebasing or a recovery queue.
 - Show a write before it lands from the mutations still pending:
