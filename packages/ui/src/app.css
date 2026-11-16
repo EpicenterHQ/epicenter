@@ -4,6 +4,7 @@
 @import "@fontsource-variable/geist-mono/wght.css";
 
 @import "tw-animate-css";
+@import "@epicenter/theme/theme.css";
 
 @import "./prose.css";
 
@@ -37,8 +38,6 @@
 	}
 }
 
-@custom-variant dark (&:is(.dark *));
-
 :root {
 	/* One stack for both modes; dark must not redeclare a shorter one. Geist gives
 	   the UI the even, product-tool grotesk feel we wanted from Anthropic Sans
@@ -49,128 +48,11 @@
 	--font-mono:
 		"Geist Mono Variable", "SF Mono", ui-monospace, SFMono-Regular, Menlo,
 		Consolas, monospace;
-	--radius: 0.625rem;
-	/* Dark mode already separates --background from --card; light mode
-	   collapsing both to pure white is the asymmetry. This barely-there warm-neutral tint
-	   restores that separation so a --card surface reads as elevated without a border. */
-	--background: oklch(0.9925 0.001 70);
-	--foreground: oklch(0.129 0.042 264.695);
-	--card: oklch(1 0 0);
-	--card-foreground: oklch(0.129 0.042 264.695);
-	--popover: oklch(1 0 0);
-	--popover-foreground: oklch(0.129 0.042 264.695);
-	--primary: oklch(0.208 0.042 265.755);
-	--primary-foreground: oklch(0.984 0.003 247.858);
-	--secondary: oklch(0.968 0.007 247.896);
-	--secondary-foreground: oklch(0.208 0.042 265.755);
-	/* --muted is the selected/hover fill (toggle-group items, ghost hovers). At
-	   the shadcn default 0.968 it sat 0.025 L above --background, nearly
-	   invisible as a selection; 0.945 keeps it soft but clearly separates a
-	   selected tab from the page. */
-	--muted: oklch(0.945 0.007 247.896);
-	--muted-foreground: oklch(0.554 0.046 257.417);
-	--accent: oklch(0.968 0.007 247.896);
-	--accent-foreground: oklch(0.208 0.042 265.755);
-	--destructive: oklch(0.577 0.245 27.325);
-	--warning: oklch(0.666 0.179 58.318);
-	--success: oklch(0.736 0.196 144.128);
-	--border: oklch(0.929 0.013 255.508);
-	--input: oklch(0.929 0.013 255.508);
-	--ring: oklch(0.704 0.04 256.788);
-	--chart-1: oklch(0.646 0.222 41.116);
-	--chart-2: oklch(0.6 0.118 184.704);
-	--chart-3: oklch(0.398 0.07 227.392);
-	--chart-4: oklch(0.828 0.189 84.429);
-	--chart-5: oklch(0.769 0.188 70.08);
-	--sidebar: oklch(0.985 0 0);
-	--sidebar-foreground: oklch(0.145 0 0);
-	--sidebar-primary: oklch(0.205 0 0);
-	--sidebar-primary-foreground: oklch(0.985 0 0);
-	--sidebar-accent: oklch(0.97 0 0);
-	--sidebar-accent-foreground: oklch(0.205 0 0);
-	--sidebar-border: oklch(0.922 0 0);
-	--sidebar-ring: oklch(0.708 0 0);
-}
-
-.dark {
-	/* shadcn-svelte Neutral: https://www.shadcn-svelte.com/docs/theming#neutral
-	   Checked 2026-10-08. Charcoal lifts page, card/popover, and secondary fills.
-	   The brighter ring preserves focus contrast on those lifted surfaces. */
-	--background: oklch(0.245 0 0);
-	--foreground: oklch(0.985 0 0);
-	--card: oklch(0.28 0 0);
-	--card-foreground: oklch(0.985 0 0);
-	--popover: oklch(0.28 0 0);
-	--popover-foreground: oklch(0.985 0 0);
-	--primary: oklch(0.922 0 0);
-	--primary-foreground: oklch(0.205 0 0);
-	--secondary: oklch(0.31 0 0);
-	--secondary-foreground: oklch(0.985 0 0);
-	--muted: oklch(0.31 0 0);
-	--muted-foreground: oklch(0.708 0 0);
-	--accent: oklch(0.31 0 0);
-	--accent-foreground: oklch(0.985 0 0);
-	--destructive: oklch(0.704 0.191 22.216);
-	--warning: oklch(0.769 0.188 70.08);
-	--success: oklch(0.64 0.169 145.386);
-	--border: oklch(1 0 0 / 10%);
-	--input: oklch(1 0 0 / 15%);
-	--ring: oklch(0.65 0 0);
-	--chart-1: oklch(0.488 0.243 264.376);
-	--chart-2: oklch(0.696 0.17 162.48);
-	--chart-3: oklch(0.769 0.188 70.08);
-	--chart-4: oklch(0.627 0.265 303.9);
-	--chart-5: oklch(0.645 0.246 16.439);
-	--sidebar: oklch(0.205 0 0);
-	--sidebar-foreground: oklch(0.985 0 0);
-	--sidebar-primary: oklch(0.488 0.243 264.376);
-	--sidebar-primary-foreground: oklch(0.985 0 0);
-	--sidebar-accent: oklch(0.269 0 0);
-	--sidebar-accent-foreground: oklch(0.985 0 0);
-	--sidebar-border: oklch(1 0 0 / 10%);
-	--sidebar-ring: oklch(0.439 0 0);
 }
 
 @theme inline {
 	--font-sans: var(--font-sans);
 	--font-mono: var(--font-mono);
-	--radius-sm: calc(var(--radius) - 4px);
-	--radius-md: calc(var(--radius) - 2px);
-	--radius-lg: var(--radius);
-	--radius-xl: calc(var(--radius) + 4px);
-	--color-background: var(--background);
-	--color-foreground: var(--foreground);
-	--color-card: var(--card);
-	--color-card-foreground: var(--card-foreground);
-	--color-popover: var(--popover);
-	--color-popover-foreground: var(--popover-foreground);
-	--color-primary: var(--primary);
-	--color-primary-foreground: var(--primary-foreground);
-	--color-secondary: var(--secondary);
-	--color-secondary-foreground: var(--secondary-foreground);
-	--color-muted: var(--muted);
-	--color-muted-foreground: var(--muted-foreground);
-	--color-accent: var(--accent);
-	--color-accent-foreground: var(--accent-foreground);
-	--color-destructive: var(--destructive);
-	--color-warning: var(--warning);
-	--color-success: var(--success);
-	--color-border: var(--border);
-	--color-input: var(--input);
-	--color-ring: var(--ring);
-	--color-chart-1: var(--chart-1);
-	--color-chart-2: var(--chart-2);
-	--color-chart-3: var(--chart-3);
-	--color-chart-4: var(--chart-4);
-	--color-chart-5: var(--chart-5);
-	--color-sidebar: var(--sidebar);
-	--color-sidebar-foreground: var(--sidebar-foreground);
-	--color-sidebar-primary: var(--sidebar-primary);
-	--color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-	--color-sidebar-accent: var(--sidebar-accent);
-	--color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-	--color-sidebar-border: var(--sidebar-border);
-	--color-sidebar-ring: var(--sidebar-ring);
 }
 
 @layer base {

@@ -29,7 +29,7 @@ for editor construction, field binding, and save lifetime.
 The form owns input that has not been submitted. Choose where that input lives
 by who needs to read it and how long it must survive.
 
-Use [query-layer's submission rule](../../query-layer/SKILL.md):
+Use [query-layer's submission rule](../../query-layer/SKILL.md#capture-the-submitted-operation):
 read the controls synchronously and pass the submitted values onward. A bound
 draft can keep changing while that operation stays fixed.
 Preserve failed input for retry unless the form deliberately discards it.
@@ -234,7 +234,7 @@ property bindings. At a boundary that needs plain data, capture
 `const submitted = $state.snapshot(draft)` and submit that value. A snapshot is
 not a read-only or frozen object either. There is no current `$state.frozen` API.
 
-Apply [query-layer's snapshot test](../../query-layer/SKILL.md)
+Apply [query-layer's snapshot test](../../query-layer/SKILL.md#capture-the-submitted-operation)
 before adding detachment: a plain raw draft replaced on every edit may already
 preserve the submitted object. The installed Svelte declarations describe raw
 and snapshot in `svelte/types/index.d.ts`.

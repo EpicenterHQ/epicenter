@@ -335,14 +335,16 @@ import `runs` from `@epicenter/app/client` and use
 it does not store a collection attachment. See the app package README for the
 run events, cancellation, and retention contract.
 
-Each call answers a Result: what the action returned, or a shared `ActionError`:
-`Changed`, `Missing`, `Threw`, `Refused`, `Unreachable`, or `Stopped`. Use the
-factories from `@epicenter/app` in actions. Check the name and its subject, never
-the message. A `Missing` may describe a dependency rather than the record being
-shown. An error does not establish what was saved or rolled back; reread the
-record when the outcome is uncertain and retain unsent writing. The layout creates one
-QueryClient from the UI's own `@tanstack/svelte-query`, with the invalidation
-rule from `query-layer`, and puts it
+Each call answers a Result: what the action returned, or an `ActionError`
+told apart by `name`: `Changed`, `Missing`, `Threw`, `Refused`, `Unreachable`,
+and `Stopped`. Actions construct them with `ActionError` from `@epicenter/app`;
+the client validates the shared contract and passes these errors through whole.
+Custom tagged throws stay in `Threw.thrown`. A name is the failure reason,
+not evidence of what was saved. Reconcile writes by rereading the record; keep
+submitted text until saving is confirmed. Check the name and typed subject
+fields, never the message: a page shows "it was deleted" only for `Missing`
+on its requested record. The layout creates one QueryClient from the UI's own
+`@tanstack/svelte-query`, with the invalidation rule from `query-layer`, and puts it
 in `<QueryClientProvider>`; pages read with
 `createQuery(() => reads.get({ path }))` and write with
 `createMutation(() => writes.set)`. That client refreshes every read after
@@ -361,8 +363,9 @@ comes: `app.chat.say({ message }, { onYield: (token) => (draft += token) })`
 resolves with the same Result once the reply is whole. Pass it where the page
 keeps its draft, and make that call the mutation's function, so every read
 still refreshes once it returns. A Stop button passes `{ signal }` too and
-aborts it; the call then resolves as the `Stopped` error, which is not a
-failure to show.
+aborts it. Recognize that local Stop using the controller captured for that
+request, not the error name alone: a dependency can also report `Stopped`.
+Neither a stop nor another failure confirms that cleanup or saving has finished.
 
 - Route a record by its whole path: the page is at `#/data/tasks/<time>.md`,
   linked with each part URL-encoded

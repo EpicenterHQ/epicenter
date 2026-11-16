@@ -3,8 +3,9 @@
  * Verify durable admission, replay, observer independence, explicit cancellation,
  * recovery without execution, private inputs, and temporary-byte retention.
  */
-import { afterAll, afterEach, expect, test } from 'bun:test';
+
 import { Database } from 'bun:sqlite';
+import { afterAll, afterEach, expect, test } from 'bun:test';
 import {
 	chmod,
 	readdir,
@@ -363,7 +364,7 @@ test('identical admission joins once; changed inputs and bytes conflict', async 
 	);
 });
 
-test('observer abort leaves execution alive and cursor replay has no gaps', async () => {
+test('observer abort leaves execution alive and attaching replays the whole run', async () => {
 	const f = await setup();
 	const run = runs.start(f.app.transcribe, {
 		audio: new Blob(['hello'], { type: 'text/plain' }),
@@ -376,16 +377,12 @@ test('observer abort leaves execution alive and cursor replay has no gaps', asyn
 		first.push(event);
 		if (event.type === 'yielded') stop.abort();
 	}
-	const cursor = Math.max(
-		...first.map((event) => ('seq' in event ? event.seq : 0)),
-	);
-	const replay = await collect(
-		runs.attach(f.app.transcribe, run.id).events({ after: cursor }),
-	);
-	const seqs = [...first, ...replay].flatMap((event) =>
-		'seq' in event ? [event.seq] : [],
-	);
+	const replay = await collect(runs.attach(f.app.transcribe, run.id).events());
+	const seqs = replay.flatMap((event) => ('seq' in event ? [event.seq] : []));
 	expect(seqs).toEqual(Array.from({ length: seqs.length }, (_, i) => i + 1));
+	expect(
+		replay.slice(0, first.filter((event) => 'seq' in event).length),
+	).toEqual(first.filter((event) => 'seq' in event));
 	expect(replay.at(-1)?.type).toBe('finished');
 	expectOk(await run.result());
 });

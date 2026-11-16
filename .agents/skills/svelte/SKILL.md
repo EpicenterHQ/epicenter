@@ -54,6 +54,13 @@ unnecessary; that reasoning serves this task without starting a separate
 workflow. Let that understanding determine the edits. Scale investigation to
 the uncertainty; a local change can still be the best result.
 
+Before moving coordination to another owner, ask whether simpler product
+behavior could make it unnecessary. Trace the mechanism to the promise it
+serves; consider whether a native control or simpler workflow could do the job
+without the repair. Use [product-collapse](../product-collapse/SKILL.md) to
+develop changes to the experience with the user, making gains and losses
+explicit. Carry forward product choices already settled in the conversation.
+
 Moving behavior to a different owner is implementation work within the
 authorized outcome; explain the structural change, and ask only when it would
 change behavior, contracts, or guarantees the user has not settled. Show
@@ -65,19 +72,42 @@ behavior or contracts explicit.
 
 For each fact and behavior, identify its owner, required lifetime, and when
 consumers read it. Read from that owner and use its lifetime before adding a
-mirror or bookkeeping. Native controls can
-own unfinished values; an element can own attached DOM behavior. Keep separate
-state when it carries independent information for a reader or interaction.
-Compare the complete result: replacing a binding with refs, parsing, dirty
-flags, and reset effects can add coordination. Judge the coordination removed,
-not the rune count.
+mirror or bookkeeping. Let native controls own unfinished values and interaction
+state when their behavior fits and no outside reader needs a reactive value.
+For disclosures, [`<details>` with a shared `name`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/details#name)
+can replace mirrored open state, toggle handlers, IDs, and ARIA wiring. Use a
+binding when the application must observe or control that state. An element can
+own attached DOM behavior; keep separate state for independent information.
+When an identity change should reset a native control, key only that owner;
+keep surrounding navigation outside the key so its focused controls survive.
+
+Choose the trigger as well as the owner. A submitted operation's outcome
+belongs to its completion path; DOM behavior responding to a view transition
+can belong in an effect. A previous value may carry the history needed to
+recognize that transition.
+
+Compare the complete obligations, including what each caller must remember.
+Moving one reaction into several completion hooks redistributes a rule;
+removing an effect alone is no collapse. A relocation can improve ownership
+without reducing coordination. Explain what state, synchronization, or required
+wiring disappears and what the new owner takes on. Keep the current arrangement
+when the alternative only moves those obligations.
+
+When a caller must coordinate sanitization, content policy, and a rendering
+container for one safe view, let one component own the whole content boundary.
+Keep the cooperating steps private; callers pass source content and presentation
+such as a notices snippet. The safety work remains, but callers no longer have
+to match permissions, order transformations, or configure the container's
+safeguards. Keep queries and retries with their own lifecycle owner. Local
+permission state still carries a real choice: reset it by content identity when
+required, rather than recreating the renderer on every query refresh.
 
 Choose the owner before declaring state or extracting a handler:
 
 - Use `createQuery` for asynchronous reads and `createMutation` for user-triggered operations whose data or lifecycle the template observes; read their state directly. A final toast alone can use direct `await`. Existing reactive capabilities and editors already own their reads. See [query-layer](../query-layer/SKILL.md) for local versus shared options and operation lifetimes.
 - Use `$state` for independent UI information: drafts with live readers, validation, search, selection, dialogs, undo, streams, cancellation, failure receipts, and workflow progress. Keep server state in its query cache.
 - For input read only at submission, prefer native controls; use reactive drafts when live readers or persistence need them. Capture submitted values, identity, and reviewed versions before async work, and preserve later edits when applying results. See [input ownership](references/input-ownership.md).
-- Inline the handler when you have to jump to another function just to find the call it makes. A guard or a few submission steps can stay beside the control. Keep a name when it explains parsing, persistence, a shared rule, a sequence with its own failure handling, or preserves identity that a consumer observes. Preserve evaluation timing, including `tick()` boundaries, and callback lifetime when moving code. See [single-use functions and aliases](references/component-ui-patterns.md#single-use-functions-and-aliases) and [callback lifetime and timing](../query-layer/SKILL.md).
+- Inline the handler when you have to jump to another function just to find the call it makes. A guard or a few submission steps can stay beside the control. Keep a name when it explains parsing, persistence, a shared rule, a sequence with its own failure handling, or preserves identity that a consumer observes. Preserve evaluation timing, including `tick()` boundaries, and callback lifetime when moving code. See [single-use functions and aliases](references/component-ui-patterns.md#single-use-functions-and-aliases) and [callback lifetime and timing](../query-layer/references/mutation-lifecycle.md#callback-lifetime-and-timing).
 
 ## Svelte 5 Baseline
 
@@ -115,9 +145,9 @@ without subscribing to that action.
 
 ## Reference Map
 
-- Read [UI verification](../ui-design/SKILL.md) for visible or interactive changes: view screenshots for appearance, exercise changed interactions, and check desktop UI in the native app.
+- Read [UI verification](../ui-design/references/verification.md) for visible or interactive changes: view screenshots for appearance, exercise changed interactions, and check desktop UI in the native app.
 - Read [Lifecycle and reactivity](references/lifecycle-and-reactivity.md) for keyed resources, readiness promises, cleanup, stable owners, value maps, reactive collections, contract editors, or state modules.
-- Read [query-layer](../query-layer/SKILL.md) for mutation arguments and shared options; read [mutation lifecycle](../query-layer/SKILL.md) for callback ownership, ordering, admission guards, and retained variables.
+- Read [query-layer](../query-layer/SKILL.md) for mutation arguments and shared options; read [mutation lifecycle](../query-layer/references/mutation-lifecycle.md) for callback ownership, ordering, admission guards, and retained variables.
 - Read [mutation examples](references/mutation-examples.md) for complete async buttons, local exports, direct `await`, and the point at which an interaction needs a mutation.
 - Read [Input ownership](references/input-ownership.md) for native controls, reactive drafts, commit-on-blur, submission cleanup, or proxy and snapshot choices.
 - Read [Component and UI patterns](references/component-ui-patterns.md) when a change touches `@epicenter/ui` imports, `$props` typing, `$bindable`, function bindings, snippets, DOM attachments, dialog ownership, view boundaries, repetitive markup, single-use helper inlining, loading or empty states, derivation from an existing owner, or template text gotchas.

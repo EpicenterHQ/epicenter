@@ -40,7 +40,10 @@ them. Reconsider the whole composition when that choice is open.
    breakpoints, and one-off states where the person has left those choices open.
 5. Implement the whole state surface: loading, empty, error, disabled, pending,
    selected, and filter-empty where relevant.
-6. Verify visible, responsive, and interactive results in the browser.
+6. Run the change and verify it as
+   [references/verification.md](references/verification.md) describes: view
+   screenshots of what looks different and exercise what behaves differently.
+   Check desktop-targeted UI in the native desktop app.
 7. Run UI pre-flight before final handoff or committing the change.
 
 For substantial composition work, state the design read:
@@ -154,6 +157,9 @@ details that serve the chosen direction.
 - Read [references/anti-slop-tells.md](references/anti-slop-tells.md) for public,
   marketing, docs, portfolio-like, or highly polished work where templated output
   is a material risk.
+- Read [references/verification.md](references/verification.md) after
+  implementing any visible or interactive change, including a small CSS fix,
+  and when deciding what to report about a check you could not run.
 - Read [references/preflight.md](references/preflight.md) before final handoff or
   committing any visible UI change. Report only failures or intentional exceptions.
 
@@ -177,5 +183,6 @@ skill owns their implementation mechanics.
 
 ## Final Output
 
-Report the changed surfaces, browser verification, any material deletion prize,
-and only the custom shapes or pre-flight exceptions that intentionally remain.
+Report the changed surfaces, what you observed in the running app and any check
+left unverified, any material deletion prize, and only the custom shapes or
+pre-flight exceptions that intentionally remain.

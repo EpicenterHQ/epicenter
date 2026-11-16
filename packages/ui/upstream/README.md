@@ -48,7 +48,7 @@ component is rebased; a difference without a reason is reverted.
 | Dialog | Viewport scrolling | Long recording details remain usable. |
 | Sidebar | The same offcanvas Sidebar at narrow widths | Collapsed offcanvas sidebars are inert so hidden navigation cannot receive keyboard focus. Sidebar preserves the existing navigation structure instead of adopting upstream’s separate mobile Sheet. |
 | Tabs.Content | Inactive children unmount; `forceMount` retains them explicitly | Editor panels share one selection and disposable controls; the main app shell preserves its chat and settings state. |
-| Theme | Geist fonts and seven dark Neutral token adjustments | The accepted soft charcoal direction uses existing semantic variables; component geometry remains Vega’s. |
+| Theme | Geist fonts and Graphite + blue color tokens | The shared palette uses existing semantic variables in both modes; component geometry remains Vega’s. |
 
 Other structural choices with live callers remain in their components: the
 standard Loading shell. Badge’s span-or-anchor

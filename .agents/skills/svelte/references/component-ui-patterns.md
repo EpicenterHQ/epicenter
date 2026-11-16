@@ -374,7 +374,7 @@ If a pending write can remove or filter out the row, keep work that must
 survive above that row. Its local dialog and per-call mutation callbacks
 unmount with it. Capture the submitted item and reviewed values when the
 person confirms; let the mutation owner retain essential completion work.
-See [callback lifetime](../../query-layer/SKILL.md).
+See [callback lifetime](../../query-layer/references/mutation-lifecycle.md#callback-lifetime-and-timing).
 
 Use callbacks when a child asks another owner to act. Keep the operation local
 when the child owns its whole lifetime. Neither a callback nor a shared dialog
@@ -702,7 +702,7 @@ Inlining preserves when information is read as well as what is called:
   }}
   ```
 
-- Preserve the [submitted operation](../../query-layer/SKILL.md)
+- Preserve the [submitted operation](../../query-layer/SKILL.md#capture-the-submitted-operation)
   when inlining: move capture with the event, not into a deferred callback.
   Keep any pre-update scroll position at the phase it describes.
 - When the request settles, derive updates from the current shared
@@ -722,7 +722,7 @@ Inlining preserves when information is read as well as what is called:
   ```
 
 Keep callbacks with their existing lifetime owner while moving a handler. See
-[callback lifetime and timing](../../query-layer/SKILL.md)
+[callback lifetime and timing](../../query-layer/references/mutation-lifecycle.md#callback-lifetime-and-timing)
 for observer callbacks, per-execution promises, and awaited completion work.
 
 ## Multi-Use Bindings

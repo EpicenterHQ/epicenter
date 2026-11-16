@@ -36,8 +36,8 @@ export type Run<TYield, TOut> = {
 	readonly id: string;
 	readonly app: string;
 	readonly action: string;
+	/** Replay the run from the beginning. Reconnect offsets are managed internally. */
 	events(options?: {
-		after?: number;
 		signal?: AbortSignal;
 	}): AsyncIterable<RunEvent<TYield, TOut>>;
 	/** Wait for a terminal answer. Aborting stops observation, not the host run. */
@@ -334,9 +334,7 @@ export function createRun({
 		postSent = input === undefined,
 		failed = false;
 	let terminal: Result<unknown, ActionError> | undefined;
-	let terminalSeq = 0,
-		floor = 0;
-	let buffer: Sequenced[] = [];
+	const buffer: Sequenced[] = [];
 	let source: Response | undefined;
 	let sourceController: AbortController | undefined;
 	let pumpController: AbortController | undefined;
@@ -479,29 +477,21 @@ export function createRun({
 			}
 		});
 	}
-	const needsReplay = () =>
-		!terminal ||
-		(floor < terminalSeq && !buffer.some((event) => event.seq === terminalSeq));
 	function startPump() {
-		if (pumping || !settled || failed || !observers.size || !needsReplay())
-			return;
+		if (pumping || !settled || failed || !observers.size || terminal) return;
 		pumping = true;
 		const controller = new AbortController();
 		pumpController = controller;
 		void pump(controller.signal).finally(() => {
 			pumping = false;
 			if (pumpController === controller) pumpController = undefined;
-			if (
-				observers.size &&
-				needsReplay() &&
-				[...observers].some((o) => !o.notice)
-			)
+			if (observers.size && !terminal && [...observers].some((o) => !o.notice))
 				startPump();
 		});
 	}
 	async function pump(signal: AbortSignal) {
 		let failures = 0;
-		while (!signal.aborted && observers.size && needsReplay()) {
+		while (!signal.aborted && observers.size && !terminal) {
 			let delivered = false,
 				openedAt = 0,
 				normal = false;
@@ -512,7 +502,7 @@ export function createRun({
 					source = undefined;
 				} else
 					response = await fetch(
-						`${url}/events?after=${buffer.at(-1)?.seq ?? floor}`,
+						`${url}/events?after=${buffer.at(-1)?.seq ?? 0}`,
 						{ signal },
 					);
 				if (response.status === 404) {
@@ -555,7 +545,7 @@ export function createRun({
 									return;
 								}
 								if (!('seq' in event)) throw new Error('Invalid event');
-								const last = buffer.at(-1)?.seq ?? floor;
+								const last = buffer.at(-1)?.seq ?? 0;
 								if (event.seq > last) {
 									if (event.seq !== last + 1)
 										throw new Error('Gap in event stream');
@@ -565,7 +555,6 @@ export function createRun({
 								if (event.type === 'finished' || event.type === 'interrupted') {
 									terminal =
 										event.type === 'finished' ? event.result : Err(event.error);
-									terminalSeq = event.seq;
 									if (remember || input === undefined) removePending(id);
 									notify();
 									return;
@@ -605,31 +594,22 @@ export function createRun({
 		}
 	}
 	async function* events({
-		after,
 		signal,
 	}: {
-		after?: number;
 		signal?: AbortSignal;
 	} = {}): AsyncGenerator<RunEvent<unknown, unknown>> {
 		if (signal?.aborted) return;
-		const observer: Observer = { cursor: after ?? 0 };
-		if (!buffer.length && !observers.size) floor = observer.cursor;
-		else if (observer.cursor < floor) {
-			floor = observer.cursor;
-			buffer = [];
-			abortPump();
-		}
+		const observer: Observer = { cursor: 0 };
 		observers.add(observer);
 		startPump();
 		try {
 			let localCursor = 0;
 			while (!signal?.aborted) {
-				if (after === undefined)
-					while (localCursor < local.length) {
-						if (signal?.aborted) return;
-						const item = local[localCursor++];
-						if (item) yield item;
-					}
+				while (localCursor < local.length) {
+					if (signal?.aborted) return;
+					const item = local[localCursor++];
+					if (item) yield item;
+				}
 				if (failed || signal?.aborted) return;
 				if (!settled) {
 					await notified(subscribe, signal);
@@ -647,7 +627,6 @@ export function createRun({
 					yield observer.notice;
 					return;
 				}
-				if (terminal && terminalSeq <= observer.cursor) return;
 				await notified(subscribe, signal);
 			}
 		} finally {

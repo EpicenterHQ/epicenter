@@ -1,7 +1,7 @@
 /** Type checks for ordinary actions, file inputs, run controls, and yields. */
 import { expect, test } from 'bun:test';
 import { defineAction } from './action.ts';
-import { connect, runs, type ActionRun } from './client.ts';
+import { type ActionRun, connect, runs } from './client.ts';
 import { field } from './field.ts';
 
 const upload = defineAction({
@@ -49,6 +49,9 @@ function clientUsage() {
 	const run: ActionRun<typeof upload> = runs.start(app.upload, {
 		file: new Blob(),
 	});
+	void run.events({ signal: new AbortController().signal });
+	// @ts-expect-error Observers replay the run; offsets belong to the transport.
+	void run.events({ after: 1 });
 	void run.result({
 		onYield: (value) => {
 			const one: 1 = value;
