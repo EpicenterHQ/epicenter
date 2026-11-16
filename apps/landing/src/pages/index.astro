@@ -13,31 +13,40 @@ const repo = 'https://github.com/EpicenterHQ/epicenter';
 	<main class="mx-auto max-w-5xl px-6 text-foreground sm:px-10">
 		<header class="flex items-center justify-between py-6">
 			<a href="/" class="flex items-center gap-2 font-semibold">
-				<img src="/favicon.svg" alt="" width="28" height="28" />
+				<img src="/favicon.svg" alt="" width="28" height="28">
 				Epicenter
 			</a>
 			<a href={repo} class="text-sm underline underline-offset-4">GitHub</a>
 		</header>
-		<section class="grid items-center gap-10 py-14 sm:py-24 lg:grid-cols-[3fr_2fr]">
+		<section
+			class="grid items-center gap-10 py-14 sm:py-24 lg:grid-cols-[3fr_2fr]"
+		>
 			<div>
-				<h1 class="max-w-xl text-5xl font-semibold tracking-tight text-balance sm:text-6xl">
+				<h1
+					class="max-w-xl text-5xl font-semibold tracking-tight text-balance sm:text-6xl"
+				>
 					Where one person's software lives.
 				</h1>
 				<p class="mt-6 max-w-xl text-lg leading-relaxed text-muted-foreground">
 					You and your agents can make small apps on a computer you control.
-					Open them from your other devices over a private connection.
-					What you make stays in files you can read and edit.
+					Open them from your other devices over a private connection. What you
+					make stays in files you can read and edit.
 				</p>
 				<div class="mt-8">
 					<Button href={repo + '#try-the-cli'} size="lg">
 						Install the CLI <ArrowRight class="size-4" />
 					</Button>
-					<p class="mt-3 text-sm text-muted-foreground">Developer preview for macOS and Linux</p>
+					<p class="mt-3 text-sm text-muted-foreground">
+						Developer preview for macOS and Linux
+					</p>
 				</div>
 			</div>
 			<div class="min-w-0 rounded-xl border bg-muted/30 p-6 sm:p-8">
 				<h2 class="mb-5 font-semibold">Your Writing app</h2>
-				<pre class="overflow-x-auto text-sm leading-7" aria-label="Writing folder layout"><code>{`~/Epicenter/apps/writing/
+				<pre
+					class="overflow-x-auto text-sm leading-7"
+					aria-label="Writing folder layout"
+				><code>{`~/Epicenter/apps/writing/
 ├── code/
 │   ├── epicenter.ts
 │   └── ui/
@@ -47,28 +56,47 @@ const repo = 'https://github.com/EpicenterHQ/epicenter';
 		</section>
 
 		<section class="grid gap-5 border-t py-12 sm:grid-cols-[2fr_3fr] sm:py-16">
-			<h2 class="text-3xl font-semibold tracking-tight">Start with a writing inbox</h2>
+			<h2 class="text-3xl font-semibold tracking-tight">
+				Start with a writing inbox
+			</h2>
 			<div class="space-y-4 leading-relaxed">
-				<p>Save a thought in Writing and you'll find a Markdown file in <code>data/notes/</code>.
-					Ask your agent to find the note, or open it in your editor. Want to
-					collect something else? You can change the app's code beside those notes.</p>
-				<p>Run <code>epicenter serve</code> on the computer that holds these files.
-					Your browser and agents call the same actions there. One private Git
-					history records changes to your apps and their files.</p>
-				<a class="font-medium underline underline-offset-4" href={repo + '/tree/main/examples/writing'}>Explore the Writing app</a>
+				<p>
+					Save a thought in Writing and you'll find a Markdown file in
+					<code>data/notes/</code>. Ask your agent to find the note, or open it
+					in your editor. Want to collect something else? You can change the
+					app's code beside those notes.
+				</p>
+				<p>
+					Run <code>epicenter serve</code> on the computer that holds these
+					files. Your browser and agents call the same actions there. One
+					private Git history records changes to your apps and their files.
+				</p>
+				<a
+					class="font-medium underline underline-offset-4"
+					href={repo + '/tree/main/examples/writing'}
+					>Explore the Writing app</a
+				>
 			</div>
 		</section>
 
 		<section class="grid gap-5 border-t py-12 sm:grid-cols-[2fr_3fr] sm:py-16">
-			<h2 class="text-3xl font-semibold tracking-tight">Looking for Whispering?</h2>
+			<h2 class="text-3xl font-semibold tracking-tight">
+				Looking for Whispering?
+			</h2>
 			<div class="space-y-4 leading-relaxed">
-				<p>Whispering records and transcribes speech on your device.
-					It works on its own and you can choose a local or hosted model.</p>
-				<a class="font-medium underline underline-offset-4" href="/whispering">Get Whispering</a>
+				<p>
+					Whispering records and transcribes speech on your device. It works on
+					its own and you can choose a local or hosted model.
+				</p>
+				<a class="font-medium underline underline-offset-4" href="/whispering"
+					>Get Whispering</a
+				>
 			</div>
 		</section>
 	</main>
-	<footer class="mx-auto flex max-w-5xl flex-wrap gap-x-6 gap-y-3 border-t px-6 py-8 text-sm text-muted-foreground sm:px-10">
+	<footer
+		class="mx-auto flex max-w-5xl flex-wrap gap-x-6 gap-y-3 border-t px-6 py-8 text-sm text-muted-foreground sm:px-10"
+	>
 		<a href={repo}>GitHub</a>
 		<a href="https://go.epicenter.so/discord">Discord</a>
 		<a href="/blog">Blog</a>
