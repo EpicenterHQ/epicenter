@@ -1,6 +1,6 @@
 # 0920. A field can list values and can refer to another collection's record by its key
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-11-16)
 - **Date:** 2026-11-15
 
 ## Context
@@ -94,7 +94,8 @@ add meaning to a value but never stand for a value of another type.
 - **A separate multi-select helper.** `field.list(field.select(...))` is the
   same thing.
 - **Check a reference on every read.** A read would open a second file for
-  each reference. The write and the check command cover it.
+  each reference. `add` and plain-data `set` validate the references they
+  write. Reporting absent targets in the check command remains unbuilt.
 - **`field.object`.** It would rename `Type.Object` and add nothing.
 - **A function target, `field.ref(() => pages)`, for self-references and
   cycles.** Built and removed. The annotation had to stay empty until

@@ -1,8 +1,9 @@
 # 0921. `epicenter check` reports every record that does not fit its collection
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-11-16)
 - **Date:** 2026-11-15
-- **Unbuilt:** the command is not on `main`. The checks across records wait for [ADR-0919](0919-a-collection-declares-its-files-beside-its-fields-and-they-rest-in-the-folder-named-by-its-key.md) and [ADR-0920](0920-a-field-can-list-values-and-can-refer-to-another-collections-record-by-its-key.md).
+- **Implementation:** The command ships in 0.4.0 and validates each record. Reporting references whose targets are absent is unbuilt. Collection-owned file checks remain proposed in [ADR-0919](0919-a-collection-declares-its-files-beside-its-fields-and-they-rest-in-the-folder-named-by-its-key.md).
+- **Amended by:** [ADR-0926](0926-a-collections-methods-return-results-and-a-file-that-is-not-a-record-is-an-error.md) on Result-returning reads and misfit records.
 
 ## Context
 
@@ -56,7 +57,8 @@ problems; under `problems`, each app that could not be checked.
 `collection.check()` returns `{ files, records }`, where each record is
 `{ path, problems }` and each problem is `{ line, kind }`. The command calls it
 for every collection and counts the kinds. An app's own action may call it
-too. `list` and `get` keep `problems` as lines of text.
+too. `list` and `get` carry misfit records in their Results, on the terms in
+ADR-0926.
 
 **It writes nothing and exits non-zero when any record has a problem.**
 
@@ -64,11 +66,13 @@ The run is read-only, as for an action marked `readOnlyHint`, and takes no
 write lock. A `.local` collection is checked, and no value read from it is
 printed.
 
-**A read looks at one record. The check looks across records.**
+**The current check aggregates individual record checks.**
 
-`get` and `list` report what one file shows: a field that does not fit, a
-missing required field, front matter that cannot be read. The check adds what
-needs other files: a `field.ref` key with no record behind it.
+`get`, `list`, and the check report what one file shows: a field that does not
+fit, a missing required field, or front matter that cannot be read. Reporting
+a `field.ref` key with no record behind it needs reads across collections and
+remains unbuilt. `add` and plain-data `set` already validate the references
+they write.
 
 ## Consequences
 

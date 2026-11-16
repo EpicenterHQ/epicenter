@@ -1,7 +1,8 @@
 # 0918. A collection selects a record by its keys, and a file that is not there reads as absent
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-11-16)
 - **Date:** 2026-11-15
+- **Amended by:** [ADR-0926](0926-a-collections-methods-return-results-and-a-file-that-is-not-a-record-is-an-error.md) on Result-returning methods and misfit reads.
 
 ## Context
 

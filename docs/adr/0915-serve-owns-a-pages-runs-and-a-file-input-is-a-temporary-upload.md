@@ -18,8 +18,9 @@ lifecycle. `runs.start` writes a per-id receipt under `epicenter.run:<id>`
 before any request. The client uploads files sequentially by raw PUT and POSTs
 admission once with a 20-second header timeout. An ambiguous answer is observed
 by id, never resent. A definitive refusal removes the receipt. Attaching
-observes without admitting. Events replay by cursor and reconnect with backoff;
-a 404 is unknown and retains the receipt.
+observes without admitting. Each observer replays from the beginning. The SDK
+uses a sequence cursor internally when reconnecting with backoff; a 404 is
+unknown and retains the receipt. Observing again does not invoke the action.
 
 A top-level `field.file` accepts MIME restrictions and a positive integer
 `maxBytes` up to 15 MiB. Its wire value is an opaque host-issued reference.

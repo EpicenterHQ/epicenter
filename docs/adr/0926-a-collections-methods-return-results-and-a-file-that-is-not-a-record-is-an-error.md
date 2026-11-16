@@ -4,7 +4,7 @@
 - **Date:** 2026-11-15
 - **Amends:** [ADR-0914](0914-action-errors-share-one-contract-and-the-envelope-records-execution.md) on returned failures and the wire answer, and [ADR-0850](0850-an-action-changes-files-and-whoever-knows-the-intent-commits-them.md) on CLI rendering and exit codes.
 - **Relates:** [ADR-0918](0918-a-collection-selects-a-record-by-its-keys-and-a-file-that-is-not-there-reads-as-absent.md) on collection methods and verbs, [ADR-0923](0923-a-read-gives-only-what-the-file-holds-and-no-field-has-a-default.md) on reading fields, and [ADR-0917](0917-a-pages-calls-are-serve-owned-runs-and-observing-is-not-cancelling.md) on observing a run.
-- **Releases:** 0.2.0 introduced action Results. 0.2.1 reads both host formats. 0.3.0 writes the flat host Result. The [transport acceptance test](../../packages/cli/src/acceptance.result.test.ts) compares a saved draft with a call refused before its first write.
+- **Releases:** 0.2.0 introduced action Results. 0.2.1 reads both host formats. 0.3.0 writes the flat host Result. 0.4.0 removes the public replay cursor: each observer starts at the beginning, and the SDK owns reconnect cursors. The [transport acceptance test](../../packages/cli/src/acceptance.result.test.ts) compares a saved draft with a call refused before its first write.
 
 ## Context
 

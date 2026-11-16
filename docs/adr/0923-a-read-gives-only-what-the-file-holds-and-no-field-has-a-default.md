@@ -1,8 +1,8 @@
 # 0923. A read gives only what the file holds, and no field has a default
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-11-16)
 - **Date:** 2026-11-15
-- **Unbuilt:** all of it. `project` in `packages/app/src/collection.ts` still puts a field's default in place of a value that does not fit, `add` still writes defaults into a new file, and `defineAction` still fills input with `Value.Default`.
+- **Amended by:** [ADR-0926](0926-a-collections-methods-return-results-and-a-file-that-is-not-a-record-is-an-error.md) on Result-returning methods and misfit reads.
 
 ## Context
 
