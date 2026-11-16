@@ -42,7 +42,7 @@ with the command below. Existing homes can run Writing and Tasks on Epicenter
 0.2.0 or later.
 
 ```sh
-curl -fsSL https://github.com/EpicenterHQ/epicenter/releases/download/epicenter-cli-v0.4.0/install.sh | sh
+curl -fsSL https://github.com/EpicenterHQ/epicenter/releases/download/epicenter-cli-v0.4.1/install.sh | sh
 ```
 
 `EPICENTER_DOWNLOAD_BASE` overrides the asset URL, for example when

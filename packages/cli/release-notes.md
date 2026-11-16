@@ -1,5 +1,6 @@
-Developer preview: install the Epicenter CLI, then copy a writing inbox into your own Epicenter.
-The executable runs apps; each app is ordinary source you can edit.
+When you copy an app with a browser UI, `epicenter new` now prints how to
+start the server and where to open the app. The address uses your Epicenter's
+configured port. Try it with the public Tasks example below.
 
 Requires macOS or Linux on arm64 or x64, Git, curl, and shasum or sha256sum.
 Bun and an AI account are not required. Configure Git's user.name and user.email
@@ -15,12 +16,12 @@ is not on PATH. With that directory on PATH:
 ```sh
 epicenter init ~/Epicenter
 cd ~/Epicenter
-epicenter new writing --from 'https://github.com/EpicenterHQ/epicenter#examples/writing'
+epicenter new tasks --from 'https://github.com/EpicenterHQ/epicenter#examples/tasks'
 epicenter serve
 ```
 
-Open http://127.0.0.1:4747/writing/. Save a thought or quote with its source,
-find it again, and edit it. Your notes live in `apps/writing/data/notes/`.
+Open the address printed by `new` (by default http://127.0.0.1:4747/tasks/).
+Add a task and reload the page. Its file lives in `apps/tasks/data/tasks/`.
 Connect an assistant through Streamable HTTP MCP at http://127.0.0.1:4747/.
 The terminal must stay open while the server runs.
 
