@@ -1137,3 +1137,5 @@ When you add an ADR, add its row here.
 | [0919](0919-a-field-can-list-values-and-can-refer-to-another-collections-record-by-its-key.md) | A field can list values and can refer to another collection's record by its key | Proposed |
 | [0920](0920-epicenter-check-reports-every-record-that-does-not-fit-its-collection.md) | `epicenter check` reports every record that does not fit its collection | Proposed |
 | [0921](0921-a-file-reaches-an-action-as-its-own-input-beside-input-on-any-call.md) | A file reaches an action as its own input beside `input`, on any call | Proposed (amends 0915) |
+| [0922](0922-a-read-gives-only-what-the-file-holds-and-no-field-has-a-default.md) | A read gives only what the file holds, and no field has a default | Proposed |
+| [0923](0923-a-write-to-front-matter-replaces-only-the-lines-of-the-keys-it-changes.md) | A write to front matter replaces only the lines of the keys it changes | Proposed |

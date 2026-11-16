@@ -69,7 +69,11 @@ A read gives each slot as `{ name, path }`, or leaves it out when no file is
 there. A required slot with no file adds `audio is missing` to `problems`, and
 two files for one slot add `audio: two files (audio.m4a, audio.mp3)`.
 
-**`delete` removes the record's Markdown file and leaves its folder.**
+**`delete` removes the record's Markdown file and the files of its declared slots, and nothing else.**
+
+A file no slot declares, such as a figure the text links to, stays. The
+folder is removed only when it is then empty. So a record deleted and added
+again under the same key does not inherit the old audio.
 
 **`folder.move(from, to)` renames a file or a folder under `data/`.** It takes
 the write lock, obeys a read-only run, and refuses a target that exists.
@@ -95,8 +99,8 @@ Renaming a record whose Markdown file is inside its folder is
 - Until [ADR-0921](0921-a-file-reaches-an-action-as-its-own-input-beside-input-on-any-call.md)
   is built, an `UploadedFile` exists only inside a run started with
   `runs.start`, so a page reaches a slot only that way.
-- This record gives a record no list of files, no file under the uploader's
-  own name, and no way to delete a record's folder.
+- This record gives a record no list of files and no file under the
+  uploader's own name.
 
 ## Considered alternatives
 

@@ -82,6 +82,27 @@ declaration before anything breaks.
   do not change. The trial's rewrite of Vocab, Flights, and Mail is the
   starting point.
 
+### Wave 3b: repairs from the design review (ADR-0917, ADR-0922)
+
+Three reviewers formed their own accounts, then worked through the design
+and each other's. These are the changes all three supported.
+
+- [ ] A value that does not fit reads as absent; a switch reads `false` and a
+  list `[]` only when the key is missing; no schema carries `default`.
+- [ ] A change computed by a function may not write a field whose value did
+  not fit.
+- [ ] `set` carries `body` in code; the `set` verb takes fields and `was`;
+  `edit` is a verb only.
+- [ ] `list()` returns whole records; the `list` verb leaves out `body`.
+- [ ] A key finds its file by its exact name first.
+- [ ] The `delete` verb exists only when named.
+- [ ] For a collection with no placeholder, the `set` verb makes the file.
+
+### Wave 3c: front matter (ADR-0923)
+
+- [ ] A write to a YAML block replaces only the lines of the keys it changes,
+  or refuses.
+
 ### Wave 4: files (ADR-0918 and ADR-0921)
 
 - [ ] `files` on `defineAction`; `field.file` and its scans removed.
@@ -121,11 +142,8 @@ paths do move, which that spec says they would not.
 
 ## Open questions
 
-1. **YAML front matter.** Every page and journal entry in the Vault is YAML.
-   Today the first field write rewrites the block as `key: <JSON>` lines.
-   - **Recommendation**: keep `key: <JSON>` as the one written form, stop the
-     silent rewrite, and add a deliberate one-time conversion. Rows such as
-     `posts` then sit on one long line.
+1. **YAML front matter.** Settled by ADR-0923: a write replaces only the
+   lines of the keys it changes. There is no conversion pass.
 2. **Deleting a record's folder.** ADR-0918 leaves the folder when the
    Markdown file is deleted.
 3. **A reattached run.** Whether it needs every past yield or only the latest
