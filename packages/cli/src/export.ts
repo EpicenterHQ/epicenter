@@ -239,11 +239,7 @@ export async function exportCommand(
 	try {
 		const source = await realpath(epicenterDir());
 		await checkLocation(directory, source);
-		const top = await git(source, ['rev-parse', '--show-toplevel']);
-		if (top.code !== 0 || (await realpath(top.stdout)) !== source)
-			refuse(
-				'Export needs this Epicenter to be the root of its Git repository',
-			);
+
 		const marker: ExportMarker =
 			app === undefined ? { export: 'all' } : { export: 'app', app };
 		await checkDestination(directory, marker);

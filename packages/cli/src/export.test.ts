@@ -712,3 +712,24 @@ await Bun.sleep(300_000);
 		process.env.PATH = previousPath;
 	}
 });
+
+test('export refuses a private Epicenter nested inside another repository without changing its previous output', async () => {
+	const f = await setup();
+	expect((await f.run('export', 'tasks', f.output)).code).toBe(0);
+	const previous = await readFile(join(f.output, 'epicenter.ts'), 'utf8');
+	await rm(join(f.home, '.git'), { recursive: true });
+	await gitIn(f.root, 'init', '-q');
+	await writeFile(join(f.tasks, 'fresh.txt'), 'pending source code');
+	const result = await f.run('export', 'tasks', f.output, '--json');
+	expect(result.code).toBe(2);
+	expect(JSON.parse(result.stdout).error).toMatchObject({
+		name: 'Refused',
+		message: `${f.home} is not a Git repository`,
+		next: `git -C ${f.home} init`,
+	});
+	expect(await readFile(join(f.output, 'epicenter.ts'), 'utf8')).toBe(previous);
+	expect(await Bun.file(join(f.output, 'fresh.txt')).exists()).toBe(false);
+	expect(await gitIn(f.root, 'status', '--porcelain=v1')).toContain(
+		'?? Epicenter/',
+	);
+});
