@@ -769,12 +769,19 @@ function createRecords(layout: Template, fields: Fields) {
 			throw ActionError.Refused({ message: problems.join('\n') }).error;
 	}
 
-	/** The text of a new file at `path` from `given` and `body`, and nothing else; throws when the fields do not fit. */
+	/**
+	 * The text of a new file at `path` from `given` and `body`, and nothing
+	 * else; throws when the fields do not fit. `null` for a field a file may go
+	 * without leaves it out, as it removes one from a file that is there, so one
+	 * change can make a record or change it.
+	 */
 	function made(path: string, given: Record<string, unknown>, body: string) {
 		const values: FieldValues = {};
 		for (const [key, value] of Object.entries(given)) {
 			known(path, key);
-			if (value !== undefined) values[key] = value as JsonValue;
+			if (value === undefined) continue;
+			if (value === null && isOptional(fields[key] as TSchema)) continue;
+			values[key] = value as JsonValue;
 		}
 		refuse(path, values, true);
 		return markdownOf(inDeclaredOrder(values, fields), body);

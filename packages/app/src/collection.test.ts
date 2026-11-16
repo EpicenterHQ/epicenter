@@ -811,6 +811,34 @@ describe('update', () => {
 		expect(await context.folder.list()).toEqual(['data/counters/a.md']);
 	});
 
+	test('null for a field a file may go without leaves it out of a file it makes, as it removes it from one that is there', async () => {
+		const context = createMemoryContext({});
+		const change = () => ({
+			kind: 'link' as const,
+			added: '2026-11-10',
+			url: null,
+		});
+		const made = await inRun(context, () => items.update({ id: 'n' }, change));
+		expect(made).toEqual({
+			path: 'data/items/n.md',
+			id: 'n',
+			kind: 'link',
+			added: '2026-11-10',
+			done: false,
+			body: '',
+		});
+		const text = await context.folder.read('data/items/n.md');
+		expect(text).toBe('---\nkind: "link"\nadded: "2026-11-10"\n---\n');
+		await inRun(context, () => items.update({ id: 'n' }, change));
+		expect(await context.folder.read('data/items/n.md')).toBe(text);
+		await expect(
+			inRun(context, () =>
+				// @ts-expect-error a required field does not take null
+				items.update({ id: 'm' }, () => ({ kind: null, added: '2026-11-10' })),
+			),
+		).rejects.toThrow('data/items/m.md: kind');
+	});
+
 	test('gives undefined when there is no file, and what it returns makes one, as add would', async () => {
 		const context = seeded();
 		const seen: unknown[] = [];

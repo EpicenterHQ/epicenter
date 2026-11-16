@@ -230,7 +230,9 @@ field, which is how it is repaired.
 `update(keys, (record) => change)` does the same, and is the one writer that
 may make a file: its function gets `undefined` when there is none, and what it
 returns makes the file as `add` would, refusing a required field it leaves
-out. It returns `body` too when the body changes. "Make it if it is not
+out. `null` for an optional field leaves it out of a file being made, as it
+removes it from one that is there, so one change serves both. It returns
+`body` too when the body changes. "Make it if it is not
 there, else change it" is one `update`, so two calls at once never both try to
 make the file. Reading's `start` is:
 
