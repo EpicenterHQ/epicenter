@@ -34,6 +34,6 @@
 	},
 	"license": "AGPL-3.0-or-later",
 	"engines": {
-		"epicenter": ">=0.4.0"
+		"epicenter": ">=0.2.0"
 	}
 }

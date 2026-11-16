@@ -80,6 +80,39 @@ Start on localhost. Add a private connection when another device needs access.
 On macOS, `epicenter service install` is an optional, explicit step to keep the
 server running at login. No login job is installed during onboarding.
 
+### When to ship a runtime version
+
+Can the installed `epicenter` run the changed app and build its UI? If so,
+ship the app commit and rebuild its UI when needed. For example, Tasks can
+reread a task after an uncertain save, and Flights can follow a search by
+its existing run ID. Both use capabilities already installed. Raise an
+app's `engines.epicenter` minimum only when it starts relying on behavior
+an older runtime cannot supply.
+
+Test routine app changes on the current Epicenter release. Recheck the
+minimum when you change `engines.epicenter`, use a runtime feature that
+might be newer, or investigate a failure on an older release. On the
+declared minimum, exercise the affected action or UI. For a shared app,
+use `epicenter new <app> --from <source>` to check the copy people install.
+
+When a change needs a different executable or bundled `@epicenter/app`,
+ship those together under one new version. Commits can accumulate before
+that release. Ship separately when an installed consumer needs the fix now
+or when the next change depends on readers having upgraded first. Changes
+that can reach the same consumers together can share a release.
+
+| Example | What to ship | Why |
+| --- | --- | --- |
+| `0.2.1` reads both host answer formats and still writes the old one | Ship the reader patch separately. Rebuild browser clients and update consumers that parse CLI or MCP output directly. | This provides a working combination while consumers upgrade. A tab that was already open needs to reload to get the new reader. |
+| `0.3.0` starts writing the flat `{ data, error }` answer | Ship the writer after the readers. Keep reading saved runs in their original format. | A `0.2.0` reader could treat a successful flat answer as invalid. Changing both ends in one installation would still leave older readers in use. |
+| `0.4.0` removes `after` from the public `run.events()` API | This shipped separately. Given the same choice again, batch it with the next planned runtime release. | None of the twelve home apps passed that option. The client already managed reconnect offsets, so removing it gave the home no reason to upgrade immediately. |
+
+During `0.x`, use a patch for a compatible runtime fix and bump the middle
+number when an existing caller must change to keep working. Choose the
+number for the whole batch when it ships. Once distributed, a version
+identifies that build. The [Result cutover](../../docs/adr/0926-a-collections-methods-return-results-and-a-file-that-is-not-a-record-is-an-error.md#cutover)
+records the wire behavior behind these examples.
+
 ### Prepare release assets
 
 From the repository root, with dependencies installed:
