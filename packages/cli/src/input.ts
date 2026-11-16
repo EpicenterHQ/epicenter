@@ -53,6 +53,7 @@ export function flagOf(key: string): string {
 
 type Described = {
 	type?: string;
+	items?: Described;
 	format?: string;
 	minimum?: number;
 	maximum?: number;
@@ -103,6 +104,26 @@ export function fieldKind(field: TSchema): string {
 }
 
 /**
+ * What one item of a list field is on the command line: its kind, such as
+ * `text`, `number`, or `a|b`, or `undefined` when the command line cannot
+ * spell it (an object, a list, or a switch), so it is given in `--input`.
+ */
+function itemKind(field: TSchema): string | undefined {
+	const items = withoutNull(field).items as TSchema | undefined;
+	if (!items) return 'text';
+	const kind = fieldKind(items);
+	if (kind === 'switch' || kind === 'list') return undefined;
+	if (kind !== 'text') return kind;
+	return withoutNull(items).type === 'string' ? kind : undefined;
+}
+
+/** How a list field's flag is spelled in usage and help: `--tags <text>...`, or that it is given only in `--input`. */
+export function listSpelling(flag: string, field: TSchema): string {
+	const each = itemKind(field);
+	return each ? `${flag} <${each}>...` : `${flag} (only in --input)`;
+}
+
+/**
  * Parse flags and positionals, in the action's order, before validating values
  * against its schema. A value is read as its field's type: a number for a
  * number, `true` or `false` for a switch, every value of a repeated flag for a
@@ -138,8 +159,12 @@ function inputFromArgs(
 			input[key] = null;
 			return;
 		}
+		// A list's words are its items, so each is read as its item's kind.
+		const each = kind === 'list' ? itemKind(schema) : kind;
+		if (each === undefined)
+			return `--${flagOf(key)} is a list the command line cannot spell; give the whole input as one JSON object with --input`;
 		let value: unknown = raw;
-		if (kind === 'number') {
+		if (each === 'number') {
 			value = Number(raw);
 			if (typeof raw !== 'string' || raw.trim() === '' || Number.isNaN(value))
 				return `--${flagOf(key)} needs a number`;
@@ -326,7 +351,7 @@ export function usageLine(
 			kind === 'switch'
 				? flag
 				: kind === 'list'
-					? `${flag} <text>...`
+					? listSpelling(flag, field)
 					: `${flag} <${kind}>`;
 		args.push(
 			kind === 'switch' || kind === 'list' || !required.has(name)

@@ -205,6 +205,7 @@ test('a misused command answers its usage line, with its help as the next step',
 		['new'],
 		['new', 'garden', '--from'],
 		['build', 'reading', 'vault'],
+		['check', 'reading', 'vault'],
 		['install', 'reading', 'vault'],
 		['init', '--port'],
 	] as const;

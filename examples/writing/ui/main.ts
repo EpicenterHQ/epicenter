@@ -80,15 +80,15 @@ async function load() {
 		button.className = 'secondary';
 		button.textContent = 'Open note';
 		button.addEventListener('click', () => {
-			void openNote(note.path);
+			void openNote(note.time);
 		});
 		article.append(button);
 		list.append(article);
 	}
 }
 
-async function openNote(path: string) {
-	const { data, error } = await app.get({ path });
+async function openNote(time: string) {
+	const { data, error } = await app.get({ time });
 	if (error) {
 		message(listStatus, error.message, true);
 		return;
@@ -162,7 +162,7 @@ element('#edit-form').addEventListener('submit', async (event) => {
 	close.disabled = true;
 	editBody.readOnly = true;
 	const { data, error } = await app.edit({
-		path: selected.path,
+		time: selected.time,
 		old: selected.body,
 		new: editBody.value,
 	});
@@ -192,7 +192,7 @@ editor.addEventListener('cancel', (event) => {
 	if (!canClose()) event.preventDefault();
 });
 reload.addEventListener('click', () => {
-	if (selected) void openNote(selected.path);
+	if (selected) void openNote(selected.time);
 });
 search.addEventListener('input', () => {
 	void load();

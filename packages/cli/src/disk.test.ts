@@ -176,7 +176,7 @@ test('concurrent updates of one collection file each land, each computed from th
 	});
 	await folder.write('data/counters/a.md', '---\nn: 0\n---\n');
 	const context = { folder };
-	const at = { path: 'data/counters/a.md' };
+	const at = { id: 'a' };
 	await Promise.all(
 		Array.from({ length: 5 }, () =>
 			inRun(context, () =>

@@ -1,6 +1,7 @@
 /** Dispatch commands and run checked app actions; actions leave their writes pending. */
 import { isName } from '@epicenter/app';
 import { buildCommand } from './build.ts';
+import { checkCommand } from './check.ts';
 import { checkpoint, renderCheckpoint } from './checkpoint.ts';
 import {
 	BAD_PORT,
@@ -26,6 +27,7 @@ import {
 } from './listing.ts';
 import { newCommand } from './new.ts';
 import {
+	type Answer,
 	fail,
 	presentAnswer,
 	printingToStderr,
@@ -62,6 +64,7 @@ const HANDLERS: { [K in Command]: Handler } = {
 	new: newCommand,
 	export: exportCommand,
 	build: buildCommand,
+	check: checkCommand,
 	service: serviceCommand,
 	routines: routinesCommand,
 	async checkpoint(words, json) {
@@ -97,6 +100,26 @@ const HANDLERS: { [K in Command]: Handler } = {
 		return serveHttp(host ?? '127.0.0.1', listen);
 	},
 };
+
+/**
+ * For a `set` or `edit` that found no file, the `add` beside it that makes
+ * one, as the next step: `epicenter vocab settings add`. A collection with no
+ * placeholder is made so on a fresh install.
+ */
+function addInstead(
+	app: string,
+	key: string,
+	actions: object,
+	answer: Answer,
+): string | undefined {
+	if (!('threw' in answer) || answer.threw.thrown?.name !== 'Missing')
+		return undefined;
+	const words = key.split(' ');
+	const verb = words.pop();
+	if (verb !== 'set' && verb !== 'edit') return undefined;
+	const add = [...words, 'add'].join(' ');
+	return Object.hasOwn(actions, add) ? `epicenter ${app} ${add}` : undefined;
+}
 
 /** Dispatch app commands and return an exit code so the entrypoint can let stdout drain. */
 export async function runCli(argv: string[]): Promise<number> {
@@ -188,7 +211,11 @@ export async function runCli(argv: string[]): Promise<number> {
 		const { answer } = await printingToStderr(() =>
 			runAction(located, matched.key, action, given.input),
 		);
-		return presentAnswer(answer, json);
+		return presentAnswer(
+			answer,
+			json,
+			addInstead(name, matched.key, located.actions, answer),
+		);
 	} catch (error) {
 		if (error instanceof RootUsageError)
 			return fail(
