@@ -22,33 +22,26 @@ afterEach(async () => {
 		await rm(root, { recursive: true, force: true });
 });
 
-test('setup infers a symlinked installed app and saved input uses current action defaults', async () => {
+test('setup infers a symlinked installed app and saved input meets the current action code', async () => {
 	const f = await fixture();
 	roots.push(f.root);
 	const original = await f.app(
 		'original',
 		`
 import { routines } from '@epicenter/app';
-const research = defineAction({description:'Research', input:{limit:{type:'number',default:3}}, run:({limit})=>({limit})});
-export default defineApp({description:'Flights',collections:{},actions:{daily:{run:research},setup:defineAction({description:'Enable',input:{},run:()=>routines.set('flight-research',{daily:'08:00',action:research,input:{}})})}});`,
+const research = defineAction({description:'Research', input:{limit:field.number({optional:true})}, run:({limit})=>Ok(({limit: limit ?? 3}))});
+export default defineApp({description:'Flights',collections:{},actions:{daily:{run:research},setup:defineAction({description:'Enable',input:{},run:async ()=>{ await routines.set('flight-research',{daily:'08:00',action:research,input:{}}); return Ok(undefined); }})}});`,
 	);
 	await symlink(original, join(f.apps, 'travel'));
 	expect(await f.run('travel', 'setup', '--json')).toMatchObject({ code: 0 });
 	const path = join(f.home, 'routines/flight-research.md');
 	const fields = readMarkdown(await readFile(path, 'utf8')).fields;
-	expect(fields.run).toEqual([
-		'epicenter',
-		'travel',
-		'daily',
-		'run',
-		'--input',
-		'{}',
-	]);
+	expect(fields.run).toEqual(['epicenter', 'travel', 'daily', 'run', '{}']);
 	await writeFile(
 		join(original, 'code/epicenter.ts'),
 		(await readFile(join(original, 'code/epicenter.ts'), 'utf8')).replace(
-			'default:3',
-			'default:7',
+			'limit ?? 3',
+			'limit ?? 7',
 		),
 	);
 	const run = await f.run('routines', 'run', 'flight-research', '--json');
@@ -66,7 +59,7 @@ test('repeat setup preserves notes, pause, timeout and state and refuses a forei
 	roots.push(f.root);
 	await f.app(
 		'travel',
-		`import {routines} from '@epicenter/app'; const research=defineAction({description:'Research',input:{},run:()=>null}); export default defineApp({description:'Travel',collections:{},actions:{research,setup:defineAction({description:'Enable',input:{},run:()=>routines.set('review',{daily:'08:00',action:research,input:{}})})}});`,
+		`import {routines} from '@epicenter/app'; const research=defineAction({description:'Research',input:{},run:()=>Ok(null)}); export default defineApp({description:'Travel',collections:{},actions:{research,setup:defineAction({description:'Enable',input:{},run:async ()=>{ await routines.set('review',{daily:'08:00',action:research,input:{}}); return Ok(undefined); }})}});`,
 	);
 	const directory = join(f.home, 'routines');
 	await mkdir(join(directory, 'review.local'), { recursive: true });
@@ -116,7 +109,7 @@ test('invalid input, timing, identity and read-only setup never create a routine
 	] as const) {
 		await f.app(
 			name,
-			`import {routines} from '@epicenter/app';const research=defineAction({description:'Research',input:{limit:field.number()},run:()=>null});const hidden=defineAction({description:'Hidden',input:{limit:field.number()},run:()=>null});const fileAction=defineAction({description:'Upload',input:{audio:field.file()},run:()=>null});const secret=defineAction({description:'Secret',privateInput:true,input:{},run:()=>null});export default defineApp({description:'Test',collections:{},actions:{research,${aliases}setup:defineAction({description:'Setup',annotations:${annotations},input:{},run:()=>routines.set('${name}',{daily:'${daily}',action:${target},input:${input}})})}});`,
+			`import {routines} from '@epicenter/app';const research=defineAction({description:'Research',input:{limit:field.number()},run:()=>Ok(null)});const hidden=defineAction({description:'Hidden',input:{limit:field.number()},run:()=>Ok(null)});const fileAction=defineAction({description:'Upload',input:{audio:field.file()},run:()=>Ok(null)});const secret=defineAction({description:'Secret',privateInput:true,input:{},run:()=>Ok(null)});export default defineApp({description:'Test',collections:{},actions:{research,${aliases}setup:defineAction({description:'Setup',annotations:${annotations},input:{},run:()=>routines.set('${name}',{daily:'${daily}',action:${target},input:${input}})})}});`,
 		);
 		expect((await f.run(name, 'setup')).code).toBe(1);
 	}

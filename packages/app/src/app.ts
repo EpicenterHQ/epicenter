@@ -29,7 +29,8 @@
  * over MCP. An app's name is its folder's.
  */
 import { type Action, isAction } from './action.ts';
-import type { AnyCollection } from './collection.ts';
+import { type AnyCollection, isCollection } from './collection.ts';
+import { template } from './path.ts';
 
 /** An app's actions, nested: a key holds an action, or a group of them under that word. */
 export type Actions = { readonly [word: string]: Action | Actions };
@@ -51,7 +52,7 @@ export type App<
  * given, `{}` for none. Each collection's name is its key in `collections`;
  * each action's words are its keys in `actions`, so
  * `words: { ...words.actions(), add: learn }` gives `words list` through
- * `words delete`, with `words add` replaced by `learn`. A later key replaces
+ * `words set`, with `words add` replaced by `learn`. A later key replaces
  * an earlier one, as in any object. Returns `app` itself; throws when it is
  * wrong in a way its types cannot say, so `epicenter` checks an app it loads
  * by calling this again.
@@ -104,7 +105,7 @@ function appProblems(app: unknown): string[] {
 			problems.push(
 				`collections has the key ${JSON.stringify(name)}, ${notName}`,
 			);
-		if (typeof (collection as Partial<AnyCollection>)?.holds !== 'function')
+		if (!isCollection(collection))
 			problems.push(`collections.${name} is not defineCollection(...)`);
 	}
 	// Overlaps are read only from collections that are all defineCollection(...).
@@ -151,7 +152,10 @@ function appProblems(app: unknown): string[] {
  * placeholders that can match one file are not caught.
  */
 function clash(a: AnyCollection, b: AnyCollection): string | undefined {
-	if (a.path === b.path || (!a.path.includes('{') && b.holds(a.path)))
+	if (
+		a.path === b.path ||
+		(!a.path.includes('{') && template(b.path).match(a.path) !== undefined)
+	)
 		return a.path;
 	return undefined;
 }

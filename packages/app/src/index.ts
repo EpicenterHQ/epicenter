@@ -1,3 +1,5 @@
+export { defineErrors } from 'wellcrafted/error';
+export { Err, Ok, partitionResults, type Result } from 'wellcrafted/result';
 export {
 	type Action,
 	type ActionYield,
@@ -6,6 +8,7 @@ export {
 	isAction,
 	runYielding,
 } from './action.ts';
+export { encodeActionResult, type PublicError } from './action-result.ts';
 export {
 	type Actions,
 	type App,
@@ -18,11 +21,10 @@ export {
 	type CollectionDef,
 	defineCollection,
 	type Fields,
-	type FileOf,
 	type Handle,
-	type ManyHandle,
+	type Keys,
+	type RecordOf,
 	type Row,
-	type SingleHandle,
 	type Verb,
 } from './collection.ts';
 export {
@@ -35,17 +37,19 @@ export {
 	normalizePath,
 	type Routine,
 	routines,
+	textUpdate,
 } from './context.ts';
-export { ActionError } from './errors.ts';
+export { ActionError, type Problem } from './errors.ts';
 export {
 	FILE_REFERENCE_PREFIX,
 	field,
 	fileFieldOf,
 	MAX_FILE_BYTES,
+	type TList,
 	type TSwitch,
-	type TTags,
 	type UploadedFile,
 	whatFits,
+	whatTakes,
 } from './field.ts';
 export { readMarkdown } from './front-matter.ts';
 export { createMemoryContext } from './memory.ts';

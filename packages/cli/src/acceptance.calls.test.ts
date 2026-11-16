@@ -24,18 +24,22 @@ afterEach(async () => {
 		await rm(root, { recursive: true, force: true });
 });
 const notesCode = `${header}
+import { ActionError } from '@epicenter/app';
 export default defineApp({
 	description: 'The notes app',
 	collections: {},
 	actions: {
+  declined: defineAction({description:'Decline',input:{},run:()=>ActionError.Refused({message:'Nothing to write',next:'epicenter notes write'})}),
+  'no-route': defineAction({description:'No route',input:{},run:()=>Err({name:'NoRoute',message:'No route from LAX',airport:'LAX'})}),
+  'thrown-refusal': defineAction({description:'Throw refusal',input:{},run:()=>{throw ActionError.Refused({message:'thrown refusal'}).error;}}),
+  plain: defineAction({description:'Break contract',input:{},run:()=> 'not a result'}),
 		write: defineAction({
 			description: 'Write a page and a second data file',
 			input: { page: field.text() },
-			positional: ['page'],
 			run: async ({ page }) => {
 				await folder.write('data/' + page + '.md', page);
 				await folder.write('data/node_modules/seen.txt', page);
-				return page;
+				return Ok(page);
 			},
 		}),
 		same: defineAction({
@@ -43,19 +47,18 @@ export default defineApp({
 			input: {},
 			run: async () => {
 				await folder.write('data/a.md', 'base a\\n');
-			},
+			 return Ok(undefined); },
 		}),
 		picture: defineAction({
 			description: 'Write a binary',
 			input: {},
 			run: async () => {
 				await folder.writeBytes('data/cover.png', new Uint8Array([137, 80, 78, 71, 1, 2, 3]));
-			},
+			 return Ok(undefined); },
 		}),
 		half: defineAction({
 			description: 'Write a page, then throw',
 			input: { page: field.text() },
-			positional: ['page'],
 			run: async ({ page }) => {
 				await folder.write('data/' + page + '.md', page);
 				throw new Error('stopped halfway');
@@ -67,13 +70,13 @@ export default defineApp({
 			annotations: { readOnlyHint: true },
 			run: async () => {
 				await folder.write('data/peek.md', 'peeked');
-			},
+			 return Ok(undefined); },
 		}),
 		refresh: defineAction({
 			description: 'Say it only reads, then keep a token on this computer',
 			input: {},
 			annotations: { readOnlyHint: true },
-			run: () => folder.write('data/token.local.md', 'kept'),
+			run: async () => { await folder.write('data/token.local.md', 'kept'); return Ok(undefined); },
 		}),
 		tagged: defineAction({
 			description: 'Throw a tagged error',
@@ -94,7 +97,7 @@ export default defineApp({
 				await folder.write('data/first.md', 'first');
 				while (!(await Bun.file(go).exists())) await Bun.sleep(20);
 				await folder.write('data/second.md', 'second');
-			},
+			 return Ok(undefined); },
 		}),
 		chatty: defineAction({
 			description: 'Log to the console every way and return',
@@ -105,7 +108,7 @@ export default defineApp({
 				console.debug('hello from debug');
 				console.table([{ a: 1 }]);
 				process.stdout.write('raw stdout\\n');
-				return 'answer';
+				return Ok('answer');
 			},
 		}),
 	},
@@ -128,22 +131,63 @@ async function setup() {
 	};
 	return { ...f, dir: folder, data: join(folder, 'data'), json };
 }
-test('C7 exit codes: 0 returned, 1 threw, 2 did not run; an action that exits the process ends the command', async () => {
+test('C7 exit codes: 0 Ok, 1 Err or fault, 2 did not run; an action that exits the process ends the command', async () => {
 	const f = await setup();
 	const tagged = await f.json('notes', 'tagged');
 	expect(tagged.code).toBe(1);
 	expect(tagged.answer).toEqual({
-		threw: {
+		data: null,
+		error: {
+			kind: 'fault',
 			message: 'no such page',
 			thrown: { name: 'NotFound', message: 'no such page', page: 'x' },
 		},
+	});
+
+	const noRoute = await f.json('notes', 'no-route');
+	expect(noRoute.code).toBe(1);
+	expect(noRoute.answer).toEqual({
+		data: null,
+		error: {
+			kind: 'returned',
+			reason: { name: 'NoRoute', message: 'No route from LAX', airport: 'LAX' },
+		},
+	});
+	expect(await f.run('notes', 'no-route')).toEqual({
+		code: 1,
+		stdout: '',
+		stderr: 'No route from LAX\n',
+	});
+	expect(await f.run('notes', 'declined')).toEqual({
+		code: 1,
+		stdout: '',
+		stderr: 'Nothing to write\nRun: epicenter notes write\n',
+	});
+	const declined = await f.json('notes', 'declined');
+	expect(declined.code).toBe(1);
+	expect(declined.answer.error.reason).toMatchObject({
+		name: 'Refused',
+		namespace: 'epicenter/action-error',
+	});
+	const thrown = await f.json('notes', 'thrown-refusal');
+	expect(thrown.code).toBe(1);
+	expect(thrown.answer.error.thrown.name).toBe('Refused');
+	expect(thrown.answer).not.toHaveProperty('result');
+	const plain = await f.json('notes', 'plain');
+	expect(plain.code).toBe(1);
+	expect(plain.answer).toEqual({
+		data: null,
+		error: { kind: 'fault', message: expect.any(String) },
 	});
 	const exited = await f.run('notes', 'exit', '--json');
 	expect(exited).toMatchObject({ code: 7, stdout: '' });
 	const unknown = await f.json('notes', 'nope');
 	expect(unknown.code).toBe(2);
-	expect(unknown.answer.error).toMatchObject({ name: 'Usage' });
-	const human = await f.run('notes', 'write', 'monday');
+	expect(unknown.answer).toMatchObject({
+		data: null,
+		error: { kind: 'refused', reason: { name: 'Usage' } },
+	});
+	const human = await f.run('notes', 'write', '{"page":"monday"}');
 	expect(human).toEqual({ code: 0, stdout: 'monday\n', stderr: '' });
 });
 
@@ -156,14 +200,19 @@ test('C10 a read-only action cannot write through folder, except a .local file, 
 	held?.release();
 	expect(peek.code).toBe(1);
 	expect(peek.answer).toEqual({
-		threw: {
+		data: null,
+		error: {
+			kind: 'fault',
 			message:
 				'The action "peek" is read-only, so it cannot write data/peek.md',
 		},
 	});
 	expect(await Bun.file(join(f.dir, 'data/peek.md')).exists()).toBe(false);
 	const refresh = await f.json('notes', 'refresh');
-	expect(refresh).toMatchObject({ code: 0, answer: { returned: null } });
+	expect(refresh).toMatchObject({
+		code: 0,
+		answer: { data: null, error: null },
+	});
 	expect(await readFile(join(f.dir, 'data/token.local.md'), 'utf8')).toBe(
 		'kept',
 	);
@@ -185,7 +234,7 @@ export default defineApp({ description: 'Many fields', collections: { items }, a
 	});
 	const runs = await Promise.all(
 		fields.map((key, i) =>
-			f.run('many', 'items', 'set', 'data/items/one.md', `--${key}`, String(i)),
+			f.run('many', 'items', 'set', JSON.stringify({ id: 'one', [key]: i })),
 		),
 	);
 	// Calls serialize read-modify-write operations across processes.
@@ -211,9 +260,9 @@ test('C12 runs leave no temporary file and no lock file, and hold no lock once t
 			stderr: 'ignore',
 		}).exited;
 	const exits = await Promise.all([
-		run('notes', 'write', 'monday'),
-		run('notes', 'write', 'tuesday'),
-		run('notes', 'half', 'wednesday'),
+		run('notes', 'write', '{"page":"monday"}'),
+		run('notes', 'write', '{"page":"tuesday"}'),
+		run('notes', 'half', '{"page":"wednesday"}'),
 	]);
 	expect(exits).toEqual([0, 0, 1]);
 	// macOS Git's launcher keeps its own cache in TMPDIR.
@@ -235,7 +284,7 @@ test('C8 stdout belongs to epicenter: an action that logs does not corrupt --jso
 	const f = await setup();
 	const json = await f.json('notes', 'chatty');
 	expect(json.code).toBe(0);
-	expect(json.answer).toEqual({ returned: 'answer' });
+	expect(json.answer).toEqual({ data: 'answer', error: null });
 	for (const line of ['hello from log', 'hello from info', 'raw stdout'])
 		expect(json.stderr).toContain(line);
 	const { client, close } = await connectMcp(f);
@@ -245,7 +294,7 @@ test('C8 stdout belongs to epicenter: an action that logs does not corrupt --jso
 			arguments: {},
 		});
 		expect(called.isError).toBeFalsy();
-		expect(called.structuredContent).toEqual({ returned: 'answer' });
+		expect(called.structuredContent).toEqual({ data: 'answer', error: null });
 	} finally {
 		await close();
 	}

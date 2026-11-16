@@ -30,7 +30,7 @@ test('actions leave HEAD unchanged and checkpoint commits pending code and data 
 	const app = await f.app('x', reading);
 	await checkpoint(f.home);
 	const before = await head(f.home);
-	expect((await f.run('x', 'log', '30')).code).toBe(0);
+	expect((await f.run('x', 'log', '{"minutes":30}')).code).toBe(0);
 	expect(await head(f.home)).toBe(before);
 	await writeFile(join(app, 'code/extra.ts'), 'export const value = 1;');
 	const result = await f.run('checkpoint', '-m', 'before repair', '--json');

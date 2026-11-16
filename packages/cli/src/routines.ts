@@ -139,7 +139,8 @@ export function readRoutine(name: string, text: string): Routine {
 	const parsed = readMarkdown(text);
 	const { daily, run, paused, timeout = '30m', ...other } = parsed.fields;
 	if (
-		!parsed.writable ||
+		!parsed.readable ||
+		parsed.notJson.length ||
 		Object.keys(other).length ||
 		typeof daily !== 'string' ||
 		!DAILY.test(daily) ||

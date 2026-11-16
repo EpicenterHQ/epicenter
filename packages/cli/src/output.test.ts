@@ -1,15 +1,16 @@
 /**
- * Human output renders returned values by structure, without assigning meaning
+ * Human output renders Ok data, Err diagnostics, faults, and pre-run refusals by structure, without assigning meaning
  * to keys such as path, body, problems, or added. JSON mode keeps the answer.
  */
 import { expect, test } from 'bun:test';
+import { Ok } from 'wellcrafted/result';
 import { renderAnswer } from './output.ts';
 
-const returned = (value: unknown) => renderAnswer({ returned: value });
+const ok = (value: unknown) => renderAnswer(Ok(value));
 
 test('objects keep every defined key in order; a nested object renders beneath its key, and other values as compact JSON', () => {
 	expect(
-		returned({
+		ok({
 			path: 'data/words/hello.md',
 			body: 'First line\nSecond line\n',
 			problems: ['one problem'],
@@ -27,7 +28,7 @@ test('objects keep every defined key in order; a nested object renders beneath i
 
 test('a string that could read as something else is quoted, any JSON among them, and other strings stay plain', () => {
 	expect(
-		returned({
+		ok({
 			empty: '',
 			spaced: ' hello ',
 			quoted: '"hello"',
@@ -49,7 +50,7 @@ test('a string that could read as something else is quoted, any JSON among them,
 
 test('arrays of objects use rows unless a string has multiple lines', () => {
 	expect(
-		returned([
+		ok([
 			{ path: 'data/a.md', done: false },
 			{ path: 'data/b.md', done: true },
 		]),
@@ -59,7 +60,7 @@ test('arrays of objects use rows unless a string has multiple lines', () => {
 		code: 0,
 	});
 	expect(
-		returned([
+		ok([
 			{ path: 'data/a.md', body: 'a\nb' },
 			{ path: 'data/b.md', body: '' },
 		]),
@@ -72,7 +73,7 @@ test('arrays of objects use rows unless a string has multiple lines', () => {
 
 test('a field holding a list of objects renders its rows beneath its key, as capture recent returns them', () => {
 	expect(
-		returned({
+		ok({
 			total: 2,
 			captures: [
 				{
@@ -101,7 +102,7 @@ test('a field holding a list of objects renders its rows beneath its key, as cap
 		code: 0,
 	});
 	expect(
-		returned({
+		ok({
 			week: { minutes: 210, books: [{ title: 'Dune', notes: 'a\nb' }] },
 			empty: {},
 			tags: [],
@@ -125,22 +126,70 @@ test('a field holding a list of objects renders its rows beneath its key, as cap
 });
 
 test('strings print as is, empty arrays print nothing, and other values use JSON', () => {
-	expect(returned('plain answer')).toEqual({
+	expect(ok('plain answer')).toEqual({
 		stdout: 'plain answer\n',
 		stderr: '',
 		code: 0,
 	});
-	expect(returned('already ended\n')).toEqual({
+	expect(ok('already ended\n')).toEqual({
 		stdout: 'already ended\n',
 		stderr: '',
 		code: 0,
 	});
-	expect(returned([])).toEqual({ stdout: '', stderr: '', code: 0 });
-	expect(returned({})).toEqual({ stdout: '', stderr: '', code: 0 });
-	expect(returned([1, 'two'])).toEqual({
+	expect(ok([])).toEqual({ stdout: '', stderr: '', code: 0 });
+	expect(ok({})).toEqual({ stdout: '', stderr: '', code: 0 });
+	expect(ok([1, 'two'])).toEqual({
 		stdout: '[1,"two"]\n',
 		stderr: '',
 		code: 0,
 	});
-	expect(returned(null)).toEqual({ stdout: 'null\n', stderr: '', code: 0 });
+	expect(ok(null)).toEqual({ stdout: 'null\n', stderr: '', code: 0 });
+});
+
+test('Err, fault, and pre-run errors render diagnostics with their exit codes', () => {
+	expect(
+		renderAnswer({
+			data: null,
+			error: {
+				kind: 'returned',
+				reason: {
+					name: 'NoRoute',
+					message: 'No route from LAX',
+					airport: 'LAX',
+				},
+			},
+		}),
+	).toEqual({ stdout: '', stderr: 'No route from LAX\n', code: 1 });
+	expect(
+		renderAnswer({
+			data: null,
+			error: {
+				kind: 'returned',
+				reason: {
+					name: 'Refused',
+					message: 'Declined',
+					next: 'epicenter flights add',
+				},
+			},
+		}),
+	).toEqual({
+		stdout: '',
+		stderr: 'Declined\nRun: epicenter flights add\n',
+		code: 1,
+	});
+	expect(
+		renderAnswer({
+			data: null,
+			error: { kind: 'fault', message: 'Unexpected end of input' },
+		}),
+	).toEqual({ stdout: '', stderr: 'Unexpected end of input\n', code: 1 });
+	expect(
+		renderAnswer({
+			data: null,
+			error: {
+				kind: 'refused',
+				reason: { name: 'Usage', message: 'm', next: 'n' },
+			},
+		}),
+	).toEqual({ stdout: '', stderr: 'm\nRun: n\n', code: 2 });
 });

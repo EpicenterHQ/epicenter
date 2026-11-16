@@ -33,7 +33,7 @@ test('listing isolates broken imports, invalid apps and folders that cannot name
 	await f.app('invalid', `export default {actions:{bad:{input:{}}}};`);
 	await f.app(
 		'spaced',
-		`export default defineApp({ description: 'The spaced app', collections: {}, actions: { 'week show': defineAction({ description: 'Show', input: {}, run: () => 1 }) } });`,
+		`export default defineApp({ description: 'The spaced app', collections: {}, actions: { 'week show': defineAction({ description: 'Show', input: {}, run: () => Ok(1) }) } });`,
 	);
 	const linked = await f.app(
 		'linked',
@@ -131,37 +131,27 @@ test('commands write disk data and return one JSON answer without diagnostics', 
 	const result = await f.run(
 		'reading',
 		'log',
-		'30',
-		'--book',
-		'Dune',
+		'{"minutes":30,"book":"Dune"}',
 		'--json',
 	);
 	expect(result.code).toBe(0);
 	expect(result.stderr).toBe('');
 	expect(JSON.parse(result.stdout)).toEqual({
-		returned: { minutes: 30, book: 'Dune' },
+		data: { minutes: 30, book: 'Dune' },
+		error: null,
 	});
 	expect(
 		JSON.parse(
 			await readFile(join(f.apps, 'reading/data/records/log.json'), 'utf8'),
 		),
 	).toEqual({ minutes: 30, book: 'Dune' });
-	const human = await f.run('reading', 'log', '15');
+	const human = await f.run('reading', 'log', '{"minutes":15}');
 	expect(human.stdout).toContain('minutes: 15');
 	expect(human.stderr).toBe('');
 	expect(
-		(await f.run('vault', 'calendar', 'show', '2026-11-08', '--json')).stdout,
-	).toBe('{"returned":{"day":"2026-11-08"}}\n');
-});
-
-test('negative numbers work as positional, separate flag and inline flag values', async () => {
-	const f = await setup();
-	for (const args of [['-3'], ['--minutes', '-3'], ['--minutes=-3']]) {
-		const result = await f.run('reading', 'log', ...args, '--json');
-		expect(result.code).toBe(0);
-		expect(result.stderr).toBe('');
-		expect(JSON.parse(result.stdout).returned).toEqual({ minutes: -3 });
-	}
+		(await f.run('vault', 'calendar', 'show', '{"day":"2026-11-08"}', '--json'))
+			.stdout,
+	).toBe('{"data":{"day":"2026-11-08"},"error":null}\n');
 });
 
 test('usage errors return exit 2 and exactly one JSON error', async () => {
@@ -170,18 +160,15 @@ test('usage errors return exit 2 and exactly one JSON error', async () => {
 		[['nope'], 'nope'],
 		[['reading', 'nope'], 'reading has no action "nope". Its actions:'],
 		[
-			['reading', 'lgo', '3'],
-			'reading has no action "lgo". Its actions:\nepicenter reading log <minutes> [--flags]\nepicenter reading week summary\n',
+			['reading', 'lgo', '{"minutes":3}'],
+			'reading has no action "lgo". Its actions:\nepicenter reading log <input>\nepicenter reading week summary\n',
 		],
-		[['reading', 'log', '3', '--nope'], '--nope'],
-		[['reading', 'log'], '<minutes> is needed'],
-		[['reading', 'log', 'oops'], 'number'],
-		[['reading', 'log', '3', '4'], 'positional'],
-		[['reading', 'log', '3', '--book', 'a', '--book', 'b'], '--book'],
-		[['reading', 'log', '3', '--minutes', '4'], '--minutes'],
-		[['reading', 'log', '3', '--book'], 'needs a value'],
-		[['reading', 'tag', '--done=maybe'], 'takes no value, or =true or =false'],
-		[['reading', 'log', '3', '--version'], '--version'],
+		[['reading', 'log', '{"minutes":3,"nope":1}'], '"nope" is not a key'],
+		[['reading', 'log'], 'minutes is needed'],
+		[['reading', 'log', '{"minutes":"oops"}'], 'minutes must be a number'],
+		[['reading', 'log', '{"minutes":3}', '{}'], 'one argument'],
+		[['reading', 'tag', '{"done":"maybe"}'], 'done must be true or false'],
+		[['reading', 'log', '{"minutes":3}', '--version'], 'one argument'],
 		[['setup'], 'Unknown app "setup"'],
 	];
 	for (const [args, message] of cases) {
@@ -189,10 +176,12 @@ test('usage errors return exit 2 and exactly one JSON error', async () => {
 		expect(result.code).toBe(2);
 		expect(result.stderr).toBe('');
 		expect(result.stdout.trim().split('\n')).toHaveLength(1);
-		expect(JSON.parse(result.stdout).error).toMatchObject({
-			name: 'Usage',
-			message: expect.stringContaining(message),
-		});
+		const reason = { name: 'Usage', message: expect.stringContaining(message) };
+		expect(JSON.parse(result.stdout)).toMatchObject(
+			args.length > 1
+				? { data: null, error: { kind: 'refused', reason } }
+				: { error: reason },
+		);
 	}
 	expect((await f.run('mcp', 'nope')).code).toBe(2);
 });
@@ -205,6 +194,7 @@ test('a misused command answers its usage line, with its help as the next step',
 		['new'],
 		['new', 'garden', '--from'],
 		['build', 'reading', 'vault'],
+		['check', 'reading', 'vault'],
 		['install', 'reading', 'vault'],
 		['init', '--port'],
 	] as const;
@@ -230,35 +220,84 @@ test('a misused command answers its usage line, with its help as the next step',
 	);
 });
 
-test('lists repeat, switches default and literal positionals append to flagged values', async () => {
+test('an absent switch is false and an absent list is empty', async () => {
 	const f = await setup();
 	const answer = async (...args: string[]) =>
-		JSON.parse((await f.run(...args, '--json')).stdout).returned;
+		JSON.parse((await f.run(...args, '--json')).stdout).data;
 	expect(await answer('reading', 'tag')).toEqual({ tags: [], done: false });
-	expect(await answer('reading', 'tag', '--done=true')).toEqual({
+	expect(await answer('reading', 'tag', '{"done":true}')).toEqual({
 		tags: [],
 		done: true,
 	});
-	expect(await answer('reading', 'tag', '--done=false')).toEqual({
-		tags: [],
-		done: false,
-	});
 	expect(
-		await answer('reading', 'tag', '--tags', 'a', '--tags=b', '--done'),
-	).toEqual({ tags: ['a', 'b'], done: true });
-	expect(
-		(await f.run('reading', 'collect', '--tags', 'a', 'b', '--', '--literal'))
-			.stdout,
-	).toBe('tags: ["a","b","--literal"]\n');
+		await answer('reading', 'tag', '{"tags":["a","--b"],"done":true}'),
+	).toEqual({ tags: ['a', '--b'], done: true });
 });
 
 test('a throwing action returns exit 1 with its message', async () => {
 	const f = await setup();
-	expect(await f.run('reading', 'explode', '--json')).toEqual({
-		code: 1,
-		stdout: '{"threw":{"message":"action exploded"}}\n',
-		stderr: '',
+	const { code, stdout, stderr } = await f.run('reading', 'explode', '--json');
+	expect({ code, stderr }).toEqual({ code: 1, stderr: '' });
+	expect(JSON.parse(stdout)).toEqual({
+		data: null,
+		error: { kind: 'fault', message: 'action exploded' },
 	});
+});
+
+test('a failed stdout write after the action runs never emits a refusal or retries its effects', async () => {
+	const f = await fixture();
+	roots.push(f.root);
+	await f.app(
+		'counts',
+		`export default defineApp({description:'Counts',collections:{},actions:{
+		increment:defineAction({description:'Increment',input:{}, async run(){
+			await folder.update('data/count.local', (value = '0') => String(Number(value) + 1));
+			return Ok('done');
+		}}),
+	}});`,
+	);
+	const preload = join(f.root, 'fail-first-output.ts');
+	await writeFile(
+		preload,
+		`
+		const write = process.stdout.write.bind(process.stdout);
+		process.stdout.write = (...args) => {
+			process.stdout.write = write;
+			throw new Error('simulated output failure');
+		};
+	`,
+	);
+	const child = Bun.spawn(
+		[
+			process.execPath,
+			'--preload',
+			preload,
+			f.bin,
+			'counts',
+			'increment',
+			'--json',
+		],
+		{
+			cwd: f.root,
+			env: f.env,
+			stdout: 'pipe',
+			stderr: 'pipe',
+		},
+	);
+	const [stdout, stderr, code] = await Promise.all([
+		new Response(child.stdout).text(),
+		new Response(child.stderr).text(),
+		child.exited,
+	]);
+	expect({ stdout, stderr, code }).toEqual({
+		stdout: '',
+		code: 1,
+		stderr:
+			'Epicenter invoked the action but could not report its outcome: simulated output failure\n',
+	});
+	expect(await readFile(join(f.apps, 'counts/data/count.local'), 'utf8')).toBe(
+		'1',
+	);
 });
 
 test('runs use the selected Epicenter and their own local files', async () => {
@@ -270,7 +309,7 @@ test('runs use the selected Epicenter and their own local files', async () => {
 		'--json',
 	);
 	expect(result.code).toBe(0);
-	const value = JSON.parse(result.stdout).returned;
+	const value = JSON.parse(result.stdout).data;
 	expect(value.folder).toBe(join(f.apps, 'reading'));
 	expect(
 		await Bun.file(join(f.apps, 'reading', 'data/index.local.json')).exists(),
@@ -286,7 +325,7 @@ test('runs use the selected Epicenter and their own local files', async () => {
 	);
 	const homeRun = JSON.parse(
 		(await f.run('reading', 'inspect', '--json')).stdout,
-	).returned;
+	).data;
 	expect(homeRun.folder).toBe(join(f.apps, 'reading'));
 	expect(
 		await Bun.file(join(f.apps, 'reading/data/index.local.json')).exists(),
@@ -300,13 +339,13 @@ test('app and action views include locations, schemas, field help and version', 
 	expect(view).not.toHaveProperty('keychain');
 	expect((await f.run('reading')).stdout).toContain('folder:');
 	expect((await f.run('reading', 'log', '-h')).stdout).toContain(
-		'<minutes>, --minutes <number>  required.',
+		'  minutes  required  a number',
 	);
 	expect(
 		JSON.parse((await f.run('reading', 'log', '--help', '--json')).stdout),
 	).toMatchObject({ name: 'reading_log', inputSchema: { type: 'object' } });
 	expect(JSON.parse((await f.run('--version', '--json')).stdout)).toEqual({
-		version: '0.1.0',
+		version: VERSION,
 	});
 	expect((await f.run('--help')).stdout).toContain('Exit codes:');
 	expect((await f.run('--help')).stdout).toContain('epicenter install [<app>]');
@@ -339,7 +378,7 @@ test('an app is named by its folder in the home, whatever its description says',
 	expect(listed.apps.map((app: { name: string }) => app.name)).toContain(
 		'other-name',
 	);
-	const result = await f.run('other-name', 'log', '30', '--json');
+	const result = await f.run('other-name', 'log', '{"minutes":30}', '--json');
 	expect(result.code).toBe(0);
-	expect(JSON.parse(result.stdout).returned).toEqual({ minutes: 30 });
+	expect(JSON.parse(result.stdout).data).toEqual({ minutes: 30 });
 });

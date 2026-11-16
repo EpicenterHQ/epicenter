@@ -1086,7 +1086,7 @@ When you add an ADR, add its row here.
 | [0864](0864-epicenter-is-a-data-server-for-repositories-of-files-and-code-runs-where-its-owner-trusts-it.md) | Epicenter is a data server for repositories of files, and code runs where its owner trusts it | Proposed |
 | [0865](0865-the-epicenter-mac-app-runs-epicenter-serve-so-the-computer-it-is-on-is-your-server.md) | The Epicenter Mac app runs `epicenter serve`, so the computer it is on is your server | Proposed |
 | [0866](0866-an-app-starts-from-a-starter-kept-as-its-upstream-and-update-merges-the-starters-changes.md) | An app starts from a starter kept as its `upstream`, and `epicenter update` merges the starter's changes | Superseded by 0910 |
-| [0867](0867-the-command-line-spells-an-actions-json-input-and-null-removes-a-field-there-as-everywhere.md) | The command line spells an action's JSON input, and `null` removes a field there as everywhere | Proposed |
+| [0867](0867-the-command-line-spells-an-actions-json-input-and-null-removes-a-field-there-as-everywhere.md) | `null` removes a field on every surface, and the exit code says what happened | Proposed (amended by 0925) |
 | [0868](0868-an-epicenter-is-any-folder-that-says-it-is-one-and-a-computer-runs-as-many-as-it-has.md) | An Epicenter is any folder that says it is one, and a computer runs as many as it has | Proposed |
 | [0869](0869-a-body-is-changed-by-quoting-the-passage-it-replaces.md) | A body is changed by quoting the passage it replaces | Proposed |
 | [0870](0870-an-apps-secrets-are-local-files-and-a-local-file-never-leaves-its-computer.md) | An app's secrets are `.local` files, and a `.local` file never leaves its computer | Accepted (amended by 0903) |
@@ -1133,3 +1133,12 @@ When you add an ADR, add its row here.
 | [0915](0915-serve-owns-a-pages-runs-and-a-file-input-is-a-temporary-upload.md) | Serve owns a page's runs and a file input is a temporary upload | Accepted |
 | [0916](0916-export-saves-a-local-checkpoint-before-copying-code.md) | Export saves a local checkpoint before copying code | Proposed (amends 0910 and 0911) |
 | [0917](0917-a-pages-calls-are-serve-owned-runs-and-observing-is-not-cancelling.md) | A page's calls are serve-owned runs, and observing is not cancelling | Accepted (amends 0879 and 0915) |
+| [0918](0918-a-collection-selects-a-record-by-its-keys-and-a-file-that-is-not-there-reads-as-absent.md) | A collection selects a record by its keys, and a file that is not there reads as absent | Proposed |
+| [0919](0919-a-collection-declares-its-files-beside-its-fields-and-they-rest-in-the-folder-named-by-its-key.md) | A collection declares its files beside its fields, and they rest in the folder named by its key | Proposed |
+| [0920](0920-a-field-can-list-values-and-can-refer-to-another-collections-record-by-its-key.md) | A field can list values and can refer to another collection's record by its key | Proposed |
+| [0921](0921-epicenter-check-reports-every-record-that-does-not-fit-its-collection.md) | `epicenter check` reports every record that does not fit its collection | Proposed |
+| [0922](0922-a-file-reaches-an-action-as-its-own-input-beside-input-and-only-a-page-sends-one.md) | A file reaches an action as its own input beside `input`, and only a page sends one | Proposed (amends 0915) |
+| [0923](0923-a-read-gives-only-what-the-file-holds-and-no-field-has-a-default.md) | A read gives only what the file holds, and no field has a default | Proposed |
+| [0924](0924-front-matter-is-key-json-lines-each-read-on-its-own-and-no-yaml-is-read.md) | Front matter is `key: <JSON>` lines, each read on its own, and no YAML is read | Proposed |
+| [0925](0925-an-actions-input-on-the-command-line-is-one-json-object.md) | An action's input on the command line is one JSON object | Proposed (amends 0841 and 0907) |
+| [0926](0926-a-collections-methods-return-results-and-a-file-that-is-not-a-record-is-an-error.md) | An action returns one Result from its collections to its callers | Accepted (amends 0850 and 0914) |

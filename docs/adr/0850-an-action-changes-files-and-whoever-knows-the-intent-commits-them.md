@@ -1,6 +1,7 @@
 # 0850. An action changes files, and whoever knows the intent commits them
 
 - **Status:** Proposed
+- **Amended by:** [ADR-0926](0926-a-collections-methods-return-results-and-a-file-that-is-not-a-record-is-an-error.md) on the action answer and its CLI exit code.
 - **Date:** 2026-11-09 (first drafted 2026-11-08 as "Every writer commits exactly what it wrote")
 - **Supersedes:** [ADR-0848](0848-the-runner-owns-only-what-an-action-wrote.md): recorded writes and run phases.
 - **Amends:** [ADR-0842](0842-an-action-is-a-commit-and-the-repository-is-the-sync.md): a run makes no commit and undoes no files; exit codes are 0, 1, and 2.

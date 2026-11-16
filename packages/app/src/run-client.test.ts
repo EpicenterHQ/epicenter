@@ -4,6 +4,7 @@
  */
 import { afterEach, expect, test } from 'bun:test';
 import { Type } from 'typebox';
+import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { defineAction } from './action.ts';
 import { connect, runs } from './client.ts';
@@ -41,12 +42,12 @@ function journal() {
 const upload = defineAction({
 	description: 'Upload',
 	input: { file: field.file() },
-	run: () => null,
+	run: () => Ok(null),
 });
 const empty = defineAction({
 	description: 'Empty',
 	input: {},
-	run: () => null,
+	run: () => Ok(null),
 });
 const app = connect<{
 	actions: {
@@ -129,7 +130,7 @@ test('run controls preserve ordinary action names at every depth', async () => {
 	expectOk(await hosted.cancel());
 });
 
-test('file declarations validate MIME types, bounds, and positional use', () => {
+test('file declarations validate MIME types and bounds', () => {
 	for (const maxBytes of [0, -1, 1.5, MAX_FILE_BYTES + 1])
 		expect(() => field.file({ maxBytes })).toThrow('maxBytes');
 	for (const accept of [['audio'], ['*/*'], ['text/plain; charset=utf-8']])
@@ -137,14 +138,6 @@ test('file declarations validate MIME types, bounds, and positional use', () => 
 	expect(() =>
 		field.file({ accept: ['audio/*', 'text/plain'], maxBytes: 1 }),
 	).not.toThrow();
-	expect(() =>
-		defineAction({
-			description: 'Bad',
-			input: { file: field.file() },
-			positional: ['file'],
-			run: () => null,
-		}),
-	).toThrow('as a positional');
 });
 
 for (const schema of [
@@ -157,7 +150,7 @@ for (const schema of [
 			defineAction({
 				description: 'Nested',
 				input: { nested: schema },
-				run: () => null,
+				run: () => Ok(null),
 			}),
 		).toThrow('top-level');
 	});
@@ -315,47 +308,6 @@ test('ordinary calls leave receipts untouched and report identity after uncertai
 	await run.cancel();
 });
 
-test('a terminal cursor ends without duplicate and caches its answer', async () => {
-	journal();
-	let requests = 0;
-	globalThis.fetch = (async () => {
-		requests++;
-		return new Response(
-			'{"seq":4,"at":"now","type":"finished","answer":{"returned":null}}\n',
-		);
-	}) as unknown as typeof fetch;
-	const run = runs.attach(app.start, 'terminal-run-identifier');
-	const frames = [];
-	for await (const event of run.events({ after: 4 })) frames.push(event);
-	expect(frames).toEqual([]);
-	expectOk(await run.result());
-	expect(requests).toBe(1);
-});
-
-test('replaying below a cached terminal retains the cached result', async () => {
-	journal();
-	let requests = 0;
-	globalThis.fetch = (async (url: string | URL | Request) => {
-		requests++;
-		if (String(url).endsWith('after=4'))
-			return new Response(
-				'{"seq":4,"at":"now","type":"finished","answer":{"returned":null}}\n',
-			);
-		return new Response(
-			'{"seq":1,"at":"now","type":"accepted"}\n{"seq":2,"at":"now","type":"started"}\n{"seq":3,"at":"now","type":"yielded","value":1}\n{"seq":4,"at":"now","type":"finished","answer":{"returned":null}}\n',
-		);
-	}) as unknown as typeof fetch;
-	const run = runs.attach(app.start, 'terminal-replay-identifier');
-	for await (const _event of run.events({ after: 4 })) {
-		/* terminal was already seen */
-	}
-	const replay = [];
-	for await (const event of run.events()) replay.push(event.type);
-	expect(replay).toEqual(['accepted', 'started', 'yielded', 'finished']);
-	expectOk(await run.result());
-	expect(requests).toBe(2);
-});
-
 test('multiple observers share one reader and replay the same ordered frames', async () => {
 	journal();
 	let requests = 0;
@@ -439,47 +391,29 @@ test('aborting during onYield stops observation before later buffered values', a
 	});
 });
 
-test('result with onYield replays yields after events consumed the terminal', async () => {
+test('events reconnects after the last yield and result replays all yields from memory', async () => {
 	journal();
-	let requests = 0;
-	globalThis.fetch = (async () => {
-		requests++;
+	const urls: string[] = [];
+	globalThis.fetch = (async (url: string | URL | Request) => {
+		urls.push(String(url));
+		if (urls.length === 1)
+			return new Response('{"seq":1,"at":"now","type":"yielded","value":1}\n');
 		return new Response(
-			'{"seq":1,"at":"now","type":"yielded","value":1}\n{"seq":2,"at":"now","type":"yielded","value":2}\n{"seq":3,"at":"now","type":"finished","answer":{"returned":null}}\n',
+			'{"seq":2,"at":"now","type":"yielded","value":2}\n{"seq":3,"at":"now","type":"finished","answer":{"data":null,"error":null}}\n',
 		);
 	}) as unknown as typeof fetch;
 	const run = runs.start(app.start, {});
 	for await (const _event of run.events()) {
 		/* consume the run */
 	}
-	const before = requests;
+	expect(urls[1]).toBe(`${urls[0]}/events?after=1`);
 	expectOk(await run.result());
-	expect(requests).toBe(before);
 	const values: unknown[] = [];
 	expect(
 		expectOk(await run.result({ onYield: (value) => values.push(value) })),
 	).toBeNull();
 	expect(values).toEqual([1, 2]);
-});
-
-test('result with onYield fetches older yields when its buffer starts later', async () => {
-	journal();
-	const requests: string[] = [];
-	globalThis.fetch = (async (url: string | URL | Request) => {
-		requests.push(String(url));
-		return new Response(
-			'{"seq":1,"at":"now","type":"yielded","value":1}\n{"seq":2,"at":"now","type":"yielded","value":2}\n{"seq":3,"at":"now","type":"finished","answer":{"returned":null}}\n',
-		);
-	}) as unknown as typeof fetch;
-	const run = runs.start(app.start, {});
-	for await (const _event of run.events({ after: 2 })) {
-		/* start after the yields */
-	}
-	const values: unknown[] = [];
-	expectOk(await run.result({ onYield: (value) => values.push(value) }));
-	expect(values).toEqual([1, 2]);
-	expect(requests).toHaveLength(2);
-	expect(requests[1]).toEndWith('/events?after=0');
+	expect(urls).toHaveLength(2);
 });
 
 test('ordinary and explicit calls create v4 run IDs without crypto.randomUUID', async () => {

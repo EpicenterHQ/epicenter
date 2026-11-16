@@ -8,6 +8,7 @@ import { appendFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { connect } from '@epicenter/app/client';
+import type { Ok } from 'wellcrafted/result';
 import { linkAppPackage } from '../app-package.ts';
 import { fixture, gitIn } from '../runner.test-support.ts';
 
@@ -78,8 +79,8 @@ await f.app(
 	`
 const base = Array.from({length: 240}, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', content: ('Message ' + i + ': ' + 'A deterministic chat history. '.repeat(32)).slice(0, 975) }));
 export default defineApp({ description:'Benchmark', collections:{}, actions:{
- poll: defineAction({ description:'Read chat', input:{ version:field.integer() }, run:({version}) => ({ messages: [...base, ...Array.from({length:version}, (_, i) => ({role:'assistant', content:'Appended message ' + i}))] }) }),
- stream: defineAction({ description:'Stream tokens', input:{}, async *run() { const latency = []; for (let i=0; i<500; i++) { const started = performance.now(); yield {token:'token', index:i}; latency.push(performance.now()-started); } return latency; } }),
+ poll: defineAction({ description:'Read chat', input:{ version:field.integer() }, run:({version}) => Ok(({ messages: [...base, ...Array.from({length:version}, (_, i) => ({role:'assistant', content:'Appended message ' + i}))] })) }),
+ stream: defineAction({ description:'Stream tokens', input:{}, async *run() { const latency = []; for (let i=0; i<500; i++) { const started = performance.now(); yield {token:'token', index:i}; latency.push(performance.now()-started); } return Ok(latency); } }),
 } });`,
 );
 await linkAppPackage(join(f.apps, 'bench', 'code'));
@@ -138,8 +139,8 @@ globalThis.fetch = (async (
 }) as typeof fetch;
 const app = connect<{
 	actions: {
-		poll: (input: { version: number }) => { messages: unknown[] };
-		stream: () => Promise<number[]>;
+		poll: (input: { version: number }) => Ok<{ messages: unknown[] }>;
+		stream: () => Promise<Ok<number[]>>;
 	};
 }>({ app: 'bench', url: 'http://127.0.0.1:4747/' });
 const dbPath = join(runtime, 'runs.sqlite');
@@ -290,10 +291,14 @@ try {
 	await log(
 		`day 2 replay: status=${replay.status} terminal=${frames.at(-1)?.type}`,
 	);
+	const terminal = frames.at(-1);
+	const answer = terminal?.answer;
+	const result = answer?.result ?? answer;
 	if (
 		gone.status !== 404 ||
 		replay.status !== 200 ||
-		frames.at(-1)?.type !== 'finished' ||
+		terminal?.type !== 'finished' ||
+		result?.error !== null ||
 		refusals
 	)
 		throw new Error('Benchmark verification failed');

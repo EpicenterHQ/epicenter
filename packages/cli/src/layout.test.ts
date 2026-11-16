@@ -10,6 +10,7 @@ import {
 } from 'node:fs/promises';
 import { join } from 'node:path';
 import { connect } from '@epicenter/app/client';
+import type { Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import { checkpoint } from './checkpoint.js';
 import { hold } from './lock.js';
@@ -21,7 +22,7 @@ afterEach(async () => {
 	for (const root of roots.splice(0))
 		await rm(root, { recursive: true, force: true });
 });
-const code = `export default defineApp({description:'X',collections:{},actions:{put:defineAction({description:'Write',input:{},run:async()=>{await folder.write('data/record.md','record');return folder.path;}})}});`;
+const code = `export default defineApp({description:'X',collections:{},actions:{put:defineAction({description:'Write',input:{},run:async()=>{await folder.write('data/record.md','record');return Ok(folder.path);}})}});`;
 async function assertNoGit(folder: string): Promise<void> {
 	for (const entry of await readdir(folder, { withFileTypes: true })) {
 		expect(entry.name).not.toBe('.git');
@@ -38,7 +39,7 @@ test('CLI and HTTP writes use container paths and leave the root commit unchange
 	const before = await gitIn(f.home, 'rev-parse', 'HEAD');
 	const cli = await f.run('x', 'put', '--json');
 	expect(cli.code).toBe(0);
-	expect(JSON.parse(cli.stdout)).toEqual({ returned: app });
+	expect(JSON.parse(cli.stdout)).toEqual({ data: app, error: null });
 	expect(await readFile(join(app, 'data/record.md'), 'utf8')).toBe('record');
 	expect(await gitIn(f.home, 'rev-parse', 'HEAD')).toBe(before);
 	await assertNoGit(f.apps);
@@ -53,7 +54,7 @@ test('CLI and HTTP writes use container paths and leave the root commit unchange
 			await Bun.sleep(20);
 		const started = await gitIn(f.home, 'rev-parse', 'HEAD');
 		await rm(join(app, 'data/record.md'));
-		const client = connect<{ actions: { put: () => Promise<string> } }>({
+		const client = connect<{ actions: { put: () => Promise<Ok<string>> } }>({
 			app: 'x',
 			url: `${served.base}/`,
 		});
@@ -92,7 +93,7 @@ test('a waiting action keeps locking the container when code is replaced', async
 	const result = await call;
 	expect(result.code).toBe(0);
 	expect(Date.now() - start).toBeGreaterThanOrEqual(400);
-	expect(JSON.parse(result.stdout)).toEqual({ returned: app });
+	expect(JSON.parse(result.stdout)).toEqual({ data: app, error: null });
 	expect(await readFile(join(app, 'data/record.md'), 'utf8')).toBe('record');
 });
 

@@ -4,7 +4,7 @@
  */
 import { describe, test } from 'bun:test';
 import { Type } from 'typebox';
-import type { Result } from 'wellcrafted/result';
+import { type Err, Ok, type Result } from 'wellcrafted/result';
 import type { ActionYield } from './action.ts';
 import type {
 	ActionError,
@@ -12,7 +12,6 @@ import type {
 	ActionOutput,
 	AppClient,
 } from './client.ts';
-import type { JsonValue } from './front-matter.ts';
 import {
 	createMemoryContext,
 	defineAction,
@@ -45,11 +44,12 @@ const settings = defineCollection({
 const learn = defineAction({
 	description: 'Learn a word, due now',
 	input: { word: field.text(), meaning: field.text({ optional: true }) },
-	positional: ['word', 'meaning'],
 	run: async ({ word, meaning }) => {
 		assertType<Equal<typeof word, string>>();
 		assertType<Equal<typeof meaning, string | undefined>>();
-		const goal = (await settings.get()).dailyGoal;
+		const setting = await settings.get();
+		if (setting.error) return setting;
+		const goal = setting.data.dailyGoal;
 		assertType<Equal<typeof goal, number | undefined>>();
 		// The handle writes readOnly fields; the exposed add and set do not take them.
 		return words.add({ word, meaning, createdAt: '2026-11-10T00:00:00Z' });
@@ -58,16 +58,28 @@ const learn = defineAction({
 
 const review = defineAction({
 	description: 'Schedule a word',
-	input: { path: field.text() },
-	run: async ({ path }) => {
-		const found = await words.get({ path });
+	input: { word: field.text() },
+	run: async ({ word }) => {
+		const read = await words.get({ word });
+		if (read.error) return read;
+		const found = read.data;
 		assertType<
 			Equal<NonNullable<typeof found>['meaning'], string | undefined>
 		>();
-		await words.set({ path, due: '2026-11-11T04:00:00Z' });
-		// @ts-expect-error a collection of many files has no get without a path
+		const changed = await words.set({ word }, { due: '2026-11-11T04:00:00Z' });
+		if (changed.error) return changed;
+		// A row names its own record.
+		for (const row of await words.list()) {
+			if (row.error) return row;
+			await words.delete(row.data);
+		}
+		// @ts-expect-error a collection with a placeholder names its record by its keys
 		await words.get();
-		return found?.meaning;
+		// @ts-expect-error a record is named by its keys, not its path
+		await words.get({ path: 'data/words/a.md' });
+		// @ts-expect-error which record, then the change: two arguments
+		await words.set({ word, meaning: 'x' });
+		return Ok(found?.meaning);
 	},
 });
 
@@ -88,42 +100,60 @@ type Out<A> = A extends (input: never) => infer O ? Awaited<O> : never;
 describe('an app author', () => {
 	test('gets every action under its words, with exact inputs and outputs', () => {
 		assertType<Equal<keyof Actions, 'words' | 'settings' | 'review'>>();
-		assertType<
-			Equal<
-				keyof Actions['words'],
-				'list' | 'get' | 'add' | 'set' | 'edit' | 'delete'
-			>
-		>();
-		assertType<Equal<keyof Actions['settings'], 'get' | 'set' | 'edit'>>();
+		assertType<Equal<keyof Actions['words'], 'list' | 'get' | 'add' | 'set'>>();
+		assertType<Equal<keyof Actions['settings'], 'list' | 'get' | 'set'>>();
 		assertType<
 			Equal<
 				In<Actions['words']['set']>,
-				{ path: string; meaning?: string | null | undefined }
+				{
+					word: string;
+					meaning?: string | null | undefined;
+					was?: {
+						meaning?: string | null;
+						createdAt?: string | null;
+						due?: string | null;
+					};
+					edit?: { old: string; new: string };
+				}
 			>
 		>();
+		// @ts-expect-error an edit names both old and new
+		() => vocab.actions.words.set({ word: 'a', edit: { old: 'x' } });
+		assertType<Equal<In<Actions['words']['get']>, { word: string }>>();
+		assertType<Equal<In<Actions['settings']['get']>, Record<string, never>>>();
+		type Item = NonNullable<Out<Actions['words']['list']>['data']>[number];
 		assertType<
 			Equal<
-				Out<Actions['words']['list']>[number],
+				Extract<Item, Ok<unknown>>['data'],
 				{
 					path: string;
 					word: string;
 					meaning?: string;
-					createdAt?: string;
+					createdAt: string;
 					due?: string;
-					problems?: string[];
 				}
 			>
 		>();
+		assertType<Equal<Extract<Item, Err<unknown>>['error']['name'], 'Misfit'>>();
 		assertType<
 			Equal<
 				In<Actions['settings']['set']>,
-				{ dailyGoal?: number | null | undefined }
+				{
+					dailyGoal?: number | null | undefined;
+					was?: { dailyGoal?: number | null };
+					edit?: { old: string; new: string };
+				}
 			>
 		>();
 		assertType<
 			Equal<In<Actions['words']['add']>, { word: string; meaning?: string }>
 		>();
-		assertType<Equal<Out<Actions['review']>, string | undefined>>();
+		assertType<
+			Equal<
+				Extract<Out<Actions['review']>, Ok<unknown>>['data'],
+				string | undefined
+			>
+		>();
 	});
 
 	test('an action is called as a function, inside a run', async () => {
@@ -132,69 +162,32 @@ describe('an app author', () => {
 		);
 	});
 
-	test('a collection is what it was defined with, plus its methods', () => {
-		assertType<Equal<typeof words.path, 'data/words/{word}.md'>>();
-		assertType<Equal<typeof settings.holds, (path: string) => boolean>>();
-	});
-
-	test('a read has a defaulted field always, every other field maybe, and every placeholder', () => {
-		const tasks = defineCollection({
-			path: 'data/tasks/{year}/{id}.md',
-			fields: {
-				title: field.text(),
-				done: field.boolean(),
-				tags: field.tags(),
+	test('a list with min is required, to give and in a read, and never always filled', () => {
+		const route = defineAction({
+			description: 'Save a route',
+			input: {
+				airports: field.list(field.text(), { min: 1 }),
+				stops: field.list(field.text(), { min: 0 }),
+			},
+			run: ({ airports, stops }) => {
+				assertType<Equal<typeof airports, string[]>>();
+				assertType<Equal<typeof stops, string[]>>();
+				return Ok(airports.length + stops.length);
 			},
 		});
-		type Read = Awaited<ReturnType<typeof tasks.list>>[number];
 		assertType<
-			Equal<
-				Read,
-				{
-					path: string;
-					year: string;
-					id: string;
-					title?: string;
-					done: boolean;
-					tags: string[];
-					problems?: string[];
-				}
-			>
+			Equal<ActionInput<typeof route>, { airports: string[]; stops?: string[] }>
 		>();
-		assertType<
-			Equal<Parameters<typeof tasks.pathOf>[0], { year: string; id: string }>
-		>();
-		assertType<Equal<Parameters<typeof words.pathOf>[0], { word: string }>>();
-	});
-
-	test('a required readOnly field without a default leaves add out', () => {
-		assertType<
-			Equal<
-				keyof ReturnType<typeof words.actions>,
-				'list' | 'get' | 'set' | 'edit' | 'delete'
-			>
-		>();
-		// @ts-expect-error words has a required readOnly createdAt, so no add
-		() => words.actions('add');
-		const flags = defineCollection({
-			path: 'data/flags/{id}.md',
-			fields: {
-				pinned: field.boolean({ readOnly: true }),
-				labels: field.tags({ readOnly: true }),
-			},
-		});
-		type SetIn = In<ReturnType<typeof flags.actions<'set'>>['set']>;
-		assertType<Equal<SetIn, { path: string }>>();
 	});
 
 	test('a caller may leave out a defaulted field, and run receives it', () => {
 		const tag = defineAction({
 			description: 'Tag',
-			input: { tags: field.tags(), done: field.boolean() },
+			input: { tags: field.list(field.text()), done: field.boolean() },
 			run: ({ tags, done }) => {
 				assertType<Equal<typeof tags, string[]>>();
 				assertType<Equal<typeof done, boolean>>();
-				return { count: tags.length, at: done ? 'now' : undefined };
+				return Ok({ count: tags.length, at: done ? 'now' : undefined });
 			},
 		});
 		assertType<
@@ -203,23 +196,26 @@ describe('an app author', () => {
 		assertType<
 			Equal<ActionOutput<typeof tag>, { count: number; at?: string }>
 		>();
-		const nothing = defineAction({ description: 'n', input: {}, run() {} });
+		const nothing = defineAction({
+			description: 'n',
+			input: {},
+			run: () => Ok(undefined),
+		});
 		assertType<Equal<ActionOutput<typeof nothing>, null>>();
-		// @ts-expect-error a Date is not a value JSON carries
 		defineAction({
 			description: 'Now',
 			input: {},
-			run: () => ({ at: new Date() }),
+			// @ts-expect-error a Date is not a value JSON carries
+			run: () => Ok({ at: new Date() }),
 		});
 		const say = defineAction({
 			description: 'Say',
 			privateInput: true,
 			input: { message: field.text() },
-			positional: ['message'],
 			async *run({ message }) {
 				yield message;
 				yield { step: 1 };
-				return { reply: message };
+				return Ok({ reply: message });
 			},
 		});
 		assertType<Equal<ActionInput<typeof say>, { message: string }>>();
@@ -247,67 +243,7 @@ describe('an app author', () => {
 			);
 		const vocabUi = {} as AppClient<Actions>;
 		// @ts-expect-error an action that only returns takes no onYield
-		() => vocabUi.review({ path: 'a' }, { onYield: () => {} });
-	});
-
-	test('update gives the record as get does, undefined when there is none, and takes what set takes, without path and with body', () => {
-		type Revise = Parameters<typeof words.update>[1];
-		type Given = Parameters<Revise>[0];
-		type Found = NonNullable<Awaited<ReturnType<typeof words.get>>>;
-		assertType<Equal<Given, Found | undefined>>();
-		assertType<
-			Equal<
-				ReturnType<Revise>,
-				{
-					meaning?: string | null;
-					createdAt?: string;
-					due?: string | null;
-					body?: string;
-				}
-			>
-		>();
-		assertType<Equal<ReturnType<typeof words.update>, Promise<Found>>>();
-		() =>
-			words.update({ path: 'data/words/a.md' }, (word) => ({
-				due: word?.due ?? null,
-				body: `${word?.body ?? ''}more\n`,
-			}));
-		() =>
-			// @ts-expect-error createdAt is required, so it cannot be removed
-			words.update({ path: 'data/words/a.md' }, () => ({ createdAt: null }));
-		// @ts-expect-error a path is not a field
-		() => words.update({ path: 'data/words/a.md' }, () => ({ path: 'b' }));
-		// @ts-expect-error a collection of many files updates one path
-		() => words.update(() => ({ meaning: 'x' }));
-		() => settings.update((file) => ({ dailyGoal: (file.dailyGoal ?? 0) + 1 }));
-		// @ts-expect-error update is a method, not a verb
-		() => settings.actions('update');
-	});
-
-	test('a one-file collection has no list, add, or delete', () => {
-		// @ts-expect-error data/settings.md is one file
-		() => settings.actions('list');
-		// @ts-expect-error data/settings.md is one file
-		() => settings.delete;
-	});
-
-	test('add takes every placeholder but {time}', () => {
-		const notes = defineCollection({
-			path: 'data/notes/{year}/{time}.md',
-			fields: { title: field.text() },
-		});
-		type AddIn = In<ReturnType<typeof notes.actions<'add'>>['add']>;
-		assertType<Equal<AddIn, { year: string; title: string; body?: string }>>();
-	});
-
-	test('a collection has one path, not a list', () => {
-		// Never called: the definition would throw; only its type is checked.
-		() =>
-			defineCollection({
-				// @ts-expect-error a second layout is a second collection
-				path: ['data/entries/{time}.md', 'data/entries/archive/{slug}.md'],
-				fields: {},
-			});
+		() => vocabUi.review({ word: 'a' }, { onYield: () => {} });
 	});
 
 	test('raw TypeBox sits beside fields', () => {
@@ -316,61 +252,59 @@ describe('an app author', () => {
 			input: { minutes: Type.Number({ minimum: 0 }) },
 			run: ({ minutes }) => {
 				assertType<Equal<typeof minutes, number>>();
+				return Ok(undefined);
 			},
 		});
 	});
 
 	test('a UI calls under the same words, typed by the app, and gets a Result', () => {
 		const vocabUi = {} as AppClient<Actions>;
-		const call = () =>
-			vocabUi.words.set({ path: 'data/words/a.md', meaning: 'x' });
+		const call = () => vocabUi.words.set({ word: 'a', meaning: 'x' });
+		type Answer = Awaited<ReturnType<typeof call>>;
 		assertType<
 			Equal<
-				Awaited<ReturnType<typeof call>>,
-				Result<
-					{
-						path: string;
-						word: string;
-						meaning?: string;
-						createdAt?: string;
-						due?: string;
-						body: string;
-						problems?: string[];
-						other?: Record<string, JsonValue>;
-					},
-					ActionError
-				>
+				Extract<Answer, Ok<unknown>>['data'],
+				{
+					path: string;
+					word: string;
+					body: string;
+					meaning?: string;
+					createdAt: string;
+					due?: string;
+				}
 			>
 		>();
+		assertType<Answer extends Result<unknown, ActionError> ? true : false>();
 		// @ts-expect-error due is written only by Vocab's own actions
-		() => vocabUi.words.set({ path: 'data/words/a.md', due: 'x' });
-		// @ts-expect-error settings has no list
-		() => vocabUi.settings.list();
+		() => vocabUi.words.set({ word: 'a', due: 'x' });
+		// @ts-expect-error a verb takes the keys, not a path
+		() => vocabUi.words.get({ path: 'data/words/a.md' });
+		() => vocabUi.settings.get();
 		() => vocabUi.words.list();
-		() => vocabUi.review({ path: 'data/words/a.md' });
+		() => vocabUi.review({ word: 'a' });
 		// @ts-expect-error no action is named then
 		() => vocabUi.then;
 	});
 });
 
 describe('type errors', () => {
-	test('ordinary and yielding actions reject positionals outside their input fields', () => {
+	test('ordinary and yielding actions take no positional', () => {
 		() => {
+			// @ts-expect-error the command line takes the input as one JSON object
 			defineAction({
 				description: 'Read',
 				input: { value: field.text() },
-				// @ts-expect-error a positional must name an input field
-				positional: ['missing'],
-				run: () => true,
+				positional: ['value'],
+				run: () => Ok(true),
 			});
+			// @ts-expect-error a yielding action takes no positional either
 			defineAction({
 				description: 'Read',
 				input: { value: field.text() },
-				// @ts-expect-error a yielding action has the same positional constraint
-				positional: ['missing'],
+				positional: ['value'],
 				async *run() {
 					yield true;
-					return true;
+					return Ok(true);
 				},
 			});
 		};

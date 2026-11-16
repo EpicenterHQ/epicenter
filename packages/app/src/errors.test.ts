@@ -9,6 +9,15 @@ test('every shared factory carries its namespace and fields through JSON', () =>
 	for (const { error } of [
 		ActionError.Changed({ path: 'data/a.md', why: 'quote' }),
 		ActionError.Missing({ path: 'data/a.md' }),
+		ActionError.Misfit({
+			path: 'data/a.md',
+			problems: [{ line: 'title is missing', kind: 'title is missing' }],
+		}),
+		ActionError.Misfit({
+			path: 'data/a.md',
+			problems: [],
+			record: { path: 'data/a.md', body: '' },
+		}),
 		ActionError.Threw({
 			message: 'failed',
 			thrown: { name: 'Custom', message: 'custom', id: 7 },
@@ -38,6 +47,13 @@ test('the marker and the complete variant payload are required', () => {
 		{ ...base, name: 'constructor' },
 		{ ...base, name: 'Unknown' },
 		{ ...base, name: 'Missing' },
+		{ ...base, name: 'Misfit', path: 'data/a.md', problems: 'bad' },
+		{
+			...base,
+			name: 'Misfit',
+			path: 'data/a.md',
+			problems: [{ line: 'missing' }],
+		},
 		{ ...base, name: 'Missing', path: 7 },
 		{ ...base, name: 'Changed', path: 'data/a.md' },
 		{ ...base, name: 'Changed', path: 'data/a.md', why: 'toString' },

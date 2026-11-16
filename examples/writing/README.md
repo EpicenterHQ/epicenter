@@ -16,7 +16,8 @@ network access. Using the copied app needs neither GitHub nor a provider key.
 
 Open the app at `/<app>/` while `epicenter serve` runs. Capture text, an optional
 source (a person, book, or URL), and an optional project. Search matches the text,
-source, and project. Open a note to edit its text. Saving quotes the original
+source, and project. A damaged note shows its file problem alongside matches.
+A note with unreadable front matter appears in every search until repaired. Open a note to edit its text. Saving quotes the original
 text; if it no longer matches, your draft stays in the editor so you can compare
 it with the saved file.
 Unsubmitted text is held only in the current page; keep the page open until saved.
@@ -24,15 +25,17 @@ Unsubmitted text is held only in the current page; keep the page open until save
 For an app named writing:
 
 ```sh
-epicenter writing add 'A small observation worth returning to'
-epicenter writing add 'A quote from my reading' --kind quote --source 'Book, page 42' --project 'My essay'
-epicenter writing search reading
-epicenter writing search --project 'My essay'
+epicenter writing add '{"body":"A small observation worth returning to"}'
+epicenter writing add '{"body":"A quote from my reading","kind":"quote","source":"Book, page 42","project":"My essay"}'
+epicenter writing search '{"query":"reading"}'
+epicenter writing search '{"project":"My essay"}'
 ```
 
-Use a returned path with `epicenter writing get PATH` to read one note.
-The CLI lists every action with `epicenter writing`. `set` changes fields;
-`edit` changes an exact passage in the body. The UI edits only the body.
+Use a returned time with `epicenter writing get '{"time":"TIME"}'` to read one
+note. `epicenter writing add --help` lists the keys an action takes.
+The CLI lists every action with `epicenter writing`. `set` changes fields,
+and with `edit: { old, new }` it replaces an exact passage in the body, both
+in one write. The UI changes only the body.
 MCP offers the same actions at the server root. Start by asking an assistant
 to find relevant notes, with their sources, before drafting anything new.
 

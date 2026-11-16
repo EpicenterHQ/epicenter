@@ -6,7 +6,7 @@
 import { expect, setDefaultTimeout, test } from 'bun:test';
 import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
-import { defineAction, field } from '@epicenter/app';
+import { defineAction, field, Ok } from '@epicenter/app';
 import { Type } from 'typebox';
 import { checkInput, readInput, usageLine } from './input.js';
 import { actionHelp } from './listing.js';
@@ -23,8 +23,7 @@ const connect = defineAction({
 			token: field.text({ pattern: '^sk-' }),
 		}),
 	},
-	positional: ['label', 'credentials'],
-	run: () => ({ connected: true }),
+	run: () => Ok({ connected: true }),
 });
 const input = { label: 'work', credentials: { token: SECRET } };
 
@@ -36,46 +35,53 @@ test('validation keeps every supplied value and undeclared property name private
 		{ credentials: input.credentials },
 		null,
 	])
-		expect(checkInput(connect, raw, (key) => key)).toEqual({
+		expect(checkInput(connect, raw)).toEqual({
 			error: 'The input is not accepted',
 		});
-	expect(checkInput(connect, input, (key) => key)).toEqual({ ok: true, input });
+	expect(checkInput(connect, input)).toEqual({ ok: true, input });
 });
 
-test('the CLI refuses private arguments before parsing or quoting any of them', async () => {
+test('the CLI takes private input only as -, refused before any argument is parsed or quoted', async () => {
 	for (const rest of [
 		[],
 		[SECRET],
-		['--label', SECRET],
+		[JSON.stringify(input)],
 		[`--${SECRET}=bad`],
-		['--input', JSON.stringify(input)],
-		['--input', '-', '--label', SECRET],
+		['-', SECRET],
+		['--input', '-'],
 	]) {
 		const refused = await readInput(connect, rest);
 		expect(refused).toEqual({
 			error:
-				'This action takes private input. Use the app page or pipe a JSON object to --input -',
+				'This action takes private input: give - and pipe the JSON object to it, or use the app page',
 		});
 		expect(JSON.stringify(refused)).not.toContain(SECRET);
 	}
 });
 
-test('help describes one JSON-stdin command and its JSON keys', () => {
+test('help describes one command reading stdin and its JSON keys', () => {
 	expect(usageLine('keys', 'connect', connect)).toBe(
-		'epicenter keys connect --input -',
+		'epicenter keys connect -',
 	);
-	const help = actionHelp('keys', 'connect', connect);
-	expect(help).toContain('credentials');
-	expect(help).not.toContain('--label');
-	expect(help).not.toContain('(asked for)');
+	expect(actionHelp('keys', 'connect', connect)).toBe(`epicenter keys connect -
+Connect with a token
+
+Input, one JSON object read from stdin with -, never an argument:
+  label        required  one of work, personal
+  credentials  required  an object
+
+Example:
+  epicenter keys connect - <<'EOF'
+  {"label":"work","credentials":{"token":"text"}}
+  EOF`);
 });
 
 const keysApp = `export default defineApp({ description: 'Keys', collections: {}, actions: {
-	connect: defineAction({ description: 'Connect', privateInput: true, input: { label: field.select(['work', 'personal']), credentials: { type: 'object', required: ['token'], properties: { token: field.text({ pattern: '^sk-' }) } } }, positional: ['label', 'credentials'],
-		run: async ({ credentials }) => { await folder.write('data/key.local.md', credentials.token); await folder.write('data/connected.md', 'yes'); return { connected: true }; } }),
-	check: defineAction({ description: 'Optional token', privateInput: true, input: { token: field.text({ optional: true }) }, run: () => true }),
-	annotated: defineAction({ description: 'Ordinary raw annotation', input: { value: { type: 'string', writeOnly: true } }, run: ({ value }) => value }),
-	status: defineAction({ description: 'Status', privateInput: false, input: {}, run: () => true }),
+	connect: defineAction({ description: 'Connect', privateInput: true, input: { label: field.select(['work', 'personal']), credentials: { type: 'object', required: ['token'], properties: { token: field.text({ pattern: '^sk-' }) } } },
+		run: async ({ credentials }) => { await folder.write('data/key.local.md', credentials.token); await folder.write('data/connected.md', 'yes'); return Ok({ connected: true }); } }),
+	check: defineAction({ description: 'Optional token', privateInput: true, input: { token: field.text({ optional: true }) }, run: () => Ok(true) }),
+	annotated: defineAction({ description: 'Ordinary raw annotation', input: { value: { type: 'string', writeOnly: true } }, run: ({ value }) => Ok(value) }),
+	status: defineAction({ description: 'Status', privateInput: false, input: {}, run: () => Ok(true) }),
 } });`;
 
 test('only privateInput hides and refuses MCP actions; HTTP and CLI stdin still run them', async () => {
@@ -96,7 +102,10 @@ test('only privateInput hides and refuses MCP actions; HTTP and CLI stdin still 
 			name: 'keys_annotated',
 			arguments: { value: 'ordinary' },
 		});
-		expect(annotated.structuredContent).toEqual({ returned: 'ordinary' });
+		expect(annotated.structuredContent).toEqual({
+			data: 'ordinary',
+			error: null,
+		});
 		const listing = await f.run('keys', '--json');
 		const listed = JSON.parse(listing.stdout).actions.find(
 			(action: { name: string }) => action.name === 'keys_connect',
@@ -136,10 +145,10 @@ test('only privateInput hides and refuses MCP actions; HTTP and CLI stdin still 
 			.map((line) => JSON.parse(line));
 		expect(frames.at(-1)).toMatchObject({
 			type: 'finished',
-			answer: { returned: { connected: true } },
+			answer: { data: { connected: true }, error: null },
 		});
 		const child = Bun.spawn(
-			[process.execPath, f.bin, 'keys', 'connect', '--input', '-', '--json'],
+			[process.execPath, f.bin, 'keys', 'connect', '-', '--json'],
 			{
 				cwd: f.root,
 				env: f.env,
@@ -156,7 +165,10 @@ test('only privateInput hides and refuses MCP actions; HTTP and CLI stdin still 
 			child.exited,
 		]);
 		expect({ code, stdout, stderr }).toMatchObject({ code: 0 });
-		expect(JSON.parse(stdout)).toEqual({ returned: { connected: true } });
+		expect(JSON.parse(stdout)).toEqual({
+			data: { connected: true },
+			error: null,
+		});
 		expect(stderr).not.toContain(SECRET);
 	} finally {
 		await close();

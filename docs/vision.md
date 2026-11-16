@@ -142,11 +142,12 @@ later source changes in place ([ADR-0910]).
 ## What it is like
 
 - **Receipts.** You ask Claude Code to find last month's receipts for a
-  friend. It runs `epicenter mail search 'receipt after:2026/09/01'` and reads
-  a few with `epicenter mail show --attachments`. Gmail is unchanged.
+  friend. It runs `epicenter mail search '{"query":"receipt after:2026/09/01"}'`
+  and reads a few, with their attachments, through `epicenter mail show`.
+  Gmail is unchanged.
 - **The inbox.** An agent searches the cached mailbox and writes a proposal
   to archive 600 newsletters, one line per message. You delete the lines for
-  mail you want to keep and run `epicenter mail apply <proposal>`. If Gmail
+  mail you want to keep and run `epicenter mail apply '{"proposal":"<proposal>"}'`. If Gmail
   fails partway, the next apply retries what failed.
 - **A vault script becomes an action.** The calendar script in your vault
   becomes `epicenter vault calendar show`. Later Claude Code changes how it
@@ -178,11 +179,11 @@ later source changes in place ([ADR-0910]).
 | --- | --- |
 | Epicenter | your folder of apps, `~/Epicenter` on the home, together with the command that serves it; "your Epicenter" and "an Epicenter" mean one person's |
 | an inside app | a folder in `~/Epicenter/apps` that runs on the home, whose `code/epicenter.ts` default-exports `defineApp`: its description, collections, and actions; its name is the folder's; bare "app" on this page, in records, and in code means this |
-| a collection | a kind of record in the app, by a path template (`data/words/{word}.md`) and fields; it gives six actions: `list`, `get`, `add`, `set`, `edit`, and `delete` |
+| a collection | a kind of record in the app, by a path template (`data/words/{word}.md`) and fields; it gives five actions: `list`, `get`, `add`, `set`, and `delete`, which comes only when named |
 | a record | one file in a collection, addressed by its path; it is yours |
 | an item | one thing at a source that is not a record yet: a message in Gmail, a row in Todoist |
 | a field | JSON Schema for one value, written with helpers such as `field.text()` |
-| an action | something you can ask an app to do: one of a collection's six, or one the author writes with `defineAction`; it is a command in the terminal and a tool over MCP |
+| an action | something you can ask an app to do: one of a collection's five, or one the author writes with `defineAction`; it is a command in the terminal and a tool over MCP |
 | a UI | a web page built from the app's `code/ui/` into `code/ui/dist/`, served at `/<app>/`, that shows its data and calls its actions over HTTP |
 | `epicenter` | the command: it runs an action in a folder, and `epicenter serve` offers every app over MCP |
 | a personal app | an app you made to join other apps: it holds the actions that cross them |
@@ -243,7 +244,6 @@ const tasks = defineCollection({
 const add = defineAction({
   description: 'Add a task to do',
   input: { title: field.text({ description: 'What to do' }) },
-  positional: ['title'],
   annotations: { destructiveHint: false },
   run: ({ title }) => tasks.add({ title }),
 });
@@ -255,12 +255,12 @@ export default defineApp({
 });
 ```
 
-Tasks' actions are the collection's six, `tasks list`, `get`, `add`, `set`,
-`edit`, and `delete`, with `add` replaced by the one written here. A record's
-address is its path:
-`epicenter tasks set data/tasks/2026-11-10T09-30-00-000Z-k3x9a2f8.md --done`. On
-the command line an action's `positional` fields are read by position:
-`epicenter tasks add 'Call the bank'`. An action reads and writes through its
+Tasks' actions are the collection's four, `tasks list`, `get`, `add`, and
+`set`, with `add` replaced by the one written here. A verb names
+a record by its keys, the values of its path's placeholders:
+`epicenter tasks set '{"time":"2026-11-10T09-30-00-000Z-k3x9a2f8","done":true}'`.
+On the command line an action's input is one JSON object, as an agent gives
+it over MCP: `epicenter tasks add '{"title":"Call the bank"}'`. An action reads and writes through its
 collections, or through the `folder` it imports; whatever runs it supplies the
 container. `code/epicenter.ts` imports `@epicenter/app`, which `epicenter` supplies
 when it runs. Install other dependencies in code/.

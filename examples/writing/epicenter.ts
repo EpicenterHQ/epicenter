@@ -3,6 +3,7 @@ import {
 	defineApp,
 	defineCollection,
 	field,
+	Ok,
 } from '@epicenter/app';
 
 const kinds = ['thought', 'quote', 'link'] as const;
@@ -32,7 +33,6 @@ const add = defineAction({
 		source: field.text({ optional: true }),
 		project: field.text({ optional: true }),
 	},
-	positional: ['body'],
 	annotations: { destructiveHint: false, openWorldHint: false },
 	run: ({ body, kind = 'thought', source, project }) =>
 		notes.add({ body, kind, source, project }),
@@ -45,23 +45,20 @@ const search = defineAction({
 		query: field.text({ optional: true }),
 		project: field.text({ optional: true }),
 	},
-	positional: ['query'],
 	annotations: { readOnlyHint: true, openWorldHint: false },
 	run: async ({ query = '', project }) => {
 		const found = [];
+		const needle = query.toLowerCase();
 		for (const row of (await notes.list()).reverse()) {
-			if (project !== undefined && row.project !== project) continue;
-			const note = await notes.get({ path: row.path });
-			if (
-				note &&
-				[note.body, note.source, note.project]
-					.join('\n')
-					.toLowerCase()
-					.includes(query.toLowerCase())
-			)
-				found.push(note);
+			const note = row.error === null ? row.data : row.error.record;
+			if (note) {
+				if (project !== undefined && note.project !== project) continue;
+				const text = [note.body, note.source, note.project].join('\n');
+				if (!text.toLowerCase().includes(needle)) continue;
+			}
+			found.push(row.error === null ? row.data : row.error);
 		}
-		return found;
+		return Ok(found);
 	},
 });
 

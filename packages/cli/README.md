@@ -55,8 +55,8 @@ With `~/.local/bin` on PATH and Git's `user.name` and `user.email` configured, c
 epicenter init ~/Epicenter
 cd ~/Epicenter
 epicenter new writing --from 'https://github.com/EpicenterHQ/epicenter#examples/writing'
-epicenter writing add 'An observation I want to return to' --source 'My notebook' --project 'Essay'
-epicenter writing search observation
+epicenter writing add '{"body":"An observation I want to return to","source":"My notebook","project":"Essay"}'
+epicenter writing search '{"query":"observation"}'
 epicenter serve
 ```
 
@@ -131,9 +131,9 @@ marker is valid. Epicenters cannot nest.
 ```sh
 epicenter
 epicenter reading
-epicenter reading log 30 --book Dune
-epicenter reading log 30 --json
-epicenter reading books set data/books/dune.md --finished null
+epicenter reading log '{"minutes":30,"book":"Dune"}'
+epicenter reading log '{"minutes":30}' --json
+epicenter reading books set '{"slug":"dune","finished":null}'
 epicenter init <folder>
 epicenter init --from <private-origin> <folder>
 epicenter new notes
@@ -187,19 +187,24 @@ Bun removed that link. Calls and listings never install dependencies.
 An unmet range is a listed problem and prevents running or building that app.
 Install and build report malformed layout entries without stopping other apps.
 
-A flag's value follows its field: numbers, repeated list values, switches
-such as `--done=false`, and `null` for a field that accepts it. `--no-done`
-is refused with `--done=false` as the next step. `--input <json>` supplies the
-whole input object; `--input -` reads it from stdin. Positionals and ordinary
-flags are unavailable beside whole-object input. A listing or action help
-with `--json` exposes each action as an MCP tool definition, with all four
-annotations explicit and private-input metadata kept separately.
+An action's input is one argument after its words, `epicenter <app> <action>
+[<input>]` (ADR-0925): one JSON object as text, or `-` to read that text from
+stdin. No input is `{}`. Stdin is read only for `-`, so a routine with stdin
+closed and an agent whose shell holds it open both run. Text that is not a
+JSON object, or more than one word, is refused with exit 2 and an example
+object. The command line checks the object as HTTP and MCP do, with the same
+messages; a key the action does not take is refused, naming the keys it does.
+`null` removes a field that accepts it. For text a person wrote, `- <<'EOF'`
+avoids shell quoting. `epicenter <app> <action> --help` lists the input's keys
+and prints an example to copy. A listing or action help with `--json` exposes
+each action as an MCP tool definition, with all four annotations explicit and
+private-input metadata kept separately.
 
 An action declares private input handling with `privateInput: true`. The flag
 appears in JSON discovery as action metadata, separately from MCP annotations.
-The CLI accepts it only as `epicenter <app> <action> --input -`, with the whole
-JSON object piped on stdin. It offers no interactive secret prompt and refuses
-flags, positionals, and inline JSON before parsing them. The same action stays
+The CLI accepts it only as `epicenter <app> <action> -`, with the whole JSON
+object piped on stdin. It offers no interactive secret prompt and refuses any
+other argument before parsing it. The same action stays
 available over HTTP and is neither listed nor callable over MCP. Its validation
 refusals contain no supplied input values.
 This is an input-handling policy: HTTP access follows the server's existing
@@ -215,7 +220,7 @@ stdout contains only the answer.
 
 An action shares its process with other calls. `process.exit` ends that
 process; `process.chdir` or changes to `process.env` affect other apps too.
-An action's writes remain on disk when it throws or is interrupted. Actions
+An action's writes remain on disk when it returns an Err, throws, or is interrupted. Actions
 perform no Git work.
 
 `epicenter service install` installs a macOS LaunchAgent for the current Epicenter, running the `epicenter` command found on `PATH` (or the compiled binary) at login. The job keeps the installing shell's `PATH` so actions can find the same programs. The person runs `install` and `uninstall`; agents may run `restart` and `status`. `status --json` reports whether it is installed and running, its pid when running, the serve port, and its log path.
@@ -323,8 +328,8 @@ Origin, and tunnel guards. Action words are joined with dots.
 | POST | `/.runs/<app>/<action>/<id>/cancel` | 202 requested; 200 already terminal; 404 unknown |
 | POST | `/<app>/<action>` | 200 NDJSON reload message; executes nothing |
 
-A definitive admission refusal has `admitted: false`. A join refused at the
-observer limit has `admitted: true`: the run already exists. Without a marker,
+A definitive admission refusal carries `X-Epicenter-Admitted: false` in its HTTP headers. A join refused at the
+observer limit carries `X-Epicenter-Admitted: true` because the run already exists. Without a marker,
 4xx is a refusal; another failure after POST is uncertain. Observe that id
 with GET instead of resending admission.
 
@@ -344,7 +349,7 @@ accepted runs may finish above it, and SQLite rows, indexes, and WAL add space
 beyond serialized JSON. Disk-full errors can prevent a terminal commit. Limits are 32
 active runs, 64 observers, 256 KiB per yield, 1 MiB admission JSON, and 15 MiB
 per file. Accepted runs and published events remain for 24 hours after ending.
-Returned finishes delete input bytes; other outcomes retain them until expiry.
+Successful finishes delete input bytes; other outcomes retain them until expiry.
 Orphan uploads and partial files expire after one hour. Cleanup runs every ten
 minutes and under budget pressure.
 
@@ -388,22 +393,39 @@ ignore rules keep them out of checkpoints. `folder` is not a sandbox.
 
 ## What a run answers
 
-With `--json`, stdout is one JSON object, and MCP returns the same object as `structuredContent`, with `isError` when the exit code is 1 or 2:
+With `--json`, stdout is one JSON object, and MCP returns the same object as `structuredContent`. MCP sets `isError: true` for an Err, a fault, or a refusal before execution. The CLI uses the following exit codes:
 
 ```txt
-{ "returned": <value> }                      exit 0
-{ "threw": { "message", "thrown"? } }        exit 1, also when the run ended without an answer
-{ "error": { "name", "message", "next"? } }  exit 2, nothing ran
+{ "data": <value>, "error": null }                                 exit 0
+{ "data": null, "error": { "kind": "returned", "reason": <error> } }  exit 1
+{ "data": null, "error": { "kind": "fault", "message": <text> } }     exit 1
+{ "data": null, "error": { "kind": "refused", "reason": <error> } }   exit 2
 ```
 
-An action that returns nothing answers `{ "returned": null }`. An action that throws a tagged error (`{ name, message, …fields }`) reports it whole as `thrown`. Without `--json`, stdout carries only the returned value, rendered by its structure, and stderr carries what the action threw, or why nothing ran followed by `Run: <next step>` when there is one. MCP's text for a thrown action is the same stderr. The returned value reads this way (`src/output.ts`):
+`Ok(undefined)` arrives with null data. An action can decline with its own
+tagged Err, or an unexpected throw can end the call with a fault. A fault may include a tagged exception in `thrown`. The host assigns
+`kind` for this invocation. An action that saved a draft and forwarded a
+child’s refusal has kind `returned`. Invalid input refused before the action
+ran has kind `refused`. Human output puts success data on stdout and failures on stderr. The HTTP event
+stream carries the same answer inside `finished.answer`. A reconnect can
+replay a saved run's earlier answer format without executing it again.
 
-- An object prints one `key: value` line per defined key, in order. A string with a newline prints as `key: |` followed by indented lines. Other strings print plainly unless empty, padded with spaces, starting with a quote or `|`, or readable as JSON, such as `"true"`, `"null"`, or `"12"`; those print as JSON strings. A nested object with a defined key, or a non-empty array of objects, prints by these same rules under `key:`, indented two spaces. Numbers, booleans, null, other arrays, and an empty object print as compact JSON values. A `problems` key stays on stdout like any other key.
+A collection's `set` makes a collection's one file when it is absent, so `epicenter vocab settings set '{"goal":20}'` works on a fresh install. The `set` verb's `was` guard is an object beside the fields, and `edit: { old, new }` replaces a passage of the body in the same write:
+
+```txt
+$ epicenter vocab set '{"word":"serendipity","meaning":"a lucky find","was":{"meaning":null}}'
+$ epicenter vocab set '{"word":"serendipity","edit":{"old":"First seen.","new":"First seen in a novel."}}'
+```
+
+MCP text contains the JSON answer on success and the failure message on error.
+The human CLI formats success data by its structure (`src/output.ts`):
+
+- An object prints one `key: value` line per defined key, in order. A string with a newline prints as `key: |` followed by indented lines. Other strings print plainly unless empty, padded with spaces, starting with a quote or `|`, or readable as JSON, such as `"true"`, `"null"`, or `"12"`; those print as JSON strings. A nested object with a defined key, or a non-empty array of objects, prints by these same rules under `key:`, indented two spaces. Numbers, booleans, null, other arrays, and an empty object print as compact JSON values.
 - An array of objects whose fields each fit on one line prints one row per object, with `key: value` pairs separated by two spaces. If a field takes more lines, a multiline string or a nested object, each object prints on its own lines, with a blank line between objects.
 - An empty array prints nothing. A string prints as is, with a final newline added if needed. Other arrays and single values print as JSON.
 
 ```txt
-$ epicenter tasks get data/tasks/2026-11-10T09-30-00-000Z-k3x9a2f8.md
+$ epicenter tasks get '{"time":"2026-11-10T09-30-00-000Z-k3x9a2f8"}'
 path: data/tasks/2026-11-10T09-30-00-000Z-k3x9a2f8.md
 time: 2026-11-10T09-30-00-000Z-k3x9a2f8
 title: Email Sam the slides
@@ -413,7 +435,56 @@ body: |
   The deck is in Drive.
 ```
 
-A placeholder such as `time` prints as a field: the command reads only the answer, which does not say which keys came from the path.
+A key such as `time` prints as a field: the command reads only the answer, which does not say which keys came from the path. A collection's `get`, `set`, and `delete` (given only when the app names it) take each key flat in the input object, where `add` takes the keys it does not make.
+
+## Check records
+
+`epicenter check [<app>]` reads every collection an app declares, or every
+app's, and reports the files that do not fit their collection's fields. A
+`get` returns a tagged `Misfit` for such a file. A generated `list` succeeds
+with one Result per file, including the individual refusals. The check command
+collects those diagnostics for the whole app so a person or agent can repair
+the records or the declaration.
+
+It reads each collection with its `check()` method in a read-only run of the
+app's folder, as a read-only action's run is: it takes no write lock and the
+folder refuses any write. A `.local` collection is checked too, and its
+problem lines never quote a value.
+
+For each collection the report gives its path template, the files it
+matched, and how many have problems; then each kind of problem with the number
+of files that have it, most frequent first; then each file's path and problem
+lines. A kind is a problem line without the value it quotes, as `check()`
+gives it, so `due: "next week"` and `due: "soon"` are one kind. When most files share one kind, the declaration is
+often too narrow, and one change to `epicenter.ts` repairs them all. Front
+matter no field declares is not a problem: a read does not give it, every
+write keeps it, and the check does not report it. A collection that matches
+no file says `0 files`.
+
+```txt
+$ epicenter check tasks
+tasks
+  items  data/items/{id}.md
+    5 files, 3 with problems
+    2  due is not a day like 2026-11-12
+    1  title is missing
+    data/items/a.md
+      due: "next week" is not a day like 2026-11-12
+    data/items/b.md
+      due: "soon" is not a day like 2026-11-12
+    data/items/c.md
+      title is missing
+  notes  data/notes/{slug}.md
+    0 files
+```
+
+With `--json` it answers
+`{ "apps": { <app>: { <collection>: { path, files, withProblems, kinds: [{ kind, count }], records: [{ path, problems }] } } }, "problems": [{ entry, folder, problems }] }`.
+`records` holds only files with problems. Without an app named, an app that
+does not load is listed under `problems`, as in the Epicenter listing, and the
+other apps are still checked; a read that fails lists its app there too. A
+named app that does not load did not run, exit 2. Otherwise the exit code is 0
+when no file has a problem, and 1 when any does or an app could not be checked.
 
 ## Checkpoint the root
 

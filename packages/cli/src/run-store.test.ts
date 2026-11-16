@@ -49,7 +49,7 @@ test('admission and append are durable, bounded, and deduplicate payloads across
 		store.append(
 			'app',
 			'first',
-			{ type: 'finished', answer: { returned: null }, at },
+			{ type: 'finished', answer: { data: null, error: null }, at },
 			{ limit: 4096 },
 		);
 		store.admit({ app: 'app', id: 'second', action: 'go', files: {}, at });
@@ -64,6 +64,7 @@ test('admission and append are durable, bounded, and deduplicate payloads across
 			'second',
 			{
 				type: 'finished',
+				// The store keeps answers as written, including legacy envelopes.
 				answer: { returned: null },
 				at: '2025-01-01T00:00:00.000Z',
 			},
@@ -75,6 +76,10 @@ test('admission and append are durable, bounded, and deduplicate payloads across
 		expect(store.events('app', 'second', 0).map((event) => event.type)).toEqual(
 			['accepted', 'yielded', 'finished'],
 		);
+		const finished = store.events('app', 'second', 0).at(-1);
+		expect(finished?.type).toBe('finished');
+		if (finished?.type === 'finished')
+			expect<unknown>(finished.answer).toEqual({ returned: null });
 		const db = new Database(path, { readonly: true });
 		expect(
 			db

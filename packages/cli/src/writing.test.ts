@@ -28,15 +28,15 @@ test('an exported writing app copied as journal captures and finds text, sources
 		const added = await f.run(
 			'journal',
 			'add',
-			'An observation about attention',
-			'--source',
-			'My notebook',
-			'--project',
-			'Essay',
+			JSON.stringify({
+				body: 'An observation about attention',
+				source: 'My notebook',
+				project: 'Essay',
+			}),
 			'--json',
 		);
 		expect(added.code).toBe(0);
-		const note = JSON.parse(added.stdout).returned;
+		const note = JSON.parse(added.stdout).data;
 		expect(note).toMatchObject({
 			kind: 'thought',
 			body: 'An observation about attention',
@@ -47,20 +47,25 @@ test('an exported writing app copied as journal captures and finds text, sources
 			await readFile(join(f.apps, 'journal', note.path), 'utf8'),
 		).toContain('An observation about attention');
 		for (const query of ['ATTENTION', 'notebook', 'essay']) {
-			const found = await f.run('journal', 'search', query, '--json');
+			const found = await f.run(
+				'journal',
+				'search',
+				JSON.stringify({ query }),
+				'--json',
+			);
 			expect(
-				JSON.parse(found.stdout).returned.map(
+				JSON.parse(found.stdout).data.map(
 					(note: { path: string }) => note.path,
 				),
 			).toEqual([note.path]);
 		}
 		expect(
 			JSON.parse(
-				(await f.run('journal', 'search', '--project', 'Other', '--json'))
+				(await f.run('journal', 'search', '{"project":"Other"}', '--json'))
 					.stdout,
-			).returned,
+			).data,
 		).toEqual([]);
-		expect((await f.run('journal', 'add', '   ')).code).toBe(2);
+		expect((await f.run('journal', 'add', '{"body":"   "}')).code).toBe(2);
 		expect((await f.run('build', 'journal')).code).toBe(0);
 		expect(
 			await readFile(join(f.apps, 'journal/code/SOURCE.md'), 'utf8'),
@@ -96,28 +101,29 @@ test('MCP discovers the writing actions and refuses a stale body edit without lo
 					source: 'Book, page 12',
 				},
 			});
-			const { path } = (
-				captured.structuredContent as { returned: { path: string } }
-			).returned;
+			const { path, time } = (
+				captured.structuredContent as {
+					data: { path: string; time: string };
+					error: null;
+				}
+			).data;
 			expect(
 				(
 					await f.run(
 						'writing',
-						'edit',
-						path,
-						'--old',
-						'The original quote',
-						'--new',
-						'The corrected quote',
+						'set',
+						JSON.stringify({
+							time,
+							edit: { old: 'The original quote', new: 'The corrected quote' },
+						}),
 					)
 				).code,
 			).toBe(0);
 			const stale = await client.callTool({
-				name: 'writing_edit',
+				name: 'writing_set',
 				arguments: {
-					path,
-					old: 'The original quote',
-					new: 'A stale replacement',
+					time,
+					edit: { old: 'The original quote', new: 'A stale replacement' },
 				},
 			});
 			expect(stale.isError).toBe(true);
@@ -129,7 +135,8 @@ test('MCP discovers the writing actions and refuses a stale body edit without lo
 				arguments: { query: 'corrected' },
 			});
 			expect(found.structuredContent).toMatchObject({
-				returned: [{ path, body: 'The corrected quote' }],
+				data: [{ path, body: 'The corrected quote' }],
+				error: null,
 			});
 		} finally {
 			await close();

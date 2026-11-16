@@ -3,6 +3,7 @@
  * Inputs follow the chosen action; read-only and unsupported runs refuse writes.
  */
 import { expect, test } from 'bun:test';
+import { Ok } from 'wellcrafted/result';
 import { defineAction } from './action.ts';
 import { type Context, inRun, routines } from './context.ts';
 import { field } from './field.ts';
@@ -12,7 +13,7 @@ test('the action controls input inference and the current host receives the same
 	const action = defineAction({
 		description: 'Research',
 		input: { limit: field.number() },
-		run: ({ limit }) => limit,
+		run: ({ limit }) => Ok(limit),
 	});
 	let received: unknown;
 	const context: Context = {
@@ -46,7 +47,7 @@ test('unsupported and read-only runs cannot save routines', async () => {
 	const action = defineAction({
 		description: 'Research',
 		input: {},
-		run: () => null,
+		run: () => Ok(null),
 	});
 	const routine = { daily: '08:00', action, input: {} };
 	await expect(

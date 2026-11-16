@@ -126,11 +126,22 @@ test('the compiled binary copies and builds a writing app from Git without Bun o
 			).code,
 		).toBe(0);
 		expect(
-			(await run('writing', 'add', 'A note from the compiled starter')).code,
+			(
+				await run(
+					'writing',
+					'add',
+					'{"body":"A note from the compiled starter"}',
+				)
+			).code,
 		).toBe(0);
-		const found = await run('writing', 'search', 'compiled starter', '--json');
+		const found = await run(
+			'writing',
+			'search',
+			'{"query":"compiled starter"}',
+			'--json',
+		);
 		expect(found.code).toBe(0);
-		expect(JSON.parse(found.stdout).returned).toMatchObject([
+		expect(JSON.parse(found.stdout).data).toMatchObject([
 			{ body: 'A note from the compiled starter', kind: 'thought' },
 		]);
 		const built = await run('build', 'writing');
@@ -152,7 +163,7 @@ test('a compiled epicenter writes out the @epicenter/app it carries and builds a
 	try {
 		const app = await f.folder(join(f.apps, 'vocab'), {
 			'code/.gitignore': `${gitignore}ui/dist/\n`,
-			'code/epicenter.ts': `${header}export default defineApp({ description: 'Words', collections: {}, actions: { hello: defineAction({ description: 'Hello', input: {}, run: () => 'hi' }) } });\n`,
+			'code/epicenter.ts': `${header}export default defineApp({ description: 'Words', collections: {}, actions: { hello: defineAction({ description: 'Hello', input: {}, run: () => Ok('hi') }) } });\n`,
 			'code/ui/index.html':
 				'<!doctype html><html><body><script type="module" src="./main.ts"></script></body></html>\n',
 			'code/ui/main.ts':
@@ -183,7 +194,11 @@ test('a compiled epicenter writes out the @epicenter/app it carries and builds a
 		);
 		expect(
 			JSON.parse(await readFile(join(link, 'package.json'), 'utf8')).exports,
-		).toEqual({ '.': './src/index.ts', './client': './src/client.ts' });
+		).toEqual({
+			'.': './src/index.ts',
+			'./client': './src/client.ts',
+			'./testing': './src/testing.ts',
+		});
 		const html = await readFile(
 			join(app, 'code', 'ui', 'dist', 'index.html'),
 			'utf8',
@@ -195,7 +210,9 @@ test('a compiled epicenter writes out the @epicenter/app it carries and builds a
 			stdout: 'pipe',
 			stderr: 'pipe',
 		});
-		expect(await new Response(hello.stdout).text()).toBe('{"returned":"hi"}\n');
+		expect(await new Response(hello.stdout).text()).toBe(
+			'{"data":"hi","error":null}\n',
+		);
 	} finally {
 		await rm(f.root, { recursive: true, force: true });
 	}
@@ -207,7 +224,7 @@ test("a compiled epicenter runs an app whose package names its entry only in pac
 		// No `index.js` at the package's root, as with any package built into
 		// `dist/`: only its `package.json` says where the entry is.
 		await f.folder(join(f.apps, 'vocab'), {
-			'code/epicenter.ts': `${header}import { greeting } from 'greeting';\nexport default defineApp({ description: 'Words', collections: {}, actions: { hello: defineAction({ description: 'Hello', input: {}, run: () => greeting }) } });\n`,
+			'code/epicenter.ts': `${header}import { greeting } from 'greeting';\nexport default defineApp({ description: 'Words', collections: {}, actions: { hello: defineAction({ description: 'Hello', input: {}, run: () => Ok(greeting) }) } });\n`,
 			'code/node_modules/greeting/package.json': `${JSON.stringify({ name: 'greeting', type: 'module', exports: { '.': './dist/main.js' } })}\n`,
 			'code/node_modules/greeting/dist/main.js':
 				"export const greeting = 'hi';\n",
@@ -225,7 +242,7 @@ test("a compiled epicenter runs an app whose package names its entry only in pac
 		]);
 		expect({ code, stdout, stderr }).toEqual({
 			code: 0,
-			stdout: '{"returned":"hi"}\n',
+			stdout: '{"data":"hi","error":null}\n',
 			stderr: '',
 		});
 	} finally {
@@ -306,7 +323,7 @@ test('compiled routines invoke their own CLI and Bun runtime without depending o
 		await f.app(
 			'hello',
 			`export default defineApp({ description: 'Hello', collections: {}, actions: {
-			greet: defineAction({ description: 'Hello', input: {}, run: () => 'compiled action' })
+			greet: defineAction({ description: 'Hello', input: {}, run: () => Ok('compiled action') })
 		} });`,
 		);
 		await mkdir(join(f.home, 'routines'));

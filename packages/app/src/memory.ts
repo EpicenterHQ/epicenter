@@ -12,7 +12,13 @@
  * a `.local` file, so a test seeds one as it seeds any other (ADR-0870). Files
  * have no modes here, so a `.local` file's `0600` is the disk's alone.
  */
-import { type Context, type Folder, normalizePath } from './context.ts';
+import { Ok } from 'wellcrafted/result';
+import {
+	type Context,
+	type Folder,
+	normalizePath,
+	textUpdate,
+} from './context.ts';
 
 function createMemoryFolder(
 	files: Readonly<Record<string, string | Uint8Array>>,
@@ -25,6 +31,17 @@ function createMemoryFolder(
 			normalizePath(path),
 			typeof content === 'string' ? encoder.encode(content) : content,
 		);
+	const edit: Folder['edit'] = async (path, decide) => {
+		const key = normalizePath(path);
+		const before = bytes.get(key);
+		const result = decide(
+			before === undefined ? undefined : decoder.decode(before),
+		);
+		if (result.data === null) return result;
+		const { text, value } = result.data;
+		if (text !== undefined) bytes.set(key, encoder.encode(text));
+		return Ok(value);
+	};
 	return {
 		async read(path) {
 			const found = bytes.get(normalizePath(path));
@@ -39,15 +56,8 @@ function createMemoryFolder(
 		async writeBytes(path, content) {
 			bytes.set(normalizePath(path), content);
 		},
-		// Nothing else writes this folder between the read and the write, so one try is enough.
-		async update(path, change) {
-			const found = bytes.get(normalizePath(path));
-			const text = change(
-				found === undefined ? undefined : decoder.decode(found),
-			);
-			bytes.set(normalizePath(path), encoder.encode(text));
-			return text;
-		},
+		edit,
+		update: textUpdate(edit),
 		async list(dir) {
 			const prefix = dir === undefined ? '' : `${normalizePath(dir)}/`;
 			return [...bytes.keys()].filter((path) => path.startsWith(prefix)).sort();

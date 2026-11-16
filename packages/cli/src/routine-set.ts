@@ -38,9 +38,9 @@ export async function setRoutine({
 	const json = JSON.stringify(routine.input);
 	if (json === undefined || !isDeepStrictEqual(routine.input, JSON.parse(json)))
 		throw new Error('A routine input must contain only JSON values');
-	const checked = checkInput(action, JSON.parse(json), (field) => field);
+	const checked = checkInput(action, JSON.parse(json));
 	if ('error' in checked) throw new Error(checked.error);
-	const run = ['epicenter', app.name, ...key.split(' '), '--input', json];
+	const run = ['epicenter', app.name, ...key.split(' '), json];
 	const fields = {
 		daily: routine.daily,
 		run,

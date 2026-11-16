@@ -15,12 +15,21 @@ const runIdentity = Type.Object({
 	id: Type.String(),
 });
 
+const problem = Type.Object({ line: Type.String(), kind: Type.String() });
+export type Problem = Static<typeof problem>;
 const fields = {
+	Misfit: Type.Object({
+		path: Type.String(),
+		problems: Type.Array(problem),
+		record: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+	}),
 	Changed: Type.Object({
 		path: Type.String(),
 		why: Type.Union([
 			Type.Literal('quote'),
+			Type.Literal('twice'),
 			Type.Literal('empty'),
+			Type.Literal('was'),
 			Type.Literal('kept'),
 		]),
 	}),
@@ -51,7 +60,10 @@ const fields = {
 const WHY = {
 	quote:
 		"'s body does not have that text; it may have changed since it was read, so get it again",
+	twice:
+		"'s body has that text more than once; quote more around it, or the whole body",
 	empty: "'s body is no longer empty; get it again",
+	was: ' no longer holds a value named in was; it changed since it was read, so get it again',
 	kept: ' kept changing while it was updated',
 } satisfies Record<Static<typeof fields.Changed>['why'], string>;
 
@@ -61,18 +73,27 @@ function marked<T extends { message: string }>(body: T) {
 }
 
 export const ActionError = defineErrors({
-	/** The quoted passage, empty body, or file an update depended on changed. */
+	/** A file does not fit its declared fields. Local files omit the partial record. */
+	Misfit: ({ path, problems, record }: Static<typeof fields.Misfit>) =>
+		marked({
+			message: [
+				`${path} does not fit its fields:`,
+				...problems.map((problem) => `${path}: ${problem.line}`),
+			].join('\n'),
+			path,
+			problems,
+			...(record === undefined ? {} : { record }),
+		}),
+	/** The quoted passage, empty body, field values, or file a write depended on changed, or a quote is not one place. */
 	Changed: ({ path, why }: Static<typeof fields.Changed>) =>
 		marked({ message: `${path}${WHY[why]}`, path, why }),
 	/** There is no file at this path. It may be a dependency of the requested action. */
 	Missing: ({ path }: Static<typeof fields.Missing>) =>
 		marked({ message: `There is no ${path}`, path }),
 	/** An unrecognized throw, with its JSON-safe tagged payload when available. */
-	Threw: ({ message, thrown }: Static<typeof fields.Threw>) =>
-		marked({ message, thrown }),
+	Threw: (body: Static<typeof fields.Threw>) => marked(body),
 	/** An operation declined the request. This does not imply the outer action wrote nothing. */
-	Refused: ({ message, next }: Static<typeof fields.Refused>) =>
-		marked({ message, next }),
+	Refused: (body: Static<typeof fields.Refused>) => marked(body),
 	/** A required operation returned no usable answer. The message identifies what failed. */
 	Unreachable: ({ message, run }: Static<typeof fields.Unreachable>) =>
 		marked({ message, ...(run ? { run } : {}) }),
