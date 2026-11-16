@@ -108,12 +108,23 @@ Files in a second layout, such as `data/entries/archive/{slug}.md` beside
 making, and naming each have one answer.
 
 Each file's fields are its front matter, as `key: <JSON>` lines, and its body
-is the text after it. YAML front matter is read too, and rewritten as
-`key: <JSON>` lines on the first write that changes a field. A file that does
-not open with `---` has no front matter and is all body. A file that opens
-with `---` and holds neither, or never closes it, has front matter that cannot
-be read: `get` and every writer refuse it until it is fixed by hand, and
-`list` says so in its `problems`.
+is the text after it. Each line is read on its own, and no YAML is read
+(ADR-0924):
+
+| A line | Reads as |
+| --- | --- |
+| `key: <text>`, and the text is JSON | that key's value |
+| `key: <text>`, or `key:`, and the text is not JSON | that key is absent, with a problem that gives the line number and what to write |
+| anything else, or a key a second time | the front matter cannot be read |
+
+A write replaces only the lines of the keys it names and keeps every other
+line byte for byte, so `due: 2026-11-20` typed by hand stays until a write
+names `due`. Plain data given for that key replaces the line, which is how
+it is repaired; a change computed by a function may not write it. A file that
+does not open with `---` has no front matter and is all body. A file that
+opens with `---` and has any other line, a key twice, or no closing `---`,
+has front matter that cannot be read: `get` and every writer refuse it until
+it is fixed by hand, and `list` says so in its `problems`.
 
 ### Methods and verbs
 
@@ -266,16 +277,20 @@ is the same without `body`.
 
 A file that does not fit has `problems`, one line per problem, quoting the
 value it dropped as JSON: `due: "next week" is not a day like 2026-11-12`,
-`title is missing`, or `its front matter is not key: <JSON> lines or YAML
-between two --- lines`. A file that fits has no `problems` key. A record whose
+`due on line 3 is not JSON; write due: "2026-11-20"`, `title is missing`, or
+`its front matter is not key: value lines between two --- lines, each key
+once`. A line that is not JSON gets a suggestion only when its text in double
+quotes fits the field; otherwise the problem says what the field takes. A
+file that fits has no `problems` key. A record whose
 front matter cannot be read has its path, its keys, `false` and `[]` for its
 switches and lists, and its whole text as its body.
 
 Front matter no field declares is not part of a read, and every write keeps
-it byte for byte. Nothing reports it: a caller that needs it reads the file's
-text. `check()` gives each file's problems as `{ line, kind }` (the `Problem` type), where
-`kind` is the line without the value it quotes, so `due: "next week"` and
-`due: "soon"` are one kind; `epicenter check` reports them for a whole app.
+it byte for byte. Nothing reports it, whether or not its text is JSON: a
+caller that needs it reads the file's text. `check()` gives each file's
+problems as `{ line, kind }` (the `Problem` type), where `kind` is the
+line without the value it quotes or its line number, so `due: "next week"`
+and `due: "soon"` are one kind; `epicenter check` reports them for a whole app.
 An agent or action repairs these records after a code change; reads do not
 impose a global migration gate.
 

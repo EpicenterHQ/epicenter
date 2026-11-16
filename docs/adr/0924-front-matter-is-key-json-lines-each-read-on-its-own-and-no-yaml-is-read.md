@@ -3,7 +3,6 @@
 - **Status:** Proposed
 - **Date:** 2026-11-15
 - **Relates:** [ADR-0797](0797-front-matter-is-a-strict-grammar-and-anything-else-is-body.md), the retired product's record of the same grammar; [ADR-0918](0918-a-collection-selects-a-record-by-its-keys-and-a-file-that-is-not-there-reads-as-absent.md) (front matter that cannot be read); [ADR-0923](0923-a-read-gives-only-what-the-file-holds-and-no-field-has-a-default.md) (a value that does not fit).
-- **Unbuilt:** all of it. `split` in `packages/app/src/front-matter.ts` gives up on a block at its first line that is not `key: <JSON>`, `readMarkdown` then reads the block with `Bun.YAML`, and `withFields` rewrites such a block whole.
 
 ## Context
 
