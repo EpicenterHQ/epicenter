@@ -42,7 +42,7 @@ Install the developer preview on macOS or Linux, arm64 or x64. Git, curl, and
 shasum or sha256sum are required. Bun and an AI account are not required.
 
 ```sh
-curl -fsSL https://github.com/EpicenterHQ/epicenter/releases/download/epicenter-cli-v0.1.0/install.sh | sh
+curl -fsSL https://github.com/EpicenterHQ/epicenter/releases/download/epicenter-cli-v0.4.0/install.sh | sh
 ```
 
 The installer verifies the download and installs `~/.local/bin/epicenter`.
@@ -113,7 +113,7 @@ you apply.
 ## Status
 
 The CLI developer preview installs as a standalone executable from
-[GitHub releases](https://github.com/EpicenterHQ/epicenter/releases/tag/epicenter-cli-v0.1.0).
+[GitHub releases](https://github.com/EpicenterHQ/epicenter/releases/tag/epicenter-cli-v0.4.0).
 Writing is an exported app copied separately from GitHub. The executable
 carries the runtime; each app remains ordinary editable source.
 `epicenter service install` keeps `serve` running as a macOS LaunchAgent; the

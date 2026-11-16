@@ -39,7 +39,7 @@ Git, curl, and either shasum or sha256sum. Supported build targets are macOS and
 Linux on arm64 and x64. Install the developer preview with:
 
 ```sh
-curl -fsSL https://github.com/EpicenterHQ/epicenter/releases/download/epicenter-cli-v0.1.0/install.sh | sh
+curl -fsSL https://github.com/EpicenterHQ/epicenter/releases/download/epicenter-cli-v0.4.0/install.sh | sh
 ```
 
 `EPICENTER_DOWNLOAD_BASE` overrides the asset URL, for example when
@@ -49,7 +49,12 @@ only when it identifies itself as Epicenter. It refuses a symlink at that path.
 It leaves your Epicenter, shell configuration, and login services alone. If the
 directory is missing from PATH, its instructions use the executable's full path.
 
-With `~/.local/bin` on PATH and Git's `user.name` and `user.email` configured, create an Epicenter:
+To update an existing home, run the installer above on the computer that runs
+`epicenter serve`. Check `epicenter --version`. From the home directory,
+restart the macOS login service with `epicenter service restart`, or restart
+`epicenter serve` in its terminal. Reload open app pages to use the new client.
+
+For a first install, with `~/.local/bin` on PATH and Git's `user.name` and `user.email` configured, create an Epicenter:
 
 ```sh
 epicenter init ~/Epicenter
